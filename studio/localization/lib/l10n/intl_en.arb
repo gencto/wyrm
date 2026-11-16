@@ -1050,6 +1050,7 @@
     "mbInUse": "{n, plural, =1{1 instance uses it} other{{n} instances use it}}",
     "@mbInUse": {"placeholders": {"n": {"type": "int"}}},
     "mbSameVersion": "The flow has the library's version",
+    "mbLibraryBusy": "Waiting for the library to answer",
     "mbNotInLibrary": "The library has no block of this name",
     "mbBackFirst": "Go back to the flow first",
     "mbInsideItself": "A block cannot contain itself",
@@ -2165,5 +2166,13 @@
     "modeUnknownCaution": "Who approves is not known (the agent's settings could not be read): the plan of a pick may run its write steps without a person. The tag is the assistant's guess, not a check. Read a tile before you pick it.",
     "fixReplacesModeUnknown": "replaces this plan; who approves is not known, so the new plan's write steps may run without a person",
     "historyRange30d": "30 d",
-    "passwordBlank": "A password cannot be empty or only spaces."
+    "passwordBlank": "A password cannot be empty or only spaces.",
+    "errRunDenied": "You may not run it: this needs write on the flow, and the rights of what the block and the blocks after it act on.",
+    "errRunNotRunning": "The flow is not running.",
+    "errRunNoTrigger": "This broker has no trigger action (it needs ADR 0040).",
+    "errRunNotByHand": "This block cannot be run by hand.",
+    "formLinear": "k × in + b",
+    "formRange": "Range",
+    "problemUnnamed": "name the flow",
+    "problemInvalid": "invalid"
 }

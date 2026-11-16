@@ -1,49 +1,130 @@
 import 'dart:async';
 
 import 'package:equatable/equatable.dart';
+import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../buttons/segmented_tabs.dart';
 import '../indicators/app_icon.dart';
+import '../indicators/value_type.dart';
+import '../models/disabled.dart';
 import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
+import '../theme/motion.dart';
 import '../theme/radii.dart';
 import '../theme/shades.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import '../trees/tree_row.dart';
+import 'custom_block_dialog.dart';
+import 'flow_intents.dart';
 
-/// One entry of the palette: a block type, a point or an action of the tree.
+/// The tabs of the palette (spec §2, §18, §20).
+enum PaletteTabVm {
+  blocks,
+  my,
+  tree;
+
+  String get label => switch (this) {
+    blocks => S.current.paletteBlocks,
+    my => S.current.paletteMyBlocks,
+    tree => S.current.paletteTree,
+  };
+
+  /// What the search field hints.
+  String get searchHint => switch (this) {
+    tree => S.current.findInTree,
+    blocks || my => S.current.findBlock,
+  };
+
+  /// Said in place of the list when there is nothing to list.
+  String get empty => switch (this) {
+    blocks => '',
+    my => S.current.myBlocksEmpty,
+    tree => S.current.treeEmpty,
+  };
+}
+
+/// What an entry of the palette is, with its chip: a source of the
+/// catalogue (`IN`, teal), a sink (`OUT`, ember), any other block (`FX`),
+/// a custom block of this flow (`MY`) or of the site's library (`LIB`).
+enum PaletteKindVm {
+  input('IN'),
+  output('OUT'),
+  logic('FX'),
+  my('MY'),
+  library('LIB');
+
+  const PaletteKindVm(this.tag);
+
+  /// The chip's letters (a glyph, not a word: never translated).
+  final String tag;
+}
+
+/// What is dragged out of the palette: its name (the feedback), whether
+/// it may also be written (a writable point: let go on the canvas it asks
+/// `Read` or `Write`, Alt held writes at once), whether it is a point that
+/// may be let go on a block's input, and how it is placed.
+final class PaletteDrag extends Equatable {
+  const PaletteDrag(
+    this.title, {
+    required this.place,
+    this.writable = false,
+    this.point = false,
+  });
+
+  final String title;
+  final bool writable;
+  final bool point;
+
+  /// Places it: tapped, let go on the canvas or on a block's input.
+  final ValueChanged<Place> place;
+
+  // [place] is behaviour (value_changed.dart): not compared.
+  @override
+  List<Object?> get props => [title, writable, point];
+}
+
+/// One entry of the palette: a block type, a custom block, or (on the
+/// board of the Tree tab) a point or an action of the tree. The palette
+/// reports what is done with it by its place in [BlockPalette.entries].
 final class PaletteEntryVm extends Equatable {
   const PaletteEntryVm({
-    required this.id,
     required this.title,
-    required this.tag,
-    this.group = '',
-    this.detail,
+    this.kind = PaletteKindVm.logic,
+    this.glyph,
+    this.category = '',
+    this.wire,
+    this.description,
     this.point = false,
     this.action = false,
     this.value,
     this.used = false,
     this.dragging = false,
-    this.disabledReason,
+    this.instances,
+    this.updateTo,
+    this.version,
+    this.inputs,
+    this.insideItself = false,
     this.menu = const [],
   });
 
-  /// `type:<type>`, `key:<key>` or `act:<key>/<action>`.
-  final String id;
   final String title;
+  final PaletteKindVm kind;
 
-  /// A block's role (`IN`, `FX`, `OUT`), a point's type tag (`.0`, `01`,
-  /// `≡`, `Aa`) or `ACT`.
-  final String tag;
+  /// A chip of its own in place of the kind's: a point's type tag (`.0`,
+  /// `01`, `Aa`, [ValueType.tag]) or a category's own letters.
+  final String? glyph;
 
-  /// The category it is listed under (a point: the path of its parent).
-  final String group;
+  /// The catalogue's category it is listed under (a point: the path of
+  /// its parent); a custom block is listed under its own group.
+  final String category;
 
-  /// Searched, and the tooltip of a block (its description: the list shows
-  /// none, spec §2).
-  final String? detail;
+  /// The engine's name of a block type (`scale`), searched and shown in
+  /// its tooltip before its [description].
+  final String? wire;
+  final String? description;
 
   /// A point or an action of the Tree tab (spec §7).
   final bool point;
@@ -51,7 +132,7 @@ final class PaletteEntryVm extends Equatable {
   /// An action of the tree: ember, `ACT`.
   final bool action;
 
-  /// A point's live value, or an action's `<n> in`, already formatted.
+  /// A point's live value, as the tree shows it.
   final String? value;
 
   /// The flow already reads it.
@@ -60,59 +141,281 @@ final class PaletteEntryVm extends Equatable {
   /// Being dragged now (dashed ember box).
   final bool dragging;
 
-  /// Why it cannot be placed (a block inside itself); null: it can.
-  final String? disabledReason;
+  /// A custom block of this flow: how many instances use it ([updateTo]:
+  /// the library has a newer version, said instead).
+  final int? instances;
+  final int? updateTo;
+
+  /// A block of the site's library: its version.
+  final int? version;
+
+  /// An action of the tree: how many inputs it takes.
+  final int? inputs;
+
+  /// It cannot be placed: the canvas is inside this very block.
+  final bool insideItself;
 
   /// Its context menu (a custom block: `Save to library`, `Rename`, …).
   final List<PaletteMenuItemVm> menu;
 
+  /// The chip's letters.
+  String get tag => glyph ?? (action ? 'ACT' : kind.tag);
+
+  /// The group it is listed under.
+  String get group => switch (kind) {
+    PaletteKindVm.my => S.current.myBlocksThisFlow,
+    PaletteKindVm.library => S.current.myBlocksLibrary,
+    PaletteKindVm.input ||
+    PaletteKindVm.output ||
+    PaletteKindVm.logic => category,
+  };
+
+  /// Searched, and the tooltip (the list shows no description, spec §2).
+  String? get detail => switch ((wire, description)) {
+    (final w?, final d?) when d.isNotEmpty => '$w: $d',
+    (final w?, _) => w,
+    (null, final d) => d,
+  };
+
+  /// What the right of its row says.
+  String? get valueText => switch (this) {
+    PaletteEntryVm(inputs: final n?) => S.current.actionInputs(n),
+    PaletteEntryVm(updateTo: final v?) => S.current.mbUpdateTo(v),
+    PaletteEntryVm(instances: final n?) => S.current.mbUsed(n),
+    PaletteEntryVm(version: final v?) => S.current.mbVersion(v),
+    _ => value,
+  };
+
+  /// The entry's widget key (what tests find it by).
+  String get widgetKey => switch (kind) {
+    PaletteKindVm.my => 'palette-type:block:$title',
+    PaletteKindVm.library => 'palette-lib:$title',
+    PaletteKindVm.input ||
+    PaletteKindVm.output ||
+    PaletteKindVm.logic => 'palette-$title',
+  };
+
+  /// Why it cannot be placed; null: it can.
+  String? get disabledReason =>
+      insideItself ? const FlowOff(.insideItself).text : null;
+
   @override
   List<Object?> get props => [
-    id,
     title,
-    tag,
-    group,
-    detail,
+    kind,
+    glyph,
+    category,
+    wire,
+    description,
     point,
     action,
     value,
     used,
     dragging,
-    disabledReason,
+    instances,
+    updateTo,
+    version,
+    inputs,
+    insideItself,
     menu,
   ];
 }
 
-/// One item of a palette entry's context menu.
-final class PaletteMenuItemVm extends Equatable {
-  const PaletteMenuItemVm(
-    this.id,
-    this.label, {
-    this.disabledReason,
-    this.danger = false,
-  });
+/// An item of a custom block's menu (spec §20).
+enum MyBlockItemVm {
+  edit,
+  save,
+  rename,
+  update,
+  delete,
+  removeLibrary;
 
-  final String id;
-  final String label;
+  String get label => switch (this) {
+    edit => S.current.mbEdit,
+    save => S.current.mbSave,
+    rename => S.current.mbRename,
+    update => S.current.mbUpdate,
+    delete => S.current.mbDelete,
+    removeLibrary => S.current.mbRemoveLibrary,
+  };
+
+  /// Drawn in coral: it deletes.
+  bool get danger => this == delete || this == removeLibrary;
+}
+
+/// One item of a palette entry's context menu, and why it is off.
+final class PaletteMenuItemVm extends Equatable {
+  const PaletteMenuItemVm(this.item, {this.off});
+
+  final MyBlockItemVm item;
 
   /// Why it cannot be picked (its tooltip); null: it can.
-  final String? disabledReason;
-  final bool danger;
+  final Disabled? off;
 
   @override
-  List<Object?> get props => [id, label, disabledReason, danger];
+  List<Object?> get props => [item, off];
+}
+
+/// A row of the Tree tab (spec §18): a node or a value of the site's
+/// tree, or an action of an open node. A row that [places] something is
+/// dragged onto the canvas, and a tap adds it; any other opens or closes.
+sealed class PaletteTreeRowVm extends Equatable {
+  const PaletteTreeRowVm({
+    required this.key,
+    required this.name,
+    required this.depth,
+  });
+
+  /// The node's key (an action's: `<node>/~act/<name>`).
+  final String key;
+  final String name;
+  final int depth;
+
+  /// It places what it stands for; false: it opens or closes.
+  bool get places;
+
+  /// May be let go on a block's input (a value).
+  bool get point;
+
+  /// May also be written (a writable value).
+  bool get writable;
+
+  /// The row as the Explorer's tree draws it.
+  TreeRowVm get row;
+
+  /// The row's widget key (what tests find it by).
+  String get widgetKey;
+}
+
+/// A node or a value of the tree.
+final class PaletteNodeRowVm extends PaletteTreeRowVm {
+  const PaletteNodeRowVm({
+    required super.key,
+    required super.name,
+    required super.depth,
+    this.icon = 'node_section',
+    this.opens = false,
+    this.open = false,
+    this.used = false,
+    this.type,
+    this.value,
+    this.places = false,
+    this.writable = false,
+  });
+
+  final String icon;
+
+  /// It may open (it has, or may have, children or actions).
+  final bool opens;
+  final bool open;
+
+  /// A block of the flow reads or writes it.
+  final bool used;
+
+  /// A value's type (its tag); null for a node.
+  final ValueType? type;
+
+  /// A value's live value, as the tree shows it.
+  final String? value;
+  @override
+  final bool places;
+  @override
+  final bool writable;
+
+  @override
+  bool get point => type != null;
+
+  @override
+  String get widgetKey => places ? 'tree-key:$key' : 'tree-$key';
+
+  @override
+  TreeRowVm get row => TreeRowVm(
+    id: key,
+    name: name,
+    depth: depth,
+    icon: icon,
+    hasChildren: opens,
+    expanded: open,
+    marked: used,
+    tag: type?.tag,
+    value: value,
+  );
+
+  @override
+  List<Object?> get props => [
+    key,
+    name,
+    depth,
+    icon,
+    opens,
+    open,
+    used,
+    type,
+    value,
+    places,
+    writable,
+  ];
+}
+
+/// An action of an open node: dragged, a block that runs it.
+final class PaletteActionRowVm extends PaletteTreeRowVm {
+  const PaletteActionRowVm({
+    required super.key,
+    required super.name,
+    required super.depth,
+    required this.node,
+    required this.action,
+    required this.inputs,
+  });
+
+  /// The node's key and the action's own name.
+  final String node;
+  final String action;
+
+  @override
+  bool get places => true;
+
+  @override
+  String get widgetKey => 'tree-act:$node/$action';
+
+  @override
+  bool get point => false;
+
+  @override
+  bool get writable => false;
+
+  /// How many inputs the action takes.
+  final int inputs;
+
+  @override
+  TreeRowVm get row => TreeRowVm(
+    id: key,
+    name: name,
+    depth: depth,
+    tag: 'ACT',
+    ember: true,
+    value: S.current.actionInputs(inputs),
+  );
+
+  @override
+  List<Object?> get props => [key, name, depth, node, action, inputs];
+}
+
+/// An entry of the palette with its place in [BlockPalette.entries].
+final class _Shown {
+  const _Shown(this.index, this.entry);
+
+  final int index;
+  final PaletteEntryVm entry;
 }
 
 /// A line under the Tree tab: [lead] in its colour, then [text].
-final class PaletteNoteVm extends Equatable {
-  const PaletteNoteVm(this.lead, this.text, {this.ember = false});
+final class _Note {
+  const _Note(this.lead, this.text, {this.ember = false});
 
   final String lead;
   final String text;
   final bool ember;
-
-  @override
-  List<Object?> get props => [lead, text, ember];
 }
 
 /// The left column of the flow editor (spec §2, §7): Blocks (the engine's
@@ -125,48 +428,56 @@ final paletteSearchRequest = ValueNotifier<int>(0);
 
 class BlockPalette extends StatefulWidget {
   const BlockPalette({
-    required this.tabs,
     required this.tab,
     required this.onTab,
     required this.entries,
-    required this.onPick,
-    this.hint = '',
-    this.notes = const [],
+    this.myBlocksOff = false,
     this.closed = const {},
     this.tree,
     this.onTreeToggle,
     this.onQuery,
+    this.checkName,
+    this.onPlace,
     this.onMenu,
-    this.empty = '',
+    this.onRename,
+    this.onTreePlace,
     super.key,
   });
 
+  /// An entry of [entries] (by its place there) tapped, or let go on the
+  /// canvas or on a block's input.
+  final ValueChanged<EntryPlaced>? onPlace;
+
+  /// An item of an entry's menu picked ([MyBlockItemVm.rename] asks the
+  /// name first and goes to [onRename]).
+  final ValueChanged<EntryMenuPicked>? onMenu;
+  final ValueChanged<EntryRenamed>? onRename;
+
+  /// A row of [tree] (by its place there) that places something, tapped
+  /// or let go.
+  final ValueChanged<TreeRowPlaced>? onTreePlace;
+
   /// The Tree tab: the site's tree as rows in display order, drawn with
-  /// the Explorer's [TreeRow] (flow-editor.md §18). A row with a `drag` is
-  /// a value leaf or an action: it is dragged onto the canvas, and a tap
-  /// adds it; any other row opens or closes. Null: [entries] are listed.
-  final List<TreeRowVm>? tree;
+  /// the Explorer's [TreeRow] (flow-editor.md §18). A row that places
+  /// something is a value leaf or an action: it is dragged onto the
+  /// canvas, and a tap adds it; any other row opens or closes. Null:
+  /// [entries] are listed.
+  final List<PaletteTreeRowVm>? tree;
   final ValueChanged<String>? onTreeToggle;
 
   /// What is typed in the search field while the tree is shown: the rows
   /// are filtered where they are made.
   final ValueChanged<String>? onQuery;
 
-  /// An item of an entry's context menu: the entry's id, the item's.
-  final MenuPicked? onMenu;
+  /// Why a new name of a custom block is refused (Rename); null: taken.
+  final Validate<String>? checkName;
 
-  /// Said in place of the list when there is nothing to list.
-  final String empty;
-
-  final List<TabItemVm<String>> tabs;
-  final String tab;
-  final ValueChanged<String> onTab;
+  final PaletteTabVm tab;
+  final ValueChanged<PaletteTabVm> onTab;
   final List<PaletteEntryVm> entries;
-  final ValueChanged<String> onPick;
-  final String hint;
 
-  /// Shown at the bottom (the Tree tab says what a drop does).
-  final List<PaletteNoteVm> notes;
+  /// The broker has no custom blocks: the My blocks tab is off.
+  final bool myBlocksOff;
 
   /// Groups shown closed at first.
   final Set<String> closed;
@@ -195,21 +506,22 @@ class _BlockPaletteState extends State<BlockPalette> {
 
   /// One entry: dragged onto the canvas, or tapped to add it; its context
   /// menu on the right button. An entry that cannot be placed does neither.
-  Widget _entry(PaletteEntryVm e) {
+  Widget _entry(int index, PaletteEntryVm e) {
     final row = e.point ? _TreeRow(e) : _BlockRow(e);
     final off = e.disabledReason != null;
+    void place(Place p) => widget.onPlace?.call(EntryPlaced(index, p));
     final tile = MouseRegion(
       cursor: off ? MouseCursor.defer : SystemMouseCursors.grab,
       child: InkWell(
-        onTap: off ? null : () => widget.onPick(e.id),
+        onTap: off ? null : () => place(const PlaceTapped()),
         borderRadius: const BorderRadius.all(Radius.circular(AppRadii.segment)),
         child: row,
       ),
     );
     final dragged = off
         ? tile
-        : Draggable<String>(
-            data: e.id,
+        : Draggable<PaletteDrag>(
+            data: PaletteDrag(e.title, place: place, point: e.point),
             dragAnchorStrategy: pointerDragAnchorStrategy,
             feedback: _Feedback(e.title),
             child: tile,
@@ -218,62 +530,83 @@ class _BlockPaletteState extends State<BlockPalette> {
       return dragged;
     }
     return GestureDetector(
-      key: ValueKey('palette-${e.id}'),
-      onSecondaryTapUp: (d) => unawaited(_menu(e, d.globalPosition)),
-      onLongPressStart: (d) => unawaited(_menu(e, d.globalPosition)),
+      key: ValueKey(e.widgetKey),
+      onSecondaryTapUp: (d) => unawaited(_menu(index, e, d.globalPosition)),
+      onLongPressStart: (d) => unawaited(_menu(index, e, d.globalPosition)),
       child: dragged,
     );
   }
 
-  Future<void> _menu(PaletteEntryVm e, Offset at) async {
+  Future<void> _menu(int index, PaletteEntryVm e, Offset at) async {
     final c = context.colors;
-    final picked = await showMenu<String>(
+    final picked = await showMenu<MyBlockItemVm>(
       context: context,
       color: c.ground3,
       position: RelativeRect.fromLTRB(at.dx, at.dy, at.dx, at.dy),
       items: [
         for (final m in e.menu)
           PopupMenuItem(
-            value: m.id,
-            height: 34,
-            enabled: m.disabledReason == null,
+            value: m.item,
+            height: AppSizes.flowMenuItem,
+            enabled: m.off == null,
             child: Tooltip(
-              message: m.disabledReason ?? '',
+              message: m.off?.text ?? '',
               child: Text(
-                m.label,
+                m.item.label,
                 style: TextStyle(
                   fontSize: FontSizes.md,
-                  color: m.disabledReason != null
+                  color: m.off != null
                       ? c.muted
-                      : (m.danger ? c.bad : c.text1),
+                      : (m.item.danger ? c.bad : c.text1),
                 ),
               ),
             ),
           ),
       ],
     );
-    if (picked != null) {
-      widget.onMenu?.call(e.id, picked);
+    if (picked == null || !mounted) {
+      return;
+    }
+    if (picked != MyBlockItemVm.rename) {
+      widget.onMenu?.call(EntryMenuPicked(index, picked));
+      return;
+    }
+    // Rename asks for the new name first.
+    final name = await NameDialog.ask(
+      context,
+      title: S.current.mbRename,
+      value: e.title,
+      confirm: S.current.mbRename,
+      cancel: S.current.cancel,
+      validate: widget.checkName,
+    );
+    if (name != null) {
+      widget.onRename?.call(EntryRenamed(index, name));
     }
   }
 
   /// A row of the Tree tab: the Explorer's row, 32 high. A value leaf or
   /// an action is dragged (and added by a tap); a node opens or closes.
-  Widget _treeRow(TreeRowVm r) {
-    final drag = r.drag;
+  Widget _treeRow(int index, PaletteTreeRowVm r) {
+    void place(Place p) => widget.onTreePlace?.call(TreeRowPlaced(index, p));
     final row = TreeRow(
-      key: ValueKey('tree-${r.drag ?? r.id}'),
-      vm: r,
-      height: 32,
+      key: ValueKey(r.widgetKey),
+      vm: r.row,
+      height: AppSizes.flowPaletteRow,
       onTap: (id) =>
-          drag == null ? widget.onTreeToggle?.call(id) : widget.onPick(drag),
+          r.places ? place(const PlaceTapped()) : widget.onTreeToggle?.call(id),
       onToggle: widget.onTreeToggle,
     );
-    if (drag == null) {
+    if (!r.places) {
       return row;
     }
-    return Draggable<String>(
-      data: drag,
+    return Draggable<PaletteDrag>(
+      data: PaletteDrag(
+        r.name,
+        place: place,
+        writable: r.writable,
+        point: r.point,
+      ),
       dragAnchorStrategy: pointerDragAnchorStrategy,
       feedback: _Feedback(r.name),
       child: MouseRegion(cursor: SystemMouseCursors.grab, child: row),
@@ -284,15 +617,24 @@ class _BlockPaletteState extends State<BlockPalette> {
   Widget build(BuildContext context) {
     final c = context.colors;
     final q = _q.toLowerCase();
+    final tab = widget.tab;
+    final empty = tab.empty;
+    final notes = tab == PaletteTabVm.tree
+        ? [
+            _Note(S.current.treePoint, S.current.treePointNote2),
+            _Note(S.current.treeAction, S.current.treeActionNote2, ember: true),
+          ]
+        : const <_Note>[];
+    // Each entry with its place in [entries]: what the palette reports.
     final shown = [
-      for (final e in widget.entries)
+      for (final (i, e) in widget.entries.indexed)
         if (q.isEmpty ||
             '${e.title} ${e.detail ?? ''}'.toLowerCase().contains(q))
-          e,
+          _Shown(i, e),
     ];
-    final groups = <String, List<PaletteEntryVm>>{};
-    for (final e in shown) {
-      (groups[e.group] ??= []).add(e);
+    final groups = <String, List<_Shown>>{};
+    for (final x in shown) {
+      (groups[x.entry.group] ??= []).add(x);
     }
     return DecoratedBox(
       decoration: BoxDecoration(
@@ -303,15 +645,24 @@ class _BlockPaletteState extends State<BlockPalette> {
         crossAxisAlignment: .stretch,
         children: [
           SegmentedTabs(
-            tabs: widget.tabs,
-            selected: widget.tab,
+            tabs: [
+              for (final t in PaletteTabVm.values)
+                TabItemVm(
+                  id: t,
+                  label: t.label,
+                  disabledReason: t == PaletteTabVm.my && widget.myBlocksOff
+                      ? const FlowOff(.noCustomBlocks).text
+                      : null,
+                ),
+            ],
+            selected: tab,
             onSelect: widget.onTab,
             equal: true,
           ),
           Padding(
-            padding: const EdgeInsets.all(10),
+            padding: Insets.flowPaletteSearch,
             child: Container(
-              height: 34,
+              height: AppSizes.flowField,
               padding: Insets.control,
               decoration: BoxDecoration(
                 color: c.ground3,
@@ -321,9 +672,13 @@ class _BlockPaletteState extends State<BlockPalette> {
                 ),
               ),
               child: Row(
-                spacing: 8,
+                spacing: AppSpacing.sm,
                 children: [
-                  AppIcon('ui_search', size: 14, color: c.text4),
+                  AppIcon(
+                    'ui_search',
+                    size: AppSizes.flowSearchIcon,
+                    color: c.text4,
+                  ),
                   Expanded(
                     child: TextField(
                       focusNode: _search,
@@ -336,7 +691,7 @@ class _BlockPaletteState extends State<BlockPalette> {
                       style: TextStyle(fontSize: FontSizes.md, color: c.text1),
                       decoration:
                           InputDecoration.collapsed(
-                            hintText: widget.hint,
+                            hintText: tab.searchHint,
                             hintStyle: TextStyle(
                               fontSize: FontSizes.md,
                               color: c.text4,
@@ -355,35 +710,25 @@ class _BlockPaletteState extends State<BlockPalette> {
           if (widget.tree case final rows?)
             Expanded(
               child: rows.isEmpty
-                  ? _Empty(widget.empty)
+                  ? _Empty(empty)
                   : ListView.builder(
-                      padding: const EdgeInsets.fromLTRB(
-                        6,
-                        AppSpacing.none,
-                        6,
-                        12,
-                      ),
+                      padding: Insets.flowPaletteList,
                       itemCount: rows.length,
-                      itemBuilder: (_, i) => _treeRow(rows[i]),
+                      itemBuilder: (_, i) => _treeRow(i, rows[i]),
                     ),
             )
-          else if (shown.isEmpty && widget.empty.isNotEmpty)
-            Expanded(child: _Empty(widget.empty))
+          else if (shown.isEmpty && empty.isNotEmpty)
+            Expanded(child: _Empty(empty))
           else
             Expanded(
               child: ListView(
-                padding: const EdgeInsets.fromLTRB(
-                  6,
-                  AppSpacing.none,
-                  6,
-                  12,
-                ),
+                padding: Insets.flowPaletteList,
                 children: [
                   for (final MapEntry(key: g, value: list)
                       in groups.entries) ...[
                     _Group(
                       name: g,
-                      tree: list.first.point,
+                      tree: list.first.entry.point,
                       open: !_closed.contains(g),
                       onTap: () => setState(
                         () => _closed.contains(g)
@@ -392,27 +737,22 @@ class _BlockPaletteState extends State<BlockPalette> {
                       ),
                     ),
                     if (!_closed.contains(g))
-                      for (final e in list) _entry(e),
+                      for (final x in list) _entry(x.index, x.entry),
                   ],
                 ],
               ),
             ),
-          if (widget.notes.isNotEmpty)
+          if (notes.isNotEmpty)
             Container(
-              padding: const EdgeInsets.fromLTRB(
-                12,
-                10,
-                12,
-                14,
-              ),
+              padding: Insets.flowPaletteNotes,
               decoration: BoxDecoration(
                 border: Border(top: BorderSide(color: c.line1)),
               ),
               child: Column(
                 crossAxisAlignment: .start,
-                spacing: 6,
+                spacing: AppSpacing.flowLines,
                 children: [
-                  for (final n in widget.notes)
+                  for (final n in notes)
                     Text.rich(
                       TextSpan(
                         children: [
@@ -488,15 +828,19 @@ class _Group extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       child: SizedBox(
-        height: tree ? 32 : 34,
+        height: tree ? AppSizes.flowPaletteRow : AppSizes.flowPaletteGroup,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 6),
+          padding: Insets.flowPaletteGroup,
           child: Row(
-            spacing: 6,
+            spacing: AppSpacing.flowRowParts,
             children: [
               RotatedBox(
                 quarterTurns: open ? 1 : 0,
-                child: AppIcon('ui_chevron_right', size: 12, color: c.text4),
+                child: AppIcon(
+                  'ui_chevron_right',
+                  size: AppSizes.flowGroupChevron,
+                  color: c.text4,
+                ),
               ),
               Expanded(
                 child: Text(
@@ -504,7 +848,7 @@ class _Group extends StatelessWidget {
                   maxLines: 1,
                   overflow: .ellipsis,
                   style: tree
-                      ? mono(size: 12, color: c.text3)
+                      ? mono(size: FontSizes.sm, color: c.text3)
                       : TextStyle(
                           fontSize: FontSizes.md,
                           fontWeight: .w600,
@@ -530,13 +874,15 @@ class _BlockRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final (bg, ink) = switch (e.tag) {
-      'IN' => (c.goodTint, c.good),
-      'OUT' => (c.emberTint, c.emberSoft),
-      _ => (c.ground4, c.text2),
+    final (bg, ink) = switch (e.kind) {
+      PaletteKindVm.input => (c.goodTint, c.good),
+      PaletteKindVm.output => (c.emberTint, c.emberSoft),
+      PaletteKindVm.logic ||
+      PaletteKindVm.my ||
+      PaletteKindVm.library => (c.ground4, c.text2),
     };
     final row = SizedBox(
-      height: 32,
+      height: AppSizes.flowPaletteRow,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(
           AppSpacing.lg,
@@ -545,11 +891,11 @@ class _BlockRow extends StatelessWidget {
           AppSpacing.none,
         ),
         child: Row(
-          spacing: 10,
+          spacing: AppSpacing.flowPaletteRow,
           children: [
             Container(
-              width: 24,
-              height: 16,
+              width: AppSizes.flowPaletteTag.width,
+              height: AppSizes.flowPaletteTag.height,
               alignment: .center,
               decoration: BoxDecoration(
                 color: bg,
@@ -559,9 +905,14 @@ class _BlockRow extends StatelessWidget {
               ),
               child: Text(
                 e.tag,
-                style: mono(size: 9, weight: .w600, color: ink).copyWith(
-                  height: 1.1,
-                ),
+                style:
+                    mono(
+                      size: FontSizes.flowTag,
+                      weight: .w600,
+                      color: ink,
+                    ).copyWith(
+                      height: 1.1,
+                    ),
               ),
             ),
             Expanded(
@@ -575,14 +926,16 @@ class _BlockRow extends StatelessWidget {
                 ),
               ),
             ),
-            if (e.value case final v?)
+            if (e.valueText case final v?)
               ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 84),
+                constraints: const BoxConstraints(
+                  maxWidth: AppSizes.flowPaletteValue,
+                ),
                 child: Text(
                   v,
                   maxLines: 1,
                   overflow: .ellipsis,
-                  style: mono(size: 11, color: c.text4),
+                  style: mono(size: FontSizes.xs, color: c.text4),
                 ),
               ),
           ],
@@ -592,7 +945,7 @@ class _BlockRow extends StatelessWidget {
     return switch (e.disabledReason ?? e.detail) {
       final d? when d.isNotEmpty => Tooltip(
         message: d,
-        waitDuration: const Duration(milliseconds: 500),
+        waitDuration: Motion.flowTipWait,
         child: row,
       ),
       _ => row,
@@ -612,13 +965,8 @@ class _TreeRow extends StatelessWidget {
     final c = context.colors;
     final accent = e.action ? c.emberSoft : c.text4;
     return Container(
-      height: 32,
-      padding: const EdgeInsets.fromLTRB(
-        22,
-        AppSpacing.none,
-        AppSpacing.sm,
-        AppSpacing.none,
-      ),
+      height: AppSizes.flowPaletteRow,
+      padding: Insets.flowPaletteTreeRow,
       decoration: BoxDecoration(
         color: e.dragging ? c.emberFill : (e.used ? c.ground2 : null),
         border: .all(
@@ -628,28 +976,33 @@ class _TreeRow extends StatelessWidget {
         borderRadius: const BorderRadius.all(Radius.circular(AppRadii.segment)),
       ),
       child: Row(
-        spacing: 8,
+        spacing: AppSpacing.sm,
         children: [
           SizedBox(
-            width: 22,
-            child: Text(e.tag, style: mono(size: 10, color: accent)),
+            width: AppSizes.flowPaletteTreeTag,
+            child: Text(
+              e.tag,
+              style: mono(size: FontSizes.flowDetail, color: accent),
+            ),
           ),
           Expanded(
             child: Text(
               e.title,
               overflow: .ellipsis,
               maxLines: 1,
-              style: mono(size: 12, color: c.text2),
+              style: mono(size: FontSizes.sm, color: c.text2),
             ),
           ),
-          if (e.value case final v?)
+          if (e.valueText case final v?)
             ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 90),
+              constraints: const BoxConstraints(
+                maxWidth: AppSizes.flowPaletteTreeValue,
+              ),
               child: Text(
                 v,
                 overflow: .ellipsis,
                 maxLines: 1,
-                style: mono(size: 11, color: accent),
+                style: mono(size: FontSizes.xs, color: accent),
               ),
             ),
         ],
@@ -669,7 +1022,7 @@ class _Feedback extends StatelessWidget {
     return Material(
       color: Colors.transparent,
       child: Container(
-        height: 32,
+        height: AppSizes.flowPaletteRow,
         padding: Insets.control,
         alignment: .center,
         decoration: BoxDecoration(
@@ -686,7 +1039,10 @@ class _Feedback extends StatelessWidget {
             ),
           ],
         ),
-        child: Text(title, style: mono(size: 12, color: c.emberNew)),
+        child: Text(
+          title,
+          style: mono(size: FontSizes.sm, color: c.emberNew),
+        ),
       ),
     );
   }

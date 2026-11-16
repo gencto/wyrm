@@ -3,7 +3,7 @@ import 'package:models/param_spec.dart';
 import 'package:models/quarantine_entry.dart';
 
 import '../../../wyrm/calls.dart';
-import '../../../wyrm/mappers/param_spec_mapper.dart';
+import '../../../wyrm/decode/param_spec.dart';
 import '../../../wyrm/mappers/quarantine_entry_mapper.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';

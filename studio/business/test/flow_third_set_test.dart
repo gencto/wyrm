@@ -7,20 +7,23 @@ import 'package:business/redux/login/actions/log_in_action.dart';
 import 'package:business/redux/login/actions/set_gateway_action.dart';
 import 'package:business/redux/login/actions/set_password_action.dart';
 import 'package:business/redux/login/actions/set_user_action.dart';
+import 'package:business/wyrm/decode/node_type.dart';
 import 'package:business/wyrm/mappers/flow_canvas.dart';
 import 'package:business/wyrm/mappers/flow_fields.dart';
-import 'package:business/wyrm/mappers/flow_mapper.dart';
 import 'package:business/wyrm/mappers/table_value.dart';
 import 'package:business/wyrm/mappers/value_text.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:models/error_hint.dart';
 import 'package:models/flow_block.dart';
 import 'package:models/flow_draft.dart';
 import 'package:models/flow_edge.dart';
 import 'package:models/live_value.dart';
 import 'package:models/node_type.dart';
+import 'package:models/param_spec.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
+import 'support/block_types.dart';
 import 'support/catalog_0226.dart';
 import 'support/catalog_0229.dart';
 import 'support/fake_wyrm.dart';
@@ -31,11 +34,11 @@ import 'support/fake_wyrm.dart';
 
 final Map<String, NodeType> types = {
   for (final t in catalog0229())
-    t['type']! as String: nodeTypeOf(Value.from(t)),
+    t['type']! as String: nodeTypeOf(Value.from(t)).orWarn('test')!,
 };
 
 FlowBlock block(String type, [Map<String, Object?> cfg = const {}]) =>
-    FlowBlock(id: 'b', type: type, cfg: cfg.lock);
+    FlowBlock(id: 'b', type: bt(type), cfg: cfg.lock);
 
 /// The labels of the rows a new block of [type] draws, in order.
 List<String> rows(String type, [Map<String, Object?> cfg = const {}]) => [
@@ -46,7 +49,11 @@ FlowField field(
   String type,
   String id, [
   Map<String, Object?> cfg = const {},
-]) => fieldsOf(types[type], block(type, cfg)).firstWhere((f) => f.id == id);
+]) => fieldsOf(types[type], block(type, cfg)).firstWhere((f) => f.id.key == id);
+
+/// The catalog's parameter [name] of [type].
+ParamSpec param(String type, String name) =>
+    types[type]!.params.firstWhere((p) => p.name == name);
 
 void main() {
   test('the catalog has the 125 types and the labels the engine gives', () {
@@ -80,14 +87,14 @@ void main() {
       'WASM',
     ]);
     final more = inPaletteOrder([
-      const NodeType(type: 'x', category: 'Vision'),
+      NodeType(type: bt('x'), category: 'Vision'),
       ...types.values,
     ]);
-    expect(more.last.type, 'x', reason: 'an unknown section comes last');
+    expect(more.last.type.wire, 'x', reason: 'an unknown section comes last');
     // Within a section the catalog's order stays.
     final sources = [
       for (final t in inPaletteOrder(types.values))
-        if (t.category == 'Sources') t.type,
+        if (t.category == 'Sources') t.type.wire,
     ];
     expect(sources.take(4), ['subscribe', 'timer', 'const', 'liveliness']);
   });
@@ -228,8 +235,8 @@ void main() {
       'Order',
     ]);
     // Block names by the broker's rule (ADR 0042).
-    expect(blockLabel('json_parse'), 'JSON parse');
-    expect(blockLabel('table_to_csv'), 'Table to CSV');
+    expect(blockLabel(bt('json_parse')), 'JSON parse');
+    expect(blockLabel(bt('table_to_csv')), 'Table to CSV');
   });
 
   group('dates', () {
@@ -252,9 +259,12 @@ void main() {
     });
 
     test('the date fields of the date blocks show it', () {
-      expect(isTimeField('now', 'out'), isTrue);
-      expect(isTimeField('date_range', 'start'), isTrue);
-      expect(isTimeField('date_range', 'duration'), isFalse);
+      expect(isTimeField(bt('now'), EnginePort.out), isTrue);
+      expect(isTimeField(bt('date_range'), EnginePort.start), isTrue);
+      expect(
+        isTimeField(bt('date_range'), EnginePort.fromWire('duration')),
+        isFalse,
+      );
       final b = block('now');
       final out = field('now', 'out:out');
       final d = FlowDraft(id: 'f', blocks: {'b': b}.lock);
@@ -262,7 +272,7 @@ void main() {
         b,
         out,
         d,
-        (k) => k == portKey('out', 'b', 'out')
+        (k) => k == portKey(PortSide.output, 'b', 'out')
             ? LiveValue(time: DateTime.utc(2026), value: at)
             : null,
       );
@@ -272,14 +282,18 @@ void main() {
 
     test('a time zone field offers zones, date_format also auto; a range '
         'text its choices', () {
-      expect(isTimeZoneParam('date_format', 'time_zone'), isTrue);
-      expect(isTimeZoneParam('load_history', 'time_zone'), isTrue);
-      expect(isTimeZoneParam('table_rollup', 'time_zone'), isTrue);
-      expect(timeZoneChoicesOf('date_format').first, 'auto');
-      expect(timeZoneChoicesOf('date_time').first, 'UTC');
+      const zone = ParamSpec(name: 'time_zone', key: BlockCfgKey.timeZone);
+      expect(isTimeZoneParam(bt('date_format'), zone), isTrue);
+      expect(isTimeZoneParam(bt('load_history'), zone), isTrue);
+      expect(isTimeZoneParam(bt('table_rollup'), zone), isTrue);
+      expect(timeZoneChoicesOf(bt('date_format')).first, 'auto');
+      expect(timeZoneChoicesOf(bt('date_time')).first, 'UTC');
       expect(timeZoneChoices, containsAll(['Europe/Kyiv', '+02:00']));
-      expect(isRangeText('date_range', 'in'), isTrue);
-      expect(isRangeText('load_history', 'time_range'), isTrue);
+      expect(isRangeText(bt('date_range'), port: EnginePort.in_), isTrue);
+      expect(
+        isRangeText(bt('load_history'), param: BlockCfgKey.timeRange),
+        isTrue,
+      );
       expect(
         rangeChoices,
         containsAll(['today', 'lastWeek', 'current24hours']),
@@ -318,9 +332,9 @@ void main() {
         types['table'],
         t,
       ).firstWhere((f) => f.spec?.name == 'value');
-      expect(holdsTable(types['table'], value.name), isTrue);
+      expect(holdsTable(types['table'], value), isTrue);
       expect(fieldEditOf(t, value, const []).edit, FieldEdit.json);
-      expect(fieldEditValue(t, value), {
+      expect(fieldEditValue(t, value).raw, {
         'columns': ['a'],
         'rows': [
           {'a': 1},
@@ -335,7 +349,7 @@ void main() {
       expect(fieldEditOf(t, value, [wire]).locked, FieldLocked.bound);
       // A typed operand of a table block holds a table too.
       final sort = field('table_sort', 'in:in');
-      expect(holdsTable(types['table_sort'], sort.name), isTrue);
+      expect(holdsTable(types['table_sort'], sort), isTrue);
       expect(
         fieldEditOf(block('table_sort'), sort, const []).edit,
         FieldEdit.any,
@@ -382,10 +396,19 @@ void main() {
         reason: 't is a date',
       );
       expect(tableCellText('v', 1), isNull);
-      expect(holdsTable(types['load_history'], 'out'), isTrue);
-      expect(holdsTable(types['get_node'], 'actions'), isTrue);
-      expect(holdsTable(types['table_sort'], 'out'), isTrue);
-      expect(holdsTable(types['add'], 'out'), isFalse);
+      expect(
+        holdsTable(types['load_history'], field('load_history', 'out:out')),
+        isTrue,
+      );
+      expect(
+        holdsTable(types['get_node'], field('get_node', 'out:actions')),
+        isTrue,
+      );
+      expect(
+        holdsTable(types['table_sort'], field('table_sort', 'out:out')),
+        isTrue,
+      );
+      expect(holdsTable(types['add'], field('add', 'out:out')), isFalse);
       expect(
         tableOf({
           'columns': ['a'],
@@ -396,17 +419,29 @@ void main() {
     });
 
     test('mapping and aggregates are edited as rows', () {
-      final m = listItemsOf(types['table_map_columns'], 'mapping')!;
+      final m = listItemsOf(
+        types['table_map_columns'],
+        param('table_map_columns', 'mapping'),
+      )!;
       expect([for (final c in m) c.key], ['name', 'from']);
-      final a = listItemsOf(types['table_rollup'], 'aggregates')!;
+      final a = listItemsOf(
+        types['table_rollup'],
+        param('table_rollup', 'aggregates'),
+      )!;
       expect([for (final c in a) c.key], ['column', 'method', 'as']);
       expect(a[1].choices, contains('concat_unique'));
       expect(
-        listItemsOf(types['table_group_by'], 'aggregates')![1].choices,
+        listItemsOf(
+          types['table_group_by'],
+          param('table_group_by', 'aggregates'),
+        )![1].choices,
         aggregateMethods,
         reason: 'no method parameter: the engine list',
       );
-      expect(listItemsOf(types['table_sort'], 'column'), isNull);
+      expect(
+        listItemsOf(types['table_sort'], param('table_sort', 'column')),
+        isNull,
+      );
       expect(
         listRowsOf([
           {'column': 'v', 'method': 'max', 'as': 't_max'},
@@ -490,10 +525,10 @@ void main() {
       };
       expect(reason, contains('w (downstream of h)'));
       expect(reason, contains('does not hold write'));
-      // No words from the broker: Studio says it.
+      // No words from the broker: Studio names why (the app says it).
       expect(
-        triggerRefusal(WyrmException.of(Status.permissionDenied, '')),
-        contains('needs write'),
+        triggerHintOf(StatusCode.of(Status.permissionDenied)),
+        ErrorHint.runDenied,
       );
     });
   });
@@ -501,7 +536,7 @@ void main() {
   test('an older catalog keeps its shape', () {
     final old = {
       for (final t in catalog0226())
-        t['type']! as String: nodeTypeOf(Value.from(t)),
+        t['type']! as String: nodeTypeOf(Value.from(t)).orWarn('test')!,
     };
     expect(old['router'], isNull);
     expect(old['load_value']!.params.first.display, isNull);
@@ -534,7 +569,7 @@ void main() {
     expect(typedText('a,b\n1,2', edit!), 'a,b\n1,2');
     // a one-line `5` is the text `5`, not the number JSON makes of it
     expect(typedText('5', edit), '5');
-    expect(isTextOperand('split', 'in'), isTrue);
+    expect(isTextOperand(bt('split'), EnginePort.in_), isTrue);
     // an operand of another block still reads JSON
     final add = fieldEditOf(block('add'), field('add', 'in:in.0'), const []);
     expect(add.edit, FieldEdit.any);

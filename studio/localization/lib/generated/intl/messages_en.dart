@@ -2079,6 +2079,18 @@ class MessageLookup extends MessageLookupByLibrary {
     "errRowStatus": MessageLookupByLibrary.simpleMessage("Status"),
     "errRowStudio": MessageLookupByLibrary.simpleMessage("Studio"),
     "errRowTime": MessageLookupByLibrary.simpleMessage("Time"),
+    "errRunDenied": MessageLookupByLibrary.simpleMessage(
+      "You may not run it: this needs write on the flow, and the rights of what the block and the blocks after it act on.",
+    ),
+    "errRunNoTrigger": MessageLookupByLibrary.simpleMessage(
+      "This broker has no trigger action (it needs ADR 0040).",
+    ),
+    "errRunNotByHand": MessageLookupByLibrary.simpleMessage(
+      "This block cannot be run by hand.",
+    ),
+    "errRunNotRunning": MessageLookupByLibrary.simpleMessage(
+      "The flow is not running.",
+    ),
     "errSaidBroker": MessageLookupByLibrary.simpleMessage("The broker said"),
     "errSaidNoAnswer": MessageLookupByLibrary.simpleMessage("Studio waited"),
     "errSaidStudio": MessageLookupByLibrary.simpleMessage("What happened"),
@@ -2297,6 +2309,8 @@ class MessageLookup extends MessageLookupByLibrary {
     "followUpTileNote": MessageLookupByLibrary.simpleMessage(
       "a new ask that follows this task",
     ),
+    "formLinear": MessageLookupByLibrary.simpleMessage("k × in + b"),
+    "formRange": MessageLookupByLibrary.simpleMessage("Range"),
     "foundBad": MessageLookupByLibrary.simpleMessage("bad now"),
     "foundGood": MessageLookupByLibrary.simpleMessage("good now"),
     "foundNoValue": MessageLookupByLibrary.simpleMessage("no value read"),
@@ -2539,6 +2553,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "mbInUse": m194,
     "mbInsideItself": MessageLookupByLibrary.simpleMessage(
       "A block cannot contain itself",
+    ),
+    "mbLibraryBusy": MessageLookupByLibrary.simpleMessage(
+      "Waiting for the library to answer",
     ),
     "mbNotInLibrary": MessageLookupByLibrary.simpleMessage(
       "The library has no block of this name",
@@ -2917,6 +2934,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "problemCodeMismatch": MessageLookupByLibrary.simpleMessage(
       "Not offered: the CA code it announced is not the code of its CA.",
     ),
+    "problemInvalid": MessageLookupByLibrary.simpleMessage("invalid"),
     "problemNoAnswer": m240,
     "problemNoCa": MessageLookupByLibrary.simpleMessage(
       "Not offered: this computer does not trust its certificate, and it sends no CA to check.",
@@ -2931,6 +2949,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Not offered: plain http off this computer is refused (insecure_plaintext).",
     ),
     "problemStudioTooOld": m241,
+    "problemUnnamed": MessageLookupByLibrary.simpleMessage("name the flow"),
     "problems": MessageLookupByLibrary.simpleMessage("Problems"),
     "problemsClear": MessageLookupByLibrary.simpleMessage("Clear all"),
     "problemsClose": MessageLookupByLibrary.simpleMessage("Close problems"),

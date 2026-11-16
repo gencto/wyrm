@@ -3,7 +3,7 @@ import 'package:models/action_info.dart';
 import 'package:models/node_detail.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
-import 'param_spec_mapper.dart';
+import '../decode/param_spec.dart';
 import 'values.dart';
 
 /// The full `~meta` of [key] as a [NodeDetail].

@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 
 import '../../../wyrm/mappers/flow_canvas.dart';
@@ -19,7 +17,7 @@ class SetBlockFormAction extends Action {
   SetBlockFormAction(this.block, this.form);
 
   final String block;
-  final String form;
+  final BlockFormId form;
 
   @override
   AppState? reduce() {
@@ -34,30 +32,36 @@ class SetBlockFormAction extends Action {
       for (final f in forms)
         if (f.id != chosen.id) f,
     ];
-    bool gone(String name) => others.any((f) => f.owns(name));
+    // What only the other forms use leaves: their parameters (config, the
+    // port that feeds one, its echo) and their outputs.
+    final goneParams = {for (final f in others) ...f.params};
+    final goneOutputs = {for (final f in others) ...f.outputs};
     final t = flowEditor.allTypes.where((t) => t.type == b.type).firstOrNull;
-    var cfg = b.cfg.removeWhere((k, _) => gone(k));
+    var cfg = b.cfg;
+    for (final p in goneParams) {
+      cfg = cfg.remove(p.wire);
+    }
     if (chosen != forms.first) {
       final catalog = {
-        for (final p in [...?t?.params]) p.name: p.defaultValue,
+        for (final p in [...?t?.params]) ?p.key: p.defaultValue,
       };
-      for (final name in chosen.params) {
-        final v = catalog[name] ?? chosen.defaults[name];
-        if (cfg[name] == null && v != null) {
-          cfg = cfg.add(name, v);
+      for (final key in chosen.params) {
+        final v = catalog[key] ?? chosen.defaults[key];
+        if (cfg[key.wire] == null && v != null) {
+          cfg = cfg.add(key.wire, v);
         }
       }
     }
-    unawaited(dispatchAndWait(ValidateFlowAction()));
+    _validate();
     return state.copyWith.flowEditor(
       draft: d.copyWith(
         blocks: d.blocks.add(block, b.copyWith(cfg: cfg)),
         edges: d.edges.removeWhere(
           (e) =>
-              (e.to == block &&
-                  e.toPort.startsWith('in.') &&
-                  gone(e.toPort.substring(3))) ||
-              (e.from == block && gone(e.fromPort)),
+              (e.to == block && goneParams.contains(e.target.paramKey)) ||
+              (e.from == block &&
+                  (goneOutputs.contains(e.source.known) ||
+                      goneParams.contains(e.source.echoKey))),
         ),
       ),
       dirty: true,
@@ -66,4 +70,9 @@ class SetBlockFormAction extends Action {
       undoTag: null,
     );
   }
+
+  /// The engine checks the draft again once the edits settle
+  /// ([ValidateFlowAction] is debounced and brings its own state); this
+  /// edit does not wait for it.
+  void _validate() => dispatch(ValidateFlowAction());
 }

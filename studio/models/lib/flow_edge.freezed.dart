@@ -85,8 +85,8 @@ as String,
 /// @nodoc
 
 
-class _FlowEdge implements FlowEdge {
-  const _FlowEdge({required this.from, required this.fromPort, required this.to, required this.toPort});
+class _FlowEdge extends FlowEdge {
+  const _FlowEdge({required this.from, required this.fromPort, required this.to, required this.toPort}): super._();
   
 
 @override final  String from;

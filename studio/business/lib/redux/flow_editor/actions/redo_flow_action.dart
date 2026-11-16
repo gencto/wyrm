@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import '../../../wyrm/mappers/flow_canvas.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
@@ -18,7 +16,7 @@ class RedoFlowAction extends Action {
     final selection = flowEditor.selection.removeWhere(
       (id) => !draft.blocks.containsKey(id),
     );
-    unawaited(dispatchAndWait(ValidateFlowAction()));
+    _validate();
     return state.copyWith.flowEditor(
       draft: draft,
       redo: steps.removeLast(),
@@ -29,4 +27,9 @@ class RedoFlowAction extends Action {
       dirty: true,
     );
   }
+
+  /// The engine checks the draft again once the edits settle
+  /// ([ValidateFlowAction] is debounced and brings its own state); this
+  /// edit does not wait for it.
+  void _validate() => dispatch(ValidateFlowAction());
 }

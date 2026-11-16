@@ -2,16 +2,25 @@ import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/block_type.dart';
+import 'package:models/field_id.dart';
 import 'package:models/flow_block.dart';
 import 'package:models/flow_draft.dart';
 import 'package:models/flow_edge.dart';
 import 'package:models/node_type.dart';
+import 'package:models/param_spec.dart';
+import 'package:models/port_end.dart';
+import 'package:models/undo_tag.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
+import '../decode/flow_clip.dart';
+import 'block_cfg.dart';
+import 'config_text.dart';
 import 'flow_blocks.dart';
 import 'flow_fields.dart';
 import 'flow_mapper.dart';
-import 'values.dart';
+
+export '../decode/flow_clip.dart' show clipFormat, clipOf;
 
 // What the canvas of the flow editor does to a draft besides wiring
 // (studio/docs/design/specs/flow-editor.md §12–§15, owner decisions
@@ -35,7 +44,9 @@ FlowBlock? withPin(
     return null;
   }
   return b.copyWith(
-    pins: pinned == f.onBlock ? b.pins.remove(f.id) : b.pins.add(f.id, pinned),
+    pins: pinned == f.onBlock
+        ? b.pins.remove(f.id.key)
+        : b.pins.add(f.id.key, pinned),
   );
 }
 
@@ -59,8 +70,8 @@ FlowDraft pinBound(Iterable<NodeType> types, FlowDraft d) {
     }
     var pins = b.pins;
     for (final f in fieldsOf(byType[b.type], b, edges: d.edges)) {
-      if (!(pins[f.id] ?? f.onBlock) && fieldBound(b, f, d.edges)) {
-        pins = pins.add(f.id, true);
+      if (!(pins[f.id.key] ?? f.onBlock) && fieldBound(b, f, d.edges)) {
+        pins = pins.add(f.id.key, true);
       }
     }
     if (!identical(pins, b.pins)) {
@@ -68,6 +79,72 @@ FlowDraft pinBound(Iterable<NodeType> types, FlowDraft d) {
     }
   }
   return identical(blocks, d.blocks) ? d : d.copyWith(blocks: blocks);
+}
+
+// ---------- a new block (§2, §18) ----------
+
+/// A block just added to a draft: the draft with it, and its id.
+final class AddedBlock {
+  const AddedBlock(this.draft, this.id);
+
+  final FlowDraft draft;
+  final String id;
+}
+
+/// [d] with a block of [type] at ([x], [y]) with the defaults of its
+/// choice parameters (and [cfg] over them) under a fresh id
+/// (`<type><n>`; an instance after its block, `mean1`), its pins, and,
+/// with [into], a wire from its `out` into that input (a point of the
+/// Tree tab dropped on a field) that replaces the one there.
+///
+/// Other defaults stay out of the definition: the block shows them as the
+/// values of its fields, and the engine applies them itself. Writing them
+/// would change what a block means (a `scale` with a range parameter maps
+/// from the range: it is in its range form).
+AddedBlock withNewBlock(
+  Iterable<NodeType> types,
+  FlowDraft d,
+  BlockType type,
+  double x,
+  double y, {
+  Map<String, Object?> cfg = const {},
+  Map<FieldId, bool> pins = const {},
+  PortEnd? into,
+}) {
+  final t = types.where((t) => t.type == type).firstOrNull;
+  final base = (blockNameOf(type) ?? type.wire).replaceAll(
+    RegExp('[^A-Za-z0-9_]'),
+    '_',
+  );
+  var n = 1;
+  while (d.blocks.containsKey('$base$n')) {
+    n++;
+  }
+  final id = '$base$n';
+  final defaults = <String, Object?>{
+    for (final p in t?.params ?? const IListConst<ParamSpec>([]))
+      if (p.choices.isNotEmpty && p.defaultValue != null)
+        p.name: p.defaultValue,
+  };
+  final next = d.copyWith(
+    edges: into == null
+        ? d.edges
+        : d.edges
+              .removeWhere((e) => e.target == into)
+              .add(FlowEdge.between(PortEnd(id, EnginePort.out.wire), into)),
+    blocks: d.blocks.add(
+      id,
+      FlowBlock(
+        id: id,
+        type: type,
+        cfg: <String, Object?>{...defaults, ...cfg}.lock,
+        pins: {for (final e in pins.entries) e.key.key: e.value}.lock,
+        x: x,
+        y: y,
+      ),
+    ),
+  );
+  return AddedBlock(pinBound(types, next), id);
 }
 
 // ---------- undo (§13) ----------
@@ -82,8 +159,8 @@ const undoLimit = 100;
 IList<FlowDraft> undoPush(
   IList<FlowDraft> undo,
   FlowDraft before, {
-  String? tag,
-  String? lastTag,
+  UndoTag? tag,
+  UndoTag? lastTag,
 }) {
   if (tag != null && tag == lastTag && undo.isNotEmpty) {
     return undo;
@@ -108,25 +185,14 @@ FlowDraft withoutBlocks(FlowDraft d, Set<String> ids) => d.copyWith(
   ),
 );
 
-/// The clipboard format: a JSON object with this `format`, and `nodes`,
-/// `edges`, `layout` as a definition writes them (spec 06), plus `blocks`:
-/// the custom blocks the copied instances are of, with all they use, so an
-/// instance pasted into another flow brings its definition (§20).
-const clipFormat = 'wyrm-flow-blocks/1';
-
-/// A clipboard text larger than this is not read.
-const int _clipMax = 4 * 1024 * 1024;
-
-const _noLayout = <String, Object?>{};
-
-/// The blocks [ids] of [d] as clipboard text: their config, where they
-/// are, their pins, the edges among them, and the definitions of the
-/// custom blocks they are instances of. An edge to or from a block outside
-/// [ids] is left out, and so are the inputs and outputs blocks of a block's
-/// inside. Null when [ids] names no block.
+/// The blocks [ids] of [d] as clipboard text ([clipFormat]): their
+/// config, where they are, their pins, the edges among them, and the
+/// definitions of the custom blocks they are instances of. An edge to or
+/// from a block outside [ids] is left out, and so are the inputs and
+/// outputs blocks of a block's inside. Null when [ids] names no block.
 String? clipTextOf(FlowDraft d, Set<String> ids) {
   final part = FlowDraft(
-    id: '',
+    id: d.id,
     blocks: d.blocks.removeWhere(
       (id, _) => !ids.contains(id) || isBoundary(id),
     ),
@@ -134,60 +200,10 @@ String? clipTextOf(FlowDraft d, Set<String> ids) {
       (e) => !ids.contains(e.from) || !ids.contains(e.to),
     ),
   );
-  if (part.blocks.isEmpty) {
-    return null;
-  }
-  final def = toDart(defOf(part, 0))! as Map<String, Object?>;
   final defs = blockDefsOf(d);
-  final used = blocksUsedBy(part, defs);
-  return jsonEncode({
-    'format': clipFormat,
-    'nodes': def['nodes'],
-    'edges': def['edges'],
-    'layout': def['layout'],
-    if (used.isNotEmpty) 'blocks': {for (final n in used) n: defs[n]},
+  return clipTextFor(part, {
+    for (final n in blocksUsedBy(part, defs)) n: defs[n]!,
   });
-}
-
-/// The blocks a clipboard [text] holds, or null when it is anything else
-/// (foreign text, another format, a broken shape): pasting it does nothing.
-FlowDraft? clipOf(String? text) {
-  if (text == null || text.isEmpty || text.length > _clipMax) {
-    return null;
-  }
-  final Object? json;
-  try {
-    json = jsonDecode(text);
-  } on FormatException {
-    return null;
-  }
-  if (json is! Map<String, Object?> || json['format'] != clipFormat) {
-    return null;
-  }
-  final nodes = json['nodes'];
-  if (nodes is! Map<String, Object?> ||
-      nodes.isEmpty ||
-      nodes.values.any((n) => n is! Map || n['type'] is! String)) {
-    return null;
-  }
-  final Value def;
-  try {
-    def = Value.from({
-      'nodes': nodes,
-      'edges': json['edges'] is List ? json['edges'] : const <Object?>[],
-      'layout': json['layout'] is Map ? json['layout'] : _noLayout,
-      if (json['blocks'] case final Map<String, Object?> b) 'blocks': b,
-    });
-  } on Object {
-    return null;
-  }
-  final d = flowDraftOf('', def);
-  // Only edges among the blocks themselves.
-  return d.copyWith(
-    edges: d.edges.removeWhere(
-      (e) => !d.blocks.containsKey(e.from) || !d.blocks.containsKey(e.to),
-    ),
-  );
 }
 
 /// An id for a pasted block: [id] when it is free, else its name with the
@@ -233,7 +249,7 @@ String freeBlockId(String id, bool Function(String) taken) {
     );
   }
   final defs = blockDefsOf(d);
-  final brought = blockDefsOf(clip);
+  final brought = clipBlocksOf(clip);
   final next = d.copyWith(
     blocks: blocks,
     edges: d.edges.addAll([
@@ -263,14 +279,13 @@ final class SubflowPort {
   /// Its name on the new block: unique among the block's inputs or outputs.
   final String name;
 
-  /// The ends inside the selection, as `(node, port)`. An input: every
-  /// inside input the outside source feeds. An output: the one inside
-  /// output it sends.
-  final List<(String, String)> inside;
+  /// The ends inside the selection. An input: every inside input the
+  /// outside source feeds. An output: the one inside output it sends.
+  final List<PortEnd> inside;
 
   /// The ends outside the selection. An input: the one outside output that
   /// feeds it. An output: every outside input it feeds.
-  final List<(String, String)> outside;
+  final List<PortEnd> outside;
 
   @override
   String toString() => 'SubflowPort($name $inside ⇄ $outside)';
@@ -309,8 +324,8 @@ final class Subflow {
 Subflow extractSubflow(FlowDraft d, Set<String> ids) {
   final blocks = d.blocks.removeWhere((id, _) => !ids.contains(id));
   bool inside(String id) => blocks.containsKey(id);
-  final ins = <(String, String), List<(String, String)>>{};
-  final outs = <(String, String), List<(String, String)>>{};
+  final ins = <PortEnd, List<PortEnd>>{};
+  final outs = <PortEnd, List<PortEnd>>{};
   final inner = <FlowEdge>[];
   for (final e in d.edges) {
     final a = inside(e.from);
@@ -318,16 +333,20 @@ Subflow extractSubflow(FlowDraft d, Set<String> ids) {
     if (a && b) {
       inner.add(e);
     } else if (b) {
-      ins.putIfAbsent((e.from, e.fromPort), () => []).add((e.to, e.toPort));
+      ins.putIfAbsent(e.source, () => []).add(e.target);
     } else if (a) {
-      outs.putIfAbsent((e.from, e.fromPort), () => []).add((e.to, e.toPort));
+      outs.putIfAbsent(e.source, () => []).add(e.target);
     }
   }
   String clean(String s) => s.replaceAll(RegExp('[^A-Za-z0-9_]'), '_');
-  List<String> names(Iterable<(String, String)> ends) {
-    String short((String, String) end) {
-      final port = end.$2.startsWith('in.') ? end.$2.substring(3) : end.$2;
-      return clean(port == 'in' || port == 'out' ? end.$1 : port);
+  List<String> names(Iterable<PortEnd> ends) {
+    String short(PortEnd end) {
+      final port = end.param ?? end.port;
+      final main = switch (end.known) {
+        EnginePort.in_ || EnginePort.out => true,
+        _ => false,
+      };
+      return clean(main ? end.block : port);
     }
 
     final ends0 = ends.toList();
@@ -337,7 +356,7 @@ Subflow extractSubflow(FlowDraft d, Set<String> ids) {
       for (final (i, e) in ends0.indexed)
         () {
           var n = plain.where((p) => p == plain[i]).length > 1
-              ? clean('${e.$1}_${plain[i]}')
+              ? clean('${e.block}_${plain[i]}')
               : plain[i];
           final base = n;
           for (var k = 2; !used.add(n); k++) {
@@ -420,11 +439,14 @@ enum FieldEditError { number, json, toggle }
       edit: p.choices.isNotEmpty
           ? FieldEdit.choice
           : switch (p.type) {
-              'bool' => FieldEdit.toggle,
-              'number' || 'int' => FieldEdit.number,
-              'map' || 'array' => FieldEdit.json,
-              'dynamic' => FieldEdit.any,
-              _ => FieldEdit.text,
+              TypeCode.bool_ => FieldEdit.toggle,
+              TypeCode.number => FieldEdit.number,
+              TypeCode.map || TypeCode.array => FieldEdit.json,
+              TypeCode.dynamic_ => FieldEdit.any,
+              TypeCode.string ||
+              TypeCode.enum_ ||
+              TypeCode.null_ ||
+              TypeCode.binary => FieldEdit.text,
             },
       locked: null,
     );
@@ -436,11 +458,13 @@ enum FieldEditError { number, json, toggle }
       edit: p.choices.isNotEmpty
           ? FieldEdit.choice
           : switch (p.type) {
-              'bool' => FieldEdit.toggle,
-              'number' || 'int' => FieldEdit.number,
-              'map' || 'array' => FieldEdit.json,
-              'string' || 'enum' => FieldEdit.text,
-              _ => FieldEdit.any,
+              TypeCode.bool_ => FieldEdit.toggle,
+              TypeCode.number => FieldEdit.number,
+              TypeCode.map || TypeCode.array => FieldEdit.json,
+              TypeCode.string || TypeCode.enum_ => FieldEdit.text,
+              TypeCode.null_ ||
+              TypeCode.binary ||
+              TypeCode.dynamic_ => FieldEdit.any,
             },
       locked: null,
     );
@@ -448,7 +472,7 @@ enum FieldEditError { number, json, toggle }
   // A range text (`date_range` `in`) stays a text: `2026` is a year to
   // the engine, not the number JSON would make of it.
   if (f.operand &&
-      (isRangeText(b.type, f.name) || isTextOperand(b.type, f.name))) {
+      (isRangeText(b.type, port: f.port) || isTextOperand(b.type, f.port))) {
     return (edit: FieldEdit.text, locked: null);
   }
   if (f.kind == FieldKind.arg || f.operand) {
@@ -461,27 +485,19 @@ enum FieldEditError { number, json, toggle }
 }
 
 /// The typed value of [f] of [b] as the config holds it: the config's
-/// value, else the parameter's default; null when it has none.
-Object? fieldEditValue(FlowBlock b, FlowField f) => switch (f) {
-  FlowField(:final spec?) => b.cfg[spec.name] ?? spec.defaultValue,
-  FlowField(kind: FieldKind.arg) => (b.cfg['args'] as Map?)?[f.name],
+/// value, else the parameter's default; [JsonNull] when it has none.
+JsonValue fieldEditValue(FlowBlock b, FlowField f) => switch (f) {
+  FlowField(:final spec?) => b.paramOr(spec.name, spec.defaultValue),
+  FlowField(kind: FieldKind.arg) => b.cfgArgs[f.name] ?? const JsonNull(),
   FlowField(operand: true, :final inPort?) => operandValueOf(b, inPort),
-  _ => null,
+  _ => const JsonNull(),
 };
 
 /// The typed value of [f] of [b] as the text its editor starts with: the
 /// config's value, else the parameter's default; a map or a list as
 /// indented JSON; a text as itself.
-String fieldEditText(FlowBlock b, FlowField f) {
-  final v = fieldEditValue(b, f);
-  return switch (v) {
-    null => '',
-    final String s => s,
-    final Map<Object?, Object?> m => flowJson(m),
-    final List<Object?> l => flowJson(l),
-    _ => jsonEncode(v),
-  };
-}
+String fieldEditText(FlowBlock b, FlowField f) =>
+    jsonEditText(fieldEditValue(b, f).raw);
 
 /// What is wrong with [text] as a value typed by [edit]; null when it can
 /// be saved. Empty text is always right: it removes the value.
@@ -496,13 +512,15 @@ FieldEditError? fieldEditError(String text, FieldEdit edit) {
       return n == null || !n.isFinite ? FieldEditError.number : null;
     case FieldEdit.json:
       try {
-        final v = jsonDecode(s);
-        return v is Map || v is List ? null : FieldEditError.json;
+        return switch (JsonValue.of(jsonDecode(s))) {
+          JsonMap() || JsonList() => null,
+          _ => FieldEditError.json,
+        };
       } on FormatException {
         return FieldEditError.json;
       }
     case FieldEdit.toggle:
-      return s == 'true' || s == 'false' ? null : FieldEditError.toggle;
+      return bool.tryParse(s) == null ? FieldEditError.toggle : null;
     case FieldEdit.choice || FieldEdit.text || FieldEdit.any:
       return null;
   }
@@ -518,7 +536,7 @@ Object? typedText(String text, FieldEdit edit) {
     case FieldEdit.number:
       return num.tryParse(s) ?? text;
     case FieldEdit.toggle:
-      return s == 'true' ? true : (s == 'false' ? false : text);
+      return bool.tryParse(s) ?? text;
     case FieldEdit.json:
       try {
         return jsonDecode(text);

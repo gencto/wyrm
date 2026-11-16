@@ -4,11 +4,13 @@ import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:ui/flows/flow_block_view.dart';
 import 'package:ui/flows/flow_canvas.dart';
+import 'package:ui/flows/flow_intents.dart';
 import 'package:ui/flows/flow_legend.dart';
 import 'package:ui/flows/flow_menu.dart';
 import 'package:ui/flows/shortcut_card.dart';
 
 import 'frames/harness.dart';
+import 'support/test_query.dart';
 
 /// Every block of a flow larger than the canvas's first size is reached
 /// (flow-editor.md §14, owner 2026-11-15: "I can't scroll to the bottom
@@ -47,7 +49,7 @@ void main() {
     List<FlowBlockVm>? blocks,
     String? view,
     double width = 1000,
-    void Function(FlowCommand c, {Offset? at})? onCommand,
+    ValueChanged<CanvasCommand>? onCommand,
   }) => frame(
     SizedBox(
       width: width,
@@ -58,28 +60,19 @@ void main() {
         controller: ctl,
         view: view,
         onCommand: onCommand,
-        menu: (ids, block, row) => const FlowMenuVm(
-          title: 'canvas',
-          items: [FlowMenuItemVm(.tidy)],
+        menu: TestQuery(
+          (_) => const FlowMenuVm(
+            flow: 'canvas',
+            items: [FlowMenuItemVm(.tidy)],
+          ),
         ),
-        legend: const FlowLegendVm(
-          reads: 'reads a value',
-          writes: 'writes to a device',
-          free: 'free field',
-          readOnly: 'no left port = read-only point',
-        ),
-        actions: FlowBlockActions(
-          onSelect: picked.add,
-          onBind: (_, _, _) {},
-          onRebind: (_, _, _, _) {},
-          onUnbind: (_, _) {},
-          onDropEntry: (_, _, _) {},
-          onResize: (_, {required add}) {},
-          refusal: (_, _, _, {replacing}) => null,
-        ),
+        legend: true,
+        onSelect: picked.add,
+        onBind: (_) {},
+        onRebind: (_) {},
+        onUnbind: (_) {},
         onClear: () {},
-        onMove: (_, {required nudge}) {},
-        onDrop: (_, _, _) {},
+        onMove: (_) {},
       ),
     ),
   );
@@ -241,7 +234,7 @@ void main() {
     final ctl = TransformationController();
     addTearDown(ctl.dispose);
     final commands = <FlowCommand>[];
-    void onCommand(FlowCommand c, {Offset? at}) => commands.add(c);
+    void onCommand(CanvasCommand c) => commands.add(c.command);
     await tester.pumpWidget(
       canvas(ctl, [], blocks: big, view: 'big', onCommand: onCommand),
     );

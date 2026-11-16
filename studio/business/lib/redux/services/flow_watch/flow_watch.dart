@@ -2,12 +2,10 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:models/live_value.dart';
-import 'package:models/quality.dart' as m;
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../../common/services/interface.dart';
-import '../../../wyrm/mappers/flow_fields.dart';
-import '../../../wyrm/mappers/values.dart';
+import '../../../wyrm/decode/flow_rows.dart';
 
 /// What [FlowWatchService] tells its listener.
 abstract class FlowWatchServiceListener {
@@ -113,7 +111,7 @@ class FlowWatchService extends DisposableServiceInterface {
     }
     var rows = 0;
     _sub = api
-        .invoke(flow, 'watch', Value.from({'max_hz': maxHz}))
+        .invoke(flow, 'watch', watchArgs(maxHz))
         .listen(
           (r) {
             rows++;
@@ -166,20 +164,26 @@ class FlowWatchService extends DisposableServiceInterface {
   }
 
   void _onRow(Value r) {
-    if (r['redeployed'] case final v?) {
+    final row = flowRowOf(
+      r,
+      now: DateTime.now().toUtc(),
+    ).orWarn('watch $_flow');
+    if (row == null) {
+      return;
+    }
+    if (row.redeployed) {
       // The last row of a stream: the values belong to another version.
       _pending.clear();
       _reset = true;
       _schedule();
-      _listener.onRedeployed(integer(v));
+      _listener.onRedeployed(row.version);
       return;
     }
-    final t = time(r['t']) ?? DateTime.now().toUtc();
-    if (boolean(r['snapshot']) ?? false) {
+    if (row.snapshot) {
       _pending.clear();
       _reset = true;
     }
-    flowRowPorts(r, t, _pending);
+    _pending.addAll(row.ports);
     _schedule();
   }
 
@@ -219,52 +223,4 @@ class FlowWatchService extends DisposableServiceInterface {
     _flush?.cancel();
     _flush = null;
   }
-}
-
-/// The port values of one row of `watch` or `preview` (ADR 0038 §3): each
-/// node's `in` and `out` samples and its `params`, keyed by [portKey], put
-/// into [into].
-void flowRowPorts(Value r, DateTime t, Map<String, LiveValue> into) {
-  if (r['nodes'] case VMap(:final v)) {
-    for (final MapEntry(key: node, value: ports) in v.entries) {
-      for (final dir in const ['in', 'out']) {
-        if (ports[dir] case VMap(:final v)) {
-          for (final MapEntry(key: port, value: s) in v.entries) {
-            into[portKey(dir, node, port)] = flowSample(s, t);
-          }
-        }
-      }
-      if (ports['params'] case VMap(:final v)) {
-        for (final MapEntry(key: p, value: x) in v.entries) {
-          into[portKey('param', node, p)] = LiveValue(
-            time: t,
-            value: toDart(x),
-          );
-        }
-      }
-    }
-  }
-}
-
-/// A sample `[v, q]` of a row, q a quality code or name.
-LiveValue flowSample(Value s, DateTime t) {
-  final (v, q) = switch (s) {
-    VArray(:final v) when v.length >= 2 => (v[0], v[1]),
-    VArray(:final v) when v.length == 1 => (v[0], null),
-    _ => (s, null),
-  };
-  final code = integer(q);
-  final quality = switch (q) {
-    VStr(:final v) => Quality.fromName(v),
-    _ => code == null ? null : Quality.fromCode(code),
-  };
-  return LiveValue(
-    time: t,
-    value: toDart(v),
-    quality: switch (quality) {
-      Quality.uncertain => m.Quality.uncertain,
-      Quality.bad => m.Quality.bad,
-      _ => m.Quality.good,
-    },
-  );
 }

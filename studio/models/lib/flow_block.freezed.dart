@@ -15,7 +15,7 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$FlowBlock {
 
- String get id; String get type;/// The node's config without `type`, as JSON values.
+ String get id; BlockType get type;/// The node's config without `type`, as JSON values.
  IMap<String, Object?> get cfg; double get x; double get y;/// The fields the user pinned to the block or took off it, by field id
 /// (`p:input_min` → true: a row of the block; false: only in the
 /// inspector). A field without an entry follows its type's default.
@@ -56,7 +56,7 @@ abstract mixin class $FlowBlockCopyWith<$Res>  {
   factory $FlowBlockCopyWith(FlowBlock value, $Res Function(FlowBlock) _then) = _$FlowBlockCopyWithImpl;
 @useResult
 $Res call({
- String id, String type, IMap<String, Object?> cfg, double x, double y, IMap<String, bool> pins
+ String id, BlockType type, IMap<String, Object?> cfg, double x, double y, IMap<String, bool> pins
 });
 
 
@@ -77,7 +77,7 @@ class _$FlowBlockCopyWithImpl<$Res>
   return _then(FlowBlock(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as String,type: null == type ? _self.type : type // ignore: cast_nullable_to_non_nullable
-as String,cfg: null == cfg ? _self.cfg : cfg // ignore: cast_nullable_to_non_nullable
+as BlockType,cfg: null == cfg ? _self.cfg : cfg // ignore: cast_nullable_to_non_nullable
 as IMap<String, Object?>,x: null == x ? _self.x : x // ignore: cast_nullable_to_non_nullable
 as double,y: null == y ? _self.y : y // ignore: cast_nullable_to_non_nullable
 as double,pins: null == pins ? _self.pins : pins // ignore: cast_nullable_to_non_nullable
@@ -97,7 +97,7 @@ class _FlowBlock implements FlowBlock {
   
 
 @override final  String id;
-@override final  String type;
+@override final  BlockType type;
 /// The node's config without `type`, as JSON values.
 @override@JsonKey() final  IMap<String, Object?> cfg;
 @override@JsonKey() final  double x;
@@ -140,7 +140,7 @@ abstract mixin class _$FlowBlockCopyWith<$Res> implements $FlowBlockCopyWith<$Re
   factory _$FlowBlockCopyWith(_FlowBlock value, $Res Function(_FlowBlock) _then) = __$FlowBlockCopyWithImpl;
 @override @useResult
 $Res call({
- String id, String type, IMap<String, Object?> cfg, double x, double y, IMap<String, bool> pins
+ String id, BlockType type, IMap<String, Object?> cfg, double x, double y, IMap<String, bool> pins
 });
 
 
@@ -161,7 +161,7 @@ class __$FlowBlockCopyWithImpl<$Res>
   return _then(_FlowBlock(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as String,type: null == type ? _self.type : type // ignore: cast_nullable_to_non_nullable
-as String,cfg: null == cfg ? _self.cfg : cfg // ignore: cast_nullable_to_non_nullable
+as BlockType,cfg: null == cfg ? _self.cfg : cfg // ignore: cast_nullable_to_non_nullable
 as IMap<String, Object?>,x: null == x ? _self.x : x // ignore: cast_nullable_to_non_nullable
 as double,y: null == y ? _self.y : y // ignore: cast_nullable_to_non_nullable
 as double,pins: null == pins ? _self.pins : pins // ignore: cast_nullable_to_non_nullable

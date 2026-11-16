@@ -1,7 +1,11 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 
+import 'block_category.dart';
+import 'block_type.dart';
+import 'engine_port.dart';
 import 'param_spec.dart';
+import 'port_type.dart';
 
 part 'node_type.freezed.dart';
 
@@ -9,11 +13,26 @@ part 'node_type.freezed.dart';
 @freezed
 abstract class NodeType with _$NodeType {
   const factory NodeType({
-    required String type,
+    required BlockType type,
     @Default('') String category,
+
+    /// [category] as a palette section the editor knows, decoded with the
+    /// catalog; null for a category the engine adds later (it is drawn by
+    /// its text, after the known ones).
+    BlockCategory? knownCategory,
     @Default('') String description,
     @Default(IListConst([])) IList<String> inputs,
     @Default(IListConst([])) IList<String> outputs,
+
+    /// The ports of [inputs] the editor treats in its own way
+    /// ([EnginePort]), by name, decoded with the catalog. A port with
+    /// another name is not here; nor are a custom block's ports, which are
+    /// its author's names.
+    @Default(IMapConst({})) IMap<String, EnginePort> knownInputs,
+
+    /// The ports of [outputs] the editor treats in its own way, as
+    /// [knownInputs].
+    @Default(IMapConst({})) IMap<String, EnginePort> knownOutputs,
 
     /// Ports a parameter adds: `(param, prefix, defaults)`.
     String? dynInParam,
@@ -24,8 +43,8 @@ abstract class NodeType with _$NodeType {
     @Default(IListConst([])) IList<String> dynOutDefaults,
     @Default(IListConst([])) IList<ParamSpec> params,
 
-    /// The type of each port (`number`, `bool`, `any`, …; ADR 0038 §2).
-    @Default(IMapConst({})) IMap<String, String> portTypes,
+    /// The type of each port (ADR 0038 §2), by port name.
+    @Default(IMapConst({})) IMap<String, PortType> portTypes,
 
     /// Whether inputs repeat as outputs named like them (ADR 0038 §1); null
     /// when the catalog does not say.

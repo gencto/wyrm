@@ -1,6 +1,8 @@
-import 'dart:async';
-
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+
+import 'package:models/json_value.dart';
+import 'package:models/undo_kind.dart';
+import 'package:models/undo_tag.dart';
 
 import '../../../wyrm/mappers/flow_canvas.dart';
 import '../../app_state.dart';
@@ -22,21 +24,28 @@ class SetBlockParamAction extends Action {
     if (d == null || b == null) {
       return null;
     }
-    final cfg = value == null || value == ''
-        ? b.cfg.remove(name)
-        : b.cfg.add(name, value);
-    unawaited(dispatchAndWait(ValidateFlowAction()));
+    final tag = UndoTag(UndoKind.param, block: id, name: name);
+    final cfg = switch (JsonValue.of(value)) {
+      JsonNull() || JsonText(text: '') => b.cfg.remove(name),
+      _ => b.cfg.add(name, value),
+    };
+    _validate();
     return state.copyWith.flowEditor(
       draft: d.copyWith(blocks: d.blocks.add(id, b.copyWith(cfg: cfg))),
       dirty: true,
       undo: undoPush(
         flowEditor.undo,
         d,
-        tag: 'param:$id/$name',
+        tag: tag,
         lastTag: flowEditor.undoTag,
       ),
       redo: const IListConst([]),
-      undoTag: 'param:$id/$name',
+      undoTag: tag,
     );
   }
+
+  /// The engine checks the draft again once the edits settle
+  /// ([ValidateFlowAction] is debounced and brings its own state); this
+  /// edit does not wait for it.
+  void _validate() => dispatch(ValidateFlowAction());
 }

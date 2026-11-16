@@ -3,9 +3,9 @@ import 'package:business/wyrm/decode/decoded.dart';
 import 'package:business/wyrm/decode/link_info.dart';
 import 'package:business/wyrm/decode/live_values.dart';
 import 'package:business/wyrm/decode/package_info.dart';
+import 'package:business/wyrm/decode/param_spec.dart';
 import 'package:business/wyrm/mappers/live_value_mapper.dart';
 import 'package:business/wyrm/mappers/node_info_mapper.dart';
-import 'package:business/wyrm/mappers/param_spec_mapper.dart';
 import 'package:business/wyrm/mappers/peer_mapper.dart';
 import 'package:business/wyrm/mappers/quarantine_entry_mapper.dart';
 import 'package:business/wyrm/mappers/value_text.dart';
@@ -259,9 +259,9 @@ void main() {
       ['name', 'package', 'zip', 'token'],
     );
     expect(specs[0].required, isTrue);
-    expect(specs[1].type, 'enum');
+    expect(specs[1].type, TypeCode.enum_);
     expect(specs[1].choices, ['modbus', 'mqtt']);
-    expect(specs[2].editor, 'file');
+    expect(specs[2].editor, ParamEditor.file);
     expect(specs[3].secret, isTrue);
     expect(specs[3].editor, isNull);
     expect(specs[3].description, 'one-time');

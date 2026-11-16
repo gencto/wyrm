@@ -1,0 +1,5 @@
+{"id":"c4","version":2,"enabled":false,"policy":{"overflow":"drop_oldest","queue":10},
+ "blocks":{"b1":{"inputs":[{"name":"x","to":["n.in.0"],"zz":{"deep":[1,{"k":null}]}}],"outputs":[{"name":"y","from":"n.out","note":"keep me"}],"nodes":{"n":{"type":"abs"}},"edges":[],"layout":{}},
+           "b2":{"description":"","inputs":[{"name":"in","to":"q.in","default":null}],"outputs":[{"name":"error","from":"q.error"}],"nodes":{"q":{"type":"json_parse"}},"edges":[],"layout":{"q":[5.4,7.6]}}},
+ "nodes":{"i1":{"type":"block:b1"},"i2":{"type":"block:b2","values":{"in":"{}"}}},
+ "edges":[["i1.y","i2.in"]]}

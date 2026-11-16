@@ -1,6 +1,7 @@
-import 'dart:async';
-
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+
+import 'package:models/undo_kind.dart';
+import 'package:models/undo_tag.dart';
 
 import '../../../wyrm/mappers/flow_canvas.dart';
 import '../../../wyrm/mappers/flow_mapper.dart';
@@ -32,18 +33,24 @@ class SetOperandValueAction extends Action {
     if (cfg == null || sameCfg(cfg, b.cfg)) {
       return null;
     }
-    unawaited(dispatchAndWait(ValidateFlowAction()));
+    _validate();
+    final tag = UndoTag(UndoKind.operand, block: id, name: port);
     return state.copyWith.flowEditor(
       draft: d.copyWith(blocks: d.blocks.add(id, b.copyWith(cfg: cfg))),
       dirty: true,
       undo: undoPush(
         flowEditor.undo,
         d,
-        tag: 'operand:$id/$port',
+        tag: tag,
         lastTag: flowEditor.undoTag,
       ),
       redo: const IListConst([]),
-      undoTag: 'operand:$id/$port',
+      undoTag: tag,
     );
   }
+
+  /// The engine checks the draft again once the edits settle
+  /// ([ValidateFlowAction] is debounced and brings its own state); this
+  /// edit does not wait for it.
+  void _validate() => dispatch(ValidateFlowAction());
 }

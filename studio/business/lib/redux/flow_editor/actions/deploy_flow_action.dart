@@ -1,11 +1,7 @@
-import 'dart:async';
-
 import 'package:async_redux/async_redux.dart';
-import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../../wyrm/calls.dart';
-import '../../../wyrm/mappers/flow_mapper.dart';
-import '../../../wyrm/mappers/values.dart';
+import '../../../wyrm/decode/flow_def.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 import '../../flows/actions/retrieve_flows_action.dart';
@@ -33,12 +29,11 @@ class DeployFlowAction extends Action with NonReentrant, WaitingAction {
       deps.wyrm,
       '$root/dataflows',
       'deploy',
-      Value.from({'def': toDart(defOf(d, v))}),
+      defArgs(defOf(d, v)),
     );
     return state.copyWith.flowEditor(
       version: v,
       dirty: false,
-      message: 'deployed version $v',
       draft: d.copyWith(version: v),
       deployed: d.copyWith(version: v),
     );
@@ -51,7 +46,10 @@ class DeployFlowAction extends Action with NonReentrant, WaitingAction {
   void after() {
     super.after();
     if (flows.follow == null) {
-      unawaited(dispatchAndWait(RetrieveFlowsAction()));
+      _readFlows();
     }
   }
+
+  /// One full read of the flows list; nothing waits for it.
+  void _readFlows() => dispatch(RetrieveFlowsAction());
 }

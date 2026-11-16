@@ -2103,6 +2103,16 @@ class MessageLookup extends MessageLookupByLibrary {
     "errRowStatus": MessageLookupByLibrary.simpleMessage("Статус"),
     "errRowStudio": MessageLookupByLibrary.simpleMessage("Studio"),
     "errRowTime": MessageLookupByLibrary.simpleMessage("Час"),
+    "errRunDenied": MessageLookupByLibrary.simpleMessage(
+      "Тобі не можна запустити його: це потребує write на флоу і прав на те, на що діють блок і блоки після нього.",
+    ),
+    "errRunNoTrigger": MessageLookupByLibrary.simpleMessage(
+      "Цей брокер не має дії trigger (потрібен ADR 0040).",
+    ),
+    "errRunNotByHand": MessageLookupByLibrary.simpleMessage(
+      "Цей блок не можна запустити вручну.",
+    ),
+    "errRunNotRunning": MessageLookupByLibrary.simpleMessage("Флоу не працює."),
     "errSaidBroker": MessageLookupByLibrary.simpleMessage("Брокер відповів"),
     "errSaidNoAnswer": MessageLookupByLibrary.simpleMessage("Studio чекала"),
     "errSaidStudio": MessageLookupByLibrary.simpleMessage("Що сталося"),
@@ -2327,6 +2337,8 @@ class MessageLookup extends MessageLookupByLibrary {
     "followUpTileNote": MessageLookupByLibrary.simpleMessage(
       "нове прохання, що продовжує це завдання",
     ),
+    "formLinear": MessageLookupByLibrary.simpleMessage("k × in + b"),
+    "formRange": MessageLookupByLibrary.simpleMessage("Діапазон"),
     "foundBad": MessageLookupByLibrary.simpleMessage("зараз погано"),
     "foundGood": MessageLookupByLibrary.simpleMessage("зараз добре"),
     "foundNoValue": MessageLookupByLibrary.simpleMessage(
@@ -2571,6 +2583,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "mbInUse": m194,
     "mbInsideItself": MessageLookupByLibrary.simpleMessage(
       "Блок не може містити сам себе",
+    ),
+    "mbLibraryBusy": MessageLookupByLibrary.simpleMessage(
+      "Чекаємо на відповідь бібліотеки",
     ),
     "mbNotInLibrary": MessageLookupByLibrary.simpleMessage(
       "У бібліотеці немає блока з такою назвою",
@@ -2955,6 +2970,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "problemCodeMismatch": MessageLookupByLibrary.simpleMessage(
       "Недоступно: оголошений код CA не збігається з кодом його CA.",
     ),
+    "problemInvalid": MessageLookupByLibrary.simpleMessage("недійсний"),
     "problemNoAnswer": m240,
     "problemNoCa": MessageLookupByLibrary.simpleMessage(
       "Недоступно: цей комп’ютер не довіряє сертифікату, а CA для перевірки gateway не надсилає.",
@@ -2969,6 +2985,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Недоступно: простий http поза цим комп’ютером заборонено (insecure_plaintext).",
     ),
     "problemStudioTooOld": m241,
+    "problemUnnamed": MessageLookupByLibrary.simpleMessage("назвіть потік"),
     "problems": MessageLookupByLibrary.simpleMessage("Проблеми"),
     "problemsClear": MessageLookupByLibrary.simpleMessage("Очистити все"),
     "problemsClose": MessageLookupByLibrary.simpleMessage("Закрити проблеми"),

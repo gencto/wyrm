@@ -1,13 +1,18 @@
 import 'package:equatable/equatable.dart';
+import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../indicators/app_icon.dart';
 import '../indicators/lines_text.dart';
-import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
+import '../theme/motion.dart';
 import '../theme/radii.dart';
+import '../theme/shades.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
+import 'block_palette.dart';
+import 'flow_intents.dart';
 
 /// What a block is (spec §3 header chip): a point of the tree, logic, a
 /// sink, an action of the tree, an own block.
@@ -32,6 +37,60 @@ enum PortMark { none, free, bound, write }
 /// the last value of its preview, grey), ghost (what a sink would write in
 /// a preview, nothing written).
 enum ValueTone { plain, bound, bad, stale, ghost }
+
+/// What a sink would do in the preview (nothing is written), said on the
+/// row its value stands on: send its action, run it, or write its point.
+enum GhostKindVm {
+  send,
+  run,
+  write;
+
+  /// The row's text: `would write 70.7`.
+  String label(String value) => switch (this) {
+    send => S.current.wouldSend(value),
+    run => S.current.wouldRun(value),
+    write => S.current.wouldWrite(value),
+  };
+}
+
+/// The two blocks of the inside of a custom block: its inputs and its
+/// outputs, titled in words.
+enum BoundaryVm {
+  inputs,
+  outputs;
+
+  String get label => switch (this) {
+    inputs => S.current.blockInputs,
+    outputs => S.current.blockOutputs,
+  };
+}
+
+/// What − and + change: the ports of a boundary block, the pairs of
+/// `case`/`router`, or the inputs of `add`, `if`, ….
+enum VariadicKindVm {
+  ports,
+  pairs,
+  inputs;
+
+  /// `3 ports`, `2 cases`, `2 inputs`.
+  String count(int n) => switch (this) {
+    ports => S.current.portsCount(n),
+    pairs => S.current.pairsCount(n),
+    inputs => S.current.inputsCount(n),
+  };
+
+  String get add => switch (this) {
+    ports => S.current.addPort,
+    pairs => S.current.addPair,
+    inputs => S.current.addInput,
+  };
+
+  String get remove => switch (this) {
+    ports => S.current.removePort,
+    pairs => S.current.removePair,
+    inputs => S.current.removeInput,
+  };
+}
 
 /// A field one drags from: block [block], engine output [port].
 final class FieldRefVm extends Equatable {
@@ -61,21 +120,24 @@ final class FieldRowVm extends Equatable {
     this.outMark = PortMark.none,
     this.dropTarget = false,
     this.outAliases = const [],
-    this.action,
-    this.actionTip = '',
+    this.editScope = false,
     this.command = false,
+    this.ghost,
   });
 
   /// A command input (`date_range` `next`, `table_page` `first`): drawn
   /// as a button that a sample on its wire presses, with no value.
   final bool command;
 
-  /// An icon button after the value (`action_edit` on a `Scope` row: it
-  /// opens the scope's prompt); null: none.
-  final String? action;
-  final String actionTip;
+  /// The `Scope` of a key: a pencil after the value opens its prompt.
+  final bool editScope;
 
-  /// The field's id within its block.
+  /// Set on the row a sink's ghost stands on (the preview): [value] is what
+  /// it would send or write.
+  final GhostKindVm? ghost;
+
+  /// The row's key within its block: what tells its widgets apart (the
+  /// app's typed field id written out); never read back.
   final String id;
 
   /// What the row reads: `Input min`, `Input 1`, a point's name; no colon.
@@ -86,6 +148,9 @@ final class FieldRowVm extends Equatable {
 
   /// Already formatted (`92.6`, `4095`, `82.5 °C`).
   final String value;
+
+  /// What the row shows: its value, or what its sink would do.
+  String get shown => ghost?.label(value) ?? value;
   final ValueTone tone;
 
   /// The engine input a binding into it uses; null: no left port.
@@ -119,72 +184,82 @@ final class FieldRowVm extends Equatable {
     outMark,
     dropTarget,
     outAliases,
-    action,
-    actionTip,
+    editScope,
+    ghost,
     command,
   ];
 }
 
 /// The − / + row of a block with variable inputs.
 final class VariadicVm extends Equatable {
-  const VariadicVm({
-    required this.label,
+  const VariadicVm(
+    this.kind, {
+    required this.count,
     this.canRemove = true,
     this.canAdd = true,
-    this.removeLabel = 'Remove the last input',
-    this.addLabel = 'Add an input',
   });
 
-  /// `2 inputs`, `3 cases`.
-  final String label;
+  final VariadicKindVm kind;
+
+  /// How many ports, pairs or inputs there are.
+  final int count;
   final bool canRemove;
   final bool canAdd;
-  final String removeLabel;
-  final String addLabel;
+
+  /// `2 inputs`, `3 cases`.
+  String get label => kind.count(count);
 
   @override
-  List<Object?> get props => [
-    label,
-    canRemove,
-    canAdd,
-    removeLabel,
-    addLabel,
-  ];
+  List<Object?> get props => [kind, count, canRemove, canAdd];
 }
 
 /// One block on the canvas.
 final class FlowBlockVm extends Equatable {
   const FlowBlockVm({
     required this.id,
-    required this.title,
     required this.x,
     required this.y,
-    this.type = '',
+    this.title,
+    this.boundary,
+    this.caption = const [],
     this.kind = BlockKindVm.logic,
-    this.width = 220,
+    this.width = AppSizes.flowBlockWidth,
     this.rows = const [],
     this.variadic,
     this.selected = false,
-    this.tag,
-    this.link,
+    this.preview = false,
+    this.openable = false,
   });
 
   final String id;
 
-  /// A link row under the fields (`Open inside`: the inside of a custom
-  /// block's instance); null: none.
-  final String? link;
+  /// The inputs or outputs block of a custom block's inside; null: a block
+  /// of the flow, titled by its id.
+  final BoundaryVm? boundary;
 
-  /// A small chip in the header after the title (`preview`: a sink's value
-  /// is what it would write).
-  final String? tag;
+  /// A link row under the fields, `Open inside`: the inside of a custom
+  /// block's instance.
+  final bool openable;
 
-  /// The node id, mono.
-  final String title;
+  /// A `preview` chip in the header after the title: a sink's value is what
+  /// it would write.
+  final bool preview;
 
-  /// On the right of the header: the type (`scale`), or the connection of a
-  /// tree point (`modbus/tcp-tank`).
-  final String type;
+  /// What it is, in parts (`tcp-tank`, `ramp`): the type (`scale`), the
+  /// connection of a tree point (`modbus/tcp-tank`), an action block's node
+  /// and action.
+  final List<String> caption;
+
+  /// What the header names it, when not its id (the app titles a block by
+  /// its id).
+  final String? title;
+
+  /// The header's title, mono: the boundary's name, else [title], else the
+  /// id.
+  String get heading => boundary?.label ?? title ?? id;
+
+  /// On the right of the header: [caption] read as one.
+  String get type => caption.join(' · ');
   final BlockKindVm kind;
   final double x;
   final double y;
@@ -203,27 +278,28 @@ final class FlowBlockVm extends Equatable {
   FlowBlockVm _with({double? x, double? y, bool? selected}) => FlowBlockVm(
     id: id,
     title: title,
+    boundary: boundary,
     x: x ?? this.x,
     y: y ?? this.y,
-    type: type,
+    caption: caption,
     kind: kind,
     width: width,
     rows: rows,
     variadic: variadic,
     selected: selected ?? this.selected,
-    tag: tag,
-    link: link,
+    preview: preview,
+    openable: openable,
   );
 
   /// The block's box on the canvas.
   Rect get rect => Rect.fromLTWH(x, y, width, height);
 
-  static const headerHeight = 32.0;
-  static const rowHeight = 28.0;
-  static const bodyTop = 6.0;
+  static const double headerHeight = AppSizes.flowBlockHeader;
+  static const double rowHeight = AppSizes.flowBlockRow;
+  static const double bodyTop = AppSizes.flowBlockBodyTop;
 
   /// The − / + row under the fields.
-  static const toolsHeight = 38.0;
+  static const double toolsHeight = AppSizes.flowBlockTools;
 
   /// How tall the block is drawn: header, body padding 6 + 8, 28 per row
   /// (at least one), the − / + row.
@@ -231,8 +307,8 @@ final class FlowBlockVm extends Equatable {
       headerHeight +
       bodyTop +
       rowHeight * (rows.isEmpty ? 1 : rows.length) +
-      (link == null ? 0 : rowHeight) +
-      8 +
+      (openable ? rowHeight : 0) +
+      AppSpacing.sm +
       (variadic == null ? 0 : toolsHeight);
 
   /// Whether [p] (canvas coordinates) is on the header, which moves the
@@ -276,7 +352,8 @@ final class FlowBlockVm extends Equatable {
   List<Object?> get props => [
     id,
     title,
-    type,
+    boundary,
+    caption,
     kind,
     x,
     y,
@@ -284,80 +361,9 @@ final class FlowBlockVm extends Equatable {
     rows,
     variadic,
     selected,
-    tag,
-    link,
+    preview,
+    openable,
   ];
-}
-
-/// What a block reports back; one set of handlers for every block, keyed by
-/// [FlowBlockVm.id]. The canvas reads the pointer itself (drag a block by
-/// its header, drag a wire from a field) and calls these.
-final class FlowBlockActions {
-  const FlowBlockActions({
-    required this.onSelect,
-    required this.onBind,
-    required this.onRebind,
-    required this.onUnbind,
-    required this.onDropEntry,
-    required this.onResize,
-    this.refusal = _takesAll,
-    this.onOpen,
-    this.onRowAction,
-    this.onView,
-  });
-
-  /// The mark of a value of several lines (`↲ +1`) on a row: opens the
-  /// row's value in the viewer (block, row id).
-  final RowAction<String, String>? onView;
-
-  /// The link row of a block ([FlowBlockVm.link]).
-  final ValueChanged<String>? onOpen;
-
-  /// The icon button of a row ([FieldRowVm.action]): block, row id.
-  final RowAction<String, String>? onRowAction;
-
-  final ValueChanged<String> onSelect;
-
-  /// A wire dragged from `from` let go on input `toPort` of `block`.
-  final void Function(FieldRefVm from, String block, String toPort) onBind;
-
-  /// The wire into `oldBlock.oldPort`, picked up and let go on input
-  /// `toPort` of `block`.
-  final void Function(
-    String oldBlock,
-    String oldPort,
-    String block,
-    String toPort,
-  )
-  onRebind;
-
-  /// Double click or Alt-click on a bound input, or its wire picked up and
-  /// let go on the empty canvas.
-  final RowAction<String, String> onUnbind;
-
-  /// A palette entry (`key:<point>`) dropped on input `toPort` of `block`.
-  final void Function(String entry, String block, String toPort) onDropEntry;
-
-  /// − (false) or + (true).
-  final void Function(String block, {required bool add}) onResize;
-
-  /// Why a row (block, row id) does not take a wire from a field
-  /// (`Outputs cannot be bound`, `number does not fit bool`), null when it
-  /// does; `replacing` is the input a picked-up wire leaves.
-  final String? Function(
-    FieldRefVm from,
-    String block,
-    String rowId, {
-    (String, String)? replacing,
-  })
-  refusal;
-
-  static String? _takesAll(
-    FieldRefVm from,
-    String block,
-    String rowId, {
-    (String, String)? replacing,
-  }) => null;
 }
 
 /// How a row is lit: while a wire is dragged over it (takes, refuses), or
@@ -372,27 +378,41 @@ enum RowLight { none, takes, refuses, source }
 class FlowBlockView extends StatelessWidget {
   const FlowBlockView({
     required this.vm,
-    required this.actions,
+    this.onOpen,
+    this.onResize,
+    this.onView,
+    this.onRowAction,
     this.lit,
     this.light = RowLight.none,
     super.key,
   });
 
   final FlowBlockVm vm;
-  final FlowBlockActions actions;
+
+  /// The `Open inside` row ([FlowBlockVm.openable]).
+  final VoidCallback? onOpen;
+
+  /// − or + of the variable inputs.
+  final ValueChanged<BlockResized>? onResize;
+
+  /// The mark of a value of several lines (`↲ +1`) on a row: opens the
+  /// row's value in the viewer.
+  final ValueChanged<RowRef>? onView;
+
+  /// The pencil of a row ([FieldRowVm.editScope]).
+  final ValueChanged<RowRef>? onRowAction;
   final String? lit;
   final RowLight light;
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final tag = vm.tag;
     final (headerFill, ink) = switch (vm.kind) {
       .node => (c.goodTint, c.good),
       .logic => (c.ground4, c.text2),
       .sink => (c.ground4, c.emberSoft),
       .action => (c.emberTint, c.emberSoft),
-      .my => (const Color(0xFF3A2A1C), c.emberSoft),
+      .my => (FixedGrounds.flowOwnBlockHeader, c.emberSoft),
     };
     return Container(
       width: vm.width,
@@ -424,18 +444,13 @@ class FlowBlockView extends StatelessWidget {
               padding: Insets.control,
               decoration: BoxDecoration(
                 color: headerFill,
-                borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(7),
-                ),
+                borderRadius: Radii.flowBlockHeader,
               ),
               child: Row(
-                spacing: 8,
+                spacing: AppSpacing.sm,
                 children: [
                   Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: AppSpacing.xs,
-                      vertical: 1,
-                    ),
+                    padding: Insets.flowBlockChip,
                     decoration: BoxDecoration(
                       border: .all(color: ink),
                       borderRadius: const BorderRadius.all(
@@ -445,7 +460,7 @@ class FlowBlockView extends StatelessWidget {
                     child: Text(
                       vm.kind.chip,
                       style: mono(
-                        size: 9,
+                        size: FontSizes.flowTag,
                         weight: .w600,
                         color: ink,
                       ).copyWith(height: 1.2),
@@ -454,18 +469,15 @@ class FlowBlockView extends StatelessWidget {
                   ConstrainedBox(
                     constraints: BoxConstraints(maxWidth: vm.width * 0.55),
                     child: Text(
-                      vm.title,
+                      vm.heading,
                       maxLines: 1,
                       overflow: .ellipsis,
                       style: mono(weight: .w600, color: c.text1),
                     ),
                   ),
-                  if (tag != null)
+                  if (vm.preview)
                     Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: AppSpacing.xs,
-                        vertical: 1,
-                      ),
+                      padding: Insets.flowBlockChip,
                       decoration: BoxDecoration(
                         color: c.emberTint,
                         borderRadius: const BorderRadius.all(
@@ -473,9 +485,9 @@ class FlowBlockView extends StatelessWidget {
                         ),
                       ),
                       child: Text(
-                        tag,
+                        S.current.previewTag,
                         style: mono(
-                          size: 9,
+                          size: FontSizes.flowTag,
                           color: c.emberSoft,
                         ).copyWith(height: 1.2),
                       ),
@@ -486,7 +498,7 @@ class FlowBlockView extends StatelessWidget {
                       maxLines: 1,
                       overflow: .ellipsis,
                       textAlign: .right,
-                      style: mono(size: 11, color: c.text4),
+                      style: mono(size: FontSizes.xs, color: c.text4),
                     ),
                   ),
                 ],
@@ -503,31 +515,29 @@ class FlowBlockView extends StatelessWidget {
               children: [
                 if (vm.rows.isEmpty)
                   const SizedBox(height: FlowBlockVm.rowHeight),
-                for (final r in vm.rows)
+                for (final (i, r) in vm.rows.indexed)
                   _FieldRow(
                     block: vm.id,
                     vm: r,
-                    actions: actions,
+                    at: RowRef(vm.id, i),
+                    onView: onView,
+                    onAction: onRowAction,
                     light: r.id == lit ? light : RowLight.none,
                   ),
-                if (vm.link case final link?)
+                if (vm.openable)
                   InkWell(
                     key: ValueKey('open-${vm.id}'),
-                    onTap: actions.onOpen == null
-                        ? null
-                        : () => actions.onOpen!(vm.id),
+                    onTap: onOpen,
                     child: SizedBox(
                       height: FlowBlockVm.rowHeight,
                       child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                        ),
+                        padding: Insets.flowBlockRow,
                         child: Row(
-                          spacing: 6,
+                          spacing: AppSpacing.flowRowParts,
                           children: [
                             Expanded(
                               child: Text(
-                                link,
+                                S.current.openInside,
                                 maxLines: 1,
                                 overflow: .ellipsis,
                                 style: TextStyle(
@@ -538,7 +548,7 @@ class FlowBlockView extends StatelessWidget {
                             ),
                             AppIcon(
                               'ui_chevron_right',
-                              size: 12,
+                              size: AppSizes.flowLinkChevron,
                               color: c.emberSoft,
                             ),
                           ],
@@ -548,31 +558,26 @@ class FlowBlockView extends StatelessWidget {
                   ),
                 if (vm.variadic case final v?)
                   Container(
-                    margin: const EdgeInsets.fromLTRB(
-                      12,
-                      AppSpacing.xs,
-                      12,
-                      AppSpacing.none,
-                    ),
-                    padding: const EdgeInsets.only(top: 6),
+                    margin: Insets.flowBlockToolsMargin,
+                    padding: Insets.flowBlockTools,
                     decoration: BoxDecoration(
                       border: Border(top: BorderSide(color: c.line1)),
                     ),
                     child: Row(
-                      spacing: 6,
+                      spacing: AppSpacing.flowRowParts,
                       children: [
                         _ToolButton(
                           label: '−',
-                          tooltip: v.removeLabel,
-                          onTap: v.canRemove
-                              ? () => actions.onResize(vm.id, add: false)
+                          tooltip: v.kind.remove,
+                          onTap: v.canRemove && onResize != null
+                              ? () => onResize!(BlockResized(vm.id, add: false))
                               : null,
                         ),
                         _ToolButton(
                           label: '+',
-                          tooltip: v.addLabel,
-                          onTap: v.canAdd
-                              ? () => actions.onResize(vm.id, add: true)
+                          tooltip: v.kind.add,
+                          onTap: v.canAdd && onResize != null
+                              ? () => onResize!(BlockResized(vm.id, add: true))
                               : null,
                         ),
                         Text(
@@ -599,14 +604,25 @@ class _FieldRow extends StatelessWidget {
   const _FieldRow({
     required this.block,
     required this.vm,
-    required this.actions,
+    required this.at,
     required this.light,
+    this.onView,
+    this.onAction,
   });
 
   final String block;
   final FieldRowVm vm;
-  final FlowBlockActions actions;
+
+  /// Where the row stands: what it reports.
+  final RowRef at;
+  final ValueChanged<RowRef>? onView;
+  final ValueChanged<RowRef>? onAction;
   final RowLight light;
+
+  /// A port stands half out of the block, on its row's centre line.
+  static const double _portInset = AppSizes.flowPort / 2;
+  static const double _portTop =
+      (AppSizes.flowBlockRow - AppSizes.flowPort) / 2;
 
   @override
   Widget build(BuildContext context) {
@@ -619,8 +635,8 @@ class _FieldRow extends StatelessWidget {
         .write => (c.ember, c.ember),
       };
       return Container(
-        width: 10,
-        height: 10,
+        width: AppSizes.flowPort,
+        height: AppSizes.flowPort,
         decoration: BoxDecoration(
           shape: .circle,
           color: fill,
@@ -662,30 +678,31 @@ class _FieldRow extends StatelessWidget {
           // the ports are.
           Positioned.fill(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
+              padding: Insets.flowBlockRow,
               child: Row(
-                spacing: 6,
+                spacing: AppSpacing.flowRowParts,
                 children: [
                   if (vm.command)
                     Container(
                       key: ValueKey('command-$block-${vm.id}'),
-                      constraints: const BoxConstraints(maxWidth: 140),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: AppSpacing.sm,
-                        vertical: 2,
+                      constraints: const BoxConstraints(
+                        maxWidth: AppSizes.flowCommandMaxWidth,
                       ),
+                      padding: Insets.flowBlockCommand,
                       decoration: BoxDecoration(
                         color: c.ground3,
                         border: .all(color: c.line2),
-                        borderRadius: const BorderRadius.all(
-                          Radius.circular(5),
-                        ),
+                        borderRadius: Radii.flowCommand,
                       ),
                       child: Row(
                         mainAxisSize: .min,
-                        spacing: 4,
+                        spacing: AppSpacing.xs,
                         children: [
-                          AppIcon('action_play', size: 10, color: c.text3),
+                          AppIcon(
+                            'action_play',
+                            size: AppSizes.flowCommandIcon,
+                            color: c.text3,
+                          ),
                           Flexible(
                             child: Text(
                               vm.label,
@@ -702,7 +719,9 @@ class _FieldRow extends StatelessWidget {
                     )
                   else
                     ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 124),
+                      constraints: const BoxConstraints(
+                        maxWidth: AppSizes.flowRowLabelMaxWidth,
+                      ),
                       child: Text(
                         vm.label,
                         maxLines: 1,
@@ -717,13 +736,11 @@ class _FieldRow extends StatelessWidget {
                     // A text of several lines shows its first and a mark
                     // with how many more (owner's finding 2026-11-11).
                     child: LinesText(
-                      vm.value,
+                      vm.shown,
                       textAlign: .right,
-                      onOpen: actions.onView == null
-                          ? null
-                          : () => actions.onView!(block, vm.id),
+                      onOpen: onView == null ? null : () => onView!(at),
                       style: mono(
-                        size: 12,
+                        size: FontSizes.sm,
                         color: switch (vm.tone) {
                           .plain => c.text1,
                           .bound => c.emberNew,
@@ -734,20 +751,22 @@ class _FieldRow extends StatelessWidget {
                       ).copyWith(fontStyle: vm.tone == .ghost ? .italic : null),
                     ),
                   ),
-                  if (vm.action case final icon?)
+                  if (vm.editScope)
                     Tooltip(
-                      message: vm.actionTip,
+                      message: S.current.scopeEdit,
                       child: InkWell(
                         key: ValueKey('row-action-$block-${vm.id}'),
                         borderRadius: const BorderRadius.all(
                           Radius.circular(AppRadii.chip),
                         ),
-                        onTap: actions.onRowAction == null
-                            ? null
-                            : () => actions.onRowAction!(block, vm.id),
+                        onTap: onAction == null ? null : () => onAction!(at),
                         child: Padding(
-                          padding: const EdgeInsets.all(3),
-                          child: AppIcon(icon, size: 12, color: c.text3),
+                          padding: Insets.flowBlockRowAction,
+                          child: AppIcon(
+                            'action_edit',
+                            size: AppSizes.flowRowActionIcon,
+                            color: c.text3,
+                          ),
                         ),
                       ),
                     ),
@@ -756,9 +775,13 @@ class _FieldRow extends StatelessWidget {
             ),
           ),
           if (vm.inMark != PortMark.none)
-            Positioned(left: -5, top: 9, child: dot(vm.inMark)),
+            Positioned(left: -_portInset, top: _portTop, child: dot(vm.inMark)),
           if (vm.outMark != PortMark.none)
-            Positioned(right: -5, top: 9, child: dot(vm.outMark)),
+            Positioned(
+              right: -_portInset,
+              top: _portTop,
+              child: dot(vm.outMark),
+            ),
         ],
       ),
     );
@@ -767,9 +790,9 @@ class _FieldRow extends StatelessWidget {
     final inPort = vm.inPort;
     if (inPort != null) {
       // A point of the Tree tab dropped on an input (a palette Draggable).
-      child = DragTarget<String>(
-        onWillAcceptWithDetails: (d) => d.data.startsWith('key:'),
-        onAcceptWithDetails: (d) => actions.onDropEntry(d.data, block, inPort),
+      child = DragTarget<PaletteDrag>(
+        onWillAcceptWithDetails: (d) => d.data.point,
+        onAcceptWithDetails: (d) => d.data.place(PlaceOnInput(block, inPort)),
         builder: (context, candidates, _) => candidates.isEmpty
             ? row(light, point: vm.dropTarget)
             : row(RowLight.none, point: true),
@@ -787,7 +810,7 @@ class _FieldRow extends StatelessWidget {
           ? child
           : Tooltip(
               message: tip,
-              waitDuration: const Duration(milliseconds: 600),
+              waitDuration: Motion.flowFieldTipWait,
               child: child,
             ),
     );
@@ -810,8 +833,8 @@ class _ToolButton extends StatelessWidget {
         onTap: onTap,
         borderRadius: const BorderRadius.all(Radius.circular(AppRadii.segment)),
         child: Container(
-          width: 28,
-          height: 28,
+          width: AppSizes.flowToolButton,
+          height: AppSizes.flowToolButton,
           alignment: .center,
           decoration: BoxDecoration(
             border: .all(color: c.line2),
@@ -822,7 +845,7 @@ class _ToolButton extends StatelessWidget {
           child: Text(
             label,
             style: TextStyle(
-              fontSize: 15,
+              fontSize: FontSizes.flowToolGlyph,
               color: onTap == null ? c.muted : c.text2,
             ),
           ),

@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/flow_edge.dart';
 
@@ -44,7 +42,7 @@ class RebindEdgeAction extends Action {
     if (wire == null || wire.from == to) {
       return null;
     }
-    unawaited(dispatchAndWait(ValidateFlowAction()));
+    _validate();
     final b = d.blocks[oldTo];
     final param = this.param;
     final blocks = b != null && param != null && keep != null
@@ -80,4 +78,9 @@ class RebindEdgeAction extends Action {
       undoTag: null,
     );
   }
+
+  /// The engine checks the draft again once the edits settle
+  /// ([ValidateFlowAction] is debounced and brings its own state); this
+  /// edit does not wait for it.
+  void _validate() => dispatch(ValidateFlowAction());
 }

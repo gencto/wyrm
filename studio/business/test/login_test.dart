@@ -244,7 +244,10 @@ void main() {
         reason: 'dataflows and storage are listed, not opened',
       );
       expect(s.state.flows.view, ['f1']);
-      expect(s.state.flows.blockTypes.map((t) => t.type), ['const', 'add']);
+      expect(s.state.flows.blockTypes.map((t) => t.type.wire), [
+        'const',
+        'add',
+      ]);
       expect(s.state.links.view, ['modbus']);
       expect(s.state.site.choices.map((c) => c.site), ['central']);
       expect(dialogs(), isEmpty);

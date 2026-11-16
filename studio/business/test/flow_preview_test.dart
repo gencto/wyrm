@@ -9,8 +9,9 @@ import 'package:business/redux/login/actions/set_gateway_action.dart';
 import 'package:business/redux/login/actions/set_password_action.dart';
 import 'package:business/redux/login/actions/set_user_action.dart';
 import 'package:business/redux/services/flow_preview/flow_preview.dart';
+import 'package:business/wyrm/decode/flow_def.dart';
+import 'package:business/wyrm/decode/node_type.dart';
 import 'package:business/wyrm/mappers/flow_fields.dart';
-import 'package:business/wyrm/mappers/flow_mapper.dart';
 import 'package:business/wyrm/mappers/values.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -21,6 +22,7 @@ import 'package:models/live_value.dart';
 import 'package:models/node_type.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
+import 'support/block_types.dart';
 import 'support/fake_wyrm.dart';
 
 // The catalog as the demo's broker answers `dataflows` ▸ `node_types`
@@ -149,14 +151,15 @@ final List<Map<String, Object>> live = [
 ];
 
 Map<String, NodeType> catalog(List<Map<String, Object>> raw) => {
-  for (final t in raw) t['type']! as String: nodeTypeOf(Value.from(t)),
+  for (final t in raw)
+    t['type']! as String: nodeTypeOf(Value.from(t)).orWarn('test')!,
 };
 
 FlowBlock block(
   String id,
   String type, [
   Map<String, Object?> cfg = const {},
-]) => FlowBlock(id: id, type: type, cfg: cfg.lock);
+]) => FlowBlock(id: id, type: bt(type), cfg: cfg.lock);
 
 void main() {
   final types = catalog(live);
@@ -211,7 +214,7 @@ void main() {
       final free = FlowDraft(id: 'x', blocks: {'limit': b}.lock);
       expect(fieldValue(b, f, free, (_) => null).text, '25');
       final out = {
-        portKey('out', 'limit', 'out'): LiveValue(
+        portKey(PortSide.output, 'limit', 'out'): LiveValue(
           time: DateTime(2026),
           value: 30,
         ),
@@ -225,7 +228,7 @@ void main() {
       final none = fieldValue(b, f, bound, (_) => null);
       expect((none.text, none.bound), ('', true), reason: 'not the typed 25');
       final inSample = {
-        portKey('in', 'limit', 'in'): LiveValue(
+        portKey(PortSide.input, 'limit', 'in'): LiveValue(
           time: DateTime(2026),
           value: 21.5,
         ),
@@ -612,7 +615,7 @@ void main() {
           ..dispatchSync(SetBlockParamAction('limit', 'value', 30))
           ..dispatchSync(PreviewFlowAction());
         await debounce();
-        expect(s.state.flowEditor.previewOff, 'not_found');
+        expect(s.state.flowEditor.previewOff, Status.notFound);
         expect(s.state.flowEditor.previewError, isNull);
         s
           ..dispatchSync(SetBlockParamAction('limit', 'value', 31))

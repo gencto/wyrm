@@ -1,6 +1,7 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 
+import 'block_def.dart';
 import 'flow_block.dart';
 import 'flow_edge.dart';
 import 'flow_permissions.dart';
@@ -18,6 +19,9 @@ abstract class FlowDraft with _$FlowDraft {
     @Default(IMapConst({})) IMap<String, FlowBlock> blocks,
     @Default(IListConst([])) IList<FlowEdge> edges,
     @Default(IMapConst({})) IMap<String, Object?> rest,
+
+    /// The custom blocks of the definition (`blocks`), decoded, by name.
+    @Default(IMapConst({})) IMap<String, BlockDef> defs,
 
     /// `permissions`, decoded (it is in [rest] too, as it came, for the
     /// write back); null when the definition has none.

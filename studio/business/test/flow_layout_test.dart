@@ -2,16 +2,19 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:business/wyrm/decode/node_type.dart';
 import 'package:business/wyrm/mappers/flow_blocks.dart';
 import 'package:business/wyrm/mappers/flow_fields.dart';
 import 'package:business/wyrm/mappers/flow_layout.dart';
-import 'package:business/wyrm/mappers/flow_mapper.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:models/block_type.dart';
 import 'package:models/flow_block.dart';
 import 'package:models/flow_draft.dart';
 import 'package:models/node_type.dart';
 import 'package:wyrm_client/wyrm_client.dart';
+
+import 'support/block_types.dart';
 
 // The automatic layout (flow-editor.md §25) on a real flow: the one the
 // agent deployed on the demo's `central` (62 blocks, 74 wires, no saved
@@ -29,7 +32,8 @@ final Map<String, NodeType> types = {
       'test/support/flows/large_flow_types.json',
     ).readAsStringSync(),
   ) as List<Object?>)
-    (t! as Map<String, Object?>)['type']! as String: nodeTypeOf(Value.from(t)),
+    (t! as Map<String, Object?>)['type']! as String: nodeTypeOf(Value.from(t))
+        .orWarn('test')!,
 };
 
 /// [def] with its nodes in another order (a map's order says nothing).
@@ -41,11 +45,11 @@ Map<String, Object?> shuffled(Map<String, Object?> def, int seed) {
   return {...def, 'nodes': Map.fromEntries(nodes), 'edges': edges};
 }
 
-Set<String> placedIdsOf(Value def) => flowReadOf('large', def).placed;
+Set<String> placedIdsOf(Value def) => readFlow('large', def).placed.unlock;
 
 FlowDraft placed(Map<String, Object?> def) {
-  final read = flowReadOf('large', Value.from(def));
-  return placeFlow(read.draft, types, placed: read.placed);
+  final read = readFlow('large', Value.from(def));
+  return placeFlow(read.draft, byType(types), placed: read.placed.unlock);
 }
 
 Map<String, (double, double)> at(FlowDraft d) => {
@@ -77,7 +81,7 @@ FlowDraft oldColumns(FlowDraft d) {
     final col = depth[b.id] ?? 0;
     final top = y[col] ?? 40;
     blocks[b.id] = b.copyWith(x: 40 + 300.0 * col, y: top);
-    y[col] = top + blockHeight(types[b.type], b, edges: d.edges) + 28;
+    y[col] = top + blockHeight(types[b.type.wire], b, edges: d.edges) + 28;
   }
   return d.copyWith(blocks: blocks.lock);
 }
@@ -91,13 +95,13 @@ FlowDraft oldColumns(FlowDraft d) {
     top: bs.map((b) => b.y).reduce(math.min),
     right: bs.map((b) => b.x + blockWidthOf(roleOf(b.type))).reduce(math.max),
     bottom: bs
-        .map((b) => b.y + blockHeight(types[b.type], b, edges: d.edges))
+        .map((b) => b.y + blockHeight(types[b.type.wire], b, edges: d.edges))
         .reduce(math.max),
   );
 }
 
-bool overlaps(FlowDraft d, [Map<String, NodeType>? with_]) {
-  final ts = with_ ?? types;
+bool overlaps(FlowDraft d, [Map<BlockType, NodeType>? with_]) {
+  final ts = with_ ?? byType(types);
   final rs = [
     for (final b in d.blocks.values)
       (
@@ -174,8 +178,8 @@ void main() {
     });
 
     test('crosses fewer wires than the old columns', () {
-      final now = wireCrossings(d, types);
-      final before = wireCrossings(old, types);
+      final now = wireCrossings(d, byType(types));
+      final before = wireCrossings(old, byType(types));
       // ignore: avoid_print, the figures go to the PR.
       print('crossings: old columns $before, layered $now');
       expect(now, lessThanOrEqualTo(before));
@@ -268,7 +272,7 @@ void main() {
         },
       }),
     );
-    final tidy = tidyFlow(d, types);
+    final tidy = tidyFlow(d, byType(types));
     expect(at(tidy), at(placed(large)));
     expect(overlaps(tidy), isFalse);
   });
@@ -285,15 +289,15 @@ void main() {
           for (final b in d.blocks.values)
             {
               'id': b.id,
-              'type': b.type,
+              'type': b.type.wire,
               'role': roleOf(b.type).name,
               'x': b.x,
               'y': b.y,
               'width': blockWidthOf(roleOf(b.type)),
               'rows': [
-                for (final f in rowsOf(types[b.type], b, edges: d.edges))
+                for (final f in rowsOf(types[b.type.wire], b, edges: d.edges))
                   {
-                    'id': f.id,
+                    'id': f.id.key,
                     'label': f.label,
                     'in': f.inPort,
                     'out': f.outPort,
@@ -345,14 +349,14 @@ void main() {
         ['w.out', 'r.in'],
       ],
     };
-    final read = flowReadOf('inst', Value.from(def));
+    final read = readFlow('inst', Value.from(def));
     final all = {
       for (final t in typesWithBlocks(types.values.toIList(), read.draft))
         t.type: t,
     };
-    final d = placeFlow(read.draft, all, placed: read.placed);
+    final d = placeFlow(read.draft, all, placed: read.placed.unlock);
     expect(
-      blockHeight(all['block:wide'], d.blocks['w']!, edges: d.edges),
+      blockHeight(all[bt('block:wide')], d.blocks['w']!, edges: d.edges),
       greaterThan(200),
     );
     expect(overlaps(d, all), isFalse);
@@ -375,7 +379,7 @@ void main() {
         ],
       }),
     );
-    final t = tidyFlow(d, types);
+    final t = tidyFlow(d, byType(types));
     expect(t.blocks['a']!.x, lessThan(t.blocks['b']!.x));
     expect(t.blocks['b']!.x, lessThan(t.blocks['c']!.x));
   });

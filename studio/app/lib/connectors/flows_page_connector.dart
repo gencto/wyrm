@@ -3,6 +3,7 @@ import 'package:auto_route/auto_route.dart';
 import 'package:business/redux/app_state.dart';
 import 'package:business/redux/flows/actions/follow_flows_action.dart';
 import 'package:business/redux/flows/actions/set_selected_flow_action.dart';
+import 'package:business/wyrm/flow_view/flow_view.dart' show newFlowId;
 import 'package:material_ui/material_ui.dart';
 import 'package:ui/pages/flows_page.dart';
 import 'package:wyrm_client/wyrm_client.dart' show Perm;
@@ -13,8 +14,7 @@ import '../mappers/rights_mappers.dart';
 import '../navigation/app_router.dart';
 import '../navigation/go_action.dart';
 
-/// The id the editor route takes for a flow not made yet.
-const newFlowId = '+new';
+export 'package:business/wyrm/flow_view/flow_view.dart' show newFlowId;
 
 /// Flows: the site's flows from the live list of `dataflows`, mapped
 /// through `app/lib/mappers/flow_mappers.dart`; `FlowsPage` words them.

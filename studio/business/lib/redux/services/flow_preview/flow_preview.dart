@@ -5,8 +5,8 @@ import 'package:models/live_value.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../../common/services/interface.dart';
-import '../../../wyrm/mappers/values.dart';
-import '../flow_watch/flow_watch.dart';
+import '../../../wyrm/decode/flow_def.dart';
+import '../../../wyrm/decode/flow_rows.dart';
 
 /// What [FlowPreviewService] tells its listener.
 abstract class FlowPreviewServiceListener {
@@ -169,7 +169,7 @@ class FlowPreviewService extends DisposableServiceInterface {
         .invoke(
           at,
           'preview',
-          Value.from({'def': toDart(def), 'max_hz': maxHz}),
+          defArgs(def, maxHz: maxHz),
         )
         .listen(
           (r) {
@@ -239,20 +239,20 @@ class FlowPreviewService extends DisposableServiceInterface {
       _invalid = false;
       _listener.onInvalid(null);
     }
-    final t = time(r['t']) ?? DateTime.now().toUtc();
-    if (boolean(r['snapshot']) ?? false) {
+    final row = flowRowOf(
+      r,
+      now: DateTime.now().toUtc(),
+    ).orWarn('preview $_at');
+    if (row == null) {
+      return;
+    }
+    if (row.snapshot) {
       _ports.clear();
       _sinks.clear();
       _reset = true;
     }
-    flowRowPorts(r, t, _ports);
-    if (r['sinks'] case VArray(:final v)) {
-      for (final s in v) {
-        if (str(s['node']) case final node?) {
-          _sinks[node] = LiveValue(time: t, value: toDart(s['value']));
-        }
-      }
-    }
+    _ports.addAll(row.ports);
+    _sinks.addAll(row.sinks);
     _schedule();
   }
 

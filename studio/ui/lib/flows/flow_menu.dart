@@ -3,9 +3,11 @@ import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../indicators/app_icon.dart';
-import '../models/value_changed.dart';
+import '../models/disabled.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import 'shortcut_card.dart';
 
@@ -13,7 +15,7 @@ import 'shortcut_card.dart';
 final class FlowMenuItemVm extends Equatable {
   const FlowMenuItemVm(
     this.command, {
-    this.disabledReason,
+    this.off,
     this.danger = false,
     this.divider = false,
   });
@@ -21,55 +23,69 @@ final class FlowMenuItemVm extends Equatable {
   final FlowCommand command;
 
   /// Why it cannot be picked (its tooltip); null: it can.
-  final String? disabledReason;
+  final Disabled? off;
   final bool danger;
 
   /// A line above it.
   final bool divider;
 
   @override
-  List<Object?> get props => [command, disabledReason, danger, divider];
+  List<Object?> get props => [command, off, danger, divider];
 }
 
 /// One field of the block in the `Fields ▸` checklist.
 final class FlowPinVm extends Equatable {
   const FlowPinVm({
-    required this.id,
     required this.label,
     required this.pinned,
-    this.lockedReason,
+    this.locked = false,
+    this.onPin,
   });
 
-  /// The field's id within its block.
-  final String id;
   final String label;
 
   /// Whether it is a row of the block now.
   final bool pinned;
 
-  /// Why it cannot be taken off (`bound`); null: it can.
-  final String? lockedReason;
+  /// Bound: it cannot be taken off (`bound`).
+  final bool locked;
+
+  /// Pins it to the block (true) or takes it off; null: it cannot change.
+  final ValueChanged<bool>? onPin;
+
+  /// Why it cannot be taken off; null: it can.
+  String? get lockedReason => locked ? S.current.fmBound : null;
 
   @override
-  List<Object?> get props => [id, label, pinned, lockedReason];
+  List<Object?> get props => [label, pinned, locked, onPin != null];
 }
 
 /// What a [FlowMenu] shows: the block, the selection or the canvas it was
 /// opened on, its commands, and the fields of the block when it is one.
 final class FlowMenuVm extends Equatable {
   const FlowMenuVm({
-    required this.title,
     required this.items,
-    this.subtitle = '',
+    this.block,
+    this.blockType,
+    this.count = 0,
+    this.flow,
+    this.blocksInFlow = 0,
     this.fields = const [],
     this.unpin,
   });
 
-  /// The block's id, `3 blocks`, or the flow.
-  final String title;
+  /// The one block it was opened on, and its type.
+  final String? block;
+  final String? blockType;
 
-  /// The block's type, or how many blocks the flow has.
-  final String subtitle;
+  /// How many blocks are selected.
+  final int count;
+
+  /// The flow's id; null: a new flow.
+  final String? flow;
+
+  /// How many blocks the flow has (said on the canvas's own menu).
+  final int blocksInFlow;
   final List<FlowMenuItemVm> items;
 
   /// The checklist behind [FlowCommand.fields].
@@ -79,21 +95,53 @@ final class FlowMenuVm extends Equatable {
   /// block (disabled with its `lockedReason` when it is bound).
   final FlowPinVm? unpin;
 
+  /// The block's id, `3 blocks`, or the flow (`Canvas` for a new one).
+  String get title =>
+      block ??
+      (count > 1 ? S.current.fmBlocks(count) : (flow ?? S.current.fmCanvas));
+
+  /// The block's type, or how many blocks the flow has.
+  String get subtitle =>
+      blockType ?? (count > 1 ? '' : S.current.fmBlocks(blocksInFlow));
+
   @override
-  List<Object?> get props => [title, subtitle, items, fields, unpin];
+  List<Object?> get props => [
+    block,
+    blockType,
+    count,
+    flow,
+    blocksInFlow,
+    items,
+    fields,
+    unpin,
+  ];
+}
+
+/// Where the context menu of the canvas was opened: on [block] (and its
+/// [row]) with the selection [ids], or on the empty canvas.
+final class FlowMenuAsk extends Equatable {
+  const FlowMenuAsk(this.ids, {this.block, this.row});
+
+  final Set<String> ids;
+  final String? block;
+
+  /// The row's place among [block]'s rows.
+  final int? row;
+
+  @override
+  List<Object?> get props => [ids, block, row];
 }
 
 /// The context menu of the flow canvas (spec §13), in the style of the
 /// node menu: the name of what it was opened on over its commands, each
 /// with its shortcut on the right ([flowHintOf]). `Fields ▸`
 /// opens a checklist beside it: a tick pins a field to the block or takes
-/// it off, and the menu stays open. [onPick] gets a command, [onPin] a
-/// field and whether it is pinned now.
+/// it off ([FlowPinVm.onPin]), and the menu stays open. [onPick] gets a
+/// command.
 class FlowMenu extends StatefulWidget {
   const FlowMenu({
     required this.vm,
     required this.onPick,
-    required this.onPin,
     this.fieldsOpen = false,
     this.mac,
     super.key,
@@ -101,7 +149,6 @@ class FlowMenu extends StatefulWidget {
 
   final FlowMenuVm vm;
   final ValueChanged<FlowCommand> onPick;
-  final Toggled<String> onPin;
 
   /// Whether the `Fields ▸` checklist is open at first.
   final bool fieldsOpen;
@@ -109,14 +156,13 @@ class FlowMenu extends StatefulWidget {
   /// ⌘ glyphs or `Ctrl+`; null: this machine's.
   final bool? mac;
 
-  static const width = 260.0;
+  static const double width = AppSizes.flowMenu;
 
   /// Shows the menu at [at] (global) and returns the command picked.
   static Future<FlowCommand?> show(
     BuildContext context, {
     required Offset at,
     required FlowMenuVm vm,
-    required Toggled<String> onPin,
   }) => showDialog<FlowCommand>(
     context: context,
     barrierColor: Colors.transparent,
@@ -133,7 +179,6 @@ class FlowMenu extends StatefulWidget {
               constraints: BoxConstraints(maxHeight: size.height - 16),
               child: FlowMenu(
                 vm: vm,
-                onPin: onPin,
                 onPick: (c) => Navigator.of(context).pop(c),
               ),
             ),
@@ -151,9 +196,9 @@ class _FlowMenuState extends State<FlowMenu> {
   late bool _fields = widget.fieldsOpen;
 
   /// The ticks as the user set them while the menu is open.
-  late final Map<String, bool> _pinned = {
-    for (final f in widget.vm.fields) f.id: f.pinned,
-  };
+  late final List<bool> _pinned = [
+    for (final f in widget.vm.fields) f.pinned,
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -172,7 +217,7 @@ class _FlowMenuState extends State<FlowMenu> {
       child: SizedBox(
         width: FlowMenu.width,
         child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(vertical: 6),
+          padding: Insets.flowMenu,
           child: Column(
             crossAxisAlignment: .stretch,
             mainAxisSize: .min,
@@ -185,7 +230,7 @@ class _FlowMenuState extends State<FlowMenu> {
     Widget item(FlowMenuItemVm i) {
       final isFields = i.command == FlowCommand.fields;
       final unpin = i.command == FlowCommand.unpin ? vm.unpin : null;
-      final reason = i.disabledReason ?? unpin?.lockedReason;
+      final reason = i.off?.text ?? unpin?.lockedReason;
       final enabled = reason == null;
       final hint = flowHintOf(i.command, mac: widget.mac);
       final row = InkWell(
@@ -202,11 +247,11 @@ class _FlowMenuState extends State<FlowMenu> {
                 }
               },
         child: Container(
-          height: 34,
+          height: AppSizes.flowMenuItem,
           color: isFields && _fields ? c.ground4 : null,
-          padding: const EdgeInsets.symmetric(horizontal: 14),
+          padding: Insets.flowMenuItem,
           child: Row(
-            spacing: 8,
+            spacing: AppSpacing.sm,
             children: [
               Expanded(
                 child: Text(
@@ -224,14 +269,18 @@ class _FlowMenuState extends State<FlowMenu> {
                 ),
               ),
               if (isFields)
-                AppIcon('ui_chevron_right', size: 14, color: c.text3)
+                AppIcon(
+                  'ui_chevron_right',
+                  size: AppSizes.flowMenuChevron,
+                  color: c.text3,
+                )
               else if (hint.isNotEmpty)
                 Row(
                   mainAxisSize: .min,
-                  spacing: 1,
+                  spacing: AppSpacing.flowKeyGlyphs,
                   children: [
                     for (final t in KeyGlyph.tokens(hint))
-                      KeyGlyph(t, color: c.text4, size: 12),
+                      KeyGlyph(t, color: c.text4, size: FontSizes.sm),
                   ],
                 ),
             ],
@@ -242,31 +291,33 @@ class _FlowMenuState extends State<FlowMenu> {
         mainAxisSize: .min,
         crossAxisAlignment: .stretch,
         children: [
-          if (i.divider) Divider(height: 9, color: c.line1),
+          if (i.divider)
+            Divider(height: AppSizes.flowMenuDivider, color: c.line1),
           if (enabled) row else Tooltip(message: reason, child: row),
         ],
       );
     }
 
-    Widget field(FlowPinVm f) {
-      final on = _pinned[f.id] ?? f.pinned;
+    Widget field(int i, FlowPinVm f) {
+      final on = _pinned[i];
       final locked = f.lockedReason != null;
+      final onPin = f.onPin;
       final row = InkWell(
-        onTap: locked
+        onTap: locked || onPin == null
             ? null
             : () {
-                setState(() => _pinned[f.id] = !on);
-                widget.onPin(f.id, on: !on);
+                setState(() => _pinned[i] = !on);
+                onPin(!on);
               },
         child: Container(
-          height: 30,
-          padding: const EdgeInsets.symmetric(horizontal: 12),
+          height: AppSizes.flowMenuField,
+          padding: Insets.flowMenuField,
           child: Row(
-            spacing: 8,
+            spacing: AppSpacing.sm,
             children: [
               Container(
-                width: 16,
-                height: 16,
+                width: AppSizes.flowMenuTick,
+                height: AppSizes.flowMenuTick,
                 alignment: .center,
                 decoration: BoxDecoration(
                   color: on ? (locked ? c.ground4 : c.emberTint) : null,
@@ -278,7 +329,7 @@ class _FlowMenuState extends State<FlowMenu> {
                 child: on
                     ? AppIcon(
                         'ui_check',
-                        size: 12,
+                        size: AppSizes.flowMenuTickIcon,
                         color: locked ? c.text4 : c.emberSoft,
                       )
                     : null,
@@ -309,18 +360,13 @@ class _FlowMenuState extends State<FlowMenu> {
     return Row(
       mainAxisSize: .min,
       crossAxisAlignment: .start,
-      spacing: 4,
+      spacing: AppSpacing.xs,
       children: [
         panel([
           Padding(
-            padding: const EdgeInsets.fromLTRB(
-              14,
-              6,
-              14,
-              6,
-            ),
+            padding: Insets.flowMenuTitle,
             child: Row(
-              spacing: 8,
+              spacing: AppSpacing.sm,
               children: [
                 Flexible(
                   flex: 3,
@@ -347,15 +393,10 @@ class _FlowMenuState extends State<FlowMenu> {
         ]),
         if (_fields && vm.fields.isNotEmpty)
           Padding(
-            padding: const EdgeInsets.only(top: 40),
+            padding: Insets.flowMenuFields,
             child: panel([
               Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  12,
-                  6,
-                  12,
-                  6,
-                ),
+                padding: Insets.flowMenuFieldsTitle,
                 child: Text(
                   S.current.fmFieldsTitle.toUpperCase(),
                   style: TextStyle(
@@ -366,7 +407,7 @@ class _FlowMenuState extends State<FlowMenu> {
                   ),
                 ),
               ),
-              for (final f in vm.fields) field(f),
+              for (final (i, f) in vm.fields.indexed) field(i, f),
             ]),
           ),
       ],

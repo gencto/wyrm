@@ -1,18 +1,28 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/action_info.dart';
-import 'package:models/block_info.dart';
+import 'package:models/block_def.dart';
+import 'package:models/block_type.dart';
+import 'package:models/field_id.dart';
 import 'package:models/flow_block.dart';
 import 'package:models/flow_draft.dart';
 import 'package:models/flow_edge.dart';
 import 'package:models/flow_frame.dart';
+import 'package:models/library_off.dart';
 import 'package:models/live_value.dart';
 import 'package:models/node_type.dart';
+import 'package:models/palette_entry.dart';
 import 'package:models/param_spec.dart';
+import 'package:models/port_end.dart';
+import 'package:models/port_side.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
+import '../decode/block_def.dart';
+import '../decode/flow_rows.dart';
+import 'block_cfg.dart';
 import 'flow_canvas.dart';
 import 'flow_mapper.dart';
-import 'values.dart';
+
+export 'package:models/block_def.dart';
 
 // What ADR 0040 adds to the flow editor (flow-editor.md §17–§20, owner
 // requirements 2026-11-09): what the broker can do (read from its catalog),
@@ -63,17 +73,15 @@ final class FlowCaps {
       'blocks: $blocks)';
 }
 
-/// `flowEditor.libraryOff` until the library has answered.
-const libraryUnread = 'unread';
-
 /// The capabilities of a broker whose catalog is [types]. [libraryOff] is
 /// why its library does not answer (`flowEditor.libraryOff`); null: it did.
-FlowCaps flowCapsOf(Iterable<NodeType> types, {String? libraryOff}) => FlowCaps(
-  scopes: types.any((t) => t.params.any((p) => p.scope != null)),
-  trigger: types.any((t) => t.trigger),
-  args: types.any((t) => t.dynInKeys),
-  blocks: libraryOff == null,
-);
+FlowCaps flowCapsOf(Iterable<NodeType> types, {LibraryOff? libraryOff}) =>
+    FlowCaps(
+      scopes: types.any((t) => t.params.any((p) => p.scope != null)),
+      trigger: types.any((t) => t.trigger),
+      args: types.any((t) => t.dynInKeys),
+      blocks: libraryOff == null,
+    );
 
 // ---------- the scope of a key from a port (ADR 0040 §1) ----------
 
@@ -151,14 +159,48 @@ ScopeProblem? scopeProblem(String scope, {required String site}) {
   return null;
 }
 
-/// The parameter that holds the scope of a type's key field (`key_scope`,
-/// `path_scope`) and the key parameter itself, by the catalog; null when
-/// its type has none (an older broker, another type).
-({String key, String scope, String port})? scopedKeyOf(NodeType? t) {
+/// A key parameter that may come on a port, and the parameter that holds
+/// its scope (ADR 0040 §1), by the catalog.
+final class ScopedKey {
+  const ScopedKey({required this.key, required this.scope, required this.port});
+
+  /// The key parameter (`key`, `path`).
+  final String key;
+
+  /// The parameter that holds its scope (`key_scope`, `path_scope`).
+  final String scope;
+
+  /// The input a key comes on (`in.key`).
+  final String port;
+
+  /// The key's field.
+  FieldId get keyField => FieldId.param(key);
+
+  /// The scope's field.
+  FieldId get scopeField => FieldId.param(scope);
+
+  @override
+  bool operator ==(Object other) =>
+      other is ScopedKey &&
+      other.key == key &&
+      other.scope == scope &&
+      other.port == port;
+
+  @override
+  int get hashCode => Object.hash(key, scope, port);
+
+  @override
+  String toString() => 'ScopedKey($key, $scope, $port)';
+}
+
+/// The scoped key of a type ([ScopedKey]); null when its type has none
+/// (an older broker, another type).
+ScopedKey? scopedKeyOf(NodeType? t) {
   for (final p in t?.params ?? const IListConst<ParamSpec>([])) {
     final port = p.port;
-    if (p.scope != null && port != null) {
-      return (key: p.name, scope: p.scope!, port: port);
+    final scope = p.scope;
+    if (scope != null && port != null) {
+      return ScopedKey(key: p.name, scope: scope, port: port);
     }
   }
   return null;
@@ -177,13 +219,12 @@ bool scopeAsked(
   if (b == null) {
     return false;
   }
-  final keyed = scopedKeyOf(types.where((t) => t.type == b.type).firstOrNull);
+  final keyed = scopedKeyOf(
+    types.where((t) => t.type == b.type).firstOrNull,
+  );
   return keyed != null &&
       keyed.port == toPort &&
-      switch (b.cfg[keyed.scope]) {
-        final String s => s.trim().isEmpty,
-        _ => true,
-      };
+      (b.textOf(keyed.scope)?.trim().isEmpty ?? true);
 }
 
 // ---------- a point or an action of the tree as a block (§18) ----------
@@ -192,70 +233,98 @@ bool scopeAsked(
 final class EntryBlock {
   const EntryBlock(this.type, this.cfg, {this.pins = const {}});
 
-  final String type;
+  final KnownBlock type;
   final Map<String, Object?> cfg;
 
   /// Fields taken off the block at once (an action's optional arguments).
-  final Map<String, bool> pins;
+  final Map<FieldId, bool> pins;
 }
 
 /// A full key as a definition writes it, relative to the site.
 String relativeKey(String key) =>
     key.startsWith('wy/') ? key.split('/').skip(2).join('/') : key;
 
-/// The block of [entry]: `key:<point>` reads it (`subscribe`), `set:<point>`
-/// writes it (`set`), `act:<node>/<action>` runs it (`invoke`, with one
+/// A point key of a definition (relative to the site, or full) as a full
+/// key under [root] (`wy/<site>`).
+String fullKey(String root, String key) =>
+    key.startsWith('wy/') ? key : '$root/$key';
+
+/// What a block's header says of the point [key] it names: the key
+/// without `wy/<site>/` and `downstream/` (`modbus/tank/level`), its
+/// parent's for a point of a node ([parent]: `modbus/tank`); empty for
+/// none.
+String connectionOf(String? key, {required bool parent}) {
+  if (key == null) {
+    return '';
+  }
+  var parts = key.split('/');
+  if (parts.first == 'wy' && parts.length > 2) {
+    parts = parts.skip(2).toList();
+  }
+  if (parts.first == scopeSections.first) {
+    parts = parts.skip(1).toList();
+  }
+  if (parent && parts.length > 1) {
+    parts = parts.take(parts.length - 1).toList();
+  }
+  return parts.join('/');
+}
+
+/// The block of [entry]: a point reads it (`subscribe`), or writes it
+/// (`set`) when dropped as [write]; an action runs it (`invoke`, with one
 /// argument per parameter of [action]: its default, else nothing yet).
 /// Required arguments are rows of the block; the others stay in the
-/// inspector. Null for anything else.
+/// inspector. Null for a type or a library block (they are placed as they
+/// are).
 ///
 /// On a broker without argument ports ([FlowCaps.args]) an action keeps the
 /// shape of before ADR 0040: it runs on a rising `in`, and only arguments
 /// with a default are written (an empty one would be sent).
 EntryBlock? blockOfEntry(
-  String entry, {
+  PaletteEntry entry, {
+  bool write = false,
   ActionInfo? action,
   FlowCaps caps = const FlowCaps(),
 }) {
-  if (entry.startsWith('key:')) {
-    return EntryBlock('subscribe', {'key': relativeKey(entry.substring(4))});
+  if (entry is PointPick) {
+    return write
+        ? EntryBlock(KnownBlock.set, {
+            BlockCfgKey.path.wire: relativeKey(entry.key),
+          })
+        : EntryBlock(KnownBlock.subscribe, {
+            BlockCfgKey.key.wire: relativeKey(entry.key),
+          });
   }
-  if (entry.startsWith('set:')) {
-    return EntryBlock('set', {'path': relativeKey(entry.substring(4))});
-  }
-  if (!entry.startsWith('act:')) {
+  if (entry is! ActionPick) {
     return null;
   }
-  final full = entry.substring(4);
-  final i = full.lastIndexOf('/');
-  if (i <= 0) {
-    return null;
-  }
-  final node = full.substring(0, i);
-  final name = full.substring(i + 1);
+  final node = entry.node;
+  final name = entry.action;
   final params = action?.params ?? const IListConst<ParamSpec>([]);
+  // An argument's default goes into the config, which holds JSON only:
+  // a default of another kind (bytes) is none there.
+  Object? json(ParamSpec p) =>
+      JsonValue.isJson(p.defaultValue) ? p.defaultValue : null;
   if (!caps.args) {
-    return EntryBlock('invoke', {
-      'path': relativeKey(node),
-      'action': name,
-      'on': 'rising',
-      if (params.any((p) => p.defaultValue != null))
-        'args': {
-          for (final p in params) p.name: ?p.defaultValue,
-        },
+    return EntryBlock(KnownBlock.invoke, {
+      BlockCfgKey.path.wire: relativeKey(node),
+      BlockCfgKey.action.wire: name,
+      BlockCfgKey.on.wire: 'rising',
+      if (params.any((p) => json(p) != null))
+        BlockCfgKey.args.wire: {for (final p in params) p.name: ?json(p)},
     });
   }
   return EntryBlock(
-    'invoke',
+    KnownBlock.invoke,
     {
-      'path': relativeKey(node),
-      'action': name,
+      BlockCfgKey.path.wire: relativeKey(node),
+      BlockCfgKey.action.wire: name,
       if (params.isNotEmpty)
-        'args': {for (final p in params) p.name: p.defaultValue},
+        BlockCfgKey.args.wire: {for (final p in params) p.name: json(p)},
     },
     pins: {
       for (final p in params)
-        if (!p.required) 'arg:${p.name}': false,
+        if (!p.required) FieldId.arg(p.name): false,
     },
   );
 }
@@ -273,32 +342,27 @@ String clockText(DateTime t) {
 /// and, for an error, its code and message (`14:03:27 · busy: queue
 /// full`). Null when [v] holds no event.
 String? eventText(LiveValue? v) {
-  final m = v?.value;
-  if (v == null || m is! Map || m['event'] == null && m['code'] == null) {
+  final e = flowEventOf(v?.value);
+  if (v == null || e == null) {
     return null;
   }
   final at = v.time.microsecondsSinceEpoch == 0 ? null : clockText(v.time);
-  final code = m['code'];
-  final message = m['message'];
   final what = [
-    if (code != null) '$code',
-    if (message is String && message.isNotEmpty) message,
+    if (e.code case final code?) '$code',
+    ?e.message,
   ].join(': ');
   return [?at, if (what.isNotEmpty) what].join(' · ');
 }
 
 /// `last_run` (µs since the epoch) as a clock time; null when it is none.
-String? lastRunText(Object? micros) => switch (micros) {
-  final num n when n > 0 => clockText(
+String? lastRunText(Object? micros) => switch (JsonValue.tryOf(micros)) {
+  JsonNumber(value: final n) when n > 0 => clockText(
     DateTime.fromMicrosecondsSinceEpoch(n.toInt(), isUtc: true),
   ),
   _ => null,
 };
 
 // ---------- custom blocks in a definition (ADR 0040 §3) ----------
-
-/// The prefix of an instance's type: `block:<name>`.
-const blockTypePrefix = 'block:';
 
 /// The two blocks the inside of a custom block shows beside its nodes: its
 /// inputs (one right port each) and its outputs (one left port each). They
@@ -307,15 +371,6 @@ const blockTypePrefix = 'block:';
 /// output `x`.
 const blockInputsId = '~in';
 const blockOutputsId = '~out';
-const blockInputsType = 'block~inputs';
-const blockOutputsType = 'block~outputs';
-
-/// Where the inside view keeps the two blocks' positions, and the library
-/// version a block was copied at: editor keys of the block's `layout`
-/// (spec 06 0.2.26: the engine reads none of it).
-const _inputsAt = '_~port~in';
-const _outputsAt = '_~port~out';
-const _libraryMark = '_~lib~version';
 
 /// The limits of spec 06 0.2.24.
 const maxBlocks = 64;
@@ -327,91 +382,38 @@ final _name = RegExp(r'^[A-Za-z0-9_]+$');
 bool blockNameOk(String s) => _name.hasMatch(s);
 
 /// Whether a node of [type] is an instance of a custom block.
-bool isInstance(String type) => type.startsWith(blockTypePrefix);
+bool isInstance(BlockType type) => type is CustomType;
 
 /// The custom block a node of [type] is an instance of.
-String? blockNameOf(String type) =>
-    isInstance(type) ? type.substring(blockTypePrefix.length) : null;
+String? blockNameOf(BlockType? type) => switch (type) {
+  CustomType(:final name) => name,
+  _ => null,
+};
 
 /// Whether [id] is one of the two boundary blocks of an inside view.
 bool isBoundary(String id) => id == blockInputsId || id == blockOutputsId;
 
-Map<String, Object?> _map(Object? v) => switch (v) {
-  final Map<Object?, Object?> m => {
-    for (final e in m.entries)
-      if (e.key case final String k) k: e.value,
-  },
-  _ => const {},
-};
+/// The custom blocks of [d]'s definition, by name ([FlowDraft.defs]).
+Map<String, BlockDef> blockDefsOf(FlowDraft? d) =>
+    d == null ? const {} : d.defs.unlock;
 
-List<Object?> _list(Object? v) => v is List<Object?> ? v : const [];
-
-/// The custom blocks of [d]'s definition, by name, as the definition
-/// writes them (`blocks`).
-Map<String, Map<String, Object?>> blockDefsOf(FlowDraft? d) => {
-  for (final e in _map(d?.rest['blocks']).entries) e.key: _map(e.value),
-};
-
-/// [d] with [defs] as its `blocks` (none: the key goes).
-FlowDraft withBlockDefs(FlowDraft d, Map<String, Map<String, Object?>> defs) =>
-    d.copyWith(
-      rest: defs.isEmpty ? d.rest.remove('blocks') : d.rest.add('blocks', defs),
-    );
-
-/// One declared input or output of a custom block.
-final class BlockPort {
-  const BlockPort(
-    this.name, {
-    this.ends = const [],
-    this.defaultValue,
-    this.description,
-  });
-
-  final String name;
-
-  /// An input: the inner inputs it feeds (`to`); an output: the one inner
-  /// output it sends (`from`). Each `<inner>.<port>`.
-  final List<String> ends;
-  final Object? defaultValue;
-  final String? description;
-}
-
-/// The declared inputs of a block definition, in their order.
-List<BlockPort> blockInputsOf(Map<String, Object?> def) => [
-  for (final p in _list(def['inputs']))
-    if (_map(p) case final m when m['name'] is String)
-      BlockPort(
-        m['name']! as String,
-        ends: switch (m['to']) {
-          final String s => [s],
-          final List<Object?> l => [for (final x in l) ?(x as String?)],
-          _ => const [],
-        },
-        defaultValue: m['default'],
-        description: m['description'] as String?,
-      ),
-];
-
-/// The declared outputs of a block definition, in their order.
-List<BlockPort> blockOutputsOf(Map<String, Object?> def) => [
-  for (final p in _list(def['outputs']))
-    if (_map(p) case final m when m['name'] is String)
-      BlockPort(
-        m['name']! as String,
-        ends: [?(m['from'] as String?)],
-        description: m['description'] as String?,
-      ),
-];
+/// [d] with [defs] as its custom blocks.
+FlowDraft withBlockDefs(FlowDraft d, Map<String, BlockDef> defs) =>
+    d.copyWith(defs: defs.lock);
 
 /// The catalog entry the editor draws an instance of block [name] with:
 /// its inputs are fields with both ports that hold a constant (`values`),
 /// its outputs fields with a right port.
-NodeType customTypeOf(String name, Map<String, Object?> def) => NodeType(
-  type: '$blockTypePrefix$name',
+NodeType customTypeOf(String name, BlockDef def) => NodeType(
+  type: CustomType(name),
   category: 'My blocks',
-  description: def['description'] as String? ?? '',
-  inputs: [for (final p in blockInputsOf(def)) p.name].lock,
-  outputs: [for (final p in blockOutputsOf(def)) p.name].lock,
+  description: def.description ?? '',
+  inputs: [for (final p in def.inputs) p.name].lock,
+  outputs: [for (final p in def.outputs) p.name].lock,
+  // A port named as an engine port behaves as one (`in`, `out`, `error`,
+  // `trigger`), as a catalog type's does.
+  knownInputs: {for (final p in def.inputs) p.name: ?p.known}.lock,
+  knownOutputs: {for (final p in def.outputs) p.name: ?p.known}.lock,
   echoInputs: true,
   takesValues: true,
 );
@@ -421,12 +423,12 @@ NodeType customTypeOf(String name, Map<String, Object?> def) => NodeType(
 /// `outputs`.
 const _boundaryTypes = [
   NodeType(
-    type: blockInputsType,
+    type: BoundaryType.inputs,
     dynOutParam: 'inputs',
     echoInputs: false,
   ),
   NodeType(
-    type: blockOutputsType,
+    type: BoundaryType.outputs,
     dynInParam: 'outputs',
     echoInputs: false,
   ),
@@ -448,65 +450,85 @@ IList<NodeType> typesWithBlocks(IList<NodeType> types, FlowDraft? d) {
 
 /// The constant an unbound input [port] of instance [b] holds: its own
 /// `values.<input>`, else the block's `default`.
-Object? instanceValueOf(FlowDraft d, FlowBlock b, String port) {
+JsonValue instanceValueOf(FlowDraft d, FlowBlock b, String port) {
   final own = operandValueOf(b, port);
-  if (own != null) {
+  if (own is! JsonNull) {
     return own;
   }
-  final def = blockDefsOf(d)[blockNameOf(b.type)];
-  return def == null
-      ? null
-      : blockInputsOf(
-          def,
-        ).where((p) => p.name == port).firstOrNull?.defaultValue;
+  final def = switch (blockNameOf(b.type)) {
+    final name? => d.defs[name],
+    null => null,
+  };
+  return JsonValue.of(
+    def?.inputs.where((p) => p.name == port).firstOrNull?.defaultValue,
+  );
 }
 
 /// Where a field of instance [b] reads its live value: the inner input its
 /// declared input feeds first (`to[0]`), or the inner output its declared
-/// output sends (`from`), as `(node, port)` under the instance's id
-/// (`m1/sum`). Rows of `watch`, `ports` and `preview` carry the inner nodes
-/// under these ids; an instance has no row of its own.
-(String, String)? instanceEnd(
+/// output sends (`from`), under the instance's id (`m1/sum`). Rows of
+/// `watch`, `ports` and `preview` carry the inner nodes under these ids; an
+/// instance has no row of its own.
+PortEnd? instanceEnd(
   FlowDraft d,
   FlowBlock b,
   String port, {
   required bool output,
 }) {
-  final def = blockDefsOf(d)[blockNameOf(b.type)];
-  if (def == null) {
+  final read = switch (blockNameOf(b.type)) {
+    final name? => d.defs[name],
+    null => null,
+  };
+  if (read == null) {
     return null;
   }
-  final ports = output ? blockOutputsOf(def) : blockInputsOf(def);
-  final end = endpoint(
-    ports.where((p) => p.name == port).firstOrNull?.ends.firstOrNull,
-  );
-  return end == null ? null : ('${b.id}/${end.$1}', end.$2);
+  final ports = output ? read.outputs : read.inputs;
+  final end = ports.where((p) => p.name == port).firstOrNull?.ends.firstOrNull;
+  return end == null ? null : PortEnd('${b.id}/${end.block}', end.port);
+}
+
+/// The key in the engine's rows of the live value [key] ([portKey]) of
+/// block [b], which runs as node [eid]: the block's own node, or, for an
+/// instance of a custom block, the inner node its port stands for (an
+/// input: the first inner input it feeds, as its echo too). Null when the
+/// instance has no such port.
+String? engineKeyOf(FlowDraft? d, FlowBlock b, String eid, String key) {
+  final (side, port) = switch (sideOfKey(key, b.id)) {
+    final at? => at,
+    null => (PortSide.param, key),
+  };
+  if (d == null || b.type is! CustomType) {
+    return portKey(side, eid, port);
+  }
+  final up = eid.substring(0, eid.length - b.id.length);
+  final out = side == PortSide.output
+      ? instanceEnd(d, b, port, output: true)
+      : null;
+  final end = out ?? instanceEnd(d, b, port, output: false);
+  return end == null
+      ? null
+      : portKey(
+          out != null ? PortSide.output : PortSide.input,
+          '$up${end.block}',
+          end.port,
+        );
 }
 
 /// How many instances of block [name] the flow [root] has: among its nodes
 /// and inside its other blocks.
 int instancesOf(FlowDraft root, String name) {
-  final type = '$blockTypePrefix$name';
+  final type = CustomType(name);
   var n = root.blocks.values.where((b) => b.type == type).length;
-  for (final def in blockDefsOf(root).values) {
-    n += _map(def['nodes']).values.where((x) => _map(x)['type'] == type).length;
+  for (final def in root.defs.values) {
+    n += def.instances(type);
   }
   return n;
 }
 
-/// The blocks [def] uses, directly: the types of its instances.
-Set<String> _uses(Map<String, Object?> def) => {
-  for (final n in _map(def['nodes']).values)
-    if (_map(n)['type'] case final String t when isInstance(t)) blockNameOf(t)!,
-};
-
 /// [names] and every block of [defs] they use, used blocks first: the
 /// order a library takes them in (`put_block` refuses a block that uses one
 /// it does not hold).
-List<String> blockClosure(
-  Map<String, Map<String, Object?>> defs,
-  Iterable<String> names,
-) {
+List<String> blockClosure(Map<String, BlockDef> defs, Iterable<String> names) {
   final out = <String>[];
   final seen = <String>{};
   void visit(String n) {
@@ -514,7 +536,7 @@ List<String> blockClosure(
     if (def == null || !seen.add(n)) {
       return;
     }
-    _uses(def).forEach(visit);
+    def.uses.forEach(visit);
     out.add(n);
   }
 
@@ -523,12 +545,10 @@ List<String> blockClosure(
 }
 
 /// The blocks the nodes of [d] are instances of, with all they use.
-List<String> blocksUsedBy(
-  FlowDraft d,
-  Map<String, Map<String, Object?>> defs,
-) => blockClosure(defs, [
-  for (final b in d.blocks.values) ?blockNameOf(b.type),
-]);
+List<String> blocksUsedBy(FlowDraft d, Map<String, BlockDef> defs) =>
+    blockClosure(defs, [
+      for (final b in d.blocks.values) ?blockNameOf(b.type),
+    ]);
 
 // ---------- create a custom block from a selection (§20) ----------
 
@@ -624,42 +644,39 @@ BlockNameProblem? customBlockProblem(FlowDraft d, CustomBlockSpec spec) {
       .map((b) => b.x)
       .reduce((a, b) => a > b ? a : b);
   // The inside keeps the selection's shape, with room for the inputs block
-  // on its left.
+  // on its left. Only its nodes, edges and layout are kept: the
+  // definition of a block has no id.
   final inner = FlowDraft(
-    id: '',
+    id: d.id,
     blocks: {
       for (final b in sub.blocks.values)
-        b.id: b.copyWith(x: b.x - left + 320, y: b.y - top + 60),
+        b.id: b.copyWith(
+          x: (b.x - left + 320).roundToDouble(),
+          y: (b.y - top + 60).roundToDouble(),
+        ),
     }.lock,
     edges: sub.edges,
   );
-  final body = toDart(defOf(inner, 0))! as Map<String, Object?>;
-  final def = <String, Object?>{
-    if (spec.description.trim().isNotEmpty)
-      'description': spec.description.trim(),
-    'inputs': [
+  final def = BlockDef(
+    body: blockBodyOf(inner.blocks, inner.edges),
+    description: spec.description.trim().isEmpty
+        ? null
+        : spec.description.trim(),
+    inputs: [
       for (final (i, p) in sub.inputs.indexed)
-        {
-          'name': spec.inputs[i],
-          'to': [for (final e in p.inside) '${e.$1}.${e.$2}'],
-          'default': ?spec.defaults[spec.inputs[i]],
-        },
+        BlockPort(
+          spec.inputs[i],
+          ends: p.inside,
+          defaultValue: spec.defaults[spec.inputs[i]],
+        ),
     ],
-    'outputs': [
+    outputs: [
       for (final (i, p) in sub.outputs.indexed)
-        {
-          'name': spec.outputs[i],
-          'from': '${p.inside.first.$1}.${p.inside.first.$2}',
-        },
+        BlockPort(spec.outputs[i], ends: [p.inside.first]),
     ],
-    'nodes': body['nodes'],
-    'edges': body['edges'],
-    'layout': {
-      ..._map(body['layout']),
-      _inputsAt: [40, 60],
-      _outputsAt: [(right - left + 320 + 300).round(), 60],
-    },
-  };
+    inputsAt: (40, 60),
+    outputsAt: ((right - left + 320 + 300).roundToDouble(), 60),
+  );
   final id = freeBlockId('${spec.name}1', d.blocks.containsKey);
   final rest = withoutBlocks(d, ids);
   final next = rest.copyWith(
@@ -667,27 +684,17 @@ BlockNameProblem? customBlockProblem(FlowDraft d, CustomBlockSpec spec) {
       id,
       FlowBlock(
         id: id,
-        type: '$blockTypePrefix${spec.name}',
+        type: CustomType(spec.name),
         x: left,
         y: top,
       ),
     ),
     edges: rest.edges.addAll([
       for (final (i, p) in sub.inputs.indexed)
-        FlowEdge(
-          from: p.outside.first.$1,
-          fromPort: p.outside.first.$2,
-          to: id,
-          toPort: spec.inputs[i],
-        ),
+        FlowEdge.between(p.outside.first, PortEnd(id, spec.inputs[i])),
       for (final (i, p) in sub.outputs.indexed)
         for (final o in p.outside)
-          FlowEdge(
-            from: id,
-            fromPort: spec.outputs[i],
-            to: o.$1,
-            toPort: o.$2,
-          ),
+          FlowEdge.between(PortEnd(id, spec.outputs[i]), o),
     ]),
   );
   return (withBlockDefs(next, {...blockDefsOf(d), spec.name: def}), id);
@@ -701,29 +708,15 @@ BlockNameProblem? customBlockProblem(FlowDraft d, CustomBlockSpec spec) {
 /// block holds draw, and a block made inside lands in the flow). Null when
 /// [outer] has no such block.
 FlowDraft? insideDraftOf(FlowDraft outer, String name) {
-  final defs = blockDefsOf(outer);
-  final def = defs[name];
-  if (def == null) {
+  final read = outer.defs[name];
+  if (read == null) {
     return null;
   }
-  final layout = _map(def['layout']);
-  final d = flowDraftOf(
-    outer.id,
-    Value.from({
-      'nodes': _map(def['nodes']),
-      'edges': _list(def['edges']),
-      'layout': layout,
-    }),
-  );
-  final ins = blockInputsOf(def);
-  final outs = blockOutputsOf(def);
-  (double, double) at(String key, double x) => switch (layout[key]) {
-    [final num a, final num b] => (a.toDouble(), b.toDouble()),
-    _ => (x, 60),
-  };
-  final right = d.blocks.values.fold<double>(320, (m, b) => b.x > m ? b.x : m);
-  final (ix, iy) = at(_inputsAt, 40);
-  final (ox, oy) = at(_outputsAt, right + 300);
+  final d = read.body.copyWith(id: outer.id);
+  final ins = read.inputs;
+  final outs = read.outputs;
+  final (ix, iy) = read.inputsAt ?? _inputsAtFirst;
+  final (ox, oy) = read.outputsAt ?? _outputsAtFirst(read.body);
   return d.copyWith(
     version: outer.version,
     blocks: d.blocks
@@ -731,16 +724,16 @@ FlowDraft? insideDraftOf(FlowDraft outer, String name) {
           blockInputsId,
           FlowBlock(
             id: blockInputsId,
-            type: blockInputsType,
+            type: BoundaryType.inputs,
             x: ix,
             y: iy,
             cfg: <String, Object?>{
-              'inputs': [for (final p in ins) p.name],
-              'defaults': {
+              BlockCfgKey.inputs.wire: [for (final p in ins) p.name],
+              BlockCfgKey.defaults.wire: {
                 for (final p in ins)
                   if (p.defaultValue != null) p.name: p.defaultValue,
               },
-              'descriptions': {
+              BlockCfgKey.descriptions.wire: {
                 for (final p in [...ins, ...outs])
                   if (p.description != null) p.name: p.description,
               },
@@ -751,113 +744,170 @@ FlowDraft? insideDraftOf(FlowDraft outer, String name) {
           blockOutputsId,
           FlowBlock(
             id: blockOutputsId,
-            type: blockOutputsType,
+            type: BoundaryType.outputs,
             x: ox,
             y: oy,
             cfg: <String, Object?>{
-              'outputs': [for (final p in outs) p.name],
+              BlockCfgKey.outputs.wire: [for (final p in outs) p.name],
             }.lock,
           ),
         ),
     edges: d.edges.addAll([
       for (final p in ins)
         for (final e in p.ends)
-          if (endpoint(e) case (final node, final port))
-            FlowEdge(
-              from: blockInputsId,
-              fromPort: p.name,
-              to: node,
-              toPort: port,
-            ),
+          FlowEdge.between(PortEnd(blockInputsId, p.name), e),
       for (final p in outs)
         for (final e in p.ends)
-          if (endpoint(e) case (final node, final port))
-            FlowEdge(
-              from: node,
-              fromPort: port,
-              to: blockOutputsId,
-              toPort: p.name,
-            ),
+          FlowEdge.between(e, PortEnd(blockOutputsId, p.name)),
     ]),
-    rest: <String, Object?>{
-      'blocks': defs,
-      if (def['description'] case final String s) 'description': s,
-    }.lock,
+    rest: <String, Object?>{'description': ?read.description}.lock,
+    defs: outer.defs,
   );
 }
 
-List<String> _names(Object? v) => [
-  for (final x in _list(v))
-    if (x is String && x.isNotEmpty) x,
-];
+/// Where the inside draws its inputs block when the definition says
+/// nothing.
+const _inputsAtFirst = (40.0, 60.0);
+
+/// Where the inside of [body] draws its outputs block when the definition
+/// says nothing: right of its nodes.
+(double, double) _outputsAtFirst(FlowDraft body) => (
+  body.blocks.values.fold<double>(320, (m, b) => b.x > m ? b.x : m) + 300,
+  60.0,
+);
+
+/// The nodes of [body] that have a place in the definition written back:
+/// every one when [was] placed them all; else those it placed, those it
+/// did not have, and those moved since (an unplaced node the inside drew
+/// where the editor put it stays unplaced).
+ISet<String>? _placedOf(FlowDraft body, BlockDef? was) {
+  final placed = was?.placed;
+  if (was == null || placed == null) {
+    return null;
+  }
+  return {
+    for (final b in body.blocks.values)
+      if (placed.contains(b.id) ||
+          switch (was.body.blocks[b.id]) {
+            null => true,
+            final o => o.x != b.x || o.y != b.y,
+          })
+        b.id,
+  }.lock;
+}
+
+/// A boundary block's place written back: none when the definition it
+/// was opened from gave none ([was] null, [hadDef]) and it stands where
+/// the inside drew it first ([first]).
+(double, double)? _boundaryAt(
+  FlowBlock? at,
+  (double, double)? was,
+  (double, double) first, {
+  required bool hadDef,
+}) => switch (at) {
+  null => null,
+  FlowBlock(:final x, :final y) when hadDef && was == null && (x, y) == first =>
+    null,
+  FlowBlock(:final x, :final y) => (x, y),
+};
 
 /// The names of the inside's inputs and outputs, from its boundary blocks.
 ({List<String> inputs, List<String> outputs}) boundaryOf(FlowDraft inner) => (
-  inputs: _names(inner.blocks[blockInputsId]?.cfg['inputs']),
-  outputs: _names(inner.blocks[blockOutputsId]?.cfg['outputs']),
+  inputs:
+      inner.blocks[blockInputsId]?.namesOf(BlockCfgKey.inputs.wire) ?? const [],
+  outputs:
+      inner.blocks[blockOutputsId]?.namesOf(BlockCfgKey.outputs.wire) ??
+      const [],
 );
 
 /// The definition the inside draft [inner] says: its nodes and edges
 /// without the boundary blocks, an input per name of the inputs block with
 /// the inner inputs its wires reach, an output per name of the outputs
 /// block with the inner output wired to it. [mark] keeps the library
-/// version the block was copied at.
-Map<String, Object?> blockDefOfInside(FlowDraft inner, {int? mark}) {
-  final body =
-      toDart(
-            defOf(
-              FlowDraft(
-                id: '',
-                blocks: inner.blocks.removeWhere((id, _) => isBoundary(id)),
-                edges: inner.edges.removeWhere(
-                  (e) => isBoundary(e.from) || isBoundary(e.to),
-                ),
-              ),
-              0,
-            ),
-          )!
-          as Map<String, Object?>;
+/// version the block was copied at. What the inside does not show of the
+/// definition it was opened from, [was], is kept: the fields the editor
+/// does not read (of the block and of each port still there), a `null`
+/// default, a single-text `to`, whether it had a `layout`, its places as
+/// it wrote them (a node or boundary block nobody moved keeps its place,
+/// or its having none).
+BlockDef blockDefOfInside(FlowDraft inner, {int? mark, BlockDef? was}) {
+  final body = blockBodyOf(
+    inner.blocks.removeWhere((id, _) => isBoundary(id)),
+    inner.edges.removeWhere((e) => isBoundary(e.from) || isBoundary(e.to)),
+  );
   final ins = inner.blocks[blockInputsId];
   final outs = inner.blocks[blockOutputsId];
-  final defaults = _map(ins?.cfg['defaults']);
-  final notes = _map(ins?.cfg['descriptions']);
+  final defaults = ins?.cfgDefaults ?? const IMapConst<String, JsonValue>({});
+  final notes = ins?.cfgDescriptions ?? const IMapConst<String, JsonValue>({});
   final bounds = boundaryOf(inner);
-  return {
-    if (inner.rest['description'] case final String s when s.isNotEmpty)
-      'description': s,
-    'inputs': [
-      for (final n in bounds.inputs)
-        {
-          'name': n,
-          'to': [
-            for (final e in inner.edges)
-              if (e.from == blockInputsId && e.fromPort == n)
-                '${e.to}.${e.toPort}',
-          ],
-          'default': ?defaults[n],
-          if (notes[n] case final String s) 'description': s,
-        },
-    ],
-    'outputs': [
-      for (final n in bounds.outputs)
-        {
-          'name': n,
-          'from': inner.edges
-              .where((e) => e.to == blockOutputsId && e.toPort == n)
-              .map((e) => '${e.from}.${e.fromPort}')
-              .firstOrNull,
-          if (notes[n] case final String s) 'description': s,
-        }..removeWhere((k, v) => v == null),
-    ],
-    'nodes': body['nodes'],
-    'edges': body['edges'],
-    'layout': {
-      ..._map(body['layout']),
-      if (ins != null) _inputsAt: [ins.x.round(), ins.y.round()],
-      if (outs != null) _outputsAt: [outs.x.round(), outs.y.round()],
-      if (mark != null) _libraryMark: [mark, 0],
-    },
+  String? note(String n) => switch (notes[n]) {
+    JsonText(:final text) => text,
+    _ => null,
   };
+  BlockPort? wasIn(String n) =>
+      was?.inputs.where((p) => p.name == n).firstOrNull;
+  BlockPort? wasOut(String n) =>
+      was?.outputs.where((p) => p.name == n).firstOrNull;
+  return BlockDef(
+    body: body,
+    description: switch (JsonValue.of(inner.rest['description'])) {
+      JsonText(:final text) when text.isNotEmpty || was?.description == text =>
+        text,
+      _ => null,
+    },
+    inputs: [
+      for (final n in bounds.inputs)
+        BlockPort(
+          n,
+          ends: [
+            for (final e in inner.edges)
+              if (e.from == blockInputsId && e.fromPort == n) e.target,
+          ],
+          defaultValue: defaults[n]?.raw,
+          // A `null` default is none to the inside: kept as it was.
+          hasDefault:
+              defaults.containsKey(n) ||
+              switch (wasIn(n)) {
+                BlockPort(hasDefault: true, defaultValue: null) => true,
+                _ => false,
+              },
+          oneEnd: wasIn(n)?.oneEnd ?? false,
+          description: note(n),
+          extra: wasIn(n)?.extra ?? const IMapConst({}),
+        ),
+    ],
+    outputs: [
+      for (final n in bounds.outputs)
+        BlockPort(
+          n,
+          ends: [
+            ?inner.edges
+                .where((e) => e.to == blockOutputsId && e.toPort == n)
+                .map((e) => e.source)
+                .firstOrNull,
+          ],
+          description: note(n),
+          extra: wasOut(n)?.extra ?? const IMapConst({}),
+        ),
+    ],
+    inputsAt: _boundaryAt(
+      ins,
+      was?.inputsAt,
+      _inputsAtFirst,
+      hadDef: was != null,
+    ),
+    outputsAt: _boundaryAt(
+      outs,
+      was?.outputsAt,
+      _outputsAtFirst(was?.body ?? body),
+      hadDef: was != null,
+    ),
+    placed: _placedOf(body, was),
+    libraryVersion: mark,
+    extra: was?.extra ?? const IMapConst({}),
+    hasLayout: was?.hasLayout ?? true,
+    placesIn: was?.placesIn ?? const IMapConst({}),
+  );
 }
 
 /// [outer] with what was done inside block [name]: the flow's blocks as
@@ -865,15 +915,15 @@ Map<String, Object?> blockDefOfInside(FlowDraft inner, {int? mark}) {
 /// [name] as [inner] draws it. An instance of [name] in [outer] loses the
 /// wires and the constants of a port the block no longer has.
 FlowDraft foldInside(FlowDraft outer, String name, FlowDraft inner) {
-  final before = blockDefsOf(outer)[name];
   final def = blockDefOfInside(
     inner,
-    mark: before == null ? null : libraryVersionOf(before),
+    mark: outer.defs[name]?.libraryVersion,
+    was: outer.defs[name],
   );
   final defs = {...blockDefsOf(inner), name: def};
-  final ins = {for (final p in blockInputsOf(def)) p.name};
-  final outs = {for (final p in blockOutputsOf(def)) p.name};
-  final type = '$blockTypePrefix$name';
+  final ins = {for (final p in def.inputs) p.name};
+  final outs = {for (final p in def.outputs) p.name};
+  final type = CustomType(name);
   bool mine(String id) => outer.blocks[id]?.type == type;
   return withBlockDefs(
     outer.copyWith(
@@ -933,6 +983,15 @@ String? insidePath(IList<FlowFrame> frames) {
   return parts.join('/');
 }
 
+/// The id the engine knows block [id] of the canvas by: its own in the
+/// flow, `<instance>/<inner>` inside a custom block ([frames]). Null
+/// inside a block opened from the palette: no instance, so no running
+/// node.
+String? engineIdOf(IList<FlowFrame> frames, String id) {
+  final path = insidePath(frames);
+  return path == null ? null : (path.isEmpty ? id : '$path/$id');
+}
+
 /// The names + adds to a boundary block: `in1`, `in2`, … or `out1`, …,
 /// free among the block's inputs and outputs together.
 String nextBoundaryName(FlowDraft inner, {required bool input}) {
@@ -954,12 +1013,12 @@ FlowDraft? resizeBoundary(
   required bool add,
 }) {
   final id = input ? blockInputsId : blockOutputsId;
-  final key = input ? 'inputs' : 'outputs';
+  final key = (input ? BlockCfgKey.inputs : BlockCfgKey.outputs).wire;
   final b = inner.blocks[id];
   if (b == null) {
     return null;
   }
-  final names = _names(b.cfg[key]);
+  final names = b.namesOf(key) ?? const <String>[];
   if (add ? names.length >= maxBlockPorts : names.isEmpty) {
     return null;
   }
@@ -969,7 +1028,10 @@ FlowDraft? resizeBoundary(
       : names.sublist(0, names.length - 1);
   var cfg = b.cfg.add(key, next);
   if (gone != null && input) {
-    cfg = cfg.add('defaults', _map(cfg['defaults'])..remove(gone));
+    cfg = cfg.add(
+      BlockCfgKey.defaults.wire,
+      rawFields(b.cfgDefaults)..remove(gone),
+    );
   }
   return inner.copyWith(
     blocks: inner.blocks.add(id, b.copyWith(cfg: cfg)),
@@ -993,18 +1055,8 @@ FlowDraft? renameBlock(FlowDraft root, String from, String to) {
   if (!defs.containsKey(from) || !blockNameOk(to) || defs.containsKey(to)) {
     return null;
   }
-  final was = '$blockTypePrefix$from';
-  final now = '$blockTypePrefix$to';
-  Map<String, Object?> renamed(Map<String, Object?> def) => {
-    ...def,
-    'nodes': {
-      for (final e in _map(def['nodes']).entries)
-        e.key: switch (_map(e.value)) {
-          final m when m['type'] == was => {...m, 'type': now},
-          final m => m,
-        },
-    },
-  };
+  final was = CustomType(from);
+  final now = CustomType(to);
   return withBlockDefs(
     root.copyWith(
       blocks: root.blocks.map(
@@ -1013,7 +1065,14 @@ FlowDraft? renameBlock(FlowDraft root, String from, String to) {
     ),
     {
       for (final e in defs.entries)
-        (e.key == from ? to : e.key): renamed(e.value),
+        (e.key == from ? to : e.key): e.value.copyWith(
+          body: e.value.body.copyWith(
+            blocks: e.value.body.blocks.map(
+              (id, b) =>
+                  MapEntry(id, b.type == was ? b.copyWith(type: now) : b),
+            ),
+          ),
+        ),
     },
   );
 }
@@ -1030,48 +1089,6 @@ FlowDraft? removeBlock(FlowDraft root, String name) {
 
 // ---------- the site's library (§20) ----------
 
-/// One row of `list_blocks`.
-BlockInfo blockInfoOf(Value v) => BlockInfo(
-  name: str(v['name']) ?? '',
-  version: integer(v['version']) ?? 0,
-  description: str(v['description']),
-  inputs: [
-    if (v['inputs'] case VArray(:final v))
-      for (final x in v) ?str(x),
-  ].lock,
-  outputs: [
-    if (v['outputs'] case VArray(:final v))
-      for (final x in v) ?str(x),
-  ].lock,
-);
-
-/// The library version block [def] of a flow was copied at; null for a
-/// block made in the flow.
-int? libraryVersionOf(Map<String, Object?> def) =>
-    switch (_map(def['layout'])[_libraryMark]) {
-      [final num v, ...] => v.toInt(),
-      _ => null,
-    };
-
-/// [def] marked as copied from the library at [version].
-Map<String, Object?> withLibraryVersion(
-  Map<String, Object?> def,
-  int version,
-) => {
-  ...def,
-  'layout': {
-    ..._map(def['layout']),
-    _libraryMark: [version, 0],
-  },
-};
-
-/// [def] as the library takes it: without the editor's mark of where it
-/// came from.
-Map<String, Object?> libraryDefOf(Map<String, Object?> def) {
-  final layout = {..._map(def['layout'])}..remove(_libraryMark);
-  return {...def, 'layout': layout};
-}
-
 /// [root] with library block [name] copied into its `blocks` at
 /// [version], and the blocks it uses ([requires]). A flow copies, it does
 /// not link (ADR 0040 §3): a block of the flow with the name of a required
@@ -1080,9 +1097,9 @@ Map<String, Object?> libraryDefOf(Map<String, Object?> def) {
 FlowDraft withLibraryBlock(
   FlowDraft root,
   String name,
-  Map<String, Object?> def, {
+  BlockDef def, {
   required int version,
-  Map<String, Map<String, Object?>> requires = const {},
+  Map<String, BlockDef> requires = const {},
   bool replace = false,
 }) {
   final defs = {...blockDefsOf(root)};
@@ -1090,26 +1107,17 @@ FlowDraft withLibraryBlock(
     defs.putIfAbsent(e.key, () => e.value);
   }
   if (replace || !defs.containsKey(name)) {
-    defs[name] = withLibraryVersion(def, version);
+    defs[name] = def.copyWith(libraryVersion: version);
   }
   return withBlockDefs(root, defs);
 }
 
-/// `get_block`'s answer `{name, version, def, requires}`.
-({
-  int version,
-  Map<String, Object?> def,
-  Map<String, Map<String, Object?>> requires,
-})
-libraryBlockOf(Value answer) => (
-  version: integer(answer['version']) ?? 0,
-  def: _map(toDart(answer['def'])),
-  requires: {
-    for (final e in _map(toDart(answer['requires'])).entries)
-      e.key: _map(e.value),
-  },
-);
+/// Whether two definitions say the same block (the editor's mark aside):
+/// they write the same definition.
+bool sameBlockDef(BlockDef a, BlockDef b) =>
+    Value.from(libraryDefJsonOf(a)) == Value.from(libraryDefJsonOf(b));
 
-/// Whether two definitions say the same block (the editor's mark aside).
-bool sameBlockDef(Map<String, Object?> a, Map<String, Object?> b) =>
-    Value.from(libraryDefOf(a)) == Value.from(libraryDefOf(b));
+/// [def] as the library takes it: without the editor's mark of where it
+/// came from.
+Map<String, Object?> libraryDefJsonOf(BlockDef def) =>
+    blockDefJsonOf(def.copyWith(libraryVersion: null));

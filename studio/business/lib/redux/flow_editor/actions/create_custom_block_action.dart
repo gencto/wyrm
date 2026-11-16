@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 
 import '../../../wyrm/mappers/flow_blocks.dart';
@@ -12,14 +10,19 @@ import 'validate_flow_action.dart';
 /// inside of a new block [spec] of this flow and are replaced by one
 /// instance of it, selected. One step of the history.
 class CreateCustomBlockAction extends Action {
-  CreateCustomBlockAction(this.ids, this.spec);
+  CreateCustomBlockAction(Set<String> this.ids, this.spec);
 
-  final Set<String> ids;
+  /// Of the blocks selected when it runs (the dialog asked the name while
+  /// the selection stood).
+  CreateCustomBlockAction.selected(this.spec) : ids = null;
+
+  final Set<String>? ids;
   final CustomBlockSpec spec;
 
   @override
   AppState? reduce() {
     final d = flowEditor.draft;
+    final ids = this.ids ?? flowEditor.selection.unlock;
     final made = d == null
         ? null
         : createCustomBlock(d, {
@@ -30,7 +33,7 @@ class CreateCustomBlockAction extends Action {
       return null;
     }
     final (next, id) = made;
-    unawaited(dispatchAndWait(ValidateFlowAction()));
+    _validate();
     return state.copyWith.flowEditor(
       draft: next,
       selection: {id}.toISet(),
@@ -41,4 +44,9 @@ class CreateCustomBlockAction extends Action {
       undoTag: null,
     );
   }
+
+  /// The engine checks the draft again once the edits settle
+  /// ([ValidateFlowAction] is debounced and brings its own state); this
+  /// edit does not wait for it.
+  void _validate() => dispatch(ValidateFlowAction());
 }

@@ -7,6 +7,7 @@ import 'package:models/error_kind.dart';
 import 'package:models/param_spec.dart';
 import 'package:ui/forms/action_form.dart';
 import 'package:ui/forms/param_form.dart';
+import 'package:wyrm_client/wyrm_client.dart' show ParamEditor, TypeCode;
 
 /// The fields of a form built from an action's parameters (docs/studio.md
 /// §6.6). Values are kept by the form; `onChanged` here does nothing.
@@ -18,12 +19,12 @@ List<ParamFieldVm> paramFields(IList<ParamSpec> specs) => [
 ParamFieldVm paramField(ParamSpec p) {
   final kind = switch (p) {
     ParamSpec(secret: true) => ParamKind.secret,
-    ParamSpec(editor: 'file') => ParamKind.file,
-    ParamSpec(editor: 'textarea') ||
-    ParamSpec(type: 'map' || 'array') => ParamKind.textarea,
+    ParamSpec(editor: ParamEditor.file) => ParamKind.file,
+    ParamSpec(editor: ParamEditor.textarea) ||
+    ParamSpec(type: TypeCode.map || TypeCode.array) => ParamKind.textarea,
     ParamSpec(choices: final c) when c.isNotEmpty => ParamKind.choice,
-    ParamSpec(type: 'bool') => ParamKind.toggle,
-    ParamSpec(type: 'number') => ParamKind.number,
+    ParamSpec(type: TypeCode.bool_) => ParamKind.toggle,
+    ParamSpec(type: TypeCode.number) => ParamKind.number,
     _ => ParamKind.text,
   };
   final bounds = [

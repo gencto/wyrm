@@ -1,6 +1,8 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 
+import 'block_type.dart';
+
 part 'flow_block.freezed.dart';
 
 /// One node of a flow definition (spec 06 `nodes.<id>`) and where the
@@ -9,7 +11,7 @@ part 'flow_block.freezed.dart';
 abstract class FlowBlock with _$FlowBlock {
   const factory FlowBlock({
     required String id,
-    required String type,
+    required BlockType type,
 
     /// The node's config without `type`, as JSON values.
     @Default(IMapConst({})) IMap<String, Object?> cfg,

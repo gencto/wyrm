@@ -2,6 +2,7 @@ import 'package:async_redux/async_redux.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
+import '../../../wyrm/decode/flow_def.dart';
 import '../../../wyrm/mappers/flow_mapper.dart';
 import '../../../wyrm/mappers/flow_value_mapper.dart';
 import '../../app_state.dart';
@@ -55,9 +56,11 @@ class RetrieveFlowDefsAction extends Action {
   static Future<FlowDefFacts?> read(WyrmApi api, String base, String id) async {
     try {
       final defs = await api.invoke('$base/$id', 'history').toList();
-      final list = defs.isEmpty ? null : defs.first;
-      if (list case VArray(:final v) when v.isNotEmpty) {
-        final d = flowDraftOf(id, v.last);
+      final read = defs.isEmpty
+          ? null
+          : newestFlowOf(id, defs.first).orWarn('flow $id');
+      if (read != null) {
+        final d = read.draft;
         final k = flowKeysOf(d);
         return (
           reads: k.reads.lock,

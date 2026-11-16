@@ -43,7 +43,7 @@ void main() {
     addTearDown(tester.view.reset);
   }
 
-  ValueViewerVm vm({ViewerEditVm? edit, String? locked}) => ValueViewerVm(
+  ValueViewerVm vm({ViewerEditVm? edit, ViewerLockVm? locked}) => ValueViewerVm(
     title: 'avg.size_s',
     type: 'number',
     content: const NumberContentVm('30'),
@@ -198,10 +198,10 @@ void main() {
   ) async {
     screen(tester);
     await tester.pumpWidget(
-      viewer(vm(locked: 'Read only: a wire feeds this field.')),
+      viewer(vm(locked: .bound)),
     );
     expect(edit, findsNothing);
-    expect(find.text('Read only: a wire feeds this field.'), findsOneWidget);
+    expect(find.text(_lockedBound), findsOneWidget);
 
     // A point of the Explorer: read only, and nothing said.
     await tester.pumpWidget(viewer(vm()));
@@ -221,8 +221,13 @@ void main() {
     await tester.tap(edit);
     await tester.pump();
     expect(editor, findsOneWidget);
-    await tester.pumpWidget(viewer(vm(locked: 'Read only: bound.')));
+    await tester.pumpWidget(viewer(vm(locked: .bound)));
     expect(editor, findsNothing);
-    expect(find.text('Read only: bound.'), findsOneWidget);
+    expect(find.text(_lockedBound), findsOneWidget);
   });
 }
+
+/// What a field fed by a wire says in the viewer, in English (the words of
+/// `ViewerLockVm.bound`, `viewerLockedBound`).
+const _lockedBound =
+    'Read only: a wire feeds this field. Unbind it to type a value.';

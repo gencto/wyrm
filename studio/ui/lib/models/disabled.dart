@@ -78,3 +78,103 @@ enum Missing {
   /// The user may not read the flow.
   readFlow,
 }
+
+/// Why a control of the flow editor is off: Deploy, the My blocks tab, an
+/// item of a custom block's menu or of the canvas menu (docs/studio.md §2
+/// rule 8: shown, never hidden).
+enum FlowOffReason {
+  /// The draft is not read yet.
+  loading,
+
+  /// Deploy inside a custom block: go back to the flow.
+  deployInside,
+  nothingToDeploy,
+
+  /// The draft has problems.
+  fixFirst,
+
+  /// The broker has no custom blocks (the My blocks tab).
+  noCustomBlocks,
+
+  /// Inside a custom block: go back to the flow first.
+  backFirst,
+  notInLibrary,
+  sameVersion,
+
+  /// A save to, update from or removal from the library runs.
+  libraryBusy,
+
+  /// A custom block placed inside itself.
+  insideItself,
+  nothingSelected,
+
+  /// The broker has no custom blocks (the canvas menu).
+  needsBroker,
+  nothingToUndo,
+  nothingToRedo,
+  notCustom,
+
+  /// `Run` of a block: the broker has no `trigger` action.
+  runNoBroker,
+
+  /// `Run`: the flow is not deployed.
+  runNotDeployed,
+
+  /// `Run`: the draft differs from the deployed version.
+  runDraft,
+
+  /// `Run`: a block of a custom block opened from the palette.
+  runNoInstance,
+
+  /// `Run`: the block is disabled.
+  runOff;
+
+  String get label => switch (this) {
+    loading => S.current.loading,
+    deployInside => S.current.deployInside,
+    nothingToDeploy => S.current.nothingToDeploy,
+    fixFirst => S.current.fixFirst,
+    noCustomBlocks => S.current.myBlocksOff,
+    backFirst => S.current.mbBackFirst,
+    notInLibrary => S.current.mbNotInLibrary,
+    sameVersion => S.current.mbSameVersion,
+    libraryBusy => S.current.mbLibraryBusy,
+    insideItself => S.current.mbInsideItself,
+    nothingSelected => S.current.fmNothingSelected,
+    needsBroker => S.current.fmNeedsBroker,
+    nothingToUndo => S.current.fmNothingToUndo,
+    nothingToRedo => S.current.fmNothingToRedo,
+    notCustom => S.current.fmNotCustom,
+    runNoBroker => S.current.runNoBroker,
+    runNotDeployed => S.current.runNotDeployed,
+    runDraft => S.current.runDraft,
+    runNoInstance => S.current.runNoInstance,
+    runOff => S.current.runOff,
+  };
+}
+
+/// A control of the flow editor off for [reason].
+final class FlowOff extends Disabled {
+  const FlowOff(this.reason);
+
+  final FlowOffReason reason;
+
+  @override
+  String get text => reason.label;
+
+  @override
+  List<Object?> get props => [reason];
+}
+
+/// A custom block that cannot be deleted: [count] instances use it.
+final class InUse extends Disabled {
+  const InUse(this.count);
+
+  final int count;
+
+  @override
+  String get text => S.current.mbInUse(count);
+
+  @override
+  List<Object?> get props => [count];
+}

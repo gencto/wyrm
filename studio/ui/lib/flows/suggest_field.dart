@@ -3,6 +3,8 @@ import 'package:material_ui/material_ui.dart';
 
 import '../indicators/app_icon.dart';
 import '../theme/extensions/colors.dart';
+import '../theme/sizes.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// What [SuggestField] draws: the [value] typed, and the [choices] its menu
@@ -77,9 +79,9 @@ class _SuggestFieldState extends State<SuggestField> {
   Widget build(BuildContext context) {
     final c = context.colors;
     return Container(
-      height: 32,
+      height: AppSizes.flowControl,
       decoration: widget.decoration,
-      padding: const EdgeInsets.only(left: 10),
+      padding: Insets.flowSuggestField,
       child: Row(
         children: [
           Expanded(
@@ -90,7 +92,7 @@ class _SuggestFieldState extends State<SuggestField> {
               onChanged: widget.onChanged,
               autocorrect: false,
               enableSuggestions: false,
-              style: mono(size: 12, color: c.text1),
+              style: mono(size: FontSizes.sm, color: c.text1),
               decoration: const InputDecoration.collapsed(hintText: '')
                   .copyWith(
                     enabledBorder: InputBorder.none,
@@ -105,27 +107,34 @@ class _SuggestFieldState extends State<SuggestField> {
             padding: EdgeInsets.zero,
             color: c.ground3,
             position: .under,
-            constraints: const BoxConstraints(maxHeight: 360, minWidth: 200),
+            constraints: const BoxConstraints(
+              maxHeight: AppSizes.flowSuggestMenuMaxHeight,
+              minWidth: AppSizes.flowSuggestMenuMinWidth,
+            ),
             onSelected: _pick,
             itemBuilder: (_) => [
               for (final ch in widget.vm.choices)
                 PopupMenuItem(
                   value: ch,
-                  height: 32,
+                  height: AppSizes.flowSuggestItem,
                   child: Text(
                     ch,
                     style: mono(
-                      size: 12,
+                      size: FontSizes.sm,
                       color: ch == widget.vm.value ? c.ember : c.text1,
                     ),
                   ),
                 ),
             ],
             child: SizedBox(
-              width: 28,
-              height: 32,
+              width: AppSizes.flowInspectorButton,
+              height: AppSizes.flowControl,
               child: Center(
-                child: AppIcon('ui_chevron_down', size: 14, color: c.text4),
+                child: AppIcon(
+                  'ui_chevron_down',
+                  size: AppSizes.flowDropChevron,
+                  color: c.text4,
+                ),
               ),
             ),
           ),

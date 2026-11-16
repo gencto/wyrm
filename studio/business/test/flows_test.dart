@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:async_redux/async_redux.dart';
 import 'package:business/redux/app_state.dart';
 import 'package:business/redux/flow_editor/actions/add_block_action.dart';
@@ -5,15 +7,21 @@ import 'package:business/redux/flow_editor/actions/connect_ports_action.dart';
 import 'package:business/redux/flow_editor/actions/deploy_flow_action.dart';
 import 'package:business/redux/flow_editor/actions/load_flow_action.dart';
 import 'package:business/redux/flow_editor/actions/remove_blocks_action.dart';
+import 'package:business/redux/flow_editor/actions/validate_flow_action.dart';
 import 'package:business/redux/login/actions/log_in_action.dart';
 import 'package:business/redux/login/actions/set_gateway_action.dart';
 import 'package:business/redux/login/actions/set_password_action.dart';
 import 'package:business/redux/login/actions/set_user_action.dart';
+import 'package:business/wyrm/decode/flow_def.dart';
+import 'package:business/wyrm/decode/node_type.dart';
+import 'package:business/wyrm/failures.dart';
 import 'package:business/wyrm/mappers/flow_mapper.dart';
 import 'package:business/wyrm/mappers/values.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:models/flow_problem_kind.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
+import 'support/block_types.dart';
 import 'support/fake_wyrm.dart';
 
 final def = Value.from({
@@ -109,7 +117,7 @@ void main() {
   });
 
   test('dyn ports come from the parameter, or its defaults', () {
-    final t = nodeTypeOf((types as VArray).v[2]);
+    final t = nodeTypeOf((types as VArray).v[2]).orWarn('test')!;
     final d = flowDraftOf(
       'x',
       Value.from({
@@ -156,16 +164,101 @@ void main() {
         ..invokes['wy/central/dataflows ▸ deploy'] = [const VNull()];
     });
 
+    test('a definition Studio cannot read is said; the editor keeps what '
+        'it had, never an empty draft a deploy would write over', () async {
+      await s.dispatchAndWait(LoadFlowAction('tank'));
+      final held = s.state.flowEditor.draft;
+      api.invokes['wy/central/dataflows/tank ▸ history'] = [
+        Value.from([
+          {
+            'version': 4,
+            'nodes': {'a': <String, Object?>{}},
+          },
+        ]),
+      ];
+      final status = await s.dispatchAndWait(LoadFlowAction('tank'));
+      expect(status.originalError, isA<StudioException>());
+      expect(
+        (status.originalError! as StudioException).error.message,
+        contains('nodes.a.type: missing'),
+      );
+      expect(s.state.flowEditor.draft, held);
+      expect(s.state.flowEditor.version, 3);
+
+      // Another flow that does not read: the one held goes, and nothing
+      // is there to deploy under its id.
+      api.invokes['wy/central/dataflows/other ▸ history'] = [
+        Value.from([
+          {'edges': 'a.out'},
+        ]),
+      ];
+      final other = await s.dispatchAndWait(LoadFlowAction('other'));
+      expect(other.originalError, isA<StudioException>());
+      expect(s.state.flowEditor.flowId, 'other');
+      expect(s.state.flowEditor.draft, isNull);
+      expect(s.state.flowEditor.deployed, isNull);
+      await s.dispatchAndWait(DeployFlowAction());
+      expect(
+        api.calls.where((c) => c.action == 'deploy'),
+        isEmpty,
+        reason: 'no draft, no deploy',
+      );
+    });
+
+    test('a definition holding bytes does not open: the refusal names the '
+        'field', () async {
+      api.invokes['wy/central/dataflows/raw ▸ history'] = [
+        Value.from([
+          {
+            'version': 1,
+            'nodes': {
+              'a': {
+                'type': 'scale',
+                'k': Uint8List.fromList([1, 2]),
+              },
+            },
+          },
+        ]),
+      ];
+      final status = await s.dispatchAndWait(LoadFlowAction('raw'));
+      expect(status.originalError, isA<StudioException>());
+      expect(
+        (status.originalError! as StudioException).error.message,
+        contains('nodes.a.k: not JSON'),
+      );
+      expect(s.state.flowEditor.draft, isNull);
+    });
+
+    test(
+      "validate: the engine's words become a problem with the block "
+      'they name; an answer of another shape is one Studio cannot read',
+      () async {
+        await s.dispatchAndWait(LoadFlowAction('tank'));
+        api.invokes['wy/central/dataflows ▸ validate'] = [
+          Value.from({'ok': false, 'error': 'scale: in.zz is no input'}),
+        ];
+        await s.dispatchAndWait(ValidateFlowAction());
+        expect(
+          s.state.flowEditor.problems.single.message,
+          'scale: in.zz is no input',
+        );
+        expect(s.state.flowEditor.problems.single.block, 'scale');
+        api.invokes['wy/central/dataflows ▸ validate'] = [const VArray([])];
+        await s.dispatchAndWait(ValidateFlowAction());
+        expect(s.state.flowEditor.problems.single.kind, FlowProblemKind.unread);
+      },
+    );
+
     test('loads, edits and deploys version + 1', () async {
       await s.dispatchAndWait(LoadFlowAction('tank'));
       expect(s.state.flowEditor.draft!.blocks.length, 3);
       expect(
-        s.state.flowEditor.types.map((t) => t.type),
+        s.state.flowEditor.types.map((t) => t.type.wire),
         containsAll(['scale', 'subscribe']),
       );
 
       s
-        ..dispatchSync(AddBlockAction('scale', 300, 40))
+        ..dispatchSync(AddBlockAction(bt('scale'), 300, 40))
         ..dispatchSync(ConnectPortsAction('level', 'out', 'scale1', 'in'));
       final d = s.state.flowEditor.draft!;
       expect(

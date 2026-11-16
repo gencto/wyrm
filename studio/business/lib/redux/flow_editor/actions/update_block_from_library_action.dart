@@ -1,9 +1,13 @@
 import 'dart:async';
 
+import 'package:async_redux/async_redux.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
-import 'package:wyrm_client/wyrm_client.dart';
+import 'package:models/error_kind.dart';
 
 import '../../../wyrm/calls.dart';
+import '../../../wyrm/decode/block_library.dart';
+import '../../../wyrm/decode/decoded.dart';
+import '../../../wyrm/failures.dart';
 import '../../../wyrm/mappers/flow_blocks.dart';
 import '../../../wyrm/mappers/flow_canvas.dart';
 import '../../app_state.dart';
@@ -15,7 +19,8 @@ import 'validate_flow_action.dart';
 /// blocks it uses are copied when the flow has none of that name. An
 /// instance loses the wires and constants of a port the new version does
 /// not have.
-class UpdateBlockFromLibraryAction extends Action {
+class UpdateBlockFromLibraryAction extends Action
+    with NonReentrant, WaitingAction {
   UpdateBlockFromLibraryAction(this.name);
 
   final String name;
@@ -26,14 +31,18 @@ class UpdateBlockFromLibraryAction extends Action {
     if (root == null || flowEditor.frames.isNotEmpty) {
       return null;
     }
-    final answer = libraryBlockOf(
-      await askOne(
-        deps.wyrm,
-        '$root/dataflows',
-        'get_block',
-        Value.from({'name': name}),
+    final answer = switch (libraryBlockOf(
+      await askOne(deps.wyrm, '$root/dataflows', 'get_block', nameArgs(name)),
+    )) {
+      Valid(:final value) => value,
+      Invalid(:final field, :final reason) => throw StudioException.said(
+        ErrorKind.broker,
+        'The library block $name is not one Studio reads: $field: $reason.',
+        key: '$root/dataflows',
+        call: 'get_block',
+        thing: name,
       ),
-    );
+    };
     final d = flowEditor.draft;
     if (d == null || flowEditor.frames.isNotEmpty) {
       return null;
@@ -49,7 +58,7 @@ class UpdateBlockFromLibraryAction extends Action {
     // Through the inside's own fold, so instances drop what is gone.
     final inner = insideDraftOf(copied, name);
     final next = inner == null ? copied : foldInside(copied, name, inner);
-    unawaited(dispatchAndWait(ValidateFlowAction()));
+    _validate();
     return state.copyWith.flowEditor(
       draft: next,
       dirty: true,
@@ -58,4 +67,9 @@ class UpdateBlockFromLibraryAction extends Action {
       undoTag: null,
     );
   }
+
+  /// The engine checks the draft again once the edits settle
+  /// ([ValidateFlowAction] is debounced and brings its own state); this
+  /// edit does not wait for it.
+  void _validate() => dispatch(ValidateFlowAction());
 }

@@ -1,82 +1,71 @@
 import 'package:equatable/equatable.dart';
+import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../buttons/button.dart';
 import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// One port the new block will have: the name the editor proposes for it
-/// and what it is wired to outside the selection.
+/// and the outside ends it is wired to (`a.level`): an input's one source,
+/// an output's targets.
 final class BlockPortVm extends Equatable {
-  const BlockPortVm({required this.name, this.detail = ''});
+  const BlockPortVm({required this.name, this.outside = const []});
 
   final String name;
+  final List<String> outside;
 
-  /// `← a.level` for an input, `→ mean.value` for an output.
-  final String detail;
+  /// `← a.level` for an input.
+  String get from => outside.isEmpty ? '' : '← ${outside.first}';
+
+  /// `→ mean.in, sum.a` for an output.
+  String get to => outside.isEmpty ? '' : '→ ${outside.join(', ')}';
 
   @override
-  List<Object?> get props => [name, detail];
+  List<Object?> get props => [name, outside];
 }
 
-/// What [CustomBlockDialog] draws.
+/// What [CustomBlockDialog] draws: the name proposed, how many [blocks]
+/// the selection holds, and the ports it would have.
 final class CustomBlockDialogVm extends Equatable {
   const CustomBlockDialogVm({
-    required this.title,
-    required this.note,
+    required this.blocks,
     this.name = '',
     this.inputs = const [],
     this.outputs = const [],
-    this.nameLabel = 'Name',
-    this.descriptionLabel = 'Description',
-    this.inputsLabel = 'Inputs',
-    this.outputsLabel = 'Outputs',
-    this.defaultHint = 'default',
-    this.noPorts = 'none',
-    this.createLabel = 'Create',
-    this.cancelLabel = 'Cancel',
   });
 
-  /// `Create custom block`.
-  final String title;
-
-  /// `3 blocks become one block of this flow.`
-  final String note;
+  final int blocks;
 
   /// The name proposed.
   final String name;
   final List<BlockPortVm> inputs;
   final List<BlockPortVm> outputs;
-  final String nameLabel;
-  final String descriptionLabel;
-  final String inputsLabel;
-  final String outputsLabel;
-  final String defaultHint;
-
-  /// Said where the selection has no input, or no output.
-  final String noPorts;
-  final String createLabel;
-  final String cancelLabel;
 
   @override
-  List<Object?> get props => [
-    title,
-    note,
-    name,
-    inputs,
-    outputs,
-    nameLabel,
-    descriptionLabel,
-    inputsLabel,
-    outputsLabel,
-    defaultHint,
-    noPorts,
-    createLabel,
-    cancelLabel,
-  ];
+  List<Object?> get props => [blocks, name, inputs, outputs];
+}
+
+/// Why a custom block's name or ports are refused (ADR 0040 §3), as the
+/// dialogs say it.
+enum CustomBlockProblemVm {
+  badName,
+  taken,
+  badPort,
+  duplicate,
+  limit;
+
+  String get label => switch (this) {
+    badName => S.current.cbBadName,
+    taken => S.current.cbTaken,
+    badPort => S.current.cbBadPort,
+    duplicate => S.current.cbDuplicate,
+    limit => S.current.cbLimit,
+  };
 }
 
 /// What the dialog hands back: the block's name and description, each
@@ -192,7 +181,7 @@ class _CustomBlockDialogState extends State<CustomBlockDialog> {
       bool code = true,
       Key? key,
     }) => Container(
-      height: 34,
+      height: AppSizes.flowField,
       padding: Insets.control,
       alignment: .centerLeft,
       decoration: BoxDecoration(
@@ -204,7 +193,7 @@ class _CustomBlockDialogState extends State<CustomBlockDialog> {
         key: key,
         controller: controller,
         style: code
-            ? mono(size: 12, color: c.text1)
+            ? mono(size: FontSizes.sm, color: c.text1)
             : TextStyle(fontSize: FontSizes.md, color: c.text1),
         decoration:
             InputDecoration.collapsed(
@@ -224,31 +213,31 @@ class _CustomBlockDialogState extends State<CustomBlockDialog> {
       List<TextEditingController>? defaults,
     }) => Column(
       crossAxisAlignment: .stretch,
-      spacing: 6,
+      spacing: AppSpacing.flowLines,
       children: [
         label(title),
         if (list.isEmpty)
           Text(
-            vm.noPorts,
+            S.current.cbNone,
             style: TextStyle(fontSize: FontSizes.sm, color: c.text4),
           ),
         for (final (i, p) in list.indexed)
           Row(
-            spacing: 8,
+            spacing: AppSpacing.sm,
             children: [
               Expanded(flex: 5, child: field(names[i])),
               if (defaults != null)
                 Expanded(
                   flex: 4,
-                  child: field(defaults[i], hint: vm.defaultHint),
+                  child: field(defaults[i], hint: S.current.cbDefault),
                 ),
               Expanded(
                 flex: 5,
                 child: Text(
-                  p.detail,
+                  defaults != null ? p.from : p.to,
                   maxLines: 1,
                   overflow: .ellipsis,
-                  style: mono(size: 11, color: c.text4),
+                  style: mono(size: FontSizes.xs, color: c.text4),
                 ),
               ),
             ],
@@ -262,24 +251,27 @@ class _CustomBlockDialogState extends State<CustomBlockDialog> {
         side: BorderSide(color: c.line2),
       ),
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 520, maxHeight: 640),
+        constraints: const BoxConstraints(
+          maxWidth: AppSizes.flowBlockDialogWidth,
+          maxHeight: AppSizes.flowBlockDialogMaxHeight,
+        ),
         child: Padding(
-          padding: const EdgeInsets.all(22),
+          padding: Insets.flowDialog,
           child: Column(
             mainAxisSize: .min,
             crossAxisAlignment: .stretch,
-            spacing: 14,
+            spacing: AppSpacing.flowDialogSections,
             children: [
               Column(
                 crossAxisAlignment: .start,
-                spacing: 4,
+                spacing: AppSpacing.xs,
                 children: [
                   Text(
-                    vm.title,
+                    S.current.cbTitle,
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
                   Text(
-                    vm.note,
+                    S.current.cbNote(vm.blocks),
                     style: TextStyle(fontSize: FontSizes.md, color: c.text3),
                   ),
                 ],
@@ -288,31 +280,31 @@ class _CustomBlockDialogState extends State<CustomBlockDialog> {
                 child: SingleChildScrollView(
                   child: Column(
                     crossAxisAlignment: .stretch,
-                    spacing: 14,
+                    spacing: AppSpacing.flowDialogSections,
                     children: [
                       Column(
                         crossAxisAlignment: .stretch,
-                        spacing: 6,
+                        spacing: AppSpacing.flowLines,
                         children: [
-                          label(vm.nameLabel),
+                          label(S.current.cbName),
                           field(_name, key: const ValueKey('block-name')),
                         ],
                       ),
                       Column(
                         crossAxisAlignment: .stretch,
-                        spacing: 6,
+                        spacing: AppSpacing.flowLines,
                         children: [
-                          label(vm.descriptionLabel),
+                          label(S.current.cbDescription),
                           field(_description, code: false),
                         ],
                       ),
                       ports(
-                        vm.inputsLabel,
+                        S.current.cbInputs,
                         vm.inputs,
                         _inputs,
                         defaults: _defaults,
                       ),
-                      ports(vm.outputsLabel, vm.outputs, _outputs),
+                      ports(S.current.cbOutputs, vm.outputs, _outputs),
                     ],
                   ),
                 ),
@@ -324,15 +316,15 @@ class _CustomBlockDialogState extends State<CustomBlockDialog> {
                 ),
               Row(
                 mainAxisAlignment: .end,
-                spacing: 10,
+                spacing: AppSpacing.flowDialogButtons,
                 children: [
                   Button.quiet(
-                    label: vm.cancelLabel,
+                    label: S.current.cancel,
                     onPressed: () => Navigator.of(context).pop(),
                   ),
                   Button.primary(
                     key: const ValueKey('block-create'),
-                    label: vm.createLabel,
+                    label: S.current.cbCreate,
                     onPressed: problem == null
                         ? () => Navigator.of(context).pop(_result)
                         : null,
@@ -416,17 +408,17 @@ class _NameDialogState extends State<NameDialog> {
         side: BorderSide(color: c.line2),
       ),
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 380),
+        constraints: const BoxConstraints(maxWidth: AppSizes.flowNameDialog),
         child: Padding(
-          padding: const EdgeInsets.all(22),
+          padding: Insets.flowDialog,
           child: Column(
             mainAxisSize: .min,
             crossAxisAlignment: .stretch,
-            spacing: 12,
+            spacing: AppSpacing.flowNameDialog,
             children: [
               Text(widget.title, style: Theme.of(context).textTheme.titleLarge),
               Container(
-                height: 36,
+                height: AppSizes.flowNameField,
                 padding: Insets.control,
                 alignment: .centerLeft,
                 decoration: BoxDecoration(
@@ -460,7 +452,7 @@ class _NameDialogState extends State<NameDialog> {
                 ),
               Row(
                 mainAxisAlignment: .end,
-                spacing: 10,
+                spacing: AppSpacing.flowDialogButtons,
                 children: [
                   Button.quiet(
                     label: widget.cancel,

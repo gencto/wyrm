@@ -17,8 +17,10 @@ import 'package:models/broker_self_update.dart';
 import 'package:models/ca_pin.dart';
 import 'package:models/catalog_item.dart';
 import 'package:models/explorer_tab.dart';
+import 'package:models/field_id.dart';
 import 'package:models/flow_draft.dart';
 import 'package:models/flow_frame.dart';
+import 'package:models/flow_problem.dart';
 import 'package:models/flow_summary.dart';
 import 'package:models/found_gateway.dart';
 import 'package:models/grant.dart';
@@ -37,6 +39,7 @@ import 'package:models/install_source.dart';
 import 'package:models/install_step.dart';
 import 'package:models/install_target.dart';
 import 'package:models/key_kind.dart';
+import 'package:models/library_off.dart';
 import 'package:models/link_info.dart';
 import 'package:models/link_mode.dart';
 import 'package:models/link_origin.dart';
@@ -57,6 +60,7 @@ import 'package:models/package_check.dart';
 import 'package:models/package_check_result.dart';
 import 'package:models/package_info.dart';
 import 'package:models/package_method.dart';
+import 'package:models/palette_tab.dart';
 import 'package:models/panel_slot.dart';
 import 'package:models/param_spec.dart';
 import 'package:models/peer.dart';
@@ -89,6 +93,7 @@ import 'package:models/traffic_measure.dart';
 import 'package:models/traffic_sample.dart';
 import 'package:models/trend_range.dart';
 import 'package:models/trust_refusal.dart';
+import 'package:models/undo_tag.dart';
 import 'package:models/unlock_fallback.dart';
 import 'package:models/unlock_refusal.dart';
 import 'package:models/unlock_stage.dart';
@@ -97,7 +102,7 @@ import 'package:models/user_info.dart';
 import 'package:models/watch_group.dart';
 import 'package:models/workspace.dart';
 import 'package:wyrm_client/wyrm_client.dart'
-    show DevicePolicy, GatewayDevice, Perm, StepUp;
+    show DevicePolicy, GatewayDevice, Perm, Status, StepUp;
 
 import '../wyrm/approval.dart';
 import '../wyrm/catalog.dart';
@@ -112,6 +117,7 @@ import '../wyrm/device_keys.dart';
 import '../wyrm/discovery.dart' show RangeFault, codeGroups;
 import '../wyrm/explorer.dart';
 import '../wyrm/features.dart';
+import '../wyrm/flow_view/flow_view.dart';
 import '../wyrm/gateway_label.dart';
 import '../wyrm/historian_stats.dart';
 import '../wyrm/history_trend.dart';
@@ -2055,7 +2061,7 @@ extension type SelectFlowEditor(AppState _state) {
   bool get dirty => _state.flowEditor.dirty;
 
   /// Returns problems
-  IList<String> get problems => _state.flowEditor.problems;
+  IList<FlowProblem> get problems => _state.flowEditor.problems;
 
   /// Returns selectedBlock
   String? get selectedBlock => _state.flowEditor.selectedBlock;
@@ -2069,14 +2075,8 @@ extension type SelectFlowEditor(AppState _state) {
   /// Returns version
   int get version => _state.flowEditor.version;
 
-  /// Returns state
-  String? get state => _state.flowEditor.state;
-
-  /// Returns message
-  String? get message => _state.flowEditor.message;
-
   /// Returns palette
-  String get palette => _state.flowEditor.palette;
+  PaletteTab get palette => _state.flowEditor.palette;
 
   /// Returns ports
   IMap<String, LiveValue> get ports => _state.flowEditor.ports;
@@ -2085,7 +2085,7 @@ extension type SelectFlowEditor(AppState _state) {
   FlowDraft? get deployed => _state.flowEditor.deployed;
 
   /// Returns watchRefused
-  String? get watchRefused => _state.flowEditor.watchRefused;
+  Status? get watchRefused => _state.flowEditor.watchRefused;
 
   /// Returns previewPorts
   IMap<String, LiveValue> get previewPorts => _state.flowEditor.previewPorts;
@@ -2094,13 +2094,13 @@ extension type SelectFlowEditor(AppState _state) {
   IMap<String, LiveValue> get previewSinks => _state.flowEditor.previewSinks;
 
   /// Returns previewError
-  String? get previewError => _state.flowEditor.previewError;
+  FlowProblem? get previewError => _state.flowEditor.previewError;
 
   /// Returns previewOff
-  String? get previewOff => _state.flowEditor.previewOff;
+  Status? get previewOff => _state.flowEditor.previewOff;
 
   /// Returns viewedField
-  String? get viewedField => _state.flowEditor.viewedField;
+  FieldAt? get viewedField => _state.flowEditor.viewedField;
 
   /// Returns selection
   ISet<String> get selection => _state.flowEditor.selection;
@@ -2112,7 +2112,7 @@ extension type SelectFlowEditor(AppState _state) {
   IList<FlowDraft> get redo => _state.flowEditor.redo;
 
   /// Returns undoTag
-  String? get undoTag => _state.flowEditor.undoTag;
+  UndoTag? get undoTag => _state.flowEditor.undoTag;
 
   /// Returns clipboard
   String? get clipboard => _state.flowEditor.clipboard;
@@ -2130,7 +2130,7 @@ extension type SelectFlowEditor(AppState _state) {
   IList<BlockInfo> get library => _state.flowEditor.library;
 
   /// Returns libraryOff
-  String? get libraryOff => _state.flowEditor.libraryOff;
+  LibraryOff? get libraryOff => _state.flowEditor.libraryOff;
 
   /// Returns root
   FlowDraft? get root =>
@@ -2145,6 +2145,18 @@ extension type SelectFlowEditor(AppState _state) {
     _state.flowEditor.types,
     libraryOff: _state.flowEditor.libraryOff,
   );
+
+  /// The editor of the route [routeId] (`newFlowId`: a new flow) as it is
+  /// drawn, typed; the same view while nothing it shows changed.
+  FlowView view(String routeId) => flowViewOf(_state, routeId);
+
+  /// The route the editor was opened on (`newFlowId` for a new flow);
+  /// null before it was opened.
+  String? get route => _state.flowEditor.route;
+
+  /// The blocks, fields and types of the editor's flow as the screen
+  /// shows them (what an intent reads to act on a field).
+  FlowBase get base => flowBaseOf(_state, route ?? newFlowId);
 }
 
 extension type SelectTasks(AppState _state) {

@@ -8415,6 +8415,16 @@ class S {
     );
   }
 
+  /// `Waiting for the library to answer`
+  String get mbLibraryBusy {
+    return Intl.message(
+      'Waiting for the library to answer',
+      name: 'mbLibraryBusy',
+      desc: '',
+      args: [],
+    );
+  }
+
   /// `The library has no block of this name`
   String get mbNotInLibrary {
     return Intl.message(
@@ -17452,6 +17462,71 @@ class S {
       desc: '',
       args: [],
     );
+  }
+
+  /// `You may not run it: this needs write on the flow, and the rights of what the block and the blocks after it act on.`
+  String get errRunDenied {
+    return Intl.message(
+      'You may not run it: this needs write on the flow, and the rights of what the block and the blocks after it act on.',
+      name: 'errRunDenied',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The flow is not running.`
+  String get errRunNotRunning {
+    return Intl.message(
+      'The flow is not running.',
+      name: 'errRunNotRunning',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `This broker has no trigger action (it needs ADR 0040).`
+  String get errRunNoTrigger {
+    return Intl.message(
+      'This broker has no trigger action (it needs ADR 0040).',
+      name: 'errRunNoTrigger',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `This block cannot be run by hand.`
+  String get errRunNotByHand {
+    return Intl.message(
+      'This block cannot be run by hand.',
+      name: 'errRunNotByHand',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `k × in + b`
+  String get formLinear {
+    return Intl.message('k × in + b', name: 'formLinear', desc: '', args: []);
+  }
+
+  /// `Range`
+  String get formRange {
+    return Intl.message('Range', name: 'formRange', desc: '', args: []);
+  }
+
+  /// `name the flow`
+  String get problemUnnamed {
+    return Intl.message(
+      'name the flow',
+      name: 'problemUnnamed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `invalid`
+  String get problemInvalid {
+    return Intl.message('invalid', name: 'problemInvalid', desc: '', args: []);
   }
 }
 

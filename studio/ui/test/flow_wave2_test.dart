@@ -6,11 +6,13 @@ import 'package:material_ui/material_ui.dart';
 import 'package:ui/flows/block_palette.dart';
 import 'package:ui/flows/custom_block_dialog.dart';
 import 'package:ui/flows/field_inspector.dart';
-import 'package:ui/flows/flow_block_view.dart';
 import 'package:ui/flows/flow_canvas.dart';
+import 'package:ui/flows/flow_intents.dart';
+import 'package:ui/flows/flow_status.dart';
 import 'package:ui/flows/scope_prompt.dart';
+import 'package:ui/indicators/value_type.dart';
+import 'package:ui/models/disabled.dart';
 import 'package:ui/pages/flow_editor_page.dart';
-import 'package:ui/trees/tree_row.dart';
 
 import 'frames/flow.dart';
 import 'frames/harness.dart';
@@ -33,10 +35,8 @@ void main() {
   group('the scope prompt', () {
     const vm = ScopePromptVm(
       block: 'level',
-      row: 'p:key_scope',
-      title: 'This block may read keys under',
+      row: 1,
       value: 'downstream/modbus/line1/**',
-      note: 'A key that comes on the wire is read only inside this scope.',
       suggestions: ['downstream/modbus/line1/**', 'storage/**'],
     );
 
@@ -97,18 +97,16 @@ void main() {
         FlowCanvas(
           blocks: page.blocks,
           wires: page.wires,
-          actions: FlowBlockActions(
-            onSelect: (_) {},
-            onBind: (_, _, _) {},
-            onRebind: (_, _, _, _) {},
-            onUnbind: (_, _) {},
-            onDropEntry: (_, _, _) {},
-            onResize: (_, {required add}) {},
-            onRowAction: (b, r) => asked.add((b, r)),
-          ),
+          onSelect: (_) {},
+          onBind: (_) {},
+          onRebind: (_) {},
+          onUnbind: (_) {},
+          onRowAction: (r) => asked.add((
+            r.block,
+            page.blocks.firstWhere((b) => b.id == r.block).rows[r.row].id,
+          )),
           onClear: () {},
-          onMove: (_, {required nudge}) {},
-          onDrop: (_, _, _) {},
+          onMove: (_) {},
           prompt: page.prompt,
         ),
       );
@@ -125,36 +123,53 @@ void main() {
   });
 
   group('the Tree tab', () {
-    const rows = [
-      TreeRowVm(
-        id: 'n',
+    /// The rows; the second and the third place something.
+    List<PaletteTreeRowVm> rows({bool writable = false}) => [
+      const PaletteNodeRowVm(
+        key: 'n',
         name: 'tcp-tank',
         depth: 0,
-        hasChildren: true,
-        expanded: true,
+        opens: true,
+        open: true,
       ),
-      TreeRowVm(
-        id: 'n/~act/stop',
+      const PaletteActionRowVm(
+        key: 'n/~act/stop',
         name: 'stop_pump',
         depth: 1,
-        tag: 'ACT',
-        ember: true,
-        value: '1 in',
-        drag: 'act:n/stop',
+        node: 'n',
+        action: 'stop',
+        inputs: 1,
       ),
-      TreeRowVm(
-        id: 'n/level',
+      PaletteNodeRowVm(
+        key: 'n/level',
         name: 'level',
         depth: 1,
-        tag: '.0',
+        type: ValueType.number,
         value: '92.6',
-        drag: 'key:n/level',
+        writable: writable,
+        places: true,
       ),
     ];
 
+    /// Each row placed, into [placed] as the editor names it (`key:`,
+    /// `set:`, `act:`), with where it landed.
+    ValueChanged<TreeRowPlaced> placing(
+      List<(String, double, double)> placed,
+    ) =>
+        (r) => placed.add(switch ((r.row, r.place)) {
+          (1, _) => ('act:n/stop', 0, 0),
+          (_, PlaceOnCanvas(:final x, :final y, write: true)) => (
+            'set:n/level',
+            x,
+            y,
+          ),
+          (_, PlaceOnCanvas(:final x, :final y)) => ('key:n/level', x, y),
+          (_, PlaceTapped() || PlaceOnInput()) => ('key:n/level', 0, 0),
+        });
+
     testWidgets('a node opens or closes; a leaf or an action is added by a '
         'tap; the filter goes to whoever makes the rows', (tester) async {
-      final picked = <String>[];
+      final placed = <(String, double, double)>[];
       final toggled = <String>[];
       final queries = <String>[];
       await show(
@@ -162,12 +177,11 @@ void main() {
         SizedBox(
           width: 260,
           child: BlockPalette(
-            tabs: const [],
-            tab: 'tree',
+            tab: PaletteTabVm.tree,
             onTab: (_) {},
             entries: const [],
-            onPick: picked.add,
-            tree: rows,
+            tree: rows(),
+            onTreePlace: placing(placed),
             onTreeToggle: toggled.add,
             onQuery: queries.add,
           ),
@@ -179,7 +193,7 @@ void main() {
       await tester.tap(find.text('level'));
       await tester.tap(find.text('stop_pump'));
       expect(toggled, ['n']);
-      expect(picked, ['key:n/level', 'act:n/stop']);
+      expect([for (final p in placed) p.$1], ['key:n/level', 'act:n/stop']);
       await tester.enterText(find.byType(TextField), 'lev');
       expect(queries, ['lev']);
     });
@@ -190,13 +204,10 @@ void main() {
         SizedBox(
           width: 260,
           child: BlockPalette(
-            tabs: const [],
-            tab: 'tree',
+            tab: PaletteTabVm.tree,
             onTab: (_) {},
             entries: const [],
-            onPick: (_) {},
             tree: const [],
-            empty: 'Nothing to show here.',
           ),
         ),
       );
@@ -205,7 +216,7 @@ void main() {
 
     Future<List<(String, double, double)>> dropLevel(
       WidgetTester tester, {
-      required Set<String> writable,
+      required bool writable,
       String? pick,
     }) async {
       final dropped = <(String, double, double)>[];
@@ -213,33 +224,29 @@ void main() {
       await show(
         tester,
         FlowEditorPage(
-          flowsLabel: 'Flows',
-          flowLabel: 'line',
-          state: '',
-          validateLabel: 'Validate',
-          deployLabel: 'Deploy',
+          flowName: 'line',
+          status: FlowStatusVm.draft,
           onValidate: () {},
           onClose: () {},
           onFlows: () {},
           onLogo: () {},
-          paletteTabs: base.paletteTabs,
-          paletteTab: 'tree',
+          paletteTab: PaletteTabVm.tree,
           onPaletteTab: (_) {},
           palette: const [],
-          onPick: (_) {},
-          tree: rows,
+          tree: rows(writable: writable),
+          onTreePlace: placing(dropped),
           blocks: const [],
           wires: const [],
-          blockActions: base.blockActions,
+          onSelect: base.onSelect,
+          onBind: base.onBind,
+          onRebind: base.onRebind,
+          onUnbind: base.onUnbind,
           onClear: () {},
-          onMove: (_, {required nudge}) {},
-          onDrop: (e, x, y) => dropped.add((e, x, y)),
-          inspectorFooter: const [],
-          onFieldChanged: (_, _) {},
+          onMove: (_) {},
+          onFieldChanged: (_) {},
           onFieldUnbind: (_) {},
-          onFieldBind: (_, _) {},
+          onFieldBind: (_) {},
           onProblem: (_) {},
-          writable: writable,
         ),
       );
       final from = tester.getCenter(find.text('level'));
@@ -259,14 +266,14 @@ void main() {
     }
 
     testWidgets('a point dropped on the canvas reads it', (tester) async {
-      final dropped = await dropLevel(tester, writable: const {});
+      final dropped = await dropLevel(tester, writable: false);
       expect(dropped.single.$1, 'key:n/level');
     });
 
     testWidgets('a writable point asks Read or Write', (tester) async {
       final dropped = await dropLevel(
         tester,
-        writable: const {'key:n/level'},
+        writable: true,
         pick: 'Write',
       );
       expect(dropped.single.$1, 'set:n/level');
@@ -275,7 +282,7 @@ void main() {
     testWidgets('…and Read reads it', (tester) async {
       final dropped = await dropLevel(
         tester,
-        writable: const {'key:n/level'},
+        writable: true,
         pick: 'Read',
       );
       expect(dropped.single.$1, 'key:n/level');
@@ -283,7 +290,7 @@ void main() {
 
     testWidgets('…and with Alt held it writes at once', (tester) async {
       await tester.sendKeyDownEvent(LogicalKeyboardKey.altLeft);
-      final dropped = await dropLevel(tester, writable: const {'key:n/level'});
+      final dropped = await dropLevel(tester, writable: true);
       await tester.sendKeyUpEvent(LogicalKeyboardKey.altLeft);
       expect(find.text('Write'), findsNothing);
       expect(dropped.single.$1, 'set:n/level');
@@ -302,13 +309,13 @@ void main() {
         SizedBox(
           width: 340,
           child: FieldInspector(
-            footer: const [],
             rows: rows,
-            onChanged: (id, v) => changed.add('$id=$v'),
+            // The row's index back to its id, as the harness names it.
+            onChanged: (t) => changed.add('${rows[t.row].id}=${t.text}'),
             onUnbind: (_) {},
-            onBind: (_, _) {},
+            onBind: (_) {},
             onProblem: (_) {},
-            onRun: ran?.add,
+            onRun: ran == null ? null : (i) => ran.add(rows[i].id),
           ),
         ),
       );
@@ -338,7 +345,6 @@ void main() {
           id: 'in:trigger',
           name: 'Trigger',
           editor: FieldEditorVm.run,
-          value: 'Run',
         ),
       ], ran: ran);
       await tester.tap(find.byKey(const ValueKey('run-in:trigger')));
@@ -352,8 +358,7 @@ void main() {
           id: 'in:trigger',
           name: 'Trigger',
           editor: FieldEditorVm.run,
-          value: 'Run',
-          disabledReason: 'Deploy the flow first',
+          off: FlowOff(.runNotDeployed),
         ),
       ], ran: ran);
       expect(find.text('Deploy the flow first'), findsOneWidget);
@@ -415,7 +420,7 @@ void main() {
         name: 'Run on start',
         editor: FieldEditorVm.toggle,
         value: 'false',
-        confirm: ('Run on every start?', 'WARNING: true runs this command.'),
+        confirm: 'WARNING: true runs this command.',
       );
       final changed = await inspector(tester, const [row]);
       await tester.tap(find.byKey(const ValueKey('toggle-p:run_on_start')));
@@ -444,18 +449,13 @@ void main() {
         FlowCanvas(
           blocks: page.blocks,
           wires: page.wires,
-          actions: FlowBlockActions(
-            onSelect: (_) {},
-            onBind: (_, _, _) {},
-            onRebind: (_, _, _, _) {},
-            onUnbind: (_, _) {},
-            onDropEntry: (_, _, _) {},
-            onResize: (_, {required add}) {},
-            onOpen: opened.add,
-          ),
+          onSelect: (_) {},
+          onBind: (_) {},
+          onRebind: (_) {},
+          onUnbind: (_) {},
+          onOpen: opened.add,
           onClear: () {},
-          onMove: (_, {required nudge}) {},
-          onDrop: (_, _, _) {},
+          onMove: (_) {},
         ),
       );
       await tester.tap(find.byKey(const ValueKey('open-mean21')));
@@ -470,31 +470,27 @@ void main() {
       await show(
         tester,
         FlowEditorPage(
-          flowsLabel: 'Flows',
-          flowLabel: 'line',
-          state: '',
-          validateLabel: 'Validate',
-          deployLabel: 'Deploy',
-          deployReason: 'Go back to the flow to deploy',
+          flowName: 'line',
+          status: FlowStatusVm.draft,
+          deployOff: const FlowOff(.deployInside),
           onValidate: () {},
           onClose: () {},
           onFlows: () {},
           onLogo: () {},
-          paletteTabs: base.paletteTabs,
-          paletteTab: 'blocks',
+          paletteTab: PaletteTabVm.blocks,
           onPaletteTab: (_) {},
           palette: const [],
-          onPick: (_) {},
           blocks: const [],
           wires: const [],
-          blockActions: base.blockActions,
+          onSelect: base.onSelect,
+          onBind: base.onBind,
+          onRebind: base.onRebind,
+          onUnbind: base.onUnbind,
           onClear: () {},
-          onMove: (_, {required nudge}) {},
-          onDrop: (_, _, _) {},
-          inspectorFooter: const [],
-          onFieldChanged: (_, _) {},
+          onMove: (_) {},
+          onFieldChanged: (_) {},
           onFieldUnbind: (_) {},
-          onFieldBind: (_, _) {},
+          onFieldBind: (_) {},
           onProblem: (_) {},
           crumbs: const ['outer', 'inner'],
           onBack: back.add,
@@ -517,14 +513,15 @@ void main() {
               made = await CustomBlockDialog.ask(
                 context,
                 vm: const CustomBlockDialogVm(
-                  title: 'Create custom block',
-                  note: '2 blocks become one block of this flow.',
+                  blocks: 2,
                   name: 'block1',
                   inputs: [
-                    BlockPortVm(name: 'sum_0', detail: '← a.out'),
-                    BlockPortVm(name: 'sum_1', detail: '← b.out'),
+                    BlockPortVm(name: 'sum_0', outside: ['a.out']),
+                    BlockPortVm(name: 'sum_1', outside: ['b.out']),
                   ],
-                  outputs: [BlockPortVm(name: 'half', detail: '→ mean.in')],
+                  outputs: [
+                    BlockPortVm(name: 'half', outside: ['mean.in']),
+                  ],
                 ),
                 validate: (r) => r.name.contains(' ') ? 'Bad name' : null,
               );
@@ -565,19 +562,28 @@ void main() {
 
     testWidgets('a block of the palette has its menu; an item that is off '
         'does nothing', (tester) async {
-      final menu = <(String, String)>[];
+      final menu = <(String, MyBlockItemVm)>[];
       final page = flowCustomInstance();
       await show(
         tester,
         SizedBox(
           width: 260,
           child: BlockPalette(
-            tabs: const [],
-            tab: 'my',
+            tab: PaletteTabVm.my,
             onTab: (_) {},
-            entries: page.palette,
-            onPick: (_) {},
-            onMenu: (e, i) => menu.add((e, i)),
+            entries: [
+              for (final e in page.palette)
+                PaletteEntryVm(
+                  title: e.title,
+                  kind: e.kind,
+                  description: e.description,
+                  instances: e.instances,
+                  updateTo: e.updateTo,
+                  version: e.version,
+                  menu: e.menu,
+                ),
+            ],
+            onMenu: (p) => menu.add((page.palette[p.entry].widgetKey, p.item)),
           ),
         ),
       );
@@ -594,7 +600,7 @@ void main() {
 
       await pick('Save to library');
       await pick('Delete');
-      expect(menu, [('type:block:mean2', 'save')]);
+      expect(menu, [('palette-type:block:mean2', MyBlockItemVm.save)]);
     });
   });
 }

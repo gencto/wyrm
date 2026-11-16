@@ -3,7 +3,7 @@ import 'package:models/node_type.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../../wyrm/calls.dart';
-import '../../../wyrm/mappers/flow_mapper.dart';
+import '../../../wyrm/decode/node_type.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 
@@ -29,16 +29,8 @@ class RetrieveBlockTypesAction extends Action with WaitingAction {
 }
 
 /// The block catalogue of the site at [root], sorted by category, then type.
-Future<IList<NodeType>> readBlockTypes(WyrmApi api, String root) async {
-  final cat = await askOne(api, '$root/dataflows', 'node_types');
-  final types =
-      [
-        if (cat case VArray(:final v))
-          for (final t in v) nodeTypeOf(t),
-      ]..sort(
-        (a, b) => a.category == b.category
-            ? a.type.compareTo(b.type)
-            : a.category.compareTo(b.category),
-      );
-  return types.lock;
-}
+Future<IList<NodeType>> readBlockTypes(WyrmApi api, String root) async =>
+    nodeTypesOf(
+      await askOne(api, '$root/dataflows', 'node_types'),
+      where: 'node_types of $root',
+    ).lock;

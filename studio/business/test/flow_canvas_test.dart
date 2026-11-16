@@ -23,16 +23,24 @@ import 'package:business/redux/login/actions/log_in_action.dart';
 import 'package:business/redux/login/actions/set_gateway_action.dart';
 import 'package:business/redux/login/actions/set_password_action.dart';
 import 'package:business/redux/login/actions/set_user_action.dart';
+import 'package:business/wyrm/decode/decoded.dart';
+import 'package:business/wyrm/decode/flow_def.dart';
+import 'package:business/wyrm/decode/node_type.dart';
 import 'package:business/wyrm/mappers/flow_canvas.dart';
 import 'package:business/wyrm/mappers/flow_fields.dart';
 import 'package:business/wyrm/mappers/flow_mapper.dart';
 import 'package:business/wyrm/mappers/values.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:models/field_id.dart';
 import 'package:models/flow_draft.dart';
 import 'package:models/flow_edge.dart';
 import 'package:models/node_type.dart';
+import 'package:models/port_end.dart';
+import 'package:models/undo_kind.dart';
+import 'package:models/undo_tag.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
+import 'support/block_types.dart';
 import 'support/fake_wyrm.dart';
 
 // The canvas tools of the flow editor (flow-editor.md §12–§15, owner
@@ -94,7 +102,8 @@ final List<Map<String, Object>> catalog = [
 ];
 
 final Map<String, NodeType> types = {
-  for (final t in catalog) t['type']! as String: nodeTypeOf(Value.from(t)),
+  for (final t in catalog)
+    t['type']! as String: nodeTypeOf(Value.from(t)).orWarn('test')!,
 };
 
 /// `level → avg → text → out`, and `avg` also feeds `out2`.
@@ -130,18 +139,18 @@ FlowDraft draft() => flowDraftOf('tank', Value.from(tank));
 
 List<String> rowIds(FlowDraft d, String id) => [
   for (final f in rowsOf(
-    types[d.blocks[id]!.type],
+    types[d.blocks[id]!.type.wire],
     d.blocks[id]!,
     edges: d.edges,
   ))
-    f.id,
+    f.id.key,
 ];
 
 FlowField field(FlowDraft d, String block, String id) => fieldsOf(
-  types[d.blocks[block]!.type],
+  types[d.blocks[block]!.type.wire],
   d.blocks[block]!,
   edges: d.edges,
-).firstWhere((f) => f.id == id);
+).firstWhere((f) => f.id.key == id);
 
 void main() {
   group('pins', () {
@@ -239,8 +248,7 @@ void main() {
       // The preview runs the definition without its layout: a pin runs
       // nothing again.
       expect(previewDefOf(d1), previewDefOf(d));
-      expect(pinKeyOf('avg'), isNull);
-      expect(pinKeyOf(pinKey('avg', 'in:in.0')), ('avg', 'in:in.0'));
+      expect(pinKey('avg', const FieldId.input('in.0')), 'avg~pin~in:in.0');
     });
   });
 
@@ -260,7 +268,7 @@ void main() {
     test('pasted ids are unique, inner edges follow them, the box lands at '
         'the pointer on the grid', () {
       final d = draft();
-      final clip = clipOf(clipTextOf(d, {'avg', 'text'}))!;
+      final clip = clipped(clipTextOf(d, {'avg', 'text'}));
       final (next, ids) = pasteClip(d, clip, 407, 311);
       expect(ids, ['avg1', 'text1']);
       expect(next.blocks.length, 7);
@@ -299,21 +307,30 @@ void main() {
     });
 
     test('foreign text is not a clip', () {
-      expect(clipOf(null), isNull);
-      expect(clipOf(''), isNull);
-      expect(clipOf('hello'), isNull);
-      expect(clipOf('{"nodes": {"a": {"type": "scale"}}}'), isNull);
-      expect(clipOf('{"format": "wyrm-flow-blocks/2", "nodes": {}}'), isNull);
+      expect(clipOf(null), isA<Invalid<FlowDraft>>());
+      expect(clipOf(''), isA<Invalid<FlowDraft>>());
+      expect(clipOf('hello'), isA<Invalid<FlowDraft>>());
+      expect(
+        clipOf('{"nodes": {"a": {"type": "scale"}}}'),
+        isA<Invalid<FlowDraft>>(),
+      );
+      expect(
+        clipOf('{"format": "wyrm-flow-blocks/2", "nodes": {}}'),
+        isA<Invalid<FlowDraft>>(),
+      );
       expect(
         clipOf('{"format": "wyrm-flow-blocks/1", "nodes": {"a": 1}}'),
-        isNull,
+        isA<Invalid<FlowDraft>>(),
       );
-      expect(clipOf('{"format": "wyrm-flow-blocks/1", "nodes": {}}'), isNull);
+      expect(
+        clipOf('{"format": "wyrm-flow-blocks/1", "nodes": {}}'),
+        isA<Invalid<FlowDraft>>(),
+      );
       // An edge that names a block the text does not hold is dropped.
-      final c = clipOf(
+      final c = clipped(
         '{"format": "wyrm-flow-blocks/1", "nodes": {"a": {"type": "x"}}, '
         '"edges": [["z.out", "a.in"]]}',
-      )!;
+      );
       expect(c.blocks.keys, ['a']);
       expect(c.edges, isEmpty);
     });
@@ -327,13 +344,13 @@ void main() {
       expect(s.edges.single.to, 'text');
       expect(s.inputs, hasLength(1));
       expect(s.inputs.single.name, 'avg');
-      expect(s.inputs.single.outside, [('level', 'out')]);
-      expect(s.inputs.single.inside, [('avg', 'in')]);
+      expect(s.inputs.single.outside, [PortEnd('level', 'out')]);
+      expect(s.inputs.single.inside, [PortEnd('avg', 'in')]);
       // `avg.out` feeds `text` (inside) and `out2` (outside); `text.out`
       // feeds `out`: two outputs, named after their nodes.
       expect([for (final o in s.outputs) o.name], ['text', 'avg']);
-      expect(s.outputs[1].inside, [('avg', 'out')]);
-      expect(s.outputs[1].outside, [('out2', 'in')]);
+      expect(s.outputs[1].inside, [PortEnd('avg', 'out')]);
+      expect(s.outputs[1].outside, [PortEnd('out2', 'in')]);
     });
 
     test('one outside source that feeds two inside inputs is one input; '
@@ -360,16 +377,16 @@ void main() {
       final s = extractSubflow(d, {'w1', 'w2'});
       expect(s.edges, isEmpty);
       expect(s.inputs, hasLength(2));
-      expect(s.inputs[0].outside, [('a', 'out')]);
+      expect(s.inputs[0].outside, [PortEnd('a', 'out')]);
       expect(s.inputs[0].inside, [
-        ('w1', 'in'),
-        ('w2', 'in'),
-        ('w2', 'in.size_s'),
+        PortEnd('w1', 'in'),
+        PortEnd('w2', 'in'),
+        PortEnd('w2', 'in.size_s'),
       ]);
       expect(s.inputs[0].name, 'w1');
       expect(s.inputs[1].name, 'size_s');
       expect(s.outputs.single.name, 'size_s');
-      expect(s.outputs.single.outside, [('o', 'in')]);
+      expect(s.outputs.single.outside, [PortEnd('o', 'in')]);
       // Nothing selected, everything selected.
       expect(extractSubflow(d, {}).blocks, isEmpty);
       final all = extractSubflow(d, d.blocks.keys.toSet());
@@ -459,7 +476,9 @@ void main() {
       expect(now().blocks['avg']!.pins['p:fn'], isTrue);
       expect(rowIds(now(), 'avg'), contains('p:fn'));
 
-      s.dispatchSync(SetFieldPinAction('avg', 'p:fn', pinned: false));
+      s.dispatchSync(
+        SetFieldPinAction('avg', const FieldId.param('fn'), pinned: false),
+      );
       expect(rowIds(now(), 'avg'), contains('p:fn'), reason: 'bound');
 
       s.dispatchSync(DisconnectEdgeAction('out2', 'in'));
@@ -469,7 +488,9 @@ void main() {
         reason: 'a wire pins its field for good',
       );
 
-      s.dispatchSync(SetFieldPinAction('avg', 'p:fn', pinned: false));
+      s.dispatchSync(
+        SetFieldPinAction('avg', const FieldId.param('fn'), pinned: false),
+      );
       expect(rowIds(now(), 'avg'), isNot(contains('p:fn')));
       expect(now().blocks['avg']!.pins, isEmpty);
       expect(s.state.flowEditor.dirty, isTrue);
@@ -477,8 +498,16 @@ void main() {
 
     test('pins go out with a deploy and survive a reload', () async {
       s
-        ..dispatchSync(SetFieldPinAction('avg', 'p:fn', pinned: true))
-        ..dispatchSync(SetFieldPinAction('avg', 'p:size_s', pinned: false));
+        ..dispatchSync(
+          SetFieldPinAction('avg', const FieldId.param('fn'), pinned: true),
+        )
+        ..dispatchSync(
+          SetFieldPinAction(
+            'avg',
+            const FieldId.param('size_s'),
+            pinned: false,
+          ),
+        );
       await s.dispatchAndWait(DeployFlowAction());
       final sent = api.calls.lastWhere((c) => c.action == 'deploy').args!;
       final layout = toDart(sent['def']!['layout'])! as Map<String, Object?>;
@@ -547,12 +576,14 @@ void main() {
     test('undo and redo walk every canvas edit', () {
       final start = now();
       s
-        ..dispatchSync(AddBlockAction('window', 60, 300))
+        ..dispatchSync(AddBlockAction(bt('window'), 60, 300))
         ..dispatchSync(
           MoveBlocksAction(const {'avg': (320, 60), 'text': (580, 60)}),
         )
         ..dispatchSync(ConnectPortsAction('level', 'out', 'window1', 'in'))
-        ..dispatchSync(SetFieldPinAction('avg', 'p:fn', pinned: true))
+        ..dispatchSync(
+          SetFieldPinAction('avg', const FieldId.param('fn'), pinned: true),
+        )
         ..dispatchSync(RemoveBlocksAction(const ['out2']));
       final end = now();
       expect(s.state.flowEditor.undo, hasLength(5));
@@ -644,7 +675,9 @@ void main() {
       // The arrows nudge with one tag: one step.
       for (var i = 1; i <= 3; i++) {
         s.dispatchSync(
-          MoveBlocksAction({'avg': (300 + 20.0 * i, 40)}, tag: 'nudge'),
+          MoveBlocksAction({
+            'avg': (300 + 20.0 * i, 40),
+          }, tag: const UndoTag(UndoKind.nudge)),
         );
       }
       expect(s.state.flowEditor.undo, hasLength(1));
@@ -694,7 +727,7 @@ void main() {
         'tags': ['a'],
       });
       save('text', 'in:in.0', 'Level: ');
-      expect(operandValueOf(now().blocks['text']!, 'in.0'), 'Level: ');
+      expect(operandValueOf(now().blocks['text']!, 'in.0').raw, 'Level: ');
       save('text', 'p:strict', 'true');
       expect(now().blocks['text']!.cfg['strict'], true);
       save('avg', 'p:fn', 'max');

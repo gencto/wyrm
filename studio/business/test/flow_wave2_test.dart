@@ -29,23 +29,34 @@ import 'package:business/redux/login/actions/log_in_action.dart';
 import 'package:business/redux/login/actions/set_gateway_action.dart';
 import 'package:business/redux/login/actions/set_password_action.dart';
 import 'package:business/redux/login/actions/set_user_action.dart';
-
+import 'package:business/wyrm/decode/block_def.dart';
+import 'package:business/wyrm/decode/decoded.dart';
+import 'package:business/wyrm/decode/flow_def.dart';
+import 'package:business/wyrm/decode/node_type.dart';
+import 'package:business/wyrm/failures.dart';
 import 'package:business/wyrm/mappers/flow_blocks.dart';
 import 'package:business/wyrm/mappers/flow_canvas.dart';
 import 'package:business/wyrm/mappers/flow_fields.dart';
-import 'package:business/wyrm/mappers/flow_mapper.dart';
 import 'package:business/wyrm/mappers/values.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/action_info.dart';
+import 'package:models/block_type.dart';
+import 'package:models/error_hint.dart';
+import 'package:models/field_id.dart';
 import 'package:models/flow_block.dart';
 import 'package:models/flow_draft.dart';
 import 'package:models/flow_edge.dart';
+import 'package:models/library_off.dart';
 import 'package:models/live_value.dart';
 import 'package:models/node_type.dart';
+import 'package:models/palette_entry.dart';
 import 'package:models/param_spec.dart';
+import 'package:models/port_end.dart';
+import 'package:models/studio_error.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
+import 'support/block_types.dart';
 import 'support/catalog_0221.dart';
 import 'support/catalog_0226.dart';
 import 'support/fake_wyrm.dart';
@@ -57,7 +68,7 @@ import 'support/fake_wyrm.dart';
 
 final Map<String, NodeType> types = {
   for (final t in catalog0226())
-    t['type']! as String: nodeTypeOf(Value.from(t)),
+    t['type']! as String: nodeTypeOf(Value.from(t)).orWarn('test')!,
 };
 
 /// `name → concat → path`, a `subscribe` of a fixed point, and a mean of
@@ -113,9 +124,19 @@ List<String> rowIds(FlowDraft d, String id, {Map<String, NodeType>? by}) {
       d.blocks[id]!,
       edges: d.edges,
     ))
-      f.id,
+      f.id.key,
   ];
 }
+
+/// Custom block [name] of [d] as the definition writes it.
+Map<String, Object?> defJson(FlowDraft d, String name) =>
+    blockDefJsonOf(blockDefsOf(d)[name]!);
+
+/// The block definition [json], decoded.
+BlockDef blockDef(Map<String, Object?> json) => switch (blockDefOf(json)) {
+  Valid(:final value) => value,
+  final Invalid<BlockDef> i => throw StateError('$i'),
+};
 
 Map<String, Object?> defMap(FlowDraft d) =>
     toDart(defOf(d, d.version))! as Map<String, Object?>;
@@ -157,7 +178,7 @@ void main() {
     test('a catalog with ADR 0040 has scopes, trigger and argument ports; '
         'custom blocks once the library answered', () {
       expect(
-        flowCapsOf(types.values, libraryOff: libraryUnread),
+        flowCapsOf(types.values, libraryOff: const LibraryOff.unread()),
         const FlowCaps(scopes: true, trigger: true, args: true),
       );
       expect(
@@ -171,9 +192,15 @@ void main() {
     });
 
     test('an older catalog has none of it', () {
-      final old = [for (final t in catalog0221()) nodeTypeOf(Value.from(t))];
+      final old = [
+        for (final t in catalog0221())
+          nodeTypeOf(Value.from(t)).orWarn('test')!,
+      ];
       expect(
-        flowCapsOf(old, libraryOff: 'not_found'),
+        flowCapsOf(
+          old,
+          libraryOff: LibraryOff.refused(StatusCode.of(Status.notFound)),
+        ),
         const FlowCaps(),
       );
     });
@@ -189,16 +216,16 @@ void main() {
             {'name': 'key', 'type': 'string', 'required': true},
           ],
         }),
-      );
+      ).orWarn('test')!;
       final d = draft();
       final key = fieldsOf(
         old,
         d.blocks['level']!,
-      ).firstWhere((f) => f.id == 'p:key');
+      ).firstWhere((f) => f.id.key == 'p:key');
       expect(key.inPort, isNull);
       expect(
         bindRefusal(
-          {...types, 'subscribe': old},
+          byType({...types, 'subscribe': old}),
           d,
           fromBlock: 'path',
           fromPort: 'out',
@@ -209,7 +236,7 @@ void main() {
       );
       // Its rows are the ones of before: the point alone.
       expect(
-        [for (final f in rowsOf(old, d.blocks['level']!)) f.id],
+        [for (final f in rowsOf(old, d.blocks['level']!)) f.id.key],
         ['out:out'],
       );
     });
@@ -223,12 +250,12 @@ void main() {
       final key = fieldsOf(
         types['subscribe'],
         d.blocks['level']!,
-      ).firstWhere((f) => f.id == 'p:key');
+      ).firstWhere((f) => f.id.key == 'p:key');
       expect(key.inPort, 'in.key');
       expect(key.label, 'Point');
       expect(
         bindRefusal(
-          types,
+          byType(types),
           d,
           fromBlock: 'path',
           fromPort: 'out',
@@ -257,7 +284,7 @@ void main() {
         types['subscribe'],
         d.blocks['level']!,
         edges: d.edges,
-      ).firstWhere((f) => f.id == 'p:key_scope');
+      ).firstWhere((f) => f.id.key == 'p:key_scope');
       expect(scope.label, 'Scope');
       expect(scope.inPort, isNull);
       expect(scope.outPort, isNull, reason: 'read on the block, feeds nothing');
@@ -301,58 +328,74 @@ void main() {
     final ramp = ActionInfo(
       name: 'ramp',
       params: [
-        const ParamSpec(name: 'target', type: 'number', required: true),
-        const ParamSpec(name: 'ramp_s', type: 'number', defaultValue: 30),
+        const ParamSpec(name: 'target', type: TypeCode.number, required: true),
+        const ParamSpec(
+          name: 'ramp_s',
+          type: TypeCode.number,
+          defaultValue: 30,
+        ),
         const ParamSpec(
           name: 'mode',
-          type: 'enum',
+          type: TypeCode.enum_,
           choices: IListConst(['linear', 'step']),
         ),
       ].lock,
     );
 
     test('a value reads, a writable value may write', () {
-      final read = blockOfEntry('key:wy/plant/downstream/plc/level')!;
-      expect(read.type, 'subscribe');
+      final read = blockOfEntry(
+        const PointPick('wy/plant/downstream/plc/level'),
+      )!;
+      expect(read.type.wire, 'subscribe');
       expect(read.cfg, {'key': 'downstream/plc/level'});
-      final write = blockOfEntry('set:wy/plant/downstream/plc/fan')!;
-      expect(write.type, 'set');
+      final write = blockOfEntry(
+        const PointPick('wy/plant/downstream/plc/fan'),
+        write: true,
+      )!;
+      expect(write.type.wire, 'set');
       expect(write.cfg, {'path': 'downstream/plc/fan'});
-      expect(blockOfEntry('type:scale'), isNull);
+      expect(blockOfEntry(EnginePick(bt('scale'))), isNull);
     });
 
     test('an action is an invoke with one argument per parameter; the '
         'required ones are rows of the block', () {
       final e = blockOfEntry(
-        'act:wy/plant/downstream/plc/pump/ramp',
+        const ActionPick('wy/plant/downstream/plc/pump', 'ramp'),
         action: ramp,
         caps: caps,
       )!;
-      expect(e.type, 'invoke');
+      expect(e.type.wire, 'invoke');
       expect(e.cfg, {
         'path': 'downstream/plc/pump',
         'action': 'ramp',
         'args': {'target': null, 'ramp_s': 30, 'mode': null},
       });
-      expect(e.pins, {'arg:ramp_s': false, 'arg:mode': false});
+      expect(e.pins, {
+        const FieldId.arg('ramp_s'): false,
+        const FieldId.arg('mode'): false,
+      });
       final b = FlowBlock(
         id: 'ramp1',
-        type: 'invoke',
+        type: bt('invoke'),
         cfg: e.cfg.lock,
-        pins: e.pins.lock,
+        pins: {for (final p in e.pins.entries) p.key.key: p.value}.lock,
       );
       final fields = fieldsOf(types['invoke'], b, actionParams: ramp.params);
-      final target = fields.firstWhere((f) => f.id == 'arg:target');
+      final target = fields.firstWhere((f) => f.id.key == 'arg:target');
       expect(target.inPort, 'arg.target');
       expect(target.argSpec?.required, isTrue);
       expect(
-        [for (final f in rowsOf(types['invoke'], b)) f.id],
+        [for (final f in rowsOf(types['invoke'], b)) f.id.key],
         ['arg:target', 'in:trigger', 'out:ok', 'out:error'],
       );
       // The argument's own type is its editor.
       const none = IListConst<FlowEdge>([]);
       expect(
-        fieldEditOf(b, fields.firstWhere((f) => f.id == 'arg:mode'), none).edit,
+        fieldEditOf(
+          b,
+          fields.firstWhere((f) => f.id.key == 'arg:mode'),
+          none,
+        ).edit,
         FieldEdit.choice,
       );
       expect(fieldEditOf(b, target, none).edit, FieldEdit.number);
@@ -361,11 +404,14 @@ void main() {
     test('an action without parameters, and on a broker without argument '
         'ports', () {
       expect(
-        blockOfEntry('act:wy/plant/downstream/plc/pump/stop', caps: caps)!.cfg,
+        blockOfEntry(
+          const ActionPick('wy/plant/downstream/plc/pump', 'stop'),
+          caps: caps,
+        )!.cfg,
         {'path': 'downstream/plc/pump', 'action': 'stop'},
       );
       final old = blockOfEntry(
-        'act:wy/plant/downstream/plc/pump/ramp',
+        const ActionPick('wy/plant/downstream/plc/pump', 'ramp'),
         action: ramp,
       )!;
       expect(old.cfg, {
@@ -381,7 +427,7 @@ void main() {
   group('the action block', () {
     final b = FlowBlock(
       id: 'ramp1',
-      type: 'invoke',
+      type: bt('invoke'),
       cfg: <String, Object?>{
         'path': 'downstream/plc/pump',
         'action': 'ramp',
@@ -416,7 +462,7 @@ void main() {
           'state:last_run',
         ],
       );
-      String label(String id) => fields.firstWhere((f) => f.id == id).label;
+      String label(String id) => fields.firstWhere((f) => f.id.key == id).label;
       expect(label('in:trigger'), 'Trigger');
       expect(label('p:interval_ms'), 'Every');
       expect(label('p:auto_run'), 'Auto run');
@@ -425,7 +471,7 @@ void main() {
       expect(label('out:result'), 'Result');
       expect(label('out:out'), 'Output');
       // `run_on_start` has no port; its warning is the catalog's.
-      final ros = fields.firstWhere((f) => f.id == 'p:run_on_start');
+      final ros = fields.firstWhere((f) => f.id.key == 'p:run_on_start');
       expect(ros.inPort, isNull);
       expect(ros.spec!.description, startsWith('WARNING:'));
     });
@@ -433,7 +479,7 @@ void main() {
     test('a behaviour that is set shows on the block', () {
       final every = b.copyWith(cfg: b.cfg.add('interval_ms', 5000));
       expect(
-        [for (final f in rowsOf(types['invoke'], every)) f.id],
+        [for (final f in rowsOf(types['invoke'], every)) f.id.key],
         [
           'arg:target',
           'in:trigger',
@@ -448,10 +494,10 @@ void main() {
         'they have the fields', () {
       final set = FlowBlock(
         id: 's',
-        type: 'set',
+        type: bt('set'),
         cfg: <String, Object?>{'path': 'downstream/plc/fan'}.lock,
       );
-      expect([for (final f in rowsOf(types['set'], set)) f.id], ['in:in']);
+      expect([for (final f in rowsOf(types['set'], set)) f.id.key], ['in:in']);
       expect(
         {
           for (final f in fieldsOf(types['set'], set))
@@ -464,9 +510,9 @@ void main() {
           FieldGroup.state,
         },
       );
-      const load = FlowBlock(id: 'l', type: 'load_value');
+      final load = FlowBlock(id: 'l', type: bt('load_value'));
       expect(
-        [for (final f in rowsOf(types['load_value'], load)) f.id],
+        [for (final f in rowsOf(types['load_value'], load)) f.id.key],
         [
           'p:key',
           'in:trigger',
@@ -474,19 +520,18 @@ void main() {
           'out:out',
         ],
       );
-      const list = FlowBlock(id: 'c', type: 'list_children');
+      final list = FlowBlock(id: 'c', type: bt('list_children'));
       final path = fieldsOf(
         types['list_children'],
         list,
-      ).firstWhere((f) => f.id == 'p:path');
+      ).firstWhere((f) => f.id.key == 'p:path');
       expect(path.label, 'Node');
-      expect(scopedKeyOf(types['list_children']), (
-        key: 'path',
-        scope: 'path_scope',
-        port: 'in.path',
-      ));
+      expect(
+        scopedKeyOf(types['list_children']),
+        const ScopedKey(key: 'path', scope: 'path_scope', port: 'in.path'),
+      );
       // A type without behaviours has no groups.
-      const add = FlowBlock(id: 'x', type: 'add');
+      final add = FlowBlock(id: 'x', type: bt('add'));
       expect(
         {
           for (final f in fieldsOf(types['add'], add))
@@ -523,24 +568,24 @@ void main() {
     });
 
     test('the new blocks read as words', () {
-      expect(blockLabel('load_value'), 'Load value');
-      expect(blockLabel('list_children'), 'List children');
-      expect(blockLabel('rising_edge'), 'Rising edge');
-      expect(blockLabel('make_object'), 'Make object');
-      expect(blockLabel('sample_and_hold'), 'Sample and hold');
-      expect(blockLabel('wasm'), 'WASM');
-      expect(blockLabel('block:mean'), 'mean');
+      expect(blockLabel(bt('load_value')), 'Load value');
+      expect(blockLabel(bt('list_children')), 'List children');
+      expect(blockLabel(bt('rising_edge')), 'Rising edge');
+      expect(blockLabel(bt('make_object')), 'Make object');
+      expect(blockLabel(bt('sample_and_hold')), 'Sample and hold');
+      expect(blockLabel(bt('wasm')), 'WASM');
+      expect(blockLabel(bt('block:mean')), 'mean');
       String out(String type, String port) => fieldsOf(
         types[type],
-        FlowBlock(id: 'x', type: type),
-      ).firstWhere((f) => f.id == 'out:$port').label;
+        FlowBlock(id: 'x', type: bt(type)),
+      ).firstWhere((f) => f.id.key == 'out:$port').label;
       expect(out('rising_edge', 'on_edge'), 'On edge');
       expect(out('stats', 'avg'), 'Average');
       expect(
         fieldsOf(
           types['debounce'],
-          const FlowBlock(id: 'x', type: 'debounce'),
-        ).firstWhere((f) => f.id == 'p:ms').label,
+          FlowBlock(id: 'x', type: bt('debounce')),
+        ).firstWhere((f) => f.id.key == 'p:ms').label,
         'Quiet time (ms)',
       );
       // Named inputs keep the names the user gave them.
@@ -548,7 +593,7 @@ void main() {
         [
           for (final f in rowsOf(
             types['make_object'],
-            const FlowBlock(id: 'x', type: 'make_object'),
+            FlowBlock(id: 'x', type: bt('make_object')),
           ))
             f.label,
         ],
@@ -572,7 +617,7 @@ void main() {
       final (next, id) = createCustomBlock(d, {'sum', 'half'}, spec)!;
       expect(id, 'mean21');
       expect(next.blocks.keys, isNot(contains('sum')));
-      expect(next.blocks[id]!.type, 'block:mean2');
+      expect(next.blocks[id]!.type.wire, 'block:mean2');
       expect(next.blocks[id]!.x, 300);
       expect(
         [
@@ -586,7 +631,7 @@ void main() {
           'mean21.out>mean.in',
         ],
       );
-      final def = blockDefsOf(next)['mean2']!;
+      final def = defJson(next, 'mean2');
       expect(def['description'], 'The mean of two values');
       expect(def['inputs'], [
         {
@@ -616,7 +661,7 @@ void main() {
       expect(instancesOf(next, 'mean2'), 1);
       // The instance draws its declared ports, under their own names.
       expect(rowIds(next, id), ['in:first', 'in:second', 'out:out']);
-      final t = customTypeOf('mean2', def);
+      final t = customTypeOf('mean2', blockDefsOf(next)['mean2']!);
       final first = fieldsOf(t, next.blocks[id]!).first;
       expect(
         (first.label, first.inPort, first.outPort, first.operand),
@@ -627,15 +672,15 @@ void main() {
           true,
         ),
       );
-      expect(instanceValueOf(next, next.blocks[id]!, 'second'), 0);
-      expect(instanceEnd(next, next.blocks[id]!, 'first', output: false), (
-        'mean21/sum',
-        'in.0',
-      ));
-      expect(instanceEnd(next, next.blocks[id]!, 'out', output: true), (
-        'mean21/half',
-        'out',
-      ));
+      expect(instanceValueOf(next, next.blocks[id]!, 'second').raw, 0);
+      expect(
+        instanceEnd(next, next.blocks[id]!, 'first', output: false),
+        PortEnd('mean21/sum', 'in.0'),
+      );
+      expect(
+        instanceEnd(next, next.blocks[id]!, 'out', output: true),
+        PortEnd('mean21/half', 'out'),
+      );
     });
 
     test('a name must be free and well formed', () {
@@ -681,8 +726,8 @@ void main() {
       expect(rowIds(inner, blockOutputsId), ['in:out']);
       // Unchanged, it folds back to the same definition.
       expect(
-        Value.from(blockDefsOf(foldInside(flow, 'mean2', inner))['mean2']),
-        Value.from(blockDefsOf(flow)['mean2']),
+        Value.from(defJson(foldInside(flow, 'mean2', inner), 'mean2')),
+        Value.from(defJson(flow, 'mean2')),
       );
       // A third input, wired to the divisor; the output `out` taken away.
       var edited = resizeBoundary(inner, input: true, add: true)!;
@@ -701,15 +746,15 @@ void main() {
       final folded = foldInside(flow, 'mean2', edited);
       final def = blockDefsOf(folded)['mean2']!;
       expect(
-        [for (final p in blockInputsOf(def)) p.name],
+        [for (final p in def.inputs) p.name],
         [
           'first',
           'second',
           'in1',
         ],
       );
-      expect(blockInputsOf(def).last.ends, ['half.in.1']);
-      expect(blockOutputsOf(def), isEmpty);
+      expect(def.inputs.last.ends, [PortEnd('half', 'in.1')]);
+      expect(def.outputs, isEmpty);
       // The instance lost the wire of the output that is gone.
       expect(folded.edges.where((e) => e.from == id), isEmpty);
       expect(folded.edges.where((e) => e.to == id).length, 2);
@@ -719,7 +764,7 @@ void main() {
       final (flow, id) = createCustomBlock(draft(), {'sum', 'half'}, spec)!;
       final renamed = renameBlock(flow, 'mean2', 'average')!;
       expect(blockDefsOf(renamed).keys, ['average']);
-      expect(renamed.blocks[id]!.type, 'block:average');
+      expect(renamed.blocks[id]!.type.wire, 'block:average');
       expect(renameBlock(flow, 'mean2', 'not ok'), isNull);
       expect(removeBlock(flow, 'mean2'), isNull, reason: 'in use');
       final unused = withoutBlocks(flow, {id});
@@ -735,38 +780,45 @@ void main() {
       final d = withLibraryBlock(
         draft(),
         'scaled',
-        libScaled,
+        blockDef(libScaled),
         version: 3,
-        requires: {'mean': libMean},
+        requires: {'mean': blockDef(libMean)},
       );
       expect(blockDefsOf(d).keys, ['mean', 'scaled']);
-      expect(libraryVersionOf(blockDefsOf(d)['scaled']!), 3);
-      expect(libraryVersionOf(blockDefsOf(d)['mean']!), isNull);
+      expect(blockDefsOf(d)['scaled']!.libraryVersion, 3);
+      expect(blockDefsOf(d)['mean']!.libraryVersion, isNull);
       expect(blockClosure(blockDefsOf(d), ['scaled']), ['mean', 'scaled']);
       // Copied again: nothing changes without `replace`.
-      final own = {...libScaled, 'description': 'mine'};
+      final own = blockDef({...libScaled, 'description': 'mine'});
       final kept = withLibraryBlock(
         withBlockDefs(d, {...blockDefsOf(d), 'scaled': own}),
         'scaled',
-        libScaled,
+        blockDef(libScaled),
         version: 4,
       );
-      expect(blockDefsOf(kept)['scaled']!['description'], 'mine');
+      expect(blockDefsOf(kept)['scaled']!.description, 'mine');
       final updated = withLibraryBlock(
         kept,
         'scaled',
-        libScaled,
+        blockDef(libScaled),
         version: 4,
         replace: true,
       );
-      expect(libraryVersionOf(blockDefsOf(updated)['scaled']!), 4);
-      // The library gets the definition without the editor's mark.
+      expect(blockDefsOf(updated)['scaled']!.libraryVersion, 4);
+      // The library gets the definition without the editor's mark: as it
+      // came, so with no `layout`, which it never had.
       expect(
-        libraryDefOf(blockDefsOf(updated)['scaled']!)['layout']! as Map,
-        isEmpty,
+        libraryDefJsonOf(blockDefsOf(updated)['scaled']!).containsKey('layout'),
+        isFalse,
       );
-      expect(sameBlockDef(blockDefsOf(updated)['scaled']!, libScaled), isTrue);
-      expect(sameBlockDef(blockDefsOf(updated)['scaled']!, libMean), isFalse);
+      expect(
+        sameBlockDef(blockDefsOf(updated)['scaled']!, blockDef(libScaled)),
+        isTrue,
+      );
+      expect(
+        sameBlockDef(blockDefsOf(updated)['scaled']!, blockDef(libMean)),
+        isFalse,
+      );
     });
 
     test('the clipboard carries the definitions of the instances it holds', () {
@@ -783,7 +835,7 @@ void main() {
       // Into another flow: the definition comes along.
       final (pasted, ids) = pasteClip(
         const FlowDraft(id: 'other'),
-        clipOf(text)!,
+        clipped(text),
         100,
         100,
       );
@@ -791,12 +843,11 @@ void main() {
       expect(blockDefsOf(pasted).keys, ['mean2']);
       expect(pasted.edges.single.from, id);
       // Where the flow has a block of that name, its own stays.
-      final own = withBlockDefs(const FlowDraft(id: 'other'), {
-        'mean2': {'description': 'mine'},
-      });
+      final mine = blockDef({'description': 'mine'});
+      final own = withBlockDefs(const FlowDraft(id: 'other'), {'mean2': mine});
       expect(
-        blockDefsOf(pasteClip(own, clipOf(text)!, 0, 0).$1)['mean2'],
-        {'description': 'mine'},
+        blockDefsOf(pasteClip(own, clipped(text), 0, 0).$1)['mean2'],
+        mine,
       );
     });
   });
@@ -907,11 +958,11 @@ void main() {
         'for the scope too', () {
       s.dispatchSync(
         AddBlockAction(
-          'subscribe',
+          bt('subscribe'),
           40,
           600,
           cfg: {'key': 'storage/names/current'},
-          into: ('level', 'in.key'),
+          into: PortEnd('level', 'in.key'),
         ),
       );
       expect(ed().scopePrompt, 'level');
@@ -922,18 +973,26 @@ void main() {
         'and the trigger call', () async {
       const caps = FlowCaps(scopes: true, trigger: true, args: true);
       final e = blockOfEntry(
-        'act:wy/central/downstream/plc/pump/ramp',
+        const ActionPick('wy/central/downstream/plc/pump', 'ramp'),
         action: ActionInfo(
           name: 'ramp',
           params: [
-            const ParamSpec(name: 'target', type: 'number', required: true),
-            const ParamSpec(name: 'ramp_s', type: 'number', defaultValue: 30),
+            const ParamSpec(
+              name: 'target',
+              type: TypeCode.number,
+              required: true,
+            ),
+            const ParamSpec(
+              name: 'ramp_s',
+              type: TypeCode.number,
+              defaultValue: 30,
+            ),
           ].lock,
         ),
         caps: caps,
       )!;
       s.dispatchSync(
-        AddBlockAction(e.type, 600, 600, cfg: e.cfg, pins: e.pins),
+        AddBlockAction(e.type.type, 600, 600, cfg: e.cfg, pins: e.pins),
       );
       expect(now().blocks.keys.last, 'invoke1');
       expect(rowIds(now(), 'invoke1'), [
@@ -996,29 +1055,36 @@ void main() {
     });
 
     test('a refused trigger says why', () async {
-      Future<String?> refused(Status st, [String m = '']) async {
+      Future<StudioError?> refused(Status st, [String m = '']) async {
         api.errors['wy/central/dataflows/line ▸ trigger'] = WyrmException.of(
           st,
           m,
         );
         final r = await s.dispatchAndWait(TriggerBlockAction('invoke1'));
         return switch (r.originalError) {
-          final UserException e => e.reason,
+          final StudioException e => e.error,
           _ => null,
         };
       }
 
-      expect(await refused(Status.permissionDenied), contains('needs write'));
-      expect(await refused(Status.notSupported), 'The flow is not running.');
-      expect(await refused(Status.notFound), contains('no trigger action'));
+      // No words from the broker: Studio names why (the app says it).
+      final denied = await refused(Status.permissionDenied);
+      expect((denied?.message, denied?.hint), ('', ErrorHint.runDenied));
       expect(
-        await refused(
-          Status.invalidParameter,
-          'node level cannot be triggered',
-        ),
+        (await refused(Status.notSupported))?.hint,
+        ErrorHint.runNotRunning,
+      );
+      expect((await refused(Status.notFound))?.hint, ErrorHint.runNoTrigger);
+      // The broker's words as they came, and no hint of Studio's.
+      final own = await refused(
+        Status.invalidParameter,
         'node level cannot be triggered',
       );
-      expect(await refused(Status.busy, 'queue full'), 'queue full');
+      expect(
+        (own?.message, own?.hint),
+        ('node level cannot be triggered', null),
+      );
+      expect((await refused(Status.busy, 'queue full'))?.message, 'queue full');
     });
 
     test('create a custom block, open its inside, change it, come back: '
@@ -1037,7 +1103,7 @@ void main() {
       expect(ed().undo.length, 1);
       // A second instance, a constant on its input.
       s
-        ..dispatchSync(AddBlockAction('block:mean2', 300, 600))
+        ..dispatchSync(AddBlockAction(bt('block:mean2'), 300, 600))
         ..dispatchSync(SetOperandValueAction('mean22', 'second', 7));
       expect(now().blocks['mean22']!.cfg.unlock, {
         'values': {'second': 7},
@@ -1051,7 +1117,7 @@ void main() {
       expect(ed().undo, isEmpty, reason: 'the inside has its own history');
       // The canvas shows the inside; the flow is still the whole flow.
       expect(ed().root!.blocks.keys, contains('mean21'));
-      expect(ed().allTypes.map((t) => t.type), contains(blockInputsType));
+      expect(ed().allTypes.map((t) => t.type), contains(BoundaryType.inputs));
 
       // Inside: the boundary blocks stay; the divisor changes.
       s
@@ -1085,15 +1151,13 @@ void main() {
       expect(ed().frames, isEmpty);
       expect(now().blocks.keys, containsAll(['mean21', 'mean22']));
       expect(
-        ((blockDefsOf(now())['mean2']!['nodes']! as Map)['half']!
-            as Map)['values'],
+        ((defJson(now(), 'mean2')['nodes']! as Map)['half']! as Map)['values'],
         {'in.1': 4},
       );
       expect(ed().undo.length, 4, reason: 'create, add, set, edit inside');
       s.dispatchSync(UndoFlowAction());
       expect(
-        ((blockDefsOf(now())['mean2']!['nodes']! as Map)['half']!
-            as Map)['values'],
+        ((defJson(now(), 'mean2')['nodes']! as Map)['half']! as Map)['values'],
         {'in.1': 2},
       );
 
@@ -1118,7 +1182,7 @@ void main() {
           ),
         )
         ..dispatchSync(RenameCustomBlockAction('mean2', 'average'));
-      expect(now().blocks['mean21']!.type, 'block:average');
+      expect(now().blocks['mean21']!.type.wire, 'block:average');
       s.dispatchSync(RemoveCustomBlockAction('average'));
       expect(blockDefsOf(now()).keys, ['average'], reason: 'in use');
       s
@@ -1142,8 +1206,8 @@ void main() {
         'name': 'scaled',
       });
       expect(blockDefsOf(now()).keys, ['mean', 'scaled']);
-      expect(now().blocks['scaled1']!.type, 'block:scaled');
-      expect(libraryVersionOf(blockDefsOf(now())['scaled']!), 3);
+      expect(now().blocks['scaled1']!.type.wire, 'block:scaled');
+      expect(blockDefsOf(now())['scaled']!.libraryVersion, 3);
       expect(
         ed().undo.length,
         1,
@@ -1165,7 +1229,7 @@ void main() {
       ];
       s.dispatchSync(ConnectPortsAction('scaled1', 'out', 'mean', 'in'));
       await s.dispatchAndWait(UpdateBlockFromLibraryAction('scaled'));
-      expect(libraryVersionOf(blockDefsOf(now())['scaled']!), 5);
+      expect(blockDefsOf(now())['scaled']!.libraryVersion, 5);
       expect(
         now().edges.where((e) => e.from == 'scaled1'),
         isEmpty,
@@ -1178,22 +1242,22 @@ void main() {
       ];
       final withOwn = withBlockDefs(now(), {
         ...blockDefsOf(now()),
-        'helper': {
+        'helper': blockDef({
           'inputs': <Object>[],
           'outputs': <Object>[],
           'nodes': {
             'm': {'type': 'block:mean'},
           },
           'edges': <Object>[],
-        },
-        'top': {
+        }),
+        'top': blockDef({
           'inputs': <Object>[],
           'outputs': <Object>[],
           'nodes': {
             'h': {'type': 'block:helper'},
           },
           'edges': <Object>[],
-        },
+        }),
       });
       s.dispatchSync(PasteBlocksAction(null, 0, 0));
       await s.dispatchAndWait(_SetDraft(withOwn));
@@ -1203,7 +1267,7 @@ void main() {
           if (c.action == 'put_block') str(c.args!['name']),
       ];
       expect(puts, ['helper', 'top'], reason: 'mean is in the library');
-      expect(libraryVersionOf(blockDefsOf(now())['top']!), 9);
+      expect(blockDefsOf(now())['top']!.libraryVersion, 9);
       final put = api.calls.lastWhere((c) => c.action == 'put_block').args!;
       expect(
         (toDart(put['def'])! as Map).keys,
@@ -1216,7 +1280,10 @@ void main() {
       api.invokes.remove('wy/central/dataflows ▸ list_blocks');
       final r = await s.dispatchAndWait(RetrieveBlockLibraryAction());
       expect(r.isCompletedOk, isTrue);
-      expect(ed().libraryOff, 'not_found');
+      expect(
+        ed().libraryOff,
+        LibraryOff.refused(StatusCode.of(Status.notFound)),
+      );
       expect(ed().library, isEmpty);
       expect(ed().caps.blocks, isFalse);
       // The same flow read again keeps the answer.

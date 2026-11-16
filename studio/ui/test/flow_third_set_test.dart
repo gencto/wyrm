@@ -36,11 +36,11 @@ void main() {
       SizedBox(
         width: 340,
         child: FieldInspector(
-          footer: const [],
           rows: rows,
-          onChanged: (id, v) => changed.add('$id=$v'),
+          // The row's index back to its id, as the harness names it.
+          onChanged: (t) => changed.add('${rows[t.row].id}=${t.text}'),
           onUnbind: (_) {},
-          onBind: (_, _) {},
+          onBind: (_) {},
           onProblem: (_) {},
         ),
       ),
@@ -144,14 +144,13 @@ void main() {
   ) async {
     await show(
       tester,
-      Center(
+      const Center(
         child: FlowBlockView(
-          vm: const FlowBlockVm(
+          vm: FlowBlockVm(
             id: 'page',
-            title: 'page',
             x: 0,
             y: 0,
-            type: 'table_page',
+            caption: ['table_page'],
             rows: [
               FieldRowVm(
                 id: 'in:next',
@@ -171,14 +170,6 @@ void main() {
                 outMark: PortMark.free,
               ),
             ],
-          ),
-          actions: FlowBlockActions(
-            onSelect: (_) {},
-            onBind: (_, _, _) {},
-            onRebind: (_, _, _, _) {},
-            onUnbind: (_, _) {},
-            onDropEntry: (_, _, _) {},
-            onResize: (_, {required add}) {},
           ),
         ),
       ),

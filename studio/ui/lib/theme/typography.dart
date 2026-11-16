@@ -168,6 +168,20 @@ abstract final class FontSizes {
   /// A page's title (`headlineSmall`).
   static const double pageTitle = 26;
 
+  /// A kind or tag chip of the flow editor: a block's `NODE` / `FX`, a
+  /// palette row's `IN` / `OUT` (mono 600).
+  static const double flowTag = 9;
+
+  /// The detail beside or under a flow value: an inspector field's engine
+  /// name and targets, its `bound` mark, a point's tag in the palette.
+  static const double flowDetail = 10;
+
+  /// The − / + glyph of a flow block's tool button.
+  static const double flowToolGlyph = 15;
+
+  /// The block's id at the top of the flow inspector (mono 600).
+  static const double flowInspectorTitle = 18;
+
   /// A line set above the body: the account and the round button's label
   /// on the unlock, the lock card's lines, the groups of a CA code.
   static const double lead = 15;

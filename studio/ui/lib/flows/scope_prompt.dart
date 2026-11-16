@@ -1,5 +1,6 @@
 import 'package:equatable/equatable.dart';
 import 'package:flutter/services.dart';
+import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../buttons/button.dart';
@@ -7,6 +8,7 @@ import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/shades.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
@@ -15,43 +17,38 @@ final class ScopePromptVm extends Equatable {
   const ScopePromptVm({
     required this.block,
     required this.row,
-    required this.title,
     required this.value,
-    this.note = '',
     this.suggestions = const [],
-    this.saveLabel = 'Save',
-    this.cancelLabel = 'Cancel',
   });
 
-  /// The block whose key is bound, and the row the prompt points at.
+  /// The block whose key is bound, and the place among its rows of the
+  /// row the prompt points at (under the first when it does not show).
   final String block;
-  final String row;
-
-  /// `This block may read keys under`.
-  final String title;
+  final int row;
 
   /// The scope the field starts with: the block's own, else a suggestion.
   final String value;
 
-  /// Said under the field while the scope is right: what a scope is for.
-  final String note;
-
   /// Scopes offered as chips: the key's parent, the site's sections.
   final List<String> suggestions;
-  final String saveLabel;
-  final String cancelLabel;
 
   @override
-  List<Object?> get props => [
-    block,
-    row,
-    title,
-    value,
-    note,
-    suggestions,
-    saveLabel,
-    cancelLabel,
-  ];
+  List<Object?> get props => [block, row, value, suggestions];
+}
+
+/// Why a scope typed for a key of this site is refused (ADR 0040).
+enum ScopeProblemVm {
+  empty,
+  section,
+  otherSite,
+  segment;
+
+  String get label => switch (this) {
+    empty => S.current.scopeEmpty,
+    section => S.current.scopeSection,
+    otherSite => S.current.scopeOtherSite,
+    segment => S.current.scopeSegment,
+  };
 }
 
 /// The small card that asks for the scope of a key that just got a wire
@@ -76,7 +73,7 @@ class ScopePrompt extends StatefulWidget {
   /// What is wrong with a scope; null: it can be saved.
   final Validate<String>? validate;
 
-  static const width = 320.0;
+  static const double width = AppSizes.flowScopePrompt;
 
   @override
   State<ScopePrompt> createState() => _ScopePromptState();
@@ -125,7 +122,7 @@ class _ScopePromptState extends State<ScopePrompt> {
         color: Colors.transparent,
         child: Container(
           width: ScopePrompt.width,
-          padding: const EdgeInsets.all(12),
+          padding: Insets.flowScopePrompt,
           decoration: BoxDecoration(
             color: c.ground2,
             border: .all(color: c.emberLine),
@@ -143,10 +140,10 @@ class _ScopePromptState extends State<ScopePrompt> {
           child: Column(
             mainAxisSize: .min,
             crossAxisAlignment: .stretch,
-            spacing: 8,
+            spacing: AppSpacing.sm,
             children: [
               Text(
-                vm.title,
+                S.current.scopeTitle,
                 style: TextStyle(
                   fontSize: FontSizes.sm,
                   fontWeight: .w600,
@@ -154,7 +151,7 @@ class _ScopePromptState extends State<ScopePrompt> {
                 ),
               ),
               Container(
-                height: 34,
+                height: AppSizes.flowField,
                 padding: Insets.control,
                 alignment: .centerLeft,
                 decoration: BoxDecoration(
@@ -170,7 +167,7 @@ class _ScopePromptState extends State<ScopePrompt> {
                   focusNode: _focus,
                   // Enter saves; a refused scope keeps the cursor here.
                   onEditingComplete: _save,
-                  style: mono(size: 12, color: c.text1),
+                  style: mono(size: FontSizes.sm, color: c.text1),
                   decoration: const InputDecoration.collapsed(hintText: '')
                       .copyWith(
                         enabledBorder: InputBorder.none,
@@ -181,8 +178,8 @@ class _ScopePromptState extends State<ScopePrompt> {
               ),
               if (vm.suggestions.isNotEmpty)
                 Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
+                  spacing: AppSpacing.flowChips,
+                  runSpacing: AppSpacing.flowChips,
                   children: [
                     for (final s in vm.suggestions)
                       InkWell(
@@ -191,10 +188,7 @@ class _ScopePromptState extends State<ScopePrompt> {
                           Radius.circular(AppRadii.chip),
                         ),
                         child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 6,
-                            vertical: 3,
-                          ),
+                          padding: Insets.flowScopeChip,
                           decoration: BoxDecoration(
                             color: c.ground4,
                             border: .all(
@@ -206,13 +200,16 @@ class _ScopePromptState extends State<ScopePrompt> {
                               Radius.circular(AppRadii.chip),
                             ),
                           ),
-                          child: Text(s, style: mono(size: 11, color: c.text2)),
+                          child: Text(
+                            s,
+                            style: mono(size: FontSizes.xs, color: c.text2),
+                          ),
                         ),
                       ),
                   ],
                 ),
               Text(
-                problem ?? vm.note,
+                problem ?? S.current.scopeNote,
                 style: TextStyle(
                   fontSize: FontSizes.xs,
                   height: 1.4,
@@ -221,16 +218,16 @@ class _ScopePromptState extends State<ScopePrompt> {
               ),
               Row(
                 mainAxisAlignment: .end,
-                spacing: 8,
+                spacing: AppSpacing.sm,
                 children: [
                   Button.quiet(
-                    label: vm.cancelLabel,
+                    label: S.current.cancel,
                     size: ButtonSize.small,
                     onPressed: widget.onCancel,
                   ),
                   Button.primary(
                     key: const ValueKey('scope-save'),
-                    label: vm.saveLabel,
+                    label: S.current.viewerSave,
                     size: ButtonSize.small,
                     onPressed: problem == null ? _save : null,
                   ),
