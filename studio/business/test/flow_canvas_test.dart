@@ -344,13 +344,13 @@ void main() {
       expect(s.edges.single.to, 'text');
       expect(s.inputs, hasLength(1));
       expect(s.inputs.single.name, 'avg');
-      expect(s.inputs.single.outside, [const PortEnd('level', 'out')]);
-      expect(s.inputs.single.inside, [const PortEnd('avg', 'in')]);
+      expect(s.inputs.single.outside, [PortEnd('level', 'out')]);
+      expect(s.inputs.single.inside, [PortEnd('avg', 'in')]);
       // `avg.out` feeds `text` (inside) and `out2` (outside); `text.out`
       // feeds `out`: two outputs, named after their nodes.
       expect([for (final o in s.outputs) o.name], ['text', 'avg']);
-      expect(s.outputs[1].inside, [const PortEnd('avg', 'out')]);
-      expect(s.outputs[1].outside, [const PortEnd('out2', 'in')]);
+      expect(s.outputs[1].inside, [PortEnd('avg', 'out')]);
+      expect(s.outputs[1].outside, [PortEnd('out2', 'in')]);
     });
 
     test('one outside source that feeds two inside inputs is one input; '
@@ -377,16 +377,16 @@ void main() {
       final s = extractSubflow(d, {'w1', 'w2'});
       expect(s.edges, isEmpty);
       expect(s.inputs, hasLength(2));
-      expect(s.inputs[0].outside, [const PortEnd('a', 'out')]);
+      expect(s.inputs[0].outside, [PortEnd('a', 'out')]);
       expect(s.inputs[0].inside, [
-        const PortEnd('w1', 'in'),
-        const PortEnd('w2', 'in'),
-        const PortEnd('w2', 'in.size_s'),
+        PortEnd('w1', 'in'),
+        PortEnd('w2', 'in'),
+        PortEnd('w2', 'in.size_s'),
       ]);
       expect(s.inputs[0].name, 'w1');
       expect(s.inputs[1].name, 'size_s');
       expect(s.outputs.single.name, 'size_s');
-      expect(s.outputs.single.outside, [const PortEnd('o', 'in')]);
+      expect(s.outputs.single.outside, [PortEnd('o', 'in')]);
       // Nothing selected, everything selected.
       expect(extractSubflow(d, {}).blocks, isEmpty);
       final all = extractSubflow(d, d.blocks.keys.toSet());

@@ -49,8 +49,8 @@ void main() {
     expect(d.blocks['level']!.type.known, KnownBlock.subscribe);
     expect(d.blocks['mean1']!.type, const CustomType('mean'));
     expect(d.blocks['k']!.cfg.unlock, {'k': 2});
-    expect(d.edges.first.source, const PortEnd('level', 'out'));
-    expect(d.edges.last.target, const PortEnd('mean1', 'in.0'));
+    expect(d.edges.first.source, PortEnd('level', 'out'));
+    expect(d.edges.last.target, PortEnd('mean1', 'in.0'));
     expect(d.blocks['k']!.pins.unlock, {'p:k': true, 'out:out': false});
     expect(r.placed, {'level'}.lock, reason: 'only level has a place');
     expect(d.rest['description'], 'tank level');
@@ -170,13 +170,13 @@ void main() {
   });
 
   test('a wire end is node.port, split at the first dot', () {
-    expect(portEndOf('a.in.0'), const PortEnd('a', 'in.0'));
+    expect(portEndOf('a.in.0'), PortEnd('a', 'in.0'));
     expect(portEndOf('a'), isNull);
     expect(portEndOf('.in'), isNull);
     expect(portEndOf('a.'), isNull);
     expect(portEndOf(null), isNull);
     expect(
-      FlowEdge.between(const PortEnd('a', 'out'), const PortEnd('b', 'in')),
+      FlowEdge.between(PortEnd('a', 'out'), PortEnd('b', 'in')),
       const FlowEdge(from: 'a', fromPort: 'out', to: 'b', toPort: 'in'),
     );
   });

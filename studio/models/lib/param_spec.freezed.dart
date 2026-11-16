@@ -27,7 +27,10 @@ mixin _$ParamSpec {
  bool? get echo;/// The parameter that holds this field's scope (catalog
 /// `params[].scope`, ADR 0040 §1: `key` → `key_scope`): a key from the
 /// field's port is read only inside it.
- String? get scope;
+ String? get scope;/// The config key the flow editor knows this parameter as, decoded
+/// from [name] with the catalog (`dataflows` ▸ `node_types`); null for
+/// any other parameter, and for a parameter that is no flow node's.
+ BlockCfgKey? get key;
 /// Create a copy of ParamSpec
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -39,20 +42,20 @@ $ParamSpecCopyWith<ParamSpec> get copyWith => _$ParamSpecCopyWithImpl<ParamSpec>
 @override
 bool operator ==(Object other) {
   final _this = this as ParamSpec;
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is ParamSpec&&(identical(other.name, _this.name) || other.name == _this.name)&&(identical(other.display, _this.display) || other.display == _this.display)&&(identical(other.type, _this.type) || other.type == _this.type)&&(identical(other.required, _this.required) || other.required == _this.required)&&const DeepCollectionEquality().equals(other.defaultValue, _this.defaultValue)&&(identical(other.min, _this.min) || other.min == _this.min)&&(identical(other.max, _this.max) || other.max == _this.max)&&const DeepCollectionEquality().equals(other.choices, _this.choices)&&(identical(other.editor, _this.editor) || other.editor == _this.editor)&&(identical(other.secret, _this.secret) || other.secret == _this.secret)&&(identical(other.description, _this.description) || other.description == _this.description)&&(identical(other.port, _this.port) || other.port == _this.port)&&(identical(other.echo, _this.echo) || other.echo == _this.echo)&&(identical(other.scope, _this.scope) || other.scope == _this.scope));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is ParamSpec&&(identical(other.name, _this.name) || other.name == _this.name)&&(identical(other.display, _this.display) || other.display == _this.display)&&(identical(other.type, _this.type) || other.type == _this.type)&&(identical(other.required, _this.required) || other.required == _this.required)&&const DeepCollectionEquality().equals(other.defaultValue, _this.defaultValue)&&(identical(other.min, _this.min) || other.min == _this.min)&&(identical(other.max, _this.max) || other.max == _this.max)&&const DeepCollectionEquality().equals(other.choices, _this.choices)&&(identical(other.editor, _this.editor) || other.editor == _this.editor)&&(identical(other.secret, _this.secret) || other.secret == _this.secret)&&(identical(other.description, _this.description) || other.description == _this.description)&&(identical(other.port, _this.port) || other.port == _this.port)&&(identical(other.echo, _this.echo) || other.echo == _this.echo)&&(identical(other.scope, _this.scope) || other.scope == _this.scope)&&(identical(other.key, _this.key) || other.key == _this.key));
 }
 
 
 @override
 int get hashCode {
   final _this = this as ParamSpec;
-  return Object.hash(runtimeType,_this.name,_this.display,_this.type,_this.required,const DeepCollectionEquality().hash(_this.defaultValue),_this.min,_this.max,const DeepCollectionEquality().hash(_this.choices),_this.editor,_this.secret,_this.description,_this.port,_this.echo,_this.scope);
+  return Object.hash(runtimeType,_this.name,_this.display,_this.type,_this.required,const DeepCollectionEquality().hash(_this.defaultValue),_this.min,_this.max,const DeepCollectionEquality().hash(_this.choices),_this.editor,_this.secret,_this.description,_this.port,_this.echo,_this.scope,_this.key);
 }
 
 @override
 String toString() {
   final _this = this as ParamSpec;
-  return 'ParamSpec(name: ${_this.name}, display: ${_this.display}, type: ${_this.type}, required: ${_this.required}, defaultValue: ${_this.defaultValue}, min: ${_this.min}, max: ${_this.max}, choices: ${_this.choices}, editor: ${_this.editor}, secret: ${_this.secret}, description: ${_this.description}, port: ${_this.port}, echo: ${_this.echo}, scope: ${_this.scope})';
+  return 'ParamSpec(name: ${_this.name}, display: ${_this.display}, type: ${_this.type}, required: ${_this.required}, defaultValue: ${_this.defaultValue}, min: ${_this.min}, max: ${_this.max}, choices: ${_this.choices}, editor: ${_this.editor}, secret: ${_this.secret}, description: ${_this.description}, port: ${_this.port}, echo: ${_this.echo}, scope: ${_this.scope}, key: ${_this.key})';
 }
 
 
@@ -63,7 +66,7 @@ abstract mixin class $ParamSpecCopyWith<$Res>  {
   factory $ParamSpecCopyWith(ParamSpec value, $Res Function(ParamSpec) _then) = _$ParamSpecCopyWithImpl;
 @useResult
 $Res call({
- String name, String? display, TypeCode type, bool required, Object? defaultValue, num? min, num? max, IList<String> choices, ParamEditor? editor, bool secret, String? description, String? port, bool? echo, String? scope
+ String name, String? display, TypeCode type, bool required, Object? defaultValue, num? min, num? max, IList<String> choices, ParamEditor? editor, bool secret, String? description, String? port, bool? echo, String? scope, BlockCfgKey? key
 });
 
 
@@ -80,7 +83,7 @@ class _$ParamSpecCopyWithImpl<$Res>
 
 /// Create a copy of ParamSpec
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? name = null,Object? display = freezed,Object? type = null,Object? required = null,Object? defaultValue = freezed,Object? min = freezed,Object? max = freezed,Object? choices = null,Object? editor = freezed,Object? secret = null,Object? description = freezed,Object? port = freezed,Object? echo = freezed,Object? scope = freezed,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? name = null,Object? display = freezed,Object? type = null,Object? required = null,Object? defaultValue = freezed,Object? min = freezed,Object? max = freezed,Object? choices = null,Object? editor = freezed,Object? secret = null,Object? description = freezed,Object? port = freezed,Object? echo = freezed,Object? scope = freezed,Object? key = freezed,}) {
   return _then(ParamSpec(
 name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
 as String,display: freezed == display ? _self.display : display // ignore: cast_nullable_to_non_nullable
@@ -95,7 +98,8 @@ as bool,description: freezed == description ? _self.description : description //
 as String?,port: freezed == port ? _self.port : port // ignore: cast_nullable_to_non_nullable
 as String?,echo: freezed == echo ? _self.echo : echo // ignore: cast_nullable_to_non_nullable
 as bool?,scope: freezed == scope ? _self.scope : scope // ignore: cast_nullable_to_non_nullable
-as String?,
+as String?,key: freezed == key ? _self.key : key // ignore: cast_nullable_to_non_nullable
+as BlockCfgKey?,
   ));
 }
 
@@ -107,7 +111,7 @@ as String?,
 
 
 class _ParamSpec implements ParamSpec {
-  const _ParamSpec({required this.name, this.display, this.type = TypeCode.string, this.required = false, this.defaultValue, this.min, this.max, this.choices = const IListConst([]), this.editor, this.secret = false, this.description, this.port, this.echo, this.scope});
+  const _ParamSpec({required this.name, this.display, this.type = TypeCode.string, this.required = false, this.defaultValue, this.min, this.max, this.choices = const IListConst([]), this.editor, this.secret = false, this.description, this.port, this.echo, this.scope, this.key});
   
 
 @override final  String name;
@@ -136,6 +140,10 @@ class _ParamSpec implements ParamSpec {
 /// `params[].scope`, ADR 0040 §1: `key` → `key_scope`): a key from the
 /// field's port is read only inside it.
 @override final  String? scope;
+/// The config key the flow editor knows this parameter as, decoded
+/// from [name] with the catalog (`dataflows` ▸ `node_types`); null for
+/// any other parameter, and for a parameter that is no flow node's.
+@override final  BlockCfgKey? key;
 
 /// Create a copy of ParamSpec
 /// with the given fields replaced by the non-null parameter values.
@@ -147,18 +155,18 @@ _$ParamSpecCopyWith<_ParamSpec> get copyWith => __$ParamSpecCopyWithImpl<_ParamS
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is _ParamSpec&&(identical(other.name, name) || other.name == name)&&(identical(other.display, display) || other.display == display)&&(identical(other.type, type) || other.type == type)&&(identical(other.required, required) || other.required == required)&&const DeepCollectionEquality().equals(other.defaultValue, defaultValue)&&(identical(other.min, min) || other.min == min)&&(identical(other.max, max) || other.max == max)&&const DeepCollectionEquality().equals(other.choices, choices)&&(identical(other.editor, editor) || other.editor == editor)&&(identical(other.secret, secret) || other.secret == secret)&&(identical(other.description, description) || other.description == description)&&(identical(other.port, port) || other.port == port)&&(identical(other.echo, echo) || other.echo == echo)&&(identical(other.scope, scope) || other.scope == scope));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _ParamSpec&&(identical(other.name, name) || other.name == name)&&(identical(other.display, display) || other.display == display)&&(identical(other.type, type) || other.type == type)&&(identical(other.required, required) || other.required == required)&&const DeepCollectionEquality().equals(other.defaultValue, defaultValue)&&(identical(other.min, min) || other.min == min)&&(identical(other.max, max) || other.max == max)&&const DeepCollectionEquality().equals(other.choices, choices)&&(identical(other.editor, editor) || other.editor == editor)&&(identical(other.secret, secret) || other.secret == secret)&&(identical(other.description, description) || other.description == description)&&(identical(other.port, port) || other.port == port)&&(identical(other.echo, echo) || other.echo == echo)&&(identical(other.scope, scope) || other.scope == scope)&&(identical(other.key, key) || other.key == key));
 }
 
 
 @override
 int get hashCode {
-    return Object.hash(runtimeType,name,display,type,required,const DeepCollectionEquality().hash(defaultValue),min,max,const DeepCollectionEquality().hash(choices),editor,secret,description,port,echo,scope);
+    return Object.hash(runtimeType,name,display,type,required,const DeepCollectionEquality().hash(defaultValue),min,max,const DeepCollectionEquality().hash(choices),editor,secret,description,port,echo,scope,key);
 }
 
 @override
 String toString() {
-    return 'ParamSpec(name: $name, display: $display, type: $type, required: $required, defaultValue: $defaultValue, min: $min, max: $max, choices: $choices, editor: $editor, secret: $secret, description: $description, port: $port, echo: $echo, scope: $scope)';
+    return 'ParamSpec(name: $name, display: $display, type: $type, required: $required, defaultValue: $defaultValue, min: $min, max: $max, choices: $choices, editor: $editor, secret: $secret, description: $description, port: $port, echo: $echo, scope: $scope, key: $key)';
 }
 
 
@@ -169,7 +177,7 @@ abstract mixin class _$ParamSpecCopyWith<$Res> implements $ParamSpecCopyWith<$Re
   factory _$ParamSpecCopyWith(_ParamSpec value, $Res Function(_ParamSpec) _then) = __$ParamSpecCopyWithImpl;
 @override @useResult
 $Res call({
- String name, String? display, TypeCode type, bool required, Object? defaultValue, num? min, num? max, IList<String> choices, ParamEditor? editor, bool secret, String? description, String? port, bool? echo, String? scope
+ String name, String? display, TypeCode type, bool required, Object? defaultValue, num? min, num? max, IList<String> choices, ParamEditor? editor, bool secret, String? description, String? port, bool? echo, String? scope, BlockCfgKey? key
 });
 
 
@@ -186,7 +194,7 @@ class __$ParamSpecCopyWithImpl<$Res>
 
 /// Create a copy of ParamSpec
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? name = null,Object? display = freezed,Object? type = null,Object? required = null,Object? defaultValue = freezed,Object? min = freezed,Object? max = freezed,Object? choices = null,Object? editor = freezed,Object? secret = null,Object? description = freezed,Object? port = freezed,Object? echo = freezed,Object? scope = freezed,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? name = null,Object? display = freezed,Object? type = null,Object? required = null,Object? defaultValue = freezed,Object? min = freezed,Object? max = freezed,Object? choices = null,Object? editor = freezed,Object? secret = null,Object? description = freezed,Object? port = freezed,Object? echo = freezed,Object? scope = freezed,Object? key = freezed,}) {
   return _then(_ParamSpec(
 name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
 as String,display: freezed == display ? _self.display : display // ignore: cast_nullable_to_non_nullable
@@ -201,7 +209,8 @@ as bool,description: freezed == description ? _self.description : description //
 as String?,port: freezed == port ? _self.port : port // ignore: cast_nullable_to_non_nullable
 as String?,echo: freezed == echo ? _self.echo : echo // ignore: cast_nullable_to_non_nullable
 as bool?,scope: freezed == scope ? _self.scope : scope // ignore: cast_nullable_to_non_nullable
-as String?,
+as String?,key: freezed == key ? _self.key : key // ignore: cast_nullable_to_non_nullable
+as BlockCfgKey?,
   ));
 }
 

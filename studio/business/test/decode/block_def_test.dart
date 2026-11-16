@@ -48,13 +48,13 @@ void main() {
     final d = valid(mean);
     expect(d.description, 'the mean of two');
     expect([for (final p in d.inputs) p.name], ['a', 'b']);
-    expect(d.inputs.first.ends, [const PortEnd('sum', 'in.0')]);
+    expect(d.inputs.first.ends, [PortEnd('sum', 'in.0')]);
     expect(d.inputs.first.defaultValue, 1);
-    expect(d.inputs.last.ends, [const PortEnd('sum', 'in.1')]);
+    expect(d.inputs.last.ends, [PortEnd('sum', 'in.1')]);
     expect(d.inputs.last.description, 'the other');
-    expect(d.outputs.single.ends, [const PortEnd('half', 'out')]);
+    expect(d.outputs.single.ends, [PortEnd('half', 'out')]);
     expect(d.body.blocks.keys.toSet(), {'sum', 'half', 'inner1'});
-    expect(d.body.edges.single.target, const PortEnd('half', 'in'));
+    expect(d.body.edges.single.target, PortEnd('half', 'in'));
     expect(d.libraryVersion, 3);
     expect(d.inputsAt, (40.0, 60.0));
     expect(d.outputsAt, isNull);

@@ -57,7 +57,7 @@ void main() {
   });
 
   test('a port end and a port type', () {
-    expect(const PortEnd('a', 'in.0').wire, 'a.in.0');
+    expect(PortEnd('a', 'in.0').wire, 'a.in.0');
     expect(PortType.fromWire('bool'), PortType.boolean);
     expect(PortType.fromWire('tensor'), isNull);
     expect(PortType.number.fits(PortType.any), isTrue);

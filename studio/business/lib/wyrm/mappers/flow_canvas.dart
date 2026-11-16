@@ -343,7 +343,7 @@ Subflow extractSubflow(FlowDraft d, Set<String> ids) {
       final port = end.port.startsWith('in.')
           ? end.port.substring(3)
           : end.port;
-      final main = switch (EnginePort.fromWire(port)) {
+      final main = switch (end.known) {
         EnginePort.in_ || EnginePort.out => true,
         _ => false,
       };
@@ -519,7 +519,7 @@ FieldEditError? fieldEditError(String text, FieldEdit edit) {
         return FieldEditError.json;
       }
     case FieldEdit.toggle:
-      return s == 'true' || s == 'false' ? null : FieldEditError.toggle;
+      return bool.tryParse(s) == null ? FieldEditError.toggle : null;
     case FieldEdit.choice || FieldEdit.text || FieldEdit.any:
       return null;
   }
@@ -535,7 +535,7 @@ Object? typedText(String text, FieldEdit edit) {
     case FieldEdit.number:
       return num.tryParse(s) ?? text;
     case FieldEdit.toggle:
-      return s == 'true' ? true : (s == 'false' ? false : text);
+      return bool.tryParse(s) ?? text;
     case FieldEdit.json:
       try {
         return jsonDecode(text);

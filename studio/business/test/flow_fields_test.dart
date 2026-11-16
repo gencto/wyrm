@@ -499,7 +499,7 @@ void main() {
           fromPort: 'out',
           toBlock: 'm',
           to: field('m', 'modulo'),
-          replacing: const PortEnd('add', 'in.0'),
+          replacing: PortEnd('add', 'in.0'),
         ),
         isNull,
       );

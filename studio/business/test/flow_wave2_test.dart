@@ -663,11 +663,11 @@ void main() {
       expect(instanceValueOf(next, next.blocks[id]!, 'second'), 0);
       expect(
         instanceEnd(next, next.blocks[id]!, 'first', output: false),
-        const PortEnd('mean21/sum', 'in.0'),
+        PortEnd('mean21/sum', 'in.0'),
       );
       expect(
         instanceEnd(next, next.blocks[id]!, 'out', output: true),
-        const PortEnd('mean21/half', 'out'),
+        PortEnd('mean21/half', 'out'),
       );
     });
 
@@ -741,7 +741,7 @@ void main() {
           'in1',
         ],
       );
-      expect(blockInputsOf(def).last.ends, [const PortEnd('half', 'in.1')]);
+      expect(blockInputsOf(def).last.ends, [PortEnd('half', 'in.1')]);
       expect(blockOutputsOf(def), isEmpty);
       // The instance lost the wire of the output that is gone.
       expect(folded.edges.where((e) => e.from == id), isEmpty);
@@ -944,7 +944,7 @@ void main() {
           40,
           600,
           cfg: {'key': 'storage/names/current'},
-          into: const PortEnd('level', 'in.key'),
+          into: PortEnd('level', 'in.key'),
         ),
       );
       expect(ed().scopePrompt, 'level');

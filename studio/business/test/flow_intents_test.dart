@@ -187,7 +187,7 @@ void main() {
       s.dispatchSync(
         DropPointOnInputAction(
           '$_root/storage/step',
-          const PortEnd('count', 'in.step'),
+          PortEnd('count', 'in.step'),
         ),
       );
       final sub = now().blocks.values.last;
@@ -210,7 +210,7 @@ void main() {
         'wire', () {
       final step = rowOf('count', 'in.step');
       s.dispatchSync(
-        BindFieldAction('count', step, const PortEnd('level', 'out')),
+        BindFieldAction('count', step, PortEnd('level', 'out')),
       );
       expect(
         now().edges.where((e) => e.to == 'count' && e.toPort == 'in.step'),
@@ -238,8 +238,8 @@ void main() {
         ..dispatchSync(ConnectPortsAction('level', 'out', 'count', 'in.step'))
         ..dispatchSync(
           RebindFieldAction(
-            const PortEnd('count', 'in.step'),
-            const PortEnd('count', 'in.initial'),
+            PortEnd('count', 'in.step'),
+            PortEnd('count', 'in.initial'),
           ),
         );
       expect(

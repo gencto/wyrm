@@ -590,9 +590,9 @@ InspectorRow _row(
         keyed != null &&
         d.edges.any((e) => e.to == b.id && e.toPort == keyed.port);
     // A list of maps (`mapping`, `aggregates`): a line per item.
-    final items = listItemsOf(t, p.name);
+    final items = listItemsOf(t, p);
     // A time zone or a range text: a text with the usual ones in a menu.
-    final suggested = isTimeZoneParam(b.type, p.name)
+    final suggested = isTimeZoneParam(b.type, p)
         ? timeZoneChoicesOf(b.type)
         : (isRangeText(b.type, p.name) ? rangeChoices : null);
     return ParamRowView(
@@ -618,7 +618,7 @@ InspectorRow _row(
           : null,
       // `Run on start` asks first, with the catalog's own warning.
       confirm:
-          BlockCfgKey.fromWire(p.name) == BlockCfgKey.runOnStart &&
+          p.key == BlockCfgKey.runOnStart &&
               hint.startsWith('WARNING:')
           ? hint
           : null,
@@ -631,7 +631,7 @@ InspectorRow _row(
           : p.type == TypeCode.bool_
           ? ParamRowEditor.toggle
           // `now`'s clock is a period as a command's (spec 06 0.2.30)
-          : (BlockCfgKey.fromWire(p.name) == BlockCfgKey.intervalMs &&
+          : (p.key == BlockCfgKey.intervalMs &&
                     (behaves || b.type.known == KnownBlock.now)
                 ? ParamRowEditor.duration
                 : ParamRowEditor.text),

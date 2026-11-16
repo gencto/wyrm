@@ -1,6 +1,8 @@
 import 'dart:math' as math;
 
+import 'package:models/block_category.dart';
 import 'package:models/block_type.dart';
+import 'package:models/engine_port.dart';
 import 'package:models/field_id.dart';
 import 'package:models/flow_block.dart';
 import 'package:models/flow_draft.dart';
@@ -21,6 +23,9 @@ import 'flow_blocks.dart';
 import 'flow_mapper.dart';
 import 'value_text.dart';
 
+export 'package:models/block_category.dart';
+export 'package:models/block_cfg_key.dart';
+export 'package:models/engine_port.dart';
 export 'package:models/field_id.dart' show FieldKind;
 export 'package:models/port_side.dart';
 
@@ -39,35 +44,6 @@ export '../labels.dart' show humanize;
 // a field with a right port only. Edges in the definition stay engine
 // ports: binding INTO a field is an edge to its input, binding OUT of it an
 // edge from its output.
-
-/// The engine's port names the editor treats in its own way: a block's
-/// main value (`in`, `out`), the run trigger and the event and state
-/// outputs of a block with behaviours (ADR 0040 §2). Any other port is a
-/// name of the catalog.
-enum EnginePort {
-  in_('in'),
-  out('out'),
-  trigger('trigger'),
-  sent('sent'),
-  ok('ok'),
-  error('error'),
-  lastRun('last_run'),
-  right('right'),
-  value('value'),
-  actions('actions');
-
-  const EnginePort(this.wire);
-
-  /// The port's name in the catalog and the definition.
-  final String wire;
-
-  static final Map<String, EnginePort> _byWire = {
-    for (final p in values) p.wire: p,
-  };
-
-  /// The port named [s]; null for any other name.
-  static EnginePort? fromWire(String s) => _byWire[s];
-}
 
 /// The editor's kind of block (spec §3 header chip and colour).
 enum BlockRole {
@@ -187,6 +163,7 @@ final class FlowField {
     this.variable = false,
     this.operand = false,
     this.command = false,
+    this.port,
   });
 
   /// Unique within the block: its kind and the engine's name for it.
@@ -240,8 +217,11 @@ final class FlowField {
   /// not a value. It holds no typed value and shows none.
   final bool command;
 
-  /// The engine port this field is, when the editor knows it by name.
-  EnginePort? get port => EnginePort.fromWire(name);
+  /// The engine port an input or an output field is, when the catalog
+  /// names it as one the editor treats in its own way
+  /// ([NodeType.knownInputs], [NodeType.knownOutputs]); null for any other
+  /// field.
+  final EnginePort? port;
 
   /// Whether an edge out of [port] leaves this field.
   bool sends(String port) => port == outPort || outAliases.contains(port);
@@ -262,6 +242,7 @@ final class FlowField {
       other.variable == variable &&
       other.operand == operand &&
       other.command == command &&
+      other.port == port &&
       _same(other.outAliases, outAliases);
 
   static bool _same(List<String> a, List<String> b) =>
@@ -497,8 +478,8 @@ bool isTimeField(BlockType type, String name) =>
 
 /// The time zone parameters of the date blocks (ADR 0044 §3): an IANA name,
 /// `UTC` or `±HH:MM`; `date_format` also takes `auto`.
-bool isTimeZoneParam(BlockType type, String name) =>
-    BlockCfgKey.fromWire(name) == BlockCfgKey.timeZone &&
+bool isTimeZoneParam(BlockType type, ParamSpec p) =>
+    p.key == BlockCfgKey.timeZone &&
     const {
       KnownBlock.dateTime,
       KnownBlock.dateFormat,
@@ -618,26 +599,25 @@ List<String> timeZoneChoicesOf(BlockType type) => [
   ...timeZoneChoices,
 ];
 
-/// Whether field [name] of a block of type [t] may hold a table given as a
+/// Whether field [f] of a block of type [t] may hold a table given as a
 /// list of maps (ADR 0044 §2): the table inputs and outputs of the Tables
 /// blocks, the rows a reader gives (`list_children`, `load_history`) and
 /// the actions of `get_node`. A value `{columns, rows}` is a table
 /// anywhere.
-bool holdsTable(NodeType? t, String name) =>
-    switch ((t?.type.known, EnginePort.fromWire(name))) {
+bool holdsTable(NodeType? t, FlowField f) =>
+    switch ((t?.type.known, f.port, f.spec?.key)) {
       (
         KnownBlock.listChildren || KnownBlock.loadHistory,
         EnginePort.out,
+        _,
       ) =>
         true,
-      (KnownBlock.getNode, EnginePort.actions) => true,
-      (
-        KnownBlock.table,
-        EnginePort.value || EnginePort.out || EnginePort.in_,
-      ) =>
-        true,
-      (_, EnginePort.in_ || EnginePort.right || EnginePort.out) =>
-        BlockCategory.fromWire(t?.category ?? '') == BlockCategory.tables,
+      (KnownBlock.getNode, EnginePort.actions, _) => true,
+      // The `table` variable: its Value (parameter `value`), its ports.
+      (KnownBlock.table, EnginePort.out || EnginePort.in_, _) ||
+      (KnownBlock.table, _, BlockCfgKey.value) => true,
+      (_, EnginePort.in_ || EnginePort.right || EnginePort.out, _) =>
+        t?.knownCategory == BlockCategory.tables,
       _ => false,
     };
 
@@ -664,8 +644,8 @@ const aggregateMethods = [
 /// `aggregates` `[{column, method, as}]` with the method a choice (the
 /// type's own `method` choices when its catalog has them). Null for any
 /// other parameter.
-List<ListColumn>? listItemsOf(NodeType? t, String name) {
-  switch ((t?.type.known, BlockCfgKey.fromWire(name))) {
+List<ListColumn>? listItemsOf(NodeType? t, ParamSpec p) {
+  switch ((t?.type.known, p.key)) {
     case (KnownBlock.tableMapColumns, BlockCfgKey.mapping):
       return const [ListColumn('name'), ListColumn('from')];
     case (
@@ -673,7 +653,7 @@ List<ListColumn>? listItemsOf(NodeType? t, String name) {
       BlockCfgKey.aggregates,
     ):
       final listed = t?.params
-          .where((p) => BlockCfgKey.fromWire(p.name) == BlockCfgKey.method)
+          .where((p) => p.key == BlockCfgKey.method)
           .firstOrNull
           ?.choices;
       return [
@@ -724,41 +704,6 @@ List<Map<String, String>> listRowsOf(Object? v) => listRowsIn(v);
 bool isCommandInput(BlockType type, String port) =>
     commandInputs[type.known]?.contains(port) ?? false;
 
-/// The palette's sections in order (flow-editor.md §2): where a value
-/// comes from, the values, the calculations from the plainest, the logic,
-/// text and its codecs, data and tables, time, then what the flow does to
-/// the tree. A category the engine adds later comes after these, in the
-/// catalog's order.
-enum BlockCategory {
-  sources('Sources'),
-  variables('Variables'),
-  math('Math'),
-  trigonometry('Trigonometry'),
-  statistics('Statistics'),
-  logic('Logic'),
-  textual('Text'),
-  codecs('Codecs'),
-  data('Data'),
-  tables('Tables'),
-  dateAndTime('Date and time'),
-  alarms('Alarms'),
-  outputs('Outputs'),
-  wasm('WASM');
-
-  const BlockCategory(this.wire);
-
-  /// The category as the catalog names it (`node_types` `category`).
-  final String wire;
-
-  static final Map<String, BlockCategory> _byWire = {
-    for (final c in values) c.wire: c,
-  };
-
-  /// The category named [s]; null for one the editor does not know (it
-  /// comes after these, in the catalog's order).
-  static BlockCategory? fromWire(String s) => _byWire[s];
-}
-
 /// [types] in the palette's order: by [BlockCategory], the catalog's
 /// order within a category.
 List<NodeType> inPaletteOrder(Iterable<NodeType> types) {
@@ -768,14 +713,14 @@ List<NodeType> inPaletteOrder(Iterable<NodeType> types) {
       seen.add(t.category);
     }
   }
-  int rank(String c) =>
-      BlockCategory.fromWire(c)?.index ??
-      BlockCategory.values.length + seen.indexOf(c);
+  int rank(NodeType t) =>
+      t.knownCategory?.index ??
+      BlockCategory.values.length + seen.indexOf(t.category);
 
   final all = types.toList();
   final at = <BlockType, int>{for (final (i, t) in all.indexed) t.type: i};
   return all..sort((a, b) {
-    final r = rank(a.category).compareTo(rank(b.category));
+    final r = rank(a).compareTo(rank(b));
     return r != 0 ? r : at[a.type]!.compareTo(at[b.type]!);
   });
 }
@@ -797,8 +742,8 @@ const behaviourParams = {'interval_ms', 'auto_run', 'enabled', 'run_on_start'};
 /// outputs (`invoke`, `set`, `load_value`, `list_children` since ADR 0040).
 bool behavesOf(NodeType? t) =>
     t != null &&
-    t.inputs.contains(EnginePort.trigger.wire) &&
-    t.outputs.contains(EnginePort.lastRun.wire);
+    t.knownInputs.containsValue(EnginePort.trigger) &&
+    t.knownOutputs.containsValue(EnginePort.lastRun);
 
 /// The inspector's groups of a block with behaviours (flow-editor.md §19).
 enum FieldGroup { none, target, arguments, behaviour, events, state }
@@ -1102,7 +1047,7 @@ List<FlowField> fieldsOf(
     final allowed =
         echoInputs ||
         (known == KnownBlock.set &&
-            port == EnginePort.in_.wire &&
+            t.knownInputs[port] == EnginePort.in_ &&
             (t.echoInputs ?? true));
     if (allowed && taken.add(port)) {
       inEcho[port] = port;
@@ -1134,7 +1079,7 @@ List<FlowField> fieldsOf(
           // A scope is read on the block and typed in its prompt: it
           // feeds nothing.
           outPort: p.name == keyed?.scope ? null : paramEcho[p.name],
-          onBlock: switch ((p.name, BlockCfgKey.fromWire(p.name))) {
+          onBlock: switch ((p.name, p.key)) {
             // The key takes a wire: it is a row with a left port.
             (final n, _) when n == keyed?.key => true,
             // Its scope shows once it matters: a wire feeds the key, or
@@ -1171,9 +1116,11 @@ List<FlowField> fieldsOf(
     final name = port.startsWith(t.dynInPrefix)
         ? port.substring(t.dynInPrefix.length)
         : port;
-    final main = EnginePort.fromWire(port) == EnginePort.in_;
+    final engine = t.knownInputs[port];
+    final main = engine == EnginePort.in_;
     return FlowField(
       id: FieldId.input(port),
+      port: engine,
       name: port,
       label: switch (known) {
         KnownBlock.publish when main => 'Value',
@@ -1201,7 +1148,7 @@ List<FlowField> fieldsOf(
       onBlock:
           !behaves ||
           !(main && known == KnownBlock.invoke ||
-              EnginePort.fromWire(port) == EnginePort.trigger && node),
+              engine == EnginePort.trigger && node),
     );
   }
 
@@ -1244,24 +1191,25 @@ List<FlowField> fieldsOf(
         FlowField(
           id: FieldId.output(p),
           name: p,
+          port: t.knownOutputs[p],
           // A `subscribe` output is its point's value, named after the
           // point; a `liveliness` output is whether its node is there.
           label:
-              _reads.contains(known) && EnginePort.fromWire(p) == EnginePort.out
+              _reads.contains(known) && t.knownOutputs[p] == EnginePort.out
               ? (outputLabelOverrides[known]?[p] ??
                     pointName ??
                     fieldLabel(b.type, p))
               : (instance || t.dynOutParam != null && !t.outputs.contains(p)
                     ? p
                     : (known == KnownBlock.invoke &&
-                              EnginePort.fromWire(p) == EnginePort.out &&
+                              t.knownOutputs[p] == EnginePort.out &&
                               behaves
                           ? fieldLabel(b.type, p)
                           : outputLabelOverrides[known]?[p] ??
                                 fieldLabel(b.type, p))),
           kind: .output,
           outPort: p,
-          onBlock: switch (EnginePort.fromWire(p)) {
+          onBlock: switch (t.knownOutputs[p]) {
             // A refused key says why on `error`: a row once a wire feeds
             // the key.
             EnginePort.error when keyed != null && !behaves => keyBound,
@@ -1338,10 +1286,10 @@ const tailParams = <KnownBlock, Set<String>>{
 bool isVariable(NodeType? t) =>
     t != null &&
     t.params.length == 1 &&
-    BlockCfgKey.fromWire(t.params.first.name) == BlockCfgKey.value &&
+    t.params.first.key == BlockCfgKey.value &&
     t.outputs.length == 1 &&
-    EnginePort.fromWire(t.outputs.first) == EnginePort.out &&
-    t.inputs.every((p) => EnginePort.fromWire(p) == EnginePort.in_) &&
+    t.knownOutputs[t.outputs.first] == EnginePort.out &&
+    t.inputs.every((p) => t.knownInputs[p] == EnginePort.in_) &&
     t.dynInParam == null &&
     t.dynOutParam == null;
 
@@ -1483,7 +1431,7 @@ Refused? bindRefusal(
             const {
               BlockCfgKey.key,
               BlockCfgKey.path,
-            }.contains(BlockCfgKey.fromWire(to.name)) &&
+            }.contains(to.spec?.key) &&
             const {
               KnownBlock.subscribe,
               KnownBlock.liveliness,

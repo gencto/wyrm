@@ -20,6 +20,7 @@ import 'package:models/flow_draft.dart';
 import 'package:models/flow_edge.dart';
 import 'package:models/live_value.dart';
 import 'package:models/node_type.dart';
+import 'package:models/param_spec.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import 'support/block_types.dart';
@@ -49,6 +50,10 @@ FlowField field(
   String id, [
   Map<String, Object?> cfg = const {},
 ]) => fieldsOf(types[type], block(type, cfg)).firstWhere((f) => f.id.key == id);
+
+/// The catalog's parameter [name] of [type].
+ParamSpec param(String type, String name) =>
+    types[type]!.params.firstWhere((p) => p.name == name);
 
 void main() {
   test('the catalog has the 125 types and the labels the engine gives', () {
@@ -274,9 +279,10 @@ void main() {
 
     test('a time zone field offers zones, date_format also auto; a range '
         'text its choices', () {
-      expect(isTimeZoneParam(bt('date_format'), 'time_zone'), isTrue);
-      expect(isTimeZoneParam(bt('load_history'), 'time_zone'), isTrue);
-      expect(isTimeZoneParam(bt('table_rollup'), 'time_zone'), isTrue);
+      const zone = ParamSpec(name: 'time_zone', key: BlockCfgKey.timeZone);
+      expect(isTimeZoneParam(bt('date_format'), zone), isTrue);
+      expect(isTimeZoneParam(bt('load_history'), zone), isTrue);
+      expect(isTimeZoneParam(bt('table_rollup'), zone), isTrue);
       expect(timeZoneChoicesOf(bt('date_format')).first, 'auto');
       expect(timeZoneChoicesOf(bt('date_time')).first, 'UTC');
       expect(timeZoneChoices, containsAll(['Europe/Kyiv', '+02:00']));
@@ -320,7 +326,7 @@ void main() {
         types['table'],
         t,
       ).firstWhere((f) => f.spec?.name == 'value');
-      expect(holdsTable(types['table'], value.name), isTrue);
+      expect(holdsTable(types['table'], value), isTrue);
       expect(fieldEditOf(t, value, const []).edit, FieldEdit.json);
       expect(fieldEditValue(t, value), {
         'columns': ['a'],
@@ -337,7 +343,7 @@ void main() {
       expect(fieldEditOf(t, value, [wire]).locked, FieldLocked.bound);
       // A typed operand of a table block holds a table too.
       final sort = field('table_sort', 'in:in');
-      expect(holdsTable(types['table_sort'], sort.name), isTrue);
+      expect(holdsTable(types['table_sort'], sort), isTrue);
       expect(
         fieldEditOf(block('table_sort'), sort, const []).edit,
         FieldEdit.any,
@@ -384,10 +390,19 @@ void main() {
         reason: 't is a date',
       );
       expect(tableCellText('v', 1), isNull);
-      expect(holdsTable(types['load_history'], 'out'), isTrue);
-      expect(holdsTable(types['get_node'], 'actions'), isTrue);
-      expect(holdsTable(types['table_sort'], 'out'), isTrue);
-      expect(holdsTable(types['add'], 'out'), isFalse);
+      expect(
+        holdsTable(types['load_history'], field('load_history', 'out:out')),
+        isTrue,
+      );
+      expect(
+        holdsTable(types['get_node'], field('get_node', 'out:actions')),
+        isTrue,
+      );
+      expect(
+        holdsTable(types['table_sort'], field('table_sort', 'out:out')),
+        isTrue,
+      );
+      expect(holdsTable(types['add'], field('add', 'out:out')), isFalse);
       expect(
         tableOf({
           'columns': ['a'],
@@ -398,17 +413,29 @@ void main() {
     });
 
     test('mapping and aggregates are edited as rows', () {
-      final m = listItemsOf(types['table_map_columns'], 'mapping')!;
+      final m = listItemsOf(
+        types['table_map_columns'],
+        param('table_map_columns', 'mapping'),
+      )!;
       expect([for (final c in m) c.key], ['name', 'from']);
-      final a = listItemsOf(types['table_rollup'], 'aggregates')!;
+      final a = listItemsOf(
+        types['table_rollup'],
+        param('table_rollup', 'aggregates'),
+      )!;
       expect([for (final c in a) c.key], ['column', 'method', 'as']);
       expect(a[1].choices, contains('concat_unique'));
       expect(
-        listItemsOf(types['table_group_by'], 'aggregates')![1].choices,
+        listItemsOf(
+          types['table_group_by'],
+          param('table_group_by', 'aggregates'),
+        )![1].choices,
         aggregateMethods,
         reason: 'no method parameter: the engine list',
       );
-      expect(listItemsOf(types['table_sort'], 'column'), isNull);
+      expect(
+        listItemsOf(types['table_sort'], param('table_sort', 'column')),
+        isNull,
+      );
       expect(
         listRowsOf([
           {'column': 'v', 'method': 'max', 'as': 't_max'},

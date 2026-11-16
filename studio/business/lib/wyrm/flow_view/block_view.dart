@@ -239,7 +239,8 @@ BlockView blockViewOf(
   final behaves = behavesOf(t);
   // The row a sink's ghost stands on: its value's, else its trigger's.
   final trigger = FieldId.input(EnginePort.trigger.wire);
-  final ghostRow = rows.any((f) => f.inPort == EnginePort.in_.wire)
+  final ghostRow =
+      rows.any((f) => f.kind == FieldKind.input && f.port == EnginePort.in_)
       ? FieldId.input(EnginePort.in_.wire)
       : (rows.any((f) => f.id == trigger) ? trigger : rows.firstOrNull?.id);
   // What a sink would write in the preview (nothing is written).
@@ -383,7 +384,8 @@ IList<WireView> wireViewsOf(
         writes: writes,
         // Only `in` acts on a value sent at start; a trigger, an
         // argument and a behaviour never do (ADR 0040 §2).
-        firesAtDeploy: writes && fromParam && e.toPort == EnginePort.in_.wire,
+        firesAtDeploy:
+            writes && fromParam && e.target.known == EnginePort.in_,
       );
     }(),
 ].lock;

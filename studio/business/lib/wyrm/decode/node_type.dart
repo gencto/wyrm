@@ -1,5 +1,8 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/block_category.dart';
+import 'package:models/block_cfg_key.dart';
 import 'package:models/block_type.dart';
+import 'package:models/engine_port.dart';
 import 'package:models/node_type.dart';
 import 'package:models/param_spec.dart';
 import 'package:models/port_type.dart';
@@ -16,8 +19,8 @@ const _shape = 'node type';
 /// An entry that is not a map, or one with no `type` text, is [Invalid]:
 /// the catalog lists it under no name, so the editor cannot draw it.
 ///
-/// Two things are read leniently, by decision (studio-rules §8, phase B1),
-/// each with a warning in [decodeLog] that names the field:
+/// Two things are read leniently, each with a warning in [decodeLog] that
+/// names the field:
 /// - `params[].type` that is no `TypeCode` name is [TypeCode.dynamic_]
 ///   (its value is typed as JSON, the engine's validation says what is
 ///   wrong). `int`, written by catalogs before ADR 0038, is
@@ -28,6 +31,12 @@ const _shape = 'node type';
 ///
 /// An `editor` this Studio does not know is null: a UI ignores an editor
 /// it does not know (spec 02).
+///
+/// The names the editor treats in its own way are typed here, once: the
+/// category ([NodeType.knownCategory]), the ports
+/// ([NodeType.knownInputs], [NodeType.knownOutputs]) and each parameter's
+/// config key ([ParamSpec.key]); every other name stays the catalog's
+/// text.
 Decoded<NodeType> nodeTypeOf(Value m) {
   if (m is! VMap) {
     return const Invalid(_shape, '', 'not a map');
@@ -45,13 +54,19 @@ Decoded<NodeType> nodeTypeOf(Value m) {
   };
   final dynIn = m['dyn_inputs'];
   final dynOut = m['dyn_outputs'];
+  final category = str(m['category']) ?? '';
+  final inputs = texts(m['inputs']);
+  final outputs = texts(m['outputs']);
   return Valid(
     NodeType(
       type: BlockType.fromWire(type),
-      category: str(m['category']) ?? '',
+      category: category,
+      knownCategory: BlockCategory.fromWire(category),
       description: str(m['description']) ?? '',
-      inputs: texts(m['inputs']).lock,
-      outputs: texts(m['outputs']).lock,
+      inputs: inputs.lock,
+      outputs: outputs.lock,
+      knownInputs: _known(inputs),
+      knownOutputs: _known(outputs),
       dynInParam: str(dynIn?['param']),
       dynInPrefix: str(dynIn?['prefix']) ?? '',
       dynInDefaults: texts(dynIn?['default']).lock,
@@ -63,6 +78,7 @@ Decoded<NodeType> nodeTypeOf(Value m) {
           for (final (i, p) in v.indexed)
             ParamSpec(
               name: str(p['name']) ?? '',
+              key: BlockCfgKey.fromWire(str(p['name']) ?? ''),
               // The label the engine gives a field where the one derived
               // from its name would be wrong (spec 06 0.2.29: `atan.x`).
               display: str(p['display']),
@@ -124,6 +140,11 @@ PortType portTypeOf(
   VStr(:final v) when PortType.fromWire(v) != null => PortType.fromWire(v)!,
   _ => _lenient(where, field, 'not a port type', PortType.any),
 };
+
+/// The names of [ports] the editor treats in its own way, typed.
+IMap<String, EnginePort> _known(List<String> ports) => {
+  for (final p in ports) p: ?EnginePort.fromWire(p),
+}.lock;
 
 T _lenient<T>(String where, String field, String reason, T value) {
   decodeLog.warning('$where: $_shape.$field: $reason');

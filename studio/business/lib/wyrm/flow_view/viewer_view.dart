@@ -9,7 +9,6 @@ import 'package:models/node_info.dart';
 import 'package:models/node_type.dart';
 import 'package:models/quality.dart';
 
-import '../decode/block_cfg.dart';
 import '../mappers/csv_table.dart';
 import '../mappers/flow_canvas.dart';
 import '../mappers/flow_fields.dart';
@@ -166,7 +165,7 @@ ViewerView? viewerViewOf(
   final v = fieldValue(b, f, d, live);
   final how = fieldEditOf(b, f, d.edges);
   final text = fieldEditText(b, f);
-  final tabled = holdsTable(type, f.name);
+  final tabled = holdsTable(type, f);
   // A typed table (the `table` variable's Value, a table typed into a
   // table input) edits in the viewer's grid, from what the config holds;
   // an empty one starts with no columns (owner request 2026-11-11), except
@@ -219,7 +218,7 @@ ViewerView? viewerViewOf(
     locked: how.locked,
     csv:
         b.type.known == KnownBlock.tableFromCsv &&
-            EnginePort.fromWire(f.name) == EnginePort.in_
+            f.port == EnginePort.in_
         ? _csvRules(b, all, d, live)
         : null,
   );
@@ -236,7 +235,7 @@ CsvRules _csvRules(
 ) {
   var wired = false;
   Object? read(BlockCfgKey key) {
-    final f = all.where((x) => x.spec?.name == key.wire).firstOrNull;
+    final f = all.where((x) => x.spec?.key == key).firstOrNull;
     if (f == null) {
       return b.cfg[key.wire];
     }

@@ -4,7 +4,10 @@ import 'package:business/wyrm/decode/decoded.dart';
 import 'package:business/wyrm/decode/node_type.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
+import 'package:models/block_category.dart';
+import 'package:models/block_cfg_key.dart';
 import 'package:models/block_type.dart';
+import 'package:models/engine_port.dart';
 import 'package:models/node_type.dart';
 import 'package:models/port_type.dart';
 import 'package:wyrm_client/wyrm_client.dart';
@@ -102,5 +105,32 @@ void main() {
       nodeTypeOf(Value.from({'type': ''})),
       const Invalid<NodeType>('node type', 'type', 'missing'),
     );
+  });
+
+  test('the names the editor knows are typed once: category, ports, keys', () {
+    final t = valid({
+      'type': 'invoke',
+      'category': 'Outputs',
+      'inputs': ['in', 'trigger', 'in.path'],
+      'outputs': ['out', 'last_run', 'quotient'],
+      'params': [
+        {'name': 'interval_ms', 'type': 'number'},
+        {'name': 'factor', 'type': 'number'},
+      ],
+    });
+    expect(t.knownCategory, BlockCategory.outputs);
+    expect(t.knownInputs.unlock, {
+      'in': EnginePort.in_,
+      'trigger': EnginePort.trigger,
+    });
+    expect(t.knownOutputs.unlock, {
+      'out': EnginePort.out,
+      'last_run': EnginePort.lastRun,
+    });
+    expect([for (final p in t.params) p.key], [BlockCfgKey.intervalMs, null]);
+    // A category the engine adds later keeps its text and no section.
+    final later = valid({'type': 'x', 'category': 'Vision'});
+    expect(later.knownCategory, isNull);
+    expect(later.category, 'Vision');
   });
 }

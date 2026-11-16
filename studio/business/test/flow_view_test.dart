@@ -410,10 +410,10 @@ void main() {
     final ed = SelectFlowEditor(stateOf());
     final r = ed.refusal(
       'dvpsm-bot',
-      const WireAsk(
+      WireAsk(
         PortEnd('c_ack', 'out'),
         'c_ack',
-        FieldId.param('key'),
+        const FieldId.param('key'),
       ),
     )!;
     expect(r.refused.reason, BindRefusal.self);
