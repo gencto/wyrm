@@ -57,6 +57,8 @@ clap = { workspace = true, optional = true, features = ["env"] }
 [dev-dependencies]
 wyrm-link-sdk = { workspace = true, features = ["harness"] }
 wyrm-link-mock.workspace = true
+# the snapshot form of a task record (`store::tests`)
+postcard.workspace = true
 # a config-level action for the plans of the tests
 wyrm-flow.workspace = true
 # `gw::parse_plan`: a task's plan is a plan of `wyrm-agent run`

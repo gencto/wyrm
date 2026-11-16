@@ -24,7 +24,7 @@ impl TimeUs {
 
 crate::name_enum! {
     /// How the samples of one window become one value (spec 01 `agg`; names as DSA's rollups).
-    pub enum Rollup {
+    pub enum Rollup as "rollup" {
         None => "none",
         And => "and",
         Or => "or",

@@ -472,7 +472,7 @@ struct Task {
 impl Task {
     fn to_rec(&self) -> TaskRec {
         TaskRec {
-            state: self.state.name().to_owned(),
+            state: self.state.into(),
             owner: self.owner.clone(),
             ask: self.ask.clone(),
             plan: store::encode_plan(
@@ -499,7 +499,9 @@ impl Task {
     /// A reloaded record. A task that was `planning` or `running` is not
     /// resumed: it becomes `failed` ([`INTERRUPTED`]). `Err`: unreadable.
     fn from_rec(r: &TaskRec) -> std::result::Result<Self, String> {
-        let state = store::state_from_name(&r.state).ok_or("unknown state")?;
+        let wyrm_core::named::OrUnknown::Known(state) = r.state else {
+            return Err(format!("state {:?}", r.state.name()));
+        };
         let (plan, extras) = store::decode_plan(&r.plan)?;
         let mut t = Self {
             owner: r.owner.clone(),
@@ -1079,6 +1081,12 @@ fn reload(db: AgentStore, dir: &Path) -> State {
     st.budget.used = saved.used;
     let mut loaded: Vec<(String, Task)> = Vec::new();
     for (id, rec) in &saved.tasks {
+        if let wyrm_core::named::OrUnknown::Unknown(name) = &rec.state {
+            // written by a newer build: not loaded, kept for it (its id stays taken)
+            warn!(task = %id, "task state {name:?} is unknown to this build: the task is kept, not loaded");
+            st.next = st.next.max(rec.seq);
+            continue;
+        }
         match Task::from_rec(rec) {
             Ok(t) => loaded.push((id.clone(), t)),
             Err(e) => {
@@ -1090,7 +1098,7 @@ fn reload(db: AgentStore, dir: &Path) -> State {
     loaded.sort_by_key(|(_, t)| (t.created, t.seq));
     for (id, t) in loaded {
         st.next = st.next.max(t.seq);
-        let interrupted = store::state_from_name(&saved.tasks[&id].state) != Some(t.state);
+        let interrupted = saved.tasks[&id].state != wyrm_core::named::OrUnknown::Known(t.state);
         st.order.push_back(id.clone());
         st.tasks.insert(id.clone(), t);
         if interrupted {
@@ -3093,7 +3101,7 @@ mod tests {
 
     fn rec(state: TaskState) -> TaskRec {
         TaskRec {
-            state: state.name().to_owned(),
+            state: state.into(),
             owner: "user:op".into(),
             ask: "x".into(),
             plan: Vec::new(),
@@ -3126,6 +3134,38 @@ mod tests {
             let r = wyrm_mcp::check::prepare_args(&approve.params, form.clone());
             assert_eq!(r, Ok(form));
         }
+    }
+
+    /// Owner decision (review of #127): a task whose state this build does not know is not
+    /// loaded and its record stays as written, through a reload, a compaction and the next
+    /// writes; the other tasks load. (The `String` field made `from_rec` fail on it and the
+    /// record was removed; a typed field that refused it would have refused the store.)
+    #[test]
+    fn a_task_of_an_unknown_state_is_kept_not_loaded() {
+        let dir = std::env::temp_dir().join(format!("wyrm-agent-unknown-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut known = rec(TaskState::Done);
+        known.plan = store::encode_plan(&[], &store::Extras::default());
+        known.created = now_s();
+        let mut newer = known.clone();
+        newer.state = wyrm_core::named::OrUnknown::Unknown("paused".into());
+        newer.seq = 9;
+        {
+            let mut db = store::open(&dir, store::COMPACT_AT).unwrap();
+            db.apply(store::Op::Put("t1-4".into(), known)).unwrap();
+            db.apply(store::Op::Put("t2-9".into(), newer.clone()))
+                .unwrap();
+        }
+        for compact_at in [store::COMPACT_AT, 0] {
+            let db = store::open(&dir, compact_at).unwrap();
+            let st = reload(db, &dir);
+            assert!(st.tasks.contains_key("t1-4"), "the known task loads");
+            assert!(!st.tasks.contains_key("t2-9"), "not loaded");
+            assert_eq!(st.next, 9, "its id stays taken");
+            let kept = st.db.as_ref().unwrap().state().tasks["t2-9"].clone();
+            assert_eq!(*kept, newer, "kept as written");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

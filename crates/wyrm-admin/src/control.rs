@@ -13,10 +13,11 @@
 
 use crate::acl;
 use crate::audit::{AuditLog, AuditRecord};
+use crate::logs::LogLevel;
 use crate::packages;
 use crate::registry::{
-    LinkDef, Mode, Op, Options, Origin, PackageDef, PackageKind, PeerDef, PeerDir, Registry,
-    TokenDef, OPTION_NAMES,
+    LinkDef, Mode, Op, OptionName, Options, Origin, PackageDef, PackageKind, PeerDef, PeerDir,
+    Registry, TokenDef,
 };
 use crate::secret::{self, CertFiles, Error, Pki};
 use crate::supervisor::{ProcSpec, ProcState, Supervisor};
@@ -379,13 +380,19 @@ const SYS_STATUS: [(&str, &str, &str); 18] = [
     ),
 ];
 
-/// Display name and description of the [`Options`] values.
-const OPTION_INFO: [&str; 2] = [
-    "Install every unknown certificate CN signed by this broker's CA as an \
-         external link, without quarantine. The link token stays in the broker's \
-         data_dir (links/<id>/token) for the operator to copy to the device.",
-    "Record unknown certificate CNs under quarantine for approval; off: ignore them.",
-];
+/// The description of an [`Options`] value.
+fn option_info(name: OptionName) -> &'static str {
+    match name {
+        OptionName::AllowAllLinks => {
+            "Install every unknown certificate CN signed by this broker's CA as an \
+             external link, without quarantine. The link token stays in the broker's \
+             data_dir (links/<id>/token) for the operator to copy to the device."
+        }
+        OptionName::EnableQuarantine => {
+            "Record unknown certificate CNs under quarantine for approval; off: ignore them."
+        }
+    }
+}
 
 pub struct Control {
     cfg: ControlConfig,
@@ -1913,7 +1920,6 @@ impl Control {
             .into_iter()
             .chain(
                 def.log_level
-                    .as_deref()
                     .map(|l| ("RUST_LOG".to_owned(), crate::logs::env_directive(l))),
             )
             .chain(self.cfg.link_limits.to_env())
@@ -2037,13 +2043,13 @@ impl Control {
         // Saved log levels: the broker's and each embedded link's.
         if let Some(lc) = crate::logs::global() {
             let reg = self.registry();
-            if let Some(l) = &reg.log_level {
+            if let Some(l) = reg.log_level {
                 if let Err(e) = lc.set_level(l) {
                     warn!("log level {l}: {e}");
                 }
             }
             for def in reg.links.values().filter(|d| d.mode == Mode::Embedded) {
-                if let Err(e) = lc.set_link_level(&def.id, def.log_level.as_deref()) {
+                if let Err(e) = lc.set_link_level(&def.id, def.log_level) {
                     warn!(link = %def.id, "log level: {e}");
                 }
             }
@@ -2459,11 +2465,7 @@ async fn declare_link(ctx: &LinkCtx, def: &LinkDef) -> Result<(), LinkError> {
             ),
     )
     .await?;
-    let idx = def
-        .log_level
-        .as_deref()
-        .and_then(|l| crate::logs::LEVELS.iter().position(|x| *x == l))
-        .map_or(0, |i| i + 1);
+    let idx = def.log_level.map_or(0, |l| l.index() + 1);
     ctx.update(&level, Value::UInt(idx as u64), Quality::Good, now_us())
         .await?;
     ctx.declare_action(&p, "get_log", log_action(false)).await
@@ -2472,7 +2474,7 @@ async fn declare_link(ctx: &LinkCtx, def: &LinkDef) -> Result<(), LinkError> {
 /// `default` and the level names: a link's `log_level` choices.
 fn link_levels() -> Vec<String> {
     std::iter::once("default")
-        .chain(crate::logs::LEVELS)
+        .chain(LogLevel::NAMES.iter().copied())
         .map(str::to_owned)
         .collect()
 }
@@ -2490,7 +2492,7 @@ fn log_action(broker: bool) -> ActionMeta {
         .param(
             "level",
             str_param()
-                .enum_values(crate::logs::LEVELS.iter().rev().map(|l| l.to_string()))
+                .enum_values(LogLevel::NAMES.iter().rev().map(|l| l.to_string()))
                 .display("Level")
                 .description("This level and more severe"),
         )
@@ -2769,7 +2771,7 @@ async fn declare_sys_values(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Resu
         ctx.declare_node(
             "log_level",
             NodeMeta::leaf(TypeCode::Enum)
-                .enum_values(crate::logs::LEVELS)
+                .enum_values(LogLevel::NAMES.iter().copied())
                 .writable(Writable::Config)
                 .attr(
                     "description",
@@ -2777,10 +2779,7 @@ async fn declare_sys_values(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Resu
                 ),
         )
         .await?;
-        let idx = crate::logs::LEVELS
-            .iter()
-            .position(|l| *l == lc.level())
-            .unwrap_or(2);
+        let idx = lc.level().index();
         ctx.update(
             "log_level",
             Value::UInt(idx as u64),
@@ -2791,16 +2790,16 @@ async fn declare_sys_values(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Resu
         ctx.declare_action("", "get_log", log_action(true)).await?;
     }
     let opts = ctl.options();
-    for (name, about) in OPTION_NAMES.iter().zip(OPTION_INFO) {
+    for name in OptionName::ALL {
         ctx.declare_node(
-            name,
+            name.name(),
             NodeMeta::leaf(TypeCode::Bool)
                 .writable(Writable::Config)
-                .attr("description", about),
+                .attr("description", option_info(*name)),
         )
         .await?;
-        let on = opts.get(name).unwrap_or_default();
-        ctx.update(name, Value::Bool(on), Quality::Good, now_us())
+        let on = opts.get(*name);
+        ctx.update(name.name(), Value::Bool(on), Quality::Good, now_us())
             .await?;
     }
     Ok(())
@@ -3846,7 +3845,7 @@ impl Link for Admin {
                 .param(
                     "mode",
                     str_param()
-                        .enum_values(["embedded", "process", "external"])
+                        .enum_values(<Mode as wyrm_core::named::Named>::NAMES.iter().copied())
                         .display("Mode"),
                 )
                 .param("params", ParamMeta::of(TypeCode::Map).display("Params"))
@@ -4029,28 +4028,40 @@ impl Link for Admin {
         if path == "log_level" {
             let lc =
                 crate::logs::global().ok_or_else(|| LinkError::not_supported("no log control"))?;
-            let levels: Vec<String> = crate::logs::LEVELS.iter().map(|l| l.to_string()).collect();
-            let level = level_of(&value, &levels)?.unwrap_or_else(|| "info".into());
-            lc.set_level(&level).map_err(LinkError::invalid_parameter)?;
+            let levels: Vec<String> = LogLevel::NAMES.iter().map(|l| l.to_string()).collect();
+            let level = match level_of(&value, &levels)? {
+                Some(l) => LogLevel::from_name(&l)
+                    .ok_or_else(|| LinkError::invalid_parameter(format!("level {l:?}")))?,
+                None => LogLevel::Info,
+            };
+            lc.set_level(level).map_err(LinkError::invalid_parameter)?;
             self.ctl
                 .apply(Op::SetLogLevel {
                     link: None,
-                    level: Some(level.clone()),
+                    level: Some(level),
                 })
                 .map_err(rejected)?;
-            self.ctl
-                .record(&sub_of(who), "log_level", "broker", Status::Ok, &level);
-            let idx = crate::logs::LEVELS
-                .iter()
-                .position(|l| *l == level)
-                .unwrap_or(2);
+            self.ctl.record(
+                &sub_of(who),
+                "log_level",
+                "broker",
+                Status::Ok,
+                level.name(),
+            );
+            let idx = level.index();
             return self
                 .ctx
                 .update(path, Value::UInt(idx as u64), Quality::Good, now_us())
                 .await;
         }
         if let ["links", id, "log_level"] = path.split('/').collect::<Vec<_>>().as_slice() {
-            let level = level_of(&value, &link_levels())?;
+            let level = match level_of(&value, &link_levels())? {
+                Some(l) => Some(
+                    LogLevel::from_name(&l)
+                        .ok_or_else(|| LinkError::invalid_parameter(format!("level {l:?}")))?,
+                ),
+                None => None,
+            };
             return self.set_link_log_level(id, level, &sub_of(who)).await;
         }
         if let ["upstream", site, "enabled"] = path.split('/').collect::<Vec<_>>().as_slice() {
@@ -4065,19 +4076,16 @@ impl Link for Admin {
             };
             return self.allow_config(site, on, &sub_of(who)).await;
         }
-        if !OPTION_NAMES.contains(&path) {
+        let Some(option) = OptionName::from_name(path) else {
             return Err(LinkError::not_supported(format!("{path}/~set")));
-        }
+        };
         let Value::Bool(on) = value else {
             return Err(LinkError::invalid_parameter(format!(
                 "{path}: true or false"
             )));
         };
         self.ctl
-            .apply(Op::SetOption {
-                name: path.to_owned(),
-                on,
-            })
+            .apply(Op::SetOption { name: option, on })
             .map_err(rejected)?;
         self.ctl.record(
             &sub_of(who),
@@ -4701,7 +4709,7 @@ impl Admin {
             ]);
             match def.kind {
                 PackageKind::Process => {
-                    args.insert("mode".into(), Value::Str("process".into()));
+                    args.insert("mode".into(), Value::from(Mode::Process.name()));
                     // a portable app as a process: its capabilities as params, as
                     // for its WASM twin (ADR 0023)
                     if app.is_some() {
@@ -4716,7 +4724,7 @@ impl Admin {
                     // `app` with its capabilities as params; a driver or
                     // point component gets one connection on it, devices and
                     // points come from its own Add actions (ADR 0012).
-                    args.insert("mode".into(), Value::Str("embedded".into()));
+                    args.insert("mode".into(), Value::from(Mode::Embedded.name()));
                     args.insert(
                         "params".into(),
                         packages::link_params(&def.name, def.kind, app.as_ref()),
@@ -6078,20 +6086,20 @@ impl Admin {
     async fn set_link_log_level(
         &self,
         id: &str,
-        level: Option<String>,
+        level: Option<LogLevel>,
         sub: &str,
     ) -> wyrm_link_sdk::Result<()> {
         let def = self.def(id)?;
         self.ctl
             .apply(Op::SetLogLevel {
                 link: Some(id.to_owned()),
-                level: level.clone(),
+                level,
             })
             .map_err(rejected)?;
         match def.mode {
             Mode::Embedded => {
                 if let Some(lc) = crate::logs::global() {
-                    lc.set_link_level(id, level.as_deref())
+                    lc.set_link_level(id, level)
                         .map_err(LinkError::invalid_parameter)?;
                 }
             }
@@ -6103,7 +6111,7 @@ impl Admin {
             }
             Mode::External => {}
         }
-        let shown = level.as_deref().unwrap_or("default");
+        let shown = level.map_or("default", LogLevel::name);
         self.ctl.record(sub, "log_level", id, Status::Ok, shown);
         let idx = link_levels().iter().position(|l| l == shown).unwrap_or(0);
         self.ctx

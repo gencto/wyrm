@@ -22,6 +22,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpStream;
 use tokio_rustls::TlsConnector;
+use wyrm_core::weburl::{HttpUrl, SchemeCase};
 use zeroize::Zeroizing;
 
 /// Boxed future of one Messages API call.
@@ -78,28 +79,18 @@ pub struct AnthropicClient {
     fallbacks: bool,
 }
 
-/// `https://host[:port][/prefix]` → `(host, port, prefix)`. Only https.
+/// `https://host[:port][/prefix]` → `(host, port, prefix)`. Only https, a host name or
+/// an IPv4 address, no query or fragment; read by [`wyrm_core::weburl`].
 pub fn parse_base(base: &str) -> Result<(String, u16, String), String> {
-    let rest = base
-        .trim()
-        .strip_prefix("https://")
-        .ok_or("api_base must start with https://")?;
-    let (authority, prefix) = match rest.find('/') {
-        Some(i) => (&rest[..i], rest[i..].trim_end_matches('/')),
-        None => (rest, ""),
-    };
-    let (host, port) = match authority.rsplit_once(':') {
-        Some((h, p)) => (
-            h,
-            p.parse::<u16>()
-                .map_err(|_| "api_base: bad port".to_owned())?,
-        ),
-        None => (authority, 443),
-    };
-    if host.is_empty() || host.contains(['@', '[', ']', ' ']) {
+    let u = HttpUrl::parse(base.trim(), SchemeCase::Lower)
+        .ok()
+        .filter(|u| u.tls)
+        .ok_or("api_base must start with https:// and name a host")?;
+    if u.url.host.is_ipv6() || u.url.query.is_some() || u.url.fragment.is_some() {
         return Err("api_base: bad host".into());
     }
-    Ok((host.to_owned(), port, format!("{prefix}/v1/messages")))
+    let prefix = u.url.path.trim_end_matches('/');
+    Ok((u.url.host.text(), u.port, format!("{prefix}/v1/messages")))
 }
 
 impl AnthropicClient {
@@ -225,6 +216,60 @@ pub fn usage_tokens(resp: &Json) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The parser before review S4, kept to compare.
+    fn old_parse_base(base: &str) -> Result<(String, u16, String), String> {
+        let rest = base
+            .trim()
+            .strip_prefix("https://")
+            .ok_or("api_base must start with https://")?;
+        let (authority, prefix) = match rest.find('/') {
+            Some(i) => (&rest[..i], rest[i..].trim_end_matches('/')),
+            None => (rest, ""),
+        };
+        let (host, port) = match authority.rsplit_once(':') {
+            Some((h, p)) => (
+                h,
+                p.parse::<u16>()
+                    .map_err(|_| "api_base: bad port".to_owned())?,
+            ),
+            None => (authority, 443),
+        };
+        if host.is_empty() || host.contains(['@', '[', ']', ' ']) {
+            return Err("api_base: bad host".into());
+        }
+        Ok((host.to_owned(), port, format!("{prefix}/v1/messages")))
+    }
+
+    /// Review S4: every base the old parser took parses the same; what it refused stays
+    /// refused.
+    #[test]
+    fn base_urls_parse_as_before() {
+        for s in [
+            "https://api.anthropic.com",
+            "https://proxy.local:8443/llm/",
+            " https://Proxy.Local/a/b ",
+            "https://10.0.0.2:8443",
+        ] {
+            let (h, p, path) = old_parse_base(s).unwrap();
+            assert_eq!(parse_base(s), Ok((h.to_ascii_lowercase(), p, path)), "{s}");
+        }
+        for s in [
+            "http://api.anthropic.com",
+            "https://user@host",
+            "https://[::1]:8443",
+            "https://",
+            "https://h:99999",
+            "https://h x",
+        ] {
+            assert!(old_parse_base(s).is_err(), "old took {s}");
+            assert!(parse_base(s).is_err(), "{s}");
+        }
+        // refused now, taken before: a query (it went into the path), port 0
+        for s in ["https://h/p?x=1", "https://h:0", "https://h/a b"] {
+            assert!(parse_base(s).is_err(), "{s}");
+        }
+    }
 
     #[test]
     fn base_urls() {

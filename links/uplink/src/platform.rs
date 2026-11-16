@@ -4,6 +4,7 @@
 
 use std::collections::BTreeMap;
 use std::net::IpAddr;
+use wyrm_core::weburl::{Url, UrlError};
 
 use base64::Engine as _;
 use hmac::Mac;
@@ -15,7 +16,7 @@ pub type Map = BTreeMap<String, Value>;
 wyrm_core::name_enum! {
     /// The platforms (ADR 0035).
     #[derive(PartialOrd, Ord)]
-    pub enum Kind {
+    pub enum Kind as "uplink kind" {
         /// Any MQTT broker, one topic per point (a Unified Namespace).
         Mqtt => "mqtt",
         /// Sparkplug B 3.0: the site as an edge node, links as devices.
@@ -413,49 +414,25 @@ pub fn check_key(k: &str) -> Result<(), String> {
 }
 
 /// `scheme://host[:port][/…]` → the endpoint; `schemes`: what the kind takes, with the TLS
-/// flag and the default port.
+/// flag and the default port. Read by [`wyrm_core::weburl`] (the scheme in any case); what
+/// follows the authority is not used. The message never repeats the URL.
 pub fn parse_url(url: &str, schemes: &[(&str, bool, u16)]) -> Result<Endpoint, String> {
-    let (scheme, rest) = url
-        .split_once("://")
-        .ok_or_else(|| format!("url {url}: <scheme>://host[:port]"))?;
+    let u = Url::parse(url).map_err(|e| match e {
+        UrlError::NoScheme => "url: <scheme>://host[:port]".to_owned(),
+        UrlError::Credentials => "url: no credentials in the URL (use Set password)".to_owned(),
+        e => format!("url: {e}"),
+    })?;
     let (_, tls, default_port) = schemes
         .iter()
-        .find(|(s, _, _)| s.eq_ignore_ascii_case(scheme))
+        .find(|(s, _, _)| s.eq_ignore_ascii_case(&u.scheme))
         .ok_or_else(|| {
             let names: Vec<&str> = schemes.iter().map(|(s, _, _)| *s).collect();
-            format!("url {url}: the scheme must be one of {}", names.join(", "))
+            format!("url: the scheme must be one of {}", names.join(", "))
         })?;
-    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
-    if authority.contains('@') {
-        return Err("url: no credentials in the URL (use Set password)".into());
-    }
-    let (host, port) = if let Some(h) = authority.strip_prefix('[') {
-        let (h, p) = h.split_once(']').ok_or("url: bad IPv6 host")?;
-        (h.to_owned(), p.strip_prefix(':'))
-    } else {
-        match authority.rsplit_once(':') {
-            Some((h, p)) => (h.to_owned(), Some(p)),
-            None => (authority.to_owned(), None),
-        }
-    };
-    let port = match port {
-        None | Some("") => *default_port,
-        Some(p) => p
-            .parse::<u16>()
-            .ok()
-            .filter(|p| *p > 0)
-            .ok_or("url: bad port")?,
-    };
-    if host.is_empty()
-        || host.len() > 253
-        || host.contains(|c: char| c.is_whitespace() || c == '/' || c == '\\')
-    {
-        return Err("url: bad host".into());
-    }
     Ok(Endpoint {
         tls: *tls,
-        host: host.to_ascii_lowercase(),
-        port,
+        host: u.host.text(),
+        port: u.port.unwrap_or(*default_port),
     })
 }
 
@@ -930,6 +907,89 @@ mod tests {
             .iter()
             .map(|(k, v)| ((*k).to_owned(), v.clone()))
             .collect()
+    }
+
+    /// The parser before review S4, kept to compare.
+    /// `scheme://host[:port][/…]` → the endpoint; `schemes`: what the kind takes, with the TLS
+    /// flag and the default port.
+    fn old_parse_url(url: &str, schemes: &[(&str, bool, u16)]) -> Result<Endpoint, String> {
+        let (scheme, rest) = url
+            .split_once("://")
+            .ok_or_else(|| format!("url {url}: <scheme>://host[:port]"))?;
+        let (_, tls, default_port) = schemes
+            .iter()
+            .find(|(s, _, _)| s.eq_ignore_ascii_case(scheme))
+            .ok_or_else(|| {
+                let names: Vec<&str> = schemes.iter().map(|(s, _, _)| *s).collect();
+                format!("url {url}: the scheme must be one of {}", names.join(", "))
+            })?;
+        let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+        if authority.contains('@') {
+            return Err("url: no credentials in the URL (use Set password)".into());
+        }
+        let (host, port) = if let Some(h) = authority.strip_prefix('[') {
+            let (h, p) = h.split_once(']').ok_or("url: bad IPv6 host")?;
+            (h.to_owned(), p.strip_prefix(':'))
+        } else {
+            match authority.rsplit_once(':') {
+                Some((h, p)) => (h.to_owned(), Some(p)),
+                None => (authority.to_owned(), None),
+            }
+        };
+        let port = match port {
+            None | Some("") => *default_port,
+            Some(p) => p
+                .parse::<u16>()
+                .ok()
+                .filter(|p| *p > 0)
+                .ok_or("url: bad port")?,
+        };
+        if host.is_empty()
+            || host.len() > 253
+            || host.contains(|c: char| c.is_whitespace() || c == '/' || c == '\\')
+        {
+            return Err("url: bad host".into());
+        }
+        Ok(Endpoint {
+            tls: *tls,
+            host: host.to_ascii_lowercase(),
+            port,
+        })
+    }
+
+    /// Review S4: every upstream URL the old parser took gives the same endpoint; what it
+    /// refused stays refused; no message repeats the URL.
+    #[test]
+    fn urls_parse_as_before() {
+        for (s, kinds) in [
+            ("mqtts://Broker.Example", MQTT_SCHEMES),
+            ("mqtt://10.0.0.5:1884", MQTT_SCHEMES),
+            ("SSL://b.example", MQTT_SCHEMES),
+            ("tcp://[::1]:1883/x", MQTT_SCHEMES),
+            ("https://iot.example/api?x=1", HTTPS_SCHEMES),
+            ("http://127.0.0.1:8080", HTTPS_SCHEMES),
+            ("https://hub_1.azure-devices.net#f", HTTPS_SCHEMES),
+        ] {
+            assert_eq!(parse_url(s, kinds), old_parse_url(s, kinds), "{s}");
+        }
+        for (s, kinds) in [
+            ("ws://b", MQTT_SCHEMES),
+            ("mqtt://u:p@b", MQTT_SCHEMES),
+            ("mqtt://b:0", MQTT_SCHEMES),
+            ("mqtt://b:99999", MQTT_SCHEMES),
+            ("mqtt://[::1", MQTT_SCHEMES),
+            ("b:1883", MQTT_SCHEMES),
+            ("mqtt://", MQTT_SCHEMES),
+            ("mqtt://a b", MQTT_SCHEMES),
+        ] {
+            assert!(old_parse_url(s, kinds).is_err(), "old took {s}");
+            let e = parse_url(s, kinds).unwrap_err();
+            assert!(!e.contains("u:p"), "{s}: {e}");
+        }
+        // refused now, taken before: an empty port, a sign, a host that is no host
+        for s in ["mqtt://b:", "mqtt://b:+1", "mqtt://b%2e", "mqtt://[zz::1]"] {
+            assert!(parse_url(s, MQTT_SCHEMES).is_err(), "{s}");
+        }
     }
 
     #[test]

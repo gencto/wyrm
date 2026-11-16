@@ -300,7 +300,7 @@ impl Release {
         if self.date.len() > 32 || self.notes.len() > 512 {
             return Err("date or notes: too long".into());
         }
-        if !self.notes.is_empty() && !self.notes.starts_with("https://") {
+        if !self.notes.is_empty() && !https_url(&self.notes) {
             return Err("notes: an https:// URL".into());
         }
         if self.schemas.len() > 16 || self.schemas.keys().any(|k| !plain_name(k, 32)) {
@@ -331,7 +331,7 @@ impl Release {
                     a.size
                 ));
             }
-            if !a.url.is_empty() && (!a.url.starts_with("https://") || a.url.len() > 1024) {
+            if !a.url.is_empty() && (!https_url(&a.url) || a.url.len() > 1024) {
                 return Err(format!("target {t}: url: https:// only"));
             }
         }
@@ -1341,15 +1341,44 @@ impl Layout {
     }
 }
 
+wyrm_core::name_enum! {
+    /// Where one update of the broker is (`update.json` `state`; kept by its name).
+    /// A file with another name does not load: the guard then lets the current
+    /// version start, as it does without a file.
+    #[derive(Default)]
+    pub enum UpdateState as "broker update state" {
+        /// The new version proves itself. (The default only fills
+        /// `..Default::default()`: every file written names its state.)
+        #[default]
+        Trial => "trial",
+        Confirmed => "confirmed",
+        RolledBack => "rolled_back",
+        /// It could not be rolled back; the new version runs unproven.
+        Failed => "failed",
+    }
+}
+
+wyrm_core::name_enum! {
+    /// Which broker of a pair updated (`update.json` `role`; kept by its name).
+    pub enum UpdateRole as "broker update role" {
+        Active => "active",
+        /// The broker updated while it follows.
+        Standby => "standby",
+    }
+}
+
+/// `s` is an `https://` URL ([`wyrm_core::weburl`]).
+fn https_url(s: &str) -> bool {
+    wyrm_core::weburl::HttpUrl::parse(s, wyrm_core::weburl::SchemeCase::Lower).is_ok_and(|u| u.tls)
+}
+
 /// `data_dir/update.json`: one update of the broker, from the moment the old
 /// version commits to it.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UpdateFile {
     pub from: String,
     pub to: String,
-    /// `trial`, `confirmed`, `rolled_back`, `failed` (it could not be rolled
-    /// back; the new version runs unproven).
-    pub state: String,
+    pub state: UpdateState,
     /// Starts of the new version in its trial, counted by the guard that
     /// lets each one go on (a binary that cannot start is counted too).
     #[serde(default)]
@@ -1430,9 +1459,9 @@ pub struct UpdateFile {
     /// The version that runs now has written the audit record of `state`.
     #[serde(default)]
     pub audited: bool,
-    /// `active`, or `standby` (the broker updated while it follows).
-    #[serde(default)]
-    pub role: String,
+    /// `None` (`""`) in a file written before it was kept.
+    #[serde(default, with = "wyrm_core::named::serde_or_empty")]
+    pub role: Option<UpdateRole>,
     /// Seconds the site was without its broker (stop to router up).
     #[serde(default)]
     pub without_s: u64,
@@ -1457,7 +1486,7 @@ impl UpdateFile {
     }
 
     pub fn in_trial(&self) -> bool {
-        self.state == "trial"
+        self.state == UpdateState::Trial
     }
 
     /// The stores whose SCHEMA the update moved.
@@ -1475,10 +1504,10 @@ impl UpdateFile {
     /// starts counted. Never in a trial. `true`: the old version and the
     /// pre-update backup may go.
     pub fn expire(&mut self, now: u64, at_start: bool, past_s: u64) -> bool {
-        match self.state.as_str() {
-            "rolled_back" => return true,
-            "confirmed" => {}
-            _ => return false,
+        match self.state {
+            UpdateState::RolledBack => return true,
+            UpdateState::Confirmed => {}
+            UpdateState::Trial | UpdateState::Failed => return false,
         }
         if now <= self.keep_until {
             self.expired_starts = 0;
@@ -1596,9 +1625,9 @@ fn save_or_say(u: &UpdateFile, data_dir: &Path) {
 fn decide(layout: &Layout, data_dir: &Path, mut u: UpdateFile) -> Guarded {
     let now = now_s();
     let current = layout.current_version().unwrap_or_default();
-    if u.state == "trial" && current == u.from {
+    if u.state == UpdateState::Trial && current == u.from {
         // the old version stopped before `current` moved: nothing ran
-        u.state = "rolled_back".into();
+        u.state = UpdateState::RolledBack;
         u.reason = format!("the broker stopped before wyrmd {} was made current", u.to);
         u.ended = now;
         u.audited = false;
@@ -1610,22 +1639,24 @@ fn decide(layout: &Layout, data_dir: &Path, mut u: UpdateFile) -> Guarded {
             restored: false,
         };
     }
-    let why = match u.state.as_str() {
-        "trial" if !u.failed.is_empty() => {
+    let why = match u.state {
+        UpdateState::Trial if !u.failed.is_empty() => {
             Some(format!("wyrmd {} gave its trial up: {}", u.to, u.failed))
         }
-        "trial" if u.attempts >= MAX_ATTEMPTS => Some(format!(
+        UpdateState::Trial if u.attempts >= MAX_ATTEMPTS => Some(format!(
             "wyrmd {} was started {} times and did not end its trial",
             u.to, u.attempts
         )),
-        "trial" => {
+        UpdateState::Trial => {
             // this start of the new version is let through, and counted
             u.attempts += 1;
             save_or_say(&u, data_dir);
             return Guarded::Nothing;
         }
-        "confirmed" if !u.rollback.is_empty() => Some(format!("rolled back by {}", u.rollback)),
-        "rolled_back" | "failed" if !u.settled => {
+        UpdateState::Confirmed if !u.rollback.is_empty() => {
+            Some(format!("rolled back by {}", u.rollback))
+        }
+        UpdateState::RolledBack | UpdateState::Failed if !u.settled => {
             // the version a rollback left current must come up once
             if u.starts < MAX_ATTEMPTS {
                 u.starts += 1;
@@ -1639,7 +1670,7 @@ fn decide(layout: &Layout, data_dir: &Path, mut u: UpdateFile) -> Guarded {
             );
             u.starts = 0;
             u.audited = false;
-            u.state = "failed".into();
+            u.state = UpdateState::Failed;
             u.ended = now;
             if check_version(&other).is_ok() && layout.switch(&other).is_ok() {
                 u.reason = format!("{}; {said}: wyrmd {other} is current", u.reason);
@@ -1663,7 +1694,7 @@ fn decide(layout: &Layout, data_dir: &Path, mut u: UpdateFile) -> Guarded {
     u.settled = false;
     if check_version(&u.from).is_err() || !layout.bin_of(&u.from).is_file() {
         // the old version cannot be started: the new one stays
-        u.state = "failed".into();
+        u.state = UpdateState::Failed;
         u.reason = format!(
             "{why}; not rolled back: {} is gone; wyrmd {} stays",
             layout.bin_of(&u.from).display(),
@@ -1674,13 +1705,13 @@ fn decide(layout: &Layout, data_dir: &Path, mut u: UpdateFile) -> Guarded {
         return Guarded::Stuck(u.reason);
     }
     let moved = u.moved();
-    let restored = if moved.is_empty() || u.role == "standby" {
+    let restored = if moved.is_empty() || u.role == Some(UpdateRole::Standby) {
         Ok(false)
     } else {
         restore_for(data_dir, &u, &moved).map(|()| true)
     };
     if let Err(e) = layout.switch(&u.from) {
-        u.state = "failed".into();
+        u.state = UpdateState::Failed;
         u.reason = format!("{why}; not rolled back: {e}; wyrmd {} stays", u.to);
         u.settled = true;
         save_or_say(&u, data_dir);
@@ -1688,7 +1719,7 @@ fn decide(layout: &Layout, data_dir: &Path, mut u: UpdateFile) -> Guarded {
     }
     match restored {
         Ok(restored) => {
-            u.state = "rolled_back".into();
+            u.state = UpdateState::RolledBack;
             u.reason = why;
             u.restored = restored;
             save_or_say(&u, data_dir);
@@ -1700,7 +1731,7 @@ fn decide(layout: &Layout, data_dir: &Path, mut u: UpdateFile) -> Guarded {
         }
         Err(e) => {
             // the old version is started all the same, on the state as it is
-            u.state = "failed".into();
+            u.state = UpdateState::Failed;
             u.restored = false;
             u.reason = format!(
                 "{why}; the control plane ({}) was not restored: {e}; wyrmd {} runs on the \
@@ -1754,7 +1785,7 @@ fn verified_current(layout: &Layout, data_dir: &Path, keys: &[VerifyingKey]) -> 
     };
     layout.switch(&other)?;
     if let Some(u) = u.as_mut() {
-        u.state = "failed".into();
+        u.state = UpdateState::Failed;
         u.reason = format!("{why}; wyrmd {other} is current");
         u.ended = now_s();
         u.audited = false;
@@ -1807,7 +1838,7 @@ pub fn restore_control(
     if r.manifest().kind != format::Kind::Broker {
         return Err("not a broker backup".into());
     }
-    if r.manifest().sealed.how != "broker" {
+    if r.manifest().sealed.how != crate::backup::How::Broker {
         return Err("not sealed for this broker".into());
     }
     let key_path = data_dir.join("secrets.key");
@@ -2062,6 +2093,76 @@ pub mod testkit {
 mod tests {
     use super::testkit::{tar_entry, tar_gz};
     use super::*;
+
+    /// `update.json` as an older broker wrote it, its `state` and `role` text.
+    fn old_update_json(state: &str, role: &str) -> String {
+        format!(
+            r#"{{
+  "from": "0.9.0",
+  "to": "1.0.0",
+  "state": "{state}",
+  "attempts": 1,
+  "trial_s": 180,
+  "ran_s": 40,
+  "deadline": 1794564900,
+  "stores": [
+    "state",
+    "users"
+  ],
+  "starts": 0,
+  "settled": false,
+  "expired_starts": 0,
+  "backup_id": "20261113t101502z",
+  "backup": "plant-20261113t101502z.wyrm-backup",
+  "backup_sha256": "ab",
+  "from_schemas": {{
+    "state": 20
+  }},
+  "to_schemas": {{}},
+  "links": [],
+  "by": "user:admin",
+  "started": 1794564720,
+  "failed": "",
+  "rollback": "",
+  "reason": "",
+  "ended": 0,
+  "keep_until": 0,
+  "restored": false,
+  "audited": false,
+  "role": "{role}",
+  "without_s": 3
+}}"#
+        )
+    }
+
+    /// Review T5: `UpdateFile.state` and `role` were `String`s matched by hand in the guard.
+    /// Typed, a file an older broker wrote loads and is saved as the same bytes; a state
+    /// this build does not know does not load (the guard then starts the current version,
+    /// as without a file).
+    #[test]
+    fn update_files_keep_their_bytes() {
+        for state in UpdateState::NAMES {
+            for role in ["", "active", "standby"] {
+                let text = old_update_json(state, role);
+                let u: UpdateFile = serde_json::from_str(&text).unwrap();
+                assert_eq!(u.state.name(), *state);
+                assert_eq!(u.role.map_or("", UpdateRole::name), role);
+                assert_eq!(serde_json::to_string_pretty(&u).unwrap(), text);
+            }
+        }
+        let dir = scratch("update-json-unknown");
+        std::fs::create_dir_all(&dir).unwrap();
+        for (state, role) in [("paused", "active"), ("trial", "witness"), ("Trial", "")] {
+            std::fs::write(dir.join(STATE_FILE), old_update_json(state, role)).unwrap();
+            assert!(UpdateFile::load(&dir).is_none(), "{state} {role}");
+        }
+        std::fs::write(dir.join(STATE_FILE), old_update_json("confirmed", "")).unwrap();
+        assert_eq!(
+            UpdateFile::load(&dir).unwrap().state,
+            UpdateState::Confirmed
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     fn scratch(name: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("wyrm-release-{name}-{}", std::process::id()));
@@ -2650,7 +2751,7 @@ mod tests {
             let mut u = UpdateFile {
                 from: "0.1.0".into(),
                 to: "0.2.0".into(),
-                state: "trial".into(),
+                state: UpdateState::Trial,
                 trial_s: 180,
                 ..Default::default()
             };
@@ -2685,15 +2786,15 @@ mod tests {
             );
             assert_eq!(l.current_version().as_deref(), Some("0.1.0"), "{name}");
             let u = UpdateFile::load(&data).unwrap();
-            assert_eq!(u.state, "rolled_back", "{name}");
+            assert_eq!(u.state, UpdateState::RolledBack, "{name}");
             assert!(!u.reason.is_empty() && !u.audited, "{name}");
         }
         // a confirmed update is rolled back only when asked
-        trial(&|u| u.state = "confirmed".into());
+        trial(&|u| u.state = UpdateState::Confirmed);
         assert_eq!(run(), Guarded::Nothing);
         assert_eq!(l.current_version().as_deref(), Some("0.2.0"));
         trial(&|u| {
-            u.state = "confirmed".into();
+            u.state = UpdateState::Confirmed;
             u.rollback = "user:ann".into();
         });
         assert!(matches!(run(), Guarded::RolledBack { .. }));
@@ -2707,7 +2808,7 @@ mod tests {
         assert!(matches!(run(), Guarded::Stuck(_)));
         assert_eq!(l.current_version().as_deref(), Some("0.2.0"));
         let u = UpdateFile::load(&data).unwrap();
-        assert_eq!(u.state, "failed");
+        assert_eq!(u.state, UpdateState::Failed);
         assert!(u.reason.contains("wyrmd 0.2.0 stays"), "{}", u.reason);
         let _ = std::fs::remove_dir_all(&d);
     }
@@ -2732,7 +2833,7 @@ mod tests {
             UpdateFile {
                 from: "0.1.0".into(),
                 to: "0.2.0".into(),
-                state: "trial".into(),
+                state: UpdateState::Trial,
                 attempts: 1,
                 trial_s: 180,
                 ran_s: 40,
@@ -2746,7 +2847,7 @@ mod tests {
             .unwrap();
             assert_eq!(guard(&l, &data, "0.1.0", None).unwrap(), Guarded::Nothing);
             let u = UpdateFile::load(&data).unwrap();
-            assert_eq!((u.state.as_str(), u.attempts, u.ran_s), ("trial", 2, 40));
+            assert_eq!((u.state, u.attempts, u.ran_s), (UpdateState::Trial, 2, 40));
             assert_eq!(l.current_version().as_deref(), Some("0.2.0"));
         }
         let _ = std::fs::remove_dir_all(&d);
@@ -2758,7 +2859,7 @@ mod tests {
     fn one_reading_of_the_clock_removes_nothing() {
         let keep_until = 1_000_000;
         let confirmed = || UpdateFile {
-            state: "confirmed".into(),
+            state: UpdateState::Confirmed,
             keep_until,
             ..Default::default()
         };
@@ -2784,17 +2885,17 @@ mod tests {
         assert!(u.expire(keep_until + 3601, false, 3600));
         // never during a trial, whatever the clock says
         let mut u = UpdateFile {
-            state: "trial".into(),
+            state: UpdateState::Trial,
             keep_until: 0,
             ..Default::default()
         };
         assert!(!u.expire(u64::MAX, true, u64::MAX));
         assert!(!u.expire(u64::MAX, true, u64::MAX));
         // nor after a rollback that could not be done
-        u.state = "failed".into();
+        u.state = UpdateState::Failed;
         assert!(!u.expire(u64::MAX, true, u64::MAX));
         // a rollback keeps nothing
-        u.state = "rolled_back".into();
+        u.state = UpdateState::RolledBack;
         assert!(u.expire(0, false, 0));
     }
 
@@ -2817,7 +2918,7 @@ mod tests {
         UpdateFile {
             from: "0.1.0".into(),
             to: "0.2.0".into(),
-            state: "trial".into(),
+            state: UpdateState::Trial,
             failed: "link plc1 is not back".into(),
             from_schemas: BTreeMap::from([("registry".into(), 20)]),
             to_schemas: BTreeMap::from([("registry".into(), 21)]),
@@ -2836,7 +2937,7 @@ mod tests {
         );
         assert_eq!(l.current_version().as_deref(), Some("0.1.0"));
         let u = UpdateFile::load(&data).unwrap();
-        assert_eq!(u.state, "failed");
+        assert_eq!(u.state, UpdateState::Failed);
         assert!(
             u.reason
                 .contains("wyrmd 0.1.0 runs on the state wyrmd 0.2.0 left"),
@@ -2920,7 +3021,7 @@ mod tests {
         UpdateFile {
             from: "0.1.0".into(),
             to: "0.2.0".into(),
-            state: "confirmed".into(),
+            state: UpdateState::Confirmed,
             ..Default::default()
         }
         .save(&data)
@@ -2933,7 +3034,7 @@ mod tests {
         assert_eq!(run().unwrap(), Guarded::Nothing);
         assert_eq!(l.current_version().as_deref(), Some("0.1.0"));
         let u = UpdateFile::load(&data).unwrap();
-        assert_eq!(u.state, "failed");
+        assert_eq!(u.state, UpdateState::Failed);
         assert!(
             u.reason.contains("not verified") && u.reason.contains("wyrmd 0.1.0 is current"),
             "{}",

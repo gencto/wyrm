@@ -2,6 +2,7 @@
 //! 0003). Passwords are argon2id PHC strings; hashing happens before the
 //! operation is logged, so the WAL never sees a plaintext password.
 
+use crate::devices::{KeyAlg, Platform};
 use argon2::password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, SaltString};
 use argon2::{Argon2, PasswordVerifier};
 use minicbor::{decode, encode, Decode, Decoder, Encode, Encoder};
@@ -78,11 +79,12 @@ pub enum Op {
         user: String,
         #[n(2)]
         name: String,
+        /// By name, as the `String` it was.
         #[n(3)]
-        platform: String,
-        /// `es256` or `rs256` (see [`crate::devices::KeyAlg`]).
+        platform: Platform,
+        /// By name (`es256`, `rs256`), as the `String` it was.
         #[n(4)]
-        alg: String,
+        alg: KeyAlg,
         #[n(5)]
         public_key: Vec<u8>,
         #[n(6)]
@@ -138,8 +140,8 @@ pub struct Device {
     /// The user's generation at registration: a later one signs the device out.
     pub user_gen: u64,
     pub name: String,
-    pub platform: String,
-    pub alg: String,
+    pub platform: Platform,
+    pub alg: KeyAlg,
     pub public_key: Vec<u8>,
     pub attestation: Option<Vec<u8>>,
     pub added: u64,
@@ -336,8 +338,8 @@ impl wyrm_state::State for UserDb {
                         user: user.clone(),
                         user_gen,
                         name: name.clone(),
-                        platform: platform.clone(),
-                        alg: alg.clone(),
+                        platform: *platform,
+                        alg: *alg,
                         public_key: public_key.clone(),
                         attestation: attestation.clone(),
                         added: *at,
@@ -465,7 +467,7 @@ mod tests {
     /// The users store as SCHEMA 5 wrote it: the same snapshot layout and the same `SetRole`
     /// record, the level a bare code that nothing checks.
     mod old {
-        use super::super::{Device, User};
+        use super::super::User;
         use minicbor::{Decode, Encode};
         use serde::{Deserialize, Serialize};
         use std::collections::BTreeMap;
@@ -478,8 +480,33 @@ mod tests {
             pub devices: BTreeMap<String, Device>,
         }
 
+        /// A device record before its platform and algorithm were typed.
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct Device {
+            pub user: String,
+            pub user_gen: u64,
+            pub name: String,
+            pub platform: String,
+            pub alg: String,
+            pub public_key: Vec<u8>,
+            pub attestation: Option<Vec<u8>>,
+            pub added: u64,
+            pub last_used: u64,
+            pub password_at: u64,
+            pub removed: Option<(String, u64)>,
+        }
+
         #[derive(Debug, Encode, Decode)]
         pub enum Op {
+            #[n(0)]
+            AddUser {
+                #[n(0)]
+                name: String,
+                #[n(1)]
+                hash: String,
+                #[n(2)]
+                roles: Vec<String>,
+            },
             #[n(5)]
             SetRole {
                 #[n(0)]
@@ -487,17 +514,171 @@ mod tests {
                 #[n(1)]
                 grants: Vec<(String, u8)>,
             },
+            #[n(6)]
+            AddDevice {
+                #[n(0)]
+                id: String,
+                #[n(1)]
+                user: String,
+                #[n(2)]
+                name: String,
+                #[n(3)]
+                platform: String,
+                #[n(4)]
+                alg: String,
+                #[n(5)]
+                public_key: Vec<u8>,
+                #[n(6)]
+                attestation: Option<Vec<u8>>,
+                #[n(7)]
+                at: u64,
+            },
         }
 
         impl wyrm_state::State for Db {
             const SCHEMA: u32 = 5;
             type Op = Op;
             fn apply(&mut self, op: &Op) -> Result<(), String> {
-                let Op::SetRole { role, grants } = op;
-                self.roles.insert(role.clone(), grants.clone());
+                match op {
+                    Op::AddUser { name, hash, roles } => {
+                        self.next_gen += 1;
+                        let user = User {
+                            hash: hash.clone(),
+                            roles: roles.clone(),
+                            disabled: false,
+                            gen: self.next_gen,
+                        };
+                        self.users.insert(name.clone(), user);
+                    }
+                    Op::SetRole { role, grants } => {
+                        self.roles.insert(role.clone(), grants.clone());
+                    }
+                    Op::AddDevice {
+                        id,
+                        user,
+                        name,
+                        platform,
+                        alg,
+                        public_key,
+                        attestation,
+                        at,
+                    } => {
+                        let user_gen = self.users.get(user).map_or(0, |u| u.gen);
+                        self.devices.insert(
+                            id.clone(),
+                            Device {
+                                user: user.clone(),
+                                user_gen,
+                                name: name.clone(),
+                                platform: platform.clone(),
+                                alg: alg.clone(),
+                                public_key: public_key.clone(),
+                                attestation: attestation.clone(),
+                                added: *at,
+                                last_used: *at,
+                                password_at: *at,
+                                removed: None,
+                            },
+                        );
+                    }
+                }
                 Ok(())
             }
         }
+    }
+
+    fn old_device_op(platform: &str, alg: &str) -> old::Op {
+        old::Op::AddDevice {
+            id: "d1".into(),
+            user: "olena".into(),
+            name: "Mac".into(),
+            platform: platform.into(),
+            alg: alg.into(),
+            public_key: vec![4; 65],
+            attestation: Some(vec![1, 2]),
+            at: 7,
+        }
+    }
+
+    fn old_device_store(name: &str, platform: &str, snapshot: bool) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("wyrm-users-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut s = wyrm_state::Store::<old::Db>::open(&dir, b"users-key").unwrap();
+        s.apply(old::Op::AddUser {
+            name: "olena".into(),
+            hash: "$argon2id$x".into(),
+            roles: vec!["operator".into()],
+        })
+        .unwrap();
+        s.apply(old_device_op(platform, "es256")).unwrap();
+        if snapshot {
+            s.snapshot().unwrap();
+        }
+        dir
+    }
+
+    /// Review T5: a device's platform and key algorithm were `String`s, the algorithm parsed
+    /// again at every login. A store written then opens with them typed, from its WAL and
+    /// from its snapshot, and each record is the same bytes in both forms.
+    #[test]
+    fn devices_of_an_older_store_load_typed() {
+        for platform in Platform::NAMES {
+            for snapshot in [false, true] {
+                let dir = old_device_store("dev", platform, snapshot);
+                let s = wyrm_state::Store::<UserDb>::open(&dir, b"users-key").unwrap();
+                let d = s.state().devices["d1"].clone();
+                drop(s);
+                let _ = std::fs::remove_dir_all(&dir);
+                assert_eq!(
+                    (d.platform.name(), d.alg),
+                    (*platform, KeyAlg::Es256),
+                    "snapshot {snapshot}"
+                );
+            }
+        }
+        for (platform, alg) in [("macos", "es256"), ("windows", "rs256"), ("ios", "es256")] {
+            // WAL record
+            let bytes = minicbor::to_vec(old_device_op(platform, alg)).unwrap();
+            let op: Op = minicbor::decode(&bytes).unwrap();
+            assert!(matches!(&op, Op::AddDevice { platform: p, alg: a, .. }
+                if p.name() == platform && a.name() == alg));
+            assert_eq!(minicbor::to_vec(&op).unwrap(), bytes);
+            // snapshot body (postcard)
+            let old = old::Device {
+                user: "olena".into(),
+                user_gen: 3,
+                name: "Mac".into(),
+                platform: platform.into(),
+                alg: alg.into(),
+                public_key: vec![4; 65],
+                attestation: None,
+                added: 1,
+                last_used: 2,
+                password_at: 3,
+                removed: Some(("root".into(), 4)),
+            };
+            let bytes = postcard::to_stdvec(&old).unwrap();
+            let new: Device = postcard::from_bytes(&bytes).unwrap();
+            assert_eq!((new.platform.name(), new.alg.name()), (platform, alg));
+            assert_eq!(postcard::to_stdvec(&new).unwrap(), bytes);
+        }
+    }
+
+    /// A platform or algorithm this build does not know refuses the record and the store:
+    /// never read as some other platform, never a device that cannot be checked.
+    #[test]
+    fn unknown_device_names_refuse_the_store() {
+        for snapshot in [false, true] {
+            let dir = old_device_store("devbad", "web", snapshot);
+            let r = wyrm_state::Store::<UserDb>::open(&dir, b"users-key");
+            let _ = std::fs::remove_dir_all(&dir);
+            match r {
+                Ok(s) => panic!("snapshot {snapshot}: opened {:?}", s.state().devices),
+                Err(e) => assert!(e.to_string().contains("device platform"), "{e}"),
+            }
+        }
+        let bytes = minicbor::to_vec(old_device_op("macos", "ed25519")).unwrap();
+        assert!(minicbor::decode::<Op>(&bytes).is_err());
     }
 
     fn old_store(name: &str, grants: Vec<(String, u8)>, snapshot: bool) -> std::path::PathBuf {

@@ -22,7 +22,7 @@
 //! A backup that holds the `keys` section is never sent: the site's
 //! identity does not go to a store by a remote command.
 
-use super::backups::{Job, SendLink};
+use super::backups::{Job, JobStatus, SendLink, SendStatus};
 use super::*;
 use ed25519_dalek::SigningKey;
 
@@ -154,7 +154,7 @@ pub fn check_folder(folder: &str) -> Result<(), String> {
 /// Check the arguments of `send` for the job `j` against the host's list.
 fn target_of(j: &Job, args: &Value, send_links: &[SendLink]) -> Result<Target, LinkError> {
     let bad = |m: &str| LinkError::invalid_parameter(m.to_owned());
-    if j.status != "done" {
+    if j.status != JobStatus::Done {
         return Err(LinkError::new(
             Status::Busy,
             format!("backup {} is {}", j.id, j.status),
@@ -216,6 +216,23 @@ fn field<'a>(v: &'a Option<Value>, name: &str) -> Option<&'a Value> {
         Some(Value::Map(m)) => m.get(name),
         _ => None,
     }
+}
+
+wyrm_core::name_enum! {
+    /// `state` of a file store's `upload_status` (ADR 0028).
+    enum UploadState as "upload state" {
+        Receiving => "receiving",
+        Committing => "committing",
+        Done => "done",
+        Failed => "failed",
+    }
+}
+
+/// The state an `upload_status` answer names; any other answer ends the send (it was
+/// waited on until the timeout, as if the commit were still running).
+fn upload_state(st: &Option<Value>) -> Result<UploadState, String> {
+    let name = text(st, "state");
+    UploadState::from_name(&name).ok_or_else(|| format!("the store answered upload state {name:?}"))
 }
 
 fn text(v: &Option<Value>, name: &str) -> String {
@@ -291,13 +308,17 @@ impl Sending {
         let until = tokio::time::Instant::now() + COMMIT_TIMEOUT;
         loop {
             let st = self.call("upload_status", upload()).await?;
-            match text(&st, "state").as_str() {
-                "done" => return Ok(()),
-                "failed" => return Err(format!("the store refused it: {}", text(&st, "error"))),
+            match upload_state(&st)? {
+                UploadState::Done => return Ok(()),
+                UploadState::Failed => {
+                    return Err(format!("the store refused it: {}", text(&st, "error")))
+                }
                 _ if tokio::time::Instant::now() > until => {
                     return Err("the store did not take the file in time".into())
                 }
-                _ => tokio::time::sleep(Duration::from_millis(500)).await,
+                UploadState::Receiving | UploadState::Committing => {
+                    tokio::time::sleep(Duration::from_millis(500)).await
+                }
             }
         }
     }
@@ -314,12 +335,12 @@ impl Sending {
         let ctl = &self.ctl;
         ctl.backups().sent(&self.id, |j| match &r {
             Ok(()) => {
-                j.send_status = "done".into();
+                j.send_status = Some(SendStatus::Done);
                 j.send_progress = 100;
                 j.send_error.clear();
             }
             Err(e) => {
-                j.send_status = "failed".into();
+                j.send_status = Some(SendStatus::Failed);
                 j.send_error = e.clone();
             }
         });
@@ -424,7 +445,7 @@ pub(super) async fn send(
     }
     ctl.backups().update(id, |j| {
         j.sent_to = to.shown();
-        j.send_status = "sending".into();
+        j.send_status = Some(SendStatus::Sending);
         j.send_progress = 0;
         j.send_error.clear();
     });
@@ -499,13 +520,37 @@ pub(super) async fn declare(ctx: &LinkCtx, path: &str) -> wyrm_link_sdk::Result<
 mod tests {
     use super::*;
 
+    /// Review of #127: the commit's state is one of the file store's; another answer
+    /// ends the send at once (it was polled until the timeout).
+    #[test]
+    fn upload_states_are_the_stores() {
+        let st = |v: Option<&str>| {
+            Some(Value::Map(
+                v.map(|v| ("state".to_owned(), Value::from(v)))
+                    .into_iter()
+                    .collect(),
+            ))
+        };
+        assert_eq!(upload_state(&st(Some("done"))), Ok(UploadState::Done));
+        assert_eq!(
+            upload_state(&st(Some("committing"))),
+            Ok(UploadState::Committing)
+        );
+        for bad in [Some("Done"), Some("ok"), Some(""), None] {
+            assert!(upload_state(&st(bad)).is_err(), "{bad:?}");
+        }
+        assert!(upload_state(&None).is_err());
+    }
+    use crate::backup::How;
+    use crate::control::backups::JobKind;
+
     fn job(sections: &[&str]) -> Job {
         Job {
             id: "20261113t101502z".into(),
-            kind: "full".into(),
+            kind: JobKind::Full,
             link: String::new(),
             sections: sections.iter().map(|s| (*s).to_owned()).collect(),
-            status: "done".into(),
+            status: JobStatus::Done,
             progress: 100,
             step: String::new(),
             size: 10,
@@ -514,11 +559,11 @@ mod tests {
             expires: 2,
             error: String::new(),
             file: "plant-20261113T101502Z.wyrm-backup".into(),
-            sealed: "none".into(),
+            sealed: Some(How::None),
             by: "user:a".into(),
             pinned: false,
             sent_to: String::new(),
-            send_status: String::new(),
+            send_status: None,
             send_progress: 0,
             send_error: String::new(),
         }
@@ -570,7 +615,7 @@ mod tests {
         assert!(e.message.contains("keys"), "{e}");
         assert!(e.status.code() >= 0x20);
         let mut running = job(&["control"]);
-        running.status = "running".into();
+        running.status = JobStatus::Running;
         let e = target_of(&running, &ok, &allowed).unwrap_err();
         assert_eq!(e.status, Status::Busy, "{e}");
     }

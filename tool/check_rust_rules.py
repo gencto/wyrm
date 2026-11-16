@@ -403,7 +403,9 @@ ONLY_BEFORE = re.compile(r"\bonly\(\s*$")
 def c6(s: Source) -> list[int]:
     """A closed set written as strings: an inline `["a", "b", …]` (with or without `&`,
     also `vec![…]`; but the key list of `Fields::only(&[…])`), `matches!(x, "a" | "b")`,
-    `x == "a" || x == "b"`, and a `const`/`static` table of `&str` (also of tuples)."""
+    `x == "a" || x == "b"`, and a `const`/`static` table of `&str` (also of tuples; not a
+    trait's declaration of one, which holds no value). The bodies of the `name_enum!` and `wire_enum!` macros are exempt (only them, not the rest
+    of their files): their `NAMES` is the one declaration of a set."""
     hits = []
     inline = r'(?:vec!)?&?\[\s*"[^"\n]*"(?:\s*,\s*"[^"\n]*")+\s*,?\s*\]'
     for m in re.finditer(inline, s.code):
@@ -415,8 +417,40 @@ def c6(s: Source) -> list[int]:
         r"\b(?:const|static)\s+[A-Z_][A-Z0-9_]*\s*:\s*(?:&\s*(?:'static\s+)?)?\[\s*"
         r"(?:&\s*(?:'static\s+)?str\b|\(\s*&\s*(?:'static\s+)?str\b)"
     )
-    hits += [m.start() for m in re.finditer(consts, s.masked)]
+    # a table holds values: an associated const's declaration (`const NAMES: &[&str];`
+    # in a trait) writes none
+    hits += [
+        m.start()
+        for m in re.finditer(consts, s.masked)
+        if not re.match(r"[^=]*?\]\s*;", s.masked[m.end() :])
+    ]
+    spans = SET_MACROS.get(s.path)
+    if spans:
+        bodies = macro_bodies(s.masked, spans)
+        hits = [h for h in hits if not any(a <= h < b for a, b in bodies)]
     return s.hits("C6", hits)
+
+
+# The macros whose body declares a set's names (exempt from C6), by file.
+SET_MACROS = {
+    "crates/wyrm-core/src/named.rs": ("name_enum",),
+    "crates/wyrm-core/src/wire.rs": ("wire_enum",),
+}
+
+
+def macro_bodies(text: str, names) -> list[tuple[int, int]]:
+    """The spans of `macro_rules! <name> { … }` for each of `names` in `text`."""
+    out = []
+    for name in names:
+        m = re.search(rf"macro_rules!\s*{name}\s*\{{", text)
+        if not m:
+            continue
+        depth, j = 1, m.end()
+        while j < len(text) and depth:
+            depth += {"{": 1, "}": -1}.get(text[j], 0)
+            j += 1
+        out.append((m.start(), j))
+    return out
 
 
 def c7(s: Source) -> list[int]:
@@ -690,6 +724,21 @@ def a2(s: Source) -> list[int]:
     return s.hits("A2", hits)
 
 
+URL_SPLIT = re.compile(
+    r"\b(?:split_once|rsplit_once|split|find|rfind|contains|strip_prefix|starts_with|"
+    r"eq_ignore_ascii_case)\(\s*\"(?:[A-Za-z0-9+.-]*://|https?:?/{0,2}\")"
+)
+
+
+def c11(s: Source) -> list[int]:
+    """A URL split by hand (review S4): `split_once("://")`, `find("://")`,
+    `strip_prefix("https://")`, `starts_with("http")`, … outside `wyrm_core::weburl`,
+    the one parser of configured URLs (docs/rust-rules.md §11)."""
+    if s.path == "crates/wyrm-core/src/weburl.rs":
+        return []
+    return s.hits("C11", [m.start() for m in URL_SPLIT.finditer(s.code)])
+
+
 PATTERNS = {
     "C1-int-cast": c1,
     "C2-name-lookup": c2,
@@ -701,9 +750,44 @@ PATTERNS = {
     "C8-dropped-result": c8,
     "C9-duplicate-helper": c9,
     "C10-plain-secret": c10,
+    "C11-url-split": c11,
     "A1-allow": a1,
     "A2-short-reason": a2,
 }
+
+# ---------- probes ----------
+
+# Samples each rule must count (`hit`) or leave (`miss`), checked before every run so a
+# change to a pattern cannot silently stop counting what it was written for.
+PROBES = [
+    ("C11", "x.rs", 'fn f(u: &str) { let (s, r) = u.split_once("://").unwrap(); }', 1),
+    ("C11", "x.rs", 'fn f(u: &str) -> bool { u.strip_prefix("https://").is_some() }', 1),
+    ("C11", "x.rs", 'fn f(u: &str) -> bool { u.starts_with("http") }', 1),
+    ("C11", "x.rs", 'fn f(u: &str) -> Option<usize> { u.find("://") }', 1),
+    ("C11", "x.rs", 'fn f(u: &str) -> String { format!("https://{u}") }', 0),
+    ("C11", "crates/wyrm-core/src/weburl.rs", 'fn f(u: &str) { u.split_once("://"); }', 0),
+    ("C11", "x.rs", '#[cfg(test)]\nmod tests { fn f(u: &str) { u.split_once("://"); } }', 0),
+    ("C6", "x.rs", 'const NAMES: [&str; 2] = ["a", "b"];', 2),
+    ("C6", "x.rs", "trait T { const NAMES: &'static [&'static str]; }", 0),
+    ("C6", "x.rs", "trait T { const PAIRS: &'static [(&'static str, &'static str)]; }", 0),
+    (
+        "C6",
+        "crates/wyrm-core/src/named.rs",
+        'macro_rules! name_enum { () => { const NAMES: &[&str] = &[]; } }\nconst L: [&str; 2] = ["a", "b"];',
+        2,
+    ),
+]
+
+
+def self_test() -> list[str]:
+    bad = []
+    for rule, path, text, want in PROBES:
+        fn = next(f for n, f in PATTERNS.items() if n.split("-")[0] == rule)
+        got = len(fn(Source(path, text)))
+        if got != want:
+            bad.append(f"{rule} on {text!r}: {got} hits, {want} expected")
+    return bad
+
 
 # ---------- measuring ----------
 
@@ -818,9 +902,9 @@ def write(counts: dict[str, dict[str, int]]) -> None:
 
 def main(argv: list[str]) -> int:
     os.chdir(ROOT)
-    broken = probe()
+    broken = probe() + self_test()
     if broken:
-        sys.stderr.write("rust rules: the C8 probe fails (the rule misses what it must count):\n")
+        sys.stderr.write("rust rules: a pattern no longer counts its probes\n")
         for b in broken:
             sys.stderr.write(f"  {b}\n")
         return 1

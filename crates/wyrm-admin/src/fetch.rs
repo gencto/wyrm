@@ -12,6 +12,7 @@ use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
 use tokio_rustls::TlsConnector;
+use wyrm_core::weburl::{HttpUrl, SchemeCase, Url, UrlError};
 
 const MAX_REDIRECTS: usize = 3;
 
@@ -28,48 +29,33 @@ fn loopback(host: &str) -> bool {
     matches!(host, "localhost" | "127.0.0.1" | "[::1]")
 }
 
+/// `https://` (or `http://` to loopback) `host[:port][/path][?query]`, read by
+/// [`wyrm_core::weburl`]. The message names the host at most, never the URL.
 fn parse(url: &str) -> Result<Target, String> {
-    let (tls, rest) = if let Some(r) = url.strip_prefix("https://") {
-        (true, r)
-    } else if let Some(r) = url.strip_prefix("http://") {
-        (false, r)
-    } else {
-        return Err("url: https:// only".into());
-    };
-    let (authority, path) = match rest.find('/') {
-        Some(i) => (&rest[..i], &rest[i..]),
-        None => (rest, "/"),
-    };
-    if authority.contains('@') {
-        // never echo it: the part before '@' may be a token
-        return Err("url: no credentials in the URL".into());
+    let u = HttpUrl::parse(url, SchemeCase::Lower).map_err(|e| match e {
+        UrlError::NoScheme | UrlError::Scheme => "url: https:// only".to_owned(),
+        UrlError::Credentials => "url: no credentials in the URL".to_owned(),
+        e => format!("url: {e}"),
+    })?;
+    let host = u.url.host.url_form();
+    if !u.tls && !loopback(&host) {
+        return Err(format!("{host}: plain http only to a loopback address"));
     }
-    let (host, port) = match authority.rsplit_once(':') {
-        Some((h, p)) if !h.ends_with(']') || authority.starts_with('[') => {
-            (h, p.parse::<u16>().map_err(|_| format!("{url}: bad port"))?)
-        }
-        _ => (authority, if tls { 443 } else { 80 }),
-    };
-    if host.is_empty() || host.contains([' ', '/', '\\']) {
-        return Err(format!("{url}: bad host"));
-    }
-    if !tls && !loopback(host) {
-        return Err(format!("{url}: plain http only to a loopback address"));
-    }
-    if path.contains(['\r', '\n', ' ']) {
-        return Err(format!("{url}: bad path"));
+    if u.url.fragment.is_some() {
+        return Err(format!("{host}: no #fragment in the URL"));
     }
     Ok(Target {
-        tls,
-        host: host.to_owned(),
-        port,
-        path: path.to_owned(),
+        tls: u.tls,
+        port: u.port,
+        path: u.url.target(),
+        host,
     })
 }
 
 /// `location` of a redirect, absolute or an absolute path on `t`'s host.
 fn redirect(t: &Target, location: &str) -> String {
-    if location.starts_with("https://") || location.starts_with("http://") {
+    if !matches!(Url::parse(location), Err(UrlError::NoScheme)) {
+        // a URL (or a malformed one, which `parse` then refuses)
         return location.to_owned();
     }
     let scheme = if t.tls { "https" } else { "http" };
@@ -165,14 +151,113 @@ async fn get_inner(url: &str, max: usize) -> Result<Vec<u8>, String> {
 /// GET `url` (https, or http to loopback), at most `max` bytes, within
 /// `timeout` for the whole exchange (redirects included).
 pub async fn get(url: &str, max: usize, timeout: Duration) -> Result<Vec<u8>, String> {
+    // the message names the host, never the URL (a query may hold a token)
+    let host = parse(url.trim()).map(|t| t.host).unwrap_or_default();
     tokio::time::timeout(timeout, get_inner(url, max))
         .await
-        .map_err(|_| format!("{url}: no answer in {} s", timeout.as_secs()))?
+        .map_err(|_| format!("{host}: no answer in {} s", timeout.as_secs()))?
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The parser before review S4, kept to compare.
+    fn old_parse(url: &str) -> Result<Target, String> {
+        let (tls, rest) = if let Some(r) = url.strip_prefix("https://") {
+            (true, r)
+        } else if let Some(r) = url.strip_prefix("http://") {
+            (false, r)
+        } else {
+            return Err("url: https:// only".into());
+        };
+        let (authority, path) = match rest.find('/') {
+            Some(i) => (&rest[..i], &rest[i..]),
+            None => (rest, "/"),
+        };
+        if authority.contains('@') {
+            // never echo it: the part before '@' may be a token
+            return Err("url: no credentials in the URL".into());
+        }
+        let (host, port) = match authority.rsplit_once(':') {
+            Some((h, p)) if !h.ends_with(']') || authority.starts_with('[') => {
+                (h, p.parse::<u16>().map_err(|_| format!("{url}: bad port"))?)
+            }
+            _ => (authority, if tls { 443 } else { 80 }),
+        };
+        if host.is_empty() || host.contains([' ', '/', '\\']) {
+            return Err(format!("{url}: bad host"));
+        }
+        if !tls && !loopback(host) {
+            return Err(format!("{url}: plain http only to a loopback address"));
+        }
+        if path.contains(['\r', '\n', ' ']) {
+            return Err(format!("{url}: bad path"));
+        }
+        Ok(Target {
+            tls,
+            host: host.to_owned(),
+            port,
+            path: path.to_owned(),
+        })
+    }
+
+    /// `location` of a redirect, absolute or an absolute path on `t`'s host.
+    fn old_redirect(t: &Target, location: &str) -> String {
+        if location.starts_with("https://") || location.starts_with("http://") {
+            return location.to_owned();
+        }
+        let scheme = if t.tls { "https" } else { "http" };
+        format!("{scheme}://{}:{}{location}", t.host, t.port)
+    }
+
+    /// Review S4: every URL the old parser took parses the same, and a redirect goes to
+    /// the same place; what it refused stays refused. No message repeats the URL.
+    #[test]
+    fn urls_parse_as_before() {
+        for s in [
+            "https://pkg.example:8443/a/b.zip?x=1",
+            "https://h",
+            "http://127.0.0.1:9/x",
+            "http://localhost:8080/index.json",
+            "http://[::1]:9/i.json",
+            "https://github.com/acme/links/releases/download/v1/index.json",
+        ] {
+            assert_eq!(parse(s), old_parse(s), "{s}");
+            let t = parse(s).unwrap();
+            for loc in ["/b", "https://o/c", "http://127.0.0.1:1/d"] {
+                assert_eq!(redirect(&t, loc), old_redirect(&t, loc), "{s} {loc}");
+            }
+        }
+        for s in [
+            "ftp://h/x",
+            "https://user:s3cret@h/x",
+            "https://h:99999/x",
+            "http://pkg.example/x",
+            "https://h/a b",
+            "https://h/a\r\nx",
+            "HTTPS://h/x",
+            "https://",
+        ] {
+            assert!(old_parse(s).is_err(), "old took {s}");
+            let e = parse(s).unwrap_err();
+            assert!(!e.contains("s3cret") && !e.contains("/x"), "{s}: {e}");
+        }
+        // refused now, taken before: a fragment (it went into the request line), port 0,
+        // a garbled host
+        for s in [
+            "https://h/x#f",
+            "https://h:0/",
+            "https://h%41/",
+            "https://a b/",
+        ] {
+            assert!(parse(s).is_err(), "{s}");
+        }
+        // a query right after the host was read into the host; now it is a query
+        assert_eq!(old_parse("https://h?x=1").unwrap().host, "h?x=1");
+        let t = parse("https://h?x=1").unwrap();
+        assert_eq!((t.host.as_str(), t.path.as_str()), ("h", "/?x=1"));
+    }
 
     #[test]
     fn urls() {

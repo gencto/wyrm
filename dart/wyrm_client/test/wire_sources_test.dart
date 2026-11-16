@@ -36,11 +36,10 @@ Set<String> _names(String text, String ty) {
   return _all(f, RegExp(r'=> "([a-z0-9_]+)"'), '$ty::name');
 }
 
-/// The `Variant => "name"` lines of a `name_enum!` enum `ty` (one list of
-/// names on the Rust side, `wyrm_core::name_enum!`).
+/// The `=> "name"` arms of a `wyrm_core::name_enum!` set `enum <ty> as "…" {`.
 Set<String> _nameEnum(String text, String ty) {
-  final e = _block(text, 'enum $ty {', '\n    }\n', what: 'name_enum $ty');
-  return _all(e, RegExp(r'=> "([a-z0-9_~]+)"'), 'name_enum $ty');
+  final e = _block(text, 'enum $ty as ', '\n    }\n', what: 'name_enum! $ty');
+  return _all(e, RegExp(r'=> "([a-z0-9_~]+)"'), 'name_enum! $ty');
 }
 
 Set<String> _wires(List<WireName> values) => {for (final v in values) v.wire};
@@ -51,16 +50,12 @@ void main() {
     final http = _src('crates/wyrm-gateway/src/http.rs');
     final ws = _src('crates/wyrm-gateway/src/ws.rs');
 
-    test('DevicePlatform = devices.rs PLATFORMS', () {
-      final list = _block(devices, 'pub const PLATFORMS', '];');
-      expect(
-        _wires(DevicePlatform.values),
-        _all(list, RegExp(r'"([a-z]+)"'), 'PLATFORMS'),
-      );
+    test('DevicePlatform = name_enum! Platform', () {
+      expect(_wires(DevicePlatform.values), _nameEnum(devices, 'Platform'));
     });
 
-    test('DeviceAlg = KeyAlg::name', () {
-      expect(_wires(DeviceAlg.values), _names(devices, 'KeyAlg'));
+    test('DeviceAlg = name_enum! KeyAlg', () {
+      expect(_wires(DeviceAlg.values), _nameEnum(devices, 'KeyAlg'));
     });
 
     test('StepUp = StepUp::name', () {

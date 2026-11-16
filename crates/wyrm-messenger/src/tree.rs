@@ -274,7 +274,7 @@ fn user_form(add: bool) -> ActionMeta {
         "level",
         choice(
             "Level",
-            &crate::model::LEVELS,
+            crate::model::UserLevel::NAMES,
             "read: /get; write: also /set and /do.",
         ),
     )

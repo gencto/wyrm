@@ -46,7 +46,7 @@ pub struct Event {
 
 wyrm_core::name_enum! {
     /// An RRULE `FREQ` (RFC 5545), by its name in upper case.
-    pub enum Freq {
+    pub enum Freq as "freq" {
         Hourly => "HOURLY",
         Daily => "DAILY",
         Weekly => "WEEKLY",

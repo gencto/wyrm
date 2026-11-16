@@ -308,7 +308,7 @@ impl Control {
         manifest: &Manifest,
         passphrase: Option<&[u8]>,
     ) -> Result<Option<format::MasterKey>, String> {
-        if manifest.sealed.how == "none" {
+        if manifest.sealed.how == crate::backup::How::None {
             return Ok(None);
         }
         let secrets_key = secret::load_or_create_key(&self.cfg.data_dir.join("secrets.key"))
@@ -1292,7 +1292,10 @@ mod tests {
         let file = crate::restore_point::file(&ctl.restore_root(), "l1", &p.id).unwrap();
         assert_eq!(p.size, std::fs::metadata(&file).unwrap().len());
         let m = format::read_manifest(&file).unwrap();
-        assert_eq!((m.kind, m.sealed.how.as_str()), (Kind::Link, "broker"));
+        assert_eq!(
+            (m.kind, m.sealed.how),
+            (Kind::Link, crate::backup::How::Broker)
+        );
         let mut names: Vec<&str> = m
             .section("data")
             .unwrap()

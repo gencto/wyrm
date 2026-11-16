@@ -13,6 +13,7 @@ use std::time::Duration;
 use wyrm_admin::control::broker_update::{guard_fresh, stage, ORDER_PART, STATE_STORES};
 use wyrm_admin::release::{self, Identity, Layout, UpdateFile};
 use wyrm_admin::{UpdateConfig, UpdateMode};
+use wyrm_core::weburl::{HttpUrl, SchemeCase, UrlError};
 use wyrm_core::Value;
 use zenoh::Session;
 
@@ -25,8 +26,8 @@ pub struct UpdatesSection {
     /// outside it (containers, distribution packages). `self`: it replaces
     /// itself (`sys/~act/update`); needs the install layout and the guard
     /// (docs/operations.md §2).
-    #[serde(default = "default_mode")]
-    pub mode: String,
+    #[serde(default)]
+    pub mode: UpdateMode,
     /// URL of the channel file (`releases.json`: the releases index and its
     /// signature in one file). `https://`, or `http://` to loopback (a
     /// mirror).
@@ -44,10 +45,6 @@ pub struct UpdatesSection {
     pub keep_days: u32,
 }
 
-fn default_mode() -> String {
-    "off".to_owned()
-}
-
 fn default_trial_s() -> u64 {
     180
 }
@@ -59,7 +56,7 @@ fn default_keep_days() -> u32 {
 impl Default for UpdatesSection {
     fn default() -> Self {
         Self {
-            mode: default_mode(),
+            mode: UpdateMode::Off,
             channel: None,
             keys: Vec::new(),
             trial_s: default_trial_s(),
@@ -69,17 +66,8 @@ impl Default for UpdatesSection {
 }
 
 impl UpdatesSection {
-    pub fn mode(&self) -> Result<UpdateMode, String> {
-        match self.mode.as_str() {
-            "off" => Ok(UpdateMode::Off),
-            "external" => Ok(UpdateMode::External),
-            "self" => Ok(UpdateMode::SelfUpdate),
-            m => Err(format!("updates.mode {m:?}: off, external or self")),
-        }
-    }
-
     pub fn validate(&self) -> Result<(), String> {
-        let mode = self.mode()?;
+        let mode = self.mode;
         release::pinned_keys(&self.keys)?;
         if !(10..=3600).contains(&self.trial_s) {
             return Err(format!("updates.trial_s {}: 10 to 3600", self.trial_s));
@@ -108,39 +96,26 @@ impl UpdatesSection {
 pub fn check_channel(url: &str) -> Result<(), String> {
     const HELP: &str = "updates.channel: https://<host>/<path to releases.json> \
         (plain http only to a loopback address)";
-    let (tls, rest) = if let Some(r) = url.strip_prefix("https://") {
-        (true, r)
-    } else if let Some(r) = url.strip_prefix("http://") {
-        (false, r)
-    } else {
+    if url.len() > 1024 {
         return Err(HELP.into());
-    };
-    if rest.contains(['?', '#']) {
+    }
+    let u = HttpUrl::parse(url, SchemeCase::Lower).map_err(|e| match e {
+        UrlError::Credentials => "updates.channel: no name or password before the host (the URL \
+             is shown in sys and in backups); a channel is a public URL"
+            .to_owned(),
+        _ => HELP.to_owned(),
+    })?;
+    if u.url.query.is_some() || u.url.fragment.is_some() {
         return Err(
             "updates.channel: no query string and no fragment (the URL is shown in sys and in \
              backups); a channel is a public URL"
                 .into(),
         );
     }
-    let authority = rest.split('/').next().unwrap_or_default();
-    if authority.contains('@') {
-        return Err(
-            "updates.channel: no name or password before the host (the URL is shown in sys \
-             and in backups); a channel is a public URL"
-                .into(),
-        );
-    }
-    if url.chars().any(|c| c.is_whitespace() || c.is_control()) || url.len() > 1024 {
+    if u.url.path.is_empty() {
         return Err(HELP.into());
     }
-    let host = match authority.strip_prefix('[') {
-        Some(v6) => v6.split(']').next().unwrap_or_default(),
-        None => authority.rsplit_once(':').map_or(authority, |(h, _)| h),
-    };
-    if host.is_empty() || !rest.contains('/') {
-        return Err(HELP.into());
-    }
-    if !tls && !matches!(host, "127.0.0.1" | "localhost" | "::1") {
+    if !u.tls && !matches!(u.host().text().as_str(), "127.0.0.1" | "localhost" | "::1") {
         return Err(HELP.into());
     }
     Ok(())
@@ -150,7 +125,7 @@ pub fn check_channel(url: &str) -> Result<(), String> {
 pub fn update_config(cfg: &Config) -> Result<UpdateConfig, String> {
     let u = &cfg.updates;
     Ok(UpdateConfig {
-        mode: u.mode()?,
+        mode: u.mode,
         channel: u.channel.clone(),
         keys: release::pinned_keys(&u.keys)?,
         trial_s: u.trial_s,
@@ -263,7 +238,7 @@ pub fn trial_start(data_dir: &Path, trial_s: u64) {
 /// the guard. A binary outside the layout is not checked (it cannot update
 /// itself either).
 pub fn verify_self(cfg: &Config, exe: &Path) -> Result<(), String> {
-    if cfg.updates.mode()? != UpdateMode::SelfUpdate {
+    if cfg.updates.mode != UpdateMode::SelfUpdate {
         return Ok(());
     }
     let me = &release::identity().version;
@@ -290,7 +265,9 @@ pub fn standby_synced() {
 /// confirmed and this stays pending.
 pub async fn standby_trial(data_dir: &Path, exe: &Path) {
     let me = &release::identity().version;
-    let mine = |u: &UpdateFile| u.in_trial() && &u.to == me && u.role == "standby";
+    let mine = |u: &UpdateFile| {
+        u.in_trial() && &u.to == me && u.role == Some(release::UpdateRole::Standby)
+    };
     let Some(mut u) = UpdateFile::load(data_dir).filter(mine) else {
         return std::future::pending().await;
     };
@@ -324,7 +301,7 @@ pub async fn standby_trial(data_dir: &Path, exe: &Path) {
         return std::future::pending().await;
     };
     if SYNCED.load(Ordering::SeqCst) {
-        u.state = "confirmed".into();
+        u.state = release::UpdateState::Confirmed;
         u.ended = release::now_s();
         u.audited = true;
         if let Err(e) = u.save(data_dir) {
@@ -362,9 +339,10 @@ fn map_get<'a>(v: &'a Value, k: &str) -> Option<&'a Value> {
 /// stop so that its supervisor starts it.
 pub async fn standby_poll(session: &Session, prefix: &str, cfg: &Config) -> Result<bool, String> {
     let me = release::identity();
-    let file = UpdateFile::load(&cfg.data_dir).filter(|u| u.role == "standby");
+    let file =
+        UpdateFile::load(&cfg.data_dir).filter(|u| u.role == Some(release::UpdateRole::Standby));
     let (state, to) = match &file {
-        Some(u) => (u.state.clone(), u.to.clone()),
+        Some(u) => (u.state.name().to_owned(), u.to.clone()),
         None => ("none".to_owned(), "-".to_owned()),
     };
     let key = format!("{prefix}/update/{}/{state}/{to}", me.version);
@@ -379,7 +357,7 @@ pub async fn standby_poll(session: &Session, prefix: &str, cfg: &Config) -> Resu
     };
     release::check_version(version)?;
     // an order this host refused or rolled back is not tried again
-    if file.is_some_and(|u| &u.to == version && u.state != "confirmed") {
+    if file.is_some_and(|u| &u.to == version && u.state != release::UpdateState::Confirmed) {
         return Ok(false);
     }
     match standby_apply(session, prefix, cfg, order, version).await {
@@ -389,10 +367,10 @@ pub async fn standby_poll(session: &Session, prefix: &str, cfg: &Config) -> Resu
             let u = UpdateFile {
                 from: me.version.clone(),
                 to: version.clone(),
-                state: "failed".into(),
+                state: release::UpdateState::Failed,
                 reason: e.clone(),
                 ended: release::now_s(),
-                role: "standby".into(),
+                role: Some(release::UpdateRole::Standby),
                 audited: true,
                 ..Default::default()
             };
@@ -411,7 +389,7 @@ async fn standby_apply(
     version: &str,
 ) -> Result<(), String> {
     let me = release::identity();
-    if cfg.updates.mode()? != UpdateMode::SelfUpdate {
+    if cfg.updates.mode != UpdateMode::SelfUpdate {
         return Err("updates.mode is not \"self\" on the standby".into());
     }
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
@@ -493,13 +471,13 @@ async fn standby_apply(
     let u = UpdateFile {
         from: me.version.clone(),
         to: rel.version.clone(),
-        state: "trial".into(),
+        state: release::UpdateState::Trial,
         trial_s: cfg.updates.trial_s,
         from_schemas: me.schemas.clone(),
         to_schemas: rel.schemas.clone(),
         by: "the active broker".into(),
         started: now,
-        role: "standby".into(),
+        role: Some(release::UpdateRole::Standby),
         ..Default::default()
     };
     if !layout.guard_is(&exe) {
@@ -532,7 +510,7 @@ pub fn run_guard(cfg: &Config) -> Result<(), Error> {
             return Ok(());
         }
     };
-    let keys = match cfg.updates.mode()? {
+    let keys = match cfg.updates.mode {
         UpdateMode::SelfUpdate => Some(release::pinned_keys(&cfg.updates.keys)?),
         _ => None,
     };
@@ -555,7 +533,7 @@ pub fn run_guard(cfg: &Config) -> Result<(), Error> {
 pub fn run_guard_refresh(cfg: &Config) -> Result<(), Error> {
     let exe: PathBuf = std::env::current_exe()?;
     let layout = Layout::of_guard(&exe)?;
-    if cfg.updates.mode()? != UpdateMode::SelfUpdate {
+    if cfg.updates.mode != UpdateMode::SelfUpdate {
         return Ok(());
     }
     if UpdateFile::load(&cfg.data_dir).is_some_and(|u| u.in_trial()) {
@@ -899,4 +877,89 @@ pub fn release_cmd(cmd: ReleaseCmd) -> Result<(), Error> {
 
 fn pretty<T: serde::Serialize>(v: &T) -> Result<Vec<u8>, String> {
     serde_json::to_vec_pretty(v).map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The check before review S4, kept to compare.
+    fn old_check_channel(url: &str) -> Result<(), String> {
+        const HELP: &str = "updates.channel: https://<host>/<path to releases.json> \
+            (plain http only to a loopback address)";
+        let (tls, rest) = if let Some(r) = url.strip_prefix("https://") {
+            (true, r)
+        } else if let Some(r) = url.strip_prefix("http://") {
+            (false, r)
+        } else {
+            return Err(HELP.into());
+        };
+        if rest.contains(['?', '#']) {
+            return Err(
+                "updates.channel: no query string and no fragment (the URL is shown in sys and in \
+                 backups); a channel is a public URL"
+                    .into(),
+            );
+        }
+        let authority = rest.split('/').next().unwrap_or_default();
+        if authority.contains('@') {
+            return Err(
+                "updates.channel: no name or password before the host (the URL is shown in sys \
+                 and in backups); a channel is a public URL"
+                    .into(),
+            );
+        }
+        if url.chars().any(|c| c.is_whitespace() || c.is_control()) || url.len() > 1024 {
+            return Err(HELP.into());
+        }
+        let host = match authority.strip_prefix('[') {
+            Some(v6) => v6.split(']').next().unwrap_or_default(),
+            None => authority.rsplit_once(':').map_or(authority, |(h, _)| h),
+        };
+        if host.is_empty() || !rest.contains('/') {
+            return Err(HELP.into());
+        }
+        if !tls && !matches!(host, "127.0.0.1" | "localhost" | "::1") {
+            return Err(HELP.into());
+        }
+        Ok(())
+    }
+
+    /// Review S4: every channel the old check took is taken, what it refused stays
+    /// refused, with the same reason.
+    #[test]
+    fn channels_check_as_before() {
+        for s in [
+            "https://dl.example/wyrmd/releases.json",
+            "https://dl.example:8443/r.json",
+            "http://127.0.0.1:8000/releases.json",
+            "http://[::1]:8000/releases.json",
+            "http://localhost/r.json",
+            "https://dl.example/",
+        ] {
+            assert_eq!(check_channel(s), old_check_channel(s), "{s}");
+            assert!(check_channel(s).is_ok(), "{s}");
+        }
+        for s in [
+            "ftp://dl.example/r.json",
+            "http://dl.example/r.json",
+            "https://dl.example",
+            "https://dl.example/r.json?token=x",
+            "https://dl.example/r.json#f",
+            "https://u:p@dl.example/r.json",
+            "https://dl.example/a b",
+            "HTTPS://dl.example/r.json",
+        ] {
+            assert_eq!(check_channel(s), old_check_channel(s), "{s}");
+        }
+        // refused now, taken before: a bad port, a host that is no host
+        for s in [
+            "https://dl.example:99999/r.json",
+            "https://[x/r.json",
+            "https://h%2e/r",
+        ] {
+            assert!(old_check_channel(s).is_ok(), "{s}");
+            assert!(check_channel(s).is_err(), "{s}");
+        }
+    }
 }

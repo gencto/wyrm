@@ -30,7 +30,7 @@ pub type Kind = &'static Platform;
 
 wyrm_core::name_enum! {
     /// How a message's text is marked up.
-    pub enum Format {
+    pub enum Format as "format" {
         Plain => "plain",
         /// Telegram `parse_mode: HTML`.
         Html => "html",
@@ -54,7 +54,7 @@ impl Format {
 
 wyrm_core::name_enum! {
     /// What a message carries.
-    pub enum MsgKind {
+    pub enum MsgKind as "message kind" {
         Text => "text",
         Photo => "photo",
         Document => "document",
@@ -488,7 +488,9 @@ pub struct Button {
 
 impl Button {
     pub fn is_url(&self) -> bool {
-        self.target.starts_with("https://") || self.target.starts_with("http://")
+        // only the scheme: a target may hold `{{var}}` until it is filled in
+        wyrm_core::weburl::split_scheme(&self.target)
+            .is_some_and(|(scheme, _)| wyrm_core::weburl::HttpScheme::from_name(scheme).is_some())
     }
 }
 
@@ -760,7 +762,7 @@ impl Template {
 // ---------- chat user ----------
 
 wyrm_core::name_enum! {
-    pub enum UserStatus {
+    pub enum UserStatus as "user status" {
         /// Invited: waits for `/start <code>` from its account.
         Pending => "pending",
         Active => "active",
@@ -787,18 +789,36 @@ pub struct User {
 
 pub const USER_FIELDS: [&str; 2] = ["level", "select"];
 
-/// The levels a chat user may have, in the order the forms declare them.
-pub const LEVELS: [&str; 2] = ["read", "write"];
+wyrm_core::name_enum! {
+    /// The levels a chat user may have, in the order the forms declare them: the `read`
+    /// and `write` of [`Perm`].
+    pub enum UserLevel as "level" {
+        /// `/get`.
+        Read => "read",
+        /// Also `/set` and `/do`.
+        Write => "write",
+    }
+}
+
+impl UserLevel {
+    pub fn perm(self) -> Perm {
+        match self {
+            UserLevel::Read => Perm::Read,
+            UserLevel::Write => Perm::Write,
+        }
+    }
+}
 
 impl User {
     /// The level and selection of an Invite or Edit form.
     pub fn parse_rights(m: &Map, site: Option<&str>) -> Result<(Perm, Vec<String>), String> {
         let f = Form(m);
         f.reject_unknown(&USER_FIELDS)?;
-        let level = match f.choice("level", &LEVELS)?.as_deref() {
-            None | Some("read") => Perm::Read,
-            Some("write") => Perm::Write,
-            Some(_) => return Err("level: read or write".into()),
+        let level = match f.choice("level", UserLevel::NAMES)? {
+            None => Perm::Read,
+            Some(n) => UserLevel::from_name(&n)
+                .ok_or("level: read or write")?
+                .perm(),
         };
         let mut select = f.list("select")?;
         if select.is_empty() {

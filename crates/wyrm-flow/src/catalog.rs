@@ -7,6 +7,9 @@
 //! sample it gets). A declared output keeps its name; an input's echo comes before a
 //! parameter's (`latch`: input `reset` and parameter `reset`), so that parameter has none.
 
+use crate::modes::{
+    InvokeOn, OnBad, ParamTy, QualityMode, Reset, SetOn, Trigger, WindowFn, WindowKind,
+};
 use crate::nodes::{Echo, EchoOf, PortType, Ports};
 use std::collections::BTreeMap;
 use wyrm_core::Value;
@@ -39,8 +42,7 @@ impl Def {
 /// One parameter of a node type.
 pub struct Param {
     pub name: &'static str,
-    /// `number`, `string`, `bool`, `map`, `array` (of names) or `dynamic`.
-    pub ty: &'static str,
+    pub ty: ParamTy,
     pub required: bool,
     pub choices: &'static [&'static str],
     pub default: Def,
@@ -77,7 +79,7 @@ pub struct NodeType {
     pub params: &'static [Param],
 }
 
-pub(crate) const fn p(name: &'static str, ty: &'static str, description: &'static str) -> Param {
+pub(crate) const fn p(name: &'static str, ty: ParamTy, description: &'static str) -> Param {
     Param {
         name,
         ty,
@@ -150,7 +152,7 @@ pub(crate) const fn dl(mut x: Param, d: &'static [&'static str]) -> Param {
 pub(crate) const KEY: Param = sc(
     req(p(
         "key",
-        "string",
+        ParamTy::String,
         "A point of this site: downstream/<link>/…, storage/… or wy/<site>/… (may be absent when in.key brings it).",
     )),
     "key_scope",
@@ -160,7 +162,7 @@ pub(crate) const KEY: Param = sc(
 const LIVELINESS_KEY: Param = sc(
     req(p(
         "key",
-        "string",
+        ParamTy::String,
         "A node of this site whose presence is read (its liveliness token): downstream/<link>/…, dataflows/… or wy/<site>/… (may be absent when in.key brings it).",
     )),
     "key_scope",
@@ -168,7 +170,7 @@ const LIVELINESS_KEY: Param = sc(
 
 pub(crate) const KEY_SCOPE: Param = p(
     "key_scope",
-    "string",
+    ParamTy::String,
     "The keys in.key may name, a key expression: downstream/<link>/** (required when in.key is wired; the deployer must read all of it).",
 );
 
@@ -197,7 +199,7 @@ pub const TYPES: &[NodeType] = &[
         outputs: &["out"],
         dyn_inputs: None,
         dyn_outputs: None,
-        params: &[req(p("period_ms", "number", "Milliseconds between two ticks (at least 10)."))],
+        params: &[req(p("period_ms", ParamTy::Number, "Milliseconds between two ticks (at least 10)."))],
     },
     NodeType {
         ty: "const",
@@ -207,7 +209,7 @@ pub const TYPES: &[NodeType] = &[
         outputs: &["out"],
         dyn_inputs: None,
         dyn_outputs: None,
-        params: &[req(p("value", "dynamic", "The value."))],
+        params: &[req(p("value", ParamTy::Dynamic, "The value."))],
     },
     NodeType {
         ty: "liveliness",
@@ -233,13 +235,13 @@ pub const TYPES: &[NodeType] = &[
         }),
         dyn_outputs: None,
         params: &[
-            req(p("inputs", "array", "Input names, [A-Za-z0-9_]+; each is a port in.<name> and a variable.")),
-            ed(req(p("expr", "string", "rhai, over the input names: a + b * 2")), "textarea"),
-            pick(p("trigger", "string", "Calculate on any input, or once all have a value."), &["any", "all"], "any"),
+            req(p("inputs", ParamTy::Array, "Input names, [A-Za-z0-9_]+; each is a port in.<name> and a variable.")),
+            ed(req(p("expr", ParamTy::String, "rhai, over the input names: a + b * 2")), "textarea"),
+            pick(p("trigger", ParamTy::String, "Calculate on any input, or once all have a value."), Trigger::NAMES, Trigger::Any.name()),
             pick(
-                p("quality", "string", "Quality of the result: the worst input's, good, or set by the script."),
-                &["worst", "ignore", "custom"],
-                "worst",
+                p("quality", ParamTy::String, "Quality of the result: the worst input's, good, or set by the script."),
+                QualityMode::NAMES,
+                QualityMode::Worst.name(),
             ),
         ],
     },
@@ -251,7 +253,7 @@ pub const TYPES: &[NodeType] = &[
         outputs: &["out"],
         dyn_inputs: None,
         dyn_outputs: None,
-        params: &[ed(req(p("expr", "string", "rhai over v (value), q (quality), t (time): v > 10")), "textarea")],
+        params: &[ed(req(p("expr", ParamTy::String, "rhai over v (value), q (quality), t (time): v > 10")), "textarea")],
     },
     NodeType {
         ty: "latch",
@@ -261,7 +263,7 @@ pub const TYPES: &[NodeType] = &[
         outputs: &["out"],
         dyn_inputs: None,
         dyn_outputs: None,
-        params: &[pick(p("reset", "string", "manual: only the reset input clears it; auto: also in going false."), &["manual", "auto"], "manual")],
+        params: &[pick(p("reset", ParamTy::String, "manual: only the reset input clears it; auto: also in going false."), Reset::NAMES, Reset::Manual.name())],
     },
     NodeType {
         ty: "delay",
@@ -271,7 +273,7 @@ pub const TYPES: &[NodeType] = &[
         outputs: &["out"],
         dyn_inputs: None,
         dyn_outputs: None,
-        params: &[req(p("ms", "number", "Milliseconds."))],
+        params: &[req(p("ms", ParamTy::Number, "Milliseconds."))],
     },
     NodeType {
         ty: "scale",
@@ -282,12 +284,12 @@ pub const TYPES: &[NodeType] = &[
         dyn_inputs: None,
         dyn_outputs: None,
         params: &[
-            di(p("k", "number", "Factor (default 1)."), 1),
-            di(p("b", "number", "Offset (default 0)."), 0),
-            di(p("input_min", "number", "Range from (default 0 once a range parameter is given)."), 0),
-            di(p("input_max", "number", "Range to (default 1)."), 1),
-            di(p("output_min", "number", "Mapped from (default 0)."), 0),
-            di(p("output_max", "number", "Mapped to (default 100)."), 100),
+            di(p("k", ParamTy::Number, "Factor (default 1)."), 1),
+            di(p("b", ParamTy::Number, "Offset (default 0)."), 0),
+            di(p("input_min", ParamTy::Number, "Range from (default 0 once a range parameter is given)."), 0),
+            di(p("input_max", ParamTy::Number, "Range to (default 1)."), 1),
+            di(p("output_min", ParamTy::Number, "Mapped from (default 0)."), 0),
+            di(p("output_max", ParamTy::Number, "Mapped to (default 100)."), 100),
         ],
     },
     NodeType {
@@ -299,8 +301,8 @@ pub const TYPES: &[NodeType] = &[
         dyn_inputs: None,
         dyn_outputs: None,
         params: &[
-            p("abs", "number", "Absolute change (abs or pct required)."),
-            p("pct", "number", "Change in percent of the last value passed."),
+            p("abs", ParamTy::Number, "Absolute change (abs or pct required)."),
+            p("pct", ParamTy::Number, "Change in percent of the last value passed."),
         ],
     },
     NodeType {
@@ -312,10 +314,10 @@ pub const TYPES: &[NodeType] = &[
         dyn_inputs: None,
         dyn_outputs: None,
         params: &[
-            ed(req(p("size_s", "number", "Window length in seconds.")), "duration"),
-            pick(p("kind", "string", "tumbling: back to back; sliding: the last size_s at each sample."), &["tumbling", "sliding"], "tumbling"),
-            pick(p("fn", "string", "What the window gives."), &["avg", "min", "max", "sum", "count", "rate"], "avg"),
-            di(p("max_samples", "number", "Most samples kept, 1..100 000 (default 10 000)."), 10_000),
+            ed(req(p("size_s", ParamTy::Number, "Window length in seconds.")), "duration"),
+            pick(p("kind", ParamTy::String, "tumbling: back to back; sliding: the last size_s at each sample."), WindowKind::NAMES, WindowKind::Tumbling.name()),
+            pick(p("fn", ParamTy::String, "What the window gives."), WindowFn::NAMES, WindowFn::Avg.name()),
+            di(p("max_samples", ParamTy::Number, "Most samples kept, 1..100 000 (default 10 000)."), 10_000),
         ],
     },
     NodeType {
@@ -327,12 +329,12 @@ pub const TYPES: &[NodeType] = &[
         dyn_inputs: None,
         dyn_outputs: None,
         params: &[
-            p("high", "number", "Raised above (high or low required)."),
-            p("low", "number", "Raised below."),
-            di(p("hysteresis", "number", "Back inside by this much before it clears."), 0),
-            di(ed(p("delay_s", "number", "Seconds outside before it is raised."), "duration"), 0),
-            di(ed(p("return_delay_s", "number", "Seconds inside before it clears."), "duration"), 0),
-            pick(p("on_bad", "string", "What a bad sample does."), &["hold", "clear", "raise"], "hold"),
+            p("high", ParamTy::Number, "Raised above (high or low required)."),
+            p("low", ParamTy::Number, "Raised below."),
+            di(p("hysteresis", ParamTy::Number, "Back inside by this much before it clears."), 0),
+            di(ed(p("delay_s", ParamTy::Number, "Seconds outside before it is raised."), "duration"), 0),
+            di(ed(p("return_delay_s", ParamTy::Number, "Seconds inside before it clears."), "duration"), 0),
+            pick(p("on_bad", ParamTy::String, "What a bad sample does."), OnBad::NAMES, OnBad::Hold.name()),
         ],
     },
     NodeType {
@@ -344,8 +346,8 @@ pub const TYPES: &[NodeType] = &[
         dyn_inputs: None,
         dyn_outputs: None,
         params: &[
-            req(p("node", "string", "Name of the value under the flow's nodes.")),
-            p("meta", "map", "Its ~meta fields (unit, …)."),
+            req(p("node", ParamTy::String, "Name of the value under the flow's nodes.")),
+            p("meta", ParamTy::Map, "Its ~meta fields (unit, …)."),
         ],
     },
     NodeType {
@@ -357,12 +359,12 @@ pub const TYPES: &[NodeType] = &[
         dyn_inputs: None,
         dyn_outputs: None,
         params: &[
-            req(p("path", "string", "The point: downstream/<link>/… or storage/…")),
-            pick(p("on", "string", "With auto_run: every sample, or a changed value only."), &["change", "any"], "change"),
-            di(p("deadband", "number", "With on change: a smaller change is not written."), 0),
-            db(p("allow_bad", "bool", "Write values of bad quality too."), false),
+            req(p("path", ParamTy::String, "The point: downstream/<link>/… or storage/…")),
+            pick(p("on", ParamTy::String, "With auto_run: every sample, or a changed value only."), SetOn::NAMES, SetOn::Change.name()),
+            di(p("deadband", ParamTy::Number, "With on change: a smaller change is not written."), 0),
+            db(p("allow_bad", ParamTy::Bool, "Write values of bad quality too."), false),
             INTERVAL_MS,
-            db(p("auto_run", "bool", "Write when in brings a value (default true); false: only on trigger and interval_ms."), true),
+            db(p("auto_run", ParamTy::Bool, "Write when in brings a value (default true); false: only on trigger and interval_ms."), true),
             ENABLED,
             RUN_ON_START,
         ],
@@ -381,13 +383,13 @@ pub const TYPES: &[NodeType] = &[
         }),
         dyn_outputs: None,
         params: &[
-            req(p("path", "string", "The node: downstream/<link>/… or storage/…")),
-            req(p("action", "string", "The action's name.")),
-            p("args", "map", "Its arguments: each key is a field with the port arg.<name>; the value is the argument's constant until a sample replaces it (\"$in\": the last value on in)."),
-            pick(p("on", "string", "For in: every sample, a rising or falling bool, or a change."), &["any", "rising", "falling", "change"], "any"),
-            db(p("allow_bad", "bool", "Run on samples of bad quality too."), false),
+            req(p("path", ParamTy::String, "The node: downstream/<link>/… or storage/…")),
+            req(p("action", ParamTy::String, "The action's name.")),
+            p("args", ParamTy::Map, "Its arguments: each key is a field with the port arg.<name>; the value is the argument's constant until a sample replaces it (\"$in\": the last value on in)."),
+            pick(p("on", ParamTy::String, "For in: every sample, a rising or falling bool, or a change."), InvokeOn::NAMES, InvokeOn::Any.name()),
+            db(p("allow_bad", ParamTy::Bool, "Run on samples of bad quality too."), false),
             INTERVAL_MS,
-            db(p("auto_run", "bool", "Run when an argument changes on its port (default false)."), false),
+            db(p("auto_run", ParamTy::Bool, "Run when an argument changes on its port (default false)."), false),
             ENABLED,
             RUN_ON_START,
         ],
@@ -411,12 +413,12 @@ pub const TYPES: &[NodeType] = &[
             keys: false,
         }),
         params: &[
-            req(p("artifact", "string", "SHA-256 of the component (dataflows ▸ put_artifact).")),
-            dl(p("inputs", "array", "Input port names (default in)."), &["in"]),
-            dl(p("outputs", "array", "Output port names (default out)."), &["out"]),
-            p("config", "dynamic", "Given to the component's init."),
-            p("fuel", "number", "Instructions per call."),
-            p("memory_mb", "number", "Memory limit."),
+            req(p("artifact", ParamTy::String, "SHA-256 of the component (dataflows ▸ put_artifact).")),
+            dl(p("inputs", ParamTy::Array, "Input port names (default in)."), &["in"]),
+            dl(p("outputs", ParamTy::Array, "Output port names (default out)."), &["out"]),
+            p("config", ParamTy::Dynamic, "Given to the component's init."),
+            p("fuel", ParamTy::Number, "Instructions per call."),
+            p("memory_mb", ParamTy::Number, "Memory limit."),
         ],
     },
     // ---------- logic blocks (crate::blocks, docs/flow-blocks.md) ----------
@@ -428,7 +430,7 @@ pub const TYPES: &[NodeType] = &[
         outputs: &["out"],
         dyn_inputs: None,
         dyn_outputs: None,
-        params: &[di(p("value", "number", "The value at start (default 0)."), 0)],
+        params: &[di(p("value", ParamTy::Number, "The value at start (default 0)."), 0)],
     },
     NodeType {
         ty: "string",
@@ -438,7 +440,7 @@ pub const TYPES: &[NodeType] = &[
         outputs: &["out"],
         dyn_inputs: None,
         dyn_outputs: None,
-        params: &[ds(ed(p("value", "string", "The text at start (default empty)."), "textarea"), "")],
+        params: &[ds(ed(p("value", ParamTy::String, "The text at start (default empty)."), "textarea"), "")],
     },
     NodeType {
         ty: "bool",
@@ -448,7 +450,7 @@ pub const TYPES: &[NodeType] = &[
         outputs: &["out"],
         dyn_inputs: None,
         dyn_outputs: None,
-        params: &[db(p("value", "bool", "The value at start (default false)."), false)],
+        params: &[db(p("value", ParamTy::Bool, "The value at start (default false)."), false)],
     },
     reduce("add", "The sum of the inputs (none: 0)."),
     reduce("subtract", "The first input minus the others."),
@@ -475,8 +477,8 @@ pub const TYPES: &[NodeType] = &[
         dyn_inputs: None,
         dyn_outputs: None,
         params: &[
-            di(p("precision", "number", "Places after the point, 0…20 (default 0)."), 0),
-            p("min_precision", "number", "Fewest places in text: trailing zeros beyond go (default: precision)."),
+            di(p("precision", ParamTy::Number, "Places after the point, 0…20 (default 0)."), 0),
+            p("min_precision", ParamTy::Number, "Fewest places in text: trailing zeros beyond go (default: precision)."),
         ],
     },
     NodeType {
@@ -487,7 +489,7 @@ pub const TYPES: &[NodeType] = &[
         outputs: &["quotient", "remainder"],
         dyn_inputs: None,
         dyn_outputs: None,
-        params: &[p("modulo", "number", "The divisor (0 or none: null).")],
+        params: &[p("modulo", ParamTy::Number, "The divisor (0 or none: null).")],
     },
     NodeType {
         ty: "not",
@@ -509,12 +511,12 @@ pub const TYPES: &[NodeType] = &[
         dyn_outputs: None,
         params: &[
             pick(
-                p("op", "string", "= all equal; != the first equals none of the others; and / or of the inputs; > < >= <= between each input and the next; contains / starts_with / ends_with: the first as text with any of the others."),
+                p("op", ParamTy::String, "= all equal; != the first equals none of the others; and / or of the inputs; > < >= <= between each input and the next; contains / starts_with / ends_with: the first as text with any of the others."),
                 crate::blocks::IF_OPS,
                 "=",
             ),
-            db(p("then", "dynamic", "Sent when it passes (default true)."), true),
-            db(p("else", "dynamic", "Sent when it does not (default false)."), false),
+            db(p("then", ParamTy::Dynamic, "Sent when it passes (default true)."), true),
+            db(p("else", ParamTy::Dynamic, "Sent when it does not (default false)."), false),
             INPUTS,
         ],
     },
@@ -526,7 +528,7 @@ pub const TYPES: &[NodeType] = &[
         outputs: &["out", "index", "on_change"],
         dyn_inputs: Some(ITEMS),
         dyn_outputs: None,
-        params: &[db(p("ignore_null", "bool", "A null on an input is not passed (default true)."), true), INPUTS],
+        params: &[db(p("ignore_null", ParamTy::Bool, "A null on an input is not passed (default true)."), true), INPUTS],
     },
     NodeType {
         ty: "stopwatch",
@@ -537,12 +539,12 @@ pub const TYPES: &[NodeType] = &[
         dyn_inputs: None,
         dyn_outputs: None,
         params: &[
-            db(p("enabled", "bool", "Counting (default false)."), false),
-            df(ed(p("interval", "number", "Seconds between two steps, at least 0.05 (default 0.5)."), "duration"), 0.5),
-            di(p("step", "number", "Added each interval (default 1)."), 1),
-            di(p("modulo", "number", "Above 0: the count wraps (or stops) there (default 0)."), 0),
-            db(p("loop", "bool", "At modulo: start again from the remainder; false: stop there (default true)."), true),
-            di(p("reset_value", "number", "The count at start and after reset (default 0)."), 0),
+            db(p("enabled", ParamTy::Bool, "Counting (default false)."), false),
+            df(ed(p("interval", ParamTy::Number, "Seconds between two steps, at least 0.05 (default 0.5)."), "duration"), 0.5),
+            di(p("step", ParamTy::Number, "Added each interval (default 1)."), 1),
+            di(p("modulo", ParamTy::Number, "Above 0: the count wraps (or stops) there (default 0)."), 0),
+            db(p("loop", ParamTy::Bool, "At modulo: start again from the remainder; false: stop there (default true)."), true),
+            di(p("reset_value", ParamTy::Number, "The count at start and after reset (default 0)."), 0),
         ],
     },
     NodeType {
@@ -554,8 +556,8 @@ pub const TYPES: &[NodeType] = &[
         dyn_inputs: Some(ITEMS),
         dyn_outputs: None,
         params: &[
-            db(p("tracing", "bool", "Writing (default true)."), true),
-            ds(p("msg", "string", "The line's text (default trace)."), "trace"),
+            db(p("tracing", ParamTy::Bool, "Writing (default true)."), true),
+            ds(p("msg", ParamTy::String, "The line's text (default trace)."), "trace"),
             INPUTS,
         ],
     },
@@ -567,7 +569,7 @@ pub const TYPES: &[NodeType] = &[
         outputs: &["out"],
         dyn_inputs: Some(ITEMS),
         dyn_outputs: None,
-        params: &[db(p("strict", "bool", "A missing input gives null (default false: empty text)."), false), INPUTS],
+        params: &[db(p("strict", ParamTy::Bool, "A missing input gives null (default false: empty text)."), false), INPUTS],
     },
     NodeType {
         ty: "length",
@@ -589,15 +591,15 @@ pub const TYPES: &[NodeType] = &[
         dyn_outputs: None,
         params: &[
             pick(
-                p("op", "string", "How in is compared with each case: = != > < >= <= (as numbers), contains / starts_with / ends_with (as text; an empty case matches nothing); regexp: in as text has a match of the case as a pattern."),
+                p("op", ParamTy::String, "How in is compared with each case: = != > < >= <= (as numbers), contains / starts_with / ends_with (as text; an empty case matches nothing); regexp: in as text has a match of the case as a pattern."),
                 crate::blocks::CASE_OPS,
                 "=",
             ),
-            p("else", "dynamic", "Sent when no case matches (default null)."),
+            p("else", ParamTy::Dynamic, "Sent when no case matches (default null)."),
             dl(
                 p(
                     "inputs",
-                    "array",
+                    ParamTy::Array,
                     "Names of the variable inputs, in pairs: a case, then what it gives (default 0, 1). Give each its constant in values.",
                 ),
                 &["0", "1"],
@@ -614,9 +616,9 @@ pub const TYPES: &[NodeType] = &[
         dyn_inputs: None,
         dyn_outputs: None,
         params: &[
-            di(p("start", "number", "The first character, from 0 (default 0)."), 0),
-            p("length", "number", "How many characters (default: to the end)."),
-            p("end", "number", "Without length: the character after the last one; below 0 counts from the end (−1: all but the last)."),
+            di(p("start", ParamTy::Number, "The first character, from 0 (default 0)."), 0),
+            p("length", ParamTy::Number, "How many characters (default: to the end)."),
+            p("end", ParamTy::Number, "Without length: the character after the last one; below 0 counts from the end (−1: all but the last)."),
         ],
     },
     NodeType {
@@ -628,9 +630,9 @@ pub const TYPES: &[NodeType] = &[
         dyn_inputs: None,
         dyn_outputs: None,
         params: &[
-            ds(p("from", "string", "The text to find (empty: nothing is replaced)."), ""),
-            ds(p("to", "string", "What it becomes (default empty; taken as it is, $1 is no group)."), ""),
-            db(p("regexp", "bool", "from is a pattern of at most 256 bytes (linear time, no backreferences); one that does not compile replaces nothing (default false)."), false),
+            ds(p("from", ParamTy::String, "The text to find (empty: nothing is replaced)."), ""),
+            ds(p("to", ParamTy::String, "What it becomes (default empty; taken as it is, $1 is no group)."), ""),
+            db(p("regexp", ParamTy::Bool, "from is a pattern of at most 256 bytes (linear time, no backreferences); one that does not compile replaces nothing (default false)."), false),
         ],
     },
     NodeType {
@@ -641,7 +643,7 @@ pub const TYPES: &[NodeType] = &[
         outputs: &["out"],
         dyn_inputs: None,
         dyn_outputs: None,
-        params: &[ds(p("separator", "string", "Where to cut (default a comma; empty: one item)."), ",")],
+        params: &[ds(p("separator", ParamTy::String, "Where to cut (default a comma; empty: one item)."), ",")],
     },
     NodeType {
         ty: "join",
@@ -651,7 +653,7 @@ pub const TYPES: &[NodeType] = &[
         outputs: &["out"],
         dyn_inputs: None,
         dyn_outputs: None,
-        params: &[ds(p("separator", "string", "Between two items (default a comma)."), ",")],
+        params: &[ds(p("separator", ParamTy::String, "Between two items (default a comma)."), ",")],
     },
     NodeType {
         ty: "make_object",
@@ -681,7 +683,7 @@ pub const TYPES: &[NodeType] = &[
         outputs: &["out"],
         dyn_inputs: None,
         dyn_outputs: None,
-        params: &[ds(p("path", "string", "Keys and indexes joined by dots (default empty: in itself)."), "")],
+        params: &[ds(p("path", ParamTy::String, "Keys and indexes joined by dots (default empty: in itself)."), "")],
     },
     NodeType {
         ty: "stats",
@@ -731,7 +733,7 @@ pub const TYPES: &[NodeType] = &[
         outputs: &["out"],
         dyn_inputs: None,
         dyn_outputs: None,
-        params: &[di(p("step", "number", "Added for each sample (default 1)."), 1), di(p("initial", "number", "The count at start and after reset (default 0)."), 0)],
+        params: &[di(p("step", ParamTy::Number, "Added for each sample (default 1)."), 1), di(p("initial", ParamTy::Number, "The count at start and after reset (default 0)."), 0)],
     },
     NodeType {
         ty: "toggle",
@@ -741,7 +743,7 @@ pub const TYPES: &[NodeType] = &[
         outputs: &["out"],
         dyn_inputs: None,
         dyn_outputs: None,
-        params: &[db(p("initial", "bool", "The value at start and after reset (default false)."), false)],
+        params: &[db(p("initial", ParamTy::Bool, "The value at start and after reset (default false)."), false)],
     },
     NodeType {
         ty: "sample_and_hold",
@@ -761,7 +763,7 @@ pub const TYPES: &[NodeType] = &[
         outputs: &["out"],
         dyn_inputs: Some(ITEMS),
         dyn_outputs: None,
-        params: &[di(p("index", "number", "Which input, from 0 (default 0)."), 0), INPUTS],
+        params: &[di(p("index", ParamTy::Number, "Which input, from 0 (default 0)."), 0), INPUTS],
     },
     NodeType {
         ty: "debounce",
@@ -771,7 +773,7 @@ pub const TYPES: &[NodeType] = &[
         outputs: &["out"],
         dyn_inputs: None,
         dyn_outputs: None,
-        params: &[di(p("ms", "number", "The quiet time in milliseconds, at most 3 600 000 (default 500)."), 500)],
+        params: &[di(p("ms", ParamTy::Number, "The quiet time in milliseconds, at most 3 600 000 (default 500)."), 500)],
     },
     NodeType {
         ty: "throttle",
@@ -781,7 +783,7 @@ pub const TYPES: &[NodeType] = &[
         outputs: &["out"],
         dyn_inputs: None,
         dyn_outputs: None,
-        params: &[di(p("ms", "number", "The period in milliseconds, at most 3 600 000 (default 500)."), 500)],
+        params: &[di(p("ms", ParamTy::Number, "The period in milliseconds, at most 3 600 000 (default 500)."), 500)],
     },
     NodeType {
         ty: "load_value",
@@ -795,7 +797,7 @@ pub const TYPES: &[NodeType] = &[
             KEY,
             KEY_SCOPE,
             INTERVAL_MS,
-            db(p("auto_run", "bool", "Read at the start and when the key changes (default true)."), true),
+            db(p("auto_run", ParamTy::Bool, "Read at the start and when the key changes (default true)."), true),
             ENABLED,
         ],
     },
@@ -809,12 +811,12 @@ pub const TYPES: &[NodeType] = &[
         dyn_outputs: None,
         params: &[
             sc(
-                req(p("path", "string", "A node of this site: downstream/<link>/…, storage/… (may be absent when in.path brings it).")),
+                req(p("path", ParamTy::String, "A node of this site: downstream/<link>/…, storage/… (may be absent when in.path brings it).")),
                 "path_scope",
             ),
-            p("path_scope", "string", "The nodes in.path may name, a key expression: downstream/<link>/** (required when in.path is wired; the deployer must read all of it)."),
+            p("path_scope", ParamTy::String, "The nodes in.path may name, a key expression: downstream/<link>/** (required when in.path is wired; the deployer must read all of it)."),
             INTERVAL_MS,
-            db(p("auto_run", "bool", "List at the start and when the path changes (default true)."), true),
+            db(p("auto_run", ParamTy::Bool, "List at the start and when the path changes (default true)."), true),
             ENABLED,
         ],
     },
@@ -823,7 +825,7 @@ pub const TYPES: &[NodeType] = &[
 pub(crate) const INTERVAL_MS: Param = di(
     p(
         "interval_ms",
-        "number",
+        ParamTy::Number,
         "Runs every this many milliseconds, first one full period after the start; 0: off (default), else 100 … 86 400 000.",
     ),
     0,
@@ -832,14 +834,18 @@ pub(crate) const INTERVAL_MS: Param = di(
 const RUN_ON_START: Param = db(
     p(
         "run_on_start",
-        "bool",
+        ParamTy::Bool,
         "WARNING: true runs this command once every time the flow starts: at each deploy, hot swap, reload and broker restart (default false: a start never runs a command).",
     ),
     false,
 );
 
 pub(crate) const ENABLED: Param = db(
-    p("enabled", "bool", "false: nothing runs it (default true)."),
+    p(
+        "enabled",
+        ParamTy::Bool,
+        "false: nothing runs it (default true).",
+    ),
     true,
 );
 
@@ -854,7 +860,7 @@ pub(crate) const ITEMS: DynPorts = DynPorts {
 pub(crate) const INPUTS: Param = dl(
     p(
         "inputs",
-        "array",
+        ParamTy::Array,
         "Names of the variable inputs, [A-Za-z0-9_]+, at most 64 (default 0, 1): ports in.<name>.",
     ),
     &["0", "1"],
@@ -901,7 +907,7 @@ pub fn value() -> Value {
                     .map(|x| {
                         let mut m = BTreeMap::from([
                             ("name".to_owned(), Value::from(x.name)),
-                            ("type".to_owned(), Value::from(x.ty)),
+                            ("type".to_owned(), Value::from(x.ty.name())),
                             ("required".to_owned(), Value::Bool(x.required)),
                             ("description".to_owned(), Value::from(x.description)),
                         ]);
@@ -971,12 +977,12 @@ pub fn find(ty: &str) -> Option<&'static NodeType> {
 
 /// The port type of a parameter's echo: `number`, `bool` and `map` as they are, any other
 /// parameter type (`string`, `dynamic`, `array`) `any`.
-pub fn port_type(param_ty: &str) -> PortType {
+pub fn port_type(param_ty: ParamTy) -> PortType {
     match param_ty {
-        "number" => PortType::Number,
-        "bool" => PortType::Bool,
-        "map" => PortType::Map,
-        _ => PortType::Any,
+        ParamTy::Number => PortType::Number,
+        ParamTy::Bool => PortType::Bool,
+        ParamTy::Map => PortType::Map,
+        ParamTy::String | ParamTy::Array | ParamTy::Dynamic => PortType::Any,
     }
 }
 
@@ -1099,8 +1105,8 @@ fn sample_cfg(t: &NodeType) -> BTreeMap<String, Value> {
             ("publish", "node") => Value::from("x"),
             (_, "artifact") => Value::from("0".repeat(64)),
             _ => match x.ty {
-                "number" => Value::UInt(100),
-                "map" => Value::Map(BTreeMap::new()),
+                ParamTy::Number => Value::UInt(100),
+                ParamTy::Map => Value::Map(BTreeMap::new()),
                 _ => Value::from("downstream/x/y"),
             },
         };
@@ -1161,8 +1167,8 @@ mod tests {
                 ("publish", "node") => Value::from("result"),
                 (_, "artifact") => return cfg,
                 _ => match x.ty {
-                    "number" => Value::UInt(100),
-                    "map" => Value::Map(BTreeMap::new()),
+                    ParamTy::Number => Value::UInt(100),
+                    ParamTy::Map => Value::Map(BTreeMap::new()),
                     _ => Value::from("downstream/x/y"),
                 },
             };
@@ -1211,11 +1217,11 @@ mod tests {
             let mut all = cfg.clone();
             for x in t.params {
                 all.entry(x.name.to_owned()).or_insert(match x.ty {
-                    "number" if x.name == "interval_ms" => Value::UInt(1000),
-                    "number" => Value::UInt(1),
-                    "bool" => Value::Bool(false),
-                    "map" => Value::Map(BTreeMap::new()),
-                    "array" => Value::Array(vec![Value::from("a")]),
+                    ParamTy::Number if x.name == "interval_ms" => Value::UInt(1000),
+                    ParamTy::Number => Value::UInt(1),
+                    ParamTy::Bool => Value::Bool(false),
+                    ParamTy::Map => Value::Map(BTreeMap::new()),
+                    ParamTy::Array => Value::Array(vec![Value::from("a")]),
                     _ => match x.default {
                         Def::Str(d) => Value::from(d),
                         _ => Value::from("x"),

@@ -40,7 +40,7 @@ pub const ACTION_MS: u32 = 60_000;
 
 wyrm_core::name_enum! {
     /// The level of a branch node.
-    pub enum Level {
+    pub enum Level as "branch level" {
         Connection => "connection",
         Device => "device",
         Folder => "folder",

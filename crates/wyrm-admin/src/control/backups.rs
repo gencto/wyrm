@@ -25,7 +25,7 @@
 //! only: never in the audit, the log, the tree or a file.
 
 use super::*;
-use crate::backup::{self as format, Head, Kind, LinkInfo, MasterKey, Staged, StagedSection};
+use crate::backup::{self as format, Head, How, Kind, LinkInfo, MasterKey, Staged, StagedSection};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
 use zeroize::Zeroizing;
@@ -99,12 +99,42 @@ pub enum SealWith {
 }
 
 impl SealWith {
-    fn name(&self) -> &'static str {
+    fn how(&self) -> How {
         match self {
-            SealWith::None => "none",
-            SealWith::Passphrase(_) => "passphrase",
-            SealWith::Broker => "broker",
+            SealWith::None => How::None,
+            SealWith::Passphrase(_) => How::Passphrase,
+            SealWith::Broker => How::Broker,
         }
+    }
+}
+
+wyrm_core::name_enum! {
+    /// What a backup job is, as shown (`kind` of its node). Kept as its name in
+    /// the job's `.json`.
+    pub enum JobKind as "backup job kind" {
+        Full => "full",
+        Link => "link",
+        PreUpdate => "pre-update",
+        PreRestore => "pre-restore",
+    }
+}
+
+wyrm_core::name_enum! {
+    /// Where a backup job is. Kept as its name in the job's `.json`.
+    pub enum JobStatus as "backup job status" {
+        Running => "running",
+        Done => "done",
+        Failed => "failed",
+    }
+}
+
+wyrm_core::name_enum! {
+    /// Where the last `send` of a backup is (none before the first). Kept as its
+    /// name in the job's `.json`, none as the empty text it was.
+    pub enum SendStatus as "backup send status" {
+        Sending => "sending",
+        Done => "done",
+        Failed => "failed",
     }
 }
 
@@ -121,8 +151,8 @@ pub struct BackupRequest {
     /// History of the last N UTC days (`None`: all of it).
     pub history_days: Option<u32>,
     pub seal: SealWith,
-    /// `full`, `link`, `pre-update`, `pre-restore`: shown as the job's kind.
-    pub label: String,
+    /// Shown as the job's kind.
+    pub label: JobKind,
     /// Never pruned (the pre-update backup of an unconfirmed update).
     pub pinned: bool,
     /// The caller's authority comes from another site (an upstream with
@@ -136,13 +166,11 @@ pub struct BackupRequest {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Job {
     pub id: String,
-    /// `full`, `link`, `pre-update`, `pre-restore`.
-    pub kind: String,
+    pub kind: JobKind,
     #[serde(default)]
     pub link: String,
     pub sections: Vec<String>,
-    /// `running`, `done`, `failed`.
-    pub status: String,
+    pub status: JobStatus,
     /// 0 to 100.
     pub progress: u8,
     /// What it does now (a section name, `writing`).
@@ -157,9 +185,9 @@ pub struct Job {
     pub error: String,
     /// File name in `data_dir/backups`.
     pub file: String,
-    /// `none`, `passphrase`, `broker`.
-    #[serde(default)]
-    pub sealed: String,
+    /// `None` in a job written before it was kept (`""`).
+    #[serde(default, with = "wyrm_core::named::serde_or_empty")]
+    pub sealed: Option<How>,
     #[serde(default)]
     pub by: String,
     #[serde(default)]
@@ -167,9 +195,9 @@ pub struct Job {
     /// Where `send` put it, or is putting it: `<link>/<path>/<name>`.
     #[serde(default)]
     pub sent_to: String,
-    /// Of the last `send`: empty, `sending`, `done`, `failed`.
-    #[serde(default)]
-    pub send_status: String,
+    /// Of the last `send`; `None` (`""`) before the first.
+    #[serde(default, with = "wyrm_core::named::serde_or_empty")]
+    pub send_status: Option<SendStatus>,
     /// 0 to 100.
     #[serde(default)]
     pub send_progress: u8,
@@ -206,15 +234,27 @@ impl Backups {
             } else if name.ends_with(".part") {
                 let _ = std::fs::remove_file(&path);
             } else if let Some(file) = name.strip_suffix(".json") {
-                let job = std::fs::read(&path)
+                let read = std::fs::read(&path)
                     .ok()
-                    .and_then(|b| serde_json::from_slice::<Job>(&b).ok())
-                    .filter(|j| j.file == file && j.status == "done" && dir.join(file).is_file())
+                    .map(|b| serde_json::from_slice::<Job>(&b));
+                if let Some(Err(e)) = &read {
+                    if e.is_data() {
+                        // well-formed, with a name this build does not know (a newer
+                        // broker wrote it): kept on disk for that broker, not listed here
+                        tracing::warn!("backup job {name}: {e}; not listed");
+                        continue;
+                    }
+                }
+                let job = read
+                    .and_then(Result::ok)
+                    .filter(|j| {
+                        j.file == file && j.status == JobStatus::Done && dir.join(file).is_file()
+                    })
                     .filter(|j| wyrm_core::keyspace::validate_segment(&j.id).is_ok());
                 match job {
                     Some(mut j) => {
-                        if j.send_status == "sending" {
-                            j.send_status = "failed".into();
+                        if j.send_status == Some(SendStatus::Sending) {
+                            j.send_status = Some(SendStatus::Failed);
                             j.send_error = "the broker stopped while it was sent".into();
                         }
                         jobs.insert(j.id.clone(), j);
@@ -323,8 +363,8 @@ impl Drop for RunningJob {
         b.copying.lock().unwrap_or_else(|p| p.into_inner()).clear();
         if let Some(id) = &self.id {
             b.update(id, |j| {
-                if j.status == "running" {
-                    j.status = "failed".into();
+                if j.status == JobStatus::Running {
+                    j.status = JobStatus::Failed;
                     j.step.clear();
                     j.error = "the backup stopped unexpectedly".into();
                 }
@@ -1240,7 +1280,7 @@ impl Control {
             link: Some(id.to_owned()),
             history_days: None,
             seal: SealWith::Broker,
-            label: "link".into(),
+            label: JobKind::Link,
             pinned: false,
             remote: false,
             estimate: false,
@@ -1280,17 +1320,20 @@ impl Control {
         let jobs = self.backups.list();
         let newest = jobs
             .iter()
-            .filter(|j| j.status == "done")
+            .filter(|j| j.status == JobStatus::Done)
             .map(|j| j.id.clone())
             .next_back();
         let mut total: u64 = jobs.iter().map(|j| j.size).sum();
         let mut count = jobs.len();
         let mut gone = Vec::new();
         for j in &jobs {
-            if j.status == "running" || j.pinned || j.send_status == "sending" {
+            if j.status == JobStatus::Running
+                || j.pinned
+                || j.send_status == Some(SendStatus::Sending)
+            {
                 continue;
             }
-            let failed_old = j.status == "failed" && j.created + 86_400 < now;
+            let failed_old = j.status == JobStatus::Failed && j.created + 86_400 < now;
             let expired = j.expires <= now;
             let over = (total > max || count > MAX_JOBS) && Some(&j.id) != newest.as_ref();
             if expired || over || failed_old {
@@ -1363,7 +1406,7 @@ impl Control {
     ) -> Result<Job, String> {
         let id = self.backup_launch(req, sub, true).map_err(|e| e.message)?;
         match self.backups.get(&id) {
-            Some(j) if j.status == "done" => Ok(j),
+            Some(j) if j.status == JobStatus::Done => Ok(j),
             Some(j) => Err(j.error),
             None => Err("the backup is gone".into()),
         }
@@ -1443,10 +1486,10 @@ impl Control {
                 id.clone(),
                 Job {
                     id: id.clone(),
-                    kind: req.label.clone(),
+                    kind: req.label,
                     link: req.link.clone().unwrap_or_default(),
                     sections: chosen.clone(),
-                    status: "running".into(),
+                    status: JobStatus::Running,
                     progress: 0,
                     step: String::new(),
                     size: 0,
@@ -1455,17 +1498,16 @@ impl Control {
                     expires: now + u64::from(self.cfg.backups.keep_days.max(1)) * 86_400,
                     error: String::new(),
                     file: file.clone(),
-                    sealed: match &req.seal {
+                    sealed: Some(match &req.seal {
                         SealWith::None if chosen.iter().any(|c| c == "links" || c == "data") => {
-                            "broker"
+                            How::Broker
                         }
-                        s => s.name(),
-                    }
-                    .to_owned(),
+                        s => s.how(),
+                    }),
                     by: sub.to_owned(),
                     pinned: req.pinned,
                     sent_to: String::new(),
-                    send_status: String::new(),
+                    send_status: None,
                     send_progress: 0,
                     send_error: String::new(),
                 },
@@ -1492,8 +1534,8 @@ impl Control {
             "{id}: sections {}; sealed {}; keys: {}; secrets: {}{}",
             chosen.join(", "),
             match &req.seal {
-                SealWith::None if has("links") || has("data") => "broker",
-                s => s.name(),
+                SealWith::None if has("links") || has("data") => How::Broker,
+                s => s.how(),
             },
             has("keys"),
             exported && (has("keys") || has("links") || has("data")),
@@ -1517,7 +1559,7 @@ impl Control {
             match r {
                 Ok(w) => {
                     running.finish(|j| {
-                        j.status = "done".into();
+                        j.status = JobStatus::Done;
                         j.progress = 100;
                         j.step.clear();
                         j.size = w.size;
@@ -1539,7 +1581,7 @@ impl Control {
                         &format!("{job_id}: {e}"),
                     );
                     running.finish(|j| {
-                        j.status = "failed".into();
+                        j.status = JobStatus::Failed;
                         j.step.clear();
                         j.error = e;
                     });
@@ -1568,7 +1610,7 @@ impl Control {
             .backups
             .get(id)
             .ok_or_else(|| LinkError::not_found(format!("backup {id}")))?;
-        if job.status != "done" {
+        if job.status != JobStatus::Done {
             return Err(LinkError::new(
                 Status::Busy,
                 format!("backup {id} is {}", job.status),
@@ -1696,7 +1738,11 @@ pub(super) fn request_of(
             Some(p) => SealWith::Passphrase(p),
             None => SealWith::None,
         },
-        label: if link.is_some() { "link" } else { "full" }.to_owned(),
+        label: if link.is_some() {
+            JobKind::Link
+        } else {
+            JobKind::Full
+        },
         pinned: false,
         remote,
         estimate: false,
@@ -1803,13 +1849,13 @@ pub(super) async fn declare(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Resu
 fn job_node(j: &Job) -> NodeMeta {
     let mut n = NodeMeta::folder()
         .is("wy:backup")
-        .attr("kind", j.kind.as_str())
+        .attr("kind", j.kind.name())
         .attr("name", j.file.as_str())
         .attr(
             "sections",
             Value::Array(j.sections.iter().map(|s| Value::from(s.clone())).collect()),
         )
-        .attr("sealed", j.sealed.as_str())
+        .attr("sealed", j.sealed.map_or("", How::name))
         .attr("by", j.by.as_str());
     if !j.link.is_empty() {
         n = n.attr("link", j.link.as_str());
@@ -1880,14 +1926,17 @@ async fn publish_job(ctx: &LinkCtx, j: &Job) -> wyrm_link_sdk::Result<()> {
     let path = format!("backups/{}", j.id);
     let t = now_us();
     let text = [
-        ("status", j.status.clone()),
+        ("status", j.status.name().to_owned()),
         ("step", j.step.clone()),
         ("sha256", j.sha256.clone()),
         ("created", iso_utc(j.created)),
         ("expires", iso_utc(j.expires)),
         ("error", j.error.clone()),
         ("sent_to", j.sent_to.clone()),
-        ("send_status", j.send_status.clone()),
+        (
+            "send_status",
+            j.send_status.map_or("", SendStatus::name).to_owned(),
+        ),
         ("send_error", j.send_error.clone()),
     ];
     for (name, v) in text {
@@ -1993,7 +2042,7 @@ pub(super) async fn show_job(ctx: &LinkCtx, ctl: &Control, id: &str) {
 /// and may go.
 fn may_download(job: &Job, remote: bool) -> Result<(), LinkError> {
     let keys = job.sections.iter().any(|s| s == "keys");
-    if remote && (keys || job.sealed == "passphrase") {
+    if remote && (keys || job.sealed == Some(How::Passphrase)) {
         return Err(LinkError::new(
             Status::PermissionDenied,
             format!(
@@ -2090,10 +2139,10 @@ pub(super) async fn invoke(
         ([id], "remove") => {
             match ctl.backups.get(id) {
                 None => return Err(LinkError::not_found(format!("backup {id}"))),
-                Some(j) if j.status == "running" => {
+                Some(j) if j.status == JobStatus::Running => {
                     return Err(LinkError::new(Status::Busy, "the backup is being made"))
                 }
-                Some(j) if j.send_status == "sending" => {
+                Some(j) if j.send_status == Some(SendStatus::Sending) => {
                     return Err(LinkError::new(Status::Busy, "the backup is being sent"))
                 }
                 Some(_) => {}
@@ -2110,6 +2159,130 @@ pub(super) async fn invoke(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A job record as the broker wrote it before its kind, status, sealing and send
+    /// status were typed (review T5): every field a `String`.
+    #[derive(Serialize)]
+    struct OldJob<'a> {
+        id: &'a str,
+        kind: &'a str,
+        link: &'a str,
+        sections: Vec<&'a str>,
+        status: &'a str,
+        progress: u8,
+        step: &'a str,
+        size: u64,
+        sha256: &'a str,
+        created: u64,
+        expires: u64,
+        error: &'a str,
+        file: &'a str,
+        sealed: &'a str,
+        by: &'a str,
+        pinned: bool,
+        sent_to: &'a str,
+        send_status: &'a str,
+        send_progress: u8,
+        send_error: &'a str,
+    }
+
+    fn old_job<'a>(kind: &'a str, status: &'a str, sealed: &'a str, send: &'a str) -> OldJob<'a> {
+        OldJob {
+            id: "20261113t101502z",
+            kind,
+            link: "",
+            sections: vec!["control", "storage"],
+            status,
+            progress: 100,
+            step: "",
+            size: 10,
+            sha256: "ab",
+            created: 1,
+            expires: 2,
+            error: "",
+            file: "plant-20261113t101502z.wyrm-backup",
+            sealed,
+            by: "user:a",
+            pinned: false,
+            sent_to: "",
+            send_status: send,
+            send_progress: 0,
+            send_error: "",
+        }
+    }
+
+    /// Every record an older broker could write reads into the typed job and is written
+    /// back as the same bytes (`save_job` writes it pretty; both forms checked).
+    #[test]
+    fn older_job_records_load_typed_and_write_the_same_bytes() {
+        for kind in JobKind::NAMES {
+            for status in JobStatus::NAMES {
+                for sealed in ["", "none", "passphrase", "broker"] {
+                    for send in ["", "sending", "done", "failed"] {
+                        let old = old_job(kind, status, sealed, send);
+                        for bytes in [
+                            serde_json::to_vec(&old).unwrap(),
+                            serde_json::to_vec_pretty(&old).unwrap(),
+                        ] {
+                            let j: Job = serde_json::from_slice(&bytes).unwrap();
+                            assert_eq!((j.kind.name(), j.status.name()), (*kind, *status));
+                            assert_eq!(j.sealed.map_or("", How::name), sealed);
+                            assert_eq!(j.send_status.map_or("", SendStatus::name), send);
+                            let again = if bytes.contains(&b'\n') {
+                                serde_json::to_vec_pretty(&j).unwrap()
+                            } else {
+                                serde_json::to_vec(&j).unwrap()
+                            };
+                            assert_eq!(again, bytes);
+                        }
+                    }
+                }
+            }
+        }
+        // a record from before `sealed` and the send fields were kept
+        let mut v = serde_json::to_value(old_job("full", "done", "", "")).unwrap();
+        for k in [
+            "sealed",
+            "send_status",
+            "send_progress",
+            "send_error",
+            "sent_to",
+        ] {
+            v.as_object_mut().unwrap().remove(k);
+        }
+        let j: Job = serde_json::from_value(v).unwrap();
+        assert_eq!((j.sealed, j.send_status), (None, None));
+    }
+
+    /// A name this build does not know is not read as another (fail closed), and the
+    /// record is left on disk for the broker that wrote it.
+    #[test]
+    fn a_job_with_an_unknown_name_is_not_listed_and_not_deleted() {
+        for (field, bad) in [
+            ("status", old_job("full", "paused", "none", "")),
+            ("kind", old_job("nightly", "done", "none", "")),
+            ("sealed", old_job("full", "done", "hsm", "")),
+            ("send", old_job("full", "done", "none", "queued")),
+        ] {
+            let bytes = serde_json::to_vec(&bad).unwrap();
+            let e = serde_json::from_slice::<Job>(&bytes).unwrap_err();
+            assert!(
+                e.is_data() && e.to_string().contains("unknown name"),
+                "{field}: {e}"
+            );
+            let dir = std::env::temp_dir()
+                .join(format!("wyrm-backup-job-{field}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join(bad.file), b"x").unwrap();
+            let side = dir.join(format!("{}.json", bad.file));
+            std::fs::write(&side, &bytes).unwrap();
+            let b = Backups::open(&dir);
+            assert!(b.list().is_empty(), "{field}");
+            assert!(side.is_file(), "{field}: the record stays");
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+    }
 
     #[test]
     fn ids_are_segments_in_time_order() {
@@ -2146,10 +2319,10 @@ mod tests {
             std::fs::write(dir.join(&file), vec![0u8; kib << 10]).unwrap();
             let mut j = Job {
                 id: id.to_owned(),
-                kind: "full".into(),
+                kind: JobKind::Full,
                 link: String::new(),
                 sections: vec!["control".into()],
-                status: "done".into(),
+                status: JobStatus::Done,
                 progress: 100,
                 step: String::new(),
                 size: (kib as u64) << 10,
@@ -2159,11 +2332,11 @@ mod tests {
                 expires: created + 7 * day,
                 error: String::new(),
                 file,
-                sealed: "none".into(),
+                sealed: Some(How::None),
                 by: "user:a".into(),
                 pinned: false,
                 sent_to: String::new(),
-                send_status: String::new(),
+                send_status: None,
                 send_progress: 0,
                 send_error: String::new(),
             };
@@ -2178,11 +2351,11 @@ mod tests {
         // update that is not confirmed), or being sent: kept
         add("b-pinned", now - 9 * day, 1, &|j| j.pinned = true);
         add("c-sending", now - 9 * day, 1, &|j| {
-            j.send_status = "sending".into()
+            j.send_status = Some(SendStatus::Sending)
         });
         // a job that failed more than a day ago is forgotten
         add("d-failed", now - 2 * day, 0, &|j| {
-            j.status = "failed".into()
+            j.status = JobStatus::Failed
         });
         // within keep_days, 2100 KiB in all against max_mb = 1: the oldest
         // go until the rest fits
@@ -2223,7 +2396,7 @@ mod tests {
         assert_eq!(ids, ["b-pinned", "c-sending", "g-newest"]);
         assert_eq!(
             reopened.get("c-sending").unwrap().send_status,
-            "failed",
+            Some(SendStatus::Failed),
             "a send does not outlive the broker"
         );
     }
@@ -2265,12 +2438,12 @@ mod tests {
     /// was made locally and is then asked for from above.
     #[test]
     fn keys_and_exported_secrets_are_not_downloaded_through_an_upstream() {
-        let job = |sections: &[&str], sealed: &str| Job {
+        let job = |sections: &[&str], sealed: How| Job {
             id: "20261113T100000Z".into(),
-            kind: "full".into(),
+            kind: JobKind::Full,
             link: String::new(),
             sections: sections.iter().map(|s| (*s).to_owned()).collect(),
-            status: "done".into(),
+            status: JobStatus::Done,
             progress: 100,
             step: String::new(),
             size: 1,
@@ -2279,18 +2452,18 @@ mod tests {
             expires: 2,
             error: String::new(),
             file: "f".into(),
-            sealed: sealed.into(),
+            sealed: Some(sealed),
             by: "user:admin".into(),
             pinned: false,
             sent_to: String::new(),
-            send_status: String::new(),
+            send_status: None,
             send_progress: 0,
             send_error: String::new(),
         };
-        let with_keys = job(&["control", "keys"], "passphrase");
-        let exported = job(&["control", "links"], "passphrase");
-        let for_site = job(&["control", "links"], "broker");
-        let plain = job(&["control", "storage"], "none");
+        let with_keys = job(&["control", "keys"], How::Passphrase);
+        let exported = job(&["control", "links"], How::Passphrase);
+        let for_site = job(&["control", "links"], How::Broker);
+        let plain = job(&["control", "storage"], How::None);
         for j in [&with_keys, &exported, &for_site, &plain] {
             may_download(j, false).unwrap();
         }
@@ -2315,10 +2488,10 @@ mod tests {
             id.clone(),
             Job {
                 id: id.clone(),
-                kind: "full".into(),
+                kind: JobKind::Full,
                 link: String::new(),
                 sections: vec!["control".into(), "links".into()],
-                status: "running".into(),
+                status: JobStatus::Running,
                 progress: 10,
                 step: "links".into(),
                 size: 0,
@@ -2327,11 +2500,11 @@ mod tests {
                 expires: 2,
                 error: String::new(),
                 file: "f".into(),
-                sealed: "broker".into(),
+                sealed: Some(How::Broker),
                 by: "user:a".into(),
                 pinned: false,
                 sent_to: String::new(),
-                send_status: String::new(),
+                send_status: None,
                 send_progress: 0,
                 send_error: String::new(),
             },
@@ -2360,7 +2533,7 @@ mod tests {
         assert!(r.is_err());
         assert!(!ctl.backups.running.load(Ordering::SeqCst));
         let j = ctl.backups.get(&id).unwrap();
-        assert_eq!(j.status, "failed");
+        assert_eq!(j.status, JobStatus::Failed);
         assert!(j.error.contains("unexpectedly"), "{}", j.error);
         assert!(ctl.backup_copies(&["l1".into()]).is_none());
         drop(ctl.claim_link("l1").unwrap());
@@ -2389,7 +2562,7 @@ mod tests {
             link: Some("l1".into()),
             history_days: None,
             seal: SealWith::None,
-            label: "link".into(),
+            label: JobKind::Link,
             pinned: false,
             remote: false,
             estimate: false,
@@ -2403,7 +2576,7 @@ mod tests {
         );
         drop(held);
         let made = ctl.backup_launch(req(), "user:a", true).unwrap();
-        assert_eq!(ctl.backups.get(&made).unwrap().status, "done");
+        assert_eq!(ctl.backups.get(&made).unwrap().status, JobStatus::Done);
     }
 
     /// Whoever reads a job as `done` finds the slot free and the links it
@@ -2435,7 +2608,7 @@ mod tests {
             link: Some("l1".into()),
             history_days: None,
             seal: SealWith::None,
-            label: "link".into(),
+            label: JobKind::Link,
             pinned: false,
             remote: false,
             estimate: false,
@@ -2450,7 +2623,7 @@ mod tests {
                             .backups
                             .list()
                             .iter()
-                            .filter(|j| j.status == "done")
+                            .filter(|j| j.status == JobStatus::Done)
                             .count();
                         if done == round {
                             return Some((

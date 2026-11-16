@@ -971,10 +971,10 @@ async fn install_link_from_zip() {
     let report = eventually("the update's health check", 90, || async {
         let p = env.ctl.registry().packages["mockpkg"].clone();
         let r = p.last_update?;
-        (r.result != "checking" && !env.ctl.package_updating("mockpkg")).then_some(r)
+        (r.result.name() != "checking" && !env.ctl.package_updating("mockpkg")).then_some(r)
     })
     .await;
-    assert_eq!(report.result, "ok", "{report:?}");
+    assert_eq!(report.result.name(), "ok", "{report:?}");
     assert_eq!(report.links, ["pk1", "pk2"]);
     assert_eq!(report.gone, 0, "{report:?}");
 
@@ -1505,12 +1505,12 @@ async fn portable_app_installs_as_wasm() {
             version: version.into(),
             description: "the echo app".into(),
             wyrm_link: wyrm_link_sdk::LINK_PROTOCOL,
-            kind: "wasm".into(),
+            kind: wyrm_link_sdk::package::PackageForm::Wasm,
             entries: Default::default(),
             args: Vec::new(),
             entry: Some("echoapp.wasm".into()),
             requester: Vec::new(),
-            world: Some(world.into()),
+            world: Some(world.parse().unwrap()),
             capabilities: (world == "app").then(|| Capabilities {
                 store_mb: Some(2),
                 ..Capabilities::default()
@@ -1642,12 +1642,12 @@ fn echo_app_zip_of_world(
         version: version.into(),
         description: "the echo app".into(),
         wyrm_link: wyrm_link_sdk::LINK_PROTOCOL,
-        kind: "wasm".into(),
+        kind: wyrm_link_sdk::package::PackageForm::Wasm,
         entries: Default::default(),
         args: Vec::new(),
         entry: Some(entry.clone()),
         requester: Vec::new(),
-        world: Some(world.into()),
+        world: Some(world.parse().unwrap()),
         capabilities: Some(capabilities),
     };
     let files = [PackFile {
@@ -2039,10 +2039,10 @@ async fn portable_app_upgrade_is_a_hot_start() {
     let report = eventually("the hot start's health check", 60, || async {
         let p = env.ctl.registry().packages["echohot"].clone();
         let r = p.last_update?;
-        (r.result != "checking" && !env.ctl.package_updating("echohot")).then_some(r)
+        (r.result.name() != "checking" && !env.ctl.package_updating("echohot")).then_some(r)
     })
     .await;
-    assert_eq!(report.result, "ok", "{report:?}");
+    assert_eq!(report.result.name(), "ok", "{report:?}");
     assert_eq!(
         (report.from.as_str(), report.to.as_str()),
         ("1.0.0", "1.0.1")
@@ -2356,12 +2356,12 @@ async fn one_app_three_modes() {
                 version: "1.0.0".into(),
                 description: "the portable example as a component".into(),
                 wyrm_link: wyrm_link_sdk::LINK_PROTOCOL,
-                kind: "wasm".into(),
+                kind: wyrm_link_sdk::package::PackageForm::Wasm,
                 entries: Default::default(),
                 args: Vec::new(),
                 entry: Some("portable-echo.wasm".into()),
                 requester: Vec::new(),
-                world: Some("app".into()),
+                world: Some(wyrm_link_sdk::package::PackageWorld::App),
                 capabilities: Some(Capabilities {
                     store_mb: Some(1),
                     ..Capabilities::default()
@@ -2471,8 +2471,11 @@ async fn logs_and_log_levels() {
     c.set(&format!("{sys}/log_level"), Value::UInt(3))
         .await
         .unwrap();
-    assert_eq!(lc.level(), "debug");
-    assert_eq!(env.ctl.registry().log_level.as_deref(), Some("debug"));
+    assert_eq!(lc.level().name(), "debug");
+    assert_eq!(
+        env.ctl.registry().log_level.map(|l| l.name()),
+        Some("debug")
+    );
     let all = rows(
         c.invoke_one(&sys, "get_log", args(vec![("lines", Value::UInt(2000))]))
             .await
@@ -2508,7 +2511,9 @@ async fn logs_and_log_levels() {
         .await
         .unwrap();
     assert_eq!(
-        env.ctl.registry().links["logmock"].log_level.as_deref(),
+        env.ctl.registry().links["logmock"]
+            .log_level
+            .map(|l| l.name()),
         Some("debug")
     );
     let stranger = WyrmClient::new(env.session().await)
@@ -2551,7 +2556,7 @@ async fn logs_and_log_levels() {
         .await
         .unwrap();
     assert_eq!(
-        env.ctl.registry().links["pm"].log_level.as_deref(),
+        env.ctl.registry().links["pm"].log_level.map(|l| l.name()),
         Some("warn")
     );
     assert!(env
@@ -8352,12 +8357,12 @@ async fn scheduler_three_modes() {
                 version: "1.0.0".into(),
                 description: "the scheduler as a component".into(),
                 wyrm_link: wyrm_link_sdk::LINK_PROTOCOL,
-                kind: "wasm".into(),
+                kind: wyrm_link_sdk::package::PackageForm::Wasm,
                 entries: Default::default(),
                 args: Vec::new(),
                 entry: Some("scheduler.wasm".into()),
                 requester: Vec::new(),
-                world: Some("app".into()),
+                world: Some(wyrm_link_sdk::package::PackageWorld::App),
                 capabilities: Some(Capabilities {
                     store_mb: Some(16),
                     ..Capabilities::default()
@@ -8917,12 +8922,12 @@ async fn dql_three_modes() {
                 version: "1.0.0".into(),
                 description: "the DQL link as a component".into(),
                 wyrm_link: wyrm_link_sdk::LINK_PROTOCOL,
-                kind: "wasm".into(),
+                kind: wyrm_link_sdk::package::PackageForm::Wasm,
                 entries: Default::default(),
                 args: Vec::new(),
                 entry: Some("dql.wasm".into()),
                 requester: Vec::new(),
-                world: Some("app".into()),
+                world: Some(wyrm_link_sdk::package::PackageWorld::App),
                 capabilities: Some(Capabilities {
                     store_mb: Some(4),
                     ..Capabilities::default()
@@ -9286,12 +9291,12 @@ async fn alarm_three_modes() {
                 version: "1.0.0".into(),
                 description: "the alarm link as a component".into(),
                 wyrm_link: wyrm_link_sdk::LINK_PROTOCOL,
-                kind: "wasm".into(),
+                kind: wyrm_link_sdk::package::PackageForm::Wasm,
                 entries: Default::default(),
                 args: Vec::new(),
                 entry: Some("alarm.wasm".into()),
                 requester: Vec::new(),
-                world: Some("app".into()),
+                world: Some(wyrm_link_sdk::package::PackageWorld::App),
                 capabilities: Some(Capabilities {
                     store_mb: Some(16),
                     ..Capabilities::default()
@@ -10715,7 +10720,7 @@ async fn standby_takes_over_and_the_old_active_demotes() {
         let mut reg: wyrm_state::Store<wyrm_admin::registry::Registry> =
             wyrm_state::Store::open(a_dir.join("state"), &key).unwrap();
         reg.apply(wyrm_admin::registry::Op::SetOption {
-            name: "enable_quarantine".into(),
+            name: wyrm_admin::registry::OptionName::EnableQuarantine,
             on: false,
         })
         .unwrap();
@@ -11530,8 +11535,8 @@ const BACKUP_PASS: &str = "backup passphrase 2026";
 async fn backup_done(env: &Env, id: &str) -> wyrm_admin::control::backups::Job {
     eventually("backup done", 60, || async {
         let j = env.ctl.backups().get(id)?;
-        assert_ne!(j.status, "failed", "backup {id}: {}", j.error);
-        (j.status == "done").then_some(j)
+        assert_ne!(j.status.name(), "failed", "backup {id}: {}", j.error);
+        (j.status.name() == "done").then_some(j)
     })
     .await
 }
@@ -11708,7 +11713,7 @@ async fn backup_while_writing() {
     let job = backup_done(&env, &id).await;
     writer.abort();
     assert_eq!(job.progress, 100);
-    assert_eq!(job.kind, "full");
+    assert_eq!(job.kind.name(), "full");
     assert!(job.sections.contains(&"control".to_owned()), "always made");
     assert!(job.expires > job.created + 6 * 86_400);
 
@@ -11752,7 +11757,7 @@ async fn backup_while_writing() {
     let m = r.manifest().clone();
     assert_eq!(m.site, SITE);
     assert_eq!(m.kind, wyrm_admin::backup::Kind::Broker);
-    assert_eq!(m.sealed.how, "passphrase");
+    assert_eq!(m.sealed.how.name(), "passphrase");
     assert!(m.schemas.contains_key("registry") && m.schemas.contains_key("flows"));
     for s in [
         "control",
@@ -11849,7 +11854,7 @@ async fn backup_while_writing() {
     assert_ne!(id2, id);
     // without a passphrase: link secrets sealed for this site alone
     let m2 = wyrm_admin::backup::read_manifest(&dir.join("backups").join(&job2.file)).unwrap();
-    assert_eq!(m2.sealed.how, "broker");
+    assert_eq!(m2.sealed.how.name(), "broker");
     assert!(m2.section("keys").is_none());
     assert!(m2
         .section("links")
@@ -12016,7 +12021,7 @@ async fn link_backup_restores_on_a_second_broker() {
             .unwrap(),
     );
     let site_job = backup_done(&a, &site_only).await;
-    assert_eq!(site_job.sealed, "broker");
+    assert_eq!(site_job.sealed.map(|h| h.name()), Some("broker"));
     let site_bytes = download_backup(&ca, &site_only, 16 << 20).await;
     assert!(!site_bytes.windows(9).any(|w| w == b"pw-123456"));
     let id = backup_id(
@@ -12032,7 +12037,7 @@ async fn link_backup_restores_on_a_second_broker() {
         .unwrap(),
     );
     let job = backup_done(&a, &id).await;
-    assert_eq!((job.kind.as_str(), job.link.as_str()), ("link", "dev1"));
+    assert_eq!((job.kind.name(), job.link.as_str()), ("link", "dev1"));
     assert!(job.file.ends_with(".wyrm-link"));
     assert_eq!(job.sections, ["settings", "data"]);
     let bytes = download_backup(&ca, &id, 16 << 20).await;
@@ -12183,7 +12188,7 @@ async fn link_backup_restores_on_a_second_broker() {
     // the restore point is sealed for this broker: it opens here without a
     // passphrase and holds c3; the other broker cannot open it
     let pm = wyrm_admin::backup::read_manifest(&point).unwrap();
-    assert_eq!(pm.sealed.how, "broker");
+    assert_eq!(pm.sealed.how.name(), "broker");
     assert!(pm.section("data").is_some() && pm.section("package").is_none());
     let secrets_b = wyrm_admin::secret::load_or_create_key(&dir_b.join("secrets.key")).unwrap();
     assert!(pm.key(None, Some(&secrets_b)).is_err());
@@ -12210,7 +12215,7 @@ async fn link_backup_restores_on_a_second_broker() {
     );
     let job = backup_done(&a, &id).await;
     let pkg = download_backup(&ca, &id, 16 << 20).await;
-    assert_eq!(job.sealed, "none");
+    assert_eq!(job.sealed.map(|h| h.name()), Some("none"));
     assert!(!b.ctl.registry().packages.contains_key("mockpkg"));
     // the package's manifest edited in the file (an entry outside the
     // package): the install validator refuses it, nothing is registered
@@ -12447,7 +12452,7 @@ async fn backup_restores_into_a_fresh_data_dir() {
         .backups()
         .list()
         .iter()
-        .any(|j| j.kind == "pre-restore" && j.status == "done"));
+        .any(|j| j.kind.name() == "pre-restore" && j.status.name() == "done"));
     drop(cb);
     eventually("the broker stops for the restore", 30, || async {
         b.task.is_finished().then_some(())
@@ -12953,7 +12958,7 @@ async fn package_update_that_loses_keys_rolls_back() {
     assert_eq!(sealed.len(), 1);
     let pm = wyrm_admin::backup::read_manifest(&sealed[0].path()).unwrap();
     assert_eq!(pm.kind, wyrm_admin::backup::Kind::Link);
-    assert_eq!(pm.sealed.how, "broker");
+    assert_eq!(pm.sealed.how.name(), "broker");
     let data = pm.section("data").expect("the private data");
     assert!(data.files.iter().all(|f| f.sealed));
     assert!(data
@@ -13444,8 +13449,13 @@ async fn backup_is_sent_through_a_file_store_link() {
     );
     let done = eventually("the backup is sent", 60, || async {
         let j = env.ctl.backups().get(&id)?;
-        assert_ne!(j.send_status, "failed", "{}", j.send_error);
-        (j.send_status == "done").then_some(j)
+        assert_ne!(
+            j.send_status.map(|s| s.name()),
+            Some("failed"),
+            "{}",
+            j.send_error
+        );
+        (j.send_status.map(|s| s.name()) == Some("done")).then_some(j)
     })
     .await;
     assert_eq!(
@@ -13541,8 +13551,15 @@ async fn backup_is_sent_through_a_file_store_link() {
     .unwrap();
     eventually("the second copy is sent", 60, || async {
         let j = env.ctl.backups().get(&id)?;
-        assert_ne!(j.send_status, "failed", "{}", j.send_error);
-        (j.send_status == "done" && j.sent_to.ends_with("2026/copy.wyrm-backup")).then_some(())
+        assert_ne!(
+            j.send_status.map(|s| s.name()),
+            Some("failed"),
+            "{}",
+            j.send_error
+        );
+        (j.send_status.map(|s| s.name()) == Some("done")
+            && j.sent_to.ends_with("2026/copy.wyrm-backup"))
+        .then_some(())
     })
     .await;
     assert_eq!(
@@ -13664,10 +13681,10 @@ async fn link_backup_of_a_process_link() {
         .await,
     );
     let job = backup_done(&env, &id).await;
-    assert_eq!((job.kind.as_str(), job.link.as_str()), ("link", "u1"));
+    assert_eq!((job.kind.name(), job.link.as_str()), ("link", "u1"));
     assert_eq!(job.sections, ["settings", "data", "package"]);
     // no passphrase: sealed for this site
-    assert_eq!(job.sealed, "broker");
+    assert_eq!(job.sealed.map(|h| h.name()), Some("broker"));
     let m = wyrm_admin::backup::read_manifest(&dir.join("backups").join(&job.file)).unwrap();
     let link = m.link.as_ref().unwrap();
     assert_eq!(

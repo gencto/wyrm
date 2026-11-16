@@ -115,16 +115,19 @@ pub struct Found {
     pub content_type: Option<String>,
 }
 
+/// The path of an href as written: after the authority of an absolute URL (the
+/// server wrote it; only the scheme is checked, [`wyrm_core::weburl::split_scheme`]),
+/// else the href itself.
+fn href_path_raw(href: &str) -> &str {
+    match wyrm_core::weburl::split_scheme(href) {
+        Some((_, rest)) => rest.find('/').map_or("/", |j| &rest[j..]),
+        None => href,
+    }
+}
+
 /// The decoded path of an href (an absolute URL or an absolute path).
 pub fn href_path(href: &str) -> Option<String> {
-    let path = match href.find("://") {
-        Some(i) => {
-            let rest = &href[i + 3..];
-            rest.find('/').map_or("/", |j| &rest[j..])
-        }
-        None => href,
-    };
-    pct_decode(path)
+    pct_decode(href_path_raw(href))
 }
 
 /// The responses of a `207 Multi-Status`.
@@ -139,13 +142,7 @@ pub fn parse_multistatus(body: &str) -> Result<Vec<Found>, String> {
             continue;
         };
         // an absolute URL or an absolute path
-        let path = match href.find("://") {
-            Some(i) => {
-                let rest = &href[i + 3..];
-                rest.find('/').map_or("/", |j| &rest[j..])
-            }
-            None => href,
-        };
+        let path = href_path_raw(href);
         let Some(path) = pct_decode(path) else {
             continue;
         };
