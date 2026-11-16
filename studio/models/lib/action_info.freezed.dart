@@ -15,9 +15,11 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$ActionInfo {
 
- String get name; String? get display;/// The menu group (`edit`, `secrets`, `Install Link`).
- String? get group;/// The level a call needs: `read`, `write` or `config`.
- Perm get level; IList<ParamSpec> get params;/// `stream`, `void`, or a type name.
+ String get name;/// The level a call needs (the action's own, else the node's
+/// `invokable`; an action with neither is not callable and is no
+/// [ActionInfo]).
+ Perm get level; String? get display;/// The menu group (`edit`, `secrets`, `Install Link`).
+ String? get group; IList<ParamSpec> get params;/// `stream`, `void`, or a type name.
  String? get result;
 /// Create a copy of ActionInfo
 /// with the given fields replaced by the non-null parameter values.
@@ -30,20 +32,20 @@ $ActionInfoCopyWith<ActionInfo> get copyWith => _$ActionInfoCopyWithImpl<ActionI
 @override
 bool operator ==(Object other) {
   final _this = this as ActionInfo;
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is ActionInfo&&(identical(other.name, _this.name) || other.name == _this.name)&&(identical(other.display, _this.display) || other.display == _this.display)&&(identical(other.group, _this.group) || other.group == _this.group)&&(identical(other.level, _this.level) || other.level == _this.level)&&const DeepCollectionEquality().equals(other.params, _this.params)&&(identical(other.result, _this.result) || other.result == _this.result));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is ActionInfo&&(identical(other.name, _this.name) || other.name == _this.name)&&(identical(other.level, _this.level) || other.level == _this.level)&&(identical(other.display, _this.display) || other.display == _this.display)&&(identical(other.group, _this.group) || other.group == _this.group)&&const DeepCollectionEquality().equals(other.params, _this.params)&&(identical(other.result, _this.result) || other.result == _this.result));
 }
 
 
 @override
 int get hashCode {
   final _this = this as ActionInfo;
-  return Object.hash(runtimeType,_this.name,_this.display,_this.group,_this.level,const DeepCollectionEquality().hash(_this.params),_this.result);
+  return Object.hash(runtimeType,_this.name,_this.level,_this.display,_this.group,const DeepCollectionEquality().hash(_this.params),_this.result);
 }
 
 @override
 String toString() {
   final _this = this as ActionInfo;
-  return 'ActionInfo(name: ${_this.name}, display: ${_this.display}, group: ${_this.group}, level: ${_this.level}, params: ${_this.params}, result: ${_this.result})';
+  return 'ActionInfo(name: ${_this.name}, level: ${_this.level}, display: ${_this.display}, group: ${_this.group}, params: ${_this.params}, result: ${_this.result})';
 }
 
 
@@ -54,7 +56,7 @@ abstract mixin class $ActionInfoCopyWith<$Res>  {
   factory $ActionInfoCopyWith(ActionInfo value, $Res Function(ActionInfo) _then) = _$ActionInfoCopyWithImpl;
 @useResult
 $Res call({
- String name, String? display, String? group, Perm level, IList<ParamSpec> params, String? result
+ String name, Perm level, String? display, String? group, IList<ParamSpec> params, String? result
 });
 
 
@@ -71,13 +73,13 @@ class _$ActionInfoCopyWithImpl<$Res>
 
 /// Create a copy of ActionInfo
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? name = null,Object? display = freezed,Object? group = freezed,Object? level = null,Object? params = null,Object? result = freezed,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? name = null,Object? level = null,Object? display = freezed,Object? group = freezed,Object? params = null,Object? result = freezed,}) {
   return _then(ActionInfo(
 name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
-as String,display: freezed == display ? _self.display : display // ignore: cast_nullable_to_non_nullable
+as String,level: null == level ? _self.level : level // ignore: cast_nullable_to_non_nullable
+as Perm,display: freezed == display ? _self.display : display // ignore: cast_nullable_to_non_nullable
 as String?,group: freezed == group ? _self.group : group // ignore: cast_nullable_to_non_nullable
-as String?,level: null == level ? _self.level : level // ignore: cast_nullable_to_non_nullable
-as Perm,params: null == params ? _self.params : params // ignore: cast_nullable_to_non_nullable
+as String?,params: null == params ? _self.params : params // ignore: cast_nullable_to_non_nullable
 as IList<ParamSpec>,result: freezed == result ? _self.result : result // ignore: cast_nullable_to_non_nullable
 as String?,
   ));
@@ -91,15 +93,17 @@ as String?,
 
 
 class _ActionInfo extends ActionInfo {
-  const _ActionInfo({required this.name, this.display, this.group, this.level = Perm.write, this.params = const IListConst([]), this.result}): super._();
+  const _ActionInfo({required this.name, required this.level, this.display, this.group, this.params = const IListConst([]), this.result}): super._();
   
 
 @override final  String name;
+/// The level a call needs (the action's own, else the node's
+/// `invokable`; an action with neither is not callable and is no
+/// [ActionInfo]).
+@override final  Perm level;
 @override final  String? display;
 /// The menu group (`edit`, `secrets`, `Install Link`).
 @override final  String? group;
-/// The level a call needs: `read`, `write` or `config`.
-@override@JsonKey() final  Perm level;
 @override@JsonKey() final  IList<ParamSpec> params;
 /// `stream`, `void`, or a type name.
 @override final  String? result;
@@ -114,18 +118,18 @@ _$ActionInfoCopyWith<_ActionInfo> get copyWith => __$ActionInfoCopyWithImpl<_Act
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is _ActionInfo&&(identical(other.name, name) || other.name == name)&&(identical(other.display, display) || other.display == display)&&(identical(other.group, group) || other.group == group)&&(identical(other.level, level) || other.level == level)&&const DeepCollectionEquality().equals(other.params, params)&&(identical(other.result, result) || other.result == result));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _ActionInfo&&(identical(other.name, name) || other.name == name)&&(identical(other.level, level) || other.level == level)&&(identical(other.display, display) || other.display == display)&&(identical(other.group, group) || other.group == group)&&const DeepCollectionEquality().equals(other.params, params)&&(identical(other.result, result) || other.result == result));
 }
 
 
 @override
 int get hashCode {
-    return Object.hash(runtimeType,name,display,group,level,const DeepCollectionEquality().hash(params),result);
+    return Object.hash(runtimeType,name,level,display,group,const DeepCollectionEquality().hash(params),result);
 }
 
 @override
 String toString() {
-    return 'ActionInfo(name: $name, display: $display, group: $group, level: $level, params: $params, result: $result)';
+    return 'ActionInfo(name: $name, level: $level, display: $display, group: $group, params: $params, result: $result)';
 }
 
 
@@ -136,7 +140,7 @@ abstract mixin class _$ActionInfoCopyWith<$Res> implements $ActionInfoCopyWith<$
   factory _$ActionInfoCopyWith(_ActionInfo value, $Res Function(_ActionInfo) _then) = __$ActionInfoCopyWithImpl;
 @override @useResult
 $Res call({
- String name, String? display, String? group, Perm level, IList<ParamSpec> params, String? result
+ String name, Perm level, String? display, String? group, IList<ParamSpec> params, String? result
 });
 
 
@@ -153,13 +157,13 @@ class __$ActionInfoCopyWithImpl<$Res>
 
 /// Create a copy of ActionInfo
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? name = null,Object? display = freezed,Object? group = freezed,Object? level = null,Object? params = null,Object? result = freezed,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? name = null,Object? level = null,Object? display = freezed,Object? group = freezed,Object? params = null,Object? result = freezed,}) {
   return _then(_ActionInfo(
 name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
-as String,display: freezed == display ? _self.display : display // ignore: cast_nullable_to_non_nullable
+as String,level: null == level ? _self.level : level // ignore: cast_nullable_to_non_nullable
+as Perm,display: freezed == display ? _self.display : display // ignore: cast_nullable_to_non_nullable
 as String?,group: freezed == group ? _self.group : group // ignore: cast_nullable_to_non_nullable
-as String?,level: null == level ? _self.level : level // ignore: cast_nullable_to_non_nullable
-as Perm,params: null == params ? _self.params : params // ignore: cast_nullable_to_non_nullable
+as String?,params: null == params ? _self.params : params // ignore: cast_nullable_to_non_nullable
 as IList<ParamSpec>,result: freezed == result ? _self.result : result // ignore: cast_nullable_to_non_nullable
 as String?,
   ));

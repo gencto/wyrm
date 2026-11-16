@@ -230,14 +230,13 @@ mixin Selectors {
 extension TaskApproval on Selectors {
   /// The user decides for [t]: its asker, or `config` on its `approve`.
   /// The link takes the level of the token on
-  /// `<agent>/tasks/<id>/~act/approve` (first match, [SelectSite.levelSigned]),
+  /// `<agent>/tasks/<id>/~act/approve` (first match, [SelectSite.levelOn]),
   /// not the highest grant on the link.
   bool decidesFor(AgentTask t) {
     final agent = assistant.agent;
     return askedByUser(t) ||
         (agent != null &&
-            site.levelSigned('$agent/tasks/${t.id}/~act/approve') >=
-                Perm.config);
+            site.levelOn('$agent/tasks/${t.id}/~act/approve') >= Perm.config);
   }
 
   /// The user may send a follow-up of [t] (`ask {parent}`, ADR 0049 §9):
@@ -246,7 +245,7 @@ extension TaskApproval on Selectors {
   bool mayFollow(AgentTask t) {
     final agent = assistant.agent;
     return askedByUser(t) ||
-        (agent != null && site.levelSigned('$agent/~act/ask') >= Perm.config);
+        (agent != null && site.levelOn('$agent/~act/ask') >= Perm.config);
   }
 
   /// The logged-in user asked [t] (the record's owner is `user:<name>`).
@@ -1633,17 +1632,19 @@ extension type SelectSite(AppState _state) {
   /// Returns isWaiting
   bool get isWaiting => _state.wait.isWaitingForType<RetrieveSitesAction>();
 
-  /// The user's level on [key]: the highest grant whose pattern matches it
-  /// (`none` when none does). Grants below an upstream are rewritten for
-  /// the downstream site by the gateway, so the patterns are full keys.
+  /// The user's level on [key], as the gateway signs it (`Grants::perm`,
+  /// roles.rs) and the link reads it (spec 04, `wyrm_core::ptok::level_on`):
+  /// the FIRST grant whose pattern matches decides, so a narrower grant
+  /// before a wider one (a `read`, or a `none`) wins over it; no match is
+  /// `none`. Capped by `max`. Grants below an upstream are rewritten for the
+  /// downstream site by the gateway, so the patterns are full keys.
   Perm levelOn(String key) {
-    var best = Perm.none;
     for (final g in _state.site.grants) {
-      if (g.level > best && keyMatches(g.key, key)) {
-        best = g.level;
+      if (keyMatches(g.key, key)) {
+        return _capped(g.level);
       }
     }
-    return _capped(best);
+    return Perm.none;
   }
 
   /// [level] capped by the session's `max` (`/api/me`), as the gateway caps
@@ -1654,20 +1655,6 @@ extension type SelectSite(AppState _state) {
     _? => level,
     null => Perm.none,
   };
-
-  /// The level a token the gateway mints for [key] carries: the first
-  /// grant whose pattern matches it decides, as at the gateway and at the
-  /// link (spec 04, `wyrm_core::ptok::level_on`), so a `none` before a
-  /// wider grant denies. Use it where a link acts on the token's level
-  /// (the agent's `approve`); [levelOn] is the highest matching grant.
-  Perm levelSigned(String key) {
-    for (final g in _state.site.grants) {
-      if (keyMatches(g.key, key)) {
-        return _capped(g.level);
-      }
-    }
-    return Perm.none;
-  }
 
   /// The user has at least [level] on [key].
   bool can(Perm level, String key) => levelOn(key) >= level;

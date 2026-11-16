@@ -18,6 +18,7 @@ import 'package:wyrm_client/wyrm_client.dart'
 
 import '../common/app_store.dart';
 import '../common/forms.dart';
+import '../mappers/rights_mappers.dart';
 
 /// A field of Access's forms, by the id the form keys it with.
 enum AccessField {
@@ -174,6 +175,7 @@ Future<void> addGrant(BuildContext context) {
         label: S.current.colLevel,
         kind: ParamKind.choice,
         choices: [for (final p in Perm.values) p.wire],
+        choiceLabels: {for (final p in Perm.values) p.wire: p.access.label},
         value: Perm.read.wire,
         required: true,
         onChanged: (_) {},

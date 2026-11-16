@@ -1,7 +1,9 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/error_kind.dart';
 import 'package:models/staged_change.dart';
 import 'package:models/staged_change_kind.dart';
 
+import '../../../wyrm/failures.dart';
 import '../../../wyrm/mappers/value_text.dart';
 import '../../app_state.dart';
 import '../../changes/actions/add_changes_action.dart';
@@ -54,11 +56,17 @@ class StageValueAction extends Action {
   @override
   AppState? reduce() {
     // a value whose meta names no level cannot be set: nothing is staged,
-    // and no level is assumed for it
+    // no level is assumed for it, and the user is told why
     final level =
         state.nodes.detail[key]?.writable ?? state.nodes.table[key]?.writable;
     if (level == null) {
-      return null;
+      throw StudioException.said(
+        ErrorKind.gone,
+        'Its meta names no level it can be set at, so nothing was staged.',
+        key: key,
+        call: 'set',
+        write: true,
+      );
     }
     dispatchSync(
       AddChangesAction(

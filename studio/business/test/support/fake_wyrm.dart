@@ -267,6 +267,7 @@ class FakeSession implements WyrmSession {
     FakeWyrmApi? api,
     GatewayIdentity? who,
     FakeDevices? devices,
+    this.me,
   }) : api = api ?? FakeWyrmApi(),
        who =
            who ??
@@ -288,6 +289,10 @@ class FakeSession implements WyrmSession {
   String get userName => who.sub.replaceFirst('user:', '');
 
   final GatewayIdentity who;
+
+  /// `/api/me` as it comes over the wire, when a test gives it: decoded as
+  /// the real session does (`GatewayIdentity.fromValue`); else [who].
+  final Value? me;
   // ignore: close_sinks, a test's session lives as long as the test.
   final connected = StreamController<bool>.broadcast();
   var closed = false;
@@ -299,7 +304,10 @@ class FakeSession implements WyrmSession {
   Uri get base => Uri.parse('http://127.0.0.1:8445');
 
   @override
-  Future<GatewayIdentity> identity() async => who;
+  Future<GatewayIdentity> identity() async => switch (me) {
+    final v? => GatewayIdentity.fromValue(v),
+    null => who,
+  };
 
   /// The users `/api/users` answers, by name.
   final userTable = <String, GatewayUser>{};

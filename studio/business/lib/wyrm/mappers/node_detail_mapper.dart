@@ -14,11 +14,16 @@ NodeDetail nodeDetailOf(String key, NodeMeta m) => NodeDetail(
   type: m.ty,
   unit: m.unit?.toString(),
   writable: _setLevel(m.writable),
-  invokable: m.invokable?.wireName,
+  invokable: m.invokable,
   choices: (m.enumValues ?? const <String>[]).lock,
   actions: [
     for (final e in (m.actions ?? const <String, ActionMeta>{}).entries)
-      if (e.value.level != Perm.none) actionInfoOf(e.key, e.value),
+      // as the link checks a call (`act.level.or(invokable)`, wyrm-link-sdk
+      // runtime): an action with no level of its own takes the node's
+      // `invokable`; with neither, or `none`, it is not callable
+      if (e.value.level ?? m.invokable case final level?
+          when level != Perm.none)
+        actionInfoOf(e.key, e.value, level),
   ].lock,
   cfg: {
     for (final e in (m.cfg ?? const <String, Value>{}).entries)
@@ -41,12 +46,12 @@ Perm? _setLevel(Writable? w) => switch (w) {
   Writable.never || null => null,
 };
 
-/// One action of a node's meta.
-ActionInfo actionInfoOf(String name, ActionMeta a) => ActionInfo(
+/// One action of a node's meta, callable at [level].
+ActionInfo actionInfoOf(String name, ActionMeta a, Perm level) => ActionInfo(
   name: name,
+  level: level,
   display: a.display,
   group: a.group,
-  level: a.level ?? Perm.write,
   params: paramSpecsOf(a).lock,
   result: switch (a.result) {
     ResultStream() => 'stream',

@@ -870,7 +870,7 @@ void main() {
         me.site.levelOn('wy/central/downstream/modbus/tcp/~act/add_device'),
         Perm.config,
       );
-      expect(me.site.levelSigned('$agent/tasks/t-1/~act/approve'), Perm.write);
+      expect(me.site.levelOn('$agent/tasks/t-1/~act/approve'), Perm.write);
       expect(
         me.site.levelOn('wy/central/sys/links/agent/~act/update'),
         Perm.read,
@@ -898,7 +898,7 @@ void main() {
       );
       expect(capped.site.levelOn('wy/central/downstream/x/~set'), Perm.write);
       expect(
-        capped.site.levelSigned('$agent/tasks/t-1/~act/approve'),
+        capped.site.levelOn('$agent/tasks/t-1/~act/approve'),
         Perm.write,
       );
       expect(capped.decidesFor(t('user:olena')), isFalse);

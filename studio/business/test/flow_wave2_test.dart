@@ -327,6 +327,7 @@ void main() {
     const caps = FlowCaps(scopes: true, trigger: true, args: true);
     final ramp = ActionInfo(
       name: 'ramp',
+      level: Perm.write,
       params: [
         const ParamSpec(name: 'target', type: TypeCode.number, required: true),
         const ParamSpec(
@@ -976,6 +977,7 @@ void main() {
         const ActionPick('wy/central/downstream/plc/pump', 'ramp'),
         action: ActionInfo(
           name: 'ramp',
+          level: Perm.write,
           params: [
             const ParamSpec(
               name: 'target',

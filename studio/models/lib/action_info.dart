@@ -11,13 +11,15 @@ part 'action_info.freezed.dart';
 abstract class ActionInfo with _$ActionInfo {
   const factory ActionInfo({
     required String name,
+
+    /// The level a call needs (the action's own, else the node's
+    /// `invokable`; an action with neither is not callable and is no
+    /// [ActionInfo]).
+    required Perm level,
     String? display,
 
     /// The menu group (`edit`, `secrets`, `Install Link`).
     String? group,
-
-    /// The level a call needs: `read`, `write` or `config`.
-    @Default(Perm.write) Perm level,
     @Default(IListConst([])) IList<ParamSpec> params,
 
     /// `stream`, `void`, or a type name.

@@ -1,6 +1,7 @@
 import 'package:business/redux/app_state.dart';
 import 'package:business/wyrm/decode/access.dart';
 import 'package:business/wyrm/decode/decoded.dart';
+import 'package:business/wyrm/mappers/node_detail_mapper.dart';
 import 'package:business/wyrm/rights.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -34,11 +35,38 @@ void main() {
       Grant(key: 'wy/edge/**', level: Perm.config),
     ]);
 
-    test('the highest matching grant wins', () {
+    test('the first matching grant decides, as the gateway signs it', () {
       expect(r.site.levelOn('wy/central/downstream/modbus/a'), Perm.write);
       expect(r.site.levelOn('wy/central/sys/links'), Perm.read);
       expect(r.site.levelOn('wy/edge/sys'), Perm.config);
       expect(r.site.levelOn('wy/central/sys'), Perm.none);
+    });
+
+    test('viewer then operator: read on downstream, as the gateway signs', () {
+      // the gateway's default roles in role order (`Grants::perm`, the
+      // first grant that intersects the key): viewer's read comes first
+      final s = _session(const [
+        Grant(key: 'wy/central/downstream/**', level: Perm.read),
+        Grant(key: 'wy/central/downstream/**', level: Perm.write),
+      ], max: Perm.write);
+      expect(s.site.levelOn('wy/central/downstream/m/sp'), Perm.read);
+      expect(s.site.can(Perm.write, 'wy/central/downstream/m/sp'), isFalse);
+      expect(
+        s.site.lacks(Perm.write, 'wy/central/downstream/m/sp'),
+        const Lack(Perm.write, 'downstream/m/sp'),
+      );
+    });
+
+    test('a none before a wider grant denies what it covers', () {
+      final s = _session(const [
+        Grant(key: 'wy/central/sys/**', level: Perm.none),
+        Grant(key: 'wy/central/**', level: Perm.config),
+      ]);
+      expect(s.site.levelOn('wy/central/sys/links'), Perm.none);
+      expect(s.site.can(Perm.list, 'wy/central/sys/links'), isFalse);
+      expect(s.site.mayRead('wy/central/sys/links'), isFalse);
+      // what the none does not cover keeps the wider grant
+      expect(s.site.levelOn('wy/central/downstream/x'), Perm.config);
     });
 
     test('a missing level is a typed lack, never a hidden control', () {
@@ -57,8 +85,12 @@ void main() {
     });
   });
 
-  // Each of these passed for anyone on main 7ac1beee, where a level was a
-  // name ranked by its place in a list (−1 for one not in it).
+  // What a right is when it is missing or not known. On main 7ac1beee,
+  // where a level was a name ranked by its place in a list (-1 for one not
+  // in it), a user with no grant could read (`mayRead`), a missing `max`
+  // lifted the cap, a role grant whose level is none was kept, and a
+  // staged change was `write` unless told (rights_actions_test.dart has
+  // what that sent). The other cases here held on main too; they keep it.
   group('the check fails closed', () {
     test(
       'each level boundary: a grant gives its level and every lower one',
@@ -93,7 +125,7 @@ void main() {
         Grant(key: 'wy/central/**', level: Perm.config),
       ], max: null);
       expect(s.site.levelOn('wy/central/sys'), Perm.none);
-      expect(s.site.levelSigned('wy/central/sys'), Perm.none);
+      expect(s.site.levelOn('wy/central/sys'), Perm.none);
       expect(s.site.can(Perm.read, 'wy/central/sys'), isFalse);
       expect(s.site.mayRead('wy/central/sys'), isFalse);
     });
@@ -104,7 +136,7 @@ void main() {
           Grant(key: 'wy/central/**', level: Perm.config),
         ], max: max);
         expect(s.site.levelOn('wy/central/sys'), max);
-        expect(s.site.levelSigned('wy/central/sys'), max);
+        expect(s.site.levelOn('wy/central/sys'), max);
         expect(s.site.can(Perm.config, 'wy/central/sys'), max == Perm.config);
       }
     });
@@ -174,7 +206,33 @@ void main() {
       );
     });
 
-    test('a staged change states its level; none is assumed', () {
+    test("an action's level is its own, else the node's invokable; with "
+        'neither it is not callable', () {
+      NodeMeta meta({Perm? invokable}) => NodeMeta(
+        invokable: invokable,
+        actions: {
+          'own': ActionMeta(level: Perm.config),
+          'plain': ActionMeta(),
+          'off': ActionMeta(level: Perm.none),
+        },
+      );
+      final read = nodeDetailOf('k', meta(invokable: Perm.read));
+      expect(read.invokable, Perm.read);
+      expect(
+        {for (final a in read.actions) a.name: a.level},
+        {
+          'own': Perm.config,
+          'plain': Perm.read,
+        },
+      );
+      final none = nodeDetailOf('k', meta());
+      expect([for (final a in none.actions) a.name], ['own']);
+      final closed = nodeDetailOf('k', meta(invokable: Perm.none));
+      expect([for (final a in closed.actions) a.name], ['own']);
+    });
+
+    test('a staged change is checked at the level it states', () {
+      // `level` is required: a change with none does not compile
       const c = StagedChange(
         id: '1',
         op: 'Edit',
@@ -183,7 +241,18 @@ void main() {
         to: '1',
         level: Perm.config,
       );
-      expect(c.level, Perm.config);
+      final writer = _session(const [
+        Grant(key: 'wy/central/**', level: Perm.write),
+      ]);
+      final admin = _session(const [
+        Grant(key: 'wy/central/**', level: Perm.config),
+      ]);
+      expect(writer.site.can(c.level, c.key), isFalse);
+      expect(
+        writer.site.lacks(c.level, c.key),
+        const Lack(Perm.config, 'sys/x'),
+      );
+      expect(admin.site.can(c.level, c.key), isTrue);
     });
   });
 }
