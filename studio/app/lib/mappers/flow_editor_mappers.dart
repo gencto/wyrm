@@ -466,8 +466,15 @@ extension RowViewVm on RowView {
 }
 
 /// A block on the canvas.
+/// The render model made of each block view, kept while the view is the
+/// same object: a block that did not change is drawn from the same model,
+/// so the canvas can leave it as it is.
+final _blockVms = Expando<FlowBlockVm>('FlowBlockVm of a BlockView');
+
 extension BlockViewVm on BlockView {
-  FlowBlockVm get vm => FlowBlockVm(
+  FlowBlockVm get vm => _blockVms[this] ??= _vm;
+
+  FlowBlockVm get _vm => FlowBlockVm(
     id: id,
     boundary: boundary?.vm,
     caption: caption.unlock,

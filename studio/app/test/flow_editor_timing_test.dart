@@ -88,12 +88,13 @@ void main() {
     // so every change builds the page again.
     final (read, readBuilt) = await time('$plant/storage/dvpsm/cmd/ack');
     expect(app.inBlock('c_ack', '49'), findsOneWidget);
-    // A point nothing on the page reads: the view-model is made again; the
-    // page is built again only when the view-model does not compare equal
-    // (before the rewrite it never does: `page built 50/50`).
+    // A point nothing on the page reads: the view-model is made again and
+    // compares equal, so the page is not built again (before the rewrite
+    // it always was: `page built 50/50`).
     final (unread, unreadBuilt) = await time(
       '$plant/downstream/elsewhere/x',
     );
+    expect(unreadBuilt, 0);
     expect(read.every((us) => us > 0), isTrue);
     // The count is the page's: frames with no change build nothing.
     final (_, idleBuilt) = await time(null);

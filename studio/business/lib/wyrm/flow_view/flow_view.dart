@@ -444,6 +444,10 @@ List<LiveValue?> _liveOf(AppState s, FlowBase base) => [
 ];
 
 final _blocks = Memo<IList<BlockView>>();
+
+/// The blocks last made, by id: a block whose view comes out equal is
+/// kept as the same object, so what draws it can tell it did not change.
+var _blocksShown = const <String, BlockView>{};
 final _wires = Memo<IList<WireView>>();
 final _inspector = Memo<InspectorView?>();
 final _summary = Memo<FlowSummaryView?>();
@@ -494,7 +498,7 @@ FlowView flowViewOf(AppState s, String routeId) {
     ],
     () {
       final l = flowLiveOf(s, base, previewing: previewing);
-      return [
+      final made = [
         for (final x in d?.blocks.values ?? const <FlowBlock>[])
           blockViewOf(
             x,
@@ -511,7 +515,10 @@ FlowView flowViewOf(AppState s, String routeId) {
             nodes: s.nodes.table,
             customBlocks: base.caps.blocks,
           ),
-      ].lock;
+      ];
+      final kept = keepSame(made, _blocksShown);
+      _blocksShown = {for (final b in kept) b.id: b};
+      return kept.lock;
     },
   );
   final wires = _wires.of(
@@ -774,6 +781,17 @@ FlowView flowViewOf(AppState s, String routeId) {
     ),
   );
 }
+
+/// [made] with every block that equals the one [before] held under its id
+/// replaced by that one: one block's change makes one new object.
+List<BlockView> keepSame(List<BlockView> made, Map<String, BlockView> before) =>
+    [
+      for (final b in made)
+        switch (before[b.id]) {
+          final old? when old == b => old,
+          _ => b,
+        },
+    ];
 
 /// What the editor of [base] subscribes to and reads ([FlowFollow]).
 FlowFollow followOf(AppState s, FlowBase base) {

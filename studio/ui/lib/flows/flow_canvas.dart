@@ -458,6 +458,52 @@ class _FlowCanvasState extends State<FlowCanvas> {
 
   // ---------- what is drawn ----------
 
+  /// The blocks' widgets as last built, by id.
+  final _built = <String, _BuiltBlock>{};
+
+  /// The widget of block [b]: the one built before while its render model
+  /// is the same object and it is lit the same, so Flutter leaves a block
+  /// that did not change as it is. Its callbacks call this canvas's own
+  /// when they run.
+  Widget _block(
+    FlowBlockVm b, {
+    required String? lit,
+    required RowLight light,
+  }) {
+    final old = _built[b.id];
+    final reacts = (
+      widget.onOpen != null,
+      widget.onResize != null,
+      widget.onViewField != null,
+      widget.onRowAction != null,
+    );
+    if (old != null &&
+        identical(old.vm, b) &&
+        old.lit == lit &&
+        old.light == light &&
+        old.reacts == reacts) {
+      return old.widget;
+    }
+    final built = FlowBlockView(
+      key: ValueKey(b.id),
+      vm: b,
+      onOpen: widget.onOpen == null ? null : () => widget.onOpen?.call(b.id),
+      onResize: widget.onResize == null
+          ? null
+          : (r) => widget.onResize?.call(r),
+      onView: widget.onViewField == null
+          ? null
+          : (r) => widget.onViewField?.call(r),
+      onRowAction: widget.onRowAction == null
+          ? null
+          : (r) => widget.onRowAction?.call(r),
+      lit: lit,
+      light: light,
+    );
+    _built[b.id] = _BuiltBlock(b, lit, light, reacts, built);
+    return built;
+  }
+
   /// The blocks as drawn: the moving ones where the pointer has them, and
   /// under a marquee the selection it would give.
   List<FlowBlockVm> get _blocks {
@@ -1344,15 +1390,8 @@ class _FlowCanvasState extends State<FlowCanvas> {
                             Positioned(
                               left: b.x,
                               top: b.y,
-                              child: FlowBlockView(
-                                key: ValueKey(b.id),
-                                vm: b,
-                                onOpen: widget.onOpen == null
-                                    ? null
-                                    : () => widget.onOpen!(b.id),
-                                onResize: widget.onResize,
-                                onView: widget.onViewField,
-                                onRowAction: widget.onRowAction,
+                              child: _block(
+                                b,
                                 lit: wire?.over?.block == b.id
                                     ? wire!.over!.key
                                     : (hovered?.from == b.id ? source : null),
@@ -1548,6 +1587,17 @@ class _FlowCanvasState extends State<FlowCanvas> {
 
 /// The zoom (a click: back to 100 %) and the `?` of the shortcut card,
 /// beside the legend.
+/// A block's widget as built, with what it was built from.
+final class _BuiltBlock {
+  const _BuiltBlock(this.vm, this.lit, this.light, this.reacts, this.widget);
+
+  final FlowBlockVm vm;
+  final String? lit;
+  final RowLight light;
+  final (bool, bool, bool, bool) reacts;
+  final Widget widget;
+}
+
 class _CanvasTools extends StatelessWidget {
   const _CanvasTools({
     required this.zoom,

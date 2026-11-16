@@ -154,6 +154,33 @@ void main() {
       expect(identical(viewOf(read), w), isTrue);
     });
 
+    test('a value one block reads makes that block again, and only the '
+        'blocks it reaches', () {
+      final s = stateOf();
+      final before = {for (final b in viewOf(s).blocks) b.id: b};
+      final read = s.copyWith.live(
+        values: s.live.values.add(
+          ack,
+          LiveValue(time: DateTime.utc(2026), value: 49),
+        ),
+      );
+      final after = viewOf(read).blocks;
+      final changed = {
+        for (final b in after)
+          if (!identical(before[b.id], b)) b.id,
+      };
+      // The block that reads the point is new...
+      expect(changed, contains('c_ack'));
+      // ...and a block that is new shows something else: every other one
+      // is the same object.
+      for (final b in after) {
+        if (changed.contains(b.id)) {
+          expect(b, isNot(before[b.id]));
+        }
+      }
+      expect(changed.length, lessThan(after.length ~/ 4));
+    });
+
     test('what the editor follows', () {
       final f = viewOf(stateOf()).follow;
       expect(f.watch, contains(ack));
