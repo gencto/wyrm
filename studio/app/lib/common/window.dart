@@ -151,11 +151,10 @@ final class _NativeWindow extends AppWindow {
 
 /// Opens the desktop window without a title bar, where the user left it
 /// and as large, and keeps the store's `window` slice in step with it.
-void setUpWindow(Store<AppState> store) {
-  final window = WindowManager.instance.getCurrent();
-  if (window == null) {
-    return;
-  }
+void setUpWindow(Store<AppState> store) =>
+    _whenShown((window) => _setUpFrameless(window, store));
+
+void _setUpFrameless(Window window, Store<AppState> store) {
   _native.attach(window);
   // The style first: it sets the buttons back to its own default.
   window
@@ -183,11 +182,9 @@ void setUpWindow(Store<AppState> store) {
 /// not open (docs/design/specs/errors.md §6): centred, with the system's
 /// own title bar and buttons, since no store is there to keep a frame or to
 /// draw them.
-void setUpPlainWindow() {
-  final window = WindowManager.instance.getCurrent();
-  if (window == null) {
-    return;
-  }
+void setUpPlainWindow() => _whenShown(_setUpPlain);
+
+void _setUpPlain(Window window) {
   _native.attach(window);
   _toNormal(window);
   window
@@ -195,6 +192,32 @@ void setUpPlainWindow() {
     ..title = 'WYRM Studio'
     ..show()
     ..focus();
+}
+
+/// Runs [setUp] on the app's window: at once where nativeapi finds it
+/// before it is shown (macOS: the nib's window; Linux: a realized
+/// toplevel), else when it is first shown. The Windows runner shows its
+/// window on the first frame, and nativeapi finds a window there only as
+/// the active one.
+void _whenShown(void Function(Window window) setUp) {
+  const windows = WindowManager.instance;
+  final window = windows.getCurrent();
+  if (window != null) {
+    setUp(window);
+    return;
+  }
+  late final ListenerId waiting;
+  waiting = windows.addListener((event) {
+    if (event is! WindowCreatedEvent) {
+      return;
+    }
+    final shown = windows.get(event.windowId);
+    if (shown == null) {
+      return;
+    }
+    windows.removeListener(waiting);
+    setUp(shown);
+  });
 }
 
 /// A window the platform restored full screen, maximized or minimized
