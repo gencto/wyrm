@@ -272,22 +272,27 @@ fn wasm_world(m: &Manifest, path: &Path, entry: &str) -> Result<Option<Capabilit
         // a `wyrm:app/host` version this broker does not run is refused here
         ComponentWorld::App => {
             let v = wyrm_wasm_host::app_version(&bytes).map_err(|e| format!("{entry}: {e}"))?;
-            match m.world.map(PackageWorld::name) {
-                Some(w) if w.starts_with("wyrm:app@") => format!("wyrm:app@{v}"),
-                _ => world.name().to_owned(),
-            }
+            PackageWorld::of_app_version(v)
+                .ok_or_else(|| format!("{entry}: wyrm:app@{v}: not a world a package names"))?
         }
-        _ => world.name().to_owned(),
+        ComponentWorld::Driver => PackageWorld::Driver,
+        ComponentWorld::Point => PackageWorld::Point,
     };
-    if let Some(w) = m.world.map(PackageWorld::name).filter(|w| *w != actual) {
+    if let Some(w) = m.world.filter(|w| !w.admits(actual)) {
+        // said as the manifest says it: with the version when it names one
+        let shown = if w.app_version().is_some() {
+            actual
+        } else {
+            actual.plain()
+        };
         return Err(format!(
-            "invalid_parameter: the manifest says world {w:?}, the component is {actual:?}"
+            "invalid_parameter: the manifest says world \"{w}\", the component is \"{shown}\""
         ));
     }
     if world != ComponentWorld::App {
         if m.capabilities.is_some() {
             return Err(format!(
-                "invalid_parameter: capabilities: only an app component has them, this one is {actual:?}"
+                "invalid_parameter: capabilities: only an app component has them, this one is \"{actual}\""
             ));
         }
         return Ok(None);

@@ -331,11 +331,15 @@ pub(crate) fn plan(p: &CargoPackage, kind: Option<PackageForm>) -> Result<Plan, 
 /// The manifest `world` of a component: `wyrm:app@<v>` for an app (ADR 0030), else `driver` or
 /// `point`.
 fn manifest_world(component: &[u8]) -> Result<PackageWorld, Error> {
-    let name = match wyrm_wasm_host::component_world(component)? {
-        ComponentWorld::App => format!("wyrm:app@{}", wyrm_wasm_host::app_version(component)?),
-        w => w.name().to_owned(),
-    };
-    Ok(name.parse::<PackageWorld>()?)
+    Ok(match wyrm_wasm_host::component_world(component)? {
+        ComponentWorld::App => {
+            let v = wyrm_wasm_host::app_version(component)?;
+            PackageWorld::of_app_version(v)
+                .ok_or_else(|| format!("wyrm:app@{v}: not a world a package names"))?
+        }
+        ComponentWorld::Driver => PackageWorld::Driver,
+        ComponentWorld::Point => PackageWorld::Point,
+    })
 }
 
 /// A core module built with `wyrm-link-guest` as a component, which must be of world `wyrm:app`.

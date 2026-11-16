@@ -103,6 +103,19 @@ impl Default for UpdateConfig {
     }
 }
 
+/// `update.target`: which broker of a pair to update (left out or empty: the active).
+fn target_of(args: &Value) -> Result<release::UpdateRole, LinkError> {
+    match arg_str(args, "target").filter(|t| !t.is_empty()) {
+        None => Ok(release::UpdateRole::Active),
+        Some(t) => release::UpdateRole::from_name(t).ok_or_else(|| {
+            LinkError::invalid_parameter(format!(
+                "target: one of {}",
+                release::UpdateRole::NAMES.join(", ")
+            ))
+        }),
+    }
+}
+
 /// The standby's word for "no update of its own" (`sys/replication/update/<v>/none/-`).
 pub(crate) const NO_UPDATE: &str = "none";
 
@@ -891,11 +904,7 @@ async fn plan_of(
     fresh: bool,
 ) -> Result<Plan, LinkError> {
     let u = &ctl.cfg.updates;
-    let for_standby = match arg_str(args, "target").unwrap_or("active") {
-        "" | "active" => false,
-        "standby" => true,
-        _ => return Err(LinkError::invalid_parameter("target: active or standby")),
-    };
+    let for_standby = target_of(args)? == release::UpdateRole::Standby;
     if for_standby && !u.standby {
         return Err(LinkError::invalid_parameter(
             "target: this broker has no standby (no standby section in wyrmd.json5)",
@@ -1114,7 +1123,10 @@ pub(super) async fn update(
                 ctl2.record(&by, "update_start", key, Status::InternalError, &e);
                 *lock(&ctl2.update.failed) = Some(BTreeMap::from([
                     ("to".to_owned(), Value::from(to)),
-                    ("result".to_owned(), Value::from("failed")),
+                    (
+                        "result".to_owned(),
+                        Value::from(release::UpdateState::Failed.name()),
+                    ),
                     ("reason".to_owned(), Value::from(e)),
                     ("at".to_owned(), Value::UInt(now_s())),
                     ("by".to_owned(), Value::from(by)),
@@ -1574,7 +1586,7 @@ pub(super) async fn declare(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Resu
                 "target",
                 str_param()
                     .display("Target")
-                    .enum_values(["active", "standby"])
+                    .enum_values(release::UpdateRole::NAMES.iter().copied())
                     .description("A standby pair: the standby is updated first"),
             )
             .param(
@@ -1863,6 +1875,29 @@ pub(super) async fn watch(ctl: Arc<Control>, ctx: LinkCtx) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `update.target` is a role of the pair: left out or empty is the active; another
+    /// text is refused (review of #127: it was matched by literals).
+    #[test]
+    fn the_target_is_a_role() {
+        use release::UpdateRole;
+        let args = |t: Option<&str>| match t {
+            Some(t) => Value::Map(BTreeMap::from([("target".to_owned(), Value::from(t))])),
+            None => Value::Map(BTreeMap::new()),
+        };
+        assert_eq!(target_of(&args(None)).unwrap(), UpdateRole::Active);
+        assert_eq!(target_of(&args(Some(""))).unwrap(), UpdateRole::Active);
+        assert_eq!(
+            target_of(&args(Some("active"))).unwrap(),
+            UpdateRole::Active
+        );
+        assert_eq!(
+            target_of(&args(Some("standby"))).unwrap(),
+            UpdateRole::Standby
+        );
+        let e = target_of(&args(Some("Standby"))).unwrap_err();
+        assert!(e.message.contains("active, standby"), "{e}");
+    }
 
     fn gate<'a>() -> Gate<'a> {
         Gate {
