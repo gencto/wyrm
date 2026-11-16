@@ -1,8 +1,8 @@
 import '../../app_state.dart';
 import '../../common/action.dart';
-import 'load_trend_window_action.dart';
 import 'pick_point_action.dart';
-import 'retrieve_series_action.dart';
+import 'read_trend_series_action.dart';
+import 'read_trend_window_action.dart';
 
 /// A point row of History was clicked: one intent (studio-rules §9). The
 /// pick shows at once ([PickPointAction], a plain click shows [key] alone,
@@ -20,8 +20,8 @@ class PickTrendPointAction extends Action {
   Future<AppState?> reduce() async {
     dispatchSync(PickPointAction(key, add: add));
     await Future.wait([
-      dispatchAndWait(RetrieveSeriesAction()),
-      if (historian.window != null) dispatchAndWait(LoadTrendWindowAction()),
+      dispatchAndWait(ReadTrendSeriesAction()),
+      if (historian.window != null) dispatchAndWait(ReadTrendWindowAction()),
     ]);
     return null;
   }

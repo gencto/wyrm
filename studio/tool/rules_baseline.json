@@ -1,18 +1,8 @@
 {
   "unawaited-dispatch": {
-    "app/lib/dialogs/error_dialogs.dart": 3,
-    "business/lib/redux/access/actions/save_user_action.dart": 1,
-    "business/lib/redux/access/actions/set_grant_action.dart": 1,
-    "business/lib/redux/changes/actions/apply_changes_action.dart": 1,
-    "business/lib/redux/device/actions/remove_device_action.dart": 2,
     "business/lib/redux/flows/actions/apply_flow_values_action.dart": 1,
     "business/lib/redux/flows/actions/apply_flows_list_action.dart": 1,
     "business/lib/redux/historian/actions/apply_history_list_action.dart": 1,
-    "business/lib/redux/historian/actions/load_trend_window_action.dart": 1,
-    "business/lib/redux/historian/actions/retrieve_series_action.dart": 1,
-    "business/lib/redux/historian/actions/set_trend_window_action.dart": 1,
-    "business/lib/redux/peers/actions/add_upstream_action.dart": 1,
-    "business/lib/redux/peers/actions/authorize_broker_action.dart": 1,
     "business/lib/redux/services/gateway_browser/gateway_browser_dispatcher.dart": 1,
     "business/lib/redux/site/actions/view_site_action.dart": 1
   },
@@ -54,7 +44,7 @@
     "app/lib/connectors/flow_editor_page_connector.dart": 347,
     "app/lib/connectors/flows_page_connector.dart": 92,
     "app/lib/connectors/gallery_page_connector.dart": 31,
-    "app/lib/connectors/history_page_connector.dart": 124,
+    "app/lib/connectors/history_page_connector.dart": 123,
     "app/lib/connectors/link_install_page_connector.dart": 235,
     "app/lib/connectors/links_page_connector.dart": 268,
     "app/lib/connectors/lock_overlay_connector.dart": 86,
@@ -242,10 +232,5 @@
     "business/lib/redux/services/flow_watch/flow_watch_dispatcher.dart": 1,
     "business/lib/redux/services/tree_watch/tree_watch_dispatcher.dart": 2
   },
-  "dispatch-cascade": {
-    "app/lib/dialogs/broker_update_dialog.dart": 1,
-    "app/lib/dialogs/error_dialogs.dart": 2,
-    "business/lib/redux/services/live_values/live_values_dispatcher.dart": 3,
-    "business/lib/redux/services/tree_watch/tree_watch_dispatcher.dart": 2
-  }
+  "dispatch-cascade": {}
 }

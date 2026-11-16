@@ -1,8 +1,8 @@
 import '../../app_state.dart';
 import '../../common/action.dart';
 import 'follow_history_action.dart';
-import 'load_trend_window_action.dart';
-import 'retrieve_series_action.dart';
+import 'read_trend_series_action.dart';
+import 'read_trend_window_action.dart';
 
 /// History comes on screen (its workspace tab is the active one): it
 /// follows `sys/history` and the picked points, and the picked points'
@@ -17,8 +17,8 @@ class ShowHistoryAction extends Action {
     dispatchSync(FollowHistoryAction(show: true), notify: false);
     if (historian.points.isNotEmpty) {
       await dispatchAndWaitAll([
-        RetrieveSeriesAction(),
-        if (historian.window != null) LoadTrendWindowAction(),
+        ReadTrendSeriesAction(),
+        if (historian.window != null) ReadTrendWindowAction(),
       ]);
     }
     return null;

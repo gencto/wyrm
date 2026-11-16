@@ -109,7 +109,7 @@ sequenceDiagram
     UI->>VM: onApply()
     VM->>A1: dispatch
     Note over A1: WaitingAction · async
-    A1->>ST: copyWith(changes.table, changes.view, changes.message, changes.open)
+    A1->>ST: dispatchSync(_Applied)
     A1->>ST: dispatchAndWait(RetrieveDetailsAction)
 ```
 
@@ -335,7 +335,7 @@ _Not drawn — these files dispatch outside any interaction:_
 | `onSearch` | `SearchGoAction` | — |
 | `onReview` | `SetOpenAction` | `changes.open` |
 | `onCloseReview` | `SetOpenAction` | `changes.open` |
-| `onApply` | `ApplyChangesAction` | `changes.table, changes.view, changes.message, changes.open` |
+| `onApply` | `ApplyChangesAction` | — |
 | `onDiscard` | `DiscardChangesAction` | `changes.table, changes.view, changes.message, changes.open` |
 | `onRemoveChange` | `RemoveChangeAction` | `changes.table, changes.view, changes.open` |
 | `onLogOut` | `LeaveOnLogOutAction` | — |

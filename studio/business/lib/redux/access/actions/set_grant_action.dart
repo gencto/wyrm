@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../../wyrm/calls.dart';
@@ -24,18 +22,23 @@ class SetGrantAction extends Action with WaitingAction {
 
   @override
   Future<AppState?> reduce() async {
+    // The table is read again, also after a refusal: it shows what is.
+    // It changes no state itself: what it did shows in the table read.
+    try {
+      await _run();
+    } finally {
+      await dispatchAndWait(RetrieveAccessAction());
+    }
+    return null;
+  }
+
+  Future<void> _run() async {
     await invokeAll(
       deps.wyrm,
       '${site.home}/sys',
       'update_permissions',
       Value.from({'role': role, 'path': path, 'level': level.wire}),
     );
-    return null;
-  }
-
-  @override
-  void after() {
-    super.after();
-    unawaited(dispatchAndWait(RetrieveAccessAction()));
+    return;
   }
 }

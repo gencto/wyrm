@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:async_redux/async_redux.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/hist_detail.dart';
@@ -10,7 +8,6 @@ import '../../../wyrm/decode/hist_point.dart';
 import '../../../wyrm/history_steps.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
-import 'load_trend_extremes_action.dart';
 
 /// Reads the picked points again for the trend's window only, finer than
 /// the range (spec trend.md §4): about 300 buckets of the finest step that
@@ -18,7 +15,7 @@ import 'load_trend_extremes_action.dart';
 /// answers [rawLimit] rows. Runs 250 ms after the window stopped moving;
 /// the coarse line stays meanwhile, and an answer a newer window, range or
 /// pick superseded (`historian.trendGen`) is dropped. The window's min and
-/// max follow ([LoadTrendExtremesAction]).
+/// max are read after it by `ReadTrendWindowAction`.
 class LoadTrendWindowAction extends Action with Debounce, WaitingAction {
   @override
   int get debounce => 250; // milliseconds
@@ -69,14 +66,5 @@ class LoadTrendWindowAction extends Action with Debounce, WaitingAction {
         points: {for (final (i, k) in keys.indexed) k: got[i]}.lock,
       ),
     );
-  }
-
-  @override
-  void after() {
-    super.after();
-    if (status.hasFinishedMethodReduce &&
-        (historian.detail?.step ?? 'raw') != 'raw') {
-      unawaited(dispatchAndWait(LoadTrendExtremesAction(detail: true)));
-    }
   }
 }

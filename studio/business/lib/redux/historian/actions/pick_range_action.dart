@@ -2,7 +2,7 @@ import 'package:models/trend_range.dart';
 
 import '../../app_state.dart';
 import '../../common/action.dart';
-import 'retrieve_series_action.dart';
+import 'read_trend_series_action.dart';
 import 'set_range_action.dart';
 
 /// A range picked on History's trend: one intent. The range shows at once
@@ -19,7 +19,7 @@ class PickRangeAction extends Action {
       return null;
     }
     dispatchSync(SetRangeAction(range));
-    await dispatchAndWait(RetrieveSeriesAction());
+    await dispatchAndWait(ReadTrendSeriesAction());
     return null;
   }
 }

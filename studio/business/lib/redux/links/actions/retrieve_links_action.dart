@@ -1,3 +1,4 @@
+import 'package:async_redux/async_redux.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/link_info.dart';
 import 'package:wyrm_client/wyrm_client.dart';
@@ -13,8 +14,16 @@ import '../../common/action.dart';
 /// `sys/links/*/state`, watched by the Links screen. The attribute
 /// `updates_available` of `sys/links` itself counts the links whose package
 /// has a newer version (ADR 0048 §1).
-class RetrieveLinksAction extends Action with WaitingAction {
+///
+/// A site switch starts it without waiting for it, while a read of the
+/// site left may still run: the reads run one at a time in the order they
+/// were started, and a table of a site no longer viewed is dropped.
+class RetrieveLinksAction extends Action
+    with WaitingAction, Sequential<AppState> {
   RetrieveLinksAction({super.quiet});
+
+  @override
+  Object? sequentialKeyParams() => runtimeType;
 
   @override
   Action again() => RetrieveLinksAction(quiet: quiet);
@@ -44,6 +53,9 @@ class RetrieveLinksAction extends Action with WaitingAction {
           updatesAvailableOf(await api.meta(base)).orWarn(base) ?? 0;
     } on WyrmException {
       updatesAvailable = 0;
+    }
+    if (site.root != root) {
+      return null;
     }
     return state.copyWith.links(
       version: brokerTextOf(version, 'sys', 'version').orWarn(root),

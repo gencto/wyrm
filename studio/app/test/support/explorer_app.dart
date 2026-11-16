@@ -349,7 +349,14 @@ class ExplorerApp {
 
   /// Logs in, puts the tree and the values in, and shows Explorer.
   /// With [toasts], the toast stack is over the page (the toasts' words).
-  Future<void> pump(WidgetTester tester, {bool toasts = false}) async {
+  ///
+  /// With [language], the app's locale follows the store's language as
+  /// `AppConnector` makes it follow.
+  Future<void> pump(
+    WidgetTester tester, {
+    bool toasts = false,
+    bool language = false,
+  }) async {
     tester.view.physicalSize = const Size(1800, 1400);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -377,22 +384,30 @@ class ExplorerApp {
     await tester.pumpWidget(
       StoreProvider<AppState>(
         store: store,
-        child: MaterialApp(
-          theme: darkTheme(),
-          localizationsDelegates: const [S.delegate],
-          home: Scaffold(
-            body: toasts
-                ? const Stack(
-                    children: [
-                      Positioned.fill(child: ExplorerPageConnector()),
-                      Positioned(
-                        top: 0,
-                        right: 0,
-                        child: ToastStackConnector(),
-                      ),
-                    ],
-                  )
-                : const ExplorerPageConnector(),
+        child: StoreConnector<AppState, String>(
+          converter: (s) => language ? s.state.language.locale : 'en',
+          builder: (_, locale) => MaterialApp(
+            theme: darkTheme(),
+            locale: Locale(locale),
+            supportedLocales: S.delegate.supportedLocales,
+            localizationsDelegates: const [
+              S.delegate,
+              ...GlobalMaterialLocalizations.delegates,
+            ],
+            home: Scaffold(
+              body: toasts
+                  ? const Stack(
+                      children: [
+                        Positioned.fill(child: ExplorerPageConnector()),
+                        Positioned(
+                          top: 0,
+                          right: 0,
+                          child: ToastStackConnector(),
+                        ),
+                      ],
+                    )
+                  : const ExplorerPageConnector(),
+            ),
           ),
         ),
       ),

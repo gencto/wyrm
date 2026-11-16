@@ -16,6 +16,7 @@ import 'package:business/redux/common/action.dart';
 import 'package:business/redux/flow_editor/actions/trigger_block_action.dart';
 import 'package:business/redux/nodes/actions/stage_value_action.dart';
 import 'package:business/redux/store.dart';
+import 'package:business/redux/system/actions/aim_log_action.dart';
 import 'package:business/redux/system/actions/set_around_action.dart';
 import 'package:business/wyrm/calls.dart';
 import 'package:business/wyrm/failures.dart';
@@ -696,8 +697,8 @@ void main() {
       await tester.pumpAndSettle();
 
       // What the button does before it navigates (this harness has no
-      // router).
-      aimLogAt(store, e);
+      // router): one action, the tab and its time in one state.
+      store.dispatchSync(AimLogAction(e.at));
 
       expect(store.state.system.tab, SystemTab.log);
       expect(store.state.system.around, logClockOf(at));

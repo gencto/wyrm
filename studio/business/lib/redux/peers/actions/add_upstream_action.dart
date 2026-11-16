@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import '../../../wyrm/calls.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
@@ -21,6 +19,17 @@ class AddUpstreamAction extends Action with WaitingAction {
 
   @override
   Future<AppState?> reduce() async {
+    // The table is read again, also after a refusal: it shows what is.
+    // It changes no state itself: what it did shows in the table read.
+    try {
+      await _run();
+    } finally {
+      await dispatchAndWait(RetrievePeersAction());
+    }
+    return null;
+  }
+
+  Future<void> _run() async {
     final rows = await invokeAll(
       deps.wyrm,
       '${site.root}/sys/upstream',
@@ -41,12 +50,6 @@ class AddUpstreamAction extends Action with WaitingAction {
         },
       );
     }
-    return null;
-  }
-
-  @override
-  void after() {
-    super.after();
-    unawaited(dispatchAndWait(RetrievePeersAction()));
+    return;
   }
 }

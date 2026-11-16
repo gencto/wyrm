@@ -186,13 +186,27 @@ final _rules = <Rule>[
     ),
   ),
   // 9. one dispatch per intent: a cascade of dispatches is several states,
-  // each one built
-  Rule('dispatch-cascade', [
+  // each one built (a cascade of one dispatch is one state)
+  const Rule('dispatch-cascade', [
     'app/lib/',
     'business/lib/',
     'ui/lib/',
-  ], (t) => _matches(_code(t), RegExp(r'\.\.\s*dispatch\w*\('))),
+  ], _dispatchCascade),
 ];
+
+/// Each dispatch of a cascade after the first in the same statement.
+int _dispatchCascade(String text) {
+  final c = _code(text);
+  var n = 0;
+  var last = -1;
+  for (final m in RegExp(r'\.\.\s*dispatch\w*\(').allMatches(c)) {
+    if (last >= 0 && !c.substring(last, m.start).contains(';')) {
+      n++;
+    }
+    last = m.end;
+  }
+  return n;
+}
 
 /// The body of each `class … extends Vm { … }` in [text].
 Iterable<String> _vmBodies(String text) sync* {
@@ -281,6 +295,10 @@ class _Vm extends Vm {
 ''',
     good: '''
     store.dispatchSync(OneAction());
+    final store = AppStore.of(context)
+      ..dispatchSync(OpenAction());
+    other
+      ..dispatchSync(NextAction());
 ''',
   ),
 };

@@ -4,6 +4,8 @@ import 'package:business/redux/historian/actions/load_trend_extremes_action.dart
 import 'package:business/redux/historian/actions/load_trend_window_action.dart';
 import 'package:business/redux/historian/actions/pick_point_action.dart';
 import 'package:business/redux/historian/actions/pick_trend_point_action.dart';
+import 'package:business/redux/historian/actions/read_trend_series_action.dart';
+import 'package:business/redux/historian/actions/read_trend_window_action.dart';
 import 'package:business/redux/historian/actions/retrieve_series_action.dart';
 import 'package:business/redux/historian/actions/set_range_action.dart';
 import 'package:business/redux/historian/actions/set_trend_window_action.dart';
@@ -76,8 +78,8 @@ void main() {
 
   test('the range reads avg at its step, then min and max', () async {
     s.dispatchSync(PickPointAction(a));
-    await s.dispatchAndWait(RetrieveSeriesAction());
-    await Future<void>.delayed(const Duration(milliseconds: 20));
+    // one read of the trend: its series, then their min and max, in order
+    await s.dispatchAndWait(ReadTrendSeriesAction());
     final r = reads();
     expect([for (final x in r) str(x['agg'])], ['avg', 'min', 'max']);
     expect({for (final x in r) str(x['window'])}, {'5m'});
@@ -97,8 +99,7 @@ void main() {
 
   test('a range change forgets the old min and max', () async {
     s.dispatchSync(PickPointAction(a));
-    await s.dispatchAndWait(RetrieveSeriesAction());
-    await Future<void>.delayed(const Duration(milliseconds: 20));
+    await s.dispatchAndWait(ReadTrendSeriesAction());
     expect(s.state.historian.low, isNotEmpty);
     s.dispatchSync(SetRangeAction(TrendRange.week));
     expect(s.state.historian.low, isEmpty);
@@ -165,9 +166,8 @@ void main() {
       ..dispatchSync(
         SetTrendWindowAction(const HistWindow(span: Duration(hours: 6))),
       );
-    await s.dispatchAndWait(LoadTrendWindowAction());
+    await s.dispatchAndWait(ReadTrendWindowAction());
     expect(s.state.historian.detail!.step, '5m');
-    await Future<void>.delayed(const Duration(milliseconds: 20));
     expect(s.state.historian.detail!.low[a]!.single.value, 0.5);
     expect(s.state.historian.detail!.high[a]!.single.value, 1.5);
   });
@@ -178,8 +178,7 @@ void main() {
       ..dispatchSync(
         SetTrendWindowAction(const HistWindow(span: Duration(hours: 6))),
       );
-    await s.dispatchAndWait(LoadTrendWindowAction());
-    await Future<void>.delayed(const Duration(milliseconds: 20));
+    await s.dispatchAndWait(ReadTrendWindowAction());
     // The extremes read again while a live batch grows the window's rows.
     final read = s.dispatchAndWait(LoadTrendExtremesAction(detail: true));
     s.dispatchSync(

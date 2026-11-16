@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../app_state.dart';
@@ -45,11 +43,28 @@ class ApplyChangesAction extends Action with WaitingAction {
         break;
       }
     }
+    // What was applied leaves the list at once, shown; then the keys it
+    // touched are read again, and this action ends with that read.
+    dispatchSync(_Applied(done, message));
     if (touched.isNotEmpty) {
-      unawaited(
-        dispatchAndWait(RetrieveDetailsAction(touched.toList(), force: true)),
+      await dispatchAndWait(
+        RetrieveDetailsAction(touched.toList(), force: true),
       );
     }
+    return null;
+  }
+}
+
+/// The list as an apply leaves it: the [done] changes gone, the broker's
+/// [message] for the first refused one kept.
+class _Applied extends Action {
+  _Applied(this.done, this.message);
+
+  final Set<String> done;
+  final String? message;
+
+  @override
+  AppState reduce() {
     final left = changes.view.removeWhere(done.contains);
     return state.copyWith.changes(
       table: changes.table.removeWhere((k, _) => done.contains(k)),
