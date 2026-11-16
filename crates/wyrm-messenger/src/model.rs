@@ -787,18 +787,36 @@ pub struct User {
 
 pub const USER_FIELDS: [&str; 2] = ["level", "select"];
 
-/// The levels a chat user may have, in the order the forms declare them.
-pub const LEVELS: [&str; 2] = ["read", "write"];
+wyrm_core::name_enum! {
+    /// The levels a chat user may have, in the order the forms declare them: the `read`
+    /// and `write` of [`Perm`].
+    pub enum UserLevel as "level" {
+        /// `/get`.
+        Read => "read",
+        /// Also `/set` and `/do`.
+        Write => "write",
+    }
+}
+
+impl UserLevel {
+    pub fn perm(self) -> Perm {
+        match self {
+            UserLevel::Read => Perm::Read,
+            UserLevel::Write => Perm::Write,
+        }
+    }
+}
 
 impl User {
     /// The level and selection of an Invite or Edit form.
     pub fn parse_rights(m: &Map, site: Option<&str>) -> Result<(Perm, Vec<String>), String> {
         let f = Form(m);
         f.reject_unknown(&USER_FIELDS)?;
-        let level = match f.choice("level", &LEVELS)?.as_deref() {
-            None | Some("read") => Perm::Read,
-            Some("write") => Perm::Write,
-            Some(_) => return Err("level: read or write".into()),
+        let level = match f.choice("level", UserLevel::NAMES)? {
+            None => Perm::Read,
+            Some(n) => UserLevel::from_name(&n)
+                .ok_or("level: read or write")?
+                .perm(),
         };
         let mut select = f.list("select")?;
         if select.is_empty() {

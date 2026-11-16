@@ -465,7 +465,7 @@
     "crates/wyrm-link-sdk/src/package.rs": 1,
     "crates/wyrm-link-sdk/src/tree.rs": 1,
     "crates/wyrm-messenger/src/lib.rs": 2,
-    "crates/wyrm-messenger/src/model.rs": 11,
+    "crates/wyrm-messenger/src/model.rs": 9,
     "crates/wyrm-messenger/src/render.rs": 2,
     "crates/wyrm-messenger/src/tree.rs": 6,
     "crates/wyrm-schedule/src/rrule.rs": 1,

@@ -218,6 +218,23 @@ fn field<'a>(v: &'a Option<Value>, name: &str) -> Option<&'a Value> {
     }
 }
 
+wyrm_core::name_enum! {
+    /// `state` of a file store's `upload_status` (ADR 0028).
+    enum UploadState as "upload state" {
+        Receiving => "receiving",
+        Committing => "committing",
+        Done => "done",
+        Failed => "failed",
+    }
+}
+
+/// The state an `upload_status` answer names; any other answer ends the send (it was
+/// waited on until the timeout, as if the commit were still running).
+fn upload_state(st: &Option<Value>) -> Result<UploadState, String> {
+    let name = text(st, "state");
+    UploadState::from_name(&name).ok_or_else(|| format!("the store answered upload state {name:?}"))
+}
+
 fn text(v: &Option<Value>, name: &str) -> String {
     match field(v, name) {
         Some(Value::Str(s)) => s.clone(),
@@ -291,13 +308,17 @@ impl Sending {
         let until = tokio::time::Instant::now() + COMMIT_TIMEOUT;
         loop {
             let st = self.call("upload_status", upload()).await?;
-            match text(&st, "state").as_str() {
-                "done" => return Ok(()),
-                "failed" => return Err(format!("the store refused it: {}", text(&st, "error"))),
+            match upload_state(&st)? {
+                UploadState::Done => return Ok(()),
+                UploadState::Failed => {
+                    return Err(format!("the store refused it: {}", text(&st, "error")))
+                }
                 _ if tokio::time::Instant::now() > until => {
                     return Err("the store did not take the file in time".into())
                 }
-                _ => tokio::time::sleep(Duration::from_millis(500)).await,
+                UploadState::Receiving | UploadState::Committing => {
+                    tokio::time::sleep(Duration::from_millis(500)).await
+                }
             }
         }
     }
@@ -498,6 +519,28 @@ pub(super) async fn declare(ctx: &LinkCtx, path: &str) -> wyrm_link_sdk::Result<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Review of #127: the commit's state is one of the file store's; another answer
+    /// ends the send at once (it was polled until the timeout).
+    #[test]
+    fn upload_states_are_the_stores() {
+        let st = |v: Option<&str>| {
+            Some(Value::Map(
+                v.map(|v| ("state".to_owned(), Value::from(v)))
+                    .into_iter()
+                    .collect(),
+            ))
+        };
+        assert_eq!(upload_state(&st(Some("done"))), Ok(UploadState::Done));
+        assert_eq!(
+            upload_state(&st(Some("committing"))),
+            Ok(UploadState::Committing)
+        );
+        for bad in [Some("Done"), Some("ok"), Some(""), None] {
+            assert!(upload_state(&st(bad)).is_err(), "{bad:?}");
+        }
+        assert!(upload_state(&None).is_err());
+    }
     use crate::backup::How;
     use crate::control::backups::JobKind;
 
