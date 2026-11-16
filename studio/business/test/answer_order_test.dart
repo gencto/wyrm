@@ -57,10 +57,16 @@ void main() {
     () async {
       // central's list answers slowly; the switch to edge reads edge's
       api.delays['wy/central/sys/links'] = const Duration(milliseconds: 60);
+      int reads() => api.calls
+          .where((c) => c.op == 'children' && c.key == 'wy/central/sys/links')
+          .length;
+      final sent = reads();
       final left = s.dispatchAndWait(RetrieveLinksAction());
       // central's read is under way when the switch comes
-      await Future<void>.delayed(const Duration(milliseconds: 10));
-      expect(api.calls.last.key, 'wy/central/sys/links');
+      for (var i = 0; i < 200 && reads() == sent; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+      expect(reads(), sent + 1);
       s.dispatchSync(ViewSiteAction('edge'));
       await left;
       await Future<void>.delayed(const Duration(milliseconds: 120));

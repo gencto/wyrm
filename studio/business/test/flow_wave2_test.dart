@@ -25,6 +25,7 @@ import 'package:business/redux/flow_editor/actions/trigger_block_action.dart';
 import 'package:business/redux/flow_editor/actions/undo_flow_action.dart';
 import 'package:business/redux/flow_editor/actions/update_block_from_library_action.dart';
 import 'package:business/redux/flow_editor/actions/validate_flow_action.dart';
+import 'package:business/redux/flows/actions/retrieve_flows_action.dart';
 import 'package:business/redux/login/actions/log_in_action.dart';
 import 'package:business/redux/login/actions/set_gateway_action.dart';
 import 'package:business/redux/login/actions/set_password_action.dart';
@@ -1236,6 +1237,39 @@ void main() {
       expect(now().blocks.keys, isNot(contains('scaled1')));
     });
 
+    test('two reads of the flows, the first answered last: the newer '
+        'table stays', () async {
+      final nodes = (line['nodes']! as Map).cast<String, Object?>();
+      final more = {
+        ...line,
+        'nodes': {
+          ...nodes,
+          'extra': {'type': 'add'},
+        },
+      };
+      api
+        ..children_['wy/central/dataflows'] = [Child('line', NodeMeta())]
+        ..invokesInTurn['wy/central/dataflows/line ▸ history'] = [
+          (
+            const Duration(milliseconds: 300),
+            [
+              Value.from([line]),
+            ],
+          ),
+          (
+            const Duration(milliseconds: 5),
+            [
+              Value.from([more]),
+            ],
+          ),
+        ];
+      await Future.wait([
+        s.dispatchAndWait(RetrieveFlowsAction()),
+        s.dispatchAndWait(RetrieveFlowsAction()),
+      ]);
+      expect(s.state.flows.table['line']!.blocks, nodes.length + 1);
+    });
+
     test('one flow opened, then another before the first answered: the '
         'one opened last stays', () async {
       api
@@ -1269,9 +1303,14 @@ void main() {
         (const Duration(milliseconds: 600), [ok(false)]),
         (const Duration(milliseconds: 5), [ok(true)]),
       ];
+      int checks() => api.calls.where((c) => c.action == 'validate').length;
+      final sent = checks();
       final first = s.dispatchAndWait(ValidateFlowAction());
       // the first check is sent (after its 400 ms pause) and waits
-      await Future<void>.delayed(const Duration(milliseconds: 450));
+      for (var i = 0; i < 300 && checks() == sent; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      expect(checks(), sent + 1);
       s.dispatchSync(RemoveBlocksAction(const ['path']));
       final second = s.dispatchAndWait(ValidateFlowAction());
       await Future.wait([first, second]);
