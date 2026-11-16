@@ -33,7 +33,7 @@ use super::{
 };
 use crate::registry::{
     LinkDef, LinkGrant, Op, Origin, PackageDef, PackageKind, PreviousDef, UpdateReport,
-    UPDATE_CHECKING, UPDATE_FAILED, UPDATE_OK, UPDATE_REPORT_KEYS, UPDATE_ROLLED_BACK,
+    UpdateResult, UPDATE_REPORT_KEYS,
 };
 use crate::restore_point as restore;
 use std::collections::{BTreeMap, BTreeSet};
@@ -156,7 +156,7 @@ fn report_value(r: &UpdateReport) -> Value {
         ("from", Value::Str(r.from.clone())),
         ("to", Value::Str(r.to.clone())),
         ("at", Value::UInt(r.at)),
-        ("result", Value::Str(r.result.clone())),
+        ("result", Value::from(r.result.name())),
         ("kept", Value::UInt(r.kept.into())),
         ("new", Value::UInt(r.new.into())),
         ("gone", Value::UInt(r.gone.into())),
@@ -1029,7 +1029,7 @@ fn restores_data(
     changes_state: bool,
     report: &UpdateReport,
 ) -> Result<bool, ()> {
-    let suspect = report.result != UPDATE_OK || report.gone > 0;
+    let suspect = report.result != UpdateResult::Ok || report.gone > 0;
     let restore = asked.unwrap_or(changes_state || suspect);
     if changes_state && !restore {
         return Err(());
@@ -1488,9 +1488,9 @@ impl Admin {
             to: def.version.clone(),
             at: now,
             result: if links.is_empty() {
-                UPDATE_OK.into()
+                UpdateResult::Ok
             } else {
-                UPDATE_CHECKING.into()
+                UpdateResult::Checking
             },
             links: links.iter().map(|l| l.id.clone()).collect(),
             changes_state,
@@ -1680,19 +1680,19 @@ impl Admin {
                     .roll_back(&name, &plan.sub, &reason, report.clone(), Some(true))
                     .await
                 {
-                    report.result = UPDATE_FAILED.into();
+                    report.result = UpdateResult::Failed;
                     report.reason = format!("{reason}; the rollback failed: {e}");
                     self.finish(&name, report, &plan.sub).await;
                 }
             }
             None => {
                 if health.down.is_empty() {
-                    report.result = UPDATE_OK.into();
+                    report.result = UpdateResult::Ok;
                     if !health.gone.is_empty() {
                         report.reason = format!("{} (not rolled back)", health.why(wait_s));
                     }
                 } else {
-                    report.result = UPDATE_FAILED.into();
+                    report.result = UpdateResult::Failed;
                     report.reason = format!("{} (not rolled back)", health.why(wait_s));
                 }
                 self.finish(&name, report, &plan.sub).await;
@@ -1707,7 +1707,7 @@ impl Admin {
         let Some(mut def) = self.ctl.registry().packages.get(name).cloned() else {
             return;
         };
-        let status = if report.result == UPDATE_OK {
+        let status = if report.result == UpdateResult::Ok {
             Status::Ok
         } else {
             Status::InternalError
@@ -1802,7 +1802,7 @@ impl Admin {
             }
             points.push((l.id.clone(), p.map(|p| p.id)));
         }
-        report.result = UPDATE_ROLLED_BACK.into();
+        report.result = UpdateResult::RolledBack;
         report.reason = if restore_data {
             format!("{reason}; the links' data is restored from before the update")
         } else {
@@ -2022,10 +2022,10 @@ fn close_stale(ctl: &Control) {
         let Some(r) = p.last_update.as_mut() else {
             continue;
         };
-        if r.result != UPDATE_CHECKING || ctl.is_updating(&p.name) {
+        if r.result != UpdateResult::Checking || ctl.is_updating(&p.name) {
             continue;
         }
-        r.result = UPDATE_FAILED.into();
+        r.result = UpdateResult::Failed;
         r.reason =
             "the broker stopped while the links were being checked; the new version stays".into();
         ctl.record(
@@ -2169,7 +2169,7 @@ mod tests {
             from: "1.0.0".into(),
             to: "1.1.0".into(),
             at: 100,
-            result: UPDATE_CHECKING.into(),
+            result: UpdateResult::Checking,
             links: vec!["l1".into()],
             ..UpdateReport::default()
         });
@@ -2192,7 +2192,7 @@ mod tests {
             .insert("pkg".to_owned(), Phase::Checking { stop: None });
         close_stale(&ctl);
         let r = ctl.registry().packages["pkg"].last_update.clone().unwrap();
-        assert_eq!(r.result, UPDATE_CHECKING, "its check runs");
+        assert_eq!(r.result, UpdateResult::Checking, "its check runs");
         assert!(ctl.package_updating("pkg") && ctl.not_updating("pkg").is_err());
         assert_eq!(
             ctl.not_updating("pkg").unwrap_err().status,
@@ -2204,7 +2204,7 @@ mod tests {
         close_stale(&ctl);
         let p = ctl.registry().packages["pkg"].clone();
         let r = p.last_update.unwrap();
-        assert_eq!(r.result, UPDATE_FAILED);
+        assert_eq!(r.result, UpdateResult::Failed);
         assert!(r.reason.contains("the broker stopped"), "{}", r.reason);
         // the new version stays, with its way back
         assert_eq!(p.version, "1.1.0");
@@ -2361,7 +2361,7 @@ mod tests {
         back.last_update = Some(UpdateReport {
             from: "1.0.0".into(),
             to: "1.1.0".into(),
-            result: UPDATE_ROLLED_BACK.into(),
+            result: UpdateResult::RolledBack,
             reason: "test".into(),
             ..UpdateReport::default()
         });
@@ -2389,7 +2389,7 @@ mod tests {
         let p = ctl.registry().packages["pkg"].clone();
         assert_eq!(p.version, "1.0.0");
         assert!(p.previous.is_none());
-        assert_eq!(p.last_update.unwrap().result, UPDATE_ROLLED_BACK);
+        assert_eq!(p.last_update.unwrap().result, UpdateResult::RolledBack);
         assert_eq!(std::fs::read(data.join("store")).unwrap(), b"format-1");
         assert!(!ctl.packages_root().join("pkg/1.1.0").exists());
         assert!(ctl.pending_rollbacks().is_empty() && !ctl.rollback_dir().exists());
@@ -2463,12 +2463,12 @@ mod tests {
     /// when it must (the store format changed) or is suspect, or when asked.
     #[test]
     fn a_rollback_restores_data_only_when_it_must_or_is_asked() {
-        let report = |result: &str, gone: u32| UpdateReport {
-            result: result.into(),
+        let report = |result: UpdateResult, gone: u32| UpdateReport {
+            result,
             gone,
             ..UpdateReport::default()
         };
-        let good = report(UPDATE_OK, 0);
+        let good = report(UpdateResult::Ok, 0);
         assert_eq!(restores_data(None, false, &good), Ok(false));
         assert_eq!(restores_data(Some(true), false, &good), Ok(true));
         assert_eq!(restores_data(Some(false), false, &good), Ok(false));
@@ -2478,9 +2478,9 @@ mod tests {
         assert_eq!(restores_data(Some(false), true, &good), Err(()));
         // the update lost nodes, failed, or is still being checked
         for bad in [
-            report(UPDATE_OK, 3),
-            report(UPDATE_FAILED, 0),
-            report(UPDATE_CHECKING, 0),
+            report(UpdateResult::Ok, 3),
+            report(UpdateResult::Failed, 0),
+            report(UpdateResult::Checking, 0),
         ] {
             assert_eq!(restores_data(None, false, &bad), Ok(true), "{bad:?}");
             assert_eq!(restores_data(Some(false), false, &bad), Ok(false));

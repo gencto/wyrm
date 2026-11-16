@@ -542,6 +542,44 @@ fn definitions_survive_restarts_and_config_entries_are_fixed() {
     assert_eq!(h.leaf("stats", "upstreams"), Value::UInt(1));
 }
 
+/// Review S4: a stored upstream whose URL this build refuses (the old parser took an empty
+/// port) is not started, and stays in the store through later Adds and Removes; before, the
+/// next index write dropped it.
+#[test]
+fn a_stored_upstream_that_does_not_load_stays_in_the_store() {
+    let broker = Broker::start();
+    let mut h = SimHost::new(broker.port).with_mock(1);
+    let url = format!("mqtt://127.0.0.1:{}", broker.port);
+    h.start();
+    h.invoke("", "add_mqtt", map(&[("name", s("old")), ("url", s(&url))]))
+        .expect("add");
+    // as an older broker kept it: `mqtt://host:` was taken then (the default port)
+    let Some(Value::Map(mut def)) = h.store_value("u/old") else {
+        panic!("no stored def")
+    };
+    def.insert("url".into(), s("mqtt://127.0.0.1:"));
+    h.store_put_value("u/old", &Value::Map(def));
+    h.restart();
+    assert!(!h.nodes.contains_key("old/status"), "not started");
+    h.invoke("", "add_mqtt", map(&[("name", s("new")), ("url", s(&url))]))
+        .expect("add");
+    h.invoke("new", "remove", Value::Null).expect("remove");
+    assert!(h.store_has("u/old"));
+    let Some(Value::Array(index)) = h.store_value("index") else {
+        panic!("no index")
+    };
+    assert_eq!(index, vec![s("old")], "kept in the index");
+    // shown with why, and Remove reaches it
+    assert!(h.nodes.contains_key("old/error"));
+    h.invoke("old", "remove", Value::Null)
+        .expect("remove the kept one");
+    assert!(!h.store_has("u/old") && !h.nodes.contains_key("old/error"));
+    let Some(Value::Array(index)) = h.store_value("index") else {
+        panic!("no index")
+    };
+    assert!(index.is_empty());
+}
+
 /// A second upstream that selects what another one already does gets the current values too,
 /// and so does one whose `select` an edit changes while a prefix stays: every upstream has a
 /// subscription of its own, and the current values come with it (found on the demo: a UNS

@@ -3,6 +3,7 @@
 //! the HTTP targets (InfluxDB, DynamoDB); it never follows redirects.
 
 use crate::TargetError;
+use wyrm_core::weburl::{HttpUrl, SchemeCase, UrlError};
 use wyrm_link_api::{ConnId, Host};
 
 /// The largest response head and body it reads.
@@ -210,33 +211,21 @@ fn read_response(
     })
 }
 
-/// `scheme://host[:port][/base]`: TLS or not, host, port, base path.
+/// `scheme://host[:port][/base]`: TLS or not, host, port, base path. Read by
+/// [`wyrm_core::weburl`]; no query or fragment. The message never repeats the URL.
 pub fn parse_url(url: &str) -> Result<(bool, String, u16, String), String> {
-    let (tls, rest) = if let Some(r) = url.strip_prefix("https://") {
-        (true, r)
-    } else if let Some(r) = url.strip_prefix("http://") {
-        (false, r)
-    } else {
-        return Err("the URL must start with http:// or https://".into());
-    };
-    let (authority, base) = match rest.find('/') {
-        Some(i) => (&rest[..i], rest[i..].trim_end_matches('/')),
-        None => (rest, ""),
-    };
-    if authority.contains('@') {
-        return Err("no credentials in the URL".into());
-    }
-    let (host, port) = match authority.rsplit_once(':') {
-        Some((h, p)) if !h.ends_with(']') || h.starts_with('[') => {
-            (h, p.parse::<u16>().map_err(|_| format!("{url}: bad port"))?)
+    let u = HttpUrl::parse(url, SchemeCase::Lower).map_err(|e| match e {
+        UrlError::NoScheme | UrlError::Scheme => {
+            "the URL must start with http:// or https://".to_owned()
         }
-        _ => (authority, if tls { 443 } else { 80 }),
-    };
-    let host = host.trim_start_matches('[').trim_end_matches(']');
-    if host.is_empty() || !plain(base) || base.contains([' ', '?', '#']) {
-        return Err(format!("{url}: bad host or path"));
+        UrlError::Credentials => "no credentials in the URL".to_owned(),
+        e => format!("url: {e}"),
+    })?;
+    let base = u.url.path.trim_end_matches('/');
+    if u.url.query.is_some() || u.url.fragment.is_some() || !plain(base) {
+        return Err("url: bad host or path".into());
     }
-    Ok((tls, host.to_owned(), port, base.to_owned()))
+    Ok((u.tls, u.url.host.text(), u.port, base.to_owned()))
 }
 
 /// Percent-encode a query value.

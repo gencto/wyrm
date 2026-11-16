@@ -25,6 +25,7 @@ use tokio::net::TcpStream;
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
 use tracing::debug;
+use wyrm_core::weburl::{HttpUrl, SchemeCase, UrlError};
 use wyrm_link_sdk::driver::Outcome;
 
 /// Redirects followed per request (to the same scheme, host and port only).
@@ -47,60 +48,26 @@ pub struct Origin {
 
 impl Origin {
     pub fn parse(url: &str) -> Result<Self, String> {
-        let url = url.trim();
-        let (tls, rest) = if let Some(r) = strip_ci(url, "https://") {
-            (true, r)
-        } else if let Some(r) = strip_ci(url, "http://") {
-            (false, r)
-        } else {
-            return Err("must start with http:// or https://".into());
-        };
-        let (authority, path) = match rest.find(['/', '?', '#']) {
-            Some(i) => (&rest[..i], &rest[i..]),
-            None => (rest, ""),
-        };
-        if authority.contains('@') {
-            return Err("no user or password in the URL: use auth".into());
-        }
-        if path.contains(['?', '#']) {
+        let u = HttpUrl::parse(url.trim(), SchemeCase::Any).map_err(|e| {
+            match e {
+                UrlError::NoScheme | UrlError::Scheme => "must start with http:// or https://",
+                UrlError::Credentials => "no user or password in the URL: use auth",
+                UrlError::Ipv6 | UrlError::Ipv6Address(_) => "bad IPv6 host",
+                UrlError::Port => "bad port",
+                UrlError::Chars => "spaces, control or non-ASCII characters in the URL",
+                UrlError::NoHost | UrlError::Host => "bad host",
+            }
+            .to_owned()
+        })?;
+        if u.url.query.is_some() || u.url.fragment.is_some() {
             return Err("no query or fragment in the base URL".into());
         }
-        let (host, port) = if let Some(v6) = authority.strip_prefix('[') {
-            let (h, after) = v6.split_once(']').ok_or("bad IPv6 host")?;
-            let port = match after {
-                "" => None,
-                p => Some(p.strip_prefix(':').ok_or("bad port")?),
-            };
-            (h, port)
-        } else {
-            match authority.rsplit_once(':') {
-                Some((h, p)) => (h, Some(p)),
-                None => (authority, None),
-            }
-        };
-        let port = match port {
-            None => {
-                if tls {
-                    443
-                } else {
-                    80
-                }
-            }
-            Some(p) => p.parse::<u16>().map_err(|_| "bad port".to_owned())?,
-        };
-        let host_ok = !host.is_empty()
-            && host
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_' | b':'));
-        if !host_ok || port == 0 {
-            return Err("bad host".into());
-        }
-        let prefix = path.trim_end_matches('/').to_owned();
+        let prefix = u.url.path.trim_end_matches('/').to_owned();
         check_path(&prefix)?;
         Ok(Origin {
-            tls,
-            host: host.to_ascii_lowercase(),
-            port,
+            tls: u.tls,
+            host: u.url.host.text(),
+            port: u.port,
             prefix,
         })
     }
@@ -130,15 +97,14 @@ impl Origin {
     }
 }
 
-/// `s` without an ASCII `prefix` (any case). Compares bytes, so a
-/// multi-byte character where the prefix ends never panics.
-fn strip_ci<'a>(s: &'a str, prefix: &str) -> Option<&'a str> {
-    let p = prefix.as_bytes();
-    if s.as_bytes().get(..p.len())?.eq_ignore_ascii_case(p) {
-        // On a char boundary: the matched prefix is ASCII.
-        s.get(p.len()..)
-    } else {
-        None
+/// A redirect's `Location` as an absolute URL: `None` for a path (no scheme), an
+/// http(s) URL in any case of its scheme, else refused (another scheme, a user before
+/// the host, a malformed URL).
+fn absolute(loc: &str) -> Result<Option<HttpUrl>, String> {
+    match HttpUrl::parse(loc, SchemeCase::Any) {
+        Ok(u) => Ok(Some(u)),
+        Err(UrlError::NoScheme) => Ok(None),
+        Err(_) => Err("another host".into()),
     }
 }
 
@@ -613,30 +579,19 @@ impl Client {
     /// same scheme, host and port.
     fn resolve(&self, current: &str, loc: &str) -> Result<String, String> {
         let o = &self.prep.origin;
-        let absolute = strip_ci(loc, "http://").is_some() || strip_ci(loc, "https://").is_some();
-        let path = if absolute || loc.starts_with("//") {
-            let full = if loc.starts_with("//") {
-                format!("{}:{loc}", if o.tls { "https" } else { "http" })
-            } else {
-                loc.to_owned()
-            };
-            let (scheme_tls, rest) = match strip_ci(&full, "https://") {
-                Some(r) => (true, r),
-                None => (false, strip_ci(&full, "http://").unwrap_or(&full)),
-            };
-            let (auth, path) = match rest.find(['/', '?']) {
-                Some(i) => (&rest[..i], &rest[i..]),
-                None => (rest, "/"),
-            };
-            let there = Origin::parse(&format!(
-                "{}://{auth}",
-                if scheme_tls { "https" } else { "http" }
-            ))
-            .map_err(|_| "another host".to_owned())?;
-            if there.tls != o.tls || there.host != o.host || there.port != o.port {
+        let full = match loc.strip_prefix("//") {
+            Some(_) => format!("{}:{loc}", if o.tls { "https" } else { "http" }),
+            None => loc.to_owned(),
+        };
+        let path = if let Some(there) = absolute(&full)? {
+            if there.tls != o.tls || there.url.host.text() != o.host || there.port != o.port {
                 return Err("another host".into());
             }
-            path.to_owned()
+            match (&*there.url.path, &there.url.query) {
+                ("", None) => "/".to_owned(),
+                (p, None) => p.to_owned(),
+                (p, Some(q)) => format!("{p}?{q}"),
+            }
         } else if loc.starts_with('/') {
             loc.to_owned()
         } else {
@@ -653,6 +608,123 @@ impl Client {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The parser before review S4, kept to compare (strip_ci with it).
+    fn old_strip_ci<'a>(s: &'a str, prefix: &str) -> Option<&'a str> {
+        let p = prefix.as_bytes();
+        if s.as_bytes().get(..p.len())?.eq_ignore_ascii_case(p) {
+            s.get(p.len()..)
+        } else {
+            None
+        }
+    }
+
+    fn old_parse(url: &str) -> Result<Origin, String> {
+        let url = url.trim();
+        let (tls, rest) = if let Some(r) = old_strip_ci(url, "https://") {
+            (true, r)
+        } else if let Some(r) = old_strip_ci(url, "http://") {
+            (false, r)
+        } else {
+            return Err("must start with http:// or https://".into());
+        };
+        let (authority, path) = match rest.find(['/', '?', '#']) {
+            Some(i) => (&rest[..i], &rest[i..]),
+            None => (rest, ""),
+        };
+        if authority.contains('@') {
+            return Err("no user or password in the URL: use auth".into());
+        }
+        if path.contains(['?', '#']) {
+            return Err("no query or fragment in the base URL".into());
+        }
+        let (host, port) = if let Some(v6) = authority.strip_prefix('[') {
+            let (h, after) = v6.split_once(']').ok_or("bad IPv6 host")?;
+            let port = match after {
+                "" => None,
+                p => Some(p.strip_prefix(':').ok_or("bad port")?),
+            };
+            (h, port)
+        } else {
+            match authority.rsplit_once(':') {
+                Some((h, p)) => (h, Some(p)),
+                None => (authority, None),
+            }
+        };
+        let port = match port {
+            None => {
+                if tls {
+                    443
+                } else {
+                    80
+                }
+            }
+            Some(p) => p.parse::<u16>().map_err(|_| "bad port".to_owned())?,
+        };
+        let host_ok = !host.is_empty()
+            && host
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_' | b':'));
+        if !host_ok || port == 0 {
+            return Err("bad host".into());
+        }
+        let prefix = path.trim_end_matches('/').to_owned();
+        check_path(&prefix)?;
+        Ok(Origin {
+            tls,
+            host: host.to_ascii_lowercase(),
+            port,
+            prefix,
+        })
+    }
+
+    /// Review S4: every base URL the old parser took parses the same; what it refused
+    /// stays refused, and more malformed inputs are refused too.
+    #[test]
+    fn origins_parse_as_before() {
+        for s in [
+            "https://Meter.local:8443/api/",
+            "http://10.0.0.5",
+            "http://[::1]:8080/x",
+            "HTTPS://api.example/v1",
+            "  http://localhost:8080  ",
+            "http://host_1.example/a/b/",
+            "https://h/v1/status",
+            "http://[fe80::1]/",
+            "https://h:443",
+            "http://h/a%20b",
+        ] {
+            assert_eq!(Origin::parse(s), old_parse(s), "{s}");
+        }
+        for s in [
+            "ftp://x",
+            "http://",
+            "http://u:p@host/",
+            "http://host:99999/",
+            "http://host:0/",
+            "http://host/a?b=1",
+            "http://host/a#f",
+            "http://ho st/",
+            "http://host/a b",
+            "http://[::1/",
+            "http://über.local/api",
+            "https://ü.local",
+            "httpü://x",
+            "http://host/a\\b",
+        ] {
+            assert!(old_parse(s).is_err(), "old took {s}");
+            assert!(Origin::parse(s).is_err(), "{s}");
+        }
+        // refused now, taken before: a sign before the port, an empty port, a zone
+        for s in [
+            "http://host:+80/",
+            "http://host:/",
+            "http://[fe80::1%eth0]/",
+            "http://a:b:80/",
+        ] {
+            assert!(Origin::parse(s).is_err(), "{s}");
+        }
+    }
 
     #[test]
     fn origins() {

@@ -694,7 +694,7 @@ async fn a_broker_updates_itself_and_is_confirmed() {
     site.wait_state("confirmed").await;
     site.wait_links().await;
     let u = site.update_file();
-    assert_eq!(u.state, "confirmed");
+    assert_eq!(u.state.name(), "confirmed");
     assert!(
         u.ran_s >= u.trial_s && u.trial_s == 25,
         "confirmed only after the version ran its trial: ran {} of {} s",
@@ -922,7 +922,7 @@ async fn a_failed_trial_is_rolled_back_by_the_guard() {
     assert_eq!(site.current(), "versions/0.3.0");
     let u = site.update_file();
     assert_eq!(u.moved(), ["registry"]);
-    assert_eq!(u.state, "trial");
+    assert_eq!(u.state.name(), "trial");
 
     // under the new version: the control plane moves, and a link goes away
     let c = site.client().await;
@@ -946,7 +946,7 @@ async fn a_failed_trial_is_rolled_back_by_the_guard() {
         site.unit.exits()
     );
     let u = site.update_file();
-    assert_eq!(u.state, "rolled_back");
+    assert_eq!(u.state.name(), "rolled_back");
     assert!(
         u.restored,
         "the registry is restored from the pre-update backup"
@@ -1092,7 +1092,7 @@ async fn a_standby_is_updated_before_the_active() {
     );
     let u = b.update_file();
     assert_eq!(
-        (u.state.as_str(), u.role.as_str()),
+        (u.state.name(), u.role.map_or("", |r| r.name())),
         ("confirmed", "standby")
     );
     assert_eq!(
@@ -1560,7 +1560,7 @@ fn the_updates_section_is_validated() {
     assert!(parse(r#"mode: "self""#).is_ok());
     assert!(parse(r#"mode: "auto""#)
         .unwrap_err()
-        .contains("off, external or self"));
+        .contains("updates.mode: unknown name \"auto\" (one of off, external, self)"));
     assert!(parse(r#"mode: "external""#)
         .unwrap_err()
         .contains("updates.channel"));

@@ -10,7 +10,7 @@
 //! embeds it), so it knows the title and category of its built-in drivers
 //! with no network.
 
-use crate::package::{self, Asset, Manifest, RepoEntry};
+use crate::package::{self, Asset, Manifest, PackageForm, RepoEntry};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
 
@@ -144,8 +144,10 @@ pub fn parse(bytes: &[u8]) -> Result<Official, String> {
     if o.format != FORMAT {
         return Err(format!("manifest: format {:?}, not {FORMAT}", o.format));
     }
-    if !o.releases.starts_with("https://") || o.releases.ends_with('/') || o.releases.contains('?')
-    {
+    let https =
+        wyrm_core::weburl::HttpUrl::parse(&o.releases, wyrm_core::weburl::SchemeCase::Lower)
+            .is_ok_and(|u| u.tls && u.url.query.is_none() && u.url.fragment.is_none());
+    if !https || o.releases.ends_with('/') {
         return Err(format!(
             "manifest: releases {:?}: an https URL without a trailing '/'",
             o.releases
@@ -222,13 +224,13 @@ impl Official {
             .find(|l| l.forms.builtin.as_deref() == Some(driver))
     }
 
-    /// The link that ships package `name`, and the form (`wasm`, `process`).
-    pub fn by_package(&self, name: &str) -> Option<(&OfficialLink, &'static str)> {
+    /// The link that ships package `name`, and its form.
+    pub fn by_package(&self, name: &str) -> Option<(&OfficialLink, PackageForm)> {
         self.links.iter().find_map(|l| {
             if l.forms.wasm.as_deref() == Some(name) {
-                Some((l, "wasm"))
+                Some((l, PackageForm::Wasm))
             } else if l.forms.process.as_deref() == Some(name) {
-                Some((l, "process"))
+                Some((l, PackageForm::Process))
             } else {
                 None
             }
@@ -261,7 +263,10 @@ impl Official {
         }
         let mut index = Vec::new();
         for l in &self.links {
-            for (form, name) in [("wasm", &l.forms.wasm), ("process", &l.forms.process)] {
+            for (form, name) in [
+                (PackageForm::Wasm, &l.forms.wasm),
+                (PackageForm::Process, &l.forms.process),
+            ] {
                 let Some(name) = name else { continue };
                 let zips: Vec<&Built> = built.iter().filter(|b| &b.manifest.name == name).collect();
                 for b in &zips {
@@ -302,7 +307,7 @@ impl Official {
                     title: l.title.clone(),
                     category: l.category.clone(),
                     link: l.id.clone(),
-                    kind: Some(form.to_owned()),
+                    kind: Some(form.into()),
                     wyrm_link: Some(l.wyrm_link),
                     min_broker: Some(l.min_broker.clone()),
                     // ADR 0048: what the zips' manifests name
@@ -310,7 +315,7 @@ impl Official {
                     reads_state: zips.first().and_then(|b| b.manifest.reads_state.clone()),
                     ..RepoEntry::default()
                 };
-                if form == "wasm" {
+                if form == PackageForm::Wasm {
                     match zips.as_slice() {
                         [] if partial => continue,
                         [] => return Err(format!("{name}: no zip of the wasm form")),
@@ -392,7 +397,11 @@ mod tests {
                 version: version.into(),
                 description: String::new(),
                 wyrm_link: 1,
-                kind: if host.is_some() { "process" } else { "wasm" }.into(),
+                kind: if host.is_some() {
+                    PackageForm::Process
+                } else {
+                    PackageForm::Wasm
+                },
                 entries: host
                     .map(|h| (h.to_owned(), format!("bin/{h}/run")))
                     .into_iter()
@@ -437,13 +446,13 @@ mod tests {
         );
         assert_eq!(wasm.description, "Alarm records");
         assert_eq!(
-            (wasm.link.as_str(), wasm.kind.as_deref()),
+            (wasm.link.as_str(), wasm.kind.as_ref().map(|k| k.name())),
             ("alarm", Some("wasm"))
         );
         assert_eq!(wasm.version, "1.2.0");
         let proc = &index[1];
         assert_eq!(proc.link, "alarm");
-        assert_eq!(proc.kind.as_deref(), Some("process"));
+        assert_eq!(proc.kind, Some(PackageForm::Process.into()));
         assert_eq!(proc.assets.len(), 2);
         // a mirror: file names beside the index
         let rel = o.index(&all(), None, false).unwrap();

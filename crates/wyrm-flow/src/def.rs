@@ -27,7 +27,7 @@ pub type Map = BTreeMap<String, Value>;
 
 wyrm_core::name_enum! {
     /// What a full queue does with the next sample (`policy.overflow`).
-    pub enum Overflow {
+    pub enum Overflow as "overflow" {
         DropOldest => "drop_oldest",
         DropNewest => "drop_newest",
         Block => "block",

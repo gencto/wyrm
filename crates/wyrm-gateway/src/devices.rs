@@ -30,6 +30,7 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::Mutex;
+use wyrm_core::weburl::{HttpUrl, SchemeCase};
 use wyrm_core::Value;
 use zeroize::Zeroizing;
 
@@ -50,8 +51,17 @@ pub const LOGIN_LABEL: &str = "wyrm-device-login/1";
 pub const REGISTER_LABEL: &str = "wyrm-device-register/1";
 pub const CONFIRM_LABEL: &str = "wyrm-device-confirm/1";
 
-/// Platforms a device record may name (`web` is for passkeys later).
-pub const PLATFORMS: [&str; 4] = ["macos", "windows", "ios", "android"];
+wyrm_core::name_enum! {
+    /// The platform a device record names (`web` is for passkeys later). Kept as its
+    /// name in the users store, as the `String` it was (an unknown name refuses the
+    /// store, ADR 0029 item 12).
+    pub enum Platform as "device platform" {
+        Macos => "macos",
+        Windows => "windows",
+        Ios => "ios",
+        Android => "android",
+    }
+}
 
 /// `gateway.devices.step_up`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -127,34 +137,20 @@ impl DevicePolicy {
     }
 }
 
-/// The signature scheme of a device key.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum KeyAlg {
-    /// ECDSA P-256 with SHA-256, signature in ASN.1 DER (Secure Enclave, Android Keystore).
-    /// The key is kept as the 65-byte uncompressed point.
-    Es256,
-    /// RSASSA-PKCS1-v1_5 with SHA-256, 2048 bits or more (Windows Hello's
-    /// `KeyCredentialManager` makes RSA-2048 keys only). The key is kept as PKCS#1
-    /// `RSAPublicKey` DER.
-    Rs256,
+wyrm_core::name_enum! {
+    /// The signature scheme of a device key. Kept as its name in the users store.
+    pub enum KeyAlg as "device key algorithm" {
+        /// ECDSA P-256 with SHA-256, signature in ASN.1 DER (Secure Enclave, Android
+        /// Keystore). The key is kept as the 65-byte uncompressed point.
+        Es256 => "es256",
+        /// RSASSA-PKCS1-v1_5 with SHA-256, 2048 bits or more (Windows Hello's
+        /// `KeyCredentialManager` makes RSA-2048 keys only). The key is kept as PKCS#1
+        /// `RSAPublicKey` DER.
+        Rs256 => "rs256",
+    }
 }
 
 impl KeyAlg {
-    pub fn of(s: &str) -> Option<Self> {
-        match s {
-            "es256" => Some(KeyAlg::Es256),
-            "rs256" => Some(KeyAlg::Rs256),
-            _ => None,
-        }
-    }
-
-    pub fn name(self) -> &'static str {
-        match self {
-            KeyAlg::Es256 => "es256",
-            KeyAlg::Rs256 => "rs256",
-        }
-    }
-
     /// The key as the gateway keeps it: an ES256 key as the uncompressed point (also from
     /// SPKI DER), an RS256 key as PKCS#1 DER (also from SPKI DER). Whether it is a valid
     /// key shows at the registration's signature check.
@@ -566,35 +562,16 @@ impl Fresh {
     }
 }
 
-/// An origin as `(scheme, host, port)`, host in lower case, IPv6 without brackets.
+/// An origin as `(scheme, host, port)`, host in lower case, IPv6 without brackets: an
+/// `http(s)://host[:port]` URL (scheme in any case) without path, query or fragment, read
+/// by [`wyrm_core::weburl`].
 pub fn parse_origin(s: &str) -> Option<(String, String, u16)> {
-    let (scheme, rest) = s.split_once("://")?;
-    let scheme = scheme.to_ascii_lowercase();
-    let default = match scheme.as_str() {
-        "https" => 443,
-        "http" => 80,
-        _ => return None,
-    };
-    if rest.is_empty() || rest.contains(['/', '?', '#', '@']) {
+    let u = HttpUrl::parse(s, SchemeCase::Any).ok()?;
+    if !u.url.path.is_empty() || u.url.query.is_some() || u.url.fragment.is_some() {
         return None;
     }
-    let (host, port) = if let Some(v6) = rest.strip_prefix('[') {
-        let (h, after) = v6.split_once(']')?;
-        let port = match after {
-            "" => default,
-            p => p.strip_prefix(':')?.parse().ok()?,
-        };
-        (h.to_owned(), port)
-    } else {
-        match rest.rsplit_once(':') {
-            Some((h, p)) => (h.to_owned(), p.parse().ok()?),
-            None => (rest.to_owned(), default),
-        }
-    };
-    if host.is_empty() {
-        return None;
-    }
-    Some((scheme, host.to_ascii_lowercase(), port))
+    let scheme = if u.tls { "https" } else { "http" };
+    Some((scheme.to_owned(), u.url.host.text(), u.port))
 }
 
 /// The names of a certificate (its DNS and IP subject alternative names, lower case), the
@@ -815,13 +792,11 @@ impl Gateway {
         if name.trim().is_empty() || name.len() > MAX_NAME || name.chars().any(char::is_control) {
             return Err(Refused::Bad("name: 1 to 64 bytes of text".into()));
         }
-        if !PLATFORMS.contains(&platform) {
-            return Err(Refused::Bad(format!(
-                "platform: one of {}",
-                PLATFORMS.join(", ")
-            )));
-        }
-        let alg = KeyAlg::of(alg).ok_or_else(|| Refused::Bad("alg: es256 or rs256".into()))?;
+        let platform = Platform::from_name(platform).ok_or_else(|| {
+            Refused::Bad(format!("platform: one of {}", Platform::NAMES.join(", ")))
+        })?;
+        let alg =
+            KeyAlg::from_name(alg).ok_or_else(|| Refused::Bad("alg: es256 or rs256".into()))?;
         let key = alg.normalize(public_key).map_err(Refused::Bad)?;
         if attestation
             .as_ref()
@@ -858,8 +833,8 @@ impl Gateway {
                     id: id.clone(),
                     user: p.name.clone(),
                     name: name.to_owned(),
-                    platform: platform.to_owned(),
-                    alg: alg.name().to_owned(),
+                    platform,
+                    alg,
                     public_key: key,
                     attestation,
                     at: now,
@@ -870,7 +845,7 @@ impl Gateway {
             user: p.name.clone(),
             device: id.clone(),
             name: name.to_owned(),
-            platform: platform.to_owned(),
+            platform,
             ip,
         });
         Ok(id)
@@ -901,11 +876,8 @@ impl Gateway {
         let Some(d) = self.device(device) else {
             return Err(self.bare(device, None, ip, "unknown_device"));
         };
-        let alg = KeyAlg::of(&d.alg);
         let msg = login_message(&self.cfg.site, origin, &d.user, device, nonce);
-        if !self.origin_allowed(origin)
-            || !alg.is_some_and(|a| a.verify(&d.public_key, &msg, signature))
-        {
+        if !self.origin_allowed(origin) || !d.alg.verify(&d.public_key, &msg, signature) {
             return Err(self.bare(device, Some(&d.user), ip, "bad_signature"));
         }
         // a good signature from a known key: the refusals that say why
@@ -1007,9 +979,7 @@ impl Gateway {
             _ => return Err(self.bare(device, Some(&p.name), ip, "unknown_device")),
         };
         let msg = confirm_message(&self.cfg.site, origin, &p.name, device, nonce, request);
-        if !self.origin_allowed(origin)
-            || !KeyAlg::of(&d.alg).is_some_and(|a| a.verify(&d.public_key, &msg, signature))
-        {
+        if !self.origin_allowed(origin) || !d.alg.verify(&d.public_key, &msg, signature) {
             return Err(self.bare(device, Some(&p.name), ip, "bad_signature"));
         }
         if !self.cfg.devices.enabled {
@@ -1078,8 +1048,8 @@ impl Gateway {
                 let mut m = vec![
                     ("id", Value::from(id.as_str())),
                     ("name", Value::from(d.name.as_str())),
-                    ("platform", Value::from(d.platform.as_str())),
-                    ("alg", Value::from(d.alg.as_str())),
+                    ("platform", Value::from(d.platform.name())),
+                    ("alg", Value::from(d.alg.name())),
                     ("added", Value::UInt(d.added)),
                     ("last_used", Value::UInt(d.last_used)),
                     ("password_at", Value::UInt(d.password_at)),
@@ -1167,6 +1137,82 @@ fn limit_key(device: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The parser before review S4, kept to compare.
+    /// An origin as `(scheme, host, port)`, host in lower case, IPv6 without brackets.
+    fn old_parse_origin(s: &str) -> Option<(String, String, u16)> {
+        let (scheme, rest) = s.split_once("://")?;
+        let scheme = scheme.to_ascii_lowercase();
+        let default = match scheme.as_str() {
+            "https" => 443,
+            "http" => 80,
+            _ => return None,
+        };
+        if rest.is_empty() || rest.contains(['/', '?', '#', '@']) {
+            return None;
+        }
+        let (host, port) = if let Some(v6) = rest.strip_prefix('[') {
+            let (h, after) = v6.split_once(']')?;
+            let port = match after {
+                "" => default,
+                p => p.strip_prefix(':')?.parse().ok()?,
+            };
+            (h.to_owned(), port)
+        } else {
+            match rest.rsplit_once(':') {
+                Some((h, p)) => (h.to_owned(), p.parse().ok()?),
+                None => (rest.to_owned(), default),
+            }
+        };
+        if host.is_empty() {
+            return None;
+        }
+        Some((scheme, host.to_ascii_lowercase(), port))
+    }
+
+    /// Review S4: every origin the old parser took parses the same; what it refused stays
+    /// refused.
+    #[test]
+    fn origins_parse_as_before() {
+        for s in [
+            "https://Broker.Example:8443",
+            "https://broker.example",
+            "http://[::1]:8080",
+            "HTTP://127.0.0.1:8445",
+            "http://localhost",
+            "https://10.1.2.3:443",
+            "https://[FE80::1]",
+        ] {
+            assert_eq!(parse_origin(s), old_parse_origin(s), "{s}");
+        }
+        for s in [
+            "broker.example",
+            "ftp://x",
+            "https://x/path",
+            "https://x/",
+            "https://x?q",
+            "https://x#f",
+            "https://user@x",
+            "https://:1",
+            "https://x:port",
+            "https://x:99999",
+            "https://",
+            "https://[::1",
+        ] {
+            assert_eq!(old_parse_origin(s), None, "old took {s}");
+            assert_eq!(parse_origin(s), None, "{s}");
+        }
+        // refused now, taken before: port 0, a sign, a host that is no host
+        for s in [
+            "https://x:0",
+            "https://x:+1",
+            "https://a b",
+            "https://[zz]",
+            "https://x:",
+        ] {
+            assert_eq!(parse_origin(s), None, "{s}");
+        }
+    }
 
     #[test]
     fn origins_parse() {

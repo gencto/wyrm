@@ -397,6 +397,84 @@ fn pause_survives_a_restart_and_resume_goes_on() {
     assert_eq!(m.get("message"), Some(&Value::from("down")));
 }
 
+fn old_plain(s: &str) -> bool {
+    !s.bytes().any(|b| b == b'\r' || b == b'\n' || b == 0)
+}
+
+/// The parser before review S4, kept to compare.
+fn old_parse_url(url: &str) -> Result<(bool, String, u16, String), String> {
+    let (tls, rest) = if let Some(r) = url.strip_prefix("https://") {
+        (true, r)
+    } else if let Some(r) = url.strip_prefix("http://") {
+        (false, r)
+    } else {
+        return Err("the URL must start with http:// or https://".into());
+    };
+    let (authority, base) = match rest.find('/') {
+        Some(i) => (&rest[..i], rest[i..].trim_end_matches('/')),
+        None => (rest, ""),
+    };
+    if authority.contains('@') {
+        return Err("no credentials in the URL".into());
+    }
+    let (host, port) = match authority.rsplit_once(':') {
+        Some((h, p)) if !h.ends_with(']') || h.starts_with('[') => {
+            (h, p.parse::<u16>().map_err(|_| format!("{url}: bad port"))?)
+        }
+        _ => (authority, if tls { 443 } else { 80 }),
+    };
+    let host = host.trim_start_matches('[').trim_end_matches(']');
+    if host.is_empty() || !old_plain(base) || base.contains([' ', '?', '#']) {
+        return Err(format!("{url}: bad host or path"));
+    }
+    Ok((tls, host.to_owned(), port, base.to_owned()))
+}
+
+/// Review S4: every target URL the old parser took parses the same (it stays strict on
+/// the scheme's case); what it refused stays refused.
+#[test]
+fn urls_parse_as_before() {
+    use crate::http::parse_url;
+    for s in [
+        "https://eu.influx.cloud",
+        "http://127.0.0.1:8086/base/",
+        "http://[::1]:8086",
+        "https://dynamodb.eu-west-1.amazonaws.com",
+        "https://db.example:27017/",
+        "http://localhost:8428/write//",
+        "https://h/a%20b",
+    ] {
+        assert_eq!(parse_url(s), old_parse_url(s), "{s}");
+    }
+    for s in [
+        "ftp://x",
+        "https://u:p@x",
+        "https://x:99999",
+        "https://x/a b",
+        "HTTPS://x",
+        "https://",
+        "https://x/a?b",
+        "https://x/a#b",
+        "https://x:",
+    ] {
+        assert!(old_parse_url(s).is_err(), "old took {s}");
+        assert!(parse_url(s).is_err(), "{s}");
+    }
+    // refused now, taken before: a query or a garbled host, port 0, a sign
+    for s in [
+        "https://x?a=1",
+        "https://x:0",
+        "https://x:+1",
+        "https://[::1",
+        "https://a b",
+    ] {
+        assert!(parse_url(s).is_err(), "{s}");
+    }
+    // the message never repeats the URL (a query may hold a token)
+    let e = parse_url("https://x:99999/?token=secret").unwrap_err();
+    assert!(!e.contains("secret"), "{e}");
+}
+
 #[test]
 fn urls_and_queries() {
     use crate::http::{loopback, parse_url, query_value};

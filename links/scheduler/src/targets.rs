@@ -58,7 +58,7 @@ wyrm_core::name_enum! {
     /// How a target's write is confirmed. [`Confirm::ALL`] is in the order of the `confirm`
     /// enum param: an action gets the index of the choice (the responder checks enum args as
     /// indices), an import the text.
-    pub enum Confirm {
+    pub enum Confirm as "confirm" {
         ReadBack => "read_back",
         Feedback => "feedback",
         Ack => "ack",

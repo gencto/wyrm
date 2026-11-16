@@ -407,6 +407,16 @@ impl SimHost {
     pub fn store_has(&self, k: &str) -> bool {
         self.shared.lock().unwrap().store.contains_key(k)
     }
+
+    pub fn store_value(&self, k: &str) -> Option<Value> {
+        let b = self.shared.lock().unwrap().store.get(k).cloned()?;
+        wyrm_core::codec::from_slice(&b).ok()
+    }
+
+    pub fn store_put_value(&self, k: &str, v: &Value) {
+        let b = wyrm_core::codec::to_vec(v).unwrap();
+        self.shared.lock().unwrap().store.insert(k.to_owned(), b);
+    }
 }
 
 fn sample(v: Value, t: u64) -> Sample {

@@ -164,11 +164,22 @@ pub struct Kdf {
     pub p: u32,
 }
 
+wyrm_core::name_enum! {
+    /// How the sealed files of a backup are sealed (manifest `sealed.how`, a job's
+    /// `sealed`). Kept as its name, as the `String` it was; a manifest with another
+    /// name does not decode.
+    pub enum How as "backup sealing" {
+        /// No sealed file.
+        None => "none",
+        Passphrase => "passphrase",
+        Broker => "broker",
+    }
+}
+
 /// How the sealed files of a backup are sealed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Sealed {
-    /// `none` (no sealed file), `passphrase` or `broker`.
-    pub how: String,
+    pub how: How,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kdf: Option<Kdf>,
     /// Hex of a constant sealed under the master key: opens only with it.
@@ -343,13 +354,10 @@ impl Manifest {
         }
         wyrm_core::keyspace::validate_segment(&self.site)
             .map_err(|e| format!("manifest: site: {e}"))?;
-        if !matches!(self.sealed.how.as_str(), "none" | "passphrase" | "broker") {
-            return Err(format!("manifest: sealed.how {:?}", self.sealed.how));
-        }
-        if (self.sealed.how == "passphrase") != self.sealed.kdf.is_some() {
+        if (self.sealed.how == How::Passphrase) != self.sealed.kdf.is_some() {
             return Err("manifest: sealed.kdf goes with how: passphrase".into());
         }
-        let keyed = self.sealed.how != "none";
+        let keyed = self.sealed.how != How::None;
         let hex_of =
             |s: &str, len: usize| s.len() == 2 * len && s.bytes().all(|b| b.is_ascii_hexdigit());
         if keyed
@@ -414,7 +422,7 @@ impl Manifest {
                         f.path
                     ));
                 }
-                if f.sealed && self.sealed.how == "none" {
+                if f.sealed && self.sealed.how == How::None {
                     return Err(format!(
                         "manifest: {} is sealed, the backup says none",
                         f.path
@@ -560,7 +568,7 @@ impl Sealing<'_> {
         match self {
             Sealing::None => Ok((
                 Sealed {
-                    how: "none".into(),
+                    how: How::None,
                     kdf: None,
                     check: String::new(),
                     id: String::new(),
@@ -582,7 +590,7 @@ impl Sealing<'_> {
                 let key = argon2(&kdf, p, new_id()?)?;
                 Ok((
                     Sealed {
-                        how: "passphrase".into(),
+                        how: How::Passphrase,
                         check: key.check()?,
                         kdf: Some(kdf),
                         id: hex::encode(&key.id),
@@ -595,7 +603,7 @@ impl Sealing<'_> {
                 let key = broker_key(k, new_id()?);
                 Ok((
                     Sealed {
-                        how: "broker".into(),
+                        how: How::Broker,
                         kdf: None,
                         check: key.check()?,
                         id: hex::encode(&key.id),
@@ -620,21 +628,21 @@ impl Sealed {
         if id.len() != ID_LEN {
             return Err("manifest: sealed.id: 16 bytes".into());
         }
-        let key = match (self.how.as_str(), &self.kdf) {
-            ("passphrase", Some(kdf)) => argon2(
+        let key = match (self.how, &self.kdf) {
+            (How::Passphrase, Some(kdf)) => argon2(
                 kdf,
                 passphrase.ok_or("passphrase: required, the backup is sealed with one")?,
                 id,
             )?,
-            ("broker", _) => broker_key(
+            (How::Broker, _) => broker_key(
                 secrets_key.ok_or("the backup is sealed for the broker that made it")?,
                 id,
             ),
             _ => return Err("the backup has no sealed files".into()),
         };
         if !key.opens(&self.check) {
-            return Err(match self.how.as_str() {
-                "passphrase" => "wrong passphrase".into(),
+            return Err(match self.how {
+                How::Passphrase => "wrong passphrase".into(),
                 _ => "the backup is sealed for another broker (its secrets.key differs)".into(),
             });
         }
@@ -889,13 +897,13 @@ pub fn write(
         });
     }
     match key {
-        Some(k) if manifest.sealed.how != "none" => {
+        Some(k) if manifest.sealed.how != How::None => {
             if hex::encode(&k.id) != manifest.sealed.id {
                 return Err("the key is of another backup".into());
             }
             manifest.sealed.mac = k.mac_of(&manifest)?;
         }
-        None if manifest.sealed.how == "none" => {}
+        None if manifest.sealed.how == How::None => {}
         _ => return Err("a sealed backup is written with its key, an unsealed one without".into()),
     }
     manifest.check()?;
@@ -1221,6 +1229,43 @@ pub fn read_manifest(path: &Path) -> Result<Manifest, String> {
 mod tests {
     use super::*;
     use std::io::Cursor;
+
+    /// Review T5: `sealed.how` was a `String` checked against three names. A manifest
+    /// written then reads into [`How`] and serializes to the same bytes, so its MAC (over
+    /// the canonical JSON) still holds; another name does not decode.
+    #[test]
+    fn sealed_how_keeps_the_manifest_bytes() {
+        #[derive(Serialize)]
+        struct OldSealed<'a> {
+            how: &'a str,
+            #[serde(skip_serializing_if = "str::is_empty")]
+            check: &'a str,
+            #[serde(skip_serializing_if = "str::is_empty")]
+            id: &'a str,
+            #[serde(skip_serializing_if = "str::is_empty")]
+            mac: &'a str,
+        }
+        for (how, check, id, mac) in [
+            ("none", "", "", ""),
+            ("broker", "c0ffee", "00112233445566778899aabbccddeeff", "ab"),
+        ] {
+            let bytes = serde_json::to_vec(&OldSealed {
+                how,
+                check,
+                id,
+                mac,
+            })
+            .unwrap();
+            let new: Sealed = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(new.how.name(), how);
+            assert_eq!(serde_json::to_vec(&new).unwrap(), bytes);
+        }
+        let bad = br#"{"how":"Broker"}"#;
+        let e = serde_json::from_slice::<Sealed>(bad)
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("backup sealing: unknown name"), "{e}");
+    }
 
     fn dir(name: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("wyrm-backup-{name}-{}", std::process::id()));
@@ -1644,7 +1689,7 @@ mod tests {
             created: "2026-11-13T10:00:00Z".into(),
             schemas: BTreeMap::new(),
             sealed: Sealed {
-                how: "none".into(),
+                how: How::None,
                 kdf: None,
                 check: String::new(),
                 id: String::new(),
@@ -1721,7 +1766,7 @@ mod tests {
         };
         let with = |name: &str, files: Vec<FileEntry>| {
             let mut m = manifest_with(&[]);
-            m.sealed.how = "broker".into();
+            m.sealed.how = How::Broker;
             m.sections = vec![Section {
                 name: name.into(),
                 info: Default::default(),
@@ -1797,7 +1842,7 @@ mod tests {
             with(&|m| m.kind = Kind::Link).is_err(),
             "a link backup names its link"
         );
-        assert!(with(&|m| m.sealed.how = "passphrase".into()).is_err());
+        assert!(with(&|m| m.sealed.how = How::Passphrase).is_err());
         // a link backup has link sections
         let mut link = ok.clone();
         link.kind = Kind::Link;

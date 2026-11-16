@@ -8,6 +8,7 @@ use crate::packages::{platform, RepoEntry};
 use std::collections::BTreeMap;
 use wyrm_core::Value;
 use wyrm_link_sdk::official::{self, Official};
+use wyrm_link_sdk::package::PackageForm;
 
 /// `links/official.json` as this broker was built.
 pub const EMBEDDED: &str = include_str!("../../../links/official.json");
@@ -96,12 +97,12 @@ pub fn catalog(
         // what the zip is, from the index alone: a process package has a
         // file per host, one for every host is wasm
         let form = if e.assets.is_empty() {
-            "wasm"
+            PackageForm::Wasm
         } else {
-            "process"
+            PackageForm::Process
         };
         let official = official_repo
-            && e.kind.as_deref().is_none_or(|k| k == form)
+            && e.kind.as_ref().is_none_or(|k| k.known() == Some(form))
             && o.by_package(&e.name)
                 .is_some_and(|(l, f)| f == form && l.version == e.version);
         let title = if e.title.is_empty() {
@@ -117,7 +118,7 @@ pub fn catalog(
             ("summary", s(&e.description)),
             ("category", s(&e.category)),
             ("version", s(&e.version)),
-            ("form", s(form)),
+            ("form", s(form.name())),
             ("official", Value::Bool(official)),
         ]));
     }
@@ -223,7 +224,7 @@ mod tests {
         let repo = vec![
             RepoEntry {
                 category: "Apps".into(),
-                kind: Some("wasm".into()),
+                kind: Some(PackageForm::Wasm.into()),
                 link: "alarm".into(),
                 ..wasm("alarm", &v, "Alarms")
             },

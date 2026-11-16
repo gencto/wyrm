@@ -248,7 +248,7 @@ pub fn command(
 
 wyrm_core::name_enum! {
     /// A Sparkplug B message type, by its topic token.
-    pub enum MsgType {
+    pub enum MsgType as "message type" {
         NBirth => "NBIRTH",
         NDeath => "NDEATH",
         NData => "NDATA",

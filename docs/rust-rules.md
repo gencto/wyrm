@@ -232,8 +232,14 @@ levels), comparisons that are not a lookup, and the closed sets of T5.
 
 **Rule.** A field, argument or state whose values are a fixed list is an enum
 (`wire_enum!` when it has wire codes, `ParamEnum` for an action argument,
-otherwise `name_enum!`). The string becomes the
-enum once, where it is decoded. No `String` field documented as "`a`, `b` or
+otherwise `wyrm_core::name_enum!`, which generates `name()`, `from_name()`,
+`NAMES` and the codecs). The string becomes the enum once, where it is
+decoded. A `name_enum!` type is kept as its name in CBOR, postcard and JSON,
+the bytes a `String` field wrote, so a store needs no migration; a name that
+is not in the set is a decode error, never a default. A `wire_enum!` type
+kept by its name in a store says so on the field
+(`#[cbor(with = "wyrm_core::named::cbor")]`,
+`#[serde(with = "wyrm_core::named::serde")]`). No `String` field documented as "`a`, `b` or
 `c`", no inline `&["a", "b"]` set, no `const NAMES: [&str; N]` checked by
 hand. The key list of `Fields::only(&[…])` (the names an argument map may
 hold) is not a set of values and is not counted.
@@ -263,7 +269,9 @@ if job.status != JobStatus::Done { … }
 "one of …", "a, b or c"). C6 `string-set`: inline `["a", "b"]` (with or
 without `&`, `vec![…]`; not the key list of `only(&[…])`), `matches!(x, "a" |
 "b")`, `x == "a" || x == "b"`, and `const`/`static` tables of `&str` (also of
-tuples).
+tuples). The bodies of the `name_enum!` and `wire_enum!` macros (in
+`wyrm-core/src/named.rs`, `wire.rs`; the rest of those files is counted) are
+exempt from C6: their `NAMES` is the one declaration of a set.
 
 ## 7. One typed decoder per `Value` shape
 
@@ -404,6 +412,24 @@ hex helpers (one named `wyrm_core_hex` in `wyrm-flow`), 4 `sha256_hex`.
 **Check.** C9 `duplicate-helper`: a `fn` or a closure (`let now = || …`)
 outside `wyrm-core` named `now…`, `…_now`, `unix_…`, `timestamp…`, or holding
 `hex`, `sha256` or `digest`.
+
+**URLs.** A configured URL (an HTTP target, a file store, a sync target, an
+uplink, the gateway's origins and public URL, a release channel, a
+repository) is read by `wyrm_core::weburl` (`Url::parse`, `HttpUrl::parse`)
+and the place applies its policy to the typed parts; a place that only tells
+a URL from other text, or takes what follows the authority of a URL a server
+wrote (a messenger button's target, a WebDAV `href`), uses
+`weburl::split_scheme`. No `split_once("://")` or `strip_prefix("https://")`
+splitting by hand (review S4: fifteen splitters with different rules). Left
+as text on purpose: the secrets redactor (`wyrm-admin/src/secrets.rs`, it
+must find `://` in any text, a malformed scheme too, or a secret would show;
+the one C11 hit in the baseline) and Zenoh locators (`quic/host:port`, not
+URLs).
+
+**Check.** C11 `url-split`: `split_once`/`find`/`contains`/`strip_prefix`/
+`starts_with`/… with `"…://"` or `"http…"` outside `wyrm-core/src/weburl.rs`.
+The checker runs its probes (samples each pattern must count or leave)
+before every run.
 
 ## 12. A secret parameter is a `Secret`
 

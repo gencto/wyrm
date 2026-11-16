@@ -819,7 +819,7 @@ impl Control {
             ("same_site".to_owned(), Value::Bool(m.site == self.cfg.site)),
             ("created".to_owned(), Value::from(m.created.clone())),
             ("broker".to_owned(), Value::from(m.broker.clone())),
-            ("sealed".to_owned(), Value::from(m.sealed.how.clone())),
+            ("sealed".to_owned(), Value::from(m.sealed.how.name())),
             (
                 "schemas".to_owned(),
                 Value::Map(
@@ -1351,7 +1351,7 @@ impl Admin {
                         (true, Some(p)) => SealWith::Passphrase(Zeroizing::new(p.to_vec())),
                         _ => SealWith::None,
                     },
-                    label: "pre-restore".into(),
+                    label: super::backups::JobKind::PreRestore,
                     pinned: false,
                     remote: false,
                     estimate: false,

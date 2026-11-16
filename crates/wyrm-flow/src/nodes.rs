@@ -12,6 +12,7 @@
 
 use crate::artifacts::Artifacts;
 use crate::def::Map;
+use crate::modes::{OnBad, QualityMode, Reset, Trigger, WindowFn, WindowKind};
 use crate::script;
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
@@ -196,18 +197,17 @@ pub(crate) fn only(cfg: &Map, known: &[&str]) -> Result<(), String> {
     }
 }
 
-pub(crate) fn one_of<'a>(
-    cfg: &'a Map,
+/// The parameter `k` as a value of the set `T` (`default` when it is left out). Another
+/// name, or a value that is not text, is refused; the error lists the names of `T`.
+pub(crate) fn pick_of<T: wyrm_core::named::Named>(
+    cfg: &Map,
     k: &str,
-    allowed: &[&'a str],
-    default: &'a str,
-) -> Result<&'a str, String> {
-    let v = s(cfg, k)?.unwrap_or(default);
-    allowed
-        .iter()
-        .copied()
-        .find(|a| *a == v)
-        .ok_or_else(|| format!("{k}: one of {allowed:?}"))
+    default: T,
+) -> Result<T, String> {
+    match s(cfg, k)? {
+        None => Ok(default),
+        Some(v) => T::from_name(v).ok_or_else(|| format!("{k}: one of {:?}", T::NAMES)),
+    }
 }
 
 pub(crate) fn names(cfg: &Map) -> Result<Vec<String>, String> {
@@ -353,8 +353,8 @@ fn declared_ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
         "expression" => {
             only(cfg, &["inputs", "expr", "trigger", "quality"])?;
             req_s(cfg, "expr")?;
-            one_of(cfg, "trigger", &["any", "all"], "any")?;
-            one_of(cfg, "quality", &["worst", "ignore", "custom"], "worst")?;
+            pick_of(cfg, "trigger", Trigger::Any)?;
+            pick_of(cfg, "quality", QualityMode::Worst)?;
             let ins: Vec<String> = names(cfg)?.into_iter().map(|n| format!("in.{n}")).collect();
             Ports {
                 inputs: ins.into_iter().map(|n| (n, Any)).collect(),
@@ -399,13 +399,8 @@ fn declared_ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
         }
         "window" => {
             only(cfg, &["kind", "size_s", "fn", "max_samples"])?;
-            one_of(cfg, "kind", &["tumbling", "sliding"], "tumbling")?;
-            one_of(
-                cfg,
-                "fn",
-                &["avg", "min", "max", "sum", "count", "rate"],
-                "avg",
-            )?;
+            pick_of(cfg, "kind", WindowKind::Tumbling)?;
+            pick_of(cfg, "fn", WindowFn::Avg)?;
             max_samples(cfg)?;
             let size = f(cfg, "size_s")?.ok_or("size_s: required")?;
             if size <= 0.0 {
@@ -431,7 +426,7 @@ fn declared_ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
             f(cfg, "hysteresis")?;
             f(cfg, "delay_s")?;
             f(cfg, "return_delay_s")?;
-            one_of(cfg, "on_bad", &["hold", "clear", "raise"], "hold")?;
+            pick_of(cfg, "on_bad", OnBad::Hold)?;
             let mut ins = vec![("in".to_owned(), Number)];
             ins.extend(ALARM_PORTS.iter().map(|p| (format!("in.{p}"), Number)));
             Ports {
@@ -442,7 +437,7 @@ fn declared_ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
         }
         "latch" => {
             only(cfg, &["reset"])?;
-            one_of(cfg, "reset", &["manual", "auto"], "manual")?;
+            pick_of(cfg, "reset", Reset::Manual)?;
             Ports::new(&[("in", Bool), ("reset", Bool)], &[("out", Bool)])
         }
         "delay" => {
@@ -675,7 +670,7 @@ struct Expression {
     last: BTreeMap<String, Msg>,
     fresh: BTreeMap<String, bool>,
     all: bool,
-    quality: String,
+    quality: QualityMode,
     state: rhai::Map,
     errors: u64,
 }
@@ -742,18 +737,18 @@ impl Node for Expression {
             return;
         }
         let v = script::from_dynamic(&r);
-        let (v, q) = match self.quality.as_str() {
-            "ignore" => (v, Quality::Good),
+        let (v, q) = match self.quality {
+            QualityMode::Ignore => (v, Quality::Good),
             // the script sets the quality: `{v, q}` with `q` a code or a name; a result
             // without a valid one is `bad`, never `good` (docs/flow-blocks.md)
-            "custom" => match v {
+            QualityMode::Custom => match v {
                 Value::Map(mut m) if m.contains_key("v") => {
                     let q = crate::codes::quality_of(m.get("q"));
                     (m.remove("v").unwrap_or(Value::Null), q)
                 }
                 v => (v, Quality::Bad),
             },
-            _ => (v, self.worst()),
+            QualityMode::Worst => (v, self.worst()),
         };
         out.emit("out", Msg::new(v, q, t));
     }
@@ -901,7 +896,7 @@ impl Node for Deadband {
 struct Window {
     tumbling: bool,
     size_us: u64,
-    func: String,
+    func: WindowFn,
     max: usize,
     buf: VecDeque<(u64, f64, Quality)>,
     start: Option<u64>,
@@ -914,12 +909,12 @@ impl Window {
             return None;
         }
         let xs: Vec<f64> = self.buf.iter().map(|(_, x, _)| *x).collect();
-        let v = match self.func.as_str() {
-            "min" => xs.iter().copied().fold(f64::INFINITY, f64::min),
-            "max" => xs.iter().copied().fold(f64::NEG_INFINITY, f64::max),
-            "sum" => xs.iter().sum(),
-            "count" => xs.len() as f64,
-            "rate" => {
+        let v = match self.func {
+            WindowFn::Min => xs.iter().copied().fold(f64::INFINITY, f64::min),
+            WindowFn::Max => xs.iter().copied().fold(f64::NEG_INFINITY, f64::max),
+            WindowFn::Sum => xs.iter().sum(),
+            WindowFn::Count => xs.len() as f64,
+            WindowFn::Rate => {
                 let (t0, x0, _) = self.buf.front()?;
                 let (t1, x1, _) = self.buf.back()?;
                 if t1 <= t0 {
@@ -927,7 +922,7 @@ impl Window {
                 }
                 (x1 - x0) / ((t1 - t0) as f64 / 1e6)
             }
-            _ => xs.iter().sum::<f64>() / xs.len() as f64,
+            WindowFn::Avg => xs.iter().sum::<f64>() / xs.len() as f64,
         };
         let good = self
             .buf
@@ -1035,7 +1030,7 @@ struct Alarm {
     hyst: f64,
     delay_us: u64,
     ret_us: u64,
-    on_bad: String,
+    on_bad: OnBad,
     active: bool,
     pending: Option<(bool, u64, f64)>,
     live: Live,
@@ -1080,10 +1075,10 @@ impl Node for Alarm {
         }
         if m.q == Quality::Bad {
             // Lost data must not raise false alarms or clear real ones.
-            match self.on_bad.as_str() {
-                "clear" => self.set(false, f64::NAN, m.t, out),
-                "raise" => self.set(true, f64::NAN, m.t, out),
-                _ => {}
+            match self.on_bad {
+                OnBad::Clear => self.set(false, f64::NAN, m.t, out),
+                OnBad::Raise => self.set(true, f64::NAN, m.t, out),
+                OnBad::Hold => {}
             }
             self.pending = None;
             return;
@@ -1382,9 +1377,8 @@ pub fn build_with(
                 inputs,
                 last: BTreeMap::new(),
                 fresh: BTreeMap::new(),
-                all: one_of(cfg, "trigger", &["any", "all"], "any")? == "all",
-                quality: one_of(cfg, "quality", &["worst", "ignore", "custom"], "worst")?
-                    .to_owned(),
+                all: pick_of(cfg, "trigger", Trigger::Any)? == Trigger::All,
+                quality: pick_of(cfg, "quality", QualityMode::Worst)?,
                 state: rhai::Map::new(),
                 errors: 0,
             })
@@ -1403,15 +1397,9 @@ pub fn build_with(
             live: Live::new("deadband", cfg),
         }),
         "window" => Box::new(Window {
-            tumbling: one_of(cfg, "kind", &["tumbling", "sliding"], "tumbling")? == "tumbling",
+            tumbling: pick_of(cfg, "kind", WindowKind::Tumbling)? == WindowKind::Tumbling,
             size_us: (num("size_s", 60.0)? * 1e6) as u64,
-            func: one_of(
-                cfg,
-                "fn",
-                &["avg", "min", "max", "sum", "count", "rate"],
-                "avg",
-            )?
-            .to_owned(),
+            func: pick_of(cfg, "fn", WindowFn::Avg)?,
             max: max_samples(cfg)? as usize,
             buf: VecDeque::new(),
             start: None,
@@ -1423,13 +1411,13 @@ pub fn build_with(
             hyst: num("hysteresis", 0.0)?,
             delay_us: (num("delay_s", 0.0)? * 1e6) as u64,
             ret_us: (num("return_delay_s", 0.0)? * 1e6) as u64,
-            on_bad: one_of(cfg, "on_bad", &["hold", "clear", "raise"], "hold")?.to_owned(),
+            on_bad: pick_of(cfg, "on_bad", OnBad::Hold)?,
             active: false,
             pending: None,
             live: Live::new("alarm", cfg),
         }),
         "latch" => Box::new(Latch {
-            auto: one_of(cfg, "reset", &["manual", "auto"], "manual")? == "auto",
+            auto: pick_of(cfg, "reset", Reset::Manual)? == Reset::Auto,
             on: false,
         }),
         "delay" => Box::new(Delay {

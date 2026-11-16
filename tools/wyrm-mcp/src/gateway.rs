@@ -396,8 +396,8 @@ impl GatewayMcp {
             "user": me.sub,
             "roles": me.roles,
             "site": me.site,
-            "max": me.max,
-            "grants": me.grants.iter().map(|(k, p)| json!({ "key": k, "level": p })).collect::<Vec<_>>(),
+            "max": me.max.name(),
+            "grants": me.grants.iter().map(|(k, p)| json!({ "key": k, "level": p.name() })).collect::<Vec<_>>(),
             "session_expires_in_s": me.exp.saturating_sub(now_s()),
             "connector": { "read_only": s.read_only, "allow_config": s.allow_config },
         }))

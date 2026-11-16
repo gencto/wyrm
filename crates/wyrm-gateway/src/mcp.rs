@@ -52,13 +52,8 @@ impl InGateway {
         Me {
             sub: p.name.clone(),
             roles: p.roles.clone(),
-            grants: p
-                .grants
-                .list
-                .iter()
-                .map(|g| (g.k.clone(), g.p.name().to_owned()))
-                .collect(),
-            max: p.grants.max.name().to_owned(),
+            grants: p.grants.list.iter().map(|g| (g.k.clone(), g.p)).collect(),
+            max: p.grants.max,
             exp: p.claims.exp,
             site: self.st.gw.site().to_owned(),
         }

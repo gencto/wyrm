@@ -137,7 +137,7 @@ fn sample(ty: &str) -> BTreeMap<String, Value> {
     let t = wyrm_flow::catalog::find(ty).unwrap();
     let mut c = BTreeMap::new();
     for x in t.params.iter().filter(|x| x.required) {
-        let v = match x.ty {
+        let v = match x.ty.name() {
             "number" => Value::UInt(1),
             "array" => Value::Array(vec!["a".into()]),
             "map" => Value::Map(BTreeMap::new()),

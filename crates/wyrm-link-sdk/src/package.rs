@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashSet};
 use std::io::{Cursor, Read, Write};
+use wyrm_core::named::OrUnknown;
 
 /// The manifest at the root of a package zip.
 pub const MANIFEST: &str = "wyrm-link.json";
@@ -27,8 +28,7 @@ pub struct Manifest {
     pub description: String,
     /// [`crate::LINK_PROTOCOL`] the package was built for.
     pub wyrm_link: u32,
-    /// `process` or `wasm`.
-    pub kind: String,
+    pub kind: PackageForm,
     /// `process`: the executable per host (`<os>-<arch>`, see [`platform`]).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub entries: BTreeMap<String, String>,
@@ -40,13 +40,12 @@ pub struct Manifest {
     /// Grants the link needs as a requester (ADR 0013).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub requester: Vec<Grant>,
-    /// `wasm`: the component's world, `app` (`wyrm:app`, ADR 0023), `driver` or `point`, or
-    /// an app world with its version, `wyrm:app@0.3.0` ([`APP_WORLDS`], ADR 0030; `wyr link
-    /// pack` writes it). Informational: the broker reads the world (and an app's version) from
-    /// the component and refuses a package whose `world` says otherwise; plain `app` takes any
-    /// version.
+    /// `wasm`: the component's world ([`PackageWorld`]; `wyr link pack` writes the app world
+    /// with its version). Informational: the broker reads the world (and an app's version)
+    /// from the component and refuses a package whose `world` says otherwise; plain `app`
+    /// takes any version.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub world: Option<String>,
+    pub world: Option<PackageWorld>,
     /// A portable app (`wasm` app component or `process`): what its link may use, granted at
     /// install as link params (ADR 0023).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -88,14 +87,71 @@ pub const MAX_MEMORY_MB: u32 = 512;
 pub const DEFAULT_CALL_MS: u32 = 2000;
 /// Longest time of one app call, ms.
 pub const MAX_CALL_MS: u32 = 10_000;
-/// Worlds a `wasm` package may name without a version.
-pub const WORLDS: [&str; 3] = ["app", "driver", "point"];
-/// App worlds with their version that a `wasm` package may name (ADR 0025, 0030).
-pub const APP_WORLDS: [&str; 3] = ["wyrm:app@0.1.0", "wyrm:app@0.2.0", "wyrm:app@0.3.0"];
+wyrm_core::name_enum! {
+    /// What a package is (`kind` of `wyrm-link.json` and of an index entry). The default is
+    /// what `wyr link pack` makes of a crate that names no kind; a manifest always names one.
+    #[derive(Default)]
+    pub enum PackageForm as "package kind" {
+        /// An executable per host.
+        #[default]
+        Process => "process",
+        /// A component.
+        Wasm => "wasm",
+    }
+}
 
-/// `world` names an app: `app` or one of [`APP_WORLDS`].
-pub fn is_app_world(world: &str) -> bool {
-    world == "app" || APP_WORLDS.contains(&world)
+wyrm_core::name_enum! {
+    /// The world a `wasm` package's component may name: without a version, or an app
+    /// world with its version (ADR 0023, 0025, 0030).
+    pub enum PackageWorld as "package world" {
+        /// `wyrm:app`, any version.
+        App => "app",
+        Driver => "driver",
+        Point => "point",
+        App010 => "wyrm:app@0.1.0",
+        App020 => "wyrm:app@0.2.0",
+        App030 => "wyrm:app@0.3.0",
+    }
+}
+
+impl PackageWorld {
+    /// An app world: `app` or one with its version.
+    pub fn is_app(self) -> bool {
+        !matches!(self, PackageWorld::Driver | PackageWorld::Point)
+    }
+
+    /// The `wyrm:app/host` version of an app world with its version.
+    pub fn app_version(self) -> Option<&'static str> {
+        match self {
+            PackageWorld::App010 => Some("0.1.0"),
+            PackageWorld::App020 => Some("0.2.0"),
+            PackageWorld::App030 => Some("0.3.0"),
+            PackageWorld::App | PackageWorld::Driver | PackageWorld::Point => None,
+        }
+    }
+
+    /// The app world of `wyrm:app/host` version `v`; `None` for a version not in the set.
+    pub fn of_app_version(v: &str) -> Option<Self> {
+        PackageWorld::ALL
+            .iter()
+            .copied()
+            .find(|w| w.app_version() == Some(v))
+    }
+
+    /// Without its version: `app` for every app world.
+    pub fn plain(self) -> Self {
+        if self.is_app() {
+            PackageWorld::App
+        } else {
+            self
+        }
+    }
+
+    /// The manifest names world `self`; may the component of world `actual` (with its
+    /// version for an app) stand behind it? Plain `app` takes any app version.
+    pub fn admits(self, actual: Self) -> bool {
+        self == actual || (self == PackageWorld::App && actual.is_app())
+    }
 }
 
 /// What an app link may use (ADR 0023 "Capabilities, granted at install"); absent fields take
@@ -174,7 +230,9 @@ impl Capabilities {
 #[serde(deny_unknown_fields)]
 pub struct Grant {
     pub path: String,
-    pub level: String,
+    /// By its spec name; a name that is no level refuses the manifest.
+    #[serde(with = "wyrm_core::named::serde")]
+    pub level: wyrm_core::Perm,
 }
 
 impl Manifest {
@@ -205,31 +263,24 @@ impl Manifest {
                 crate::LINK_PROTOCOL
             ));
         }
-        match self.kind.as_str() {
-            "process" if self.entries.is_empty() => {
+        match self.kind {
+            PackageForm::Process if self.entries.is_empty() => {
                 return Err("a process package needs `entries`".into())
             }
-            "wasm" if self.entry.is_none() => return Err("a wasm package needs `entry`".into()),
-            "process" | "wasm" => {}
-            k => return Err(format!("kind {k:?}: process or wasm")),
+            PackageForm::Wasm if self.entry.is_none() => {
+                return Err("a wasm package needs `entry`".into())
+            }
+            PackageForm::Process | PackageForm::Wasm => {}
         }
-        if let Some(w) = &self.world {
-            if self.kind != "wasm" {
-                return Err("world: only a wasm package has one".into());
-            }
-            if !WORLDS.contains(&w.as_str()) && !APP_WORLDS.contains(&w.as_str()) {
-                return Err(format!(
-                    "world {w:?}: app, driver, point or one of {}",
-                    APP_WORLDS.join(", ")
-                ));
-            }
+        if self.world.is_some() && self.kind != PackageForm::Wasm {
+            return Err("world: only a wasm package has one".into());
         }
         // a process package may carry them too: a portable app run as a process takes the
         // same params as its WASM twin (ADR 0023, one source for all modes)
         if let Some(c) = &self.capabilities {
-            if let Some(w) = self.world.as_deref().filter(|w| !is_app_world(w)) {
+            if let Some(w) = self.world.filter(|w| !w.is_app()) {
                 return Err(format!(
-                    "capabilities: only an app component has them, world is {w:?}"
+                    "capabilities: only an app component has them, world is \"{w}\""
                 ));
             }
             c.check()?;
@@ -340,9 +391,10 @@ pub struct RepoEntry {
     /// `alarm-process`).
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub link: String,
-    /// `wasm` or `process`.
+    /// A form this build does not know is kept as written; [`parse_index`] leaves such an
+    /// entry out.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub kind: Option<String>,
+    pub kind: Option<OrUnknown<PackageForm>>,
     /// The link protocol of the package ([`crate::LINK_PROTOCOL`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wyrm_link: Option<u32>,
@@ -386,11 +438,26 @@ impl RepoEntry {
 /// Parse and check a repository index: at most [`MAX_INDEX_ENTRIES`]
 /// packages, unique valid names, a valid version, and for each a file
 /// (`assets`, or `url` with `sha256`) with a 64-hex SHA-256.
+///
+/// An index is a superset (ADR 0043): an entry whose `kind` this build does not
+/// know (a form a newer broker runs) is left out and logged, never read as
+/// another form and never a reason to refuse the other entries.
 pub fn parse_index(bytes: &[u8]) -> Result<Vec<RepoEntry>, String> {
-    let list: Vec<RepoEntry> = serde_json::from_slice(bytes).map_err(|e| format!("index: {e}"))?;
+    let mut list: Vec<RepoEntry> =
+        serde_json::from_slice(bytes).map_err(|e| format!("index: {e}"))?;
     if list.len() > MAX_INDEX_ENTRIES {
         return Err(format!("index: more than {MAX_INDEX_ENTRIES} packages"));
     }
+    list.retain(|e| match &e.kind {
+        Some(OrUnknown::Unknown(kind)) => {
+            tracing::warn!(
+                package = %e.name,
+                "index: kind {kind:?} is no form this broker runs: left out"
+            );
+            false
+        }
+        _ => true,
+    });
     let mut seen = HashSet::new();
     for e in &list {
         let bad = |what: &str| format!("index: {}: {what}", e.name);
@@ -424,8 +491,12 @@ pub fn parse_index(bytes: &[u8]) -> Result<Vec<RepoEntry>, String> {
 /// relative to the index's directory (a repository moves as a whole). A
 /// relative URL may not leave that directory.
 pub fn resolve(index_url: &str, url: &str) -> Result<String, String> {
-    if url.contains("://") {
-        return Ok(url.to_owned());
+    use wyrm_core::weburl::{Url, UrlError};
+    match Url::parse(url) {
+        // absolute: fetched as it is (the fetch checks it)
+        Ok(_) => return Ok(url.to_owned()),
+        Err(UrlError::NoScheme) => {}
+        Err(e) => return Err(format!("{url:?}: {e}")),
     }
     if url.starts_with('/')
         || url.contains('\\')
@@ -436,14 +507,13 @@ pub fn resolve(index_url: &str, url: &str) -> Result<String, String> {
     {
         return Err(format!("{url:?}: a relative url inside the repository"));
     }
-    let base = match index_url.rfind('/') {
-        Some(i) if i > index_url.find("://").map_or(0, |s| s + 2) => &index_url[..=i],
-        _ => {
-            return Err(format!(
-                "{index_url}: no directory to resolve {url:?} against"
-            ))
-        }
-    };
+    let base = Url::parse(index_url)
+        .ok()
+        .and_then(|u| {
+            let (dir, _) = u.path.rsplit_once('/')?;
+            Some(format!("{}://{}{dir}/", u.scheme, u.authority))
+        })
+        .ok_or_else(|| format!("{index_url}: no directory to resolve {url:?} against"))?;
     Ok(format!("{base}{url}"))
 }
 
@@ -518,13 +588,13 @@ mod tests {
             version: "1.2.0".into(),
             description: "a link".into(),
             wyrm_link: crate::LINK_PROTOCOL,
-            kind: "process".into(),
+            kind: PackageForm::Process,
             entries: [("linux-x86_64".to_owned(), "bin/linux-x86_64/run".to_owned())].into(),
             args: vec![],
             entry: None,
             requester: vec![Grant {
                 path: "wy/{site}/downstream/mock".into(),
-                level: "read".into(),
+                level: wyrm_core::Perm::Read,
             }],
             world: None,
             capabilities: None,
@@ -539,12 +609,12 @@ mod tests {
             version: "1.0.0".into(),
             description: String::new(),
             wyrm_link: crate::LINK_PROTOCOL,
-            kind: "wasm".into(),
+            kind: PackageForm::Wasm,
             entries: BTreeMap::new(),
             args: vec![],
             entry: Some("acme.wasm".into()),
             requester: vec![],
-            world: Some("app".into()),
+            world: Some(PackageWorld::App),
             capabilities: Some(caps),
         }
     }
@@ -630,23 +700,37 @@ mod tests {
         });
         assert!(m.check().unwrap_err().contains("store_mb"));
         let mut m = process("acme");
-        m.world = Some("app".into());
+        m.world = Some(PackageWorld::App);
         assert!(m.check().unwrap_err().contains("world"));
         let mut m = app(Capabilities::default());
-        m.world = Some("driver".into());
+        m.world = Some(PackageWorld::Driver);
         assert!(m.check().unwrap_err().contains("\"driver\""));
         m.capabilities = None;
         assert!(m.check().is_ok());
-        m.world = Some("flow".into());
-        assert!(m.check().unwrap_err().contains("app, driver, point"));
+        // a world that is none of the set does not parse (review T5: it was a `String`
+        // checked against two lists)
+        let with = |k: &str, v: &str| {
+            let mut j = serde_json::to_value(app(Capabilities::default())).unwrap();
+            j[k] = serde_json::Value::from(v);
+            serde_json::from_value::<Manifest>(j).map_err(|e| e.to_string())
+        };
+        assert!(with("world", "flow")
+            .unwrap_err()
+            .contains("app, driver, point"));
         // an app world with its version (ADR 0030), and capabilities with it
-        let mut m = app(Capabilities::default());
-        for w in APP_WORLDS {
-            m.world = Some(w.into());
+        for w in ["wyrm:app@0.1.0", "wyrm:app@0.2.0", "wyrm:app@0.3.0"] {
+            let m = with("world", w).unwrap();
+            assert!(m.world.is_some_and(PackageWorld::is_app), "{w}");
             assert!(m.check().is_ok(), "{w}");
         }
-        m.world = Some("wyrm:app@9.9.9".into());
-        assert!(m.check().unwrap_err().contains("wyrm:app@0.3.0"));
+        assert!(with("world", "wyrm:app@9.9.9")
+            .unwrap_err()
+            .contains("wyrm:app@0.3.0"));
+        // a manifest keeps its text: kind and world write back as they were read
+        let text = serde_json::to_string(&app(Capabilities::default())).unwrap();
+        assert!(text.contains(r#""kind":"wasm""#) && text.contains(r#""world":"app""#));
+        let back: Manifest = serde_json::from_str(&text).unwrap();
+        assert_eq!(serde_json::to_string(&back).unwrap(), text);
         // unknown capability fields are refused (`limits` is flat here)
         let text = r#"{"name":"a","version":"1","wyrm_link":1,"kind":"wasm","entry":"a.wasm",
             "capabilities":{"limits":{"call_ms":5}}}"#;
@@ -666,12 +750,29 @@ mod tests {
         let mut m = process("acme");
         m.entries.clear();
         assert!(m.check().unwrap_err().contains("entries"));
-        let mut m = process("acme");
-        m.kind = "jar".into();
-        assert!(m.check().unwrap_err().contains("process or wasm"));
+        let mut j = serde_json::to_value(process("acme")).unwrap();
+        j["kind"] = serde_json::Value::from("jar");
+        let e = serde_json::from_value::<Manifest>(j)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            e.contains("package kind: unknown name \"jar\" (one of process, wasm)"),
+            "{e}"
+        );
         // unknown fields are refused
         let text = r#"{"name":"a","version":"1","wyrm_link":1,"kind":"wasm","entry":"a.wasm","entyr":"x"}"#;
         assert!(serde_json::from_str::<Manifest>(text).is_err());
+        // a requester grant's level is a level by its spec name, written back as it was read
+        for level in ["none", "list", "read", "write", "config"] {
+            let text = format!(r#"{{"path":"wy/{{site}}/downstream/m","level":"{level}"}}"#);
+            let g: Grant = serde_json::from_str(&text).unwrap();
+            assert_eq!(g.level.name(), level);
+            assert_eq!(serde_json::to_string(&g).unwrap(), text);
+        }
+        for bad in ["READ", "admin", ""] {
+            let text = format!(r#"{{"path":"wy/{{site}}/downstream/m","level":"{bad}"}}"#);
+            assert!(serde_json::from_str::<Grant>(&text).is_err(), "{bad}");
+        }
     }
 
     /// ADR 0048: `state` (default 1) and `reads_state` (default `[state]`).
@@ -769,6 +870,98 @@ mod tests {
         ] {
             assert!(parse_index(bad.as_bytes()).is_err(), "{bad}");
         }
+    }
+
+    /// The resolver before review S4, kept to compare.
+    fn old_resolve(index_url: &str, url: &str) -> Result<String, String> {
+        if url.contains("://") {
+            return Ok(url.to_owned());
+        }
+        if url.starts_with('/')
+            || url.contains('\\')
+            || url.contains('?')
+            || url
+                .split('/')
+                .any(|s| s.is_empty() || s == "." || s == "..")
+        {
+            return Err(format!("{url:?}: a relative url inside the repository"));
+        }
+        let base = match index_url.rfind('/') {
+            Some(i) if i > index_url.find("://").map_or(0, |s| s + 2) => &index_url[..=i],
+            _ => {
+                return Err(format!(
+                    "{index_url}: no directory to resolve {url:?} against"
+                ))
+            }
+        };
+        Ok(format!("{base}{url}"))
+    }
+
+    /// Review S4: every URL the old resolver took resolves the same; what it refused
+    /// stays refused.
+    #[test]
+    fn urls_resolve_as_before() {
+        for (idx, url) in [
+            (
+                "https://repo.example/wyrm/index.json",
+                "acme/1.0.0/acme.zip",
+            ),
+            ("https://repo.example/wyrm/index.json", "https://cdn/x.zip"),
+            ("https://repo.example/index.json", "a.zip"),
+            ("http://127.0.0.1:8080/r/index.json", "a/b.zip"),
+            ("https://repo.example:8443/a/b/", "c.zip"),
+        ] {
+            assert_eq!(resolve(idx, url), old_resolve(idx, url), "{idx} {url}");
+        }
+        for (idx, url) in [
+            ("https://repo.example/w/index.json", "/etc/x"),
+            ("https://repo.example/w/index.json", "../x.zip"),
+            ("https://repo.example/w/index.json", "a//b"),
+            ("https://repo.example/w/index.json", "a?b"),
+            ("https://repo.example", "x.zip"),
+            ("https://repo.example/w/index.json", "a\\b"),
+        ] {
+            assert!(old_resolve(idx, url).is_err(), "old took {url}");
+            assert!(resolve(idx, url).is_err(), "{url}");
+        }
+        // refused now, passed on before: a malformed absolute URL
+        assert!(old_resolve("https://r/i.json", "https://u:p@cdn/x.zip").is_ok());
+        assert!(resolve("https://r/i.json", "https://u:p@cdn/x.zip").is_err());
+    }
+
+    /// A component's world against the manifest's, typed (review of #127: it was compared
+    /// as text, `starts_with("wyrm:app@")`).
+    #[test]
+    fn worlds_admit_their_components() {
+        use PackageWorld::*;
+        for v in ["0.1.0", "0.2.0", "0.3.0"] {
+            let w = PackageWorld::of_app_version(v).unwrap();
+            assert_eq!(w.name(), format!("wyrm:app@{v}"));
+            assert!(App.admits(w) && w.admits(w) && w.plain() == App);
+        }
+        assert_eq!(PackageWorld::of_app_version("9.9.9"), None);
+        assert!(!App030.admits(App010) && !App030.admits(App) && !App.admits(Driver));
+        assert!(Driver.admits(Driver) && !Point.admits(App) && !Driver.admits(App030));
+    }
+
+    /// Review of #127: an entry of a form this build does not know is left out; the other
+    /// entries are read (before, the whole index was refused, and with it every install
+    /// from the repository and the catalog). A kind that is not text still refuses it.
+    #[test]
+    fn an_entry_of_an_unknown_kind_is_left_out() {
+        let sha = "a".repeat(64);
+        let text = format!(
+            r#"[{{"name":"a","version":"1","url":"a.zip","sha256":"{sha}","kind":"wasm"}},
+                {{"name":"b","version":"1","url":"b.zip","sha256":"{sha}","kind":"jvm"}},
+                {{"name":"c","version":"1","url":"c.zip","sha256":"{sha}"}}]"#
+        );
+        let list = parse_index(text.as_bytes()).unwrap();
+        let names: Vec<&str> = list.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, ["a", "c"]);
+        assert_eq!(list[0].kind, Some(OrUnknown::Known(PackageForm::Wasm)));
+        let bad =
+            format!(r#"[{{"name":"a","version":"1","url":"a.zip","sha256":"{sha}","kind":1}}]"#);
+        assert!(parse_index(bad.as_bytes()).is_err());
     }
 
     #[test]

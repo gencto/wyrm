@@ -24,8 +24,44 @@ use tracing_subscriber::layer::Context;
 use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::Layer;
 
-/// Level names, lowest first; the only values a level may take.
-pub const LEVELS: [&str; 5] = ["error", "warn", "info", "debug", "trace"];
+wyrm_core::name_enum! {
+    /// A level a log may be set to, lowest first (`sys/log_level`, a link's
+    /// `log_level`; kept by its name in the registry, as the `String` it was).
+    pub enum LogLevel as "log level" {
+        Error => "error",
+        Warn => "warn",
+        Info => "info",
+        Debug => "debug",
+        Trace => "trace",
+    }
+}
+
+impl LogLevel {
+    pub fn tracing(self) -> Level {
+        match self {
+            LogLevel::Error => Level::ERROR,
+            LogLevel::Warn => Level::WARN,
+            LogLevel::Info => Level::INFO,
+            LogLevel::Debug => Level::DEBUG,
+            LogLevel::Trace => Level::TRACE,
+        }
+    }
+
+    pub fn of(l: Level) -> Self {
+        match l {
+            Level::ERROR => LogLevel::Error,
+            Level::WARN => LogLevel::Warn,
+            Level::INFO => LogLevel::Info,
+            Level::DEBUG => LogLevel::Debug,
+            Level::TRACE => LogLevel::Trace,
+        }
+    }
+
+    /// Its place in [`LogLevel::NAMES`] (an `Enum` node's value).
+    pub fn index(self) -> usize {
+        LogLevel::ALL.iter().position(|l| *l == self).unwrap_or(0)
+    }
+}
 
 /// One line of a log.
 #[derive(Debug, Clone, PartialEq)]
@@ -84,25 +120,12 @@ pub fn strip_ansi(s: &str) -> String {
 
 /// The level name of a level.
 pub fn level_name(l: Level) -> &'static str {
-    match l {
-        Level::ERROR => "error",
-        Level::WARN => "warn",
-        Level::INFO => "info",
-        Level::DEBUG => "debug",
-        Level::TRACE => "trace",
-    }
+    LogLevel::of(l).name()
 }
 
-/// A level from its name (one of [`LEVELS`]).
+/// A level from its name (one of [`LogLevel::NAMES`]).
 pub fn parse_level(s: &str) -> Option<Level> {
-    Some(match s {
-        "error" => Level::ERROR,
-        "warn" => Level::WARN,
-        "info" => Level::INFO,
-        "debug" => Level::DEBUG,
-        "trace" => Level::TRACE,
-        _ => return None,
-    })
+    LogLevel::from_name(s).map(LogLevel::tracing)
 }
 
 impl Ring {
@@ -350,11 +373,11 @@ const QUIET: &[&str] = &[
 
 /// An `EnvFilter` for `level`: [`QUIET`] crates stay at `warn` unless it is `trace`.
 /// Also the `RUST_LOG` of a process link.
-pub fn env_directive(level: &str) -> String {
-    if level == "trace" {
-        level.to_owned()
+pub fn env_directive(level: LogLevel) -> String {
+    if level == LogLevel::Trace {
+        level.name().to_owned()
     } else {
-        let mut d = level.to_owned();
+        let mut d = level.name().to_owned();
         for c in QUIET {
             d.push_str(&format!(",{c}=warn"));
         }
@@ -363,30 +386,27 @@ pub fn env_directive(level: &str) -> String {
 }
 
 impl LogControl {
-    /// The broker's level (one of [`LEVELS`]).
-    pub fn level(&self) -> String {
-        level_name(self.levels.read().unwrap_or_else(|p| p.into_inner()).broker).to_owned()
+    /// The broker's level.
+    pub fn level(&self) -> LogLevel {
+        LogLevel::of(self.levels.read().unwrap_or_else(|p| p.into_inner()).broker)
     }
 
     /// Set the broker's level; replaces the directives `RUST_LOG` gave.
-    pub fn set_level(&self, level: &str) -> Result<(), String> {
-        let l = parse_level(level).ok_or_else(|| format!("level {level:?}: one of {LEVELS:?}"))?;
+    pub fn set_level(&self, level: LogLevel) -> Result<(), String> {
         self.levels
             .write()
             .unwrap_or_else(|p| p.into_inner())
-            .broker = l;
+            .broker = level.tracing();
         self.apply()
     }
 
     /// Set (or, with `None`, clear) the level of one embedded link.
-    pub fn set_link_level(&self, link: &str, level: Option<&str>) -> Result<(), String> {
+    pub fn set_link_level(&self, link: &str, level: Option<LogLevel>) -> Result<(), String> {
         {
             let mut levels = self.levels.write().unwrap_or_else(|p| p.into_inner());
             match level {
                 Some(l) => {
-                    let l =
-                        parse_level(l).ok_or_else(|| format!("level {l:?}: one of {LEVELS:?}"))?;
-                    levels.links.insert(link.to_owned(), l);
+                    levels.links.insert(link.to_owned(), l.tracing());
                 }
                 None => {
                     levels.links.remove(link);
@@ -403,7 +423,7 @@ impl LogControl {
             let l = self.levels.read().unwrap_or_else(|p| p.into_inner());
             l.links.values().copied().fold(l.broker, std::cmp::max)
         };
-        (self.reload)(&env_directive(level_name(most)))
+        (self.reload)(&env_directive(LogLevel::of(most)))
     }
 
     pub fn tail(&self, n: usize, min: Level, contains: &str, link: Option<&str>) -> Vec<LogLine> {
@@ -458,8 +478,8 @@ mod tests {
             strip_ansi("\u{1b}[2m2026\u{1b}[0m \u{1b}[32m INFO\u{1b}[0m x"),
             "2026  INFO x"
         );
-        assert!(env_directive("warn").starts_with("warn,zenoh=warn,cranelift_codegen=warn"));
-        assert_eq!(env_directive("trace"), "trace");
+        assert!(env_directive(LogLevel::Warn).starts_with("warn,zenoh=warn,cranelift_codegen=warn"));
+        assert_eq!(env_directive(LogLevel::Trace), "trace");
     }
 
     #[test]

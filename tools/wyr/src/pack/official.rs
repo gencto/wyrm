@@ -7,7 +7,7 @@ use super::{cargo_metadata, plan, run_link, Artifact, CargoPackage, LinkCmd};
 use crate::Error;
 use std::path::{Path, PathBuf};
 use wyrm_link_sdk::official::{self, Built, Official};
-use wyrm_link_sdk::package;
+use wyrm_link_sdk::package::{self, PackageForm};
 
 /// Where the manifest and the workspace are.
 #[derive(clap::Args, Debug)]
@@ -62,7 +62,7 @@ pub(crate) fn check(o: &Official, crates: &[CargoPackage]) -> Vec<String> {
             }
         }
         if let Some(name) = &l.forms.process {
-            match plan(p, Some("process")) {
+            match plan(p, Some(PackageForm::Process)) {
                 Ok(pl) if matches!(pl.artifact, Artifact::Bin(_)) => {
                     // a process crate packs under its own name; a wasm crate's
                     // process twin takes `--name`, any free name
@@ -115,14 +115,14 @@ pub fn check_cmd(src: &Source) -> Result<(), Error> {
 
 pub fn build_cmd(
     src: &Source,
-    form: &str,
+    form: PackageForm,
     targets: &[String],
     only: &[String],
     no_build: bool,
     out: &Path,
 ) -> Result<(), Error> {
     let o = checked(src)?;
-    if form == "wasm" && !targets.is_empty() {
+    if form == PackageForm::Wasm && !targets.is_empty() {
         return Err("a wasm form runs on every host: no --target".into());
     }
     for t in targets {
@@ -140,8 +140,8 @@ pub fn build_cmd(
             continue;
         }
         let name = match form {
-            "wasm" => &l.forms.wasm,
-            _ => &l.forms.process,
+            PackageForm::Wasm => &l.forms.wasm,
+            PackageForm::Process => &l.forms.process,
         };
         let Some(name) = name else { continue };
         println!("== {} ({form}: {name})", l.id);
@@ -150,7 +150,7 @@ pub fn build_cmd(
             package: Some(l.krate.clone()),
             targets: targets.to_vec(),
             no_build,
-            kind: Some(form.to_owned()),
+            kind: Some(form),
             out: Some(out.to_owned()),
             component: None,
             name: Some(name.clone()),
