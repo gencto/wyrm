@@ -25,7 +25,9 @@
 //! only: never in the audit, the log, the tree or a file.
 
 use super::*;
-use crate::backup::{self as format, Head, How, Kind, LinkInfo, MasterKey, Staged, StagedSection};
+use crate::backup::{
+    self as format, Head, How, Kind, LinkInfo, MasterKey, SectionName, Staged, StagedSection,
+};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
 use zeroize::Zeroizing;
@@ -143,7 +145,7 @@ pub struct BackupRequest {
     pub kind: Kind,
     /// Section names of `kind`; `control` (broker) and `settings` (link)
     /// are always made.
-    pub sections: Vec<String>,
+    pub sections: Vec<SectionName>,
     /// Broker: the links of the `links` section (`None`: all).
     pub links: Option<Vec<String>>,
     /// Link: the link.
@@ -169,7 +171,7 @@ pub struct Job {
     pub kind: JobKind,
     #[serde(default)]
     pub link: String,
-    pub sections: Vec<String>,
+    pub sections: Vec<SectionName>,
     pub status: JobStatus,
     /// 0 to 100.
     pub progress: u8,
@@ -563,7 +565,7 @@ pub struct LinkBackup {
     pub size: u64,
     /// SHA-256 (hex) of the file.
     pub sha256: String,
-    pub sections: Vec<String>,
+    pub sections: Vec<SectionName>,
     /// Entries of the link's private directory that were not copied:
     /// neither a regular file nor a directory (a symlink, a socket, a FIFO).
     pub skipped: u32,
@@ -597,22 +599,23 @@ impl Control {
     /// Check a request before a job is made for it: section names, links,
     /// the passphrase, what needs sealing. The canonical section list is
     /// returned (the order of the format, the always-made one included).
-    fn check_request(&self, req: &BackupRequest) -> Result<Vec<String>, String> {
+    fn check_request(&self, req: &BackupRequest) -> Result<Vec<SectionName>, String> {
         let all = req.kind.sections();
-        if let Some(s) = req.sections.iter().find(|s| !all.contains(&s.as_str())) {
+        if let Some(s) = req.sections.iter().find(|s| !all.contains(s)) {
             return Err(format!(
-                "sections: no section {s:?} (one of {})",
-                all.join(", ")
+                "sections: no section {s} in a {} backup (one of {})",
+                req.kind.name(),
+                format::section_names(all)
             ));
         }
         let always = match req.kind {
-            Kind::Broker => "control",
-            Kind::Link => "settings",
+            Kind::Broker => SectionName::Control,
+            Kind::Link => SectionName::Settings,
         };
-        let chosen: Vec<String> = all
+        let chosen: Vec<SectionName> = all
             .iter()
-            .filter(|s| **s == always || req.sections.iter().any(|c| c == *s))
-            .map(|s| (*s).to_owned())
+            .copied()
+            .filter(|s| *s == always || req.sections.contains(s))
             .collect();
         if let SealWith::Passphrase(p) = &req.seal {
             if p.len() < crate::keys::MIN_PASSPHRASE {
@@ -622,12 +625,12 @@ impl Control {
                 ));
             }
         }
-        let has = |s: &str| chosen.iter().any(|c| c == s);
+        let has = |s: SectionName| chosen.contains(&s);
         // Secrets leave the site only when the host said so, and never
         // towards an upstream (ADR 0048 §3.4, §4).
         let passphrase = matches!(req.seal, SealWith::Passphrase(_));
-        if passphrase || (has("keys") && !req.estimate) {
-            let what = if has("keys") {
+        if passphrase || (has(SectionName::Keys) && !req.estimate) {
+            let what = if has(SectionName::Keys) {
                 "keys: the site's keys and secrets"
             } else {
                 "passphrase: secrets sealed with a passphrase"
@@ -650,7 +653,7 @@ impl Control {
         let reg = self.registry();
         match req.kind {
             Kind::Broker => {
-                if has("keys") && !passphrase && !req.estimate {
+                if has(SectionName::Keys) && !passphrase && !req.estimate {
                     return Err("keys: the keys and secrets need a passphrase".into());
                 }
                 if let Some(l) = req
@@ -661,19 +664,19 @@ impl Control {
                 {
                     return Err(format!("links: no link {l}"));
                 }
-                if has("config") && self.cfg.backups.config.is_none() {
+                if has(SectionName::Config) && self.cfg.backups.config.is_none() {
                     return Err("config: this broker was not started from a file".into());
                 }
             }
             Kind::Link => {
                 let id = req.link.as_deref().ok_or("link: required")?;
                 let def = reg.links.get(id).ok_or_else(|| format!("no link {id}"))?;
-                if has("data") && def.mode == Mode::External {
+                if has(SectionName::Data) && def.mode == Mode::External {
                     return Err(
                         "data: an external link keeps its data on its own host, not here".into(),
                     );
                 }
-                if has("package") && self.package_of(def).is_none() {
+                if has(SectionName::Package) && self.package_of(def).is_none() {
                     return Err(format!(
                         "package: {id} runs the built-in driver {}, not a package",
                         def.driver
@@ -721,39 +724,38 @@ impl Control {
         };
         let mut out = BTreeMap::new();
         for s in chosen {
-            let bytes = match s.as_str() {
-                "control" => wal_stores()
+            let bytes = match s {
+                SectionName::Control => wal_stores()
                     .iter()
                     .map(|(_, dir, _, _)| dir_bytes(&d.join(dir)))
                     .sum(),
-                "keys" => {
+                SectionName::Keys => {
                     key_files().iter().map(|f| len(d.join(f))).sum::<u64>()
                         + len(d.join("secrets.bin"))
                 }
-                "dataflows" => dir_bytes(&d.join("flows").join("artifacts")),
-                "storage" => self.storage().map_or(0, |s| s.bytes() as u64),
-                "history" => history(),
-                "links" => link_ids
+                SectionName::Dataflows => dir_bytes(&d.join("flows").join("artifacts")),
+                SectionName::Storage => self.storage().map_or(0, |s| s.bytes() as u64),
+                SectionName::History => history(),
+                SectionName::Links => link_ids
                     .iter()
                     .map(|l| under(&format!("links/{l}/data/")) + 1024)
                     .sum(),
-                "packages" => under("packages/"),
-                "config" => self
+                SectionName::Packages => under("packages/"),
+                SectionName::Config => self
                     .cfg
                     .backups
                     .config
                     .as_ref()
                     .map_or(0, |c| c.len() as u64),
-                "settings" => 1024,
-                "data" => under(&format!("links/{}/data/", link_ids[0])),
-                "package" => reg
+                SectionName::Settings => 1024,
+                SectionName::Data => under(&format!("links/{}/data/", link_ids[0])),
+                SectionName::Package => reg
                     .links
                     .get(&link_ids[0])
                     .and_then(|l| self.package_of(l))
                     .map_or(0, |p| under(&format!("packages/{}/{}/", p.name, p.version))),
-                _ => 0,
             };
-            out.insert(s, bytes);
+            out.insert(s.name().to_owned(), bytes);
         }
         Ok(out)
     }
@@ -772,7 +774,9 @@ impl Control {
         let stage = StageDir::new(&backups)?;
         let secrets_key;
         // without a passphrase, what holds secrets is sealed for this site
-        let secret_parts = chosen.iter().any(|c| c == "links" || c == "data");
+        let secret_parts = chosen
+            .iter()
+            .any(|c| matches!(c, SectionName::Links | SectionName::Data));
         let sealing = match &req.seal {
             SealWith::None if !secret_parts => format::Sealing::None,
             SealWith::Passphrase(p) => format::Sealing::Passphrase(p),
@@ -794,22 +798,21 @@ impl Control {
         // (all of them) was not asked for
         let mut link_packages: BTreeSet<String> = BTreeSet::new();
         for (i, name) in chosen.iter().enumerate() {
-            progress(name, (i * 50 / chosen.len().max(1)) as u8);
-            let s = match (req.kind, name.as_str()) {
-                (Kind::Broker, "control") => self.stage_control(&st)?,
-                (Kind::Broker, "keys") => self.stage_keys(&st)?,
-                (Kind::Broker, "dataflows") => self.stage_dataflows(&st)?,
-                (Kind::Broker, "storage") => self.stage_storage(&st)?,
-                (Kind::Broker, "history") => self.stage_history(&st, req.history_days)?,
-                (Kind::Broker, "links") => {
+            progress(name.name(), (i * 50 / chosen.len().max(1)) as u8);
+            let s = match (req.kind, *name) {
+                (Kind::Broker, SectionName::Control) => self.stage_control(&st)?,
+                (Kind::Broker, SectionName::Keys) => self.stage_keys(&st)?,
+                (Kind::Broker, SectionName::Dataflows) => self.stage_dataflows(&st)?,
+                (Kind::Broker, SectionName::Storage) => self.stage_storage(&st)?,
+                (Kind::Broker, SectionName::History) => {
+                    self.stage_history(&st, req.history_days)?
+                }
+                (Kind::Broker, SectionName::Links) => {
                     let ids: Vec<String> = match &req.links {
                         Some(l) => l.clone(),
                         None => reg.links.keys().cloned().collect(),
                     };
-                    let mut s = StagedSection {
-                        name: "links".into(),
-                        ..Default::default()
-                    };
+                    let mut s = StagedSection::new(SectionName::Links);
                     for id in ids {
                         let def = reg.links.get(&id).ok_or_else(|| format!("no link {id}"))?;
                         let base = format!("links/{id}");
@@ -832,11 +835,11 @@ impl Control {
                     }
                     s
                 }
-                (Kind::Broker, "packages") => {
+                (Kind::Broker, SectionName::Packages) => {
                     let all: Vec<PackageDef> = reg.packages.values().cloned().collect();
                     self.stage_packages(&st, &all, false)?
                 }
-                (Kind::Broker, "config") => {
+                (Kind::Broker, SectionName::Config) => {
                     let text = self
                         .cfg
                         .backups
@@ -844,7 +847,7 @@ impl Control {
                         .as_ref()
                         .ok_or("config: this broker was not started from a file")?;
                     StagedSection {
-                        name: "config".into(),
+                        name: SectionName::Config,
                         info: json_map([("restored", false.into()), ("secrets", "masked".into())]),
                         files: vec![st.bytes("config/wyrmd.json", text.as_bytes())?],
                     }
@@ -864,8 +867,8 @@ impl Control {
                             .unwrap_or_default(),
                     });
                     match section {
-                        "settings" => StagedSection {
-                            name: "settings".into(),
+                        SectionName::Settings => StagedSection {
+                            name: SectionName::Settings,
                             info: json_map([
                                 ("driver", def.driver.clone().into()),
                                 ("mode", def.mode.name().into()),
@@ -873,10 +876,10 @@ impl Control {
                             ]),
                             files: self.stage_link_settings(&st, def, "settings")?,
                         },
-                        "data" => {
+                        SectionName::Data => {
                             let (files, skipped) = self.stage_link_data(&st, def, "data")?;
                             StagedSection {
-                                name: "data".into(),
+                                name: SectionName::Data,
                                 info: json_map([
                                     ("files", (files.len().saturating_sub(1)).into()),
                                     // entries that are not files: not copied
@@ -885,22 +888,24 @@ impl Control {
                                 files,
                             }
                         }
-                        "package" => {
+                        SectionName::Package => {
                             let p = package
                                 .ok_or_else(|| format!("package: {id} does not run a package"))?;
                             let mut s = self.stage_packages(&st, &[p], true)?;
-                            s.name = "package".into();
+                            s.name = SectionName::Package;
                             s
                         }
-                        "history" => self.stage_link_history(&st, id, req.history_days)?,
-                        other => return Err(format!("no section {other}")),
+                        SectionName::History => {
+                            self.stage_link_history(&st, id, req.history_days)?
+                        }
+                        other => return Err(format!("no section {other} in a link backup")),
                     }
                 }
-                (_, other) => return Err(format!("no section {other}")),
+                (_, other) => return Err(format!("no section {other} in a broker backup")),
             };
             sections.push(s);
         }
-        if req.kind == Kind::Broker && !chosen.iter().any(|c| c == "packages") {
+        if req.kind == Kind::Broker && !chosen.contains(&SectionName::Packages) {
             let defs: Vec<PackageDef> = link_packages
                 .iter()
                 .filter_map(|n| reg.packages.get(n).cloned())
@@ -911,7 +916,7 @@ impl Control {
                 // in the order of the format: after `links`
                 let at = sections
                     .iter()
-                    .position(|x: &StagedSection| x.name == "config")
+                    .position(|x: &StagedSection| x.name == SectionName::Config)
                     .unwrap_or(sections.len());
                 sections.insert(at, s);
             }
@@ -935,10 +940,7 @@ impl Control {
     /// `control`: each control-plane WAL as of one sequence number.
     fn stage_control(&self, st: &Stager) -> Result<StagedSection, String> {
         let d = &self.cfg.data_dir;
-        let mut s = StagedSection {
-            name: "control".into(),
-            ..Default::default()
-        };
+        let mut s = StagedSection::new(SectionName::Control);
         for (name, dir, key_file, _) in wal_stores() {
             let src = d.join(dir);
             if !src.is_dir() {
@@ -977,10 +979,7 @@ impl Control {
                     )
                 }),
         );
-        let mut s = StagedSection {
-            name: "keys".into(),
-            ..Default::default()
-        };
+        let mut s = StagedSection::new(SectionName::Keys);
         for name in names {
             let src = d.join(&name);
             if !src.is_file() {
@@ -1003,7 +1002,7 @@ impl Control {
         let mut found = Vec::new();
         replication::walk(&root, "artifacts", &mut found);
         let mut s = StagedSection {
-            name: "dataflows".into(),
+            name: SectionName::Dataflows,
             info: json_map([("store", "control/flows".into())]),
             files: Vec::new(),
         };
@@ -1023,7 +1022,7 @@ impl Control {
         let bytes = wyrm_core::codec::to_vec(&replication::changes_value(&tree))
             .map_err(|e| format!("storage: {e}"))?;
         let mut s = StagedSection {
-            name: "storage".into(),
+            name: SectionName::Storage,
             info: json_map([("rev", tree.rev.into()), ("nodes", tree.put.len().into())]),
             files: vec![st.bytes("storage/tree.cbor", &bytes)?],
         };
@@ -1046,10 +1045,7 @@ impl Control {
     fn stage_history(&self, st: &Stager, days: Option<u32>) -> Result<StagedSection, String> {
         let store = self.history.store();
         let chosen = history_days(store, days);
-        let mut s = StagedSection {
-            name: "history".into(),
-            ..Default::default()
-        };
+        let mut s = StagedSection::new(SectionName::History);
         let mut rows = 0u64;
         let mut names = Vec::new();
         for day in chosen {
@@ -1139,10 +1135,7 @@ impl Control {
     ) -> Result<StagedSection, String> {
         let root = self.packages_root();
         let files = replication::files_of(&self.cfg.data_dir);
-        let mut s = StagedSection {
-            name: "packages".into(),
-            ..Default::default()
-        };
+        let mut s = StagedSection::new(SectionName::Packages);
         for def in defs {
             let base = if single {
                 "package".to_owned()
@@ -1191,10 +1184,7 @@ impl Control {
             }
             None => 0,
         };
-        let mut s = StagedSection {
-            name: "history".into(),
-            ..Default::default()
-        };
+        let mut s = StagedSection::new(SectionName::History);
         let mut page: Vec<Value> = Vec::new();
         let mut total = 0u64;
         let flush = |page: &mut Vec<Value>, s: &mut StagedSection| -> Result<(), String> {
@@ -1266,13 +1256,13 @@ impl Control {
             .get(id)
             .cloned()
             .ok_or_else(|| format!("no link {id}"))?;
-        let mut sections = vec!["settings".to_owned()];
+        let mut sections = vec![SectionName::Settings];
         if def.mode != Mode::External {
-            sections.push("data".into());
+            sections.push(SectionName::Data);
         }
         let package = self.package_of(&def);
         if package.is_some() && with_package {
-            sections.push("package".into());
+            sections.push(SectionName::Package);
         }
         let req = BackupRequest {
             kind: Kind::Link,
@@ -1298,7 +1288,7 @@ impl Control {
         }
         let skipped = w
             .manifest
-            .section("data")
+            .section(SectionName::Data)
             .and_then(|s| s.info.get("skipped"))
             .and_then(serde_json::Value::as_u64)
             .map_or(0, |n| u32::try_from(n).unwrap_or(u32::MAX));
@@ -1464,10 +1454,10 @@ impl Control {
         // The links whose private data this job copies: shown first, then
         // looked, so either this job sees an operation on one of them or
         // the operation sees this job.
-        let has_section = |s: &str| chosen.iter().any(|c| c == s);
+        let has_section = |s: SectionName| chosen.contains(&s);
         let copies: BTreeSet<String> = match req.kind {
-            Kind::Link if has_section("data") => req.link.iter().cloned().collect(),
-            Kind::Broker if has_section("links") => match &req.links {
+            Kind::Link if has_section(SectionName::Data) => req.link.iter().cloned().collect(),
+            Kind::Broker if has_section(SectionName::Links) => match &req.links {
                 Some(l) => l.iter().cloned().collect(),
                 None => self.registry().links.keys().cloned().collect(),
             },
@@ -1511,7 +1501,11 @@ impl Control {
                     error: String::new(),
                     file: file.clone(),
                     sealed: Some(match &req.seal {
-                        SealWith::None if chosen.iter().any(|c| c == "links" || c == "data") => {
+                        SealWith::None
+                            if chosen
+                                .iter()
+                                .any(|c| matches!(c, SectionName::Links | SectionName::Data)) =>
+                        {
                             How::Broker
                         }
                         s => s.how(),
@@ -1533,24 +1527,25 @@ impl Control {
             None => ("backup_create", id.clone()),
         };
         // the request as it is audited: never the passphrase
-        let has = |s: &str| chosen.iter().any(|c| c == s);
+        let has = |s: SectionName| chosen.contains(&s);
         let exported = matches!(req.seal, SealWith::Passphrase(_));
         if exported {
             warn!(
-                backup = %id, by = sub, keys = has("keys"),
+                backup = %id, by = sub, keys = has(SectionName::Keys),
                 "a backup with secrets sealed by a passphrase is being made: with that \
                  passphrase it opens anywhere (backups.export_secrets)"
             );
         }
         let detail = format!(
             "{id}: sections {}; sealed {}; keys: {}; secrets: {}{}",
-            chosen.join(", "),
+            format::section_names(&chosen),
             match &req.seal {
-                SealWith::None if has("links") || has("data") => How::Broker,
+                SealWith::None if has(SectionName::Links) || has(SectionName::Data) => How::Broker,
                 s => s.how(),
             },
-            has("keys"),
-            exported && (has("keys") || has("links") || has("data")),
+            has(SectionName::Keys),
+            exported
+                && (has(SectionName::Keys) || has(SectionName::Links) || has(SectionName::Data)),
             req.history_days
                 .map(|d| format!("; history {d} days"))
                 .unwrap_or_default()
@@ -1673,6 +1668,29 @@ fn history_days(store: &wyrm_history::Store, days: Option<u32>) -> Vec<i64> {
     }
 }
 
+/// A list of section names (`list_arg`), each decoded once: a name that is no section
+/// is refused, listing the names there are.
+pub(super) fn section_list_arg(
+    args: &Value,
+    name: &str,
+) -> Result<Option<Vec<SectionName>>, LinkError> {
+    let Some(names) = list_arg(args, name)? else {
+        return Ok(None);
+    };
+    names
+        .iter()
+        .map(|n| {
+            SectionName::from_name(n).ok_or_else(|| {
+                LinkError::invalid_parameter(format!(
+                    "{name}: no section {n:?} (one of {})",
+                    SectionName::NAMES.join(", ")
+                ))
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .map(Some)
+}
+
 fn list_arg(args: &Value, name: &str) -> Result<Option<Vec<String>>, LinkError> {
     let bad = || LinkError::invalid_parameter(format!("{name}: a list of names"));
     match arg(args, name) {
@@ -1712,7 +1730,7 @@ pub(super) fn request_of(
     link: Option<&str>,
     remote: bool,
 ) -> Result<BackupRequest, LinkError> {
-    let sections = list_arg(args, "sections")?.unwrap_or_default();
+    let sections = section_list_arg(args, "sections")?.unwrap_or_default();
     let history_days = match int_arg::<u64>(args, "history_days")? {
         Some(0) | None => None,
         Some(n) => Some(
@@ -1761,7 +1779,7 @@ fn passphrase_param() -> ParamMeta {
 fn sections_param(kind: Kind) -> ParamMeta {
     ParamMeta::of(TypeCode::Array)
         .display("Sections")
-        .description(format!("Of: {}", kind.sections().join(", ")))
+        .description(format!("Of: {}", format::section_names(kind.sections())))
 }
 
 fn history_days_param() -> ParamMeta {
@@ -1810,7 +1828,7 @@ pub(super) async fn declare(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Resu
                 Value::Array(
                     format::BROKER_SECTIONS
                         .iter()
-                        .map(|s| Value::from(*s))
+                        .map(|s| Value::from(s.name()))
                         .collect(),
                 ),
             ),
@@ -1852,7 +1870,7 @@ fn job_node(j: &Job) -> NodeMeta {
         .attr("name", j.file.as_str())
         .attr(
             "sections",
-            Value::Array(j.sections.iter().map(|s| Value::from(s.clone())).collect()),
+            Value::Array(j.sections.iter().map(|s| Value::from(s.name())).collect()),
         )
         .attr("sealed", j.sealed.map_or("", How::name))
         .attr("by", j.by.as_str());
@@ -2040,7 +2058,7 @@ pub(super) async fn show_job(ctx: &LinkCtx, ctl: &Control, id: &str) {
 /// §4). One sealed for this broker, or without secrets, opens nowhere else
 /// and may go.
 fn may_download(job: &Job, remote: bool) -> Result<(), LinkError> {
-    let keys = job.sections.iter().any(|s| s == "keys");
+    let keys = job.sections.contains(&SectionName::Keys);
     if remote && (keys || job.sealed == Some(How::Passphrase)) {
         return Err(LinkError::new(
             Status::PermissionDenied,
@@ -2256,6 +2274,14 @@ mod tests {
         }
         let j: Job = serde_json::from_value(v).unwrap();
         assert_eq!((j.sealed, j.send_status), (None, None));
+        // every section name, as the `String` list wrote it, reads typed and writes the
+        // same bytes
+        let mut old = old_job("full", "done", "none", "");
+        old.sections = SectionName::NAMES.to_vec();
+        let bytes = serde_json::to_vec_pretty(&old).unwrap();
+        let j: Job = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(j.sections, SectionName::ALL);
+        assert_eq!(serde_json::to_vec_pretty(&j).unwrap(), bytes);
     }
 
     /// A name this build does not know is not read as another (fail closed), and the
@@ -2267,6 +2293,13 @@ mod tests {
             ("kind", old_job("nightly", "done", "none", "")),
             ("sealed", old_job("full", "done", "hsm", "")),
             ("send", old_job("full", "done", "none", "queued")),
+            // a section this build does not know: whether the backup holds keys (and so
+            // may be sent or downloaded) would be read wrong
+            ("sections", {
+                let mut j = old_job("full", "done", "none", "");
+                j.sections = vec!["control", "secrets"];
+                j
+            }),
         ] {
             let bytes = serde_json::to_vec(&bad).unwrap();
             let e = serde_json::from_slice::<Job>(&bytes).unwrap_err();
@@ -2325,7 +2358,7 @@ mod tests {
                 id: id.to_owned(),
                 kind: JobKind::Full,
                 link: String::new(),
-                sections: vec!["control".into()],
+                sections: vec![SectionName::Control],
                 status: JobStatus::Done,
                 progress: 100,
                 step: String::new(),
@@ -2465,7 +2498,7 @@ mod tests {
             ),
         ]));
         let r = request_of(&args, None, false).unwrap();
-        assert_eq!(r.sections, ["storage", "keys"]);
+        assert_eq!(r.sections, [SectionName::Storage, SectionName::Keys]);
         assert_eq!(r.links, Some(vec!["a".to_owned(), "b".to_owned()]));
         assert_eq!(r.history_days, Some(7));
         assert!(matches!(r.seal, SealWith::Passphrase(_)));
@@ -2491,7 +2524,10 @@ mod tests {
             id: "20261113T100000Z".into(),
             kind: JobKind::Full,
             link: String::new(),
-            sections: sections.iter().map(|s| (*s).to_owned()).collect(),
+            sections: sections
+                .iter()
+                .map(|s| SectionName::from_name(s).unwrap())
+                .collect(),
             status: JobStatus::Done,
             progress: 100,
             step: String::new(),
@@ -2539,7 +2575,7 @@ mod tests {
                 id: id.clone(),
                 kind: JobKind::Full,
                 link: String::new(),
-                sections: vec!["control".into(), "links".into()],
+                sections: vec![SectionName::Control, SectionName::Links],
                 status: JobStatus::Running,
                 progress: 10,
                 step: "links".into(),
@@ -2606,7 +2642,7 @@ mod tests {
         .unwrap();
         let req = || BackupRequest {
             kind: Kind::Link,
-            sections: vec!["data".into()],
+            sections: vec![SectionName::Data],
             links: None,
             link: Some("l1".into()),
             history_days: None,
@@ -2652,7 +2688,7 @@ mod tests {
         .unwrap();
         let req = || BackupRequest {
             kind: Kind::Link,
-            sections: vec!["data".into()],
+            sections: vec![SectionName::Data],
             links: None,
             link: Some("l1".into()),
             history_days: None,

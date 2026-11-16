@@ -1854,7 +1854,7 @@ pub fn restore_control(
         .map_err(|e| format!("its manifest is not this broker's: {e}"))?;
     let listed: Vec<String> = r
         .manifest()
-        .section("control")
+        .section(crate::backup::SectionName::Control)
         .ok_or("the backup has no control section")?
         .files
         .iter()

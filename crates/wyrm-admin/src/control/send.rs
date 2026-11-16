@@ -160,7 +160,7 @@ fn target_of(j: &Job, args: &Value, send_links: &[SendLink]) -> Result<Target, L
             format!("backup {} is {}", j.id, j.status),
         ));
     }
-    if j.sections.iter().any(|s| s == "keys") {
+    if j.sections.contains(&crate::backup::SectionName::Keys) {
         return Err(bad(
             "a backup that holds the keys section is not sent: download it on the broker's own \
              gateway",
@@ -549,7 +549,10 @@ mod tests {
             id: "20261113t101502z".into(),
             kind: JobKind::Full,
             link: String::new(),
-            sections: sections.iter().map(|s| (*s).to_owned()).collect(),
+            sections: sections
+                .iter()
+                .map(|s| crate::backup::SectionName::from_name(s).unwrap())
+                .collect(),
             status: JobStatus::Done,
             progress: 100,
             step: String::new(),
