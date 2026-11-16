@@ -185,6 +185,78 @@ pub mod serde_opt {
     }
 }
 
+/// A name of the set `T`, or one this build does not know, kept as written: for a record
+/// a newer build may write, where one unknown name must not refuse the rest (an index
+/// entry, one task of a store). The holder decides what an [`Unknown`](Self::Unknown)
+/// means (leave the entry out, do not load the task); it is never read as a variant of
+/// `T`. Encoded as the name, like `T` (CBOR text, a string in JSON and postcard).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OrUnknown<T> {
+    Known(T),
+    /// The name as written.
+    Unknown(String),
+}
+
+impl<T: Named> OrUnknown<T> {
+    pub fn of(name: &str) -> Self {
+        T::from_name(name).map_or_else(|| OrUnknown::Unknown(name.to_owned()), OrUnknown::Known)
+    }
+
+    pub fn name(&self) -> &str {
+        match self {
+            OrUnknown::Known(t) => t.name(),
+            OrUnknown::Unknown(n) => n,
+        }
+    }
+
+    pub fn known(&self) -> Option<T> {
+        match self {
+            OrUnknown::Known(t) => Some(*t),
+            OrUnknown::Unknown(_) => None,
+        }
+    }
+}
+
+impl<T> From<T> for OrUnknown<T> {
+    fn from(t: T) -> Self {
+        OrUnknown::Known(t)
+    }
+}
+
+impl<C, T: Named> minicbor::Encode<C> for OrUnknown<T> {
+    fn encode<W: minicbor::encode::Write>(
+        &self,
+        e: &mut minicbor::Encoder<W>,
+        _ctx: &mut C,
+    ) -> Result<(), minicbor::encode::Error<W::Error>> {
+        e.str(self.name())?;
+        Ok(())
+    }
+}
+
+impl<'b, C, T: Named> minicbor::Decode<'b, C> for OrUnknown<T> {
+    fn decode(
+        d: &mut minicbor::Decoder<'b>,
+        _ctx: &mut C,
+    ) -> Result<Self, minicbor::decode::Error> {
+        Ok(OrUnknown::of(d.str()?))
+    }
+}
+
+impl<T: Named> ::serde::Serialize for OrUnknown<T> {
+    fn serialize<S: ::serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(self.name())
+    }
+}
+
+impl<'de, T: Named> ::serde::Deserialize<'de> for OrUnknown<T> {
+    fn deserialize<D: ::serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        Ok(OrUnknown::of(
+            &<String as ::serde::Deserialize>::deserialize(d)?,
+        ))
+    }
+}
+
 #[doc(hidden)]
 pub mod __private {
     pub use minicbor;
@@ -375,6 +447,28 @@ mod tests {
         #[n(1)]
         #[cbor(with = "crate::named::cbor")]
         state: crate::Perm,
+    }
+
+    /// An unknown name is kept as written and never read as a variant; a known one is
+    /// the variant. Both encode as the name.
+    #[test]
+    fn or_unknown_keeps_the_text() {
+        for (text, want) in [
+            ("done", OrUnknown::Known(Job::Done)),
+            ("paused", OrUnknown::Unknown("paused".into())),
+            ("Done", OrUnknown::Unknown("Done".into())),
+        ] {
+            let json = serde_json::to_vec(text).unwrap();
+            let v: OrUnknown<Job> = serde_json::from_slice(&json).unwrap();
+            assert_eq!(v, want);
+            assert_eq!(serde_json::to_vec(&v).unwrap(), json);
+            let cbor = minicbor::to_vec(text).unwrap();
+            let v: OrUnknown<Job> = minicbor::decode(&cbor).unwrap();
+            assert_eq!(v, want);
+            assert_eq!(minicbor::to_vec(&v).unwrap(), cbor);
+        }
+        assert_eq!(OrUnknown::<Job>::of("paused").known(), None);
+        assert!(serde_json::from_str::<OrUnknown<Job>>("1").is_err());
     }
 
     #[test]
