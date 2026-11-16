@@ -102,7 +102,7 @@ pub fn catalog(
             PackageForm::Process
         };
         let official = official_repo
-            && e.kind.is_none_or(|k| k == form)
+            && e.kind.as_ref().is_none_or(|k| k.known() == Some(form))
             && o.by_package(&e.name)
                 .is_some_and(|(l, f)| f == form && l.version == e.version);
         let title = if e.title.is_empty() {
@@ -224,7 +224,7 @@ mod tests {
         let repo = vec![
             RepoEntry {
                 category: "Apps".into(),
-                kind: Some(PackageForm::Wasm),
+                kind: Some(PackageForm::Wasm.into()),
                 link: "alarm".into(),
                 ..wasm("alarm", &v, "Alarms")
             },

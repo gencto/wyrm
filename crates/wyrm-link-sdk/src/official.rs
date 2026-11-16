@@ -307,7 +307,7 @@ impl Official {
                     title: l.title.clone(),
                     category: l.category.clone(),
                     link: l.id.clone(),
-                    kind: Some(form),
+                    kind: Some(form.into()),
                     wyrm_link: Some(l.wyrm_link),
                     min_broker: Some(l.min_broker.clone()),
                     // ADR 0048: what the zips' manifests name
@@ -446,13 +446,13 @@ mod tests {
         );
         assert_eq!(wasm.description, "Alarm records");
         assert_eq!(
-            (wasm.link.as_str(), wasm.kind.map(PackageForm::name)),
+            (wasm.link.as_str(), wasm.kind.as_ref().map(|k| k.name())),
             ("alarm", Some("wasm"))
         );
         assert_eq!(wasm.version, "1.2.0");
         let proc = &index[1];
         assert_eq!(proc.link, "alarm");
-        assert_eq!(proc.kind, Some(PackageForm::Process));
+        assert_eq!(proc.kind, Some(PackageForm::Process.into()));
         assert_eq!(proc.assets.len(), 2);
         // a mirror: file names beside the index
         let rel = o.index(&all(), None, false).unwrap();

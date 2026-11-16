@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashSet};
 use std::io::{Cursor, Read, Write};
+use wyrm_core::named::OrUnknown;
 
 /// The manifest at the root of a package zip.
 pub const MANIFEST: &str = "wyrm-link.json";
@@ -117,6 +118,39 @@ impl PackageWorld {
     /// An app world: `app` or one with its version.
     pub fn is_app(self) -> bool {
         !matches!(self, PackageWorld::Driver | PackageWorld::Point)
+    }
+
+    /// The `wyrm:app/host` version of an app world with its version.
+    pub fn app_version(self) -> Option<&'static str> {
+        match self {
+            PackageWorld::App010 => Some("0.1.0"),
+            PackageWorld::App020 => Some("0.2.0"),
+            PackageWorld::App030 => Some("0.3.0"),
+            PackageWorld::App | PackageWorld::Driver | PackageWorld::Point => None,
+        }
+    }
+
+    /// The app world of `wyrm:app/host` version `v`; `None` for a version not in the set.
+    pub fn of_app_version(v: &str) -> Option<Self> {
+        PackageWorld::ALL
+            .iter()
+            .copied()
+            .find(|w| w.app_version() == Some(v))
+    }
+
+    /// Without its version: `app` for every app world.
+    pub fn plain(self) -> Self {
+        if self.is_app() {
+            PackageWorld::App
+        } else {
+            self
+        }
+    }
+
+    /// The manifest names world `self`; may the component of world `actual` (with its
+    /// version for an app) stand behind it? Plain `app` takes any app version.
+    pub fn admits(self, actual: Self) -> bool {
+        self == actual || (self == PackageWorld::App && actual.is_app())
     }
 }
 
@@ -357,8 +391,10 @@ pub struct RepoEntry {
     /// `alarm-process`).
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub link: String,
+    /// A form this build does not know is kept as written; [`parse_index`] leaves such an
+    /// entry out.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub kind: Option<PackageForm>,
+    pub kind: Option<OrUnknown<PackageForm>>,
     /// The link protocol of the package ([`crate::LINK_PROTOCOL`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wyrm_link: Option<u32>,
@@ -402,11 +438,26 @@ impl RepoEntry {
 /// Parse and check a repository index: at most [`MAX_INDEX_ENTRIES`]
 /// packages, unique valid names, a valid version, and for each a file
 /// (`assets`, or `url` with `sha256`) with a 64-hex SHA-256.
+///
+/// An index is a superset (ADR 0043): an entry whose `kind` this build does not
+/// know (a form a newer broker runs) is left out and logged, never read as
+/// another form and never a reason to refuse the other entries.
 pub fn parse_index(bytes: &[u8]) -> Result<Vec<RepoEntry>, String> {
-    let list: Vec<RepoEntry> = serde_json::from_slice(bytes).map_err(|e| format!("index: {e}"))?;
+    let mut list: Vec<RepoEntry> =
+        serde_json::from_slice(bytes).map_err(|e| format!("index: {e}"))?;
     if list.len() > MAX_INDEX_ENTRIES {
         return Err(format!("index: more than {MAX_INDEX_ENTRIES} packages"));
     }
+    list.retain(|e| match &e.kind {
+        Some(OrUnknown::Unknown(kind)) => {
+            tracing::warn!(
+                package = %e.name,
+                "index: kind {kind:?} is no form this broker runs: left out"
+            );
+            false
+        }
+        _ => true,
+    });
     let mut seen = HashSet::new();
     for e in &list {
         let bad = |what: &str| format!("index: {}: {what}", e.name);
@@ -876,6 +927,41 @@ mod tests {
         // refused now, passed on before: a malformed absolute URL
         assert!(old_resolve("https://r/i.json", "https://u:p@cdn/x.zip").is_ok());
         assert!(resolve("https://r/i.json", "https://u:p@cdn/x.zip").is_err());
+    }
+
+    /// A component's world against the manifest's, typed (review of #127: it was compared
+    /// as text, `starts_with("wyrm:app@")`).
+    #[test]
+    fn worlds_admit_their_components() {
+        use PackageWorld::*;
+        for v in ["0.1.0", "0.2.0", "0.3.0"] {
+            let w = PackageWorld::of_app_version(v).unwrap();
+            assert_eq!(w.name(), format!("wyrm:app@{v}"));
+            assert!(App.admits(w) && w.admits(w) && w.plain() == App);
+        }
+        assert_eq!(PackageWorld::of_app_version("9.9.9"), None);
+        assert!(!App030.admits(App010) && !App030.admits(App) && !App.admits(Driver));
+        assert!(Driver.admits(Driver) && !Point.admits(App) && !Driver.admits(App030));
+    }
+
+    /// Review of #127: an entry of a form this build does not know is left out; the other
+    /// entries are read (before, the whole index was refused, and with it every install
+    /// from the repository and the catalog). A kind that is not text still refuses it.
+    #[test]
+    fn an_entry_of_an_unknown_kind_is_left_out() {
+        let sha = "a".repeat(64);
+        let text = format!(
+            r#"[{{"name":"a","version":"1","url":"a.zip","sha256":"{sha}","kind":"wasm"}},
+                {{"name":"b","version":"1","url":"b.zip","sha256":"{sha}","kind":"jvm"}},
+                {{"name":"c","version":"1","url":"c.zip","sha256":"{sha}"}}]"#
+        );
+        let list = parse_index(text.as_bytes()).unwrap();
+        let names: Vec<&str> = list.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, ["a", "c"]);
+        assert_eq!(list[0].kind, Some(OrUnknown::Known(PackageForm::Wasm)));
+        let bad =
+            format!(r#"[{{"name":"a","version":"1","url":"a.zip","sha256":"{sha}","kind":1}}]"#);
+        assert!(parse_index(bad.as_bytes()).is_err());
     }
 
     #[test]
