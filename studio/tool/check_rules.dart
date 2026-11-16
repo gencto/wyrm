@@ -170,6 +170,13 @@ final _rules = <Rule>[
   // compared as `onX != null`, or a view-model kept as equal holds a
   // callback of a moment that has passed (audit of 2026-11-16)
   const Rule('vm-equality', ['app/lib/', 'ui/lib/'], _vmEquality),
+  // 9. a view-model made of the clock is new on every dispatch (and stale
+  // between them): the time a screen shows is state (`clock.now`, ticked by
+  // `TickClockAction`), not `DateTime.now()` in `fromStore`
+  Rule('vm-clock', [
+    'app/lib/connectors/',
+    'app/lib/mappers/',
+  ], (t) => _matches(_code(t), RegExp(r'\bDateTime\.now\('))),
   // 1, 9. a dispatch whose Future is dropped behind a method of its own
   // (`void _start(a) => dispatch(a);`): `unawaited` by another name
   Rule(
@@ -231,9 +238,14 @@ Iterable<String> _vmBodies(String text) sync* {
 int _vmEquality(String text) {
   var n = 0;
   for (final body in _vmBodies(_code(text))) {
+    // a plain collection, and a type that compares by identity
     n += _matches(
       body,
-      RegExp(r'^\s*final\s+(?:List|Set|Map|Iterable)\b[^;]*;', multiLine: true),
+      RegExp(
+        r'^\s*final\s+(?:List|Set|Map|Iterable|Object|dynamic|Future|Stream|'
+        r'Function)\b[^;(]*;',
+        multiLine: true,
+      ),
     );
     final equals =
         RegExp(r'equals:\s*\[([\s\S]*?)\]').firstMatch(body)?.group(1) ?? '';
@@ -260,6 +272,8 @@ class _Vm extends Vm {
   _Vm({required this.rows, this.onTap}) : super(equals: [rows]);
   final List<RowVm> rows;
   final VoidCallback? onTap;
+  final Object? extra;
+  final Future<int> later;
 }
 ''',
     good: '''
@@ -270,6 +284,14 @@ class _Vm extends Vm {
   final VoidCallback? onTap;
   final ValueChanged<String> onPick;
 }
+''',
+  ),
+  'vm-clock': (
+    bad: '''
+  _Vm fromStore() => _vm(now: DateTime.now());
+''',
+    good: '''
+  _Vm fromStore() => _vm(now: clock.now);
 ''',
   ),
   'dispatch-wrapper': (

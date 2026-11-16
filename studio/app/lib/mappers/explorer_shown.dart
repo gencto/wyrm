@@ -180,9 +180,10 @@ final _shown = Memo<ExplorerShown>();
 
 /// What Explorer draws in [s]: made again only when a part of the state it
 /// reads changed ([explorerInputsOf], the waits it shows, the drawer, the
-/// panels); its tree only when what the tree reads changed
-/// ([explorerTreeInputsOf]). A dispatch elsewhere in the app, or a value
-/// of a key not on screen, gives the very same object.
+/// panels, the language: a value viewer and a trend carry words of it);
+/// its tree only when what the tree reads changed ([explorerTreeInputsOf]).
+/// A dispatch elsewhere in the app, or a value of a key not on screen,
+/// gives the very same object. Nothing here reads the clock.
 ExplorerShown explorerShownOf(AppState s) {
   final r = _Read(s);
   final tree = _tree.of(
@@ -201,6 +202,7 @@ ExplorerShown explorerShownOf(AppState s) {
       menuOpening,
       s.assistant.drawer,
       s.panels.widths,
+      s.language,
     ],
     () => _shownOf(
       r,

@@ -1,9 +1,14 @@
+import 'package:async_redux/async_redux.dart';
+import 'package:business/redux/app_state.dart';
 import 'package:business/redux/live/actions/set_live_values_action.dart';
 import 'package:business/redux/live/actions/set_read_failed_action.dart';
+import 'package:business/redux/nodes/actions/retrieve_history_action.dart';
 import 'package:business/redux/nodes/actions/select_node_action.dart';
+import 'package:business/redux/nodes/actions/select_point_action.dart';
 import 'package:business/redux/nodes/actions/set_tree_filter_action.dart';
 import 'package:business/redux/nodes/actions/stage_value_action.dart';
 import 'package:business/redux/system/actions/set_filter_action.dart';
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
@@ -64,6 +69,32 @@ void main() {
     );
     report('Explorer, a key not on screen', r);
     expect(r.built, 0);
+  });
+
+  testWidgets("a history read under way is the trend's spinner", (t) async {
+    final app = await device(t);
+    final s = app.store;
+    await s.dispatchAndWait(SelectPointAction(ExplorerApp.temp));
+    await app.settle(t);
+    // the point's history read, no row yet
+    s.dispatchSync(
+      UpdateStateAction<AppState>.withReducer(
+        (st) => st.copyWith.nodes(
+          historyKey: ExplorerApp.temp,
+          history: const IListConst([]),
+        ),
+      ),
+    );
+    final read = RetrieveHistoryAction(ExplorerApp.temp);
+    s.dispatchSync(WaitAction.add(read));
+    await t.pump();
+    await t.pump();
+    ExplorerPage page() => t.widget<ExplorerPage>(find.byType(ExplorerPage));
+    expect(page().trend?.loading, isTrue);
+    s.dispatchSync(WaitAction.remove(read));
+    await t.pump();
+    await t.pump();
+    expect(page().trend?.loading, isFalse);
   });
 
   testWidgets('what the page draws builds it again', (t) async {

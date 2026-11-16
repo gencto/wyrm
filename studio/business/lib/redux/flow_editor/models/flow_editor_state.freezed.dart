@@ -20,7 +20,8 @@ mixin _$FlowEditorState {
  FlowProblem? get previewError;/// Why the broker has no preview for this session.
  Status? get previewOff;/// The field the value viewer shows.
  FieldAt? get viewedField; ISet<String> get selection; IList<FlowDraft> get undo; IList<FlowDraft> get redo; UndoTag? get undoTag; String? get clipboard; String get treeQuery; String? get scopePrompt; IList<FlowFrame> get frames; IList<BlockInfo> get library;/// Why custom blocks are off; null once the library answered.
- LibraryOff? get libraryOff; String? get route;
+ LibraryOff? get libraryOff;/// The route the editor was opened on (`newFlowId`: a new flow).
+ String? get route;
 /// Create a copy of FlowEditorState
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -208,6 +209,7 @@ class _FlowEditorState implements FlowEditorState {
 @override@JsonKey() final  IList<BlockInfo> library;
 /// Why custom blocks are off; null once the library answered.
 @override final  LibraryOff? libraryOff;
+/// The route the editor was opened on (`newFlowId`: a new flow).
 @override final  String? route;
 
 /// Create a copy of FlowEditorState

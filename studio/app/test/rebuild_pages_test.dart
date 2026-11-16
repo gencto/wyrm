@@ -53,6 +53,13 @@ void main() {
       runs: 3,
     );
     expect(version.built, 3);
+    expect(
+      find.descendant(
+        of: find.byType(SystemPage),
+        matching: find.textContaining('0.2.2'),
+      ),
+      findsWidgets,
+    );
   });
 
   testWidgets('Links: only what it draws builds it again', (t) async {
@@ -76,6 +83,11 @@ void main() {
     report('Links, a key not on screen', live);
     expect(live.built, 0);
 
+    Finder failed() => find.descendant(
+      of: find.byType(LinksPage),
+      matching: find.text('Failed'),
+    );
+    final before = failed().evaluate().length;
     final state = await rebuilds<LinksPage>(
       t,
       (i) => s.dispatchSync(
@@ -83,9 +95,11 @@ void main() {
           '${links.sys}/links/modbus/state': sample(i.isEven ? 5 : 2),
         }),
       ),
-      runs: 4,
+      runs: 3,
     );
-    expect(state.built, 4);
+    expect(state.built, 3);
+    // the last value: modbus failed, beside bacnet
+    expect(failed(), findsNWidgets(before + 1));
   });
 
   testWidgets('the toast stack: only a toast builds it again', (t) async {

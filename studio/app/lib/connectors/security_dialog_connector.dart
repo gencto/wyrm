@@ -52,16 +52,16 @@ class _Factory extends VmFactory<AppState, SecurityDialogConnector, _Vm>
   _Factory(super._connector);
 
   @override
-  _Vm fromStore() => _vm(DateTime.now(), device.policy ?? const DevicePolicy());
+  _Vm fromStore() => _vm(device.policy ?? const DevicePolicy());
 
-  /// The view-model at [now], with the site's device [policy].
-  _Vm _vm(DateTime now, DevicePolicy policy) => _Vm(
+  /// The view-model with the site's device [policy], rows at `clock.now`.
+  _Vm _vm(DevicePolicy policy) => _Vm(
     dialog: SecurityDialogVm(
       user: (login.user ?? '').trim(),
       site: site.name ?? '',
       os: hostPlatform().os,
       method: device.kind.method,
-      devices: [for (final r in device.rowsAt(now)) r.securityRow],
+      devices: [for (final r in device.rowsAt(clock.now)) r.securityRow],
       biometricHere: device.available,
       unlockOn: device.unlockOn,
       unlockEnabled: device.unlockAllowed,

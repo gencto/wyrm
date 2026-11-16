@@ -1608,12 +1608,15 @@ List<Object?> _liveOf(AppState s, List<String> keys) => [
 /// What [ExplorerView] reads of [s], each the very object it read: what is
 /// made of the view is kept (`Memo`) while every input is the same object.
 /// The parts of the state it reads ([SelectSite], [SelectNodes], the links'
-/// and the changes' tables) and the live values of [ExplorerView.readKeys].
+/// and the changes' tables), the one wait it reads (a history read: the
+/// trend's spinner, [SelectNodes.historyLoading]) and the live values of
+/// [ExplorerView.readKeys]. It reads no clock.
 List<Object?> explorerInputsOf(AppState s) => [
   s.site,
   s.nodes,
   s.links.table,
   s.changes.table,
+  SelectNodes(s).historyLoading,
   ..._liveOf(
     s,
     _readKeys.of([s.site, s.nodes], () => ExplorerView(s).readKeys),

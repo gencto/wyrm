@@ -38,7 +38,7 @@
     "ui/lib/trees/node_tree.dart": 2
   },
   "connector-lines": {
-    "app/lib/connectors/access_page_connector.dart": 117,
+    "app/lib/connectors/access_page_connector.dart": 115,
     "app/lib/connectors/assistant_page_connector.dart": 873,
     "app/lib/connectors/explorer_page_connector.dart": 314,
     "app/lib/connectors/flow_editor_page_connector.dart": 347,
@@ -48,7 +48,7 @@
     "app/lib/connectors/link_install_page_connector.dart": 235,
     "app/lib/connectors/links_page_connector.dart": 268,
     "app/lib/connectors/lock_overlay_connector.dart": 86,
-    "app/lib/connectors/log_in_page_connector.dart": 330,
+    "app/lib/connectors/log_in_page_connector.dart": 315,
     "app/lib/connectors/security_dialog_connector.dart": 103,
     "app/lib/connectors/sites_page_connector.dart": 89,
     "app/lib/connectors/splash_page_connector.dart": 15,
@@ -194,6 +194,7 @@
   },
   "multi-dispatch": {},
   "vm-equality": {},
+  "vm-clock": {},
   "dispatch-wrapper": {
     "business/lib/redux/flow_editor/actions/add_block_action.dart": 1,
     "business/lib/redux/flow_editor/actions/connect_ports_action.dart": 1,

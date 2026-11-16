@@ -59,6 +59,10 @@ void main() {
     );
     report('Assistant, the draft', draft);
     expect(draft.built, 5);
+    expect(
+      t.widget<AssistantPage>(find.byType(AssistantPage)).composer.draft,
+      'add ahu4',
+    );
   });
 
   testWidgets('the drawer over Explorer: only what it draws builds it', (
@@ -92,5 +96,9 @@ void main() {
       runs: 5,
     );
     expect(draft.built, 5);
+    expect(
+      t.widget<AssistantDrawer>(find.byType(AssistantDrawer)).composer.vm.draft,
+      'ask 4',
+    );
   });
 }

@@ -6,6 +6,7 @@ import 'assistant/models/assistant_state.dart';
 import 'backups/models/backups_state.dart';
 import 'broker_update/models/broker_update_state.dart';
 import 'changes/models/changes_state.dart';
+import 'clock/models/clock_state.dart';
 import 'connectivity/models/connectivity_state.dart';
 import 'device/models/device_state.dart';
 import 'discovery/models/discovery_state.dart';
@@ -67,6 +68,7 @@ abstract class AppState with _$AppState {
     required BrokerUpdateState brokerUpdate,
     required DeviceState device,
     required DiscoveryState discovery,
+    required ClockState clock,
     required Wait wait,
   }) = _AppState;
 
@@ -100,6 +102,7 @@ abstract class AppState with _$AppState {
     brokerUpdate: BrokerUpdateState(),
     device: DeviceState(),
     discovery: DiscoveryState(),
+    clock: ClockState(),
     wait: Wait.empty,
   );
 }

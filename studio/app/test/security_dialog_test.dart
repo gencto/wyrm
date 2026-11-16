@@ -44,6 +44,8 @@ void main() {
   }) {
     final a = AppState.initial();
     return a.copyWith(
+      // the time the rows are shown at, as a read of the devices stamps it
+      clock: a.clock.copyWith(now: now),
       site: a.site.copyWith(name: 'plant'),
       login: a.login.copyWith(user: 'olena'),
       device: a.device.copyWith(
