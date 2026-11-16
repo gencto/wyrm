@@ -11,7 +11,7 @@ Two checks run in CI job `check`:
    has `lints.workspace = true`. `cargo clippy --workspace --all-targets
    --all-features -- -D warnings` fails on one hit.
 2. **Baselined rules.** `python3 tool/check_rust_rules.py` counts the patterns
-   C1–C10, the exceptions A1–A2 and seven costly clippy lints per file against
+   C1–C11, the exceptions A1–A3 and seven costly clippy lints per file against
    `tool/rust_rules_baseline.json`. **A count may only go down. A file that is
    not in the baseline starts at zero.** The check fails on a count above its
    baseline and also on a count below it: after you remove hits, run
@@ -33,7 +33,8 @@ reason that says why the code is right: `#[allow(clippy::expect_used, reason =
 "…")]` (rule 3). A pattern hit that is right on purpose carries `// rust-rules:
 allow(C4) <why>` on its line or the line above. A reason under 12 characters
 does not count (A2), and every exception is itself counted (A1), so none is
-invisible. Prefer a restructure: an exception is for the place where the code
+invisible; so is every removal whose error is only logged (A3: each call of
+`wyrm_core::files::discard`, `discard_dir`, `discard_empty_dir`). Prefer a restructure: an exception is for the place where the code
 is provably right as it is.
 
 Test code (`#[test]`, `#[cfg(test)]`) may unwrap, expect, panic and print
@@ -375,21 +376,30 @@ text piece that ends a parameter for a value to follow (`"&x="` in a
 `sync_all`, `flush`, `rename` or `write_all`, a seal (`seal`, `seal_stream`,
 `seal_bytes`), a file mode (`set_permissions`, `write_private`,
 `private_dir`), a secret store change (`secrets.set/remove/drop_link`), a
-removal or a directory made (`remove_file`, `remove_dir_all`,
+removal or a directory made (`remove_file`, `remove_dir_all`, `remove_dir`,
 `create_dir_all`, wyrm-admin's `nofollow::remove_any`) or a portable app's
 store write (`Host::store_put`) is handled: `?`, a refusal, or a logged error
 with the state it leaves. A file that holds state (a key, a certificate, a
 role or update marker, a backup, a package, a link's data, a trust list) is
 never removed silently. A *scratch* file (a temporary file before or after a
 write, a staging or download directory, an upload part) is removed through
-`wyrm_core::files::discard` (a file) or `discard_dir` (a directory): absent is
-done, any other failure is logged with the path. They are the only removal
-whose error is not returned, and never for a file that holds state;
+`wyrm_core::files::discard` (a file), `discard_dir` (a directory) or
+`discard_empty_dir` (a directory only when it is empty): absent is done, any
+other failure is logged with the path. They are the only removals whose error
+is not returned, never for a file that holds state, and each call is counted
+(A3);
 `files::gone_ok` turns "not there" into done where the error is returned
 (`remove_file(p).or_else(gone_ok)?`). A
-failing RNG fails closed: the gateway has one source, `rng::fill`, whose
-error the caller refuses with; a link refuses the session or the call (the
-SNMP link opens no session without a random salt).
+failing RNG fails closed: the workspace has one source, `wyrm_core::rand`
+(feature `rand`: `fill`, `bytes::<N>`; `ring` adds `secure_random` for the ring
+calls that take a `SecureRandom`), whose `NoRandomness` the caller refuses
+with; a link refuses the session or the call (the SNMP link opens no session
+without a random salt). `clippy.toml` bans the direct calls
+(`getrandom::fill`, `fill_uninit`, `u32`, `u64`, `ring::rand::SystemRandom::new`,
+the type `rand_core::OsRng`, which panics); `wyrm_core::rand` is the one module
+that allows them. A portable link takes randomness from its host
+(`Host::random_bytes`); the SCRAM clock nonce of `wyrm-history-sync`, for a host
+that answers `not_supported`, calls no random source.
 
 **Why.** **S3**: three RNG-failure policies; `let _ = getrandom::fill(key)`
 leaves the device nonce MAC key at zero, and `new_jti` leaves every session's
@@ -400,6 +410,7 @@ leaves the device nonce MAC key at zero, and `new_jti` leaves every session's
 let _ = getrandom::fill(key.as_mut());
 
 // good — crates/wyrm-gateway/src/devices.rs: the gateway does not start without it
+// (`crate::rng` logs and calls `wyrm_core::rand`, the one source)
 pub(crate) fn new() -> Result<Self, crate::rng::NoRandomness> {
     let mut key = Zeroizing::new([0u8; 32]);
     crate::rng::fill(key.as_mut())?;
@@ -428,7 +439,7 @@ localfs mode, the guard stamp, the OPC UA first-use marker, and two refused
 first widening counted 10 of them. All are fixed in PR #125. The final
 verification of 2026-11-16 widened it to removals, `create_dir_all` and
 `store_put`: 102 drops, among them a peer's key files, a removed link's
-certificate key, the OPC UA first-use marker and trust list, a backup that
+directory (its certificate and key are in it), the OPC UA first-use marker and trust list, a backup that
 `remove` answered done for, the update state file, the standby's active
 marker, the messenger's read position (a lost write ran chat commands again
 after a restart) and the uplink's `bdSeq`; `nofollow::remove_any` hid 14 more

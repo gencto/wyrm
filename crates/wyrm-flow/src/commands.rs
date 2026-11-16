@@ -489,7 +489,7 @@ impl Node for Command {
                 if m.q == Quality::Bad {
                     // a failure never reads as a success: no valid error code is
                     // `internal_error`; a user-defined code travels as it is
-                    let f = crate::codes::Failure::of(r);
+                    let f = crate::decode::Failure::of(r);
                     self.failed(f.code, &f.message, out);
                 } else {
                     if matches!(self.what, What::Invoke { .. }) {
@@ -500,7 +500,7 @@ impl Node for Command {
                     self.event("ok", &[], m.start, out);
                 }
                 // the writer is idle once the last run it was given has answered
-                if crate::codes::seq_of(r) == Some(self.seq) {
+                if crate::decode::seq_of(r) == Some(self.seq) {
                     self.set_running(false, out);
                 }
             }

@@ -610,7 +610,7 @@ impl Node for Reader {
             let Value::Map(r) = &m.v else { return };
             if m.q == Quality::Bad {
                 // a failure never reads as a success: no valid error code is `internal_error`
-                let f = crate::codes::Failure::of(r);
+                let f = crate::decode::Failure::of(r);
                 self.failed(f.status(), &f.message, out);
             } else {
                 let q = crate::codes::quality_of(r.get("q"));

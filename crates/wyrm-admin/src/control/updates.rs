@@ -858,7 +858,7 @@ impl Control {
         if let Err(e) = std::fs::remove_file(&file).or_else(wyrm_core::files::gone_ok) {
             tracing::error!(package = name, "{} stays: {e}", file.display());
         }
-        let _ = std::fs::remove_dir(self.rollback_dir());
+        wyrm_core::files::discard_empty_dir(&self.rollback_dir());
     }
 
     /// At a start of the broker, before any link runs: finish the rollbacks

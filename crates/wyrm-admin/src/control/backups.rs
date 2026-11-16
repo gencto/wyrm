@@ -2452,7 +2452,7 @@ mod tests {
             id: "stuck".into(),
             kind: JobKind::Full,
             link: String::new(),
-            sections: vec!["control".into()],
+            sections: vec![SectionName::Control],
             status: JobStatus::Done,
             progress: 100,
             step: String::new(),

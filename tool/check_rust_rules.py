@@ -585,6 +585,7 @@ PERSIST_CALLS = [
     r"\bremove_dir_all\(",
     r"\bcreate_dir_all\(",
     r"\bremove_any\(",  # wyrm-admin `nofollow`: a file or a directory, by its own name
+    r"\bremove_dir\(",  # a directory, when empty (`files::discard_empty_dir` for scratch)
     # a portable app's store (`Host::store_put`): a lost cursor repeats work
     r"\.store_put\(",
 ]
@@ -707,6 +708,7 @@ PROBE_CALLS = [
     "std::fs::remove_dir_all(&dir)",
     "std::fs::create_dir_all(dir)",
     "crate::nofollow::remove_any(&pending.join(name))",
+    "std::fs::remove_dir(self.rollback_dir())",
     "host.store_put(&offset_key(bot), &o.to_le_bytes())",
 ]
 # Every way of dropping the result (C8 must see each) and of handling it (it must not).
@@ -840,6 +842,18 @@ def a2(s: Source) -> list[int]:
     return s.hits("A2", hits)
 
 
+DISCARD = re.compile(r"(?<!fn )\b(?:files::)?discard(?:_dir|_empty_dir)?\s*\(")
+
+
+def a3(s: Source) -> list[int]:
+    """Every removal whose error is only logged, counted like an exception so a new one shows
+    in review: each call of `wyrm_core::files::discard`, `discard_dir` and
+    `discard_empty_dir` (scratch files only, rule 10). Their own file is not counted."""
+    if s.path == "crates/wyrm-core/src/files.rs":
+        return []
+    return s.hits("A3", [m.start() for m in DISCARD.finditer(s.masked)])
+
+
 URL_SPLIT = re.compile(
     r"(?:\b(?:split_once|rsplit_once|split|rsplit|split_terminator|rsplit_terminator|find|"
     r"rfind|contains|strip_prefix|starts_with|eq_ignore_ascii_case|match_indices|"
@@ -875,6 +889,7 @@ PATTERNS = {
     "C11-url-split": c11,
     "A1-allow": a1,
     "A2-short-reason": a2,
+    "A3-scratch-discard": a3,
 }
 
 # ---------- probes ----------
@@ -933,6 +948,16 @@ PROBES = [
         "fn f(m: Mode) -> Info { Info { mode: m, v: Value::Str(m.name().into()) } }",
         0,
     ),
+    # A3: each scratch removal whose error is only logged
+    (
+        "A3",
+        "x.rs",
+        "fn f(p: &Path) {\n    wyrm_core::files::discard(p);\n    files::discard_dir(p);\n"
+        "    wyrm_core::files::discard_empty_dir(p);\n}",
+        3,
+    ),
+    ("A3", "crates/wyrm-core/src/files.rs", "pub fn discard(p: &Path) { log(p) }", 0),
+    ("A3", "x.rs", "fn discard(p: &Path) {}\n// files::discard(p)", 0),
     ("C6", "x.rs", 'const NAMES: [&str; 2] = ["a", "b"];', 2),
     ("C6", "x.rs", "trait T { const NAMES: &'static [&'static str]; }", 0),
     ("C6", "x.rs", "trait T { const PAIRS: &'static [(&'static str, &'static str)]; }", 0),
