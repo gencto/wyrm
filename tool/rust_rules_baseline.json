@@ -460,7 +460,6 @@
     "crates/wyrm-link-sdk/src/driver/diag.rs": 4,
     "crates/wyrm-link-sdk/src/driver/framework.rs": 5,
     "crates/wyrm-link-sdk/src/driver/mod.rs": 7,
-    "crates/wyrm-link-sdk/src/driver/params.rs": 1,
     "crates/wyrm-link-sdk/src/official.rs": 2,
     "crates/wyrm-link-sdk/src/package.rs": 1,
     "crates/wyrm-link-sdk/src/tree.rs": 1,
@@ -604,6 +603,9 @@
     "links/s3/src/lib.rs": 2,
     "links/snmp/src/lib.rs": 2,
     "links/webdav/src/lib.rs": 2
+  },
+  "C11-url-split": {
+    "crates/wyrm-admin/src/secrets.rs": 1
   },
   "A1-allow": {
     "crates/wyrm-admin/src/official.rs": 1,

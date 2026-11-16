@@ -112,6 +112,16 @@ pub struct Url {
     pub fragment: Option<String>,
 }
 
+/// `(scheme, rest)` of a text that starts `<scheme>://` with a well-formed scheme; `None`
+/// for any other text (a path, a command, a template). Nothing after `://` is checked:
+/// for a place that only tells a URL from something else, or takes the part after the
+/// authority of a URL a server wrote (a WebDAV `href`), where [`Url::parse`] would refuse
+/// what the place must still take.
+pub fn split_scheme(text: &str) -> Option<(&str, &str)> {
+    let (scheme, rest) = text.split_once("://")?;
+    scheme_ok(scheme).then_some((scheme, rest))
+}
+
 fn scheme_ok(s: &str) -> bool {
     let mut b = s.bytes();
     b.next().is_some_and(|c| c.is_ascii_alphabetic())
@@ -214,6 +224,14 @@ impl Url {
     }
 }
 
+crate::name_enum! {
+    /// The schemes of an HTTP URL, as written in lower case.
+    pub enum HttpScheme as "http scheme" {
+        Http => "http",
+        Https => "https",
+    }
+}
+
 /// How a place compares the scheme of an HTTP URL.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SchemeCase {
@@ -234,16 +252,13 @@ pub struct HttpUrl {
 impl HttpUrl {
     pub fn parse(text: &str, case: SchemeCase) -> Result<Self, UrlError> {
         let url = Url::parse(text)?;
-        let is = |s: &str| match case {
-            SchemeCase::Lower => url.scheme == s,
-            SchemeCase::Any => url.scheme.eq_ignore_ascii_case(s),
+        let scheme = match case {
+            SchemeCase::Lower => HttpScheme::from_name(&url.scheme),
+            SchemeCase::Any => HttpScheme::from_name(&url.scheme.to_ascii_lowercase()),
         };
-        let tls = if is("https") {
-            true
-        } else if is("http") {
-            false
-        } else {
-            return Err(UrlError::Scheme);
+        let tls = match scheme.ok_or(UrlError::Scheme)? {
+            HttpScheme::Https => true,
+            HttpScheme::Http => false,
         };
         let port = url.port.unwrap_or(if tls { 443 } else { 80 });
         Ok(Self { tls, port, url })
@@ -295,6 +310,15 @@ mod tests {
             Url::parse("https://h/a/../b%2F").unwrap().path,
             "/a/../b%2F"
         );
+    }
+
+    #[test]
+    fn schemes_split() {
+        assert_eq!(split_scheme("https://h/{{x}}"), Some(("https", "h/{{x}}")));
+        assert_eq!(split_scheme("http://ü/a b"), Some(("http", "ü/a b")));
+        for s in ["/cmd", "a b://x", "://x", "1x://y", "https:/x", ""] {
+            assert_eq!(split_scheme(s), None, "{s}");
+        }
     }
 
     #[test]

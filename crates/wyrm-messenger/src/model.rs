@@ -488,7 +488,9 @@ pub struct Button {
 
 impl Button {
     pub fn is_url(&self) -> bool {
-        self.target.starts_with("https://") || self.target.starts_with("http://")
+        // only the scheme: a target may hold `{{var}}` until it is filled in
+        wyrm_core::weburl::split_scheme(&self.target)
+            .is_some_and(|(scheme, _)| wyrm_core::weburl::HttpScheme::from_name(scheme).is_some())
     }
 }
 

@@ -269,8 +269,9 @@ if job.status != JobStatus::Done { … }
 "one of …", "a, b or c"). C6 `string-set`: inline `["a", "b"]` (with or
 without `&`, `vec![…]`; not the key list of `only(&[…])`), `matches!(x, "a" |
 "b")`, `x == "a" || x == "b"`, and `const`/`static` tables of `&str` (also of
-tuples). The `name_enum!` and `wire_enum!` macros (`wyrm-core/src/named.rs`,
-`wire.rs`) are exempt from C6: their `NAMES` is the one declaration of a set.
+tuples). The bodies of the `name_enum!` and `wire_enum!` macros (in
+`wyrm-core/src/named.rs`, `wire.rs`; the rest of those files is counted) are
+exempt from C6: their `NAMES` is the one declaration of a set.
 
 ## 7. One typed decoder per `Value` shape
 
@@ -415,12 +416,20 @@ outside `wyrm-core` named `now…`, `…_now`, `unix_…`, `timestamp…`, or ho
 **URLs.** A configured URL (an HTTP target, a file store, a sync target, an
 uplink, the gateway's origins and public URL, a release channel, a
 repository) is read by `wyrm_core::weburl` (`Url::parse`, `HttpUrl::parse`)
-and the place applies its policy to the typed parts. No `split_once("://")`
-or `strip_prefix("https://")` splitting by hand (review S4: fifteen
-splitters with different rules). Left as text on purpose: the secrets
-redactor (`wyrm-admin/src/secrets.rs`, it must take any text), WebDAV
-`href`s from a server, a messenger button's target (classified, checked by
-the chat platform) and Zenoh locators (`quic/host:port`, not URLs).
+and the place applies its policy to the typed parts; a place that only tells
+a URL from other text, or takes what follows the authority of a URL a server
+wrote (a messenger button's target, a WebDAV `href`), uses
+`weburl::split_scheme`. No `split_once("://")` or `strip_prefix("https://")`
+splitting by hand (review S4: fifteen splitters with different rules). Left
+as text on purpose: the secrets redactor (`wyrm-admin/src/secrets.rs`, it
+must find `://` in any text, a malformed scheme too, or a secret would show;
+the one C11 hit in the baseline) and Zenoh locators (`quic/host:port`, not
+URLs).
+
+**Check.** C11 `url-split`: `split_once`/`find`/`contains`/`strip_prefix`/
+`starts_with`/… with `"…://"` or `"http…"` outside `wyrm-core/src/weburl.rs`.
+The checker runs its probes (samples each pattern must count or leave)
+before every run.
 
 ## 12. A secret parameter is a `Secret`
 

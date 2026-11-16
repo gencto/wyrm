@@ -5,7 +5,7 @@
 use std::io::{Cursor, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
-use wyrm_core::weburl::{HttpUrl, SchemeCase, UrlError};
+use wyrm_core::weburl::{split_scheme, HttpUrl, SchemeCase, UrlError};
 use zip::write::SimpleFileOptions;
 
 const CLONE_TIMEOUT: Duration = Duration::from_secs(120);
@@ -28,7 +28,9 @@ fn valid_ref(r: &str) -> bool {
 /// `sys/packages`, audit), so a token in it would be on show.
 pub fn check_url(url: &str, allow_file: bool) -> Result<(), String> {
     // `file://` has no host for the URL parser: it is the dev profile's alone
-    let file = allow_file && url.starts_with("file://") && !url.contains('@');
+    let file = allow_file
+        && split_scheme(url).is_some_and(|(scheme, _)| scheme == "file")
+        && !url.contains('@');
     let ok = match HttpUrl::parse(url, SchemeCase::Lower) {
         Err(UrlError::Credentials) => {
             return Err("url: no credentials in the URL (only public repositories)".into())
