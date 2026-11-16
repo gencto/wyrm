@@ -23,16 +23,6 @@ fn day_code(d: Weekday) -> &'static str {
     DAYS.iter().find(|(_, w)| *w == d).map_or("MO", |(c, _)| c)
 }
 
-fn freq_name(f: Freq) -> &'static str {
-    match f {
-        Freq::Hourly => "HOURLY",
-        Freq::Daily => "DAILY",
-        Freq::Weekly => "WEEKLY",
-        Freq::Monthly => "MONTHLY",
-        Freq::Yearly => "YEARLY",
-    }
-}
-
 impl Rule {
     /// The shortest span between two occurrences, in seconds. A window must not be longer.
     pub(crate) fn period_secs(&self) -> i64 {
@@ -141,21 +131,13 @@ impl FromStr for Rule {
             seen.push(k.clone());
             match k.as_str() {
                 "FREQ" => {
-                    freq = Some(match v.to_ascii_uppercase().as_str() {
-                        "HOURLY" => Freq::Hourly,
-                        "DAILY" => Freq::Daily,
-                        "WEEKLY" => Freq::Weekly,
-                        "MONTHLY" => Freq::Monthly,
-                        "YEARLY" => Freq::Yearly,
-                        _ => {
-                            return Err(Invalid::new(
-                                "FREQ",
-                                format!(
-                                    "must be HOURLY, DAILY, WEEKLY, MONTHLY or YEARLY, got {v:?}"
-                                ),
-                            ))
-                        }
-                    })
+                    // RFC 5545: names are case-insensitive; the one form is the upper case
+                    freq = Some(Freq::from_name(&v.to_ascii_uppercase()).ok_or_else(|| {
+                        Invalid::new(
+                            "FREQ",
+                            format!("must be HOURLY, DAILY, WEEKLY, MONTHLY or YEARLY, got {v:?}"),
+                        )
+                    })?)
                 }
                 "INTERVAL" => {
                     let n: u32 = num("INTERVAL", v)?;
@@ -237,12 +219,7 @@ impl FromStr for Rule {
 /// Canonical order, coarse to fine: FREQ, INTERVAL, COUNT|UNTIL, BYMONTH, BYMONTHDAY, BYDAY.
 impl fmt::Display for Rule {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "FREQ={};INTERVAL={}",
-            freq_name(self.freq),
-            self.interval
-        )?;
+        write!(f, "FREQ={};INTERVAL={}", self.freq.name(), self.interval)?;
         match self.end {
             RuleEnd::Never => {}
             RuleEnd::Count(n) => write!(f, ";COUNT={n}")?,

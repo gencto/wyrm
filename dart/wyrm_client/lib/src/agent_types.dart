@@ -223,39 +223,6 @@ abstract class TaskSuggestion with _$TaskSuggestion {
     );
   }
 
-  /// The suggestions of a task's `~state` [record]; empty for a record of an
-  /// agent link older than the field. The old tolerant reader: an item that
-  /// is not a map is skipped, a field of another type is empty.
-  @Deprecated('Use AgentTaskRecord.fromValue(record).suggestions')
-  static List<TaskSuggestion> of(Value? record) => [
-    if (record?['suggestions'] case VArray(:final v))
-      for (final s in v)
-        if (s is VMap)
-          TaskSuggestion(
-            id: _text(s['id']),
-            label: _text(s['label']),
-            detail: _text(s['detail']),
-            changes: switch (s['changes']) {
-              VInt(:final v) => v,
-              _ => 0,
-            },
-            step: switch (s['step']) {
-              VInt(:final v) => v,
-              _ => null,
-            },
-            rows: [
-              if (s['rows'] case VArray(:final v))
-                for (final r in v)
-                  if (r is VMap)
-                    TaskRow(
-                      key: _text(r['key']),
-                      label: _text(r['label']),
-                      detail: _text(r['detail']),
-                    ),
-            ],
-          ),
-  ];
-
   /// The text of the follow-up ask: what the person saw on the card, and
   /// the labels of the [picked] rows.
   String ask([Iterable<TaskRow> picked = const []]) {
@@ -296,21 +263,6 @@ abstract class TaskFinding with _$TaskFinding {
       detail: m.strOr('detail', ''),
     );
   }
-
-  /// The findings of a task's `~state` [record], in the order the model
-  /// noted them; empty for a record of an agent link older than the field.
-  /// The old tolerant reader: an item without a key is skipped.
-  @Deprecated('Use AgentTaskRecord.fromValue(record).findings')
-  static List<TaskFinding> of(Value? record) => [
-    if (record?['findings'] case VArray(:final v))
-      for (final f in v)
-        if (f is VMap && _text(f['key']).isNotEmpty)
-          TaskFinding(
-            key: _text(f['key']),
-            label: _text(f['label']),
-            detail: _text(f['detail']),
-          ),
-  ];
 }
 
 /// One option of an [AgentQuestion].
@@ -710,6 +662,3 @@ sealed class AgentReply with _$AgentReply {
     );
   }
 }
-
-/// The old tolerant text read: anything but text is empty.
-String _text(Value? v) => v is VStr ? v.v : '';

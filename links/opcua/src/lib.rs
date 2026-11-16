@@ -180,6 +180,40 @@ impl std::fmt::Debug for ConnParams {
 pub struct Conn {
     pub p: ConnParams,
     pub pki: Option<PathBuf>,
+    /// Set when a first use could not be kept ([`pki::NotKept`]).
+    pub tofu_block: TofuBlock,
+}
+
+/// A first use of this connection's trust store made a session but could not
+/// be kept: the owner of the connection does not open it again (each open
+/// would trust any server and send it the user's credentials). The framework
+/// gives each owner its own copy of the connection, at Start and after Edit;
+/// a copy starts clear, so an operator's Edit or Start is what opens it again.
+#[derive(Debug, Default)]
+pub struct TofuBlock(std::sync::atomic::AtomicBool);
+
+impl TofuBlock {
+    pub fn set(&self) {
+        self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    pub fn is_set(&self) -> bool {
+        self.0.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+impl Clone for TofuBlock {
+    /// A new owner's copy starts clear (see the type).
+    fn clone(&self) -> Self {
+        Self::default()
+    }
+}
+
+impl PartialEq for TofuBlock {
+    /// Not a parameter: two connections with the same params are equal.
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
 }
 
 fn bad(name: &str, what: impl std::fmt::Display) -> LinkError {
@@ -244,7 +278,11 @@ impl Params for Conn {
             return Err(bad("application_uri", "expected a URI (urn:…)"));
         }
         let pki = PKI.try_with(|d| d.clone()).ok().flatten();
-        Ok(Conn { p, pki })
+        Ok(Conn {
+            p,
+            pki,
+            tofu_block: TofuBlock::default(),
+        })
     }
 
     fn to_map(&self) -> BTreeMap<String, Value> {
@@ -746,6 +784,23 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(c.pki, Some(PathBuf::from("/x/opcua-pki")));
+    }
+
+    /// Re-audit of #125: a first use that could not be kept refused its session, and the
+    /// next open trusted any server again. A blocked connection opens nothing (no network:
+    /// the endpoint's host does not resolve and is never asked), until the framework gives a
+    /// new owner a copy, at Start or after Edit.
+    #[tokio::test]
+    async fn a_blocked_first_use_opens_nothing_until_start_or_edit() {
+        let v = map(&[("endpoint", "opc.tcp://never.invalid:4840/".into())]);
+        let c = Conn::from_value(&v).unwrap();
+        c.tofu_block.set();
+        let e = OpcuaDriver::open(&c).await.err().map(|e| e.to_string());
+        let e = e.unwrap_or_default();
+        assert!(e.contains("does not open again"), "{e}");
+        // a new owner (Start, or Edit: a new value) starts clear
+        assert!(!c.clone().tofu_block.is_set());
+        assert_eq!(c.clone(), c, "the block is not a parameter");
     }
 
     #[test]

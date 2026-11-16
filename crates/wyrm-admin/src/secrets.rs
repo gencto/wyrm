@@ -137,20 +137,32 @@ impl SecretStore {
         saved
     }
 
-    /// `true` if it existed.
+    /// `true` if it existed. When the store cannot be saved it is as before
+    /// (the secret stays, in memory as on disk) and the error says so.
     pub fn remove(&self, link: &str, name: &str) -> Result<bool, Error> {
         let mut db = self.lock();
-        let had = db.get_mut(link).and_then(|m| m.remove(name)).is_some();
-        if had {
-            self.save(&db)?;
+        let Some(old) = db.get_mut(link).and_then(|m| m.remove(name)) else {
+            return Ok(false);
+        };
+        if let Err(e) = self.save(&db) {
+            db.entry(link.to_owned())
+                .or_default()
+                .insert(name.to_owned(), old);
+            return Err(e);
         }
-        Ok(had)
+        Ok(true)
     }
 
+    /// Every secret of `link`. When the store cannot be saved it is as
+    /// before (the secrets stay) and the error says so.
     pub fn drop_link(&self, link: &str) -> Result<(), Error> {
         let mut db = self.lock();
-        if db.remove(link).is_some() {
-            self.save(&db)?;
+        let Some(old) = db.remove(link) else {
+            return Ok(());
+        };
+        if let Err(e) = self.save(&db) {
+            db.insert(link.to_owned(), old);
+            return Err(e);
         }
         Ok(())
     }
@@ -517,6 +529,35 @@ mod tests {
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
         d
+    }
+
+    /// A store whose file cannot be written (its directory read-only) is as
+    /// before after a failed `remove` or `drop_link`: the error is returned
+    /// and the secret is still there, in memory as on disk.
+    #[cfg(unix)]
+    #[test]
+    fn a_removal_that_cannot_be_saved_keeps_the_store() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let d = dir("unsaved");
+        let s = SecretStore::open(&d).unwrap();
+        s.set("peer:up", "token", b"t1").unwrap();
+        s.set("peer:up", "key", b"k1").unwrap();
+        if std::fs::metadata(&d).unwrap().uid() == 0 {
+            return; // root writes into a read-only directory: nothing to show
+        }
+        std::fs::set_permissions(&d, std::fs::Permissions::from_mode(0o500)).unwrap();
+        let removed = s.remove("peer:up", "token");
+        let dropped = s.drop_link("peer:up");
+        let names = s.names("peer:up");
+        std::fs::set_permissions(&d, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(removed.is_err() && dropped.is_err());
+        assert_eq!(names, ["key", "token"], "kept in memory");
+        let again = SecretStore::open(&d).unwrap();
+        assert_eq!(again.names("peer:up"), ["key", "token"], "kept on disk");
+        // and once it can be saved, both go
+        assert!(s.remove("peer:up", "token").unwrap());
+        s.drop_link("peer:up").unwrap();
+        assert!(SecretStore::open(&d).unwrap().names("peer:up").is_empty());
     }
 
     /// The fields a test configuration shows.

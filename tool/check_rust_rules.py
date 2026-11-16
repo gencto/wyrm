@@ -433,10 +433,34 @@ def c7(s: Source) -> list[int]:
     return s.hits("C7", hits)
 
 
-PERSIST = (
-    r"(?:getrandom::\w+|\.fill\(|\.apply\(|\.save\(|\.persist\(|\.sync_all\(|\.sync_data\("
-    r"|\.flush\(|\brename\(|\.write_all\(|\bfs::write\(|\.commit\()"
-)
+# The calls whose `Result` must never be dropped (docs/rust-rules.md rule 10): randomness,
+# store writes, sealing, file modes and the secret store. Kept here, by name; `probe()` checks
+# at every run that each one is caught when its result is dropped, so a name added here is
+# known to work. A new security or persistence call that returns `Result` goes in this list.
+PERSIST_CALLS = [
+    r"getrandom::\w+",  # an RNG fill
+    r"\.fill\(",  # SecureRandom::fill
+    r"\.apply\(",  # a store's op
+    r"\.save\(",
+    r"\.persist\(",
+    r"\.sync_all\(",
+    r"\.sync_data\(",
+    r"\.flush\(",
+    r"\brename\(",
+    r"\.write_all\(",
+    r"\bfs::write\(",
+    r"\.commit\(",
+    r"\bset_permissions\(",  # a private directory or file mode
+    r"\bwrite_private\(",
+    r"\bwrite_file\(",  # the OPC UA store's and `PrivateDir`'s writes
+    r"\bprivate_dir\(",
+    r"\bseal(?:_aad|_stream|_bytes|_in_place\w*)?\(",  # sealing (an RNG nonce inside)
+    # the secret store, under any receiver: its own method names, and `set`/`remove` on a
+    # receiver named for secrets (`secrets.`, `link_secrets.`, `self.ctl.secrets.`)
+    r"\.(?:drop_link|replace_stashed|unstash)\(",
+    r"\b\w*secrets?\w*\s*\.\s*(?:set|remove)\(",
+]
+PERSIST = "(?:" + "|".join(PERSIST_CALLS) + ")"
 
 
 def c8(s: Source) -> list[int]:
@@ -454,10 +478,142 @@ def c8(s: Source) -> list[int]:
         rf"{PERSIST}[^;]*?\)(?:\.await)?\s*\.ok\(\)\s*;",
         rf"\bif\s+[^{{;]*?{PERSIST}[^{{;]*\.is_err\(\)\s*\{{\s*\}}",
         rf"{PERSIST}[^;]*?\)(?:\.await)?\s*\.unwrap_or_default\(\)",
+        # the error read as a plain answer: `.unwrap_or(false)`, `.unwrap_or(0)`, …
+        rf"{PERSIST}[^;]*?\)(?:\.await)?\s*\.unwrap_or\(\s*(?:false|true|0|None|\(\))\s*\)",
+        # the result read as a flag: `let ok = call().is_ok();`, `.ok().is_some()`,
+        # `matches!(call(), Ok(_))`
+        rf"\blet\s+\w+\s*(?::\s*bool\s*)?=[^;]*?{PERSIST}[^;]*?\)(?:\.await)?\s*\.is_ok\(\)\s*;",
+        rf"{PERSIST}[^;]*?\)(?:\.await)?\s*\.ok\(\)\s*\.is_some\(\)",
+        rf"\bmatches!\(\s*[^;]*?{PERSIST}[^;]*?,\s*Ok\(",
+        # the error mapped to a value: `.unwrap_or_else(|_| …)`
+        rf"{PERSIST}[^;]*?\)(?:\.await)?\s*\.unwrap_or_else\(\s*\|\s*_\w*\s*\|",
         r"\bto_vec\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*\)\s*\.\s*(?:unwrap_or_default\(\)|ok\(\))",
     ]
     hits = [m.start() for p in pats for m in re.finditer(p, m_)]
-    return s.hits("C8", hits)
+    hits += c8_blocks(m_)
+    # one hit per line, however many of the forms above match it
+    return sorted(set(s.hits("C8", hits)))
+
+
+def block_end(text: str, open_at: int) -> int:
+    """The offset after the `}` that closes the `{` at `open_at` (or the end of text)."""
+    depth, j = 0, open_at
+    while j < len(text):
+        if text[j] == "{":
+            depth += 1
+        elif text[j] == "}":
+            depth -= 1
+            if depth == 0:
+                return j + 1
+        j += 1
+    return j
+
+
+IF_OK = re.compile(r"\bif\s+(let\s+Ok\b[^{;]*|[^{;]*\.is_ok\(\)\s*)\{")
+MATCH = re.compile(r"\bmatch\s+([^{;]*)\{")
+# an `Err` arm that does nothing with the error: `{}`, `()`, `continue`, `break`, `None`,
+# or a `return` of nothing, `None` or `Ok(..)`
+ERR_NOTHING = re.compile(
+    r"\bErr\(\s*_\w*\s*\)\s*=>\s*(?:\{\s*\}|\(\s*\)|continue\b|break\b|None\b"
+    r"|return\s*(?:[;,}]|None\b|Ok\())"
+)
+
+
+def c8_blocks(text: str) -> list[int]:
+    """The forms of C8 that need the extent of a block: `if let Ok(..) = call() { … }` and
+    `if call().is_ok() { … }` with no `else` (bodies nested to any depth), and
+    `match call() { …, Err(_) => {} }` (or `=> ()`)."""
+    hits = []
+    for m in IF_OK.finditer(text):
+        if not re.search(PERSIST, m.group(1)):
+            continue
+        end = block_end(text, m.end() - 1)
+        if not re.match(r"\s*else\b", text[end:]):
+            hits.append(m.start())
+    for m in MATCH.finditer(text):
+        if not re.search(PERSIST, m.group(1)):
+            continue
+        body = text[m.end() - 1 : block_end(text, m.end() - 1)]
+        if ERR_NOTHING.search(body):
+            hits.append(m.start())
+    return hits
+
+
+# One sample call per entry of PERSIST_CALLS, in the same order.
+PROBE_CALLS = [
+    "getrandom::fill(&mut b)",
+    "rng.fill(&mut b)",
+    "store.apply(op)",
+    "db.save(&x)",
+    "f.persist(p)",
+    "f.sync_all()",
+    "f.sync_data()",
+    "w.flush()",
+    "std::fs::rename(a, b)",
+    "f.write_all(b)",
+    "std::fs::write(p, b)",
+    "tx.commit()",
+    "std::fs::set_permissions(dir, perms)",
+    "secret::write_private(&p, b)",
+    "write_file(&store.join(TOFU_OK), b\"\", false)",
+    "secret::private_dir(dir)",
+    "format::seal_bytes(key, path, b)",
+    "store.drop_link(&peer)",
+    "link_secrets.remove(id, PEER_TOKEN)",
+]
+# Every way of dropping the result (C8 must see each) and of handling it (it must not).
+PROBE_DROPPED = [
+    "let _ = {c};",
+    "let _x = {c};",
+    "let _: Result<(), E> = {c};",
+    "_ = {c};",
+    "drop({c});",
+    "{c}.ok();",
+    "{c}.unwrap_or_default();",
+    "if {c}.unwrap_or(false) {{ go(); }}",
+    "if {c}.is_err() {{}}",
+    "if let Ok(v) = {c} {{ use_it(v); }}",
+    "if let Ok(v) = {c} {{ if v {{ for x in xs {{ go(x); }} }} }}",
+    "if {c}.is_ok() {{ done(); }}",
+    "match {c} {{ Ok(v) => use_it(v), Err(_) => {{}} }}",
+    "match {c} {{ Ok(()) => go(), Err(_e) => () }}",
+    "let v = {c}.unwrap_or_else(|_| fallback());",
+    "for x in xs {{ match {c} {{ Ok(v) => use_it(v), Err(_) => continue }} }}",
+    "let v = match {c} {{ Ok(v) => Some(v), Err(_) => None }};",
+    "match {c} {{ Ok(v) => use_it(v), Err(_) => return }};",
+    "let ok = {c}.is_ok();",
+    "if {c}.ok().is_some() {{ done(); }} else {{ other(); }}",
+    "if matches!({c}, Ok(_)) {{ done(); }} else {{ other(); }}",
+]
+PROBE_HANDLED = [
+    "{c}?;",
+    "{c}.map_err(|e| e.to_string())?;",
+    "if let Err(e) = {c} {{ tracing::error!(\"{{e}}\"); }}",
+    "match {c} {{ Ok(v) => v, Err(e) => return Err(e.into()) }};",
+    "if let Ok(v) = {c} {{ use_it(v); }} else {{ tracing::error!(\"lost\"); }}",
+    "if {c}.is_ok() {{ done(); }} else {{ tracing::error!(\"lost\"); }}",
+    "match {c} {{ Ok(v) => use_it(v), Err(e) => tracing::error!(\"{{e}}\") }}",
+    "let v = {c}.unwrap_or_else(|e| fail(e));",
+    "match {c} {{ Ok(v) => use_it(v), Err(e) => return Err(e.into()) }};",
+]
+
+
+def probe() -> list[str]:
+    """C8 against samples: every call of PERSIST_CALLS caught in every dropped form, and
+    never in a handled one. The list of failures (empty = the rule works)."""
+    bad = []
+    if len(PROBE_CALLS) != len(PERSIST_CALLS):
+        return ["PROBE_CALLS needs one sample per entry of PERSIST_CALLS"]
+    for pat, call in zip(PERSIST_CALLS, PROBE_CALLS):
+        if not re.search(pat, call):
+            bad.append(f"sample {call!r} is not a call of {pat!r}")
+        for forms, want in ((PROBE_DROPPED, 1), (PROBE_HANDLED, 0)):
+            for form in forms:
+                code = "fn f() {\n    " + form.format(c=call) + "\n}\n"
+                got = len(c8(Source("probe.rs", code)))
+                if got != want:
+                    bad.append(f"C8 counts {got}, not {want}: {form.format(c=call)}")
+    return bad
 
 
 CLOCK_HEX = r"(?:now\w*|\w*_now|unix_\w+|timestamp\w*|\w*hex\w*|\w*sha256\w*|\w*digest\w*)"
@@ -662,6 +818,12 @@ def write(counts: dict[str, dict[str, int]]) -> None:
 
 def main(argv: list[str]) -> int:
     os.chdir(ROOT)
+    broken = probe()
+    if broken:
+        sys.stderr.write("rust rules: the C8 probe fails (the rule misses what it must count):\n")
+        for b in broken:
+            sys.stderr.write(f"  {b}\n")
+        return 1
     if "--show" in argv:
         measure_patterns(argv[argv.index("--show") + 1])
         return 0

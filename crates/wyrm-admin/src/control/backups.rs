@@ -399,12 +399,12 @@ impl Drop for StageDir {
     }
 }
 
+/// A directory only its owner enters (an existing one is made so too; a
+/// symlink is refused): `secret::private_dir_of`.
 pub(super) fn make_private_dir(dir: &Path) -> Result<(), String> {
-    let mut b = std::fs::DirBuilder::new();
-    b.recursive(true);
-    #[cfg(unix)]
-    std::os::unix::fs::DirBuilderExt::mode(&mut b, 0o700);
-    b.create(dir).map_err(|e| io_err(dir, e))
+    crate::secret::private_dir_of(dir)
+        .map(drop)
+        .map_err(|e| io_err(dir, e))
 }
 
 /// Puts files of one backup into its stage directory.
@@ -444,7 +444,8 @@ impl Stager<'_> {
     fn sealed_bytes(&self, path: &str, bytes: &[u8]) -> Result<Staged, String> {
         let key = self.key(path)?;
         let p = self.place(path)?;
-        std::fs::write(&p, format::seal_bytes(key, path, bytes)).map_err(|e| io_err(&p, e))?;
+        let sealed = format::seal_bytes(key, path, bytes).map_err(|e| format!("{path}: {e}"))?;
+        std::fs::write(&p, sealed).map_err(|e| io_err(&p, e))?;
         Ok(Staged {
             path: path.to_owned(),
             source: p,
@@ -985,9 +986,16 @@ impl Control {
             info: json_map([("rev", tree.rev.into()), ("nodes", tree.put.len().into())]),
             files: vec![st.bytes("storage/tree.cbor", &bytes)?],
         };
-        if let Some(text) = wyrm_storage::json::export("", &tree.put, 256 << 20) {
-            s.files
-                .push(st.bytes("storage/export.json", text.as_bytes())?);
+        // the JSON is a copy for people; `tree.cbor` is what a restore reads. One that is
+        // not made is said in the section (and the log), never left out without a word.
+        match wyrm_storage::json::export("", &tree.put, 256 << 20) {
+            Ok(text) => s
+                .files
+                .push(st.bytes("storage/export.json", text.as_bytes())?),
+            Err(e) => {
+                tracing::warn!("backup: storage/export.json not made: {e}");
+                s.info.insert("export_json".into(), e.to_string().into());
+            }
         }
         Ok(s)
     }

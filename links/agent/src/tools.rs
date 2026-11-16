@@ -17,38 +17,21 @@ const LIST_LIMIT_MAX: usize = 1000;
 const LIST_LIMIT_DEFAULT: usize = 100;
 const VALUE_GET_MAX: usize = 200;
 
-/// When a write-level operation needs a human approval (`config` always does).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum ApprovalMode {
-    /// Only config-level operations need approval.
-    Config,
-    /// Every operation needs approval (the default).
-    #[default]
-    Write,
-    /// Like `Config`: config-level operations always need approval.
-    Never,
+wyrm_core::name_enum! {
+    /// When a write-level operation needs a human approval (`config` always does).
+    #[derive(Default)]
+    pub enum ApprovalMode {
+        /// Only config-level operations need approval.
+        Config => "config",
+        /// Every operation needs approval (the default).
+        #[default]
+        Write => "write",
+        /// Like `Config`: config-level operations always need approval.
+        Never => "never",
+    }
 }
 
 impl ApprovalMode {
-    pub const NAMES: &'static [&'static str] = &["config", "write", "never"];
-
-    pub fn from_name(s: &str) -> Option<Self> {
-        match s {
-            "config" => Some(Self::Config),
-            "write" => Some(Self::Write),
-            "never" => Some(Self::Never),
-            _ => None,
-        }
-    }
-
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Config => "config",
-            Self::Write => "write",
-            Self::Never => "never",
-        }
-    }
-
     /// Strict: `config` (and anything above `write`) always needs approval.
     pub fn needs_approval(self, level: Perm) -> bool {
         level >= Perm::Config || (self == Self::Write && level >= Perm::Write)
@@ -143,43 +126,22 @@ pub fn node_key(site: &str, path: &str) -> Result<String, String> {
     Ok(key)
 }
 
-/// What one step of a plan does. `set` and `invoke` change the site; `wait`, `expect` and
-/// `sleep` only read (the plan proves itself) and need no approval. The names are the keys of
-/// a step in the `wyrm-agent run` plan format (`wyrm_mcp::gw::Step`, ADR 0033, 0049 §6).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum OpKind {
-    Set,
-    Invoke,
-    /// Wait until the node exists.
-    Wait,
-    /// Wait until the point's value passes a test.
-    Expect,
-    Sleep,
+wyrm_core::name_enum! {
+    /// What one step of a plan does. `set` and `invoke` change the site; `wait`, `expect` and
+    /// `sleep` only read (the plan proves itself) and need no approval. The names are the keys of
+    /// a step in the `wyrm-agent run` plan format (`wyrm_mcp::gw::Step`, ADR 0033, 0049 §6).
+    pub enum OpKind {
+        Set => "set",
+        Invoke => "invoke",
+        /// Wait until the node exists.
+        Wait => "wait",
+        /// Wait until the point's value passes a test.
+        Expect => "expect",
+        Sleep => "sleep",
+    }
 }
 
 impl OpKind {
-    pub const ALL: [Self; 5] = [
-        Self::Set,
-        Self::Invoke,
-        Self::Wait,
-        Self::Expect,
-        Self::Sleep,
-    ];
-
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Set => "set",
-            Self::Invoke => "invoke",
-            Self::Wait => "wait",
-            Self::Expect => "expect",
-            Self::Sleep => "sleep",
-        }
-    }
-
-    pub fn from_name(s: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|k| k.name() == s)
-    }
-
     /// Does the step send a `~set` or an `~act`?
     pub fn changes(self) -> bool {
         matches!(self, Self::Set | Self::Invoke)
@@ -276,28 +238,13 @@ pub struct PlanOp {
     pub result: Option<StepResult>,
 }
 
-/// How one step of a run ended.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum StepStatus {
-    Ok,
-    Failed,
-    /// Left out by the approver, or a step that needs one left out: never sent.
-    Skipped,
-}
-
-impl StepStatus {
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Ok => "ok",
-            Self::Failed => "failed",
-            Self::Skipped => "skipped",
-        }
-    }
-
-    pub fn from_name(s: &str) -> Option<Self> {
-        [Self::Ok, Self::Failed, Self::Skipped]
-            .into_iter()
-            .find(|v| v.name() == s)
+wyrm_core::name_enum! {
+    /// How one step of a run ended.
+    pub enum StepStatus {
+        Ok => "ok",
+        Failed => "failed",
+        /// Left out by the approver, or a step that needs one left out: never sent.
+        Skipped => "skipped",
     }
 }
 
@@ -706,44 +653,22 @@ impl Finding {
     }
 }
 
-/// Why a finding of the model was not noted (`~state.findings_refused`, by name with a
-/// count): fixed words, never the model's text. A reader says from them why rows are
-/// missing.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Refused {
-    /// The asker's rights are not known: their token had no `auth`, or the link restarted.
-    RightsUnknown,
-    /// The asker's rights were known from a token that has expired.
-    RightsExpired,
-    /// The node is outside what the agent or the asker may read.
-    OutsideRights,
-    /// The task already holds [`MAX_FINDINGS`].
-    Limit,
-    /// No node key or no label.
-    Invalid,
-}
-
-impl Refused {
-    pub const ALL: [Self; 5] = [
-        Self::RightsUnknown,
-        Self::RightsExpired,
-        Self::OutsideRights,
-        Self::Limit,
-        Self::Invalid,
-    ];
-
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::RightsUnknown => "rights_unknown",
-            Self::RightsExpired => "rights_expired",
-            Self::OutsideRights => "outside_rights",
-            Self::Limit => "limit",
-            Self::Invalid => "invalid",
-        }
-    }
-
-    pub fn from_name(n: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|r| r.name() == n)
+wyrm_core::name_enum! {
+    /// Why a finding of the model was not noted (`~state.findings_refused`, by name with a
+    /// count): fixed words, never the model's text. A reader says from them why rows are
+    /// missing.
+    #[derive(PartialOrd, Ord)]
+    pub enum Refused {
+        /// The asker's rights are not known: their token had no `auth`, or the link restarted.
+        RightsUnknown => "rights_unknown",
+        /// The asker's rights were known from a token that has expired.
+        RightsExpired => "rights_expired",
+        /// The node is outside what the agent or the asker may read.
+        OutsideRights => "outside_rights",
+        /// The task already holds [`MAX_FINDINGS`].
+        Limit => "limit",
+        /// No node key or no label.
+        Invalid => "invalid",
     }
 }
 

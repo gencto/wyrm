@@ -647,8 +647,21 @@ impl Sealed {
 pub fn seal_stream(
     key: &MasterKey,
     path: &str,
+    src: impl Read,
+    dst: impl Write,
+) -> std::io::Result<u64> {
+    seal_stream_with(key, path, src, dst, wyrm_link_sdk::seal::seal)
+}
+
+/// [`seal_stream`] with the part sealer given: the product code passes
+/// [`wyrm_link_sdk::seal::seal`]; a test passes one that fails as a host
+/// without randomness does. A sealer error ends the stream with that error.
+fn seal_stream_with(
+    key: &MasterKey,
+    path: &str,
     mut src: impl Read,
     mut dst: impl Write,
+    mut seal: impl FnMut(&[u8; 32], &[u8]) -> Result<Vec<u8>, wyrm_link_sdk::seal::SealError>,
 ) -> std::io::Result<u64> {
     let fk = key.file_key(path);
     dst.write_all(SEAL_MAGIC)?;
@@ -667,7 +680,7 @@ pub fn seal_stream(
         plain.extend_from_slice(&index.to_be_bytes());
         plain.push(u8::from(last));
         plain.extend_from_slice(&cur);
-        let sealed = wyrm_link_sdk::seal::seal(&fk, &plain).map_err(std::io::Error::other)?;
+        let sealed = seal(&fk, &plain).map_err(std::io::Error::other)?;
         dst.write_all(&(sealed.len() as u32).to_be_bytes())?;
         dst.write_all(&sealed)?;
         total += cur.len() as u64;
@@ -745,12 +758,22 @@ pub fn open_stream(
     Ok(total)
 }
 
-/// Seal `plain` as the sealed file `path`, in memory.
-pub fn seal_bytes(key: &MasterKey, path: &str, plain: &[u8]) -> Vec<u8> {
+/// Seal `plain` as the sealed file `path`, in memory. `Err` when a part
+/// does not seal (no randomness for its nonce): a caller never gets the
+/// magic alone as a sealed file that only fails at restore.
+pub fn seal_bytes(key: &MasterKey, path: &str, plain: &[u8]) -> std::io::Result<Vec<u8>> {
+    seal_bytes_with(key, path, plain, wyrm_link_sdk::seal::seal)
+}
+
+fn seal_bytes_with(
+    key: &MasterKey,
+    path: &str,
+    plain: &[u8],
+    seal: impl FnMut(&[u8; 32], &[u8]) -> Result<Vec<u8>, wyrm_link_sdk::seal::SealError>,
+) -> std::io::Result<Vec<u8>> {
     let mut out = Vec::with_capacity(plain.len() + 64);
-    // writing into a Vec cannot fail
-    let _ = seal_stream(key, path, plain, &mut out);
-    out
+    seal_stream_with(key, path, plain, &mut out, seal)?;
+    Ok(out)
 }
 
 /// Open what [`seal_bytes`] made.
@@ -1359,7 +1382,7 @@ mod tests {
     #[test]
     fn broker_sealing_opens_only_with_the_same_key() {
         let (m, key) = signed(Sealing::Broker(b"secrets key"));
-        let s = seal_bytes(&key, "data/x", b"");
+        let s = seal_bytes(&key, "data/x", b"").unwrap();
         assert_eq!(
             open_bytes(&key, "data/x", &s).unwrap().len(),
             0,
@@ -1505,8 +1528,8 @@ mod tests {
         // the same passphrase (here: the same broker key), two backups
         let (_, a) = signed(Sealing::Broker(b"secrets key"));
         let (_, b) = signed(Sealing::Broker(b"secrets key"));
-        let in_a = seal_bytes(&a, "keys/state.key", b"the key of a");
-        let in_b = seal_bytes(&b, "keys/state.key", b"the key of b");
+        let in_a = seal_bytes(&a, "keys/state.key", b"the key of a").unwrap();
+        let in_b = seal_bytes(&b, "keys/state.key", b"the key of b").unwrap();
         assert_eq!(
             &**open_bytes(&a, "keys/state.key", &in_a).unwrap(),
             b"the key of a"
@@ -1515,8 +1538,8 @@ mod tests {
         assert!(open_bytes(&a, "keys/state.key", &in_b).is_err());
         let plain = vec![3u8; SEAL_PART + 1];
         let (long_a, long_b) = (
-            seal_bytes(&a, "keys/x", &plain),
-            seal_bytes(&b, "keys/x", &plain),
+            seal_bytes(&a, "keys/x", &plain).unwrap(),
+            seal_bytes(&b, "keys/x", &plain).unwrap(),
         );
         let part = 4 + SEAL_PART + 9 + 28;
         let mut mixed = long_a[..5 + part].to_vec();
@@ -1529,7 +1552,7 @@ mod tests {
     fn sealed_parts_are_bound_to_their_file_and_place() {
         let (_, key) = signed(Sealing::Broker(b"k"));
         let plain: Vec<u8> = (0..(2 * SEAL_PART + 5)).map(|i| (i % 251) as u8).collect();
-        let sealed = seal_bytes(&key, "data/a", &plain);
+        let sealed = seal_bytes(&key, "data/a", &plain).unwrap();
         assert_eq!(*open_bytes(&key, "data/a", &sealed).unwrap(), plain);
         // another path
         assert!(open_bytes(&key, "data/b", &sealed).is_err());
@@ -1551,8 +1574,31 @@ mod tests {
         assert!(open_bytes(&key, "data/a", &longer).is_err());
         // exactly one part: the next read is empty, the part is the last
         let one = vec![1u8; SEAL_PART];
-        let s = seal_bytes(&key, "data/a", &one);
+        let s = seal_bytes(&key, "data/a", &one).unwrap();
         assert_eq!(*open_bytes(&key, "data/a", &s).unwrap(), one);
+    }
+
+    /// A host without randomness cannot seal a part: the file is refused, not
+    /// written as the magic alone (which only failed at restore).
+    #[test]
+    fn a_part_that_does_not_seal_fails_the_file() {
+        let (_, key) = signed(Sealing::Broker(b"secrets key"));
+        let no_rng = |_: &[u8; 32], _: &[u8]| Err(wyrm_link_sdk::seal::SealError);
+        assert!(seal_bytes_with(&key, "data/a", b"plain", no_rng).is_err());
+        // the second part fails: the first one sealed, the file still fails
+        let mut n = 0;
+        let second_fails = |k: &[u8; 32], p: &[u8]| {
+            n += 1;
+            if n == 2 {
+                Err(wyrm_link_sdk::seal::SealError)
+            } else {
+                wyrm_link_sdk::seal::seal(k, p)
+            }
+        };
+        let two = vec![7u8; SEAL_PART + 1];
+        assert!(seal_bytes_with(&key, "data/a", &two, second_fails).is_err());
+        let mut out = Vec::new();
+        assert!(seal_stream_with(&key, "data/a", &b"x"[..], &mut out, no_rng).is_err());
     }
 
     #[test]

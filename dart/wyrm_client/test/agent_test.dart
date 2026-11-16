@@ -68,7 +68,10 @@ void main() {
   test('doc, ask, answer and approve go out in their shapes', () async {
     final conn = _Conn();
     final c = FrameClient(conn);
-    conn.answer = (f) => {'ok': const VBool(true), 'result': VMap({'state': const VStr('done')})};
+    conn.answer = (f) => {
+          'ok': const VBool(true),
+          'result': VMap({'task': const VStr('t1'), 'state': const VStr('done')}),
+        };
     const task = 'wy/s/downstream/agent/tasks/t1';
 
     final rec = await c.doc(task, '~state');
@@ -76,7 +79,8 @@ void main() {
     expect(conn.sent.last['op'], const VStr('doc'));
     expect(conn.sent.last['suffix'], const VStr('~state'));
 
-    await c.approveTask(task, steps: [1, 3], plan: 'h1');
+    final approved = await c.agentApprove(task, steps: [1, 3], plan: 'h1');
+    expect(approved, const AgentReply.state(task: 't1', state: AgentTaskState.done));
     expect(conn.sent.last['op'], const VStr('invoke'));
     expect(conn.sent.last['action'], const VStr('approve'));
     expect(
@@ -86,7 +90,7 @@ void main() {
           'plan': const VStr('h1'),
         }));
 
-    await c.askAgent('wy/s/downstream/agent', 'do it', parent: 't0', context: ['wy/s/downstream/m']).drain<void>();
+    await c.agentAsk('wy/s/downstream/agent', 'do it', parent: 't0', context: ['wy/s/downstream/m']).drain<void>();
     expect(
         conn.sent.last['args'],
         VMap({
@@ -94,10 +98,13 @@ void main() {
           'parent': const VStr('t0'),
           'context': VArray([const VStr('wy/s/downstream/m')]),
         }));
-    await c.askAgent('wy/s/downstream/agent', 'do it').drain<void>();
+    await c.agentAsk('wy/s/downstream/agent', 'do it').drain<void>();
     expect(conn.sent.last['args'], VMap({'task': const VStr('do it')}));
 
-    await c.answerTask(task, answers: {'q1': ['a'], 'q2': 'my words'}).drain<void>();
+    await c.agentAnswer(task, answers: {
+      'q1': const AgentAnswer.options(['a']),
+      'q2': const AgentAnswer.text('my words'),
+    }).drain<void>();
     expect(conn.sent.last['action'], const VStr('answer'));
     expect(
         conn.sent.last['args'],
@@ -110,12 +117,16 @@ void main() {
     await c.close();
   });
 
-  test('suggestions, replaced and review are read from a record', () async {
-    final record = VMap({
+  test('a picked suggestion is a follow-up ask', () async {
+    final record = AgentTaskRecord.fromValue(VMap({
       'state': const VStr('failed'),
-      'replaced_by': const VStr('t2-2'),
-      'review': const VStr('the device does not answer'),
-      'reviewing': const VBool(true),
+      'owner': const VStr('user:olena'),
+      'ask': const VStr('x'),
+      'plan': VArray(const []),
+      'plan_hash': VStr(planHash(VArray(const []))!),
+      'step': const VInt(0),
+      'log': VArray(const []),
+      'tokens': const VInt(0),
       'suggestions': VArray([
         VMap({
           'id': const VStr('s1'),
@@ -134,32 +145,16 @@ void main() {
             VMap({'key': const VStr('wy/s/downstream/m/u5'), 'label': const VStr('unit 5'), 'detail': const VStr('')}),
           ]),
         }),
-        const VStr('not a suggestion'),
       ]),
-    });
-    final s = TaskSuggestion.of(record);
-    expect(s.length, 2);
-    expect((s[0].id, s[0].changes, s[0].step), ('s1', 1, 2));
-    expect(s[0].rows, isEmpty);
+    }));
+    final s = record.suggestions;
     expect(s[0].ask(), 'Try slave id 4. 3 is used by ahu-old');
-    expect((s[1].step, s[1].rows.length, s[1].rows[0].key), (null, 2, 'wy/s/downstream/m/u4'));
     expect(s[1].ask([s[1].rows[1]]), 'Same for more units\nFor: unit 5');
-    expect(replacedBy(record), 't2-2');
-    expect(reviewOf(record), 'the device does not answer');
-    expect(isReviewing(record), isTrue);
-    // the public value: a count, the task id, no text
-    final value = VMap({'state': const VStr('failed'), 'suggestions': const VInt(2), 'replaced_by': const VStr('t2-2')});
-    expect((suggestionCount(value), replacedBy(value), isReviewing(value)), (2, 't2-2', false));
-    // a record of an agent link older than the fields
-    final old = VMap({'state': const VStr('done'), 'plan': VArray(const [])});
-    expect(TaskSuggestion.of(old), isEmpty);
-    expect((replacedBy(old), reviewOf(old), isReviewing(old), suggestionCount(old)), (null, null, false, 0));
-    expect(TaskSuggestion.of(null), isEmpty);
 
     // picking one is a follow-up ask: its text, the parent, the ticked rows as context
     final conn = _Conn();
     final c = FrameClient(conn);
-    await c.askSuggestion('wy/s/downstream/agent', 't1-1', s[1], rows: [s[1].rows[0]]).drain<void>();
+    await c.agentAskSuggestion('wy/s/downstream/agent', 't1-1', s[1], rows: [s[1].rows[0]]).drain<void>();
     expect(
         conn.sent.last['args'],
         VMap({
@@ -167,40 +162,11 @@ void main() {
           'parent': const VStr('t1-1'),
           'context': VArray([const VStr('wy/s/downstream/m/u4')]),
         }));
-    await c.askSuggestion('wy/s/downstream/agent', 't1-1', s[0]).drain<void>();
+    await c.agentAskSuggestion('wy/s/downstream/agent', 't1-1', s[0]).drain<void>();
     expect(
         conn.sent.last['args'],
         VMap({'task': const VStr('Try slave id 4. 3 is used by ahu-old'), 'parent': const VStr('t1-1')}));
     await c.close();
-  });
-
-  test('findings are read from a record, their count from the value', () {
-    final record = VMap({
-      'state': const VStr('done'),
-      'findings': VArray([
-        VMap({'key': const VStr('wy/s/downstream/m/plc1'), 'label': const VStr('plc1'), 'detail': const VStr('4 of 5 good')}),
-        VMap({'key': const VStr('wy/s/downstream/m/plc1/valve'), 'label': const VStr('valve')}),
-        // no key: not a finding
-        VMap({'label': const VStr('nowhere')}),
-        const VStr('not a finding'),
-      ]),
-    });
-    final f = TaskFinding.of(record);
-    expect(f.length, 2);
-    expect((f[0].key, f[0].label, f[0].detail), ('wy/s/downstream/m/plc1', 'plc1', '4 of 5 good'));
-    expect((f[1].label, f[1].detail), ('valve', ''));
-    expect(findingCount(VMap({'state': const VStr('done'), 'findings': const VInt(2)})), 2);
-    expect(
-        findingsRefused(VMap({
-          'findings_refused': VMap({'rights_expired': const VInt(2), 'limit': const VInt(0), 'x': const VStr('y')}),
-        })),
-        {'rights_expired': 2});
-    expect(findingsRefused(record), isEmpty);
-    // a record and a value of an agent link older than the field
-    final old = VMap({'state': const VStr('done'), 'plan': VArray(const [])});
-    expect(TaskFinding.of(old), isEmpty);
-    expect(findingCount(old), 0);
-    expect(TaskFinding.of(null), isEmpty);
   });
 
   test('an older gateway answers doc with unknown op', () async {

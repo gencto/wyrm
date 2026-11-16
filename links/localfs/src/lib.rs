@@ -448,8 +448,14 @@ impl LocalStore {
                 write_new(&tmp, &src, fsync).map_err(|e| io_error(e, &w))?;
                 // the old file's permission bits stay, never setuid, setgid
                 // or sticky (owner and xattrs do not stay)
+                // a mode that does not carry over fails the upload: the new
+                // file would be open to whom the old one was not
                 if let Some(m) = &old {
-                    let _ = fs::set_permissions(&tmp, plain_permissions(m));
+                    if let Err(e) = fs::set_permissions(&tmp, plain_permissions(m)) {
+                        // ours: made above
+                        let _ = fs::remove_file(&tmp);
+                        return Err(io_error(e, &w));
+                    }
                 }
                 if let Err(e) = fs::rename(&tmp, &target) {
                     // ours: made above

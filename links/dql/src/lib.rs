@@ -417,7 +417,7 @@ impl Dql {
             return;
         };
         let mut out = Vec::new();
-        match eff {
+        let sent = match eff {
             Effect::List { h, key, full } => {
                 cx.used += 1;
                 match cx.host.list(&key, full) {
@@ -431,6 +431,7 @@ impl Dql {
                         }
                     }
                 }
+                None
             }
             Effect::Subscribe { h, key } => {
                 cx.used += 1;
@@ -445,6 +446,7 @@ impl Dql {
                         }
                     }
                 }
+                None
             }
             Effect::Unsubscribe { h } => {
                 if let Some(s) = q.handles.remove(&h) {
@@ -452,40 +454,42 @@ impl Dql {
                     cx.host.unsubscribe(SubId(s));
                     cx.used += 1;
                 }
+                None
             }
-            sink @ (Effect::Invoke { .. } | Effect::Set { .. }) => {
-                if self.reqs.len() >= SINKS_IN_FLIGHT {
-                    self.waiting.push_back((qid.to_owned(), sink));
-                    return;
-                }
+            // a sink beyond the calls in flight waits for an answer to come back
+            sink @ (Effect::Invoke { .. } | Effect::Set { .. })
+                if self.reqs.len() >= SINKS_IN_FLIGHT =>
+            {
+                self.waiting.push_back((qid.to_owned(), sink));
+                return;
+            }
+            Effect::Invoke {
+                call,
+                key,
+                action,
+                args,
+            } => {
                 cx.used += 1;
-                let (call, r) = match sink {
-                    Effect::Invoke {
-                        call,
-                        key,
-                        action,
-                        args,
-                    } => (call, cx.host.invoke(&key, &action, args)),
-                    Effect::Set { call, key, value } => (call, cx.host.set(&key, value)),
-                    #[allow(
-                        clippy::unreachable,
-                        reason = "the arm above binds `sink` only as Invoke or Set"
-                    )]
-                    _ => unreachable!("a sink"),
-                };
-                match r {
-                    Ok(ReqId(id)) => {
-                        self.reqs.insert(id, (qid.to_owned(), call));
-                    }
-                    Err(e) => {
-                        cx.host.log(
-                            Level::Info,
-                            &format!("query {qid}: sink call refused: {}", e.status.name()),
-                        );
-                        cx.used += 1;
-                        if let Some(en) = q.engine.as_mut() {
-                            en.on_reply(call, false, now, &mut out);
-                        }
+                Some((call, cx.host.invoke(&key, &action, args)))
+            }
+            Effect::Set { call, key, value } => {
+                cx.used += 1;
+                Some((call, cx.host.set(&key, value)))
+            }
+        };
+        if let Some((call, r)) = sent {
+            match r {
+                Ok(ReqId(id)) => {
+                    self.reqs.insert(id, (qid.to_owned(), call));
+                }
+                Err(e) => {
+                    cx.host.log(
+                        Level::Info,
+                        &format!("query {qid}: sink call refused: {}", e.status.name()),
+                    );
+                    cx.used += 1;
+                    if let Some(en) = q.engine.as_mut() {
+                        en.on_reply(call, false, now, &mut out);
                     }
                 }
             }

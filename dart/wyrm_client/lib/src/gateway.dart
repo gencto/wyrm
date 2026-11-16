@@ -157,10 +157,6 @@ class WyrmGateway {
     GatewayIdentity.fromValue,
   );
 
-  /// `GET /api/me` as a plain value: `{sub, roles, grants, max, exp, site}`.
-  @Deprecated('Use identity(): it answers a GatewayIdentity')
-  Future<Value> me() => _get(_http, base.resolve('/api/me'), bearer: _session);
-
   /// Open a WebSocket and return the client over it: on the gateway in
   /// use, or, when that one is gone or does not know this session, on the
   /// next one of [bases] after a new login there. Throws
@@ -306,25 +302,12 @@ class WyrmGateway {
 
   /// `GET /api/info` without a session: what a log-in page needs. A reply
   /// that is not one is `invalid_message` naming the field.
-  static Future<GatewayInfo> gatewayInfo(Uri base, {HttpClient? http}) =>
-      _info(base, http, GatewayInfo.fromValue);
-
-  /// `GET /api/info` read with the old tolerant reader: a field that is
-  /// absent or of another type takes its default.
-  @Deprecated('Use gatewayInfo: it names a malformed field')
-  static Future<GatewayInfo> info(Uri base, {HttpClient? http}) =>
-      _info(base, http, GatewayInfo.of);
-
-  static Future<GatewayInfo> _info(
-    Uri base,
-    HttpClient? http,
-    GatewayInfo Function(Value) decode,
-  ) async {
+  static Future<GatewayInfo> gatewayInfo(Uri base, {HttpClient? http}) async {
     final c = http ?? HttpClient();
     try {
       return decodeReply<GatewayInfo>(
         await _get(c, base.resolve('/api/info')),
-        decode,
+        GatewayInfo.fromValue,
       );
     } finally {
       if (http == null) c.close();
@@ -422,27 +405,14 @@ class WyrmGateway {
     required DeviceAlg alg,
     required Uint8List publicKey,
     required Future<Uint8List> Function(Uint8List message) sign,
-  }) => _register(site, user, name, platform.wire, alg.wire, publicKey, sign);
-
-  /// [addDevice] with the platform and the algorithm as text: a misspelt
-  /// one (`mac`) reaches the gateway, which refuses it.
-  @Deprecated('Use addDevice: it takes DevicePlatform and DeviceAlg')
-  Future<String> registerDevice({
-    required String site,
-    required String user,
-    required String name,
-    required String platform,
-    required String alg,
-    required Uint8List publicKey,
-    required Future<Uint8List> Function(Uint8List message) sign,
   }) => _register(site, user, name, platform, alg, publicKey, sign);
 
   Future<String> _register(
     String site,
     String user,
     String name,
-    String platform,
-    String alg,
+    DevicePlatform platform,
+    DeviceAlg alg,
     Uint8List publicKey,
     Future<Uint8List> Function(Uint8List message) sign,
   ) async {
@@ -463,8 +433,8 @@ class WyrmGateway {
       bearer: _session,
       body: {
         'name': VStr(name),
-        'platform': VStr(platform),
-        'alg': VStr(alg),
+        'platform': VStr(platform.wire),
+        'alg': VStr(alg.wire),
         'public_key': VBytes(publicKey),
         'origin': VStr(origin),
         'nonce': VBytes(nonce),

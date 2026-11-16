@@ -51,39 +51,24 @@ pub fn broker_site(cn: &str) -> Option<&str> {
         .filter(|s| validate_segment(s).is_ok())
 }
 
-/// How a link runs (wiki "Режими розгортання").
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Encode, Decode)]
-#[cbor(index_only)]
-pub enum Mode {
-    /// In-process, started by the broker.
-    #[n(0)]
-    Embedded,
-    /// Child process supervised by the broker (mTLS client, CN = link id).
-    #[n(1)]
-    Process,
-    /// Runs elsewhere (MCU, remote host) with a CA-issued certificate.
-    #[n(2)]
-    External,
+wyrm_core::name_enum! {
+    /// How a link runs (wiki "Режими розгортання").
+    #[derive(Serialize, Deserialize, Encode, Decode)]
+    #[cbor(index_only)]
+    pub enum Mode {
+        /// In-process, started by the broker.
+        #[n(0)]
+        Embedded => "embedded",
+        /// Child process supervised by the broker (mTLS client, CN = link id).
+        #[n(1)]
+        Process => "process",
+        /// Runs elsewhere (MCU, remote host) with a CA-issued certificate.
+        #[n(2)]
+        External => "external",
+    }
 }
 
 impl Mode {
-    pub fn parse(s: &str) -> Option<Self> {
-        Some(match s {
-            "embedded" => Mode::Embedded,
-            "process" => Mode::Process,
-            "external" => Mode::External,
-            _ => return None,
-        })
-    }
-
-    pub fn name(self) -> &'static str {
-        match self {
-            Mode::Embedded => "embedded",
-            Mode::Process => "process",
-            Mode::External => "external",
-        }
-    }
-
     /// Connects over the network with its own certificate (gets an ACL rule).
     pub fn is_remote(self) -> bool {
         !matches!(self, Mode::Embedded)
@@ -143,7 +128,78 @@ pub struct LinkDef {
     #[n(11)]
     #[cbor(default)]
     #[serde(default)]
-    pub grants: Vec<(String, u8)>,
+    pub grants: Vec<LinkGrant>,
+}
+
+/// One requester grant of a link, or one a package asks for: a node key
+/// prefix (`{site}` for the site) and its level.
+///
+/// Stored as before, the pair `(path, level code)`, so older WAL records and
+/// snapshots open unchanged (registry SCHEMA stays). A code this build does
+/// not know refuses the record, so the store does not open: a grant is never
+/// dropped on read (typing audit 2026-11-15, T4; as the gateway's role
+/// grants since #108, ADR 0029 item 12).
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct LinkGrant {
+    pub path: String,
+    pub perm: wyrm_core::Perm,
+}
+
+impl LinkGrant {
+    pub fn new(path: impl Into<String>, perm: wyrm_core::Perm) -> Self {
+        Self {
+            path: path.into(),
+            perm,
+        }
+    }
+}
+
+fn unknown_grant_code(path: &str, code: u8) -> String {
+    format!("link grant on {path}: unknown level code {code} (written by a newer WYRM?)")
+}
+
+impl<C> minicbor::Encode<C> for LinkGrant {
+    fn encode<W: minicbor::encode::Write>(
+        &self,
+        e: &mut minicbor::Encoder<W>,
+        _ctx: &mut C,
+    ) -> Result<(), minicbor::encode::Error<W::Error>> {
+        e.array(2)?.str(&self.path)?.u8(self.perm.code())?;
+        Ok(())
+    }
+}
+
+impl<'b, C> minicbor::Decode<'b, C> for LinkGrant {
+    fn decode(
+        d: &mut minicbor::Decoder<'b>,
+        _ctx: &mut C,
+    ) -> Result<Self, minicbor::decode::Error> {
+        if d.array()? != Some(2) {
+            return Err(minicbor::decode::Error::message(
+                "link grant: [path, level code] expected",
+            ));
+        }
+        let path = d.str()?.to_owned();
+        let code = d.u8()?;
+        let perm = wyrm_core::Perm::try_from(code)
+            .map_err(|c| minicbor::decode::Error::message(unknown_grant_code(&path, c)))?;
+        Ok(Self { path, perm })
+    }
+}
+
+impl Serialize for LinkGrant {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        (&self.path, self.perm.code()).serialize(s)
+    }
+}
+
+impl<'de> Deserialize<'de> for LinkGrant {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let (path, code) = <(String, u8)>::deserialize(d)?;
+        let perm = wyrm_core::Perm::try_from(code)
+            .map_err(|c| serde::de::Error::custom(unknown_grant_code(&path, c)))?;
+        Ok(Self { path, perm })
+    }
 }
 
 /// Highest level a link grant gives: `config` stays with people.
@@ -561,7 +617,7 @@ pub struct PackageDef {
     #[n(9)]
     #[cbor(default)]
     #[serde(default)]
-    pub requester: Vec<(String, u8)>,
+    pub requester: Vec<LinkGrant>,
     /// The store format this version writes (`wyrm-link.json` `state`, ADR
     /// 0048); 0 in a record written before SCHEMA 20: read it with
     /// [`PackageDef::state`].
@@ -1005,7 +1061,11 @@ impl Registry {
 /// the op carries no key.
 fn renamed_keys(op: &Op) -> Option<Op> {
     let rn = |p: &str| keyspace::renamed(p).into_owned();
-    let grants = |g: &[(String, u8)]| g.iter().map(|(p, l)| (rn(p), *l)).collect();
+    let grants = |g: &[LinkGrant]| {
+        g.iter()
+            .map(|g| LinkGrant::new(rn(&g.path), g.perm))
+            .collect()
+    };
     match op {
         Op::Install(def) if !def.grants.is_empty() => Some(Op::Install(LinkDef {
             grants: grants(&def.grants),
@@ -1154,10 +1214,10 @@ impl wyrm_state::State for Registry {
                     .links
                     .get_mut(id)
                     .ok_or_else(|| format!("no link {id}"))?;
-                def.grants.retain(|(p, _)| p != path);
+                def.grants.retain(|g| &g.path != path);
                 if level != wyrm_core::Perm::None {
                     check_grant(path, level)?;
-                    def.grants.push((path.clone(), level.code()));
+                    def.grants.push(LinkGrant::new(path.clone(), level));
                     def.grants.sort();
                 }
             }
@@ -1171,7 +1231,7 @@ impl wyrm_state::State for Registry {
                 if name.starts_with('.') || name.starts_with('~') {
                     return Err(format!("group {name:?}: starts with a letter or digit"));
                 }
-                if wyrm_history::Logging::from_code(*logging).is_none() {
+                if wyrm_history::Logging::try_from(*logging).is_err() {
                     return Err(format!("logging code {logging}?"));
                 }
                 if !INTERVAL_MS.contains(interval_ms) || !FLUSH_MS.contains(flush_ms) {
@@ -2020,11 +2080,8 @@ mod tests {
         assert_eq!(
             r.links["rec"].grants,
             [
-                ("wy/{site}/downstream/mock".to_string(), Perm::Write.code()),
-                (
-                    "wy/{site}/downstream/plc1/c1".to_string(),
-                    Perm::Write.code()
-                )
+                LinkGrant::new("wy/{site}/downstream/mock", Perm::Write),
+                LinkGrant::new("wy/{site}/downstream/plc1/c1", Perm::Write)
             ]
         );
         for (path, level) in [
@@ -2213,6 +2270,135 @@ mod tests {
             .is_err());
     }
 
+    /// Typing audit T4 for link grants. They were `(path, code)` pairs, and a code this build
+    /// did not know was skipped where a grant was read (`filter_map(.. .ok()?)`). Now a
+    /// grant holds its `Perm`, an older store opens unchanged (its WAL records and snapshot
+    /// have the pair's bytes), and an unknown code refuses the store instead of vanishing.
+    #[test]
+    fn link_grants_of_an_older_store_load_typed_and_an_unknown_code_refuses_it() {
+        use wyrm_core::Perm;
+        // the stored form is the pair's, byte for byte
+        let g = LinkGrant::new("wy/{site}/downstream/plc", Perm::Write);
+        let pair = ("wy/{site}/downstream/plc".to_string(), Perm::Write.code());
+        assert_eq!(
+            minicbor::to_vec(&g).unwrap(),
+            minicbor::to_vec(&pair).unwrap()
+        );
+        assert_eq!(
+            postcard::to_stdvec(&g).unwrap(),
+            postcard::to_stdvec(&pair).unwrap()
+        );
+
+        // a WAL written by the code before: `Install` with the grants as pairs
+        #[derive(minicbor::Encode)]
+        struct LinkDefPairs {
+            #[n(0)]
+            id: String,
+            #[n(1)]
+            driver: String,
+            #[n(2)]
+            mode: Mode,
+            #[n(3)]
+            #[cbor(with = "minicbor::bytes")]
+            params: Vec<u8>,
+            #[n(4)]
+            token_hash: String,
+            #[n(5)]
+            rev: u32,
+            #[n(6)]
+            origin: Origin,
+            #[n(7)]
+            created: u64,
+            #[n(11)]
+            grants: Vec<(String, u8)>,
+        }
+        #[derive(minicbor::Encode)]
+        enum OpPairs {
+            #[n(0)]
+            Install(#[n(0)] LinkDefPairs),
+        }
+        impl<'b, C> minicbor::Decode<'b, C> for OpPairs {
+            fn decode(
+                _: &mut minicbor::Decoder<'b>,
+                _: &mut C,
+            ) -> Result<Self, minicbor::decode::Error> {
+                Err(minicbor::decode::Error::message("written only"))
+            }
+        }
+        #[derive(Clone, Default, Serialize, Deserialize)]
+        struct Writer;
+        impl wyrm_state::State for Writer {
+            const SCHEMA: u32 = Registry::SCHEMA;
+            type Op = OpPairs;
+            fn apply(&mut self, _: &OpPairs) -> Result<(), String> {
+                Ok(())
+            }
+        }
+        let old_wal = |name: &str, grants: Vec<(String, u8)>| {
+            let dir = std::env::temp_dir().join(format!("wyrm-reg-{name}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            let mut s = wyrm_state::Store::<Writer>::open(&dir, b"state-key").unwrap();
+            s.apply(OpPairs::Install(LinkDefPairs {
+                id: "rec".into(),
+                driver: "d".into(),
+                mode: Mode::External,
+                params: vec![0xa0],
+                token_hash: "h".into(),
+                rev: 1,
+                origin: Origin::Runtime,
+                created: 0,
+                grants,
+            }))
+            .unwrap();
+            dir
+        };
+        let pairs = vec![
+            ("wy/{site}/downstream/plc".to_string(), Perm::Write.code()),
+            ("wy/{site}/dataflows".to_string(), Perm::List.code()),
+        ];
+        let dir = old_wal("pairs", pairs);
+        let s = wyrm_state::Store::<Registry>::open(&dir, b"state-key").unwrap();
+        let grants = s.state().links["rec"].grants.clone();
+        drop(s);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(
+            grants,
+            [
+                LinkGrant::new("wy/{site}/downstream/plc", Perm::Write),
+                LinkGrant::new("wy/{site}/dataflows", Perm::List)
+            ]
+        );
+        // the same WAL with a code this build does not know: the store does not open
+        let dir = old_wal("unknown", vec![("wy/{site}/downstream/plc".to_string(), 9)]);
+        let r = wyrm_state::Store::<Registry>::open(&dir, b"state-key");
+        let _ = std::fs::remove_dir_all(&dir);
+        match r {
+            Ok(s) => panic!(
+                "opened with {:?}",
+                s.state().links.get("rec").map(|d| &d.grants)
+            ),
+            Err(e) => assert!(e.to_string().contains("unknown level code 9"), "{e}"),
+        }
+
+        // a snapshot body with an unknown code does not decode (else the store would rebuild
+        // from the WAL without a word): today's registry with one code byte changed
+        let mut r = Registry::default();
+        let mut d = def("rec", Mode::External);
+        d.grants = vec![LinkGrant::new(
+            "wy/{site}/downstream/unique-path",
+            Perm::Read,
+        )];
+        r.links.insert("rec".into(), d);
+        let mut bytes = postcard::to_stdvec(&r).unwrap();
+        assert!(postcard::from_bytes::<Registry>(&bytes).is_ok());
+        let path = b"wy/{site}/downstream/unique-path";
+        let at = bytes.windows(path.len()).position(|w| w == path).unwrap() + path.len();
+        assert_eq!(bytes[at], Perm::Read.code());
+        bytes[at] = 9;
+        // (postcard keeps no message of a custom error: the refusal is the proof)
+        assert!(postcard::from_bytes::<Registry>(&bytes).is_err());
+    }
+
     /// WAL records written before spec 0.2.0 replay under the new section
     /// names: grants, package requests and watches.
     #[test]
@@ -2220,7 +2406,7 @@ mod tests {
         use wyrm_core::Perm;
         let mut r = Registry::default();
         let mut d = def("rec", Mode::External);
-        d.grants = vec![("wy/{site}/flows/f1".into(), Perm::Read.code())];
+        d.grants = vec![LinkGrant::new("wy/{site}/flows/f1", Perm::Read)];
         r.apply(&Op::Install(d)).unwrap();
         r.apply(&Op::SetLinkGrant {
             id: "rec".into(),
@@ -2231,8 +2417,8 @@ mod tests {
         assert_eq!(
             r.links["rec"].grants,
             [
-                ("wy/{site}/dataflows/f1".to_string(), Perm::Read.code()),
-                ("wy/{site}/downstream/plc1".to_string(), Perm::Write.code())
+                LinkGrant::new("wy/{site}/dataflows/f1", Perm::Read),
+                LinkGrant::new("wy/{site}/downstream/plc1", Perm::Write)
             ]
         );
         r.apply(&Op::PutWatchGroup {

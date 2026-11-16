@@ -44,15 +44,17 @@ fn rule(id: &str, flows: &[&str], messages: &[&str], keys: &[String]) -> Value {
 /// `list` → `~meta` queries and liveliness; `read` → also `~val` queries and
 /// subscriptions; `write` → any query (`~set`, `~act`) under the path. The
 /// answers flow back (egress `put`, `delete`, `reply`, `liveliness_token`).
-fn grant_rules(site: &str, id: &str, grants: &[(String, u8)]) -> Vec<(String, Value)> {
+fn grant_rules(
+    site: &str,
+    id: &str,
+    grants: &[crate::registry::LinkGrant],
+) -> Vec<(String, Value)> {
     use wyrm_core::Perm;
     let (mut meta, mut val, mut sub, mut all, mut watch, mut back) =
         (vec![], vec![], vec![], vec![], vec![], vec![]);
-    for (path, code) in grants {
-        let Ok(level) = Perm::try_from(*code) else {
-            continue;
-        };
-        let p = path.replace("{site}", site);
+    for g in grants {
+        let level = g.perm;
+        let p = g.path.replace("{site}", site);
         if level >= Perm::List {
             meta.push(format!("{p}/**/~meta"));
             watch.push(p.clone());
@@ -689,10 +691,11 @@ mod tests {
         use wyrm_core::Perm;
         let mut reg = Registry::default();
         let mut d = def("rec", Mode::External);
+        let g = crate::registry::LinkGrant::new;
         d.grants = vec![
-            ("wy/{site}/downstream/mock".into(), Perm::Read.code()),
-            ("wy/{site}/downstream/plc1".into(), Perm::Write.code()),
-            ("wy/{site}/dataflows".into(), Perm::List.code()),
+            g("wy/{site}/downstream/mock", Perm::Read),
+            g("wy/{site}/downstream/plc1", Perm::Write),
+            g("wy/{site}/dataflows", Perm::List),
         ];
         reg.links.insert("rec".into(), d);
         let acl = access_control("s", &reg, &[], false);

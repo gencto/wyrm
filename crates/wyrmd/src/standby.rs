@@ -714,25 +714,17 @@ async fn fetch_file(
         // while the other side was active too
         a.keep_file(data_dir, &entry.name);
     }
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700));
-        }
-    }
-    // a scratch name the listings leave out, then one rename
-    let tmp = path.with_extension("tmp");
-    secret::write_private(&tmp, &buf).map_err(|e| e.to_string())?;
-    #[cfg(unix)]
-    if entry.exec {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o700))
-            .map_err(|e| e.to_string())?;
-    }
-    std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
-    Ok(())
+    // under `links/<id>/data/**` a process link may have planted symlinks: the
+    // directory is reached below `data_dir` without following one, and the file is
+    // written through its handle (a `*.tmp` scratch name the listings leave out,
+    // then one rename)
+    let rel = Path::new(&entry.name);
+    let (Some(dir), Some(file)) = (rel.parent(), rel.file_name().and_then(|f| f.to_str())) else {
+        return Err(format!("{}: not a file name", entry.name));
+    };
+    secret::private_dir(data_dir, dir)
+        .and_then(|d| d.write_file(file, &buf, entry.exec))
+        .map_err(|e| e.to_string())
 }
 
 /// Bring the replicated files in line with the active's list: fetch what
@@ -862,8 +854,16 @@ fn keep_storage(storage: &wyrm_storage::Store, put: &[(String, wyrm_storage::Rec
         return;
     }
     let nodes: Vec<(String, wyrm_storage::Rec)> = ours.into_iter().collect();
-    let Some(text) = wyrm_storage::json::export("", &nodes, usize::MAX) else {
-        return;
+    let text = match wyrm_storage::json::export("", &nodes, usize::MAX) {
+        Ok(text) => text,
+        Err(e) => {
+            // the active's tree replaces it all the same: said, never in silence
+            tracing::error!(
+                paths = differs,
+                "standby: the storage tree differs from the active's and is not kept: {e}"
+            );
+            return;
+        }
     };
     let path = a.dir.join("storage.json");
     let r = std::fs::create_dir_all(&a.dir).and_then(|()| std::fs::write(&path, text));

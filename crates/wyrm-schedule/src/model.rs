@@ -44,13 +44,15 @@ pub struct Event {
     pub recurrence: Option<Rule>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Freq {
-    Hourly,
-    Daily,
-    Weekly,
-    Monthly,
-    Yearly,
+wyrm_core::name_enum! {
+    /// An RRULE `FREQ` (RFC 5545), by its name in upper case.
+    pub enum Freq {
+        Hourly => "HOURLY",
+        Daily => "DAILY",
+        Weekly => "WEEKLY",
+        Monthly => "MONTHLY",
+        Yearly => "YEARLY",
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -9,7 +9,7 @@
 //! key = Argon2id(passphrase, salt)
 //! ```
 
-use crate::secret::write_private;
+use crate::secret::private_dir;
 use crate::secret::Error;
 use argon2::Argon2;
 use std::collections::BTreeMap;
@@ -122,16 +122,13 @@ pub fn import(data_dir: &Path, bundle: &[u8], passphrase: &[u8]) -> Result<Vec<S
         let Value::Bytes(bytes) = v else {
             continue;
         };
-        let path = data_dir.join(&name);
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let _ = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700));
-            }
-        }
-        write_private(&path, &bytes)?;
+        // `name` is one of FILES: plain segments
+        let rel = Path::new(&name);
+        let (Some(dir), Some(file)) = (rel.parent(), rel.file_name().and_then(|f| f.to_str()))
+        else {
+            return Err(format!("bundle: {name}: not a file name").into());
+        };
+        private_dir(data_dir, dir)?.write_file(file, &bytes, false)?;
     }
     Ok(names)
 }
@@ -177,5 +174,35 @@ mod tests {
         );
         // a broker that never ran
         assert!(export(&dir("e"), pass).is_err());
+    }
+
+    /// A key directory that is a symlink refuses the import before a key is
+    /// written. Audit of #125: a symlink to a directory the broker's own user
+    /// owns was followed, that directory was made 0700 and the CA key landed in
+    /// it, outside `data_dir`.
+    #[cfg(unix)]
+    #[test]
+    fn a_key_directory_that_is_a_symlink_refuses_the_import() {
+        use std::os::unix::fs::PermissionsExt;
+        let a = dir("perm-a");
+        std::fs::create_dir_all(a.join("pki")).unwrap();
+        std::fs::write(a.join("pki/ca.pem"), b"cert").unwrap();
+        std::fs::write(a.join("pki/ca.key"), b"ca key").unwrap();
+        std::fs::write(a.join("state.key"), b"state key").unwrap();
+        let pass = b"correct horse battery";
+        let bundle = export(&a, pass).unwrap();
+        let elsewhere = dir("perm-elsewhere");
+        std::fs::set_permissions(&elsewhere, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let b = dir("perm-b");
+        std::os::unix::fs::symlink(&elsewhere, b.join("pki")).unwrap();
+        let e = import(&b, &bundle, pass).expect_err("the import is refused");
+        assert!(e.to_string().contains("symlink"), "{e}");
+        assert!(
+            !elsewhere.join("ca.key").exists(),
+            "no key outside data_dir"
+        );
+        let mode = std::fs::metadata(&elsewhere).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o755, "the target is not touched");
+        assert!(!b.join("state.key").exists());
     }
 }
