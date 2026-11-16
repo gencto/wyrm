@@ -301,15 +301,17 @@ EntryBlock? blockOfEntry(
   final node = entry.node;
   final name = entry.action;
   final params = action?.params ?? const IListConst<ParamSpec>([]);
+  // An argument's default goes into the config, which holds JSON only:
+  // a default of another kind (bytes) is none there.
+  Object? json(ParamSpec p) =>
+      JsonValue.isJson(p.defaultValue) ? p.defaultValue : null;
   if (!caps.args) {
     return EntryBlock(KnownBlock.invoke, {
       BlockCfgKey.path.wire: relativeKey(node),
       BlockCfgKey.action.wire: name,
       BlockCfgKey.on.wire: 'rising',
-      if (params.any((p) => p.defaultValue != null))
-        BlockCfgKey.args.wire: {
-          for (final p in params) p.name: ?p.defaultValue,
-        },
+      if (params.any((p) => json(p) != null))
+        BlockCfgKey.args.wire: {for (final p in params) p.name: ?json(p)},
     });
   }
   return EntryBlock(
@@ -318,7 +320,7 @@ EntryBlock? blockOfEntry(
       BlockCfgKey.path.wire: relativeKey(node),
       BlockCfgKey.action.wire: name,
       if (params.isNotEmpty)
-        BlockCfgKey.args.wire: {for (final p in params) p.name: p.defaultValue},
+        BlockCfgKey.args.wire: {for (final p in params) p.name: json(p)},
     },
     pins: {
       for (final p in params)

@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:business/wyrm/decode/block_def.dart';
 import 'package:business/wyrm/decode/block_library.dart';
 import 'package:business/wyrm/decode/decoded.dart';
@@ -84,6 +86,19 @@ void main() {
       }).field,
       'inputs[0].name',
     );
+    // A library's answer holding bytes: refused, with the field.
+    final bytes = bad({
+      'inputs': [
+        {
+          'name': 'a',
+          'to': 'n.in',
+          'x_port': {
+            'raw': Uint8List.fromList([1]),
+          },
+        },
+      ],
+    });
+    expect((bytes.field, bytes.reason), ('inputs[0].x_port.raw', 'not JSON'));
     expect(
       bad({
         'inputs': [

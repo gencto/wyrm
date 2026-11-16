@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:async_redux/async_redux.dart';
 import 'package:business/redux/app_state.dart';
 import 'package:business/redux/flow_editor/actions/add_block_action.dart';
@@ -201,6 +203,30 @@ void main() {
         isEmpty,
         reason: 'no draft, no deploy',
       );
+    });
+
+    test('a definition holding bytes does not open: the refusal names the '
+        'field', () async {
+      api.invokes['wy/central/dataflows/raw ▸ history'] = [
+        Value.from([
+          {
+            'version': 1,
+            'nodes': {
+              'a': {
+                'type': 'scale',
+                'k': Uint8List.fromList([1, 2]),
+              },
+            },
+          },
+        ]),
+      ];
+      final status = await s.dispatchAndWait(LoadFlowAction('raw'));
+      expect(status.originalError, isA<StudioException>());
+      expect(
+        (status.originalError! as StudioException).error.message,
+        contains('nodes.a.k: not JSON'),
+      );
+      expect(s.state.flowEditor.draft, isNull);
     });
 
     test(

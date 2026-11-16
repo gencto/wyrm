@@ -64,6 +64,9 @@ FlowRead _read(String id, Value def) {
   if (def is! VMap) {
     throw const _Bad('', 'not a map');
   }
+  // A definition is JSON (spec 06): a value it has no form for (bytes) is
+  // refused here, with its field, so nothing the view reads meets one.
+  _jsonOnly(def, '');
   final layout = switch (def['layout']) {
     null || VNull() => const <String, Value>{},
     VMap(:final v) => v,
@@ -232,6 +235,25 @@ PortEnd? portEndOf(String? s) {
 (double, double)? _warn(String id, String field, String reason) {
   decodeLog.warning('flow $id: $_shape.$field: $reason');
   return null;
+}
+
+/// Throws, naming its field ([at]), when [v] holds a value JSON has no
+/// form for (bytes) at any depth.
+void _jsonOnly(Value v, String at) {
+  switch (v) {
+    case VBytes():
+      throw _Bad(at, 'not JSON');
+    case VArray(:final v):
+      for (final (i, x) in v.indexed) {
+        _jsonOnly(x, '$at[$i]');
+      }
+    case VMap(:final v):
+      for (final MapEntry(:key, :value) in v.entries) {
+        _jsonOnly(value, at.isEmpty ? key : '$at.$key');
+      }
+    case VNull() || VBool() || VInt() || VFloat() || VStr():
+      break;
+  }
 }
 
 final class _Bad implements Exception {

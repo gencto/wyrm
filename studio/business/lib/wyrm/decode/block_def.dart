@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/block_def.dart';
 import 'package:models/flow_block.dart';
@@ -43,6 +45,9 @@ const _bodyId = '';
 /// as a flow's ([flowReadOf]).
 Decoded<BlockDef> blockDefOf(Map<String, Object?> json) {
   try {
+    // A definition is JSON: bytes anywhere (a library's answer) are
+    // refused with their field.
+    _jsonOnly(json, '');
     final layout = _layoutOf(json);
     final Value body;
     try {
@@ -146,6 +151,28 @@ List<BlockPort> _ports(Object? v, String field, String endsKey) {
         _ => throw _Bad('$field[$i]', 'not a map'),
       },
   ];
+}
+
+/// Throws, naming its field ([at]), when [v] holds a value JSON has no
+/// form for (bytes) at any depth.
+void _jsonOnly(Object? v, String at) {
+  switch (v) {
+    case null || bool() || num() || String():
+      break;
+    // Bytes are a list of numbers to Dart, not JSON.
+    case TypedData():
+      throw _Bad(at, 'not JSON');
+    case final Map<Object?, Object?> m:
+      for (final MapEntry(:key, :value) in m.entries) {
+        _jsonOnly(value, at.isEmpty ? '$key' : '$at.$key');
+      }
+    case final List<Object?> l:
+      for (final (i, x) in l.indexed) {
+        _jsonOnly(x, '$at[$i]');
+      }
+    default:
+      throw _Bad(at, 'not JSON');
+  }
 }
 
 final class _Bad implements Exception {

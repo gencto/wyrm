@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 
 /// A JSON value of a flow definition that the editor keeps as it came: a
@@ -15,6 +17,8 @@ sealed class JsonValue {
   /// written as its text. A value that is not JSON (no definition holds
   /// one) throws an [ArgumentError] naming its type.
   factory JsonValue.of(Object? v) => switch (v) {
+    // Bytes are a list of numbers to Dart, not JSON.
+    TypedData() => throw ArgumentError.value(v, 'v', 'not JSON: bytes'),
     null => const JsonNull(),
     final bool b => JsonBool(b),
     final num n => JsonNumber(n),
@@ -26,13 +30,22 @@ sealed class JsonValue {
     _ => throw ArgumentError.value(v, 'v', 'not JSON: ${v.runtimeType}'),
   };
 
-  /// [v] decoded when it is JSON at its top; null when it is not (a live
-  /// value of the wire may be bytes): a reader that only takes JSON, such
-  /// as a time in microseconds, reads none there.
-  static JsonValue? tryOf(Object? v) => switch (v) {
-    null || bool() || num() || String() => JsonValue.of(v),
-    Map<Object?, Object?>() || List<Object?>() => JsonValue.of(v),
-    _ => null,
+  /// [v] decoded when it is JSON through and through; null when it is
+  /// not (a live value of the wire may hold bytes): a reader of live values
+  /// that only takes JSON, such as a time in microseconds or a short mark
+  /// for a map, reads none there. A definition never holds one: its
+  /// decoder refuses it.
+  static JsonValue? tryOf(Object? v) => isJson(v) ? JsonValue.of(v) : null;
+
+  /// Whether [v] is JSON through and through (no bytes inside).
+  static bool isJson(Object? v) => switch (v) {
+    TypedData() => false,
+    null || bool() || num() || String() => true,
+    final Map<Object?, Object?> m => m.values.every(isJson),
+    final List<Object?> l => l.every(isJson),
+    final IMap<Object?, Object?> m => m.values.every(isJson),
+    final IList<Object?> l => l.every(isJson),
+    _ => false,
   };
 
   static final _maps = Expando<JsonMap>('json map');

@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:business/wyrm/decode/decoded.dart';
 import 'package:business/wyrm/decode/flow_def.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
@@ -122,6 +124,45 @@ void main() {
     expect(invalid({'edges': 'a.out'}).field, 'edges');
     expect(invalid({'layout': <Object?>[]}).field, 'layout');
     expect(invalid({'version': 'three'}).field, 'version');
+  });
+
+  test('a definition holding bytes is refused, with the field: a config '
+      'is JSON, and the view never meets one that is not', () {
+    final bytes = Uint8List.fromList([1, 2]);
+    final inNode = invalid({
+      'nodes': {
+        'a': {'type': 'scale', 'raw': bytes},
+      },
+    });
+    expect((inNode.field, inNode.reason), ('nodes.a.raw', 'not JSON'));
+    expect(
+      invalid({
+        'nodes': {
+          'a': {
+            'type': 'scale',
+            'values': {
+              'in.0': [1, bytes],
+            },
+          },
+        },
+      }).field,
+      'nodes.a.values.in.0[1]',
+    );
+    expect(
+      invalid({
+        'blocks': {
+          'b': {
+            'inputs': [
+              {'name': 'x', 'to': 'n.in', 'default': bytes},
+            ],
+            'nodes': {
+              'n': {'type': 'abs'},
+            },
+          },
+        },
+      }).field,
+      'blocks.b.inputs[0].default',
+    );
   });
 
   test('a place that is no pair of numbers stands on the grid; a pin of no '

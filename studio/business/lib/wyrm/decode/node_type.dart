@@ -3,6 +3,7 @@ import 'package:models/block_category.dart';
 import 'package:models/block_cfg_key.dart';
 import 'package:models/block_type.dart';
 import 'package:models/engine_port.dart';
+import 'package:models/json_value.dart';
 import 'package:models/node_type.dart';
 import 'package:models/param_spec.dart';
 import 'package:models/port_type.dart';
@@ -94,7 +95,12 @@ Decoded<NodeType> nodeTypeOf(Value m) {
               description: str(p['description']),
               warns: str(p['description'])?.startsWith(_warning) ?? false,
               choices: texts(p['choices']).lock,
-              defaultValue: toDart(p['default']),
+              // A default JSON has no form for (bytes) is none, with a
+              // warning: a config holds JSON only.
+              defaultValue: switch (toDart(p['default'])) {
+                final d when JsonValue.isJson(d) => d,
+                _ => _lenient(type, 'params[$i].default', 'not JSON', null),
+              },
               editor: switch (str(p['editor'])) {
                 final e? => ParamEditor.fromWire(e),
                 null => null,
