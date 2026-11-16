@@ -569,6 +569,15 @@ fn a_stored_upstream_that_does_not_load_stays_in_the_store() {
         panic!("no index")
     };
     assert_eq!(index, vec![s("old")], "kept in the index");
+    // shown with why, and Remove reaches it
+    assert!(h.nodes.contains_key("old/error"));
+    h.invoke("old", "remove", Value::Null)
+        .expect("remove the kept one");
+    assert!(!h.store_has("u/old") && !h.nodes.contains_key("old/error"));
+    let Some(Value::Array(index)) = h.store_value("index") else {
+        panic!("no index")
+    };
+    assert!(index.is_empty());
 }
 
 /// A second upstream that selects what another one already does gets the current values too,

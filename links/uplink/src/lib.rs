@@ -1659,6 +1659,28 @@ impl App for Uplink {
                         Level::Error,
                         &format!("uplink {name}: {e}; kept in the store"),
                     );
+                    // shown with why, and removable
+                    host.declare_node(&name, wyrm_core::NodeMeta::folder());
+                    let error = tree::leaf(&name, "error");
+                    host.declare_node(
+                        &error,
+                        wyrm_core::NodeMeta::leaf(wyrm_core::TypeCode::String)
+                            .attr("description", "Why this build does not load it."),
+                    );
+                    let t = host.now_us();
+                    host.update(
+                        &error,
+                        Sample {
+                            v: Value::Str(e),
+                            q: Quality::Good,
+                            t,
+                        },
+                    );
+                    for (a, meta) in tree::upstream_actions(Kind::Mqtt, false) {
+                        if a == "remove" {
+                            host.declare_action(&name, a, meta);
+                        }
+                    }
                     app.unloaded.push(name);
                 }
             }
@@ -1737,6 +1759,20 @@ impl App for Uplink {
             return Ok(Value::Null);
         }
         let name = path.to_owned();
+        if action == "remove" && self.unloaded.contains(&name) {
+            // a stored upstream this build does not load: only its removal
+            host.remove_node(&name);
+            store::delete(host, &name);
+            self.unloaded.retain(|n| *n != name);
+            let names: Vec<String> = self
+                .ups
+                .values()
+                .filter(|u| !u.def.from_config)
+                .map(|u| u.def.name.clone())
+                .collect();
+            store::put_index(host, &self.with_unloaded(names))?;
+            return Ok(Value::Null);
+        }
         if !self.ups.contains_key(&name) {
             return Err(AppError::new(Status::NotFound, path));
         }
