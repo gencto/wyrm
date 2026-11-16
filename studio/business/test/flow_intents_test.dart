@@ -108,9 +108,9 @@ void main() {
       expect(api.calls.where((c) => c.action == 'validate'), isNotEmpty);
     });
 
-    test('close lets go of what open and follow watched', () {
+    test('close lets go of what open and follow watched', () async {
       final view = SelectFlowEditor(s.state).view('tank').follow;
-      s.dispatchSync(
+      await s.dispatchAndWait(
         FollowFlowEditorAction(
           FlowFollow(
             watch: {'$_root/dataflows/tank'}.lock,
@@ -127,7 +127,7 @@ void main() {
       expect(watched.containsKey('$_root/downstream/plc/level'), isFalse);
     });
 
-    test('follow watches what came and lets go of what went', () {
+    test('follow watches what came and lets go of what went', () async {
       const a = FlowFollow(
         watch: ISetConst({'$_root/storage/a'}),
         details: ISetConst({}),
@@ -138,9 +138,8 @@ void main() {
         details: ISetConst({}),
         run: null,
       );
-      s
-        ..dispatchSync(FollowFlowEditorAction(FlowFollow.none, a))
-        ..dispatchSync(FollowFlowEditorAction(a, b));
+      await s.dispatchAndWait(FollowFlowEditorAction(FlowFollow.none, a));
+      await s.dispatchAndWait(FollowFlowEditorAction(a, b));
       expect(s.state.live.watched.containsKey('$_root/storage/a'), isFalse);
       expect(s.state.live.watched['$_root/storage/b'], 1);
     });
@@ -174,11 +173,11 @@ void main() {
       expect(now().blocks.values.last.cfg['key'], 'storage/sp');
     });
 
-    test('My blocks is off without custom blocks; the tree is a tab', () {
-      s.dispatchSync(ShowPaletteTabAction(PaletteTab.tree));
+    test('My blocks is off without custom blocks; the tree is a tab', () async {
+      await s.dispatchAndWait(ShowPaletteTabAction(PaletteTab.tree));
       expect(s.state.flowEditor.palette, PaletteTab.tree);
       if (!SelectFlowEditor(s.state).caps.blocks) {
-        s.dispatchSync(ShowPaletteTabAction(PaletteTab.my));
+        await s.dispatchAndWait(ShowPaletteTabAction(PaletteTab.my));
         expect(s.state.flowEditor.palette, PaletteTab.tree);
       }
     });

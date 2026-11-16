@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/flow_summary.dart';
 import 'package:wyrm_client/wyrm_client.dart';
@@ -8,11 +6,10 @@ import '../../../wyrm/mappers/flow_value_mapper.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 import '../../services/live_lists/live_lists_dispatcher.dart';
-import 'retrieve_flow_defs_action.dart';
 
 /// One update of the live list of `dataflows`: a flow not in the table is
-/// added (its state from the live `~val` held, its definition read once,
-/// `RetrieveFlowDefsAction`), one gone leaves the table (and the
+/// added (its state from the live `~val` held; its definition is read
+/// next, by `FollowListAction`), one gone leaves the table (and the
 /// selection), a changed one takes its new name. Rows already held are
 /// kept as they are: nothing is read again for them. An update of another
 /// site than the one on screen is dropped.
@@ -23,6 +20,9 @@ class ApplyFlowsListAction extends Action {
   final ListChange change;
 
   final _read = <String>[];
+
+  /// The flows added, whose definition is read next (`FollowListAction`).
+  List<String> get unread => List.unmodifiable(_read);
 
   @override
   AppState? reduce() {
@@ -77,13 +77,5 @@ class ApplyFlowsListAction extends Action {
           ? flows.selectedFlow
           : null,
     );
-  }
-
-  @override
-  void after() {
-    super.after();
-    if (_read.isNotEmpty) {
-      unawaited(dispatchAndWait(RetrieveFlowDefsAction(_read.toList())));
-    }
   }
 }

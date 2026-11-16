@@ -5,7 +5,6 @@ import '../../../wyrm/mappers/flow_blocks.dart';
 import '../../../wyrm/mappers/flow_canvas.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
-import 'validate_flow_action.dart';
 
 /// Wires `<from>.<fromPort>` to `<to>.<toPort>`; an input takes one wire,
 /// so a wire already into it is replaced.
@@ -23,7 +22,6 @@ class ConnectPortsAction extends Action {
     if (d == null || from == to) {
       return null;
     }
-    _validate();
     return state.copyWith.flowEditor(
       // A key that gets a wire needs a scope: the editor asks for it in
       // place (flow-editor.md §17).
@@ -52,9 +50,4 @@ class ConnectPortsAction extends Action {
       undoTag: null,
     );
   }
-
-  /// The engine checks the draft again once the edits settle
-  /// ([ValidateFlowAction] is debounced and brings its own state); this
-  /// edit does not wait for it.
-  void _validate() => dispatch(ValidateFlowAction());
 }

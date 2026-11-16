@@ -6,7 +6,6 @@ import 'package:models/flow_draft.dart';
 import '../../../wyrm/mappers/flow_canvas.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
-import 'validate_flow_action.dart';
 
 /// Pastes the blocks of the clipboard [text] (`wyrm-flow-blocks/1`) with
 /// the top-left corner of their bounding box at ([x], [y]) and selects
@@ -46,7 +45,6 @@ class PasteBlocksAction extends Action {
       return null;
     }
     final (next, ids) = pasteClip(d, clip, x, y);
-    _validate();
     return state.copyWith.flowEditor(
       draft: pinBound(flowEditor.allTypes, next),
       selection: ids.toISet(),
@@ -57,9 +55,4 @@ class PasteBlocksAction extends Action {
       undoTag: null,
     );
   }
-
-  /// The engine checks the draft again once the edits settle
-  /// ([ValidateFlowAction] is debounced and brings its own state); this
-  /// edit does not wait for it.
-  void _validate() => dispatch(ValidateFlowAction());
 }

@@ -6,7 +6,7 @@ import 'package:business/redux/flow_editor/actions/cancel_scope_prompt_action.da
 import 'package:business/redux/flow_editor/actions/close_flow_editor_action.dart';
 import 'package:business/redux/flow_editor/actions/connect_ports_action.dart';
 import 'package:business/redux/flow_editor/actions/create_custom_block_action.dart';
-import 'package:business/redux/flow_editor/actions/deploy_flow_action.dart';
+import 'package:business/redux/flow_editor/actions/deploy_shown_flow_action.dart';
 import 'package:business/redux/flow_editor/actions/edit_scope_action.dart';
 import 'package:business/redux/flow_editor/actions/follow_flow_editor_action.dart';
 import 'package:business/redux/flow_editor/actions/leave_block_action.dart';
@@ -62,14 +62,14 @@ class FlowEditorPageConnector extends StatelessWidget {
     vm: () => _Factory(this),
     onInit: (store) => store.dispatch(OpenFlowEditorAction(id)),
     // What the editor follows (the Tree tab's points, the blocks' points,
-    // the flow's `~val`, the preview, the action blocks' nodes): one step.
-    onWillChange: (context, store, before, now) {
-      if (before.view.follow != now.view.follow) {
-        store.dispatchSync(
-          FollowFlowEditorAction(before.view.follow, now.view.follow),
-        );
-      }
-    },
+    // the flow's `~val`, the preview and the engine's checks, the action
+    // blocks' nodes): one step.
+    onWillChange: (context, store, before, now) =>
+        before.view.follow != now.view.follow
+        ? store.dispatch(
+            FollowFlowEditorAction(before.view.follow, now.view.follow),
+          )
+        : null,
     onDispose: (store) => store.dispatchSync(CloseFlowEditorAction(id)),
     builder: (context, vm) => FlowEditorPage(
       window: vm.window,
@@ -164,7 +164,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
       view: view,
       panelWidths: WorkspacePanels.flowEditor.widths(panels.widths),
       onBack: (levels) => dispatchSync(LeaveBlockAction(levels: levels)),
-      onTreeToggle: (key) => dispatchSync(ToggleTreeNodeAction(key)),
+      onTreeToggle: (key) => dispatch(ToggleTreeNodeAction(key)),
       onTreeQuery: (text) => dispatchSync(SetTreeQueryAction(text)),
       onPlace: (p) => _run(view.placing(p)),
       onPaletteMenu: (p) => _run(view.menuPick(p)),
@@ -191,10 +191,10 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
           : null,
       onView: (i) => _run(view.onField(i, SetViewedFieldAction.at)),
       onCloseViewer: () => dispatchSync(SetViewedFieldAction(null)),
-      onDeploy: () => dispatch(DeployFlowAction()),
+      onDeploy: () => dispatch(DeployShownFlowAction()),
       onValidate: () => dispatch(ValidateFlowAction()),
       onClose: () => dispatch(GoAction.pop()),
-      onPaletteTab: (t) => dispatchSync(ShowPaletteTabAction(t.tab)),
+      onPaletteTab: (t) => dispatch(ShowPaletteTabAction(t.tab)),
       onClear: () => dispatchSync(SetSelectedBlockAction(null)),
       onMove: (m) => dispatchSync(m.action),
       onSelect: (x) => dispatchSync(SetSelectedBlockAction(x)),

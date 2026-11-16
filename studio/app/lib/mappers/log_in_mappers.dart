@@ -224,32 +224,30 @@ extension PermStepUpLevel on Perm {
   };
 }
 
-/// The unlock forms of the log-in page, read from the state.
-extension LogInUnlockData on Selectors {
-  /// The unlock form [form] (boards `Unlock`, `UnlockFallback`,
-  /// `UnlockChanged`, `UnlockSignedOut`, `UnlockLinux`).
-  UnlockData unlockData(UnlockForm form, HostPlatform platform) {
-    final field = login.field;
-    return UnlockData(
-      form: form,
-      fallback: device.fallback?.why,
-      signedOut: device.refusal?.why,
-      method: device.kind.method,
-      os: platform.os,
-      linux: platform == .linux,
-      site: login.keySite,
-      user: login.formUser,
-      role: device.keyRole,
-      host: field.mainHost,
-      withStandby: field.standbyUri != null,
-      down: login.down,
-      passwordEveryDays: device.passwordEveryDays,
-      lastUsed: device.lastUsedAt,
-      keyShown: device.keyShown,
-      keyAdded: device.keyAddedAt,
-      tlsSite: login.keyTlsSite,
-      reEnable: device.offersReEnable,
-      version: studioVersion,
-    );
-  }
+/// The unlock form [form] of the log-in page as [r] reads it (boards
+/// `Unlock`, `UnlockFallback`, `UnlockChanged`, `UnlockSignedOut`,
+/// `UnlockLinux`).
+UnlockData unlockDataOf(Selectors r, UnlockForm form, HostPlatform platform) {
+  final field = r.login.field;
+  return UnlockData(
+    form: form,
+    fallback: r.device.fallback?.why,
+    signedOut: r.device.refusal?.why,
+    method: r.device.kind.method,
+    os: platform.os,
+    linux: platform == .linux,
+    site: r.login.keySite,
+    user: r.login.formUser,
+    role: r.device.keyRole,
+    host: field.mainHost,
+    withStandby: field.standbyUri != null,
+    down: r.login.down,
+    passwordEveryDays: r.device.passwordEveryDays,
+    lastUsed: r.device.lastUsedAt,
+    keyShown: r.device.keyShown,
+    keyAdded: r.device.keyAddedAt,
+    tlsSite: r.login.keyTlsSite,
+    reEnable: r.device.offersReEnable,
+    version: studioVersion,
+  );
 }

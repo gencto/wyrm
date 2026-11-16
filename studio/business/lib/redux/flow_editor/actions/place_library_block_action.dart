@@ -11,7 +11,6 @@ import '../../../wyrm/mappers/flow_blocks.dart';
 import '../../../wyrm/mappers/flow_canvas.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
-import 'validate_flow_action.dart';
 
 /// A block of the site's library dropped on the canvas at ([x], [y]): the
 /// flow COPIES it (`dataflows` ▸ `get_block {name}`: its definition and the
@@ -83,7 +82,6 @@ class PlaceLibraryBlockAction extends Action with Sequential<AppState> {
     // history: the screen never draws the copy without its instance.
     final types = typesWithBlocks(flowEditor.types, copied);
     final added = withNewBlock(types, copied, CustomType(name), x, y);
-    _validate();
     return state.copyWith.flowEditor(
       draft: added.draft,
       selectedBlock: added.id,
@@ -94,9 +92,4 @@ class PlaceLibraryBlockAction extends Action with Sequential<AppState> {
       undoTag: null,
     );
   }
-
-  /// The engine checks the draft again once the edits settle
-  /// ([ValidateFlowAction] is debounced and brings its own state); this
-  /// edit does not wait for it.
-  void _validate() => dispatch(ValidateFlowAction());
 }

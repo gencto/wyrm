@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:models/live_value.dart';
 
 import '../../../wyrm/mappers/flow_value_mapper.dart';
@@ -9,15 +7,19 @@ import 'retrieve_flow_defs_action.dart';
 
 /// New `~val`s of flows ([changed], one batch of `LiveValuesService`)
 /// while Flows is shown: a flow whose live `version` is not the one its
-/// row's definition belongs to is read again (`RetrieveFlowDefsAction`),
-/// unless that read is already running. The state, the deployer and the
-/// error are not copied here: the screen shows them from `live.values`.
+/// row's definition belongs to is read again next ([unread], by
+/// `ApplyLiveValuesAction`), unless that read is already running. The
+/// state, the deployer and the error are not copied here: the screen
+/// shows them from `live.values`.
 class ApplyFlowValuesAction extends Action {
   ApplyFlowValuesAction(this.changed);
 
   final Map<String, LiveValue?> changed;
 
   final _read = <String>[];
+
+  /// The flows whose definition is read next (`ApplyLiveValuesAction`).
+  List<String> get unread => List.unmodifiable(_read);
 
   @override
   AppState? reduce() {
@@ -42,13 +44,5 @@ class ApplyFlowValuesAction extends Action {
       }
     }
     return null;
-  }
-
-  @override
-  void after() {
-    super.after();
-    if (_read.isNotEmpty) {
-      unawaited(dispatchAndWait(RetrieveFlowDefsAction(_read.toList())));
-    }
   }
 }

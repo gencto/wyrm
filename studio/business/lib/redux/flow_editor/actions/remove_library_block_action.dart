@@ -31,7 +31,7 @@ class RemoveLibraryBlockAction extends Action with NonReentrant, WaitingAction {
       );
     } on WyrmException {
       // Refused: the library may still have changed (another user).
-      _readAgain();
+      await dispatchAndWait(RetrieveBlockLibraryAction());
       rethrow;
     }
     final read = await readLibrary(deps.wyrm, root);
@@ -40,7 +40,4 @@ class RemoveLibraryBlockAction extends Action with NonReentrant, WaitingAction {
       libraryOff: read.off,
     );
   }
-
-  /// The library read again; nothing waits for it.
-  void _readAgain() => dispatch(RetrieveBlockLibraryAction());
 }

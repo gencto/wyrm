@@ -27,18 +27,14 @@ sequenceDiagram
     actor User
     participant UI as StudioPage
     participant VM as StudioPageConnector
-    participant A1 as ViewSiteAction
+    participant A1 as SwitchSiteAction
     participant ST as AppState
 
     User->>UI: onSite
     UI->>VM: onSite()
     VM->>A1: dispatch
-    A1->>ST: copyWith(site, nodes, links, quarantine, packages, flows, updates, backups, brokerUpdate, historian, tasks, assistant)
-    A1->>ST: dispatchSync(UnwatchKeysAction)
-    A1->>ST: dispatchSync(UnwatchKeysAction)
-    A1->>ST: dispatchSync(FollowHistoryAction)
-    A1->>ST: dispatchSync(FollowFlowsAction)
-    A1->>ST: dispatchSync(_MoveWatched)
+    Note over A1: async
+    A1->>ST: dispatchSync(ViewSiteAction)
     A1->>ST: dispatchAndWait(RetrieveLinksAction)
 ```
 
@@ -57,7 +53,7 @@ sequenceDiagram
     UI->>VM: onSearch()
     VM->>A1: dispatch
     Note over A1: async
-    A1->>ST: dispatchAndWait(switch (pick) {PickWorkspace(: final tab) => GoAction.workspace(tab.workspace), PickSite(: final site) => ViewSiteAction(site), PickKey(: final key) => ExploreAction(key)})
+    A1->>ST: dispatchAndWait(switch (pick) {PickWorkspace(: final tab) => GoAction.workspace(tab.workspace), PickSite(: final site) => SwitchSiteAction(site), PickKey(: final key) => ExploreAction(key)})
 ```
 
 ## onReview
@@ -331,7 +327,7 @@ _Not drawn — these files dispatch outside any interaction:_
 | Interaction | Dispatches | Writes |
 | --- | --- | --- |
 | `onTab` | `GoAction.workspace` | — |
-| `onSite` | `ViewSiteAction` | `site, nodes, links, quarantine, packages, flows, updates, backups, brokerUpdate, historian, tasks, assistant` |
+| `onSite` | `SwitchSiteAction` | — |
 | `onSearch` | `SearchGoAction` | — |
 | `onReview` | `SetOpenAction` | `changes.open` |
 | `onCloseReview` | `SetOpenAction` | `changes.open` |

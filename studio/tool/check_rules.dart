@@ -178,19 +178,25 @@ final _rules = <Rule>[
     'app/lib/mappers/',
   ], (t) => _matches(_code(t), RegExp(r'\bDateTime\.now\('))),
   // 1, 9. a dispatch whose Future is dropped behind a method of its own
-  // (`void _start(a) => dispatch(a);`): `unawaited` by another name
+  // (`void _start(a) => dispatch(a);`): `unawaited` by another name. A
+  // service's dispatcher is the edge rule 1 names (a stream listener or a
+  // timer does not wait: it dispatches and returns), so it is left out.
   Rule(
     'dispatch-wrapper',
     ['app/lib/', 'business/lib/', 'ui/lib/'],
-    (t) => _matches(
-      _code(t),
-      RegExp(
-        r'^[ \t]*(?:[\w<>?,]+[ \t]+)?_?\w+\([^()]*\)\s*=>\s*'
-        // `dispatchSync` gives its status at once: no Future is dropped
-        r'(?:\w+\.)?dispatch(?:AndWait\w*|All\w*)?(?:<[^>]*>)?\(',
-        multiLine: true,
-      ),
-    ),
+    except: ['business/lib/redux/services/'],
+    (t) {
+      // `dispatchSync` gives its status at once: no Future is dropped
+      const call = r'(?:\w+\.)?dispatch(?:AndWait\w*|All\w*)?(?:<[^>]*>)?\(';
+      const head = r'^[ \t]*(?:[\w<>?,]+[ \t]+)?_?\w+\([^()]*\)\s*';
+      final c = _code(t);
+      return _matches(c, RegExp('$head=>\\s*$call', multiLine: true)) +
+          // the same with a body of one statement: `void f() { dispatch(x); }`
+          _matches(
+            c,
+            RegExp('$head\\{\\s*$call[^;]*;\\s*\\}', multiLine: true),
+          );
+    },
   ),
   // 9. one dispatch per intent: a cascade of dispatches is several states,
   // each one built (a cascade of one dispatch is one state)
@@ -299,6 +305,9 @@ class _Vm extends Vm {
   void _start(ReduxAction<AppState> action) => dispatch(action);
   void _load(String id) =>
       _store.dispatchAndWait(LoadAction(id));
+  void _read(String id) {
+    _store.dispatch(ReadAction(id));
+  }
 ''',
     good: '''
       onShow: () => dispatch(ShowAction()),

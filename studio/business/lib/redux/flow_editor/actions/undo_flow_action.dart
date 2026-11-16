@@ -1,7 +1,6 @@
 import '../../../wyrm/mappers/flow_canvas.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
-import 'validate_flow_action.dart';
 
 /// Takes the last edit of the draft back (flow-editor.md §13): the draft
 /// before it returns, and the one it replaces goes to the redo list.
@@ -17,7 +16,6 @@ class UndoFlowAction extends Action {
     final selection = flowEditor.selection.removeWhere(
       (id) => !draft.blocks.containsKey(id),
     );
-    _validate();
     return state.copyWith.flowEditor(
       draft: draft,
       undo: steps.removeLast(),
@@ -28,9 +26,4 @@ class UndoFlowAction extends Action {
       dirty: true,
     );
   }
-
-  /// The engine checks the draft again once the edits settle
-  /// ([ValidateFlowAction] is debounced and brings its own state); this
-  /// edit does not wait for it.
-  void _validate() => dispatch(ValidateFlowAction());
 }

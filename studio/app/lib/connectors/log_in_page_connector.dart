@@ -182,7 +182,7 @@ class _Factory extends VmFactory<AppState, LogInPageConnector, _Vm>
               )
             : null,
         unlock: switch (device.stage.form) {
-          final form? when !session.isAvailable => unlockData(form, platform),
+          final f? when !session.isAvailable => unlockDataOf(this, f, platform),
           _ => null,
         },
         discover: discovery.open && discovery.pendingRow == null

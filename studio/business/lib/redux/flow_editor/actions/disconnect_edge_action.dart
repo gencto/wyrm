@@ -3,7 +3,6 @@ import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import '../../../wyrm/mappers/flow_canvas.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
-import 'validate_flow_action.dart';
 
 /// Removes the wire into `<to>.<toPort>`. Unbinding a parameter keeps the
 /// last value it had as its typed value: [keep] into `cfg.<param>`.
@@ -21,7 +20,6 @@ class DisconnectEdgeAction extends Action {
     if (d == null) {
       return null;
     }
-    _validate();
     final b = d.blocks[to];
     final param = this.param;
     final blocks = b != null && param != null && keep != null
@@ -38,9 +36,4 @@ class DisconnectEdgeAction extends Action {
       undoTag: null,
     );
   }
-
-  /// The engine checks the draft again once the edits settle
-  /// ([ValidateFlowAction] is debounced and brings its own state); this
-  /// edit does not wait for it.
-  void _validate() => dispatch(ValidateFlowAction());
 }

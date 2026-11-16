@@ -8,6 +8,8 @@ import 'live_values.dart';
 
 /// One action per batch of values, up to five a second, and one per
 /// failed subscription: each is one state, so a connector follows it once.
+/// A stream listener does not wait (studio-rules §1): it dispatches and
+/// returns.
 class LiveValuesDispatcher implements LiveValuesServiceListener {
   LiveValuesDispatcher({required this._store});
 
@@ -15,7 +17,7 @@ class LiveValuesDispatcher implements LiveValuesServiceListener {
 
   @override
   void onValues(Map<String, LiveValue?> changed) =>
-      _store.dispatchSync(ApplyLiveValuesAction(changed));
+      _store.dispatch(ApplyLiveValuesAction(changed));
 
   @override
   void onError(String key, Object error) =>

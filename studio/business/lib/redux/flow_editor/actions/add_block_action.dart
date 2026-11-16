@@ -7,7 +7,6 @@ import '../../../wyrm/mappers/flow_blocks.dart';
 import '../../../wyrm/mappers/flow_canvas.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
-import 'validate_flow_action.dart';
 
 /// Adds a block of [type] at ([x], [y]) with the defaults of its choice
 /// parameters (and [cfg] over them: a point dragged from the tree gives its
@@ -53,7 +52,6 @@ class AddBlockAction extends Action {
       pins: pins,
       into: into,
     );
-    _validate();
     return state.copyWith.flowEditor(
       // A point dropped on a key field: its wire needs a scope too.
       scopePrompt: into != null && scopeAsked(types, d, into.block, into.port)
@@ -68,9 +66,4 @@ class AddBlockAction extends Action {
       undoTag: null,
     );
   }
-
-  /// The engine checks the draft again once the edits settle
-  /// ([ValidateFlowAction] is debounced and brings its own state); this
-  /// edit does not wait for it.
-  void _validate() => dispatch(ValidateFlowAction());
 }

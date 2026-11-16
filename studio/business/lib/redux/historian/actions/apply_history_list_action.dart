@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/watch_group.dart';
 import 'package:wyrm_client/wyrm_client.dart';
@@ -7,8 +5,6 @@ import 'package:wyrm_client/wyrm_client.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 import '../../services/live_lists/live_lists_dispatcher.dart';
-import 'follow_history_action.dart';
-import 'retrieve_group_watches_action.dart';
 
 /// One update of a live list History follows: `sys/history` (the groups)
 /// or `sys/history/<group>` (that group's watches). A group added is read
@@ -30,6 +26,9 @@ class ApplyHistoryListAction extends Action {
   static bool isWatch(Child c) => c.meta.ty == null;
 
   final _read = <String>[];
+
+  /// The groups listed, whose watches are read next (`FollowListAction`).
+  List<String> get unread => List.unmodifiable(_read);
 
   @override
   AppState? reduce() {
@@ -142,19 +141,5 @@ class ApplyHistoryListAction extends Action {
           if (points.contains(e.key)) e.key: e.value,
       }.lock,
     );
-  }
-
-  @override
-  void after() {
-    super.after();
-    // The selected group is listed live; the others are read once.
-    final read = [
-      for (final n in _read)
-        if (n != historian.selected) n,
-    ];
-    if (read.isNotEmpty) {
-      unawaited(dispatchAndWait(RetrieveGroupWatchesAction(read)));
-    }
-    dispatchSync(FollowHistoryAction());
   }
 }

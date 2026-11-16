@@ -13,7 +13,7 @@ import 'package:business/redux/problems/actions/open_problems_action.dart';
 import 'package:business/redux/problems/actions/retry_problem_action.dart';
 import 'package:business/redux/session/actions/log_out_action.dart';
 import 'package:business/redux/site/actions/retrieve_sites_action.dart';
-import 'package:business/redux/site/actions/view_site_action.dart';
+import 'package:business/redux/site/actions/switch_site_action.dart';
 import 'package:business/redux/theme/actions/set_theme_mode_action.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:material_ui/material_ui.dart';
@@ -117,7 +117,7 @@ class _Factory extends VmFactory<AppState, StudioPageConnector, _Vm>
         window: windowBar(fullScreen: window.fullScreen),
       ),
       onTab: (t) => dispatch(GoAction.workspace(t.workspace)),
-      onSite: (s) => dispatch(ViewSiteAction(s)),
+      onSite: (s) => dispatch(SwitchSiteAction(s)),
       onSearch: (pick) => dispatch(SearchGoAction(pick)),
       onReview: () => dispatch(SetOpenAction(true)),
       onCloseReview: () => dispatch(SetOpenAction(false)),

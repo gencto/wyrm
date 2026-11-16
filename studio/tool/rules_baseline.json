@@ -1,11 +1,5 @@
 {
-  "unawaited-dispatch": {
-    "business/lib/redux/flows/actions/apply_flow_values_action.dart": 1,
-    "business/lib/redux/flows/actions/apply_flows_list_action.dart": 1,
-    "business/lib/redux/historian/actions/apply_history_list_action.dart": 1,
-    "business/lib/redux/services/gateway_browser/gateway_browser_dispatcher.dart": 1,
-    "business/lib/redux/site/actions/view_site_action.dart": 1
-  },
+  "unawaited-dispatch": {},
   "string-case": {
     "app/lib/common/backup_sheets.dart": 47,
     "app/lib/dialogs/backup_dialogs.dart": 19,
@@ -196,42 +190,12 @@
   "vm-equality": {},
   "vm-clock": {},
   "dispatch-wrapper": {
-    "business/lib/redux/flow_editor/actions/add_block_action.dart": 1,
-    "business/lib/redux/flow_editor/actions/connect_ports_action.dart": 1,
     "business/lib/redux/flow_editor/actions/copy_blocks_action.dart": 1,
-    "business/lib/redux/flow_editor/actions/create_custom_block_action.dart": 1,
-    "business/lib/redux/flow_editor/actions/deploy_flow_action.dart": 1,
-    "business/lib/redux/flow_editor/actions/disconnect_edge_action.dart": 1,
     "business/lib/redux/flow_editor/actions/flow_edit_action.dart": 1,
-    "business/lib/redux/flow_editor/actions/follow_flow_editor_action.dart": 1,
-    "business/lib/redux/flow_editor/actions/leave_block_action.dart": 1,
-    "business/lib/redux/flow_editor/actions/new_flow_action.dart": 1,
-    "business/lib/redux/flow_editor/actions/open_flow_editor_action.dart": 1,
     "business/lib/redux/flow_editor/actions/palette_menu_action.dart": 1,
-    "business/lib/redux/flow_editor/actions/paste_blocks_action.dart": 1,
     "business/lib/redux/flow_editor/actions/pick_palette_entry_action.dart": 1,
-    "business/lib/redux/flow_editor/actions/place_library_block_action.dart": 1,
-    "business/lib/redux/flow_editor/actions/rebind_edge_action.dart": 1,
-    "business/lib/redux/flow_editor/actions/redo_flow_action.dart": 1,
-    "business/lib/redux/flow_editor/actions/remove_blocks_action.dart": 1,
-    "business/lib/redux/flow_editor/actions/remove_custom_block_action.dart": 1,
-    "business/lib/redux/flow_editor/actions/remove_library_block_action.dart": 1,
-    "business/lib/redux/flow_editor/actions/rename_custom_block_action.dart": 1,
-    "business/lib/redux/flow_editor/actions/resize_block_ports_action.dart": 1,
-    "business/lib/redux/flow_editor/actions/resize_inputs_action.dart": 1,
     "business/lib/redux/flow_editor/actions/run_block_action.dart": 1,
-    "business/lib/redux/flow_editor/actions/save_block_to_library_action.dart": 1,
-    "business/lib/redux/flow_editor/actions/set_block_form_action.dart": 1,
-    "business/lib/redux/flow_editor/actions/set_block_param_action.dart": 1,
-    "business/lib/redux/flow_editor/actions/set_operand_value_action.dart": 1,
-    "business/lib/redux/flow_editor/actions/show_palette_tab_action.dart": 1,
-    "business/lib/redux/flow_editor/actions/toggle_tree_node_action.dart": 1,
-    "business/lib/redux/flow_editor/actions/undo_flow_action.dart": 1,
-    "business/lib/redux/flow_editor/actions/update_block_from_library_action.dart": 1,
-    "business/lib/redux/login/actions/start_preload_reads_action.dart": 1,
-    "business/lib/redux/services/agent_tasks/agent_tasks_dispatcher.dart": 1,
-    "business/lib/redux/services/flow_watch/flow_watch_dispatcher.dart": 1,
-    "business/lib/redux/services/tree_watch/tree_watch_dispatcher.dart": 2
+    "business/lib/redux/login/actions/start_preload_reads_action.dart": 1
   },
   "dispatch-cascade": {}
 }

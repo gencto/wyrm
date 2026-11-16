@@ -5,7 +5,7 @@ import 'package:business/redux/login/actions/log_in_action.dart';
 import 'package:business/redux/login/actions/set_gateway_action.dart';
 import 'package:business/redux/login/actions/set_password_action.dart';
 import 'package:business/redux/login/actions/set_user_action.dart';
-import 'package:business/redux/site/actions/view_site_action.dart';
+import 'package:business/redux/site/actions/switch_site_action.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -67,9 +67,9 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 5));
       }
       expect(reads(), sent + 1);
-      s.dispatchSync(ViewSiteAction('edge'));
+      final switched = s.dispatchAndWait(SwitchSiteAction('edge'));
       await left;
-      await Future<void>.delayed(const Duration(milliseconds: 120));
+      await switched;
       expect(s.state.site.current, 'edge');
       expect(s.state.links.table.keys, ['new']);
     },
