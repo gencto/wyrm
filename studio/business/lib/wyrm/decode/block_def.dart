@@ -76,6 +76,7 @@ Decoded<BlockDef> blockDefOf(Map<String, Object?> json) {
         inputsAt: _at(layout[inputsAtKey]),
         outputsAt: _at(layout[outputsAtKey]),
         placed: read.placed.length == draft.blocks.length ? null : read.placed,
+        hasLayout: json.containsKey('layout'),
         extra: {
           for (final MapEntry(:key, :value) in json.entries)
             if (!_read.contains(key)) key: value,
@@ -132,6 +133,10 @@ List<BlockPort> _ports(Object? v, String field, String endsKey) {
             final String s => s,
             _ => throw _Bad('$field[$i].description', 'not a text'),
           },
+          extra: {
+            for (final MapEntry(:key, :value) in m.entries)
+              if (!_portKeys.contains(key) && key != endsKey) key: value,
+          }.lock,
         ),
         _ => throw _Bad('$field[$i]', 'not a map'),
       },
@@ -146,6 +151,10 @@ final class _Bad implements Exception {
 }
 
 // ---------- the other way: a definition written back ----------
+
+/// The keys of a port the editor reads besides its `to`/`from`; any other
+/// is kept in [BlockPort.extra].
+const _portKeys = {'name', 'default', 'description'};
 
 /// The keys of a block's definition the editor reads; any other is kept
 /// in [BlockDef.extra].
@@ -165,6 +174,7 @@ Map<String, Object?> blockDefJsonOf(BlockDef def) => {
             : [for (final e in p.ends) e.wire],
         'default': ?p.defaultValue,
         'description': ?p.description,
+        ...p.extra.unlock,
       },
   ],
   'outputs': [
@@ -173,18 +183,24 @@ Map<String, Object?> blockDefJsonOf(BlockDef def) => {
         'name': p.name,
         if (p.ends.isNotEmpty) 'from': p.ends.first.wire,
         'description': ?p.description,
+        ...p.extra.unlock,
       },
   ],
   'nodes': nodesJsonOf(def.body),
   'edges': edgesJsonOf(def.body),
-  'layout': {
-    ...layoutJsonOf(def.body, placed: def.placed),
-    if (def.inputsAt case (final x, final y))
-      inputsAtKey: [x.round(), y.round()],
-    if (def.outputsAt case (final x, final y))
-      outputsAtKey: [x.round(), y.round()],
-    if (def.libraryVersion case final v?) libraryMarkKey: [v, 0],
-  },
+  if (_layoutJsonOf(def) case final layout
+      when def.hasLayout || layout.isNotEmpty)
+    'layout': layout,
+};
+
+/// [def]'s `layout`: its placed nodes, the boundary blocks, the library
+/// mark.
+Map<String, Object?> _layoutJsonOf(BlockDef def) => {
+  ...layoutJsonOf(def.body, placed: def.placed),
+  if (def.inputsAt case (final x, final y)) inputsAtKey: [x.round(), y.round()],
+  if (def.outputsAt case (final x, final y))
+    outputsAtKey: [x.round(), y.round()],
+  if (def.libraryVersion case final v?) libraryMarkKey: [v, 0],
 };
 
 /// [defs] as a definition's `blocks`.

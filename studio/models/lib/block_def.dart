@@ -25,6 +25,10 @@ abstract class BlockPort with _$BlockPort {
     /// The definition wrote the input's `to` as one text, not a list (the
     /// spec takes both): written back the same way.
     @Default(false) bool oneEnd,
+
+    /// The keys of the port the editor does not read, as JSON, kept for
+    /// the write back (the block's own are [BlockDef.extra]).
+    @Default(IMapConst({})) IMap<String, Object?> extra,
   }) = _BlockPort;
 }
 
@@ -53,6 +57,11 @@ abstract class BlockDef with _$BlockDef {
     /// written back with its place. Null: every node is placed (a block
     /// made or edited in the editor).
     ISet<String>? placed,
+
+    /// The definition came with a `layout` (the spec lets it go without):
+    /// written back with one even when it has no entry. A block made in
+    /// the editor has one.
+    @Default(true) bool hasLayout,
 
     /// The keys of the definition the editor does not read, as JSON, kept
     /// for the write back.

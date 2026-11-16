@@ -1,0 +1,10 @@
+{"id":"custom2","version":7,"description":"x","permissions":{"maxperm":2},
+ "blocks":{"avg2":{"description":"mean of two","inputs":[{"name":"a","to":"s.in.0","description":"first","x_future":1},{"name":"b","to":["s.in.1","t.in"],"default":3}],
+   "outputs":[{"name":"mean","from":"h.out","description":"the mean"}],
+   "nodes":{"s":{"type":"add"},"h":{"type":"divide","values":{"in.1":2}},"t":{"type":"trace"}},
+   "edges":[["s.out","h.in.0"]],"x_block_future":true,"layout":{"s":[10,10],"h":[200,10],"t":[10,100]}},
+  "other":{"inputs":[],"outputs":[{"name":"o","from":"c.out"}],"nodes":{"c":{"type":"constant","value":5}},"edges":[]}},
+ "nodes":{"p":{"type":"subscribe","key":"downstream/mock/p0"},"q":{"type":"subscribe","key":"downstream/mock/p1"},
+   "m":{"type":"block:avg2","values":{"b":3}},"w":{"type":"set","path":"downstream/mock/sp","auto_run":true},"k":{"type":"block:other"}},
+ "edges":[["p.out","m.a"],["q.out","m.b"],["m.mean","w.in"]],
+ "layout":{"p":[10,20],"q":[10,200],"m":[300,100],"w":[600,100],"k":[300,300],"m~pin~in:b":[1,0]}}

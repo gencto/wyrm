@@ -805,10 +805,11 @@ void main() {
         replace: true,
       );
       expect(blockDefsOf(updated)['scaled']!.libraryVersion, 4);
-      // The library gets the definition without the editor's mark.
+      // The library gets the definition without the editor's mark: as it
+      // came, so with no `layout`, which it never had.
       expect(
-        libraryDefJsonOf(blockDefsOf(updated)['scaled']!)['layout']! as Map,
-        isEmpty,
+        libraryDefJsonOf(blockDefsOf(updated)['scaled']!).containsKey('layout'),
+        isFalse,
       );
       expect(
         sameBlockDef(blockDefsOf(updated)['scaled']!, blockDef(libScaled)),
