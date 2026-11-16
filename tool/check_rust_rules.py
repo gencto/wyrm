@@ -455,7 +455,10 @@ PERSIST_CALLS = [
     r"\bwrite_file\(",  # the OPC UA store's and `PrivateDir`'s writes
     r"\bprivate_dir\(",
     r"\bseal(?:_aad|_stream|_bytes|_in_place\w*)?\(",  # sealing (an RNG nonce inside)
-    r"\bsecrets\.(?:set|remove|drop_link|replace_stashed|unstash)\(",  # the secret store
+    # the secret store, under any receiver: its own method names, and `set`/`remove` on a
+    # receiver named for secrets (`secrets.`, `link_secrets.`, `self.ctl.secrets.`)
+    r"\.(?:drop_link|replace_stashed|unstash)\(",
+    r"\b\w*secrets?\w*\s*\.\s*(?:set|remove)\(",
 ]
 PERSIST = "(?:" + "|".join(PERSIST_CALLS) + ")"
 
@@ -477,13 +480,53 @@ def c8(s: Source) -> list[int]:
         rf"{PERSIST}[^;]*?\)(?:\.await)?\s*\.unwrap_or_default\(\)",
         # the error read as a plain answer: `.unwrap_or(false)`, `.unwrap_or(0)`, …
         rf"{PERSIST}[^;]*?\)(?:\.await)?\s*\.unwrap_or\(\s*(?:false|true|0|None|\(\))\s*\)",
-        # `if let Ok(..) = call(..) { … }` with no `else`: the `Err` passes in silence
-        rf"\bif\s+let\s+Ok\([^)]*\)\s*=\s*[^{{;]*?{PERSIST}[^{{;]*\{{(?:[^{{}}]|\{{[^{{}}]*\}})*\}}(?!\s*else)",
+        # the error mapped to a value: `.unwrap_or_else(|_| …)`
+        rf"{PERSIST}[^;]*?\)(?:\.await)?\s*\.unwrap_or_else\(\s*\|\s*_\w*\s*\|",
         r"\bto_vec\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*\)\s*\.\s*(?:unwrap_or_default\(\)|ok\(\))",
     ]
     hits = [m.start() for p in pats for m in re.finditer(p, m_)]
+    hits += c8_blocks(m_)
     # one hit per line, however many of the forms above match it
     return sorted(set(s.hits("C8", hits)))
+
+
+def block_end(text: str, open_at: int) -> int:
+    """The offset after the `}` that closes the `{` at `open_at` (or the end of text)."""
+    depth, j = 0, open_at
+    while j < len(text):
+        if text[j] == "{":
+            depth += 1
+        elif text[j] == "}":
+            depth -= 1
+            if depth == 0:
+                return j + 1
+        j += 1
+    return j
+
+
+IF_OK = re.compile(r"\bif\s+(let\s+Ok\b[^{;]*|[^{;]*\.is_ok\(\)\s*)\{")
+MATCH = re.compile(r"\bmatch\s+([^{;]*)\{")
+ERR_NOTHING = re.compile(r"\bErr\(\s*_\w*\s*\)\s*=>\s*(?:\{\s*\}|\(\s*\))")
+
+
+def c8_blocks(text: str) -> list[int]:
+    """The forms of C8 that need the extent of a block: `if let Ok(..) = call() { … }` and
+    `if call().is_ok() { … }` with no `else` (bodies nested to any depth), and
+    `match call() { …, Err(_) => {} }` (or `=> ()`)."""
+    hits = []
+    for m in IF_OK.finditer(text):
+        if not re.search(PERSIST, m.group(1)):
+            continue
+        end = block_end(text, m.end() - 1)
+        if not re.match(r"\s*else\b", text[end:]):
+            hits.append(m.start())
+    for m in MATCH.finditer(text):
+        if not re.search(PERSIST, m.group(1)):
+            continue
+        body = text[m.end() - 1 : block_end(text, m.end() - 1)]
+        if ERR_NOTHING.search(body):
+            hits.append(m.start())
+    return hits
 
 
 # One sample call per entry of PERSIST_CALLS, in the same order.
@@ -505,7 +548,8 @@ PROBE_CALLS = [
     "write_file(&store.join(TOFU_OK), b\"\", false)",
     "secret::private_dir(dir)",
     "format::seal_bytes(key, path, b)",
-    "self.ctl.secrets.drop_link(&store)",
+    "store.drop_link(&peer)",
+    "link_secrets.remove(id, PEER_TOKEN)",
 ]
 # Every way of dropping the result (C8 must see each) and of handling it (it must not).
 PROBE_DROPPED = [
@@ -519,6 +563,11 @@ PROBE_DROPPED = [
     "if {c}.unwrap_or(false) {{ go(); }}",
     "if {c}.is_err() {{}}",
     "if let Ok(v) = {c} {{ use_it(v); }}",
+    "if let Ok(v) = {c} {{ if v {{ for x in xs {{ go(x); }} }} }}",
+    "if {c}.is_ok() {{ done(); }}",
+    "match {c} {{ Ok(v) => use_it(v), Err(_) => {{}} }}",
+    "match {c} {{ Ok(()) => go(), Err(_e) => () }}",
+    "let v = {c}.unwrap_or_else(|_| fallback());",
 ]
 PROBE_HANDLED = [
     "{c}?;",
@@ -526,6 +575,9 @@ PROBE_HANDLED = [
     "if let Err(e) = {c} {{ tracing::error!(\"{{e}}\"); }}",
     "match {c} {{ Ok(v) => v, Err(e) => return Err(e.into()) }};",
     "if let Ok(v) = {c} {{ use_it(v); }} else {{ tracing::error!(\"lost\"); }}",
+    "if {c}.is_ok() {{ done(); }} else {{ tracing::error!(\"lost\"); }}",
+    "match {c} {{ Ok(v) => use_it(v), Err(e) => tracing::error!(\"{{e}}\") }}",
+    "let v = {c}.unwrap_or_else(|e| fail(e));",
 ]
 
 

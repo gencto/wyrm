@@ -1606,16 +1606,29 @@ impl Control {
             .filter(|s| !keep.contains(s))
             .collect();
         for site in &gone {
-            if self.apply(Op::RemovePeer(site.clone())).is_ok() {
-                let _ = std::fs::remove_file(self.peer_ca_path(site));
-                self.record(
-                    "system",
-                    "peer_remove",
-                    site,
-                    Status::Ok,
-                    "now in wyrmd.json5",
-                );
-                warn!(site = %site, "peer {site} is in wyrmd.json5: the runtime entry is removed");
+            match self.apply(Op::RemovePeer(site.clone())) {
+                Ok(()) => {
+                    let _ = std::fs::remove_file(self.peer_ca_path(site));
+                    self.record(
+                        "system",
+                        "peer_remove",
+                        site,
+                        Status::Ok,
+                        "now in wyrmd.json5",
+                    );
+                    warn!(site = %site, "peer {site} is in wyrmd.json5: the runtime entry is removed");
+                }
+                Err(e) => {
+                    // both entries stay; the merged view takes the file's (`Control::peers`)
+                    error!(site = %site, error = %e, "peer {site} is in wyrmd.json5, but its runtime entry is not removed");
+                    self.record(
+                        "system",
+                        "peer_remove",
+                        site,
+                        Status::InternalError,
+                        &format!("now in wyrmd.json5; the runtime entry stays: {e}"),
+                    );
+                }
             }
         }
         gone
@@ -3341,13 +3354,26 @@ async fn expire_enrollments(ctl: Arc<Control>, ctx: LinkCtx) {
             stale_enrollments(&reg, &mut seen, now_s(), ENROLL_STALE_S)
         };
         for site in stale {
-            if ctl.apply(Op::DropEnrollment(site.clone())).is_ok() {
-                ctl.enroll_seen
-                    .lock()
-                    .unwrap_or_else(|p| p.into_inner())
-                    .remove(&site);
-                debug!(site = %site, "enrollment request expired");
-                let _ = ctx.remove_node(&format!("quarantine/{site}")).await;
+            match ctl.apply(Op::DropEnrollment(site.clone())) {
+                Ok(()) => {
+                    ctl.enroll_seen
+                        .lock()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .remove(&site);
+                    debug!(site = %site, "enrollment request expired");
+                    let _ = ctx.remove_node(&format!("quarantine/{site}")).await;
+                }
+                Err(e) => {
+                    // it stays in quarantine and is tried again at the next round
+                    error!(site = %site, error = %e, "an expired enrollment request is not dropped");
+                    ctl.record(
+                        "system",
+                        "enrollment_expire",
+                        &site,
+                        Status::InternalError,
+                        &format!("not dropped: {e}"),
+                    );
+                }
             }
         }
         // also shows the polls counted in memory since the last change
