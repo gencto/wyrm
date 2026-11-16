@@ -115,6 +115,18 @@ pub struct Prepared {
     pub lease: Option<KeyLease>,
 }
 
+/// The first-use marker of a store was not written (why, as the file system said).
+#[derive(Debug)]
+pub struct NotKept(String);
+
+impl std::fmt::Display for NotKept {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "the first use is not kept: {}", self.0)
+    }
+}
+
+impl std::error::Error for NotKept {}
+
 /// The marker of a trust-on-first-use store whose first use made a session.
 const TOFU_OK: &str = "tofu-ok";
 
@@ -141,10 +153,14 @@ impl Prepared {
     }
 
     /// A session was activated: a first-use store keeps what it trusts.
-    pub fn opened(&self) {
+    /// `Err` when the marker that says so is not written: the next `prepare`
+    /// would forget the certificate and trust any server again, so the
+    /// caller does not use the session (the first use did not happen).
+    pub fn opened(&self) -> Result<(), NotKept> {
         if self.trust_unknown {
-            let _ = write_file(&self.store.join(TOFU_OK), b"", false);
+            write_file(&self.store.join(TOFU_OK), b"", false).map_err(NotKept)?;
         }
+        Ok(())
     }
 }
 
@@ -563,10 +579,38 @@ mod tests {
             server.to_der().unwrap(),
         )
         .unwrap();
-        p.opened();
+        p.opened().unwrap();
         let p = prepare(&root, &req).unwrap();
         assert!(!p.trust_unknown);
         assert!(p.trusts(&server));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// Audit of #125: the first-use marker was written with `let _ =`. When it was not
+    /// written, the session went on, and the next `prepare` cleared `trusted/` and trusted
+    /// any server again. `opened` says so now, and the session is not used.
+    #[cfg(unix)]
+    #[test]
+    fn a_first_use_that_is_not_kept_is_an_error() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let root = std::env::temp_dir().join(format!("wyrm-opcua-tofu-ro-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let (cert_pem, key_pem) = test_keypair();
+        let req = Request {
+            url: "opc.tcp://h:4840/",
+            application_uri: "urn:t",
+            own: Some((&cert_pem, &key_pem)),
+            trust: Trust::FirstUse,
+        };
+        let p = prepare(&root, &req).unwrap();
+        assert!(p.trust_unknown);
+        if fs::metadata(&p.store).unwrap().uid() == 0 {
+            return; // root writes into a read-only directory: nothing to show
+        }
+        fs::set_permissions(&p.store, fs::Permissions::from_mode(0o500)).unwrap();
+        let r = p.opened();
+        fs::set_permissions(&p.store, fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(r.is_err(), "a marker that is not written is an error");
         let _ = fs::remove_dir_all(&root);
     }
 

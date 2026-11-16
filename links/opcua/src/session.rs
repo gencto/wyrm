@@ -474,7 +474,12 @@ impl Transport {
             Err(_) => return Err(transport("session event loop stopped")),
         }
         if let Some(mut prep) = prep {
-            prep.opened();
+            prep.opened().map_err(|e| {
+                transport(format!(
+                    "the server's certificate is not kept for the next connection ({e}): \
+                     the session is not used"
+                ))
+            })?;
             // The library read the key file when it built the channel and
             // for ActivateSession; renewals use the key in memory, and its
             // own reconnect is off. The plain-text copy goes now.

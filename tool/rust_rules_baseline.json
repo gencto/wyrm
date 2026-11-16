@@ -937,7 +937,7 @@
     "links/modbus/src/slave.rs": 3,
     "links/mysql/src/lib.rs": 1,
     "links/opcua/src/lib.rs": 1,
-    "links/opcua/src/pki.rs": 8,
+    "links/opcua/src/pki.rs": 7,
     "links/opcua/src/session.rs": 5,
     "links/opcua/src/sim.rs": 4,
     "links/postgres/src/lib.rs": 1,

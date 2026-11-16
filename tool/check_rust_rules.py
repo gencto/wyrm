@@ -452,6 +452,7 @@ PERSIST_CALLS = [
     r"\.commit\(",
     r"\bset_permissions\(",  # a private directory or file mode
     r"\bwrite_private\(",
+    r"\bwrite_file\(",  # the OPC UA store's and `PrivateDir`'s writes
     r"\bprivate_dir\(",
     r"\bseal(?:_aad|_stream|_bytes|_in_place\w*)?\(",  # sealing (an RNG nonce inside)
     r"\bsecrets\.(?:set|remove|drop_link|replace_stashed|unstash)\(",  # the secret store
@@ -501,6 +502,7 @@ PROBE_CALLS = [
     "tx.commit()",
     "std::fs::set_permissions(dir, perms)",
     "secret::write_private(&p, b)",
+    "write_file(&store.join(TOFU_OK), b\"\", false)",
     "secret::private_dir(dir)",
     "format::seal_bytes(key, path, b)",
     "self.ctl.secrets.drop_link(&store)",
