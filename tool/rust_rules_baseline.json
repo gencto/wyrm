@@ -860,7 +860,7 @@
     "links/s3/src/sigv4.rs": 1,
     "links/s3/src/sim.rs": 4,
     "links/uplink/src/lib.rs": 8,
-    "links/webdav/src/lib.rs": 4
+    "links/webdav/src/lib.rs": 1
   },
   "clippy::let_underscore_must_use": {
     "crates/wyrm-admin/src/backup.rs": 4,
