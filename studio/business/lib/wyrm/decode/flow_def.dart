@@ -1,4 +1,5 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/block_def.dart';
 import 'package:models/block_type.dart';
 import 'package:models/field_id.dart';
 import 'package:models/flow_block.dart';
@@ -8,6 +9,7 @@ import 'package:models/port_end.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../mappers/values.dart';
+import 'block_def.dart';
 import 'decoded.dart';
 import 'flow_permissions.dart';
 
@@ -40,7 +42,9 @@ final class FlowRead {
 /// [Invalid], with the field, when the definition is no map; when
 /// `nodes`, `edges` or `layout` is there and is not a map, an array and a
 /// map; when a node is no map or names no `type`; when an edge is not two
-/// `<node>.<port>` texts; when `version` is not a whole number. Nothing of
+/// `<node>.<port>` texts; when `version` is not a whole number; when
+/// `blocks` is not a map of custom blocks that read ([blockDefOf]: the
+/// field is `blocks.<name>.<field>`). Nothing of
 /// a broken definition is dropped in silence: the caller keeps what it
 /// had and says why.
 ///
@@ -149,6 +153,32 @@ FlowRead _read(String id, Value def) {
     default:
       throw const _Bad('edges', 'not an array');
   }
+  // The custom blocks: each read here, so a broken one refuses the flow
+  // with its field, as a broken node does.
+  final defs = <String, BlockDef>{};
+  switch (def['blocks']) {
+    case null || VNull():
+      break;
+    case VMap(:final v):
+      for (final MapEntry(:key, :value) in v.entries) {
+        switch (toDart(value)) {
+          case final Map<String, Object?> m:
+            switch (blockDefOf(m)) {
+              case Valid(value: final d):
+                defs[key] = d;
+              case Invalid(:final field, :final reason):
+                throw _Bad(
+                  field.isEmpty ? 'blocks.$key' : 'blocks.$key.$field',
+                  reason,
+                );
+            }
+          default:
+            throw _Bad('blocks.$key', 'not a map');
+        }
+      }
+    default:
+      throw const _Bad('blocks', 'not a map');
+  }
   final version = switch (def['version']) {
     null || VNull() => 0,
     final v =>
@@ -164,6 +194,7 @@ FlowRead _read(String id, Value def) {
         for (final e in def.v.entries)
           if (!_own.contains(e.key)) e.key: toDart(e.value),
       }.lock,
+      defs: defs.lock,
       permissions: flowPermissionsOf(def['permissions']).orWarn('flow $id'),
     ),
     placed.lock,
@@ -172,7 +203,7 @@ FlowRead _read(String id, Value def) {
 
 /// The keys the draft holds itself; every other key of the definition is
 /// kept as it came in [FlowDraft.rest].
-const _own = {'id', 'version', 'nodes', 'edges', 'layout'};
+const _own = {'id', 'version', 'nodes', 'edges', 'layout', 'blocks'};
 
 /// The newest definition of flow [id] in its `history` answer (an array of
 /// definitions, oldest first); null when it has none. [Invalid] when the
@@ -248,6 +279,7 @@ Map<String, Object?> defJsonOf(FlowDraft d, int version) {
   }
   return {
     ...rest,
+    if (d.defs.isNotEmpty) 'blocks': blockDefsJsonOf(d.defs),
     'id': d.id,
     'version': version,
     'nodes': nodesJsonOf(d),
@@ -266,9 +298,12 @@ List<List<String>> edgesJsonOf(FlowDraft d) => [
   for (final e in d.edges) [e.source.wire, e.target.wire],
 ];
 
-/// `layout` of [d]'s definition: each block's place, then its pins.
-Map<String, List<int>> layoutJsonOf(FlowDraft d) => {
-  for (final b in d.blocks.values) b.id: [b.x.round(), b.y.round()],
+/// `layout` of [d]'s definition: each block's place, then its pins. With
+/// [placed], only those blocks have a place (the others had none when
+/// read, and are written back without one).
+Map<String, List<int>> layoutJsonOf(FlowDraft d, {ISet<String>? placed}) => {
+  for (final b in d.blocks.values)
+    if (placed?.contains(b.id) ?? true) b.id: [b.x.round(), b.y.round()],
   for (final b in d.blocks.values)
     for (final p in b.pins.entries)
       '${b.id}$_pinMark${p.key}': [if (p.value) 1 else 0, 0],

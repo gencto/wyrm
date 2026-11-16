@@ -29,6 +29,8 @@ import 'package:business/redux/login/actions/log_in_action.dart';
 import 'package:business/redux/login/actions/set_gateway_action.dart';
 import 'package:business/redux/login/actions/set_password_action.dart';
 import 'package:business/redux/login/actions/set_user_action.dart';
+import 'package:business/wyrm/decode/block_def.dart';
+import 'package:business/wyrm/decode/decoded.dart';
 import 'package:business/wyrm/decode/flow_def.dart';
 import 'package:business/wyrm/decode/node_type.dart';
 import 'package:business/wyrm/failures.dart';
@@ -125,6 +127,16 @@ List<String> rowIds(FlowDraft d, String id, {Map<String, NodeType>? by}) {
       f.id.key,
   ];
 }
+
+/// Custom block [name] of [d] as the definition writes it.
+Map<String, Object?> defJson(FlowDraft d, String name) =>
+    blockDefJsonOf(blockDefsOf(d)[name]!);
+
+/// The block definition [json], decoded.
+BlockDef blockDef(Map<String, Object?> json) => switch (blockDefOf(json)) {
+  Valid(:final value) => value,
+  final Invalid<BlockDef> i => throw StateError('$i'),
+};
 
 Map<String, Object?> defMap(FlowDraft d) =>
     toDart(defOf(d, d.version))! as Map<String, Object?>;
@@ -619,7 +631,7 @@ void main() {
           'mean21.out>mean.in',
         ],
       );
-      final def = blockDefsOf(next)['mean2']!;
+      final def = defJson(next, 'mean2');
       expect(def['description'], 'The mean of two values');
       expect(def['inputs'], [
         {
@@ -649,7 +661,7 @@ void main() {
       expect(instancesOf(next, 'mean2'), 1);
       // The instance draws its declared ports, under their own names.
       expect(rowIds(next, id), ['in:first', 'in:second', 'out:out']);
-      final t = customTypeOf('mean2', def);
+      final t = customTypeOf('mean2', blockDefsOf(next)['mean2']!);
       final first = fieldsOf(t, next.blocks[id]!).first;
       expect(
         (first.label, first.inPort, first.outPort, first.operand),
@@ -714,8 +726,8 @@ void main() {
       expect(rowIds(inner, blockOutputsId), ['in:out']);
       // Unchanged, it folds back to the same definition.
       expect(
-        Value.from(blockDefsOf(foldInside(flow, 'mean2', inner))['mean2']),
-        Value.from(blockDefsOf(flow)['mean2']),
+        Value.from(defJson(foldInside(flow, 'mean2', inner), 'mean2')),
+        Value.from(defJson(flow, 'mean2')),
       );
       // A third input, wired to the divisor; the output `out` taken away.
       var edited = resizeBoundary(inner, input: true, add: true)!;
@@ -734,15 +746,15 @@ void main() {
       final folded = foldInside(flow, 'mean2', edited);
       final def = blockDefsOf(folded)['mean2']!;
       expect(
-        [for (final p in blockInputsOf(def)) p.name],
+        [for (final p in def.inputs) p.name],
         [
           'first',
           'second',
           'in1',
         ],
       );
-      expect(blockInputsOf(def).last.ends, [PortEnd('half', 'in.1')]);
-      expect(blockOutputsOf(def), isEmpty);
+      expect(def.inputs.last.ends, [PortEnd('half', 'in.1')]);
+      expect(def.outputs, isEmpty);
       // The instance lost the wire of the output that is gone.
       expect(folded.edges.where((e) => e.from == id), isEmpty);
       expect(folded.edges.where((e) => e.to == id).length, 2);
@@ -768,38 +780,44 @@ void main() {
       final d = withLibraryBlock(
         draft(),
         'scaled',
-        libScaled,
+        blockDef(libScaled),
         version: 3,
-        requires: {'mean': libMean},
+        requires: {'mean': blockDef(libMean)},
       );
       expect(blockDefsOf(d).keys, ['mean', 'scaled']);
-      expect(libraryVersionOf(blockDefsOf(d)['scaled']!), 3);
-      expect(libraryVersionOf(blockDefsOf(d)['mean']!), isNull);
+      expect(blockDefsOf(d)['scaled']!.libraryVersion, 3);
+      expect(blockDefsOf(d)['mean']!.libraryVersion, isNull);
       expect(blockClosure(blockDefsOf(d), ['scaled']), ['mean', 'scaled']);
       // Copied again: nothing changes without `replace`.
-      final own = {...libScaled, 'description': 'mine'};
+      final own = blockDef({...libScaled, 'description': 'mine'});
       final kept = withLibraryBlock(
         withBlockDefs(d, {...blockDefsOf(d), 'scaled': own}),
         'scaled',
-        libScaled,
+        blockDef(libScaled),
         version: 4,
       );
-      expect(blockDefsOf(kept)['scaled']!['description'], 'mine');
+      expect(blockDefsOf(kept)['scaled']!.description, 'mine');
       final updated = withLibraryBlock(
         kept,
         'scaled',
-        libScaled,
+        blockDef(libScaled),
         version: 4,
         replace: true,
       );
-      expect(libraryVersionOf(blockDefsOf(updated)['scaled']!), 4);
+      expect(blockDefsOf(updated)['scaled']!.libraryVersion, 4);
       // The library gets the definition without the editor's mark.
       expect(
-        libraryDefOf(blockDefsOf(updated)['scaled']!)['layout']! as Map,
+        libraryDefJsonOf(blockDefsOf(updated)['scaled']!)['layout']! as Map,
         isEmpty,
       );
-      expect(sameBlockDef(blockDefsOf(updated)['scaled']!, libScaled), isTrue);
-      expect(sameBlockDef(blockDefsOf(updated)['scaled']!, libMean), isFalse);
+      expect(
+        sameBlockDef(blockDefsOf(updated)['scaled']!, blockDef(libScaled)),
+        isTrue,
+      );
+      expect(
+        sameBlockDef(blockDefsOf(updated)['scaled']!, blockDef(libMean)),
+        isFalse,
+      );
     });
 
     test('the clipboard carries the definitions of the instances it holds', () {
@@ -824,12 +842,11 @@ void main() {
       expect(blockDefsOf(pasted).keys, ['mean2']);
       expect(pasted.edges.single.from, id);
       // Where the flow has a block of that name, its own stays.
-      final own = withBlockDefs(const FlowDraft(id: 'other'), {
-        'mean2': {'description': 'mine'},
-      });
+      final mine = blockDef({'description': 'mine'});
+      final own = withBlockDefs(const FlowDraft(id: 'other'), {'mean2': mine});
       expect(
         blockDefsOf(pasteClip(own, clipped(text), 0, 0).$1)['mean2'],
-        {'description': 'mine'},
+        mine,
       );
     });
   });
@@ -1133,15 +1150,13 @@ void main() {
       expect(ed().frames, isEmpty);
       expect(now().blocks.keys, containsAll(['mean21', 'mean22']));
       expect(
-        ((blockDefsOf(now())['mean2']!['nodes']! as Map)['half']!
-            as Map)['values'],
+        ((defJson(now(), 'mean2')['nodes']! as Map)['half']! as Map)['values'],
         {'in.1': 4},
       );
       expect(ed().undo.length, 4, reason: 'create, add, set, edit inside');
       s.dispatchSync(UndoFlowAction());
       expect(
-        ((blockDefsOf(now())['mean2']!['nodes']! as Map)['half']!
-            as Map)['values'],
+        ((defJson(now(), 'mean2')['nodes']! as Map)['half']! as Map)['values'],
         {'in.1': 2},
       );
 
@@ -1191,7 +1206,7 @@ void main() {
       });
       expect(blockDefsOf(now()).keys, ['mean', 'scaled']);
       expect(now().blocks['scaled1']!.type.wire, 'block:scaled');
-      expect(libraryVersionOf(blockDefsOf(now())['scaled']!), 3);
+      expect(blockDefsOf(now())['scaled']!.libraryVersion, 3);
       expect(
         ed().undo.length,
         1,
@@ -1213,7 +1228,7 @@ void main() {
       ];
       s.dispatchSync(ConnectPortsAction('scaled1', 'out', 'mean', 'in'));
       await s.dispatchAndWait(UpdateBlockFromLibraryAction('scaled'));
-      expect(libraryVersionOf(blockDefsOf(now())['scaled']!), 5);
+      expect(blockDefsOf(now())['scaled']!.libraryVersion, 5);
       expect(
         now().edges.where((e) => e.from == 'scaled1'),
         isEmpty,
@@ -1226,22 +1241,22 @@ void main() {
       ];
       final withOwn = withBlockDefs(now(), {
         ...blockDefsOf(now()),
-        'helper': {
+        'helper': blockDef({
           'inputs': <Object>[],
           'outputs': <Object>[],
           'nodes': {
             'm': {'type': 'block:mean'},
           },
           'edges': <Object>[],
-        },
-        'top': {
+        }),
+        'top': blockDef({
           'inputs': <Object>[],
           'outputs': <Object>[],
           'nodes': {
             'h': {'type': 'block:helper'},
           },
           'edges': <Object>[],
-        },
+        }),
       });
       s.dispatchSync(PasteBlocksAction(null, 0, 0));
       await s.dispatchAndWait(_SetDraft(withOwn));
@@ -1251,7 +1266,7 @@ void main() {
           if (c.action == 'put_block') str(c.args!['name']),
       ];
       expect(puts, ['helper', 'top'], reason: 'mean is in the library');
-      expect(libraryVersionOf(blockDefsOf(now())['top']!), 9);
+      expect(blockDefsOf(now())['top']!.libraryVersion, 9);
       final put = api.calls.lastWhere((c) => c.action == 'put_block').args!;
       expect(
         (toDart(put['def'])! as Map).keys,

@@ -38,7 +38,7 @@ class SaveBlockToLibraryAction extends Action {
           deps.wyrm,
           '$root/dataflows',
           'put_block',
-          putBlockArgs(n, libraryDefOf(defs[n]!)),
+          putBlockArgs(n, defs[n]!),
         );
         if (n == name) {
           version = putBlockVersionOf(answer).orWarn('put_block $n') ?? 0;
@@ -64,7 +64,7 @@ class SaveBlockToLibraryAction extends Action {
       libraryOff: read.off,
       draft: withBlockDefs(d, {
         ...blockDefsOf(d),
-        name: withLibraryVersion(own, version),
+        name: own.copyWith(libraryVersion: version),
       }),
     );
   }

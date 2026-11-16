@@ -258,7 +258,7 @@ final class FlowBase {
 
   /// What the draft runs as.
   final Value? run;
-  final Map<String, Map<String, Object?>> defs;
+  final Map<String, BlockDef> defs;
 
   /// Every block's fields, by block id.
   final Map<String, List<FlowField>> fields;

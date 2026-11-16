@@ -1,0 +1,387 @@
+// GENERATED CODE - DO NOT MODIFY BY HAND
+// coverage:ignore-file
+// ignore_for_file: type=lint, type=warning, deprecated_member_use, deprecated_member_use_from_same_package
+// ignore_for_file: unused_element, deprecated_member_use, deprecated_member_use_from_same_package, use_function_type_syntax_for_parameters, unnecessary_const, avoid_init_to_null, invalid_override_different_default_values_named, prefer_expression_function_bodies, annotate_overrides, invalid_annotation_target, unnecessary_question_mark
+
+part of 'block_def.dart';
+
+// **************************************************************************
+// FreezedGenerator
+// **************************************************************************
+
+// GENERATED CODE - DO NOT MODIFY BY HAND
+// dart format off
+T _$identity<T>(T value) => value;
+/// @nodoc
+mixin _$BlockPort {
+
+ String get name;/// An input: the inner inputs it feeds (`to`); an output: the one inner
+/// output it sends (`from`).
+ List<PortEnd> get ends;/// An input's default, as JSON; null for none.
+ Object? get defaultValue; String? get description;/// The definition wrote the input's `to` as one text, not a list (the
+/// spec takes both): written back the same way.
+ bool get oneEnd;
+/// Create a copy of BlockPort
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$BlockPortCopyWith<BlockPort> get copyWith => _$BlockPortCopyWithImpl<BlockPort>(this as BlockPort, _$identity);
+
+
+
+@override
+bool operator ==(Object other) {
+  final _this = this as BlockPort;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is BlockPort&&(identical(other.name, _this.name) || other.name == _this.name)&&const DeepCollectionEquality().equals(other.ends, _this.ends)&&const DeepCollectionEquality().equals(other.defaultValue, _this.defaultValue)&&(identical(other.description, _this.description) || other.description == _this.description)&&(identical(other.oneEnd, _this.oneEnd) || other.oneEnd == _this.oneEnd));
+}
+
+
+@override
+int get hashCode {
+  final _this = this as BlockPort;
+  return Object.hash(runtimeType,_this.name,const DeepCollectionEquality().hash(_this.ends),const DeepCollectionEquality().hash(_this.defaultValue),_this.description,_this.oneEnd);
+}
+
+@override
+String toString() {
+  final _this = this as BlockPort;
+  return 'BlockPort(name: ${_this.name}, ends: ${_this.ends}, defaultValue: ${_this.defaultValue}, description: ${_this.description}, oneEnd: ${_this.oneEnd})';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $BlockPortCopyWith<$Res>  {
+  factory $BlockPortCopyWith(BlockPort value, $Res Function(BlockPort) _then) = _$BlockPortCopyWithImpl;
+@useResult
+$Res call({
+ String name, List<PortEnd> ends, Object? defaultValue, String? description, bool oneEnd
+});
+
+
+
+
+}
+/// @nodoc
+class _$BlockPortCopyWithImpl<$Res>
+    implements $BlockPortCopyWith<$Res> {
+  _$BlockPortCopyWithImpl(this._self, this._then);
+
+  final BlockPort _self;
+  final $Res Function(BlockPort) _then;
+
+/// Create a copy of BlockPort
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') @override $Res call({Object? name = null,Object? ends = null,Object? defaultValue = freezed,Object? description = freezed,Object? oneEnd = null,}) {
+  return _then(BlockPort(
+null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
+as String,ends: null == ends ? _self.ends : ends // ignore: cast_nullable_to_non_nullable
+as List<PortEnd>,defaultValue: freezed == defaultValue ? _self.defaultValue : defaultValue ,description: freezed == description ? _self.description : description // ignore: cast_nullable_to_non_nullable
+as String?,oneEnd: null == oneEnd ? _self.oneEnd : oneEnd // ignore: cast_nullable_to_non_nullable
+as bool,
+  ));
+}
+
+}
+
+
+
+/// @nodoc
+
+
+class _BlockPort implements BlockPort {
+  const _BlockPort(this.name, { List<PortEnd> ends = const [], this.defaultValue, this.description, this.oneEnd = false}): _ends = ends;
+  
+
+@override final  String name;
+/// An input: the inner inputs it feeds (`to`); an output: the one inner
+/// output it sends (`from`).
+ final  List<PortEnd> _ends;
+/// An input: the inner inputs it feeds (`to`); an output: the one inner
+/// output it sends (`from`).
+@override@JsonKey() List<PortEnd> get ends {
+  if (_ends is EqualUnmodifiableListView) return _ends;
+  // ignore: implicit_dynamic_type
+  return EqualUnmodifiableListView(_ends);
+}
+
+/// An input's default, as JSON; null for none.
+@override final  Object? defaultValue;
+@override final  String? description;
+/// The definition wrote the input's `to` as one text, not a list (the
+/// spec takes both): written back the same way.
+@override@JsonKey() final  bool oneEnd;
+
+/// Create a copy of BlockPort
+/// with the given fields replaced by the non-null parameter values.
+@override @JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+_$BlockPortCopyWith<_BlockPort> get copyWith => __$BlockPortCopyWithImpl<_BlockPort>(this, _$identity);
+
+
+
+@override
+bool operator ==(Object other) {
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _BlockPort&&(identical(other.name, name) || other.name == name)&&const DeepCollectionEquality().equals(other.ends, _ends)&&const DeepCollectionEquality().equals(other.defaultValue, defaultValue)&&(identical(other.description, description) || other.description == description)&&(identical(other.oneEnd, oneEnd) || other.oneEnd == oneEnd));
+}
+
+
+@override
+int get hashCode {
+    return Object.hash(runtimeType,name,const DeepCollectionEquality().hash(_ends),const DeepCollectionEquality().hash(defaultValue),description,oneEnd);
+}
+
+@override
+String toString() {
+    return 'BlockPort(name: $name, ends: $ends, defaultValue: $defaultValue, description: $description, oneEnd: $oneEnd)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class _$BlockPortCopyWith<$Res> implements $BlockPortCopyWith<$Res> {
+  factory _$BlockPortCopyWith(_BlockPort value, $Res Function(_BlockPort) _then) = __$BlockPortCopyWithImpl;
+@override @useResult
+$Res call({
+ String name, List<PortEnd> ends, Object? defaultValue, String? description, bool oneEnd
+});
+
+
+
+
+}
+/// @nodoc
+class __$BlockPortCopyWithImpl<$Res>
+    implements _$BlockPortCopyWith<$Res> {
+  __$BlockPortCopyWithImpl(this._self, this._then);
+
+  final _BlockPort _self;
+  final $Res Function(_BlockPort) _then;
+
+/// Create a copy of BlockPort
+/// with the given fields replaced by the non-null parameter values.
+@override @pragma('vm:prefer-inline') $Res call({Object? name = null,Object? ends = null,Object? defaultValue = freezed,Object? description = freezed,Object? oneEnd = null,}) {
+  return _then(_BlockPort(
+null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
+as String,ends: null == ends ? _self._ends : ends // ignore: cast_nullable_to_non_nullable
+as List<PortEnd>,defaultValue: freezed == defaultValue ? _self.defaultValue : defaultValue ,description: freezed == description ? _self.description : description // ignore: cast_nullable_to_non_nullable
+as String?,oneEnd: null == oneEnd ? _self.oneEnd : oneEnd // ignore: cast_nullable_to_non_nullable
+as bool,
+  ));
+}
+
+
+}
+
+/// @nodoc
+mixin _$BlockDef {
+
+/// Its nodes, edges and layout, read as a flow's (an id-less draft).
+ FlowDraft get body; String? get description; List<BlockPort> get inputs; List<BlockPort> get outputs;/// The library version it was copied at; null for a block made in the
+/// flow.
+ int? get libraryVersion;/// Where its inside draws the inputs block and the outputs block.
+ (double, double,)? get inputsAt; (double, double,)? get outputsAt;/// The nodes of [body] its `layout` gave a place, when it was read; the
+/// others stand where the editor put them, and only a placed one is
+/// written back with its place. Null: every node is placed (a block
+/// made or edited in the editor).
+ ISet<String>? get placed;/// The keys of the definition the editor does not read, as JSON, kept
+/// for the write back.
+ IMap<String, Object?> get extra;
+/// Create a copy of BlockDef
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$BlockDefCopyWith<BlockDef> get copyWith => _$BlockDefCopyWithImpl<BlockDef>(this as BlockDef, _$identity);
+
+
+
+@override
+bool operator ==(Object other) {
+  final _this = this as BlockDef;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is BlockDef&&(identical(other.body, _this.body) || other.body == _this.body)&&(identical(other.description, _this.description) || other.description == _this.description)&&const DeepCollectionEquality().equals(other.inputs, _this.inputs)&&const DeepCollectionEquality().equals(other.outputs, _this.outputs)&&(identical(other.libraryVersion, _this.libraryVersion) || other.libraryVersion == _this.libraryVersion)&&(identical(other.inputsAt, _this.inputsAt) || other.inputsAt == _this.inputsAt)&&(identical(other.outputsAt, _this.outputsAt) || other.outputsAt == _this.outputsAt)&&const DeepCollectionEquality().equals(other.placed, _this.placed)&&(identical(other.extra, _this.extra) || other.extra == _this.extra));
+}
+
+
+@override
+int get hashCode {
+  final _this = this as BlockDef;
+  return Object.hash(runtimeType,_this.body,_this.description,const DeepCollectionEquality().hash(_this.inputs),const DeepCollectionEquality().hash(_this.outputs),_this.libraryVersion,_this.inputsAt,_this.outputsAt,const DeepCollectionEquality().hash(_this.placed),_this.extra);
+}
+
+@override
+String toString() {
+  final _this = this as BlockDef;
+  return 'BlockDef(body: ${_this.body}, description: ${_this.description}, inputs: ${_this.inputs}, outputs: ${_this.outputs}, libraryVersion: ${_this.libraryVersion}, inputsAt: ${_this.inputsAt}, outputsAt: ${_this.outputsAt}, placed: ${_this.placed}, extra: ${_this.extra})';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $BlockDefCopyWith<$Res>  {
+  factory $BlockDefCopyWith(BlockDef value, $Res Function(BlockDef) _then) = _$BlockDefCopyWithImpl;
+@useResult
+$Res call({
+ FlowDraft body, String? description, List<BlockPort> inputs, List<BlockPort> outputs, int? libraryVersion, (double, double,)? inputsAt, (double, double,)? outputsAt, ISet<String>? placed, IMap<String, Object?> extra
+});
+
+
+$FlowDraftCopyWith<$Res> get body;
+
+}
+/// @nodoc
+class _$BlockDefCopyWithImpl<$Res>
+    implements $BlockDefCopyWith<$Res> {
+  _$BlockDefCopyWithImpl(this._self, this._then);
+
+  final BlockDef _self;
+  final $Res Function(BlockDef) _then;
+
+/// Create a copy of BlockDef
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') @override $Res call({Object? body = null,Object? description = freezed,Object? inputs = null,Object? outputs = null,Object? libraryVersion = freezed,Object? inputsAt = freezed,Object? outputsAt = freezed,Object? placed = freezed,Object? extra = null,}) {
+  return _then(BlockDef(
+body: null == body ? _self.body : body // ignore: cast_nullable_to_non_nullable
+as FlowDraft,description: freezed == description ? _self.description : description // ignore: cast_nullable_to_non_nullable
+as String?,inputs: null == inputs ? _self.inputs : inputs // ignore: cast_nullable_to_non_nullable
+as List<BlockPort>,outputs: null == outputs ? _self.outputs : outputs // ignore: cast_nullable_to_non_nullable
+as List<BlockPort>,libraryVersion: freezed == libraryVersion ? _self.libraryVersion : libraryVersion // ignore: cast_nullable_to_non_nullable
+as int?,inputsAt: freezed == inputsAt ? _self.inputsAt : inputsAt // ignore: cast_nullable_to_non_nullable
+as (double, double,)?,outputsAt: freezed == outputsAt ? _self.outputsAt : outputsAt // ignore: cast_nullable_to_non_nullable
+as (double, double,)?,placed: freezed == placed ? _self.placed : placed // ignore: cast_nullable_to_non_nullable
+as ISet<String>?,extra: null == extra ? _self.extra : extra // ignore: cast_nullable_to_non_nullable
+as IMap<String, Object?>,
+  ));
+}
+/// Create a copy of BlockDef
+/// with the given fields replaced by the non-null parameter values.
+@override
+@pragma('vm:prefer-inline')
+$FlowDraftCopyWith<$Res> get body {
+  
+  return $FlowDraftCopyWith<$Res>(_self.body, (value) {
+    return _then(_self.copyWith(body: value));
+  });
+}
+}
+
+
+
+/// @nodoc
+
+
+class _BlockDef extends BlockDef {
+  const _BlockDef({required this.body, this.description,  List<BlockPort> inputs = const [],  List<BlockPort> outputs = const [], this.libraryVersion, this.inputsAt, this.outputsAt, this.placed, this.extra = const IMapConst({})}): _inputs = inputs,_outputs = outputs,super._();
+  
+
+/// Its nodes, edges and layout, read as a flow's (an id-less draft).
+@override final  FlowDraft body;
+@override final  String? description;
+ final  List<BlockPort> _inputs;
+@override@JsonKey() List<BlockPort> get inputs {
+  if (_inputs is EqualUnmodifiableListView) return _inputs;
+  // ignore: implicit_dynamic_type
+  return EqualUnmodifiableListView(_inputs);
+}
+
+ final  List<BlockPort> _outputs;
+@override@JsonKey() List<BlockPort> get outputs {
+  if (_outputs is EqualUnmodifiableListView) return _outputs;
+  // ignore: implicit_dynamic_type
+  return EqualUnmodifiableListView(_outputs);
+}
+
+/// The library version it was copied at; null for a block made in the
+/// flow.
+@override final  int? libraryVersion;
+/// Where its inside draws the inputs block and the outputs block.
+@override final  (double, double,)? inputsAt;
+@override final  (double, double,)? outputsAt;
+/// The nodes of [body] its `layout` gave a place, when it was read; the
+/// others stand where the editor put them, and only a placed one is
+/// written back with its place. Null: every node is placed (a block
+/// made or edited in the editor).
+@override final  ISet<String>? placed;
+/// The keys of the definition the editor does not read, as JSON, kept
+/// for the write back.
+@override@JsonKey() final  IMap<String, Object?> extra;
+
+/// Create a copy of BlockDef
+/// with the given fields replaced by the non-null parameter values.
+@override @JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+_$BlockDefCopyWith<_BlockDef> get copyWith => __$BlockDefCopyWithImpl<_BlockDef>(this, _$identity);
+
+
+
+@override
+bool operator ==(Object other) {
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _BlockDef&&(identical(other.body, body) || other.body == body)&&(identical(other.description, description) || other.description == description)&&const DeepCollectionEquality().equals(other.inputs, _inputs)&&const DeepCollectionEquality().equals(other.outputs, _outputs)&&(identical(other.libraryVersion, libraryVersion) || other.libraryVersion == libraryVersion)&&(identical(other.inputsAt, inputsAt) || other.inputsAt == inputsAt)&&(identical(other.outputsAt, outputsAt) || other.outputsAt == outputsAt)&&const DeepCollectionEquality().equals(other.placed, placed)&&(identical(other.extra, extra) || other.extra == extra));
+}
+
+
+@override
+int get hashCode {
+    return Object.hash(runtimeType,body,description,const DeepCollectionEquality().hash(_inputs),const DeepCollectionEquality().hash(_outputs),libraryVersion,inputsAt,outputsAt,const DeepCollectionEquality().hash(placed),extra);
+}
+
+@override
+String toString() {
+    return 'BlockDef(body: $body, description: $description, inputs: $inputs, outputs: $outputs, libraryVersion: $libraryVersion, inputsAt: $inputsAt, outputsAt: $outputsAt, placed: $placed, extra: $extra)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class _$BlockDefCopyWith<$Res> implements $BlockDefCopyWith<$Res> {
+  factory _$BlockDefCopyWith(_BlockDef value, $Res Function(_BlockDef) _then) = __$BlockDefCopyWithImpl;
+@override @useResult
+$Res call({
+ FlowDraft body, String? description, List<BlockPort> inputs, List<BlockPort> outputs, int? libraryVersion, (double, double,)? inputsAt, (double, double,)? outputsAt, ISet<String>? placed, IMap<String, Object?> extra
+});
+
+
+@override $FlowDraftCopyWith<$Res> get body;
+
+}
+/// @nodoc
+class __$BlockDefCopyWithImpl<$Res>
+    implements _$BlockDefCopyWith<$Res> {
+  __$BlockDefCopyWithImpl(this._self, this._then);
+
+  final _BlockDef _self;
+  final $Res Function(_BlockDef) _then;
+
+/// Create a copy of BlockDef
+/// with the given fields replaced by the non-null parameter values.
+@override @pragma('vm:prefer-inline') $Res call({Object? body = null,Object? description = freezed,Object? inputs = null,Object? outputs = null,Object? libraryVersion = freezed,Object? inputsAt = freezed,Object? outputsAt = freezed,Object? placed = freezed,Object? extra = null,}) {
+  return _then(_BlockDef(
+body: null == body ? _self.body : body // ignore: cast_nullable_to_non_nullable
+as FlowDraft,description: freezed == description ? _self.description : description // ignore: cast_nullable_to_non_nullable
+as String?,inputs: null == inputs ? _self._inputs : inputs // ignore: cast_nullable_to_non_nullable
+as List<BlockPort>,outputs: null == outputs ? _self._outputs : outputs // ignore: cast_nullable_to_non_nullable
+as List<BlockPort>,libraryVersion: freezed == libraryVersion ? _self.libraryVersion : libraryVersion // ignore: cast_nullable_to_non_nullable
+as int?,inputsAt: freezed == inputsAt ? _self.inputsAt : inputsAt // ignore: cast_nullable_to_non_nullable
+as (double, double,)?,outputsAt: freezed == outputsAt ? _self.outputsAt : outputsAt // ignore: cast_nullable_to_non_nullable
+as (double, double,)?,placed: freezed == placed ? _self.placed : placed // ignore: cast_nullable_to_non_nullable
+as ISet<String>?,extra: null == extra ? _self.extra : extra // ignore: cast_nullable_to_non_nullable
+as IMap<String, Object?>,
+  ));
+}
+
+/// Create a copy of BlockDef
+/// with the given fields replaced by the non-null parameter values.
+@override
+@pragma('vm:prefer-inline')
+$FlowDraftCopyWith<$Res> get body {
+  
+  return $FlowDraftCopyWith<$Res>(_self.body, (value) {
+    return _then(_self.copyWith(body: value));
+  });
+}
+}
+
+// dart format on

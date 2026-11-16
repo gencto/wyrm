@@ -166,7 +166,7 @@ CustomBlockSpec customBlockSpecOf({
 /// What is wrong with [name] for a custom block of a flow with [defs]
 /// (`Rename`); null: it is free.
 BlockNameProblem? blockNameProblemOf(
-  Map<String, Map<String, Object?>> defs,
+  Map<String, BlockDef> defs,
   String name,
 ) => !blockNameOk(name)
     ? BlockNameProblem.name

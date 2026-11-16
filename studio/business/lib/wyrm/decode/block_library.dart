@@ -1,8 +1,10 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/block_def.dart';
 import 'package:models/block_info.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../mappers/values.dart';
+import 'block_def.dart';
 import 'decoded.dart';
 
 // The site's library of custom blocks (`dataflows` ▸ `list_blocks`,
@@ -52,8 +54,8 @@ List<BlockInfo> blockListOf(List<Value> rows, {required String where}) {
 }
 
 /// `get_block`'s answer `{name, version, def, requires}`: the block's
-/// definition and those of the library blocks it uses, as JSON (a flow
-/// copies them into its `blocks` as they came).
+/// definition and those of the library blocks it uses, decoded (a flow
+/// copies them into its `blocks`).
 final class LibraryBlock {
   const LibraryBlock({
     required this.version,
@@ -62,12 +64,13 @@ final class LibraryBlock {
   });
 
   final int version;
-  final Map<String, Object?> def;
-  final Map<String, Map<String, Object?>> requires;
+  final BlockDef def;
+  final Map<String, BlockDef> requires;
 }
 
 /// `get_block`'s answer. [Invalid] when it is no map, has no whole
-/// `version`, its `def` is no map, or `requires` is no map of maps.
+/// `version`, its `def` is no block definition ([blockDefOf]), or
+/// `requires` is no map of them.
 Decoded<LibraryBlock> libraryBlockOf(Value answer) {
   if (answer is! VMap) {
     return const Invalid('library block', '', 'not a map');
@@ -77,27 +80,47 @@ Decoded<LibraryBlock> libraryBlockOf(Value answer) {
     return const Invalid('library block', 'version', 'not a whole number');
   }
   final def = switch (toDart(answer['def'])) {
-    final Map<String, Object?> m => m,
-    _ => null,
+    final Map<String, Object?> m => blockDefOf(m),
+    _ => const Invalid<BlockDef>('library block', '', 'not a map'),
   };
-  if (def == null) {
-    return const Invalid('library block', 'def', 'not a map');
+  if (def case Invalid(:final field, :final reason)) {
+    return Invalid(
+      'library block',
+      field.isEmpty ? 'def' : 'def.$field',
+      reason,
+    );
   }
-  final requires = <String, Map<String, Object?>>{};
+  final requires = <String, BlockDef>{};
   switch (toDart(answer['requires'])) {
     case null:
       break;
     case final Map<String, Object?> m:
       for (final MapEntry(:key, :value) in m.entries) {
-        if (value is! Map<String, Object?>) {
-          return Invalid('library block', 'requires.$key', 'not a map');
+        switch (value) {
+          case final Map<String, Object?> v:
+            switch (blockDefOf(v)) {
+              case Valid(value: final d):
+                requires[key] = d;
+              case Invalid(:final field, :final reason):
+                return Invalid(
+                  'library block',
+                  field.isEmpty ? 'requires.$key' : 'requires.$key.$field',
+                  reason,
+                );
+            }
+          default:
+            return Invalid('library block', 'requires.$key', 'not a map');
         }
-        requires[key] = value;
       }
     default:
       return const Invalid('library block', 'requires', 'not a map');
   }
-  return Valid(LibraryBlock(version: version, def: def, requires: requires));
+  return switch (def) {
+    Valid(value: final d) => Valid(
+      LibraryBlock(version: version, def: d, requires: requires),
+    ),
+    final Invalid<BlockDef> i => Invalid(i.shape, i.field, i.reason),
+  };
 }
 
 /// The version `put_block` answers (`{version}`); [Invalid] without one.
@@ -111,6 +134,9 @@ Decoded<int> putBlockVersionOf(Value answer) => switch (integer(
 /// The arguments of `get_block` and `remove_block`: `{name}`.
 Value nameArgs(String name) => VMap({'name': VStr(name)});
 
-/// The arguments of `put_block`: `{name, def}`.
-Value putBlockArgs(String name, Map<String, Object?> def) =>
-    Value.from({'name': name, 'def': def});
+/// The arguments of `put_block`: `{name, def}`, the definition without
+/// the editor's mark of where it came from.
+Value putBlockArgs(String name, BlockDef def) => Value.from({
+  'name': name,
+  'def': blockDefJsonOf(def.copyWith(libraryVersion: null)),
+});

@@ -618,9 +618,7 @@ InspectorRow _row(
           ? scopeProblemOf(v is String ? v : '')
           : null,
       // `Run on start` asks first, with the catalog's own warning.
-      confirm:
-          p.key == BlockCfgKey.runOnStart &&
-              hint.startsWith('WARNING:')
+      confirm: p.key == BlockCfgKey.runOnStart && hint.startsWith('WARNING:')
           ? hint
           : null,
       editor: items != null

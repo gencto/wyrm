@@ -13,7 +13,6 @@ import 'package:models/node_type.dart';
 import 'package:models/palette_entry.dart';
 import 'package:wyrm_client/wyrm_client.dart' show TypeCode;
 
-import '../decode/block_def.dart';
 import '../labels.dart';
 import '../mappers/flow_blocks.dart';
 import '../mappers/flow_fields.dart';
@@ -259,7 +258,7 @@ IList<CatalogEntry> catalogOf(IList<NodeType> types) => [
 /// site's [library]; [config] what saving to the library lacks.
 IList<MyBlockEntry> myBlocksOf(
   FlowDraft? flow,
-  Map<String, Map<String, Object?>> defs, {
+  Map<String, BlockDef> defs, {
   required IList<BlockInfo> library,
   required IList<FlowFrame> frames,
   required Lack? config,
@@ -273,10 +272,10 @@ IList<MyBlockEntry> myBlocksOf(
       () {
         final used = flow == null ? 0 : instancesOf(flow, name);
         final l = lib[name];
-        final copied = libraryVersionOf(def);
+        final copied = def.libraryVersion;
         return MyBlockEntry(
           name: name,
-          description: blockDefOrWarn(name, def)?.description,
+          description: def.description,
           used: used,
           updateTo: l != null && l.version != copied ? l.version : null,
           insideItself: frames.any((f) => f.block == name),

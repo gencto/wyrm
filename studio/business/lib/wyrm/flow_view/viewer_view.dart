@@ -217,9 +217,7 @@ ViewerView? viewerViewOf(
       ),
     },
     locked: how.locked,
-    csv:
-        b.type.known == KnownBlock.tableFromCsv &&
-            f.port == EnginePort.in_
+    csv: b.type.known == KnownBlock.tableFromCsv && f.port == EnginePort.in_
         ? _csvRules(b, all, d, live)
         : null,
   );

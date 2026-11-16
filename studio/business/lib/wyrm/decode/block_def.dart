@@ -1,7 +1,8 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
-import 'package:models/block_type.dart';
+import 'package:models/block_def.dart';
+import 'package:models/flow_block.dart';
 import 'package:models/flow_draft.dart';
-import 'package:models/port_end.dart';
+import 'package:models/flow_edge.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import 'decoded.dart';
@@ -12,71 +13,12 @@ import 'flow_def.dart';
 // description?}], outputs: [{name, from, description?}], nodes, edges,
 // layout}`.
 //
-// A definition keeps its blocks as they came, as JSON, in the draft's
-// `rest['blocks']`: they go back to the engine and to the library as they
-// are, and the editor changes them only through the functions of
-// `mappers/flow_blocks.dart`. What the editor reads of one — its ports,
-// their wires, its description, its body, the library version it was
-// copied at, where its inside draws the boundary blocks — is read here,
-// by [blockDefOf], and only here.
+// A definition's blocks are read once, with the flow ([flowReadOf]), into
+// typed [BlockDef]s the draft holds ([FlowDraft.defs]); they go back to the
+// engine, the library and the clipboard through [blockDefJsonOf]. Both
+// ways are here, and only here.
 
 const _shape = 'block def';
-
-/// One declared input or output of a custom block.
-final class BlockPort {
-  const BlockPort(
-    this.name, {
-    this.ends = const [],
-    this.defaultValue,
-    this.description,
-  });
-
-  final String name;
-
-  /// An input: the inner inputs it feeds (`to`); an output: the one inner
-  /// output it sends (`from`).
-  final List<PortEnd> ends;
-  final Object? defaultValue;
-  final String? description;
-}
-
-/// A custom block's definition, read.
-final class BlockDef {
-  const BlockDef({
-    required this.body,
-    this.description,
-    this.inputs = const [],
-    this.outputs = const [],
-    this.libraryVersion,
-    this.inputsAt,
-    this.outputsAt,
-  });
-
-  final String? description;
-  final List<BlockPort> inputs;
-  final List<BlockPort> outputs;
-
-  /// Its nodes, edges and layout, read as a flow's (an id-less draft).
-  final FlowDraft body;
-
-  /// The library version it was copied at; null for a block made in the
-  /// flow.
-  final int? libraryVersion;
-
-  /// Where its inside draws the inputs block and the outputs block.
-  final (double, double)? inputsAt;
-  final (double, double)? outputsAt;
-
-  /// The custom blocks its nodes are instances of, by name.
-  Set<String> get uses => {
-    for (final b in body.blocks.values)
-      if (b.type case CustomType(:final name)) name,
-  };
-
-  /// How many of its nodes are instances of [type].
-  int instances(CustomType type) =>
-      body.blocks.values.where((b) => b.type == type).length;
-}
 
 /// The editor's keys of a block's `layout` (spec 06 0.2.26: the engine
 /// reads none of it): where the inside view keeps the two boundary blocks,
@@ -85,45 +27,21 @@ const inputsAtKey = '_~port~in';
 const outputsAtKey = '_~port~out';
 const libraryMarkKey = '_~lib~version';
 
-/// The custom blocks a definition's [rest] holds (`blocks`), by name, as
-/// JSON. A `blocks` that is no map, or an entry of it that is none, is
-/// left out with a warning.
-Map<String, Map<String, Object?>> blockDefsIn(IMap<String, Object?> rest) {
-  final out = <String, Map<String, Object?>>{};
-  switch (rest['blocks']) {
-    case null:
-      break;
-    case final Map<Object?, Object?> m:
-      for (final MapEntry(:key, :value) in m.entries) {
-        if ((key, value) case (
-          final String k,
-          final Map<String, Object?> v,
-        )) {
-          out[k] = v;
-        } else {
-          decodeLog.warning('$_shape: blocks.$key: not a map');
-        }
-      }
-    default:
-      decodeLog.warning('$_shape: blocks: not a map');
-  }
-  return out;
-}
+/// The inside of a custom block as a draft: its [blocks] and [edges], with
+/// no id (a block's definition has none), as [blockDefOf] reads it.
+FlowDraft blockBodyOf(
+  IMap<String, FlowBlock> blocks, [
+  IList<FlowEdge> edges = const IListConst([]),
+]) => FlowDraft(id: _bodyId, blocks: blocks, edges: edges);
+
+/// The id of a block's inside ([blockBodyOf]).
+const _bodyId = '';
 
 /// The definition [json] of a custom block, read. [Invalid], with the
 /// field, when a port has no `name`, a `to` or a `from` is not
 /// `<node>.<port>`, the description is no text, or its body does not read
 /// as a flow's ([flowReadOf]).
-///
-/// A definition is read once per map: the editor reads the same ones on
-/// every dispatch, and a definition's map is never changed in place (an
-/// edit makes a new one, `withBlockDefs`).
-Decoded<BlockDef> blockDefOf(Map<String, Object?> json) =>
-    _read[json] ??= _blockDefOf(json);
-
-final _read = Expando<Decoded<BlockDef>>('block def');
-
-Decoded<BlockDef> _blockDefOf(Map<String, Object?> json) {
+Decoded<BlockDef> blockDefOf(Map<String, Object?> json) {
   try {
     final layout = _layoutOf(json);
     final Value body;
@@ -136,10 +54,11 @@ Decoded<BlockDef> _blockDefOf(Map<String, Object?> json) {
     } on Object {
       throw const _Bad('nodes', 'not JSON');
     }
-    final draft = switch (flowReadOf('', body)) {
-      Valid(:final value) => value.draft,
+    final read = switch (flowReadOf(_bodyId, body)) {
+      Valid(:final value) => value,
       Invalid(:final field, :final reason) => throw _Bad(field, reason),
     };
+    final draft = read.draft;
     return Valid(
       BlockDef(
         body: draft,
@@ -156,17 +75,17 @@ Decoded<BlockDef> _blockDefOf(Map<String, Object?> json) {
         },
         inputsAt: _at(layout[inputsAtKey]),
         outputsAt: _at(layout[outputsAtKey]),
+        placed: read.placed.length == draft.blocks.length ? null : read.placed,
+        extra: {
+          for (final MapEntry(:key, :value) in json.entries)
+            if (!_read.contains(key)) key: value,
+        }.lock,
       ),
     );
   } on _Bad catch (b) {
     return Invalid(_shape, b.field, b.reason);
   }
 }
-
-/// The definition [json], or null with a warning naming the block [name]
-/// and the field when it does not read.
-BlockDef? blockDefOrWarn(String name, Map<String, Object?> json) =>
-    blockDefOf(json).orWarn('block $name');
 
 Map<String, Object?> _layoutOf(Map<String, Object?> json) =>
     switch (json['layout']) {
@@ -194,6 +113,7 @@ List<BlockPort> _ports(Object? v, String field, String endsKey) {
             final String n when n.isNotEmpty => n,
             _ => throw _Bad('$field[$i].name', 'missing'),
           },
+          oneEnd: m[endsKey] is String,
           ends: [
             for (final e in switch (m[endsKey]) {
               null => const <Object?>[],
@@ -225,50 +145,51 @@ final class _Bad implements Exception {
   final String reason;
 }
 
-// ---------- the other way: definitions changed as JSON ----------
+// ---------- the other way: a definition written back ----------
 
-/// [json] with every node of type [from] made one of type [to] (a block
-/// renamed).
-Map<String, Object?> withInstancesRenamed(
-  Map<String, Object?> json,
-  CustomType from,
-  CustomType to,
-) => {
-  ...json,
-  if (json['nodes'] case final Map<String, Object?> nodes)
-    'nodes': {
-      for (final MapEntry(:key, :value) in nodes.entries)
-        key: switch (value) {
-          final Map<String, Object?> m when m['type'] == from.wire => {
-            ...m,
-            'type': to.wire,
-          },
-          _ => value,
-        },
-    },
-};
+/// The keys of a block's definition the editor reads; any other is kept
+/// in [BlockDef.extra].
+const _read = {'description', 'inputs', 'outputs', 'nodes', 'edges', 'layout'};
 
-/// [json] marked as copied from the library at [version].
-Map<String, Object?> withLibraryVersion(
-  Map<String, Object?> json,
-  int version,
-) => {
-  ...json,
+/// [def] as a flow's `blocks.<name>`, a library's `def` and the clipboard
+/// write it.
+Map<String, Object?> blockDefJsonOf(BlockDef def) => {
+  ...def.extra.unlock,
+  'description': ?def.description,
+  'inputs': [
+    for (final p in def.inputs)
+      {
+        'name': p.name,
+        'to': p.oneEnd && p.ends.length == 1
+            ? p.ends.single.wire
+            : [for (final e in p.ends) e.wire],
+        'default': ?p.defaultValue,
+        'description': ?p.description,
+      },
+  ],
+  'outputs': [
+    for (final p in def.outputs)
+      {
+        'name': p.name,
+        if (p.ends.isNotEmpty) 'from': p.ends.first.wire,
+        'description': ?p.description,
+      },
+  ],
+  'nodes': nodesJsonOf(def.body),
+  'edges': edgesJsonOf(def.body),
   'layout': {
-    ..._layoutOr(json),
-    libraryMarkKey: [version, 0],
+    ...layoutJsonOf(def.body, placed: def.placed),
+    if (def.inputsAt case (final x, final y))
+      inputsAtKey: [x.round(), y.round()],
+    if (def.outputsAt case (final x, final y))
+      outputsAtKey: [x.round(), y.round()],
+    if (def.libraryVersion case final v?) libraryMarkKey: [v, 0],
   },
 };
 
-/// [json] as the library takes it: without the editor's mark of where it
-/// came from.
-Map<String, Object?> libraryDefOf(Map<String, Object?> json) => {
-  ...json,
-  'layout': {..._layoutOr(json)}..remove(libraryMarkKey),
+/// [defs] as a definition's `blocks`.
+Map<String, Map<String, Object?>> blockDefsJsonOf(
+  IMap<String, BlockDef> defs,
+) => {
+  for (final MapEntry(:key, :value) in defs.entries) key: blockDefJsonOf(value),
 };
-
-Map<String, Object?> _layoutOr(Map<String, Object?> json) =>
-    switch (json['layout']) {
-      final Map<String, Object?> m => m,
-      _ => const {},
-    };

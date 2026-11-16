@@ -41,6 +41,7 @@ abstract class ParamSpec with _$ParamSpec {
     /// `params[].scope`, ADR 0040 §1: `key` → `key_scope`): a key from the
     /// field's port is read only inside it.
     String? scope,
+
     /// The config key the flow editor knows this parameter as, decoded
     /// from [name] with the catalog (`dataflows` ▸ `node_types`); null for
     /// any other parameter, and for a parameter that is no flow node's.

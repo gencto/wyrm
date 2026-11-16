@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/block_def.dart';
 import 'package:models/flow_draft.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -82,7 +84,7 @@ Decoded<FlowDraft> clipOf(String? text) {
 /// The blocks [part] (already cut out of a draft, no boundary block) as
 /// clipboard text, with the definitions [defs] of the custom blocks it
 /// uses. Null when [part] has no block.
-String? clipTextFor(FlowDraft part, Map<String, Map<String, Object?>> defs) {
+String? clipTextFor(FlowDraft part, Map<String, BlockDef> defs) {
   if (part.blocks.isEmpty) {
     return null;
   }
@@ -91,10 +93,9 @@ String? clipTextFor(FlowDraft part, Map<String, Map<String, Object?>> defs) {
     'nodes': nodesJsonOf(part),
     'edges': edgesJsonOf(part),
     'layout': layoutJsonOf(part),
-    if (defs.isNotEmpty) 'blocks': defs,
+    if (defs.isNotEmpty) 'blocks': blockDefsJsonOf(defs.lock),
   });
 }
 
-/// The custom blocks a clip brought ([FlowDraft.rest] `blocks`).
-Map<String, Map<String, Object?>> clipBlocksOf(FlowDraft clip) =>
-    blockDefsIn(clip.rest);
+/// The custom blocks a clip brought (its `blocks`, decoded with it).
+Map<String, BlockDef> clipBlocksOf(FlowDraft clip) => clip.defs.unlock;

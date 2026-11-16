@@ -1,10 +1,13 @@
 import 'package:business/wyrm/decode/block_def.dart';
 import 'package:business/wyrm/decode/block_library.dart';
 import 'package:business/wyrm/decode/decoded.dart';
+import 'package:business/wyrm/decode/flow_def.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:models/block_def.dart';
 import 'package:models/block_info.dart';
 import 'package:models/block_type.dart';
+import 'package:models/flow_draft.dart';
 import 'package:models/port_end.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -43,6 +46,12 @@ void main() {
     Valid(:final value) => value,
     final Invalid<BlockDef> i => fail('$i'),
   };
+
+  FlowDraft draft(Object? blocks) =>
+      switch (flowReadOf('f', Value.from({'blocks': blocks}))) {
+        Valid(:final value) => value.draft,
+        final Invalid<FlowRead> i => fail('$i'),
+      };
 
   test('a block definition reads its ports, ends, body and marks', () {
     final d = valid(mean);
@@ -96,30 +105,42 @@ void main() {
     expect(bad({'layout': 3}).field, 'layout');
   });
 
-  test('the blocks of a definition: a map of maps; others left out', () {
-    expect(blockDefsIn(IMap(const {})), isEmpty);
-    expect(blockDefsIn(IMap(const {'blocks': 'x'})), isEmpty);
+  test('the blocks of a definition are read with it; a broken one refuses '
+      'the flow, naming its field', () {
+    String field(Object? blocks) =>
+        switch (flowReadOf('f', Value.from({'blocks': blocks}))) {
+          Invalid(:final field) => field,
+          Valid() => fail('read'),
+        };
+    expect(draft(null).defs, isEmpty);
+    expect(draft({'mean': mean}).defs.keys, ['mean']);
+    expect(draft({'mean': mean}).rest.containsKey('blocks'), isFalse);
+    expect(field('x'), 'blocks');
+    expect(field({'mean': mean, 'bad': 1}), 'blocks.bad');
     expect(
-      blockDefsIn(
-        IMap({
-          'blocks': {'mean': mean, 'bad': 1},
-        }),
-      ).keys,
-      ['mean'],
+      field({
+        'bad': {'description': 3},
+      }),
+      'blocks.bad.description',
     );
   });
 
-  test('renamed instances, the library mark set and taken off', () {
-    final r = withInstancesRenamed(
-      mean,
-      const CustomType('twice'),
-      const CustomType('double'),
+  test('a definition is written back as it came', () {
+    expect(Value.from(blockDefJsonOf(valid(mean))), Value.from(mean));
+    final d = draft({'mean': mean});
+    expect(
+      (defJsonOf(d, 1)['blocks']! as Map)['mean'],
+      blockDefJsonOf(valid(mean)),
     );
-    expect(valid(r).uses, {'double'});
-    final marked = withLibraryVersion(mean, 9);
-    expect(valid(marked).libraryVersion, 9);
-    expect(valid(libraryDefOf(marked)).libraryVersion, isNull);
-    expect(valid(libraryDefOf(marked)).inputsAt, (40.0, 60.0));
+  });
+
+  test('the library mark set and taken off', () {
+    final marked = valid(mean).copyWith(libraryVersion: 9);
+    expect(valid(blockDefJsonOf(marked)).libraryVersion, 9);
+    final put = putBlockArgs('mean', marked);
+    final def = (put.toDart()! as Map)['def']! as Map<String, Object?>;
+    expect(valid(def).libraryVersion, isNull);
+    expect(valid(def).inputsAt, (40.0, 60.0));
   });
 
   group('the library', () {
@@ -217,7 +238,12 @@ void main() {
       expect(putBlockVersionOf(Value.from({'version': 5})), const Valid(5));
       expect(putBlockVersionOf(const VNull()), isA<Invalid<int>>());
       expect(nameArgs('mean'), Value.from({'name': 'mean'}));
-      expect(putBlockArgs('mean', mean)['def'], Value.from(mean));
+      // The library takes the definition without the editor's mark.
+      final unmarked = {
+        ...mean,
+        'layout': {...(mean['layout']! as Map)}..remove(libraryMarkKey),
+      };
+      expect(putBlockArgs('mean', valid(mean))['def'], Value.from(unmarked));
     });
   });
 }

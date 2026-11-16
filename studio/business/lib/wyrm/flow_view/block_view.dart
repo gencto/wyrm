@@ -384,8 +384,7 @@ IList<WireView> wireViewsOf(
         writes: writes,
         // Only `in` acts on a value sent at start; a trigger, an
         // argument and a behaviour never do (ADR 0040 §2).
-        firesAtDeploy:
-            writes && fromParam && e.target.known == EnginePort.in_,
+        firesAtDeploy: writes && fromParam && e.target.known == EnginePort.in_,
       );
     }(),
 ].lock;

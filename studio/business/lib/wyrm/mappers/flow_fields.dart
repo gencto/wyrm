@@ -1194,8 +1194,7 @@ List<FlowField> fieldsOf(
           port: t.knownOutputs[p],
           // A `subscribe` output is its point's value, named after the
           // point; a `liveliness` output is whether its node is there.
-          label:
-              _reads.contains(known) && t.knownOutputs[p] == EnginePort.out
+          label: _reads.contains(known) && t.knownOutputs[p] == EnginePort.out
               ? (outputLabelOverrides[known]?[p] ??
                     pointName ??
                     fieldLabel(b.type, p))

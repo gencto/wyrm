@@ -425,11 +425,7 @@ class FlowApp {
 
   /// The names of the custom blocks the draft on the canvas defines (the
   /// definition's `blocks`).
-  Set<String> get blockDefs =>
-      switch (store.state.flowEditor.draft?.rest['blocks']) {
-        final Map<Object?, Object?> m => {for (final k in m.keys) '$k'},
-        _ => const {},
-      };
+  Set<String> get blockDefs => {...?store.state.flowEditor.draft?.defs.keys};
 
   static String _name(Object v) => v is Enum ? v.name : '$v';
 

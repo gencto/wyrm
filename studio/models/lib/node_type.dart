@@ -15,6 +15,7 @@ abstract class NodeType with _$NodeType {
   const factory NodeType({
     required BlockType type,
     @Default('') String category,
+
     /// [category] as a palette section the editor knows, decoded with the
     /// catalog; null for a category the engine adds later (it is drawn by
     /// its text, after the known ones).
@@ -22,11 +23,13 @@ abstract class NodeType with _$NodeType {
     @Default('') String description,
     @Default(IListConst([])) IList<String> inputs,
     @Default(IListConst([])) IList<String> outputs,
+
     /// The ports of [inputs] the editor treats in its own way
     /// ([EnginePort]), by name, decoded with the catalog. A port with
     /// another name is not here; nor are a custom block's ports, which are
     /// its author's names.
     @Default(IMapConst({})) IMap<String, EnginePort> knownInputs,
+
     /// The ports of [outputs] the editor treats in its own way, as
     /// [knownInputs].
     @Default(IMapConst({})) IMap<String, EnginePort> knownOutputs,
