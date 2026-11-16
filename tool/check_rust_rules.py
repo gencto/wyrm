@@ -842,13 +842,17 @@ def a2(s: Source) -> list[int]:
     return s.hits("A2", hits)
 
 
-DISCARD = re.compile(r"(?<!fn )\b(?:files::)?discard(?:_dir|_empty_dir)?\s*\(")
+# Any mention of the helpers in code: a call, a function passed as a value
+# (`.inspect_err(files::discard_dir)`), an import (`use …::files::{discard as rm}`), so no
+# use of them escapes the count; a definition (`fn discard`) is not one.
+DISCARD = re.compile(r"(?<!fn )\b(?:discard|discard_dir|discard_empty_dir)\b")
 
 
 def a3(s: Source) -> list[int]:
     """Every removal whose error is only logged, counted like an exception so a new one shows
-    in review: each call of `wyrm_core::files::discard`, `discard_dir` and
-    `discard_empty_dir` (scratch files only, rule 10). Their own file is not counted."""
+    in review: each mention of `wyrm_core::files::discard`, `discard_dir` and
+    `discard_empty_dir` in code (a call, a function value, an import; scratch files only,
+    rule 10). Their own file is not counted."""
     if s.path == "crates/wyrm-core/src/files.rs":
         return []
     return s.hits("A3", [m.start() for m in DISCARD.finditer(s.masked)])
@@ -958,6 +962,8 @@ PROBES = [
     ),
     ("A3", "crates/wyrm-core/src/files.rs", "pub fn discard(p: &Path) { log(p) }", 0),
     ("A3", "x.rs", "fn discard(p: &Path) {}\n// files::discard(p)", 0),
+    ("A3", "x.rs", "fn f(r: io::Result<()>, p: &Path) { r.inspect_err(|_| ()); ps.iter().for_each(|p| ()); xs.for_each(wyrm_core::files::discard); }", 1),
+    ("A3", "x.rs", "use wyrm_core::files::{discard_dir as rm, gone_ok};\nfn f(p: &Path) { rm(p); }", 1),
     ("C6", "x.rs", 'const NAMES: [&str; 2] = ["a", "b"];', 2),
     ("C6", "x.rs", "trait T { const NAMES: &'static [&'static str]; }", 0),
     ("C6", "x.rs", "trait T { const PAIRS: &'static [(&'static str, &'static str)]; }", 0),

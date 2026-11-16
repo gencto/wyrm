@@ -1597,7 +1597,7 @@ pub(super) async fn declare(ctx: &LinkCtx) -> wyrm_link_sdk::Result<()> {
                 str_param()
                     .required(true)
                     .display("Mode")
-                    .enum_values(["add", "replace"])
+                    .enum_values(RestoreMode::NAMES.iter().copied())
                     .description(
                         "add: what does not exist yet, live. replace: the broker stops and \
                          applies it at the next start",

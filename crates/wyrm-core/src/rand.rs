@@ -9,12 +9,8 @@
 //!
 //! Behind the feature `rand` (`ring` adds [`secure_random`]): `wyrm-core` builds for
 //! wasm32, where a portable link takes randomness from its host
-//! (`Host::random_bytes`), never from here.
-#![allow(
-    clippy::disallowed_methods,
-    reason = "the one module that calls the OS random source; clippy.toml bans the calls \
-              everywhere else, and every other crate calls this module"
-)]
+//! (`Host::random_bytes`), never from here. Each of the three functions carries its
+//! own `allow` of the ban, the only ones in the workspace.
 
 /// The OS gave no randomness.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -28,12 +24,20 @@ impl From<getrandom::Error> for NoRandomness {
 }
 
 /// Fill `buf` from the OS, or fail.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the workspace's one call of getrandom::fill; clippy.toml bans it everywhere else"
+)]
 pub fn fill(buf: &mut [u8]) -> Result<(), NoRandomness> {
     Ok(getrandom::fill(buf)?)
 }
 
 /// `N` random bytes, or fail. The buffer starts uninitialized: no byte of the result
 /// is a constant the OS did not write.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the workspace's one call of getrandom::fill_uninit; clippy.toml bans it everywhere else"
+)]
 pub fn bytes<const N: usize>() -> Result<[u8; N], NoRandomness> {
     let mut b = [std::mem::MaybeUninit::<u8>::uninit(); N];
     let filled = getrandom::fill_uninit(&mut b)?;
@@ -48,6 +52,10 @@ pub fn bytes<const N: usize>() -> Result<[u8; N], NoRandomness> {
 /// RSA PKCS#1 or ECDSA signature, a key pair made by ring). Its own failure is a
 /// ring error the caller refuses with.
 #[cfg(feature = "ring")]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the workspace's one SystemRandom; clippy.toml bans SystemRandom::new everywhere else"
+)]
 pub fn secure_random() -> ring::rand::SystemRandom {
     ring::rand::SystemRandom::new()
 }

@@ -20,6 +20,9 @@ disallowed-methods = [
     { path = "getrandom::u32", reason = "use wyrm_core::rand::bytes (one source, fails closed)" },
     { path = "getrandom::u64", reason = "use wyrm_core::rand::bytes (one source, fails closed)" },
     { path = "ring::rand::SystemRandom::new", reason = "use wyrm_core::rand::secure_random (feature `ring`)" },
+    # draws from `OsRng`, which panics without randomness; a value `&mut OsRng` is no type
+    # use, so the type ban below does not see it
+    { path = "password_hash::SaltString::generate", reason = "use SaltString::encode_b64 of wyrm_core::rand::bytes::<16>()", allow-invalid = true },
 ]
 disallowed-types = [
     { path = "rand_core::OsRng", reason = "panics when the OS gives no randomness: use wyrm_core::rand::bytes", allow-invalid = true },

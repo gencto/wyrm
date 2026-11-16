@@ -396,8 +396,11 @@ calls that take a `SecureRandom`), whose `NoRandomness` the caller refuses
 with; a link refuses the session or the call (the SNMP link opens no session
 without a random salt). `clippy.toml` bans the direct calls
 (`getrandom::fill`, `fill_uninit`, `u32`, `u64`, `ring::rand::SystemRandom::new`,
-the type `rand_core::OsRng`, which panics); `wyrm_core::rand` is the one module
-that allows them. A portable link takes randomness from its host
+`password_hash::SaltString::generate` and the type `rand_core::OsRng`, which
+panic without randomness); the three functions of `wyrm_core::rand` are the only
+items that allow them, each with its own `allow`. Randomness inside a library
+call that returns a `Result` (rustls, `rcgen::KeyPair::generate`) is that
+library's, not a second source of ours. A portable link takes randomness from its host
 (`Host::random_bytes`); the SCRAM clock nonce of `wyrm-history-sync`, for a host
 that answers `not_supported`, calls no random source.
 
