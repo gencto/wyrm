@@ -304,12 +304,13 @@ BlockView blockViewOf(
                 unit: info?.unit,
                 choices: info?.choices.unlock ?? const [],
               ),
-              null => switch (f.name) {
+              null => switch (f.port) {
                 // A command is a button: it shows no value.
                 _ when f.command => '',
                 _ when group == FieldGroup.events =>
                   eventText(live(portKey(PortSide.output, b.id, f.name))) ?? '',
-                'last_run' when behaves => lastRunText(value.raw) ?? '',
+                EnginePort.lastRun when behaves =>
+                  lastRunText(value.raw) ?? '',
                 _ => value.text,
               },
             },

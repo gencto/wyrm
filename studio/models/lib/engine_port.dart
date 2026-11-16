@@ -23,7 +23,9 @@ enum EnginePort {
   start('start'),
   end('end'),
   // `scale`'s and `bound`'s range form.
-  inputOutOfRange('input_out_of_range');
+  inputOutOfRange('input_out_of_range'),
+  // `stats`' mean.
+  avg('avg');
 
   const EnginePort(this.wire);
 

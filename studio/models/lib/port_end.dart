@@ -1,3 +1,4 @@
+import 'block_cfg_key.dart';
 import 'engine_port.dart';
 
 /// One end of a wire: port [port] of block [block] (spec 06 edges:
@@ -7,7 +8,12 @@ final class PortEnd {
   /// into [known].
   PortEnd(this.block, this.port)
     : known = EnginePort.fromWire(port),
-      param = paramOfPort(port);
+      param = paramOfPort(port),
+      paramKey = switch (paramOfPort(port)) {
+        final p? => BlockCfgKey.fromWire(p),
+        null => null,
+      },
+      echoKey = BlockCfgKey.fromWire(port);
 
   final String block;
 
@@ -22,6 +28,14 @@ final class PortEnd {
   /// The parameter or operand whose input [port] is (`in.<name>`, ADR
   /// 0038 §2); null for any other port.
   final String? param;
+
+  /// [param] as a parameter the editor knows ([BlockCfgKey]); null for
+  /// any other.
+  final BlockCfgKey? paramKey;
+
+  /// [port] named as a parameter the editor knows: the parameter's echo
+  /// output (ADR 0038 §1); null for any other name.
+  final BlockCfgKey? echoKey;
 
   /// The input port of parameter or operand [name]: `in.<name>`.
   static String inputOf(String name) => '$_inMark$name';

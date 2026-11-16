@@ -746,7 +746,12 @@ String blockLabel(BlockType type) => switch (type) {
 };
 
 /// The fields that say when a command or a read runs (ADR 0040 §2).
-const behaviourParams = {'interval_ms', 'auto_run', 'enabled', 'run_on_start'};
+const behaviourParams = <BlockCfgKey>{
+  BlockCfgKey.intervalMs,
+  BlockCfgKey.autoRun,
+  BlockCfgKey.enabled,
+  BlockCfgKey.runOnStart,
+};
 
 /// Whether blocks of [t] have behaviours: a `trigger` input and the event
 /// outputs (`invoke`, `set`, `load_value`, `list_children` since ADR 0040).
@@ -758,17 +763,36 @@ bool behavesOf(NodeType? t) =>
 /// The inspector's groups of a block with behaviours (flow-editor.md §19).
 enum FieldGroup { none, target, arguments, behaviour, events, state }
 
-const _behaviourOrder = [
-  'trigger',
-  'in',
-  'auto_run',
-  'interval_ms',
-  'enabled',
-  'run_on_start',
-  'on',
-  'deadband',
-  'allow_bad',
+/// The behaviour inputs in the order the inspector lists them: before
+/// the parameters ([_behaviourParamOrder]).
+const _behaviourInputOrder = <EnginePort>[EnginePort.trigger, EnginePort.in_];
+
+/// The behaviour parameters in the order the inspector lists them.
+const _behaviourParamOrder = <BlockCfgKey>[
+  BlockCfgKey.autoRun,
+  BlockCfgKey.intervalMs,
+  BlockCfgKey.enabled,
+  BlockCfgKey.runOnStart,
+  BlockCfgKey.on,
+  BlockCfgKey.deadband,
+  BlockCfgKey.allowBad,
 ];
+
+/// Where [f] stands among a block's behaviours; after them all when it is
+/// none.
+int _behaviourRank(FlowField f) {
+  final param = f.kind == FieldKind.param ? f.spec?.key : null;
+  final i = param != null
+      ? _behaviourParamOrder.indexOf(param)
+      : switch ((f.kind, f.port)) {
+          (FieldKind.input, final port?) => _behaviourInputOrder.indexOf(port),
+          _ => -1,
+        };
+  if (i < 0) {
+    return _behaviourInputOrder.length + _behaviourParamOrder.length;
+  }
+  return param != null ? _behaviourInputOrder.length + i : i;
+}
 
 /// The group field [f] of [b] is listed under; [FieldGroup.none] for a
 /// type without behaviours.
@@ -779,7 +803,7 @@ FieldGroup groupOf(NodeType? t, FlowBlock b, FlowField f) {
   return switch (f.kind) {
     FieldKind.arg => FieldGroup.arguments,
     FieldKind.param =>
-      _behaviourOrder.contains(f.name)
+      _behaviourParamOrder.contains(f.spec?.key)
           ? FieldGroup.behaviour
           : FieldGroup.target,
     FieldKind.input =>
@@ -794,32 +818,32 @@ FieldGroup groupOf(NodeType? t, FlowBlock b, FlowField f) {
 }
 
 /// Outputs that say more under their own name than as `Output`.
-const outputLabelOverrides = <KnownBlock, Map<String, String>>{
+const outputLabelOverrides = <KnownBlock, Map<EnginePort, String>>{
   // A presence, not a value (docs/flow-blocks.md, "A key from a port").
-  KnownBlock.liveliness: {'out': 'Alive'},
-  KnownBlock.invoke: {'out': 'Result'},
-  KnownBlock.stats: {'avg': 'Average'},
-  KnownBlock.alarm: {'out': 'Active'},
-  KnownBlock.timer: {'out': 'Count'},
-  KnownBlock.constant: {'out': 'Value'},
+  KnownBlock.liveliness: {EnginePort.out: 'Alive'},
+  KnownBlock.invoke: {EnginePort.out: 'Result'},
+  KnownBlock.stats: {EnginePort.avg: 'Average'},
+  KnownBlock.alarm: {EnginePort.out: 'Active'},
+  KnownBlock.timer: {EnginePort.out: 'Count'},
+  KnownBlock.constant: {EnginePort.out: 'Value'},
 };
 
 /// Parameters a block of a type lists in the inspector only, though they
 /// have a port or a default (docs/flow-blocks.md, the editor's table): the
 /// rows that crowd the block and that few flows set. A wire or the user's
 /// pin still puts them on the block.
-const inspectorOnly = <KnownBlock, Set<String>>{
-  KnownBlock.loadHistory: {'limit', 'time_zone'},
-  KnownBlock.tableFilter: {'expr'},
-  KnownBlock.tableRemoveRows: {'expr'},
-  KnownBlock.tableEditRows: {'expr'},
+const inspectorOnly = <KnownBlock, Set<BlockCfgKey>>{
+  KnownBlock.loadHistory: {BlockCfgKey.limit, BlockCfgKey.timeZone},
+  KnownBlock.tableFilter: {BlockCfgKey.expr},
+  KnownBlock.tableRemoveRows: {BlockCfgKey.expr},
+  KnownBlock.tableEditRows: {BlockCfgKey.expr},
 };
 
 /// Parameters of which the engine needs one or the other: both are rows
 /// of the block, though neither has a default.
-const _oneOf = <KnownBlock, Set<String>>{
-  KnownBlock.deadband: {'abs', 'pct'},
-  KnownBlock.alarm: {'high', 'low'},
+const _oneOf = <KnownBlock, Set<BlockCfgKey>>{
+  KnownBlock.deadband: {BlockCfgKey.abs, BlockCfgKey.pct},
+  KnownBlock.alarm: {BlockCfgKey.high, BlockCfgKey.low},
 };
 
 /// What a field named [name] of a block of [type] reads in Studio: the
@@ -867,46 +891,44 @@ enum BlockFormId {
 /// at a time; the first is the default and needs nothing in the config.
 final class BlockForm {
   const BlockForm(
-    this.id,
-    this.label, {
+    this.id, {
     this.params = const {},
     this.outputs = const {},
     this.defaults = const {},
   });
 
+  /// Which form it is (the inspector words it).
   final BlockFormId id;
-
-  /// What the inspector's choice reads.
-  final String label;
 
   /// The parameters only this form uses (with their `in.<p>` ports and
   /// echo outputs).
-  final Set<String> params;
+  final Set<BlockCfgKey> params;
 
   /// The outputs only this form sends.
-  final Set<String> outputs;
+  final Set<EnginePort> outputs;
 
   /// The engine's defaults of [params], for a catalog that does not give
   /// them (before ADR 0038).
-  final Map<String, Object> defaults;
-
-  /// Whether [name] (a parameter or an output) belongs to this form.
-  bool owns(String name) => params.contains(name) || outputs.contains(name);
+  final Map<BlockCfgKey, Object> defaults;
 }
 
 const _forms = <KnownBlock, List<BlockForm>>{
   KnownBlock.scale: [
-    BlockForm(BlockFormId.linear, 'k × in + b', params: {'k', 'b'}),
+    BlockForm(BlockFormId.linear, params: {BlockCfgKey.k, BlockCfgKey.b}),
     BlockForm(
       BlockFormId.range,
-      'Range',
-      params: {'input_min', 'input_max', 'output_min', 'output_max'},
-      outputs: {'input_out_of_range'},
+      params: {
+        BlockCfgKey.inputMin,
+        BlockCfgKey.inputMax,
+        BlockCfgKey.outputMin,
+        BlockCfgKey.outputMax,
+      },
+      outputs: {EnginePort.inputOutOfRange},
       defaults: {
-        'input_min': 0,
-        'input_max': 1,
-        'output_min': 0,
-        'output_max': 100,
+        BlockCfgKey.inputMin: 0,
+        BlockCfgKey.inputMax: 1,
+        BlockCfgKey.outputMin: 0,
+        BlockCfgKey.outputMax: 100,
       },
     ),
   ],
@@ -926,8 +948,8 @@ BlockForm? formOf(FlowBlock b, Iterable<FlowEdge> edges) {
   for (final f in forms.skip(1)) {
     final given = f.params.any(
       (p) =>
-          b.hasParam(p) ||
-          edges.any((e) => e.to == b.id && e.target.param == p),
+          b.hasParam(p.wire) ||
+          edges.any((e) => e.to == b.id && e.target.paramKey == p),
     );
     if (given) {
       return f;
@@ -936,26 +958,53 @@ BlockForm? formOf(FlowBlock b, Iterable<FlowEdge> edges) {
   return forms.first;
 }
 
-/// Whether the field [name] of [b] (a parameter or an output) belongs to a
-/// form [b] is not in, and nothing keeps it: neither the config nor an
-/// edge. Such a field is not shown.
-bool _otherForm(FlowBlock b, String name, Iterable<FlowEdge> edges) {
-  final form = formOf(b, edges);
-  if (form == null || form.owns(name)) {
-    return false;
-  }
-  final other = formsOf(b.type).any((f) => f.owns(name));
-  if (!other) {
+/// Whether the parameter [param] of [b] belongs to a form [b] is not in,
+/// and nothing keeps it: neither the config nor an edge into its port or
+/// out of its echo. Such a field is not shown.
+bool _otherFormParam(
+  FlowBlock b,
+  BlockCfgKey? param,
+  Iterable<FlowEdge> edges,
+) {
+  if (param == null ||
+      !_inOtherForm(b, edges, (f) => f.params.contains(param))) {
     return false;
   }
   final kept =
-      b.hasParam(name) ||
+      b.hasParam(param.wire) ||
       edges.any(
         (e) =>
-            (e.to == b.id && e.target.param == name) ||
-            (e.from == b.id && e.fromPort == name),
+            (e.to == b.id && e.target.paramKey == param) ||
+            (e.from == b.id && e.source.echoKey == param),
       );
   return !kept;
+}
+
+/// Whether the output [port] of [b] belongs to a form [b] is not in, and
+/// no edge leaves it. Such a field is not shown.
+bool _otherFormOutput(
+  FlowBlock b,
+  EnginePort? port,
+  Iterable<FlowEdge> edges,
+) {
+  if (port == null ||
+      !_inOtherForm(b, edges, (f) => f.outputs.contains(port))) {
+    return false;
+  }
+  return !edges.any((e) => e.from == b.id && e.source.known == port);
+}
+
+/// Whether what [owns] tests belongs to a form of [b] that [b] is not in.
+bool _inOtherForm(
+  FlowBlock b,
+  Iterable<FlowEdge> edges,
+  bool Function(BlockForm) owns,
+) {
+  final form = formOf(b, edges);
+  if (form == null || owns(form)) {
+    return false;
+  }
+  return formsOf(b.type).any(owns);
 }
 
 // ---------- the fields of a block ----------
@@ -1089,7 +1138,7 @@ List<FlowField> fieldsOf(
 
   final params = <FlowField>[
     for (final p in t.params)
-      if (!dynParams.contains(p.name) && !_otherForm(b, p.name, edges))
+      if (!dynParams.contains(p.name) && !_otherFormParam(b, p.key, edges))
         FlowField(
           id: FieldId.param(p.name),
           name: p.name,
@@ -1107,13 +1156,13 @@ List<FlowField> fieldsOf(
             // a scope is written.
             (final n, _) when n == keyed?.scope => keyBound || b.hasParam(n),
             // Behaviours are set in the inspector; one that is set shows.
-            (final n, _) when behaves && behaviourParams.contains(n) =>
+            (final n, final k) when behaves && behaviourParams.contains(k) =>
               b.hasParam(n),
             // The action block names its action in its header.
             (_, BlockCfgKey.action || BlockCfgKey.on)
                 when behaves && role == BlockRole.action =>
               false,
-            (final n, _) when inspectorOnly[known]?.contains(n) ?? false =>
+            (_, final k) when inspectorOnly[known]?.contains(k) ?? false =>
               false,
             (_, final k) =>
               !node &&
@@ -1124,8 +1173,8 @@ List<FlowField> fieldsOf(
                         BlockCfgKey.allowBad,
                       }.contains(k)) &&
                   (portOf.containsKey(p.name) ||
-                      (form?.params.contains(p.name) ?? false) ||
-                      (_oneOf[known]?.contains(p.name) ?? false) ||
+                      (form?.params.contains(p.key) ?? false) ||
+                      (_oneOf[known]?.contains(p.key) ?? false) ||
                       b.hasParam(p.name) ||
                       p.defaultValue != null ||
                       p.required),
@@ -1208,7 +1257,8 @@ List<FlowField> fieldsOf(
   };
   final outs = <FlowField>[
     for (final p in ports.outputs)
-      if (!_otherForm(b, p, edges) && !caseOuts.contains(p))
+      if (!_otherFormOutput(b, t.knownOutputs[p], edges) &&
+          !caseOuts.contains(p))
         FlowField(
           id: FieldId.output(p),
           name: p,
@@ -1216,7 +1266,7 @@ List<FlowField> fieldsOf(
           // A `subscribe` output is its point's value, named after the
           // point; a `liveliness` output is whether its node is there.
           label: _reads.contains(known) && t.knownOutputs[p] == EnginePort.out
-              ? (outputLabelOverrides[known]?[p] ??
+              ? (outputLabelOverrides[known]?[t.knownOutputs[p]] ??
                     pointName ??
                     fieldLabel(b.type, p, port: t.knownOutputs[p]))
               : (instance || t.dynOutParam != null && !t.outputs.contains(p)
@@ -1225,7 +1275,7 @@ List<FlowField> fieldsOf(
                               t.knownOutputs[p] == EnginePort.out &&
                               behaves
                           ? fieldLabel(b.type, p, port: t.knownOutputs[p])
-                          : outputLabelOverrides[known]?[p] ??
+                          : outputLabelOverrides[known]?[t.knownOutputs[p]] ??
                                 fieldLabel(
                                   b.type,
                                   p,
@@ -1252,14 +1302,14 @@ List<FlowField> fieldsOf(
   // node, value). Elsewhere the order is: operands, parameters, variable
   // inputs, then the trailing parameters ([tailParams]: `if` then, else;
   // `concat` strict), results.
-  final tail = tailParams[known] ?? const <String>{};
+  final tail = tailParams[known] ?? const <BlockCfgKey>{};
   final head = [
     for (final f in params)
-      if (!tail.contains(f.name)) f,
+      if (!tail.contains(f.spec?.key)) f,
   ];
   final after = [
     for (final f in params)
-      if (tail.contains(f.name)) f,
+      if (tail.contains(f.spec?.key)) f,
   ];
   final all = role == BlockRole.sink
       ? [...params, ...fixed, ...dyn, ...args, ...outs]
@@ -1269,11 +1319,6 @@ List<FlowField> fieldsOf(
   }
   // A block with behaviours lists its fields by group (flow-editor.md
   // §19): what it acts on, its arguments, when it runs, what happened.
-  int rank(FlowField f) {
-    final i = _behaviourOrder.indexOf(f.name);
-    return i < 0 ? _behaviourOrder.length : i;
-  }
-
   final order = {for (final (i, f) in all.indexed) f.id: i};
   return all..sort((x, y) {
     final gx = groupOf(t, b, x);
@@ -1281,7 +1326,9 @@ List<FlowField> fieldsOf(
     if (gx != gy) {
       return gx.index.compareTo(gy.index);
     }
-    final byRank = gx == FieldGroup.behaviour ? rank(x).compareTo(rank(y)) : 0;
+    final byRank = gx == FieldGroup.behaviour
+        ? _behaviourRank(x).compareTo(_behaviourRank(y))
+        : 0;
     return byRank != 0 ? byRank : order[x.id]!.compareTo(order[y.id]!);
   });
 }
@@ -1290,18 +1337,18 @@ List<FlowField> fieldsOf(
 /// operands, parameters, variable inputs, then these, results). `if` reads
 /// Operation · Input 1… · Then · Else · Output, `concat` Input 1… · Strict
 /// · Output, `hub` Input 1… · Ignore null · Output · Index · On change.
-const tailParams = <KnownBlock, Set<String>>{
-  KnownBlock.if_: {'then', 'else'},
-  KnownBlock.concat: {'strict'},
-  KnownBlock.hub: {'ignore_null'},
-  KnownBlock.case_: {'else'},
+const tailParams = <KnownBlock, Set<BlockCfgKey>>{
+  KnownBlock.if_: {BlockCfgKey.then_, BlockCfgKey.else_},
+  KnownBlock.concat: {BlockCfgKey.strict},
+  KnownBlock.hub: {BlockCfgKey.ignoreNull},
+  KnownBlock.case_: {BlockCfgKey.else_},
   // ADR 0044 (docs/flow-blocks.md, the editor's table).
-  KnownBlock.router: {'single_output'},
+  KnownBlock.router: {BlockCfgKey.singleOutput},
   KnownBlock.tableRecorder: {
-    'enabled',
-    'buffer_size',
-    'time_window_s',
-    'ignore_null',
+    BlockCfgKey.enabled,
+    BlockCfgKey.bufferSize,
+    BlockCfgKey.timeWindowS,
+    BlockCfgKey.ignoreNull,
   },
 };
 

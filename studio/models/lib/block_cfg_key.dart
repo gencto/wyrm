@@ -46,7 +46,23 @@ enum BlockCfgKey {
   reset('reset'),
   interval('interval'),
   rangeDelimiter('range_delimiter'),
-  timeRange('time_range');
+  timeRange('time_range'),
+  // Parameters the editor places or orders itself (flow-editor.md §3, §19).
+  deadband('deadband'),
+  limit('limit'),
+  high('high'),
+  low('low'),
+  then_('then'),
+  else_('else'),
+  strict('strict'),
+  ignoreNull('ignore_null'),
+  singleOutput('single_output'),
+  bufferSize('buffer_size'),
+  timeWindowS('time_window_s'),
+  inputMin('input_min'),
+  inputMax('input_max'),
+  outputMin('output_min'),
+  outputMax('output_max');
 
   const BlockCfgKey(this.wire);
 

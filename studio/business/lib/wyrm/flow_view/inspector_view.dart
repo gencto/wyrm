@@ -703,13 +703,13 @@ InspectorRow _row(
     );
   }
   final shown = fieldValue(b, f, d, live);
-  final value = switch (f.name) {
+  final value = switch (f.port) {
     // An event: when it last fired, and for an error its code and message;
     // a run: its time. Null: none yet.
     _ when group == FieldGroup.events => eventText(
       live(portKey(PortSide.output, b.id, f.name)),
     ),
-    'last_run' when behaves => lastRunText(shown.raw),
+    EnginePort.lastRun when behaves => lastRunText(shown.raw),
     _ => shown.text,
   };
   if (f.kind == FieldKind.output) {
