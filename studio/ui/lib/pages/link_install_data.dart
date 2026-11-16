@@ -4,6 +4,7 @@ import 'package:localization/localization.dart';
 import '../containers/catalog_card.dart';
 import '../indicators/check_list.dart';
 import '../indicators/level_badge.dart';
+import '../models/disabled.dart';
 import '../models/link_run_mode.dart';
 import '../shell/window_bar.dart';
 
@@ -283,7 +284,7 @@ final class InstallBrokerVm extends Equatable {
   /// The site Studio is signed in to.
   final bool here;
   final String? host;
-  final String? refused;
+  final Disabled? refused;
 
   @override
   List<Object?> get props => [site, here, host, refused];
@@ -396,7 +397,7 @@ final class LinkInstallVm extends Equatable {
   /// Why the step offers no *Continue*, and why the user may not install
   /// on the broker ([InstallHold.needsConfig]).
   final InstallHold? hold;
-  final String? configReason;
+  final Disabled? configReason;
 
   /// A done step of the rail can be picked (not after an install).
   final bool canPickStep;

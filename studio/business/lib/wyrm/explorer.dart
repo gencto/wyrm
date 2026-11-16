@@ -714,7 +714,7 @@ extension type ExplorerView(AppState _state) {
       _nodes.detail[key]?.actions.where((a) => a.name == name).firstOrNull;
 
   /// The user may call a [level] action on [key].
-  Reach reachOf(Perm level, String key) => _site.can(level.wire, key)
+  Reach reachOf(Perm level, String key) => _site.can(level, key)
       ? const CanRun()
       : LacksLevel(level, key.split('/').skip(2).join('/'));
 
@@ -1553,7 +1553,7 @@ extension type ExplorerView(AppState _state) {
   }
 
   /// The user may read the site's audit (`config` on `sys/audit`).
-  bool get canAudit => _site.can(Perm.config.wire, '$root/sys/audit');
+  bool get canAudit => _site.can(Perm.config, '$root/sys/audit');
 
   /// The audit rows of the node on screen (at most 200), newest first.
   List<AuditEntry> get auditRows =>

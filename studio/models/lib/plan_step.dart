@@ -19,6 +19,9 @@ abstract class PlanStep with _$PlanStep {
     /// The node the step is about (empty for `sleep`).
     required String key,
 
+    /// The level the step needs, as the agent's record names it.
+    required Perm level,
+
     /// Its number in the plan, from 1.
     @Default(0) int n,
     String? action,
@@ -40,9 +43,6 @@ abstract class PlanStep with _$PlanStep {
 
     /// `wait`/`expect`: the timeout; `sleep`: its length. Seconds.
     double? seconds,
-
-    /// The level the step needs.
-    @Default(Perm.write) Perm level,
 
     /// The step needs a human token.
     @Default(false) bool approval,

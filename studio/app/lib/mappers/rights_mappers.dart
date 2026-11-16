@@ -14,7 +14,11 @@ extension PermAccess on Perm {
   };
 }
 
-/// What the user lacks, as the reason a control is disabled.
+/// What the user lacks, as `ui` says it.
 extension LackDisabled on Lack {
-  Disabled get disabled => NeedsLevel(level.access, path);
+  /// The level and the key below the site.
+  NeedsLevel get needs => NeedsLevel(level.access, path);
+
+  /// As the reason a control is disabled.
+  Disabled get disabled => needs;
 }

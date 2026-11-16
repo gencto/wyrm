@@ -18,6 +18,7 @@ import 'package:business/redux/site/actions/retrieve_sites_action.dart';
 import 'package:business/wyrm/device_keys.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:storage/storage.dart';
+import 'package:wyrm_client/wyrm_client.dart' show Perm;
 
 void main() {
   final gateway = Platform.environment['WYRM_LIVE_GATEWAY'];
@@ -94,7 +95,7 @@ void main() {
     final sites = s.state.site.choices.map((c) => c.site).toList();
     expect(sites.first, s.state.site.name);
     expect(sites.length, greaterThan(1), reason: 'the demo is a chain: $sites');
-    expect(SelectSite(s.state).levelOn('wy/${sites.first}/sys'), 'config');
+    expect(SelectSite(s.state).levelOn('wy/${sites.first}/sys'), Perm.config);
     await (s.dependencies! as AppDependencies).detach();
   }, skip: skip);
 }

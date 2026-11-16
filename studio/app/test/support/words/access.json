@@ -250,7 +250,7 @@
     "DELETE",
     "selectable: admin",
     "selectable: user:olena",
-    "selectable: config wy/{site}/**"
+    "selectable: налаштування wy/{site}/**"
   ],
   "uk grants": [
     "Доступ на plant",
@@ -267,15 +267,15 @@
     "Звідки",
     "admin",
     "wy/{site}/**",
-    "config",
+    "налаштування",
     "gateway",
     "operator",
     "wy/{site}/downstream/**",
-    "write",
+    "запис",
     "gateway",
     "link:modbus",
     "wy/plant/downstream/modbus/**",
-    "config",
+    "налаштування",
     "link"
   ],
   "add user dialog": [

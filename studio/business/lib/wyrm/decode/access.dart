@@ -1,4 +1,5 @@
 import 'package:models/audit_line.dart';
+import 'package:models/grant_level.dart';
 import 'package:models/grant_source.dart';
 import 'package:models/role_grant.dart';
 import 'package:wyrm_client/wyrm_client.dart';
@@ -46,13 +47,26 @@ Decoded<RoleGrant> roleGrantOf(Value v) {
   final [subject, path, level, source] = [
     for (final f in fields) (f as Valid<String>).value,
   ];
+  final from = GrantSource.fromWire(source);
+  if (from == null) {
+    // the source decides how `level` reads: not known here, not read
+    return const Invalid(shape, 'source', 'not a source');
+  }
+  // A rule of the router's ACL words its messages and flows, no level; a
+  // role's or a link's grant names a level, and a name that is none
+  // refuses the row: it is never read as a level.
+  final typed = switch (from) {
+    GrantSource.acl => GrantLevel.rule(level),
+    GrantSource.gateway || GrantSource.link => switch (Perm.fromWire(level)) {
+      final p? => GrantLevel.perm(p),
+      null => null,
+    },
+  };
+  if (typed == null) {
+    return const Invalid(shape, 'level', 'not a level');
+  }
   return Valid(
-    RoleGrant(
-      subject: subject,
-      path: path,
-      level: level,
-      source: GrantSource.fromWire(source),
-    ),
+    RoleGrant(subject: subject, path: path, level: typed, source: from),
   );
 }
 

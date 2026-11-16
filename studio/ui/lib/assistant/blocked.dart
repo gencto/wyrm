@@ -1,6 +1,8 @@
 import 'package:equatable/equatable.dart';
 import 'package:localization/localization.dart';
 
+import '../models/disabled.dart';
+
 /// Why a control of the Assistant cannot be used now: the closed set of
 /// reasons its buttons, tiles and box give, each worded here.
 sealed class Blocked extends Equatable {
@@ -29,17 +31,17 @@ final class BlockedBusy extends Blocked {
   String get text => '…';
 }
 
-/// The user lacks a level on a key: the words the rights check gave.
+/// The user lacks a level on a key, as the rights check found it.
 final class BlockedLacks extends Blocked {
-  const BlockedLacks(this.needs);
+  const BlockedLacks(this.lack);
 
-  final String needs;
-
-  @override
-  String get text => needs;
+  final NeedsLevel lack;
 
   @override
-  List<Object?> get props => [needs];
+  String get text => lack.text;
+
+  @override
+  List<Object?> get props => [lack];
 }
 
 /// The site on screen is not the gateway's own: it cannot sign for it.

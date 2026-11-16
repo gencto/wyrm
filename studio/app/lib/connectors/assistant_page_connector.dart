@@ -672,7 +672,7 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
       range: nodes.historyRange.code,
       timeline: point == null ? null : _timeline(point),
       audit: [for (final a in audit) a.line],
-      auditNote: !site.can('config', '${site.root ?? ''}/sys/audit')
+      auditNote: !site.readsAudit
           ? .needsConfig
           : read && audit.isEmpty
           ? .none

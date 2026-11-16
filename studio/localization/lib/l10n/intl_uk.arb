@@ -2155,6 +2155,7 @@
     "errRunNotRunning": "Флоу не працює.",
     "errRunNoTrigger": "Цей брокер не має дії trigger (потрібен ADR 0040).",
     "errRunNotByHand": "Цей блок не можна запустити вручну.",
+    "errNotSettable": "Його meta не називає рівня, на якому значення можна записати, тому нічого не підготовлено.",
     "formLinear": "k × in + b",
     "formRange": "Діапазон",
     "problemUnnamed": "назвіть потік",

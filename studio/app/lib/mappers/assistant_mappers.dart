@@ -32,6 +32,8 @@ import 'package:ui/assistant/task_card.dart';
 import 'package:ui/assistant/task_list.dart';
 import 'package:ui/pages/assistant_page.dart';
 
+import 'rights_mappers.dart';
+
 // The agent task's domain as the Assistant draws it (studio-rules §3): one
 // exhaustive switch per domain enum, and the rows built from a task's
 // parts. What is computed from state is a selector in `business`
@@ -144,7 +146,7 @@ extension HoldBlocked on Hold {
   Blocked get blocked => switch (this) {
     HoldNoAgent() => const BlockedNoAgent(),
     HoldBusy() => const BlockedBusy(),
-    HoldLacks(:final needs) => BlockedLacks(needs),
+    HoldLacks(:final lack) => BlockedLacks(lack.needs),
     HoldOtherSite(:final site) => BlockedOtherSite(site),
     HoldNoRecord() => const BlockedNoRecord(),
     HoldNoneTicked() => const BlockedNoneTicked(),
@@ -321,7 +323,7 @@ PlanStepVm planStepVm(
     action: s.action,
     node: s.key,
     sleep: s.kind == StepKind.sleep ? (s.seconds ?? 0) : null,
-    level: s.level.wire,
+    level: s.level.access,
     args: [
       for (final a in args)
         switch (a.text) {
@@ -341,7 +343,7 @@ PlanStepVm planStepVm(
     fixes: fixes,
     why: s.reason,
     ticked: choice?.ticked,
-    lacks: choice?.locked,
+    lacks: choice?.locked?.disabled,
     note: switch (choice) {
       StepChoice(:final needs?) => StepNeeds(needs),
       StepChoice(ticked: false) => const StepLeftOut(),

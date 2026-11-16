@@ -6,6 +6,7 @@ import 'package:models/approval_mode.dart';
 import 'package:models/error_kind.dart';
 import 'package:models/staged_change.dart';
 import 'package:models/staged_change_kind.dart';
+import 'package:wyrm_client/wyrm_client.dart' show Perm;
 
 import '../../../wyrm/decode/agent_params.dart';
 import '../../../wyrm/failures.dart';
@@ -124,7 +125,7 @@ class StageAgentParamAction extends Action with WaitingAction {
             '; ',
           )}',
       to: [for (final c in changed) '${c.name} ${c.now ?? '—'}'].join('; '),
-      level: 'config',
+      level: Perm.config,
       action: 'update',
       args: {'params': agentParamsJson(next)}.lock,
       // what the edits are measured against

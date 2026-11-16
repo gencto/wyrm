@@ -94,7 +94,7 @@ void main() {
     );
     expect(s.state.changes.view, hasLength(1));
     final c = s.state.changes.table.values.single;
-    expect((c.action, c.level, c.from), ('update', 'config', 'rev 1'));
+    expect((c.action, c.level, c.from), ('update', Perm.config, 'rev 1'));
 
     api.invokes['wy/central/sys/links/modbus ▸ update'] = [const VInt(2)];
     await s.dispatchAndWait(ApplyChangesAction());

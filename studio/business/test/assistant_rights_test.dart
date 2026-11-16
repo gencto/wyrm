@@ -137,7 +137,7 @@ void main() {
     );
 
     final c = staged();
-    expect((c.key, c.action, c.level), (links, 'update', 'config'));
+    expect((c.key, c.action, c.level), (links, 'update', Perm.config));
     expect(c.args['params'], {
       'model': 'claude-sonnet-5-5',
       'require_approval': 'config',

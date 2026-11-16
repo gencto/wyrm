@@ -2,6 +2,7 @@ import 'package:equatable/equatable.dart';
 import 'package:localization/localization.dart';
 
 import '../forms/param_form.dart';
+import '../models/disabled.dart';
 import '../models/link_run_mode.dart';
 import '../models/tone.dart';
 
@@ -187,7 +188,7 @@ final class LinkData extends Equatable {
   final int restorePoints;
 
   /// Why the user may not change it; null when they may.
-  final String? reason;
+  final Disabled? reason;
 
   /// How it runs, as said: a WASM package runs as WASM.
   LinkRunMode get runsAs => package?.wasm ?? false ? LinkRunMode.wasm : mode;
@@ -237,7 +238,7 @@ final class QuarantineData extends Equatable {
   final List<ParamFieldVm>? fields;
 
   /// Why the user may not decide; null when they may.
-  final String? reason;
+  final Disabled? reason;
 
   @override
   List<Object?> get props => [
@@ -399,7 +400,7 @@ final class LinkUpdateData extends Equatable {
   final DateTime? keepUntil;
   final List<LinkPointData> points;
   final List<String> queue;
-  final String? reason;
+  final Disabled? reason;
   final LinkUpdateNext? next;
   final bool offersRollBack;
   final bool canRollBack;
@@ -474,7 +475,7 @@ final class LinksScreenVm extends Equatable {
   final List<LinksTabData> tabs;
 
   /// Why the user may not install or update; null when they may.
-  final String? addReason;
+  final Disabled? addReason;
 
   /// *Update all official…* is offered.
   final bool updateAll;
@@ -494,7 +495,7 @@ final class LinksScreenVm extends Equatable {
   final String? updating;
   final bool holdUnknown;
   final bool allowAll;
-  final String? admissionReason;
+  final Disabled? admissionReason;
 
   /// The broker has `sys/backups` (ADR 0048).
   final bool hasBackups;

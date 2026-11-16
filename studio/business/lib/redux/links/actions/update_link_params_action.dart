@@ -2,6 +2,7 @@ import 'package:async_redux/async_redux.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/staged_change.dart';
 import 'package:models/staged_change_kind.dart';
+import 'package:wyrm_client/wyrm_client.dart' show Perm;
 
 import '../../../wyrm/decode/link_params.dart';
 import '../../app_state.dart';
@@ -44,7 +45,7 @@ class UpdateLinkParamsAction extends Action with NonReentrant, WaitingAction {
             field: 'params',
             from: from,
             to: '${params.length} top-level keys',
-            level: 'config',
+            level: Perm.config,
             action: 'update',
             args: {'params': params}.lock,
           ),

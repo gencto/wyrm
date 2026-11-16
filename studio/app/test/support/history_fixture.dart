@@ -70,24 +70,27 @@ void historyBroker(FakeWyrmApi api) {
     ..metas[hist] = NodeMeta(
       actions: {
         'add_watch_group': ActionMeta(
+          level: Perm.config,
           params: {'name': ParamMeta(ty: TypeCode.string, required: true)},
         ),
-        'purge': ActionMeta(),
+        'purge': ActionMeta(level: Perm.config),
       },
     )
     ..metas['$hist/boiler-1'] = NodeMeta(
       actions: {
-        'remove': ActionMeta(),
+        'remove': ActionMeta(level: Perm.config),
         'edit': ActionMeta(
+          level: Perm.config,
           params: {'interval': ParamMeta(ty: TypeCode.number)},
         ),
         'add_watch_path': ActionMeta(
+          level: Perm.config,
           params: {'path': ParamMeta(ty: TypeCode.string, required: true)},
         ),
       },
     )
     ..metas['$hist/boiler-1/w1'] = NodeMeta(
-      actions: {'unsubscribe': ActionMeta()},
+      actions: {'unsubscribe': ActionMeta(level: Perm.config)},
     )
     ..invokes['$hist/boiler-1 ▸ remove'] = const [VNull()]
     ..invokes['$hist/boiler-1/w1 ▸ unsubscribe'] = const [VNull()]

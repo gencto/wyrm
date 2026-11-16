@@ -1,6 +1,7 @@
 import 'package:business/wyrm/device_keys.dart';
 import 'package:models/access_tab.dart';
 import 'package:models/audit_line.dart';
+import 'package:models/grant_level.dart';
 import 'package:models/grant_source.dart';
 import 'package:models/role_grant.dart';
 import 'package:models/user_info.dart';
@@ -8,6 +9,7 @@ import 'package:ui/pages/access_page.dart';
 import 'package:wyrm_client/wyrm_client.dart' show GatewayDeviceState;
 
 import 'device_mappers.dart';
+import 'rights_mappers.dart';
 
 /// A tab of Access as its bar draws it.
 extension AccessTabView on AccessTab {
@@ -44,12 +46,20 @@ extension UserInfoRow on UserInfo {
   );
 }
 
+/// The level of a grant of `get_permissions` as Access's table says it.
+extension GrantLevelUi on GrantLevel {
+  GrantLevelVm get ui => switch (this) {
+    GrantLevelPerm(:final perm) => GrantAccess(perm.access),
+    GrantLevelRule(:final text) => GrantRule(text),
+  };
+}
+
 extension RoleGrantRow on RoleGrant {
   GrantRowVm get row => GrantRowVm(
     subject: subject,
     path: path,
-    level: level,
-    from: source?.from,
+    level: level.ui,
+    from: source.from,
   );
 }
 

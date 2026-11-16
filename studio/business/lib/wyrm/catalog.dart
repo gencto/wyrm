@@ -2,9 +2,23 @@ import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/catalog_form.dart';
 import 'package:models/catalog_item.dart';
 import 'package:models/catalog_row.dart';
+import 'package:models/install_target.dart';
 import 'package:models/link_mode.dart';
 
+import 'rights.dart';
+
 export 'decode/catalog_rows.dart' show catalogRowsOf;
+
+/// A broker Add a link can install on, as its card shows it: the target,
+/// whether it is the site on screen, and why the user may not install
+/// there (null: they may), from the grants of now.
+final class InstallBroker {
+  const InstallBroker(this.target, {required this.here, this.refused});
+
+  final InstallTarget target;
+  final bool here;
+  final Lack? refused;
+}
 
 /// What Studio says of a driver it knows: its short tag, title, one line
 /// and category.

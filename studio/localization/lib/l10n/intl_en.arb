@@ -2171,6 +2171,7 @@
     "errRunNotRunning": "The flow is not running.",
     "errRunNoTrigger": "This broker has no trigger action (it needs ADR 0040).",
     "errRunNotByHand": "This block cannot be run by hand.",
+    "errNotSettable": "Its meta names no level it can be set at, so nothing was staged.",
     "formLinear": "k × in + b",
     "formRange": "Range",
     "problemUnnamed": "name the flow",

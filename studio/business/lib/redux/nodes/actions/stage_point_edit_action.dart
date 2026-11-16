@@ -73,7 +73,7 @@ class StagePointEditAction extends Action {
       field: changed.map(editFieldName).join(', '),
       from: [for (final p in changed) editFieldText(p, current[p])].join(', '),
       to: [for (final p in changed) editFieldText(p, args[p])].join(', '),
-      level: edit.level.wire,
+      level: edit.level,
       action: 'edit',
       args: {
         for (final e in args.entries)

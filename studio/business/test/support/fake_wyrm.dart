@@ -238,21 +238,27 @@ class FakeWyrmApi implements WyrmApi {
   Future<void> close() async => closed = true;
 }
 
-/// `/api/me` of a test, its levels written by name as the tests write
-/// them; a name that is not a level fails the test at once.
+/// `/api/me` of a test, its levels written by name as the gateway sends
+/// them; a name that is not a level fails the test at once. With no
+/// [grants] given, one grant on `wy/**` at [max]: what a gateway sends for
+/// a role with that level everywhere (its `max` is the highest level of
+/// its grants, so a `max` with no grant is no answer a gateway gives).
 GatewayIdentity identityOf({
   required String subject,
   required String site,
   required List<String> roles,
   required String max,
-  List<(String, String)> grants = const [],
+  List<(String, String)>? grants,
 }) => GatewayIdentity(
   sub: subject,
   site: site,
   roles: roles,
   max: Perm.fromName(max)!,
   exp: 0,
-  grants: [for (final (k, p) in grants) Grant(k, Perm.fromName(p)!)],
+  grants: [
+    for (final (k, p) in grants ?? [('wy/**', max)])
+      Grant(k, Perm.fromName(p)!),
+  ],
 );
 
 /// A session over a [FakeWyrmApi].
@@ -261,6 +267,7 @@ class FakeSession implements WyrmSession {
     FakeWyrmApi? api,
     GatewayIdentity? who,
     FakeDevices? devices,
+    this.me,
   }) : api = api ?? FakeWyrmApi(),
        who =
            who ??
@@ -282,6 +289,10 @@ class FakeSession implements WyrmSession {
   String get userName => who.sub.replaceFirst('user:', '');
 
   final GatewayIdentity who;
+
+  /// `/api/me` as it comes over the wire, when a test gives it: decoded as
+  /// the real session does (`GatewayIdentity.fromValue`); else [who].
+  final Value? me;
   // ignore: close_sinks, a test's session lives as long as the test.
   final connected = StreamController<bool>.broadcast();
   var closed = false;
@@ -293,7 +304,10 @@ class FakeSession implements WyrmSession {
   Uri get base => Uri.parse('http://127.0.0.1:8445');
 
   @override
-  Future<GatewayIdentity> identity() async => who;
+  Future<GatewayIdentity> identity() async => switch (me) {
+    final v? => GatewayIdentity.fromValue(v),
+    null => who,
+  };
 
   /// The users `/api/users` answers, by name.
   final userTable = <String, GatewayUser>{};

@@ -2,6 +2,7 @@ import 'package:localization/localization.dart';
 import 'package:models/broker_self_update.dart';
 import 'package:models/self_update_state.dart';
 import 'package:ui/containers/fact_grid.dart';
+import 'package:ui/models/disabled.dart';
 import 'package:ui/overlays/task_sheet.dart';
 
 /// Which screen of a broker update the dialog shows.
@@ -56,7 +57,7 @@ final class BrokerUpdateData {
   /// What the user typed to confirm.
   final String confirm;
   final bool busy;
-  final String? reason;
+  final Disabled? reason;
 
   BrokerUpdateStage get stage {
     if (mode == SelfUpdateMode.external) {
@@ -132,11 +133,11 @@ TaskSheetVm _review(BrokerUpdateData d) {
         hint: d.site,
       ),
     ],
-    note: d.reason ?? l.bupNeedsConfig,
+    note: d.reason?.text ?? l.bupNeedsConfig,
     secondary: l.cancel,
     primary: l.bupDo,
     primaryEnabled: d.reason == null && typed,
-    primaryReason: d.reason ?? (typed ? null : l.bupType(d.site)),
+    primaryReason: d.reason?.text ?? (typed ? null : l.bupType(d.site)),
     busy: d.busy,
   );
 }
@@ -216,12 +217,12 @@ TaskSheetVm _confirmed(BrokerUpdateData d) {
         FactVm(label: l.bupFactAudit, value: 'update_start, update_confirmed'),
       ]),
     ],
-    note: d.reason,
+    note: d.reason?.text,
     secondary: l.updClose,
     primary: l.updRollBackTo(d.from),
     primaryQuiet: true,
     primaryEnabled: d.reason == null,
-    primaryReason: d.reason,
+    primaryReason: d.reason?.text,
     busy: d.busy,
   );
 }
@@ -266,6 +267,6 @@ TaskSheetVm _external(BrokerUpdateData d) {
     secondary: l.updClose,
     primary: l.bupMakeBackup,
     primaryEnabled: d.reason == null,
-    primaryReason: d.reason,
+    primaryReason: d.reason?.text,
   );
 }

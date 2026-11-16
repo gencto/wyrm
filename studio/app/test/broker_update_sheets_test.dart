@@ -5,6 +5,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
 import 'package:models/broker_self_update.dart';
 import 'package:models/self_update_state.dart';
+import 'package:ui/indicators/level_badge.dart';
+import 'package:ui/models/disabled.dart';
 import 'package:ui/models/tone.dart';
 import 'package:ui/overlays/task_sheet.dart';
 
@@ -14,7 +16,7 @@ BrokerUpdateData _data({
   String updateState = 'none',
   bool connected = true,
   String confirm = '',
-  String? reason,
+  Disabled? reason,
   UpdateLast last = const UpdateLast(),
   int lostSeconds = 0,
 }) => BrokerUpdateData(
@@ -54,7 +56,10 @@ void main() {
 
   test('without config the update is locked with the reason', () {
     final vm = brokerUpdateSheet(
-      _data(confirm: 'plant', reason: 'needs config on sys'),
+      _data(
+        confirm: 'plant',
+        reason: const NeedsLevel(AccessLevel.config, 'sys'),
+      ),
     );
     expect(vm.primaryEnabled, isFalse);
     expect(vm.primaryReason, 'needs config on sys');

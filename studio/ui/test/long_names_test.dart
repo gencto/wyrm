@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:ui/containers/inspector.dart';
+import 'package:ui/indicators/level_badge.dart';
 import 'package:ui/overlays/node_menu.dart';
 
 import 'frames/explorer.dart';
@@ -43,7 +44,7 @@ void main() {
                     NodeMenuItemVm(
                       id: 'edit',
                       label: 'Edit the device parameters and its polling plan…',
-                      level: 'config',
+                      level: AccessLevel.config,
                     ),
                   ],
                 ),

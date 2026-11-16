@@ -1,5 +1,4 @@
 import 'package:models/explorer_tab.dart';
-import 'package:wyrm_client/wyrm_client.dart' show Perm;
 
 import '../../../wyrm/points.dart';
 import '../../app_state.dart';
@@ -53,8 +52,7 @@ class SelectNodeAction extends Action {
       if (key != node) RetrieveHistoryAction(key),
       if (node != before &&
           s.nodes.tab == ExplorerTab.audit &&
-          SelectSite(s)
-              .can(Perm.config.wire, '${SelectSite(s).root}/sys/audit'))
+          SelectSite(s).readsAudit)
         RetrieveAuditAction(node),
     ];
   }

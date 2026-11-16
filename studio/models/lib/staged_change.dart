@@ -1,5 +1,6 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
+import 'package:wyrm_core/wyrm_core.dart' show Perm;
 
 part 'staged_change.freezed.dart';
 
@@ -26,11 +27,12 @@ abstract class StagedChange with _$StagedChange {
     /// Shown in ember/new.
     required String to,
 
+    /// The level applying it needs; every stager states it, none is
+    /// assumed.
+    required Perm level,
+
     /// Shown struck through.
     @Default('—') String from,
-
-    /// `write` or `config`.
-    @Default('write') String level,
 
     /// For a set: the value written to `key`.
     Object? value,

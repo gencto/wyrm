@@ -9,6 +9,7 @@ import '../containers/detail_inspector.dart';
 import '../containers/fact_grid.dart';
 import '../containers/page_header.dart';
 import '../indicators/device_os.dart';
+import '../indicators/level_badge.dart';
 import '../indicators/status_pill.dart';
 import '../models/disabled.dart';
 import '../models/tone.dart';
@@ -91,8 +92,42 @@ final class UserRowVm extends Equatable {
   List<Object?> get props => [name, roles, devices, disabled];
 }
 
-/// A grant of a role or subject on a key pattern; its level as the broker
-/// words it.
+/// The level column of a grant: an access level, or the messages and
+/// flows of a rule of the router's ACL in the broker's words.
+sealed class GrantLevelVm extends Equatable {
+  const GrantLevelVm();
+
+  /// What the column says.
+  String get word;
+}
+
+/// A role's or a link's grant: its access level.
+final class GrantAccess extends GrantLevelVm {
+  const GrantAccess(this.level);
+
+  final AccessLevel level;
+
+  @override
+  String get word => level.label;
+
+  @override
+  List<Object?> get props => [level];
+}
+
+/// A rule of the router's ACL (`put, query (ingress/egress)`).
+final class GrantRule extends GrantLevelVm {
+  const GrantRule(this.text);
+
+  final String text;
+
+  @override
+  String get word => text;
+
+  @override
+  List<Object?> get props => [text];
+}
+
+/// A grant of a role or subject on a key pattern, with its level.
 final class GrantRowVm extends Equatable {
   const GrantRowVm({
     required this.subject,
@@ -103,7 +138,7 @@ final class GrantRowVm extends Equatable {
 
   final String subject;
   final String path;
-  final String level;
+  final GrantLevelVm level;
   final GrantFrom? from;
 
   @override
@@ -271,7 +306,7 @@ class AccessPage extends StatelessWidget {
             cells: [
               CellVm(title: g.subject, strong: true),
               CellVm(title: g.path, monospace: true),
-              CellVm(title: g.level, monospace: true),
+              CellVm(title: g.level.word, monospace: true),
               CellVm(title: g.from?.word ?? ''),
             ],
           ),
@@ -342,7 +377,8 @@ class AccessPage extends StatelessWidget {
         ),
         FactVm(
           label: S.current.factGrants,
-          value: [for (final g in p.grants) '${g.level} ${g.path}'].join('\n'),
+          value: [for (final g in p.grants) '${g.level.word} ${g.path}']
+              .join('\n'),
           mono: true,
         ),
       ],

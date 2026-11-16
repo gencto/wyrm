@@ -1,5 +1,6 @@
 import 'package:async_redux/async_redux.dart';
 import 'package:flutter/foundation.dart' show VoidCallback;
+import 'package:models/error_hint.dart';
 import 'package:models/error_kind.dart';
 import 'package:models/fault_report.dart';
 import 'package:models/studio_error.dart';
@@ -76,6 +77,23 @@ var _nextId = 0;
 /// The next id of an error or a notice: they share one counter, so toasts
 /// keep the order they came in.
 int nextErrorId() => ++_nextId;
+
+/// Studio's own refusal to stage a `set` of [key], whose meta names no
+/// level it can be set at: the refusal the link would give
+/// (`not_supported`, not writable), with no words of its own; the app says
+/// it ([ErrorHint.notSettable]).
+StudioError notSettableOf(String key) {
+  final status = StatusCode.of(Status.notSupported);
+  return StudioError(
+    kind: kindOf(status),
+    status: status,
+    hint: ErrorHint.notSettable,
+    key: key,
+    call: 'set',
+    site: siteOf(key),
+    write: true,
+  );
+}
 
 /// The error of a refused broker call. [call] is the wire name of what was
 /// asked (`deploy`, `set`, `list`), [key] the key it was asked on, [thing]

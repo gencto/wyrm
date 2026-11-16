@@ -12,6 +12,8 @@ import 'package:models/backup_sealed.dart';
 import 'package:models/backup_status.dart';
 import 'package:models/restore_check.dart';
 import 'package:models/send_link.dart';
+import 'package:ui/indicators/level_badge.dart';
+import 'package:ui/models/disabled.dart';
 import 'package:ui/models/tone.dart';
 import 'package:ui/overlays/task_sheet.dart';
 
@@ -35,7 +37,7 @@ BackupFormData _form({
   List<SendLink> sendLinks = const [],
   String? sendConnection,
   String? link,
-  String? reason,
+  Disabled? reason,
 }) => BackupFormData(
   site: 'plant',
   link: link,
@@ -216,7 +218,9 @@ void main() {
     });
 
     test('without config the dialog is locked with the reason', () {
-      final vm = backupFormSheet(_form(reason: 'needs config on sys/backups'));
+      final vm = backupFormSheet(
+        _form(reason: const NeedsLevel(AccessLevel.config, 'sys/backups')),
+      );
       expect(vm.primaryEnabled, isFalse);
       expect(vm.primaryReason, 'needs config on sys/backups');
     });

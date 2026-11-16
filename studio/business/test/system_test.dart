@@ -10,6 +10,7 @@ import 'package:business/redux/login/actions/set_password_action.dart';
 import 'package:business/redux/login/actions/set_user_action.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/audit_line.dart';
+import 'package:models/grant_level.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import 'support/fake_wyrm.dart';
@@ -62,7 +63,10 @@ void main() {
 
       expect(s.state.access.users.single.name, 'olena');
       expect(s.state.access.users.single.roles, ['operator']);
-      expect(s.state.access.grants.single.level, 'write');
+      expect(
+        s.state.access.grants.single.level,
+        const GrantLevel.perm(Perm.write),
+      );
       expect(
         s.state.access.audit.single,
         const AuditLine(time: 't1', who: 'user:admin', what: 'set a'),

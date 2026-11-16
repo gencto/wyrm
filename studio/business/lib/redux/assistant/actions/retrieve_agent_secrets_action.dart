@@ -1,3 +1,5 @@
+import 'package:wyrm_client/wyrm_client.dart' show Perm;
+
 import '../../../wyrm/calls.dart';
 import '../../../wyrm/decode/agent_config.dart';
 import '../../app_state.dart';
@@ -18,7 +20,7 @@ class RetrieveAgentSecretsAction extends Action {
       return null;
     }
     final key = '$root/sys/links/${agent.split('/').last}';
-    if (site.grants.isNotEmpty && !site.can('config', '$key/~act/secrets')) {
+    if (!site.can(Perm.config, '$key/~act/secrets')) {
       return state.copyWith.assistant(secrets: null);
     }
     try {

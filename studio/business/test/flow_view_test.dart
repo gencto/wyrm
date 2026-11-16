@@ -59,10 +59,11 @@ AppState stateOf({
   FlowDraft? draft,
   FlowDraft? deployed,
   bool undeployed = false,
-  String level = 'config',
+  Perm level = Perm.config,
 }) => AppState.initial().copyWith(
   site: SiteState(
     name: 'plant',
+    max: Perm.config,
     grants: [Grant(key: '$root/**', level: level)].lock,
   ),
   flowEditor: FlowEditorState(
@@ -107,7 +108,7 @@ void main() {
           (b) => b.copyWith(cfg: b.cfg.add('key', 'storage/x')),
         ),
       );
-      final v = viewOf(stateOf(draft: moved, level: 'write'));
+      final v = viewOf(stateOf(draft: moved, level: Perm.write));
       expect(v.status, EditorStatus.draft);
       expect(v.dot, isTrue);
       expect(

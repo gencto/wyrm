@@ -34,6 +34,7 @@ import '../common/update_file_action.dart';
 import '../dialogs/link_dialogs.dart';
 import '../mappers/link_install_mappers.dart';
 import '../mappers/links_mappers.dart';
+import '../mappers/rights_mappers.dart';
 import '../navigation/app_router.dart';
 import '../navigation/go_action.dart';
 
@@ -103,7 +104,7 @@ class _Factory extends VmFactory<AppState, LinksPageConnector, _Vm>
       note: l.note,
       certificateCn: l.certificateCn,
       restorePoints: points,
-      reason: linkConfigReason(l.id),
+      reason: linkConfigReason(l.id)?.disabled,
     );
   }
 
@@ -142,11 +143,10 @@ class _Factory extends VmFactory<AppState, LinksPageConnector, _Vm>
     final remote = remoteLinks;
     final waiting = quarantined;
     final tab = links.tab;
-    final root = site.root ?? '';
     return _Vm(
       screen: LinksScreenVm(
         site: site.viewed ?? '',
-        root: root,
+        root: site.root ?? '',
         brokerVersion: links.version,
         tab: tab.ui,
         tabs: [
@@ -155,7 +155,7 @@ class _Factory extends VmFactory<AppState, LinksPageConnector, _Vm>
           LinksTabData(LinksTabKey.remote, remote.length),
           LinksTabData(LinksTabKey.quarantine, waiting.length),
         ],
-        addReason: linksConfigReason,
+        addReason: linksConfigReason?.disabled,
         updateAll: tab == .updates && updatablePackages.isNotEmpty,
         local: [for (final l in local) _link(l)],
         toUpdate: [for (final l in linksToUpdate) _link(l)],
@@ -167,7 +167,7 @@ class _Factory extends VmFactory<AppState, LinksPageConnector, _Vm>
                 final specs? => paramFields(specs),
                 null => null,
               },
-              reason: site.needs('config', '$root/sys/quarantine/${q.node}'),
+              reason: quarantineReason(q.node)?.disabled,
             ),
         ],
         loading: links.isWaiting && links.table.isEmpty,
@@ -176,7 +176,7 @@ class _Factory extends VmFactory<AppState, LinksPageConnector, _Vm>
         updating: updates.package,
         holdUnknown: holdsUnknown,
         allowAll: allowsAllLinks,
-        admissionReason: admissionReason,
+        admissionReason: admissionReason?.disabled,
         hasBackups: backups.sections.isNotEmpty,
         busy: links.isActing || quarantine.isWaiting,
         sheet: linkUpdate?.ui,

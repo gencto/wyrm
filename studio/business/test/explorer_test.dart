@@ -180,6 +180,9 @@ void main() {
   test(
     'a value edit is staged at the level the point asks, then set',
     () async {
+      const key = 'wy/central/downstream/m/sp';
+      api.metas[key] = NodeMeta(ty: TypeCode.number, writable: Writable.write);
+      await s.dispatchAndWait(RetrieveNodeDetailAction(key));
       s.dispatchSync(
         StageValueAction('wy/central/downstream/m/sp', 21.5, from: '20'),
       );
@@ -187,7 +190,7 @@ void main() {
       final c = s.state.changes.table.values.single;
       expect(
         (c.key, c.value, c.from, c.to, c.level),
-        ('wy/central/downstream/m/sp', 21.5, '20', '21.5', 'write'),
+        ('wy/central/downstream/m/sp', 21.5, '20', '21.5', Perm.write),
       );
 
       await s.dispatchAndWait(ApplyChangesAction());

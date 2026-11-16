@@ -608,6 +608,7 @@ void main() {
                   key: 'wy/plant/sys/x$i',
                   field: 'value',
                   to: '$i',
+                  level: Perm.write,
                   value: i,
                 ),
             }.lock,

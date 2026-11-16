@@ -25,11 +25,6 @@ enum AccessLevel {
 /// An access level (`read`, `write`, `config`) as a mono chip; `config` is
 /// drawn in ember, the level that changes how the network runs.
 class LevelBadge extends StatelessWidget {
-  /// A level given by its wire name (`config` stands out).
-  const LevelBadge({required String level, super.key})
-    : label = level,
-      strong = level == 'config';
-
   /// An [AccessLevel], in its words (`config` stands out).
   LevelBadge.of(AccessLevel level, {super.key})
     : label = level.label,

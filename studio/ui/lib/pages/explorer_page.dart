@@ -414,7 +414,7 @@ class _ExplorerPageState extends State<ExplorerPage> {
                 id: i.name,
                 label: '${i.label}${i.form ? '…' : ''}',
                 code: i.name,
-                level: i.level.label,
+                level: i.level,
                 danger: i.danger,
                 disabled: i.disabled,
               ),

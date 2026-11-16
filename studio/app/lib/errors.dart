@@ -241,6 +241,7 @@ String _hintText(ErrorHint h) => switch (h) {
   .runNotRunning => S.current.errRunNotRunning,
   .runNoTrigger => S.current.errRunNoTrigger,
   .runNotByHand => S.current.errRunNotByHand,
+  .notSettable => S.current.errNotSettable,
 };
 
 /// The tone of a kind (errors.md §1).

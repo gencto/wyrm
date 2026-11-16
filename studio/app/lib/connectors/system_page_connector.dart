@@ -40,6 +40,7 @@ import '../common/tab_visibility.dart';
 import '../dialogs/backup_dialogs.dart';
 import '../dialogs/broker_update_dialog.dart';
 import '../dialogs/profile_dialog.dart';
+import '../mappers/rights_mappers.dart';
 import '../mappers/system_mappers.dart';
 import '../navigation/system_place.dart';
 
@@ -109,16 +110,14 @@ class _Factory extends VmFactory<AppState, SystemPageConnector, _Vm>
   @override
   _Vm fromStore() => _vm(
     status: sysStatus,
-    reason: sysConfigReason,
     measure: system.measure,
     attention: attention,
   );
 
-  /// The view-model from the decoded `sys` [status], the [reason] the user
-  /// may not act on `sys`, the traffic [measure] and the [attention] cards.
+  /// The view-model from the decoded `sys` [status], the traffic [measure]
+  /// and the [attention] cards; `sysConfigReason` says why `sys` is locked.
   _Vm _vm({
     required SysStatus status,
-    required String? reason,
     required TrafficMeasure measure,
     required List<AttentionItem> attention,
   }) => _Vm(
@@ -146,7 +145,7 @@ class _Factory extends VmFactory<AppState, SystemPageConnector, _Vm>
         window: trafficTrend?.sys,
       ),
       log: SysLogData(
-        reason: reason,
+        reason: sysConfigReason?.disabled,
         lines: [for (final l in shownLog) l.sys],
         held: system.log.length,
         around: system.around,
@@ -161,7 +160,7 @@ class _Factory extends VmFactory<AppState, SystemPageConnector, _Vm>
         brokerLevel: shownLogLevel.sys,
       ),
       maintenance: SysMaintData(
-        reason: reason,
+        reason: sysConfigReason?.disabled,
         busy: system.isActing,
         stale: [
           for (final l in clearableLinks)
