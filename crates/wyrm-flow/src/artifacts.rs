@@ -83,7 +83,7 @@ fn write_atomic(dir: &Path, path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
     std::fs::create_dir_all(dir)?;
     let mut rnd = [0u8; 8];
-    getrandom::fill(&mut rnd).map_err(|e| std::io::Error::other(e.to_string()))?;
+    wyrm_core::rand::fill(&mut rnd).map_err(|e| std::io::Error::other(e.to_string()))?;
     let tmp = dir.join(format!(
         ".tmp-{}",
         rnd.iter().map(|b| format!("{b:02x}")).collect::<String>()

@@ -429,7 +429,7 @@ pub(super) struct StageDir(pub(super) PathBuf);
 impl StageDir {
     pub(super) fn new(backups: &Path) -> Result<Self, String> {
         let mut r = [0u8; 8];
-        getrandom::fill(&mut r).map_err(|e| format!("no randomness: {e}"))?;
+        wyrm_core::rand::fill(&mut r).map_err(|e| e.to_string())?;
         let dir = backups.join(format!(".stage-{}", hex::encode(r)));
         make_private_dir(&dir)?;
         Ok(Self(dir))

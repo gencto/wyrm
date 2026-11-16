@@ -16,7 +16,7 @@ gateway = ["dep:wyrm-gateway-client", "tokio/sync"]
 http = ["rmcp/transport-streamable-http-server", "dep:axum"]
 
 [dependencies]
-wyrm-core.workspace = true
+wyrm-core = { workspace = true, features = ["rand"] }
 wyrm-client.workspace = true
 wyrm-flow.workspace = true
 wyrm-gateway-client = { workspace = true, optional = true }
@@ -27,7 +27,6 @@ schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 base64.workspace = true
-getrandom.workspace = true
 clap = { workspace = true, features = ["env"] }
 hex.workspace = true
 sha2.workspace = true

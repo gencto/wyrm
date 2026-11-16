@@ -187,7 +187,7 @@ impl Control {
         }
         make_private_dir(&self.backups_dir()).map_err(LinkError::internal)?;
         let mut r = [0u8; 8];
-        getrandom::fill(&mut r).map_err(|e| LinkError::internal(format!("no randomness: {e}")))?;
+        wyrm_core::rand::fill(&mut r).map_err(|e| LinkError::internal(e.to_string()))?;
         let id = hex::encode(r);
         let mut ups = self.uploads();
         if ups.len() >= MAX_UPLOADS {

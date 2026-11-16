@@ -24,12 +24,11 @@ name = "wyrm-link-snmp"
 required-features = ["process"]
 
 [dependencies]
-wyrm-core.workspace = true
+wyrm-core = { workspace = true, features = ["rand"] }
 wyrm-link-sdk.workspace = true
 tokio = { workspace = true, features = ["rt", "time", "macros", "sync", "net"] }
 tracing.workspace = true
 zeroize.workspace = true
-getrandom.workspace = true
 # SNMPv3 USM (RFC 3414, 3826, 7860): RustCrypto, MIT OR Apache-2.0.
 hmac.workspace = true
 sha1.workspace = true

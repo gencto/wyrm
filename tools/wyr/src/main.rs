@@ -589,7 +589,7 @@ fn keygen(out: &Path) -> Result<(), Error> {
         return Err(format!("{} exists; not overwriting", out.display()).into());
     }
     let mut seed = [0u8; 32];
-    getrandom::fill(&mut seed).map_err(|e| format!("no randomness: {e}"))?;
+    wyrm_core::rand::fill(&mut seed).map_err(|e| e.to_string())?;
     let key = ed25519_dalek::SigningKey::from_bytes(&seed);
     write_private(out, &hex::encode(seed))?;
     out!("{}", hex::encode(key.verifying_key().to_bytes()));

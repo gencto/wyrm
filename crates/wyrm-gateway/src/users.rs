@@ -3,7 +3,7 @@
 //! operation is logged, so the WAL never sees a plaintext password.
 
 use crate::devices::{KeyAlg, Platform};
-use argon2::password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, SaltString};
+use argon2::password_hash::{PasswordHash, PasswordHasher, SaltString};
 use argon2::{Argon2, PasswordVerifier};
 use minicbor::{decode, encode, Decode, Decoder, Encode, Encoder};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -410,7 +410,9 @@ pub fn check_password(pw: &str) -> Result<(), String> {
 
 /// argon2id with a fresh salt. CPU-heavy: call from a blocking thread.
 pub fn hash_password(pw: &str) -> Result<String, String> {
-    let salt = SaltString::generate(&mut OsRng);
+    // 16 bytes (the recommended salt length) from the one source; no panic when it fails
+    let salt = SaltString::encode_b64(&wyrm_core::rand::bytes::<16>().map_err(|e| e.to_string())?)
+        .map_err(|e| format!("argon2: {e}"))?;
     Argon2::default()
         .hash_password(pw.as_bytes(), &salt)
         .map(|h| h.to_string())

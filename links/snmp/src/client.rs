@@ -242,11 +242,11 @@ pub struct Session {
 /// same key, boots and time gives two ciphertexts with one keystream, so a
 /// guessable fallback (the clock) is no answer.
 fn random_u64() -> Result<u64, DriverError> {
-    random_u64_from(getrandom::fill)
+    random_u64_from(wyrm_core::rand::fill)
 }
 
-fn random_u64_from(
-    fill: impl FnOnce(&mut [u8]) -> Result<(), getrandom::Error>,
+fn random_u64_from<E: std::fmt::Display>(
+    fill: impl FnOnce(&mut [u8]) -> Result<(), E>,
 ) -> Result<u64, DriverError> {
     let mut b = [0u8; 8];
     fill(&mut b).map_err(|e| {
@@ -908,9 +908,9 @@ mod tests {
     /// No randomness: no session (it took the clock, and a salt that repeats).
     #[test]
     fn no_randomness_opens_no_session() {
-        let failed = super::random_u64_from(|_| Err(getrandom::Error::UNSUPPORTED));
+        let failed = super::random_u64_from(|_| Err::<(), _>("no OS source"));
         assert!(matches!(failed, Err(super::DriverError::Transport(_))));
-        let given = super::random_u64_from(|b| {
+        let given = super::random_u64_from(|b| -> Result<(), &str> {
             b.fill(7);
             Ok(())
         });

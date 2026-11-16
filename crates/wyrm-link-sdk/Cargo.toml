@@ -21,7 +21,7 @@ process = ["tokio/signal", "tokio/rt-multi-thread", "zenoh/transport_tls", "zeno
 package = ["dep:serde", "dep:zip", "dep:hex"]
 
 [dependencies]
-wyrm-core.workspace = true
+wyrm-core = { workspace = true, features = ["ring"] }
 zenoh.workspace = true
 futures-util = { workspace = true, features = ["std"] }
 tokio = { workspace = true, features = ["rt", "sync", "time", "macros", "net"] }

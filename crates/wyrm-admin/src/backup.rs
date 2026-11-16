@@ -599,7 +599,7 @@ pub enum Sealing<'a> {
 
 fn new_id() -> Result<Vec<u8>, String> {
     let mut id = [0u8; ID_LEN];
-    getrandom::fill(&mut id).map_err(|e| format!("no randomness: {e}"))?;
+    wyrm_core::rand::fill(&mut id).map_err(|e| e.to_string())?;
     Ok(id.to_vec())
 }
 
@@ -620,7 +620,7 @@ impl Sealing<'_> {
             )),
             Sealing::Passphrase(p) => {
                 let mut salt = [0u8; SALT_LEN];
-                getrandom::fill(&mut salt).map_err(|e| format!("no randomness: {e}"))?;
+                wyrm_core::rand::fill(&mut salt).map_err(|e| e.to_string())?;
                 let d = argon2::Params::default();
                 let kdf = Kdf {
                     name: "argon2id".into(),

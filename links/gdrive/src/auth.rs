@@ -101,7 +101,7 @@ impl Tokens {
         let mut sig = vec![0u8; key.public().modulus_len()];
         key.sign(
             &RSA_PKCS1_SHA256,
-            &ring::rand::SystemRandom::new(),
+            &wyrm_core::rand::secure_random(),
             signing.as_bytes(),
             &mut sig,
         )

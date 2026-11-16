@@ -53,7 +53,7 @@ impl Control {
             return Ok(SigningKey::from_bytes(&seed));
         }
         let mut seed = zeroize::Zeroizing::new([0u8; 32]);
-        getrandom::fill(&mut seed[..]).map_err(|e| format!("no randomness: {e}"))?;
+        wyrm_core::rand::fill(&mut seed[..]).map_err(|e| e.to_string())?;
         self.secrets
             .set(SENDER_STORE, SENDER_KEY, &seed[..])
             .map_err(|e| e.to_string())?;

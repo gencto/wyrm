@@ -24,7 +24,7 @@ name = "wyrm-agent"
 required-features = ["cli"]
 
 [dependencies]
-wyrm-core.workspace = true
+wyrm-core = { workspace = true, features = ["rand"] }
 wyrm-link-sdk.workspace = true
 wyrm-client.workspace = true
 wyrm-mcp.workspace = true
@@ -50,7 +50,6 @@ wyrm-state.workspace = true
 minicbor.workspace = true
 # `rc`: the persisted state holds `Arc`s (the store clones it per operation).
 serde = { workspace = true, features = ["rc"] }
-getrandom.workspace = true
 wyrm-gateway-client = { workspace = true, optional = true }
 clap = { workspace = true, optional = true, features = ["env"] }
 

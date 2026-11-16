@@ -24,7 +24,7 @@ name = "wyrm-link-gdrive"
 required-features = ["process"]
 
 [dependencies]
-wyrm-core.workspace = true
+wyrm-core = { workspace = true, features = ["ring"] }
 wyrm-link-sdk.workspace = true
 wyrm-filestore.workspace = true
 tokio = { workspace = true, features = ["rt", "time", "macros", "sync"] }
