@@ -564,7 +564,8 @@ pub fn suggestion_of(
         Some(v) => v
             .as_u64()
             .filter(|n| *n <= 50)
-            .ok_or("`changes` must be a number of changes, 0 to 50")? as u32,
+            .and_then(|n| u32::try_from(n).ok())
+            .ok_or("`changes` must be a number of changes, 0 to 50")?,
     };
     let step = match input.get("step") {
         None | Some(Json::Null) => None,

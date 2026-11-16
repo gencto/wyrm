@@ -196,11 +196,15 @@ pub struct Sealed {
 }
 
 /// The link of a link backup.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LinkInfo {
     pub id: String,
     pub driver: String,
-    pub mode: String,
+    /// Kept by its name (`"process"`), the text the field held when it was a `String`:
+    /// the manifest's bytes, and so its MAC, are the same. A name that is no link mode
+    /// refuses the manifest.
+    #[serde(with = "wyrm_core::named::serde")]
+    pub mode: crate::registry::Mode,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub package: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -916,7 +920,7 @@ pub fn write(
         "{}.part",
         out.extension().and_then(|e| e.to_str()).unwrap_or("zip")
     ));
-    let _ = std::fs::remove_file(&part);
+    wyrm_core::files::discard(&part);
     let result = (|| {
         let mut opts = std::fs::OpenOptions::new();
         opts.write(true).create_new(true);
@@ -974,7 +978,7 @@ pub fn write(
         Ok(())
     })();
     if let Err(e) = result {
-        let _ = std::fs::remove_file(&part);
+        wyrm_core::files::discard(&part);
         return Err(e);
     }
     let (size, sha256) = hash_file(&part).map_err(|e| io(&part, e))?;
@@ -1204,7 +1208,7 @@ impl<R: Read + Seek> Reader<R> {
                     let src = std::io::BufReader::new(File::open(&stored).map_err(io)?);
                     open_stream(key, path, src, &mut out)
                 })();
-                let _ = std::fs::remove_file(&stored);
+                wyrm_core::files::discard(&stored);
                 r?
             } else {
                 self.copy(path, &mut out)?
@@ -1214,7 +1218,8 @@ impl<R: Read + Seek> Reader<R> {
             Ok(n)
         })();
         if r.is_err() {
-            let _ = std::fs::remove_file(dest);
+            // what was written of it: never a whole file
+            wyrm_core::files::discard(dest);
         }
         r
     }
@@ -1265,6 +1270,39 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(e.contains("backup sealing: unknown name"), "{e}");
+    }
+
+    /// Review 2026-11-16: `LinkInfo.mode` was a `String` filled from `Mode::name()`. A
+    /// manifest written then reads into [`crate::registry::Mode`] and serializes to the
+    /// same bytes, so its MAC (over the JSON, `mac_text`) still holds; a name that is no
+    /// link mode refuses the manifest instead of reaching a restore as text.
+    #[test]
+    fn link_mode_keeps_the_manifest_bytes() {
+        #[derive(Serialize)]
+        struct OldLinkInfo<'a> {
+            id: &'a str,
+            driver: &'a str,
+            mode: &'a str,
+            #[serde(skip_serializing_if = "str::is_empty")]
+            package: &'a str,
+            #[serde(skip_serializing_if = "str::is_empty")]
+            version: &'a str,
+        }
+        for mode in ["embedded", "process", "external"] {
+            let bytes = serde_json::to_vec(&OldLinkInfo {
+                id: "l1",
+                driver: "pkg:x",
+                mode,
+                package: "x",
+                version: "1.0.0",
+            })
+            .unwrap();
+            let new: LinkInfo = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(new.mode.name(), mode);
+            assert_eq!(serde_json::to_vec(&new).unwrap(), bytes);
+        }
+        let bad = br#"{"id":"l1","driver":"mock","mode":"Process"}"#;
+        assert!(serde_json::from_slice::<LinkInfo>(bad).is_err());
     }
 
     fn dir(name: &str) -> PathBuf {
@@ -1846,7 +1884,13 @@ mod tests {
         // a link backup has link sections
         let mut link = ok.clone();
         link.kind = Kind::Link;
-        link.link = Some(LinkInfo::default());
+        link.link = Some(LinkInfo {
+            id: "l1".into(),
+            driver: "mock".into(),
+            mode: crate::registry::Mode::Embedded,
+            package: String::new(),
+            version: String::new(),
+        });
         assert!(link.check().is_err());
         link.sections[0].name = "settings".into();
         link.sections[0].files[0].path = "settings/link.cbor".into();

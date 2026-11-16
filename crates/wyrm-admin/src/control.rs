@@ -987,6 +987,17 @@ impl Control {
         Ok(())
     }
 
+    /// Remove `path`, the files of something removed, after the state change that
+    /// made them unused. What stays (its key, its certificate, its data) is logged
+    /// and audited as `op` on `key`; the state change stands, so the caller goes on.
+    pub(crate) fn remove_left(&self, sub: &str, op: &str, key: &str, path: &Path) {
+        if let Err(e) = crate::nofollow::remove_any(path) {
+            let what = format!("{} stays: {e}", path.display());
+            error!(key, "{op}: {what}");
+            self.record(sub, op, key, Status::InternalError, &what);
+        }
+    }
+
     /// One record in the admin's audit journal (also for in-process
     /// components such as the user gateway). Never pass secret values.
     pub fn record(&self, sub: &str, op: &str, key: &str, status: Status, detail: &str) {
@@ -1543,7 +1554,7 @@ impl Control {
                 self.secrets.drop_link(&d.id)?;
                 self.apply(Op::Remove(d.id.clone()))?;
                 if let Ok(dir) = self.link_dir(&d.id) {
-                    let _ = std::fs::remove_dir_all(dir);
+                    self.remove_left("system", "remove", &d.id, &dir);
                 }
                 self.record(
                     "system",
@@ -1627,7 +1638,7 @@ impl Control {
         for site in &gone {
             match self.apply(Op::RemovePeer(site.clone())) {
                 Ok(()) => {
-                    let _ = std::fs::remove_file(self.peer_ca_path(site));
+                    self.remove_left("system", "peer_remove", site, &self.peer_ca_path(site));
                     self.record(
                         "system",
                         "peer_remove",
@@ -1851,7 +1862,10 @@ impl Control {
             let client = self.pki.issue(&cn, &[], false, &pki_dir, "broker-client")?;
             // Every listener, the QUIC broker listener too, trusts our own CA
             // alone (ADR 0015): downstream brokers hold certificates from it.
-            let _ = std::fs::remove_file(pki_dir.join("peer-trust.pem"));
+            let old_trust = pki_dir.join("peer-trust.pem");
+            std::fs::remove_file(&old_trust)
+                .or_else(wyrm_core::files::gone_ok)
+                .map_err(|e| format!("{}: {e}", old_trust.display()))?;
             self.issue_broker_certs()?;
             c.insert_json5(
                 "transport/link/tls",
@@ -2539,10 +2553,9 @@ fn log_rows(lines: Vec<crate::logs::LogLine>) -> Value {
 
 /// `(lines, min level, filter)` of a `get_log` call.
 fn log_args(args: &Value) -> Result<(usize, tracing::Level, String), LinkError> {
-    let n = arg(args, "lines")
-        .and_then(Value::as_f64)
-        .unwrap_or(200.0)
-        .clamp(1.0, 2000.0) as usize;
+    let n = int_arg::<usize>(args, "lines")?
+        .unwrap_or(200)
+        .clamp(1, 2000);
     let level = match arg_str(args, "level").filter(|l| !l.is_empty()) {
         Some(l) => crate::logs::parse_level(l)
             .ok_or_else(|| LinkError::invalid_parameter(format!("level: {l}?")))?,
@@ -2734,6 +2747,19 @@ fn arg_str<'a>(args: &'a Value, name: &str) -> Option<&'a str> {
     match arg(args, name) {
         Some(Value::Str(s)) => Some(s),
         _ => None,
+    }
+}
+
+/// An argument that is a whole number of type `T` (`Value::to_int`): absent or
+/// null is `None`; a fraction, NaN, a negative number for an unsigned `T`, a
+/// number out of range or text is refused, never truncated or saturated.
+pub(crate) fn int_arg<T: TryFrom<i128>>(args: &Value, name: &str) -> Result<Option<T>, LinkError> {
+    match arg(args, name) {
+        None | Some(Value::Null) => Ok(None),
+        Some(v) => v
+            .to_int()
+            .map(Some)
+            .map_err(|e| LinkError::invalid_parameter(format!("{name}: {e}, a whole number"))),
     }
 }
 
@@ -3473,9 +3499,9 @@ async fn ask_certificate(ctl: &Control, def: &PeerDef) -> Result<Answer, String>
             check_issued_cert(&cert, &ctl.cfg.site, &def.key_sha256)?;
             let port = m
                 .get("port")
-                .and_then(Value::as_f64)
-                .filter(|p| (1.0..=65535.0).contains(p))
-                .ok_or("bad answer: no port")? as u16;
+                .and_then(|p| p.to_int::<u16>().ok())
+                .filter(|p| *p != 0)
+                .ok_or("bad answer: no port")?;
             Ok(Answer::Issued { cert, port })
         }
         _ => Err("bad answer".into()),
@@ -4290,10 +4316,8 @@ impl Link for Admin {
                 Ok(Some(log_rows(lc.tail(n, level, &filter, link))))
             }
             (["links", id], "rollback") => {
-                let rev = arg(&args, "rev")
-                    .and_then(Value::as_f64)
-                    .ok_or_else(|| LinkError::invalid_parameter("rev: required"))?
-                    as u32;
+                let rev: u32 = int_arg(&args, "rev")?
+                    .ok_or_else(|| LinkError::invalid_parameter("rev: required"))?;
                 let old = self
                     .ctl
                     .registry()
@@ -4380,7 +4404,7 @@ impl Link for Admin {
                 Ok(None)
             }
             (["audit"], "tail") => {
-                let n = arg(&args, "n").and_then(Value::as_f64).unwrap_or(50.0) as usize;
+                let n: usize = int_arg(&args, "n")?.unwrap_or(50);
                 Ok(Some(Value::Array(
                     self.ctl
                         .audit_tail(n.min(1000))
@@ -4681,7 +4705,9 @@ impl Admin {
             None => {
                 // no version is installed: a directory of this one is what
                 // an install that ended before its registry record left
-                let _ = std::fs::remove_dir_all(packages::dir(&root, &def));
+                let left = packages::dir(&root, &def);
+                crate::nofollow::remove_any(&left)
+                    .map_err(|e| format!("{}: {e}", left.display()))?;
                 unpacked.commit(&root)?;
                 if def.kind == PackageKind::Wasm {
                     self.ctl.publish_component(&def)?;
@@ -4857,8 +4883,12 @@ impl Admin {
         self.ctl
             .apply(Op::RemovePackage(name.to_owned()))
             .map_err(rejected)?;
-        let _ = std::fs::remove_dir_all(self.ctl.packages_root().join(name));
-        let _ = std::fs::remove_file(self.ctl.component_store().join(format!("{name}.wasm")));
+        for path in [
+            self.ctl.packages_root().join(name),
+            self.ctl.component_store().join(format!("{name}.wasm")),
+        ] {
+            self.ctl.remove_left(sub, "package_remove", name, &path);
+        }
         self.ctl
             .record(sub, "package_remove", name, Status::Ok, &def.version);
         self.ctx.remove_node(&format!("packages/{name}")).await?;
@@ -5264,9 +5294,11 @@ impl Admin {
             .apply(Op::Remove(id.to_owned()))
             .map_err(rejected)?;
         if let Ok(dir) = self.ctl.link_dir(id) {
-            let _ = std::fs::remove_dir_all(dir);
+            self.ctl.remove_left(sub, "remove", id, &dir);
         }
-        crate::restore_point::remove_link(&self.ctl.restore_root(), id);
+        if let Some(dir) = crate::restore_point::dir_of_link(&self.ctl.restore_root(), id) {
+            self.ctl.remove_left(sub, "remove", id, &dir);
+        }
         self.ctx.remove_node(&format!("links/{id}")).await?;
         updates::publish_count(&self.ctx, &self.ctl).await;
         self.ctl.supervisor.forget_log(id);
@@ -5401,7 +5433,7 @@ impl Admin {
             .drop_link(id)
             .map_err(|e| LinkError::internal(e.to_string()))?;
         if let Ok(dir) = self.ctl.link_dir(id) {
-            let _ = std::fs::remove_dir_all(dir);
+            self.ctl.remove_left(sub, "deauthorize", id, &dir);
         }
         self.ctx.remove_node(&format!("links/{id}")).await?;
         self.ctl.record(sub, "deauthorize", id, Status::Ok, "");
@@ -5566,8 +5598,11 @@ impl Admin {
             .apply(Op::RemovePeer(site.to_owned()))
             .map_err(rejected)?;
         self.drop_peer_secrets(&peer_secret(site), site, "the upstream was removed");
+        // the registry entry is gone already: the files go after it, and one that
+        // stays (our key for that upstream) is named in the log and the audit
         for ext in ["pem", "cert.pem", "key"] {
-            let _ = std::fs::remove_file(self.ctl.peer_file(site, ext));
+            self.ctl
+                .remove_left(sub, "peer_remove", site, &self.ctl.peer_file(site, ext));
         }
         self.ctl
             .record(sub, "peer_remove", site, Status::Ok, "upstream");
@@ -5866,13 +5901,23 @@ impl Admin {
     /// token that admits a downstream broker at once; returned once, kept
     /// as its SHA-256.
     async fn add_token(&self, args: &Value, sub: &str) -> wyrm_link_sdk::Result<Option<Value>> {
-        let num = |k: &str, d: f64| arg(args, k).and_then(Value::as_f64).unwrap_or(d);
-        let (count, hours) = (num("count", 1.0), num("hours", 24.0));
-        if !(0.0..=1e6).contains(&count) || !(0.0..=87_600.0).contains(&hours) {
-            return Err(LinkError::invalid_parameter(
-                "count 0..1000000 (0: no limit), hours 0..87600 (0: never)",
-            ));
+        const LIMITS: &str = "count 0..1000000 (0: no limit), hours 0..87600 (0: never)";
+        // `count` is a whole number: 0 means no limit, so `0.5` must not become 0
+        let count: u32 = int_arg(args, "count")?.unwrap_or(1);
+        let hours = match arg(args, "hours") {
+            None | Some(Value::Null) => 24.0,
+            Some(v) => v
+                .as_f64()
+                .ok_or_else(|| LinkError::invalid_parameter(LIMITS))?,
+        };
+        if count > 1_000_000 || !(0.0..=87_600.0).contains(&hours) {
+            return Err(LinkError::invalid_parameter(LIMITS));
         }
+        // whole seconds, rounded up: a positive time is never "never"
+        let valid_s = wyrm_core::value::whole((hours * 3600.0).ceil())
+            .ok()
+            .and_then(|s| u64::try_from(s).ok())
+            .ok_or_else(|| LinkError::invalid_parameter(LIMITS))?;
         let id =
             secret::new_token().map_err(|e| LinkError::internal(e.to_string()))?[..12].to_owned();
         let secret_part = secret::new_token().map_err(|e| LinkError::internal(e.to_string()))?;
@@ -5880,12 +5925,8 @@ impl Admin {
         let now = now_s();
         let def = TokenDef {
             sha256: token_sha256(&token),
-            uses: count as u32,
-            expires: if hours == 0.0 {
-                0
-            } else {
-                now + (hours * 3600.0) as u64
-            },
+            uses: count,
+            expires: if valid_s == 0 { 0 } else { now + valid_s },
             created: now,
             by: sub.to_owned(),
         };
@@ -7210,6 +7251,35 @@ mod tests {
         assert_eq!(ctl.due_certificate(), None, "renewed: not due again");
         let pem = std::fs::read_to_string(pki_dir.join("broker-client.pem")).unwrap();
         assert!(!crate::secret::cert_due(&pem));
+    }
+
+    /// Review 2026-11-16: the files of a removed peer (its CA, our certificate and key for
+    /// it) and of a removed link or package were removed with `let _ =`. One that stays is
+    /// now in the log and in the audit, named, with the operation it belongs to.
+    #[test]
+    fn files_left_after_a_removal_are_audited() {
+        let ctl = control("leftover", false, |_| {});
+        let d = &ctl.cfg.data_dir;
+        std::fs::write(d.join("gone.pem"), b"x").unwrap();
+        ctl.remove_left("user:a", "peer_remove", "up1", &d.join("gone.pem"));
+        assert!(!d.join("gone.pem").exists());
+        ctl.remove_left("user:a", "peer_remove", "up1", &d.join("absent.pem"));
+        assert!(
+            ctl.audit_tail(10).iter().all(|r| r.op != "peer_remove"),
+            "removed or absent: nothing to report"
+        );
+        // a path below a file cannot be removed (ENOTDIR) for any user
+        std::fs::write(d.join("a-file"), b"x").unwrap();
+        ctl.remove_left(
+            "user:a",
+            "peer_remove",
+            "up1",
+            &d.join("a-file").join("key"),
+        );
+        let r = ctl.audit_tail(10).into_iter().last().unwrap();
+        assert_eq!((r.op.as_str(), r.key.as_str()), ("peer_remove", "up1"));
+        assert_eq!(r.status, wyrm_core::Status::InternalError.code());
+        assert!(r.detail.contains("stays"), "{}", r.detail);
     }
 
     /// T5: links trust the embedded scheduler's key at `write`, only on this site's

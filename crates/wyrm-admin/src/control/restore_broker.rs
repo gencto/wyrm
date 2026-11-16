@@ -400,8 +400,7 @@ fn forward(data_dir: &Path, pending: &Path, plan: &Plan, before: &Before) -> Res
         if existed(p) && !is_there(&keep) {
             move_to(&to, &keep)
         } else {
-            crate::nofollow::remove_any(&to);
-            Ok(())
+            crate::nofollow::remove_any(&to).map_err(|e| io_err(&to, e))
         }
     };
     for m in &before.moved {
@@ -416,7 +415,7 @@ fn forward(data_dir: &Path, pending: &Path, plan: &Plan, before: &Before) -> Res
     let mut dirs = plan.dirs.clone();
     if tree.is_file() {
         let built = staged.join("storage");
-        crate::nofollow::remove_any(&built);
+        crate::nofollow::remove_any(&built).map_err(|e| io_err(&built, e))?;
         build_storage(&tree, &built)?;
         if !dirs.iter().any(|d| d == "storage") {
             dirs.push("storage".into());
@@ -519,17 +518,18 @@ fn undo(data_dir: &Path, pending: &Path, before: &Before, why: &str) -> Result<(
         if before.existed.contains(p) {
             // not set aside: never touched, or back already
             if is_there(&keep) {
-                crate::nofollow::remove_any(&to);
+                crate::nofollow::remove_any(&to).map_err(|e| io_err(&to, e))?;
                 move_to(&keep, &to)?;
             }
         } else {
-            crate::nofollow::remove_any(&to);
+            // placed by the restore: what it put there goes, or the undo is not done
+            crate::nofollow::remove_any(&to).map_err(|e| io_err(&to, e))?;
         }
     }
     for m in before.moved.iter().rev() {
         let (at, keep) = (data_dir.join(m), old.join(m));
         if is_there(&keep) {
-            crate::nofollow::remove_any(&at);
+            crate::nofollow::remove_any(&at).map_err(|e| io_err(&at, e))?;
             move_to(&keep, &at)?;
         }
     }
@@ -539,13 +539,18 @@ fn undo(data_dir: &Path, pending: &Path, before: &Before, why: &str) -> Result<(
 /// The folder becomes `restore.failed`: its plan and the reason stay,
 /// everything else (opened keys and secrets among it) goes.
 fn set_failed(data_dir: &Path, pending: &Path, why: &str) -> Result<(), String> {
+    // opened keys and secrets among them: each goes, or the folder is not kept as failed
     for name in ["data", OLD, LINK_SECRETS, STORAGE_TREE, BEFORE] {
-        crate::nofollow::remove_any(&pending.join(name));
+        let p = pending.join(name);
+        crate::nofollow::remove_any(&p).map_err(|e| io_err(&p, e))?;
     }
     secret::write_private(&pending.join(ERROR), why.as_bytes()).map_err(|e| io_err(pending, e))?;
-    let _ = std::fs::remove_file(pending.join(UNDO));
+    // an undo mark that stayed would make the next start undo again
+    std::fs::remove_file(pending.join(UNDO))
+        .or_else(wyrm_core::files::gone_ok)
+        .map_err(|e| io_err(&pending.join(UNDO), e))?;
     let failed = data_dir.join(FAILED);
-    crate::nofollow::remove_any(&failed);
+    crate::nofollow::remove_any(&failed).map_err(|e| io_err(&failed, e))?;
     std::fs::rename(pending, &failed).map_err(|e| io_err(&failed, e))
 }
 
@@ -561,9 +566,14 @@ fn set_failed(data_dir: &Path, pending: &Path, why: &str) -> Result<(), String> 
 /// with the state it had. `Err`: the state before could not be put back
 /// either. A start that stopped halfway is taken up again by the next one.
 pub fn apply_pending(data_dir: &Path) -> Result<Option<Applied>, String> {
-    // a staging that never finished; a restore that was committed
-    let _ = std::fs::remove_dir_all(data_dir.join(PENDING_TMP));
-    let _ = std::fs::remove_dir_all(data_dir.join(DONE));
+    // a staging that never finished; a restore that was committed. Both may hold
+    // opened secrets; one that stays is named, and the next start tries again
+    for left in [PENDING_TMP, DONE] {
+        let p = data_dir.join(left);
+        if let Err(e) = crate::nofollow::remove_any(&p) {
+            tracing::error!("{} stays: {e}", p.display());
+        }
+    }
     let pending = data_dir.join(PENDING);
     if !pending.is_dir() {
         return Ok(None);
@@ -609,11 +619,15 @@ pub fn commit_pending(data_dir: &Path) {
         return;
     }
     let done = data_dir.join(DONE);
-    let _ = std::fs::remove_dir_all(&done);
-    match std::fs::rename(&pending, &done) {
-        Ok(()) => {
-            let _ = std::fs::remove_dir_all(&done);
+    let remove_done = || {
+        // what the restore replaced; the next start tries again (`apply_pending`)
+        if let Err(e) = crate::nofollow::remove_any(&done) {
+            tracing::error!("{} stays: {e}", done.display());
         }
+    };
+    remove_done();
+    match std::fs::rename(&pending, &done) {
+        Ok(()) => remove_done(),
         Err(e) => warn!("{}: {e}", pending.display()),
     }
 }
@@ -890,7 +904,8 @@ impl Control {
     ) -> Result<Plan, String> {
         let d = &self.cfg.data_dir;
         let tmp = d.join(PENDING_TMP);
-        let _ = std::fs::remove_dir_all(&tmp);
+        // an earlier staging (it may hold opened secrets) goes before this one
+        crate::nofollow::remove_any(&tmp).map_err(|e| io_err(&tmp, e))?;
         // what the chosen sections open into must fit, before any of it is
         self.room_for(super::restore::extract_need(
             c.manifest
@@ -905,14 +920,18 @@ impl Control {
             Ok(plan) => plan,
             Err(e) => {
                 // nothing half staged stays (it may hold opened secrets)
-                let _ = std::fs::remove_dir_all(&tmp);
+                if let Err(r) = crate::nofollow::remove_any(&tmp) {
+                    tracing::error!("{} stays: {r}", tmp.display());
+                    return Err(format!("{e}; {} stays: {r}", tmp.display()));
+                }
                 return Err(e);
             }
         };
         let pending = d.join(PENDING);
-        let _ = std::fs::remove_dir_all(&pending);
+        crate::nofollow::remove_any(&pending).map_err(|e| io_err(&pending, e))?;
         // an earlier restore that was not applied is forgotten
-        let _ = std::fs::remove_dir_all(d.join(FAILED));
+        let failed = d.join(FAILED);
+        crate::nofollow::remove_any(&failed).map_err(|e| io_err(&failed, e))?;
         std::fs::rename(&tmp, &pending).map_err(|e| io_err(&pending, e))?;
         Ok(plan)
     }
@@ -994,7 +1013,7 @@ impl Control {
             })?;
             plan.dirs.push(dir.to_owned());
         }
-        let _ = std::fs::remove_dir_all(tmp.join("verify"));
+        wyrm_core::files::discard_dir(&tmp.join("verify"));
         if has("dataflows") {
             let dir = data.join("flows").join("artifacts");
             std::fs::create_dir_all(&dir).map_err(|e| io_err(&dir, e))?;
@@ -1141,8 +1160,8 @@ impl Control {
                 }
                 plan.dirs.push(rel);
             }
-            let _ = std::fs::remove_dir_all(tmp.join("package"));
-            let _ = std::fs::remove_dir_all(tmp.join("unpacked"));
+            wyrm_core::files::discard_dir(&tmp.join("package"));
+            wyrm_core::files::discard_dir(&tmp.join("unpacked"));
             if !asks.is_empty() && !accept {
                 return Err(format!(
                     "the packages of the backup ask for: {}. Nothing is restored: read them, \
@@ -1768,7 +1787,7 @@ mod tests {
         assert!(apply_pending(&d).unwrap().is_some());
         std::fs::write(p.join(UNDO), b"power").unwrap();
         // half undone: one store is back already
-        crate::nofollow::remove_any(&d.join("state"));
+        crate::nofollow::remove_any(&d.join("state")).unwrap();
         move_to(&p.join("old/state"), &d.join("state")).unwrap();
         assert_eq!(apply_pending(&d).unwrap(), None);
         assert_eq!(tree_of(&d), was);

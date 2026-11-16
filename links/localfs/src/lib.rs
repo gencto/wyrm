@@ -453,13 +453,13 @@ impl LocalStore {
                 if let Some(m) = &old {
                     if let Err(e) = fs::set_permissions(&tmp, plain_permissions(m)) {
                         // ours: made above
-                        let _ = fs::remove_file(&tmp);
+                        wyrm_core::files::discard(&tmp);
                         return Err(io_error(e, &w));
                     }
                 }
                 if let Err(e) = fs::rename(&tmp, &target) {
                     // ours: made above
-                    let _ = fs::remove_file(&tmp);
+                    wyrm_core::files::discard(&tmp);
                     return Err(io_error(e, &w));
                 }
             } else {
@@ -611,7 +611,8 @@ fn write_new(target: &Path, src: &Src, fsync: bool) -> std::io::Result<()> {
     .and_then(|()| if fsync { f.sync_all() } else { Ok(()) });
     if written.is_err() {
         drop(f);
-        let _ = fs::remove_file(target);
+        // made by this call (`create_new`), and never whole
+        wyrm_core::files::discard(target);
     }
     written
 }

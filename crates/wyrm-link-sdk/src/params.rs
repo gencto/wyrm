@@ -77,14 +77,17 @@ impl<'a> Fields<'a> {
         }
     }
 
+    /// A whole number (`Value::to_int`); `default` when absent.
     pub fn u64_or(&self, key: &str, default: u64) -> Result<u64> {
         match self.get(key) {
             None => Ok(default),
-            Some(Value::UInt(u)) => Ok(*u),
-            Some(Value::Float(f)) if f.fract() == 0.0 && *f >= 0.0 && *f <= u64::MAX as f64 => {
-                Ok(*f as u64)
-            }
-            Some(_) => Err(bad(&self.at, key, "expected a non-negative integer")),
+            Some(v) => v.to_int().map_err(|e| {
+                bad(
+                    &self.at,
+                    key,
+                    &format!("expected a non-negative integer ({e})"),
+                )
+            }),
         }
     }
 
@@ -156,5 +159,18 @@ mod tests {
         assert!(f.only(&["host", "port"]).is_err());
         assert!(f.only(&["host", "port", "points"]).is_ok());
         assert!(narrow::<u8>(300, "unit").is_err());
+        // whole numbers only, and no float above 2^53 (2^64 passed
+        // `<= u64::MAX as f64` and saturated)
+        let w = map(&[
+            ("a", Value::Float(20.0)),
+            ("b", Value::Float(0.5)),
+            ("c", Value::Float(18_446_744_073_709_551_616.0)),
+            ("d", Value::Int(-1)),
+        ]);
+        let w = Fields::new(&w).unwrap();
+        assert_eq!(w.u64_or("a", 0).unwrap(), 20);
+        for k in ["b", "c", "d"] {
+            assert!(w.u64_or(k, 0).is_err(), "{k}");
+        }
     }
 }

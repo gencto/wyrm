@@ -1132,7 +1132,7 @@ fn write_private(path: &Path, data: &[u8]) -> std::io::Result<()> {
         std::fs::create_dir_all(dir)?;
     }
     let tmp = path.with_extension("tmp");
-    let _ = std::fs::remove_file(&tmp);
+    wyrm_core::files::discard(&tmp);
     {
         let mut opts = std::fs::OpenOptions::new();
         opts.write(true).create_new(true);

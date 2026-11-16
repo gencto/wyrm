@@ -1675,12 +1675,10 @@ fn owner_of(who: &Caller) -> String {
 fn arg_u64(args: &Map, name: &str) -> Result<Option<u64>> {
     match args.get(name) {
         None | Some(Value::Null) => Ok(None),
-        Some(Value::UInt(n)) => Ok(Some(*n)),
-        Some(Value::Int(n)) if *n >= 0 => Ok(Some(*n as u64)),
-        Some(Value::Float(f)) if f.fract() == 0.0 && *f >= 0.0 && *f < 9.0e15 => {
-            Ok(Some(*f as u64))
-        }
-        Some(_) => Err(bad(format!("{name}: a whole number of 0 or more"))),
+        Some(v) => v
+            .to_int()
+            .map(Some)
+            .map_err(|e| bad(format!("{name}: a whole number of 0 or more ({e})"))),
     }
 }
 

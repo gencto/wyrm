@@ -217,14 +217,14 @@ fn remove_now(g: Gone) {
     let paths = match g {
         Gone::Files(f) => f,
         Gone::Dir(d) => {
-            let _ = std::fs::remove_dir_all(&d);
+            wyrm_core::files::discard_dir(&d);
             #[cfg(test)]
             lock(&REMOVED_ON).push((d, std::thread::current().id()));
             return;
         }
     };
     for f in paths {
-        let _ = std::fs::remove_file(&f);
+        wyrm_core::files::discard(&f);
         #[cfg(test)]
         lock(&REMOVED_ON).push((f, std::thread::current().id()));
     }
@@ -407,7 +407,7 @@ impl Uploads {
                     // from here the file is ours
                     f.set_len(size).inspect_err(|_| {
                         drop(f);
-                        let _ = std::fs::remove_file(&f2);
+                        wyrm_core::files::discard(&f2);
                     })
                 })
                 .await

@@ -71,9 +71,9 @@ fn parse(cfg: &Map) -> Result<Cfg, String> {
     let timeout_ms = match cfg.get("timeout_ms") {
         None => DEFAULT_TIMEOUT_MS,
         Some(v) => v
-            .as_f64()
-            .filter(|t| (100.0..=60_000.0).contains(t))
-            .map(|t| t as u32)
+            .to_int::<u32>()
+            .ok()
+            .filter(|t| (100..=60_000).contains(t))
             .ok_or("params.timeout_ms: 100 to 60000")?,
     };
     Ok(Cfg {

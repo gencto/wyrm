@@ -31,6 +31,8 @@ struct Shared {
     now_us: u64,
     store: HashMap<String, Vec<u8>>,
     random: u8,
+    /// Every `store_put` fails (a store that is gone or full).
+    store_down: bool,
 }
 
 struct Sim {
@@ -55,6 +57,15 @@ impl Services for Sim {
     }
     fn store_keys(&self) -> usize {
         self.shared.lock().unwrap().store.len()
+    }
+    fn store_ready(&self) -> Result<(), AppError> {
+        if self.shared.lock().unwrap().store_down {
+            return Err(AppError::new(
+                wyrm_core::Status::InternalError,
+                "the store takes no write (test)",
+            ));
+        }
+        Ok(())
     }
     fn may(&self, key: &str, _perm: Perm) -> bool {
         // the link's grants: the mock link only
@@ -458,6 +469,11 @@ impl<A: App> SimHost<A> {
 
     pub fn store_raw(&self, k: &str) -> Option<Vec<u8>> {
         self.shared.lock().unwrap().store.get(k).cloned()
+    }
+
+    /// From now on every `store_put` fails (`true`) or works again (`false`).
+    pub fn store_down(&self, down: bool) {
+        self.shared.lock().unwrap().store_down = down;
     }
 }
 

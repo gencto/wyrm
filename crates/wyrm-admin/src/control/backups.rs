@@ -229,10 +229,13 @@ impl Backups {
             let name = e.file_name().to_string_lossy().into_owned();
             let path = e.path();
             if name.starts_with(".stage-") || name.starts_with(".upload-") {
-                let _ = std::fs::remove_dir_all(&path);
-                let _ = std::fs::remove_file(&path);
+                if e.file_type().is_ok_and(|t| t.is_dir()) {
+                    wyrm_core::files::discard_dir(&path);
+                } else {
+                    wyrm_core::files::discard(&path);
+                }
             } else if name.ends_with(".part") {
-                let _ = std::fs::remove_file(&path);
+                wyrm_core::files::discard(&path);
             } else if let Some(file) = name.strip_suffix(".json") {
                 let read = std::fs::read(&path)
                     .ok()
@@ -259,9 +262,7 @@ impl Backups {
                         }
                         jobs.insert(j.id.clone(), j);
                     }
-                    None => {
-                        let _ = std::fs::remove_file(&path);
-                    }
+                    None => wyrm_core::files::discard(&path),
                 }
             }
         }
@@ -435,7 +436,7 @@ impl StageDir {
 
 impl Drop for StageDir {
     fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
+        wyrm_core::files::discard_dir(&self.0);
     }
 }
 
@@ -855,7 +856,7 @@ impl Control {
                     link.get_or_insert_with(|| LinkInfo {
                         id: def.id.clone(),
                         driver: def.driver.clone(),
-                        mode: def.mode.name().to_owned(),
+                        mode: def.mode,
                         package: package.as_ref().map(|p| p.name.clone()).unwrap_or_default(),
                         version: package
                             .as_ref()
@@ -1289,7 +1290,7 @@ impl Control {
         // what the reader of a link backup takes: a larger one would be a
         // restore point that cannot be applied
         if w.manifest.size() > super::restore::MAX_LINK_BACKUP {
-            let _ = std::fs::remove_file(path);
+            wyrm_core::files::discard(path);
             return Err(format!(
                 "the link's private data is over {} GiB",
                 super::restore::MAX_LINK_BACKUP >> 30
@@ -1300,7 +1301,7 @@ impl Control {
             .section("data")
             .and_then(|s| s.info.get("skipped"))
             .and_then(serde_json::Value::as_u64)
-            .unwrap_or(0) as u32;
+            .map_or(0, |n| u32::try_from(n).unwrap_or(u32::MAX));
         Ok(LinkBackup {
             link: id.to_owned(),
             version: package.map(|p| p.version).unwrap_or_default(),
@@ -1337,9 +1338,12 @@ impl Control {
             let expired = j.expires <= now;
             let over = (total > max || count > MAX_JOBS) && Some(&j.id) != newest.as_ref();
             if expired || over || failed_old {
+                if let Err(e) = self.drop_backup(&j.id) {
+                    warn!(backup = %j.id, "not pruned, its files stay: {e}");
+                    continue;
+                }
                 total = total.saturating_sub(j.size);
                 count -= 1;
-                self.drop_backup(&j.id);
                 gone.push(j.id.clone());
             }
         }
@@ -1360,16 +1364,24 @@ impl Control {
         }
     }
 
-    /// Forget a job and remove its files.
-    fn drop_backup(&self, id: &str) -> Option<Job> {
-        let job = self.backups.lock().remove(id)?;
-        if !job.file.is_empty() {
+    /// Remove a job's files, then forget it. `Err`: a file stays, and so does the
+    /// job (listed, and tried again by the next prune); the archive goes first,
+    /// its record last, so a record never names an archive that is gone.
+    fn drop_backup(&self, id: &str) -> Result<Option<Job>, String> {
+        let Some(file) = self.backups.lock().get(id).map(|j| j.file.clone()) else {
+            return Ok(None);
+        };
+        if !file.is_empty() {
             let dir = self.backups_dir();
-            let _ = std::fs::remove_file(dir.join(&job.file));
-            let _ = std::fs::remove_file(dir.join(format!("{}.json", job.file)));
+            for p in [dir.join(&file), dir.join(format!("{file}.json"))] {
+                std::fs::remove_file(&p)
+                    .or_else(wyrm_core::files::gone_ok)
+                    .map_err(|e| io_err(&p, e))?;
+            }
         }
+        let job = self.backups.lock().remove(id);
         self.backups.notify();
-        Some(job)
+        Ok(job)
     }
 
     /// The `busy` of an operation that would change one of `links` while
@@ -1572,7 +1584,7 @@ impl Control {
                 }
                 Err(e) => {
                     warn!(backup = %job_id, "backup failed: {e}");
-                    let _ = std::fs::remove_file(&out);
+                    wyrm_core::files::discard(&out);
                     ctl.record(
                         &sub,
                         op,
@@ -1684,19 +1696,6 @@ fn list_arg(args: &Value, name: &str) -> Result<Option<Vec<String>>, LinkError> 
     }
 }
 
-pub(super) fn uint_arg(args: &Value, name: &str) -> Result<Option<u64>, LinkError> {
-    match arg(args, name) {
-        None | Some(Value::Null) => Ok(None),
-        Some(Value::UInt(n)) => Ok(Some(*n)),
-        Some(v) => match v.as_f64() {
-            Some(f) if f >= 0.0 && f.fract() == 0.0 && f < 9.0e15 => Ok(Some(f as u64)),
-            _ => Err(LinkError::invalid_parameter(format!(
-                "{name}: a whole number"
-            ))),
-        },
-    }
-}
-
 /// The passphrase of a call, out of its arguments.
 pub(super) fn passphrase_arg(args: &Value) -> Result<Option<Zeroizing<Vec<u8>>>, LinkError> {
     match arg(args, "passphrase") {
@@ -1714,7 +1713,7 @@ pub(super) fn request_of(
     remote: bool,
 ) -> Result<BackupRequest, LinkError> {
     let sections = list_arg(args, "sections")?.unwrap_or_default();
-    let history_days = match uint_arg(args, "history_days")? {
+    let history_days = match int_arg::<u64>(args, "history_days")? {
         Some(0) | None => None,
         Some(n) => Some(
             u32::try_from(n).map_err(|_| LinkError::invalid_parameter("history_days: too many"))?,
@@ -2108,11 +2107,11 @@ pub(super) async fn invoke(
             if let Some(job) = ctl.backups.get(id) {
                 may_download(&job, remote)?;
             }
-            let offset = uint_arg(args, "offset")?
+            let offset = int_arg::<u64>(args, "offset")?
                 .ok_or_else(|| LinkError::invalid_parameter("offset: required"))?;
-            let len = match uint_arg(args, "len")? {
+            let len = match int_arg::<u64>(args, "len")? {
                 Some(n) => n,
-                None => uint_arg(args, "length")?.unwrap_or(DEFAULT_PART),
+                None => int_arg::<u64>(args, "length")?.unwrap_or(DEFAULT_PART),
             };
             let (ctl2, id2) = (ctl.clone(), (*id).to_owned());
             let (data, size) =
@@ -2147,8 +2146,13 @@ pub(super) async fn invoke(
                 }
                 Some(_) => {}
             }
-            if let Some(j) = ctl.drop_backup(id) {
-                ctl.record(sub, "backup_remove", id, Status::Ok, &j.file);
+            match ctl.drop_backup(id) {
+                Ok(Some(j)) => ctl.record(sub, "backup_remove", id, Status::Ok, &j.file),
+                Ok(None) => {}
+                Err(e) => {
+                    ctl.record(sub, "backup_remove", id, Status::InternalError, &e);
+                    return Err(LinkError::internal(format!("backup {id} stays: {e}")));
+                }
             }
             Ok(None)
         }
@@ -2399,6 +2403,51 @@ mod tests {
             Some(SendStatus::Failed),
             "a send does not outlive the broker"
         );
+    }
+
+    /// Review 2026-11-16: `remove` dropped the result of removing the archive, answered
+    /// done and forgot the job while the file stayed. A file that cannot go (a non-empty
+    /// directory at its name, for any user) is an error now, and the job stays listed.
+    #[test]
+    fn a_backup_whose_file_stays_is_not_forgotten() {
+        let ctl = super::super::tests::control("backup-stuck", false, |_| {});
+        let dir = ctl.backups_dir();
+        make_private_dir(&dir).unwrap();
+        let file = "stuck.wyrm-backup".to_owned();
+        std::fs::create_dir_all(dir.join(&file).join("x")).unwrap();
+        let j = Job {
+            id: "stuck".into(),
+            kind: JobKind::Full,
+            link: String::new(),
+            sections: vec!["control".into()],
+            status: JobStatus::Done,
+            progress: 100,
+            step: String::new(),
+            size: 1,
+            sha256: String::new(),
+            created: now_s() - 30 * 86_400,
+            // expired: the next prune takes it
+            expires: 1,
+            error: String::new(),
+            file: file.clone(),
+            sealed: Some(How::None),
+            by: "user:a".into(),
+            pinned: false,
+            sent_to: String::new(),
+            send_status: None,
+            send_progress: 0,
+            send_error: String::new(),
+        };
+        ctl.backups.lock().insert(j.id.clone(), j);
+        assert!(ctl.drop_backup("stuck").is_err());
+        assert!(ctl.backups.get("stuck").is_some(), "still listed");
+        assert!(
+            ctl.prune_backups().is_empty(),
+            "not pruned while its file stays"
+        );
+        std::fs::remove_dir_all(dir.join(&file)).unwrap();
+        assert!(ctl.drop_backup("stuck").unwrap().is_some());
+        assert!(ctl.backups.get("stuck").is_none());
     }
 
     #[test]

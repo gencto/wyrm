@@ -92,13 +92,15 @@ pub fn secret(host: &dyn Host, name: &str) -> Option<String> {
 }
 
 /// The next `bdSeq` of an upstream (0 the first time), kept so a new session's NBIRTH never
-/// repeats the last one's.
-pub fn next_bdseq(host: &mut dyn Host, name: &str) -> u64 {
+/// repeats the last one's. `Err`: it is not kept, and the session must not open with it (a
+/// restart would send the same `bdSeq` again, and the host application would take the next
+/// NDEATH for the wrong session).
+pub fn next_bdseq(host: &mut dyn Host, name: &str) -> Result<u64, AppError> {
     let k = bdseq_key(name);
     let last = host
         .store_get(&k)
         .and_then(|b| b.try_into().ok().map(u64::from_le_bytes));
     let next = last.map_or(0, |l| (l + 1) % 256);
-    let _ = host.store_put(&k, &next.to_le_bytes());
-    next
+    host.store_put(&k, &next.to_le_bytes())?;
+    Ok(next)
 }

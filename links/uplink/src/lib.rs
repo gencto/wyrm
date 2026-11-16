@@ -433,7 +433,9 @@ impl Up {
     ) -> Result<(Vec<u8>, Option<u64>), String> {
         let d = &self.def;
         let client_id = d.client_id(site);
-        let keep = d.uint("keep_alive_s", u64::from(platform::DEFAULT_KEEP_ALIVE_S)) as u16;
+        let keep = u16::try_from(d.uint("keep_alive_s", u64::from(platform::DEFAULT_KEEP_ALIVE_S)))
+            .ok()
+            .ok_or("keep_alive_s: above 65535")?;
         let (username, password, sas_until, will);
         match d.kind {
             Kind::Mqtt | Kind::Sparkplug => {
@@ -528,7 +530,11 @@ impl Up {
             return;
         }
         if self.def.kind == Kind::Sparkplug {
-            self.sp.bd_seq = store::next_bdseq(host, &self.def.name);
+            match store::next_bdseq(host, &self.def.name) {
+                Ok(b) => self.sp.bd_seq = b,
+                // no session with a bdSeq that is not kept; tried again after the backoff
+                Err(e) => return self.lost(host, Lost::Reconnect(format!("bdSeq not kept: {e}"))),
+            }
             self.sp.seq = 0;
         }
         let (packet, sas_until) = match self.connect_packet(now, site, secret.as_deref()) {
@@ -761,7 +767,8 @@ impl Up {
 
     fn flush_mqtt(&mut self, host: &mut dyn Host, now: u64) -> Result<(), Lost> {
         let prefix = self.def.str("topic_prefix").to_owned();
-        let qos = self.def.uint("qos", 0) as u8;
+        // checked to 0 or 1 when the upstream was added; anything else is no QoS 1
+        let qos = u8::from(self.def.uint("qos", 0) == 1);
         let retain = self.def.flag("retain", true);
         let mode = self.def.payload();
         let mut sends = 0;

@@ -202,6 +202,46 @@ fn rate_and_queue_bounds() {
     assert_eq!(h.leaf("slow", "queued"), Value::UInt(0));
 }
 
+/// A session opens only with a `bdSeq` that is kept: while the store takes no write, no
+/// CONNECT goes out (a restart would send the same `bdSeq` again); once it works, the session
+/// opens (review 2026-11-16: `next_bdseq` dropped the error). The upstream is one of
+/// `wyrmd.json5`, which loads without a store write.
+#[test]
+fn sparkplug_opens_no_session_with_a_bdseq_that_is_not_kept() {
+    let broker = Broker::start();
+    let mut h = SimHost::new(broker.port).with_mock(1);
+    h.params = map(&[
+        ("site", s("s")),
+        ("own", s("wy/s/downstream/uplink")),
+        ("net", s(&h.net)),
+        (
+            "upstreams",
+            Value::Array(vec![map(&[
+                ("name", s("ign")),
+                ("kind", s("sparkplug")),
+                ("url", s(&format!("mqtt://127.0.0.1:{}", broker.port))),
+                ("group_id", s("Plant")),
+                ("select", s("wy/s/downstream/mock")),
+            ])]),
+        ),
+    ]);
+    h.store_down(true);
+    h.start();
+    for _ in 0..10 {
+        h.advance_ms(1_000);
+        h.settle();
+    }
+    assert_ne!(h.status("ign"), "connected");
+    assert!(
+        broker.seen().connects.is_empty(),
+        "no CONNECT without a kept bdSeq"
+    );
+    assert!(format!("{:?}", h.leaf("ign", "error")).contains("bdSeq not kept"));
+    h.store_down(false);
+    h.until("connected", |h| h.status("ign") == "connected");
+    assert_eq!(broker.seen().connects.len(), 1);
+}
+
 #[test]
 fn sparkplug_births_data_and_rebirth() {
     let broker = Broker::start();

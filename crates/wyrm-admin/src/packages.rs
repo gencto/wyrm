@@ -156,7 +156,10 @@ pub fn clean_orphans(
 ) -> Vec<String> {
     let mut removed = Vec::new();
     let mut gone = |path: &Path| {
-        crate::nofollow::remove_any(path);
+        if let Err(e) = crate::nofollow::remove_any(path) {
+            tracing::warn!(path = %path.display(), "an orphan of an install stays: {e}");
+            return;
+        }
         if let Ok(rel) = path.strip_prefix(root) {
             removed.push(rel.to_string_lossy().into_owned());
         }
@@ -256,7 +259,7 @@ impl Unpacked {
 
 impl Drop for Unpacked {
     fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.tmp);
+        wyrm_core::files::discard_dir(&self.tmp);
     }
 }
 

@@ -233,9 +233,11 @@ pub(crate) fn names(cfg: &Map) -> Result<Vec<String>, String> {
 pub fn max_samples(cfg: &Map) -> Result<u64, String> {
     match cfg.get("max_samples") {
         None => Ok(10_000),
-        Some(Value::UInt(u)) if (1..=100_000).contains(u) => Ok(*u),
-        Some(Value::Float(x)) if x.fract() == 0.0 && (1.0..=100_000.0).contains(x) => Ok(*x as u64),
-        Some(_) => Err("max_samples: integer 1..=100000".into()),
+        Some(v) => v
+            .to_int::<u64>()
+            .ok()
+            .filter(|u| (1..=100_000).contains(u))
+            .ok_or_else(|| "max_samples: integer 1..=100000".into()),
     }
 }
 
@@ -1486,11 +1488,11 @@ fn port_names(cfg: &Map, k: &str, default: &str) -> Result<Vec<String>, String> 
 fn uint_in(cfg: &Map, k: &str, lo: u64, hi: u64, default: u64) -> Result<u64, String> {
     match cfg.get(k) {
         None => Ok(default),
-        Some(Value::UInt(u)) if (lo..=hi).contains(u) => Ok(*u),
-        Some(Value::Float(x)) if x.fract() == 0.0 && (lo as f64..=hi as f64).contains(x) => {
-            Ok(*x as u64)
-        }
-        Some(_) => Err(format!("{k}: integer {lo}..={hi}")),
+        Some(v) => v
+            .to_int::<u64>()
+            .ok()
+            .filter(|u| (lo..=hi).contains(u))
+            .ok_or_else(|| format!("{k}: integer {lo}..={hi}")),
     }
 }
 

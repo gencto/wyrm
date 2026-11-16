@@ -75,8 +75,12 @@ impl Drop for KeyLease {
             used.insert(self.key.clone(), n - 1);
         } else {
             used.remove(&self.key);
-            let _ = fs::remove_file(&self.key);
-            let _ = fs::remove_file(&self.cert);
+            // a private key that stays is named; `sweep` removes it at the next start
+            for p in [&self.key, &self.cert] {
+                if let Err(e) = fs::remove_file(p).or_else(wyrm_core::files::gone_ok) {
+                    tracing::error!("{} stays: {e}", p.display());
+                }
+            }
         }
     }
 }
@@ -100,7 +104,9 @@ pub fn sweep(root: &Path) {
                 .join("private")
                 .join(key.file_name().unwrap_or_default());
             if user && !used.contains_key(&key) {
-                let _ = fs::remove_file(&path);
+                if let Err(e) = fs::remove_file(&path).or_else(wyrm_core::files::gone_ok) {
+                    tracing::error!("{} stays: {e}", path.display());
+                }
             }
         }
     }
@@ -240,7 +246,10 @@ pub fn prepare(root: &Path, r: &Request<'_>) -> Result<Prepared, String> {
             // Only the pin is trusted; the rejected list is checked first,
             // so the pin leaves it.
             clear_dir(&trusted)?;
-            let _ = fs::remove_file(rejected.join(&name));
+            let was_rejected = rejected.join(&name);
+            fs::remove_file(&was_rejected)
+                .or_else(wyrm_core::files::gone_ok)
+                .map_err(|e| io("rejected certificate", e))?;
             let der = pin.to_der().map_err(|e| format!("server_cert_pem: {e}"))?;
             write_file(&trusted.join(&name), &der, false)?;
             false
@@ -254,7 +263,10 @@ pub fn prepare(root: &Path, r: &Request<'_>) -> Result<Prepared, String> {
             }
             let empty = dir_is_empty(&trusted)?;
             if empty {
-                let _ = fs::remove_file(&marker);
+                // a marker that stayed would trust whatever comes first, unrecorded
+                fs::remove_file(&marker)
+                    .or_else(wyrm_core::files::gone_ok)
+                    .map_err(|e| io("first-use marker", e))?;
                 // a first use is kept or it does not happen: the store must take a
                 // file now, before anything is sent to the server
                 write_file(&store.join(TOFU_PENDING), b"", false)
@@ -322,7 +334,10 @@ fn new_private_dir(parent: &Path, prefix: &str) -> Result<PathBuf, String> {
 fn clear_dir(dir: &Path) -> Result<(), String> {
     for e in fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))? {
         let e = e.map_err(|e| format!("{}: {e}", dir.display()))?;
-        let _ = fs::remove_file(e.path());
+        // a certificate that stayed would still be trusted
+        fs::remove_file(e.path())
+            .or_else(wyrm_core::files::gone_ok)
+            .map_err(|err| format!("{}: {err}", e.path().display()))?;
     }
     Ok(())
 }
@@ -347,7 +362,7 @@ fn write_file(path: &Path, bytes: &[u8], private: bool) -> Result<(), String> {
     }
     // A new file each time: the mode applies only when the file is created.
     let tmp = path.with_extension("tmp");
-    let _ = fs::remove_file(&tmp);
+    wyrm_core::files::discard(&tmp);
     let mut opts = fs::OpenOptions::new();
     opts.write(true).create_new(true);
     #[cfg(unix)]
@@ -658,6 +673,34 @@ mod tests {
         fs::set_permissions(&p.store, fs::Permissions::from_mode(0o700)).unwrap();
         let e = again.expect_err("no first use without a store that keeps files");
         assert!(e.contains("keeps no file"), "{e}");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// Review 2026-11-16: the first-use marker and the cleared trust list were removed
+    /// with `let _ =`. A marker that stays trusts whatever server answers next without a
+    /// record of it; an entry of `trusted/` that stays is still trusted. Both are errors
+    /// now. A non-empty directory at the name makes `remove_file` fail for any user.
+    #[test]
+    fn what_cannot_be_removed_from_the_trust_store_is_an_error() {
+        let root = tmp("tofu-stuck");
+        let (cert_pem, key_pem) = test_keypair();
+        let req = Request {
+            url: "opc.tcp://h:4840/",
+            application_uri: "urn:t",
+            own: Some((&cert_pem, &key_pem)),
+            trust: Trust::FirstUse,
+        };
+        let p = prepare(&root, &req).unwrap();
+        // a marker that is not a file: no session counted, and it cannot go
+        fs::create_dir_all(p.store.join(TOFU_OK).join("x")).unwrap();
+        let e = prepare(&root, &req).expect_err("the marker stays");
+        assert!(e.contains("first-use marker"), "{e}");
+        fs::remove_dir_all(p.store.join(TOFU_OK)).unwrap();
+        // an entry of trusted/ that cannot go
+        fs::create_dir_all(p.store.join("trusted").join("stuck").join("x")).unwrap();
+        assert!(prepare(&root, &req).is_err(), "trusted/ is not cleared");
+        fs::remove_dir_all(p.store.join("trusted").join("stuck")).unwrap();
+        assert!(prepare(&root, &req).is_ok());
         let _ = fs::remove_dir_all(&root);
     }
 

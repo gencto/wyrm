@@ -48,10 +48,7 @@ pub fn get_u64(m: &Map, k: &str) -> Result<Option<u64>, AppError> {
     let bad = || invalid(k, "must be a whole number from 0");
     match m.get(k) {
         None | Some(Value::Null) => Ok(None),
-        Some(Value::UInt(n)) => Ok(Some(*n)),
-        Some(Value::Int(n)) => u64::try_from(*n).map(Some).map_err(|_| bad()),
-        Some(Value::Float(f)) if f.fract() == 0.0 && *f >= 0.0 && *f < 1e15 => Ok(Some(*f as u64)),
-        Some(_) => Err(bad()),
+        Some(v) => v.to_int().ok().map(Some).ok_or_else(bad),
     }
 }
 
@@ -161,11 +158,10 @@ impl AlarmType {
     pub fn parse(v: &Value) -> Option<Self> {
         match v {
             Value::Str(s) => Self::ALL.into_iter().find(|t| t.as_str() == s),
-            Value::UInt(i) => Self::ALL.get(*i as usize).copied(),
-            Value::Int(i) => usize::try_from(*i)
+            Value::UInt(_) | Value::Int(_) | Value::Float(_) => v
+                .to_int::<usize>()
                 .ok()
                 .and_then(|i| Self::ALL.get(i).copied()),
-            Value::Float(f) if f.fract() == 0.0 && *f >= 0.0 => Self::ALL.get(*f as usize).copied(),
             _ => None,
         }
     }

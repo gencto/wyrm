@@ -232,7 +232,7 @@ pub async fn replay(a: ReplayArgs) -> Result<Summary, Error> {
 
     let dir = std::env::temp_dir().join(format!("wyr-replay-{}-{}", std::process::id(), now_us()));
     let result = run_replay(&a, records, raw, &def, &site, &dir).await;
-    let _ = std::fs::remove_dir_all(&dir);
+    wyrm_core::files::discard_dir(&dir);
     result.map_err(|e| format!("replay of {id}: {e}").into())
 }
 

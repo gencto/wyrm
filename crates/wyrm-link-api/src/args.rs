@@ -21,11 +21,12 @@ pub fn enum_name<'a>(v: Option<&Value>, names: &[&'a str]) -> Result<Option<&'a 
     };
     match v {
         None | Some(Value::Null) => Ok(None),
-        Some(Value::UInt(i)) => at(*i).map(Some),
-        Some(Value::Int(i)) => u64::try_from(*i).map_err(|_| bad()).and_then(at).map(Some),
-        Some(Value::Float(f)) if f.fract() == 0.0 && *f >= 0.0 && *f < 1e15 => {
-            at(*f as u64).map(Some)
-        }
+        Some(v @ (Value::UInt(_) | Value::Int(_) | Value::Float(_))) => v
+            .to_int::<u64>()
+            .ok()
+            .ok_or_else(bad)
+            .and_then(at)
+            .map(Some),
         Some(Value::Str(s)) if s.trim().is_empty() => Ok(None),
         Some(Value::Str(s)) => names
             .iter()

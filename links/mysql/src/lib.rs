@@ -96,9 +96,9 @@ fn parse(cfg: &Map) -> Result<Cfg, String> {
     let port = match cfg.get("port") {
         None => 3306,
         Some(v) => v
-            .as_f64()
-            .filter(|p| (1.0..=65535.0).contains(p))
-            .map(|p| p as u16)
+            .to_int::<u16>()
+            .ok()
+            .filter(|p| *p >= 1)
             .ok_or("params.port: 1 to 65535")?,
     };
     let tls = match text(cfg, "ssl")?.as_deref() {
@@ -117,9 +117,9 @@ fn parse(cfg: &Map) -> Result<Cfg, String> {
     let timeout_ms = match cfg.get("timeout_ms") {
         None => DEFAULT_TIMEOUT_MS,
         Some(v) => v
-            .as_f64()
-            .filter(|t| (100.0..=60_000.0).contains(t))
-            .map(|t| t as u32)
+            .to_int::<u32>()
+            .ok()
+            .filter(|t| (100..=60_000).contains(t))
             .ok_or("params.timeout_ms: 100 to 60000")?,
     };
     let database = text(cfg, "database")?.ok_or("params.database: the database")?;
