@@ -480,6 +480,11 @@ def c8(s: Source) -> list[int]:
         rf"{PERSIST}[^;]*?\)(?:\.await)?\s*\.unwrap_or_default\(\)",
         # the error read as a plain answer: `.unwrap_or(false)`, `.unwrap_or(0)`, …
         rf"{PERSIST}[^;]*?\)(?:\.await)?\s*\.unwrap_or\(\s*(?:false|true|0|None|\(\))\s*\)",
+        # the result read as a flag: `let ok = call().is_ok();`, `.ok().is_some()`,
+        # `matches!(call(), Ok(_))`
+        rf"\blet\s+\w+\s*(?::\s*bool\s*)?=[^;]*?{PERSIST}[^;]*?\)(?:\.await)?\s*\.is_ok\(\)\s*;",
+        rf"{PERSIST}[^;]*?\)(?:\.await)?\s*\.ok\(\)\s*\.is_some\(\)",
+        rf"\bmatches!\(\s*[^;]*?{PERSIST}[^;]*?,\s*Ok\(",
         # the error mapped to a value: `.unwrap_or_else(|_| …)`
         rf"{PERSIST}[^;]*?\)(?:\.await)?\s*\.unwrap_or_else\(\s*\|\s*_\w*\s*\|",
         r"\bto_vec\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*\)\s*\.\s*(?:unwrap_or_default\(\)|ok\(\))",
@@ -506,7 +511,12 @@ def block_end(text: str, open_at: int) -> int:
 
 IF_OK = re.compile(r"\bif\s+(let\s+Ok\b[^{;]*|[^{;]*\.is_ok\(\)\s*)\{")
 MATCH = re.compile(r"\bmatch\s+([^{;]*)\{")
-ERR_NOTHING = re.compile(r"\bErr\(\s*_\w*\s*\)\s*=>\s*(?:\{\s*\}|\(\s*\))")
+# an `Err` arm that does nothing with the error: `{}`, `()`, `continue`, `break`, `None`,
+# or a `return` of nothing, `None` or `Ok(..)`
+ERR_NOTHING = re.compile(
+    r"\bErr\(\s*_\w*\s*\)\s*=>\s*(?:\{\s*\}|\(\s*\)|continue\b|break\b|None\b"
+    r"|return\s*(?:[;,}]|None\b|Ok\())"
+)
 
 
 def c8_blocks(text: str) -> list[int]:
@@ -568,6 +578,12 @@ PROBE_DROPPED = [
     "match {c} {{ Ok(v) => use_it(v), Err(_) => {{}} }}",
     "match {c} {{ Ok(()) => go(), Err(_e) => () }}",
     "let v = {c}.unwrap_or_else(|_| fallback());",
+    "for x in xs {{ match {c} {{ Ok(v) => use_it(v), Err(_) => continue }} }}",
+    "let v = match {c} {{ Ok(v) => Some(v), Err(_) => None }};",
+    "match {c} {{ Ok(v) => use_it(v), Err(_) => return }};",
+    "let ok = {c}.is_ok();",
+    "if {c}.ok().is_some() {{ done(); }} else {{ other(); }}",
+    "if matches!({c}, Ok(_)) {{ done(); }} else {{ other(); }}",
 ]
 PROBE_HANDLED = [
     "{c}?;",
@@ -578,6 +594,7 @@ PROBE_HANDLED = [
     "if {c}.is_ok() {{ done(); }} else {{ tracing::error!(\"lost\"); }}",
     "match {c} {{ Ok(v) => use_it(v), Err(e) => tracing::error!(\"{{e}}\") }}",
     "let v = {c}.unwrap_or_else(|e| fail(e));",
+    "match {c} {{ Ok(v) => use_it(v), Err(e) => return Err(e.into()) }};",
 ]
 
 

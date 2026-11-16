@@ -374,7 +374,9 @@ pub(crate) fn new() -> Result<Self, crate::rng::NoRandomness> {
 `drop(…)`, `….ok();` (also after `.await`), `if ….is_err() {}`,
 `.unwrap_or_default()`, `.unwrap_or(false|true|0|None|())`,
 `.unwrap_or_else(|_| …)`, `if let Ok(..) = … { … }` and `if ….is_ok() { … }`
-without `else` (bodies nested to any depth), and `match … { …, Err(_) => {} }`
+without `else` (bodies nested to any depth), `match … { …, Err(_) => {} }`
+(or `=> ()`, `continue`, `break`, `None`, `return`, `return None`, `return
+Ok(..)`), `let ok = ….is_ok();`, `.ok().is_some()` and `matches!(…, Ok(_))`
 on such a call, and `to_vec(..).unwrap_or_default()` / `.ok()`. The secret
 store counts under any receiver (`.drop_link(`, `.unstash(`, `set`/`remove`
 on a receiver named for secrets). The calls are a name list in `tool/check_rust_rules.py`
