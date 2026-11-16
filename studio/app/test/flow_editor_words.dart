@@ -1921,7 +1921,7 @@ List<String> get insideWords => [
   '›',
   'half',
   '1 instance in this flow · a change here changes them all',
-  'Draft saved',
+  'Version 3 · deployed',
   'Validate',
   'Deploy',
   'Blocks',

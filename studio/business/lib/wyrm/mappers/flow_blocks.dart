@@ -715,9 +715,8 @@ FlowDraft? insideDraftOf(FlowDraft outer, String name) {
   final d = read.body.copyWith(id: outer.id);
   final ins = read.inputs;
   final outs = read.outputs;
-  final right = d.blocks.values.fold<double>(320, (m, b) => b.x > m ? b.x : m);
-  final (ix, iy) = read.inputsAt ?? (40.0, 60.0);
-  final (ox, oy) = read.outputsAt ?? (right + 300, 60.0);
+  final (ix, iy) = read.inputsAt ?? _inputsAtFirst;
+  final (ox, oy) = read.outputsAt ?? _outputsAtFirst(read.body);
   return d.copyWith(
     version: outer.version,
     blocks: d.blocks
@@ -766,6 +765,52 @@ FlowDraft? insideDraftOf(FlowDraft outer, String name) {
   );
 }
 
+/// Where the inside draws its inputs block when the definition says
+/// nothing.
+const _inputsAtFirst = (40.0, 60.0);
+
+/// Where the inside of [body] draws its outputs block when the definition
+/// says nothing: right of its nodes.
+(double, double) _outputsAtFirst(FlowDraft body) => (
+  body.blocks.values.fold<double>(320, (m, b) => b.x > m ? b.x : m) + 300,
+  60.0,
+);
+
+/// The nodes of [body] that have a place in the definition written back:
+/// every one when [was] placed them all; else those it placed, those it
+/// did not have, and those moved since (an unplaced node the inside drew
+/// where the editor put it stays unplaced).
+ISet<String>? _placedOf(FlowDraft body, BlockDef? was) {
+  final placed = was?.placed;
+  if (was == null || placed == null) {
+    return null;
+  }
+  return {
+    for (final b in body.blocks.values)
+      if (placed.contains(b.id) ||
+          switch (was.body.blocks[b.id]) {
+            null => true,
+            final o => o.x != b.x || o.y != b.y,
+          })
+        b.id,
+  }.lock;
+}
+
+/// A boundary block's place written back: none when the definition it
+/// was opened from gave none ([was] null, [hadDef]) and it stands where
+/// the inside drew it first ([first]).
+(double, double)? _boundaryAt(
+  FlowBlock? at,
+  (double, double)? was,
+  (double, double) first, {
+  required bool hadDef,
+}) => switch (at) {
+  null => null,
+  FlowBlock(:final x, :final y) when hadDef && was == null && (x, y) == first =>
+    null,
+  FlowBlock(:final x, :final y) => (x, y),
+};
+
 /// The names of the inside's inputs and outputs, from its boundary blocks.
 ({List<String> inputs, List<String> outputs}) boundaryOf(FlowDraft inner) => (
   inputs:
@@ -779,8 +824,13 @@ FlowDraft? insideDraftOf(FlowDraft outer, String name) {
 /// without the boundary blocks, an input per name of the inputs block with
 /// the inner inputs its wires reach, an output per name of the outputs
 /// block with the inner output wired to it. [mark] keeps the library
-/// version the block was copied at.
-BlockDef blockDefOfInside(FlowDraft inner, {int? mark}) {
+/// version the block was copied at. What the inside does not show of the
+/// definition it was opened from, [was], is kept: the fields the editor
+/// does not read (of the block and of each port still there), a `null`
+/// default, a single-text `to`, whether it had a `layout`, its places as
+/// it wrote them (a node or boundary block nobody moved keeps its place,
+/// or its having none).
+BlockDef blockDefOfInside(FlowDraft inner, {int? mark, BlockDef? was}) {
   final body = blockBodyOf(
     inner.blocks.removeWhere((id, _) => isBoundary(id)),
     inner.edges.removeWhere((e) => isBoundary(e.from) || isBoundary(e.to)),
@@ -794,10 +844,15 @@ BlockDef blockDefOfInside(FlowDraft inner, {int? mark}) {
     JsonText(:final text) => text,
     _ => null,
   };
+  BlockPort? wasIn(String n) =>
+      was?.inputs.where((p) => p.name == n).firstOrNull;
+  BlockPort? wasOut(String n) =>
+      was?.outputs.where((p) => p.name == n).firstOrNull;
   return BlockDef(
     body: body,
     description: switch (JsonValue.of(inner.rest['description'])) {
-      JsonText(:final text) when text.isNotEmpty => text,
+      JsonText(:final text) when text.isNotEmpty || was?.description == text =>
+        text,
       _ => null,
     },
     inputs: [
@@ -809,7 +864,16 @@ BlockDef blockDefOfInside(FlowDraft inner, {int? mark}) {
               if (e.from == blockInputsId && e.fromPort == n) e.target,
           ],
           defaultValue: defaults[n]?.raw,
+          // A `null` default is none to the inside: kept as it was.
+          hasDefault:
+              defaults.containsKey(n) ||
+              switch (wasIn(n)) {
+                BlockPort(hasDefault: true, defaultValue: null) => true,
+                _ => false,
+              },
+          oneEnd: wasIn(n)?.oneEnd ?? false,
           description: note(n),
+          extra: wasIn(n)?.extra ?? const IMapConst({}),
         ),
     ],
     outputs: [
@@ -823,15 +887,26 @@ BlockDef blockDefOfInside(FlowDraft inner, {int? mark}) {
                 .firstOrNull,
           ],
           description: note(n),
+          extra: wasOut(n)?.extra ?? const IMapConst({}),
         ),
     ],
-    inputsAt: ins == null
-        ? null
-        : (ins.x.roundToDouble(), ins.y.roundToDouble()),
-    outputsAt: outs == null
-        ? null
-        : (outs.x.roundToDouble(), outs.y.roundToDouble()),
+    inputsAt: _boundaryAt(
+      ins,
+      was?.inputsAt,
+      _inputsAtFirst,
+      hadDef: was != null,
+    ),
+    outputsAt: _boundaryAt(
+      outs,
+      was?.outputsAt,
+      _outputsAtFirst(was?.body ?? body),
+      hadDef: was != null,
+    ),
+    placed: _placedOf(body, was),
     libraryVersion: mark,
+    extra: was?.extra ?? const IMapConst({}),
+    hasLayout: was?.hasLayout ?? true,
+    placesIn: was?.placesIn ?? const IMapConst({}),
   );
 }
 
@@ -843,6 +918,7 @@ FlowDraft foldInside(FlowDraft outer, String name, FlowDraft inner) {
   final def = blockDefOfInside(
     inner,
     mark: outer.defs[name]?.libraryVersion,
+    was: outer.defs[name],
   );
   final defs = {...blockDefsOf(inner), name: def};
   final ins = {for (final p in def.inputs) p.name};

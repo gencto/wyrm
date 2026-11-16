@@ -128,6 +128,63 @@ void main() {
     });
   });
 
+  group('opened and left again (enter, leave)', () {
+    test('with no edit, the flow is the definition it was', () {
+      for (final name in [
+        'custom_blocks_kept.json',
+        'custom_blocks_mine.json',
+        'custom_blocks.json',
+        'custom_blocks_unknown.json',
+      ]) {
+        final def = fixture(name);
+        final d = read(def);
+        for (final block in d.defs.keys) {
+          final left = foldInside(d, block, insideDraftOf(d, block)!);
+          expect(
+            json(defOf(left, 1)),
+            json(defOf(d, 1)),
+            reason: '$name: $block',
+          );
+        }
+      }
+    });
+
+    test('an edit inside is in the definition; the rest is kept', () {
+      final def = fixture('custom_blocks_kept.json');
+      final d = read(def);
+      final inner = insideDraftOf(d, 'window')!;
+      final w = inner.blocks['w']!;
+      final edited = inner.copyWith(
+        blocks: inner.blocks.add(
+          'w',
+          w.copyWith(cfg: w.cfg.add('fn', 'max'), x: 100, y: 200),
+        ),
+      );
+      final sent =
+          json(defOf(foldInside(d, 'window', edited), 5))!
+              as Map<String, Object?>;
+      final blocks = sent['blocks']! as Map<String, Object?>;
+      final window = blocks['window']! as Map<String, Object?>;
+      final was =
+          (def['blocks']! as Map<String, Object?>)['window']!
+              as Map<String, Object?>;
+      // The edit: the node's config and its new place.
+      final nodes = window['nodes']! as Map<String, Object?>;
+      expect((nodes['w']! as Map)['fn'], 'max');
+      final layout = window['layout']! as Map<String, Object?>;
+      expect(layout['w'], [100, 200]);
+      // The rest as it came: the other places, the ports with their
+      // unknown fields and null default, the block's own unknown field.
+      expect(layout['t'], [300, 40]);
+      expect(layout['_~port~in'], [0.5, 10]);
+      expect(window['inputs'], was['inputs']);
+      expect(window['outputs'], was['outputs']);
+      expect(window['x_block'], was['x_block']);
+      expect(window['description'], was['description']);
+      expect(blocks['bare'], (def['blocks']! as Map)['bare']);
+    });
+  });
+
   test('a moved inner node is written on whole numbers', () {
     final d = read(fixture('custom_blocks_kept.json'));
     final def = d.defs['window']!;
