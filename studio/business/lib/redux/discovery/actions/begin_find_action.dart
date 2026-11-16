@@ -18,18 +18,24 @@ class BeginFindAction extends Action {
   /// default range.
   final String? subnet;
 
+  /// The panel's rows say how long ago each gateway was seen against
+  /// `clock.now`: it is stamped as the search starts (the page ticks it
+  /// once a second after that).
   @override
-  AppState reduce() => state.copyWith.discovery(
-    open: true,
-    scanning: true,
-    probing: probing,
-    ended: false,
-    scan: discovery.scan + 1,
-    found: const IMapConst({}),
-    picked: null,
-    trustPending: null,
-    trustRefused: null,
-    network: network ?? discovery.network,
-    subnet: subnet ?? discovery.subnet,
+  AppState reduce() => state.copyWith(
+    clock: state.clock.copyWith(now: deps.clock()),
+    discovery: state.discovery.copyWith(
+      open: true,
+      scanning: true,
+      probing: probing,
+      ended: false,
+      scan: discovery.scan + 1,
+      found: const IMapConst({}),
+      picked: null,
+      trustPending: null,
+      trustRefused: null,
+      network: network ?? discovery.network,
+      subnet: subnet ?? discovery.subnet,
+    ),
   );
 }

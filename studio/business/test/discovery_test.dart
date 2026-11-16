@@ -7,6 +7,7 @@ import 'package:async_redux/async_redux.dart';
 import 'package:business/dependencies.dart';
 import 'package:business/persistor.dart';
 import 'package:business/redux/app_state.dart';
+import 'package:business/redux/clock/actions/tick_clock_action.dart';
 import 'package:business/redux/discovery/actions/close_discovery_action.dart';
 import 'package:business/redux/discovery/actions/find_gateways_action.dart';
 import 'package:business/redux/discovery/actions/pick_found_gateway_action.dart';
@@ -76,6 +77,40 @@ void main() {
   );
 
   group('rows', () {
+    test('a search stamps the clock its rows are aged at: a gateway just '
+        'found is seen now, never against an older clock', () async {
+      final net = FakeInfo()
+        ..serve(
+          ['https://10.0.7.10:8446'],
+          info('plant', ca: plantCa, names: ['10.0.7.10']),
+        )
+        ..trusted.add('https://10.0.7.10:8446');
+      var now = DateTime.utc(2026, 11, 16, 12);
+      final s = discoveryStore(
+        info: net,
+        found: [
+          announce('plant', '10.0.7.10', txt: {'fp': plantCode}),
+        ],
+        clock: () => now,
+      );
+      // the clock as an earlier screen left it
+      expect(SelectClock(s.state).now, DateTime.utc(1970));
+
+      await s.dispatchAndWait(FindGatewaysAction());
+      await s.waitAllActions([], completeImmediately: true);
+      expect(SelectClock(s.state).now, now);
+      final rows = SelectDiscovery(s.state).rowsAt(SelectClock(s.state).now);
+      expect(rows.single.seen, Duration.zero);
+
+      // a tick 5 s later ages it
+      now = now.add(const Duration(seconds: 5));
+      s.dispatchSync(TickClockAction());
+      expect(
+        SelectDiscovery(s.state).rowsAt(SelectClock(s.state).now).single.seen,
+        const Duration(seconds: 5),
+      );
+    });
+
     test('an active with pair is one row with its standby', () async {
       final net = FakeInfo()
         ..serve(
@@ -819,12 +854,14 @@ Store<AppState> discoveryStore({
   FakeInfo? info,
   List<Announcement> found = const [],
   AppState? initial,
+  Clock? clock,
 }) => Store<AppState>(
   initialState: initial ?? AppState.initial(),
   dependencies: (s) => AppDependencies(
     s,
     InMemoryKeyValueStorage(),
     login: FakeLogin(),
+    clock: clock ?? DateTime.now,
     gatewayInfo: info ?? FakeInfo(),
     browser: FakeBrowser(found),
     browseDuration: Duration.zero,

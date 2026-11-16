@@ -179,25 +179,14 @@ final _rules = <Rule>[
   ], (t) => _matches(_code(t), RegExp(r'\bDateTime\.now\('))),
   // 1, 9. a dispatch whose Future is dropped behind a method of its own
   // (`void _start(a) => dispatch(a);`): `unawaited` by another name. A
-  // service's dispatcher is the edge rule 1 names (a stream listener or a
-  // timer does not wait: it dispatches and returns), so it is left out.
-  Rule(
-    'dispatch-wrapper',
-    ['app/lib/', 'business/lib/', 'ui/lib/'],
-    except: ['business/lib/redux/services/'],
-    (t) {
-      // `dispatchSync` gives its status at once: no Future is dropped
-      const call = r'(?:\w+\.)?dispatch(?:AndWait\w*|All\w*)?(?:<[^>]*>)?\(';
-      const head = r'^[ \t]*(?:[\w<>?,]+[ \t]+)?_?\w+\([^()]*\)\s*';
-      final c = _code(t);
-      return _matches(c, RegExp('$head=>\\s*$call', multiLine: true)) +
-          // the same with a body of one statement: `void f() { dispatch(x); }`
-          _matches(
-            c,
-            RegExp('$head\\{\\s*$call[^;]*;\\s*\\}', multiLine: true),
-          );
-    },
-  ),
+  // service listener's own callback (an `@override` of a class that
+  // implements a `…ServiceListener`) is the edge rule 1 names: a stream
+  // listener or a timer does not wait, it dispatches and returns.
+  const Rule('dispatch-wrapper', [
+    'app/lib/',
+    'business/lib/',
+    'ui/lib/',
+  ], _dispatchWrapper),
   // 9. one dispatch per intent: a cascade of dispatches is several states,
   // each one built (a cascade of one dispatch is one state)
   const Rule('dispatch-cascade', [
@@ -206,6 +195,31 @@ final _rules = <Rule>[
     'ui/lib/',
   ], _dispatchCascade),
 ];
+
+/// Each method whose whole body is a dispatch, but a service listener's
+/// own callback.
+int _dispatchWrapper(String text) {
+  // `dispatchSync` gives its status at once: no Future is dropped
+  const call = r'(?:\w+\.)?dispatch(?:AndWait\w*|All\w*)?(?:<[^>]*>)?\(';
+  const head = r'^[ \t]*(?:[\w<>?,]+[ \t]+)?_?\w+\([^()]*\)\s*';
+  final c = _code(text);
+  final listener = RegExp(r'implements\s+\w*ServiceListener\b').hasMatch(c);
+  var n = 0;
+  for (final re in [
+    RegExp('$head=>\\s*$call', multiLine: true),
+    // the same with a body of one statement: `void f() { dispatch(x); }`
+    RegExp('$head\\{\\s*$call[^;]*;\\s*\\}', multiLine: true),
+  ]) {
+    for (final m in re.allMatches(c)) {
+      final before = c.substring(0, m.start).trimRight();
+      if (listener && before.endsWith('@override')) {
+        continue;
+      }
+      n++;
+    }
+  }
+  return n;
+}
 
 /// Each dispatch of a cascade after the first in the same statement.
 int _dispatchCascade(String text) {
@@ -308,6 +322,9 @@ class _Vm extends Vm {
   void _read(String id) {
     _store.dispatch(ReadAction(id));
   }
+class D implements TasksServiceListener {
+  void _load(String id) => _store.dispatch(LoadAction(id));
+}
 ''',
     good: '''
       onShow: () => dispatch(ShowAction()),
@@ -315,6 +332,10 @@ class _Vm extends Vm {
   void _toggle(String id, {required bool on}) => _store.dispatchSync(
     ToggleAction(id, on: on),
   );
+class D implements TasksServiceListener {
+  @override
+  void onTask(String id) => _store.dispatch(ReadAction(id));
+}
   Future<void> run() async => await dispatchAndWait(RunAction());
 ''',
   ),

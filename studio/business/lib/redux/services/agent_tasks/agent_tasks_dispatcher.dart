@@ -1,11 +1,8 @@
 import 'package:async_redux/async_redux.dart';
-import 'package:fast_immutable_collections/fast_immutable_collections.dart';
-import 'package:models/agent_task.dart';
 import 'package:models/task_state.dart';
 
 import '../../app_state.dart';
-import '../../tasks/actions/add_tasks_action.dart';
-import '../../tasks/actions/retrieve_task_record_action.dart';
+import '../../tasks/actions/task_state_heard_action.dart';
 import 'agent_tasks.dart';
 
 /// Writes a task's state and the step of its run into the `tasks` table,
@@ -21,9 +18,9 @@ class AgentTasksDispatcher implements AgentTasksServiceListener {
   /// new (a review ends with the state still `failed`).
   final _seen = <String, (int, int, int, int, bool, String?)>{};
 
-  /// A stream listener must not block: the record's read is started with
-  /// `dispatch` and shows its own wait (`RetrieveTaskRecordAction` is a
-  /// `WaitingAction`).
+  /// A stream listener does not wait (studio-rules §1): what was heard is
+  /// one action, which reads the task's record again when it is the one on
+  /// screen.
   @override
   void onTaskState(
     String id,
@@ -34,32 +31,28 @@ class AgentTasksDispatcher implements AgentTasksServiceListener {
     int findings = 0,
     bool reviewing = false,
     String? replacedBy,
-  }) {
-    final known = _store.state.tasks.table[id];
-    final now = (step, finished, suggestions, findings, reviewing, replacedBy);
-    final moved = _seen[id] != now;
-    _seen[id] = now;
-    if (known?.state == state && !moved) {
-      return;
-    }
-    final task = (known ?? AgentTask(id: id)).copyWith(
-      state: state,
+  }) => _store.dispatch(
+    TaskStateHeardAction(
+      id,
+      state,
+      moved: _moved(id, (
+        step,
+        finished,
+        suggestions,
+        findings,
+        reviewing,
+        replacedBy,
+      )),
       step: step,
       reviewing: reviewing,
-      // a task replaced while another one is on screen says so in the list
-      replacedBy: replacedBy ?? known?.replacedBy,
-    );
-    _store.dispatchSync(AddTasksAction([task].lock));
-    // The record moved with the state and with each step: the task on
-    // screen is read again.
-    if (_store.state.tasks.selectedTask == id) {
-      _read(id);
-    }
-  }
+      replacedBy: replacedBy,
+    ),
+  );
 
-  /// Starts the read of task [id]'s record: a listener does not wait for
-  /// it; the read shows its own wait (`RetrieveTaskRecordAction` is a
-  /// `WaitingAction`) and runs in turn with the other reads of the task
-  /// (`Sequential`).
-  void _read(String id) => _store.dispatch(RetrieveTaskRecordAction(id));
+  /// Whether the run of [id] moved since it was last heard ([now] kept).
+  bool _moved(String id, (int, int, int, int, bool, String?) now) {
+    final moved = _seen[id] != now;
+    _seen[id] = now;
+    return moved;
+  }
 }
