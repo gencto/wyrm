@@ -610,15 +610,8 @@ impl Node for Reader {
             let Value::Map(r) = &m.v else { return };
             if m.q == Quality::Bad {
                 // a failure never reads as a success: no valid error code is `internal_error`
-                let code = match crate::codes::error_status_of(r.get("code")) {
-                    wyrm_core::status::StatusCode::Known(s) => s,
-                    _ => Status::InternalError,
-                };
-                let message = match r.get("message") {
-                    Some(Value::Str(s)) => s.clone(),
-                    _ => String::new(),
-                };
-                self.failed(code, &message, out);
+                let f = crate::codes::Failure::of(r);
+                self.failed(f.status(), &f.message, out);
             } else {
                 let q = crate::codes::quality_of(r.get("q"));
                 let v = r.get("v").cloned().unwrap_or(Value::Null);
