@@ -404,7 +404,7 @@
   "C6-string-set": {
     "crates/wyrm-admin/src/acl.rs": 37,
     "crates/wyrm-admin/src/backup.rs": 5,
-    "crates/wyrm-admin/src/control.rs": 12,
+    "crates/wyrm-admin/src/control.rs": 11,
     "crates/wyrm-admin/src/control/backups.rs": 6,
     "crates/wyrm-admin/src/control/broker_update.rs": 5,
     "crates/wyrm-admin/src/control/replication.rs": 3,

@@ -102,6 +102,8 @@ pub struct Url {
     pub port: Option<u16>,
     /// `host[:port]` as written.
     pub authority: String,
+    /// The host as written (its case kept), IPv6 without brackets.
+    pub host_as_written: String,
     /// Empty or from `/`, without query and fragment.
     pub path: String,
     /// After `?`, without the `?`.
@@ -126,8 +128,8 @@ fn port_of(p: &str) -> Result<u16, UrlError> {
         .ok_or(UrlError::Port)
 }
 
-/// `host[:port]` of an authority (no `@` in it).
-fn host_port(authority: &str) -> Result<(Host, Option<u16>), UrlError> {
+/// `(host, host as written without brackets, port)` of an authority (no `@` in it).
+fn host_port(authority: &str) -> Result<(Host, &str, Option<u16>), UrlError> {
     if authority.is_empty() {
         return Err(UrlError::NoHost);
     }
@@ -138,7 +140,7 @@ fn host_port(authority: &str) -> Result<(Host, Option<u16>), UrlError> {
             "" => None,
             p => Some(port_of(p.strip_prefix(':').ok_or(UrlError::Port)?)?),
         };
-        return Ok((Host::Ip(IpAddr::V6(ip)), port));
+        return Ok((Host::Ip(IpAddr::V6(ip)), h, port));
     }
     let (h, port) = match authority.split_once(':') {
         Some((h, p)) => (h, Some(port_of(p)?)),
@@ -158,7 +160,7 @@ fn host_port(authority: &str) -> Result<(Host, Option<u16>), UrlError> {
         Ok(ip) => Host::Ip(IpAddr::V4(ip)),
         Err(_) => Host::Name(h.to_ascii_lowercase()),
     };
-    Ok((host, port))
+    Ok((host, h, port))
 }
 
 impl Url {
@@ -176,7 +178,7 @@ impl Url {
         if authority.contains('@') {
             return Err(UrlError::Credentials);
         }
-        let (host, port) = host_port(authority)?;
+        let (host, host_as_written, port) = host_port(authority)?;
         let (tail, fragment) = match tail.split_once('#') {
             Some((t, f)) => (t, Some(f.to_owned())),
             None => (tail, None),
@@ -190,6 +192,7 @@ impl Url {
             host,
             port,
             authority: authority.to_owned(),
+            host_as_written: host_as_written.to_owned(),
             path: path.to_owned(),
             query,
             fragment,

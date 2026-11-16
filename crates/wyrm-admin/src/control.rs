@@ -3845,7 +3845,7 @@ impl Link for Admin {
                 .param(
                     "mode",
                     str_param()
-                        .enum_values(["embedded", "process", "external"])
+                        .enum_values(<Mode as wyrm_core::named::Named>::NAMES.iter().copied())
                         .display("Mode"),
                 )
                 .param("params", ParamMeta::of(TypeCode::Map).display("Params"))
@@ -4709,7 +4709,7 @@ impl Admin {
             ]);
             match def.kind {
                 PackageKind::Process => {
-                    args.insert("mode".into(), Value::Str("process".into()));
+                    args.insert("mode".into(), Value::from(Mode::Process.name()));
                     // a portable app as a process: its capabilities as params, as
                     // for its WASM twin (ADR 0023)
                     if app.is_some() {
@@ -4724,7 +4724,7 @@ impl Admin {
                     // `app` with its capabilities as params; a driver or
                     // point component gets one connection on it, devices and
                     // points come from its own Add actions (ADR 0012).
-                    args.insert("mode".into(), Value::Str("embedded".into()));
+                    args.insert("mode".into(), Value::from(Mode::Embedded.name()));
                     args.insert(
                         "params".into(),
                         packages::link_params(&def.name, def.kind, app.as_ref()),

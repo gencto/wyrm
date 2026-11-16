@@ -245,7 +245,7 @@ impl OAuth {
         let Some(u) = split_url(&self.issuer) else {
             return Vec::new();
         };
-        let (auth, host) = (u.url.authority.clone(), u.host().text());
+        let (auth, host) = (u.url.authority.clone(), u.url.host_as_written.clone());
         let mut v = vec![auth.clone()];
         if host != auth {
             v.push(host);
