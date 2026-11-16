@@ -1,0 +1,41 @@
+{
+  "id": "kept",
+  "version": 5,
+  "description": "custom blocks as an engine and a hand wrote them",
+  "x_flow": {"owner": "test", "tags": ["a", "b"]},
+  "blocks": {
+    "window": {
+      "description": "a window of samples",
+      "x_block": {"rev": 3, "by": ["hand", {"tool": null}]},
+      "inputs": [
+        {"name": "in", "to": "w.in", "description": "the value", "default": 0},
+        {"name": "size", "to": ["w.in.size", "t.in"], "default": null,
+         "x_port": {"unit": "samples", "range": [1, 1000]}}
+      ],
+      "outputs": [
+        {"name": "out", "from": "w.out", "description": "the mean",
+         "x_port": [true, {"deep": {"deeper": 1.5}}]},
+        {"name": "error", "from": "w.error"}
+      ],
+      "nodes": {
+        "w": {"type": "window", "fn": "avg", "size_s": 2.5},
+        "t": {"type": "trace", "x_node": {"keep": true}}
+      },
+      "edges": [],
+      "layout": {"w": [12.25, 40.5], "t": [300, 40], "_~port~in": [0.5, 10], "_~port~out": [600, 10.75]}
+    },
+    "bare": {
+      "inputs": [{"name": "a", "to": "c.in"}],
+      "outputs": [{"name": "b", "from": "c.out"}],
+      "nodes": {"c": {"type": "abs"}},
+      "edges": []
+    }
+  },
+  "nodes": {
+    "src": {"type": "subscribe", "key": "downstream/mock/p0"},
+    "win": {"type": "block:window", "values": {"size": 10}},
+    "abs": {"type": "block:bare"}
+  },
+  "edges": [["src.out", "win.in"], ["win.out", "abs.a"]],
+  "layout": {"src": [20, 20], "win": [300, 20], "abs": [600, 20]}
+}

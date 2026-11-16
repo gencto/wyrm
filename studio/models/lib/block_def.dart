@@ -19,8 +19,13 @@ abstract class BlockPort with _$BlockPort {
     /// output it sends (`from`).
     @Default([]) List<PortEnd> ends,
 
-    /// An input's default, as JSON; null for none.
+    /// An input's default, as JSON; null for none, or a `null` default
+    /// when [hasDefault].
     Object? defaultValue,
+
+    /// The definition wrote a `default`, a `null` one too: written back
+    /// the same way.
+    @Default(false) bool hasDefault,
     String? description,
 
     /// The definition wrote the input's `to` as one text, not a list (the
@@ -70,6 +75,11 @@ abstract class BlockDef with _$BlockDef {
     /// written back with one even when it has no entry. A block made in
     /// the editor has one.
     @Default(true) bool hasLayout,
+
+    /// The places its `layout` gave, as the definition wrote them (by
+    /// node id, and the boundary blocks' keys): a place nobody moved is
+    /// written back as it came, a fraction too.
+    @Default(IMapConst({})) IMap<String, (num, num)> placesIn,
 
     /// The keys of the definition the editor does not read, as JSON, kept
     /// for the write back.

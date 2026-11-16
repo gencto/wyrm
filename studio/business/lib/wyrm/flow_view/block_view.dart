@@ -309,8 +309,7 @@ BlockView blockViewOf(
                 _ when f.command => '',
                 _ when group == FieldGroup.events =>
                   eventText(live(portKey(PortSide.output, b.id, f.name))) ?? '',
-                EnginePort.lastRun when behaves =>
-                  lastRunText(value.raw) ?? '',
+                EnginePort.lastRun when behaves => lastRunText(value.raw) ?? '',
                 _ => value.text,
               },
             },

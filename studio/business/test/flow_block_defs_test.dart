@@ -81,6 +81,9 @@ void main() {
     ('a spec-shaped block', spec),
     ("the auditor's two blocks", fixture('custom_blocks.json')),
     ('with unknown fields', fixture('custom_blocks_unknown.json')),
+    // Nested unknown fields, a `null` default, fractional inner places
+    // (of nodes and of the boundary blocks), a block with no layout.
+    ('kept as they came', fixture('custom_blocks_kept.json')),
   ]) {
     group(name, () {
       final blocks = def['blocks'];
@@ -103,6 +106,47 @@ void main() {
       });
     });
   }
+
+  group("the auditor's custom4", () {
+    // A flow with no `layout` of its own: the editor writes every block's
+    // place there (as before the rewrite); its custom blocks are kept.
+    final def = fixture('custom_blocks_mine.json');
+    final blocks = def['blocks'];
+    test('deploy keeps its blocks, a null default and 5.4/7.6 too', () {
+      final sent = json(defOf(read(def), 2))! as Map<String, Object?>;
+      expect(sent['blocks'], blocks);
+      expect({...sent}..remove('layout'), def);
+    });
+    test('preview and clipboard keep its blocks', () {
+      final d = read(def);
+      expect(
+        (json(previewDefOf(d))! as Map<String, Object?>)['blocks'],
+        blocks,
+      );
+      final clip = jsonDecode(clipTextOf(d, d.blocks.keys.toSet())!) as Map;
+      expect(clip['blocks'], blocks);
+    });
+  });
+
+  test('a moved inner node is written on whole numbers', () {
+    final d = read(fixture('custom_blocks_kept.json'));
+    final def = d.defs['window']!;
+    final w = def.body.blocks['w']!;
+    final moved = def.copyWith(
+      body: def.body.copyWith(
+        blocks: def.body.blocks.add('w', w.copyWith(x: 13.7, y: 40.5)),
+      ),
+    );
+    final sent =
+        json(defOf(d.copyWith(defs: d.defs.add('window', moved)), 5))!
+            as Map<String, Object?>;
+    final blocks = sent['blocks']! as Map<String, Object?>;
+    final window = blocks['window']! as Map<String, Object?>;
+    final layout = window['layout']! as Map<String, Object?>;
+    expect(layout['w'], [14, 41]);
+    expect(layout['t'], [300, 40]);
+    expect(layout['_~port~in'], [0.5, 10]);
+  });
 
   test('a block with no layout is written without one', () {
     final sent =

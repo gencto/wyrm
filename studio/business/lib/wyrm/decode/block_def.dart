@@ -77,6 +77,10 @@ Decoded<BlockDef> blockDefOf(Map<String, Object?> json) {
         outputsAt: _at(layout[outputsAtKey]),
         placed: read.placed.length == draft.blocks.length ? null : read.placed,
         hasLayout: json.containsKey('layout'),
+        placesIn: {
+          for (final MapEntry(:key, :value) in layout.entries)
+            if (value case [final num x, final num y]) key: (x, y),
+        }.lock,
         extra: {
           for (final MapEntry(:key, :value) in json.entries)
             if (!_read.contains(key)) key: value,
@@ -128,6 +132,7 @@ List<BlockPort> _ports(Object? v, String field, String endsKey) {
               },
           ],
           defaultValue: m['default'],
+          hasDefault: m.containsKey('default'),
           description: switch (m['description']) {
             null => null,
             final String s => s,
@@ -172,7 +177,7 @@ Map<String, Object?> blockDefJsonOf(BlockDef def) => {
         'to': p.oneEnd && p.ends.length == 1
             ? p.ends.single.wire
             : [for (final e in p.ends) e.wire],
-        'default': ?p.defaultValue,
+        if (p.hasDefault || p.defaultValue != null) 'default': p.defaultValue,
         'description': ?p.description,
         ...p.extra.unlock,
       },
@@ -194,14 +199,25 @@ Map<String, Object?> blockDefJsonOf(BlockDef def) => {
 };
 
 /// [def]'s `layout`: its placed nodes, the boundary blocks, the library
-/// mark.
-Map<String, Object?> _layoutJsonOf(BlockDef def) => {
-  ...layoutJsonOf(def.body, placed: def.placed),
-  if (def.inputsAt case (final x, final y)) inputsAtKey: [x.round(), y.round()],
-  if (def.outputsAt case (final x, final y))
-    outputsAtKey: [x.round(), y.round()],
-  if (def.libraryVersion case final v?) libraryMarkKey: [v, 0],
-};
+/// mark. A place equal to the one the definition gave is written as it
+/// came ([BlockDef.placesIn]: `[5.4, 7.6]` stays so); a moved one on whole
+/// numbers, as the flow's own layout is.
+Map<String, Object?> _layoutJsonOf(BlockDef def) {
+  List<num> at(String key, double x, double y) => switch (def.placesIn[key]) {
+    (final ox, final oy) when ox == x && oy == y => [ox, oy],
+    _ => [x.round(), y.round()],
+  };
+  return {
+    ...layoutJsonOf(def.body, placed: def.placed),
+    for (final b in def.body.blocks.values)
+      if (def.placed?.contains(b.id) ?? true) b.id: at(b.id, b.x, b.y),
+    if (def.inputsAt case (final x, final y))
+      inputsAtKey: at(inputsAtKey, x, y),
+    if (def.outputsAt case (final x, final y))
+      outputsAtKey: at(outputsAtKey, x, y),
+    if (def.libraryVersion case final v?) libraryMarkKey: [v, 0],
+  };
+}
 
 /// [defs] as a definition's `blocks`.
 Map<String, Map<String, Object?>> blockDefsJsonOf(
