@@ -65,6 +65,10 @@ enum MyBlockOffReason {
 
   /// Instances of it are in the flow ([MyBlockEntry.used]).
   inUse,
+
+  /// A save to, update from or removal from the site's library runs: the
+  /// library's items wait for it to answer.
+  libraryBusy,
 }
 
 /// One item of a custom block's menu, and why it is off.
@@ -263,11 +267,14 @@ IList<MyBlockEntry> myBlocksOf(
   required IList<BlockInfo> library,
   required IList<FlowFrame> frames,
   required Lack? config,
+  bool libraryBusy = false,
 }) {
   final inside = frames.isNotEmpty;
   final lib = {for (final l in library) l.name: l};
   final back = inside ? const OffFor(MyBlockOffReason.backFirst) : null;
-  final save = offNeeds<MyBlockOffReason>(config);
+  // A library call that runs holds the library's items until it answers.
+  final busy = libraryBusy ? const OffFor(MyBlockOffReason.libraryBusy) : null;
+  final save = offNeeds<MyBlockOffReason>(config) ?? busy;
   return [
     for (final MapEntry(key: name, value: def) in defs.entries)
       () {
@@ -290,7 +297,7 @@ IList<MyBlockEntry> myBlocksOf(
                   ? const OffFor(MyBlockOffReason.notInLibrary)
                   : (l.version == copied
                         ? const OffFor(MyBlockOffReason.sameVersion)
-                        : back),
+                        : back ?? busy),
             ),
             MyBlockMenu(
               MyBlockItem.delete,
@@ -307,6 +314,7 @@ IList<LibraryEntry> libraryOf(
   IList<BlockInfo> library, {
   required IList<FlowFrame> frames,
   required Lack? config,
+  bool libraryBusy = false,
 }) => [
   for (final l in library)
     LibraryEntry(
@@ -314,7 +322,9 @@ IList<LibraryEntry> libraryOf(
       description: l.description,
       version: l.version,
       insideItself: frames.any((f) => f.block == l.name),
-      removeOff: offNeeds<MyBlockOffReason>(config),
+      removeOff:
+          offNeeds<MyBlockOffReason>(config) ??
+          (libraryBusy ? const OffFor(MyBlockOffReason.libraryBusy) : null),
     ),
 ].lock;
 

@@ -2554,6 +2554,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "mbInsideItself": MessageLookupByLibrary.simpleMessage(
       "A block cannot contain itself",
     ),
+    "mbLibraryBusy": MessageLookupByLibrary.simpleMessage(
+      "Waiting for the library to answer",
+    ),
     "mbNotInLibrary": MessageLookupByLibrary.simpleMessage(
       "The library has no block of this name",
     ),

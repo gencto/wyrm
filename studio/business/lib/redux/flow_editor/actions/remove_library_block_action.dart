@@ -1,3 +1,4 @@
+import 'package:async_redux/async_redux.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../../wyrm/calls.dart';
@@ -10,7 +11,7 @@ import 'retrieve_block_library_action.dart';
 /// `remove_block {name}`, level config). Flows that copied it keep their
 /// copies. The library is read again in the same step: the palette
 /// never shows the block gone from the broker but still listed.
-class RemoveLibraryBlockAction extends Action {
+class RemoveLibraryBlockAction extends Action with NonReentrant, WaitingAction {
   RemoveLibraryBlockAction(this.name);
 
   final String name;

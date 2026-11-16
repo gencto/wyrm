@@ -14,6 +14,9 @@ import 'package:wyrm_client/wyrm_client.dart' show Perm, Value;
 import '../../common/memo.dart';
 import '../../redux/app_state.dart';
 import '../../redux/flow_editor/actions/deploy_flow_action.dart';
+import '../../redux/flow_editor/actions/remove_library_block_action.dart';
+import '../../redux/flow_editor/actions/save_block_to_library_action.dart';
+import '../../redux/flow_editor/actions/update_block_from_library_action.dart';
 import '../decode/block_cfg.dart';
 import '../decode/flow_def.dart';
 import '../mappers/flow_blocks.dart';
@@ -275,6 +278,13 @@ final class FlowBase {
   /// The flow's id ('' while a new flow has none).
   String get id => flow?.id ?? '';
 }
+
+/// A save to, an update from or a removal from the site's library runs
+/// (each is `NonReentrant`): the My blocks tab holds the library's items.
+bool libraryBusyOf(AppState s) =>
+    s.wait.isWaitingForType<SaveBlockToLibraryAction>() ||
+    s.wait.isWaitingForType<UpdateBlockFromLibraryAction>() ||
+    s.wait.isWaitingForType<RemoveLibraryBlockAction>();
 
 final _base = Memo<FlowBase>();
 
@@ -580,19 +590,26 @@ FlowView flowViewOf(AppState s, String routeId) {
     ),
   );
   final catalog = _catalog.of([fe.types], () => catalogOf(fe.types));
+  final libraryBusy = libraryBusyOf(s);
   final myBlocks = _myBlocks.of(
-    [base, fe.library, config],
+    [base, fe.library, config, libraryBusy],
     () => myBlocksOf(
       base.flow,
       base.defs,
       library: fe.library,
       frames: fe.frames,
       config: config,
+      libraryBusy: libraryBusy,
     ),
   );
   final library = _library.of(
-    [fe.library, fe.frames, config],
-    () => libraryOf(fe.library, frames: fe.frames, config: config),
+    [fe.library, fe.frames, config, libraryBusy],
+    () => libraryOf(
+      fe.library,
+      frames: fe.frames,
+      config: config,
+      libraryBusy: libraryBusy,
+    ),
   );
   final tree = fe.palette != PaletteTab.tree
       ? null

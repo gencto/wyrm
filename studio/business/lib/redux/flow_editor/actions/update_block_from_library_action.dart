@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:async_redux/async_redux.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/error_kind.dart';
 
@@ -18,7 +19,8 @@ import 'validate_flow_action.dart';
 /// blocks it uses are copied when the flow has none of that name. An
 /// instance loses the wires and constants of a port the new version does
 /// not have.
-class UpdateBlockFromLibraryAction extends Action {
+class UpdateBlockFromLibraryAction extends Action
+    with NonReentrant, WaitingAction {
   UpdateBlockFromLibraryAction(this.name);
 
   final String name;

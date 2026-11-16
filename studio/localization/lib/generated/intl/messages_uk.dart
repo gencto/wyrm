@@ -2584,6 +2584,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "mbInsideItself": MessageLookupByLibrary.simpleMessage(
       "Блок не може містити сам себе",
     ),
+    "mbLibraryBusy": MessageLookupByLibrary.simpleMessage(
+      "Чекаємо на відповідь бібліотеки",
+    ),
     "mbNotInLibrary": MessageLookupByLibrary.simpleMessage(
       "У бібліотеці немає блока з такою назвою",
     ),

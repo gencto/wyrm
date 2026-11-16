@@ -1050,6 +1050,7 @@
     "mbInUse": "{n, plural, =1{1 instance uses it} other{{n} instances use it}}",
     "@mbInUse": {"placeholders": {"n": {"type": "int"}}},
     "mbSameVersion": "The flow has the library's version",
+    "mbLibraryBusy": "Waiting for the library to answer",
     "mbNotInLibrary": "The library has no block of this name",
     "mbBackFirst": "Go back to the flow first",
     "mbInsideItself": "A block cannot contain itself",

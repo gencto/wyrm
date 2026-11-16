@@ -101,6 +101,9 @@ enum FlowOffReason {
   notInLibrary,
   sameVersion,
 
+  /// A save to, update from or removal from the library runs.
+  libraryBusy,
+
   /// A custom block placed inside itself.
   insideItself,
   nothingSelected,
@@ -135,6 +138,7 @@ enum FlowOffReason {
     backFirst => S.current.mbBackFirst,
     notInLibrary => S.current.mbNotInLibrary,
     sameVersion => S.current.mbSameVersion,
+    libraryBusy => S.current.mbLibraryBusy,
     insideItself => S.current.mbInsideItself,
     nothingSelected => S.current.fmNothingSelected,
     needsBroker => S.current.fmNeedsBroker,
