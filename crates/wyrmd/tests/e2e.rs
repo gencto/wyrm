@@ -5577,6 +5577,71 @@ async fn the_gateway_signs_approvals_for_the_agent_links_of_the_registry() {
     env.stop().await;
 }
 
+/// Audit of #125: the edit of an agent link drops its API key before the new base is stored,
+/// and a key that cannot be dropped refuses the edit. Driven through the edit itself: the
+/// secret store cannot save (no new file in `data_dir`) while the registry can (`state/`).
+/// Were the drop after `apply`, the new base would be stored and the key kept.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn an_agent_key_that_cannot_be_dropped_refuses_the_edit() {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    let dir = temp_dir("agentkeykept");
+    let env = Env::start_in(&dir, "").await;
+    let links = format!("wy/{SITE}/sys/links");
+    let params = |base: &str| {
+        args_map(&[
+            (
+                "allowed_prefixes",
+                Value::Array(vec![Value::from("wy/e2e/downstream/mock")]),
+            ),
+            ("api_base", base.into()),
+        ])
+    };
+    let install = args_map(&[
+        ("id", "kept".into()),
+        ("driver", "agent".into()),
+        ("params", params("https://api.anthropic.com")),
+    ]);
+    invoke_rebuilt(&env, &links, "install", install)
+        .await
+        .expect("install the agent");
+    let node = format!("{links}/kept");
+    let secret = args_map(&[
+        ("name", "anthropic_api_key".into()),
+        ("value", Value::Bytes(b"sk-kept".to_vec())),
+    ]);
+    invoke_rebuilt(&env, &node, "set_secret", secret)
+        .await
+        .expect("set the key");
+    if std::fs::metadata(&dir).unwrap().uid() == 0 {
+        env.stop().await;
+        return; // root writes into a read-only directory: nothing to show
+    }
+    let c = slow_client(&env).await;
+    let before = env.ctl.registry().links["kept"].params.clone();
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o500)).unwrap();
+    let r = c
+        .invoke_one(
+            &node,
+            "update",
+            args_map(&[("params", params("https://llm.example"))]),
+        )
+        .await;
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+    assert!(r.is_err(), "the edit is refused: {r:?}");
+    assert_eq!(
+        env.ctl.registry().links["kept"].params,
+        before,
+        "the new base is not stored"
+    );
+    let left = format!(
+        "{:?}",
+        c.invoke_one(&node, "secrets", args_map(&[])).await.unwrap()
+    );
+    assert!(left.contains("anthropic_api_key"), "{left}");
+    env.stop().await;
+}
+
 /// Audit of #125: review AI-3 by a restore. `install_backup` over an existing agent link put
 /// the backup's params (another `api_base`) in place without the drop the edit does, and the
 /// restored secrets were added to the old ones, so the link's API key stayed for the new base.

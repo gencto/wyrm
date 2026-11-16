@@ -961,7 +961,10 @@ impl Control {
                     "secret_dropped",
                     id,
                     Status::Ok,
-                    &format!("{n}: api_base changed to {base}; enter the key again"),
+                    &format!(
+                        "{n}: dropped before the params move to api_base {base}; \
+                         enter the key again"
+                    ),
                 );
             }
         }
@@ -4953,10 +4956,13 @@ impl Admin {
         if def.mode != Mode::External && !process_package {
             self.ctl.host.validate(&def.driver, &params)?;
         }
-        if def.driver == AGENT_DRIVER {
+        let old_params = decode_params(&def.params);
+        let drops_key =
+            def.driver == AGENT_DRIVER && !agent_keys_to_drop(&old_params, &params).is_empty();
+        if drops_key {
             // before the new base is stored: a key that cannot be dropped refuses the edit
             self.ctl
-                .drop_agent_key_on_new_base(id, &decode_params(&def.params), &params, sub)
+                .drop_agent_key_on_new_base(id, &old_params, &params, sub)
                 .map_err(|e| {
                     LinkError::internal(format!(
                         "the agent's API key for the old api_base cannot be dropped ({e}); \
@@ -4964,13 +4970,27 @@ impl Admin {
                     ))
                 })?;
         }
-        self.ctl
-            .apply(Op::Update {
-                id: id.to_owned(),
-                mode: def.mode,
-                params: encode_params(&params)?,
-            })
-            .map_err(rejected)?;
+        let applied = self.ctl.apply(Op::Update {
+            id: id.to_owned(),
+            mode: def.mode,
+            params: encode_params(&params)?,
+        });
+        if let Err(e) = applied {
+            if drops_key {
+                // the base did not change, but the key is gone: the audit says both
+                self.ctl.record(
+                    sub,
+                    op,
+                    id,
+                    Status::InvalidParameter,
+                    &format!(
+                        "refused ({e}); the params stay, the API key dropped for this edit \
+                         stays dropped: enter it again"
+                    ),
+                );
+            }
+            return Err(rejected(e));
+        }
         let rev = self.def(id)?.rev;
         self.ctl
             .record(sub, op, id, Status::Ok, &format!("rev {rev}"));
@@ -7034,45 +7054,6 @@ mod tests {
         };
         tweak(&mut cfg);
         Control::open(cfg, Arc::new(NoDrivers)).unwrap().0
-    }
-
-    /// Review AI-3 kept closed when the secret store cannot be saved: the key
-    /// is not dropped, so the drop says so and the edit that wanted it is
-    /// refused (it went on, and the key stayed for the new base).
-    #[cfg(unix)]
-    #[test]
-    fn an_agent_key_that_cannot_be_dropped_refuses_the_new_base() {
-        use std::os::unix::fs::{MetadataExt, PermissionsExt};
-        use wyrm_core::Value;
-        let ctl = control("agent-key-kept", false, |_| {});
-        let dir = ctl.cfg.data_dir.clone();
-        ctl.secrets
-            .set("agent", "anthropic_api_key", b"sk-1")
-            .unwrap();
-        let p = |base: &str| {
-            Value::Map(std::collections::BTreeMap::from([(
-                "api_base".to_owned(),
-                Value::from(base),
-            )]))
-        };
-        let (old, new) = (
-            p("https://api.anthropic.com"),
-            p("https://elsewhere.example"),
-        );
-        assert!(ctl
-            .drop_agent_key_on_new_base("agent", &old, &old, "admin")
-            .is_ok());
-        if std::fs::metadata(&dir).unwrap().uid() == 0 {
-            return; // root writes into a read-only directory: nothing to show
-        }
-        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o500)).unwrap();
-        let r = ctl.drop_agent_key_on_new_base("agent", &old, &new, "admin");
-        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
-        assert!(r.is_err(), "a key that stays is an error");
-        assert_eq!(ctl.secrets.names("agent"), ["anthropic_api_key"]);
-        ctl.drop_agent_key_on_new_base("agent", &old, &new, "admin")
-            .unwrap();
-        assert!(ctl.secrets.names("agent").is_empty());
     }
 
     fn scheduler_subject(k: &wyrm_link_sdk::LimitedKey) -> bool {
