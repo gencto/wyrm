@@ -10,7 +10,8 @@
 //! A *scratch* file is different: a temporary file before or after a write, a
 //! staging or download directory, a part of an upload. It holds nothing anyone
 //! reads again (the next run removes or replaces it), so a failed removal changes
-//! no state, and the caller has nothing to refuse. [`discard`] (a file) and
+//! no state, and the caller has nothing to refuse. [`discard`] (a file), [`discard_empty_dir`]
+//! (a directory only when empty) and
 //! [`discard_dir`] (a directory) remove one and log a failure with the path; they
 //! are the only way a removal's error is not returned. They are never for a file
 //! that holds state.
@@ -31,6 +32,17 @@ pub fn discard(path: &Path) {
 /// the path and not returned: see the module doc.
 pub fn discard_dir(path: &Path) {
     log_left(path, std::fs::remove_dir_all(path));
+}
+
+/// Remove the directory `path` only when it is empty (`remove_dir`): a folder that
+/// held scratch files or records and may now hold none. One that still holds
+/// something, or is absent, is left as it is and is no error; any other failure is
+/// logged with the path and not returned (see the module doc).
+pub fn discard_empty_dir(path: &Path) {
+    match std::fs::remove_dir(path) {
+        Err(e) if e.kind() == io::ErrorKind::DirectoryNotEmpty => {}
+        r => log_left(path, r),
+    }
 }
 
 fn log_left(path: &Path, removed: io::Result<()>) {
@@ -85,6 +97,21 @@ mod tests {
             assert!(std::fs::symlink_metadata(base.join("link")).is_err());
             assert!(target.join("kept").exists(), "the target is not followed");
         }
+        std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn discard_empty_dir_removes_only_an_empty_one() {
+        let base = std::env::temp_dir().join(format!("wyrm-empty-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("empty")).unwrap();
+        std::fs::create_dir_all(base.join("full")).unwrap();
+        std::fs::write(base.join("full/a"), b"x").unwrap();
+        discard_empty_dir(&base.join("empty"));
+        discard_empty_dir(&base.join("full"));
+        discard_empty_dir(&base.join("absent"));
+        assert!(!base.join("empty").exists());
+        assert!(base.join("full/a").is_file(), "what holds something stays");
         std::fs::remove_dir_all(&base).unwrap();
     }
 

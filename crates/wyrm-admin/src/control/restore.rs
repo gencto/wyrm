@@ -18,7 +18,7 @@ use super::backups::{
     broker_made_secret, io_err, link_prefix, make_private_dir, passphrase_arg, StageDir,
 };
 use super::*;
-use crate::backup::{self as format, Kind, Manifest};
+use crate::backup::{self as format, Kind, Manifest, SectionName};
 use zeroize::Zeroizing;
 
 /// Largest file taken in parts.
@@ -118,12 +118,12 @@ pub(super) struct LinkLayout {
 impl LinkLayout {
     /// A `.wyrm-link`.
     fn link(m: &Manifest) -> Self {
-        let has = |s: &str| m.section(s).is_some();
+        let has = |s: SectionName| m.section(s).is_some();
         Self {
             settings: "settings/link.cbor".into(),
-            data: has("data").then(|| "data".to_owned()),
-            package: has("package").then(|| "package".to_owned()),
-            history: has("history").then(|| "history/".to_owned()),
+            data: has(SectionName::Data).then(|| "data".to_owned()),
+            package: has(SectionName::Package).then(|| "package".to_owned()),
+            history: has(SectionName::History).then(|| "history/".to_owned()),
         }
     }
 
@@ -187,7 +187,7 @@ impl Control {
         }
         make_private_dir(&self.backups_dir()).map_err(LinkError::internal)?;
         let mut r = [0u8; 8];
-        getrandom::fill(&mut r).map_err(|e| LinkError::internal(format!("no randomness: {e}")))?;
+        wyrm_core::rand::fill(&mut r).map_err(|e| LinkError::internal(e.to_string()))?;
         let id = hex::encode(r);
         let mut ups = self.uploads();
         if ups.len() >= MAX_UPLOADS {
@@ -983,12 +983,7 @@ impl Admin {
         if grants || agent_params {
             ctl.schedule_reload();
         }
-        let sections: Vec<&str> = r
-            .manifest
-            .sections
-            .iter()
-            .map(|s| s.name.as_str())
-            .collect();
+        let sections: Vec<&str> = r.manifest.sections.iter().map(|s| s.name.name()).collect();
         ctl.record(
             sub,
             "link_restore",
@@ -1313,7 +1308,7 @@ mod tests {
             (Kind::Link, crate::backup::How::Broker)
         );
         let mut names: Vec<&str> = m
-            .section("data")
+            .section(SectionName::Data)
             .unwrap()
             .files
             .iter()

@@ -669,7 +669,7 @@ pub fn release_cmd(cmd: ReleaseCmd) -> Result<(), Error> {
     match cmd {
         ReleaseCmd::Keygen => {
             let mut seed = zeroize::Zeroizing::new([0u8; 32]);
-            getrandom::fill(seed.as_mut()).map_err(|e| format!("no randomness: {e}"))?;
+            wyrm_core::rand::fill(seed.as_mut()).map_err(|e| e.to_string())?;
             let key = SigningKey::from_bytes(&seed);
             println!(
                 "secret seed ({RELEASE_KEY_ENV}): {}",

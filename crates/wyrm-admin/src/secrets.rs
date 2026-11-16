@@ -97,7 +97,7 @@ impl SecretStore {
 
     fn save(&self, db: &Db) -> Result<(), Error> {
         let mut nonce = [0u8; NONCE_LEN];
-        getrandom::fill(&mut nonce).map_err(|e| format!("no randomness: {e}"))?;
+        wyrm_core::rand::fill(&mut nonce).map_err(|e| e.to_string())?;
         let mut buf = encode(db);
         self.key
             .seal_in_place_append_tag(

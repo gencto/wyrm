@@ -9,7 +9,7 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
-wyrm-core.workspace = true
+wyrm-core = { workspace = true, features = ["rand"] }
 wyrm-link-sdk.workspace = true
 wyrm-client.workspace = true
 wyrm-state.workspace = true
@@ -20,7 +20,6 @@ minicbor.workspace = true
 serde.workspace = true
 crc32c.workspace = true
 ed25519-dalek.workspace = true
-getrandom.workspace = true
 thiserror.workspace = true
 wyrm-wasm-host.workspace = true
 tracing.workspace = true

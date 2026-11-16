@@ -233,7 +233,7 @@ where
         Ok(_) => return Err(format!("{HTTP_TOKEN_ENV}: at least 32 characters").into()),
         Err(_) => {
             let mut raw = [0u8; 32];
-            getrandom::fill(&mut raw).map_err(|e| format!("no randomness: {e}"))?;
+            wyrm_core::rand::fill(&mut raw).map_err(|e| e.to_string())?;
             let t: String = raw.iter().map(|b| format!("{b:02x}")).collect();
             eprintln!("wyrm-mcp: HTTP bearer token (send as Authorization: Bearer): {t}");
             t

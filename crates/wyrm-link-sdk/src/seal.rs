@@ -3,7 +3,6 @@
 //! (`driver::persist`) and open to links that keep their own state.
 
 use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, CHACHA20_POLY1305, NONCE_LEN};
-use ring::rand::{SecureRandom, SystemRandom};
 
 const AAD: &[u8] = b"wyrm-seal";
 
@@ -15,6 +14,12 @@ pub struct SealError;
 
 impl From<ring::error::Unspecified> for SealError {
     fn from(_: ring::error::Unspecified) -> Self {
+        SealError
+    }
+}
+
+impl From<wyrm_core::rand::NoRandomness> for SealError {
+    fn from(_: wyrm_core::rand::NoRandomness) -> Self {
         SealError
     }
 }
@@ -40,7 +45,7 @@ pub fn open(key: &[u8; 32], sealed: &[u8]) -> Option<Vec<u8>> {
 /// [`seal`] bound to `aad`: it must be the same for [`open_aad`].
 pub(crate) fn seal_aad(key: &[u8; 32], aad: &[u8], plain: &[u8]) -> Result<Vec<u8>, SealError> {
     let mut nonce = [0u8; NONCE_LEN];
-    SystemRandom::new().fill(&mut nonce)?;
+    wyrm_core::rand::fill(&mut nonce)?;
     let mut out = Vec::with_capacity(NONCE_LEN + plain.len() + 16);
     out.extend_from_slice(&nonce);
     out.extend_from_slice(plain);

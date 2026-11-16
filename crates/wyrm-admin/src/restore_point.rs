@@ -228,7 +228,7 @@ pub fn prune(root: &Path, now: u64, keep_s: u64) -> Vec<String> {
             }
         }
         // only an empty directory goes
-        let _ = std::fs::remove_dir(e.path());
+        wyrm_core::files::discard_empty_dir(&e.path());
     }
     touched.sort();
     touched

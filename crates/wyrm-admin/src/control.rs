@@ -1207,7 +1207,7 @@ impl Control {
             return Ok(());
         }
         let mut seed = zeroize::Zeroizing::new([0u8; 32]);
-        getrandom::fill(&mut seed[..]).map_err(|e| format!("no randomness: {e}"))?;
+        wyrm_core::rand::fill(&mut seed[..]).map_err(|e| e.to_string())?;
         self.secrets.set(id, name, &seed[..])?;
         info!(link = %id, "requester key created");
         Ok(())
@@ -1374,7 +1374,7 @@ impl Control {
             return Ok(false);
         }
         let mut seed = zeroize::Zeroizing::new([0u8; 32]);
-        getrandom::fill(&mut seed[..]).map_err(|e| format!("no randomness: {e}"))?;
+        wyrm_core::rand::fill(&mut seed[..]).map_err(|e| e.to_string())?;
         self.secrets.set(&def.id, &name, &seed[..])?;
         info!(link = %def.id, "agent signing key created");
         Ok(true)
@@ -1389,7 +1389,7 @@ impl Control {
             return Ok(());
         }
         let mut key = zeroize::Zeroizing::new([0u8; 32]);
-        getrandom::fill(&mut key[..]).map_err(|e| format!("no randomness: {e}"))?;
+        wyrm_core::rand::fill(&mut key[..]).map_err(|e| e.to_string())?;
         self.secrets.set(id, name, &key[..])
     }
 

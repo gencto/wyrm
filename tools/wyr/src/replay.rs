@@ -246,7 +246,7 @@ async fn run_replay(
 ) -> Result<Summary, Error> {
     let session = zenoh::open(isolated_config()?).await?;
     let mut seed = [0u8; 32];
-    getrandom::fill(&mut seed).map_err(|e| format!("no randomness: {e}"))?;
+    wyrm_core::rand::fill(&mut seed).map_err(|e| e.to_string())?;
     let key = ed25519_dalek::SigningKey::from_bytes(&seed);
     let host = FlowHost::open(dir, &seed, site)?;
     let mut lcfg = LinkConfig::new(site, "dataflows");

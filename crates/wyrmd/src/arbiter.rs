@@ -593,7 +593,7 @@ pub fn host_id(data_dir: &Path) -> Result<String, Error> {
         }
     }
     let mut b = [0u8; 8];
-    getrandom::fill(&mut b).map_err(|e| format!("random: {e}"))?;
+    wyrm_core::rand::fill(&mut b).map_err(|e| format!("random: {e}"))?;
     let id = hex::encode(b);
     wyrm_admin::secret::write_private(&path, id.as_bytes())?;
     Ok(id)

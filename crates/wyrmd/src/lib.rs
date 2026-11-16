@@ -2396,13 +2396,16 @@ impl Daemon {
         }
         ctl.bootstrap(&cfg.config_links())?;
         if let Some(r) = restored {
-            tracing::info!(sections = %r.sections.join(", "), "restore applied");
+            tracing::info!(sections = %wyrm_admin::backup::section_names(&r.sections), "restore applied");
             ctl.record(
                 &r.by,
                 "restore_applied",
                 &r.backup,
                 wyrm_core::Status::Ok,
-                &format!("sections {}", r.sections.join(", ")),
+                &format!(
+                    "sections {}",
+                    wyrm_admin::backup::section_names(&r.sections)
+                ),
             );
         }
         // a restore that was not applied: said once, where people look
@@ -2418,7 +2421,7 @@ impl Daemon {
                 wyrm_core::Status::InternalError,
                 &format!(
                     "sections {}; not applied, the state before it is in place: {}",
-                    f.sections.join(", "),
+                    wyrm_admin::backup::section_names(&f.sections),
                     f.error
                 ),
             );

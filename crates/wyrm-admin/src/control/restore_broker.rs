@@ -26,7 +26,7 @@ use super::backups::{
 };
 use super::restore::{LinkLayout, MAX_UPLOAD};
 use super::*;
-use crate::backup::{self as format, Kind, Manifest, MasterKey};
+use crate::backup::{self as format, Kind, Manifest, MasterKey, SectionName};
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
@@ -53,17 +53,40 @@ const REPORTED: &str = "reported";
 const SECRETS_BIN: &str = "secrets.bin";
 
 /// The sections `mode: replace` puts in place (`config` is never restored).
-const REPLACEABLE: [&str; 7] = [
-    "control",
-    "keys",
-    "dataflows",
-    "storage",
-    "history",
-    "links",
-    "packages",
+const REPLACEABLE: [SectionName; 7] = [
+    SectionName::Control,
+    SectionName::Keys,
+    SectionName::Dataflows,
+    SectionName::Storage,
+    SectionName::History,
+    SectionName::Links,
+    SectionName::Packages,
 ];
 /// The sections `mode: add` takes.
-const ADDABLE: [&str; 3] = ["links", "storage", "dataflows"];
+const ADDABLE: [SectionName; 3] = [
+    SectionName::Links,
+    SectionName::Storage,
+    SectionName::Dataflows,
+];
+
+wyrm_core::name_enum! {
+    /// How `restore_apply` restores (module doc): `add` live, what does not exist yet;
+    /// `replace` staged for the next start, the sections in place of this broker's.
+    pub enum RestoreMode as "restore mode" {
+        Add => "add",
+        Replace => "replace",
+    }
+}
+
+impl RestoreMode {
+    /// The sections this mode restores.
+    fn sections(self) -> &'static [SectionName] {
+        match self {
+            RestoreMode::Add => &ADDABLE,
+            RestoreMode::Replace => &REPLACEABLE,
+        }
+    }
+}
 
 /// What [`apply_pending`] does, written by `restore_apply`.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -71,7 +94,7 @@ pub struct Plan {
     pub by: String,
     /// `<site> <created>` of the backup.
     pub backup: String,
-    pub sections: Vec<String>,
+    pub sections: Vec<SectionName>,
     /// Paths under `data_dir` removed first (stale certificates of
     /// replaced keys).
     #[serde(default)]
@@ -97,7 +120,7 @@ pub struct Plan {
 pub struct Applied {
     pub by: String,
     pub backup: String,
-    pub sections: Vec<String>,
+    pub sections: Vec<SectionName>,
 }
 
 /// A path of a plan: relative, plain segments.
@@ -298,7 +321,7 @@ struct Before {
 pub struct Failure {
     pub by: String,
     pub backup: String,
-    pub sections: Vec<String>,
+    pub sections: Vec<SectionName>,
     pub error: String,
 }
 
@@ -699,6 +722,11 @@ fn strs(v: &[String]) -> Value {
     Value::Array(v.iter().map(|s| Value::from(s.clone())).collect())
 }
 
+/// Section names as a list of their names.
+fn section_values(v: &[SectionName]) -> Value {
+    Value::Array(v.iter().map(|s| Value::from(s.name())).collect())
+}
+
 impl Control {
     /// Read the broker backup at `path` whole and compare it with this
     /// broker. Blocking.
@@ -740,7 +768,7 @@ impl Control {
         let d = &self.cfg.data_dir;
         let mut keys_other = false;
         let mut keys_differ = Vec::new();
-        if manifest.section("keys").is_some() {
+        if manifest.section(SectionName::Keys).is_some() {
             if !places.iter().any(|(_, p)| *p == Place::Key(CA_FILE.into())) {
                 return Err(format!("the keys section holds no {CA_FILE}"));
             }
@@ -772,7 +800,7 @@ impl Control {
         let mut wal_opens_here = true;
         let mut any = false;
         for f in &manifest
-            .section("control")
+            .section(SectionName::Control)
             .map(|s| s.files.clone())
             .unwrap_or_default()
         {
@@ -823,7 +851,7 @@ impl Control {
         let reg = self.registry();
         let here = self.schemas();
         let links: BTreeMap<String, Value> = m
-            .section("links")
+            .section(SectionName::Links)
             .map(|s| {
                 s.info
                     .keys()
@@ -868,7 +896,7 @@ impl Control {
                 Value::Map(
                     m.sections
                         .iter()
-                        .map(|s| (s.name.clone(), Value::UInt(s.size())))
+                        .map(|s| (s.name.name().to_owned(), Value::UInt(s.size())))
                         .collect(),
                 ),
             ),
@@ -877,7 +905,7 @@ impl Control {
                 // `other`: another CA; `differ`: this CA, other key files
                 Value::from(
                     match (
-                        m.section("keys").is_some(),
+                        m.section(SectionName::Keys).is_some(),
                         c.keys_other,
                         c.keys_differ.is_empty(),
                     ) {
@@ -909,7 +937,7 @@ impl Control {
         &self,
         r: &mut format::Reader,
         c: &Checked,
-        chosen: &[String],
+        chosen: &[SectionName],
         accept: bool,
         by: &str,
     ) -> Result<Plan, String> {
@@ -922,7 +950,7 @@ impl Control {
             c.manifest
                 .sections
                 .iter()
-                .filter(|s| chosen.contains(&s.name) || s.name == "control")
+                .filter(|s| chosen.contains(&s.name) || s.name == SectionName::Control)
                 .flat_map(|s| &s.files),
         ))?;
         make_private_dir(&tmp)?;
@@ -952,7 +980,7 @@ impl Control {
         &self,
         r: &mut format::Reader,
         c: &Checked,
-        chosen: &[String],
+        chosen: &[SectionName],
         accept: bool,
         by: &str,
         tmp: &Path,
@@ -960,14 +988,14 @@ impl Control {
         let d = &self.cfg.data_dir;
         let data = tmp.join("data");
         let key = c.key.as_ref();
-        let has = |s: &str| chosen.iter().any(|x| x == s);
+        let has = |s: SectionName| chosen.contains(&s);
         let mut plan = Plan {
             by: by.to_owned(),
             backup: format!("{} {}", c.manifest.site, c.manifest.created),
             sections: chosen.to_vec(),
             ..Default::default()
         };
-        let keys = has("keys") && c.manifest.section("keys").is_some();
+        let keys = has(SectionName::Keys) && c.manifest.section(SectionName::Keys).is_some();
         if keys {
             for (p, place) in &c.places {
                 let Place::Key(rel) = place else { continue };
@@ -985,9 +1013,9 @@ impl Control {
         let state_key_replaced = keys && c.keys_differ.iter().any(|f| f == "state.key");
         for (name, dir, key_file, _) in wal_stores() {
             let wanted = match name {
-                "flows" => has("control") || has("dataflows"),
-                "audit" => has("control") && state_key_replaced,
-                _ => has("control"),
+                "flows" => has(SectionName::Control) || has(SectionName::Dataflows),
+                "audit" => has(SectionName::Control) && state_key_replaced,
+                _ => has(SectionName::Control),
             };
             let files: Vec<(&String, &String)> = c
                 .places
@@ -1025,7 +1053,7 @@ impl Control {
             plan.dirs.push(dir.to_owned());
         }
         wyrm_core::files::discard_dir(&tmp.join("verify"));
-        if has("dataflows") {
+        if has(SectionName::Dataflows) {
             let dir = data.join("flows").join("artifacts");
             std::fs::create_dir_all(&dir).map_err(|e| io_err(&dir, e))?;
             for (p, place) in &c.places {
@@ -1035,7 +1063,7 @@ impl Control {
             }
             plan.dirs.push("flows/artifacts".into());
         }
-        if has("storage") && c.manifest.section("storage").is_some() {
+        if has(SectionName::Storage) && c.manifest.section(SectionName::Storage).is_some() {
             // the store is built here, from the tree: a tree that does not
             // read refuses the restore now, not the start that applies it
             let tree = tmp.join(STORAGE_TREE);
@@ -1044,7 +1072,7 @@ impl Control {
             std::fs::remove_file(&tree).map_err(|e| io_err(&tree, e))?;
             plan.dirs.push("storage".into());
         }
-        if has("history") && c.manifest.section("history").is_some() {
+        if has(SectionName::History) && c.manifest.section(SectionName::History).is_some() {
             let dir = data.join("history");
             std::fs::create_dir_all(dir.join("days")).map_err(|e| io_err(&dir, e))?;
             for (p, place) in &c.places {
@@ -1060,7 +1088,7 @@ impl Control {
                 .map_err(|e| format!("the history of the backup does not open: {e}"))?;
             plan.dirs.push("history".into());
         }
-        if has("links") {
+        if has(SectionName::Links) {
             // with `control` every link of the backup is in the registry
             // that will be in place; without it, the links this broker has
             let reg = self.registry();
@@ -1074,7 +1102,7 @@ impl Control {
                 })
                 .collect();
             for id in ids {
-                if !has("control") && !reg.links.contains_key(id) {
+                if !has(SectionName::Control) && !reg.links.contains_key(id) {
                     continue;
                 }
                 let dir = data.join("links").join(id).join("data");
@@ -1118,7 +1146,7 @@ impl Control {
                     .map_err(|e| io_err(tmp, e))?;
             }
         }
-        if has("packages") {
+        if has(SectionName::Packages) {
             let names: BTreeSet<&String> = c
                 .places
                 .iter()
@@ -1195,22 +1223,9 @@ impl Control {
     }
 }
 
-fn sections_arg(args: &Value) -> Result<Vec<String>, LinkError> {
-    match arg(args, "sections") {
-        Some(Value::Array(a)) => a
-            .iter()
-            .map(|v| match v {
-                Value::Str(s) => Ok(s.clone()),
-                _ => Err(LinkError::invalid_parameter("sections: a list of names")),
-            })
-            .collect(),
-        Some(Value::Str(s)) => Ok(s
-            .split([',', ' '])
-            .filter(|p| !p.is_empty())
-            .map(str::to_owned)
-            .collect()),
-        _ => Err(LinkError::invalid_parameter("sections: required")),
-    }
+fn sections_arg(args: &Value) -> Result<Vec<SectionName>, LinkError> {
+    super::backups::section_list_arg(args, "sections")?
+        .ok_or_else(|| LinkError::invalid_parameter("sections: required"))
 }
 
 impl Admin {
@@ -1280,22 +1295,20 @@ impl Admin {
     ) -> Result<(Value, bool), String> {
         let ctl = &self.ctl;
         let chosen = sections_arg(args).map_err(|e| e.message)?;
-        let mode = arg_str(args, "mode").unwrap_or_default().to_owned();
-        let allowed: &[&str] = match mode.as_str() {
-            "add" => &ADDABLE,
-            "replace" => &REPLACEABLE,
-            _ => return Err("mode: add or replace".into()),
-        };
-        if let Some(s) = chosen.iter().find(|s| !allowed.contains(&s.as_str())) {
+        let mode = arg_str(args, "mode")
+            .and_then(RestoreMode::from_name)
+            .ok_or_else(|| format!("mode: {}", RestoreMode::NAMES.join(" or ")))?;
+        let allowed = mode.sections();
+        if let Some(s) = chosen.iter().find(|s| !allowed.contains(s)) {
             return Err(format!(
                 "sections: {s} is not restored with mode {mode} (of {})",
-                allowed.join(", ")
+                format::section_names(allowed)
             ));
         }
         if chosen.is_empty() {
             return Err("sections: none chosen".into());
         }
-        if mode == "add" {
+        if mode == RestoreMode::Add {
             return self
                 .restore_add(path, &chosen, passphrase, accepted(args), sub)
                 .await
@@ -1321,17 +1334,17 @@ impl Admin {
             (ctl.clone(), path.to_owned(), sub.to_owned(), chosen.clone());
         let staged = tokio::task::spawn_blocking(move || -> Result<Plan, String> {
             let ctl = ctl2;
-            let has = |s: &str| chosen2.iter().any(|x| x == s);
+            let has = |s: SectionName| chosen2.contains(&s);
             let pass = passphrase.as_deref().map(|p| &p[..]);
             let mut r = format::Reader::open(&path2, MAX_UPLOAD)?;
             let c = ctl.check_broker_backup(&mut r, pass)?;
             if let Some(p) = c.problems.first() {
                 return Err(p.clone());
             }
-            if let Some(s) = chosen2.iter().find(|s| c.manifest.section(s).is_none()) {
+            if let Some(s) = chosen2.iter().find(|s| c.manifest.section(**s).is_none()) {
                 return Err(format!("sections: the backup has no section {s}"));
             }
-            if has("control") && ctl.cfg.anchor_dir.is_some() {
+            if has(SectionName::Control) && ctl.cfg.anchor_dir.is_some() {
                 return Err(
                     "state_anchor_dir is set: restore the control plane offline, then run \
                      `wyrmd init-anchors` (docs/operations.md §3)"
@@ -1344,15 +1357,15 @@ impl Admin {
             // `replace_keys`.
             replace_gates(&Gates {
                 remote,
-                keys: has("keys"),
+                keys: has(SectionName::Keys),
                 differ: &c.keys_differ,
                 export_secrets: ctl.cfg.backups.export_secrets,
                 passphrase: pass.is_some(),
                 replace_keys,
             })?;
             // keys of the backup that replace other ones
-            let new_keys = has("keys") && !c.keys_differ.is_empty();
-            if has("control") && !c.wal_opens_here && !new_keys {
+            let new_keys = has(SectionName::Keys) && !c.keys_differ.is_empty();
+            if has(SectionName::Control) && !c.wal_opens_here && !new_keys {
                 return Err(
                     "the control plane of the backup is under other keys than this broker's: \
                      restore it together with the keys section (replace_keys: true)"
@@ -1362,13 +1375,13 @@ impl Admin {
             // a backup of what is replaced, first. Keys go into it only
             // when they are replaced, under the passphrase of this restore
             // (the key of a broker-sealed file would be replaced with them).
-            let mut before: Vec<String> = chosen2
+            let mut before: Vec<SectionName> = chosen2
                 .iter()
-                .filter(|s| new_keys || *s != "keys")
-                .cloned()
+                .copied()
+                .filter(|s| new_keys || *s != SectionName::Keys)
                 .collect();
-            if before.iter().any(|s| s == "history") && ctl.history.store().days().is_empty() {
-                before.retain(|s| s != "history");
+            if before.contains(&SectionName::History) && ctl.history.store().days().is_empty() {
+                before.retain(|s| *s != SectionName::History);
             }
             let job = ctl.backup_now(
                 BackupRequest {
@@ -1408,11 +1421,11 @@ impl Admin {
             Status::Ok,
             &format!(
                 "replace; sections {}; keys replaced: {}; applied at the next start",
-                chosen.join(", "),
+                format::section_names(&chosen),
                 plan.strip_link_certs
             ),
         );
-        warn!(by = sub, sections = %chosen.join(", "), "restore staged: the broker stops and applies it at the next start");
+        warn!(by = sub, sections = %format::section_names(&chosen), "restore staged: the broker stops and applies it at the next start");
         // answer first, then stop: the supervisor starts the broker again
         let stop = ctl.clone();
         tokio::spawn(async move {
@@ -1422,7 +1435,7 @@ impl Admin {
         Ok((
             Value::Map(BTreeMap::from([
                 ("mode".to_owned(), Value::from("replace")),
-                ("sections".to_owned(), strs(&chosen)),
+                ("sections".to_owned(), section_values(&chosen)),
                 ("restart".to_owned(), Value::Bool(true)),
             ])),
             true,
@@ -1433,13 +1446,13 @@ impl Admin {
     async fn restore_add(
         &self,
         path: &Path,
-        chosen: &[String],
+        chosen: &[SectionName],
         passphrase: Option<Zeroizing<Vec<u8>>>,
         accept: bool,
         sub: &str,
     ) -> Result<Value, String> {
         let ctl = &self.ctl;
-        let has = |s: &str| chosen.iter().any(|x| x == s);
+        let has = |s: SectionName| chosen.contains(&s);
         let mut done: Vec<String> = Vec::new();
         let mut skipped: Vec<String> = Vec::new();
         // the whole file is checked once; the key goes on to the parts
@@ -1449,7 +1462,7 @@ impl Admin {
         let (manifest, tree, key) = tokio::task::spawn_blocking(move || {
             let mut r = format::Reader::open(&path2, MAX_UPLOAD)?;
             let c = ctl2.check_broker_backup(&mut r, pass2.as_deref().map(|p| &p[..]))?;
-            let tree = match c.manifest.section("storage") {
+            let tree = match c.manifest.section(SectionName::Storage) {
                 Some(_) => Some(r.read("storage/tree.cbor")?),
                 None => None,
             };
@@ -1457,14 +1470,14 @@ impl Admin {
         })
         .await
         .map_err(|e| e.to_string())??;
-        if has("dataflows") {
+        if has(SectionName::Dataflows) {
             skipped.push(
                 "dataflows: a flow is deployed with proofs of its deployer; restore them with \
                  mode replace"
                     .into(),
             );
         }
-        if has("storage") {
+        if has(SectionName::Storage) {
             let store = ctl.storage().ok_or("storage: not open")?;
             let changes = tree
                 .and_then(|b| wyrm_core::codec::from_slice(&b).ok())
@@ -1485,9 +1498,9 @@ impl Admin {
             }
             done.push(format!("storage: {n} nodes added"));
         }
-        if has("links") {
+        if has(SectionName::Links) {
             let ids: Vec<String> = manifest
-                .section("links")
+                .section(SectionName::Links)
                 .map(|s| s.info.keys().cloned().collect())
                 .unwrap_or_default();
             for id in ids {
@@ -1530,7 +1543,7 @@ impl Admin {
             Status::Ok,
             &format!(
                 "add; sections {}; {} done, {} skipped",
-                chosen.join(", "),
+                format::section_names(chosen),
                 done.len(),
                 skipped.len()
             ),
@@ -1584,7 +1597,7 @@ pub(super) async fn declare(ctx: &LinkCtx) -> wyrm_link_sdk::Result<()> {
                 str_param()
                     .required(true)
                     .display("Mode")
-                    .enum_values(["add", "replace"])
+                    .enum_values(RestoreMode::NAMES.iter().copied())
                     .description(
                         "add: what does not exist yet, live. replace: the broker stops and \
                          applies it at the next start",
@@ -1652,7 +1665,7 @@ mod tests {
         let plan = Plan {
             by: "user:eve".into(),
             backup: "plant 2026-11-13T10:00:00Z".into(),
-            sections: vec!["control".into(), "keys".into()],
+            sections: vec![SectionName::Control, SectionName::Keys],
             remove: vec!["pki".into(), "operators".into()],
             strip_link_certs: true,
             dirs: vec!["state".into(), "links/a/data".into(), "links/b/data".into()],
@@ -1715,7 +1728,7 @@ mod tests {
 
         let applied = apply_pending(&d).unwrap().unwrap();
         assert_eq!(applied.by, "user:eve");
-        assert_eq!(applied.sections, ["control", "keys"]);
+        assert_eq!(applied.sections, [SectionName::Control, SectionName::Keys]);
         let read = |rel: &str| std::fs::read(d.join(rel)).ok();
         assert_eq!(read("state/wal.1").as_deref(), Some(&b"new"[..]));
         assert_eq!(
@@ -1777,7 +1790,7 @@ mod tests {
             (f.by.as_str(), f.error.as_str()),
             ("user:eve", "registry: schema 99")
         );
-        assert_eq!(f.sections, ["control", "keys"]);
+        assert_eq!(f.sections, [SectionName::Control, SectionName::Keys]);
         assert_eq!(take_failure(&d), None);
 
         // 2. a step of the plan fails in the middle (a staged store that is
@@ -1969,7 +1982,7 @@ mod tests {
                 data.to_vec()
             };
             std::fs::write(&source, stored).unwrap();
-            let name = path.split('/').next().unwrap();
+            let name = SectionName::from_name(path.split('/').next().unwrap()).unwrap();
             let staged = format::Staged {
                 path: (*path).to_owned(),
                 source,
@@ -1979,7 +1992,7 @@ mod tests {
             match sections.iter_mut().find(|s| s.name == name) {
                 Some(s) => s.files.push(staged),
                 None => sections.push(format::StagedSection {
-                    name: name.to_owned(),
+                    name,
                     info: Default::default(),
                     files: vec![staged],
                 }),
@@ -2080,7 +2093,7 @@ mod tests {
         assert!(gates(true, true, true).is_ok());
         // staged: exactly the key files, where the list says
         let plan = ctl
-            .stage_replace(&mut r, &c, &["keys".to_owned()], false, "user:a")
+            .stage_replace(&mut r, &c, &[SectionName::Keys], false, "user:a")
             .unwrap();
         assert_eq!(
             plan.files,
@@ -2139,7 +2152,7 @@ mod tests {
         );
         let mut r = format::Reader::open(&path, MAX_UPLOAD).unwrap();
         let c = ctl.check_broker_backup(&mut r, Some(PASS)).unwrap();
-        ctl.stage_replace(&mut r, &c, &["links".to_owned()], false, "user:a")
+        ctl.stage_replace(&mut r, &c, &[SectionName::Links], false, "user:a")
             .unwrap();
         let staged = std::fs::read(d.join(PENDING).join(LINK_SECRETS)).unwrap();
         let Value::Map(links) = wyrm_core::codec::from_slice::<Value>(&staged).unwrap() else {
@@ -2197,7 +2210,7 @@ mod tests {
             );
             let mut r = format::Reader::open(&path, MAX_UPLOAD).unwrap();
             let c = ctl.check_broker_backup(&mut r, Some(PASS)).unwrap();
-            ctl.stage_replace(&mut r, &c, &["packages".to_owned()], accept, "user:a")
+            ctl.stage_replace(&mut r, &c, &[SectionName::Packages], accept, "user:a")
         };
         // an entry outside the package: the validator of every install
         let e = stage(&manifest("../../../../bin/sh"), true).unwrap_err();
@@ -2215,6 +2228,28 @@ mod tests {
             .join(PENDING)
             .join("data/packages/demo/1.0.0/bin/run")
             .is_file());
+    }
+
+    /// Review 2026-11-16: a plan's sections are typed. One written as text then reads the
+    /// same; a section this build does not know refuses the plan before anything is
+    /// touched (what it restores would be read wrong), and the broker starts as it was.
+    #[test]
+    fn a_plan_with_an_unknown_section_is_not_applied() {
+        let mut v = serde_json::to_value(Plan {
+            sections: vec![SectionName::Control, SectionName::Keys],
+            ..Default::default()
+        })
+        .unwrap();
+        assert_eq!(v["sections"], serde_json::json!(["control", "keys"]));
+        v["sections"] = serde_json::json!(["control", "secrets"]);
+        let d = dir("unknown-section");
+        let p = d.join(PENDING);
+        put(&p, "data/x", b"x");
+        std::fs::write(p.join(PLAN), serde_json::to_vec(&v).unwrap()).unwrap();
+        assert!(read_plan(&p).unwrap_err().contains("backup section"));
+        assert_eq!(apply_pending(&d).unwrap(), None);
+        assert!(!p.exists() && d.join(FAILED).is_dir());
+        assert!(!d.join("x").exists());
     }
 
     #[test]

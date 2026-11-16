@@ -495,7 +495,7 @@ impl Services for RuntimeServices {
     /// From the OS (`getrandom`); the buffer has bounded `n` (ADR 0030).
     fn random_bytes(&mut self, n: u32) -> Result<Vec<u8>, AppError> {
         let mut b = vec![0u8; n.min(wyrm_link_api::MAX_RANDOM_BYTES) as usize];
-        getrandom::fill(&mut b)
+        wyrm_core::rand::fill(&mut b)
             .map_err(|e| AppError::new(Status::InternalError, format!("random_bytes: {e}")))?;
         Ok(b)
     }

@@ -166,7 +166,7 @@ fn wyrm_core_hex(s: &str) -> Result<[u8; 32], Error> {
 }
 
 fn getrandom_fill(b: &mut [u8]) -> Result<(), Error> {
-    getrandom::fill(b).map_err(|e| format!("no randomness: {e}").into())
+    wyrm_core::rand::fill(b).map_err(|e| e.to_string().into())
 }
 
 fn write_private(path: &Path, text: &str) -> std::io::Result<()> {

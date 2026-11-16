@@ -7,3 +7,23 @@ allow-dbg-in-tests = true
 allow-print-in-tests = true
 # For the baselined `too_many_lines` count of tool/check_rust_rules.py.
 too-many-lines-threshold = 150
+
+# One source of randomness (review S3, docs/rust-rules.md §10): `wyrm_core::rand` (feature
+# `rand`; `ring` for ring's `SecureRandom`). A failure is an error the caller refuses with;
+# `rand_core::OsRng` panics instead. A portable link (WASM or process) takes randomness from
+# its host (`Host::random_bytes`); the one fallback without it is the SCRAM clock nonce of
+# `wyrm-history-sync` for a host that answers `not_supported` (an older `wyrm:app` world),
+# which calls no random source.
+disallowed-methods = [
+    { path = "getrandom::fill", reason = "use wyrm_core::rand::fill (one source, fails closed)" },
+    { path = "getrandom::fill_uninit", reason = "use wyrm_core::rand::bytes (one source, fails closed)" },
+    { path = "getrandom::u32", reason = "use wyrm_core::rand::bytes (one source, fails closed)" },
+    { path = "getrandom::u64", reason = "use wyrm_core::rand::bytes (one source, fails closed)" },
+    { path = "ring::rand::SystemRandom::new", reason = "use wyrm_core::rand::secure_random (feature `ring`)" },
+    # draws from `OsRng`, which panics without randomness; a value `&mut OsRng` is no type
+    # use, so the type ban below does not see it
+    { path = "password_hash::SaltString::generate", reason = "use SaltString::encode_b64 of wyrm_core::rand::bytes::<16>()", allow-invalid = true },
+]
+disallowed-types = [
+    { path = "rand_core::OsRng", reason = "panics when the OS gives no randomness: use wyrm_core::rand::bytes", allow-invalid = true },
+]

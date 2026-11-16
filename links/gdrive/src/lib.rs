@@ -561,8 +561,7 @@ impl Backend for GDriveStore {
                     json!({"name": name, "parents": [pid], "mimeType": content_type}).to_string();
                 let boundary = loop {
                     let mut b = [0u8; 16];
-                    ring::rand::SecureRandom::fill(&ring::rand::SystemRandom::new(), &mut b)
-                        .map_err(|_| Error::Refused("no randomness".into()))?;
+                    wyrm_core::rand::fill(&mut b).map_err(|e| Error::Refused(e.to_string()))?;
                     let b = format!("wyrm{}", hex::encode(b));
                     if !data.windows(b.len()).any(|w| w == b.as_bytes()) {
                         break b;

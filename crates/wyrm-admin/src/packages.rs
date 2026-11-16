@@ -326,7 +326,7 @@ pub fn unpack(zip: &[u8], root: &Path, source: &str, now: u64) -> Result<Unpacke
     }
     std::fs::create_dir_all(root).map_err(|e| e.to_string())?;
     let mut rnd = [0u8; 8];
-    getrandom::fill(&mut rnd).map_err(|e| e.to_string())?;
+    wyrm_core::rand::fill(&mut rnd).map_err(|e| e.to_string())?;
     let tmp = root.join(format!(".tmp-{}", hex::encode(rnd)));
     std::fs::create_dir(&tmp).map_err(|e| e.to_string())?;
     // From here on, Drop cleans up.

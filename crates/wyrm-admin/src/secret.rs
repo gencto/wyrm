@@ -1,8 +1,6 @@
 //! Link tokens, key files and the internal CA.
 
-use argon2::password_hash::{
-    rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString,
-};
+use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
 use argon2::Argon2;
 use rcgen::{
     BasicConstraints, CertificateParams, CertificateSigningRequestParams, DnType,
@@ -202,13 +200,15 @@ impl PrivateDir {
 /// 32 random bytes, hex encoded: the plaintext link token.
 pub fn new_token() -> Result<Zeroizing<String>, Error> {
     let mut raw = Zeroizing::new([0u8; 32]);
-    getrandom::fill(raw.as_mut()).map_err(|e| format!("no randomness: {e}"))?;
+    wyrm_core::rand::fill(raw.as_mut()).map_err(|e| e.to_string())?;
     Ok(Zeroizing::new(hex::encode(raw.as_ref())))
 }
 
 /// argon2id PHC string; the registry stores only this.
 pub fn hash_token(token: &str) -> Result<String, Error> {
-    let salt = SaltString::generate(&mut OsRng);
+    // 16 bytes (the recommended salt length) from the one source; no panic when it fails
+    let salt = SaltString::encode_b64(&wyrm_core::rand::bytes::<16>().map_err(|e| e.to_string())?)
+        .map_err(|e| e.to_string())?;
     Ok(Argon2::default()
         .hash_password(token.as_bytes(), &salt)
         .map_err(|e| e.to_string())?
@@ -231,7 +231,7 @@ pub fn load_or_create_key(path: &Path) -> Result<Zeroizing<Vec<u8>>, Error> {
         return Ok(k);
     }
     let mut k = Zeroizing::new(vec![0u8; 32]);
-    getrandom::fill(&mut k).map_err(|e| format!("no randomness: {e}"))?;
+    wyrm_core::rand::fill(&mut k).map_err(|e| e.to_string())?;
     write_private(path, hex::encode(&*k).as_bytes())?;
     Ok(k)
 }
@@ -344,17 +344,6 @@ impl Pki {
         let csr = broker_csr_params(site, csr_pem)?;
         let p = leaf_params(&format!("broker:{site}"), &[], false, LEAF_DAYS)?;
         Ok(p.signed_by(&csr.public_key, &self.issuer)?.pem())
-    }
-
-    /// Remove the files of an identity (link removed). The key is removed even
-    /// when the certificate is not; the first error is returned: a key that
-    /// stays is the caller's to report.
-    pub fn forget(out: &Path, name: &str) -> std::io::Result<()> {
-        let key = std::fs::remove_file(out.join(format!("{name}.key")))
-            .or_else(wyrm_core::files::gone_ok);
-        let cert = std::fs::remove_file(out.join(format!("{name}.pem")))
-            .or_else(wyrm_core::files::gone_ok);
-        key.and(cert)
     }
 }
 
@@ -527,27 +516,6 @@ pub(crate) fn civil_from_days(z: i64) -> (i64, u32, u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// Review 2026-11-16: `forget` dropped both results, so a private key could stay
-    /// unseen. It removes the key whatever the certificate does and says what failed.
-    #[test]
-    fn forget_reports_a_file_that_stays() {
-        let dir = std::env::temp_dir().join(format!("wyrm-forget-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("l1.key"), b"k").unwrap();
-        std::fs::write(dir.join("l1.pem"), b"c").unwrap();
-        Pki::forget(&dir, "l1").unwrap();
-        assert!(!dir.join("l1.key").exists() && !dir.join("l1.pem").exists());
-        Pki::forget(&dir, "l1").unwrap();
-        // a certificate that cannot go (a non-empty directory at its name): the key
-        // still goes, and the error is returned
-        std::fs::write(dir.join("l2.key"), b"k").unwrap();
-        std::fs::create_dir_all(dir.join("l2.pem").join("x")).unwrap();
-        assert!(Pki::forget(&dir, "l2").is_err());
-        assert!(!dir.join("l2.key").exists());
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
 
     /// A directory that others could read is made the owner's only.
     #[cfg(unix)]
