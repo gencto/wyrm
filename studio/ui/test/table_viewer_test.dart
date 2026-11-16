@@ -140,7 +140,7 @@ void main() {
     );
     expect(find.byKey(const ValueKey('table-add-row')), findsNothing);
     expect(find.byKey(const ValueKey('viewer-edit')), findsNothing);
-    expect(find.text(ViewerLockVm.bound.label), findsOneWidget);
+    expect(find.text(_lockedBound), findsOneWidget);
     await tester.tap(cell(0, 0));
     await tester.pump(const Duration(milliseconds: 400));
     await tester.tap(cell(0, 0));
@@ -424,3 +424,8 @@ void main() {
     });
   });
 }
+
+/// What a field fed by a wire says in the viewer, in English (the words of
+/// `ViewerLockVm.bound`, `viewerLockedBound`).
+const _lockedBound =
+    'Read only: a wire feeds this field. Unbind it to type a value.';

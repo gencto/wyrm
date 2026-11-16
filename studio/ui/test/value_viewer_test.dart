@@ -201,7 +201,7 @@ void main() {
       viewer(vm(locked: .bound)),
     );
     expect(edit, findsNothing);
-    expect(find.text(ViewerLockVm.bound.label), findsOneWidget);
+    expect(find.text(_lockedBound), findsOneWidget);
 
     // A point of the Explorer: read only, and nothing said.
     await tester.pumpWidget(viewer(vm()));
@@ -223,6 +223,11 @@ void main() {
     expect(editor, findsOneWidget);
     await tester.pumpWidget(viewer(vm(locked: .bound)));
     expect(editor, findsNothing);
-    expect(find.text(ViewerLockVm.bound.label), findsOneWidget);
+    expect(find.text(_lockedBound), findsOneWidget);
   });
 }
+
+/// What a field fed by a wire says in the viewer, in English (the words of
+/// `ViewerLockVm.bound`, `viewerLockedBound`).
+const _lockedBound =
+    'Read only: a wire feeds this field. Unbind it to type a value.';
