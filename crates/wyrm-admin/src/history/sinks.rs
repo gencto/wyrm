@@ -407,18 +407,11 @@ async fn next(ctl: &Control, ctx: &LinkCtx, name: &str, args: &Value, sub: &str)
         return Err(LinkError::new(Status::PermissionDenied, ""));
     }
     let st = ctl.history.store().clone();
-    let after = match arg(args, "after") {
-        None | Some(Value::Null) => None,
-        Some(v) => Some(
-            v.as_f64()
-                .filter(|a| a.is_finite() && *a >= 0.0)
-                .ok_or_else(|| LinkError::invalid_parameter("after: a journal number"))?
-                as u64,
-        ),
-    };
-    let max = match arg_num(args, "max") {
+    // a journal number is whole: `5.5` would confirm row 5 and send row 6 again
+    let after = crate::control::int_arg::<u64>(args, "after")?;
+    let max = match crate::control::int_arg::<u64>(args, "max")? {
         None => DEFAULT_BATCH_ROWS,
-        Some(m) if m.is_finite() && m >= 1.0 => (m as usize).min(MAX_BATCH_ROWS),
+        Some(m) if m >= 1 => usize::try_from(m).map_or(MAX_BATCH_ROWS, |m| m.min(MAX_BATCH_ROWS)),
         Some(_) => return Err(LinkError::invalid_parameter("max: 1 to 5000")),
     };
     let keys = wanted(ctl, &def);

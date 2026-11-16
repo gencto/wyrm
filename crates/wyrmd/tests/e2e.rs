@@ -5990,6 +5990,15 @@ async fn link_params_update_history_rollback() {
         panic!("history")
     };
     assert_eq!(h.len(), 2, "rev 1 and current rev 2");
+    // `rev` is a whole number: 1.7 was read as 1, -1 as 0, 5e9 as u32::MAX
+    for bad in [1.7, -1.0, 5e9] {
+        assert!(
+            c.invoke_one(&node, "rollback", m(&[("rev", Value::Float(bad))]))
+                .await
+                .is_err(),
+            "rev {bad}"
+        );
+    }
     let rev = c
         .invoke_one(&node, "rollback", m(&[("rev", Value::UInt(1))]))
         .await
@@ -6457,6 +6466,20 @@ async fn runtime_peers_over_quic() {
 
     // 6. A token admits at once, once.
     let c = client(c_tcp, "central").await;
+    // `count` is whole: 0.5 was read as 0, which means no limit (review 2026-11-16)
+    for bad in [0.5, 1.5, -1.0, f64::NAN] {
+        assert!(
+            c.invoke_one(
+                "wy/central/sys/tokens",
+                "add",
+                args(&[("count", Value::Float(bad))]),
+            )
+            .await
+            .is_err(),
+            "count {bad}"
+        );
+    }
+    assert!(c_ctl.registry().tokens.is_empty(), "no token made");
     let token = match c
         .invoke_one(
             "wy/central/sys/tokens",
@@ -13688,7 +13711,7 @@ async fn link_backup_of_a_process_link() {
     let m = wyrm_admin::backup::read_manifest(&dir.join("backups").join(&job.file)).unwrap();
     let link = m.link.as_ref().unwrap();
     assert_eq!(
-        (link.id.as_str(), link.mode.as_str(), link.package.as_str()),
+        (link.id.as_str(), link.mode.name(), link.package.as_str()),
         ("u1", "process", "updpkg")
     );
     assert_eq!(link.version, "1.0.0");

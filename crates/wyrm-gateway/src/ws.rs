@@ -169,7 +169,7 @@ impl Conn {
             if r.status == Status::PermissionDenied {
                 self.gw.audit(AuditEvent::Denied {
                     user: p.name.clone(),
-                    op: "approve".into(),
+                    op: crate::DeniedFor::Approve,
                     key: key.to_owned(),
                 });
             }
@@ -211,7 +211,7 @@ impl Conn {
             if let Err(r) = self.gw.step_up(p, &request) {
                 self.gw.audit(AuditEvent::Denied {
                     user: p.name.clone(),
-                    op: "confirm_required".into(),
+                    op: crate::DeniedFor::ConfirmRequired,
                     key: key.to_owned(),
                 });
                 return Err(Approve::StepUp(r));
@@ -423,7 +423,7 @@ impl Conn {
     fn deny(&self, p: &Principal, id: u64, op: op::OpName, key: &str) -> Value {
         self.gw.audit(AuditEvent::Denied {
             user: p.name.clone(),
-            op: op.name().to_owned(),
+            op: op.into(),
             key: key.to_owned(),
         });
         err_frame(id, Status::PermissionDenied.code(), "permission denied")
@@ -609,7 +609,7 @@ impl Conn {
         let refused = self.gw.step_up(p, &Value::Map(what)).err()?;
         self.gw.audit(AuditEvent::Denied {
             user: p.name.clone(),
-            op: "confirm_required".into(),
+            op: crate::DeniedFor::ConfirmRequired,
             key: key.to_owned(),
         });
         Some(refused_frame(id, refused))

@@ -2080,7 +2080,7 @@ fn gateway_audit(ctl: &Control, e: AuditEvent) {
         }
         AuditEvent::Denied { user, op, key } => ctl.record(
             &format!("user:{user}"),
-            &op,
+            op.name(),
             &key,
             Status::PermissionDenied,
             "gateway",

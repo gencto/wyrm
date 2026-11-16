@@ -193,13 +193,22 @@ its log; a stray `println!` there is a log line without level or span. An
 (CONTRIBUTING "Wire enums"): `.code()` out, `T::try_from(u8)` in, `T::from_name`
 or `str::parse::<T>()` from a spec name. No `as u8|u16|u32` outside the code
 tables, no `as <int>` on a number that came from `as_f64`, no
-`T::ALL.iter().find(|x| x.name() == s)`. A number from a `Value` goes through
-`u8::try_from(u64)`, and a code that does not decode is refused or read as
-the safe value (`bad`, `internal_error`), never as `0`.
+`T::ALL.iter().find(|x| x.name() == s)`. A whole number from a `Value` (an
+action argument, a `cfg` or stored field, a code in a reply) is read by the one
+decoder `Value::to_int::<T>()` (`wyrm_core::value`): an integer as it is, a float
+only when it is whole and at most 2^53 (a JSON client's `20.0`); a fraction,
+NaN, an infinity, a negative number for an unsigned `T` or one out of range is
+an error, never truncated, saturated or `0`. A float the code made itself
+(seconds × 1000, rounded) becomes an integer through `wyrm_core::value::whole`,
+never `as`. A code that does not decode is refused or read as the safe value
+(`bad`, `internal_error`), never as `0`.
 
 **Why.** **T1**: `Quality::try_from(x as u8)` made a script's `q: 0.9`, `-1` or
 `NaN` into `0` = `Good`, and a missing status `code` into `Ok`: quality and
-status failed open. **T6**: 14 hand-written name searches, some taking two or
+status failed open. The final verification of 2026-11-16 found the same in
+`sys/tokens ▸ add {count: 0.5}`: `0.5 as u32` is `0`, and a count of 0 means no
+limit; three integer decoders disagreed (one took `1.7` as `1`, one let `2^64`
+saturate). **T6**: 14 hand-written name searches, some taking two or
 three forms of input.
 
 ```rust
@@ -209,6 +218,7 @@ let level = Perm::ALL.iter().copied().find(|p| p.name() == level)
 
 // good — crates/wyrm-flow/src/codes.rs, crates/wyrm-admin/src/control.rs
 Value::UInt(u) => u8::try_from(*u).ok(),          // then Quality::try_from(c)
+let count: u32 = int_arg(args, "count")?.unwrap_or(1); // Value::to_int: 0.5 is refused
 let level = Perm::from_name(level)
 ```
 
@@ -223,10 +233,11 @@ with codes, `name_enum!` (`wyrm_core`, names only: `ALL`, `name`,
 `from_name`, `FromStr`) for one without. Either takes its one name and no
 other form; a second form (another case, a display text) is mapped by the
 caller in one place that says why (`Freq`: RFC 5545 names are
-case-insensitive, so the text is upper-cased first). Left in C2 (19 after
-2026-11-15): lookups that build a variant with data (`Answer::Granted
+case-insensitive, so the text is upper-cased first). Left in C2 (15 after
+#127): lookups that build a variant with data (`Answer::Granted
 {left}`, `DType::String(n)`), names of other crates' types (`tracing`
-levels), comparisons that are not a lookup, and the closed sets of T5.
+levels), comparisons that are not a lookup, and the closed sets of T5 still
+open.
 
 ## 6. A closed set is an enum, not a `String`
 
@@ -252,13 +263,13 @@ role grants stored as `(String, u8)` silently drop a grant whose code does not
 decode, which in a first-match list widens access.
 
 ```rust
-// bad — crates/wyrm-admin/src/control/backups.rs
-/// `running`, `done` or `failed`.
-pub status: String,
-if job.status != "done" { … }
+// bad — crates/wyrm-link-sdk/src/package.rs (a repository entry; still in the
+// code, C3 counts it)
+/// `Equipment`, `Apps`, `History sync`, `File stores`, …
+pub category: String,
 
-// good (the target design, audit T5)
-pub enum JobStatus { Running, Done, Failed }
+// good — crates/wyrm-admin/src/control/backups.rs (#125)
+wyrm_core::name_enum! { pub enum JobStatus as "backup job status" { Running => "running", Done => "done", Failed => "failed" } }
 pub status: JobStatus,
 if job.status != JobStatus::Done { … }
 ```
@@ -266,7 +277,11 @@ if job.status != JobStatus::Done { … }
 **Check.** C3 `string-closed-set`: a text field (`String`, `&str`,
 `Box<str>`, `Cow<str>`, in `Option` too, the last field of a struct too) or a
 `fn` argument whose doc lists its values (backticked or quoted alternatives,
-"one of …", "a, b or c"). C6 `string-set`: inline `["a", "b"]` (with or
+"one of …", "a, b or c"); and a text field of a struct or of an enum's brace
+variant, documented or not, that the crate fills from an enum's `name()` (`mode: def.mode.name().to_owned()`
+in a literal of the struct, `x.mode = m.name().into()`, `String::from(m.name())`):
+its set is that enum (`LinkInfo.mode` was one, now `Mode`; the gateway's
+`AuditEvent::Denied.op`, now `DeniedFor`). C6 `string-set`: inline `["a", "b"]` (with or
 without `&`, `vec![…]`; not the key list of `only(&[…])`), `matches!(x, "a" |
 "b")`, `x == "a" || x == "b"`, and `const`/`static` tables of `&str` (also of
 tuples). The bodies of the `name_enum!` and `wire_enum!` macros (in
@@ -343,9 +358,10 @@ typed values (`u64` micro-seconds, an enum, a `NonZeroUsize`), never by
 // bad — crates/wyrm-client/src/lib.rs
 let mut p = format!("history={}..{}", self.from.trim(), self.to.trim());
 
-// good (the target design, audit S2 fix)
-struct HistoryQuery { from_us: u64, to_us: Option<u64>, agg: Option<Rollup>, limit: Option<NonZeroUsize> }
-let mut p = format!("history={}..", iso(self.from_us)); // only typed values go in
+// good — crates/wyrm-core/src/history.rs (#108)
+pub struct HistoryQuery { pub from: TimeUs, pub to: Option<TimeUs>, pub rollup: Rollup,
+                          pub window: Option<Window>, pub limit: Option<NonZeroUsize> }
+let mut p = format!("history={}..", iso_us_exact(self.from.0)); // only typed values go in
 ```
 
 **Check.** C7 `selector-format`: a `format!`/`write!`/`writeln!` string (raw
@@ -358,8 +374,19 @@ text piece that ends a parameter for a value to follow (`"&x="` in a
 **Rule.** The result of an RNG fill, a store `apply`, a `save`, `persist`,
 `sync_all`, `flush`, `rename` or `write_all`, a seal (`seal`, `seal_stream`,
 `seal_bytes`), a file mode (`set_permissions`, `write_private`,
-`private_dir`) or a secret store change (`secrets.set/remove/drop_link`) is
-handled: `?`, a refusal, or a logged error with the state it leaves. A
+`private_dir`), a secret store change (`secrets.set/remove/drop_link`), a
+removal or a directory made (`remove_file`, `remove_dir_all`,
+`create_dir_all`, wyrm-admin's `nofollow::remove_any`) or a portable app's
+store write (`Host::store_put`) is handled: `?`, a refusal, or a logged error
+with the state it leaves. A file that holds state (a key, a certificate, a
+role or update marker, a backup, a package, a link's data, a trust list) is
+never removed silently. A *scratch* file (a temporary file before or after a
+write, a staging or download directory, an upload part) is removed through
+`wyrm_core::files::discard` (a file) or `discard_dir` (a directory): absent is
+done, any other failure is logged with the path. They are the only removal
+whose error is not returned, and never for a file that holds state;
+`files::gone_ok` turns "not there" into done where the error is returned
+(`remove_file(p).or_else(gone_ok)?`). A
 failing RNG fails closed: the gateway has one source, `rng::fill`, whose
 error the caller refuses with; a link refuses the session or the call (the
 SNMP link opens no session without a random salt).
@@ -398,7 +425,17 @@ too short until 2026-11-15: C8 read 0 while a backup dropped a failed seal
 is now, C8 counts 14: B1–B5, the AI-3 `remove(..).unwrap_or(false)`, the
 localfs mode, the guard stamp, the OPC UA first-use marker, and two refused
 `apply` calls taken as "nothing to do" (`RemovePeer`, `DropEnrollment`); the
-first widening counted 10 of them. All are fixed in PR #125.
+first widening counted 10 of them. All are fixed in PR #125. The final
+verification of 2026-11-16 widened it to removals, `create_dir_all` and
+`store_put`: 102 drops, among them a peer's key files, a removed link's
+certificate key, the OPC UA first-use marker and trust list, a backup that
+`remove` answered done for, the update state file, the standby's active
+marker, the messenger's read position (a lost write ran chat commands again
+after a restart) and the uplink's `bdSeq`; `nofollow::remove_any` hid 14 more
+inside a helper. Each is handled or, for a scratch file, goes through
+`files::discard`; C8 is 0 again. A form's `[^;]*?` no longer runs past the `}`
+of a function whose last expression has no `;` (it read the next function's
+`.unwrap_or(None)` as a drop).
 
 ## 11. One clock and one hex helper
 
@@ -427,7 +464,9 @@ the one C11 hit in the baseline) and Zenoh locators (`quic/host:port`, not
 URLs).
 
 **Check.** C11 `url-split`: `split_once`/`find`/`contains`/`strip_prefix`/
-`starts_with`/… with `"…://"` or `"http…"` outside `wyrm-core/src/weburl.rs`.
+`starts_with`/`split_terminator`/`match_indices`/`trim_start_matches`/
+`replace`/`replacen`/… with `"…://"` or `"http…"`, and `splitn`/`rsplitn`
+with a count before it (`splitn(2, "://")`), outside `wyrm-core/src/weburl.rs`.
 The checker runs its probes (samples each pattern must count or leave)
 before every run.
 

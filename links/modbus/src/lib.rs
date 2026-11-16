@@ -1000,15 +1000,9 @@ fn arg_uint(
     let Some(v) = args.get(name) else {
         return default.ok_or_else(|| LinkError::invalid_parameter(format!("missing {name}")));
     };
-    let n = match v {
-        Value::UInt(u) => Some(*u),
-        Value::Int(i) => u64::try_from(*i).ok(),
-        Value::Float(f) if f.fract() == 0.0 && *f >= 0.0 && *f <= u64::MAX as f64 => {
-            Some(*f as u64)
-        }
-        _ => None,
-    }
-    .ok_or_else(|| LinkError::invalid_parameter(format!("{name}: expected a whole number")))?;
+    let n: u64 = v.to_int().map_err(|e| {
+        LinkError::invalid_parameter(format!("{name}: expected a whole number ({e})"))
+    })?;
     if !(min..=max).contains(&n) {
         return Err(LinkError::invalid_parameter(format!(
             "{name}: {n} is not in {min}…{max}"

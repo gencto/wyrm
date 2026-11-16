@@ -276,10 +276,95 @@ def doc_above(s: Source, i: int) -> str:
     return " ".join(doc)
 
 
+# A struct literal's field (or an assignment to one) filled from an enum's `name()`:
+# `mode: def.mode.name().to_owned()`, `.into()`, `.to_string()`, `String::from(x.name())`.
+NAME_FILL = re.compile(
+    r"(?:(?<![\w.:])(\w+)\s*:(?!:)|\.(\w+)\s*=(?!=))\s*"
+    r"(?:String::from\(\s*)?[\w.:()&*]*?\.name\(\)\s*"
+    r"(?:\.\s*(?:to_owned|to_string|into)\(\)|\))"
+)
+
+# Per crate: `(struct, field)` pairs filled from an enum's `name()` anywhere in the crate,
+# filled by `measure_patterns` before the rules run (C3 counts the field's declaration).
+CRATE_NAME_FIELDS: dict[str, set[tuple[str, str]]] = {}
+
+
+def owner_of(code: str, at: int) -> str | None:
+    """The type whose literal holds the field at `at` (`LinkInfo { … mode: … }`), `Self`
+    resolved to its `impl`; `None` when no type literal encloses it."""
+    depth, j = 0, at
+    while j > 0:
+        j -= 1
+        ch = code[j]
+        if ch == "}":
+            depth += 1
+        elif ch == "{":
+            if depth == 0:
+                m = re.search(r"([A-Za-z_]\w*)\s*$", code[max(0, j - 80) : j])
+                if not m or not m.group(1)[0].isupper():
+                    return None
+                name = m.group(1)
+                if name == "Self":
+                    imp = None
+                    for imp in re.finditer(r"\bimpl(?:\s*<[^>]*>)?\s+(?:[\w:]+\s+for\s+)?(\w+)", code[:j]):
+                        pass
+                    return imp.group(1) if imp else None
+                return name
+            depth -= 1
+    return None
+
+
+def name_fields(code: str) -> set[tuple[str, str]]:
+    """`(struct, field)` pairs of `code` filled from an enum's `name()`: in a literal of the
+    struct, or assigned (`x.field = e.name().into()`, struct unknown: `("", field)`)."""
+    out = set()
+    for m in NAME_FILL.finditer(code):
+        if m.group(1):
+            owner = owner_of(code, m.start())
+            if owner:
+                out.add((owner, m.group(1)))
+        else:
+            out.add(("", m.group(2)))
+    return out
+
+
+STRUCT = re.compile(r"\bstruct\s+(\w+)\s*(?:<[^>{]*>)?\s*(?:where[^{]*)?\{")
+ENUM = re.compile(r"\benum\s+\w+\s*(?:<[^>{]*>)?\s*(?:where[^{]*)?\{")
+
+
+def field_bodies(code: str) -> list[tuple[str, int, int]]:
+    """`(name, open, end)` of every body that holds named fields: a `struct`, and each
+    brace variant of an `enum` (`Denied { op: String, … }`, named by the variant)."""
+    out = [(m.group(1), m.end() - 1, block_end(code, m.end() - 1)) for m in STRUCT.finditer(code)]
+    for em in ENUM.finditer(code):
+        end = block_end(code, em.end() - 1)
+        depth, j = 0, em.end()
+        while j < end - 1:
+            ch = code[j]
+            if ch == "{":
+                if depth == 0:
+                    v = re.search(r"(\w+)\s*$", code[em.end() : j])
+                    if v:
+                        out.append((v.group(1), j, block_end(code, j)))
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+            j += 1
+    return out
+
+
 def c3(s: Source) -> list[int]:
     """A text field or `fn` argument whose doc lists its values: a closed set carried as
-    text (`String`, `&str`, `Box<str>`, `Cow<str>`, also inside `Option`)."""
+    text (`String`, `&str`, `Box<str>`, `Cow<str>`, also inside `Option`); and a text field,
+    documented or not, that the crate fills from an enum's `name()` (the set is the enum)."""
     hits = []
+    filled = CRATE_NAME_FIELDS.get(crate_of(s.path), set()) | name_fields(s.masked)
+    if filled:
+        for name, open_at, end in field_bodies(s.masked):
+            for k in range(s.line_of(open_at + 1), s.line_of(end) + 1):
+                fm = FIELD.match(s.lines[k - 1]) if s.masked_lines[k - 1].strip() else None
+                if fm and ((name, fm.group(1)) in filled or ("", fm.group(1)) in filled):
+                    hits.append(s.starts[k - 1])
     for i, line in enumerate(s.lines):
         if not s.masked_lines[i].strip():
             continue
@@ -493,6 +578,15 @@ PERSIST_CALLS = [
     # receiver named for secrets (`secrets.`, `link_secrets.`, `self.ctl.secrets.`)
     r"\.(?:drop_link|replace_stashed|unstash)\(",
     r"\b\w*secrets?\w*\s*\.\s*(?:set|remove)\(",
+    # files and directories that hold state: a key, a certificate, a role or update
+    # marker, a backup, a package. A scratch file or directory is removed through
+    # `wyrm_core::files::discard` (`discard_dir`), which logs what stays instead of dropping it.
+    r"\bremove_file\(",
+    r"\bremove_dir_all\(",
+    r"\bcreate_dir_all\(",
+    r"\bremove_any\(",  # wyrm-admin `nofollow`: a file or a directory, by its own name
+    # a portable app's store (`Host::store_put`): a lost cursor repeats work
+    r"\.store_put\(",
 ]
 PERSIST = "(?:" + "|".join(PERSIST_CALLS) + ")"
 
@@ -523,10 +617,25 @@ def c8(s: Source) -> list[int]:
         rf"{PERSIST}[^;]*?\)(?:\.await)?\s*\.unwrap_or_else\(\s*\|\s*_\w*\s*\|",
         r"\bto_vec\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*\)\s*\.\s*(?:unwrap_or_default\(\)|ok\(\))",
     ]
-    hits = [m.start() for p in pats for m in re.finditer(p, m_)]
+    # a form ends within the block it starts in: `[^;]*?` must not run past the `}` of a
+    # function whose last expression has no `;` and into the next one
+    hits = [m.start() for p in pats for m in re.finditer(p, m_) if stays_in_block(m.group(0))]
     hits += c8_blocks(m_)
     # one hit per line, however many of the forms above match it
     return sorted(set(s.hits("C8", hits)))
+
+
+def stays_in_block(span: str) -> bool:
+    """`span` closes no `}` it did not open: it does not leave the block it starts in."""
+    depth = 0
+    for ch in span:
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth < 0:
+                return False
+    return True
 
 
 def block_end(text: str, open_at: int) -> int:
@@ -594,6 +703,11 @@ PROBE_CALLS = [
     "format::seal_bytes(key, path, b)",
     "store.drop_link(&peer)",
     "link_secrets.remove(id, PEER_TOKEN)",
+    "std::fs::remove_file(self.peer_ca_path(site))",
+    "std::fs::remove_dir_all(&dir)",
+    "std::fs::create_dir_all(dir)",
+    "crate::nofollow::remove_any(&pending.join(name))",
+    "host.store_put(&offset_key(bot), &o.to_le_bytes())",
 ]
 # Every way of dropping the result (C8 must see each) and of handling it (it must not).
 PROBE_DROPPED = [
@@ -629,6 +743,8 @@ PROBE_HANDLED = [
     "match {c} {{ Ok(v) => use_it(v), Err(e) => tracing::error!(\"{{e}}\") }}",
     "let v = {c}.unwrap_or_else(|e| fail(e));",
     "match {c} {{ Ok(v) => use_it(v), Err(e) => return Err(e.into()) }};",
+    # returned as the function's last expression; the next function's forms are its own
+    "{c}\n}}\nfn g(w: Option<Option<u8>>) {{ let v = w.unwrap_or(None); go(v);",
 ]
 
 
@@ -725,14 +841,20 @@ def a2(s: Source) -> list[int]:
 
 
 URL_SPLIT = re.compile(
-    r"\b(?:split_once|rsplit_once|split|find|rfind|contains|strip_prefix|starts_with|"
-    r"eq_ignore_ascii_case)\(\s*\"(?:[A-Za-z0-9+.-]*://|https?:?/{0,2}\")"
+    r"(?:\b(?:split_once|rsplit_once|split|rsplit|split_terminator|rsplit_terminator|find|"
+    r"rfind|contains|strip_prefix|starts_with|eq_ignore_ascii_case|match_indices|"
+    r"rmatch_indices|matches|trim_start_matches|trim_matches|replace|replacen)\(\s*"
+    # `splitn(2, "://")`: a count before the pattern
+    r"|\b(?:splitn|rsplitn)\(\s*[^,()]+,\s*)"
+    r"\"(?:[A-Za-z0-9+.-]*://|https?:?/{0,2}\")"
 )
 
 
 def c11(s: Source) -> list[int]:
     """A URL split by hand (review S4): `split_once("://")`, `find("://")`,
-    `strip_prefix("https://")`, `starts_with("http")`, … outside `wyrm_core::weburl`,
+    `strip_prefix("https://")`, `starts_with("http")`, `splitn(2, "://")`,
+    `match_indices("://")`, `trim_start_matches("https://")`, `replace("https://", …)`,
+    … outside `wyrm_core::weburl`,
     the one parser of configured URLs (docs/rust-rules.md §11)."""
     if s.path == "crates/wyrm-core/src/weburl.rs":
         return []
@@ -765,8 +887,52 @@ PROBES = [
     ("C11", "x.rs", 'fn f(u: &str) -> bool { u.starts_with("http") }', 1),
     ("C11", "x.rs", 'fn f(u: &str) -> Option<usize> { u.find("://") }', 1),
     ("C11", "x.rs", 'fn f(u: &str) -> String { format!("https://{u}") }', 0),
+    ("C11", "x.rs", 'fn f(u: &str) { let mut p = u.splitn(2, "://"); }', 1),
+    ("C11", "x.rs", 'fn f(u: &str) { let mut p = u.rsplitn(2, "://"); }', 1),
+    ("C11", "x.rs", 'fn f(u: &str) { let p = u.split_terminator("://"); }', 1),
+    ("C11", "x.rs", 'fn f(u: &str) { let p = u.match_indices("://"); }', 1),
+    ("C11", "x.rs", 'fn f(u: &str) -> &str { u.trim_start_matches("https://") }', 1),
+    ("C11", "x.rs", 'fn f(u: &str) -> &str { u.trim_start_matches("http") }', 1),
+    ("C11", "x.rs", 'fn f(u: &str) -> String { u.replace("https://", "") }', 1),
+    ("C11", "x.rs", 'fn f(u: &str) -> String { u.replacen("http://", "", 1) }', 1),
+    ("C11", "x.rs", 'fn f(u: &str) { let p = u.splitn(2, \':\'); let q = u.split_terminator("/"); }', 0),
+    ("C11", "x.rs", 'fn f(u: &str) -> String { u.replace("a", "b").trim_start_matches(\'/\').into() }', 0),
     ("C11", "crates/wyrm-core/src/weburl.rs", 'fn f(u: &str) { u.split_once("://"); }', 0),
     ("C11", "x.rs", '#[cfg(test)]\nmod tests { fn f(u: &str) { u.split_once("://"); } }', 0),
+    # C3: a text field the code fills from an enum's `name()`, with no doc that lists it
+    (
+        "C3",
+        "x.rs",
+        "pub struct Info {\n    pub id: String,\n    pub mode: String,\n}\n"
+        "fn f(d: &D) -> Info { Info { id: d.id.clone(), mode: d.mode.name().to_owned() } }",
+        1,
+    ),
+    (
+        "C3",
+        "x.rs",
+        "struct Info {\n    mode: String,\n}\nimpl Info { fn new(m: Mode) -> Self { Self { mode: m.name().into() } } }",
+        1,
+    ),
+    (
+        "C3",
+        "x.rs",
+        "struct Info {\n    mode: String,\n}\nfn f(i: &mut Info, m: Mode) { i.mode = String::from(m.name()); }",
+        1,
+    ),
+    (
+        "C3",
+        "x.rs",
+        "pub enum Event {\n    Denied {\n        user: String,\n        op: String,\n    },\n    Other(u8),\n}\n"
+        "fn f(o: Op) -> Event { Event::Denied { user: String::new(), op: o.name().to_owned() } }",
+        1,
+    ),
+    (
+        "C3",
+        "x.rs",
+        "struct Info {\n    mode: Mode,\n    v: Value,\n    id: String,\n}\n"
+        "fn f(m: Mode) -> Info { Info { mode: m, v: Value::Str(m.name().into()) } }",
+        0,
+    ),
     ("C6", "x.rs", 'const NAMES: [&str; 2] = ["a", "b"];', 2),
     ("C6", "x.rs", "trait T { const NAMES: &'static [&'static str]; }", 0),
     ("C6", "x.rs", "trait T { const PAIRS: &'static [(&'static str, &'static str)]; }", 0),
@@ -830,8 +996,11 @@ def measure_patterns(show: str | None = None) -> dict[str, dict[str, int]]:
     out: dict[str, dict[str, int]] = {r: {} for r in PATTERNS}
     files = list(sources())
     CRATE_TEXT_ERRORS.clear()
+    CRATE_NAME_FIELDS.clear()
     for path, text in files:
         CRATE_TEXT_ERRORS.setdefault(crate_of(path), set()).update(text_error_aliases(path, text))
+        masked = Source(path, text).masked  # code only, tests left out
+        CRATE_NAME_FIELDS.setdefault(crate_of(path), set()).update(name_fields(masked))
     for path, text in files:
         s = Source(path, text)
         for name, rule in PATTERNS.items():

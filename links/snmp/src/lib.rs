@@ -910,16 +910,15 @@ async fn walk(
     let max = match args.get("max") {
         None => WALK_DEFAULT,
         Some(v) => {
-            let n = v
-                .as_f64()
-                .filter(|n| n.fract() == 0.0)
-                .ok_or_else(|| LinkError::invalid_parameter("max: a whole number"))?;
-            if !(1.0..=WALK_MAX as f64).contains(&n) {
+            let n: usize = v
+                .to_int()
+                .map_err(|e| LinkError::invalid_parameter(format!("max: {e}, a whole number")))?;
+            if !(1..=WALK_MAX).contains(&n) {
                 return Err(LinkError::invalid_parameter(format!(
                     "max: {n} is not in 1…{WALK_MAX}"
                 )));
             }
-            n as usize
+            n
         }
     };
     let started = Instant::now();

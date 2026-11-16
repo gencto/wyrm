@@ -139,9 +139,11 @@ fn bad(msg: impl Into<String>) -> AppError {
 }
 
 fn seconds(v: &Value, key: &str) -> Result<u64, AppError> {
+    // seconds may have a fraction; the milliseconds are whole
     v.as_f64()
-        .filter(|s| s.is_finite() && (1.0..=3600.0).contains(s))
-        .map(|s| (s * 1000.0) as u64)
+        .filter(|s| (1.0..=3600.0).contains(s))
+        .and_then(|s| wyrm_core::value::whole((s * 1000.0).round()).ok())
+        .and_then(|ms| u64::try_from(ms).ok())
         .ok_or_else(|| bad(format!("params.{key}: 1 to 3600 seconds")))
 }
 
@@ -163,9 +165,9 @@ fn split(config: Value) -> Result<(Own, Map), AppError> {
     let batch = match m.remove("batch") {
         None => DEFAULT_BATCH,
         Some(v) => v
-            .as_f64()
-            .filter(|b| b.is_finite() && (1.0..=MAX_BATCH as f64).contains(b))
-            .map(|b| b as usize)
+            .to_int::<usize>()
+            .ok()
+            .filter(|b| (1..=MAX_BATCH).contains(b))
             .ok_or_else(|| bad(format!("params.batch: 1 to {MAX_BATCH}")))?,
     };
     let idle_ms = match m.remove("idle_s") {

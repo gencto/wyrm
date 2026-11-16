@@ -1,15 +1,16 @@
 # WYRM Rust workspace — typing, security and structure audit (2026-11-15)
 
-**Status (2026-11-15, after the final verification; #125 is the change that made this line).** Line numbers below are those of the audited tree.
+**Status (2026-11-16, after the verification of `main` `7ac1beee`, which had #125 and #127; the PR "verification round" made this line).** Line numbers in §2–§5 are those of the audited tree; where a current one matters it is given as "now".
 
-- **Fixed:** S1, S2 (#108). S5 (#112: `unsafe_op_in_unsafe_fn` and `undocumented_unsafe_blocks` denied in `wyrm-ffi`, one `// SAFETY:` per block). Steps 0 and 9 of §6 (#112: workspace lints in every member; the rules check with its two-way baseline in CI). T2 (#125: the WS op is an `Op` enum decoded once at the frame, and `Op::route` is one exhaustive table of each op's right and handler).
+- **Fixed:** S1, S2 (#108). S5 (#112: `unsafe_op_in_unsafe_fn` and `undocumented_unsafe_blocks` denied in `wyrm-ffi`, one `// SAFETY:` per block). Steps 0 and 9 of §6 (#112: workspace lints in every member; the rules check with its two-way baseline in CI). T2 (#125: the WS op is an `Op` enum decoded once at the frame, and `Op::route` is one exhaustive table of each op's right and handler). T4 (#108, #125, #127: gateway role grants, `LinkDef.grants`, `PackageDef.requester` and `wyrm_link_sdk::package::Grant.level` hold `Perm`; an unknown code refuses the store or the package). S4 (#127: `wyrm_core::weburl` is the one parser of configured URLs; C11 counts a hand split, 1 left on purpose: the secrets redactor).
 - **Fixed, with what is left named:**
-  - T1 — partly (#105): `quality_of`/`status_of` fail to `Bad`/`InternalError` at the four audited sites. Not done: the typed `ActionResult` decoder (`message` is still read by hand), and the float→int casts elsewhere (C1 = 271 baselined, e.g. `wyrm-link-sdk/src/process.rs:182,261`).
-  - T4 — gateway role grants (#108) and link grants (#125: `LinkDef.grants` and `PackageDef.requester` hold `Perm`; an unknown code refuses the store; older stores open unchanged). Left: `wyrm_link_sdk::package::Grant.level` is a name (`String`), refused at install when unknown; it goes with T5.
-  - T6 (#112, #125): `wire_enum!` has `from_name`/`FromStr`; `name_enum!` declares a plain set's names once; the logging type takes its one name (no display/name two-form input). C2 37 → 19; the 19 left build variants with data, name other crates' types (`tracing` levels), compare without a lookup, or are T5's closed sets.
-  - S3 — the gateway (#112: one `rng` source, refused on failure) and the SNMP link (#125: no session without randomness). The audit's own fix is not done: one `wyrm_core` RNG helper plus a `disallowed_methods` ban; about 25 direct `getrandom::fill` calls remain outside the gateway, every one now handled with `?`.
-- **Open:** T3, T5 (another PR), T7, S4 (another PR), X1, X2.
+  - T1 — the quality/status decoders `quality_of`/`status_of` (#105) fail to `Bad`/`InternalError`. The verification of 2026-11-16 found the same failure open on integers: `sys/tokens ▸ add {count: 0.5}` made `0.5 as u32` = 0, and a token count of 0 means no limit (`control.rs` `add_token`, `registry.rs` `Op::UseToken`, now `:1652`). One integer decoder, `Value::to_int` in `wyrm_core::value`, replaces the three that disagreed (`wyrm_core::history` `limit`, `Fields::u64_or` (it let `2^64` saturate), `wyrm-link-sdk` `cfg_uint` (it took `1.5` as 1)) and about twenty copies in links; `rev` of `rollback` (now `control.rs:4316`), `hello`'s key caps and grant codes (`process.rs`), log and audit counts, history options, sink cursors and the config of the sync and uplink links go through it. C1 271 → 212; what is left is byte packing in codecs, value maths of flow blocks, and bounded `len() as u32`. Not done: the typed action answer (`{code, message}`) of the flow's commands and readers (the next PR).
+  - T5 — mostly (#125, #127): the closed sets named in §2 are enums (`Device.platform/alg`, `TaskRec.state`, `Job.kind/status/sealed/send_status`, `UpdateReport.result`, `Manifest.kind`, `Grant.level`, flow `on_bad/quality/fn` and five more, `UpdatesSection.mode`); `TaskRec.state` keeps an unknown name as written (owner decision, ADR 0029 item 14). C3 now also counts an undocumented text field filled from an enum's `name()`; it found `LinkInfo.mode` (a backup manifest), now a `Mode` kept by its name, and the gateway's `AuditEvent::Denied.op`, now `DeniedFor`. C3 36 left (doc-listed text fields such as `RepoEntry.category`). Backup sections are still text (the next PR).
+  - T6 (#112, #125, #127): `wire_enum!` has `from_name`/`FromStr`; `name_enum!` declares a plain set's names once. C2 37 → 15; the 15 left build variants with data, name other crates' types (`tracing` levels) or compare without a lookup.
+  - S3 — the gateway (#112: one `rng` source, refused on failure) and the SNMP link (#125). The audit's own fix is not done: one `wyrm_core` RNG helper plus a `disallowed_methods` ban; 28 direct `getrandom::` calls and 4 `ring` `SystemRandom` sources remain outside the gateway's helper, every one handled (the next PR).
+- **Open:** T3, T7, X1, X2.
 - **Final verification of 2026-11-15:** its findings B1–B5 (dropped seal, file-mode, secret-store and RNG results) are fixed in #125. The rules check's C8 was widened to the calls and the forms they used, with a self-probe that runs first; measured on a copy of `main` with the final rule it counts 14 (the first widening counted 10), now 0. The independent audit of #125 found four more (a private directory reached through a symlink, AI-3 by a restore, the OPC UA first-use marker, the edit's step order), also fixed in #125.
+- **Verification of 2026-11-16:** C8 was widened again, to removals (`remove_file`, `remove_dir_all`, wyrm-admin's `nofollow::remove_any`), `create_dir_all` and a portable app's `store_put`: 102 dropped results plus 14 inside `remove_any`. The ones that guard state are handled: a removed peer's key files and a removed link's or package's files are logged and audited when they stay; the OPC UA first-use marker and trust list, the update state file, the pending restore's opened secrets and a backup's archive are errors; the messenger keeps its read position before a chat command runs (a lost write ran the commands again after a restart); the uplink opens no Sparkplug session with a `bdSeq` it did not keep. Scratch files go through `wyrm_core::files::discard`/`discard_dir`, which log what stays. C8 is 0. C11 also counts `splitn`/`rsplitn(…, "://")`, `split_terminator`, `match_indices`, `trim_start_matches("http…")` and `replace("https://", …)` (no new hit).
 
 ## 0. Scope and method
 
@@ -39,16 +40,16 @@ Two concrete defects came out of the typing debt and reach the network: **S1** (
 | ID | Sev | Area | Finding | Status |
 |---|---|---|---|---|
 | S2 | Medium/Low | gateway → historian | `from`/`to` text is pasted into the Zenoh selector unescaped: `&limit=100000` in `from` lifts the 10 000-row cap (GW-2) to 100 000 | fixed |
-| T1 | Medium | flow | `q` and status codes read as `f64 as u8`: missing, negative, NaN or fractional values become `Good` / `Ok` (fail-open quality) | partly fixed (see the status) |
+| T1 | Medium | flow, admin, links | `q` and status codes read as `f64 as u8`: missing, negative, NaN or fractional values become `Good` / `Ok` (fail-open quality); the same for integers (`count: 0.5` = no limit) | fixed except the typed action answer (see the status) |
 | T2 | Medium (latent security) | gateway | WS `op` is a `String` matched in 7 separate places; authorization and dispatch are two different `match` blocks | fixed |
 | T3 | Medium | admin, gateway, links | Action args read field by field; schema declared twice (`ParamMeta` + hand reads); 15+ copies of the same helpers | open (§6 step 7) |
-| T4 | Low/Medium (latent security) | gateway | Role grants stored as `(String, u8)`; on read an unknown code silently **drops** the grant, and in a first-match list a dropped restrictive grant widens access | fixed (gateway roles and link grants; `Grant.level` with T5) |
+| T4 | Low/Medium (latent security) | gateway | Role grants stored as `(String, u8)`; on read an unknown code silently **drops** the grant, and in a first-match list a dropped restrictive grant widens access | fixed (gateway roles, link grants, `Grant.level: Perm`) |
 | S1 | Low | historian | `parse_iso` slices at fixed byte offsets after checking only some bytes: a multibyte char in `from` panics the answer task | fixed |
-| T5 | Low/Medium | everywhere | Closed sets as `String` (`Device.platform/alg`, `TaskRec.state`, `Job.kind/status/sealed`, `UpdateReport.result`, `Manifest.kind`, `Grant.level`, flow `on_bad/quality/func`, `UpdatesSection.mode`) | open (§6 step 8) |
-| T6 | Low | core | `wire_enum!` has no `from_name`/`FromStr`: 14 hand-written `ALL…find(name ==)` lookups, with two- and three-form inputs (code, name, display) | fixed (C2 19 left, see the status) |
+| T5 | Low/Medium | everywhere | Closed sets as `String` (`Device.platform/alg`, `TaskRec.state`, `Job.kind/status/sealed`, `UpdateReport.result`, `Manifest.kind`, `Grant.level`, flow `on_bad/quality/func`, `UpdatesSection.mode`) | mostly fixed (the named ones and `LinkInfo.mode`; backup sections next; C3 36) |
+| T6 | Low | core | `wire_enum!` has no `from_name`/`FromStr`: 14 hand-written `ALL…find(name ==)` lookups, with two- and three-form inputs (code, name, display) | fixed (C2 15 left, see the status) |
 | T7 | Low | everywhere | Typed errors missing: 13 files define error types, ≈630 `Result<_, String>` | open (§6 step 10) |
-| S3 | Low | gateway | Three RNG-failure policies: `expect` (oauth), refuse (`register`), silently zero (`Nonces` key, `new_jti`) | fixed in the gateway and SNMP; one workspace helper open |
-| S4 | Low | links, admin | 8 hand-written URL splitters with different rules; `url` is already a dependency | open (§6 step 11) |
+| S3 | Low | gateway | Three RNG-failure policies: `expect` (oauth), refuse (`register`), silently zero (`Nonces` key, `new_jti`) | fixed in the gateway and SNMP; one workspace helper open (28 `getrandom::` + 4 `SystemRandom`) |
+| S4 | Low | links, admin | 8 hand-written URL splitters with different rules; `url` is already a dependency | fixed (#127, `wyrm_core::weburl`) |
 | S5 | Low | ffi | 39 unsafe operations in `unsafe fn` bodies without `// SAFETY:`; `unsafe_op_in_unsafe_fn` not denied | fixed |
 | X1 | — | structure | 101 production functions over 100 lines; the top 3 are 600, 599 and 413 lines | open (§6 step 10) |
 
@@ -252,9 +253,9 @@ The rules differ. `fetch.rs` ends the authority at `/` only, `http/client.rs` at
 | Lines | Function |
 |---:|---|
 | 600 | `crates/wyrm-flow/src/blocks.rs:1311` `calculate` (one match over all block kinds) |
-| 599 | `crates/wyrm-admin/src/registry.rs:1040` (`Op` apply) |
+| 599 | `crates/wyrm-admin/src/registry.rs:1040` (`Op` apply; now `:1121`) |
 | 413 | `crates/wyrm-flow/src/blocks/tables.rs:439` |
-| 343 | `crates/wyrm-admin/src/control.rs:4000` `on_invoke` (≈45 `(path, action)` string arms) |
+| 343 | `crates/wyrm-admin/src/control.rs:4000` `on_invoke` (≈45 `(path, action)` string arms; now `:4142`) |
 | 340 | `crates/wyrm-flow/src/engine.rs:1297` |
 | 270 | `links/probe/src/runner.rs:218` |
 | 265 | `crates/wyrm-flow/src/blocks.rs:500` |
@@ -353,7 +354,7 @@ Model it on `studio/tool/check_rules.dart`: a small script (`tools/check-rules`,
 
 ## 6. Order of work
 
-Steps 1, 3, 4, 5, 6 and 9 are done, 2 and 11 in part (see the status at the top). The others are open, in this order.
+Steps 1, 3, 4, 5, 6 and 9 are done; 2 (all but the typed action answer), 8 (all but backup sections) and 11 (the URL parser, not the RNG helper) in part (see the status at the top). The others are open, in this order.
 
 1. **Done:** **S2 + S1 (one PR, `wyrm-client` + `wyrm-history`).** Make `HistoryQuery` typed (parsed µs, `Rollup`, interval, `NonZeroUsize`). Make `parse_iso` byte-safe. Add a test for the injection and a proptest for "never panics".
 2. **T1 (`wyrm-flow`).** Add `quality_of`/`status_of` decoders that fail to Bad / InternalError, and a typed `ActionResult`. Add a test for `q: 0.5`, `q: "bad"` and a missing `code`.

@@ -14,6 +14,8 @@ minicbor.workspace = true
 serde.workspace = true
 half = "2"
 thiserror.workspace = true
+# `files::discard` logs a scratch file it could not remove
+tracing.workspace = true
 # `mac`: HMAC-SHA-256 with an infallible constructor (pure Rust, builds for wasm32)
 hmac.workspace = true
 sha2.workspace = true

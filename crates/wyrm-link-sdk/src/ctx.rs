@@ -621,10 +621,26 @@ pub fn qos_level(meta: &NodeMeta) -> u64 {
     cfg_uint(meta, "qos").unwrap_or(0)
 }
 
+/// A whole number of `cfg` (`Value::to_int`): `qos: 1.5` is no QoS level
+/// (absent, 0), not a truncated 1.
 fn cfg_uint(meta: &NodeMeta, key: &str) -> Option<u64> {
-    match meta.cfg_value(key)? {
-        Value::UInt(u) => Some(*u),
-        Value::Float(f) if *f >= 0.0 => Some(*f as u64),
-        _ => None,
+    meta.cfg_value(key)?.to_int().ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `cfg.qos` is a whole level: `1.5` was read as 1 (an advanced
+    /// publisher); now it is no level, so the plain default 0 holds.
+    #[test]
+    fn qos_level_is_whole() {
+        let qos = |v: Value| qos_level(&NodeMeta::number().cfg("qos", v));
+        assert_eq!(qos(Value::UInt(2)), 2);
+        assert_eq!(qos(Value::Float(2.0)), 2);
+        assert_eq!(qos(Value::Float(1.5)), 0);
+        assert_eq!(qos(Value::Float(2.9)), 0);
+        assert_eq!(qos(Value::Float(f64::INFINITY)), 0);
+        assert_eq!(qos_level(&NodeMeta::number()), 0);
     }
 }

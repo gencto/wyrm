@@ -558,16 +558,26 @@ impl Bot {
                 return Vec::new();
             }
         };
+        let updates = (kind.updates)(&result);
+        let next = updates.iter().fold(offset, |n, u| n.max(u.id() + 1));
+        // kept before any of them runs: after a restart a command that ran is never read
+        // again. One that cannot be kept runs nothing; the platform hands the same
+        // updates out again at the next poll.
+        if next != offset {
+            if let Err(e) = store::put_offset(host, self.name(), next) {
+                self.error = format!("{UPDATES_FAILED}the read position is not kept: {e}");
+                host.log(
+                    Level::Error,
+                    &format!("bot {}: updates not run, {}", self.def.name, self.error),
+                );
+                return Vec::new();
+            }
+        }
         let mut out = Vec::new();
-        let mut next = offset;
-        for u in (kind.updates)(&result) {
-            next = next.max(u.id() + 1);
+        for u in updates {
             if let Some(i) = self.update(host, now, u, site) {
                 out.push(i);
             }
-        }
-        if next != offset {
-            store::put_offset(host, self.name(), next);
         }
         out
     }

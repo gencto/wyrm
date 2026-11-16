@@ -69,7 +69,7 @@ pub async fn clone_zip(
     getrandom::fill(&mut rnd).map_err(|e| e.to_string())?;
     let dir = root.join(format!(".git-{}", hex::encode(rnd)));
     let result = clone_in(url, git_ref, allow_file, &dir).await;
-    let _ = std::fs::remove_dir_all(&dir);
+    wyrm_core::files::discard_dir(&dir);
     result
 }
 

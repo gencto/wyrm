@@ -129,7 +129,7 @@ pub fn load_or_create_key(path: &Path) -> Result<Zeroizing<Vec<u8>>, Error> {
     let mut k = Zeroizing::new(vec![0u8; 32]);
     getrandom::fill(&mut k).map_err(|e| format!("no randomness: {e}"))?;
     let tmp = path.with_extension("tmp");
-    let _ = std::fs::remove_file(&tmp);
+    wyrm_core::files::discard(&tmp);
     {
         let mut opts = std::fs::OpenOptions::new();
         opts.write(true).create_new(true);

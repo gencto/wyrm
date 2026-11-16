@@ -75,6 +75,12 @@ fn link_dir(root: &Path, link: &str) -> Result<PathBuf, String> {
     Ok(root.join(link))
 }
 
+/// The directory of `link`'s restore points (removed with the link); `None` for a name
+/// that is no link id.
+pub fn dir_of_link(root: &Path, link: &str) -> Option<PathBuf> {
+    link_dir(root, link).ok()
+}
+
 /// Take a restore point of `link` now. `write` makes the archive at the
 /// path it is given, whole or not at all, and answers its size and how many
 /// entries of the link's data it skipped (not files); `keys` is the link's
@@ -114,7 +120,8 @@ pub fn make(
     // the description last: a point without it is not listed
     let meta = minicbor::to_vec(&point).map_err(|e| e.to_string())?;
     if let Err(e) = crate::secret::write_private(&dir.join(format!("{id}.{META}")), &meta) {
-        let _ = std::fs::remove_file(&archive);
+        // without its description the archive is no point; the start removes it too
+        wyrm_core::files::discard(&archive);
         return Err(format!("restore point {id}: {e}"));
     }
     Ok(point)
@@ -172,9 +179,10 @@ pub fn newest_before(
         .find(|p| p.at <= at && p.package == package && p.version == version)
 }
 
-fn remove_point(dir: &Path, id: &str) {
-    let _ = std::fs::remove_file(dir.join(format!("{id}.{META}")));
-    let _ = std::fs::remove_file(dir.join(format!("{id}.{ARCHIVE}")));
+/// The description first (a point without it is not listed), then the archive.
+fn remove_point(dir: &Path, id: &str) -> std::io::Result<()> {
+    std::fs::remove_file(dir.join(format!("{id}.{META}"))).or_else(wyrm_core::files::gone_ok)?;
+    std::fs::remove_file(dir.join(format!("{id}.{ARCHIVE}"))).or_else(wyrm_core::files::gone_ok)
 }
 
 /// Remove the restore points older than `keep_s` seconds (and directories
@@ -192,8 +200,11 @@ pub fn prune(root: &Path, now: u64, keep_s: u64) -> Vec<String> {
         let mut removed = false;
         for p in list(root, &link) {
             if p.at.saturating_add(keep_s) < now {
-                remove_point(&e.path(), &p.id);
-                removed = true;
+                match remove_point(&e.path(), &p.id) {
+                    Ok(()) => removed = true,
+                    // still listed, and tried again by the next purge
+                    Err(err) => tracing::warn!(link, point = %p.id, "not purged: {err}"),
+                }
             }
         }
         if removed {
@@ -213,7 +224,7 @@ pub fn prune(root: &Path, now: u64, keep_s: u64) -> Vec<String> {
             let orphan = path.extension().is_some_and(|x| x == ARCHIVE)
                 && !path.with_extension(META).exists();
             if (part && age > PART_STALE_S) || (orphan && age > keep_s) {
-                let _ = std::fs::remove_file(&path);
+                wyrm_core::files::discard(&path);
             }
         }
         // only an empty directory goes
@@ -221,13 +232,6 @@ pub fn prune(root: &Path, now: u64, keep_s: u64) -> Vec<String> {
     }
     touched.sort();
     touched
-}
-
-/// Forget every restore point of `link` (the link was removed).
-pub fn remove_link(root: &Path, link: &str) {
-    if let Ok(dir) = link_dir(root, link) {
-        let _ = std::fs::remove_dir_all(dir);
-    }
 }
 
 #[cfg(test)]
@@ -345,7 +349,7 @@ mod tests {
         assert!(!root.join("l2").exists(), "an empty directory goes");
         let _ = other;
         mk("l2", "1.0.0", 3_000);
-        remove_link(&root, "l2");
+        crate::nofollow::remove_any(&link_dir(&root, "l2").unwrap()).unwrap();
         assert!(!root.join("l2").exists());
     }
 }

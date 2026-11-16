@@ -324,13 +324,14 @@ pub mod field {
             .ok_or_else(|| bad(k, "expected a number"))
     }
 
-    /// Integer that fits `T` (bounds should already guarantee it).
-    pub fn int<T: TryFrom<i64>>(m: &BTreeMap<String, Value>, k: &str) -> Result<T> {
-        let x = f64(m, k)?;
-        if x.fract() != 0.0 {
-            return Err(bad(k, "expected an integer"));
-        }
-        T::try_from(x as i64).map_err(|_| bad(k, "out of range"))
+    /// Integer that fits `T` (bounds should already guarantee it), exact
+    /// (`Value::to_int`): no detour through `f64`, which loses a `u64` above 2^53.
+    pub fn int<T: TryFrom<i128>>(m: &BTreeMap<String, Value>, k: &str) -> Result<T> {
+        get(m, k)?.to_int().map_err(|e| match e {
+            wyrm_core::value::IntError::NotANumber => bad(k, "expected a number"),
+            wyrm_core::value::IntError::Fractional => bad(k, "expected an integer"),
+            e => bad(k, format!("out of range: {e}")),
+        })
     }
 
     pub fn bool(m: &BTreeMap<String, Value>, k: &str) -> Result<bool> {
@@ -415,6 +416,22 @@ mod tests {
                 .map(|(k, v)| ((*k).to_owned(), v.clone()))
                 .collect(),
         )
+    }
+
+    /// An integer field is read exactly: through `f64` a `u64` above 2^53
+    /// came back as another number.
+    #[test]
+    fn integers_are_exact() {
+        let big = (1u64 << 53) + 1;
+        let m = BTreeMap::from([
+            ("n".to_owned(), Value::UInt(big)),
+            ("f".to_owned(), Value::Float(7.0)),
+            ("h".to_owned(), Value::Float(7.5)),
+        ]);
+        assert_eq!(field::int::<u64>(&m, "n").unwrap(), big);
+        assert_eq!(field::int::<u8>(&m, "f").unwrap(), 7);
+        assert!(field::int::<u8>(&m, "h").is_err());
+        assert!(field::int::<u8>(&m, "n").is_err());
     }
 
     #[test]

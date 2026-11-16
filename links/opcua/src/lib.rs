@@ -543,8 +543,10 @@ impl Driver for OpcuaDriver {
                     Some(_) => return Err(bad("node", "expected a node id")),
                 };
                 let node = conv::parse_node(&node).map_err(|e| bad("node", e))?;
-                let depth = arg_uint(args, "depth", 1, (1, 5))? as u32;
-                let limit = arg_uint(args, "limit", 500, (1, 5000))? as usize;
+                let depth = u32::try_from(arg_uint(args, "depth", 1, (1, 5))?)
+                    .map_err(|e| bad("depth", e.to_string()))?;
+                let limit = usize::try_from(arg_uint(args, "limit", 500, (1, 5000))?)
+                    .map_err(|e| bad("limit", e.to_string()))?;
                 t.browse(dev, &node, depth, limit).await
             }
             (Target::Connection, "get_endpoints") => t.get_endpoints().await,
@@ -572,9 +574,9 @@ fn arg_uint(
 ) -> Result<u64, LinkError> {
     let n = match args.get(name) {
         None | Some(Value::Null) => default,
-        Some(Value::UInt(n)) => *n,
-        Some(Value::Float(f)) if f.fract() == 0.0 && *f >= 0.0 => *f as u64,
-        Some(_) => return Err(bad(name, "expected a whole number")),
+        Some(v) => v
+            .to_int()
+            .map_err(|e| bad(name, format!("expected a whole number ({e})")))?,
     };
     if n < min || n > max {
         return Err(bad(name, format!("{n} not in {min}…{max}")));

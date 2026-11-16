@@ -174,6 +174,15 @@ pub struct BrokerUpdate {
     changed: tokio::sync::watch::Sender<u64>,
 }
 
+/// Remove the directory of a version that was not proven or not kept. One that
+/// stays is never started (the guard starts only a binary a kept signed release
+/// names) and the next update of that version replaces it; it is logged by name.
+fn remove_version(dir: &Path) {
+    if let Err(e) = std::fs::remove_dir_all(dir).or_else(wyrm_core::files::gone_ok) {
+        tracing::error!("{} stays: {e}", dir.display());
+    }
+}
+
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|p| p.into_inner())
 }
@@ -182,7 +191,7 @@ impl BrokerUpdate {
     pub(super) fn open(data_dir: &Path) -> Self {
         // what a broker that stopped left half done
         for scratch in ["update.fetch", "update.check"] {
-            let _ = std::fs::remove_dir_all(data_dir.join(scratch));
+            wyrm_core::files::discard_dir(&data_dir.join(scratch));
         }
         let order = std::fs::read(data_dir.join(ORDER_DIR).join(ORDER_FILE))
             .ok()
@@ -360,7 +369,7 @@ struct Scratch(PathBuf);
 
 impl Drop for Scratch {
     fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
+        wyrm_core::files::discard_dir(&self.0);
     }
 }
 
@@ -398,7 +407,8 @@ pub async fn stage(
         // the signed release stays with the binary: the guard and the
         // broker check the binary against it before every start
         if let Err(e) = release::keep_release(&vs2, &v2, &doc2, &sig2) {
-            let _ = std::fs::remove_dir_all(vs2.join(&v2));
+            // a version without its signed release: the guard never starts it
+            remove_version(&vs2.join(&v2));
             return Err(e);
         }
         Ok::<_, String>(bin)
@@ -447,7 +457,7 @@ pub async fn stage(
     }
     .await;
     if let Err(e) = proved {
-        let _ = std::fs::remove_dir_all(versions.join(&version));
+        remove_version(&versions.join(&version));
         return Err(e);
     }
     Ok(bin)
@@ -778,9 +788,13 @@ impl Control {
             let refused = to == o.version && matches!(state, Some(U::RolledBack | U::Failed));
             if done || refused {
                 *lock(&self.update.order) = None;
-                let _ = std::fs::remove_dir_all(self.cfg.data_dir.join(ORDER_DIR));
+                let order = self.cfg.data_dir.join(ORDER_DIR);
+                if let Err(e) = std::fs::remove_dir_all(&order).or_else(wyrm_core::files::gone_ok) {
+                    // the order is read again at the next start and ends there the same way
+                    tracing::error!("{} stays: {e}", order.display());
+                }
                 let (op, status, text) = if done {
-                    ("update_confirmed", Status::Ok, "confirmed")
+                    ("update_confirmed", Status::Ok, U::Confirmed.name())
                 } else {
                     ("update_rollback", Status::InternalError, said_name(state))
                 };
@@ -1109,7 +1123,7 @@ pub(super) async fn update(
         if let Some(id) = upload {
             ctl2.upload_release(&id, true);
         }
-        let _ = std::fs::remove_dir_all(ctl2.cfg.data_dir.join("update.fetch"));
+        wyrm_core::files::discard_dir(&ctl2.cfg.data_dir.join("update.fetch"));
         ctl2.update.running.store(false, Ordering::SeqCst);
         match r {
             Ok(()) => ctl2.update.set_step(""),
@@ -1160,7 +1174,10 @@ async fn run(
         (None, Source::Url(url)) => {
             let bytes = crate::fetch::get(url, plan.asset.size as usize, ARCHIVE_TIMEOUT).await?;
             let dir = d.join("update.fetch");
-            let _ = std::fs::remove_dir_all(&dir);
+            // a fresh directory: nothing an earlier fetch left goes with this one
+            std::fs::remove_dir_all(&dir)
+                .or_else(wyrm_core::files::gone_ok)
+                .map_err(|e| super::backups::io_err(&dir, e))?;
             super::backups::make_private_dir(&dir)?;
             let path = dir.join(ORDER_ARCHIVE);
             let p2 = path.clone();
@@ -1193,7 +1210,7 @@ async fn run(
     .await?;
     ctl.update.set_step("staged");
     let undo = |e: String| {
-        let _ = std::fs::remove_dir_all(layout.versions().join(&plan.release.version));
+        remove_version(&layout.versions().join(&plan.release.version));
         e
     };
     // 3. the pre-update backup: the control plane as it is now
@@ -1272,7 +1289,12 @@ async fn run(
         }
         u2.save(&d2)?;
         if let Err(e) = layout2.switch(&u2.to) {
-            let _ = std::fs::remove_file(d2.join(release::STATE_FILE));
+            // a state file that stayed would start a trial of a version not switched to
+            let state = d2.join(release::STATE_FILE);
+            if let Err(r) = std::fs::remove_file(&state).or_else(wyrm_core::files::gone_ok) {
+                tracing::error!("{} stays: {r}", state.display());
+                return Err(format!("{e}; {} stays: {r}", state.display()));
+            }
             return Err(e);
         }
         // the version before the one that runs can no longer be gone back to
@@ -1351,7 +1373,9 @@ async fn stage_for_standby(ctl: &Arc<Control>, plan: &Plan, archive: &Path) -> R
         if size != asset.size || sha != asset.sha256 {
             return Err("the archive is not the one of the release (size or SHA-256)".into());
         }
-        let _ = std::fs::remove_dir_all(&dir2);
+        std::fs::remove_dir_all(&dir2)
+            .or_else(wyrm_core::files::gone_ok)
+            .map_err(|e| super::backups::io_err(&dir2, e))?;
         super::backups::make_private_dir(&dir2)?;
         let to = dir2.join(ORDER_ARCHIVE);
         std::fs::copy(&archive, &to).map_err(|e| io(&to, e))?;

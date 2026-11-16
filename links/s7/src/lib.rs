@@ -535,13 +535,8 @@ fn arg_u16(
     let Some(v) = args.get(name) else {
         return default.ok_or_else(|| LinkError::invalid_parameter(format!("missing {name}")));
     };
-    let n = match v {
-        Value::UInt(u) => u16::try_from(*u).ok(),
-        Value::Int(i) => u16::try_from(*i).ok(),
-        Value::Float(f) if f.fract() == 0.0 && (0.0..=65535.0).contains(f) => Some(*f as u16),
-        _ => None,
-    };
-    n.ok_or_else(|| LinkError::invalid_parameter(format!("{name}: expected 0…65535")))
+    v.to_int::<u16>()
+        .map_err(|e| LinkError::invalid_parameter(format!("{name}: expected 0…65535 ({e})")))
 }
 
 /// Device action `read_szl {id, index = 0}`.

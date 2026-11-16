@@ -125,8 +125,13 @@ impl App for Echo {
             .unwrap_or(0.0)
             + 1.0;
         let v = Value::Float(starts);
-        // a store without room (`store_mb = 0`) still starts
-        let _ = host.store_put("starts", &wyrm_core::codec::to_vec(&v).map_err(internal)?);
+        // a store without room (`store_mb = 0`) still starts; the count is then not kept
+        if let Err(e) = host.store_put("starts", &wyrm_core::codec::to_vec(&v).map_err(internal)?) {
+            host.log(
+                wyrm_link_api::Level::Warn,
+                &format!("the start count is not kept: {e}"),
+            );
+        }
         let s = good(host, v);
         host.update("starts", s);
         Ok(Echo { ticks: 0, faults })
