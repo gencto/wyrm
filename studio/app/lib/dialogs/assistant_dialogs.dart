@@ -11,6 +11,7 @@ import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:models/node_info.dart';
+import 'package:ui/assistant/suggestion_tile.dart';
 import 'package:ui/assistant/task_badge.dart';
 import 'package:ui/assistant/task_card.dart';
 import 'package:ui/indicators/app_icon.dart';
@@ -86,6 +87,25 @@ Future<void> addPrefix(BuildContext context) async {
       context,
       StageAgentParamAction.addPrefix(p.trim()),
     );
+  }
+}
+
+/// The drawer's second button was pressed ([tile], spec `assistant.md`
+/// §5): while the plan waits the tile is a draft the person copies (asked
+/// first, [copyDraft]); after the task it is a follow-up ask, which
+/// [onPick] starts.
+Future<void> pressSecond(
+  BuildContext context,
+  SuggestionTileVm? tile,
+  ValueChanged<String>? onPick,
+) async {
+  switch (tile) {
+    case final s? when s.note == TileNote.draft:
+      await copyDraft(context, label: s.label, detail: s.detail);
+    case final s?:
+      onPick?.call(s.id);
+    case null:
+      break;
   }
 }
 

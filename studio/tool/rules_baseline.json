@@ -39,7 +39,7 @@
   },
   "connector-lines": {
     "app/lib/connectors/access_page_connector.dart": 117,
-    "app/lib/connectors/assistant_page_connector.dart": 883,
+    "app/lib/connectors/assistant_page_connector.dart": 873,
     "app/lib/connectors/explorer_page_connector.dart": 314,
     "app/lib/connectors/flow_editor_page_connector.dart": 347,
     "app/lib/connectors/flows_page_connector.dart": 92,

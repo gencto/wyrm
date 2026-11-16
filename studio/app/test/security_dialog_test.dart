@@ -123,7 +123,9 @@ void main() {
           theme: darkTheme(),
           localizationsDelegates: const [S.delegate],
           home: const Scaffold(
-            body: SingleChildScrollView(child: SecurityDialogConnector()),
+            body: SingleChildScrollView(
+              child: SecurityDialogConnector(close: _noClose),
+            ),
           ),
         ),
       ),
@@ -493,3 +495,6 @@ const _long5 =
 const _long6 =
     'plant’s policy: devices on · up to 5 · password every 30 days. An '
     'administrator sees and removes devices in Access › Users.';
+
+/// Shown in a page, not a dialog: nothing to close.
+void _noClose() {}

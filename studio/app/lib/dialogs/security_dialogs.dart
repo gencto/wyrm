@@ -8,5 +8,7 @@ import '../connectors/security_dialog_connector.dart';
 Future<void> showSecurityDialog(BuildContext context) => showDialog<void>(
   context: context,
   barrierColor: Shades.barrier,
-  builder: (_) => const Center(child: SecurityDialogConnector()),
+  builder: (dialog) => Center(
+    child: SecurityDialogConnector(close: () => Navigator.of(dialog).pop()),
+  ),
 );

@@ -186,17 +186,7 @@ class AssistantDrawerConnector extends StatelessWidget {
         onWay: vm.onPickSuggestion,
         card: vm.card,
         second: vm.second,
-        onSecond: () async {
-          // while the plan waits the tile is a draft the person copies
-          // (spec §5); after the task it is a follow-up ask
-          if (vm.second case final s?) {
-            if (s.note == TileNote.draft) {
-              await copyDraft(context, label: s.label, detail: s.detail);
-            } else {
-              vm.onPickSuggestion?.call(s.id);
-            }
-          }
-        },
+        onSecond: () => pressSecond(context, vm.second, vm.onPickSuggestion),
         onNewTask: vm.onNewTask,
         onButton: (b) => pressTaskButton(context, b, vm.buttons),
         noAgent: vm.noAgent,
