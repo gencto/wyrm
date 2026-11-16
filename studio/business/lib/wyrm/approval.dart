@@ -1,6 +1,9 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/plan_step.dart';
 import 'package:models/step_kind.dart';
+import 'package:wyrm_client/wyrm_client.dart' show Perm;
+
+import 'rights.dart';
 
 /// What the person decides for one step of a plan that waits (ADR 0049
 /// §2–4).
@@ -27,7 +30,7 @@ final class StepChoice {
 
   /// Why the tick cannot be set: the level the user lacks on the step's
   /// request key.
-  final String? locked;
+  final Lack? locked;
 
   /// The step it needs (`after`) that is left out: this one is skipped
   /// with it.
@@ -59,14 +62,14 @@ List<StepChoice> approvalOf(
   Iterable<PlanStep> plan, {
   required ISet<int> unticked,
   required bool decides,
-  required String? Function(String level, String key) lacks,
+  required Lack? Function(Perm level, String key) lacks,
 }) {
   final out = <StepChoice>[];
   final skipped = <int>{};
   for (final s in plan) {
     final changes = s.kind.changes;
     final signs = changes && (s.approval || !decides);
-    final locked = signs ? lacks(s.level.wire, requestKey(s)) : null;
+    final locked = signs ? lacks(s.level, requestKey(s)) : null;
     final needs = s.after.where(skipped.contains).firstOrNull;
     final choice = StepChoice(
       n: s.n,

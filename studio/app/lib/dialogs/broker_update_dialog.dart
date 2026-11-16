@@ -16,6 +16,7 @@ import 'package:ui/overlays/task_sheet.dart';
 
 import '../common/app_store.dart';
 import '../common/broker_update_sheets.dart';
+import '../mappers/rights_mappers.dart';
 import 'backup_dialogs.dart';
 
 class _Sel with Selectors {
@@ -45,7 +46,7 @@ BrokerUpdateData brokerUpdateIn(AppState state, {int lostSeconds = 0}) {
     busy:
         state.wait.isWaitingForType<UpdateBrokerAction>() ||
         state.wait.isWaitingForType<RollbackBrokerUpdateAction>(),
-    reason: s.sysConfigReason,
+    reason: s.sysConfigReason?.disabled,
   );
 }
 

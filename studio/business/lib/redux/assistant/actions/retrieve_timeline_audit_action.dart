@@ -1,4 +1,5 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:wyrm_client/wyrm_client.dart' show Perm;
 
 import '../../app_state.dart';
 import '../../common/action.dart';
@@ -19,7 +20,7 @@ class RetrieveTimelineAuditAction extends Action with WaitingAction {
   @override
   Future<AppState?> reduce() async {
     final root = key.split('/').take(2).join('/');
-    if (!site.can('config', '$root/sys/audit')) {
+    if (!site.can(Perm.config, '$root/sys/audit')) {
       return state.copyWith.assistant(
         timelineKey: key,
         timelineAudit: const IListConst([]),

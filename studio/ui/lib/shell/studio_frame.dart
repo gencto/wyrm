@@ -10,6 +10,7 @@ import '../buttons/problems_pill.dart';
 import '../containers/fault_boundary.dart';
 import '../containers/refresh_frame.dart';
 import '../indicators/app_icon.dart';
+import '../indicators/level_badge.dart';
 import '../overlays/problems_drawer.dart';
 import '../overlays/review_panel.dart';
 import '../overlays/search_palette.dart';
@@ -97,8 +98,8 @@ final class ReviewCardData extends Equatable {
   final String field;
   final String from;
   final String to;
-  final String level;
-  final String have;
+  final AccessLevel level;
+  final AccessLevel have;
   final bool allowed;
 
   @override
@@ -202,7 +203,7 @@ final class StudioFrameVm extends Equatable {
     this.reviewError,
     this.applying = false,
     this.cards = const [],
-    this.level = '',
+    this.level,
     this.audit = 'sys/audit',
     this.links = const [],
     this.nodes = const [],
@@ -240,8 +241,9 @@ final class StudioFrameVm extends Equatable {
   final bool applying;
   final List<ReviewCardData> cards;
 
-  /// The user's level under `downstream` of the site on screen.
-  final String level;
+  /// The user's level under `downstream` of the site on screen; null in
+  /// a frame that says no rights line.
+  final AccessLevel? level;
 
   /// `sys/audit/<link>` the applied writes are recorded in.
   final String audit;
@@ -452,8 +454,8 @@ class StudioFrame extends StatelessWidget {
         to: c.to,
         allowed: c.allowed,
         levelText: c.allowed
-            ? S.current.needsLevelYouHaveIt(c.level)
-            : S.current.needsLevelYouHave(c.level, c.have),
+            ? S.current.needsLevelYouHaveIt(c.level.label)
+            : S.current.needsLevelYouHave(c.level.label, c.have.label),
       ),
   ];
 
@@ -530,7 +532,12 @@ class StudioFrame extends StatelessWidget {
               applying: vm.applying,
               labels: ReviewLabels(
                 title: s.stagedChanges(vm.cards.length),
-                rights: s.rightsLine(vm.site, vm.user, vm.role, vm.level),
+                rights: s.rightsLine(
+                  vm.site,
+                  vm.user,
+                  vm.role,
+                  vm.level?.label ?? '',
+                ),
                 apply: s.applyChanges(vm.cards.length - blocked),
                 ask: blocked == 0 ? null : s.askAdminFor(blocked),
                 askReason: s.askAdminReason,

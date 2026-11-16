@@ -16,8 +16,9 @@ T _$identity<T>(T value) => value;
 mixin _$Grant {
 
 /// A key or a pattern with `*` and `**` (`wy/**`).
- String get key;/// `none`, `list`, `read`, `write` or `config`.
- String get level;
+ String get key;/// The level it gives, as `/api/me` decodes it (a name that is no
+/// level refuses the whole answer, `wyrm_client` `GatewayIdentity`).
+ Perm get level;
 /// Create a copy of Grant
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -53,7 +54,7 @@ abstract mixin class $GrantCopyWith<$Res>  {
   factory $GrantCopyWith(Grant value, $Res Function(Grant) _then) = _$GrantCopyWithImpl;
 @useResult
 $Res call({
- String key, String level
+ String key, Perm level
 });
 
 
@@ -74,7 +75,7 @@ class _$GrantCopyWithImpl<$Res>
   return _then(Grant(
 key: null == key ? _self.key : key // ignore: cast_nullable_to_non_nullable
 as String,level: null == level ? _self.level : level // ignore: cast_nullable_to_non_nullable
-as String,
+as Perm,
   ));
 }
 
@@ -91,8 +92,9 @@ class _Grant implements Grant {
 
 /// A key or a pattern with `*` and `**` (`wy/**`).
 @override final  String key;
-/// `none`, `list`, `read`, `write` or `config`.
-@override final  String level;
+/// The level it gives, as `/api/me` decodes it (a name that is no
+/// level refuses the whole answer, `wyrm_client` `GatewayIdentity`).
+@override final  Perm level;
 
 /// Create a copy of Grant
 /// with the given fields replaced by the non-null parameter values.
@@ -126,7 +128,7 @@ abstract mixin class _$GrantCopyWith<$Res> implements $GrantCopyWith<$Res> {
   factory _$GrantCopyWith(_Grant value, $Res Function(_Grant) _then) = __$GrantCopyWithImpl;
 @override @useResult
 $Res call({
- String key, String level
+ String key, Perm level
 });
 
 
@@ -147,7 +149,7 @@ class __$GrantCopyWithImpl<$Res>
   return _then(_Grant(
 key: null == key ? _self.key : key // ignore: cast_nullable_to_non_nullable
 as String,level: null == level ? _self.level : level // ignore: cast_nullable_to_non_nullable
-as String,
+as Perm,
   ));
 }
 

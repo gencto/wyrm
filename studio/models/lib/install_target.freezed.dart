@@ -15,9 +15,10 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$InstallTarget {
 
- String get site;/// Its `sys/distribution` (`linux-aarch64`), when read.
- String? get host;/// Why it cannot take the link; null when it can.
- String? get refused;
+ String get site;/// Its `sys/distribution` (`linux-aarch64`), when read. Whether the
+/// user may install on it is the rights check's, from the grants of
+/// now (selector `installTargetReason`), not kept here.
+ String? get host;
 /// Create a copy of InstallTarget
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -29,20 +30,20 @@ $InstallTargetCopyWith<InstallTarget> get copyWith => _$InstallTargetCopyWithImp
 @override
 bool operator ==(Object other) {
   final _this = this as InstallTarget;
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is InstallTarget&&(identical(other.site, _this.site) || other.site == _this.site)&&(identical(other.host, _this.host) || other.host == _this.host)&&(identical(other.refused, _this.refused) || other.refused == _this.refused));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is InstallTarget&&(identical(other.site, _this.site) || other.site == _this.site)&&(identical(other.host, _this.host) || other.host == _this.host));
 }
 
 
 @override
 int get hashCode {
   final _this = this as InstallTarget;
-  return Object.hash(runtimeType,_this.site,_this.host,_this.refused);
+  return Object.hash(runtimeType,_this.site,_this.host);
 }
 
 @override
 String toString() {
   final _this = this as InstallTarget;
-  return 'InstallTarget(site: ${_this.site}, host: ${_this.host}, refused: ${_this.refused})';
+  return 'InstallTarget(site: ${_this.site}, host: ${_this.host})';
 }
 
 
@@ -53,7 +54,7 @@ abstract mixin class $InstallTargetCopyWith<$Res>  {
   factory $InstallTargetCopyWith(InstallTarget value, $Res Function(InstallTarget) _then) = _$InstallTargetCopyWithImpl;
 @useResult
 $Res call({
- String site, String? host, String? refused
+ String site, String? host
 });
 
 
@@ -70,11 +71,10 @@ class _$InstallTargetCopyWithImpl<$Res>
 
 /// Create a copy of InstallTarget
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? site = null,Object? host = freezed,Object? refused = freezed,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? site = null,Object? host = freezed,}) {
   return _then(InstallTarget(
 site: null == site ? _self.site : site // ignore: cast_nullable_to_non_nullable
 as String,host: freezed == host ? _self.host : host // ignore: cast_nullable_to_non_nullable
-as String?,refused: freezed == refused ? _self.refused : refused // ignore: cast_nullable_to_non_nullable
 as String?,
   ));
 }
@@ -87,14 +87,14 @@ as String?,
 
 
 class _InstallTarget implements InstallTarget {
-  const _InstallTarget({required this.site, this.host, this.refused});
+  const _InstallTarget({required this.site, this.host});
   
 
 @override final  String site;
-/// Its `sys/distribution` (`linux-aarch64`), when read.
+/// Its `sys/distribution` (`linux-aarch64`), when read. Whether the
+/// user may install on it is the rights check's, from the grants of
+/// now (selector `installTargetReason`), not kept here.
 @override final  String? host;
-/// Why it cannot take the link; null when it can.
-@override final  String? refused;
 
 /// Create a copy of InstallTarget
 /// with the given fields replaced by the non-null parameter values.
@@ -106,18 +106,18 @@ _$InstallTargetCopyWith<_InstallTarget> get copyWith => __$InstallTargetCopyWith
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is _InstallTarget&&(identical(other.site, site) || other.site == site)&&(identical(other.host, host) || other.host == host)&&(identical(other.refused, refused) || other.refused == refused));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _InstallTarget&&(identical(other.site, site) || other.site == site)&&(identical(other.host, host) || other.host == host));
 }
 
 
 @override
 int get hashCode {
-    return Object.hash(runtimeType,site,host,refused);
+    return Object.hash(runtimeType,site,host);
 }
 
 @override
 String toString() {
-    return 'InstallTarget(site: $site, host: $host, refused: $refused)';
+    return 'InstallTarget(site: $site, host: $host)';
 }
 
 
@@ -128,7 +128,7 @@ abstract mixin class _$InstallTargetCopyWith<$Res> implements $InstallTargetCopy
   factory _$InstallTargetCopyWith(_InstallTarget value, $Res Function(_InstallTarget) _then) = __$InstallTargetCopyWithImpl;
 @override @useResult
 $Res call({
- String site, String? host, String? refused
+ String site, String? host
 });
 
 
@@ -145,11 +145,10 @@ class __$InstallTargetCopyWithImpl<$Res>
 
 /// Create a copy of InstallTarget
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? site = null,Object? host = freezed,Object? refused = freezed,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? site = null,Object? host = freezed,}) {
   return _then(_InstallTarget(
 site: null == site ? _self.site : site // ignore: cast_nullable_to_non_nullable
 as String,host: freezed == host ? _self.host : host // ignore: cast_nullable_to_non_nullable
-as String?,refused: freezed == refused ? _self.refused : refused // ignore: cast_nullable_to_non_nullable
 as String?,
   ));
 }

@@ -27,12 +27,6 @@ bool keyMatches(String pattern, String key) {
   return at(0, 0);
 }
 
-/// The access levels, lowest first.
-const levels = ['none', 'list', 'read', 'write', 'config'];
-
-/// The rank of [level] in [levels]; -1 for an unknown one.
-int levelRank(String? level) => level == null ? -1 : levels.indexOf(level);
-
 /// The parents of [key] a path line links to: its section
 /// (`wy/<site>/<section>`, only when [sections], the sections the tree
 /// lists, has it) and every node under it down to the parent. `wy` and

@@ -68,12 +68,13 @@ FieldRefusal? _blankPassword(Map<String, Object?> v) =>
 
 /// A form of Access in a panel: its [fields], submitted as the one action
 /// [make] builds of what was typed, unless [refuse] says what is wrong
-/// with it first. The gateway names the user `user`.
+/// with it first; nothing is sent when [make] builds none. The gateway
+/// names the user `user`.
 Future<void> _form(
   BuildContext context,
   String title,
   List<ParamFieldVm> fields,
-  ReduxAction<AppState> Function(Map<String, Object?> values) make, {
+  ReduxAction<AppState>? Function(Map<String, Object?> values) make, {
   FieldRefusal? Function(Map<String, Object?> values)? refuse,
 }) {
   final store = AppStore.of(context);
@@ -87,15 +88,18 @@ Future<void> _form(
         submit: title,
         onSubmit: (v) =>
             refuse?.call(v) ??
-            sendForm(
-              store.dispatchAndWait(make(v)),
-              fields: {'user': AccessField.name.id},
-              onOk: () {
-                if (dialog.mounted) {
-                  Navigator.of(dialog).pop();
-                }
-              },
-            ),
+            switch (make(v)) {
+              final action? => sendForm(
+                store.dispatchAndWait(action),
+                fields: {'user': AccessField.name.id},
+                onOk: () {
+                  if (dialog.mounted) {
+                    Navigator.of(dialog).pop();
+                  }
+                },
+              ),
+              null => null,
+            },
       ),
     ),
   );
@@ -175,12 +179,16 @@ Future<void> addGrant(BuildContext context) {
         onChanged: (_) {},
       ),
     ],
-    (v) => SetGrantAction(
-      AccessField.role.textIn(v),
-      AccessField.path.textIn(v),
-      // The choice is one of Perm's wire names.
-      Perm.fromWire(AccessField.level.textIn(v)) ?? Perm.read,
-    ),
+    // The choice is one of Perm's wire names; one that is none sends
+    // nothing, never a level put in its place.
+    (v) => switch (Perm.fromWire(AccessField.level.textIn(v))) {
+      final level? => SetGrantAction(
+        AccessField.role.textIn(v),
+        AccessField.path.textIn(v),
+        level,
+      ),
+      null => null,
+    },
   );
 }
 

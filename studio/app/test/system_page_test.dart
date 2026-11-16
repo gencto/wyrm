@@ -357,7 +357,7 @@ void main() {
     expect(staged.field, 'value');
     expect(staged.from, 'info');
     expect(staged.to, 'debug');
-    expect(staged.level, 'config');
+    expect(staged.level, Perm.config);
     expect(staged.value, 3);
 
     // a second pick replaces it

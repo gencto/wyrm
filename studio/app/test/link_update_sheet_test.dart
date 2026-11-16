@@ -1,5 +1,6 @@
 import 'package:app/mappers/links_mappers.dart';
 import 'package:business/wyrm/link_update.dart';
+import 'package:business/wyrm/rights.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -13,6 +14,7 @@ import 'package:models/update_stage.dart';
 import 'package:ui/models/tone.dart';
 import 'package:ui/overlays/link_update_sheet.dart';
 import 'package:ui/overlays/task_sheet.dart';
+import 'package:wyrm_client/wyrm_client.dart' show Perm;
 
 UpdateReport _report(UpdateResult result, {int at = 10, int gone = 0}) =>
     UpdateReport(
@@ -54,7 +56,7 @@ LinkUpdate _data(
   bool acceptNew = false,
   bool busy = false,
   int seenAt = -1,
-  String? reason,
+  Lack? reason,
   bool official = true,
   bool takePoint = true,
 }) => LinkUpdate(
@@ -131,7 +133,7 @@ void main() {
 
   test('without config the update is locked with the reason', () {
     final vm = sheet(
-      _data(_pkg(), reason: 'needs config on sys/links'),
+      _data(_pkg(), reason: const Lack(Perm.config, 'sys/links')),
     );
     expect(vm.primaryEnabled, isFalse);
     expect(vm.primaryReason, 'needs config on sys/links');

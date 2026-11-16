@@ -4,6 +4,7 @@ import 'package:models/staged_change.dart';
 import 'package:models/studio_error.dart';
 import 'package:models/studio_notice.dart';
 import 'package:models/workspace.dart';
+import 'package:wyrm_client/wyrm_client.dart' show Perm;
 
 import '../redux/app_state.dart';
 import 'keys.dart';
@@ -19,7 +20,7 @@ final class ReviewCard {
 
   final StagedChange change;
   final bool allowed;
-  final String have;
+  final Perm have;
 }
 
 /// The problems pill: how many it counts and whether one is a fault of the

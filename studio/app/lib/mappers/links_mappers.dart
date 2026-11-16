@@ -10,7 +10,10 @@ import 'package:models/update_report.dart';
 import 'package:models/update_result.dart';
 import 'package:models/update_stage.dart';
 import 'package:ui/forms/param_form.dart';
+import 'package:ui/models/disabled.dart';
 import 'package:ui/pages/links_data.dart';
+
+import 'rights_mappers.dart';
 
 // Links: one exhaustive map per domain enum to the `ui` enum that draws
 // it, both ways where a control reports a `ui` value back
@@ -117,7 +120,7 @@ extension PackageInfoUi on PackageInfo {
 extension QuarantineEntryUi on QuarantineEntry {
   /// Its row and inspector; [fields] the form of its `approve`, [reason]
   /// why the user may not decide.
-  QuarantineData data({List<ParamFieldVm>? fields, String? reason}) =>
+  QuarantineData data({List<ParamFieldVm>? fields, Disabled? reason}) =>
       QuarantineData(
         node: node,
         cn: cn,
@@ -168,7 +171,7 @@ extension LinkUpdateUi on LinkUpdate {
           ),
       ],
       queue: queue,
-      reason: reason,
+      reason: reason?.disabled,
       next: next?.ui,
       offersRollBack: offersRollBack,
       canRollBack: canRollBack,

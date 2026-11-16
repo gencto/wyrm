@@ -1,3 +1,4 @@
+import 'package:business/wyrm/catalog.dart';
 import 'package:models/catalog_item.dart';
 import 'package:models/install_block.dart';
 import 'package:models/install_field.dart';
@@ -5,7 +6,6 @@ import 'package:models/install_name_problem.dart';
 import 'package:models/install_path.dart';
 import 'package:models/install_phase.dart';
 import 'package:models/install_step.dart';
-import 'package:models/install_target.dart';
 import 'package:models/link_mode.dart';
 import 'package:models/package_check.dart';
 import 'package:models/package_check_result.dart';
@@ -171,8 +171,12 @@ extension CatalogItemUi on CatalogItem {
   );
 }
 
-extension InstallTargetUi on InstallTarget {
-  /// Its card; [here] when it is the site Studio is signed in to.
-  InstallBrokerVm broker({required bool here}) =>
-      InstallBrokerVm(site: site, here: here, host: host, refused: refused);
+extension InstallBrokerUi on InstallBroker {
+  /// Its card.
+  InstallBrokerVm get ui => InstallBrokerVm(
+    site: target.site,
+    here: here,
+    host: target.host,
+    refused: refused?.disabled,
+  );
 }

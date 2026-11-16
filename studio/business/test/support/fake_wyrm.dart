@@ -238,21 +238,27 @@ class FakeWyrmApi implements WyrmApi {
   Future<void> close() async => closed = true;
 }
 
-/// `/api/me` of a test, its levels written by name as the tests write
-/// them; a name that is not a level fails the test at once.
+/// `/api/me` of a test, its levels written by name as the gateway sends
+/// them; a name that is not a level fails the test at once. With no
+/// [grants] given, one grant on `wy/**` at [max]: what a gateway sends for
+/// a role with that level everywhere (its `max` is the highest level of
+/// its grants, so a `max` with no grant is no answer a gateway gives).
 GatewayIdentity identityOf({
   required String subject,
   required String site,
   required List<String> roles,
   required String max,
-  List<(String, String)> grants = const [],
+  List<(String, String)>? grants,
 }) => GatewayIdentity(
   sub: subject,
   site: site,
   roles: roles,
   max: Perm.fromName(max)!,
   exp: 0,
-  grants: [for (final (k, p) in grants) Grant(k, Perm.fromName(p)!)],
+  grants: [
+    for (final (k, p) in grants ?? [('wy/**', max)])
+      Grant(k, Perm.fromName(p)!),
+  ],
 );
 
 /// A session over a [FakeWyrmApi].

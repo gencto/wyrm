@@ -17,10 +17,10 @@ mixin _$RoleGrant {
 
 /// The role or subject (`operator`, `link:modbus`).
  String get subject;/// A key pattern (`wy/{site}/downstream/**`).
- String get path;/// `none`, `list`, `read`, `write`, `config`; for a rule of the ACL,
-/// its messages and flows, as the broker words them.
- String get level;/// Where it comes from; null for a source this client does not know.
- GrantSource? get source;
+ String get path;/// An access level; for a rule of the ACL, its messages and flows.
+ GrantLevel get level;/// Where it comes from (a row from a source this client does not know
+/// is refused at decode: its level could not be read).
+ GrantSource get source;
 /// Create a copy of RoleGrant
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -56,11 +56,11 @@ abstract mixin class $RoleGrantCopyWith<$Res>  {
   factory $RoleGrantCopyWith(RoleGrant value, $Res Function(RoleGrant) _then) = _$RoleGrantCopyWithImpl;
 @useResult
 $Res call({
- String subject, String path, String level, GrantSource? source
+ String subject, String path, GrantLevel level, GrantSource source
 });
 
 
-
+$GrantLevelCopyWith<$Res> get level;
 
 }
 /// @nodoc
@@ -73,16 +73,25 @@ class _$RoleGrantCopyWithImpl<$Res>
 
 /// Create a copy of RoleGrant
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? subject = null,Object? path = null,Object? level = null,Object? source = freezed,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? subject = null,Object? path = null,Object? level = null,Object? source = null,}) {
   return _then(RoleGrant(
 subject: null == subject ? _self.subject : subject // ignore: cast_nullable_to_non_nullable
 as String,path: null == path ? _self.path : path // ignore: cast_nullable_to_non_nullable
 as String,level: null == level ? _self.level : level // ignore: cast_nullable_to_non_nullable
-as String,source: freezed == source ? _self.source : source // ignore: cast_nullable_to_non_nullable
-as GrantSource?,
+as GrantLevel,source: null == source ? _self.source : source // ignore: cast_nullable_to_non_nullable
+as GrantSource,
   ));
 }
-
+/// Create a copy of RoleGrant
+/// with the given fields replaced by the non-null parameter values.
+@override
+@pragma('vm:prefer-inline')
+$GrantLevelCopyWith<$Res> get level {
+  
+  return $GrantLevelCopyWith<$Res>(_self.level, (value) {
+    return _then(_self.copyWith(level: value));
+  });
+}
 }
 
 
@@ -91,18 +100,18 @@ as GrantSource?,
 
 
 class _RoleGrant implements RoleGrant {
-  const _RoleGrant({required this.subject, required this.path, required this.level, this.source});
+  const _RoleGrant({required this.subject, required this.path, required this.level, required this.source});
   
 
 /// The role or subject (`operator`, `link:modbus`).
 @override final  String subject;
 /// A key pattern (`wy/{site}/downstream/**`).
 @override final  String path;
-/// `none`, `list`, `read`, `write`, `config`; for a rule of the ACL,
-/// its messages and flows, as the broker words them.
-@override final  String level;
-/// Where it comes from; null for a source this client does not know.
-@override final  GrantSource? source;
+/// An access level; for a rule of the ACL, its messages and flows.
+@override final  GrantLevel level;
+/// Where it comes from (a row from a source this client does not know
+/// is refused at decode: its level could not be read).
+@override final  GrantSource source;
 
 /// Create a copy of RoleGrant
 /// with the given fields replaced by the non-null parameter values.
@@ -136,11 +145,11 @@ abstract mixin class _$RoleGrantCopyWith<$Res> implements $RoleGrantCopyWith<$Re
   factory _$RoleGrantCopyWith(_RoleGrant value, $Res Function(_RoleGrant) _then) = __$RoleGrantCopyWithImpl;
 @override @useResult
 $Res call({
- String subject, String path, String level, GrantSource? source
+ String subject, String path, GrantLevel level, GrantSource source
 });
 
 
-
+@override $GrantLevelCopyWith<$Res> get level;
 
 }
 /// @nodoc
@@ -153,17 +162,26 @@ class __$RoleGrantCopyWithImpl<$Res>
 
 /// Create a copy of RoleGrant
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? subject = null,Object? path = null,Object? level = null,Object? source = freezed,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? subject = null,Object? path = null,Object? level = null,Object? source = null,}) {
   return _then(_RoleGrant(
 subject: null == subject ? _self.subject : subject // ignore: cast_nullable_to_non_nullable
 as String,path: null == path ? _self.path : path // ignore: cast_nullable_to_non_nullable
 as String,level: null == level ? _self.level : level // ignore: cast_nullable_to_non_nullable
-as String,source: freezed == source ? _self.source : source // ignore: cast_nullable_to_non_nullable
-as GrantSource?,
+as GrantLevel,source: null == source ? _self.source : source // ignore: cast_nullable_to_non_nullable
+as GrantSource,
   ));
 }
 
-
+/// Create a copy of RoleGrant
+/// with the given fields replaced by the non-null parameter values.
+@override
+@pragma('vm:prefer-inline')
+$GrantLevelCopyWith<$Res> get level {
+  
+  return $GrantLevelCopyWith<$Res>(_self.level, (value) {
+    return _then(_self.copyWith(level: value));
+  });
+}
 }
 
 // dart format on

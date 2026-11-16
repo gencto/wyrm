@@ -1,6 +1,7 @@
 import 'package:equatable/equatable.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../indicators/level_badge.dart';
 import '../models/disabled.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
@@ -14,7 +15,7 @@ final class NodeMenuItemVm<T> extends Equatable {
   const NodeMenuItemVm({
     required this.id,
     required this.label,
-    this.level = '',
+    this.level,
     this.danger = false,
     this.disabled,
     this.code,
@@ -26,8 +27,9 @@ final class NodeMenuItemVm<T> extends Equatable {
   /// Its display name, ending in `…` when it opens a form.
   final String label;
 
-  /// `config`, `write`, `read`: the hint on the right.
-  final String level;
+  /// The level it needs: the hint on the right; null for a pick that is
+  /// no action.
+  final AccessLevel? level;
   final bool danger;
   final Disabled? disabled;
 
@@ -152,7 +154,7 @@ class NodeMenu<T> extends StatelessWidget {
                 ),
               ),
               Text(
-                i.level,
+                i.level?.label ?? '',
                 style: TextStyle(fontSize: FontSizes.sm, color: c.text4),
               ),
             ],

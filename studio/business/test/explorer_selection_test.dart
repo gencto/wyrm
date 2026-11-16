@@ -17,7 +17,6 @@ import 'package:business/redux/nodes/actions/select_point_action.dart';
 import 'package:business/redux/nodes/actions/set_children_action.dart';
 import 'package:business/redux/nodes/actions/stage_point_edit_action.dart';
 import 'package:business/redux/nodes/actions/stage_value_action.dart';
-import 'package:business/wyrm/keys.dart';
 import 'package:business/wyrm/points.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -66,7 +65,7 @@ void main() {
               : grants
                     .map((g) => g.$2)
                     .reduce(
-                      (a, b) => levelRank(a) >= levelRank(b) ? a : b,
+                      (a, b) => Perm.fromName(a)! >= Perm.fromName(b)! ? a : b,
                     ),
           grants: grants,
         ),
@@ -186,7 +185,7 @@ void main() {
       expect(s.state.changes.view, ['edit:$dev/temp']);
       final c = s.state.changes.table['edit:$dev/temp']!;
       expect((c.field, c.from, c.to), ('poll, unit', '1 s, °C', '500 ms, K'));
-      expect((c.action, c.level), ('edit', 'config'));
+      expect((c.action, c.level), ('edit', Perm.config));
       expect(c.args.unlock, {
         'table': 'holding',
         'addr': 10,
@@ -220,8 +219,13 @@ void main() {
 
   test('apply leaves the changes the user lacks the level for', () async {
     await logIn(grants: const [('wy/central/downstream/**', 'write')]);
-    api.metas['$dev/temp'] = pointMeta();
-    await s.dispatchAndWait(RetrieveDetailsAction(['$dev/temp']));
+    api
+      ..metas['$dev/temp'] = pointMeta()
+      ..metas['$dev/sp'] = NodeMeta(
+        ty: TypeCode.number,
+        writable: Writable.write,
+      );
+    await s.dispatchAndWait(RetrieveDetailsAction(['$dev/temp', '$dev/sp']));
     s
       ..dispatchSync(StagePointEditAction('$dev/temp', 'poll_s', 0.5))
       ..dispatchSync(StageValueAction('$dev/sp', 21, from: '20'));

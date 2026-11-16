@@ -15,7 +15,10 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$SiteState {
 
- String? get gateway; String? get user; String? get name; String? get role; bool get connected; String? get current; IList<Grant> get grants; IList<SiteChoice> get choices; String? get max;
+ String? get gateway; String? get user; String? get name; String? get role; bool get connected; String? get current; IList<Grant> get grants; IList<SiteChoice> get choices;/// The highest level the session may use (`/api/me` `max`), set with
+/// [grants] at log-in; null while `/api/me` is not read, and then no
+/// grant gives any right (the cap is closed).
+ Perm? get max;
 /// Create a copy of SiteState
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -51,7 +54,7 @@ abstract mixin class $SiteStateCopyWith<$Res>  {
   factory $SiteStateCopyWith(SiteState value, $Res Function(SiteState) _then) = _$SiteStateCopyWithImpl;
 @useResult
 $Res call({
- String? gateway, String? user, String? name, String? role, bool connected, String? current, IList<Grant> grants, IList<SiteChoice> choices, String? max
+ String? gateway, String? user, String? name, String? role, bool connected, String? current, IList<Grant> grants, IList<SiteChoice> choices, Perm? max
 });
 
 
@@ -79,7 +82,7 @@ as bool,current: freezed == current ? _self.current : current // ignore: cast_nu
 as String?,grants: null == grants ? _self.grants : grants // ignore: cast_nullable_to_non_nullable
 as IList<Grant>,choices: null == choices ? _self.choices : choices // ignore: cast_nullable_to_non_nullable
 as IList<SiteChoice>,max: freezed == max ? _self.max : max // ignore: cast_nullable_to_non_nullable
-as String?,
+as Perm?,
   ));
 }
 
@@ -102,7 +105,10 @@ class _SiteState implements SiteState {
 @override final  String? current;
 @override@JsonKey() final  IList<Grant> grants;
 @override@JsonKey() final  IList<SiteChoice> choices;
-@override final  String? max;
+/// The highest level the session may use (`/api/me` `max`), set with
+/// [grants] at log-in; null while `/api/me` is not read, and then no
+/// grant gives any right (the cap is closed).
+@override final  Perm? max;
 
 /// Create a copy of SiteState
 /// with the given fields replaced by the non-null parameter values.
@@ -136,7 +142,7 @@ abstract mixin class _$SiteStateCopyWith<$Res> implements $SiteStateCopyWith<$Re
   factory _$SiteStateCopyWith(_SiteState value, $Res Function(_SiteState) _then) = __$SiteStateCopyWithImpl;
 @override @useResult
 $Res call({
- String? gateway, String? user, String? name, String? role, bool connected, String? current, IList<Grant> grants, IList<SiteChoice> choices, String? max
+ String? gateway, String? user, String? name, String? role, bool connected, String? current, IList<Grant> grants, IList<SiteChoice> choices, Perm? max
 });
 
 
@@ -164,7 +170,7 @@ as bool,current: freezed == current ? _self.current : current // ignore: cast_nu
 as String?,grants: null == grants ? _self.grants : grants // ignore: cast_nullable_to_non_nullable
 as IList<Grant>,choices: null == choices ? _self.choices : choices // ignore: cast_nullable_to_non_nullable
 as IList<SiteChoice>,max: freezed == max ? _self.max : max // ignore: cast_nullable_to_non_nullable
-as String?,
+as Perm?,
   ));
 }
 

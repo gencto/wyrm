@@ -2,6 +2,7 @@ import 'package:equatable/equatable.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:localization/localization.dart';
 
+import '../models/disabled.dart';
 import '../models/tone.dart';
 
 // What System is drawn from (specs/system.md), as typed values: the
@@ -302,7 +303,7 @@ final class SysLogData extends Equatable {
   });
 
   /// Why the log cannot be read (`needs config on sys`).
-  final String? reason;
+  final Disabled? reason;
 
   /// The lines shown: all read, or those near [around].
   final List<SysLogLine> lines;
@@ -497,7 +498,7 @@ final class SysMaintData extends Equatable {
   });
 
   /// Why the user may not act on `sys` (`needs config on sys`).
-  final String? reason;
+  final Disabled? reason;
 
   /// `clear_conns` or a profile action runs.
   final bool busy;

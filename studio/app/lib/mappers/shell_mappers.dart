@@ -4,6 +4,8 @@ import 'package:models/site_relation.dart';
 import 'package:models/workspace.dart';
 import 'package:ui/shell/studio_frame.dart';
 
+import 'rights_mappers.dart';
+
 /// A workspace as the rail draws it.
 extension WorkspaceTabOf on Workspace {
   WorkspaceTab get tab => switch (this) {
@@ -52,8 +54,8 @@ extension ReviewCardDataOf on ReviewCard {
     field: change.field,
     from: change.from,
     to: change.to,
-    level: change.level,
-    have: have,
+    level: change.level.access,
+    have: have.access,
     allowed: allowed,
   );
 }

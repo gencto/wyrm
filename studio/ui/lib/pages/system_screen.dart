@@ -625,7 +625,7 @@ class SystemScreen extends StatelessWidget {
 
   SystemLogVm _log() {
     final l = vm.log;
-    final reason = l.reason;
+    final reason = l.reason?.text;
     final around = l.around;
     final rows = reason == null
         ? [
@@ -798,7 +798,7 @@ class SystemScreen extends StatelessWidget {
 
   SystemMaintVm _maintenance() {
     final m = vm.maintenance;
-    final reason = m.reason;
+    final reason = m.reason?.text;
     final stale = m.stale;
     final busy = m.busy ? '…' : null;
     final unlisted = m.profilesUnlisted;

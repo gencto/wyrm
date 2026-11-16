@@ -12,8 +12,9 @@ import '../../common/action.dart';
 /// broker hosts (`sys/links` ▸ `install` `driver` choices) and the packages
 /// its repository has for its host (`install_repo` `package` choices),
 /// described by the rows of `attr.catalog` where the broker has them; the
-/// brokers a link can go to (this one and the sites below it, each refused
-/// with the reason when the user has no config on its `sys/links`).
+/// brokers a link can go to (this one and the sites below it; which ones
+/// the user may install on is `installTargetReason`, read from the grants
+/// when drawn).
 class RetrieveInstallCatalogAction extends Action with WaitingAction {
   @override
   Action again() => RetrieveInstallCatalogAction();
@@ -66,7 +67,6 @@ class RetrieveInstallCatalogAction extends Action with WaitingAction {
                 'distribution',
               ).orWarn('sys/distribution of $s'),
             ),
-            refused: site.needs('config', 'wy/$s/sys/links'),
           ),
         ),
     ]);

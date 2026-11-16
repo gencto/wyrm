@@ -88,6 +88,7 @@ void main() {
                 field: 'value',
                 from: '20',
                 to: '21.5',
+                level: Perm.write,
               ),
               'c2': StagedChange(
                 id: 'c2',
@@ -95,7 +96,7 @@ void main() {
                 key: '$plant/sys/links/modbus',
                 field: 'params',
                 to: 'poll_s 5',
-                level: 'config',
+                level: Perm.config,
               ),
             }),
             view: ['c1', 'c2'].lock,

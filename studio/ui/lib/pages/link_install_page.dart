@@ -329,7 +329,7 @@ class _Center extends StatelessWidget {
     InstallHold.nameIt => S.current.nameIt,
     InstallHold.nameProblem => _nameError ?? S.current.nameIt,
     InstallHold.acceptFirst => S.current.acceptFirst,
-    InstallHold.needsConfig => vm.configReason,
+    InstallHold.needsConfig => vm.configReason?.text,
   };
 
   @override
@@ -579,7 +579,7 @@ class _Center extends StatelessWidget {
             note: b.here
                 ? S.current.studioSignedInHere
                 : S.current.configAllowed,
-            refused: b.refused,
+            refused: b.refused?.text,
             selected: b.site == vm.broker,
             monoTitle: true,
             dot: true,

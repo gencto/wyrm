@@ -25,8 +25,9 @@ class ApplyChangesAction extends Action with WaitingAction {
     String? message;
     for (final id in changes.view) {
       final c = changes.table[id];
-      // With no grants read (an old gateway), the broker alone decides.
-      if (c == null || (site.grants.isNotEmpty && !site.can(c.level, c.key))) {
+      // a change the user's grants do not reach is not sent (none is,
+      // before `/api/me` is read)
+      if (c == null || !site.can(c.level, c.key)) {
         continue;
       }
       try {
