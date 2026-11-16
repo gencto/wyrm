@@ -38,9 +38,7 @@ Set<String> _names(String text, String ty) {
 
 /// The `=> "name"` arms of a `wyrm_core::name_enum!` set `enum <ty> as "…" {`.
 Set<String> _nameEnum(String text, String ty) {
-  final e = _block(text, 'enum $ty as ', '
-    }
-', what: 'name_enum! $ty');
+  final e = _block(text, 'enum $ty as ', '\n    }\n', what: 'name_enum! $ty');
   return _all(e, RegExp(r'=> "([a-z0-9_~]+)"'), 'name_enum! $ty');
 }
 
