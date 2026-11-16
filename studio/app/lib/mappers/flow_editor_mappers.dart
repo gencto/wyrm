@@ -69,6 +69,7 @@ extension MyBlockOffReasonVm on MyBlockOffReason {
     MyBlockOffReason.notInLibrary => const FlowOff(.notInLibrary),
     MyBlockOffReason.sameVersion => const FlowOff(.sameVersion),
     MyBlockOffReason.inUse => InUse(used),
+    MyBlockOffReason.libraryBusy => const FlowOff(.libraryBusy),
   };
 }
 

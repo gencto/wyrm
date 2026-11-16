@@ -25,15 +25,20 @@ class OpenFlowEditorAction extends Action {
   @override
   Future<AppState?> reduce() async {
     // What the first view shows is followed before the read: the editor's
-    // keys stay watched until it closes (`CloseFlowEditorAction`).
-    dispatchSync(WatchKeysAction(flowViewOf(state, routeId).follow.watch));
+    // keys stay watched until it closes (`CloseFlowEditorAction`). Nothing
+    // on the screen shows it: the read that follows builds the page.
+    dispatchSync(
+      WatchKeysAction(flowViewOf(state, routeId).follow.watch),
+      notify: false,
+    );
     final isNew = routeId == newFlowId;
     await dispatchAndWait(
       LoadFlowAction(isNew ? '' : routeId, isNew: isNew, route: routeId),
     );
     // The deployed version's live values (ADR 0038 §3); a draft that
-    // differs from it runs as a preview (`dataflows` ▸ `preview`).
-    dispatchSync(WatchFlowAction(isNew ? null : routeId));
+    // differs from it runs as a preview (`dataflows` ▸ `preview`). One
+    // rebuild for both: the watch quietly, the preview's state shown.
+    dispatchSync(WatchFlowAction(isNew ? null : routeId), notify: false);
     dispatchSync(PreviewFlowAction());
     // The Tree tab draws the site's live tree: its lists open like the
     // Explorer's (its own waiting state).

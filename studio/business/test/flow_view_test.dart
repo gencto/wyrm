@@ -1,7 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:async_redux/async_redux.dart' show Wait;
 import 'package:business/redux/app_state.dart';
+import 'package:business/redux/flow_editor/actions/save_block_to_library_action.dart';
 import 'package:business/redux/flow_editor/models/flow_editor_state.dart';
 import 'package:business/redux/site/models/site_state.dart';
 import 'package:business/wyrm/decode/node_type.dart';
@@ -19,6 +21,7 @@ import 'package:business/wyrm/mappers/flow_fields.dart';
 import 'package:business/wyrm/rights.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:models/block_info.dart';
 import 'package:models/field_id.dart';
 import 'package:models/flow_draft.dart';
 import 'package:models/grant.dart';
@@ -376,6 +379,37 @@ void main() {
     expect(p.value, 'storage/dvpsm/cmd/**');
     expect(p.suggestions, contains('downstream/**'));
     expect(SelectFlowEditor(s).scopeProblem(''), ScopeProblem.empty);
+  });
+
+  test('a library call that runs holds the library items of My blocks', () {
+    final idle = stateOf();
+    final busy = idle.copyWith(
+      wait: Wait.empty.add(flag: SaveBlockToLibraryAction('mean')),
+    );
+    expect(libraryBusyOf(idle), isFalse);
+    expect(libraryBusyOf(busy), isTrue);
+    final library = [const BlockInfo(name: 'mean', version: 2)].lock;
+    LibraryEntry entry({required bool libraryBusy}) => libraryOf(
+      library,
+      frames: const IListConst([]),
+      config: null,
+      libraryBusy: libraryBusy,
+    ).single;
+    expect(entry(libraryBusy: false).removeOff, isNull);
+    expect(
+      entry(libraryBusy: true).removeOff,
+      const OffFor(MyBlockOffReason.libraryBusy),
+    );
+    // A right the user lacks says so first: it does not pass with time.
+    expect(
+      libraryOf(
+        library,
+        frames: const IListConst([]),
+        config: const Lack(Perm.config, 'dataflows'),
+        libraryBusy: true,
+      ).single.removeOff,
+      isA<OffNeeds<MyBlockOffReason>>(),
+    );
   });
 
   test('the custom block dialog and the checks of names', () {

@@ -1,3 +1,4 @@
+import 'package:async_redux/async_redux.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../../wyrm/calls.dart';
@@ -14,7 +15,7 @@ import 'retrieve_block_library_action.dart';
 /// flow's copy is then marked with the version it was saved as, and the
 /// library read again, in one state: the palette never shows the mark
 /// without the library's new version.
-class SaveBlockToLibraryAction extends Action {
+class SaveBlockToLibraryAction extends Action with NonReentrant, WaitingAction {
   SaveBlockToLibraryAction(this.name);
 
   final String name;

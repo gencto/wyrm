@@ -8415,6 +8415,16 @@ class S {
     );
   }
 
+  /// `Waiting for the library to answer`
+  String get mbLibraryBusy {
+    return Intl.message(
+      'Waiting for the library to answer',
+      name: 'mbLibraryBusy',
+      desc: '',
+      args: [],
+    );
+  }
+
   /// `The library has no block of this name`
   String get mbNotInLibrary {
     return Intl.message(
