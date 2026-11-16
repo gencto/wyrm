@@ -408,6 +408,10 @@ NodeType customTypeOf(String name, BlockDef def) => NodeType(
   description: def.description ?? '',
   inputs: [for (final p in def.inputs) p.name].lock,
   outputs: [for (final p in def.outputs) p.name].lock,
+  // A port named as an engine port behaves as one (`in`, `out`, `error`,
+  // `trigger`), as a catalog type's does.
+  knownInputs: {for (final p in def.inputs) p.name: ?p.known}.lock,
+  knownOutputs: {for (final p in def.outputs) p.name: ?p.known}.lock,
   echoInputs: true,
   takesValues: true,
 );

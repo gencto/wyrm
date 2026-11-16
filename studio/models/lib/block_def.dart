@@ -2,6 +2,7 @@ import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 
 import 'block_type.dart';
+import 'engine_port.dart';
 import 'flow_draft.dart';
 import 'port_end.dart';
 
@@ -30,6 +31,13 @@ abstract class BlockPort with _$BlockPort {
     /// the write back (the block's own are [BlockDef.extra]).
     @Default(IMapConst({})) IMap<String, Object?> extra,
   }) = _BlockPort;
+
+  const BlockPort._();
+
+  /// Its name as an engine port the editor treats in its own way (a
+  /// custom block's `in`, `out`, `error`, `trigger`), read here as a
+  /// catalog's are; null for any other name.
+  EnginePort? get known => EnginePort.fromWire(name);
 }
 
 /// A custom block's definition (`blocks.<name>` of a flow, a library's

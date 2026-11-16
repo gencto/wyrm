@@ -93,8 +93,8 @@ as IMap<String, Object?>,
 /// @nodoc
 
 
-class _BlockPort implements BlockPort {
-  const _BlockPort(this.name, { List<PortEnd> ends = const [], this.defaultValue, this.description, this.oneEnd = false, this.extra = const IMapConst({})}): _ends = ends;
+class _BlockPort extends BlockPort {
+  const _BlockPort(this.name, { List<PortEnd> ends = const [], this.defaultValue, this.description, this.oneEnd = false, this.extra = const IMapConst({})}): _ends = ends,super._();
   
 
 @override final  String name;

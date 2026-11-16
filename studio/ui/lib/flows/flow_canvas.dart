@@ -414,6 +414,11 @@ class _FlowCanvasState extends State<FlowCanvas> {
   @override
   void didUpdateWidget(FlowCanvas old) {
     super.didUpdateWidget(old);
+    // A block that is gone leaves the cache of built blocks with it.
+    if (!identical(old.blocks, widget.blocks)) {
+      final ids = {for (final b in widget.blocks) b.id};
+      _built.removeWhere((id, _) => !ids.contains(id));
+    }
     _fitLater();
   }
 

@@ -3,9 +3,11 @@ import 'dart:io';
 
 import 'package:business/wyrm/decode/decoded.dart';
 import 'package:business/wyrm/decode/flow_def.dart';
+import 'package:business/wyrm/mappers/flow_blocks.dart';
 import 'package:business/wyrm/mappers/flow_canvas.dart';
 import 'package:business/wyrm/mappers/values.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:models/engine_port.dart';
 import 'package:models/flow_draft.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -108,5 +110,39 @@ void main() {
             as Map<String, Object?>;
     final other = (sent['blocks']! as Map)['other']! as Map;
     expect(other.containsKey('layout'), isFalse);
+  });
+
+  test('a port named as an engine port is one, as in a catalog type', () {
+    final d = read({
+      'id': 'ports',
+      'blocks': {
+        'pass': {
+          'inputs': [
+            {'name': 'in', 'to': 'h.in'},
+            {'name': 'trigger', 'to': 'h.in'},
+            {'name': 'level', 'to': 'h.in'},
+          ],
+          'outputs': [
+            {'name': 'out', 'from': 'h.out'},
+            {'name': 'error', 'from': 'h.out'},
+            {'name': 'mean', 'from': 'h.out'},
+          ],
+          'nodes': {
+            'h': {'type': 'hub'},
+          },
+          'edges': <Object?>[],
+        },
+      },
+      'nodes': <String, Object?>{},
+    });
+    final t = customTypeOf('pass', d.defs['pass']!);
+    expect(t.knownInputs.unlock, {
+      'in': EnginePort.in_,
+      'trigger': EnginePort.trigger,
+    });
+    expect(t.knownOutputs.unlock, {
+      'out': EnginePort.out,
+      'error': EnginePort.error,
+    });
   });
 }
