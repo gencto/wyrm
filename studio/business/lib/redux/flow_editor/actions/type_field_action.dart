@@ -52,17 +52,19 @@ class TypeFieldAction extends Action {
     final empty = text.trim().isEmpty;
     if (b.id == blockInputsId) {
       // The default of a custom block's input.
-      final defaults = {...b.cfgDefaults};
+      final defaults = rawFields(b.cfgDefaults);
       if (empty) {
         defaults.remove(f.name);
       } else {
         defaults[f.name] = value;
       }
-      dispatchSync(SetBlockParamAction(b.id, 'defaults', defaults));
+      dispatchSync(
+        SetBlockParamAction(b.id, BlockCfgKey.defaults.wire, defaults),
+      );
     } else if (f.operand) {
       dispatchSync(SetOperandValueAction(b.id, f.inPort!, value));
     } else if (f.kind == FieldKind.arg) {
-      final args = {...b.cfgArgs};
+      final args = rawFields(b.cfgArgs);
       // Nothing typed: an argument the action may go without leaves the
       // call; any other is sent as nothing.
       if (empty && f.argSpec != null && !f.argSpec!.required) {
@@ -71,7 +73,7 @@ class TypeFieldAction extends Action {
         args[f.name] = empty ? null : value;
       }
       // An empty map stays a map: the block still names its arguments.
-      dispatchSync(SetBlockParamAction(b.id, 'args', args));
+      dispatchSync(SetBlockParamAction(b.id, BlockCfgKey.args.wire, args));
     } else if (f.spec case final p?) {
       dispatchSync(SetBlockParamAction(b.id, p.name, value));
     }

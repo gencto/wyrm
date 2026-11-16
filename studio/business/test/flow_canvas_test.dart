@@ -727,7 +727,7 @@ void main() {
         'tags': ['a'],
       });
       save('text', 'in:in.0', 'Level: ');
-      expect(operandValueOf(now().blocks['text']!, 'in.0'), 'Level: ');
+      expect(operandValueOf(now().blocks['text']!, 'in.0').raw, 'Level: ');
       save('text', 'p:strict', 'true');
       expect(now().blocks['text']!.cfg['strict'], true);
       save('avg', 'p:fn', 'max');

@@ -577,7 +577,7 @@ InspectorRow _row(
     return DefaultRowView(
       id: f.id,
       name: f.label,
-      value: _text(b.cfgDefaults[f.name]),
+      value: _text(b.cfgDefaults[f.name] ?? const JsonNull()),
       group: group,
       pinned: pinned,
       pinLocked: locked,
@@ -585,7 +585,7 @@ InspectorRow _row(
   }
   final p = f.spec;
   if (p != null) {
-    final v = b.param(p.name) ?? p.defaultValue;
+    final v = b.paramOr(p.name, p.defaultValue);
     final scoped = p.name == keyed?.scope;
     final keyBound =
         keyed != null &&
@@ -611,12 +611,17 @@ InspectorRow _row(
                     choices: c.choices.lock,
                   ),
               ].lock,
-              rows: [for (final r in listRowsOf(v)) r.lock].lock,
+              rows: [for (final r in listRowsOf(v.raw)) r.lock].lock,
             ),
       // A scope that the engine would refuse says why, once it matters.
-      scopeError: scoped && (keyBound || (v is String && v.trim().isNotEmpty))
-          ? scopeProblemOf(v is String ? v : '')
-          : null,
+      scopeError: !scoped
+          ? null
+          : switch (v) {
+              JsonText(:final text) when keyBound || text.trim().isNotEmpty =>
+                scopeProblemOf(text),
+              _ when keyBound => scopeProblemOf(''),
+              _ => null,
+            },
       // `Run on start` asks first, with the catalog's own warning.
       confirm: p.key == BlockCfgKey.runOnStart && p.warns ? hint : null,
       editor: items != null
@@ -632,11 +637,16 @@ InspectorRow _row(
                     (behaves || b.type.known == KnownBlock.now)
                 ? ParamRowEditor.duration
                 : ParamRowEditor.text),
-      on: v == true,
+      on: switch (v) {
+        JsonBool(:final value) => value,
+        _ => false,
+      },
       value: switch (v) {
-        Map() || List() => jsonEditText(v),
-        null => '',
-        _ => '$v',
+        JsonMap() || JsonList() => jsonEditText(v.raw),
+        JsonNull() => '',
+        JsonText(:final text) => text,
+        JsonNumber(:final value) => '$value',
+        JsonBool(:final value) => '$value',
       },
       choices: (suggested ?? p.choices.unlock).lock,
       inPort: f.inPort,
@@ -650,6 +660,7 @@ InspectorRow _row(
     // An argument is typed as its action says: its choices, a toggle,
     // else a value.
     final spec = f.argSpec;
+    final a = b.cfgArgs[f.name] ?? const JsonNull();
     return ArgRowView(
       id: f.id,
       name: f.label,
@@ -659,8 +670,11 @@ InspectorRow _row(
           : (spec?.type == TypeCode.bool_
                 ? ArgRowEditor.toggle
                 : ArgRowEditor.text),
-      value: _text(b.cfgArgs[f.name]),
-      on: b.cfgArgs[f.name] == true,
+      value: _text(a),
+      on: switch (a) {
+        JsonBool(:final value) => value,
+        _ => false,
+      },
       choices: spec?.choices ?? const IListConst([]),
       inPort: f.inPort,
       hint: spec?.description ?? '',
@@ -728,8 +742,8 @@ InspectorRow _row(
 
 /// A typed value as its editor's text: a text as itself, anything else as
 /// JSON, nothing as ''.
-String _text(Object? v) => switch (v) {
-  null => '',
-  final String s => s,
-  _ => jsonEncode(v),
+String _text(JsonValue v) => switch (v) {
+  JsonNull() => '',
+  JsonText(:final text) => text,
+  _ => jsonEncode(v.raw),
 };

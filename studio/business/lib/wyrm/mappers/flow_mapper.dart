@@ -86,10 +86,11 @@ List<String> operandPortsOf(NodeType? t, FlowBlock b) {
 }
 
 /// The constants of [b]'s operands, by port (`{in.0: "AHU-"}`).
-Map<String, Object?> operandValuesOf(FlowBlock b) => b.cfgValues;
+IMap<String, JsonValue> operandValuesOf(FlowBlock b) => b.cfgValues;
 
-/// The constant typed into operand [port] of [b], or null.
-Object? operandValueOf(FlowBlock b, String port) => operandValuesOf(b)[port];
+/// The constant typed into operand [port] of [b] ([JsonNull]: none).
+JsonValue operandValueOf(FlowBlock b, String port) =>
+    operandValuesOf(b)[port] ?? const JsonNull();
 
 /// [b]'s config with [value] as the constant of operand [port] (null or
 /// empty text removes it; an empty map removes `values`). Null when [port]
@@ -104,8 +105,8 @@ IMap<String, Object?>? cfgWithOperandValue(
   if (!operandPortsOf(t, b).contains(port)) {
     return null;
   }
-  final m = Map<String, Object?>.of(operandValuesOf(b));
-  if (value case null || String(isEmpty: true)) {
+  final m = rawFields(operandValuesOf(b));
+  if (JsonValue.of(value) case JsonNull() || JsonText(text: '')) {
     m.remove(port);
   } else {
     m[port] = value;
@@ -120,7 +121,7 @@ IMap<String, Object?> cfgWithoutOperands(
   IMap<String, Object?> cfg,
   Iterable<String> ports,
 ) {
-  final m = Map<String, Object?>.of(operandValuesIn(cfg));
+  final m = rawFields(operandValuesIn(cfg));
   if (!ports.any(m.containsKey)) {
     return cfg;
   }

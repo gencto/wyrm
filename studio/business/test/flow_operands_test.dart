@@ -12,6 +12,7 @@ import 'package:business/redux/login/actions/set_password_action.dart';
 import 'package:business/redux/login/actions/set_user_action.dart';
 import 'package:business/wyrm/decode/flow_def.dart';
 import 'package:business/wyrm/decode/node_type.dart';
+import 'package:business/wyrm/mappers/block_cfg.dart';
 import 'package:business/wyrm/mappers/flow_fields.dart';
 import 'package:business/wyrm/mappers/flow_mapper.dart';
 import 'package:business/wyrm/mappers/values.dart';
@@ -106,7 +107,7 @@ void main() {
       final cfg = cfgWithOperandValue(t, c, 'in.0', 'AHU-')!;
       expect(cfg['values'], {'in.0': 'AHU-'});
       final c2 = c.copyWith(cfg: cfg);
-      expect(operandValueOf(c2, 'in.0'), 'AHU-');
+      expect(operandValueOf(c2, 'in.0').raw, 'AHU-');
       final cfg2 = cfgWithOperandValue(t, c2, 'in.1', 2)!;
       expect(cfg2['values'], {'in.0': 'AHU-', 'in.1': 2});
       expect(
@@ -182,7 +183,10 @@ void main() {
         'edges': <Object>[],
       });
       final d = flowDraftOf('f', def);
-      expect(operandValuesOf(d.blocks['c']!), {'in.0': 'AHU-', 'in.1': 2});
+      expect(rawFields(operandValuesOf(d.blocks['c']!)), {
+        'in.0': 'AHU-',
+        'in.1': 2,
+      });
       final back = toDart(defOf(d, 4))! as Map;
       expect((back['nodes'] as Map)['c'], {
         'type': 'concat',
@@ -334,10 +338,10 @@ void main() {
 
     test('typing a value stores it under the engine port', () {
       s.dispatchSync(SetOperandValueAction('c', 'in.1', 2));
-      expect(operandValuesOf(b('c')), {'in.0': 'AHU-', 'in.1': 2});
+      expect(rawFields(operandValuesOf(b('c'))), {'in.0': 'AHU-', 'in.1': 2});
       expect(s.state.flowEditor.dirty, isTrue);
       s.dispatchSync(SetOperandValueAction('c', 'in.0', null));
-      expect(operandValuesOf(b('c')), {'in.1': 2});
+      expect(rawFields(operandValuesOf(b('c'))), {'in.1': 2});
     });
 
     test('refused for a parameter port and for a type without values', () {
@@ -352,7 +356,7 @@ void main() {
 
     test('binding keeps the value; unbinding brings it back', () {
       s.dispatchSync(ConnectPortsAction('n', 'out', 'c', 'in.0'));
-      expect(operandValueOf(b('c'), 'in.0'), 'AHU-', reason: 'kept in cfg');
+      expect(operandValueOf(b('c'), 'in.0').raw, 'AHU-', reason: 'kept in cfg');
       final d = s.state.flowEditor.draft!;
       final f = field(b('c'), 'in.0', d.edges.toList());
       expect(fieldValue(b('c'), f, d, (_) => null).bound, isTrue);
@@ -373,7 +377,7 @@ void main() {
       s
         ..dispatchSync(ConnectPortsAction('n', 'out', 'c', 'in.0'))
         ..dispatchSync(RebindEdgeAction('c', 'in.0', 'c', 'in.1'));
-      expect(operandValueOf(b('c'), 'in.0'), 'AHU-');
+      expect(operandValueOf(b('c'), 'in.0').raw, 'AHU-');
       expect(s.state.flowEditor.draft!.edges.single.toPort, 'in.1');
     });
 
@@ -388,7 +392,7 @@ void main() {
         ..dispatchSync(ConnectPortsAction('n', 'out', 'k', 'in.3'))
         ..dispatchSync(ResizeInputsAction('k', add: false));
       expect(b('k').cfg['inputs'], ['0', '1']);
-      expect(operandValuesOf(b('k')), {'in.0': 90});
+      expect(rawFields(operandValuesOf(b('k'))), {'in.0': 90});
       expect(s.state.flowEditor.draft!.edges, isEmpty);
       s.dispatchSync(ResizeInputsAction('k', add: false));
       expect(b('k').cfg['inputs'], ['0', '1'], reason: 'one pair at least');

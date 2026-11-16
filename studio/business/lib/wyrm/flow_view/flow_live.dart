@@ -160,13 +160,14 @@ final class FlowLive {
           // An instance's input holds its own constant, else the block's
           // default.
           final constant = f == null
-              ? null
+              ? const JsonNull()
               : (instance
                     ? instanceValueOf(d, b, port)
                     : operandValueOf(b, port));
-          return constant == null
-              ? null
-              : LiveValue(time: typedTime, value: constant);
+          return switch (constant) {
+            JsonNull() => null,
+            final c => LiveValue(time: typedTime, value: c.raw),
+          };
         }
         return of(
           src,
@@ -209,8 +210,10 @@ final class FlowLive {
       if (ports?[portKey(PortSide.param, b.id, f.name)] case final v?) {
         return v;
       }
-      final typed = b.param(f.name) ?? f.spec?.defaultValue;
-      return typed == null ? null : LiveValue(time: typedTime, value: typed);
+      return switch (b.paramOr(f.name, f.spec?.defaultValue)) {
+        JsonNull() => null,
+        final typed => LiveValue(time: typedTime, value: typed.raw),
+      };
     }
 
     return look;

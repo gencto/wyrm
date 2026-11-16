@@ -7,7 +7,6 @@ import 'package:models/flow_block.dart';
 import 'package:models/flow_draft.dart';
 import 'package:models/flow_edge.dart';
 import 'package:models/flow_frame.dart';
-import 'package:models/json_value.dart';
 import 'package:models/library_off.dart';
 import 'package:models/live_value.dart';
 import 'package:models/node_type.dart';
@@ -354,8 +353,8 @@ String? eventText(LiveValue? v) {
 }
 
 /// `last_run` (µs since the epoch) as a clock time; null when it is none.
-String? lastRunText(Object? micros) => switch (micros) {
-  final num n when n > 0 => clockText(
+String? lastRunText(Object? micros) => switch (JsonValue.tryOf(micros)) {
+  JsonNumber(value: final n) when n > 0 => clockText(
     DateTime.fromMicrosecondsSinceEpoch(n.toInt(), isUtc: true),
   ),
   _ => null,
@@ -445,16 +444,18 @@ IList<NodeType> typesWithBlocks(IList<NodeType> types, FlowDraft? d) {
 
 /// The constant an unbound input [port] of instance [b] holds: its own
 /// `values.<input>`, else the block's `default`.
-Object? instanceValueOf(FlowDraft d, FlowBlock b, String port) {
+JsonValue instanceValueOf(FlowDraft d, FlowBlock b, String port) {
   final own = operandValueOf(b, port);
-  if (own != null) {
+  if (own is! JsonNull) {
     return own;
   }
   final def = switch (blockNameOf(b.type)) {
     final name? => d.defs[name],
     null => null,
   };
-  return def?.inputs.where((p) => p.name == port).firstOrNull?.defaultValue;
+  return JsonValue.of(
+    def?.inputs.where((p) => p.name == port).firstOrNull?.defaultValue,
+  );
 }
 
 /// Where a field of instance [b] reads its live value: the inner input its
@@ -780,10 +781,10 @@ BlockDef blockDefOfInside(FlowDraft inner, {int? mark}) {
   );
   final ins = inner.blocks[blockInputsId];
   final outs = inner.blocks[blockOutputsId];
-  final defaults = ins?.cfgDefaults ?? const <String, Object?>{};
-  final notes = ins?.cfgDescriptions ?? const <String, Object?>{};
+  final defaults = ins?.cfgDefaults ?? const IMapConst<String, JsonValue>({});
+  final notes = ins?.cfgDescriptions ?? const IMapConst<String, JsonValue>({});
   final bounds = boundaryOf(inner);
-  String? note(String n) => switch (JsonValue.of(notes[n])) {
+  String? note(String n) => switch (notes[n]) {
     JsonText(:final text) => text,
     _ => null,
   };
@@ -801,7 +802,7 @@ BlockDef blockDefOfInside(FlowDraft inner, {int? mark}) {
             for (final e in inner.edges)
               if (e.from == blockInputsId && e.fromPort == n) e.target,
           ],
-          defaultValue: defaults[n],
+          defaultValue: defaults[n]?.raw,
           description: note(n),
         ),
     ],
@@ -947,7 +948,7 @@ FlowDraft? resizeBoundary(
   if (gone != null && input) {
     cfg = cfg.add(
       BlockCfgKey.defaults.wire,
-      {...b.cfgDefaults}..remove(gone),
+      rawFields(b.cfgDefaults)..remove(gone),
     );
   }
   return inner.copyWith(

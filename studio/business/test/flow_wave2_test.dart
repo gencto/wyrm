@@ -672,7 +672,7 @@ void main() {
           true,
         ),
       );
-      expect(instanceValueOf(next, next.blocks[id]!, 'second'), 0);
+      expect(instanceValueOf(next, next.blocks[id]!, 'second').raw, 0);
       expect(
         instanceEnd(next, next.blocks[id]!, 'first', output: false),
         PortEnd('mean21/sum', 'in.0'),

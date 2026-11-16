@@ -26,6 +26,15 @@ sealed class JsonValue {
     _ => throw ArgumentError.value(v, 'v', 'not JSON: ${v.runtimeType}'),
   };
 
+  /// [v] decoded when it is JSON at its top; null when it is not (a live
+  /// value of the wire may be bytes): a reader that only takes JSON, such
+  /// as a time in microseconds, reads none there.
+  static JsonValue? tryOf(Object? v) => switch (v) {
+    null || bool() || num() || String() => JsonValue.of(v),
+    Map<Object?, Object?>() || List<Object?>() => JsonValue.of(v),
+    _ => null,
+  };
+
   static final _maps = Expando<JsonMap>('json map');
   static final _lists = Expando<JsonList>('json list');
 

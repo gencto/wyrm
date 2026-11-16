@@ -334,7 +334,7 @@ void main() {
       ).firstWhere((f) => f.spec?.name == 'value');
       expect(holdsTable(types['table'], value), isTrue);
       expect(fieldEditOf(t, value, const []).edit, FieldEdit.json);
-      expect(fieldEditValue(t, value), {
+      expect(fieldEditValue(t, value).raw, {
         'columns': ['a'],
         'rows': [
           {'a': 1},

@@ -485,19 +485,19 @@ enum FieldEditError { number, json, toggle }
 }
 
 /// The typed value of [f] of [b] as the config holds it: the config's
-/// value, else the parameter's default; null when it has none.
-Object? fieldEditValue(FlowBlock b, FlowField f) => switch (f) {
-  FlowField(:final spec?) => b.param(spec.name) ?? spec.defaultValue,
-  FlowField(kind: FieldKind.arg) => b.cfgArgs[f.name],
+/// value, else the parameter's default; [JsonNull] when it has none.
+JsonValue fieldEditValue(FlowBlock b, FlowField f) => switch (f) {
+  FlowField(:final spec?) => b.paramOr(spec.name, spec.defaultValue),
+  FlowField(kind: FieldKind.arg) => b.cfgArgs[f.name] ?? const JsonNull(),
   FlowField(operand: true, :final inPort?) => operandValueOf(b, inPort),
-  _ => null,
+  _ => const JsonNull(),
 };
 
 /// The typed value of [f] of [b] as the text its editor starts with: the
 /// config's value, else the parameter's default; a map or a list as
 /// indented JSON; a text as itself.
 String fieldEditText(FlowBlock b, FlowField f) =>
-    jsonEditText(fieldEditValue(b, f));
+    jsonEditText(fieldEditValue(b, f).raw);
 
 /// What is wrong with [text] as a value typed by [edit]; null when it can
 /// be saved. Empty text is always right: it removes the value.
@@ -512,8 +512,10 @@ FieldEditError? fieldEditError(String text, FieldEdit edit) {
       return n == null || !n.isFinite ? FieldEditError.number : null;
     case FieldEdit.json:
       try {
-        final v = jsonDecode(s);
-        return v is Map || v is List ? null : FieldEditError.json;
+        return switch (JsonValue.of(jsonDecode(s))) {
+          JsonMap() || JsonList() => null,
+          _ => FieldEditError.json,
+        };
       } on FormatException {
         return FieldEditError.json;
       }

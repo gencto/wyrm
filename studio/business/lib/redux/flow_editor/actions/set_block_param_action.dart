@@ -1,5 +1,6 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 
+import 'package:models/json_value.dart';
 import 'package:models/undo_kind.dart';
 import 'package:models/undo_tag.dart';
 
@@ -24,8 +25,8 @@ class SetBlockParamAction extends Action {
       return null;
     }
     final tag = UndoTag(UndoKind.param, block: id, name: name);
-    final cfg = switch (value) {
-      null || String(isEmpty: true) => b.cfg.remove(name),
+    final cfg = switch (JsonValue.of(value)) {
+      JsonNull() || JsonText(text: '') => b.cfg.remove(name),
       _ => b.cfg.add(name, value),
     };
     _validate();

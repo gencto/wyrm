@@ -174,9 +174,12 @@ ViewerView? viewerViewOf(
   final typedTable =
       tabled && (how.edit == FieldEdit.json || how.edit == FieldEdit.any)
       ? switch (fieldEditValue(b, f)) {
-          null || '' when b.type.known != KnownBlock.tableFromJson =>
+          JsonNull() || JsonText(text: '')
+              when b.type.known != KnownBlock.tableFromJson =>
             const ViewerTable.empty(),
-          final x when tableOf(x, rowsOfMaps: true) != null => ViewerTable(x),
+          final x when tableOf(x.raw, rowsOfMaps: true) != null => ViewerTable(
+            x.raw,
+          ),
           _ => null,
         }
       : null;
@@ -233,21 +236,27 @@ CsvRules _csvRules(
   LiveValue? Function(String) live,
 ) {
   var wired = false;
-  Object? read(BlockCfgKey key) {
+  JsonValue read(BlockCfgKey key) {
     final f = all.where((x) => x.spec?.key == key).firstOrNull;
     if (f == null) {
       return b.param(key.wire);
     }
     final shown = fieldValue(b, f, d, live);
     wired = wired || shown.bound;
-    return shown.raw ?? (b.param(key.wire) ?? f.spec?.defaultValue);
+    return switch (JsonValue.tryOf(shown.raw)) {
+      null || JsonNull() => b.paramOr(key.wire, f.spec?.defaultValue),
+      final v => v,
+    };
   }
 
   final delimiter = read(BlockCfgKey.delimiter);
   final header = read(BlockCfgKey.withHeader);
   return CsvRules(
-    delimiter: csvDelimiter(delimiter),
-    header: header is! bool || header,
+    delimiter: csvDelimiter(delimiter.raw),
+    header: switch (header) {
+      JsonBool(:final value) => value,
+      _ => true,
+    },
     wired: wired,
   );
 }

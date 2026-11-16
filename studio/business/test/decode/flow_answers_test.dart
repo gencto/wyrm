@@ -201,10 +201,10 @@ void main() {
       );
       expect(x.cfgNode, isNull, reason: 'a number is no node name');
       expect(x.cfgScope, 'downstream/**');
-      expect(x.cfgArgs, {'speed': 60});
+      expect(rawFields(x.cfgArgs), {'speed': 60});
       expect(x.hasArgs, isTrue);
-      expect(x.cfgValues, {'in.0': 'AHU-'});
-      expect(x.cfgDefaults, {'a': 1});
+      expect(rawFields(x.cfgValues), {'in.0': 'AHU-'});
+      expect(rawFields(x.cfgDefaults), {'a': 1});
       expect(x.cfgEnabled, isFalse);
       expect(x.namesOf('inputs'), ['0', '1']);
       expect(x.portNamesOf('args'), ['speed']);

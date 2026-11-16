@@ -26,10 +26,10 @@ class BindFieldAction extends Action {
     if (b == null || f == null || port == null || from.block == b.id) {
       return null;
     }
-    if (f.kind == FieldKind.arg && !{...b.cfgArgs}.containsKey(f.name)) {
+    if (f.kind == FieldKind.arg && !b.cfgArgs.containsKey(f.name)) {
       dispatchSync(
-        SetBlockParamAction(b.id, 'args', {
-          ...{...b.cfgArgs},
+        SetBlockParamAction(b.id, BlockCfgKey.args.wire, {
+          ...rawFields(b.cfgArgs),
           f.name: null,
         }),
         notify: false,

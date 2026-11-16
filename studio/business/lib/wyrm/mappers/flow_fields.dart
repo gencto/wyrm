@@ -143,7 +143,7 @@ double blockWidthOf(BlockRole role) => switch (role) {
 /// (`key` or `path`), relative to the site or full.
 String? pointOf(FlowBlock b) =>
     switch (_keyed.contains(b.type.known) ? b.cfgKey : b.cfgPath) {
-      final String k when k.isNotEmpty => k,
+      final k? when k.isNotEmpty => k,
       _ => null,
     };
 
@@ -1563,7 +1563,7 @@ FieldValue fieldValue(
   switch (f.kind) {
     case FieldKind.param:
       final p = f.spec!;
-      final typed = b.param(p.name) ?? p.defaultValue;
+      final typed = b.paramOr(p.name, p.defaultValue).raw;
       if (f.variable) {
         sample =
             live(portKey(PortSide.output, b.id, f.outPort!)) ??
@@ -1588,7 +1588,7 @@ FieldValue fieldValue(
       // An operand's typed constant, until a binding replaces it (ADR 0038
       // §7): bound, the value that comes in; else the constant.
       final constant = f.operand && !bound
-          ? operandValueOf(b, f.inPort!)
+          ? operandValueOf(b, f.inPort!).raw
           : null;
       if (constant != null) {
         shown = constant;
@@ -1614,7 +1614,7 @@ FieldValue fieldValue(
           return FieldValue('', bound: bound);
         }
       } else {
-        shown = b.cfgArgs[f.name];
+        shown = b.cfgArgs[f.name]?.raw;
       }
   }
   final point = f.kind == FieldKind.input || f.kind == FieldKind.output;
@@ -1622,8 +1622,9 @@ FieldValue fieldValue(
     switch (shown) {
       _ when jsonShortText(shown) != null => jsonShortText(shown)!,
       // A date of the engine (µs) reads as a date and time.
-      final num n when isTimeField(b.type, f.port) && dateText(n) != null =>
-        dateText(n)!,
+      _ when isTimeField(b.type, f.port) && dateText(shown) != null => dateText(
+        shown,
+      )!,
       _ when point && sample != null => valueText(
         shown,
         unit: unit,
