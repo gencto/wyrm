@@ -9,7 +9,7 @@
   - T6 (#112, #125): `wire_enum!` has `from_name`/`FromStr`; `name_enum!` declares a plain set's names once; the logging type takes its one name (no display/name two-form input). C2 37 → 19; the 19 left build variants with data, name other crates' types (`tracing` levels), compare without a lookup, or are T5's closed sets.
   - S3 — the gateway (#112: one `rng` source, refused on failure) and the SNMP link (#125: no session without randomness). The audit's own fix is not done: one `wyrm_core` RNG helper plus a `disallowed_methods` ban; about 25 direct `getrandom::fill` calls remain outside the gateway, every one now handled with `?`.
 - **Open:** T3, T5 (another PR), T7, S4 (another PR), X1, X2.
-- **Final verification of 2026-11-15:** its findings B1–B5 (dropped seal, file-mode, secret-store and RNG results) are fixed in #125. The rules check's C8 was widened to the calls they used, with a self-probe that runs first; on `main` it counted 10, now 0.
+- **Final verification of 2026-11-15:** its findings B1–B5 (dropped seal, file-mode, secret-store and RNG results) are fixed in #125. The rules check's C8 was widened to the calls and the forms they used, with a self-probe that runs first; measured on a copy of `main` with the final rule it counts 14 (the first widening counted 10), now 0. The independent audit of #125 found four more (a private directory reached through a symlink, AI-3 by a restore, the OPC UA first-use marker, the edit's step order), also fixed in #125.
 
 ## 0. Scope and method
 

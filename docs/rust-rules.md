@@ -372,17 +372,23 @@ pub(crate) fn new() -> Result<Self, crate::rng::NoRandomness> {
 
 **Check.** C8 `dropped-result`: `let _ =`, `let _x =`, `let _: T =`, `_ =`,
 `drop(…)`, `….ok();` (also after `.await`), `if ….is_err() {}`,
-`.unwrap_or_default()`, `.unwrap_or(false|true|0|None|())` and `if let Ok(..)
-= … { … }` without `else` on such a call, and `to_vec(..).unwrap_or_default()`
-/ `.ok()`. The calls are a name list in `tool/check_rust_rules.py`
+`.unwrap_or_default()`, `.unwrap_or(false|true|0|None|())`,
+`.unwrap_or_else(|_| …)`, `if let Ok(..) = … { … }` and `if ….is_ok() { … }`
+without `else` (bodies nested to any depth), and `match … { …, Err(_) => {} }`
+on such a call, and `to_vec(..).unwrap_or_default()` / `.ok()`. The secret
+store counts under any receiver (`.drop_link(`, `.unstash(`, `set`/`remove`
+on a receiver named for secrets). The calls are a name list in `tool/check_rust_rules.py`
 (`PERSIST_CALLS`); a new security or persistence call that returns `Result`
 goes there with a sample in `PROBE_CALLS`. Every run first checks that list
 against samples (`probe()`): each call in each dropped form is counted, none
 in a handled form, or the check fails. clippy `let_underscore_must_use`
 (baselined) counts every dropped `Result` whatever its name. The list was
 too short until 2026-11-15: C8 read 0 while a backup dropped a failed seal
-(audit B1–B4); with the list widened it counted 10 on `main`, all fixed in
-the same change.
+(audit B1–B4). Measured on a copy of `main` (756075c1) with the rule as it
+is now, C8 counts 14: B1–B5, the AI-3 `remove(..).unwrap_or(false)`, the
+localfs mode, the guard stamp, the OPC UA first-use marker, and two refused
+`apply` calls taken as "nothing to do" (`RemovePeer`, `DropEnrollment`); the
+first widening counted 10 of them. All are fixed in PR #125.
 
 ## 11. One clock and one hex helper
 
