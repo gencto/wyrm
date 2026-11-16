@@ -53,8 +53,10 @@ class SetBlockFormAction extends Action {
         edges: d.edges.removeWhere(
           (e) =>
               (e.to == block &&
-                  e.toPort.startsWith('in.') &&
-                  gone(e.toPort.substring(3))) ||
+                  switch (e.target.param) {
+                    final p? => gone(p),
+                    null => false,
+                  }) ||
               (e.from == block && gone(e.fromPort)),
         ),
       ),

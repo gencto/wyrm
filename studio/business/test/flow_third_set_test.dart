@@ -259,9 +259,12 @@ void main() {
     });
 
     test('the date fields of the date blocks show it', () {
-      expect(isTimeField(bt('now'), 'out'), isTrue);
-      expect(isTimeField(bt('date_range'), 'start'), isTrue);
-      expect(isTimeField(bt('date_range'), 'duration'), isFalse);
+      expect(isTimeField(bt('now'), EnginePort.out), isTrue);
+      expect(isTimeField(bt('date_range'), EnginePort.start), isTrue);
+      expect(
+        isTimeField(bt('date_range'), EnginePort.fromWire('duration')),
+        isFalse,
+      );
       final b = block('now');
       final out = field('now', 'out:out');
       final d = FlowDraft(id: 'f', blocks: {'b': b}.lock);
@@ -286,8 +289,11 @@ void main() {
       expect(timeZoneChoicesOf(bt('date_format')).first, 'auto');
       expect(timeZoneChoicesOf(bt('date_time')).first, 'UTC');
       expect(timeZoneChoices, containsAll(['Europe/Kyiv', '+02:00']));
-      expect(isRangeText(bt('date_range'), 'in'), isTrue);
-      expect(isRangeText(bt('load_history'), 'time_range'), isTrue);
+      expect(isRangeText(bt('date_range'), port: EnginePort.in_), isTrue);
+      expect(
+        isRangeText(bt('load_history'), param: BlockCfgKey.timeRange),
+        isTrue,
+      );
       expect(
         rangeChoices,
         containsAll(['today', 'lastWeek', 'current24hours']),
@@ -563,7 +569,7 @@ void main() {
     expect(typedText('a,b\n1,2', edit!), 'a,b\n1,2');
     // a one-line `5` is the text `5`, not the number JSON makes of it
     expect(typedText('5', edit), '5');
-    expect(isTextOperand(bt('split'), 'in'), isTrue);
+    expect(isTextOperand(bt('split'), EnginePort.in_), isTrue);
     // an operand of another block still reads JSON
     final add = fieldEditOf(block('add'), field('add', 'in:in.0'), const []);
     expect(add.edit, FieldEdit.any);

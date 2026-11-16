@@ -190,7 +190,7 @@ ViewerView? viewerViewOf(
     table: typedTable,
     // A table's rows (ADR 0044 §2) and a date (µs, §3) by the field.
     rowsOfMaps: tabled,
-    date: isTimeField(b.type, f.name),
+    date: isTimeField(b.type, f.port),
     unit: at ? info?.unit : null,
     choices: at ? info?.choices ?? const IListConst([]) : const IListConst([]),
     quality: v.quality,

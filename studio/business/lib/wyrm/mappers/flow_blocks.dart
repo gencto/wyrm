@@ -289,8 +289,12 @@ EntryBlock? blockOfEntry(
 }) {
   if (entry is PointPick) {
     return write
-        ? EntryBlock(KnownBlock.set, {'path': relativeKey(entry.key)})
-        : EntryBlock(KnownBlock.subscribe, {'key': relativeKey(entry.key)});
+        ? EntryBlock(KnownBlock.set, {
+            BlockCfgKey.path.wire: relativeKey(entry.key),
+          })
+        : EntryBlock(KnownBlock.subscribe, {
+            BlockCfgKey.key.wire: relativeKey(entry.key),
+          });
   }
   if (entry is! ActionPick) {
     return null;

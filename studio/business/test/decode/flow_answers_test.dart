@@ -211,7 +211,7 @@ void main() {
       expect(x.namesOf('args'), isNull);
       expect(b(const {}).cfgArgs, isEmpty);
       expect(BlockCfgKey.fromWire('key_scope'), BlockCfgKey.keyScope);
-      expect(BlockCfgKey.fromWire('k'), isNull);
+      expect(BlockCfgKey.fromWire('size_s'), isNull);
     });
 
     test('a value as its editor and its row show it', () {

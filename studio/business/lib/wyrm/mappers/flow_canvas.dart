@@ -341,9 +341,7 @@ Subflow extractSubflow(FlowDraft d, Set<String> ids) {
   String clean(String s) => s.replaceAll(RegExp('[^A-Za-z0-9_]'), '_');
   List<String> names(Iterable<PortEnd> ends) {
     String short(PortEnd end) {
-      final port = end.port.startsWith('in.')
-          ? end.port.substring(3)
-          : end.port;
+      final port = end.param ?? end.port;
       final main = switch (end.known) {
         EnginePort.in_ || EnginePort.out => true,
         _ => false,
@@ -474,7 +472,7 @@ enum FieldEditError { number, json, toggle }
   // A range text (`date_range` `in`) stays a text: `2026` is a year to
   // the engine, not the number JSON would make of it.
   if (f.operand &&
-      (isRangeText(b.type, f.name) || isTextOperand(b.type, f.name))) {
+      (isRangeText(b.type, port: f.port) || isTextOperand(b.type, f.port))) {
     return (edit: FieldEdit.text, locked: null);
   }
   if (f.kind == FieldKind.arg || f.operand) {

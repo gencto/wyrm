@@ -400,81 +400,90 @@ String pairLabel(int index) =>
 
 // ---------- labels (flow-editor.md §3, owner decision 2026-11-08) ----------
 
-/// Names whose sentence-case form reads wrong or says too little.
-/// [typedFieldLabels] names a parameter of one type and wins over these.
-const fieldLabelOverrides = <String, String>{
-  'in': 'Input',
-  'out': 'Output',
-  'k': 'Factor',
-  'b': 'Offset',
-  'abs': 'Absolute change',
-  'pct': 'Percent change',
-  'fn': 'Function',
-  'op': 'Operation',
-  'expr': 'Expression',
-  'msg': 'Message',
-  'ms': 'Delay (ms)',
-  'key': 'Point',
-  'node': 'Value name',
-  'meta': 'Meta',
-  'allow_bad': 'Allow bad quality',
-  'on_bad': 'On bad quality',
-  'max_samples': 'Max samples',
-  'memory_mb': 'Memory (MB)',
-  'input_out_of_range': 'Input out of range',
-  // ADR 0040: behaviours, scopes, the second set of blocks.
-  'trigger': 'Trigger',
-  'interval_ms': 'Every',
-  'auto_run': 'Auto run',
-  'run_on_start': 'Run on start',
-  'key_scope': 'Scope',
-  'path_scope': 'Scope',
+/// Ports whose sentence-case name reads wrong or says too little.
+const portLabels = <EnginePort, String>{
+  EnginePort.in_: 'Input',
+  EnginePort.out: 'Output',
+  EnginePort.trigger: 'Trigger',
+  EnginePort.inputOutOfRange: 'Input out of range',
 };
 
-/// The label of a parameter of one type, by the parameter's name: it wins
-/// over [fieldLabelOverrides] (`latch` has an input and a parameter both
-/// named `reset`).
-const typedFieldLabels = <KnownBlock, Map<String, String>>{
-  KnownBlock.latch: {'reset': 'Reset mode'},
+/// Parameters whose sentence-case name reads wrong or says too little.
+/// [typedFieldLabels] names a parameter of one type and wins over these.
+const paramLabels = <BlockCfgKey, String>{
+  BlockCfgKey.k: 'Factor',
+  BlockCfgKey.b: 'Offset',
+  BlockCfgKey.abs: 'Absolute change',
+  BlockCfgKey.pct: 'Percent change',
+  BlockCfgKey.fn: 'Function',
+  BlockCfgKey.op: 'Operation',
+  BlockCfgKey.expr: 'Expression',
+  BlockCfgKey.msg: 'Message',
+  BlockCfgKey.ms: 'Delay (ms)',
+  BlockCfgKey.key: 'Point',
+  BlockCfgKey.node: 'Value name',
+  BlockCfgKey.meta: 'Meta',
+  BlockCfgKey.allowBad: 'Allow bad quality',
+  BlockCfgKey.onBad: 'On bad quality',
+  BlockCfgKey.maxSamples: 'Max samples',
+  BlockCfgKey.memoryMb: 'Memory (MB)',
+  // ADR 0040: behaviours, scopes, the second set of blocks.
+  BlockCfgKey.trigger: 'Trigger',
+  BlockCfgKey.intervalMs: 'Every',
+  BlockCfgKey.autoRun: 'Auto run',
+  BlockCfgKey.runOnStart: 'Run on start',
+  BlockCfgKey.keyScope: 'Scope',
+  BlockCfgKey.pathScope: 'Scope',
+};
+
+/// The label of a parameter of one type: it wins over [paramLabels]
+/// (`latch` has an input and a parameter both named `reset`).
+const typedFieldLabels = <KnownBlock, Map<BlockCfgKey, String>>{
+  KnownBlock.latch: {BlockCfgKey.reset: 'Reset mode'},
   // A liveliness token belongs to a node, not to a point.
-  KnownBlock.liveliness: {'key': 'Node'},
-  KnownBlock.set: {'path': 'Point', 'on': 'Write on'},
-  KnownBlock.invoke: {'path': 'Node', 'on': 'Run on'},
-  KnownBlock.stopwatch: {'interval': 'Interval (s)'},
+  KnownBlock.liveliness: {BlockCfgKey.key: 'Node'},
+  KnownBlock.set: {BlockCfgKey.path: 'Point', BlockCfgKey.on: 'Write on'},
+  KnownBlock.invoke: {BlockCfgKey.path: 'Node', BlockCfgKey.on: 'Run on'},
+  KnownBlock.stopwatch: {BlockCfgKey.interval: 'Interval (s)'},
   // ADR 0040: the second set of blocks.
-  KnownBlock.listChildren: {'path': 'Node'},
-  KnownBlock.throttle: {'ms': 'Period (ms)'},
-  KnownBlock.debounce: {'ms': 'Quiet time (ms)'},
+  KnownBlock.listChildren: {BlockCfgKey.path: 'Node'},
+  KnownBlock.throttle: {BlockCfgKey.ms: 'Period (ms)'},
+  KnownBlock.debounce: {BlockCfgKey.ms: 'Quiet time (ms)'},
   // ADR 0044: the third set (docs/flow-blocks.md, the editor's table).
-  KnownBlock.getNode: {'key': 'Node'},
-  KnownBlock.dateRange: {'range_delimiter': 'Delimiter'},
+  KnownBlock.getNode: {BlockCfgKey.key: 'Node'},
+  KnownBlock.dateRange: {BlockCfgKey.rangeDelimiter: 'Delimiter'},
 };
 
 /// Inputs that are commands, not values: a sample on the wire presses them
 /// (docs/flow-blocks.md: `date_range` moves to the next or the previous
 /// range, `table_page` to a page). The editor draws them as buttons.
-const commandInputs = <KnownBlock, Set<String>>{
-  KnownBlock.dateRange: {'next', 'previous'},
-  KnownBlock.tablePage: {'next', 'previous', 'first', 'last'},
+const commandInputs = <KnownBlock, Set<EnginePort>>{
+  KnownBlock.dateRange: {EnginePort.next, EnginePort.previous},
+  KnownBlock.tablePage: {
+    EnginePort.next,
+    EnginePort.previous,
+    EnginePort.first,
+    EnginePort.last,
+  },
 };
 
-/// The fields that hold a date: microseconds since the Unix epoch (ADR 0044
+/// The ports that hold a date: microseconds since the Unix epoch (ADR 0044
 /// §3). The editor shows such a value as a date and time; the viewer adds
 /// the instant in UTC and the number. `date_range.duration` is a length of
 /// time, not a date.
-const timeFields = <KnownBlock, Set<String>>{
-  KnownBlock.now: {'out'},
-  KnownBlock.dateTime: {'out'},
-  KnownBlock.dateParse: {'in', 'time'},
-  KnownBlock.dateFormat: {'in'},
-  KnownBlock.dateMath: {'in', 'out'},
-  KnownBlock.dateRange: {'start', 'end'},
+const timeFields = <KnownBlock, Set<EnginePort>>{
+  KnownBlock.now: {EnginePort.out},
+  KnownBlock.dateTime: {EnginePort.out},
+  KnownBlock.dateParse: {EnginePort.in_, EnginePort.time},
+  KnownBlock.dateFormat: {EnginePort.in_},
+  KnownBlock.dateMath: {EnginePort.in_, EnginePort.out},
+  KnownBlock.dateRange: {EnginePort.start, EnginePort.end},
 };
 
-/// Whether field [name] (a port) of a block of [type] holds a date
-/// ([timeFields]).
-bool isTimeField(BlockType type, String name) =>
-    timeFields[type.known]?.contains(name) ?? false;
+/// Whether the field at engine port [port] of a block of [type] holds a
+/// date ([timeFields]).
+bool isTimeField(BlockType type, EnginePort? port) =>
+    timeFields[type.known]?.contains(port) ?? false;
 
 /// The time zone parameters of the date blocks (ADR 0044 §3): an IANA name,
 /// `UTC` or `±HH:MM`; `date_format` also takes `auto`.
@@ -492,30 +501,30 @@ bool isTimeZoneParam(BlockType type, ParamSpec p) =>
 
 /// The fields that hold a range text as `date_range` reads it (`today`,
 /// `lastWeek`, `current24hours`, `2026-10`, `<a>/<b>`): the operand `in`
-/// of `date_range` and the parameter `time_range` of `load_history`.
-bool isRangeText(BlockType type, String name) =>
-    rangeTexts[type.known]?.contains(name) ?? false;
-
-/// The fields that hold a range text ([isRangeText]), by type.
-const rangeTexts = <KnownBlock, Set<String>>{
-  KnownBlock.dateRange: {'in'},
-  KnownBlock.loadHistory: {'time_range'},
-};
+/// of `date_range` ([port]) and the parameter `time_range` of
+/// `load_history` ([param]).
+bool isRangeText(BlockType type, {EnginePort? port, BlockCfgKey? param}) =>
+    switch (type.known) {
+      KnownBlock.dateRange => port == EnginePort.in_,
+      KnownBlock.loadHistory => param == BlockCfgKey.timeRange,
+      _ => false,
+    };
 
 /// Operands that the engine reads as a text only: a typed value stays the
 /// text it is (a CSV `1,2` or `5`, a JSON text), never the number or the
 /// list JSON would make of it. Such a text may hold several lines (the
 /// value viewer's Edit, flow-blocks.md "What calculates at start").
-const textOperands = <KnownBlock, Set<String>>{
-  KnownBlock.tableFromCsv: {'in'},
-  KnownBlock.split: {'in'},
-  KnownBlock.replace: {'in'},
-  KnownBlock.jsonParse: {'in'},
+const textOperands = <KnownBlock, Set<EnginePort>>{
+  KnownBlock.tableFromCsv: {EnginePort.in_},
+  KnownBlock.split: {EnginePort.in_},
+  KnownBlock.replace: {EnginePort.in_},
+  KnownBlock.jsonParse: {EnginePort.in_},
 };
 
-/// Whether operand [name] of a block of [type] is a text ([textOperands]).
-bool isTextOperand(BlockType type, String name) =>
-    textOperands[type.known]?.contains(name) ?? false;
+/// Whether the operand at engine port [port] of a block of [type] is a
+/// text ([textOperands]).
+bool isTextOperand(BlockType type, EnginePort? port) =>
+    textOperands[type.known]?.contains(port) ?? false;
 
 /// The choices a range text offers (docs/flow-blocks.md, `date_range`); any
 /// other text the engine reads (`2026-10`, `<a>/<b>`) is typed.
@@ -700,8 +709,9 @@ final class ListColumn {
 /// gives no rows.
 List<Map<String, String>> listRowsOf(Object? v) => listRowsIn(v);
 
-/// Whether input [port] of a block of [type] is a command ([commandInputs]).
-bool isCommandInput(BlockType type, String port) =>
+/// Whether the input at engine port [port] of a block of [type] is a
+/// command ([commandInputs]).
+bool isCommandInput(BlockType type, EnginePort? port) =>
     commandInputs[type.known]?.contains(port) ?? false;
 
 /// [types] in the palette's order: by [BlockCategory], the catalog's
@@ -813,27 +823,31 @@ const _oneOf = <KnownBlock, Set<String>>{
 };
 
 /// What a field named [name] of a block of [type] reads in Studio: the
-/// catalog's own `display`, else an override ([fieldLabelOverrides]), else
-/// [humanize]. Numbered inputs (`in.0`) read `Input 1`; other variable
-/// inputs keep the name the user gave them (an `expression` variable, a
-/// `wasm` port).
+/// catalog's own `display`, else an override by its parameter [spec]
+/// ([typedFieldLabels], [paramLabels]) or its engine [port]
+/// ([portLabels]), else [humanize]. Numbered inputs (`in.0`) read
+/// `Input 1`; other variable inputs keep the name the user gave them (an
+/// `expression` variable, a `wasm` port).
 String fieldLabel(
   BlockType type,
   String name, {
   ParamSpec? spec,
+  EnginePort? port,
   bool variable = false,
 }) {
   final display = spec?.display;
   if (display != null && display.isNotEmpty) {
     return display;
   }
-  final short = name.startsWith('in.') ? name.substring(3) : name;
+  final short = paramOfPort(name) ?? name;
   if (variable) {
     final n = int.tryParse(short);
     return n == null ? short : 'Input ${n + 1}';
   }
-  return (spec == null ? null : typedFieldLabels[type.known]?[short]) ??
-      fieldLabelOverrides[short] ??
+  final key = spec?.key;
+  return (key == null ? null : typedFieldLabels[type.known]?[key]) ??
+      (key == null ? null : paramLabels[key]) ??
+      (port == null ? null : portLabels[port]) ??
       humanize(short);
 }
 
@@ -913,7 +927,7 @@ BlockForm? formOf(FlowBlock b, Iterable<FlowEdge> edges) {
     final given = f.params.any(
       (p) =>
           b.hasParam(p) ||
-          edges.any((e) => e.to == b.id && e.toPort == 'in.$p'),
+          edges.any((e) => e.to == b.id && e.target.param == p),
     );
     if (given) {
       return f;
@@ -938,13 +952,20 @@ bool _otherForm(FlowBlock b, String name, Iterable<FlowEdge> edges) {
       b.hasParam(name) ||
       edges.any(
         (e) =>
-            (e.to == b.id && e.toPort == 'in.$name') ||
+            (e.to == b.id && e.target.param == name) ||
             (e.from == b.id && e.fromPort == name),
       );
   return !kept;
 }
 
 // ---------- the fields of a block ----------
+
+/// The input port parameter [name] of [t] has when the catalog names no
+/// `port` (before ADR 0038): `in.<name>` when the type lists it.
+String? _inputOfParam(NodeType t, String name) {
+  final port = PortEnd.inputOf(name);
+  return t.inputs.contains(port) ? port : null;
+}
 
 /// The fields of [b] in the order a block draws them: fixed inputs that are
 /// no parameter's, then the parameters (each with its input port where the
@@ -986,6 +1007,7 @@ List<FlowField> fieldsOf(
   // parameter and its output are one field (spec §3).
   if (isVariable(t)) {
     final p = t.params.first;
+    final mainIn = mainInputOf(t);
     return [
       FlowField(
         id: FieldId.param(p.name),
@@ -993,11 +1015,11 @@ List<FlowField> fieldsOf(
         label: fieldLabel(b.type, p.name, spec: p),
         kind: .param,
         spec: p,
-        inPort: t.inputs.contains('in') ? 'in' : null,
-        outPort: 'out',
+        inPort: mainIn,
+        outPort: EnginePort.out.wire,
         outAliases: [
           if (p.echo ?? true) p.name,
-          if (t.inputs.contains('in') && (t.echoInputs ?? true)) 'in',
+          if (mainIn != null && (t.echoInputs ?? true)) mainIn,
         ],
         variable: true,
       ),
@@ -1013,8 +1035,7 @@ List<FlowField> fieldsOf(
   // Which parameter owns which input port.
   final portOf = <String, String>{};
   for (final p in t.params) {
-    final port =
-        p.port ?? (t.inputs.contains('in.${p.name}') ? 'in.${p.name}' : null);
+    final port = p.port ?? _inputOfParam(t, p.name);
     if (port != null) {
       portOf[p.name] = port;
     }
@@ -1112,11 +1133,11 @@ List<FlowField> fieldsOf(
         ),
   ];
   FlowField input(String port, {required bool variable, int index = 0}) {
-    final command = !variable && isCommandInput(b.type, port);
+    final engine = t.knownInputs[port];
+    final command = !variable && isCommandInput(b.type, engine);
     final name = port.startsWith(t.dynInPrefix)
         ? port.substring(t.dynInPrefix.length)
         : port;
-    final engine = t.knownInputs[port];
     final main = engine == EnginePort.in_;
     return FlowField(
       id: FieldId.input(port),
@@ -1130,7 +1151,7 @@ List<FlowField> fieldsOf(
         _ when instance => port,
         _ when variable && pairedInputs.contains(known) => pairLabel(index),
         _ when variable && routed => caseLabel(name),
-        _ => fieldLabel(b.type, port, variable: variable),
+        _ => fieldLabel(b.type, port, port: engine, variable: variable),
       },
       kind: .input,
       inPort: port,
@@ -1197,15 +1218,19 @@ List<FlowField> fieldsOf(
           label: _reads.contains(known) && t.knownOutputs[p] == EnginePort.out
               ? (outputLabelOverrides[known]?[p] ??
                     pointName ??
-                    fieldLabel(b.type, p))
+                    fieldLabel(b.type, p, port: t.knownOutputs[p]))
               : (instance || t.dynOutParam != null && !t.outputs.contains(p)
                     ? p
                     : (known == KnownBlock.invoke &&
                               t.knownOutputs[p] == EnginePort.out &&
                               behaves
-                          ? fieldLabel(b.type, p)
+                          ? fieldLabel(b.type, p, port: t.knownOutputs[p])
                           : outputLabelOverrides[known]?[p] ??
-                                fieldLabel(b.type, p))),
+                                fieldLabel(
+                                  b.type,
+                                  p,
+                                  port: t.knownOutputs[p],
+                                ))),
           kind: .output,
           outPort: p,
           onBlock: switch (t.knownOutputs[p]) {
@@ -1597,7 +1622,7 @@ FieldValue fieldValue(
     switch (shown) {
       _ when jsonShortText(shown) != null => jsonShortText(shown)!,
       // A date of the engine (µs) reads as a date and time.
-      final num n when isTimeField(b.type, f.name) && dateText(n) != null =>
+      final num n when isTimeField(b.type, f.port) && dateText(n) != null =>
         dateText(n)!,
       _ when point && sample != null => valueText(
         shown,

@@ -595,7 +595,7 @@ InspectorRow _row(
     // A time zone or a range text: a text with the usual ones in a menu.
     final suggested = isTimeZoneParam(b.type, p)
         ? timeZoneChoicesOf(b.type)
-        : (isRangeText(b.type, p.name) ? rangeChoices : null);
+        : (isRangeText(b.type, param: p.key) ? rangeChoices : null);
     return ParamRowView(
       id: f.id,
       name: f.label,
@@ -618,9 +618,7 @@ InspectorRow _row(
           ? scopeProblemOf(v is String ? v : '')
           : null,
       // `Run on start` asks first, with the catalog's own warning.
-      confirm: p.key == BlockCfgKey.runOnStart && hint.startsWith('WARNING:')
-          ? hint
-          : null,
+      confirm: p.key == BlockCfgKey.runOnStart && p.warns ? hint : null,
       editor: items != null
           ? ParamRowEditor.rows
           : suggested != null
@@ -682,7 +680,7 @@ InspectorRow _row(
       name: f.label,
       engine: engine,
       // The range text of a `date_range`: a text with the usual ones.
-      range: isRangeText(b.type, f.name),
+      range: isRangeText(b.type, port: f.port),
       value: _text(v),
       inPort: f.inPort,
       group: group,

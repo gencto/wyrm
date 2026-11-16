@@ -46,5 +46,10 @@ abstract class ParamSpec with _$ParamSpec {
     /// from [name] with the catalog (`dataflows` ▸ `node_types`); null for
     /// any other parameter, and for a parameter that is no flow node's.
     BlockCfgKey? key,
+
+    /// Its [description] is a warning to confirm before it is turned on
+    /// (the catalog writes it as `WARNING: …`: `run_on_start`, ADR 0040
+    /// §2), decoded with the catalog.
+    @Default(false) bool warns,
   }) = _ParamSpec;
 }

@@ -13,6 +13,9 @@ import 'decoded.dart';
 
 const _shape = 'node type';
 
+/// How the catalog starts a description that warns ([ParamSpec.warns]).
+const _warning = 'WARNING:';
+
 /// One entry of `dataflows` ▸ `node_types` (spec 06, "Каталог типів нод")
 /// as a [NodeType].
 ///
@@ -89,6 +92,7 @@ Decoded<NodeType> nodeTypeOf(Value m) {
               ),
               required: boolean(p['required']) ?? false,
               description: str(p['description']),
+              warns: str(p['description'])?.startsWith(_warning) ?? false,
               choices: texts(p['choices']).lock,
               defaultValue: toDart(p['default']),
               editor: switch (str(p['editor'])) {

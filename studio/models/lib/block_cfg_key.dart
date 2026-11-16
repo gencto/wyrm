@@ -27,7 +27,26 @@ enum BlockCfgKey {
   aggregates('aggregates'),
   method('method'),
   delimiter('delimiter'),
-  withHeader('with_header');
+  withHeader('with_header'),
+  // Parameters the editor names in its own words (flow-editor.md §3).
+  k('k'),
+  b('b'),
+  abs('abs'),
+  pct('pct'),
+  fn('fn'),
+  op('op'),
+  expr('expr'),
+  msg('msg'),
+  ms('ms'),
+  meta('meta'),
+  onBad('on_bad'),
+  maxSamples('max_samples'),
+  memoryMb('memory_mb'),
+  trigger('trigger'),
+  reset('reset'),
+  interval('interval'),
+  rangeDelimiter('range_delimiter'),
+  timeRange('time_range');
 
   const BlockCfgKey(this.wire);
 

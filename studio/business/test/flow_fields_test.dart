@@ -313,29 +313,63 @@ void main() {
     });
 
     test('overrides, per type first; numbered inputs from 1', () {
-      expect(fieldLabel(bt('scale'), 'k'), 'Factor');
       expect(
-        fieldLabel(bt('subscribe'), 'key', spec: const ParamSpec(name: 'key')),
+        fieldLabel(
+          bt('scale'),
+          'k',
+          spec: const ParamSpec(name: 'k', key: BlockCfgKey.k),
+        ),
+        'Factor',
+      );
+      expect(
+        fieldLabel(
+          bt('subscribe'),
+          'key',
+          spec: const ParamSpec(name: 'key', key: BlockCfgKey.key),
+        ),
         'Point',
       );
       expect(
-        fieldLabel(bt('liveliness'), 'key', spec: const ParamSpec(name: 'key')),
+        fieldLabel(
+          bt('liveliness'),
+          'key',
+          spec: const ParamSpec(name: 'key', key: BlockCfgKey.key),
+        ),
         'Node',
       );
-      expect(fieldLabel(bt('scale'), 'b'), 'Offset');
-      expect(fieldLabel(bt('scale'), 'in'), 'Input');
-      expect(fieldLabel(bt('scale'), 'out'), 'Output');
       expect(
-        fieldLabel(bt('latch'), 'reset', spec: const ParamSpec(name: 'reset')),
+        fieldLabel(
+          bt('scale'),
+          'b',
+          spec: const ParamSpec(name: 'b', key: BlockCfgKey.b),
+        ),
+        'Offset',
+      );
+      expect(fieldLabel(bt('scale'), 'in', port: EnginePort.in_), 'Input');
+      expect(fieldLabel(bt('scale'), 'out', port: EnginePort.out), 'Output');
+      expect(
+        fieldLabel(
+          bt('latch'),
+          'reset',
+          spec: const ParamSpec(name: 'reset', key: BlockCfgKey.reset),
+        ),
         'Reset mode',
       );
       expect(fieldLabel(bt('stopwatch'), 'reset'), 'Reset');
       expect(
-        fieldLabel(bt('set'), 'on', spec: const ParamSpec(name: 'on')),
+        fieldLabel(
+          bt('set'),
+          'on',
+          spec: const ParamSpec(name: 'on', key: BlockCfgKey.on),
+        ),
         'Write on',
       );
       expect(
-        fieldLabel(bt('invoke'), 'on', spec: const ParamSpec(name: 'on')),
+        fieldLabel(
+          bt('invoke'),
+          'on',
+          spec: const ParamSpec(name: 'on', key: BlockCfgKey.on),
+        ),
         'Run on',
       );
       expect(fieldLabel(bt('round'), 'in.precision'), 'Precision');

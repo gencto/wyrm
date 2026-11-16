@@ -12,7 +12,18 @@ enum EnginePort {
   lastRun('last_run'),
   right('right'),
   value('value'),
-  actions('actions');
+  actions('actions'),
+  // The commands of `date_range` and `table_page` (docs/flow-blocks.md).
+  next('next'),
+  previous('previous'),
+  first('first'),
+  last('last'),
+  // The dates of the date blocks (ADR 0044 §3).
+  time('time'),
+  start('start'),
+  end('end'),
+  // `scale`'s and `bound`'s range form.
+  inputOutOfRange('input_out_of_range');
 
   const EnginePort(this.wire);
 

@@ -2,9 +2,11 @@ import 'dart:convert';
 
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/block_type.dart';
+import 'package:models/engine_port.dart';
 import 'package:models/flow_block.dart';
 import 'package:models/flow_draft.dart';
 import 'package:models/node_type.dart';
+import 'package:models/port_end.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import 'block_cfg.dart';
@@ -45,6 +47,13 @@ bool sameCfg(IMap<String, Object?> a, IMap<String, Object?> b) =>
 /// The config key of the operand constants: `values: {<port>: <value>}`.
 final String operandValuesKey = BlockCfgKey.operandValues.wire;
 
+/// The input port of [t] that is its main value (`in`); null when it has
+/// none.
+String? mainInputOf(NodeType t) => t.knownInputs.entries
+    .where((e) => e.value == EnginePort.in_)
+    .firstOrNull
+    ?.key;
+
 /// The inputs of [b] that take a typed constant in `values`: `in` (when the
 /// type has it and no parameter owns it) and the variable inputs
 /// (`in.<name>` of `inputs`), for a type whose catalog says `values: true`.
@@ -63,10 +72,14 @@ List<String> operandPortsOf(NodeType? t, FlowBlock b) {
   }
   final paramPorts = {
     for (final p in t.params)
-      ?(p.port ?? (t.inputs.contains('in.${p.name}') ? 'in.${p.name}' : null)),
+      ?(p.port ??
+          (t.inputs.contains(PortEnd.inputOf(p.name))
+              ? PortEnd.inputOf(p.name)
+              : null)),
   };
+  final main = mainInputOf(t);
   return [
-    if (t.inputs.contains('in') && !paramPorts.contains('in')) 'in',
+    if (main != null && !paramPorts.contains(main)) main,
     for (final p in portsOf(t, b).inputs)
       if (!t.inputs.contains(p) && !paramPorts.contains(p)) p,
   ];
