@@ -17504,6 +17504,16 @@ class S {
     );
   }
 
+  /// `Its meta names no level it can be set at, so nothing was staged.`
+  String get errNotSettable {
+    return Intl.message(
+      'Its meta names no level it can be set at, so nothing was staged.',
+      name: 'errNotSettable',
+      desc: '',
+      args: [],
+    );
+  }
+
   /// `k × in + b`
   String get formLinear {
     return Intl.message('k × in + b', name: 'formLinear', desc: '', args: []);

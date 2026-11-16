@@ -1,5 +1,4 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
-import 'package:models/error_kind.dart';
 import 'package:models/staged_change.dart';
 import 'package:models/staged_change_kind.dart';
 
@@ -56,17 +55,12 @@ class StageValueAction extends Action {
   @override
   AppState? reduce() {
     // a value whose meta names no level cannot be set: nothing is staged,
-    // no level is assumed for it, and the user is told why
+    // no level is assumed for it, and the user is told why (the app words
+    // the refusal)
     final level =
         state.nodes.detail[key]?.writable ?? state.nodes.table[key]?.writable;
     if (level == null) {
-      throw StudioException.said(
-        ErrorKind.gone,
-        'Its meta names no level it can be set at, so nothing was staged.',
-        key: key,
-        call: 'set',
-        write: true,
-      );
+      throw StudioException(notSettableOf(key));
     }
     dispatchSync(
       AddChangesAction(

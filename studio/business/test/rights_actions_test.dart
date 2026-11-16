@@ -14,8 +14,10 @@ import 'package:business/redux/login/actions/set_password_action.dart';
 import 'package:business/redux/login/actions/set_user_action.dart';
 import 'package:business/redux/nodes/actions/retrieve_node_detail_action.dart';
 import 'package:business/redux/nodes/actions/stage_value_action.dart';
+import 'package:business/wyrm/failures.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:models/error_hint.dart';
 import 'package:models/staged_change.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -126,7 +128,15 @@ void main() {
     );
 
     expect(s.state.changes.table, isEmpty);
-    expect(status.originalError, isA<UserException>());
+    // a typed refusal, worded by the app (app/test/errors_test.dart)
+    expect(
+      status.originalError,
+      isA<StudioException>().having(
+        (e) => (e.error.hint, e.error.status?.known, e.error.call),
+        'refusal',
+        (ErrorHint.notSettable, Status.notSupported, 'set'),
+      ),
+    );
   });
 
   test(
