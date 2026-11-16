@@ -194,7 +194,9 @@ pub(crate) fn agent_keys_to_drop(old: &Value, new: &Value) -> Vec<String> {
     }
 }
 
-/// The agent's API key secret is never its signing key: the API key leaves the broker.
+/// The agent's API key secret is never its signing key, nor a secret the broker makes for the
+/// link (`.requester_key`, `.store_key`: names that start with `.`): the API key leaves the
+/// broker, so whatever it names is sent to `api_base`.
 fn check_agent_refs(params: &Value) -> Result<(), LinkError> {
     let name = |k: &str, d: &str| match params {
         Value::Map(m) => match m.get(k) {
@@ -203,9 +205,16 @@ fn check_agent_refs(params: &Value) -> Result<(), LinkError> {
         },
         _ => d.to_owned(),
     };
-    if name("api_key_ref", AGENT_API_KEY_REF) == name("agent_key_ref", AGENT_KEY_REF) {
+    let api_key_ref = name("api_key_ref", AGENT_API_KEY_REF);
+    if api_key_ref == name("agent_key_ref", AGENT_KEY_REF) {
         return Err(LinkError::invalid_parameter(
             "api_key_ref: not the secret of agent_key_ref (the API key is sent out)",
+        ));
+    }
+    if api_key_ref.starts_with('.') {
+        return Err(LinkError::invalid_parameter(
+            "api_key_ref: not a secret the broker makes for the link (a name that starts with \
+             '.'); the API key is sent out",
         ));
     }
     Ok(())
@@ -7079,6 +7088,13 @@ mod tests {
         assert!(super::check_agent_refs(&p("anthropic_api_key", "agent_key")).is_ok());
         assert!(super::check_agent_refs(&p("agent_key", "agent_key")).is_err());
         assert!(super::check_agent_refs(&p("k", "k")).is_err());
+        // re-audit of #125: never a raw seed the broker made for the link
+        for seed in [".requester_key", ".store_key", "."] {
+            assert!(
+                super::check_agent_refs(&p(seed, "agent_key")).is_err(),
+                "{seed}"
+            );
+        }
         assert!(super::check_agent_refs(&Value::Map(std::collections::BTreeMap::new())).is_ok());
     }
 
