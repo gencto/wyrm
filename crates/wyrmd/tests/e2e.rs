@@ -5577,6 +5577,96 @@ async fn the_gateway_signs_approvals_for_the_agent_links_of_the_registry() {
     env.stop().await;
 }
 
+/// Audit of #125: review AI-3 by a restore. `install_backup` over an existing agent link put
+/// the backup's params (another `api_base`) in place without the drop the edit does, and the
+/// restored secrets were added to the old ones, so the link's API key stayed for the new base.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_restored_agent_link_with_another_base_drops_the_key() {
+    let env = Env::start("agentrestore", "").await;
+    let links = format!("wy/{SITE}/sys/links");
+    let install = |id: &str, base: &str| {
+        args_map(&[
+            ("id", id.into()),
+            ("driver", "agent".into()),
+            (
+                "params",
+                args_map(&[
+                    (
+                        "allowed_prefixes",
+                        Value::Array(vec![Value::from("wy/e2e/downstream/mock")]),
+                    ),
+                    ("api_base", base.into()),
+                ]),
+            ),
+        ])
+    };
+    invoke_rebuilt(
+        &env,
+        &links,
+        "install",
+        install("real", "https://api.anthropic.com"),
+    )
+    .await
+    .expect("install the real agent");
+    let real = format!("{links}/real");
+    let secret = args_map(&[
+        ("name", "anthropic_api_key".into()),
+        ("value", Value::Bytes(b"sk-real".to_vec())),
+    ]);
+    invoke_rebuilt(&env, &real, "set_secret", secret)
+        .await
+        .expect("set the key");
+    invoke_rebuilt(
+        &env,
+        &links,
+        "install",
+        install("evil", "https://llm.example"),
+    )
+    .await
+    .expect("install the other agent");
+    let c = slow_client(&env).await;
+    let id = backup_id(
+        c.invoke_one(&format!("{links}/evil"), "backup", args_map(&[]))
+            .await
+            .unwrap(),
+    );
+    backup_done(&env, &id).await;
+    let bytes = download_backup(&c, &id, 16 << 20).await;
+    let over = args_map(&[
+        ("file", Value::Bytes(bytes)),
+        ("id", "real".into()),
+        ("accept", Value::Bool(true)),
+    ]);
+    // the restore of an agent's params rebuilds the router (its `allowed_prefixes` scope
+    // its key), so the reads after it retry across the rebuild
+    let (ok, msg) = install_outcome(c.invoke_one(&links, "install_backup", over).await.unwrap());
+    assert!(ok, "{msg}");
+    let restored = eventually("the restored params", 60, || async {
+        let p = env.ctl.registry().links.get("real")?.params.clone();
+        let text = String::from_utf8_lossy(&p).into_owned();
+        text.contains("llm.example").then_some(())
+    });
+    restored.await;
+    let left = eventually("the secrets of the restored link", 60, || async {
+        let c = slow_client(&env).await;
+        c.invoke_one(&real, "secrets", args_map(&[]))
+            .await
+            .ok()
+            .map(|v| format!("{v:?}"))
+    })
+    .await;
+    assert!(
+        !left.contains("anthropic_api_key"),
+        "the key stays with the new base: {left}"
+    );
+    assert!(env
+        .ctl
+        .audit_tail(100)
+        .iter()
+        .any(|r| r.op == "secret_dropped" && r.key == "real"));
+    env.stop().await;
+}
+
 /// Security review AI-3: the agent's LLM API key is dropped when `api_base` changes, so a
 /// `config` operator cannot send the key to a host of their own.
 #[tokio::test(flavor = "multi_thread")]

@@ -837,6 +837,18 @@ impl Admin {
                 "link id {id:?} is a downstream site or an operator of this broker"
             ));
         }
+        // Review AI-3 holds for a restore as for an edit: when the backup's params move an
+        // existing agent link to another `api_base` or `api_key_ref`, its API key does not
+        // stay. The old secrets go before the backup's are placed (those are added to what
+        // the link has), and the backup's own copy under those names goes too: the key is
+        // entered again for the new base.
+        let agent_keys = match &existing {
+            Some(old) if old.driver == AGENT_DRIVER => {
+                agent_keys_to_drop(&decode_params(&old.params), &params)
+            }
+            _ => Vec::new(),
+        };
+        r.secrets.retain(|name, _| !agent_keys.contains(name));
         let mut message = match self.backup_package(&mut r, sub).await? {
             Some(m) => format!("{m}; "),
             None => String::new(),
@@ -864,6 +876,26 @@ impl Admin {
                 message.push_str(&format!("restore point {}; ", point.id));
                 if old.mode != Mode::External {
                     self.stop_link(&id, sub).await.map_err(|e| e.message)?;
+                }
+                if !agent_keys.is_empty() {
+                    let dropped = ctl.drop_agent_key_on_new_base(
+                        &id,
+                        &decode_params(&old.params),
+                        &params,
+                        sub,
+                    );
+                    if let Err(e) = dropped {
+                        // nothing was replaced: the link runs again as it was, key and all
+                        if old.mode != Mode::External {
+                            if let Err(s) = self.start_link(&id, sub).await {
+                                warn!(link = %id, "not started again after a refused restore: {}", s.message);
+                            }
+                        }
+                        return Err(format!(
+                            "the agent's API key for the old api_base cannot be dropped ({e}); \
+                             nothing is restored"
+                        ));
+                    }
                 }
             }
             None => {
@@ -928,7 +960,11 @@ impl Admin {
         if r.def.mode != Mode::External && (existing.is_some() || r.has_data) {
             self.start_link(&id, sub).await.map_err(|e| e.message)?;
         }
-        if grants {
+        // an agent's `allowed_prefixes` scope its key in every link's trust list, as on an edit
+        let agent_params = existing
+            .as_ref()
+            .is_some_and(|o| o.driver == AGENT_DRIVER && o.params != r.def.params);
+        if grants || agent_params {
             ctl.schedule_reload();
         }
         let sections: Vec<&str> = r

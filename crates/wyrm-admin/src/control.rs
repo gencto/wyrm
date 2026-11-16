@@ -163,6 +163,37 @@ const AGENT_API_BASE: &str = "https://api.anthropic.com";
 const AGENT_API_KEY_REF: &str = "anthropic_api_key";
 const AGENT_KEY_REF: &str = "agent_key";
 
+fn agent_text(v: &Value, k: &str, d: &str) -> String {
+    match v {
+        Value::Map(m) => match m.get(k) {
+            Some(Value::Str(s)) => s.trim_end_matches('/').to_owned(),
+            _ => d.to_owned(),
+        },
+        _ => d.to_owned(),
+    }
+}
+
+fn agent_base(params: &Value) -> String {
+    agent_text(params, "api_base", AGENT_API_BASE)
+}
+
+/// The secret names an agent link's API key may sit under that must go when
+/// its params change from `old` to `new` (review AI-3): both `api_key_ref`
+/// names when `api_base` or `api_key_ref` changes, none otherwise. Every
+/// change of an agent's params goes through it: an edit and a restore.
+pub(crate) fn agent_keys_to_drop(old: &Value, new: &Value) -> Vec<String> {
+    let name = agent_text(new, "api_key_ref", AGENT_API_KEY_REF);
+    let old_name = agent_text(old, "api_key_ref", AGENT_API_KEY_REF);
+    if agent_base(old) == agent_base(new) && name == old_name {
+        return Vec::new();
+    }
+    if name == old_name {
+        vec![name]
+    } else {
+        vec![name, old_name]
+    }
+}
+
 /// The agent's API key secret is never its signing key: the API key leaves the broker.
 fn check_agent_refs(params: &Value) -> Result<(), LinkError> {
     let name = |k: &str, d: &str| match params {
@@ -915,37 +946,22 @@ impl Control {
     /// and the host next, then the name back, must not keep it either).
     /// `Err` when a secret cannot be removed: the caller refuses the edit, so the key never
     /// stays with a new base (fails closed).
-    fn drop_agent_key_on_new_base(
+    pub(crate) fn drop_agent_key_on_new_base(
         &self,
         id: &str,
         old: &Value,
         new: &Value,
         sub: &str,
     ) -> Result<(), Error> {
-        let text = |v: &Value, k: &str, d: &str| match v {
-            Value::Map(m) => match m.get(k) {
-                Some(Value::Str(s)) => s.trim_end_matches('/').to_owned(),
-                _ => d.to_owned(),
-            },
-            _ => d.to_owned(),
-        };
-        let base = |v: &Value| text(v, "api_base", AGENT_API_BASE);
-        let name = text(new, "api_key_ref", AGENT_API_KEY_REF);
-        let old_name = text(old, "api_key_ref", AGENT_API_KEY_REF);
-        if base(old) == base(new) && name == old_name {
-            return Ok(());
-        }
-        for n in [name, old_name] {
+        let base = agent_base(new);
+        for n in agent_keys_to_drop(old, new) {
             if self.secrets.remove(id, &n)? {
                 self.record(
                     sub,
                     "secret_dropped",
                     id,
                     Status::Ok,
-                    &format!(
-                        "{n}: api_base changed to {}; enter the key again",
-                        base(new)
-                    ),
+                    &format!("{n}: api_base changed to {base}; enter the key again"),
                 );
             }
         }
@@ -1479,6 +1495,15 @@ impl Control {
                             hash,
                         })?;
                         self.link_cert(&l.id)?;
+                    }
+                    if d.driver == AGENT_DRIVER {
+                        // review AI-3 for every change of an agent's params, the file too
+                        self.drop_agent_key_on_new_base(
+                            &l.id,
+                            &decode_params(&d.params),
+                            &decode_params(&params),
+                            "system",
+                        )?;
                     }
                     self.apply(Op::Update {
                         id: l.id.clone(),
