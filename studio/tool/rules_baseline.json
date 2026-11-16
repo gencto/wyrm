@@ -51,7 +51,7 @@
     "app/lib/connectors/access_page_connector.dart": 117,
     "app/lib/connectors/assistant_page_connector.dart": 887,
     "app/lib/connectors/explorer_page_connector.dart": 704,
-    "app/lib/connectors/flow_editor_page_connector.dart": 443,
+    "app/lib/connectors/flow_editor_page_connector.dart": 349,
     "app/lib/connectors/flows_page_connector.dart": 92,
     "app/lib/connectors/gallery_page_connector.dart": 31,
     "app/lib/connectors/history_page_connector.dart": 124,

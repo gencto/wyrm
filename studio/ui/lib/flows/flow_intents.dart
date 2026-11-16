@@ -1,6 +1,7 @@
 import 'package:equatable/equatable.dart';
 import 'package:flutter/widgets.dart' show Offset;
 
+import 'block_palette.dart';
 import 'flow_block_view.dart';
 import 'shortcut_card.dart';
 
@@ -191,4 +192,51 @@ final class RowPinned extends Equatable {
 
   @override
   List<Object?> get props => [row, on];
+}
+
+/// The palette's entry at place [entry] (in [BlockPalette.entries]) placed
+/// at [place].
+final class EntryPlaced extends Equatable {
+  const EntryPlaced(this.entry, this.place);
+
+  final int entry;
+  final Place place;
+
+  @override
+  List<Object?> get props => [entry, place];
+}
+
+/// [item] of the menu of the palette's entry at place [entry] picked.
+final class EntryMenuPicked extends Equatable {
+  const EntryMenuPicked(this.entry, this.item);
+
+  final int entry;
+  final MyBlockItemVm item;
+
+  @override
+  List<Object?> get props => [entry, item];
+}
+
+/// The custom block of the palette's entry at place [entry] renamed to
+/// [name].
+final class EntryRenamed extends Equatable {
+  const EntryRenamed(this.entry, this.name);
+
+  final int entry;
+  final String name;
+
+  @override
+  List<Object?> get props => [entry, name];
+}
+
+/// The Tree tab's row at place [row] (in [BlockPalette.tree]) placed at
+/// [place].
+final class TreeRowPlaced extends Equatable {
+  const TreeRowPlaced(this.row, this.place);
+
+  final int row;
+  final Place place;
+
+  @override
+  List<Object?> get props => [row, place];
 }

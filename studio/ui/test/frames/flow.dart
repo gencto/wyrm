@@ -19,11 +19,12 @@ import 'package:ui/flows/shortcut_card.dart';
 import 'package:ui/indicators/quality_mark.dart';
 import 'package:ui/indicators/value_type.dart';
 import 'package:ui/models/disabled.dart';
-import 'package:ui/models/query.dart';
 import 'package:ui/overlays/value_viewer.dart';
 import 'package:ui/pages/flow_editor_page.dart';
 import 'package:ui/tables/table_edits.dart';
 import 'package:ui/trees/json_tree.dart';
+
+import '../support/test_query.dart';
 
 // The data of boards *Flow editor · fields, bindings, properties* (FlowBind)
 // and *· drag points and actions from the tree* (FlowTree), as
@@ -35,7 +36,7 @@ const _m = 16.0;
 /// Rows of the boards that are outputs only: a wire over one is refused.
 const _outputsOnly = {'output', 'result', 'state', 't1', 't2', 'out'};
 
-final _refusal = QueryVm<BindAsk, BindRefusalVm?>(
+final _refusal = TestQuery<BindAsk, BindRefusalVm?>(
   (ask) => _outputsOnly.contains(ask.row.id) ? const RefuseOutput() : null,
 );
 
@@ -83,7 +84,6 @@ InspectorHeadVm? _head(String kind, String title, String note) {
   );
 }
 
-void _place(Place _) {}
 void _rowRef(RowRef _) {}
 void _bindWire(WireDropped _) {}
 void _moveWire(WireMoved _) {}
@@ -94,89 +94,73 @@ void _command(CanvasCommand _) {}
 
 List<PaletteEntryVm> _blocks() => const [
   PaletteEntryVm(
-    place: _place,
     title: 'Subscribe',
     kind: PaletteKindVm.input,
     category: 'Sources',
   ),
   PaletteEntryVm(
-    place: _place,
     title: 'If',
     category: 'Logic',
     description: 'then when the inputs pass op, else otherwise.',
   ),
   PaletteEntryVm(
-    place: _place,
     title: 'Case',
     category: 'Logic',
   ),
   PaletteEntryVm(
-    place: _place,
     title: 'Router',
     category: 'Logic',
   ),
   PaletteEntryVm(
-    place: _place,
     title: 'Hub',
     category: 'Logic',
   ),
   PaletteEntryVm(
-    place: _place,
     title: 'Script · rhai',
     category: 'Logic',
   ),
   PaletteEntryVm(
-    place: _place,
     title: 'Delay',
     category: 'Logic',
   ),
   PaletteEntryVm(
-    place: _place,
     title: 'State',
     category: 'Logic',
   ),
   PaletteEntryVm(
-    place: _place,
     title: 'Stopwatch',
     category: 'Logic',
   ),
   PaletteEntryVm(
-    place: _place,
     title: 'Trace',
     category: 'Logic',
   ),
   PaletteEntryVm(
-    place: _place,
     title: 'Catch error',
     category: 'Logic',
   ),
   PaletteEntryVm(
-    place: _place,
     title: 'Repeat',
     glyph: 'RPT',
     category: 'Data',
   ),
-  PaletteEntryVm(place: _place, title: 'Table', glyph: 'TBL', category: 'Data'),
+  PaletteEntryVm(title: 'Table', glyph: 'TBL', category: 'Data'),
   PaletteEntryVm(
-    place: _place,
     title: 'Make object',
     glyph: '{}',
     category: 'Data',
   ),
   PaletteEntryVm(
-    place: _place,
     title: 'DQL query',
     glyph: 'DQL',
     category: 'Data',
   ),
   PaletteEntryVm(
-    place: _place,
     title: 'Publish',
     kind: PaletteKindVm.output,
     category: 'Sinks',
   ),
   PaletteEntryVm(
-    place: _place,
     title: 'WASM',
     category: 'Code · WASM',
   ),
@@ -413,11 +397,11 @@ FlowEditorPage _bind({
   onViewField: _rowRef,
   onFieldPin: pins ? _pinned : null,
   onSaveViewer: _id,
-  checkViewer: QueryVm(
+  checkViewer: TestQuery(
     (text) => text.contains('oops') ? ViewerTextProblemVm.json : null,
   ),
   mac: true,
-  menu: QueryVm(
+  menu: TestQuery(
     (ask) => _menu(
       ask.ids,
       ask.block,
@@ -720,7 +704,6 @@ FlowEditorPage flowTreeDrag() => FlowEditorPage(
   onPaletteTab: _tab,
   palette: const [
     PaletteEntryVm(
-      place: _place,
       title: 'level_raw',
       glyph: '.0',
       category: 'modbus / tcp-tank',
@@ -729,7 +712,6 @@ FlowEditorPage flowTreeDrag() => FlowEditorPage(
       used: true,
     ),
     PaletteEntryVm(
-      place: _place,
       title: 'level_sp',
       glyph: '.0',
       category: 'modbus / tcp-tank',
@@ -738,7 +720,6 @@ FlowEditorPage flowTreeDrag() => FlowEditorPage(
       dragging: true,
     ),
     PaletteEntryVm(
-      place: _place,
       title: 'pump_run',
       glyph: '01',
       category: 'modbus / tcp-tank',
@@ -747,7 +728,6 @@ FlowEditorPage flowTreeDrag() => FlowEditorPage(
       used: true,
     ),
     PaletteEntryVm(
-      place: _place,
       title: 'mode',
       glyph: '≡',
       category: 'modbus / tcp-tank',
@@ -756,7 +736,6 @@ FlowEditorPage flowTreeDrag() => FlowEditorPage(
       used: true,
     ),
     PaletteEntryVm(
-      place: _place,
       title: 'pump_fault',
       glyph: '01',
       category: 'modbus / tcp-tank',
@@ -764,7 +743,6 @@ FlowEditorPage flowTreeDrag() => FlowEditorPage(
       value: 'off',
     ),
     PaletteEntryVm(
-      place: _place,
       title: 'start_pump',
       glyph: 'ACT',
       category: 'modbus / tcp-tank',
@@ -773,7 +751,6 @@ FlowEditorPage flowTreeDrag() => FlowEditorPage(
       value: '2 in',
     ),
     PaletteEntryVm(
-      place: _place,
       title: 'stop_pump',
       glyph: 'ACT',
       category: 'modbus / tcp-tank',
@@ -783,7 +760,6 @@ FlowEditorPage flowTreeDrag() => FlowEditorPage(
       used: true,
     ),
     PaletteEntryVm(
-      place: _place,
       title: 'reset_alarm',
       glyph: 'ACT',
       category: 'modbus / tcp-tank',
@@ -792,7 +768,6 @@ FlowEditorPage flowTreeDrag() => FlowEditorPage(
       value: '0 in',
     ),
     PaletteEntryVm(
-      place: _place,
       title: 'level',
       glyph: '.0',
       category: 'storage / tank',
@@ -800,7 +775,6 @@ FlowEditorPage flowTreeDrag() => FlowEditorPage(
       value: '92.6',
     ),
     PaletteEntryVm(
-      place: _place,
       title: 'state',
       glyph: 'Aa',
       category: 'storage / tank',
@@ -1779,30 +1753,28 @@ FlowEditorPage _wave2({
   onViewField: _rowRef,
   onFieldPin: _pinned,
   onRun: _index,
-  menu: QueryVm(_menu2),
+  menu: TestQuery(_menu2),
   crumbs: crumbs,
   onBack: (_) {},
   instances: instances,
   prompt: prompt,
   onPromptSave: _id,
   onPromptCancel: () {},
-  checkScope: QueryVm(
+  checkScope: TestQuery(
     (s) => s.startsWith('sys') ? ScopeProblemVm.section : null,
   ),
-  createBlock: QueryVm(
-    (_) => const CustomBlockDialogVm(
-      blocks: 2,
-      name: 'block1',
-      inputs: [
-        BlockPortVm(name: 'sum_0', outside: ['a.out']),
-        BlockPortVm(name: 'sum_1', outside: ['b.out']),
-      ],
-      outputs: [
-        BlockPortVm(name: 'half', outside: ['mean.in']),
-      ],
-    ),
+  createBlock: const CustomBlockDialogVm(
+    blocks: 2,
+    name: 'block1',
+    inputs: [
+      BlockPortVm(name: 'sum_0', outside: ['a.out']),
+      BlockPortVm(name: 'sum_1', outside: ['b.out']),
+    ],
+    outputs: [
+      BlockPortVm(name: 'half', outside: ['mean.in']),
+    ],
   ),
-  checkBlock: QueryVm(
+  checkBlock: TestQuery(
     (r) => r.name.contains(' ') ? CustomBlockProblemVm.badName : null,
   ),
   onCreateBlock: (_) {},
@@ -2224,7 +2196,6 @@ List<PaletteTreeRowVm> _treeRows() => const [
     depth: 3,
     node: 'd/modbus/tcp-tank',
     action: 'start_pump',
-    place: _place,
     inputs: 2,
   ),
   PaletteActionRowVm(
@@ -2233,7 +2204,6 @@ List<PaletteTreeRowVm> _treeRows() => const [
     depth: 3,
     node: 'd/modbus/tcp-tank',
     action: 'stop_pump',
-    place: _place,
     inputs: 1,
   ),
   PaletteNodeRowVm(
@@ -2243,7 +2213,7 @@ List<PaletteTreeRowVm> _treeRows() => const [
     used: true,
     type: ValueType.number,
     value: '3790',
-    place: _place,
+    places: true,
   ),
   PaletteNodeRowVm(
     key: 'k2',
@@ -2251,7 +2221,7 @@ List<PaletteTreeRowVm> _treeRows() => const [
     depth: 3,
     type: ValueType.number,
     value: '90 %',
-    place: _place,
+    places: true,
   ),
   PaletteNodeRowVm(
     key: 'k3',
@@ -2259,7 +2229,7 @@ List<PaletteTreeRowVm> _treeRows() => const [
     depth: 3,
     type: ValueType.bool_,
     value: 'off',
-    place: _place,
+    places: true,
   ),
   PaletteNodeRowVm(
     key: 'k4',
@@ -2267,7 +2237,7 @@ List<PaletteTreeRowVm> _treeRows() => const [
     depth: 3,
     type: ValueType.enum_,
     value: 'auto',
-    place: _place,
+    places: true,
   ),
   PaletteNodeRowVm(
     key: 'd/modbus/tcp-boiler',
@@ -2303,7 +2273,7 @@ List<PaletteTreeRowVm> _treeRows() => const [
     depth: 2,
     type: ValueType.number,
     value: '92.6',
-    place: _place,
+    places: true,
   ),
   PaletteNodeRowVm(
     key: 'k7',
@@ -2311,7 +2281,7 @@ List<PaletteTreeRowVm> _treeRows() => const [
     depth: 2,
     type: ValueType.string,
     value: '"high"',
-    place: _place,
+    places: true,
   ),
 ];
 
@@ -2394,7 +2364,6 @@ const _customWires = [
 List<PaletteEntryVm> _myBlocks() => const [
   PaletteEntryVm(
     title: 'mean2',
-    place: _place,
     kind: PaletteKindVm.my,
     description: 'The mean of two values',
     instances: 1,
@@ -2411,25 +2380,21 @@ List<PaletteEntryVm> _myBlocks() => const [
   ),
   PaletteEntryVm(
     title: 'clamp',
-    place: _place,
     kind: PaletteKindVm.my,
     updateTo: 4,
   ),
   PaletteEntryVm(
     title: 'clamp',
-    place: _place,
     kind: PaletteKindVm.library,
     version: 4,
   ),
   PaletteEntryVm(
     title: 'deadtime',
-    place: _place,
     kind: PaletteKindVm.library,
     version: 1,
   ),
   PaletteEntryVm(
     title: 'mean',
-    place: _place,
     kind: PaletteKindVm.library,
     version: 2,
   ),
@@ -2516,7 +2481,6 @@ FlowEditorPage flowCustomInside() => _wave2(
       if (e.kind == PaletteKindVm.my && e.title == 'mean2')
         const PaletteEntryVm(
           title: 'mean2',
-          place: _place,
           kind: PaletteKindVm.my,
           instances: 1,
           insideItself: true,

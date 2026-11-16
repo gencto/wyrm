@@ -118,8 +118,6 @@ import '../wyrm/discovery.dart' show RangeFault, codeGroups;
 import '../wyrm/explorer.dart';
 import '../wyrm/features.dart';
 import '../wyrm/flow_view/flow_view.dart';
-import '../wyrm/flow_view/menu_view.dart';
-import '../wyrm/flow_view/prompt_view.dart';
 import '../wyrm/gateway_label.dart';
 import '../wyrm/historian_stats.dart';
 import '../wyrm/history_trend.dart';
@@ -129,7 +127,6 @@ import '../wyrm/link_update.dart';
 import '../wyrm/log_in_page.dart';
 import '../wyrm/mappers/agent_task_mapper.dart';
 import '../wyrm/mappers/flow_blocks.dart';
-import '../wyrm/mappers/flow_canvas.dart' show FieldEditError;
 import '../wyrm/mappers/live_overlay_mapper.dart';
 import '../wyrm/mappers/log_line_mapper.dart';
 import '../wyrm/rights.dart';
@@ -2152,34 +2149,6 @@ extension type SelectFlowEditor(AppState _state) {
   /// The editor of the route [routeId] (`newFlowId`: a new flow) as it is
   /// drawn, typed; the same view while nothing it shows changed.
   FlowView view(String routeId) => flowViewOf(_state, routeId);
-
-  /// The context menu [ask] opens now (spec §13).
-  FlowMenuView menu(String routeId, MenuAsk ask) =>
-      flowMenuAt(_state, routeId, ask);
-
-  /// What `Create custom block…` asks of the selection now.
-  CustomBlockView? customBlock(String routeId) =>
-      customBlockAt(_state, routeId);
-
-  /// Why the wire [ask] would not bind now; null: it binds.
-  WireRefusal? refusal(String routeId, WireAsk ask) =>
-      wireRefusalAt(_state, routeId, ask);
-
-  /// What is wrong with [name] for `Rename` of a custom block.
-  BlockNameProblem? blockNameProblem(String routeId, String name) =>
-      blockNameProblemAt(_state, routeId, name);
-
-  /// What is wrong with the block the create dialog would make.
-  BlockNameProblem? customBlockProblem(CustomBlockSpec spec) =>
-      customBlockProblemAt(_state, spec);
-
-  /// What is wrong with a scope typed for a key of this site.
-  ScopeProblem? scopeProblem(String scope) =>
-      scopeProblemAt(SelectSite(_state).root ?? '', scope);
-
-  /// What is wrong with [text] typed in the viewer's Edit mode.
-  FieldEditError? viewerTextError(String routeId, String text) =>
-      viewerTextErrorAt(_state, routeId, text);
 
   /// The route the editor was opened on (`newFlowId` for a new flow);
   /// null before it was opened.

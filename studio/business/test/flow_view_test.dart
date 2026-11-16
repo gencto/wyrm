@@ -270,9 +270,8 @@ void main() {
   });
 
   test('the context menu', () {
-    final s = stateOf();
-    final ed = SelectFlowEditor(s);
-    final canvas = ed.menu('dvpsm-bot', const MenuAsk(ISetConst({})));
+    final q = viewOf(stateOf()).questions;
+    final canvas = q.menu(const MenuAsk(ISetConst({})));
     expect(canvas.block, isNull);
     expect(canvas.flow, 'dvpsm-bot');
     expect(canvas.blocksInFlow, 62);
@@ -284,8 +283,7 @@ void main() {
       canvas.items.firstWhere((i) => i.command == MenuCommand.cut).off,
       MenuOffReason.nothingSelected,
     );
-    final one = ed.menu(
-      'dvpsm-bot',
+    final one = q.menu(
       const MenuAsk(
         ISetConst({'c_ack'}),
         block: 'c_ack',
@@ -378,7 +376,7 @@ void main() {
     expect(v.rowAt('nothing', 0), isNull);
     expect(p.value, 'storage/dvpsm/cmd/**');
     expect(p.suggestions, contains('downstream/**'));
-    expect(SelectFlowEditor(s).scopeProblem(''), ScopeProblem.empty);
+    expect(viewOf(s).questions.scope(''), ScopeProblem.empty);
   });
 
   test('a library call that runs holds the library items of My blocks', () {
@@ -416,8 +414,8 @@ void main() {
     final s = stateOf().copyWith.flowEditor(
       selection: {'c_status', 'e_status'}.lock,
     );
-    final ed = SelectFlowEditor(s);
-    final c = ed.customBlock('dvpsm-bot')!;
+    final v = viewOf(s);
+    final c = v.customBlock!;
     expect(
       customBlockOf(large, {'c_status'}.lock, customBlocks: false),
       isNull,
@@ -426,8 +424,8 @@ void main() {
     expect(c.blocks, 2);
     expect(c.outputs, isNotEmpty);
     expect(c.outputs.first.outside, isNotEmpty);
-    expect(ed.blockNameProblem('dvpsm-bot', 'a b'), BlockNameProblem.name);
-    expect(ed.blockNameProblem('dvpsm-bot', 'free'), isNull);
+    expect(v.questions.blockName('a b'), BlockNameProblem.name);
+    expect(v.questions.blockName('free'), isNull);
     expect(
       customBlockSpecOf(
         name: 'b',
@@ -441,9 +439,7 @@ void main() {
   });
 
   test('a wire refused: into its own block', () {
-    final ed = SelectFlowEditor(stateOf());
-    final r = ed.refusal(
-      'dvpsm-bot',
+    final r = viewOf(stateOf()).questions.refusal(
       WireAsk(
         PortEnd('c_ack', 'out'),
         'c_ack',
@@ -463,9 +459,9 @@ void main() {
     expect(v.field, 'interval_ms');
     expect(v.edit?.mode, ViewerEditMode.number);
     expect(v.locked, isNull);
-    final ed = SelectFlowEditor(s);
-    expect(ed.viewerTextError('dvpsm-bot', 'x'), FieldEditError.number);
-    expect(ed.viewerTextError('dvpsm-bot', '5'), isNull);
+    final q = viewOf(s).questions;
+    expect(q.viewerText('x'), FieldEditError.number);
+    expect(q.viewerText('5'), isNull);
     final out = stateOf().copyWith.flowEditor(
       viewedField: const FieldAt('c_ack', FieldId.output('out')),
     );

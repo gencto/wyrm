@@ -7,6 +7,7 @@ import 'package:models/flow_draft.dart';
 import 'package:models/flow_edge.dart';
 import 'package:models/live_value.dart';
 import 'package:models/node_type.dart';
+import 'package:models/palette_entry.dart';
 import 'package:models/palette_tab.dart';
 import 'package:models/param_spec.dart';
 import 'package:wyrm_client/wyrm_client.dart' show Perm, Value;
@@ -20,16 +21,15 @@ import '../../redux/flow_editor/actions/update_block_from_library_action.dart';
 import '../decode/flow_def.dart';
 import '../mappers/block_cfg.dart';
 import '../mappers/flow_blocks.dart';
-import '../mappers/flow_canvas.dart';
 import '../mappers/flow_fields.dart';
 import '../rights.dart';
 import 'block_view.dart';
 import 'flow_live.dart';
 import 'inspector_view.dart';
-import 'menu_view.dart';
 import 'off.dart';
 import 'palette_view.dart';
 import 'prompt_view.dart';
+import 'questions_view.dart';
 import 'summary_view.dart';
 import 'viewer_view.dart';
 
@@ -112,6 +112,7 @@ final class FlowView extends Equatable {
     required this.blocks,
     required this.wires,
     required this.follow,
+    required this.questions,
     this.deployOff,
     this.selected,
     this.selectedCount = 0,
@@ -121,6 +122,7 @@ final class FlowView extends Equatable {
     this.summary,
     this.viewer,
     this.prompt,
+    this.customBlock,
   });
 
   /// `wy/<site>`.
@@ -177,8 +179,39 @@ final class FlowView extends Equatable {
   final ScopePromptView? prompt;
   final FlowFollow follow;
 
+  /// What the page asks while the user acts (the menu, a wire's refusal,
+  /// the dialogs' checks), answered from what the editor shows.
+  final FlowQuestions questions;
+
+  /// What `Create custom block…` proposes for the selection; null: there
+  /// is nothing to make a block of.
+  final CustomBlockView? customBlock;
+
   /// A block is selected: Remove block is on.
   bool get removable => selected != null;
+
+  /// What the palette's entry at place [i] places: the Blocks tab lists
+  /// [catalog], My blocks [myBlocks] then [library], the Tree tab none
+  /// (its rows are [tree]); null when there is none.
+  PaletteEntry? paletteEntryAt(int i) => switch (palette) {
+    PaletteTab.blocks => switch (catalog.elementAtOrNull(i)) {
+      final c? => EnginePick(c.type),
+      null => null,
+    },
+    PaletteTab.my =>
+      myBlocks.elementAtOrNull(i)?.entry ??
+          library.elementAtOrNull(i - myBlocks.length)?.entry,
+    PaletteTab.tree => null,
+  };
+
+  /// The name of the custom block or of the library's block at place [i]
+  /// of My blocks; null on the other tabs or when there is none.
+  String? paletteNameAt(int i) => switch (palette) {
+    PaletteTab.my =>
+      myBlocks.elementAtOrNull(i)?.name ??
+          library.elementAtOrNull(i - myBlocks.length)?.name,
+    PaletteTab.blocks || PaletteTab.tree => null,
+  };
 
   /// The field that stands at place [row] among block [block]'s rows on the
   /// canvas (what the canvas reports a row by); null when there is none.
@@ -213,6 +246,8 @@ final class FlowView extends Equatable {
     viewer,
     prompt,
     follow,
+    questions,
+    customBlock,
   ];
 }
 
@@ -423,6 +458,8 @@ final _follow = Memo<FlowFollow>();
 final _view = Memo<FlowView>();
 final _config = Memo<Lack?>();
 final _deployOff = Memo<Off<DeployOffReason>?>();
+final _questions = Memo<FlowQuestions>();
+final _customBlock = Memo<CustomBlockView?>();
 
 /// The flow editor of [s] for the route [routeId] (`newFlowId` for a new
 /// flow): its every part, each made again only when what it reads changed.
@@ -666,6 +703,19 @@ FlowView flowViewOf(AppState s, String routeId) {
                     ? const OffFor(DeployOffReason.fixFirst)
                     : offNeeds<DeployOffReason>(config))),
   );
+  final questions = _questions.of(
+    [base, fe.undo.isNotEmpty, fe.redo.isNotEmpty, fe.viewedField],
+    () => FlowQuestions(
+      base,
+      canUndo: fe.undo.isNotEmpty,
+      canRedo: fe.redo.isNotEmpty,
+      viewed: fe.viewedField,
+    ),
+  );
+  final customBlock = _customBlock.of(
+    [d, fe.selection, base.caps.blocks],
+    () => customBlockOf(d, fe.selection, customBlocks: base.caps.blocks),
+  );
   final selectedCount = fe.selection.length;
   final instances = inside && base.flow != null
       ? instancesOf(base.flow!, fe.frames.last.block)
@@ -691,6 +741,8 @@ FlowView flowViewOf(AppState s, String routeId) {
       instances,
       fe.palette,
       base,
+      questions,
+      customBlock,
     ],
     () => FlowView(
       root: root,
@@ -717,6 +769,8 @@ FlowView flowViewOf(AppState s, String routeId) {
       viewer: viewer,
       prompt: prompt,
       follow: follow,
+      questions: questions,
+      customBlock: customBlock,
     ),
   );
 }
@@ -759,58 +813,6 @@ FlowFollow followOf(AppState s, FlowBase base) {
     }.lock,
     run: base.run,
   );
-}
-
-// ---------- the questions the page asks while the user acts ----------
-
-/// The context menu [ask] opens (spec §13), from the state now.
-FlowMenuView flowMenuAt(AppState s, String routeId, MenuAsk ask) {
-  final base = flowBaseOf(s, routeId);
-  final fe = s.flowEditor;
-  return flowMenuOf(
-    ask,
-    base.draft,
-    base.fields,
-    customBlocks: base.caps.blocks,
-    canUndo: fe.undo.isNotEmpty,
-    canRedo: fe.redo.isNotEmpty,
-  );
-}
-
-/// What `Create custom block…` asks of the selection now.
-CustomBlockView? customBlockAt(AppState s, String routeId) => customBlockOf(
-  s.flowEditor.draft,
-  s.flowEditor.selection,
-  customBlocks: flowBaseOf(s, routeId).caps.blocks,
-);
-
-/// Why the wire [ask] would not bind now.
-WireRefusal? wireRefusalAt(AppState s, String routeId, WireAsk ask) {
-  final base = flowBaseOf(s, routeId);
-  return wireRefusalOf(ask, base.draft, base.types, base.fields);
-}
-
-/// What is wrong with [name] for `Rename` of a custom block now.
-BlockNameProblem? blockNameProblemAt(AppState s, String routeId, String name) =>
-    blockNameProblemOf(flowBaseOf(s, routeId).defs, name);
-
-/// What is wrong with the block the create dialog would make now.
-BlockNameProblem? customBlockProblemAt(AppState s, CustomBlockSpec spec) =>
-    switch (s.flowEditor.draft) {
-      final d? => customBlockProblem(d, spec),
-      null => null,
-    };
-
-/// What is wrong with [text] typed in the viewer of the field viewed now.
-FieldEditError? viewerTextErrorAt(AppState s, String routeId, String text) {
-  final base = flowBaseOf(s, routeId);
-  final at = s.flowEditor.viewedField;
-  final d = base.draft;
-  final b = at == null ? null : d?.blocks[at.block];
-  if (at == null || b == null || d == null) {
-    return null;
-  }
-  return viewerTextErrorOf(b, at.row, base.fields[b.id]!, d, text);
 }
 
 /// The live value the field [row] of [block] shows now (what an unbind

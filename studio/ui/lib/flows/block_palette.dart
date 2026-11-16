@@ -87,13 +87,11 @@ final class PaletteDrag extends Equatable {
 }
 
 /// One entry of the palette: a block type, a custom block, or (on the
-/// board of the Tree tab) a point or an action of the tree. [place] puts
-/// it on the canvas; a custom block's menu picks go to [onMenu], its new
-/// name to [onRename].
+/// board of the Tree tab) a point or an action of the tree. The palette
+/// reports what is done with it by its place in [BlockPalette.entries].
 final class PaletteEntryVm extends Equatable {
   const PaletteEntryVm({
     required this.title,
-    required this.place,
     this.kind = PaletteKindVm.logic,
     this.glyph,
     this.category = '',
@@ -110,14 +108,9 @@ final class PaletteEntryVm extends Equatable {
     this.inputs,
     this.insideItself = false,
     this.menu = const [],
-    this.onMenu,
-    this.onRename,
   });
 
   final String title;
-
-  /// Places it: tapped, dragged onto the canvas or onto a block's input.
-  final ValueChanged<Place> place;
   final PaletteKindVm kind;
 
   /// A chip of its own in place of the kind's: a point's type tag (`.0`,
@@ -165,11 +158,6 @@ final class PaletteEntryVm extends Equatable {
   /// Its context menu (a custom block: `Save to library`, `Rename`, …).
   final List<PaletteMenuItemVm> menu;
 
-  /// An item of [menu] picked ([MyBlockItemVm.rename] asks the name first
-  /// and goes to [onRename]).
-  final ValueChanged<MyBlockItemVm>? onMenu;
-  final ValueChanged<String>? onRename;
-
   /// The chip's letters.
   String get tag => glyph ?? (action ? 'ACT' : kind.tag);
 
@@ -211,7 +199,6 @@ final class PaletteEntryVm extends Equatable {
   String? get disabledReason =>
       insideItself ? const FlowOff(.insideItself).text : null;
 
-  // The callbacks are behaviour (value_changed.dart): not compared.
   @override
   List<Object?> get props => [
     title,
@@ -270,7 +257,7 @@ final class PaletteMenuItemVm extends Equatable {
 }
 
 /// A row of the Tree tab (spec §18): a node or a value of the site's
-/// tree, or an action of an open node. A row that [place]s something is
+/// tree, or an action of an open node. A row that [places] something is
 /// dragged onto the canvas, and a tap adds it; any other opens or closes.
 sealed class PaletteTreeRowVm extends Equatable {
   const PaletteTreeRowVm({
@@ -284,8 +271,8 @@ sealed class PaletteTreeRowVm extends Equatable {
   final String name;
   final int depth;
 
-  /// Places what it stands for; null: it opens or closes.
-  ValueChanged<Place>? get place;
+  /// It places what it stands for; false: it opens or closes.
+  bool get places;
 
   /// May be let go on a block's input (a value).
   bool get point;
@@ -312,7 +299,7 @@ final class PaletteNodeRowVm extends PaletteTreeRowVm {
     this.used = false,
     this.type,
     this.value,
-    this.place,
+    this.places = false,
     this.writable = false,
   });
 
@@ -331,7 +318,7 @@ final class PaletteNodeRowVm extends PaletteTreeRowVm {
   /// A value's live value, as the tree shows it.
   final String? value;
   @override
-  final ValueChanged<Place>? place;
+  final bool places;
   @override
   final bool writable;
 
@@ -339,7 +326,7 @@ final class PaletteNodeRowVm extends PaletteTreeRowVm {
   bool get point => type != null;
 
   @override
-  String get widgetKey => place == null ? 'tree-$key' : 'tree-key:$key';
+  String get widgetKey => places ? 'tree-key:$key' : 'tree-$key';
 
   @override
   TreeRowVm get row => TreeRowVm(
@@ -365,6 +352,7 @@ final class PaletteNodeRowVm extends PaletteTreeRowVm {
     used,
     type,
     value,
+    places,
     writable,
   ];
 }
@@ -377,7 +365,6 @@ final class PaletteActionRowVm extends PaletteTreeRowVm {
     required super.depth,
     required this.node,
     required this.action,
-    required this.place,
     required this.inputs,
   });
 
@@ -386,7 +373,7 @@ final class PaletteActionRowVm extends PaletteTreeRowVm {
   final String action;
 
   @override
-  final ValueChanged<Place> place;
+  bool get places => true;
 
   @override
   String get widgetKey => 'tree-act:$node/$action';
@@ -412,6 +399,14 @@ final class PaletteActionRowVm extends PaletteTreeRowVm {
 
   @override
   List<Object?> get props => [key, name, depth, node, action, inputs];
+}
+
+/// An entry of the palette with its place in [BlockPalette.entries].
+final class _Shown {
+  const _Shown(this.index, this.entry);
+
+  final int index;
+  final PaletteEntryVm entry;
 }
 
 /// A line under the Tree tab: [lead] in its colour, then [text].
@@ -442,8 +437,25 @@ class BlockPalette extends StatefulWidget {
     this.onTreeToggle,
     this.onQuery,
     this.checkName,
+    this.onPlace,
+    this.onMenu,
+    this.onRename,
+    this.onTreePlace,
     super.key,
   });
+
+  /// An entry of [entries] (by its place there) tapped, or let go on the
+  /// canvas or on a block's input.
+  final ValueChanged<EntryPlaced>? onPlace;
+
+  /// An item of an entry's menu picked ([MyBlockItemVm.rename] asks the
+  /// name first and goes to [onRename]).
+  final ValueChanged<EntryMenuPicked>? onMenu;
+  final ValueChanged<EntryRenamed>? onRename;
+
+  /// A row of [tree] (by its place there) that places something, tapped
+  /// or let go.
+  final ValueChanged<TreeRowPlaced>? onTreePlace;
 
   /// The Tree tab: the site's tree as rows in display order, drawn with
   /// the Explorer's [TreeRow] (flow-editor.md §18). A row that places
@@ -494,13 +506,14 @@ class _BlockPaletteState extends State<BlockPalette> {
 
   /// One entry: dragged onto the canvas, or tapped to add it; its context
   /// menu on the right button. An entry that cannot be placed does neither.
-  Widget _entry(PaletteEntryVm e) {
+  Widget _entry(int index, PaletteEntryVm e) {
     final row = e.point ? _TreeRow(e) : _BlockRow(e);
     final off = e.disabledReason != null;
+    void place(Place p) => widget.onPlace?.call(EntryPlaced(index, p));
     final tile = MouseRegion(
       cursor: off ? MouseCursor.defer : SystemMouseCursors.grab,
       child: InkWell(
-        onTap: off ? null : () => e.place(const PlaceTapped()),
+        onTap: off ? null : () => place(const PlaceTapped()),
         borderRadius: const BorderRadius.all(Radius.circular(AppRadii.segment)),
         child: row,
       ),
@@ -508,7 +521,7 @@ class _BlockPaletteState extends State<BlockPalette> {
     final dragged = off
         ? tile
         : Draggable<PaletteDrag>(
-            data: PaletteDrag(e.title, place: e.place, point: e.point),
+            data: PaletteDrag(e.title, place: place, point: e.point),
             dragAnchorStrategy: pointerDragAnchorStrategy,
             feedback: _Feedback(e.title),
             child: tile,
@@ -518,13 +531,13 @@ class _BlockPaletteState extends State<BlockPalette> {
     }
     return GestureDetector(
       key: ValueKey(e.widgetKey),
-      onSecondaryTapUp: (d) => unawaited(_menu(e, d.globalPosition)),
-      onLongPressStart: (d) => unawaited(_menu(e, d.globalPosition)),
+      onSecondaryTapUp: (d) => unawaited(_menu(index, e, d.globalPosition)),
+      onLongPressStart: (d) => unawaited(_menu(index, e, d.globalPosition)),
       child: dragged,
     );
   }
 
-  Future<void> _menu(PaletteEntryVm e, Offset at) async {
+  Future<void> _menu(int index, PaletteEntryVm e, Offset at) async {
     final c = context.colors;
     final picked = await showMenu<MyBlockItemVm>(
       context: context,
@@ -555,7 +568,7 @@ class _BlockPaletteState extends State<BlockPalette> {
       return;
     }
     if (picked != MyBlockItemVm.rename) {
-      e.onMenu?.call(picked);
+      widget.onMenu?.call(EntryMenuPicked(index, picked));
       return;
     }
     // Rename asks for the new name first.
@@ -568,24 +581,23 @@ class _BlockPaletteState extends State<BlockPalette> {
       validate: widget.checkName,
     );
     if (name != null) {
-      e.onRename?.call(name);
+      widget.onRename?.call(EntryRenamed(index, name));
     }
   }
 
   /// A row of the Tree tab: the Explorer's row, 32 high. A value leaf or
   /// an action is dragged (and added by a tap); a node opens or closes.
-  Widget _treeRow(PaletteTreeRowVm r) {
-    final place = r.place;
+  Widget _treeRow(int index, PaletteTreeRowVm r) {
+    void place(Place p) => widget.onTreePlace?.call(TreeRowPlaced(index, p));
     final row = TreeRow(
       key: ValueKey(r.widgetKey),
       vm: r.row,
       height: AppSizes.flowPaletteRow,
-      onTap: (id) => place == null
-          ? widget.onTreeToggle?.call(id)
-          : place(const PlaceTapped()),
+      onTap: (id) =>
+          r.places ? place(const PlaceTapped()) : widget.onTreeToggle?.call(id),
       onToggle: widget.onTreeToggle,
     );
-    if (place == null) {
+    if (!r.places) {
       return row;
     }
     return Draggable<PaletteDrag>(
@@ -613,15 +625,16 @@ class _BlockPaletteState extends State<BlockPalette> {
             _Note(S.current.treeAction, S.current.treeActionNote2, ember: true),
           ]
         : const <_Note>[];
+    // Each entry with its place in [entries]: what the palette reports.
     final shown = [
-      for (final e in widget.entries)
+      for (final (i, e) in widget.entries.indexed)
         if (q.isEmpty ||
             '${e.title} ${e.detail ?? ''}'.toLowerCase().contains(q))
-          e,
+          _Shown(i, e),
     ];
-    final groups = <String, List<PaletteEntryVm>>{};
-    for (final e in shown) {
-      (groups[e.group] ??= []).add(e);
+    final groups = <String, List<_Shown>>{};
+    for (final x in shown) {
+      (groups[x.entry.group] ??= []).add(x);
     }
     return DecoratedBox(
       decoration: BoxDecoration(
@@ -701,7 +714,7 @@ class _BlockPaletteState extends State<BlockPalette> {
                   : ListView.builder(
                       padding: Insets.flowPaletteList,
                       itemCount: rows.length,
-                      itemBuilder: (_, i) => _treeRow(rows[i]),
+                      itemBuilder: (_, i) => _treeRow(i, rows[i]),
                     ),
             )
           else if (shown.isEmpty && empty.isNotEmpty)
@@ -715,7 +728,7 @@ class _BlockPaletteState extends State<BlockPalette> {
                       in groups.entries) ...[
                     _Group(
                       name: g,
-                      tree: list.first.point,
+                      tree: list.first.entry.point,
                       open: !_closed.contains(g),
                       onTap: () => setState(
                         () => _closed.contains(g)
@@ -724,7 +737,7 @@ class _BlockPaletteState extends State<BlockPalette> {
                       ),
                     ),
                     if (!_closed.contains(g))
-                      for (final e in list) _entry(e),
+                      for (final x in list) _entry(x.index, x.entry),
                   ],
                 ],
               ),

@@ -244,9 +244,8 @@ Action? placeActionOf(PaletteEntry entry, Place place) =>
 
 /// A block type of the catalogue as a palette entry.
 extension CatalogEntryVm on CatalogEntry {
-  PaletteEntryVm vm(ValueChanged<Place> place) => PaletteEntryVm(
+  PaletteEntryVm get vm => PaletteEntryVm(
     title: title,
-    place: place,
     kind: side.kind,
     category: category,
     wire: type.wire,
@@ -256,13 +255,8 @@ extension CatalogEntryVm on CatalogEntry {
 
 /// A custom block of this flow as a palette entry, with its menu.
 extension MyBlockEntryVm on MyBlockEntry {
-  PaletteEntryVm vm({
-    required ValueChanged<Place> place,
-    required ValueChanged<MyBlockItemVm> onMenu,
-    required ValueChanged<String> onRename,
-  }) => PaletteEntryVm(
+  PaletteEntryVm get vm => PaletteEntryVm(
     title: name,
-    place: place,
     kind: PaletteKindVm.my,
     description: description,
     instances: used,
@@ -272,19 +266,13 @@ extension MyBlockEntryVm on MyBlockEntry {
       for (final m in menu)
         PaletteMenuItemVm(m.item.vm, off: m.off?.disabled(used)),
     ],
-    onMenu: onMenu,
-    onRename: onRename,
   );
 }
 
 /// A block of the site's library as a palette entry, with its menu.
 extension LibraryEntryVm on LibraryEntry {
-  PaletteEntryVm vm({
-    required ValueChanged<Place> place,
-    required ValueChanged<MyBlockItemVm> onMenu,
-  }) => PaletteEntryVm(
+  PaletteEntryVm get vm => PaletteEntryVm(
     title: name,
-    place: place,
     kind: PaletteKindVm.library,
     description: description,
     version: version,
@@ -295,13 +283,12 @@ extension LibraryEntryVm on LibraryEntry {
         off: removeOff?.disabled(0),
       ),
     ],
-    onMenu: onMenu,
   );
 }
 
 /// A row of the Tree tab; `root` the site's root (the node icons).
 extension TreeEntryVm on TreeEntry {
-  PaletteTreeRowVm vm(String root, ValueChanged<Place> place) => switch (this) {
+  PaletteTreeRowVm vm(String root) => switch (this) {
     TreeNodeEntry(:final type) && final n => PaletteNodeRowVm(
       key: key,
       name: name,
@@ -317,7 +304,7 @@ extension TreeEntryVm on TreeEntry {
       used: n.used,
       type: type?.valueType,
       value: n.value,
-      place: n.entry == null ? null : place,
+      places: n.entry != null,
       writable: n.writable,
     ),
     TreeActionEntry(:final node, :final action, :final inputs) =>
@@ -327,7 +314,6 @@ extension TreeEntryVm on TreeEntry {
         depth: depth,
         node: node,
         action: action,
-        place: place,
         inputs: inputs,
       ),
   };
@@ -553,51 +539,49 @@ extension CustomBlockResultSpec on CustomBlockResult {
   );
 }
 
-/// The palette of the flow editor, as the tab shown draws it; each gesture
-/// on an entry becomes the action `act` runs.
+/// The palette of the flow editor, as the tab shown draws it, and what a
+/// gesture on one of its entries or rows (each by its place) does.
 extension FlowViewPalette on FlowView {
-  /// The entries of the Blocks or the My blocks tab.
-  IList<PaletteEntryVm> paletteVms(ValueChanged<Action> act) {
-    void place(PaletteEntry entry, Place at) {
-      if (placeActionOf(entry, at) case final action?) {
-        act(action);
-      }
-    }
-
-    return switch (palette) {
-      PaletteTab.tree => const IListConst([]),
-      PaletteTab.my => [
-        for (final m in myBlocks)
-          m.vm(
-            place: (p) => place(m.entry, p),
-            onMenu: (item) => act(PaletteMenuAction(m.name, item.item)),
-            onRename: (name) => act(RenameCustomBlockAction(m.name, name)),
-          ),
-        for (final l in library)
-          l.vm(
-            place: (p) => place(l.entry, p),
-            onMenu: (item) => act(PaletteMenuAction(l.name, item.item)),
-          ),
-      ].lock,
-      PaletteTab.blocks => [
-        for (final c in catalog) c.vm((p) => place(EnginePick(c.type), p)),
-      ].lock,
-    };
-  }
-
-  /// The rows of the Tree tab; null on the other tabs. A row that only
-  /// opens places nothing.
-  IList<PaletteTreeRowVm>? treeVms(ValueChanged<Action> act) => switch (tree) {
-    final rows? => [
-      for (final e in rows)
-        e.vm(root, (p) {
-          if (e.entry case final entry?) {
-            if (placeActionOf(entry, p) case final action?) {
-              act(action);
-            }
-          }
-        }),
+  /// The entries of the Blocks or the My blocks tab ([paletteEntryAt]).
+  IList<PaletteEntryVm> get paletteVms => switch (palette) {
+    PaletteTab.tree => const IListConst([]),
+    PaletteTab.my => [
+      for (final m in myBlocks) m.vm,
+      for (final l in library) l.vm,
     ].lock,
+    PaletteTab.blocks => [for (final c in catalog) c.vm].lock,
+  };
+
+  /// The rows of the Tree tab; null on the other tabs.
+  IList<PaletteTreeRowVm>? get treeVms => switch (tree) {
+    final rows? => [for (final e in rows) e.vm(root)].lock,
+    null => null,
+  };
+
+  /// What placing the entry [p] reports does; null: nothing.
+  Action? placing(EntryPlaced p) => switch (paletteEntryAt(p.entry)) {
+    final e? => placeActionOf(e, p.place),
+    null => null,
+  };
+
+  /// What placing the Tree tab's row [p] reports does; null: nothing.
+  Action? placingRow(TreeRowPlaced p) => switch (tree?.elementAtOrNull(p.row)) {
+    final e? => switch (e.entry) {
+      final entry? => placeActionOf(entry, p.place),
+      null => null,
+    },
+    null => null,
+  };
+
+  /// What a pick in an entry's menu does.
+  Action? menuPick(EntryMenuPicked p) => switch (paletteNameAt(p.entry)) {
+    final name? => PaletteMenuAction(name, p.item.item),
+    null => null,
+  };
+
+  /// What a custom block's new name does.
+  Action? renaming(EntryRenamed r) => switch (paletteNameAt(r.entry)) {
+    final name? => RenameCustomBlockAction(name, r.name),
     null => null,
   };
 }

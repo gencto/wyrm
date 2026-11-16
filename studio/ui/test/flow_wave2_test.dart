@@ -123,12 +123,8 @@ void main() {
   });
 
   group('the Tree tab', () {
-    /// The rows, each placing its entry into [placed] as the editor
-    /// names it (`key:`, `set:`, `act:`), with where it landed.
-    List<PaletteTreeRowVm> rows(
-      List<(String, double, double)> placed, {
-      bool writable = false,
-    }) => [
+    /// The rows; the second and the third place something.
+    List<PaletteTreeRowVm> rows({bool writable = false}) => [
       const PaletteNodeRowVm(
         key: 'n',
         name: 'tcp-tank',
@@ -136,14 +132,13 @@ void main() {
         opens: true,
         open: true,
       ),
-      PaletteActionRowVm(
+      const PaletteActionRowVm(
         key: 'n/~act/stop',
         name: 'stop_pump',
         depth: 1,
         node: 'n',
         action: 'stop',
         inputs: 1,
-        place: (_) => placed.add(('act:n/stop', 0, 0)),
       ),
       PaletteNodeRowVm(
         key: 'n/level',
@@ -152,17 +147,25 @@ void main() {
         type: ValueType.number,
         value: '92.6',
         writable: writable,
-        place: (p) => placed.add(switch (p) {
-          PlaceOnCanvas(:final x, :final y, write: true) => (
+        places: true,
+      ),
+    ];
+
+    /// Each row placed, into [placed] as the editor names it (`key:`,
+    /// `set:`, `act:`), with where it landed.
+    ValueChanged<TreeRowPlaced> placing(
+      List<(String, double, double)> placed,
+    ) =>
+        (r) => placed.add(switch ((r.row, r.place)) {
+          (1, _) => ('act:n/stop', 0, 0),
+          (_, PlaceOnCanvas(:final x, :final y, write: true)) => (
             'set:n/level',
             x,
             y,
           ),
-          PlaceOnCanvas(:final x, :final y) => ('key:n/level', x, y),
-          PlaceTapped() || PlaceOnInput() => ('key:n/level', 0, 0),
-        }),
-      ),
-    ];
+          (_, PlaceOnCanvas(:final x, :final y)) => ('key:n/level', x, y),
+          (_, PlaceTapped() || PlaceOnInput()) => ('key:n/level', 0, 0),
+        });
 
     testWidgets('a node opens or closes; a leaf or an action is added by a '
         'tap; the filter goes to whoever makes the rows', (tester) async {
@@ -177,7 +180,8 @@ void main() {
             tab: PaletteTabVm.tree,
             onTab: (_) {},
             entries: const [],
-            tree: rows(placed),
+            tree: rows(),
+            onTreePlace: placing(placed),
             onTreeToggle: toggled.add,
             onQuery: queries.add,
           ),
@@ -229,7 +233,8 @@ void main() {
           paletteTab: PaletteTabVm.tree,
           onPaletteTab: (_) {},
           palette: const [],
-          tree: rows(dropped, writable: writable),
+          tree: rows(writable: writable),
+          onTreePlace: placing(dropped),
           blocks: const [],
           wires: const [],
           onSelect: base.onSelect,
@@ -570,16 +575,15 @@ void main() {
               for (final e in page.palette)
                 PaletteEntryVm(
                   title: e.title,
-                  place: e.place,
                   kind: e.kind,
                   description: e.description,
                   instances: e.instances,
                   updateTo: e.updateTo,
                   version: e.version,
                   menu: e.menu,
-                  onMenu: (i) => menu.add((e.widgetKey, i)),
                 ),
             ],
+            onMenu: (p) => menu.add((page.palette[p.entry].widgetKey, p.item)),
           ),
         ),
       );

@@ -11,9 +11,9 @@ import 'package:ui/flows/flow_intents.dart';
 import 'package:ui/flows/flow_menu.dart';
 import 'package:ui/flows/shortcut_card.dart';
 import 'package:ui/models/disabled.dart';
-import 'package:ui/models/query.dart';
 
 import 'frames/harness.dart';
+import 'support/test_query.dart';
 
 /// The canvas reads the pointer itself (flow-editor.md §4): a field dragged
 /// along a wire onto an input binds it, a refused input says why, a bound
@@ -151,7 +151,7 @@ void main() {
               }),
               onCommand: (c) => commands.add((c.command, c.at)),
               onViewField: (r) => viewed.add((r.block, rowOf(r))),
-              menu: QueryVm(
+              menu: TestQuery(
                 (ask) => FlowMenuVm(
                   block: ask.block,
                   count: ask.ids.length,
@@ -204,7 +204,7 @@ void main() {
               ),
               onUnbind: (r) => unbound.add((r.block, rowOf(r))),
               onResize: (r) => resized.add((r.block, r.add)),
-              refusal: QueryVm(
+              refusal: TestQuery(
                 (ask) =>
                     ask.row.id.startsWith('out:') ? const RefuseOutput() : null,
               ),

@@ -2,14 +2,12 @@ import 'package:async_redux/async_redux.dart';
 import 'package:auto_route/auto_route.dart';
 import 'package:business/redux/app_state.dart';
 import 'package:business/redux/common/action.dart';
-import 'package:business/redux/flow_editor/actions/bind_field_action.dart';
 import 'package:business/redux/flow_editor/actions/cancel_scope_prompt_action.dart';
 import 'package:business/redux/flow_editor/actions/close_flow_editor_action.dart';
 import 'package:business/redux/flow_editor/actions/connect_ports_action.dart';
 import 'package:business/redux/flow_editor/actions/create_custom_block_action.dart';
 import 'package:business/redux/flow_editor/actions/deploy_flow_action.dart';
 import 'package:business/redux/flow_editor/actions/edit_scope_action.dart';
-import 'package:business/redux/flow_editor/actions/flow_edit_action.dart';
 import 'package:business/redux/flow_editor/actions/follow_flow_editor_action.dart';
 import 'package:business/redux/flow_editor/actions/leave_block_action.dart';
 import 'package:business/redux/flow_editor/actions/new_flow_action.dart';
@@ -21,35 +19,25 @@ import 'package:business/redux/flow_editor/actions/resize_block_action.dart';
 import 'package:business/redux/flow_editor/actions/run_block_action.dart';
 import 'package:business/redux/flow_editor/actions/save_scope_prompt_action.dart';
 import 'package:business/redux/flow_editor/actions/select_blocks_action.dart';
-import 'package:business/redux/flow_editor/actions/set_block_form_action.dart';
 import 'package:business/redux/flow_editor/actions/set_field_pin_action.dart';
 import 'package:business/redux/flow_editor/actions/set_selected_block_action.dart';
 import 'package:business/redux/flow_editor/actions/set_tree_query_action.dart';
 import 'package:business/redux/flow_editor/actions/set_viewed_field_action.dart';
 import 'package:business/redux/flow_editor/actions/show_palette_tab_action.dart';
 import 'package:business/redux/flow_editor/actions/toggle_tree_node_action.dart';
-import 'package:business/redux/flow_editor/actions/type_field_action.dart';
 import 'package:business/redux/flow_editor/actions/unbind_field_action.dart';
 import 'package:business/redux/flow_editor/actions/validate_flow_action.dart';
 import 'package:business/redux/panels/actions/set_panel_width_action.dart';
 import 'package:business/wyrm/flow_view/flow_view.dart';
-import 'package:business/wyrm/flow_view/menu_view.dart';
-import 'package:business/wyrm/flow_view/prompt_view.dart';
-import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:material_ui/material_ui.dart' hide Action;
 import 'package:models/field_id.dart';
 import 'package:ui/containers/side_panels.dart';
-import 'package:ui/flows/bind_refusal.dart';
 import 'package:ui/flows/block_palette.dart';
 import 'package:ui/flows/custom_block_dialog.dart';
 import 'package:ui/flows/field_inspector.dart';
 import 'package:ui/flows/flow_intents.dart';
-import 'package:ui/flows/flow_menu.dart';
-import 'package:ui/flows/scope_prompt.dart';
 import 'package:ui/models/panels.dart';
-import 'package:ui/models/query.dart';
 import 'package:ui/models/value_changed.dart';
-import 'package:ui/overlays/value_viewer.dart';
 import 'package:ui/pages/flow_editor_page.dart';
 import 'package:ui/shell/window_bar.dart';
 
@@ -58,6 +46,8 @@ import '../common/value_viewer.dart';
 import '../common/window.dart';
 import '../mappers/flow_editor_mappers.dart';
 import '../mappers/flow_inspector_mappers.dart';
+import '../mappers/flow_intent_mappers.dart';
+import '../mappers/flow_queries.dart';
 import '../navigation/app_router.dart';
 import '../navigation/go_action.dart';
 
@@ -96,26 +86,30 @@ class FlowEditorPageConnector extends StatelessWidget {
       onClose: vm.onClose,
       onFlows: vm.onClose,
       myBlocksOff: vm.view.myBlocksOff,
-      tree: vm.tree?.unlock,
+      tree: vm.view.treeVms?.unlock,
       onTreeToggle: vm.onTreeToggle,
       onTreeQuery: vm.onTreeQuery,
+      onPlace: vm.onPlace,
+      onPaletteMenu: vm.onPaletteMenu,
+      onRenameBlock: vm.onRenameBlock,
+      onTreePlace: vm.onTreePlace,
       crumbs: vm.view.crumbs.unlock,
       onBack: vm.onBack,
       instances: vm.view.instances,
-      createBlock: vm.createBlock,
-      checkBlock: vm.checkBlock,
+      createBlock: vm.view.customBlock?.vm,
+      checkBlock: CustomBlockQuery(vm.view.questions),
       onCreateBlock: vm.onCreateBlock,
-      checkBlockName: vm.checkBlockName,
+      checkBlockName: BlockNameQuery(vm.view.questions),
       prompt: vm.view.prompt?.vm,
       onPromptSave: vm.onPromptSave,
       onPromptCancel: vm.onPromptCancel,
-      checkScope: vm.checkScope,
+      checkScope: ScopeQuery(vm.view.questions),
       onRun: vm.onRun,
       onForm: vm.onForm,
       onOpenInside: vm.onOpenInside,
       paletteTab: vm.view.palette.vm,
       onPaletteTab: vm.onPaletteTab,
-      palette: vm.palette.unlock,
+      palette: vm.view.paletteVms.unlock,
       blocks: [for (final x in vm.view.blocks) x.vm],
       wires: [for (final w in vm.view.wires) w.vm],
       onSelect: vm.onSelect,
@@ -123,7 +117,7 @@ class FlowEditorPageConnector extends StatelessWidget {
       onRebind: vm.onRebind,
       onUnbind: vm.onUnbind,
       onResize: vm.onResize,
-      refusal: vm.refusal,
+      refusal: WireRefusalQuery(vm.view.questions),
       onOpen: vm.onOpen,
       onRowAction: vm.onRowAction,
       onClear: vm.onClear,
@@ -146,11 +140,11 @@ class FlowEditorPageConnector extends StatelessWidget {
       onCloseViewer: vm.onCloseViewer,
       onSelectMany: vm.onSelectMany,
       onCommand: vm.onCommand,
-      menu: vm.menu,
+      menu: FlowMenuQuery(vm.view.questions, onPin: vm.onPin),
       onViewField: vm.onViewField,
       onFieldPin: vm.onFieldPin,
       onSaveViewer: vm.onSaveViewer,
-      checkViewer: vm.checkViewer,
+      checkViewer: ViewerTextQuery(vm.view.questions),
       viewerTables: viewerTables,
     ),
   );
@@ -166,60 +160,37 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
     final route = connector.id;
     final view = flowEditor.view(route);
     final sel = view.selected;
-    // The canvas reports a row by its place, the inspector by its index:
-    // the field there, as drawn.
-    FieldId? rowAt(RowRef r) => view.rowAt(r.block, r.row);
-    RowId? fieldAt(int row) => view.inspector?.rowAt(row);
-    ValueChanged<RowRef> onRow(Action Function(String, FieldId) act) => (r) {
-      if (rowAt(r) case final row?) {
-        dispatchSync(act(r.block, row));
-      }
-    };
-    ValueChanged<int> onField(Action Function(String, RowId) act) => (i) {
-      if ((sel, fieldAt(i)) case (final at?, final row?)) {
-        dispatchSync(act(at, row));
-      }
-    };
-    SelectFlowEditor now() => SelectFlowEditor(currentState());
     return _Vm(
       window: windowBar(fullScreen: window.fullScreen),
       view: view,
       panelWidths: WorkspacePanels.flowEditor.widths(panels.widths),
       onBack: (levels) => dispatchSync(LeaveBlockAction(levels: levels)),
-      tree: view.treeVms(dispatchSync),
       onTreeToggle: (key) => dispatchSync(ToggleTreeNodeAction(key)),
-      onTreeQuery: (q) => dispatchSync(SetTreeQueryAction(q)),
-      checkBlockName: QueryVm(
-        (name) => now().blockNameProblem(route, name)?.vm,
-      ),
-      createBlock: QueryVm((_) => now().customBlock(route)?.vm),
-      checkBlock: QueryVm((r) => now().customBlockProblem(r.spec)?.vm),
+      onTreeQuery: (text) => dispatchSync(SetTreeQueryAction(text)),
+      onPlace: (p) => _run(view.placing(p)),
+      onPaletteMenu: (p) => _run(view.menuPick(p)),
+      onRenameBlock: (r) => _run(view.renaming(r)),
+      onTreePlace: (p) => _run(view.placingRow(p)),
       onCreateBlock: (r) =>
           dispatchSync(CreateCustomBlockAction.selected(r.spec)),
       onPromptSave: (scope) => dispatchSync(SaveScopePromptAction(scope)),
       onPromptCancel: () => dispatchSync(CancelScopePromptAction()),
-      checkScope: QueryVm((scope) => now().scopeProblem(scope)?.vm),
-      onRowAction: onRow(EditScopeAction.new),
+      onRowAction: (r) => _run(view.onRow(r, EditScopeAction.new)),
       onOpen: (block) => dispatchSync(OpenInstanceAction(block)),
-      onRun: onField((_, row) => RunBlockAction(row)),
-      onForm: (f) {
-        if (sel != null) {
-          dispatchSync(SetBlockFormAction(sel, f.id));
-        }
-      },
+      onRun: (i) => _run(view.onField(i, (_, row) => RunBlockAction(row))),
+      onForm: (f) => _run(view.form(f)),
       onOpenInside: switch (sel) {
         final at? when view.inspector?.openInside ?? false =>
           () => dispatchSync(OpenInstanceAction(at)),
         _ => null,
       },
-      palette: view.paletteVms(dispatchSync),
       newFlowName: view.isNew
           ? FieldVm(
               value: view.flowName ?? '',
               onChanged: (v) => dispatchSync(NewFlowAction(v)),
             )
           : null,
-      onView: onField((at, row) => SetViewedFieldAction(FieldAt(at, row))),
+      onView: (i) => _run(view.onField(i, _viewing)),
       onCloseViewer: () => dispatchSync(SetViewedFieldAction(null)),
       onDeploy: () => dispatch(DeployFlowAction()),
       onValidate: () => dispatch(ValidateFlowAction()),
@@ -230,79 +201,21 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
       onSelect: (x) => dispatchSync(SetSelectedBlockAction(x)),
       onSelectMany: (s) =>
           dispatchSync(SelectBlocksAction(s.ids, add: s.add, toggle: s.toggle)),
-      onCommand: (c) {
-        if (c.command.edit case final e?) {
-          dispatchSync(FlowEditAction(e, x: c.at?.dx, y: c.at?.dy));
-        }
-      },
-      menu: QueryVm((ask) {
-        final block = ask.block;
-        final row = ask.row;
-        return now()
-            .menu(
-              route,
-              MenuAsk(
-                ask.ids.lock,
-                block: block,
-                row: block == null || row == null
-                    ? null
-                    : rowAt(RowRef(block, row)),
-              ),
-            )
-            .vm(
-              (field) => (on) {
-                if (block != null) {
-                  dispatchSync(SetFieldPinAction(block, field, pinned: on));
-                }
-              },
-            );
-      }),
-      onFieldPin: (p) {
-        if ((sel, fieldAt(p.row)) case (final at?, final FieldId id)) {
-          dispatchSync(SetFieldPinAction(at, id, pinned: p.on));
-        }
-      },
-      onViewField: onRow((b, row) => SetViewedFieldAction(FieldAt(b, row))),
-      onSaveViewer: (text) {
-        if (flowEditor.viewedField case FieldAt(:final block, :final row)) {
-          dispatchSync(TypeFieldAction(block, row, text));
-        }
-      },
-      checkViewer: QueryVm((text) => now().viewerTextError(route, text)?.vm),
+      onCommand: (c) => _run(view.command(c)),
+      onPin: (p) =>
+          dispatchSync(SetFieldPinAction(p.block, p.field, pinned: p.on)),
+      onFieldPin: (p) => _run(view.fieldPin(p)),
+      onViewField: (r) => _run(view.onRow(r, _viewing)),
+      onSaveViewer: (text) => _run(view.savedViewer(text)),
       onBind: (w) => dispatchSync(
         ConnectPortsAction(w.from.block, w.from.port, w.block, w.port),
       ),
-      onUnbind: onRow(UnbindFieldAction.new),
+      onUnbind: (r) => _run(view.onRow(r, UnbindFieldAction.new)),
       onRebind: (w) => dispatchSync(RebindFieldAction(w.from.end, w.to.end)),
-      refusal: QueryVm(
-        (ask) => switch (rowAt(ask.to)) {
-          final row? =>
-            now()
-                .refusal(
-                  route,
-                  WireAsk(
-                    ask.from.end,
-                    ask.to.block,
-                    row,
-                    replacing: ask.replacing?.end,
-                  ),
-                )
-                ?.vm,
-          null => null,
-        },
-      ),
       onResize: (r) => dispatchSync(ResizeBlockAction(r.block, add: r.add)),
-      onFieldChanged: (t) {
-        if ((sel, fieldAt(t.row)) case (final at?, final row?)) {
-          dispatchSync(TypeFieldAction(at, row, t.text));
-        }
-      },
-      onFieldUnbind: onField(UnbindFieldAction.new),
-      onFieldBind: (b) {
-        if ((sel, fieldAt(b.row)) case (final at?, final row?)) {
-          dispatchSync(BindFieldAction(at, row, b.from.end));
-        }
-      },
+      onFieldChanged: (t) => _run(view.fieldTyped(t)),
+      onFieldUnbind: (i) => _run(view.onField(i, UnbindFieldAction.new)),
+      onFieldBind: (b) => _run(view.fieldBound(b)),
       onRemove: sel == null
           ? null
           : () => dispatchSync(RemoveBlocksAction([sel])),
@@ -312,36 +225,45 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
       ),
     );
   }
+
+  static Action _viewing(String block, RowId row) =>
+      SetViewedFieldAction(FieldAt(block, row));
+
+  /// Runs what a gesture does; null: it does nothing.
+  void _run(Action? action) {
+    if (action != null) {
+      dispatchSync(action);
+    }
+  }
 }
 
 /// The view-model holds the part of the Store state the dumb-widget needs.
 ///
 /// Everything drawn is made of [view] (memoized: identical while nothing it
-/// shows changed), [window] and [panelWidths], so those are what it compares;
-/// the callbacks only name what was done, and the questions are answered
-/// from the state when they are asked.
+/// shows changed), [window] and [panelWidths], so those are what it compares:
+/// the palette, the tree and the questions the widgets ask (each holding the
+/// values its answers are made of) are made of [view] where they are drawn;
+/// the callbacks only name what was done.
 class _Vm extends Vm {
   _Vm({
     required this.window,
     required this.view,
     required this.panelWidths,
     required this.onBack,
-    required this.tree,
     required this.onTreeToggle,
     required this.onTreeQuery,
-    required this.checkBlockName,
-    required this.createBlock,
-    required this.checkBlock,
+    required this.onPlace,
+    required this.onPaletteMenu,
+    required this.onRenameBlock,
+    required this.onTreePlace,
     required this.onCreateBlock,
     required this.onPromptSave,
     required this.onPromptCancel,
-    required this.checkScope,
     required this.onRowAction,
     required this.onOpen,
     required this.onRun,
     required this.onForm,
     required this.onOpenInside,
-    required this.palette,
     required this.newFlowName,
     required this.onDeploy,
     required this.onValidate,
@@ -353,7 +275,6 @@ class _Vm extends Vm {
     required this.onBind,
     required this.onUnbind,
     required this.onRebind,
-    required this.refusal,
     required this.onResize,
     required this.onFieldChanged,
     required this.onFieldUnbind,
@@ -365,28 +286,17 @@ class _Vm extends Vm {
     required this.onCloseViewer,
     required this.onSelectMany,
     required this.onCommand,
-    required this.menu,
+    required this.onPin,
     required this.onFieldPin,
     required this.onViewField,
     required this.onSaveViewer,
-    required this.checkViewer,
   }) : super(
          equals: [
            window,
            view,
            panelWidths,
-           // Made of [view], with callbacks that only name what was done.
-           tree,
-           palette,
+           // Made of [view], with a callback that only names what was done.
            newFlowName,
-           // Answered when asked, from the state then: equal by design.
-           checkBlockName,
-           createBlock,
-           checkBlock,
-           checkScope,
-           refusal,
-           menu,
-           checkViewer,
          ],
        );
 
@@ -396,22 +306,20 @@ class _Vm extends Vm {
   final FlowView view;
   final SidePanelWidths panelWidths;
   final ValueChanged<int> onBack;
-  final IList<PaletteTreeRowVm>? tree;
   final ValueChanged<String> onTreeToggle;
   final ValueChanged<String> onTreeQuery;
-  final QueryVm<String, CustomBlockProblemVm?> checkBlockName;
-  final QueryVm<void, CustomBlockDialogVm?> createBlock;
-  final QueryVm<CustomBlockResult, CustomBlockProblemVm?> checkBlock;
+  final ValueChanged<EntryPlaced> onPlace;
+  final ValueChanged<EntryMenuPicked> onPaletteMenu;
+  final ValueChanged<EntryRenamed> onRenameBlock;
+  final ValueChanged<TreeRowPlaced> onTreePlace;
   final ValueChanged<CustomBlockResult> onCreateBlock;
   final ValueChanged<String> onPromptSave;
   final VoidCallback onPromptCancel;
-  final QueryVm<String, ScopeProblemVm?> checkScope;
   final ValueChanged<RowRef> onRowAction;
   final ValueChanged<String> onOpen;
   final ValueChanged<int> onRun;
   final ValueChanged<BlockFormVm> onForm;
   final VoidCallback? onOpenInside;
-  final IList<PaletteEntryVm> palette;
   final FieldVm<String>? newFlowName;
   final VoidCallback onDeploy;
   final VoidCallback onValidate;
@@ -422,15 +330,13 @@ class _Vm extends Vm {
   final ValueChanged<String> onSelect;
   final ValueChanged<BlocksSelected> onSelectMany;
   final ValueChanged<CanvasCommand> onCommand;
-  final QueryVm<FlowMenuAsk, FlowMenuVm> menu;
+  final ValueChanged<PinPicked> onPin;
   final ValueChanged<RowPinned> onFieldPin;
   final ValueChanged<RowRef> onViewField;
   final ValueChanged<String> onSaveViewer;
-  final QueryVm<String, ViewerTextProblemVm?> checkViewer;
   final ValueChanged<WireDropped> onBind;
   final ValueChanged<RowRef> onUnbind;
   final ValueChanged<WireMoved> onRebind;
-  final QueryVm<BindAsk, BindRefusalVm?> refusal;
   final ValueChanged<BlockResized> onResize;
   final ValueChanged<RowTyped> onFieldChanged;
   final ValueChanged<int> onFieldUnbind;

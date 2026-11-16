@@ -8,9 +8,9 @@ import 'package:ui/flows/flow_intents.dart';
 import 'package:ui/flows/flow_legend.dart';
 import 'package:ui/flows/flow_menu.dart';
 import 'package:ui/flows/shortcut_card.dart';
-import 'package:ui/models/query.dart';
 
 import 'frames/harness.dart';
+import 'support/test_query.dart';
 
 /// Every block of a flow larger than the canvas's first size is reached
 /// (flow-editor.md §14, owner 2026-11-15: "I can't scroll to the bottom
@@ -60,7 +60,7 @@ void main() {
         controller: ctl,
         view: view,
         onCommand: onCommand,
-        menu: QueryVm(
+        menu: TestQuery(
           (_) => const FlowMenuVm(
             flow: 'canvas',
             items: [FlowMenuItemVm(.tidy)],

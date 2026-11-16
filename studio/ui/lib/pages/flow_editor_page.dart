@@ -100,6 +100,10 @@ class FlowEditorPage extends StatelessWidget {
     this.tree,
     this.onTreeToggle,
     this.onTreeQuery,
+    this.onPlace,
+    this.onPaletteMenu,
+    this.onRenameBlock,
+    this.onTreePlace,
     this.createBlock,
     this.checkBlock,
     this.onCreateBlock,
@@ -131,9 +135,16 @@ class FlowEditorPage extends StatelessWidget {
   final ValueChanged<String>? onTreeToggle;
   final ValueChanged<String>? onTreeQuery;
 
-  /// What `Create custom block…` asks of the selection; null: nothing to
-  /// make a block of.
-  final QueryVm<void, CustomBlockDialogVm?>? createBlock;
+  /// An entry of [palette] placed, its menu picked or the custom block it
+  /// stands for renamed; a row of [tree] placed (each by its place).
+  final ValueChanged<EntryPlaced>? onPlace;
+  final ValueChanged<EntryMenuPicked>? onPaletteMenu;
+  final ValueChanged<EntryRenamed>? onRenameBlock;
+  final ValueChanged<TreeRowPlaced>? onTreePlace;
+
+  /// What `Create custom block…` proposes for the selection; null:
+  /// nothing to make a block of.
+  final CustomBlockDialogVm? createBlock;
 
   /// Why the block the dialog would create is refused; null: it is taken.
   final QueryVm<CustomBlockResult, CustomBlockProblemVm?>? checkBlock;
@@ -521,7 +532,7 @@ class FlowEditorPage extends StatelessWidget {
       paletteSearchRequest.value++;
     } else if (command == FlowCommand.createCustomBlock) {
       // Name the block and its ports, then the selection becomes one.
-      final vm = createBlock?.ask(null);
+      final vm = createBlock;
       if (vm == null) {
         return;
       }
@@ -565,6 +576,10 @@ class FlowEditorPage extends StatelessWidget {
         tree: tree,
         onTreeToggle: onTreeToggle,
         onQuery: onTreeQuery,
+        onPlace: onPlace,
+        onMenu: onPaletteMenu,
+        onRename: onRenameBlock,
+        onTreePlace: onTreePlace,
         checkName: switch (checkBlockName) {
           final q? => (name) => q.ask(name)?.label,
           null => null,

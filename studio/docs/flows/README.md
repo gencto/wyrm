@@ -58,4 +58,4 @@ Solid arrow: `push`. Dashed: `pop` (drawn back to the only screen that pushes it
 | `AssistantPage` | `/studio/assistant` | no | 23 | [assistant](assistant.md) |
 | `SystemPage` | `/studio/system` | no | 26 | [system](system.md) |
 | `LinkInstallPage` | `/link-install` | no | 17 | [linkInstall](linkInstall.md) |
-| `FlowEditorPage` | `/flow-editor/:id` | no | 31 | [flowEditor](flowEditor.md) |
+| `FlowEditorPage` | `/flow-editor/:id` | no | 41 | [flowEditor](flowEditor.md) |
