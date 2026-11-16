@@ -4,12 +4,11 @@ import 'package:async_redux/async_redux.dart';
 import 'package:business/redux/app_state.dart';
 import 'package:business/redux/problems/actions/dismiss_toast_action.dart';
 import 'package:business/redux/problems/actions/retry_problem_action.dart';
-import 'package:business/wyrm/shell.dart';
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:ui/alerts/toast_stack.dart';
 
 import '../dialogs/error_dialogs.dart';
-import '../errors.dart';
 import '../mappers/notice_mappers.dart';
 
 /// The toasts of quiet failures and of successes
@@ -26,7 +25,7 @@ class ToastStackConnector extends StatelessWidget {
     builder: (context, vm) => SizedBox(
       width: vm.toasts.isEmpty ? 0 : ToastStack.width,
       child: ToastStack(
-        toasts: vm.toasts,
+        toasts: vm.toasts.unlockView,
         onDismiss: vm.onDismiss,
         onRetry: vm.onRetry,
         onDetails: (id) => unawaited(showToastDetails(context, id)),
@@ -42,13 +41,7 @@ class _Factory extends VmFactory<AppState, ToastStackConnector, _Vm>
 
   @override
   _Vm fromStore() => _Vm(
-    toasts: [
-      for (final t in problems.shownToasts)
-        switch (t) {
-          ErrorToast(:final error) => errorToastVm(error),
-          NoticeToast(:final notice) => notice.toast,
-        },
-    ],
+    toasts: [for (final t in problems.shownToasts) t.vm].lock,
     onDismiss: (id) => dispatchSync(DismissToastAction(id)),
     onRetry: (id) => dispatch(RetryProblemAction(id)),
   );
@@ -63,7 +56,7 @@ class _Vm extends Vm {
   }) : super(equals: [toasts]);
 
   /// Oldest first; ids of errors and notices come from one counter.
-  final List<ToastVm> toasts;
+  final IList<ToastVm> toasts;
   final ValueChanged<int> onDismiss;
   final ValueChanged<int> onRetry;
 }

@@ -4,7 +4,7 @@
 
 `app/lib/connectors/explorer_page_connector.dart`
 
-## submit
+## submit.onSubmit
 
 ```mermaid
 sequenceDiagram
@@ -12,23 +12,16 @@ sequenceDiagram
     actor User
     participant UI as ExplorerPage
     participant VM as ExplorerPageConnector
-    participant A1 as StageInvokeAction
-    participant A2 as InvokeNodeAction
-    participant A3 as StageValueAction.entered
+    participant A1 as SubmitInspectorAction
     participant ST as AppState
 
-    User->>UI: submit
+    User->>UI: submit.onSubmit
     UI->>VM: submit()
-    VM->>A1: dispatchSync
-    A1->>ST: dispatchSync(AddChangesAction)
-    VM->>+A2: dispatchAndWait
-    Note over A2: WaitingAction · async
-    A2->>ST: copyWith(nodes.answers)
-    A2-->>-VM: ActionStatus
-    alt values.containsKey(key)
-        VM->>A3: dispatchSync
-        A3->>ST: dispatchSync(AddChangesAction)
-    end
+    VM->>+A1: dispatchAndWait
+    Note over A1: WaitingAction · async
+    A1->>ST: dispatchSync(StageInvokeAction)
+    A1->>ST: dispatchSync(StageValueAction.entered)
+    A1-->>-VM: ActionStatus
 ```
 
 ## onShow
@@ -518,23 +511,17 @@ sequenceDiagram
     actor User
     participant UI as ExplorerPage
     participant VM as ExplorerPageConnector
-    participant A1 as InvokeNodeAction
-    participant A2 as SetActionAction
-    participant A3 as RemoveCheckedAction
+    participant A1 as RunExplorerCommandAction
     participant ST as AppState
 
     User->>UI: onTool
     UI->>VM: onTool()
     VM->>A1: dispatch
-    Note over A1: WaitingAction · async
-    A1->>ST: copyWith(nodes.answers)
-    VM->>A2: dispatchSync
-    A2->>ST: copyWith(nodes.action)
-    VM->>A2: dispatchSync
-    A2->>ST: copyWith(nodes.action)
-    VM->>A3: dispatchSync
-    A3->>ST: copyWith(nodes.checked, nodes.marked, nodes.point, nodes.anchor)
-    A3->>ST: dispatchSync(StageInvokeAction)
+    Note over A1: async
+    A1->>ST: dispatchAndWait(InvokeNodeAction)
+    A1->>ST: dispatchSync(SetActionAction)
+    A1->>ST: dispatchSync(SetActionAction)
+    A1->>ST: dispatchSync(RemoveCheckedAction)
 ```
 
 ## onSetPoll
@@ -795,13 +782,13 @@ sequenceDiagram
     actor User
     participant UI as ExplorerPage
     participant R1 as AssistantDrawerConnector
-    participant A1 as SetHistoryWindowAction
+    participant A1 as ZoomHistoryAction
     participant ST as AppState
 
     User->>UI: AssistantDrawer ▸ onTimelineWindow
     UI->>R1: onTimelineWindow()
     R1->>A1: dispatchSync
-    A1->>ST: copyWith(nodes.historyWindow)
+    A1->>ST: dispatchSync(SetHistoryWindowAction)
 ```
 
 ## AssistantDrawer ▸ onTimelineReset
@@ -1073,7 +1060,7 @@ _Not drawn — these files dispatch outside any interaction:_
 
 | Interaction | Dispatches | Writes |
 | --- | --- | --- |
-| `submit` | `StageInvokeAction`, `InvokeNodeAction`, `StageValueAction.entered` ? | `nodes.answers` |
+| `submit.onSubmit` | `SubmitInspectorAction` | — |
 | `onShow` | `ShowExplorerAction` | — |
 | `onHide` | `HideExplorerAction` | `nodes.watching` |
 | `onSelect` | `SelectNodeAction` | — |
@@ -1101,7 +1088,7 @@ _Not drawn — these files dispatch outside any interaction:_
 | `onTrendReset` | `SetHistoryWindowAction` | `nodes.historyWindow` |
 | `onCloseInspector` | `SetActionAction` | `nodes.action` |
 | `onReadAgain` | `RetryReadAction` | — |
-| `onTool` | `InvokeNodeAction`, `SetActionAction`, `SetActionAction`, `RemoveCheckedAction` | `nodes.answers`, `nodes.action`, `nodes.checked, nodes.marked, nodes.point, nodes.anchor` |
+| `onTool` | `RunExplorerCommandAction` | — |
 | `onSetPoll` | `StagePollAction` | — |
 | `onParam` | `StagePointEditAction` | `changes` |
 | `onPanelWidth` | `SetPanelWidthAction` | `panels.widths` |
@@ -1115,7 +1102,7 @@ _Not drawn — these files dispatch outside any interaction:_
 | `AssistantDrawer ▸ rows.onToggle` | `SetRowPickAction` | `assistant.rowPicks` |
 | `AssistantDrawer ▸ onReveal` | `SetStepRevealAction.toggle` | `assistant.revealed, assistant.refusals` |
 | `AssistantDrawer ▸ buttons` | `ApproveTaskAction`, `OpenTaskAction`, `GoAfterAction`, `GoAfterAction`, `AskAgentAction` | `assistant.refusals` |
-| `AssistantDrawer ▸ onTimelineWindow` | `SetHistoryWindowAction` | `nodes.historyWindow` |
+| `AssistantDrawer ▸ onTimelineWindow` | `ZoomHistoryAction` | — |
 | `AssistantDrawer ▸ onTimelineReset` | `SetHistoryWindowAction` | `nodes.historyWindow` |
 | `AssistantDrawer ▸ onDraft` | `SetDraftAction` | `assistant.draft` |
 | `AssistantDrawer ▸ onAsk` | `SendAskAction` | — |

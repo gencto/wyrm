@@ -164,13 +164,13 @@ sequenceDiagram
     actor User
     participant UI as AssistantPage
     participant VM as AssistantPageConnector
-    participant A1 as SetHistoryWindowAction
+    participant A1 as ZoomHistoryAction
     participant ST as AppState
 
     User->>UI: onTimelineWindow
     UI->>VM: onTimelineWindow()
     VM->>A1: dispatchSync
-    A1->>ST: copyWith(nodes.historyWindow)
+    A1->>ST: dispatchSync(SetHistoryWindowAction)
 ```
 
 ## onTimelineReset
@@ -448,7 +448,7 @@ _Not drawn — these files dispatch outside any interaction:_
 | `rows.onToggle` | `SetRowPickAction` | `assistant.rowPicks` |
 | `onReveal` | `SetStepRevealAction.toggle` | `assistant.revealed, assistant.refusals` |
 | `buttons` | `ApproveTaskAction`, `OpenTaskAction`, `GoAfterAction`, `GoAfterAction`, `AskAgentAction` | `assistant.refusals` |
-| `onTimelineWindow` | `SetHistoryWindowAction` | `nodes.historyWindow` |
+| `onTimelineWindow` | `ZoomHistoryAction` | — |
 | `onTimelineReset` | `SetHistoryWindowAction` | `nodes.historyWindow` |
 | `onDraft` | `SetDraftAction` | `assistant.draft` |
 | `onAsk` | `SendAskAction` | — |
