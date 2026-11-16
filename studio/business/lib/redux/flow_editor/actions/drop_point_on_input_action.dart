@@ -1,3 +1,4 @@
+import 'package:models/block_cfg_key.dart';
 import 'package:models/block_type.dart';
 import 'package:models/port_end.dart';
 
@@ -25,7 +26,7 @@ class DropPointOnInputAction extends Action {
         KnownBlock.subscribe.type,
         (target.x - 260).clamp(0, double.infinity).toDouble(),
         target.y,
-        cfg: {'key': relativeKey(key)},
+        cfg: {BlockCfgKey.key.wire: relativeKey(key)},
         into: into,
       ),
     );

@@ -136,9 +136,9 @@ final class FlowLive {
         return v;
       }
       if (tree != null &&
-          (k == portKey(PortSide.output, b.id, 'out') &&
+          (k == portKey(PortSide.output, b.id, EnginePort.out.wire) &&
                   b.type.known != KnownBlock.set ||
-              k == portKey(PortSide.input, b.id, 'in') &&
+              k == portKey(PortSide.input, b.id, EnginePort.in_.wire) &&
                   (b.type.known == KnownBlock.set ||
                       b.type.known == KnownBlock.publish))) {
         return tree;

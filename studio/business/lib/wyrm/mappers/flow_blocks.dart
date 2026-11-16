@@ -303,11 +303,11 @@ EntryBlock? blockOfEntry(
   final params = action?.params ?? const IListConst<ParamSpec>([]);
   if (!caps.args) {
     return EntryBlock(KnownBlock.invoke, {
-      'path': relativeKey(node),
-      'action': name,
-      'on': 'rising',
+      BlockCfgKey.path.wire: relativeKey(node),
+      BlockCfgKey.action.wire: name,
+      BlockCfgKey.on.wire: 'rising',
       if (params.any((p) => p.defaultValue != null))
-        'args': {
+        BlockCfgKey.args.wire: {
           for (final p in params) p.name: ?p.defaultValue,
         },
     });
@@ -315,10 +315,10 @@ EntryBlock? blockOfEntry(
   return EntryBlock(
     KnownBlock.invoke,
     {
-      'path': relativeKey(node),
-      'action': name,
+      BlockCfgKey.path.wire: relativeKey(node),
+      BlockCfgKey.action.wire: name,
       if (params.isNotEmpty)
-        'args': {for (final p in params) p.name: p.defaultValue},
+        BlockCfgKey.args.wire: {for (final p in params) p.name: p.defaultValue},
     },
     pins: {
       for (final p in params)
@@ -727,12 +727,12 @@ FlowDraft? insideDraftOf(FlowDraft outer, String name) {
             x: ix,
             y: iy,
             cfg: <String, Object?>{
-              'inputs': [for (final p in ins) p.name],
-              'defaults': {
+              BlockCfgKey.inputs.wire: [for (final p in ins) p.name],
+              BlockCfgKey.defaults.wire: {
                 for (final p in ins)
                   if (p.defaultValue != null) p.name: p.defaultValue,
               },
-              'descriptions': {
+              BlockCfgKey.descriptions.wire: {
                 for (final p in [...ins, ...outs])
                   if (p.description != null) p.name: p.description,
               },
@@ -747,7 +747,7 @@ FlowDraft? insideDraftOf(FlowDraft outer, String name) {
             x: ox,
             y: oy,
             cfg: <String, Object?>{
-              'outputs': [for (final p in outs) p.name],
+              BlockCfgKey.outputs.wire: [for (final p in outs) p.name],
             }.lock,
           ),
         ),
