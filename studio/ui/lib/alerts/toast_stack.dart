@@ -363,7 +363,7 @@ class _ToastState extends State<_Toast> {
                     onTap: widget.onDismiss,
                     borderRadius: Radii.segment,
                     child: SizedBox.square(
-                      dimension: 26,
+                      dimension: AppSizes.toastClose,
                       child: Center(
                         child: AppIconView(
                           AppIcon.errClose,

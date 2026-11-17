@@ -137,7 +137,7 @@ class PanelFault extends StatelessWidget {
                 ),
                 decoration: BoxDecoration(
                   color: c.ground0,
-                  borderRadius: const .all(.circular(6)),
+                  borderRadius: Radii.segment,
                 ),
                 child: Text(
                   vm.line,
@@ -201,7 +201,7 @@ class PanelFault extends StatelessWidget {
     height: size,
     decoration: BoxDecoration(
       color: c.badTint,
-      borderRadius: const .all(.circular(10)),
+      borderRadius: Radii.card,
     ),
     alignment: .center,
     child: AppIconView(AppIcon.errStudio, size: icon, color: c.bad),

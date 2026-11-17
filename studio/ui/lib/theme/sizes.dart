@@ -337,6 +337,40 @@ abstract final class AppSizes {
   /// The filter of the table grid, and its menu button.
   static const gridFilter = Size(200, 30);
   static const double gridMenuButton = 32;
+
+  /// The track of a segmented control: around its segments and between
+  /// them; an icon segment, and the tallest a text segment grows before
+  /// the row scrolls.
+  static const double segmentTrackInset = 2;
+  static const double segmentGap = 3;
+  static const double segmentIconWidth = 32;
+  static const double segmentHeight = 26;
+  static const double segmentMaxHeight = 44;
+
+  /// A line of the log.
+  static const double logRow = 30;
+
+  /// Between the tiles of System's grid.
+  static const double sysTileGap = 12;
+
+  /// The widest a form of the log-in column grows.
+  static const double authForm = 340;
+
+  /// A spinner set in a line of text.
+  static const double inlineSpinner = 12;
+
+  /// The mark of a step of the log-in.
+  static const double loginStepMark = 16;
+
+  /// The square a small icon button is tapped in: a toast's close, a key
+  /// line's copy, the Problems drawer's close, the error dialog's close,
+  /// a field's eye, the review panel's close.
+  static const double toastClose = 26;
+  static const double keyCopy = 28;
+  static const double problemsClose = 30;
+  static const double errorClose = 32;
+  static const double fieldEye = 36;
+  static const double reviewClose = 40;
 }
 
 /// The sizes an icon is drawn at (board *Icons*: the set is drawn on 24 and

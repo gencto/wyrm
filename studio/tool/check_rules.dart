@@ -104,14 +104,12 @@ final _rules = <Rule>[
     'business/lib/',
   ], (t) => _matches(_code(t), RegExp(r'\bS\.(?:current|of\()'))),
   // 6. tokens, not numbers
-  Rule('number-literal', ['ui/lib/', 'app/lib/'], (t) {
-    final c = _code(t);
-    return _matches(c, RegExp(r'fontSize:\s*\d')) +
-        _matches(c, RegExp(r'EdgeInsets\.\w+\([^)]*\b\d')) +
-        _matches(c, RegExp(r'SizedBox\(\s*(?:width|height):\s*\d')) +
-        _matches(c, RegExp(r'(?:BorderRadius|Radius)\.circular\(\s*\d')) +
-        _matches(c, RegExp(r'\bColor\(0x'));
-  }, except: ['ui/lib/theme/']),
+  const Rule(
+    'number-literal',
+    ['ui/lib/', 'app/lib/'],
+    _numberLiteral,
+    except: ['ui/lib/theme/'],
+  ),
   // 7. callbacks have shared types
   Rule(
     'ad-hoc-callback',
@@ -214,6 +212,11 @@ final _rules = <Rule>[
     except: [
       'ui/lib/indicators/app_icon.dart',
       'ui/lib/indicators/app_icon_view.dart',
+      // the one drawing made in code: its strands are chosen by `compact`
+      // and its stroke is a parameter, so it is no file of the set
+      'ui/lib/indicators/biometric_icon.dart',
+      // where `IconSize` is made
+      'ui/lib/theme/sizes.dart',
     ],
   ),
 ];
@@ -238,9 +241,65 @@ Iterable<String> _args(String code, String head) sync* {
 }
 
 /// A number written in the value of the argument: `12`, `1.5`, `-.26`,
-/// `dense ? 12 : 13`, `size + 2`. A token (`FontSizes.sm`) has no digit
-/// that stands alone.
-const _numberValue = r'\s*:[^,;{}\n]*?(?<![\w.])\.?\d';
+/// `dense ? 12 : 13`, `size + 2`, and the same after the line break the
+/// formatter puts behind a long name. A token (`FontSizes.sm`) has no
+/// digit that stands alone. The value ends at the `,` or the `)` that
+/// closes it.
+const _numberValue = r'\s*:[^,;{})]*?(?<![\w.])\.?\d';
+
+/// As [_numberValue], but a `0` alone is not a size: `width: none ? 0 : w`
+/// folds a box away and `leading > 0` asks a question.
+const _sizeValue = r'\s*:[^,;{})]*?(?<![\w.])(?!0(?![\d.]))\.?\d';
+
+/// [args] without what is nested in it: `width: 3, child: Text(…)` keeps
+/// `width: 3, child: Text`.
+String _ownLevel(String args) {
+  var s = args;
+  final nested = RegExp(r'\([^()]*\)');
+  while (nested.hasMatch(s)) {
+    s = s.replaceAll(nested, '');
+  }
+  return s;
+}
+
+/// Sizes, gaps, radii and colours written as numbers (rule 6).
+int _numberLiteral(String text) {
+  final c = _code(text);
+  var n =
+      _matches(c, RegExp(r'fontSize:\s*\d')) +
+      // `TextStyle.apply`: a size moved by a number is a size of its own
+      _matches(c, RegExp(r'\bfontSize(?:Delta|Factor)\s*:\s*-?\.?\d')) +
+      _matches(c, RegExp(r'EdgeInsets(?:Directional)?\.\w+\([^)]*\b\d')) +
+      // the same in dot shorthand: `padding: const .all(3)`,
+      // `.symmetric(horizontal: 6)`, `.only(top: 2)`, `.fromLTRB(…)`. A
+      // border's `.all(color: …)` and a radius' `.only(topLeft: …)` are
+      // not insets.
+      _matches(
+        c,
+        RegExp(
+          r'(?<![\w.)\]])\.(?:all|symmetric|only|fromLTRB|fromSTEB)\('
+          r'(?!\s*(?:color|width|style)\s*:)(?![^)]*circular)[^)]*\b\d',
+        ),
+      ) +
+      // a radius, with its class or in dot shorthand (`.circular(10)`)
+      _matches(c, RegExp(r'\.(?:circular|elliptical)\(\s*\d')) +
+      _matches(c, RegExp(r'\bColor\(0x')) +
+      // a size kept as a number of the file's own, then passed on
+      // (`static const double _inset = 2;` … `.all(_inset)`)
+      _matches(c, RegExp(r'\bconst\s+double\s+\w+\s*=\s*-?\.?\d'));
+  // a box sized by a number, whichever constructor and whichever argument
+  // comes first: `SizedBox(key: k, width: 13)`, `SizedBox.square(
+  // dimension: 20)`, `SizedBox.fromSize(size: Size(200, 30))`
+  final sizeOf = RegExp(r'\bSize(?:\.\w+)?\(\s*\d');
+  for (final a in _args(c, r'\bSizedBox(?:\.\w+)?')) {
+    final own = _ownLevel(a);
+    if (RegExp('\\b(?:width|height|dimension)$_sizeValue').hasMatch(own) ||
+        (RegExp(r'\bsize\s*:').hasMatch(own) && sizeOf.hasMatch(a))) {
+      n++;
+    }
+  }
+  return n;
+}
 
 /// Typography written as numbers.
 int _rawType(String text) {
@@ -263,10 +322,7 @@ int _rawType(String text) {
       n += _matches(a, RegExp('\\bheight$_numberValue'));
     }
   }
-  n += _matches(
-    c,
-    RegExp(r'\.copyWith\(\s*height\s*:[^,;{}\n]*?(?<![\w.])\.?\d'),
-  );
+  n += _matches(c, RegExp('\\.copyWith\\(\\s*height$_numberValue'));
   // a carrier of a size typed as a bare number
   return n +
       _matches(
@@ -275,7 +331,10 @@ int _rawType(String text) {
           r'\bdouble\??\s+(?:fontSize|textSize|lineHeight|letterSpacing|'
           r'tracking)\b',
         ),
-      );
+      ) +
+      // a number made into a token by a cast: the types are closed by
+      // their private constructors, and `13.0 as FontSize` opens them
+      _matches(c, RegExp(r'\bas\s+(?:FontSize|LineHeight|Tracking)\b'));
 }
 
 /// The file names of the icon set (`ui/assets/svg/icons/<name>.svg`).
@@ -301,6 +360,10 @@ int _iconId(String text) {
   }
   // a path into the set, built by hand
   n += _matches(c, RegExp(r'assets/svg/icons/'));
+  // a drawing of its own, beside the set (`SvgPicture.string`, `.asset`)
+  n += _matches(c, RegExp(r'\bSvgPicture\b'));
+  // an icon size made of a number by a cast
+  n += _matches(c, RegExp(r'\bas\s+IconSize\b'));
   // an icon carried as text
   n += _matches(c, RegExp(r'\bString\??\s+\w*[iI]con(?:Name|Id)?\b'));
   // a Material glyph, an `IconData`, an `Icon` of its own
@@ -511,13 +574,87 @@ class D implements TasksServiceListener {
   ),
 };
 
-/// Runs [_probes]; the names of the rules that fail them.
+/// Forms a rule must count one by one (each sample at least once), and
+/// forms it must leave alone (each sample not at all): the forms an audit
+/// found a rule blind to stay seen.
+const _forms = <String, ({List<String> counted, List<String> left})>{
+  'number-literal': (
+    counted: [
+      'padding: const EdgeInsets.all(12),',
+      'padding: const EdgeInsetsDirectional.only(start: 12),',
+      'padding: const .all(3),',
+      'padding: const .symmetric(horizontal: 6, vertical: 2),',
+      'margin: const .only(top: 2),',
+      'borderRadius: const .all(.circular(10)),',
+      'borderRadius: BorderRadius.circular(13),',
+      'static const double _inset = 2;',
+      'const SizedBox(height: 10),',
+      'SizedBox(key: k, width: 13),',
+      'SizedBox(width: wide ? 0.5 : w),',
+      'SizedBox.square(dimension: 20, child: mark),',
+      'SizedBox.fromSize(size: const Size(200, 30), child: field),',
+      'SizedBox(\n  height:\n      36,\n  child: row,\n)',
+      'style: base.apply(fontSizeDelta: 2),',
+      'color: const Color(0xFF1A1110),',
+    ],
+    left: [
+      'padding: Insets.dialog,',
+      'border: .all(color: c.line1),',
+      'borderRadius: Radii.card,',
+      'SizedBox(height: AppSizes.pointsBar, child: Text(n, maxLines: 2)),',
+      'SizedBox.square(dimension: AppSizes.stepMark, child: mark),',
+      'static const double rowHeight = AppSizes.flowBlockRow;',
+      'padding: i == 0 ? EdgeInsets.zero : Insets.factValueNext,',
+      'SizedBox(width: toasts.isEmpty ? 0 : ToastStack.width, child: c),',
+      'SizedBox(height: lead > 0 ? AppSizes.heroStacked : h, child: c),',
+    ],
+  ),
+  'raw-type': (
+    counted: [
+      'style: mono(size: 12),',
+      'style: TextStyle(\n  height:\n      1.5,\n),',
+      'style: boardText(\n  tracking:\n      -0.28,\n),',
+      'letterSpacing:\n    0.72,',
+      'final size = 13.0 as FontSize;',
+      'height: 1.5 as LineHeight,',
+      'final t = x as Tracking;',
+    ],
+    left: [
+      'style: mono(size: FontSizes.sm),',
+      'style: TextStyle(\n  height:\n      LineHeights.body,\n),',
+      'child: Container(height: 40, child: Text(s, style: mono())),',
+    ],
+  ),
+  'icon-id': (
+    counted: [
+      "SvgPicture.string(_triangle, width: 18, height: 18),",
+      'child: AppIconView(icon, size: 16),',
+      'child: AppIconView(\n  icon,\n  size:\n      16,\n),',
+      'final s = 16.0 as IconSize;',
+      'final String iconName;',
+    ],
+    left: [
+      'child: AppIconView(AppIcon.uiCaution, size: IconSizes.lg),',
+      'final IconSize size;',
+    ],
+  ),
+};
+
+/// Runs [_probes] and [_forms]; the names of the rules that fail them.
 List<String> _failedProbes() => [
   for (final e in _probes.entries)
     for (final r in _rules)
       if (r.name == e.key &&
           (r.count(e.value.bad) == 0 || r.count(e.value.good) != 0))
         r.name,
+  for (final e in _forms.entries)
+    for (final r in _rules)
+      if (r.name == e.key) ...[
+        for (final s in e.value.counted)
+          if (r.count(s) == 0) '${r.name}: not counted: $s',
+        for (final s in e.value.left)
+          if (r.count(s) != 0) '${r.name}: counted: $s',
+      ],
 ];
 
 /// Callback bodies with two or more dispatches: one intent is one action

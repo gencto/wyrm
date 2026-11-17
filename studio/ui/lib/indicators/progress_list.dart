@@ -87,7 +87,7 @@ class ProgressList extends StatelessWidget {
   Widget _mark(AppColors c, ProgressState s) => switch (s) {
     .done => AppIconView(AppIcon.uiCheck, size: IconSizes.md, color: c.good),
     .now => SizedBox.square(
-      dimension: 12,
+      dimension: AppSizes.inlineSpinner,
       child: CircularProgressIndicator(strokeWidth: 2, color: c.ember),
     ),
     .failed => StateMark(mark: Mark.cross, color: c.bad),

@@ -286,7 +286,7 @@ class ReviewPanel extends StatelessWidget {
                       onTap: onClose,
                       borderRadius: Radii.button,
                       child: SizedBox.square(
-                        dimension: 40,
+                        dimension: AppSizes.reviewClose,
                         child: Center(
                           child: AppIconView(
                             AppIcon.uiClose,

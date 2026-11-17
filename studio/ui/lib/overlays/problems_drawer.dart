@@ -176,7 +176,7 @@ class ProblemsDrawer extends StatelessWidget {
                         onTap: onClose,
                         borderRadius: Radii.segment,
                         child: SizedBox.square(
-                          dimension: 30,
+                          dimension: AppSizes.problemsClose,
                           child: Center(
                             child: AppIconView(
                               AppIcon.errClose,

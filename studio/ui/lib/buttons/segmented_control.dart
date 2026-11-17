@@ -51,15 +51,12 @@ class SegmentedControl<T> extends StatelessWidget {
   final FieldVm<T> vm;
   final List<Segment<T>> segments;
 
-  static const double _inset = 2;
-  static const double _gap = 3;
-
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
 
     return Container(
-      padding: const .all(_inset),
+      padding: const .all(AppSizes.segmentTrackInset),
       decoration: BoxDecoration(
         color: scheme.surfaceContainerLowest,
         borderRadius: Radii.control,
@@ -75,7 +72,7 @@ class SegmentedControl<T> extends StatelessWidget {
           mainAxisSize: .min,
           children: [
             for (final (index, segment) in segments.indexed) ...[
-              if (index > 0) const SizedBox(width: _gap),
+              if (index > 0) const SizedBox(width: AppSizes.segmentGap),
               _Segment(vm: vm, segment: segment),
             ],
           ],
@@ -91,20 +88,19 @@ class _Segment<T> extends StatelessWidget {
   final FieldVm<T> vm;
   final Segment<T> segment;
 
-  static const double _width = 32;
-  static const double _height = 26;
-
   /// A text segment sets its own width from the label rather than taking
-  /// [_width], which is sized for a 14px glyph and would clip two characters.
+  /// [AppSizes.segmentIconWidth], which is sized for a small glyph and
+  /// would clip two characters.
   static const _textPadding = EdgeInsets.symmetric(horizontal: AppSpacing.sm);
 
   /// The tallest a segment grows before the row starts scrolling instead.
   ///
-  /// An icon segment is a fixed [_height] box, and a text one used to be too —
-  /// which caps the label at whatever fits 26 logical pixels. At an
+  /// An icon segment is a fixed [AppSizes.segmentHeight] box, and a text
+  /// one used to be too — which caps the label at whatever fits that
+  /// height. At an
   /// accessibility text scale `labelMedium` is taller than that, so the label
   /// overflowed its own box vertically while the row overflowed horizontally.
-  static const double _maxHeight = 44;
+  static const double _maxHeight = AppSizes.segmentMaxHeight;
 
   /// Matches Material's disabled treatment.
   static const _disabledOpacity = 0.38;
@@ -130,11 +126,11 @@ class _Segment<T> extends StatelessWidget {
         // A plain box, not `Ink`: `Ink` paints into the nearest Material, which
         // sits below the track's opaque background, so the fill never showed.
         child: Container(
-          width: icon == null ? null : _width,
-          height: icon == null ? null : _height,
+          width: icon == null ? null : AppSizes.segmentIconWidth,
+          height: icon == null ? null : AppSizes.segmentHeight,
           constraints: icon == null
               ? const BoxConstraints(
-                  minHeight: _height,
+                  minHeight: AppSizes.segmentHeight,
                   maxHeight: _maxHeight,
                 )
               : null,

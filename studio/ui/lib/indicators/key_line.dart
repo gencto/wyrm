@@ -98,7 +98,7 @@ class KeyLine extends StatelessWidget {
               onTap: onCopy,
               borderRadius: Radii.segment,
               child: SizedBox.square(
-                dimension: 28,
+                dimension: AppSizes.keyCopy,
                 child: Center(
                   child: AppIconView(
                     AppIcon.uiCopy,

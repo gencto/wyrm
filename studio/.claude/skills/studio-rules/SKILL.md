@@ -148,7 +148,9 @@ with named fields (`({String key, String scope})`) — a closed set or a typed
 pair carried as text (owner, 2026-11-15). `icon-id` in `app/lib`,
 `business/lib`, `ui/lib`, `models/lib`: a file name of the icon set written
 as text, a `String` field named for an icon, `Icons.…`, `IconData`, an
-`Icon(…)`, and an `AppIconView` sized by a number.
+`Icon(…)`, an `SvgPicture` of its own (a glyph belongs to the set; the one
+exception is `biometric_icon.dart`, drawn in code from its parameters), an
+`AppIconView` sized by a number, and a cast `as IconSize`.
 
 ## 3. Each package owns its types; a connector maps, it does not compute
 
@@ -305,11 +307,24 @@ style: mono(size: FontSizes.sm, color: c.text3)
 final FontSize fontSize;
 ```
 
+An icon's size is closed the same way: `IconSize` (`sizes.dart`), with the
+scale `IconSizes` and a component's own icon sizes in `AppSizes`;
+`AppIconView.size` takes nothing else.
+
 **Check.** `number-literal` in `ui/lib` (except `ui/lib/theme/`) and
-`app/lib`. `raw-type` in the same folders: a `fontSize:`, a
-`letterSpacing:`, and a `height:`/`size:`/`tracking:` inside a text style
-or `mono`/`boardText`/`wordmark`, whose value holds a number (also behind
-`?:`), and a field declared `double fontSize`/`letterSpacing`/….
+`app/lib`: a number in `fontSize:`, in `EdgeInsets`/`EdgeInsetsDirectional`
+and in their dot shorthand (`const .all(3)`, `.symmetric(…)`, `.only(…)`),
+in a radius (`BorderRadius.circular(8)`, `.circular(8)`), in a `SizedBox`
+of any constructor and argument order (`SizedBox(key: k, width: 13)`,
+`SizedBox.square(dimension: 20)`), in `fontSizeDelta:`/`fontSizeFactor:`,
+in `Color(0x…)`, and a `const double name = 2;` of a file's own. `raw-type`
+in the same folders: a `fontSize:`, a `letterSpacing:`, and a
+`height:`/`size:`/`tracking:` inside a text style or
+`mono`/`boardText`/`wordmark`, whose value holds a number (also behind
+`?:`, also on the line after the name), a field declared
+`double fontSize`/`letterSpacing`/…, and a cast `as FontSize`,
+`as LineHeight`, `as Tracking`. Each form has a sample in `_forms` of the
+checker that must be counted.
 
 ## 7. Callbacks have shared types
 

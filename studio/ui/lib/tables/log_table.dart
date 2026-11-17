@@ -53,7 +53,7 @@ class LogTable extends StatefulWidget {
   final bool bad;
   final double maxHeight;
 
-  static const double rowHeight = 30;
+  static const double rowHeight = AppSizes.logRow;
 
   @override
   State<LogTable> createState() => _LogTableState();

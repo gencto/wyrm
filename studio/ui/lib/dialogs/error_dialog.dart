@@ -261,7 +261,7 @@ class _ErrorDialogState extends State<ErrorDialog> {
                       decoration: BoxDecoration(
                         color: c.ground2,
                         border: .all(color: c.line2),
-                        borderRadius: const .all(.circular(14)),
+                        borderRadius: Radii.dialog,
                         boxShadow: const [
                           BoxShadow(
                             color: Shades.errorDialogShadow,
@@ -300,7 +300,7 @@ class _ErrorDialogState extends State<ErrorDialog> {
           height: 40,
           decoration: BoxDecoration(
             color: bg,
-            borderRadius: const .all(.circular(10)),
+            borderRadius: Radii.card,
           ),
           alignment: .center,
           child: AppIconView(vm.icon, color: fg),
@@ -348,7 +348,7 @@ class _ErrorDialogState extends State<ErrorDialog> {
                 borderRadius: Radii.button,
                 canRequestFocus: false,
                 child: SizedBox.square(
-                  dimension: 32,
+                  dimension: AppSizes.errorClose,
                   child: Center(
                     child: AppIconView(
                       AppIcon.errClose,
