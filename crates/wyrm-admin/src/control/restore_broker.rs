@@ -1225,9 +1225,9 @@ impl Control {
 /// `sys/backups ▸ restore_check`: the uploaded backup and what opens it.
 #[derive(Args)]
 pub(super) struct RestoreCheck {
-    #[arg(display = "Upload", desc = "The id restore_begin gave", nonempty)]
+    #[param(display = "Upload", desc = "The id restore_begin gave", nonempty)]
     pub upload: String,
-    #[arg(
+    #[param(
         display = "Passphrase",
         secret,
         nonempty,
@@ -1239,23 +1239,23 @@ pub(super) struct RestoreCheck {
 /// How `restore_apply` restores.
 #[derive(Args)]
 pub(super) struct ApplyHow {
-    #[arg(choice, display = "Sections")]
+    #[param(choice, display = "Sections")]
     pub sections: Vec<SectionName>,
-    #[arg(
+    #[param(
         choice,
         display = "Mode",
         desc = "add: what does not exist yet, live. replace: the broker stops and \
                 applies it at the next start"
     )]
     pub mode: RestoreMode,
-    #[arg(
+    #[param(
         display = "Accept requested rights",
         desc = "Of the links mode add installs and of the packages mode replace \
                 brings",
         absent = false
     )]
     pub accept: bool,
-    #[arg(
+    #[param(
         display = "Replace the site's keys",
         desc = "Keys that differ from this broker's (restore_check lists them). \
                 Another CA: links, operators and peer brokers enrol again",
@@ -1267,9 +1267,9 @@ pub(super) struct ApplyHow {
 /// `sys/backups ▸ restore_apply`.
 #[derive(Args)]
 pub(super) struct RestoreApply {
-    #[arg(flatten)]
+    #[param(flatten)]
     pub file: RestoreCheck,
-    #[arg(flatten)]
+    #[param(flatten)]
     pub how: ApplyHow,
 }
 

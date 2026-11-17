@@ -13,78 +13,78 @@ use wyrm_link_sdk::{Args, Secret, SecretBytes};
 /// `links ▸ install`.
 #[derive(Args)]
 pub(super) struct Install {
-    #[arg(display = "Link ID")]
+    #[param(display = "Link ID")]
     pub id: String,
     /// One of the drivers this broker hosts (the form lists them), or
     /// `pkg:<name>`.
-    #[arg(display = "Driver")]
+    #[param(display = "Driver")]
     pub driver: String,
-    #[arg(choice, display = "Mode")]
+    #[param(choice, display = "Mode")]
     pub mode: Option<Mode>,
-    #[arg(display = "Params")]
+    #[param(display = "Params")]
     pub params: Option<BTreeMap<String, Value>>,
 }
 
 /// The id of the link an "Install Link ▸" action makes.
 #[derive(Args)]
 pub(super) struct NewLink {
-    #[arg(display = "Name", desc = "Id of the new link", trim)]
+    #[param(display = "Name", desc = "Id of the new link", trim)]
     pub name: String,
 }
 
 /// `links ▸ install_zip`.
 #[derive(Args)]
 pub(super) struct InstallZip {
-    #[arg(flatten)]
+    #[param(flatten)]
     pub link: NewLink,
-    #[arg(
+    #[param(
         display = "ZIP file",
         editor = "file",
         desc = "Link package: a zip with wyrm-link.json"
     )]
     pub zip: Vec<u8>,
-    #[arg(flatten)]
+    #[param(flatten)]
     pub opts: UpdateOpts,
 }
 
 /// `links ▸ install_wasm`.
 #[derive(Args)]
 pub(super) struct InstallWasm {
-    #[arg(flatten)]
+    #[param(flatten)]
     pub link: NewLink,
-    #[arg(
+    #[param(
         display = "Component",
         editor = "file",
         desc = "A wyrm:link/driver component (.wasm)"
     )]
     pub wasm: Vec<u8>,
-    #[arg(flatten)]
+    #[param(flatten)]
     pub opts: UpdateOpts,
 }
 
 /// `links ▸ install_url`.
 #[derive(Args)]
 pub(super) struct InstallUrl {
-    #[arg(flatten)]
+    #[param(flatten)]
     pub link: NewLink,
-    #[arg(display = "URL", placeholder = "https://example.com/link.zip", trim)]
+    #[param(display = "URL", placeholder = "https://example.com/link.zip", trim)]
     pub url: String,
-    #[arg(flatten)]
+    #[param(flatten)]
     pub opts: UpdateOpts,
 }
 
 /// `links ▸ install_git`.
 #[derive(Args)]
 pub(super) struct InstallGit {
-    #[arg(flatten)]
+    #[param(flatten)]
     pub link: NewLink,
-    #[arg(
+    #[param(
         display = "URL",
         placeholder = "https://git.example.com/link.git",
         trim
     )]
     pub url: String,
-    #[arg(
+    #[param(
         name = "ref",
         display = "Ref",
         placeholder = "branch or tag",
@@ -92,27 +92,27 @@ pub(super) struct InstallGit {
         absent = String::new()
     )]
     pub git_ref: String,
-    #[arg(flatten)]
+    #[param(flatten)]
     pub opts: UpdateOpts,
 }
 
 /// `links ▸ install_repo`.
 #[derive(Args)]
 pub(super) struct InstallRepo {
-    #[arg(flatten)]
+    #[param(flatten)]
     pub link: NewLink,
     /// A package of the repository index (the form lists them, or says why
     /// there is none).
-    #[arg(display = "Package")]
+    #[param(display = "Package")]
     pub package: String,
-    #[arg(flatten)]
+    #[param(flatten)]
     pub opts: UpdateOpts,
 }
 
 /// `links/<id> ▸ start`.
 #[derive(Args)]
 pub(super) struct Start {
-    #[arg(
+    #[param(
         display = "Start a held link",
         desc = "A link is held when a rollback over a change of the store format \
                 did not restore its data: true starts it as it is",
@@ -130,23 +130,23 @@ pub(super) struct UpdateParams {
 /// `links/<id> ▸ rollback`.
 #[derive(Args)]
 pub(super) struct Rollback {
-    #[arg(display = "Revision")]
+    #[param(display = "Revision")]
     pub rev: u32,
 }
 
 /// `links/<id> ▸ set_secret`.
 #[derive(Args)]
 pub(super) struct SetSecret {
-    #[arg(display = "Name")]
+    #[param(display = "Name")]
     pub name: String,
-    #[arg(display = "Value", secret)]
+    #[param(display = "Value", secret)]
     pub value: SecretBytes,
 }
 
 /// `links/<id> ▸ delete_secret`.
 #[derive(Args)]
 pub(super) struct DeleteSecret {
-    #[arg(display = "Name")]
+    #[param(display = "Name")]
     pub name: String,
 }
 
@@ -182,23 +182,23 @@ impl GrantLevel {
 /// `links/<id> ▸ grant`.
 #[derive(Args)]
 pub(super) struct Grant {
-    #[arg(
+    #[param(
         display = "Path",
         placeholder = "wy/{site}/downstream/<link>",
         desc = "A node of another link (its subtree), or wy/{site}/dataflows",
         trim
     )]
     pub path: String,
-    #[arg(choice, display = "Level", desc = "none removes the grant")]
+    #[param(choice, display = "Level", desc = "none removes the grant")]
     pub level: GrantLevel,
 }
 
 /// `links/<id> ▸ get_log {lines, level, filter}`.
 #[derive(Args)]
 pub(super) struct GetLog {
-    #[arg(display = "Lines", placeholder = "200 (at most 2000)")]
+    #[param(display = "Lines", placeholder = "200 (at most 2000)")]
     pub lines: Option<usize>,
-    #[arg(
+    #[param(
         choice,
         reversed,
         nonempty,
@@ -206,7 +206,7 @@ pub(super) struct GetLog {
         desc = "This level and more severe"
     )]
     pub level: Option<LogLevel>,
-    #[arg(
+    #[param(
         display = "Filter",
         placeholder = "text in the target or message",
         absent = String::new()
@@ -229,27 +229,27 @@ impl GetLog {
 /// `sys ▸ get_log`: the broker's log, or the lines of one embedded link.
 #[derive(Args)]
 pub(super) struct GetBrokerLog {
-    #[arg(flatten)]
+    #[param(flatten)]
     pub log: GetLog,
-    #[arg(display = "Link", placeholder = "lines of one embedded link", nonempty)]
+    #[param(display = "Link", placeholder = "lines of one embedded link", nonempty)]
     pub link: Option<String>,
 }
 
 /// `sys ▸ update_permissions`.
 #[derive(Args)]
 pub(super) struct UpdatePermissions {
-    #[arg(display = "Role", nonempty)]
+    #[param(display = "Role", nonempty)]
     pub role: String,
-    #[arg(display = "Path", placeholder = "wy/{site}/downstream/**", nonempty)]
+    #[param(display = "Path", placeholder = "wy/{site}/downstream/**", nonempty)]
     pub path: String,
-    #[arg(choice, display = "Level")]
+    #[param(choice, display = "Level")]
     pub level: Perm,
 }
 
 /// `sys ▸ enroll`: a downstream broker asks for its certificate.
 #[derive(Args)]
 pub(super) struct Enroll {
-    #[arg(trim)]
+    #[param(trim)]
     pub site: String,
     pub csr: String,
     pub token: Option<Secret>,
@@ -260,14 +260,14 @@ pub(super) struct Enroll {
 /// `tokens ▸ add`.
 #[derive(Args)]
 pub(super) struct AddToken {
-    #[arg(
+    #[param(
         display = "Count",
         placeholder = "1",
         desc = "Admissions it allows; 0: no limit",
         max = 1_000_000
     )]
     pub count: Option<u32>,
-    #[arg(
+    #[param(
         display = "Hours",
         placeholder = "24",
         desc = "Valid for this long; 0: never expires",
@@ -280,24 +280,24 @@ pub(super) struct AddToken {
 /// `audit ▸ tail`.
 #[derive(Args)]
 pub(super) struct AuditTail {
-    #[arg(display = "Records")]
+    #[param(display = "Records")]
     pub n: Option<usize>,
 }
 
 /// `profiles ▸ put`.
 #[derive(Args)]
 pub(super) struct PutProfile {
-    #[arg(display = "Name")]
+    #[param(display = "Name")]
     pub name: String,
     /// CBOR `ProfileDef`: a picked file, larger than a frame for big models.
-    #[arg(display = "Profile", editor = "file")]
+    #[param(display = "Profile", editor = "file")]
     pub profile: Vec<u8>,
 }
 
 /// `profiles ▸ remove`.
 #[derive(Args)]
 pub(super) struct RemoveProfile {
-    #[arg(display = "Name")]
+    #[param(display = "Name")]
     pub name: String,
 }
 
@@ -311,17 +311,17 @@ pub(super) const VIA_ABOUT: &str =
 #[derive(Args, Default)]
 pub(super) struct Approve {
     /// A role of the user gateway (the form lists them).
-    #[arg(display = "Group", trim, nonempty)]
+    #[param(display = "Group", trim, nonempty)]
     pub group: Option<String>,
-    #[arg(display = "Name", placeholder = "display name", trim, nonempty)]
+    #[param(display = "Name", placeholder = "display name", trim, nonempty)]
     pub name: Option<String>,
-    #[arg(display = "Driver")]
+    #[param(display = "Driver")]
     pub driver: Option<String>,
-    #[arg(display = "Params")]
+    #[param(display = "Params")]
     pub params: Option<BTreeMap<String, Value>>,
-    #[arg(display = "Via", placeholder = "plant, cell", desc = VIA_ABOUT)]
+    #[param(display = "Via", placeholder = "plant, cell", desc = VIA_ABOUT)]
     pub via: Option<String>,
-    #[arg(
+    #[param(
         display = "Key",
         desc = "Downstream brokers: the SHA-256 of its key you compared",
         trim
@@ -332,9 +332,9 @@ pub(super) struct Approve {
 /// `quarantine ▸ authorize`: [`Approve`] of the CN the form's list names.
 #[derive(Args)]
 pub(super) struct Authorize {
-    #[arg(display = "DsId", placeholder = "nothing in quarantine")]
+    #[param(display = "DsId", placeholder = "nothing in quarantine")]
     pub dsid: String,
-    #[arg(flatten)]
+    #[param(flatten)]
     pub how: Approve,
 }
 
@@ -342,13 +342,13 @@ pub(super) struct Authorize {
 /// and the key it was reviewed with.
 #[derive(Args)]
 pub(super) struct ApproveBroker {
-    #[arg(
+    #[param(
         display = "Key",
         desc = "SHA-256 of its key: the same as its sys/upstream/<this site>/key",
         trim
     )]
     pub key: Option<String>,
-    #[arg(display = "Via", placeholder = "plant, cell", desc = VIA_ABOUT)]
+    #[param(display = "Via", placeholder = "plant, cell", desc = VIA_ABOUT)]
     pub via: Option<String>,
 }
 
@@ -365,16 +365,16 @@ impl From<ApproveBroker> for Approve {
 /// `quarantine ▸ deauthorize`.
 #[derive(Args)]
 pub(super) struct Deauthorize {
-    #[arg(display = "Link", placeholder = "nothing connected downstream")]
+    #[param(display = "Link", placeholder = "nothing connected downstream")]
     pub link: String,
 }
 
 /// `upstream ▸ add`.
 #[derive(Args)]
 pub(super) struct AddUpstream {
-    #[arg(display = "Name", desc = "Site name of that broker", trim, nonempty)]
+    #[param(display = "Name", desc = "Site name of that broker", trim, nonempty)]
     pub name: String,
-    #[arg(
+    #[param(
         display = "URL",
         placeholder = "quic/central.example:7450",
         desc = "Its enrollment endpoint (peers.enroll there)",
@@ -382,7 +382,7 @@ pub(super) struct AddUpstream {
         nonempty
     )]
     pub url: String,
-    #[arg(
+    #[param(
         display = "CA certificate",
         editor = "textarea",
         desc = "PEM of that site's CA (its data_dir/pki/ca.pem)",
@@ -390,16 +390,16 @@ pub(super) struct AddUpstream {
         nonempty
     )]
     pub ca: String,
-    #[arg(
+    #[param(
         display = "Token",
         secret,
         desc = "From its sys/tokens, if it gave one: admitted at once",
         nonempty
     )]
     pub token: Option<Secret>,
-    #[arg(display = "Enabled", absent = true)]
+    #[param(display = "Enabled", absent = true)]
     pub enabled: bool,
-    #[arg(
+    #[param(
         display = "Allow config",
         desc = "Its users may run config actions here (sys and links), as far as their own grants go",
         absent = false

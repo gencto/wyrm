@@ -1103,60 +1103,60 @@ impl Admin {
 /// `sys/links ▸ install_backup`.
 #[derive(Args)]
 pub(super) struct InstallBackup {
-    #[arg(
+    #[param(
         display = "Backup file",
         editor = "file",
         desc = "A .wyrm-link file; or upload it in parts and give Upload"
     )]
     pub file: Option<Vec<u8>>,
-    #[arg(
+    #[param(
         display = "Upload",
         desc = "The id of a file uploaded with sys/backups restore_begin",
         nonempty
     )]
     pub upload: Option<String>,
-    #[arg(
+    #[param(
         display = "Link ID",
         desc = "Empty: the id in the backup. An existing link is replaced",
         trim,
         nonempty
     )]
     pub id: Option<String>,
-    #[arg(
+    #[param(
         display = "Passphrase",
         secret,
         nonempty,
         desc = "Of a backup that holds private data"
     )]
     pub passphrase: Option<Secret>,
-    #[arg(flatten)]
+    #[param(flatten)]
     pub opts: UpdateOpts,
 }
 
 /// `sys/backups ▸ restore_begin`.
 #[derive(Args)]
 pub(super) struct RestoreBegin {
-    #[arg(display = "Size (bytes)")]
+    #[param(display = "Size (bytes)")]
     pub size: u64,
 }
 
 /// The upload a call is about.
 #[derive(Args)]
 pub(super) struct UploadId {
-    #[arg(display = "Upload", desc = "The id restore_begin gave", nonempty)]
+    #[param(display = "Upload", desc = "The id restore_begin gave", nonempty)]
     pub upload: String,
 }
 
 /// `sys/backups ▸ restore_part`.
 #[derive(Args)]
 pub(super) struct RestorePart {
-    #[arg(flatten)]
+    #[param(flatten)]
     pub of: UploadId,
-    #[arg(display = "Offset (bytes)")]
+    #[param(display = "Offset (bytes)")]
     pub offset: u64,
     /// A part of a local file: `editor: file` lets a gateway take it outside
     /// a WebSocket frame (ADR 0028, amended 2026-11-15).
-    #[arg(
+    #[param(
         display = "Data",
         editor = "file",
         desc = "The next part, at most 16 MiB"

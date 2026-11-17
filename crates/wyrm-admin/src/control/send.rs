@@ -154,18 +154,18 @@ pub fn check_folder(folder: &str) -> Result<(), String> {
 /// `sys/backups/<id> ▸ send`.
 #[derive(Args)]
 pub(super) struct Send {
-    #[arg(
+    #[param(
         display = "File store link",
         desc = "One of backups.send_links (attribute send_links of sys/backups)",
         nonempty
     )]
     pub link: String,
-    #[arg(
+    #[param(
         display = "Connection",
         desc = "A connection of the link; the file goes into the host's folder of it"
     )]
     pub connection: String,
-    #[arg(
+    #[param(
         display = "File name",
         desc = "Below the host's folder: a file name, or sub-folders and a file name. \
                 Default: the backup's own name",

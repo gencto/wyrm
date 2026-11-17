@@ -139,16 +139,16 @@ const FLUSH_ABOUT: &str = "Seconds between writes to disk (0 = 0.1 s, at most 10
 #[derive(Args, Debug)]
 struct GroupSettings {
     /// By the name the parameter lists (`All Data`).
-    #[arg(choice, nonempty, display = "Logging type", desc = LOGGING_ABOUT)]
+    #[param(choice, nonempty, display = "Logging type", desc = LOGGING_ABOUT)]
     logging_type: Option<Logging>,
-    #[arg(
+    #[param(
         display = "Interval",
         desc = INTERVAL_ABOUT,
         editor = "duration",
         min = 0.0
     )]
     interval: Option<f64>,
-    #[arg(
+    #[param(
         display = "Buffer flush time",
         desc = FLUSH_ABOUT,
         editor = "duration",
@@ -160,16 +160,16 @@ struct GroupSettings {
 /// `history ▸ add_watch_group`.
 #[derive(Args)]
 struct AddWatchGroup {
-    #[arg(display = "Name", trim, nonempty)]
+    #[param(display = "Name", trim, nonempty)]
     name: String,
-    #[arg(flatten)]
+    #[param(flatten)]
     settings: GroupSettings,
 }
 
 /// A span of time: `purge`, and `get_history` with what it returns.
 #[derive(Args, Debug)]
 struct TimeRange {
-    #[arg(
+    #[param(
         display = "Timerange",
         placeholder = "2026-10-22T00:00:00Z/2026-10-23T00:00:00Z",
         editor = "daterange",
@@ -195,7 +195,7 @@ impl TimeRange {
 /// `history/<group> ▸ add_watch_path`.
 #[derive(Args)]
 struct AddWatchPath {
-    #[arg(
+    #[param(
         display = "Path",
         placeholder = "downstream/<link>/<point>",
         desc = "A point of this site (downstream/…, dataflows/… or storage/…, or the full wy/<site>/… key) \
@@ -209,7 +209,7 @@ struct AddWatchPath {
 /// `history/<group> ▸ remove`.
 #[derive(Args)]
 struct RemoveGroup {
-    #[arg(
+    #[param(
         display = "Purge",
         desc = "Also delete the recorded rows of its watches.",
         absent = false
@@ -220,11 +220,11 @@ struct RemoveGroup {
 /// `history/<group>/<watch> ▸ get_history`.
 #[derive(Args, Debug)]
 struct GetHistory {
-    #[arg(flatten)]
+    #[param(flatten)]
     range: TimeRange,
     /// The intervals a DSA client offers, in this API's units; any
     /// `<n>s|m|h|d|w` is taken.
-    #[arg(
+    #[param(
         suggest = GET_HISTORY_INTERVALS,
         display = "Interval",
         desc = "none: every row; else one row per interval.",
@@ -232,14 +232,14 @@ struct GetHistory {
         nonempty
     )]
     interval: Option<String>,
-    #[arg(
+    #[param(
         choice,
         nonempty,
         display = "Rollup",
         desc = "How the samples of one interval become one value (none: the first)."
     )]
     rollup: Option<Rollup>,
-    #[arg(
+    #[param(
         display = "Rows",
         placeholder = format!("{DEFAULT_ROWS} (at most {MAX_ROWS})")
     )]
@@ -269,7 +269,6 @@ fn ms_of(name: &str, seconds: Option<f64>, current: u64) -> Result<u64> {
 
 /// The settings form of a group: `current` shows what is in force.
 fn group_settings(a: ActionMeta, current: Option<(Logging, u64, u64)>) -> ActionMeta {
-    // rust-rules: allow(C1) milliseconds shown as seconds in a placeholder
     let seconds = |ms: u64| format!("{}", ms as f64 / 1000.0);
     match current {
         None => a

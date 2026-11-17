@@ -74,7 +74,7 @@ pub(super) struct UpdateOpts {
     /// The caller has seen what the package asks for (review WASM-1): its
     /// network allowlist and grants, or what a new version asks for beyond
     /// what its links have.
-    #[arg(
+    #[param(
         display = "Accept requested rights",
         desc = "The package's network allowlist and grants: an install without this \
                 shows them and installs nothing",
@@ -83,7 +83,7 @@ pub(super) struct UpdateOpts {
     pub accept: bool,
     /// Take a restore point of every link first. Forced when the update
     /// changes the store format: `false` is then refused.
-    #[arg(
+    #[param(
         display = "Save a restore point",
         desc = "An update (the package is installed already): keep each link's private data \
                 for a rollback. Default true; false is refused when the new version changes \
@@ -93,7 +93,7 @@ pub(super) struct UpdateOpts {
     pub restore_point: bool,
     /// Seconds the links have to come back with every key before the broker
     /// rolls back by itself; 0 keeps the new version and reports.
-    #[arg(
+    #[param(
         display = "Roll back by itself after (s)",
         desc = format!(
             "An update: the links must come back with every node within this time, else \
@@ -119,28 +119,28 @@ impl Default for UpdateOpts {
 /// `packages/<name> ▸ update`.
 #[derive(Args)]
 pub(super) struct UpdatePackage {
-    #[arg(
+    #[param(
         display = "Version",
         desc = "Default: the repository's (`latest`)",
         trim,
         nonempty
     )]
     pub version: Option<String>,
-    #[arg(flatten)]
+    #[param(flatten)]
     pub opts: UpdateOpts,
 }
 
 /// `packages/<name> ▸ rollback`.
 #[derive(Args)]
 pub(super) struct RollbackPackage {
-    #[arg(
+    #[param(
         display = "Version",
         desc = "Default: the kept version (`previous`)",
         trim,
         nonempty
     )]
     pub to: Option<String>,
-    #[arg(
+    #[param(
         display = "Restore the links' data",
         desc = "Put each link's private data back to its restore point of the \
                 update: what was configured since is lost. Default: true when the \

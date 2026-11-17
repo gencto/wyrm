@@ -1671,15 +1671,15 @@ fn history_days(store: &wyrm_history::Store, days: Option<u32>) -> Vec<i64> {
 /// What a broker backup holds: `sys/backups ▸ estimate`, and `create` with its sealing.
 #[derive(Args, Default)]
 pub(super) struct BrokerBackup {
-    #[arg(
+    #[param(
         choice,
         display = "Sections",
         desc = format!("Of: {}", format::section_names(Kind::Broker.sections()))
     )]
     pub sections: Option<Vec<SectionName>>,
-    #[arg(display = "Links", desc = "Links of the section links; empty: all")]
+    #[param(display = "Links", desc = "Links of the section links; empty: all")]
     pub links: Option<Vec<String>>,
-    #[arg(
+    #[param(
         display = "History days",
         desc = "History of the last N days (UTC); empty: all of it"
     )]
@@ -1689,16 +1689,16 @@ pub(super) struct BrokerBackup {
 /// `sys/backups ▸ create`.
 #[derive(Args, Default)]
 pub(super) struct Create {
-    #[arg(flatten)]
+    #[param(flatten)]
     pub what: BrokerBackup,
-    #[arg(flatten)]
+    #[param(flatten)]
     pub seal: Passphrase,
 }
 
 /// The passphrase a backup is sealed with.
 #[derive(Args, Default)]
 pub(super) struct Passphrase {
-    #[arg(
+    #[param(
         display = "Passphrase",
         secret,
         nonempty,
@@ -1713,27 +1713,27 @@ pub(super) struct Passphrase {
 /// `sys/links/<id> ▸ backup`.
 #[derive(Args, Default)]
 pub(super) struct BackupLink {
-    #[arg(
+    #[param(
         choice,
         display = "Sections",
         desc = format!("Of: {}", format::section_names(Kind::Link.sections()))
     )]
     pub sections: Option<Vec<SectionName>>,
-    #[arg(
+    #[param(
         display = "History days",
         desc = "History of the last N days (UTC); empty: all of it"
     )]
     pub history_days: Option<u32>,
-    #[arg(flatten)]
+    #[param(flatten)]
     pub seal: Passphrase,
 }
 
 /// `sys/backups/<id> ▸ download_part`.
 #[derive(Args)]
 pub(super) struct DownloadPart {
-    #[arg(display = "Offset (bytes)")]
+    #[param(display = "Offset (bytes)")]
     pub offset: u64,
-    #[arg(display = "Length (bytes)", desc = "default 4 MiB, at most 16 MiB")]
+    #[param(display = "Length (bytes)", desc = "default 4 MiB, at most 16 MiB")]
     pub len: Option<u64>,
 }
 

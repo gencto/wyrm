@@ -6,7 +6,7 @@ zero. A count that went down must be written down at once (`--lower`): the
 check fails on a count above and on a count below its baseline, so a fixed
 hit cannot be spent again by the next change. Two kinds of rules:
 
-* patterns C1..C10, read from the source (non-test code: `tests/`,
+* patterns C1..C12, read from the source (non-test code: `tests/`,
   `benches/`, `examples/` and `#[cfg(test)]` items are left out);
 * clippy lints that are too costly to deny at once, counted from one
   `cargo clippy --lib --bins --all-features` run in JSON.
@@ -383,6 +383,8 @@ def c3(s: Source) -> list[int]:
 
 
 ARG_HELPERS = r"\b(?:arg|arg_str|opt_str|req_str|get_str|get_u64|get_bool|get_f64|enum_arg|text_arg|choice|uint_arg|bool_arg)\(\s*[^;)]*?\""
+# The codec of `Value` and the decoder behind `#[derive(Args)]`.
+DECODERS = ("crates/wyrm-core/src/value.rs", "crates/wyrm-core/src/args.rs")
 C4_PATTERNS = [
     r"\bSome\(\s*&?\s*Value::(?:Str|UInt|Int|Bool|Float|Map|Array|Bytes|Null)\b",
     r"\bif\s+let\s+(?:Some\(\s*)?&?Value::(?:Str|UInt|Int|Bool|Float|Map|Array|Bytes)\(",
@@ -398,7 +400,7 @@ def c4(s: Source) -> list[int]:
     """A field of a `Value` map read by hand outside a decoder: `Some(Value::…`, `if let
     Value::…(`, `let Value::…(..) =`, `.get/get_mut/remove/contains_key("x" | CONST)`,
     `m["x"]`, `Value::as_*`, and the argument helpers (`arg_str(&args, "x")`, …)."""
-    if s.path.endswith("/decode.rs") or "/decode/" in s.path or s.path == "crates/wyrm-core/src/value.rs":
+    if s.path.endswith("/decode.rs") or "/decode/" in s.path or s.path in DECODERS:
         return []
     hits = [m.start() for p in C4_PATTERNS for m in re.finditer(p, s.code)]
     return s.hits("C4", hits)
@@ -783,7 +785,7 @@ def c9(s: Source) -> list[int]:
 
 def c10(s: Source) -> list[int]:
     """A `#[param(secret)]` field whose type is not a `Secret` (a type alias of this file is
-    followed to its type)."""
+    followed to its type): a driver parameter (`Params`) or an action argument (`Args`)."""
     aliases = dict(re.findall(r"\btype\s+(\w+)\s*=\s*([^;]+);", s.masked))
     hits = []
     for m in re.finditer(r"#\[param\(([^\]]*)\)\]", s.masked):
@@ -879,6 +881,33 @@ def c11(s: Source) -> list[int]:
     return s.hits("C11", [m.start() for m in URL_SPLIT.finditer(s.code)])
 
 
+ADMIN = "crates/wyrm-admin/src/"
+C12_PATTERNS = [
+    # an argument reader, defined or called (not a method: `cmd.arg(…)` of a process)
+    r"(?<!\.)\b(?:arg|arg_str|arg_num|arg_ms|arg_bool|arg_bytes|opt_str|req_str|get_str|get_u64|"
+    r"get_bool|\w+_arg|\w+_args|from_args|accepted)\s*(?:(?:::)?<[^>()]*>)?\(",
+    # the arguments map taken apart
+    r"\bargs\s*\.\s*(?:get|get_mut|remove|contains_key|iter|keys|values|as_\w+|to_int)\b",
+    r"\bmatch\s+[&*]*args\b",
+    r"=\s*[&*]*args\s*(?:else\b|\{)",
+    r"\bargs\s*\[",
+    # a parameter declared by hand
+    r"\bParamMeta\b",
+    r"\.\s*param\(",
+]
+
+
+def c12(s: Source) -> list[int]:
+    """In `wyrm-admin`, an action's arguments read or declared by hand: an argument reader
+    (`arg(…)`, `arg_str(…)`, `int_arg(…)`, any `…_arg(…)`, `from_args(…)`), the `args` map
+    taken apart (`args.get(…)`, `match args`, `let … = args else`, `args["x"]`), or a
+    parameter written out (`ParamMeta`, `.param(…)`). An action's struct with
+    `#[derive(Args)]` is the one declaration and the one decoder (docs/rust-rules.md §7)."""
+    if not s.path.startswith(ADMIN):
+        return []
+    return s.hits("C12", [m.start() for p in C12_PATTERNS for m in re.finditer(p, s.masked)])
+
+
 PATTERNS = {
     "C1-int-cast": c1,
     "C2-name-lookup": c2,
@@ -891,6 +920,7 @@ PATTERNS = {
     "C9-duplicate-helper": c9,
     "C10-plain-secret": c10,
     "C11-url-split": c11,
+    "C12-admin-arg-read": c12,
     "A1-allow": a1,
     "A2-short-reason": a2,
     "A3-scratch-discard": a3,
@@ -901,6 +931,35 @@ PATTERNS = {
 # Samples each rule must count (`hit`) or leave (`miss`), checked before every run so a
 # change to a pattern cannot silently stop counting what it was written for.
 PROBES = [
+    # C12: wyrm-admin reads and declares an action's arguments only through its struct
+    ("C12", ADMIN + "x.rs", 'fn f(args: &Value) { let n = arg_str(args, "name"); }', 1),
+    ("C12", ADMIN + "x.rs", 'fn f(args: &Value) { let n = int_arg::<u32>(args, "n")?; }', 1),
+    ("C12", ADMIN + "x.rs", "fn arg<'a>(args: &'a Value, name: &str) -> Option<&'a Value> { None }", 1),
+    ("C12", ADMIN + "x.rs", 'fn f(args: &Value) { let p = passphrase_arg(args)?; }', 1),
+    ("C12", ADMIN + "x.rs", "fn f(args: &Value) { let o = UpdateOpts::from_args(args)?; }", 1),
+    ("C12", ADMIN + "x.rs", "fn f(args: &Value) -> bool { accepted(args) }", 1),
+    ("C12", ADMIN + "x.rs", 'fn f(args: &BTreeMap<String, Value>) { let n = args.get("name"); }', 1),
+    ("C12", ADMIN + "x.rs", "fn f(args: &Value) { match args { Value::Map(m) => go(m), _ => {} } }", 1),
+    ("C12", ADMIN + "x.rs", "fn f(args: &Value) { let Value::Map(m) = args else { return }; }", 1),
+    ("C12", ADMIN + "x.rs", "fn f(args: &Value) { if let Value::Map(m) = &args { go(m) } }", 1),
+    ("C12", ADMIN + "x.rs", 'fn f(args: &Value) { let n = &args["name"]; }', 1),
+    ("C12", ADMIN + "x.rs", "fn f() -> ParamMeta { ParamMeta::of(TypeCode::String) }", 2),
+    ("C12", ADMIN + "x.rs", 'fn f() -> ActionMeta { ActionMeta::new().param("n", p()) }', 1),
+    # the typed way, a dispatcher that hands the map on, and a call built for another link
+    (
+        "C12",
+        ADMIN + "x.rs",
+        "#[derive(Args)]\nstruct A {\n    #[param(display = \"N\", min = 1)]\n    n: u32,\n}\n"
+        "fn f(args: &Value) -> Result<A, ArgError> { A::decode(args) }\n"
+        "fn g(args: &Value) { sinks::invoke(args); let mut args = BTreeMap::new(); args.insert(k, v); }\n"
+        "fn h() -> ActionMeta { A::action().shown(\"n\", |p| p.placeholder(\"1\")) }",
+        0,
+    ),
+    ("C12", "links/x/src/lib.rs", 'fn f(args: &Value) { let n = arg_str(args, "name"); }', 0),
+    ("C12", ADMIN + "x.rs", '#[cfg(test)]\nmod tests { fn f(args: &Value) { arg_str(args, "n"); } }', 0),
+    # C10: a secret argument is a secret type too
+    ("C10", "x.rs", "#[derive(Args)]\nstruct A {\n    #[param(secret, nonempty)]\n    passphrase: Option<String>,\n}", 1),
+    ("C10", "x.rs", "#[derive(Args)]\nstruct A {\n    #[param(secret, nonempty)]\n    passphrase: Option<Secret>,\n}", 0),
     ("C11", "x.rs", 'fn f(u: &str) { let (s, r) = u.split_once("://").unwrap(); }', 1),
     ("C11", "x.rs", 'fn f(u: &str) -> bool { u.strip_prefix("https://").is_some() }', 1),
     ("C11", "x.rs", 'fn f(u: &str) -> bool { u.starts_with("http") }', 1),

@@ -11,7 +11,7 @@ Two checks run in CI job `check`:
    has `lints.workspace = true`. `cargo clippy --workspace --all-targets
    --all-features -- -D warnings` fails on one hit.
 2. **Baselined rules.** `python3 tool/check_rust_rules.py` counts the patterns
-   C1–C11, the exceptions A1–A3 and seven costly clippy lints per file against
+   C1–C12, the exceptions A1–A3 and seven costly clippy lints per file against
    `tool/rust_rules_baseline.json`. **A count may only go down. A file that is
    not in the baseline starts at zero.** The check fails on a count above its
    baseline and also on a count below it: after you remove hits, run
@@ -292,10 +292,23 @@ exempt from C6: their `NAMES` is the one declaration of a set.
 ## 7. One typed decoder per `Value` shape
 
 **Rule.** Action arguments, stored records and reply maps are decoded once,
-into a struct, by one decoder (`#[derive(Params)]`, a `FromValue`-style
-function in a `decode.rs`). Handlers use the struct. They do not take
+into a struct, by one decoder (`#[derive(Args)]` for an action's arguments,
+`#[derive(Params)]` for a driver node, a `FromValue`-style function in a
+`decode.rs`). Handlers use the struct. They do not take
 `Some(Value::Bool(..))` or `.get("field")` apart by hand, each with its own
 default.
+
+An action's arguments are one struct with `#[derive(Args)]`
+(`wyrm_core::args`, re-exported by `wyrm-link-sdk` and `wyrm-link-api`): the
+struct is what `~meta` declares (`X::action()`) and what the handler gets
+(`X::decode(&args)?`). A field `T` is required, `Option<T>` optional; whole
+numbers go through `Value::to_int`; a closed set is a `name_enum!` type with
+`#[param(choice)]` (by name) or `#[param(enum)]` (by index); a name that is no
+field is refused; every refusal names its field. What a form shows from the
+state of the moment (the choices of a list, the value in force) is set with
+`ActionMeta::shown`, which cannot change a type or add a parameter. In
+`wyrm-admin` this is the only way (C12): no argument reader, no `ParamMeta`
+written out.
 
 **Why.** **T3**: ≈508 `Some(Value::…(` matches and ≈343 `.get("literal")`
 reads; the schema is declared twice (`ParamMeta`, which the SDK validates, and
@@ -306,17 +319,29 @@ first, so a wrong type silently reads as the default.
 // bad — crates/wyrm-admin/src/control.rs: anything but `false` is "true"
 let enabled = !matches!(arg(args, "enabled"), Some(Value::Bool(false)));
 
-// good (the target design, audit T3) — one struct is both the declaration and the decoder
-#[derive(Params)]
-struct EnableArgs { #[param(default = true)] enabled: bool }
-let a = EnableArgs::from_value(&args)?;
+// good — crates/wyrm-admin/src/control/actions.rs: one struct is the declaration and the decoder
+#[derive(Args)]
+struct AddUpstream {
+    #[param(display = "Enabled", absent = true)]
+    enabled: bool,
+    // …
+}
+let a = AddUpstream::decode(&args)?; // `enabled: "no"` is refused, with the field's name
 ```
 
 **Check.** C4 `value-field-read`: `Some(Value::…`, `if let Value::…(`,
 `let Value::…(..) =`, `.get`/`.get_mut`/`.remove`/`.contains_key` with a
 literal or a `CONST` key, `m["x"]`, `Value::as_*`, and the argument helpers
 (`arg_str(&args, "x")`, `opt_str`, `get_u64`, …). Files named `decode.rs`,
-`decode/` and the codec in `wyrm-core/src/value.rs` are exempt.
+`decode/`, the codec in `wyrm-core/src/value.rs` and the decoder behind
+`#[derive(Args)]` (`wyrm-core/src/args.rs`) are exempt.
+
+C12 `admin-arg-read`, in `crates/wyrm-admin/src` (baseline 0; the other crates
+follow as they move, audit T3): an argument reader defined or called (`arg(…)`,
+`arg_str(…)`, `int_arg(…)`, any `…_arg(…)`, `from_args(…)`), the `args` map
+taken apart (`args.get(…)`, `match args`, `let … = args else`, `args["x"]`),
+and a parameter declared by hand (`ParamMeta`, `.param(…)`). A dispatcher may
+hand `args` on and call `X::decode(args)`; nothing else.
 
 ## 8. A public error is a type, not a `String`
 
@@ -490,8 +515,9 @@ before every run.
 `wyrm_link_sdk::support::Secret` (redacted `Debug`, zeroized on drop), not
 `String`.
 
-The derive does not take `Secret` as a parameter type yet (audit T3 extends
-it); until then the count only goes down as links move.
+An action argument (`#[derive(Args)]`) takes `Secret` (a text parameter) and
+`SecretBytes` (a binary one). The driver derive (`#[derive(Params)]`) does not
+take `Secret` yet; until then its count only goes down as links move.
 
 **Why.** Today secrets stay out of `Debug` by a comment ("No `Debug`: it holds
 secrets"); a type makes the convention a rule the compiler keeps.

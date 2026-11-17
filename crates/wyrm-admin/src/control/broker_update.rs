@@ -106,42 +106,42 @@ impl Default for UpdateConfig {
 /// `sys ▸ update`.
 #[derive(Args)]
 pub(super) struct Update {
-    #[arg(
+    #[param(
         display = "Version",
         desc = "Of the releases index; empty: the latest",
         trim,
         absent = String::new()
     )]
     pub version: String,
-    #[arg(display = "Site name", desc = "Type the name of this site to confirm")]
+    #[param(display = "Site name", desc = "Type the name of this site to confirm")]
     pub confirm_site: String,
-    #[arg(
+    #[param(
         display = "Upload",
         desc = "Without updates.channel: the id of the archive uploaded in parts \
                 (sys/backups restore_begin, restore_part)",
         absent = String::new()
     )]
     pub upload: String,
-    #[arg(
+    #[param(
         display = "Release",
         desc = "With upload: the release document of the archive (JSON)"
     )]
     pub release: Option<String>,
-    #[arg(
+    #[param(
         display = "Signature",
         desc = "With upload: the Ed25519 signature of the release (hex)",
         absent = String::new()
     )]
     pub signature: String,
     /// Which broker of a pair to update (left out or empty: the active).
-    #[arg(
+    #[param(
         choice,
         nonempty,
         display = "Target",
         desc = "A standby pair: the standby is updated first"
     )]
     pub target: Option<release::UpdateRole>,
-    #[arg(
+    #[param(
         display = "Without the standby",
         desc = "A standby pair whose standby is down: update this broker alone",
         absent = false
@@ -158,7 +158,7 @@ impl Update {
 /// `sys ▸ rollback_update`.
 #[derive(Args)]
 pub(super) struct RollbackUpdate {
-    #[arg(display = "Site name", desc = "Type the name of this site to confirm")]
+    #[param(display = "Site name", desc = "Type the name of this site to confirm")]
     pub confirm_site: String,
 }
 

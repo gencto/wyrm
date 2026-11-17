@@ -23,8 +23,8 @@
 //!   fraction, a negative number for an unsigned type and a number out of the
 //!   type's range are refused, never truncated;
 //! * a closed set of names is a [`Named`] type (`name_enum!`, `wire_enum!`):
-//!   `#[arg(choice)]` takes its name (a text parameter that lists the names),
-//!   `#[arg(enum)]` its index (an `enum` parameter, spec 02).
+//!   `#[param(choice)]` takes its name (a text parameter that lists the names),
+//!   `#[param(enum)]` its index (an `enum` parameter, spec 02).
 //!
 //! This module has no dependency beyond the wire types, so a portable link
 //! (wasm32) decodes its arguments the same way.
@@ -227,7 +227,7 @@ pub fn names<T: Named>(v: &Value) -> Result<Vec<T>, Fault> {
         .collect()
 }
 
-/// `#[arg(choice)]`: a value of the set `T` from its name.
+/// `#[param(choice)]`: a value of the set `T` from its name.
 pub fn by_name<T: Named>(v: &Value) -> Result<T, Fault> {
     match v {
         Value::Str(s) => crate::named::parse::<T>(s).map_err(Fault::Name),
@@ -235,7 +235,7 @@ pub fn by_name<T: Named>(v: &Value) -> Result<T, Fault> {
     }
 }
 
-/// `#[arg(enum)]`: a value of the set `T` from its index in [`Named::NAMES`],
+/// `#[param(enum)]`: a value of the set `T` from its index in [`Named::NAMES`],
 /// the form an `enum` parameter has on the wire (spec 02).
 pub fn by_index<T: Named>(v: &Value) -> Result<T, Fault> {
     let index: u64 = v.to_int().map_err(|e| match e {
@@ -253,7 +253,7 @@ pub fn by_index<T: Named>(v: &Value) -> Result<T, Fault> {
     T::from_name(name).ok_or_else(out)
 }
 
-/// `#[arg(trim)]`: text without the white space around it.
+/// `#[param(trim)]`: text without the white space around it.
 pub fn trimmed(v: &Value) -> Result<String, Fault> {
     match v {
         Value::Str(s) => Ok(s.trim().to_owned()),
@@ -261,7 +261,7 @@ pub fn trimmed(v: &Value) -> Result<String, Fault> {
     }
 }
 
-/// `#[arg(min = …)]`.
+/// `#[param(min = …)]`.
 pub fn at_least<T: PartialOrd + fmt::Display>(field: &str, v: &T, min: T) -> Result<(), ArgError> {
     if *v < min {
         return Err(ArgError::new(
@@ -272,7 +272,7 @@ pub fn at_least<T: PartialOrd + fmt::Display>(field: &str, v: &T, min: T) -> Res
     Ok(())
 }
 
-/// `#[arg(max = …)]`.
+/// `#[param(max = …)]`.
 pub fn at_most<T: PartialOrd + fmt::Display>(field: &str, v: &T, max: T) -> Result<(), ArgError> {
     if *v > max {
         return Err(ArgError::new(
@@ -325,7 +325,7 @@ pub struct Field<'a> {
 }
 
 impl<'a> Field<'a> {
-    /// `#[arg(nonempty)]`: a text that is empty or white space is not there
+    /// `#[param(nonempty)]`: a text that is empty or white space is not there
     /// (a form sends an empty field as `""`).
     pub fn nonempty(mut self) -> Self {
         if matches!(self.value, Some(Value::Str(s)) if s.trim().is_empty()) {
@@ -358,7 +358,7 @@ pub trait Args: Sized {
     /// Every parameter with its declared meta, in field order.
     fn params() -> Vec<(&'static str, ParamMeta)>;
 
-    /// The fields from `r` (a struct inside another one, `#[arg(flatten)]`,
+    /// The fields from `r` (a struct inside another one, `#[param(flatten)]`,
     /// reads from the same arguments).
     fn read(r: &mut Reader<'_>) -> Result<Self, ArgError>;
 

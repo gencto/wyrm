@@ -30,7 +30,7 @@ impl fmt::Debug for Secret {
 }
 
 /// A secret text argument (a passphrase, a token): a text parameter with the
-/// password editor (`#[arg(secret)]`).
+/// password editor (`#[param(secret)]`).
 impl wyrm_core::args::ArgValue for Secret {
     const TYPE: wyrm_core::TypeCode = wyrm_core::TypeCode::String;
     fn from_value(v: &wyrm_core::Value) -> std::result::Result<Self, wyrm_core::args::Fault> {

@@ -26,13 +26,13 @@ struct Attrs {
     default: Option<Expr>,
 }
 
-const KNOWN: &str = "unknown arg attribute; expected name, display, desc, placeholder, editor, \
+const KNOWN: &str = "unknown param attribute of an action argument; expected name, display, desc, placeholder, editor, \
                      secret, choice, enum, reversed, suggest, min, max, trim, nonempty, flatten, \
                      absent or default";
 
 fn attrs(list: &[syn::Attribute]) -> syn::Result<Attrs> {
     let mut a = Attrs::default();
-    for attr in list.iter().filter(|a| a.path().is_ident("arg")) {
+    for attr in list.iter().filter(|a| a.path().is_ident("param")) {
         attr.parse_nested_meta(|m| {
             let key = m.path.get_ident().map(ToString::to_string);
             match key.as_deref() {
@@ -81,6 +81,204 @@ fn inner<'a>(ty: &'a Type, wrapper: &str) -> Option<&'a Type> {
     }
 }
 
+/// What the attributes of one field must not combine.
+fn check(f: &syn::Field, a: &Attrs, option: bool) -> syn::Result<()> {
+    let bad = |what: &str| Err(syn::Error::new_spanned(f, what));
+    let set = a.choice || a.index;
+    if a.choice && a.index {
+        return bad("choice (by name) or enum (by index), not both");
+    }
+    if a.reversed && !set {
+        return bad("reversed needs choice or enum");
+    }
+    if a.trim && set {
+        return bad("trim is for text");
+    }
+    if a.suggest.is_some() && set {
+        return bad("suggest lists examples of a free text; a closed set is choice or enum");
+    }
+    if a.absent.is_some() && a.default.is_some() {
+        return bad("absent (not published) or default (published), not both");
+    }
+    if a.secret && a.editor.is_some() {
+        return bad("a secret has the password editor");
+    }
+    if option && (a.absent.is_some() || a.default.is_some()) {
+        return bad("an Option field has no value when absent");
+    }
+    Ok(())
+}
+
+/// One field: its type without `Option`, and the set of a `choice`/`enum`.
+struct Shape<'a> {
+    ty: &'a Type,
+    option: bool,
+    value_ty: &'a Type,
+    /// `#[param(choice)] Vec<T>`: a list of names of one set.
+    list: bool,
+    set_ty: &'a Type,
+}
+
+impl<'a> Shape<'a> {
+    fn of(ty: &'a Type, a: &Attrs) -> Self {
+        let option = inner(ty, "Option");
+        let value_ty = option.unwrap_or(ty);
+        let list = if a.choice {
+            inner(value_ty, "Vec")
+        } else {
+            None
+        };
+        Shape {
+            ty,
+            option: option.is_some(),
+            value_ty,
+            list: list.is_some(),
+            set_ty: list.unwrap_or(value_ty),
+        }
+    }
+
+    /// The declared `type` and the function that decodes one value.
+    fn codec(&self, a: &Attrs) -> (Tokens, Tokens) {
+        let args = quote!(::wyrm_core::args);
+        let (value_ty, set_ty) = (self.value_ty, self.set_ty);
+        if a.choice && self.list {
+            (
+                quote!(::wyrm_core::TypeCode::Array),
+                quote!(#args::names::<#set_ty>),
+            )
+        } else if a.choice {
+            (
+                quote!(::wyrm_core::TypeCode::String),
+                quote!(#args::by_name::<#set_ty>),
+            )
+        } else if a.index {
+            (
+                quote!(::wyrm_core::TypeCode::Enum),
+                quote!(#args::by_index::<#set_ty>),
+            )
+        } else if a.trim {
+            (
+                quote!(<#value_ty as #args::ArgValue>::TYPE),
+                quote!(#args::trimmed),
+            )
+        } else {
+            (
+                quote!(<#value_ty as #args::ArgValue>::TYPE),
+                quote!(<#value_ty as #args::ArgValue>::from_value),
+            )
+        }
+    }
+}
+
+/// The `ParamMeta` one field declares.
+fn declared(sh: &Shape<'_>, a: &Attrs, code: &Tokens) -> Tokens {
+    let meta = quote!(::wyrm_core::meta);
+    let (ty, set_ty) = (sh.ty, sh.set_ty);
+    let mut p = quote!(#meta::ParamMeta::of(#code));
+    if !sh.option && a.absent.is_none() && a.default.is_none() {
+        p = quote!(#p.required(true));
+    }
+    if (a.choice && !sh.list) || a.index {
+        let names = quote!(<#set_ty as ::wyrm_core::named::Named>::NAMES.iter().copied());
+        p = if a.reversed {
+            quote!(#p.enum_values(#names.rev()))
+        } else {
+            quote!(#p.enum_values(#names))
+        };
+    }
+    if let Some(e) = &a.suggest {
+        p = quote!(#p.enum_values(#e));
+    }
+    if let Some(e) = &a.display {
+        p = quote!(#p.display(#e));
+    }
+    if let Some(e) = &a.desc {
+        p = quote!(#p.description(#e));
+    }
+    if let Some(e) = &a.placeholder {
+        p = quote!(#p.placeholder(#e));
+    }
+    if a.secret {
+        p = quote!(#p.editor(#meta::Editor::Password));
+    }
+    if let Some(e) = &a.editor {
+        p = quote!(#p.editor(#e));
+    }
+    match &a.default {
+        Some(e) => quote!({
+            let mut p = #p;
+            let v: #ty = #e;
+            p.default = ::std::option::Option::Some(::wyrm_core::Value::from(v));
+            p
+        }),
+        None => p,
+    }
+}
+
+/// The expression that takes one field out of the arguments.
+fn reading(sh: &Shape<'_>, a: &Attrs, name: &str, decode: &Tokens) -> Tokens {
+    let args = quote!(::wyrm_core::args);
+    let ty = sh.ty;
+    let field = if a.nonempty {
+        quote!(r.take(#name).nonempty())
+    } else {
+        quote!(r.take(#name))
+    };
+    let take = match (sh.option, a.absent.as_ref().or(a.default.as_ref())) {
+        (true, _) => quote!(#field.optional(#decode)?),
+        (false, Some(e)) => quote!(match #field.optional(#decode)? {
+            ::std::option::Option::Some(v) => v,
+            ::std::option::Option::None => #e,
+        }),
+        (false, None) => quote!(#field.required(#decode)?),
+    };
+    let mut checks = Vec::new();
+    for (bound, check) in [(&a.min, quote!(at_least)), (&a.max, quote!(at_most))] {
+        let Some(e) = bound else { continue };
+        checks.push(if sh.option {
+            quote!(if let ::std::option::Option::Some(x) = &v {
+                #args::#check(#name, x, #e)?;
+            })
+        } else {
+            quote!(#args::#check(#name, &v, #e)?;)
+        });
+    }
+    quote!({
+        let v: #ty = #take;
+        #(#checks)*
+        v
+    })
+}
+
+/// One field as `(a statement that declares it, its initializer)`.
+fn field(f: &syn::Field) -> syn::Result<(Tokens, Tokens)> {
+    let args = quote!(::wyrm_core::args);
+    let Some(ident) = f.ident.as_ref() else {
+        return Err(syn::Error::new_spanned(f, "a named field"));
+    };
+    let ty = &f.ty;
+    let a = attrs(&f.attrs)?;
+    if a.flatten {
+        if a.name.is_some() || a.choice || a.index || a.absent.is_some() {
+            return Err(syn::Error::new_spanned(
+                f,
+                "flatten takes no other attribute",
+            ));
+        }
+        return Ok((
+            quote!(out.extend(<#ty as #args::Args>::params());),
+            quote!(#ident: <#ty as #args::Args>::read(r)?),
+        ));
+    }
+    let sh = Shape::of(ty, &a);
+    check(f, &a, sh.option)?;
+    let name = a.name.clone().unwrap_or_else(|| ident.to_string());
+    let (code, decode) = sh.codec(&a);
+    let p = declared(&sh, &a, &code);
+    let read = reading(&sh, &a, &name, &decode);
+    Ok((quote!(out.push((#name, #p));), quote!(#ident: #read)))
+}
+
 pub(crate) fn expand(input: &DeriveInput) -> syn::Result<Tokens> {
     if !input.generics.params.is_empty() {
         return Err(syn::Error::new_spanned(
@@ -105,152 +303,9 @@ pub(crate) fn expand(input: &DeriveInput) -> syn::Result<Tokens> {
     let meta = quote!(::wyrm_core::meta);
     let (mut params, mut reads) = (Vec::new(), Vec::new());
     for f in fields {
-        let Some(ident) = f.ident.as_ref() else {
-            return Err(syn::Error::new_spanned(f, "a named field"));
-        };
-        let ty = &f.ty;
-        let a = attrs(&f.attrs)?;
-        let bad = |what: &str| Err(syn::Error::new_spanned(f, what));
-        if a.flatten {
-            if a.name.is_some() || a.choice || a.index || a.absent.is_some() {
-                return bad("flatten takes no other attribute");
-            }
-            params.push(quote!(out.extend(<#ty as #args::Args>::params());));
-            reads.push(quote!(#ident: <#ty as #args::Args>::read(r)?));
-            continue;
-        }
-        if a.choice && a.index {
-            return bad("choice (by name) or enum (by index), not both");
-        }
-        if a.reversed && !(a.choice || a.index) {
-            return bad("reversed needs choice or enum");
-        }
-        if a.trim && (a.choice || a.index) {
-            return bad("trim is for text");
-        }
-        if a.suggest.is_some() && (a.choice || a.index) {
-            return bad("suggest lists examples of a free text; a closed set is choice or enum");
-        }
-        if a.absent.is_some() && a.default.is_some() {
-            return bad("absent (not published) or default (published), not both");
-        }
-        if a.secret && a.editor.is_some() {
-            return bad("a secret has the password editor");
-        }
-        let option = inner(ty, "Option");
-        let fallback = a.absent.as_ref().or(a.default.as_ref());
-        if option.is_some() && fallback.is_some() {
-            return bad("an Option field has no value when absent");
-        }
-        let value_ty = option.unwrap_or(ty);
-        // a list of names of one set: `#[arg(choice)] Vec<T>`
-        let list = if a.choice {
-            inner(value_ty, "Vec")
-        } else {
-            None
-        };
-        let set_ty = list.unwrap_or(value_ty);
-        let name = a.name.clone().unwrap_or_else(|| ident.to_string());
-
-        let (code, decode) = if a.choice {
-            match list {
-                Some(_) => (
-                    quote!(::wyrm_core::TypeCode::Array),
-                    quote!(#args::names::<#set_ty>),
-                ),
-                None => (
-                    quote!(::wyrm_core::TypeCode::String),
-                    quote!(#args::by_name::<#set_ty>),
-                ),
-            }
-        } else if a.index {
-            (
-                quote!(::wyrm_core::TypeCode::Enum),
-                quote!(#args::by_index::<#set_ty>),
-            )
-        } else if a.trim {
-            (
-                quote!(<#value_ty as #args::ArgValue>::TYPE),
-                quote!(#args::trimmed),
-            )
-        } else {
-            (
-                quote!(<#value_ty as #args::ArgValue>::TYPE),
-                quote!(<#value_ty as #args::ArgValue>::from_value),
-            )
-        };
-
-        let mut p = quote!(#meta::ParamMeta::of(#code));
-        let required = option.is_none() && fallback.is_none();
-        if required {
-            p = quote!(#p.required(true));
-        }
-        if (a.choice && list.is_none()) || a.index {
-            let names = quote!(<#set_ty as ::wyrm_core::named::Named>::NAMES.iter().copied());
-            p = if a.reversed {
-                quote!(#p.enum_values(#names.rev()))
-            } else {
-                quote!(#p.enum_values(#names))
-            };
-        }
-        if let Some(e) = &a.suggest {
-            p = quote!(#p.enum_values(#e));
-        }
-        if let Some(e) = &a.display {
-            p = quote!(#p.display(#e));
-        }
-        if let Some(e) = &a.desc {
-            p = quote!(#p.description(#e));
-        }
-        if let Some(e) = &a.placeholder {
-            p = quote!(#p.placeholder(#e));
-        }
-        if a.secret {
-            p = quote!(#p.editor(#meta::Editor::Password));
-        }
-        if let Some(e) = &a.editor {
-            p = quote!(#p.editor(#e));
-        }
-        let p = match &a.default {
-            Some(e) => quote!({
-                let mut p = #p;
-                let v: #ty = #e;
-                p.default = ::std::option::Option::Some(::wyrm_core::Value::from(v));
-                p
-            }),
-            None => p,
-        };
-        params.push(quote!(out.push((#name, #p));));
-
-        let field = if a.nonempty {
-            quote!(r.take(#name).nonempty())
-        } else {
-            quote!(r.take(#name))
-        };
-        let take = match (option.is_some(), fallback) {
-            (true, _) => quote!(#field.optional(#decode)?),
-            (false, Some(e)) => quote!(match #field.optional(#decode)? {
-                ::std::option::Option::Some(v) => v,
-                ::std::option::Option::None => #e,
-            }),
-            (false, None) => quote!(#field.required(#decode)?),
-        };
-        let mut checks = Vec::new();
-        for (bound, check) in [(&a.min, quote!(at_least)), (&a.max, quote!(at_most))] {
-            let Some(e) = bound else { continue };
-            checks.push(if option.is_some() {
-                quote!(if let ::std::option::Option::Some(x) = &v {
-                    #args::#check(#name, x, #e)?;
-                })
-            } else {
-                quote!(#args::#check(#name, &v, #e)?;)
-            });
-        }
-        reads.push(quote!(#ident: {
-            let v: #ty = #take;
-            #(#checks)*
-            v
-        }));
+        let (param, read) = field(f)?;
+        params.push(param);
+        reads.push(read);
     }
     let ident = &input.ident;
     Ok(quote! {

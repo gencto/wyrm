@@ -22,40 +22,40 @@ wyrm_core::name_enum! {
 
 #[derive(Args, Debug, PartialEq)]
 struct Common {
-    #[arg(display = "Accept", absent = false)]
+    #[param(display = "Accept", absent = false)]
     accept: bool,
-    #[arg(display = "Seconds", min = 0.0, max = 3600.0)]
+    #[param(display = "Seconds", min = 0.0, max = 3600.0)]
     wait_s: Option<f64>,
 }
 
 #[derive(Args, Debug)]
 struct Install {
-    #[arg(display = "Name", desc = "Id of the new link", trim, nonempty)]
+    #[param(display = "Name", desc = "Id of the new link", trim, nonempty)]
     name: String,
-    #[arg(display = "ZIP file", editor = "file")]
+    #[param(display = "ZIP file", editor = "file")]
     zip: Vec<u8>,
-    #[arg(name = "ref", placeholder = format!("branch or {}", "tag"), trim, nonempty)]
+    #[param(name = "ref", placeholder = format!("branch or {}", "tag"), trim, nonempty)]
     git_ref: Option<String>,
-    #[arg(choice, display = "Mode")]
+    #[param(choice, display = "Mode")]
     mode: Option<Mode>,
-    #[arg(enum)]
+    #[param(enum)]
     index: Option<Mode>,
-    #[arg(choice, reversed)]
+    #[param(choice, reversed)]
     last_first: Option<Mode>,
-    #[arg(choice)]
+    #[param(choice)]
     modes: Option<Vec<Mode>>,
-    #[arg(suggest = ["1s", "1m"])]
+    #[param(suggest = ["1s", "1m"])]
     interval: Option<String>,
-    #[arg(min = 1, max = 2000, default = 200)]
+    #[param(min = 1, max = 2000, default = 200)]
     lines: u64,
     count: Option<u16>,
     params: Option<BTreeMap<String, Value>>,
     via: Option<Vec<String>>,
-    #[arg(secret)]
+    #[param(secret)]
     passphrase: Option<Secret>,
-    #[arg(secret)]
+    #[param(secret)]
     value: Option<SecretBytes>,
-    #[arg(flatten)]
+    #[param(flatten)]
     common: Common,
 }
 

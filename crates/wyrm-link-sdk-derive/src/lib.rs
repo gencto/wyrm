@@ -25,7 +25,7 @@
 //! action's declared parameters and the decoder of its arguments. Its output
 //! names `wyrm_core` only, so a portable link (wasm32) uses it too. A field of
 //! type `T` is required, `Option<T>` optional. Field attributes:
-//! `#[arg(name = "...", display = <text>, desc = <text>, placeholder = <text>,
+//! `#[param(name = "...", display = <text>, desc = <text>, placeholder = <text>,
 //! editor = "...", secret, choice, enum, reversed, suggest = <names>,
 //! min = <n>, max = <n>, trim, nonempty, flatten, absent = <value>,
 //! default = <value>)]`:
@@ -228,7 +228,7 @@ fn default_value(e: &Expr, kind: Kind) -> syn::Result<Tokens> {
 }
 
 /// `#[derive(Args)]` on a struct with named fields (`wyrm_core::args::Args`).
-#[proc_macro_derive(Args, attributes(arg))]
+#[proc_macro_derive(Args, attributes(param))]
 pub fn derive_args(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     args::expand(&input)

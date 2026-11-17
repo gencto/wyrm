@@ -85,9 +85,9 @@ impl Cursor {
 /// `history/sinks ▸ add_sink`.
 #[derive(Args)]
 struct AddSink {
-    #[arg(display = "Name", trim, nonempty)]
+    #[param(display = "Name", trim, nonempty)]
     name: String,
-    #[arg(
+    #[param(
         display = "Link",
         placeholder = "<link id>",
         desc = LINK_ABOUT,
@@ -95,9 +95,9 @@ struct AddSink {
         nonempty
     )]
     link: String,
-    #[arg(display = "Groups", placeholder = "all", desc = GROUPS_ABOUT)]
+    #[param(display = "Groups", placeholder = "all", desc = GROUPS_ABOUT)]
     groups: Option<String>,
-    #[arg(
+    #[param(
         choice,
         nonempty,
         display = "From",
@@ -109,7 +109,7 @@ struct AddSink {
 /// `history/sinks/<name> ▸ edit`: a field left out stays as it is.
 #[derive(Args)]
 struct EditSink {
-    #[arg(
+    #[param(
         display = "Link",
         placeholder = "<link id>",
         desc = LINK_ABOUT,
@@ -118,14 +118,14 @@ struct EditSink {
     )]
     link: Option<String>,
     /// Given and empty: all groups.
-    #[arg(display = "Groups", placeholder = "all", desc = GROUPS_ABOUT)]
+    #[param(display = "Groups", placeholder = "all", desc = GROUPS_ABOUT)]
     groups: Option<String>,
 }
 
 /// `history/sinks/<name> ▸ reset_cursor`.
 #[derive(Args)]
 struct ResetCursor {
-    #[arg(
+    #[param(
         choice,
         display = "To",
         desc = "start: send everything on disk again; now: skip what is not sent."
@@ -137,12 +137,12 @@ struct ResetCursor {
 #[derive(Args)]
 struct Next {
     /// A journal number is whole: `5.5` would confirm row 5 and send row 6 again.
-    #[arg(
+    #[param(
         display = "After",
         desc = "Confirms every row up to it; empty: the confirmed one."
     )]
     after: Option<u64>,
-    #[arg(
+    #[param(
         display = "Max",
         placeholder = "1000",
         desc = "Rows at most (5000).",
