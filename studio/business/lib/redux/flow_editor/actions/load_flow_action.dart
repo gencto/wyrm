@@ -1,4 +1,3 @@
-import 'package:async_redux/async_redux.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/error_kind.dart';
 import 'package:models/flow_draft.dart';
@@ -24,18 +23,33 @@ import 'unload_flow_action.dart';
 /// version is kept (closing the editor does not drop it) unless the broker
 /// has a newer version.
 ///
-/// The watch of a redeployed flow starts it without waiting, and a person
-/// may open one flow and then another before the first answered: loads run
-/// one at a time in the order they were started, so the flow open last is
-/// the one that stays.
-class LoadFlowAction extends Action with Sequential<AppState> {
-  LoadFlowAction(this.id, {this.isNew = false, this.route});
+/// A person may open one flow and then another before the first answered,
+/// and the watch of a redeployed flow reads the flow on screen again
+/// ([LoadFlowAction.redeployed]) without anyone waiting: no load waits for
+/// another, and the answer of a load that was replaced is dropped whole
+/// ([replaced]: no state, no unload, no error said).
+/// - An open is replaced by an open started after it (the flow opened last
+///   is the one that stays, whichever answers first) and by a later read
+///   of the same flow after a redeploy (that read is the newer one).
+/// - A read after a redeploy is replaced by any open started after it, by
+///   a later read of the same flow, and when the editor holds another
+///   flow by the time it answers. It never replaces an open of another
+///   flow.
+/// - Both are replaced when the site was left.
+class LoadFlowAction extends Action {
+  LoadFlowAction(this.id, {this.isNew = false, this.route})
+    : redeployed = false;
+
+  /// The flow on screen was deployed again: its newest version is read.
+  LoadFlowAction.redeployed(this.id)
+    : isNew = false,
+      route = null,
+      redeployed = true;
 
   @override
-  Object? sequentialKeyParams() => runtimeType;
-
-  @override
-  Action again() => LoadFlowAction(id, isNew: isNew, route: route);
+  Action again() => redeployed
+      ? LoadFlowAction.redeployed(id)
+      : LoadFlowAction(id, isNew: isNew, route: route);
 
   @override
   Action reload() => RetrieveFlowsAction();
@@ -46,24 +60,80 @@ class LoadFlowAction extends Action with Sequential<AppState> {
   /// The editor's route, kept with the flow (null: the one it has).
   final String? route;
 
+  /// The read of the flow on screen after a redeploy, not an open.
+  final bool redeployed;
+
+  /// What this load asked and its place among the loads: the site, the
+  /// open and the redeploy read of this flow started last when it began
+  /// (one of the two is its own). Null before it asked.
+  ({String root, int open, int reread})? _asked;
+
+  /// The answer of this load was dropped: another load took its place, or
+  /// the site was left. Who started it does nothing more for it.
+  bool get replaced => _replaced;
+  var _replaced = false;
+
+  Object get _rereads => (LoadFlowAction, id);
+
+  /// Another load took this one's place, as the order stands now.
+  bool get _isReplaced {
+    final asked = _asked;
+    if (asked == null) {
+      return false;
+    }
+    final latest = deps.latest;
+    return site.root != asked.root ||
+        latest.started(LoadFlowAction) != asked.open ||
+        latest.started(_rereads) != asked.reread ||
+        (redeployed && flowEditor.flowId != id);
+  }
+
+  /// A failure of a load that was replaced is not said: the screen shows
+  /// another flow, whose load says its own.
+  @override
+  Object? wrapError(Object error, StackTrace stackTrace) {
+    if (_isReplaced) {
+      _replaced = true;
+      return null;
+    }
+    return super.wrapError(error, stackTrace);
+  }
+
   @override
   Future<AppState?> reduce() async {
     final root = site.root;
     if (root == null) {
       return null;
     }
+    final latest = deps.latest;
+    _asked = redeployed
+        ? (
+            root: root,
+            open: latest.started(LoadFlowAction),
+            reread: latest.start(_rereads),
+          )
+        : (
+            root: root,
+            open: latest.start(LoadFlowAction),
+            reread: latest.started(_rereads),
+          );
     final api = deps.wyrm;
     // The catalogue is read once per session and site (`flows.blockTypes`,
     // filled by the log-in preload); only a cold cache asks the broker.
     final cached = flows.blockTypes;
     final types = cached.isNotEmpty ? cached : await readBlockTypes(api, root);
+    final key = '$root/dataflows/$id';
+    final history = isNew ? null : await askOne(api, key, 'history');
+    // Every `await` is behind, and nothing was written yet: a load that was
+    // replaced ends here, before it reads the editor, unloads a flow or
+    // says that its definition does not read.
+    if (_isReplaced) {
+      _replaced = true;
+      return null;
+    }
     var draft = FlowDraft(id: id);
-    if (!isNew) {
-      final key = '$root/dataflows/$id';
-      final read = switch (newestFlowOf(
-        id,
-        await askOne(api, key, 'history'),
-      )) {
+    if (history != null) {
+      final read = switch (newestFlowOf(id, history)) {
         Valid(:final value) => value,
         // A definition Studio cannot read is said, with the field. The
         // same flow keeps what it had; another flow drops the one held

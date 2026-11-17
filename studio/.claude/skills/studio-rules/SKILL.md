@@ -89,10 +89,16 @@ listener is wrapped by one async intent the listener dispatches
 (`FollowListAction`, `ApplyLiveValuesAction`); what follows an edit of the
 flow is started where the page follows it (`FollowFlowEditorAction`). An action started that way has nobody waiting
 for its answer, so it guards its own order: `Sequential` (one queue, in
-dispatch order: the clipboard, the block library, the flows, a flow's load),
-and a check after each `await` that what it answered for is still on
+dispatch order: the clipboard, the block library, the flows) where each
+step must see the one before it, or, for a read a person may start again
+before it answered (the links of a site, a flow's load), "the newest
+request wins" — it takes a token from `deps.latest` when it starts, never
+waits for an older one, and drops its own answer and its own failure when
+a newer one took its place (`RetrieveLinksAction`, `LoadFlowAction`); and
+in both a check after its `await`s that what it answered for is still on
 screen (the flow, the site, the draft it validated). Each guard has a test
-whose fake answers the older call last (`invokesInTurn`, `writeDelays`).
+whose fake answers the older call last (`invokesInTurn`, `childrenInTurn`,
+`writeDelays`).
 
 **Check.** `unawaited-dispatch` in `app/lib`, `business/lib`, `ui/lib`: also
 `dispatchAll([x])` of one action (a `dispatch` whose Future

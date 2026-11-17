@@ -30,9 +30,19 @@ class OpenFlowEditorAction extends Action {
       notify: false,
     );
     final isNew = routeId == newFlowId;
-    await dispatchAndWait(
-      LoadFlowAction(isNew ? '' : routeId, isNew: isNew, route: routeId),
+    final load = LoadFlowAction(
+      isNew ? '' : routeId,
+      isNew: isNew,
+      route: routeId,
     );
+    await dispatchAndWait(load);
+    // Another flow was opened before this one answered: its own open
+    // watches, previews and checks it. Nothing of this route follows, or
+    // the watch and the preview of the flow left would land over the one
+    // on screen.
+    if (load.replaced) {
+      return null;
+    }
     // The deployed version's live values (ADR 0038 §3); a draft that
     // differs from it runs as a preview (`dataflows` ▸ `preview`). One
     // rebuild for both: the watch quietly, the preview's state shown.

@@ -74,4 +74,98 @@ void main() {
       expect(s.state.links.table.keys, ['new']);
     },
   );
+
+  group('the newest read of the links wins, and waits for none', () {
+    const base = 'wy/central/sys/links';
+    const slow = Duration(milliseconds: 80);
+    const fast = Duration(milliseconds: 5);
+    final before = [Child('old', NodeMeta())];
+    final after = [Child('old', NodeMeta()), Child('added', NodeMeta())];
+
+    bool waiting() => s.state.wait.isWaitingForType<RetrieveLinksAction>();
+
+    setUp(() {
+      api.metas['$base/added'] = NodeMeta(
+        attr: {'driver': const VStr('s7'), 'mode': const VStr('embedded')},
+      );
+    });
+
+    test('an older answer that comes last does not replace the newer '
+        'table, and the newer read is kept while the older one is still '
+        'out', () async {
+      api.childrenInTurn[base] = [(slow, before, null), (fast, after, null)];
+      var olderDone = false;
+      final older = s
+          .dispatchAndWait(RetrieveLinksAction())
+          .whenComplete(() => olderDone = true);
+      final newer = s.dispatchAndWait(RetrieveLinksAction());
+      await newer;
+      // (b) the newer read did not wait: the older one is still out
+      expect(olderDone, isFalse);
+      expect(s.state.links.table.keys, ['old', 'added']);
+      // a read is still out, and the screen says so
+      expect(waiting(), isTrue);
+      await older;
+      // (a) the older answer came last and was dropped
+      expect(s.state.links.table.keys, ['old', 'added']);
+      expect(s.state.links.view, ['old', 'added']);
+      // (c) nothing is left waiting
+      expect(waiting(), isFalse);
+      expect(s.state.problems.items, isEmpty);
+    });
+
+    test('an older answer that comes first is kept until the newer one '
+        'comes: who awaits a read finds a table at least as new as its '
+        'own', () async {
+      api.childrenInTurn[base] = [(fast, before, null), (slow, after, null)];
+      final older = s.dispatchAndWait(RetrieveLinksAction());
+      final newer = s.dispatchAndWait(RetrieveLinksAction());
+      await older;
+      expect(s.state.links.table.keys, ['old']);
+      expect(waiting(), isTrue);
+      await newer;
+      expect(s.state.links.table.keys, ['old', 'added']);
+      expect(waiting(), isFalse);
+    });
+
+    test('a failure of a read a newer one replaced is not said', () async {
+      api.childrenInTurn[base] = [
+        (slow, null, WyrmException.of(Status.timeout, 'late')),
+        (fast, after, null),
+      ];
+      final older = s.dispatchAndWait(RetrieveLinksAction());
+      final newer = s.dispatchAndWait(RetrieveLinksAction());
+      await newer;
+      final status = await older;
+      expect(status.originalError, isNotNull);
+      expect(status.wrappedError, isNull);
+      expect(s.state.problems.items, isEmpty);
+      expect(s.state.links.table.keys, ['old', 'added']);
+      expect(waiting(), isFalse);
+    });
+
+    test('a failure of the read of a site that was left is not said; the '
+        'site on screen has its own links', () async {
+      api.childrenInTurn[base] = [
+        (slow, null, WyrmException.of(Status.timeout, 'late')),
+      ];
+      final left = s.dispatchAndWait(RetrieveLinksAction());
+      final switched = s.dispatchAndWait(SwitchSiteAction('edge'));
+      await switched;
+      await left;
+      expect(s.state.problems.items, isEmpty);
+      expect(s.state.links.table.keys, ['new']);
+      expect(waiting(), isFalse);
+    });
+
+    test('a failure of the newest read is said as before', () async {
+      api.childrenInTurn[base] = [
+        (fast, null, WyrmException.of(Status.timeout, 'no answer')),
+      ];
+      final status = await s.dispatchAndWait(RetrieveLinksAction());
+      expect(status.wrappedError, isNotNull);
+      expect(s.state.problems.items, hasLength(1));
+      expect(waiting(), isFalse);
+    });
+  });
 }

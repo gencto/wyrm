@@ -173,12 +173,25 @@ class FakeWyrmApi implements WyrmApi {
   @override
   Future<List<Child>> children(String key) async {
     calls.add(Call('children', key));
+    if (childrenInTurn[key] case [final first, ...]) {
+      childrenInTurn[key]!.removeAt(0);
+      await Future<void>.delayed(first.$1);
+      return first.$2 ?? (throw first.$3!);
+    }
     await _delay(key);
     if (errors[key] case final e?) {
       throw e;
     }
     return children_[key] ?? (throw _missing(key));
   }
+
+  /// Answers to the next lists of a key, one per call in call order: each
+  /// is the list as it was when the call was sent (or the refusal, when
+  /// the list is null) and comes back after its own delay (a gateway that
+  /// serves every call in a task of its own, so a later call may be
+  /// answered first). Before [children_].
+  final childrenInTurn =
+      <String, List<(Duration, List<Child>?, WyrmException?)>>{};
 
   /// Answers to the next calls of an action, by `key ▸ action`, one per
   /// call in call order: each comes back after its own delay (a gateway

@@ -8,6 +8,7 @@ import 'package:models/studio_error.dart';
 import 'package:storage/storage.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
+import 'common/latest.dart';
 import 'common/text_clipboard.dart';
 import 'redux/app_state.dart';
 import 'redux/changes/actions/apply_changes_action.dart';
@@ -95,6 +96,10 @@ class AppDependencies {
   /// The time now: when a history is read and from when (a test sets its
   /// own, so a range drawn from it is the same on every machine).
   final Clock clock;
+
+  /// The order of the reads that may be started again before they answered
+  /// (the links of a site, a flow's load): the newest one's answer stays.
+  final latest = Latest();
 
   final Store<AppState> _store;
 
