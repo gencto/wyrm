@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/answer_fault.dart';
 import 'package:models/broker_role.dart';
 import 'package:models/ca_pin.dart';
 import 'package:models/found_gateway.dart';
@@ -89,13 +90,15 @@ enum InfoFault {
 }
 
 final class InfoFailure implements Exception {
-  const InfoFailure(this.fault, [this.reason = '']);
+  const InfoFailure(this.fault, this.why);
 
   final InfoFault fault;
-  final String reason;
+
+  /// What exactly went wrong, for the row's note.
+  final AnswerFault why;
 
   @override
-  String toString() => 'InfoFailure(${fault.name}: $reason)';
+  String toString() => 'InfoFailure(${fault.name}: $why)';
 }
 
 /// The CA pins in force: every `https` connection to a pinned origin
@@ -316,14 +319,14 @@ final class HttpInfoReader implements GatewayInfoReader {
           res.statusCode == HttpStatus.notFound
               ? InfoFault.missing
               : InfoFault.noAnswer,
-          'HTTP ${res.statusCode}',
+          AnswerFault.http(res.statusCode),
         );
       }
       final Value body;
       try {
         body = Value.fromCbor(bytes.takeBytes());
       } on Object {
-        throw const InfoFailure(InfoFault.missing, 'not a WYRM gateway');
+        throw const InfoFailure(InfoFault.missing, AnswerFault.notGateway());
       }
       try {
         return GatewayInfo.fromValue(body);
@@ -333,8 +336,11 @@ final class HttpInfoReader implements GatewayInfoReader {
         // which field.
         throw InfoFailure(
           InfoFault.missing,
-          'not a WYRM gateway: ${e.path}: expected ${e.expected}, '
-          'got ${e.got}',
+          AnswerFault.wrongShape(
+            path: e.path,
+            expected: e.expected,
+            got: e.got,
+          ),
         );
       }
     } on InfoFailure {
@@ -345,20 +351,20 @@ final class HttpInfoReader implements GatewayInfoReader {
         s.contains('WRONG_VERSION_NUMBER') || s.contains('PACKET_LENGTH')
             ? InfoFault.notTls
             : InfoFault.untrusted,
-        e.message,
+        AnswerFault.said(e.message),
       );
     } on TimeoutException {
-      throw const InfoFailure(InfoFault.noAnswer, 'timed out');
+      throw const InfoFailure(InfoFault.noAnswer, AnswerFault.timedOut());
     } on SocketException catch (e) {
-      throw InfoFailure(InfoFault.noAnswer, e.message);
+      throw InfoFailure(InfoFault.noAnswer, AnswerFault.said(e.message));
     } on HttpException catch (e) {
       // A TLS client on a plain port, or the reverse, often ends here.
       throw InfoFailure(
         base.scheme == 'https' ? InfoFault.notTls : InfoFault.missing,
-        e.message,
+        AnswerFault.said(e.message),
       );
     } on Object catch (e) {
-      throw InfoFailure(InfoFault.noAnswer, '$e');
+      throw InfoFailure(InfoFault.noAnswer, AnswerFault.said('$e'));
     } finally {
       http.close(force: true);
     }
@@ -632,7 +638,7 @@ FoundGateway _failed(FoundGateway row, InfoFailure e) => row.copyWith(
   problem: e.fault == InfoFault.missing
       ? FoundProblem.noInfo
       : FoundProblem.noAnswer,
-  detail: e.reason,
+  why: e.why,
 );
 
 IList<String> _upOf(String? up) => [

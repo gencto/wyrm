@@ -18,6 +18,7 @@ import 'package:business/wyrm/discovery.dart';
 import 'package:business/wyrm/session.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:models/answer_fault.dart';
 import 'package:models/broker_role.dart';
 import 'package:models/ca_pin.dart';
 import 'package:models/found_gateway.dart';
@@ -635,7 +636,15 @@ void main() {
         throwsA(
           isA<InfoFailure>()
               .having((f) => f.fault, 'fault', InfoFault.missing)
-              .having((f) => f.reason, 'reason', contains('GatewayInfo.')),
+              .having(
+                (f) => f.why,
+                'why',
+                isA<AnswerFaultWrongShape>().having(
+                  (w) => w.path,
+                  'path',
+                  contains('GatewayInfo.'),
+                ),
+              ),
         ),
       );
     });

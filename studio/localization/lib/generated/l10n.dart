@@ -17754,6 +17754,46 @@ class S {
     );
   }
 
+  /// `timed out`
+  String get answerTimedOut {
+    return Intl.message(
+      'timed out',
+      name: 'answerTimedOut',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `not a WYRM gateway`
+  String get answerNotGateway {
+    return Intl.message(
+      'not a WYRM gateway',
+      name: 'answerNotGateway',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `not a WYRM gateway: {path}: expected {expected}, got {got}`
+  String answerWrongShape(String path, String expected, String got) {
+    return Intl.message(
+      'not a WYRM gateway: $path: expected $expected, got $got',
+      name: 'answerWrongShape',
+      desc: '',
+      args: [path, expected, got],
+    );
+  }
+
+  /// `HTTP {code}`
+  String answerHttp(int code) {
+    return Intl.message(
+      'HTTP $code',
+      name: 'answerHttp',
+      desc: '',
+      args: [code],
+    );
+  }
+
   /// `assistant`
   String get errThingAssistant {
     return Intl.message(

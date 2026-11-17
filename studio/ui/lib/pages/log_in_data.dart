@@ -400,17 +400,60 @@ enum FoundProblemKind {
   noAnswer,
   noCa;
 
-  /// Its words, with the [detail] it came with (a version, a reason).
-  String text(String detail) => switch (this) {
+  /// Its words, with the [detail] it came with (a version) and [why]
+  /// there was no answer.
+  String text(String detail, {AnswerWhy? why}) => switch (this) {
     plainHttp => S.current.problemPlainHttp,
     noInfo => S.current.problemNoInfo,
     studioTooOld => S.current.problemStudioTooOld(detail),
     codeMismatch => S.current.problemCodeMismatch,
     noName => S.current.problemNoName,
-    noAnswer => S.current.problemNoAnswer(detail),
+    noAnswer => S.current.problemNoAnswer(why?.words ?? detail),
     noCa => S.current.problemNoCa,
   };
 }
+
+/// Why a gateway's `/api/info` gave nothing, said in the row's note.
+final class AnswerWhy extends Equatable {
+  const AnswerWhy.timedOut() : this._(_Why.timedOut);
+  const AnswerWhy.notGateway() : this._(_Why.notGateway);
+  const AnswerWhy.wrongShape({
+    required String path,
+    required String expected,
+    required String got,
+  }) : this._(_Why.wrongShape, text: path, expected: expected, got: got);
+  const AnswerWhy.http(int code) : this._(_Why.http, code: code);
+
+  /// The system's own words, as they came.
+  const AnswerWhy.said(String text) : this._(_Why.said, text: text);
+
+  const AnswerWhy._(
+    this._kind, {
+    this._text = '',
+    this._expected = '',
+    this._got = '',
+    this._code = 0,
+  });
+
+  final _Why _kind;
+  final String _text;
+  final String _expected;
+  final String _got;
+  final int _code;
+
+  String get words => switch (_kind) {
+    _Why.timedOut => S.current.answerTimedOut,
+    _Why.notGateway => S.current.answerNotGateway,
+    _Why.wrongShape => S.current.answerWrongShape(_text, _expected, _got),
+    _Why.http => S.current.answerHttp(_code),
+    _Why.said => _text,
+  };
+
+  @override
+  List<Object?> get props => [_kind, _text, _expected, _got, _code];
+}
+
+enum _Why { timedOut, notGateway, wrongShape, http, said }
 
 /// A found gateway's row.
 final class FoundRowData extends Equatable {
@@ -425,6 +468,7 @@ final class FoundRowData extends Equatable {
     this.version,
     this.problem,
     this.detail = '',
+    this.why,
     this.selected = false,
     this.enabled = true,
   });
@@ -440,6 +484,9 @@ final class FoundRowData extends Equatable {
   final FoundCa ca;
   final FoundProblemKind? problem;
   final String detail;
+
+  /// Why there was no answer, when that is the [problem].
+  final AnswerWhy? why;
 
   /// How long ago it was last seen, in whole seconds.
   final Duration seen;
@@ -460,6 +507,7 @@ final class FoundRowData extends Equatable {
     ca,
     problem,
     detail,
+    why,
     seen,
     selected,
     enabled,

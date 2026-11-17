@@ -556,7 +556,7 @@ class LogInScreen extends StatelessWidget {
         null => r.host,
       },
       note: switch (problem) {
-        final p? => p.text(r.detail),
+        final p? => p.text(r.detail, why: r.why),
         null => [
           if (r.version case final v?) s.noteWyrmd(v),
           r.ca.text,

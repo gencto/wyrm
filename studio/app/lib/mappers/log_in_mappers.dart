@@ -1,6 +1,7 @@
 import 'package:business/redux/app_state.dart';
 import 'package:business/wyrm/discovery.dart' show FoundTag, RangeFault;
 import 'package:business/wyrm/log_in_page.dart';
+import 'package:models/answer_fault.dart';
 import 'package:models/found_problem.dart';
 import 'package:models/host_platform.dart';
 import 'package:models/lock_error.dart';
@@ -136,6 +137,18 @@ extension FoundProblemKindOf on FoundProblem {
   };
 }
 
+extension AnswerFaultView on AnswerFault {
+  /// Why `/api/info` gave nothing, as the row's note says it.
+  AnswerWhy get view => switch (this) {
+    AnswerFaultTimedOut() => const AnswerWhy.timedOut(),
+    AnswerFaultNotGateway() => const AnswerWhy.notGateway(),
+    AnswerFaultWrongShape(:final path, :final expected, :final got) =>
+      AnswerWhy.wrongShape(path: path, expected: expected, got: got),
+    AnswerFaultHttp(:final code) => AnswerWhy.http(code),
+    AnswerFaultSaid(:final text) => AnswerWhy.said(text),
+  };
+}
+
 extension FoundRowLine on FoundRow {
   FoundRowData get line => FoundRowData(
     site: site,
@@ -147,6 +160,7 @@ extension FoundRowLine on FoundRow {
     ca: known.ca,
     problem: problem?.kind,
     detail: detail,
+    why: why?.view,
     seen: seen,
     selected: selected,
     enabled: enabled,

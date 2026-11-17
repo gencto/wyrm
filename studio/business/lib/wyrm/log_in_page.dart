@@ -1,4 +1,5 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/answer_fault.dart';
 import 'package:models/ca_pin.dart';
 import 'package:models/found_gateway.dart';
 import 'package:models/found_problem.dart';
@@ -241,6 +242,7 @@ final class FoundRow {
     required this.known,
     required this.problem,
     required this.detail,
+    required this.why,
     required this.up,
     required this.seen,
     required this.selected,
@@ -263,6 +265,9 @@ final class FoundRow {
   /// Why it cannot be picked, with its [detail]; null when it can.
   final FoundProblem? problem;
   final String detail;
+
+  /// Why `/api/info` gave nothing, when that is the problem.
+  final AnswerFault? why;
 
   /// The sites it is a downstream of.
   final List<String> up;
@@ -328,6 +333,7 @@ FoundRow _rowOf(
     },
     problem: r.problem,
     detail: r.detail ?? '',
+    why: r.why,
     up: r.up.toList(),
     seen: Duration(seconds: seen < 0 ? 0 : seen ~/ 1000),
     selected: picked == r.site,
