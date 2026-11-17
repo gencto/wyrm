@@ -107,6 +107,13 @@ jobs:
         run: |
           curl -fsSL https://raw.githubusercontent.com/pro100andrey/flutter_redux_templates/d2bbfaedc6c9710468e8215a063f1430d16ba73a/tools/scripts/install.sh | sh -s -- --version 0.3.7 --no-modify-path
           echo "$HOME/.frx/bin" >> "$GITHUB_PATH"
+      - name: Native libraries for nativeapi
+        # window_manager and screen_retriever run on nativeapi, whose build
+        # hook (`cnativeapi`) compiles its C++ core for the host on every
+        # `flutter test` and links GTK 3, X11 and Xi through pkg-config.
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q libgtk-3-dev libx11-dev libxi-dev
       - run: flutter pub get
       - run: dart run build_runner build --workspace
       - run: frx doctor

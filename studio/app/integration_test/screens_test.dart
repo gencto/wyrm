@@ -360,8 +360,9 @@ void main() {
     // The window opens where the user left it and as large (once it is
     // ready to show); the steps below count on the boards' 1440 × 900.
     await settle(tester, 1000);
-    await windowManager.setSize(const Size(1440, 900));
-    await windowManager.center();
+    WindowManager.instance.getCurrent()
+      ?..setSize(const Size(1440, 900).toNative(), false)
+      ..center();
     await settle(tester, 2500);
     await shot(tester, '00_login');
 
