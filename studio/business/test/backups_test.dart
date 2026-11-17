@@ -47,6 +47,7 @@ import 'package:business/wyrm/transfer.dart';
 import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/backup_job.dart';
+import 'package:models/backup_link_facts.dart';
 import 'package:models/backup_place.dart';
 import 'package:models/backup_sealed.dart';
 import 'package:models/backup_section.dart';
@@ -57,6 +58,8 @@ import 'package:models/install_path.dart';
 import 'package:models/install_phase.dart';
 import 'package:models/install_source.dart';
 import 'package:models/link_mode.dart';
+import 'package:models/manifest_fault.dart';
+import 'package:models/manifest_problem.dart';
 import 'package:models/package_check_result.dart';
 import 'package:models/restore_keys.dart';
 import 'package:models/restore_link_state.dart';
@@ -1311,6 +1314,44 @@ void main() {
         contains('opens only on a broker'),
       );
       expect(r.manifest, contains('"kind": "link"'));
+    });
+
+    test('what the check shows is typed: the link, and what is wrong with '
+        'a manifest', () {
+      final ok = checkBackup(_linkBackup());
+      final link = ok.checks.firstWhere((c) => c.title == 'Link');
+      expect(
+        link.link,
+        BackupLinkFacts(
+          id: 'modbus',
+          mode: LinkMode.process,
+          driver: 'pkg:modbus',
+          site: 'plant',
+          broker: '0.1.0',
+          created: DateTime.utc(2026, 11, 13, 15, 40),
+        ),
+      );
+      // business words neither: ui says them
+      expect(link.detail, isEmpty);
+
+      // a seal Studio does not know is not "none in the file"
+      final odd = checkBackup(_linkBackup(how: 'hsm'));
+      final bad = odd.checks.last;
+      expect(bad.result, PackageCheckResult.failed);
+      expect(
+        (bad.problem, bad.file, bad.detail),
+        (
+          const ManifestProblem(
+            fault: ManifestFault.unknownName,
+            field: 'sealed.how',
+            found: 'hsm',
+          ),
+          'manifest.json',
+          '',
+        ),
+      );
+      expect(odd.checks.where((c) => c.title == 'Secrets'), isEmpty);
+      expect(odd.name, isNull);
     });
 
     test('a broker backup and a file that is no zip fail the check', () {

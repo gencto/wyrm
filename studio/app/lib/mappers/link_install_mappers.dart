@@ -7,6 +7,7 @@ import 'package:models/install_path.dart';
 import 'package:models/install_phase.dart';
 import 'package:models/install_step.dart';
 import 'package:models/link_mode.dart';
+import 'package:models/manifest_fault.dart';
 import 'package:models/package_check.dart';
 import 'package:models/package_check_result.dart';
 import 'package:models/package_method.dart';
@@ -142,7 +143,37 @@ extension PackageCheckUi on PackageCheck {
       final r? => [for (final x in r) x.ui],
       null => null,
     },
+    problem: switch (problem) {
+      final p? => ManifestProblemVm(
+        kind: p.fault.ui,
+        file: file ?? '',
+        field: p.field,
+        found: p.found,
+      ),
+      null => null,
+    },
+    link: switch (link) {
+      final l? => BackupLinkVm(
+        id: l.id,
+        mode: l.mode.ui,
+        driver: l.driver,
+        site: l.site,
+        broker: l.broker,
+        created: l.created,
+      ),
+      null => null,
+    },
   );
+}
+
+extension ManifestFaultUi on ManifestFault {
+  ManifestFaultKind get ui => switch (this) {
+    ManifestFault.notJson => ManifestFaultKind.notJson,
+    ManifestFault.notObject => ManifestFaultKind.notObject,
+    ManifestFault.missing => ManifestFaultKind.missing,
+    ManifestFault.wrongForm => ManifestFaultKind.wrongForm,
+    ManifestFault.unknownName => ManifestFaultKind.unknownName,
+  };
 }
 
 extension RequestedRightUi on RequestedRight {

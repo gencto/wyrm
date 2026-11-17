@@ -2185,5 +2185,17 @@
     "logTypeNone": "None",
     "logTypeInterval": "Interval",
     "logTypeAllData": "All Data",
-    "logTypePointChange": "Point Change"
+    "logTypePointChange": "Point Change",
+    "chkNotJson": "{file} is not JSON",
+    "@chkNotJson": {"placeholders": {"file": {"type": "String"}}},
+    "chkNotObject": "{file} is not a JSON object",
+    "@chkNotObject": {"placeholders": {"file": {"type": "String"}}},
+    "chkMissing": "{field} is missing",
+    "@chkMissing": {"placeholders": {"field": {"type": "String"}}},
+    "chkWrongForm": "{field} is not of the form it has in a manifest",
+    "@chkWrongForm": {"placeholders": {"field": {"type": "String"}}},
+    "chkUnknownName": "{field}: {found} is a name this Studio does not know",
+    "@chkUnknownName": {"placeholders": {"field": {"type": "String"}, "found": {"type": "String"}}},
+    "chkLinkFrom": "{id} · {mode} · {driver} · from {site} (wyrmd {broker}, {created})",
+    "@chkLinkFrom": {"placeholders": {"id": {"type": "String"}, "mode": {"type": "String"}, "driver": {"type": "String"}, "site": {"type": "String"}, "broker": {"type": "String"}, "created": {"type": "String"}}}
 }

@@ -17623,6 +17623,73 @@ class S {
       args: [],
     );
   }
+
+  /// `{file} is not JSON`
+  String chkNotJson(String file) {
+    return Intl.message(
+      '$file is not JSON',
+      name: 'chkNotJson',
+      desc: '',
+      args: [file],
+    );
+  }
+
+  /// `{file} is not a JSON object`
+  String chkNotObject(String file) {
+    return Intl.message(
+      '$file is not a JSON object',
+      name: 'chkNotObject',
+      desc: '',
+      args: [file],
+    );
+  }
+
+  /// `{field} is missing`
+  String chkMissing(String field) {
+    return Intl.message(
+      '$field is missing',
+      name: 'chkMissing',
+      desc: '',
+      args: [field],
+    );
+  }
+
+  /// `{field} is not of the form it has in a manifest`
+  String chkWrongForm(String field) {
+    return Intl.message(
+      '$field is not of the form it has in a manifest',
+      name: 'chkWrongForm',
+      desc: '',
+      args: [field],
+    );
+  }
+
+  /// `{field}: {found} is a name this Studio does not know`
+  String chkUnknownName(String field, String found) {
+    return Intl.message(
+      '$field: $found is a name this Studio does not know',
+      name: 'chkUnknownName',
+      desc: '',
+      args: [field, found],
+    );
+  }
+
+  /// `{id} · {mode} · {driver} · from {site} (wyrmd {broker}, {created})`
+  String chkLinkFrom(
+    String id,
+    String mode,
+    String driver,
+    String site,
+    String broker,
+    String created,
+  ) {
+    return Intl.message(
+      '$id · $mode · $driver · from $site (wyrmd $broker, $created)',
+      name: 'chkLinkFrom',
+      desc: '',
+      args: [id, mode, driver, site, broker, created],
+    );
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<S> {

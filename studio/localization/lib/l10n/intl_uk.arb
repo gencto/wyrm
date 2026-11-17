@@ -2169,5 +2169,11 @@
     "logTypeNone": "Нічого",
     "logTypeInterval": "Інтервал",
     "logTypeAllData": "Усі дані",
-    "logTypePointChange": "Зміна точки"
+    "logTypePointChange": "Зміна точки",
+    "chkNotJson": "{file} — не JSON",
+    "chkNotObject": "{file} — не об’єкт JSON",
+    "chkMissing": "немає {field}",
+    "chkWrongForm": "{field} має не ту форму, яку має в маніфесті",
+    "chkUnknownName": "{field}: {found} — назва, якої ця Studio не знає",
+    "chkLinkFrom": "{id} · {mode} · {driver} · із {site} (wyrmd {broker}, {created})"
 }

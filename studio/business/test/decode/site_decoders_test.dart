@@ -464,7 +464,10 @@ void main() {
         'wy/p/sys/history',
         {
           for (final e in values.entries)
-            'wy/p/sys/history/fast/${e.key}': LiveValue(value: e.value, time: DateTime.utc(2026)),
+            'wy/p/sys/history/fast/${e.key}': LiveValue(
+              value: e.value,
+              time: DateTime.utc(2026),
+            ),
         }.lock,
       );
       expect(

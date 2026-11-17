@@ -6,6 +6,7 @@ import 'package:business/wyrm/catalog.dart';
 import 'package:business/wyrm/package_check.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/link_mode.dart';
+import 'package:models/manifest_fault.dart';
 import 'package:models/package_check_result.dart';
 import 'package:models/requested_right.dart';
 import 'package:wyrm_client/wyrm_client.dart';
@@ -22,6 +23,23 @@ List<int> json(Object o) => utf8.encode(jsonEncode(o));
 
 void main() {
   group('checkZip', () {
+    test('a manifest that is no JSON object is a typed problem', () {
+      for (final (text, fault) in [
+        ('{', ManifestFault.notJson),
+        ('[1, 2]', ManifestFault.notObject),
+      ]) {
+        final a = Archive()
+          ..addFile(ArchiveFile.string('wyrm-link.json', text));
+        final r = checkZip(Uint8List.fromList(ZipEncoder().encode(a)));
+        final c = r.checks.last;
+        expect(c.result, PackageCheckResult.failed, reason: text);
+        expect(c.problem?.fault, fault, reason: text);
+        expect(c.file, 'wyrm-link.json');
+        // nothing is said in words here
+        expect(c.detail, isEmpty);
+      }
+    });
+
     test('a process package for this host passes and reports its rights', () {
       final r = checkZip(
         zipOf({

@@ -12,6 +12,8 @@ import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:models/backup_job.dart';
+import 'package:models/backup_link_facts.dart';
+import 'package:models/backup_manifest.dart';
 import 'package:models/backup_place.dart';
 import 'package:models/backup_sealed.dart';
 import 'package:models/backup_section.dart';
@@ -21,8 +23,11 @@ import 'package:models/error_hint.dart';
 import 'package:models/error_kind.dart';
 import 'package:models/file_part.dart';
 import 'package:models/link_mode.dart';
+import 'package:models/manifest_fault.dart';
+import 'package:models/manifest_problem.dart';
 import 'package:models/package_kind.dart';
-import 'package:models/requested_right.dart';
+import 'package:models/package_manifest.dart';
+import 'package:models/package_manifest_read.dart';
 import 'package:models/restore_answer.dart';
 import 'package:models/restore_check.dart';
 import 'package:models/restore_end.dart';
@@ -31,6 +36,7 @@ import 'package:models/restore_link_state.dart';
 import 'package:models/restore_mode.dart';
 import 'package:models/restore_record.dart';
 import 'package:models/schema_pair.dart';
+import 'package:models/stated.dart';
 import 'package:models/upload_begun.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -711,12 +717,26 @@ void main() {
   });
 
   group('the manifest of a link backup', () {
+    ManifestProblem problemOf(BackupManifest m) {
+      expect(m, isA<UnreadableBackupManifest>());
+      return (m as UnreadableBackupManifest).problem;
+    }
+
     test('read once, typed', () {
       final m = backupManifestOf(_json(_linkManifest()));
-      expect(m, isA<Valid<BackupManifest>>());
-      final link = (m as Valid<BackupManifest>).value as LinkBackup;
-      expect(link.id, 'modbus');
-      expect(link.mode, LinkMode.process);
+      expect(m, isA<LinkBackupManifest>());
+      final link = m as LinkBackupManifest;
+      expect(
+        link.link,
+        BackupLinkFacts(
+          id: 'modbus',
+          mode: LinkMode.process,
+          driver: 'pkg:modbus',
+          site: 'plant',
+          broker: '0.1.0',
+          created: DateTime.utc(2026, 11, 13, 15, 40),
+        ),
+      );
       expect(link.sealed, BackupSealed.broker);
       expect(link.sections, [BackupSection.settings, BackupSection.package]);
       expect(link.pretty, contains('"sealed": "broker"'));
@@ -724,131 +744,162 @@ void main() {
     });
 
     test('a broker backup is another kind, by its name', () {
-      final m = backupManifestOf(_json(_linkManifest({'kind': 'broker'})));
-      expect((m as Valid<BackupManifest>).value, isA<OtherBackup>());
-      expect((m.value as OtherBackup).kind, 'broker');
+      expect(
+        backupManifestOf(_json(_linkManifest({'kind': 'broker'}))),
+        const BackupManifest.other('broker'),
+      );
     });
 
-    test('bytes that are no manifest, and fields of another shape', () {
+    test('bytes that are no manifest, and fields of another form', () {
       expect(
-        _invalid(backupManifestOf(utf8.encode('PK'))).reason,
-        startsWith('not JSON'),
+        problemOf(backupManifestOf(utf8.encode('PK'))).fault,
+        ManifestFault.notJson,
       );
-      for (final (over, field, reason)
-          in <(Map<String, Object?>, String, String)>[
-            ({'kind': 7}, 'kind', 'not a text'),
-            ({'link': null}, 'link', 'missing'),
-            ({'link': 'modbus'}, 'link', 'not an object'),
+      expect(
+        problemOf(backupManifestOf(_json(['manifest']))),
+        const ManifestProblem(fault: ManifestFault.notObject),
+      );
+      for (final (over, field, fault)
+          in <(Map<String, Object?>, String, ManifestFault)>[
+            ({'kind': 7}, 'kind', ManifestFault.wrongForm),
+            ({'link': null}, 'link', ManifestFault.missing),
+            ({'link': 'modbus'}, 'link', ManifestFault.wrongForm),
             (
               {
                 'link': {'driver': 'modbus', 'mode': 'process'},
               },
               'link.id',
-              'missing',
+              ManifestFault.missing,
             ),
-            ({'sealed': null}, 'sealed', 'missing'),
-            ({'sealed': 'broker'}, 'sealed', 'not an object'),
-            ({'sections': 'settings'}, 'sections', 'not an array'),
+            ({'sealed': null}, 'sealed', ManifestFault.missing),
+            ({'sealed': 'broker'}, 'sealed', ManifestFault.wrongForm),
+            ({'sections': 'settings'}, 'sections', ManifestFault.wrongForm),
+            ({'sections': null}, 'sections', ManifestFault.missing),
             (
               {
                 'sections': ['settings'],
               },
               'sections',
-              'not an object',
+              ManifestFault.wrongForm,
             ),
-            ({'wyrm_backup': '1'}, 'wyrm_backup', 'not a whole number'),
-            ({'site': null}, 'site', 'missing'),
+            ({'wyrm_backup': '1'}, 'wyrm_backup', ManifestFault.wrongForm),
+            ({'site': null}, 'site', ManifestFault.missing),
+            // a time the file writes in no form Studio reads
+            ({'created': 'yesterday'}, 'created', ManifestFault.wrongForm),
           ]) {
-        final i = _invalid(backupManifestOf(_json(_linkManifest(over))));
-        expect((i.field, i.reason), (field, reason), reason: '$over');
+        final p = problemOf(backupManifestOf(_json(_linkManifest(over))));
+        expect((p.field, p.fault), (field, fault), reason: '$over');
       }
-      expect(
-        _invalid(backupManifestOf(_json(['manifest']))).reason,
-        'not an object',
-      );
     });
 
     test('a seal, a mode or a section it does not know is refused', () {
-      for (final (over, field) in <(Map<String, Object?>, String)>[
-        // never read as "no secrets in the file"
-        (
-          {
-            'sealed': {'how': 'hsm'},
-          },
-          'sealed.how',
-        ),
-        (
-          {
-            'link': {'id': 'm', 'driver': 'd', 'mode': 'container'},
-          },
-          'link.mode',
-        ),
-        (
-          {
-            'sections': [
-              {'name': 'flows'},
-            ],
-          },
-          'sections.name',
-        ),
-      ]) {
-        final i = _invalid(backupManifestOf(_json(_linkManifest(over))));
-        expect(i.field, field, reason: '$over');
-        expect(i.reason, startsWith('not a known name'), reason: '$over');
+      for (final (over, field, found)
+          in <(Map<String, Object?>, String, String)>[
+            // never read as "no secrets in the file"
+            (
+              {
+                'sealed': {'how': 'hsm'},
+              },
+              'sealed.how',
+              'hsm',
+            ),
+            (
+              {
+                'link': {'id': 'm', 'driver': 'd', 'mode': 'container'},
+              },
+              'link.mode',
+              'container',
+            ),
+            (
+              {
+                'sections': [
+                  {'name': 'flows'},
+                ],
+              },
+              'sections.name',
+              'flows',
+            ),
+          ]) {
+        expect(
+          problemOf(backupManifestOf(_json(_linkManifest(over)))),
+          ManifestProblem(
+            fault: ManifestFault.unknownName,
+            field: field,
+            found: found,
+          ),
+          reason: '$over',
+        );
       }
     });
   });
 
   group('the manifest of a package', () {
+    PackageManifest read(Object? json) {
+      final r = packageManifestOf(_json(json));
+      expect(r, isA<PackageManifestWasRead>());
+      return (r as PackageManifestWasRead).manifest;
+    }
+
     test('each field with its type', () {
-      final m = (packageManifestOf(
-        _json({
-          'name': 'acme',
-          'version': '1.2.0',
-          'wyrm_link': 1,
-          'kind': 'process',
-          'entries': {'linux-arm64': 'bin/acme', 'macos-arm64': 7},
-          'colour': 'red',
-        }),
-      ) as Valid<PackageManifest>).value;
-      expect(m.name.value, 'acme');
-      expect(m.protocol.value, 1);
-      expect(m.kind.value, PackageKind.process);
+      final m = read({
+        'name': 'acme',
+        'version': '1.2.0',
+        'wyrm_link': 1,
+        'kind': 'process',
+        'entries': {'linux-arm64': 'bin/acme', 'macos-arm64': 7},
+        'colour': 'red',
+      });
+      expect(m.name, const Stated<String>.given('acme'));
+      expect(m.protocol.orNull, 1);
+      expect(m.kind.orNull, PackageKind.process);
       expect(m.entries, {'linux-arm64': 'bin/acme', 'macos-arm64': null}.lock);
-      expect(m.entry, isA<Absent<String>>());
+      expect(m.entry, const Stated<String>.absent());
       expect(m.unknown, ['colour']);
-      expect((m.rights as Valid<List<RequestedRight>>).value, isEmpty);
+      expect(m.rights, isEmpty);
+      expect(m.rightsProblem, isNull);
     });
 
     test('a field of another type is told from an absent one', () {
-      final m = (packageManifestOf(
-        _json({
-          'name': 7,
-          'wyrm_link': '1',
-          'kind': 'container',
-          'entries': ['bin/acme'],
-        }),
-      ) as Valid<PackageManifest>).value;
-      expect(m.name, isA<Wrong<String>>());
-      expect(m.name.value, isNull);
-      expect(m.name.shown, '7');
-      expect(m.version, isA<Absent<String>>());
-      expect(m.protocol, isA<Wrong<int>>());
-      expect(m.protocol.shown, '"1"');
+      final m = read({
+        'name': 7,
+        'wyrm_link': '1',
+        'kind': 'container',
+        'entries': ['bin/acme'],
+        'requester': 'all',
+      });
+      expect(m.name, const Stated<String>.wrong('7'));
+      expect(m.name.orNull, isNull);
+      expect(m.name.written, '7');
+      expect(m.version, const Stated<String>.absent());
+      expect(m.version.written, isNull);
+      expect(m.protocol, const Stated<int>.wrong('"1"'));
       // a kind that is not one of the two is not a kind
-      expect(m.kind, isA<Wrong<PackageKind>>());
-      expect(m.kind.shown, 'container');
+      expect(m.kind, const Stated<PackageKind>.wrong('container'));
       expect(m.entries, isNull);
+      // rights that cannot be read are a problem with their field, and
+      // no rights are taken from them
+      expect(m.rights, isEmpty);
+      expect(
+        m.rightsProblem,
+        const ManifestProblem(
+          fault: ManifestFault.wrongForm,
+          field: 'requester',
+        ),
+      );
     });
 
     test('bytes that are not a JSON object', () {
+      final notJson = packageManifestOf(utf8.encode('{'));
+      expect(notJson, isA<PackageManifestUnreadable>());
       expect(
-        _invalid(packageManifestOf(utf8.encode('{'))).reason,
-        startsWith('not JSON'),
+        (notJson as PackageManifestUnreadable).problem.fault,
+        ManifestFault.notJson,
       );
       expect(
-        _invalid(packageManifestOf(_json([1, 2]))).reason,
-        'not an object',
+        packageManifestOf(_json([1, 2])),
+        const PackageManifestRead.unreadable(
+          ManifestProblem(fault: ManifestFault.notObject),
+        ),
       );
     });
   });

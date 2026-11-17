@@ -3,6 +3,11 @@
 // screen with `WORDS_DUMP`, then kept by hand).
 // ignore_for_file: lines_longer_than_80_chars
 
+import 'package:localization/localization.dart';
+
+/// When the link backup of the fixture was made, on this machine's clock.
+final String _made = Formats.dateTime(DateTime.utc(2026, 11, 12, 1));
+
 final installWords = <String, List<String>>{
   'official choose': [
     'WYRM',
@@ -2146,7 +2151,7 @@ final installWords = <String, List<String>>{
     'Archive',
     '2 entries',
     'Link',
-    'meter · process · pkg:acme-meter · from plant (wyrmd 0.1.0, 2026-11-12T01:00:00Z)',
+    'meter · Process · pkg:acme-meter · from plant (wyrmd 0.1.0, $_made)',
     'Package',
     'acme-meter 1.2.0, in the file',
     'Secrets',
@@ -2303,7 +2308,7 @@ final installWords = <String, List<String>>{
     'Archive',
     '2 entries',
     'Link',
-    'meter · process · pkg:acme-meter · from plant (wyrmd 0.1.0, 2026-11-12T01:00:00Z)',
+    'meter · Процес · pkg:acme-meter · із plant (wyrmd 0.1.0, $_made)',
     'Package',
     'acme-meter 1.2.0, in the file',
     'Secrets',
