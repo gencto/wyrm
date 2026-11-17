@@ -528,7 +528,7 @@ void main() {
       // No words from the broker: Studio names why (the app says it).
       expect(
         triggerHintOf(StatusCode.of(Status.permissionDenied)),
-        ErrorHint.runDenied,
+        const ErrorHint.runDenied(),
       );
     });
   });

@@ -11,6 +11,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:models/error_kind.dart';
+import 'package:models/notice_kind.dart';
 import 'package:models/studio_error.dart';
 import 'package:models/studio_notice.dart';
 import 'package:ui/alerts/toast_stack.dart';
@@ -50,7 +51,7 @@ void main() {
                 title: 'Studio couldn’t read t1',
                 message: 'timeout',
                 key: '$plant/downstream/plc1/t1',
-                call: 'history',
+                call: const .known(.history),
                 at: DateTime(2026, 11, 12, 2, 1),
                 quiet: true,
                 retry: () => SetShownAction(true),
@@ -61,14 +62,14 @@ void main() {
                 title: 'The broker refused the list of sys',
                 message: 'permission denied',
                 key: '$plant/sys',
-                call: 'list',
+                call: const .known(.list),
                 at: DateTime(2026, 11, 12, 2, 2),
                 quiet: true,
               ),
             ]),
             toasts: [3, 5].lock,
             notices: IList(const [
-              StudioNotice(id: 4, title: 'Copied', detail: 'wy/plant'),
+              StudioNotice(id: 4, kind: NoticeKind.detailsCopied),
             ]),
           ),
         );

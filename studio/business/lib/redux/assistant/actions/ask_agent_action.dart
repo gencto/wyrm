@@ -1,6 +1,7 @@
 import 'package:async_redux/async_redux.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/agent_task.dart';
+import 'package:models/error_hint.dart';
 import 'package:models/error_kind.dart';
 import 'package:models/task_event.dart';
 import 'package:models/task_event_kind.dart';
@@ -38,11 +39,11 @@ class AskAgentAction extends Action with TaskRows, NonReentrant, WaitingAction {
     final agent = assistant.agent;
     final ask = (text ?? assistant.draft ?? '').trim();
     if (agent == null) {
-      throw StudioException.said(
+      throw StudioException.hinted(
         ErrorKind.gone,
-        'There is no assistant link on this site.',
-        call: 'ask',
-        thing: 'assistant',
+        const ErrorHint.noAssistant(),
+        call: const .known(.ask),
+        subject: .assistant,
       );
     }
     if (ask.isEmpty) {
@@ -114,8 +115,8 @@ class AskAgentAction extends Action with TaskRows, NonReentrant, WaitingAction {
       throw StudioException.refused(
         e,
         key: agent,
-        call: 'ask',
-        thing: 'assistant',
+        call: const .known(.ask),
+        subject: .assistant,
         write: true,
       );
     }
@@ -126,12 +127,12 @@ class AskAgentAction extends Action with TaskRows, NonReentrant, WaitingAction {
     if (id == null && assistant.agent == agent) {
       // The stream ended without naming a task: nothing was started, and
       // the ask stays in the box (an agent without its API key does this).
-      throw StudioException.said(
+      throw StudioException.hinted(
         ErrorKind.broker,
-        'The assistant started no task. Check that its API key is set.',
+        const ErrorHint.assistantNoTask(),
         key: agent,
-        call: 'ask',
-        thing: 'assistant',
+        call: const .known(.ask),
+        subject: .assistant,
       );
     }
     return null;

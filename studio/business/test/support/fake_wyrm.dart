@@ -8,6 +8,8 @@ import 'package:business/redux/app_state.dart';
 import 'package:business/wyrm/device_keys.dart';
 import 'package:business/wyrm/session.dart';
 import 'package:device_key/testing.dart';
+import 'package:models/error_kind.dart';
+import 'package:models/studio_error.dart';
 import 'package:storage/storage.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -744,6 +746,22 @@ class FakeLogin implements WyrmLogin {
   }
 }
 
+/// The words of a test store: plain English, where the app gives its own
+/// (`app/lib/errors.dart`). `business` itself holds none.
+StudioError plainWording(StudioError e) {
+  if (e.title.isNotEmpty) {
+    return e;
+  }
+  final thing = e.thing ?? e.key?.split('/').last;
+  final what = [?e.call?.name, ?thing].join(' ');
+  return e.copyWith(
+    title: switch (e.kind) {
+      ErrorKind.studio => 'Studio could not finish ${e.call?.name ?? 'this'}',
+      _ => what.isEmpty ? 'The call failed' : '$what failed',
+    },
+  );
+}
+
 /// A store with real [AppDependencies] over in-memory storage (or
 /// [settings]), [login] and [keys] (a fake device key that offers nothing
 /// unless a test gives one).
@@ -761,6 +779,7 @@ Store<AppState> fakeStore({
     login: login ?? FakeLogin(),
     deviceKey: keys ?? FakeDeviceKey(availability: DeviceKeyAvailability.none),
     prompts: const PlainPrompts(),
+    wording: plainWording,
     // The platform's, unless a test hands in its own: a widget test
     // answers the platform channel itself.
     clipboard: clipboard ?? const SystemClipboard(),

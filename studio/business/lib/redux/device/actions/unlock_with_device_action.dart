@@ -152,7 +152,7 @@ class UnlockWithDeviceAction extends Action with NonReentrant, WaitingAction {
       throw StudioException.said(
         ErrorKind.reach,
         faultLine(e),
-        call: 'log_in',
+        call: const .known(.logIn),
         thing: '${account.gateway}',
       ).withDialog(false);
     }

@@ -682,8 +682,9 @@ IMap<String, FoundGateway> mergeFound(
 /// What is wrong with a range, for the line under its field.
 enum RangeFault { badText, badPart, badPrefix, tooBig }
 
+/// A range that cannot be probed: [fault] names why (the app says it).
 final class RangeFormatException extends FormatException {
-  const RangeFormatException(this.fault, String message) : super(message);
+  const RangeFormatException(this.fault);
 
   final RangeFault fault;
 }
@@ -696,31 +697,19 @@ List<String> rangeAddresses(String text) {
     r'^\s*(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})(?:/(\d{1,2}))?\s*$',
   ).firstMatch(text);
   if (m == null) {
-    throw const RangeFormatException(
-      RangeFault.badText,
-      'Write an IPv4 range, as 10.0.7.0/24.',
-    );
+    throw const RangeFormatException(RangeFault.badText);
   }
   final octets = [for (var i = 1; i <= 4; i++) int.parse(m.group(i)!)];
   if (octets.any((o) => o > 255)) {
-    throw const RangeFormatException(
-      RangeFault.badPart,
-      'Each part of an address is 0 to 255.',
-    );
+    throw const RangeFormatException(RangeFault.badPart);
   }
   final prefix = int.parse(m.group(5) ?? '32');
   if (prefix > 32) {
-    throw const RangeFormatException(
-      RangeFault.badPrefix,
-      'The prefix is 0 to 32.',
-    );
+    throw const RangeFormatException(RangeFault.badPrefix);
   }
   final size = 1 << (32 - prefix);
   if (size > rangeLimit) {
-    throw const RangeFormatException(
-      RangeFault.tooBig,
-      'At most $rangeLimit addresses: a /22 or smaller.',
-    );
+    throw const RangeFormatException(RangeFault.tooBig);
   }
   final ip = octets.fold<int>(0, (v, o) => (v << 8) | o);
   final base = ip & ~(size - 1) & 0xFFFFFFFF;

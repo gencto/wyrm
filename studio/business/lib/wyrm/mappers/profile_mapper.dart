@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/error_hint.dart';
 import 'package:models/error_kind.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -21,18 +23,18 @@ Uint8List profileBytes(String fileName, Uint8List bytes) {
   try {
     json = jsonDecode(utf8.decode(bytes));
   } on FormatException catch (e) {
-    throw StudioException.said(
+    throw StudioException.hinted(
       ErrorKind.input,
-      'It is not JSON: ${e.message}',
-      call: 'read',
+      ErrorHint.profileNotJson(e.message),
+      call: const .known(.read),
       thing: fileName,
     );
   }
   if (json is! Map<String, Object?>) {
-    throw StudioException.said(
+    throw StudioException.hinted(
       ErrorKind.input,
-      'A profile is a JSON object.',
-      call: 'read',
+      const ErrorHint.profileNotObject(),
+      call: const .known(.read),
       thing: fileName,
     );
   }
@@ -54,11 +56,11 @@ Uint8List encodeProfile(Map<String, Object?> json) {
   };
   for (final k in json.keys) {
     if (!known.contains(k)) {
-      throw StudioException.said(
+      throw StudioException.hinted(
         ErrorKind.input,
-        'Unknown key "$k" (known: ${known.join(', ')}).',
-        call: 'encode',
-        thing: 'profile',
+        ErrorHint.profileUnknownKey(key: k, known: IList(known)),
+        call: const .known(.encode),
+        subject: .profile,
       );
     }
   }
@@ -66,11 +68,11 @@ Uint8List encodeProfile(Map<String, Object?> json) {
   if (json['type'] case final String t) {
     ty = TypeCode.values.where((c) => c.wireName == t).firstOrNull;
     if (ty == null) {
-      throw StudioException.said(
+      throw StudioException.hinted(
         ErrorKind.input,
-        'Unknown type "$t".',
-        call: 'encode',
-        thing: 'profile',
+        ErrorHint.profileUnknownType(t),
+        call: const .known(.encode),
+        subject: .profile,
       );
     }
   }
@@ -107,11 +109,11 @@ Uint8List encodeProfile(Map<String, Object?> json) {
   // entry is one more in that byte.
   final n = meta.first & 0x1f;
   if (meta.first >> 5 != 5 || n >= 23) {
-    throw StudioException.said(
+    throw StudioException.hinted(
       ErrorKind.input,
-      'The profile has too many entries to add extends.',
-      call: 'encode',
-      thing: 'profile',
+      const ErrorHint.profileTooBig(),
+      call: const .known(.encode),
+      subject: .profile,
     );
   }
   return Uint8List.fromList([

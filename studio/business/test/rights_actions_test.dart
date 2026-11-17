@@ -17,6 +17,7 @@ import 'package:business/redux/nodes/actions/stage_value_action.dart';
 import 'package:business/wyrm/failures.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:models/error_call.dart';
 import 'package:models/error_hint.dart';
 import 'package:models/staged_change.dart';
 import 'package:wyrm_client/wyrm_client.dart';
@@ -134,7 +135,11 @@ void main() {
       isA<StudioException>().having(
         (e) => (e.error.hint, e.error.status?.known, e.error.call),
         'refusal',
-        (ErrorHint.notSettable, Status.notSupported, 'set'),
+        (
+          const ErrorHint.notSettable(),
+          Status.notSupported,
+          const ErrorCall.known(.set),
+        ),
       ),
     );
   });

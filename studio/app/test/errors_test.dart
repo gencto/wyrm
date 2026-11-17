@@ -25,8 +25,10 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart' hide Action, ErrorHint;
+import 'package:models/error_call.dart';
 import 'package:models/error_hint.dart';
 import 'package:models/error_kind.dart';
+import 'package:models/notice_kind.dart';
 import 'package:models/studio_error.dart';
 import 'package:models/system_tab.dart';
 import 'package:storage/storage.dart';
@@ -49,7 +51,8 @@ StudioError _refused(
   refusalOf(
     WyrmException.of(status, message),
     key: key,
-    call: call,
+    // the wire name, read as an action's is
+    call: ErrorCall.ofWire(call),
     thing: thing,
     write: write,
   ).copyWith(id: 1, at: DateTime(2026, 11, 10, 11, 52, 4)),
@@ -68,7 +71,7 @@ class _Refused extends Action {
 
   @override
   Future<AppState?> reduce() => call(
-    name,
+    ErrorCall.ofWire(name),
     'wy/plant/dataflows/$name-it',
     () async => throw WyrmException.of(code, message),
     write: true,
@@ -162,7 +165,13 @@ void main() {
         'Installing modbus 0.4.2 failed on plant',
       );
       expect(
-        wordError(faultOf(StateError('x'), null, step: 'load flow')).title,
+        wordError(
+          faultOf(
+            StateError('x'),
+            null,
+            step: const .named('load flow'),
+          ),
+        ).title,
         'Studio could not finish “load flow”',
       );
     });
@@ -222,7 +231,7 @@ void main() {
         refusalOf(
           WyrmException.of(st, m),
           key: 'wy/plant/dataflows/line',
-          call: 'trigger',
+          call: const .known(.trigger),
         ).copyWith(hint: m.isEmpty ? triggerHintOf(StatusCode.of(st)) : null),
       );
       expect(run(Status.permissionDenied, '').message, contains('needs write'));
@@ -247,7 +256,7 @@ void main() {
       }
 
       final en = await refused();
-      expect(en.hint, ErrorHint.notSettable);
+      expect(en.hint, const ErrorHint.notSettable());
       expect(en.title, 't2 does not support set');
       expect(
         en.message,
@@ -269,7 +278,7 @@ void main() {
       final sub = refusalOf(
         WyrmException.of(Status.timeout, ''),
         key: 'wy/plant/downstream/modbus/plc1/t2',
-        call: 'subscribe',
+        call: const .known(.subscribe),
       ).copyWith(quiet: true);
       expect(wordError(sub).title, 'Reading t2 failed');
       expect(
@@ -277,7 +286,7 @@ void main() {
         'Live values from edge stopped',
       );
       expect(
-        wordError(sub.copyWith(call: 'history')).title,
+        wordError(sub.copyWith(call: const .known(.history))).title,
         'History of t2 unavailable',
       );
     });
@@ -424,7 +433,7 @@ void main() {
         faultOf(
           const FormatException('Unexpected character', 'secret', 3),
           stack,
-          step: 'load flow',
+          step: const .named('load flow'),
         ).copyWith(at: DateTime(2026, 11, 10, 11, 52, 4)),
       );
       final vm = errorDialogVm(e);
@@ -566,9 +575,95 @@ void main() {
       expect(copied, contains('invalid_parameter (0x23)'));
       expect(copied, contains('wy/plant/dataflows/set-it › set'));
       expect(copied, isNot(contains('hunter2')));
-      expect(store.state.problems.notices.single.title, 'Copied');
+      expect(
+        store.state.problems.notices.single.kind,
+        NoticeKind.detailsCopied,
+      );
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pumpAndSettle();
+    });
+  });
+
+  group('Copy details (errors.md §3)', () {
+    const ctx = DetailsContext(
+      user: 'olena',
+      role: 'operator',
+      gateway: 'https://olena:gw-pass@plant.local:8445',
+      studio: '1.0 (macOS 15.1)',
+    );
+
+    test('holds the title, key › call, status with code, message, site, '
+        'user, gateway, time and Studio', () {
+      const key = 'wy/central/sys/links/modbus';
+      final e = _refused(
+        Status.permissionDenied,
+        'needs config on sys/links',
+        key: key,
+        call: 'start',
+      );
+
+      final text = detailsText(e, ctx);
+
+      expect(text, contains(e.title));
+      expect(text, contains('$key › start'));
+      expect(text, contains('Status: permission_denied (0x21)'));
+      expect(text, contains('Message: needs config on sys/links'));
+      expect(text, contains('Site: central'));
+      expect(text, contains('As: olena (operator)'));
+      expect(text, contains('Gateway: https://plant.local:8445'));
+      expect(text, contains('Time: 2026-11-10 11:52:04 (local)'));
+      expect(text, contains('Studio: 1.0 (macOS 15.1)'));
+    });
+
+    test('never a value, an argument, a token or a password: a set of a '
+        'secret field', () {
+      const key = 'wy/central/downstream/mqtt/broker/password';
+      const secret = 's3cr3t-Passw0rd';
+      // The broker echoes what it was sent, as some drivers do.
+      final e = _refused(
+        Status.invalidParameter,
+        'password: $secret is too short; token=eyJhbGciOiJIUzI1NiJ9.abc.def '
+        'Bearer abcdefghijklmnop',
+        key: key,
+        call: 'set',
+      );
+      final text = detailsText(e, ctx, report: true);
+
+      expect(e.kind, ErrorKind.input);
+      expect(text, isNot(contains(secret)));
+      expect(text, isNot(contains('eyJhbGciOiJIUzI1NiJ9')));
+      expect(text, isNot(contains('abcdefghijklmnop')));
+      expect(text, isNot(contains('gw-pass')));
+      expect(text, contains('password: •••'));
+    });
+
+    test('Copy report adds the type, the first line and the stack', () {
+      final e = wordError(
+        faultOf(
+          const FormatException('Unexpected character', 'pw=hunter2', 4),
+          StackTrace.current,
+          step: const .named('buggy'),
+        ),
+      );
+
+      final short = detailsText(e, ctx);
+      final full = detailsText(e, ctx, report: true);
+
+      expect(short, contains('Error: FormatException: Unexpected character'));
+      expect(short, isNot(contains('#0')));
+      expect(full, contains('#0'));
+      expect(full, isNot(contains('hunter2')));
+    });
+
+    test('in Ukrainian the labels are the Details rows', () async {
+      await S.load(const Locale('uk'));
+      addTearDown(() => S.load(const Locale('en')));
+      final text = detailsText(
+        _refused(Status.timeout, '', key: 'wy/central/sys', call: 'list'),
+        ctx,
+      );
+      expect(text, contains('${S.current.errRowSite}: central'));
+      expect(text, isNot(contains('Site: ')));
     });
   });
 

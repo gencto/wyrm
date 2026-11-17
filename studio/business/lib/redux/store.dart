@@ -31,7 +31,7 @@ Store<AppState> newStore({
     dependencies: (store) =>
         AppDependencies(store, settings, wording: wording, prompts: prompts),
     persistor: persistor,
-    globalErrorObserver: (store) => _MyErrorObserver(wording ?? plainWording),
+    globalErrorObserver: (store) => _MyErrorObserver(wording ?? unworded),
     actionObservers: [_ReduxActionLogger()],
     stateObservers: [_StateChangeObserver()],
     modelObserver: _DefaultModelObserver<dynamic>(),

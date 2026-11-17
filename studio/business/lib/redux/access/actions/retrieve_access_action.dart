@@ -48,7 +48,7 @@ Future<AppState?> readAccess(Action a) async {
     throw StudioException.said(
       ErrorKind.reach,
       faultLine(e),
-      call: 'users',
+      call: const .known(.users),
     );
   }
   final grants = <RoleGrant>[];

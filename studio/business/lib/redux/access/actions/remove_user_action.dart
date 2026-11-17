@@ -17,7 +17,7 @@ class RemoveUserAction extends Action with WaitingAction {
     } on WyrmException catch (e) {
       throw StudioException.refused(
         e,
-        call: 'remove_user',
+        call: const .known(.removeUser),
         thing: name,
         write: true,
       );

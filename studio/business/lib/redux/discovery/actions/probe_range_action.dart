@@ -1,3 +1,4 @@
+import 'package:models/error_hint.dart';
 import 'package:models/error_kind.dart';
 
 import '../../../wyrm/discovery.dart';
@@ -23,21 +24,26 @@ class ProbeRangeAction extends Action {
     final List<String> addresses;
     try {
       addresses = rangeAddresses(range);
-    } on FormatException catch (e) {
+    } on RangeFormatException catch (e) {
       // The form checks before it dispatches (the same function); a
       // dispatch without that changes nothing and says why.
-      throw StudioException.said(
+      throw StudioException.hinted(
         ErrorKind.input,
-        e.message,
-        call: 'probe_range',
+        switch (e.fault) {
+          RangeFault.badText => const ErrorHint.rangeBadText(),
+          RangeFault.badPart => const ErrorHint.rangeBadPart(),
+          RangeFault.badPrefix => const ErrorHint.rangeBadPrefix(),
+          RangeFault.tooBig => const ErrorHint.rangeTooBig(),
+        },
+        call: const .known(.probeRange),
         thing: range,
       ).withDialog(false);
     }
     if (port < 1 || port > 65535) {
-      throw StudioException.said(
+      throw StudioException.hinted(
         ErrorKind.input,
-        'The port is 1 to 65535.',
-        call: 'probe_range',
+        const ErrorHint.portOutOfRange(),
+        call: const .known(.probeRange),
         thing: '$port',
       ).withDialog(false);
     }

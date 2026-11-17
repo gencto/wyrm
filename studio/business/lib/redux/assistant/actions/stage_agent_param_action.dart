@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/agent_params.dart';
 import 'package:models/approval_mode.dart';
+import 'package:models/error_hint.dart';
 import 'package:models/error_kind.dart';
 import 'package:models/staged_change.dart';
 import 'package:models/staged_change_kind.dart';
@@ -74,12 +75,11 @@ class StageAgentParamAction extends Action with WaitingAction {
           ? null
           : agentParamsOf(jsonDecode(newest.params)).orWarn(key);
       if (params == null) {
-        throw StudioException.said(
+        throw StudioException.hinted(
           ErrorKind.broker,
-          'The parameters of the agent link could not be read, so nothing '
-          'was staged.',
+          const ErrorHint.agentParamsUnread(),
           key: key,
-          call: 'history',
+          call: const .known(.history),
           thing: id,
         );
       }

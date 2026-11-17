@@ -9,10 +9,12 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:localization/localization.dart';
+import 'package:models/error_call.dart';
 import 'package:models/studio_error.dart';
 import 'package:ui/alerts/panel_fault.dart';
 
 import 'dialogs/error_dialogs.dart';
+import 'errors.dart';
 
 /// A fault outside any action (a widget that threw while building, a
 /// callback, a future nobody awaited) as a quiet problem of kind `studio`:
@@ -24,7 +26,12 @@ StudioError uncaughtFault(
   String? panel,
   String? library,
 }) {
-  final e = faultOf(error, stack, step: library, screen: panel);
+  final e = faultOf(
+    error,
+    stack,
+    step: library == null ? null : ErrorCall.named(library),
+    screen: panel,
+  );
   return e.copyWith(
     title: panel == null
         ? S.current.faultUncaught
@@ -57,7 +64,7 @@ void installFaultHooks(Store<AppState> store, {bool cardInDebug = false}) {
       ),
     );
     store.dispatchSync(
-      ShowNoticeAction(S.current.errCopied, detail: S.current.errReportCopied),
+      ShowNoticeAction(.reportCopied),
     );
   };
   if (!kDebugMode || cardInDebug) {

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:async_redux/async_redux.dart';
 import 'package:device_key/device_key.dart';
+import 'package:models/error_hint.dart';
 import 'package:models/error_kind.dart';
 import 'package:models/step_up_line.dart';
 import 'package:models/studio_error.dart';
@@ -69,7 +70,7 @@ class AppDependencies {
   }) : login =
            login ??
            GatewayLogin(trust: () => GatewayTrust(_store.state.discovery.pins)),
-       wording = wording ?? plainWording,
+       wording = wording ?? unworded,
        gatewayInfo = gatewayInfo ?? const HttpInfoReader();
 
   /// The DNS-SD side of the browse; bonsoir when null.
@@ -141,7 +142,7 @@ class AppDependencies {
       (throw StudioException(
         const StudioError(
           kind: ErrorKind.reach,
-          message: 'Studio is not connected to a gateway.',
+          hint: ErrorHint.notConnected(),
         ),
       ));
 

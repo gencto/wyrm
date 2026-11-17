@@ -124,11 +124,14 @@ void main() {
 
     final toast = await rebuilds<ToastStack>(
       t,
-      (i) => s.dispatchSync(ShowNoticeAction('Done $i')),
+      (i) => s.dispatchSync(ShowNoticeAction(.planSaved, path: 'p$i')),
       runs: 2,
     );
     expect(toast.built, 2);
-    expect(find.text('Done 1'), findsOneWidget);
+    expect(
+      find.text('Saved p1. Run it with wyrm-agent run.'),
+      findsOneWidget,
+    );
     await t.pump(const Duration(seconds: 10));
   });
 }

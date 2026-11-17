@@ -1,4 +1,5 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/error_hint.dart';
 import 'package:models/error_kind.dart';
 import 'package:models/flow_draft.dart';
 import 'package:models/library_off.dart';
@@ -204,11 +205,11 @@ class LoadFlowAction extends Action {
     if (flowEditor.flowId != id) {
       dispatchSync(UnloadFlowAction(id));
     }
-    return StudioException.said(
+    return StudioException.hinted(
       ErrorKind.broker,
-      'The definition of flow $id is not one Studio reads: $why.',
+      ErrorHint.flowDefInvalid(flow: id, why: why),
       key: key,
-      call: 'history',
+      call: const .known(.history),
       thing: id,
     );
   }

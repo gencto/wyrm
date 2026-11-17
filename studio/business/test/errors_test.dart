@@ -27,8 +27,10 @@ import 'package:business/wyrm/calls.dart';
 import 'package:business/wyrm/device_keys.dart';
 import 'package:business/wyrm/failures.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:models/error_call.dart';
 import 'package:models/error_kind.dart';
 import 'package:models/live_value.dart';
+import 'package:models/notice_kind.dart';
 import 'package:models/studio_error.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -47,7 +49,7 @@ class _SetAction extends Action {
   @override
   Future<AppState?> reduce() async {
     await call(
-      'set',
+      const .known(.set),
       key,
       () => deps.wyrm.set(key, VStr(value)),
       write: true,
@@ -149,7 +151,7 @@ void main() {
         expect(e.status, StatusCode.of(Status.notFound));
         expect(e.kind, ErrorKind.gone);
         expect(e.key, 'wy/central/sys/links');
-        expect(e.call, 'list');
+        expect(e.call, const ErrorCall.known(.list));
         expect(e.where, 'wy/central/sys/links › list');
         expect(e.site, 'central');
         expect(e.write, isFalse);
@@ -172,7 +174,8 @@ void main() {
 
       expect(e.kind, ErrorKind.reach);
       expect(e.write, isTrue);
-      expect(e.call, 'start');
+      // an action's wire name, read once into the call Studio knows
+      expect(e.call, const ErrorCall.known(.start));
     });
 
     test('a timeout on a read is not', () async {
@@ -232,7 +235,7 @@ void main() {
       expect(e.report!.line, contains('offset 4'));
       expect(e.report!.line, isNot(contains('hunter2')), reason: 'no source');
       expect(e.report!.stack, isNotEmpty);
-      expect(e.call, 'buggy');
+      expect(e.call, const ErrorCall.named('buggy'));
     });
 
     test('a plain UserException keeps its title and reason', () {
@@ -300,7 +303,7 @@ void main() {
     }) => refusalOf(
       WyrmException.of(st, 'm'),
       key: key,
-      call: 'subscribe',
+      call: const .known(.subscribe),
     ).copyWith(quiet: quiet);
 
     test(
@@ -397,8 +400,8 @@ void main() {
     });
 
     test('a notice is a toast of its own and no problem', () {
-      s.dispatchSync(ShowNoticeAction('Copied'));
-      expect(s.state.problems.notices.single.title, 'Copied');
+      s.dispatchSync(ShowNoticeAction(.detailsCopied));
+      expect(s.state.problems.notices.single.kind, NoticeKind.detailsCopied);
       expect(s.state.problems.items, isEmpty);
       s.dispatchSync(DismissToastAction(s.state.problems.notices.single.id));
       expect(s.state.problems.notices, isEmpty);
@@ -482,77 +485,28 @@ void main() {
       expect(st.isCompletedOk, isTrue, reason: 'no dialog for a chart');
       expect(s.state.nodes.historyFailed, 'not_found');
       final e = s.state.problems.items.single;
-      expect(e.call, 'history');
+      expect(e.call, const ErrorCall.known(.history));
       expect(e.quiet, isTrue);
       expect(e.retry, isNotNull);
     });
   });
 
-  group('Copy details', () {
-    const ctx = DetailsContext(
-      user: 'olena',
-      role: 'operator',
-      gateway: 'https://olena:gw-pass@plant.local:8445',
-      studio: '1.0 (macOS 15.1)',
+  // *Copy details* is worded by the app: `app/test/errors_test.dart`.
+  group('what leaves this computer', () {
+    test(
+      'the log line of an exception holds no secret the broker echoed',
+      () async {
+        const key = 'wy/central/downstream/mqtt/broker/password';
+        const secret = 's3cr3t-Passw0rd';
+        api.errors[key] = WyrmException.of(
+          Status.invalidParameter,
+          'password: $secret is too short',
+        );
+        final e = failed(await s.dispatchAndWait(_SetAction(key, secret)));
+        expect(e.kind, ErrorKind.input);
+        expect('${StudioException(e)}', isNot(contains(secret)));
+      },
     );
-
-    test('holds the title, key › call, status with code, message, site, '
-        'user, gateway, time and Studio', () async {
-      const key = 'wy/central/sys/links/modbus';
-      api.errors['$key ▸ start'] = WyrmException.of(
-        Status.permissionDenied,
-        'needs config on sys/links',
-      );
-      final e = failed(await s.dispatchAndWait(StartLinkAction('modbus')));
-
-      final text = detailsText(e, ctx);
-
-      expect(text, contains(e.title));
-      expect(text, contains('$key › start'));
-      expect(text, contains('Status: permission_denied (0x21)'));
-      expect(text, contains('Message: needs config on sys/links'));
-      expect(text, contains('Site: central'));
-      expect(text, contains('As: olena (operator)'));
-      expect(text, contains('Gateway: https://plant.local:8445'));
-      expect(text, contains('Time: '));
-      expect(text, contains('Studio: 1.0 (macOS 15.1)'));
-    });
-
-    test('never a value, an argument, a token or a password: a set of a '
-        'secret field', () async {
-      const key = 'wy/central/downstream/mqtt/broker/password';
-      const secret = 's3cr3t-Passw0rd';
-      // The broker echoes what it was sent, as some drivers do.
-      api.errors[key] = WyrmException.of(
-        Status.invalidParameter,
-        'password: $secret is too short; token=eyJhbGciOiJIUzI1NiJ9.abc.def '
-        'Bearer abcdefghijklmnop',
-      );
-
-      final e = failed(await s.dispatchAndWait(_SetAction(key, secret)));
-      final text = detailsText(e, ctx, report: true);
-
-      expect(e.kind, ErrorKind.input);
-      expect(text, isNot(contains(secret)));
-      expect(text, isNot(contains('eyJhbGciOiJIUzI1NiJ9')));
-      expect(text, isNot(contains('abcdefghijklmnop')));
-      expect(text, isNot(contains('gw-pass')));
-      expect(text, contains('password: •••'));
-      // The log line of the exception is as careful.
-      expect('${StudioException(e)}', isNot(contains(secret)));
-    });
-
-    test('Copy report adds the type, the first line and the stack', () async {
-      final e = failed(await s.dispatchAndWait(_BuggyAction()));
-
-      final short = detailsText(e, ctx);
-      final full = detailsText(e, ctx, report: true);
-
-      expect(short, contains('Error: FormatException: Unexpected character'));
-      expect(short, isNot(contains('#0')));
-      expect(full, contains('#0'));
-      expect(full, isNot(contains('hunter2')));
-    });
 
     test('redact masks pairs, bearer tokens and long blobs, and leaves '
         'prose', () {

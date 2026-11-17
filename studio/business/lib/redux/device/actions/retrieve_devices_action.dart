@@ -28,12 +28,12 @@ class RetrieveDevicesAction extends Action with WaitingAction {
         clock: state.clock.copyWith(now: deps.clock()),
       );
     } on WyrmException catch (e) {
-      throw StudioException.refused(e, call: 'devices');
+      throw StudioException.refused(e, call: const .known(.devices));
     } on Object catch (e) {
       throw StudioException.said(
         ErrorKind.reach,
         faultLine(e),
-        call: 'devices',
+        call: const .known(.devices),
       );
     }
   }

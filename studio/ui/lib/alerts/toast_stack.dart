@@ -52,7 +52,35 @@ final class ToastVm extends Equatable {
       Copied.key => S.current.keyCopied,
       Copied.keys => S.current.keysCopied(count),
       Copied.value => S.current.valueCopied,
+      Copied.details || Copied.report => S.current.errCopied,
+      Copied.draft => S.current.draftCopied,
     },
+    line: switch (what) {
+      Copied.details => S.current.errDetailsCopied,
+      Copied.report => S.current.errReportCopied,
+      Copied.key || Copied.keys || Copied.value || Copied.draft => '',
+    },
+  );
+
+  /// A task's plan was saved as the file [path], without the arguments in
+  /// [leftOut] (secret ones are never written): a toast in `good` for 3 s.
+  factory ToastVm.planSaved(
+    int id, {
+    required String path,
+    List<LeftOutVm> leftOut = const [],
+  }) => ToastVm(
+    id: id,
+    tone: Tone.good,
+    seconds: 3,
+    title: S.current.planSaved(path),
+    line: leftOut.isEmpty
+        ? ''
+        : S.current.planSavedSecrets(
+            [
+              for (final l in leftOut)
+                S.current.planSavedStep(l.step, l.names.join(', ')),
+            ].join('; '),
+          ),
   );
 
   final int id;
@@ -98,8 +126,20 @@ final class ToastVm extends Equatable {
   ];
 }
 
-/// What a copy toast says was copied.
-enum Copied { key, keys, value }
+/// What a copy toast says was copied: a key, keys, a value, an error's
+/// details or report, the assistant's draft.
+enum Copied { key, keys, value, details, report, draft }
+
+/// The arguments of plan step [step] a saved plan left out, by name.
+final class LeftOutVm extends Equatable {
+  const LeftOutVm({required this.step, required this.names});
+
+  final int step;
+  final List<String> names;
+
+  @override
+  List<Object?> get props => [step, names];
+}
 
 /// The toasts of quiet failures and of successes (boards `ErrorQuiet`,
 /// docs/design/specs/errors.md §4): 380 wide, the newest at the bottom, at

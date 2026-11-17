@@ -33,14 +33,20 @@ class RemoveDeviceAction extends Action with WaitingAction {
     } on WyrmException catch (e) {
       // Gone already: what the list showed is out of date, nothing else.
       if (e.status != StatusCode.of(Status.notFound)) {
-        throw StudioException.refused(e, call: 'remove', thing: 'device $id');
+        throw StudioException.refused(
+          e,
+          call: const .known(.remove),
+          thing: id,
+          subject: .device,
+        );
       }
     } on Object catch (e) {
       throw StudioException.said(
         ErrorKind.reach,
         faultLine(e),
-        call: 'remove',
-        thing: 'device $id',
+        call: const .known(.remove),
+        thing: id,
+        subject: .device,
       );
     }
     // The list read again first; what this returns is made of the state

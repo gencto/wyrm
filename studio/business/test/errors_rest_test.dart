@@ -23,6 +23,7 @@ import 'package:models/install_path.dart';
 import 'package:models/install_phase.dart';
 import 'package:models/install_source.dart';
 import 'package:models/install_step.dart';
+import 'package:models/known_call.dart';
 import 'package:models/log_level.dart';
 import 'package:models/log_line.dart';
 import 'package:wyrm_client/wyrm_client.dart';
@@ -68,7 +69,9 @@ void main() {
       await Future<void>.delayed(Duration.zero);
 
       expect(s.state.nodes.listFailed[dev], 'timeout');
-      final e = s.state.problems.items.firstWhere((p) => p.call == 'list');
+      final e = s.state.problems.items.firstWhere(
+        (p) => p.call?.known == KnownCall.list,
+      );
       expect(e.key, dev);
       expect(e.quiet, isTrue);
       expect(e.retry, isNotNull);
@@ -102,7 +105,9 @@ void main() {
       await Future<void>.delayed(Duration.zero);
 
       expect(s.state.nodes.metaFailed[dev], 'not_available');
-      final e = s.state.problems.items.firstWhere((p) => p.call == 'meta');
+      final e = s.state.problems.items.firstWhere(
+        (p) => p.call?.known == KnownCall.meta,
+      );
       expect(e.quiet, isTrue, reason: 'nobody asked for this read');
       expect(s.state.problems.toasts, contains(e.id));
       expect(s.getAndRemoveFirstError(), isNull, reason: 'no dialog');

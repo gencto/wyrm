@@ -121,7 +121,7 @@ Future<void> copyDraft(
   if (context.mounted) {
     await StoreProvider.dispatchAndWait<AppState>(
       context,
-      ShowNoticeAction(S.current.draftCopied),
+      ShowNoticeAction(.draftCopied),
     );
   }
 }
@@ -145,12 +145,7 @@ Future<void> savePlan(BuildContext context, String id) async {
       write: file.write,
       onDone: file.commit,
       onDiscard: file.discard,
-      saved: (left) => (
-        title: S.current.planSaved(file.path),
-        detail: left.isEmpty
-            ? null
-            : S.current.planSavedSecrets(left.join('; ')),
-      ),
+      path: file.path,
     ),
   );
 }

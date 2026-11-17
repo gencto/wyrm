@@ -1,9 +1,12 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:models/error_hint.dart';
+import 'package:models/error_kind.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import 'calls.dart';
+import 'failures.dart';
 import 'mappers/values.dart';
 
 /// Reads `length` bytes of a local file from `offset`.
@@ -62,7 +65,11 @@ Future<String> uploadParts(
       }
       final data = await read(offset, math.min(part, size - offset));
       if (data.isEmpty) {
-        throw StateError('the file ended at $offset of $size bytes');
+        throw StudioException.hinted(
+          ErrorKind.studio,
+          ErrorHint.fileEndedEarly(offset: offset, size: size),
+          key: key,
+        );
       }
       await invokeOne(
         api,
@@ -126,7 +133,12 @@ Future<int> downloadParts(
       return offset;
     }
     if (data.isEmpty) {
-      throw StateError('the broker sent an empty part before the end');
+      throw StudioException.hinted(
+        ErrorKind.broker,
+        const ErrorHint.emptyPart(),
+        key: key,
+        call: const .known(.downloadPart),
+      );
     }
   }
 }

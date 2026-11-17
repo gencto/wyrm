@@ -17514,6 +17514,281 @@ class S {
     );
   }
 
+  /// `Studio is not connected to a gateway.`
+  String get errNotConnected {
+    return Intl.message(
+      'Studio is not connected to a gateway.',
+      name: 'errNotConnected',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `There is no assistant link on this site.`
+  String get errNoAssistant {
+    return Intl.message(
+      'There is no assistant link on this site.',
+      name: 'errNoAssistant',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The assistant started no task. Check that its API key is set.`
+  String get errAssistantNoTask {
+    return Intl.message(
+      'The assistant started no task. Check that its API key is set.',
+      name: 'errAssistantNoTask',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The parameters of the agent link could not be read, so nothing was staged.`
+  String get errAgentParamsUnread {
+    return Intl.message(
+      'The parameters of the agent link could not be read, so nothing was staged.',
+      name: 'errAgentParamsUnread',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The record of task {task} is not one Studio reads: {field}: {reason}.`
+  String errTaskRecordInvalid(String task, String field, String reason) {
+    return Intl.message(
+      'The record of task $task is not one Studio reads: $field: $reason.',
+      name: 'errTaskRecordInvalid',
+      desc: '',
+      args: [task, field, reason],
+    );
+  }
+
+  /// `The library block {name} is not one Studio reads: {field}: {reason}.`
+  String errLibraryBlockInvalid(String name, String field, String reason) {
+    return Intl.message(
+      'The library block $name is not one Studio reads: $field: $reason.',
+      name: 'errLibraryBlockInvalid',
+      desc: '',
+      args: [name, field, reason],
+    );
+  }
+
+  /// `The definition of flow {flow} is not one Studio reads: {why}.`
+  String errFlowDefInvalid(String flow, String why) {
+    return Intl.message(
+      'The definition of flow $flow is not one Studio reads: $why.',
+      name: 'errFlowDefInvalid',
+      desc: '',
+      args: [flow, why],
+    );
+  }
+
+  /// `This node has no edit action.`
+  String get errNoEditAction {
+    return Intl.message(
+      'This node has no edit action.',
+      name: 'errNoEditAction',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `It is not JSON: {detail}`
+  String errProfileNotJson(String detail) {
+    return Intl.message(
+      'It is not JSON: $detail',
+      name: 'errProfileNotJson',
+      desc: '',
+      args: [detail],
+    );
+  }
+
+  /// `A profile is a JSON object.`
+  String get errProfileNotObject {
+    return Intl.message(
+      'A profile is a JSON object.',
+      name: 'errProfileNotObject',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Unknown key "{key}" (known: {known}).`
+  String errProfileUnknownKey(String key, String known) {
+    return Intl.message(
+      'Unknown key "$key" (known: $known).',
+      name: 'errProfileUnknownKey',
+      desc: '',
+      args: [key, known],
+    );
+  }
+
+  /// `Unknown type "{type}".`
+  String errProfileUnknownType(String type) {
+    return Intl.message(
+      'Unknown type "$type".',
+      name: 'errProfileUnknownType',
+      desc: '',
+      args: [type],
+    );
+  }
+
+  /// `The profile has too many entries to add extends.`
+  String get errProfileTooBig {
+    return Intl.message(
+      'The profile has too many entries to add extends.',
+      name: 'errProfileTooBig',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The port is 1 to 65535.`
+  String get errPortOutOfRange {
+    return Intl.message(
+      'The port is 1 to 65535.',
+      name: 'errPortOutOfRange',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `No device key on {platform}.`
+  String errNoDeviceKey(String platform) {
+    return Intl.message(
+      'No device key on $platform.',
+      name: 'errNoDeviceKey',
+      desc: '',
+      args: [platform],
+    );
+  }
+
+  /// `The broker shows no SHA-256 of this backup, so what arrives cannot be checked. Nothing was saved.`
+  String get errBackupNoDigest {
+    return Intl.message(
+      'The broker shows no SHA-256 of this backup, so what arrives cannot be checked. Nothing was saved.',
+      name: 'errBackupNoDigest',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The file that arrived is not the backup: SHA-256 {got}, the broker says {expected}. Nothing was saved.`
+  String errBackupDigestMismatch(String got, String expected) {
+    return Intl.message(
+      'The file that arrived is not the backup: SHA-256 $got, the broker says $expected. Nothing was saved.',
+      name: 'errBackupDigestMismatch',
+      desc: '',
+      args: [got, expected],
+    );
+  }
+
+  /// `The file ended at {offset} of {size} bytes.`
+  String errFileEndedEarly(int offset, int size) {
+    return Intl.message(
+      'The file ended at $offset of $size bytes.',
+      name: 'errFileEndedEarly',
+      desc: '',
+      args: [offset, size],
+    );
+  }
+
+  /// `The broker sent an empty part before the end.`
+  String get errEmptyPart {
+    return Intl.message(
+      'The broker sent an empty part before the end.',
+      name: 'errEmptyPart',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `assistant`
+  String get errThingAssistant {
+    return Intl.message(
+      'assistant',
+      name: 'errThingAssistant',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `profile`
+  String get errThingProfile {
+    return Intl.message('profile', name: 'errThingProfile', desc: '', args: []);
+  }
+
+  /// `device {id}`
+  String errThingDevice(String id) {
+    return Intl.message(
+      'device $id',
+      name: 'errThingDevice',
+      desc: '',
+      args: [id],
+    );
+  }
+
+  /// `{label}: {value}`
+  String errCopyLine(String label, String value) {
+    return Intl.message(
+      '$label: $value',
+      name: 'errCopyLine',
+      desc: '',
+      args: [label, value],
+    );
+  }
+
+  /// `Message`
+  String get errRowMessage {
+    return Intl.message('Message', name: 'errRowMessage', desc: '', args: []);
+  }
+
+  /// `step {n}: {names}`
+  String planSavedStep(int n, String names) {
+    return Intl.message(
+      'step $n: $names',
+      name: 'planSavedStep',
+      desc: '',
+      args: [n, names],
+    );
+  }
+
+  /// `macOS`
+  String get osMac {
+    return Intl.message('macOS', name: 'osMac', desc: '', args: []);
+  }
+
+  /// `Windows`
+  String get osWindows {
+    return Intl.message('Windows', name: 'osWindows', desc: '', args: []);
+  }
+
+  /// `iOS`
+  String get osIos {
+    return Intl.message('iOS', name: 'osIos', desc: '', args: []);
+  }
+
+  /// `Android`
+  String get osAndroid {
+    return Intl.message('Android', name: 'osAndroid', desc: '', args: []);
+  }
+
+  /// `Linux`
+  String get osLinux {
+    return Intl.message('Linux', name: 'osLinux', desc: '', args: []);
+  }
+
+  /// `web`
+  String get osWeb {
+    return Intl.message('web', name: 'osWeb', desc: '', args: []);
+  }
+
+  /// `unknown`
+  String get osUnknown {
+    return Intl.message('unknown', name: 'osUnknown', desc: '', args: []);
+  }
+
   /// `k × in + b`
   String get formLinear {
     return Intl.message('k × in + b', name: 'formLinear', desc: '', args: []);

@@ -1,10 +1,13 @@
 import 'dart:io';
 
+import 'package:business/wyrm/device_keys.dart';
 import 'package:business/wyrm/failures.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:localization/localization.dart';
+import 'package:models/call_verb.dart';
 import 'package:models/error_hint.dart';
 import 'package:models/error_kind.dart';
+import 'package:models/known_call.dart';
 import 'package:models/studio_error.dart';
 import 'package:ui/alerts/toast_stack.dart';
 import 'package:ui/dialogs/error_dialog.dart';
@@ -12,6 +15,7 @@ import 'package:ui/models/tone.dart';
 import 'package:ui/overlays/problems_drawer.dart';
 
 import 'common/studio_version.dart';
+import 'mappers/device_mappers.dart';
 
 // The words of an error (docs/design/specs/errors.md §1, §3, §7). They live
 // in `app` because this is the only package that may name `S`: `business`
@@ -20,92 +24,43 @@ import 'common/studio_version.dart';
 
 /// `1.0 (macOS 15.1)`: Studio's version and the system it runs on.
 String get studioAbout {
-  if (kIsWeb) {
-    return S.current.studioAbout(studioVersion, 'web');
-  }
-  final os = switch (Platform.operatingSystem) {
-    'macos' => 'macOS',
-    'windows' => 'Windows',
-    'linux' => 'Linux',
-    final o => o,
-  };
+  final os = hostPlatform().os.system;
   // `Version 15.1 (Build 24B83)` → `15.1`.
-  final version = RegExp(
-    r'\d+(\.\d+)+',
-  ).firstMatch(Platform.operatingSystemVersion)?.group(0);
+  final version = kIsWeb
+      ? null
+      : RegExp(
+          r'\d+(\.\d+)+',
+        ).firstMatch(Platform.operatingSystemVersion)?.group(0);
   return S.current.studioAbout(
     studioVersion,
     version == null ? os : '$os $version',
   );
 }
 
-enum _Verb {
-  deploy,
-  install,
-  write,
-  read,
-  list,
-  remove,
-  save,
-  start,
-  stop,
-  open,
-  logIn,
-  run,
-}
-
-_Verb _verbOf(String? call) => switch (call) {
-  'deploy' => .deploy,
-  'install' ||
-  'install_repo' ||
-  'install_zip' ||
-  'install_url' ||
-  'install_git' ||
-  'install_wasm' => .install,
-  'set' => .write,
-  'list' => .list,
-  'meta' ||
-  'subscribe' ||
-  'history' ||
-  'get_log' ||
-  'get_block' ||
-  'get_def' ||
-  'node_types' ||
-  'tail' ||
-  'users' ||
-  'me' ||
-  'read' => .read,
-  'remove' || 'remove_user' || 'reject' => .remove,
-  'put' ||
-  'put_block' ||
-  'edit' ||
-  'update' ||
-  'update_permissions' ||
-  'save_user' ||
-  'grant' ||
-  'add' => .save,
-  'start' => .start,
-  'stop' => .stop,
-  'open' => .open,
-  'log_in' => .logIn,
-  _ => .run,
-};
-
 /// The name of what [e] was about: given by the caller, else the last
 /// segment of the key, else `this`.
-String _thing(StudioError e) => switch (e.thing) {
-  final t? when t.isNotEmpty => t,
-  _ => switch (e.key?.split('/').last) {
-    final k? when k.isNotEmpty && k != '**' => k,
-    _ => e.site ?? S.current.errThingThis,
+String _thing(StudioError e) => switch (e.subject) {
+  .assistant => S.current.errThingAssistant,
+  .profile => S.current.errThingProfile,
+  .device => S.current.errThingDevice(e.thing ?? ''),
+  .biometrics => S.current.unlockNameBiometric,
+  null => switch (e.thing) {
+    final t? when t.isNotEmpty => t,
+    _ => switch (e.key?.split('/').last) {
+      final k? when k.isNotEmpty && k != '**' => k,
+      _ => e.site ?? S.current.errThingThis,
+    },
   },
 };
+
+/// What the call of [e] does; one Studio does not know by name is run.
+CallVerb _verb(StudioError e) => e.call?.verb ?? .run;
 
 /// `deploy pump-control`: after `You can’t` and `Studio could not`.
 String _toDo(StudioError e) {
   final s = S.current;
   final t = _thing(e);
-  return switch (_verbOf(e.call)) {
+  return switch (_verb(e)) {
     .deploy => s.errDoDeploy(t),
     .install => s.errDoInstall(t),
     .write => s.errDoWrite(t),
@@ -117,7 +72,10 @@ String _toDo(StudioError e) {
     .stop => s.errDoStop(t),
     .open => s.errDoOpen(t),
     .logIn => s.errDoLogIn(t),
-    .run => e.call == null ? s.errDoStep(t) : s.errDoRun(e.call!, t),
+    .run => switch (e.call) {
+      final c? => s.errDoRun(c.name, t),
+      null => s.errDoStep(t),
+    },
   };
 }
 
@@ -125,7 +83,7 @@ String _toDo(StudioError e) {
 String _doing(StudioError e) {
   final s = S.current;
   final t = _thing(e);
-  return switch (_verbOf(e.call)) {
+  return switch (_verb(e)) {
     .deploy => s.errDoingDeploy(t),
     .install => s.errDoingInstall(t),
     .write => s.errDoingWrite(t),
@@ -137,14 +95,14 @@ String _doing(StudioError e) {
     .stop => s.errDoingStop(t),
     .open => s.errDoingOpen(t),
     .logIn => s.errDoingLogIn(t),
-    .run => s.errDoingRun(e.call ?? '', t),
+    .run => s.errDoingRun(e.call?.name ?? '', t),
   };
 }
 
 /// `the install`: before `did not start`.
 String _noun(StudioError e) {
   final s = S.current;
-  return switch (_verbOf(e.call)) {
+  return switch (_verb(e)) {
     .deploy => s.errNounDeploy,
     .install => s.errNounInstall,
     .write => s.errNounWrite,
@@ -156,7 +114,7 @@ String _noun(StudioError e) {
     .stop => s.errNounStop,
     .open => s.errNounOpen,
     .logIn => s.errNounLogIn,
-    .run => s.errNounRun(e.call ?? ''),
+    .run => s.errNounRun(e.call?.name ?? ''),
   };
 }
 
@@ -178,15 +136,16 @@ String errorTitle(StudioError e) {
   if (e.stream case final site?) {
     return s.errTitleStream(site);
   }
-  if (e.quiet && e.call == 'subscribe') {
+  final call = e.call?.known;
+  if (e.quiet && call == KnownCall.subscribe) {
     return s.errTitleRead(_thing(e));
   }
-  if (e.call == 'history') {
+  if (call == KnownCall.history) {
     return s.errTitleHistory(_thing(e));
   }
   // The offer's `Use <name>` or the Security switch (unlock-discover.md §2):
   // `Touch ID could not be turned on`, the reason under it.
-  if (e.call == 'enable_device') {
+  if (call == KnownCall.enableDevice) {
     return s.unlockOffToast(_thing(e));
   }
   // Said by Studio, not by the broker: a file it cannot read, a fault.
@@ -194,25 +153,26 @@ String errorTitle(StudioError e) {
   return switch (e.kind) {
     .studio =>
       e.report != null
-          ? s.errTitleStudio(s.errDoStep(e.call ?? s.errThingThis))
+          ? s.errTitleStudio(s.errDoStep(e.call?.name ?? s.errThingThis))
           : e.call == null
           ? s.errTitlePlain
           : s.errTitleStudio(_toDo(e)),
     .reach when e.call == null && e.key == null => s.errTitleNotConnected,
-    .reach when e.call == 'log_in' || e.call == 'me' => s.errTitleReach(
-      _thing(e),
-    ),
+    .reach when call == KnownCall.logIn || call == KnownCall.me =>
+      s.errTitleReach(
+        _thing(e),
+      ),
     .reach => switch (_unreached(e)) {
       final who? => s.errTitleReach(who),
       null => s.errTitleReachNoSite,
     },
     _ when own => s.errTitleStudio(_toDo(e)),
     .rights => s.errTitleRights(_toDo(e)),
-    .input => e.call == 'set' ? s.errTitleInputValue : s.errTitleInput,
+    .input => call == KnownCall.set ? s.errTitleInputValue : s.errTitleInput,
     .busy => s.errTitleBusy(e.site ?? s.errThingBroker, _noun(e)),
     .gone =>
       isUnsupported(e)
-          ? s.errTitleUnsupported(_thing(e), e.call ?? '')
+          ? s.errTitleUnsupported(_thing(e), e.call?.name ?? '')
           : s.errTitleGone(_thing(e)),
     .broker => switch (e.site) {
       final site? => s.errTitleBroker(_doing(e), site),
@@ -235,14 +195,51 @@ StudioError wordError(StudioError e) => e.copyWith(
         },
 );
 
-/// What Studio says of a refusal the broker sent no words for.
-String _hintText(ErrorHint h) => switch (h) {
-  .runDenied => S.current.errRunDenied,
-  .runNotRunning => S.current.errRunNotRunning,
-  .runNoTrigger => S.current.errRunNoTrigger,
-  .runNotByHand => S.current.errRunNotByHand,
-  .notSettable => S.current.errNotSettable,
-};
+/// What Studio says where the broker sent no words, or of what Studio
+/// itself found wrong: one sentence per case, in the language on screen.
+String _hintText(ErrorHint h) {
+  final s = S.current;
+  return switch (h) {
+    ErrorHintRunDenied() => s.errRunDenied,
+    ErrorHintRunNotRunning() => s.errRunNotRunning,
+    ErrorHintRunNoTrigger() => s.errRunNoTrigger,
+    ErrorHintRunNotByHand() => s.errRunNotByHand,
+    ErrorHintNotSettable() => s.errNotSettable,
+    ErrorHintNotConnected() => s.errNotConnected,
+    ErrorHintNoAssistant() => s.errNoAssistant,
+    ErrorHintAssistantNoTask() => s.errAssistantNoTask,
+    ErrorHintAgentParamsUnread() => s.errAgentParamsUnread,
+    ErrorHintTaskRecordInvalid(:final task, :final field, :final reason) =>
+      s.errTaskRecordInvalid(task, field, reason),
+    ErrorHintLibraryBlockInvalid(:final name, :final field, :final reason) =>
+      s.errLibraryBlockInvalid(name, field, reason),
+    ErrorHintFlowDefInvalid(:final flow, :final why) => s.errFlowDefInvalid(
+      flow,
+      why,
+    ),
+    ErrorHintNoEditAction() => s.errNoEditAction,
+    ErrorHintProfileNotJson(:final detail) => s.errProfileNotJson(detail),
+    ErrorHintProfileNotObject() => s.errProfileNotObject,
+    ErrorHintProfileUnknownKey(:final key, :final known) =>
+      s.errProfileUnknownKey(key, known.join(', ')),
+    ErrorHintProfileUnknownType(:final type) => s.errProfileUnknownType(type),
+    ErrorHintProfileTooBig() => s.errProfileTooBig,
+    ErrorHintRangeBadText() => s.rangeBadText,
+    ErrorHintRangeBadPart() => s.rangeBadPart,
+    ErrorHintRangeBadPrefix() => s.rangeBadPrefix,
+    ErrorHintRangeTooBig() => s.rangeTooBig,
+    ErrorHintPortOutOfRange() => s.errPortOutOfRange,
+    ErrorHintNoDeviceKey(:final host) => s.errNoDeviceKey(host.os.system),
+    ErrorHintBackupNoDigest() => s.errBackupNoDigest,
+    ErrorHintBackupDigestMismatch(:final got, :final expected) =>
+      s.errBackupDigestMismatch(got, expected),
+    ErrorHintFileEndedEarly(:final offset, :final size) => s.errFileEndedEarly(
+      offset,
+      size,
+    ),
+    ErrorHintEmptyPart() => s.errEmptyPart,
+  };
+}
 
 /// The tone of a kind (errors.md §1).
 Tone errorToneOf(ErrorKind kind) => switch (kind) {
@@ -282,19 +279,8 @@ ErrorAction errorPrimary(StudioError e, {bool readOnly = false}) {
 /// Seconds a `busy` dialog waits before it tries again by itself.
 const busyWait = 4;
 
-String _clock(DateTime t) {
-  String two(int v) => v.toString().padLeft(2, '0');
-  return '${two(t.hour)}:${two(t.minute)}';
-}
-
 /// `11:52:06`.
-String errorTime(DateTime? t) {
-  if (t == null) {
-    return '';
-  }
-  String two(int v) => v.toString().padLeft(2, '0');
-  return '${_clock(t)}:${two(t.second)}';
-}
+String errorTime(DateTime? t) => t == null ? '' : Formats.clockSeconds(t);
 
 /// `timeout: the device did not answer.`: the status and the broker's
 /// message on one line (a toast, a Problems card).
@@ -326,7 +312,9 @@ ErrorDialogVm errorDialogVm(
   final own = e.kind == .studio || (e.status == null && e.kind != .broker);
   final silent = e.message.isEmpty;
   final r = e.report;
-  final time = e.at == null ? '' : s.errTimeLocal(stamp(e.at!));
+  final time = e.at == null
+      ? ''
+      : s.errTimeLocal(Formats.dateTimeSeconds(e.at!));
   return ErrorDialogVm(
     tone: errorToneOf(e.kind),
     icon: _iconOf(e.kind),
@@ -375,7 +363,7 @@ ErrorDialogVm errorDialogVm(
       .broker => [
         if (e.status == null) s.errAdviceBrokerSaid,
         if (e.at case final t? when primary == .log)
-          s.errAdviceBroker(_clock(t)),
+          s.errAdviceBroker(Formats.clock(t)),
       ],
       .studio => [
         s.errAdviceStudio,
@@ -395,7 +383,7 @@ ErrorDialogVm errorDialogVm(
         if (r.where.isNotEmpty) ErrorRowVm(s.errRowIn, r.where),
         if (r.screen case final sc?) ErrorRowVm(s.errRowScreen, sc),
       ] else ...[
-        if (e.call case final c? when c.isNotEmpty)
+        if (e.call?.name case final c? when c.isNotEmpty)
           ErrorRowVm(
             s.errRowCall,
             e.key == null ? c : s.errCallOn(c, e.key!),
@@ -466,3 +454,63 @@ ProblemVm problemVm(StudioError e) => ProblemVm(
   retry: e.retry != null && !e.write,
   shown: e.shown,
 );
+
+/// Who and where, for *Copy details*.
+final class DetailsContext {
+  const DetailsContext({
+    this.user,
+    this.role,
+    this.gateway,
+    this.studio = '',
+  });
+
+  final String? user;
+  final String? role;
+  final String? gateway;
+
+  /// `0.3.0 (macOS 15.1)`.
+  final String studio;
+}
+
+/// The plain text of *Copy details* (errors.md §3): title, key › call,
+/// status (code), message, site, user (role), gateway URL, time, Studio
+/// version and OS, each under the label the dialog's Details row has. A
+/// `StudioError` holds no value and no argument, so none can be copied;
+/// the message and the report are [redact]ed. With [report], the Dart
+/// type, first line and stack trace are added (*Copy report*).
+String detailsText(
+  StudioError e,
+  DetailsContext ctx, {
+  bool report = false,
+}) {
+  final s = S.current;
+  final r = e.report;
+  final role = ctx.role;
+  final lines = <String>[
+    e.title,
+    if (e.where.isNotEmpty) e.where,
+    if (e.status case final st?) s.errCopyLine(s.errRowStatus, statusLine(st)),
+    if (e.message.isNotEmpty) s.errCopyLine(s.errRowMessage, redact(e.message)),
+    if (e.site case final site?) s.errCopyLine(s.errRowSite, site),
+    if (ctx.user case final u? when u.isNotEmpty)
+      s.errCopyLine(
+        s.errRowAs,
+        role == null || role.isEmpty ? u : s.errUserRole(u, role),
+      ),
+    if (ctx.gateway case final g? when g.isNotEmpty)
+      s.errCopyLine(s.errRowGateway, withoutUserInfo(g)),
+    if (e.at case final t?)
+      s.errCopyLine(
+        s.errRowTime,
+        s.errTimeLocal(Formats.dateTimeSeconds(t)),
+      ),
+    if (ctx.studio.isNotEmpty) s.errCopyLine(s.errRowStudio, ctx.studio),
+    if (r != null) ...[
+      s.errCopyLine(s.errRowError, r.line),
+      if (r.where.isNotEmpty) s.errCopyLine(s.errRowIn, r.where),
+      if (r.screen case final sc?) s.errCopyLine(s.errRowScreen, sc),
+    ],
+    if (report && r != null && r.stack.isNotEmpty) ...['', r.stack.trimRight()],
+  ];
+  return lines.join('\n');
+}

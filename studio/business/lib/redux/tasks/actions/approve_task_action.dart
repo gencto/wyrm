@@ -81,7 +81,7 @@ class ApproveTaskAction extends Action with NonReentrant, WaitingAction {
         throw StudioException.refused(
           e,
           key: key,
-          call: 'approve',
+          call: const .known(.approve),
           thing: id,
           write: true,
         );

@@ -1,7 +1,9 @@
 import 'package:async_redux/async_redux.dart';
 import 'package:flutter/foundation.dart' show VoidCallback;
+import 'package:models/error_call.dart';
 import 'package:models/error_hint.dart';
 import 'package:models/error_kind.dart';
+import 'package:models/error_subject.dart';
 import 'package:models/fault_report.dart';
 import 'package:models/studio_error.dart';
 import 'package:wyrm_client/wyrm_client.dart';
@@ -87,23 +89,24 @@ StudioError notSettableOf(String key) {
   return StudioError(
     kind: kindOf(status),
     status: status,
-    hint: ErrorHint.notSettable,
+    hint: const ErrorHint.notSettable(),
     key: key,
-    call: 'set',
+    call: const .known(.set),
     site: siteOf(key),
     write: true,
   );
 }
 
-/// The error of a refused broker call. [call] is the wire name of what was
-/// asked (`deploy`, `set`, `list`), [key] the key it was asked on, [thing]
+/// The error of a refused broker call. [call] is what was asked (`deploy`,
+/// `set`, `list`, an action), [key] the key it was asked on, [thing]
 /// the name of its object when the key's last segment is not it. [write]
 /// says the call changes something: a timeout then may have been applied.
 StudioError refusalOf(
   WyrmException e, {
   String? key,
-  String? call,
+  ErrorCall? call,
   String? thing,
+  ErrorSubject? subject,
   bool write = false,
 }) {
   final kind = kindOf(e.status);
@@ -114,6 +117,7 @@ StudioError refusalOf(
     key: key,
     call: call,
     thing: thing,
+    subject: subject,
     site: siteOf(key),
     write: write,
     field: kind == ErrorKind.input ? fieldOf(e.message) : null,
@@ -125,7 +129,7 @@ StudioError refusalOf(
 StudioError faultOf(
   Object error,
   StackTrace? stack, {
-  String? step,
+  ErrorCall? step,
   String? screen,
 }) => StudioError(
   kind: ErrorKind.studio,
@@ -133,7 +137,7 @@ StudioError faultOf(
   report: FaultReport(
     type: '${error.runtimeType}',
     line: faultLine(error),
-    where: frameOf(stack) ?? step ?? '',
+    where: frameOf(stack) ?? step?.name ?? '',
     screen: screen,
     stack: stack == null ? '' : redact('$stack'),
   ),
@@ -187,66 +191,8 @@ String redact(String text) => text
     .replaceAllMapped(_bearer, (m) => '${m.group(1)}•••')
     .replaceAll(_blob, '•••');
 
-/// Who and where, for *Copy details*.
-final class DetailsContext {
-  const DetailsContext({
-    this.user,
-    this.role,
-    this.gateway,
-    this.studio = '',
-  });
-
-  final String? user;
-  final String? role;
-  final String? gateway;
-
-  /// `0.3.0 (macOS 15.1)`.
-  final String studio;
-}
-
-/// `2026-11-10 11:52:04`, local.
-String stamp(DateTime t) {
-  String two(int v) => v.toString().padLeft(2, '0');
-  return '${t.year}-${two(t.month)}-${two(t.day)} '
-      '${two(t.hour)}:${two(t.minute)}:${two(t.second)}';
-}
-
-/// The plain text of *Copy details* (errors.md §3): title, key › call,
-/// status (code), message, site, user (role), gateway URL, time, Studio
-/// version and OS. A `StudioError` holds no value and no argument, so none
-/// can be copied; the message and the report are [redact]ed. With
-/// [report], the Dart type, first line and stack trace are added (*Copy
-/// report*).
-String detailsText(
-  StudioError e,
-  DetailsContext ctx, {
-  bool report = false,
-}) {
-  final r = e.report;
-  final lines = <String>[
-    e.title,
-    if (e.where.isNotEmpty) e.where,
-    if (e.status case final s?) 'Status: ${statusLine(s)}',
-    if (e.message.isNotEmpty) 'Message: ${redact(e.message)}',
-    if (e.site case final s?) 'Site: $s',
-    if (ctx.user case final u? when u.isNotEmpty)
-      'As: $u${ctx.role == null || ctx.role!.isEmpty ? '' : ' (${ctx.role})'}',
-    if (ctx.gateway case final g? when g.isNotEmpty)
-      'Gateway: ${_noUserInfo(g)}',
-    if (e.at case final t?) 'Time: ${stamp(t)} (local)',
-    if (ctx.studio.isNotEmpty) 'Studio: ${ctx.studio}',
-    if (r != null) ...[
-      'Error: ${r.line}',
-      if (r.where.isNotEmpty) 'In: ${r.where}',
-      if (r.screen case final s?) 'Screen: $s',
-    ],
-    if (report && r != null && r.stack.isNotEmpty) ...['', r.stack.trimRight()],
-  ];
-  return lines.join('\n');
-}
-
-/// A gateway URL without `user:password@`.
-String _noUserInfo(String url) {
+/// A gateway URL without `user:password@`, for *Copy details*.
+String withoutUserInfo(String url) {
   final u = Uri.tryParse(url);
   return u == null || u.userInfo.isEmpty
       ? url
@@ -258,20 +204,9 @@ String _noUserInfo(String url) {
 /// The app supplies it, because `business` never names a locale.
 typedef ErrorWording = StudioError Function(StudioError error);
 
-/// Words for when no [ErrorWording] is given (tests): plain English.
-StudioError plainWording(StudioError e) {
-  if (e.title.isNotEmpty) {
-    return e;
-  }
-  final thing = e.thing ?? e.key?.split('/').last;
-  final what = [?e.call, ?thing].join(' ');
-  return e.copyWith(
-    title: switch (e.kind) {
-      ErrorKind.studio => 'Studio could not finish ${e.call ?? 'this'}',
-      _ => what.isEmpty ? 'The call failed' : '$what failed',
-    },
-  );
-}
+/// No words: the error as it is, for a store nobody reads the titles of
+/// (a test of `business`). The app always gives its own [ErrorWording].
+StudioError unworded(StudioError error) => error;
 
 /// A [StudioError] on its way through the store: a [UserException], so the
 /// observer, the error queue and `onOk` / `onCancel` work as before, with
@@ -293,33 +228,32 @@ class StudioException extends UserException {
   StudioException.refused(
     WyrmException e, {
     String? key,
-    String? call,
+    ErrorCall? call,
     String? thing,
+    ErrorSubject? subject,
     bool write = false,
-  }) : this(refusalOf(e, key: key, call: call, thing: thing, write: write));
+  }) : this(
+         refusalOf(
+           e,
+           key: key,
+           call: call,
+           thing: thing,
+           subject: subject,
+           write: write,
+         ),
+       );
 
-  /// Something Studio itself found wrong before or after a call, said in
-  /// [title] (what did not happen) and [message].
-  StudioException.studio(String title, {String message = '', String? call})
-    : this(
-        StudioError(
-          kind: ErrorKind.studio,
-          title: title,
-          message: message,
-          call: call,
-        ),
-      );
-
-  /// Something that is wrong without a status from the broker, in its own
-  /// words: an answer that says no, a file Studio cannot read, a thing that
-  /// is not there. The title comes from [kind], [call] and [thing] like any
-  /// other.
+  /// Something that is wrong without a status from the broker, in words
+  /// that are not Studio's: the gateway's, the operating system's, a
+  /// link's answer ([message], shown as it came). The title comes from
+  /// [kind], [call] and [thing] like any other.
   StudioException.said(
     ErrorKind kind,
     String message, {
     String? key,
-    String? call,
+    ErrorCall? call,
     String? thing,
+    ErrorSubject? subject,
     bool write = false,
   }) : this(
          StudioError(
@@ -328,6 +262,31 @@ class StudioException extends UserException {
            key: key,
            call: call,
            thing: thing,
+           subject: subject,
+           site: siteOf(key),
+           write: write,
+         ),
+       );
+
+  /// Something Studio itself found wrong: [hint] names it with what it is
+  /// about, and the app says it in the user's language (`business` holds
+  /// no sentence).
+  StudioException.hinted(
+    ErrorKind kind,
+    ErrorHint hint, {
+    String? key,
+    ErrorCall? call,
+    String? thing,
+    ErrorSubject? subject,
+    bool write = false,
+  }) : this(
+         StudioError(
+           kind: kind,
+           hint: hint,
+           key: key,
+           call: call,
+           thing: thing,
+           subject: subject,
            site: siteOf(key),
            write: write,
          ),
@@ -420,7 +379,9 @@ StudioException studioExceptionOf(
   final StudioException e => e,
   final WyrmException e => StudioException.refused(e),
   final UserException e => _plain(e),
-  _ => StudioException(faultOf(error, stack, step: step)),
+  _ => StudioException(
+    faultOf(error, stack, step: step == null ? null : ErrorCall.named(step)),
+  ),
 };
 
 StudioException _plain(UserException e) {

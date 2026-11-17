@@ -1075,12 +1075,18 @@ void main() {
 
       // No words from the broker: Studio names why (the app says it).
       final denied = await refused(Status.permissionDenied);
-      expect((denied?.message, denied?.hint), ('', ErrorHint.runDenied));
+      expect(
+        (denied?.message, denied?.hint),
+        ('', const ErrorHint.runDenied()),
+      );
       expect(
         (await refused(Status.notSupported))?.hint,
-        ErrorHint.runNotRunning,
+        const ErrorHint.runNotRunning(),
       );
-      expect((await refused(Status.notFound))?.hint, ErrorHint.runNoTrigger);
+      expect(
+        (await refused(Status.notFound))?.hint,
+        const ErrorHint.runNoTrigger(),
+      );
       // The broker's words as they came, and no hint of Studio's.
       final own = await refused(
         Status.invalidParameter,

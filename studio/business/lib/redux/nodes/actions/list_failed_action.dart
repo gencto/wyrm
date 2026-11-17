@@ -28,7 +28,7 @@ class ListFailedAction extends Action {
     );
     if (error case final WyrmException w
         when w.status.known != Status.permissionDenied) {
-      final e = refusalOf(w, key: parent, call: 'list');
+      final e = refusalOf(w, key: parent, call: const .known(.list));
       dispatchSync(SetListFailedAction(parent, w.status.name), notify: false);
       dispatchSync(
         AddProblemAction(

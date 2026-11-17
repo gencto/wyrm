@@ -1,12 +1,14 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/agent_task.dart';
 import 'package:models/plan_step.dart';
 import 'package:models/step_check.dart';
 import 'package:models/step_kind.dart';
 import 'package:models/task_row.dart';
 import 'package:models/task_suggestion.dart';
+import 'package:models/withheld_args.dart';
 import 'package:wyrm_client/wyrm_client.dart' as wc;
 
 // What is made from a decoded task (`decode/agent_task.dart`): the text of
@@ -63,12 +65,18 @@ Map<String, Object?> planFile(AgentTask t) => {
   ],
 };
 
-/// The secret arguments of [t]'s plan, `step <n>: <arg>, …`, one per step
-/// that has any: what Save as a plan leaves out of the file.
-List<String> secretsLeftOut(AgentTask t) => [
+/// The arguments Save as a plan leaves out of the file of [t]'s plan, by
+/// step: the screen's notice names them.
+IList<WithheldArgs> withheldOf(AgentTask t) => [
   for (final s in t.plan)
     if (withheld(s) case final w when w.isNotEmpty)
-      'step ${s.n}: ${w.join(', ')}',
+      WithheldArgs(step: s.n, names: w.lock),
+].lock;
+
+/// [withheldOf] as the plan file names it (`secrets_left_out`, a field of
+/// the `wyrm-agent run` format): `step <n>: <arg>, …`, one per step.
+List<String> secretsLeftOut(AgentTask t) => [
+  for (final w in withheldOf(t)) 'step ${w.step}: ${w.names.join(', ')}',
 ];
 
 /// The arguments of [s] that are never written to a file and are masked

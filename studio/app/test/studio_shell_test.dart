@@ -109,7 +109,7 @@ void main() {
                 title: 'Studio couldn’t read t1',
                 message: 'timeout',
                 key: '$plant/downstream/plc1/t1',
-                call: 'history',
+                call: const .known(.history),
                 at: DateTime(2026, 11, 12, 2, 1),
                 quiet: true,
               ),

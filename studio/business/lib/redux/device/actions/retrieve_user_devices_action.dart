@@ -32,12 +32,16 @@ class RetrieveUserDevicesAction extends Action with WaitingAction {
         clock: state.clock.copyWith(now: deps.clock()),
       );
     } on WyrmException catch (e) {
-      throw StudioException.refused(e, call: 'devices', thing: user);
+      throw StudioException.refused(
+        e,
+        call: const .known(.devices),
+        thing: user,
+      );
     } on Object catch (e) {
       throw StudioException.said(
         ErrorKind.reach,
         faultLine(e),
-        call: 'devices',
+        call: const .known(.devices),
         thing: user,
       );
     }

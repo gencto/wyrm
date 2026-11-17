@@ -1,6 +1,7 @@
 import 'package:async_redux/async_redux.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/block_type.dart';
+import 'package:models/error_hint.dart';
 import 'package:models/error_kind.dart';
 
 import '../../../wyrm/calls.dart';
@@ -54,11 +55,15 @@ class PlaceLibraryBlockAction extends Action with Sequential<AppState> {
       await askOne(deps.wyrm, '$root/dataflows', 'get_block', nameArgs(name)),
     )) {
       Valid(:final value) => value,
-      Invalid(:final field, :final reason) => throw StudioException.said(
+      Invalid(:final field, :final reason) => throw StudioException.hinted(
         ErrorKind.broker,
-        'The library block $name is not one Studio reads: $field: $reason.',
+        ErrorHint.libraryBlockInvalid(
+          name: name,
+          field: field,
+          reason: reason,
+        ),
         key: '$root/dataflows',
-        call: 'get_block',
+        call: const .known(.getBlock),
         thing: name,
       ),
     };

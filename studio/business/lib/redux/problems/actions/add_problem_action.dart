@@ -1,4 +1,5 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/error_call.dart';
 import 'package:models/error_kind.dart';
 import 'package:models/studio_error.dart';
 
@@ -20,7 +21,7 @@ class AddProblemAction extends Action {
   static const limit = 200;
 
   /// What makes two failures the same line.
-  static (ErrorKind, int?, String?, String?, String, String?) _same(
+  static (ErrorKind, int?, String?, ErrorCall?, String, String?) _same(
     StudioError e,
   ) => (e.kind, e.status?.code, e.key, e.call, e.title, e.stream);
 

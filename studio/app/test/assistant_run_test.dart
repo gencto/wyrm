@@ -2,10 +2,13 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:app/common/files.dart';
+import 'package:app/mappers/notice_mappers.dart';
 import 'package:business/redux/site/actions/view_site_action.dart';
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:models/withheld_args.dart';
 import 'package:ui/assistant/plan_card.dart';
 import 'package:ui/assistant/result_card.dart';
 import 'package:ui/assistant/run_card.dart';
@@ -358,8 +361,13 @@ void main() {
       'args': {'name': 'ahu2'},
     });
     expect(plan['secrets_left_out'], ['step 1: unit']);
+    // the notice names what was left out; the toast says it
+    final notice = app.store.state.problems.notices.last;
+    expect(notice.leftOut, [
+      WithheldArgs(step: 1, names: ['unit'].lock),
+    ]);
     expect(
-      app.store.state.problems.notices.last.detail,
+      notice.toast.line,
       'Secret arguments are not in the file: step 1: unit. Add them before '
       'you run it.',
     );

@@ -14,7 +14,6 @@ import 'package:business/redux/system/actions/aim_log_action.dart';
 import 'package:business/redux/system/actions/retrieve_system_log_action.dart';
 import 'package:business/wyrm/failures.dart';
 import 'package:flutter/services.dart';
-import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:models/access_tab.dart';
 import 'package:models/studio_error.dart';
@@ -56,10 +55,7 @@ void copyErrorDetails(Store<AppState> store, StudioError e) {
     ),
   );
   store.dispatchSync(
-    ShowNoticeAction(
-      S.current.errCopied,
-      detail: report ? S.current.errReportCopied : S.current.errDetailsCopied,
-    ),
+    ShowNoticeAction(report ? .reportCopied : .detailsCopied),
   );
 }
 

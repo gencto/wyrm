@@ -29,12 +29,12 @@ class SignOutEverywhereAction extends Action with NonReentrant, WaitingAction {
     try {
       await session.signOutEverywhere();
     } on WyrmException catch (e) {
-      throw StudioException.refused(e, call: 'sign_out');
+      throw StudioException.refused(e, call: const .known(.signOut));
     } on Object catch (e) {
       throw StudioException.said(
         ErrorKind.reach,
         faultLine(e),
-        call: 'sign_out',
+        call: const .known(.signOut),
       );
     }
     final forgotten = await forgetOwnKey(this);

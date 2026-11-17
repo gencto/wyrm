@@ -23,8 +23,16 @@ class ReadFailedAction extends Action {
   @override
   AppState reduce() {
     final e = switch (error) {
-      final WyrmException w => refusalOf(w, key: key, call: 'subscribe'),
-      _ => faultOf(error, null, step: 'subscribe').copyWith(key: key),
+      final WyrmException w => refusalOf(
+        w,
+        key: key,
+        call: const .known(.subscribe),
+      ),
+      _ => faultOf(
+        error,
+        null,
+        step: const .known(.subscribe),
+      ).copyWith(key: key),
     };
     dispatchSync(
       SetReadFailedAction(key, e.status?.name ?? e.report?.type ?? 'failed'),

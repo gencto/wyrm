@@ -18,6 +18,7 @@ import 'package:business/wyrm/failures.dart';
 import 'package:business/wyrm/mappers/flow_mapper.dart';
 import 'package:business/wyrm/mappers/values.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:models/error_hint.dart';
 import 'package:models/flow_problem_kind.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -178,9 +179,12 @@ void main() {
       ];
       final status = await s.dispatchAndWait(LoadFlowAction('tank'));
       expect(status.originalError, isA<StudioException>());
+      // the refusal names the flow and the decoder's field; the app words it
       expect(
-        (status.originalError! as StudioException).error.message,
-        contains('nodes.a.type: missing'),
+        (status.originalError! as StudioException).error.hint,
+        isA<ErrorHintFlowDefInvalid>()
+            .having((h) => h.flow, 'flow', 'tank')
+            .having((h) => h.why, 'why', contains('nodes.a.type: missing')),
       );
       expect(s.state.flowEditor.draft, held);
       expect(s.state.flowEditor.version, 3);
@@ -222,9 +226,12 @@ void main() {
       ];
       final status = await s.dispatchAndWait(LoadFlowAction('raw'));
       expect(status.originalError, isA<StudioException>());
+      // the refusal names the flow and the decoder's field; the app words it
       expect(
-        (status.originalError! as StudioException).error.message,
-        contains('nodes.a.k: not JSON'),
+        (status.originalError! as StudioException).error.hint,
+        isA<ErrorHintFlowDefInvalid>()
+            .having((h) => h.flow, 'flow', 'raw')
+            .having((h) => h.why, 'why', contains('nodes.a.k: not JSON')),
       );
       expect(s.state.flowEditor.draft, isNull);
     });

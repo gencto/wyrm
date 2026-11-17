@@ -95,7 +95,7 @@ class LogInAction extends Action with WaitingAction {
       // The page shows both inline (spec §5), so no dialog.
       throw StudioException.refused(
         e,
-        call: 'log_in',
+        call: const .known(.logIn),
         thing: '${gateways.first}',
       ).withDialog(false);
     } on Object catch (e) {
@@ -144,13 +144,13 @@ Future<AppState> openedSession(
     throw switch (e) {
       final WyrmException w => StudioException.refused(
         w,
-        call: 'me',
+        call: const .known(.me),
         thing: '$gateway',
       ),
       _ => StudioException.said(
         ErrorKind.reach,
         faultLine(e),
-        call: 'me',
+        call: const .known(.me),
         thing: '$gateway',
       ),
     };
@@ -188,6 +188,6 @@ StudioException _unreachable(String reason, Object gateway) =>
     StudioException.said(
       ErrorKind.reach,
       reason,
-      call: 'log_in',
+      call: const .known(.logIn),
       thing: '$gateway',
     );

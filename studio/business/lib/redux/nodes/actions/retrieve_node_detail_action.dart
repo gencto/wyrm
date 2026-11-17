@@ -46,7 +46,7 @@ class RetrieveNodeDetailAction extends Action with WaitingAction {
     final NodeMeta m;
     try {
       m = await call(
-        'meta',
+        const .known(.meta),
         key,
         () => RetrieveDetailsAction.inTurn(() => deps.wyrm.meta(key)),
       );
