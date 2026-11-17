@@ -398,14 +398,6 @@ pub fn big(size: usize) -> Vec<u8> {
         .collect()
 }
 
-fn sha_hex(b: &[u8]) -> String {
-    use sha2::Digest;
-    sha2::Sha256::digest(b)
-        .iter()
-        .map(|x| format!("{x:02x}"))
-        .collect()
-}
-
 fn text_of(v: &Option<Value>, k: &str) -> String {
     match get(v, k) {
         Value::Str(s) => s.clone(),
@@ -443,7 +435,7 @@ pub async fn upload_in_parts<B: Backend>(
         ("name", Value::Str(name.into())),
         ("size", Value::UInt(data.len() as u64)),
         ("part_size", Value::UInt(part as u64)),
-        ("sha256", Value::Str(sha_hex(data))),
+        ("sha256", Value::Str(wyrm_core::hex::sha256_hex(data))),
     ];
     args.extend(extra.iter().cloned());
     let v = ok(h, folder, "upload_begin", map(&args)).await;

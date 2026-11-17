@@ -10,7 +10,8 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
-use wyrm_wasm_host::{is_sha256_hex, sha256_hex, Host, NodeArtifact, NodeWorld};
+use wyrm_core::hex::{is_lower_hex, sha256_hex};
+use wyrm_wasm_host::{Host, NodeArtifact, NodeWorld};
 
 pub struct Artifacts {
     dir: PathBuf,
@@ -59,7 +60,7 @@ impl Artifacts {
 
     /// A stored component, compiled and checked.
     pub fn get(&self, sha: &str) -> Result<NodeArtifact, String> {
-        if !is_sha256_hex(sha) {
+        if !is_lower_hex(sha, 32) {
             return Err("artifact: expected 64 lowercase hex characters".into());
         }
         if let Some(a) = self.cache().get(sha) {
@@ -84,10 +85,7 @@ fn write_atomic(dir: &Path, path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     std::fs::create_dir_all(dir)?;
     let mut rnd = [0u8; 8];
     wyrm_core::rand::fill(&mut rnd).map_err(|e| std::io::Error::other(e.to_string()))?;
-    let tmp = dir.join(format!(
-        ".tmp-{}",
-        rnd.iter().map(|b| format!("{b:02x}")).collect::<String>()
-    ));
+    let tmp = dir.join(format!(".tmp-{}", wyrm_core::hex::encode(rnd)));
     let mut f = std::fs::File::create(&tmp)?;
     f.write_all(bytes)?;
     f.sync_all()?;

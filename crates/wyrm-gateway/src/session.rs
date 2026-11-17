@@ -7,7 +7,6 @@ use base64::Engine;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use std::collections::BTreeMap;
-use std::time::{SystemTime, UNIX_EPOCH};
 use wyrm_core::Value;
 use zeroize::Zeroizing;
 
@@ -73,12 +72,7 @@ impl Amr {
     }
 }
 
-pub fn now_s() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
-}
+pub use wyrm_core::clock::now_s;
 
 pub struct SessionKey(Zeroizing<Vec<u8>>);
 

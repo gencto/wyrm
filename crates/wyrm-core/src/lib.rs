@@ -6,9 +6,11 @@
 #![forbid(unsafe_code)]
 
 pub mod attachment;
+pub mod clock;
 pub mod codec;
 pub mod display;
 pub mod files;
+pub mod hex;
 pub mod history;
 pub mod keyspace;
 pub mod mac;

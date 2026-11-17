@@ -20,7 +20,7 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::sync::atomic::{self, AtomicU32};
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tracing::Instrument;
@@ -754,12 +754,7 @@ fn bound_origin(claimed: Option<&str>, sub: &str) -> String {
     }
 }
 
-fn now_s() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
-}
+use wyrm_core::clock::now_s;
 
 fn is_wild(key: &str) -> bool {
     key.contains('*')

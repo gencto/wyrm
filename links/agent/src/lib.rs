@@ -57,7 +57,7 @@ use serde_json::{json, Value as Json};
 use std::collections::{BTreeMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 use tracing::{debug, warn};
 use wyrm_client::{SigningTokens, TokenSource, WyrmClient};
 use wyrm_core::meta::{ActionResult, ParamMeta};
@@ -411,12 +411,7 @@ impl Question {
 /// record) and the stream of the `answer` call, which carries the progress from here on.
 type Answered = ReplySink;
 
-fn now_s() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
-}
+use wyrm_core::clock::now_s;
 
 struct Task {
     /// Subject of the `ask` caller; only they (or a `config` caller) may
@@ -725,10 +720,7 @@ struct Budget {
 
 impl Budget {
     fn today() -> u64 {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs() / 86_400)
-            .unwrap_or(0)
+        now_s() / 86_400
     }
 
     fn roll(&mut self) {

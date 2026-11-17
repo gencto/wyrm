@@ -3,7 +3,7 @@
 
 use crate::Error;
 use clap::Subcommand;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 use wyrm_client::WyrmClient;
 use wyrm_core::Sample;
 
@@ -67,12 +67,7 @@ async fn list(c: &WyrmClient, node: &str, n: usize) -> Result<(), Error> {
     Ok(())
 }
 
-fn now_us() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_micros() as u64)
-        .unwrap_or(0)
-}
+use wyrm_core::clock::now_us;
 
 async fn sub(c: &WyrmClient, pattern: &str, secs: u64) -> Result<(), Error> {
     // Raw subscriber: measures the live path only (no storage snapshot).

@@ -99,11 +99,12 @@ impl FlowHost {
         }
         let key_path = dir.join("flow.key");
         let seed: [u8; 32] = match std::fs::read_to_string(&key_path) {
-            Ok(t) => wyrm_core_hex(t.trim())?,
+            Ok(t) => wyrm_core::hex::decode_array::<32>(t.trim())
+                .ok_or("flow.key: expected 32 bytes hex")?,
             Err(_) => {
                 let mut s = [0u8; 32];
                 getrandom_fill(&mut s)?;
-                write_private(&key_path, &hex_encode(&s))?;
+                write_private(&key_path, &wyrm_core::hex::encode(s))?;
                 s
             }
         };
@@ -148,21 +149,6 @@ impl FlowHost {
             .map(|_| ())
             .map_err(|e| LinkError::internal(e.to_string()))
     }
-}
-
-fn hex_encode(b: &[u8]) -> String {
-    b.iter().map(|x| format!("{x:02x}")).collect()
-}
-
-fn wyrm_core_hex(s: &str) -> Result<[u8; 32], Error> {
-    if s.len() != 64 {
-        return Err("flow.key: expected 32 bytes hex".into());
-    }
-    let mut out = [0u8; 32];
-    for (i, o) in out.iter_mut().enumerate() {
-        *o = u8::from_str_radix(&s[2 * i..2 * i + 2], 16)?;
-    }
-    Ok(out)
 }
 
 fn getrandom_fill(b: &mut [u8]) -> Result<(), Error> {

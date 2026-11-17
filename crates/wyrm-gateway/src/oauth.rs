@@ -694,18 +694,7 @@ fn redirect(o: &OAuth, q: &AuthorizeQuery, params: &[(&str, &str)]) -> Response 
     r
 }
 
-/// Percent-encode everything but the unreserved characters (RFC 3986).
-fn pct(s: &str) -> String {
-    let mut o = String::new();
-    for b in s.bytes() {
-        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~') {
-            o.push(b as char);
-        } else {
-            o.push_str(&format!("%{b:02X}"));
-        }
-    }
-    o
-}
+use wyrm_core::weburl::percent_encode as pct;
 
 pub(crate) async fn authorize_page(
     State(st): State<AppState>,

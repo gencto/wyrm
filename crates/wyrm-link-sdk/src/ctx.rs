@@ -7,7 +7,6 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
-use std::time::{SystemTime, UNIX_EPOCH};
 use wyrm_core::keyspace::{self, SUFFIX_META, SUFFIX_VAL};
 use wyrm_core::meta::ActionMeta;
 use wyrm_core::{Attachment, NodeMeta, Quality, Sample, Value};
@@ -20,13 +19,7 @@ use zenoh::Session;
 /// The root attribute that says the responder answers `~act/<a>?check` (spec 05 0.2.33).
 pub const CHECK_ATTR: &str = "check";
 
-/// Microseconds since the Unix epoch.
-pub fn now_us() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_micros() as u64)
-        .unwrap_or(0)
-}
+pub use wyrm_core::clock::now_us;
 
 pub(crate) struct Inner {
     pub session: Session,

@@ -352,12 +352,7 @@ const LEAF_DAYS: i64 = 365;
 /// A certificate with less than this left is issued again (and an enrolled broker asks again).
 pub const RENEW_BEFORE_S: i64 = 30 * 86_400;
 
-fn now_unix() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0)
-}
+use wyrm_core::clock::now_s_signed;
 
 /// `not_after` (Unix seconds) of a PEM certificate; `None` if it does not parse.
 pub fn cert_not_after(pem: &str) -> Option<i64> {
@@ -368,7 +363,7 @@ pub fn cert_not_after(pem: &str) -> Option<i64> {
 
 /// It has less than [`RENEW_BEFORE_S`] left, or cannot be read: time to issue it again.
 pub fn cert_due(pem: &str) -> bool {
-    cert_not_after(pem).is_none_or(|t| t - now_unix() < RENEW_BEFORE_S)
+    cert_not_after(pem).is_none_or(|t| t - now_s_signed() < RENEW_BEFORE_S)
 }
 
 /// A kept certificate is for `cn`, names every one of `sans` and is not due.
@@ -436,7 +431,7 @@ fn leaf_params(
     }];
     p.key_usages = vec![KeyUsagePurpose::DigitalSignature];
     p.not_before = rcgen::date_time_ymd(1975, 1, 1);
-    let (y, m, d) = civil_from_days(now_unix().div_euclid(86_400) + days);
+    let (y, m, d) = civil_from_days(now_s_signed().div_euclid(86_400) + days);
     p.not_after = rcgen::date_time_ymd(y as i32, m as u8, d as u8);
     Ok(p)
 }
@@ -674,7 +669,7 @@ mod tests {
         let renewed = read();
         assert_ne!(renewed, short, "renewed");
         assert!(!cert_due(&renewed));
-        assert!(cert_not_after(&renewed).unwrap() - now_unix() > 300 * 86_400);
+        assert!(cert_not_after(&renewed).unwrap() - now_s_signed() > 300 * 86_400);
         pki.issue("broker:s", &sans, true, &out, "srv").unwrap();
         assert_eq!(read(), renewed, "kept while fresh");
         // a new name in the SANs, or another CN: issued again

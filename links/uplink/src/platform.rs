@@ -893,17 +893,7 @@ pub fn azure_sas(
 }
 
 /// Percent-encoding of everything but the unreserved characters (RFC 3986).
-pub fn url_encode(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for b in s.bytes() {
-        if b.is_ascii_alphanumeric() || b"-_.~".contains(&b) {
-            out.push(b as char);
-        } else {
-            out.push_str(&format!("%{b:02X}"));
-        }
-    }
-    out
-}
+pub use wyrm_core::weburl::percent_encode as url_encode;
 
 #[cfg(test)]
 mod tests {

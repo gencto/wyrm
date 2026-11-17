@@ -47,7 +47,6 @@
 
 #![forbid(unsafe_code)]
 
-use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
 use std::net::{IpAddr, SocketAddr, TcpStream};
@@ -202,18 +201,9 @@ pub enum Error {
     Guest(String),
 }
 
-/// Lowercase hex SHA-256 of `bytes`: the artifact id.
-pub fn sha256_hex(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
-}
-
-/// `true` for 64 lowercase hex characters.
-pub fn is_sha256_hex(s: &str) -> bool {
-    s.len() == 64 && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
-}
+/// Lowercase hex SHA-256 of `bytes`: the artifact id (an id is 64 lowercase hex
+/// characters, `wyrm_core::hex::is_lower_hex(id, 32)`).
+pub use wyrm_core::hex::sha256_hex;
 
 // ---------- store data and limiter ----------
 

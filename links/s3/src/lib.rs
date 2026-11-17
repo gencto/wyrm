@@ -215,10 +215,7 @@ impl S3Store {
             req = req.header(k, v);
         }
         if !self.access.is_empty() {
-            let secs = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_secs())
-                .unwrap_or(0);
+            let secs = wyrm_core::clock::now_s();
             let (stamp, _) = amz_date(secs);
             let hash = if body.is_empty() {
                 sigv4::EMPTY_SHA256.to_owned()

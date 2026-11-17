@@ -30,7 +30,7 @@ use serde_json::{json, Map, Value as Json};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 use wyrm_core::{NodeMeta, Perm};
 use wyrm_gateway_client::{Conn, Endpoint, Gateway, Me};
 use zeroize::Zeroizing;
@@ -159,12 +159,7 @@ fn done(r: Out) -> CallToolResult {
     }
 }
 
-fn now_s() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
-}
+use wyrm_core::clock::now_s;
 
 fn yes() -> bool {
     true

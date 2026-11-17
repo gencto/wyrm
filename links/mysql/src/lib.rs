@@ -142,7 +142,7 @@ fn parse(cfg: &Map) -> Result<Cfg, String> {
 
 /// Text as a utf8mb4 hex literal: nothing in it is ever read as SQL.
 fn hex_text(s: &str) -> String {
-    let hex: String = s.bytes().map(|b| format!("{b:02X}")).collect();
+    let hex = wyrm_core::hex::encode_upper(s);
     format!("CONVERT(X'{hex}' USING utf8mb4)")
 }
 

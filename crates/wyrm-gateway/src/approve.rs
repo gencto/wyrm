@@ -195,12 +195,7 @@ pub fn plan_hash(plan: &[Value]) -> Option<String> {
         })
         .collect::<Option<Vec<_>>>()?;
     let bytes = wyrm_core::codec::value_to_vec(&Value::Array(steps));
-    Some(
-        Sha256::digest(&bytes)
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect(),
-    )
+    Some(wyrm_core::hex::sha256_hex(&bytes))
 }
 
 impl Request {

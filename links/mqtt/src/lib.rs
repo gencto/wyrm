@@ -560,9 +560,7 @@ fn lock(s: &Mutex<Shared>) -> MutexGuard<'_, Shared> {
     s.lock().unwrap_or_else(|p| p.into_inner())
 }
 
-fn now_ms() -> u64 {
-    wyrm_link_sdk::now_us() / 1000
-}
+use wyrm_core::clock::now_ms;
 
 pub struct Transport {
     client: AsyncClient,
@@ -761,10 +759,7 @@ fn tls_config(c: &Conn) -> Result<rustls::ClientConfig, DriverError> {
 }
 
 fn random_client_id() -> String {
-    let n = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
+    let n = wyrm_core::clock::now_ns();
     let mut x = (n as u64) ^ 0x9E37_79B9_7F4A_7C15 ^ u64::from(std::process::id()).rotate_left(32);
     x ^= x << 13;
     x ^= x >> 7;

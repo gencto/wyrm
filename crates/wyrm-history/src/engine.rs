@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 use tokio::sync::{mpsc, watch};
 use tokio::task::{JoinHandle, JoinSet};
 use tracing::{debug, warn};
@@ -134,12 +134,7 @@ pub struct Historian {
     sinks: Mutex<HashMap<String, SinkStats>>,
 }
 
-pub fn now_us() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_micros() as u64)
-        .unwrap_or(0)
-}
+pub use wyrm_core::clock::now_us;
 
 impl Historian {
     pub fn open(dir: &Path) -> crate::store::Result<Arc<Self>> {

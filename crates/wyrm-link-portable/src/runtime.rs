@@ -452,7 +452,7 @@ async fn next_code(code: &mut Option<watch::Receiver<u64>>) -> u64 {
 /// ±20 % around `d`.
 fn jitter(d: Duration) -> Duration {
     let mut h = std::collections::hash_map::RandomState::new().build_hasher();
-    h.write_u128(std::time::UNIX_EPOCH.elapsed().map_or(0, |t| t.as_nanos()));
+    h.write_u128(wyrm_core::clock::now_ns());
     let frac = (h.finish() % 10_001) as f64 / 10_000.0;
     d.mul_f64(0.8 + 0.4 * frac)
 }

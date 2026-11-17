@@ -205,10 +205,6 @@ pub fn parse_engine_id(s: &str) -> Result<Vec<u8>, String> {
     Ok(octets)
 }
 
-fn hex(b: &[u8]) -> String {
-    b.iter().map(|x| format!("{x:02x}")).collect()
-}
-
 impl Params for V3Conn {
     fn schema() -> Vec<ParamSpec> {
         vec![
@@ -280,7 +276,7 @@ impl Params for V3Conn {
         if !c.engine_id.trim().is_empty() {
             let id = parse_engine_id(&c.engine_id)
                 .map_err(|e| LinkError::invalid_parameter(format!("engine_id: {e}")))?;
-            c.engine_id = hex(&id);
+            c.engine_id = wyrm_core::hex::encode(&id);
         } else {
             c.engine_id = String::new();
         }

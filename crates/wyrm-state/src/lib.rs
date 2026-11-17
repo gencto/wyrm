@@ -115,10 +115,6 @@ fn snapshot_name(lsn: u64) -> String {
 }
 
 /// `fsync` the directory so new or renamed entries survive power loss.
-fn hex_of(b: &[u8]) -> String {
-    b.iter().map(|x| format!("{x:02x}")).collect()
-}
-
 fn sync_dir(dir: &Path) -> Result<()> {
     #[cfg(unix)]
     File::open(dir)?.sync_all()?;
@@ -258,7 +254,7 @@ impl<S: State> Store<S> {
                         self.lsn
                     )));
                 }
-                if lsn == self.lsn && mac_hex != hex_of(&self.chain) {
+                if lsn == self.lsn && mac_hex != wyrm_core::hex::encode(&self.chain) {
                     return Err(bad(format!("chain at lsn {lsn} differs")));
                 }
                 if lsn + 1 < self.lsn {
@@ -288,7 +284,7 @@ impl<S: State> Store<S> {
         };
         let tmp = path.with_extension("tmp");
         let mut f = File::create(&tmp)?;
-        f.write_all(format!("{} {}\n", self.lsn, hex_of(&self.chain)).as_bytes())?;
+        f.write_all(format!("{} {}\n", self.lsn, wyrm_core::hex::encode(&self.chain)).as_bytes())?;
         f.sync_all()?;
         fs::rename(&tmp, path)?;
         if let Some(dir) = path.parent() {
@@ -594,7 +590,7 @@ pub fn verify(dir: &Path, key: &[u8], anchor: Option<&Path>) -> Result<Report> {
             let alsn: Option<u64> = it.next().and_then(|v| v.parse().ok());
             let amac = it.next().unwrap_or_default();
             match alsn {
-                Some(n) if n == lsn => amac == hex_of(&prev),
+                Some(n) if n == lsn => amac == wyrm_core::hex::encode(&prev),
                 Some(n) => n + 1 == lsn,
                 None => false,
             }

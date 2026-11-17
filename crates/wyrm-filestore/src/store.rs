@@ -1149,8 +1149,8 @@ impl<B: Backend> Session<B> {
             if got != want {
                 return Err(bad(format!(
                     "sha256: the parts make {}, not {}",
-                    crate::parts::digest_hex(&got),
-                    crate::parts::digest_hex(&want)
+                    wyrm_core::hex::encode(got),
+                    wyrm_core::hex::encode(want)
                 )));
             }
         }

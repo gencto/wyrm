@@ -59,12 +59,7 @@ pub struct Tokens {
     cached: Mutex<Option<(zeroize::Zeroizing<String>, Instant)>>,
 }
 
-fn now_s() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
-}
+use wyrm_core::clock::now_s;
 
 impl Tokens {
     pub fn new(grant: Grant, http: Http, path: String, url: String, timeout: Duration) -> Self {

@@ -184,12 +184,6 @@ pub struct Asset {
     pub bin_sha256: String,
 }
 
-fn is_sha256(s: &str) -> bool {
-    s.len() == 64
-        && s.bytes()
-            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-}
-
 /// One release of `wyrmd`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Release {
@@ -319,10 +313,10 @@ impl Release {
                     a.file
                 ));
             }
-            if !is_sha256(&a.sha256) {
+            if !wyrm_core::hex::is_lower_hex(&a.sha256, 32) {
                 return Err(format!("target {t}: sha256: 64 lower-case hex digits"));
             }
-            if !is_sha256(&a.bin_sha256) {
+            if !wyrm_core::hex::is_lower_hex(&a.bin_sha256, 32) {
                 return Err(format!("target {t}: bin_sha256: 64 lower-case hex digits"));
             }
             if a.size == 0 || a.size > MAX_ARCHIVE {
@@ -675,19 +669,9 @@ fn io(path: &Path, e: std::io::Error) -> String {
 
 /// SHA-256 (hex) and length of a file.
 pub fn sha256_file(path: &Path) -> Result<(String, u64), String> {
-    let mut f = std::fs::File::open(path).map_err(|e| io(path, e))?;
-    let mut h = Sha256::new();
-    let mut buf = vec![0u8; 1 << 20];
-    let mut total = 0u64;
-    loop {
-        let n = f.read(&mut buf).map_err(|e| io(path, e))?;
-        if n == 0 {
-            break;
-        }
-        h.update(&buf[..n]);
-        total += n as u64;
-    }
-    Ok((hex::encode(h.finalize()), total))
+    let f = std::fs::File::open(path).map_err(|e| io(path, e))?;
+    let (sum, total) = wyrm_core::hex::sha256_reader(f).map_err(|e| io(path, e))?;
+    Ok((wyrm_core::hex::encode(sum), total))
 }
 
 /// Make the entries of `dir` durable: a rename is not on disk before its directory is.
@@ -746,16 +730,7 @@ fn octal(field: &[u8]) -> Option<u64> {
     Some(n)
 }
 
-fn read_full(r: &mut impl Read, buf: &mut [u8]) -> std::io::Result<usize> {
-    let mut got = 0;
-    while got < buf.len() {
-        match r.read(&mut buf[got..])? {
-            0 => break,
-            n => got += n,
-        }
-    }
-    Ok(got)
-}
+use wyrm_core::files::read_full;
 
 /// Unpack the tar stream `src` into the new, empty directory `dir`: plain
 /// files only, by plain name, the binary [`BIN`] among them. Nothing of a
@@ -1520,12 +1495,7 @@ impl UpdateFile {
     }
 }
 
-/// Unix seconds now.
-pub fn now_s() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs())
-}
+pub use wyrm_core::clock::now_s;
 
 /// Note that the guard ran (`data_dir/update.guard`): a broker in
 /// `updates.mode: "self"` updates only when the guard ran before it started.

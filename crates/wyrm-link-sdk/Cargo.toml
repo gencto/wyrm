@@ -18,7 +18,7 @@ advanced = ["dep:zenoh-ext"]
 process = ["tokio/signal", "tokio/rt-multi-thread", "zenoh/transport_tls", "zenoh/transport_tcp", "dep:tracing-subscriber"]
 # Link packages (ADR 0021): manifest, repository index, zip writer; for the
 # broker and `wyr`, not for links.
-package = ["dep:serde", "dep:zip", "dep:hex"]
+package = ["dep:serde", "dep:zip"]
 
 [dependencies]
 wyrm-core = { workspace = true, features = ["ring"] }
@@ -38,7 +38,6 @@ zenoh-ext = { workspace = true, optional = true }
 tracing-subscriber = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
 zip = { workspace = true, optional = true }
-hex = { workspace = true, optional = true }
 wyrm-link-sdk-derive = { path = "../wyrm-link-sdk-derive" }
 
 [target.'cfg(unix)'.dependencies]

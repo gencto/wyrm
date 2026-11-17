@@ -7286,7 +7286,6 @@ version = "0.1.0"
 dependencies = [
  "ed25519-dalek",
  "futures-util",
- "hex",
  "minicbor",
  "nix 0.29.0",
  "ring",
@@ -7427,7 +7426,6 @@ dependencies = [
  "schemars 1.2.3",
  "serde",
  "serde_json",
- "sha2 0.10.9",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -7447,7 +7445,6 @@ name = "wyrm-messenger"
 version = "0.1.0"
 dependencies = [
  "serde_json",
- "sha2 0.10.9",
  "wyrm-core",
  "wyrm-history-sync",
  "wyrm-link-api",
@@ -7496,7 +7493,6 @@ name = "wyrm-wasm-host"
 version = "0.1.0"
 dependencies = [
  "minicbor",
- "sha2 0.10.9",
  "thiserror 2.0.21",
  "tracing",
  "wasmparser 0.243.0",

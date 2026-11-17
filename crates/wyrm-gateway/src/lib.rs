@@ -574,7 +574,7 @@ impl Gateway {
         }
         let now = session::now_s();
         let raw: [u8; 16] = crate::rng::bytes().ok()?;
-        let ticket: String = raw.iter().map(|b| format!("{b:02x}")).collect();
+        let ticket = wyrm_core::hex::encode(raw);
         let exp = now + TICKET_TTL_S;
         let mut t = self.tickets.lock().unwrap_or_else(|p| p.into_inner());
         // Live tickets are bounded by users × TICKETS_PER_USER: one user

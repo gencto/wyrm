@@ -286,9 +286,7 @@ fn push_text(out: &mut String, v: &Value) -> bool {
             if out.len() + b.len() * 2 > MAX_TEXT {
                 return false;
             }
-            for x in b {
-                out.push_str(&format!("{x:02x}"));
-            }
+            out.push_str(&wyrm_core::hex::encode(b));
         }
         v => out.push_str(&text(v)),
     }

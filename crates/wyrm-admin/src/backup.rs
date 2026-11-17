@@ -398,11 +398,9 @@ impl Manifest {
             return Err("manifest: sealed.kdf goes with how: passphrase".into());
         }
         let keyed = self.sealed.how != How::None;
-        let hex_of =
-            |s: &str, len: usize| s.len() == 2 * len && s.bytes().all(|b| b.is_ascii_hexdigit());
         if keyed
-            && !(hex_of(&self.sealed.id, ID_LEN)
-                && hex_of(&self.sealed.mac, 32)
+            && !(wyrm_core::hex::is_hex(&self.sealed.id, ID_LEN)
+                && wyrm_core::hex::is_hex(&self.sealed.mac, 32)
                 && !self.sealed.check.is_empty())
         {
             return Err(
@@ -717,11 +715,11 @@ fn seal_stream_with(
     dst.write_all(SEAL_MAGIC)?;
     let mut total = 0u64;
     let mut index = 0u64;
-    let mut cur = read_full(&mut src, SEAL_PART)?;
+    let mut cur = part(&mut src, SEAL_PART)?;
     loop {
         // one part ahead, to mark the last one
         let next = if cur.len() == SEAL_PART {
-            read_full(&mut src, SEAL_PART)?
+            part(&mut src, SEAL_PART)?
         } else {
             Vec::new()
         };
@@ -744,15 +742,10 @@ fn seal_stream_with(
     Ok(total)
 }
 
-fn read_full(src: &mut impl Read, max: usize) -> std::io::Result<Vec<u8>> {
+/// Up to `max` bytes of `src`: fewer only at its end.
+fn part(src: &mut impl Read, max: usize) -> std::io::Result<Vec<u8>> {
     let mut buf = vec![0u8; max];
-    let mut n = 0;
-    while n < max {
-        match src.read(&mut buf[n..])? {
-            0 => break,
-            k => n += k,
-        }
-    }
+    let n = wyrm_core::files::read_full(src, &mut buf)?;
     buf.truncate(n);
     Ok(buf)
 }

@@ -229,17 +229,7 @@ pub fn parse_url(url: &str) -> Result<(bool, String, u16, String), String> {
 }
 
 /// Percent-encode a query value.
-pub fn query_value(s: &str) -> String {
-    let mut out = String::new();
-    for b in s.bytes() {
-        if b.is_ascii_alphanumeric() || b"-._~".contains(&b) {
-            out.push(b as char);
-        } else {
-            out.push_str(&format!("%{b:02X}"));
-        }
-    }
-    out
-}
+pub use wyrm_core::weburl::percent_encode as query_value;
 
 /// A loopback host, where a secret may go without TLS.
 pub fn loopback(host: &str) -> bool {

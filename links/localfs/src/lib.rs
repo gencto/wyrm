@@ -48,7 +48,7 @@ use std::io::{ErrorKind, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, UNIX_EPOCH};
+use std::time::Duration;
 use tracing::debug;
 use wyrm_core::{TypeCode, Value};
 use wyrm_filestore::backend::{join, not_empty};
@@ -250,11 +250,8 @@ fn io_error(e: std::io::Error, what: &str) -> Error {
 }
 
 fn modified(m: &fs::Metadata) -> Option<u64> {
-    m.modified()
-        .ok()?
-        .duration_since(UNIX_EPOCH)
-        .ok()
-        .map(|d| d.as_micros() as u64)
+    let since = wyrm_core::clock::unix(m.modified().ok()?)?;
+    u64::try_from(since.as_micros()).ok()
 }
 
 /// A change tag of a file: size and time (no content hash: that would read

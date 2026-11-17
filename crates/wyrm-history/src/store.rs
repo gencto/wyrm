@@ -179,12 +179,7 @@ impl Store {
                     _ => {
                         use std::hash::{BuildHasher, Hasher};
                         let mut h = std::collections::hash_map::RandomState::new().build_hasher();
-                        h.write_u128(
-                            std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .map(|d| d.as_nanos())
-                                .unwrap_or(0),
-                        );
+                        h.write_u128(wyrm_core::clock::now_ns());
                         let id = h.finish().max(1);
                         meta.insert("id", id).map_err(db)?;
                         id

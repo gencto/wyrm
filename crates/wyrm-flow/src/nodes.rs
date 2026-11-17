@@ -1511,7 +1511,7 @@ impl WasmCfg {
             ],
         )?;
         let artifact = req_s(cfg, "artifact")?;
-        if !wyrm_wasm_host::is_sha256_hex(artifact) {
+        if !wyrm_core::hex::is_lower_hex(artifact, 32) {
             return Err("artifact: 64 lowercase hex characters (SHA-256)".into());
         }
         let d = Limits::default();

@@ -3,7 +3,7 @@
 
 use ed25519_dalek::{Signer, SigningKey};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 use wyrm_core::ptok::{Grant, PtokClaims, PTOK_VERSION};
 use wyrm_core::Perm;
 use zenoh::key_expr::keyexpr;
@@ -84,10 +84,8 @@ impl SigningTokens {
     }
 
     fn jti(&self) -> [u8; 16] {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_nanos() as u64)
-            .unwrap_or(0);
+        // nanoseconds since 1970 fit a u64 until 2554
+        let nanos = u64::try_from(wyrm_core::clock::now_ns()).unwrap_or(u64::MAX);
         let mut jti = [0u8; 16];
         jti[..8].copy_from_slice(&nanos.to_be_bytes());
         jti[8..].copy_from_slice(&self.counter.fetch_add(1, Ordering::Relaxed).to_be_bytes());
@@ -116,7 +114,7 @@ impl TokenSource for SigningTokens {
     /// another node or link (the `jti` replay cache is per responder).
     fn token(&self, key: &str) -> Option<Vec<u8>> {
         let grant = self.scoped(key)?;
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_secs();
+        let now = wyrm_core::clock::now_s();
         let claims = PtokClaims {
             sub: self.sub.clone(),
             roles: Vec::new(),

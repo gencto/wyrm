@@ -310,10 +310,7 @@ pub fn plain_store() -> Result<PathBuf, String> {
 /// A new directory `<parent>/<prefix>-<pid>-<nanos>-<n>`, created (not
 /// found) by this process, mode 0700.
 fn new_private_dir(parent: &Path, prefix: &str) -> Result<PathBuf, String> {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.subsec_nanos())
-        .unwrap_or(0);
+    let nanos = wyrm_core::clock::since_epoch().subsec_nanos();
     for n in 0..100u32 {
         let d = parent.join(format!("{prefix}-{}-{nanos}-{n}", std::process::id()));
         let mut b = fs::DirBuilder::new();

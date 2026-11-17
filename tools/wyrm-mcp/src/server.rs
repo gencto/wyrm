@@ -503,7 +503,7 @@ impl WyrmMcp {
                     "op": "set",
                     "key": key,
                     "payload": { "v": value_to_json(&v) },
-                    "args_sha256": check::payload_sha256(&payload),
+                    "args_sha256": wyrm_core::hex::sha256_hex(&payload),
                     "ptok": self.ptok_label(approval.as_ref().map(|(_, i)| i)),
                 },
             }));
@@ -561,7 +561,7 @@ impl WyrmMcp {
                     "op": "invoke",
                     "key": key,
                     "args": value_to_json(&args),
-                    "args_sha256": check::payload_sha256(&payload),
+                    "args_sha256": wyrm_core::hex::sha256_hex(&payload),
                     "ptok": self.ptok_label(approval.as_ref().map(|(_, i)| i)),
                 },
             }));
@@ -751,7 +751,7 @@ impl WyrmMcp {
                 "validation": validation,
                 "requires_approval": true,
                 "approval_key": deploy_key,
-                "args_sha256": check::payload_sha256(&payload),
+                "args_sha256": wyrm_core::hex::sha256_hex(&payload),
                 "approval": approval.as_ref().map(|(_, i)| Self::approval_json(i)),
                 "command_targets": targets,
                 "proofs": proof_report,

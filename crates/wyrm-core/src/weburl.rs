@@ -122,6 +122,31 @@ pub fn split_scheme(text: &str) -> Option<(&str, &str)> {
     scheme_ok(scheme).then_some((scheme, rest))
 }
 
+/// `text` with every byte percent-encoded (`%XX`, uppercase) but the unreserved
+/// characters of RFC 3986 (`A-Z a-z 0-9 - . _ ~`): a query value, a path segment, a
+/// form field. The one encoder of the workspace: a `+` or a space never passes.
+pub fn percent_encode(text: &str) -> String {
+    percent_encode_keep(text, b"")
+}
+
+/// [`percent_encode`] that also leaves the ASCII bytes of `keep` as they are (`/` in a
+/// path, `!*'()` for `encodeURIComponent`). A byte of `keep` outside ASCII is ignored.
+pub fn percent_encode_keep(text: &str, keep: &[u8]) -> String {
+    let mut out = String::with_capacity(text.len());
+    for b in text.bytes() {
+        let plain = b.is_ascii_alphanumeric()
+            || matches!(b, b'-' | b'.' | b'_' | b'~')
+            || (b.is_ascii() && keep.contains(&b));
+        if plain {
+            out.push(char::from(b));
+        } else {
+            out.push('%');
+            out.push_str(&crate::hex::encode_upper([b]));
+        }
+    }
+    out
+}
+
 fn scheme_ok(s: &str) -> bool {
     let mut b = s.bytes();
     b.next().is_some_and(|c| c.is_ascii_alphabetic())
@@ -310,6 +335,18 @@ mod tests {
             Url::parse("https://h/a/../b%2F").unwrap().path,
             "/a/../b%2F"
         );
+    }
+
+    #[test]
+    fn percent_encoding() {
+        assert_eq!(percent_encode("aZ09-._~"), "aZ09-._~");
+        assert_eq!(percent_encode("a b+c/d?e=f&g"), "a%20b%2Bc%2Fd%3Fe%3Df%26g");
+        assert_eq!(percent_encode("é\n%"), "%C3%A9%0A%25");
+        assert_eq!(percent_encode_keep("a/b c", b"/"), "a/b%20c");
+        assert_eq!(percent_encode_keep("(a)!*'é", b"!*'()"), "(a)!*'%C3%A9");
+        // a non-ASCII byte in `keep` never lets a byte of a multibyte character through
+        assert_eq!(percent_encode_keep("é", &[0xC3, 0xA9]), "%C3%A9");
+        assert_eq!(percent_encode(""), "");
     }
 
     #[test]

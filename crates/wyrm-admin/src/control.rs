@@ -635,11 +635,6 @@ enum Answer {
 }
 
 /// SHA-256 (hex) of an admission token; the registry keeps only this.
-fn token_sha256(token: &str) -> String {
-    use sha2::{Digest, Sha256};
-    hex::encode(Sha256::digest(token.as_bytes()))
-}
-
 /// `via` given as a list or as `a, b` text.
 fn via_list(v: Option<&Value>) -> Vec<String> {
     let mut out: Vec<String> = match v {
@@ -736,9 +731,7 @@ fn cert_summary(pem: &str) -> String {
     )
 }
 
-fn now_s() -> u64 {
-    now_us() / 1_000_000
-}
+use wyrm_core::clock::now_s;
 
 fn encode_params(v: &Value) -> Result<Vec<u8>, LinkError> {
     wyrm_core::codec::to_vec(v).map_err(|e| LinkError::internal(e.to_string()))
@@ -877,7 +870,7 @@ impl Control {
         let reg = self.registry();
         let def = reg.tokens.get(id)?;
         let fresh = def.expires == 0 || now_s() < def.expires;
-        (fresh && def.sha256 == token_sha256(token)).then(|| id.to_owned())
+        (fresh && def.sha256 == wyrm_core::hex::sha256_hex(token.as_bytes())).then(|| id.to_owned())
     }
 
     /// Ask the daemon that owns this control plane to stop cleanly; its
@@ -5924,7 +5917,7 @@ impl Admin {
         let token = zeroize::Zeroizing::new(format!("{id}.{}", secret_part.as_str()));
         let now = now_s();
         let def = TokenDef {
-            sha256: token_sha256(&token),
+            sha256: wyrm_core::hex::sha256_hex(token.as_bytes()),
             uses: count,
             expires: if valid_s == 0 { 0 } else { now + valid_s },
             created: now,

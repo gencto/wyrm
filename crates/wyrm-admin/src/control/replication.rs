@@ -134,10 +134,11 @@ fn is_exec(m: &std::fs::Metadata) -> bool {
 }
 
 fn mtime_ns(m: &std::fs::Metadata) -> u64 {
+    // nanoseconds until 2554 fit; a time before 1970 or past that reads as 0 (no mtime)
     m.modified()
         .ok()
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|d| d.as_nanos() as u64)
+        .and_then(wyrm_core::clock::unix)
+        .and_then(|d| u64::try_from(d.as_nanos()).ok())
         .unwrap_or(0)
 }
 
@@ -246,9 +247,6 @@ pub fn is_file_name(name: &str) -> bool {
 }
 
 /// SHA-256 of `bytes`.
-pub fn sha256(bytes: &[u8]) -> Vec<u8> {
-    sha2::Sha256::digest(bytes).to_vec()
-}
 
 /// A page of one WAL as a value: `{chain, last, records: [[lsn, mac, op], …]}`.
 pub fn page_value(page: &wyrm_state::replicate::Page) -> Value {
@@ -709,10 +707,8 @@ impl Control {
 
     /// Ask the standby to wait for `d` (the router is about to be rebuilt).
     pub fn hold_standby(&self, d: Duration) {
-        let until = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|n| (n + d).as_millis() as u64)
-            .unwrap_or(0);
+        let until =
+            u64::try_from((wyrm_core::clock::since_epoch() + d).as_millis()).unwrap_or(u64::MAX);
         self.standby_hold
             .store(until, std::sync::atomic::Ordering::SeqCst);
     }

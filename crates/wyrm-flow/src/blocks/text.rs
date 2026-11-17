@@ -220,15 +220,7 @@ pub(super) fn unb64(s: &str) -> Option<Vec<u8>> {
 
 /// `encodeURIComponent`: UTF-8 percent-encoded except `A-Za-z0-9-_.!~*'()`.
 pub(super) fn url_encode(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for b in s.bytes() {
-        if b.is_ascii_alphanumeric() || b"-_.!~*'()".contains(&b) {
-            out.push(b as char);
-        } else {
-            out.push_str(&format!("%{b:02X}"));
-        }
-    }
-    out
+    wyrm_core::weburl::percent_encode_keep(s, b"!*'()")
 }
 
 /// The URL decoder: `+` is a space, `%XX` a byte, a bad or cut `%` stays as it is;

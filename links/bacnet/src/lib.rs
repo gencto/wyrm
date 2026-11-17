@@ -992,13 +992,14 @@ impl Peer {
     fn describe(&self) -> String {
         match &self.net {
             None => self.addr.to_string(),
-            Some(n) => format!("{} net {} mac {}", self.addr, n.net, hex(&n.mac)),
+            Some(n) => format!(
+                "{} net {} mac {}",
+                self.addr,
+                n.net,
+                wyrm_core::hex::encode_upper(&n.mac)
+            ),
         }
     }
-}
-
-fn hex(b: &[u8]) -> String {
-    b.iter().map(|x| format!("{x:02X}")).collect()
 }
 
 /// A device as configured (its state is kept per configuration).
@@ -2076,7 +2077,10 @@ async fn who_is_action(
                 ]);
                 if let Some(n) = &h.peer.net {
                     m.insert("network".into(), Value::UInt(n.net.into()));
-                    m.insert("mac".into(), Value::Str(hex(&n.mac)));
+                    m.insert(
+                        "mac".into(),
+                        Value::Str(wyrm_core::hex::encode_upper(&n.mac)),
+                    );
                 }
                 Value::Map(m)
             })

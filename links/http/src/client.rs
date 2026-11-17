@@ -137,17 +137,7 @@ pub fn path_only(pq: &str) -> &str {
 }
 
 /// Percent-encode a query component (RFC 3986 unreserved left as is).
-pub fn encode_query(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for b in s.bytes() {
-        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~') {
-            out.push(b as char);
-        } else {
-            out.push_str(&format!("%{b:02X}"));
-        }
-    }
-    out
-}
+pub use wyrm_core::weburl::percent_encode as encode_query;
 
 /// What every request of a connection carries (built when its params are
 /// parsed).

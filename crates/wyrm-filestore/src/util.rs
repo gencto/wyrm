@@ -2,25 +2,10 @@
 //! date formats of the stores (RFC 3339, HTTP dates, SigV4 stamps), and
 //! file and folder names people enter.
 
-use std::time::{SystemTime, UNIX_EPOCH};
-
-/// RFC 3986 unreserved characters.
-fn unreserved(b: u8) -> bool {
-    b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~')
-}
-
 /// Percent-encode everything but the unreserved characters (and `/` when
 /// `keep_slash`), as SigV4 and most REST paths want it.
 pub fn pct_encode(s: &str, keep_slash: bool) -> String {
-    let mut out = String::with_capacity(s.len());
-    for b in s.bytes() {
-        if unreserved(b) || (keep_slash && b == b'/') {
-            out.push(b as char);
-        } else {
-            out.push_str(&format!("%{b:02X}"));
-        }
-    }
-    out
+    wyrm_core::weburl::percent_encode_keep(s, if keep_slash { b"/" } else { b"" })
 }
 
 /// Decode `%XX` escapes; `None` for a bad escape or a result that is not
@@ -42,13 +27,7 @@ pub fn pct_decode(s: &str) -> Option<String> {
     String::from_utf8(out).ok()
 }
 
-/// Microseconds since the Unix epoch.
-pub fn now_us() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_micros() as u64)
-        .unwrap_or(0)
-}
+pub use wyrm_core::clock::now_us;
 
 /// Days since 1970-01-01 of a proleptic Gregorian date (H. Hinnant).
 fn days_from_civil(y: i64, m: u32, d: u32) -> i64 {
