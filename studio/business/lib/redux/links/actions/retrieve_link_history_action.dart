@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 
 import '../../../wyrm/calls.dart';
@@ -37,9 +35,3 @@ class RetrieveLinkHistoryAction extends Action with WaitingAction {
     return state.copyWith.links(revisions: revs.lock);
   }
 }
-
-/// [v] as indented JSON; bytes as base64.
-String prettyJson(Object? v) => JsonEncoder.withIndent(
-  '  ',
-  (o) => o is List<int> ? base64Encode(o) : '$o',
-).convert(v);

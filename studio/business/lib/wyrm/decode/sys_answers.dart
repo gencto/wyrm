@@ -3,11 +3,10 @@ import 'package:models/link_revision.dart';
 import 'package:models/watch_group.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
-import '../../redux/links/actions/retrieve_link_history_action.dart'
-    show prettyJson;
 import '../mappers/values.dart';
 import 'decoded.dart';
 import 'fields.dart';
+import 'pretty_json.dart';
 
 /// The answer of `sys/tokens` ▸ `add`: one row `{token}` per token made,
 /// as the tokens. A row of another shape is [Invalid]: a token is shown
