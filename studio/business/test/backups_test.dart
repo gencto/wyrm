@@ -1024,6 +1024,40 @@ void main() {
         expect(s.state.backups.stage, BackupStage.unknown);
       });
 
+      test('a row of the audit Studio cannot read does not hide the '
+          'record', () async {
+        await restarting();
+        api.invokes['wy/central/sys/audit ▸ tail'] = [
+          VArray([
+            const VStr('not a record'),
+            VMap({
+              't': VInt(DateTime.now().microsecondsSinceEpoch),
+              'op': const VStr('restore_applied'),
+              'detail': const VStr('sections control'),
+            }),
+            const VMap({'op': VInt(7)}),
+          ]),
+        ];
+        final run = s.dispatchAndWait(follow());
+        await bounce();
+        await run;
+
+        expect(s.state.backups.stage, BackupStage.applied);
+      });
+
+      test('a fault while the audit is read is not swallowed', () async {
+        await restarting();
+        api.answers['wy/central/sys/audit ▸ tail'] = (_) =>
+            throw StateError('a fault in Studio');
+        final run = s.dispatchAndWait(follow());
+        await bounce();
+        final status = await run;
+
+        expect(status.isCompletedFailed, isTrue);
+        expect(status.originalError, isA<StateError>());
+        expect(s.state.backups.stage, BackupStage.restarting);
+      });
+
       test('the broker does not come back: the session is lost', () async {
         await restarting();
         final run = s.dispatchAndWait(follow());

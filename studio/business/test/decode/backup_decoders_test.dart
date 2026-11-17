@@ -407,77 +407,66 @@ void main() {
 
   group('the audit records of a staged restore', () {
     test('only the two restore ends, oldest first; `t` in µs', () {
-      final read = restoreRecordsOf(
-        const VArray([
-          VMap({'t': VInt(1794100000000000), 'op': VStr('token_add')}),
-          VMap({
-            't': VInt(1794108760000000),
-            'op': VStr('restore_failed'),
-            'detail': VStr('registry: bad chain'),
-          }),
-          VMap({'t': VInt(1794108761500000), 'op': VStr('restore_applied')}),
-        ]),
-      );
-      expect((read as Valid<List<RestoreRecord>>).value, const [
-        RestoreRecord(
-          end: RestoreEnd.failed,
-          seconds: 1794108760,
-          detail: 'registry: bad chain',
-        ),
-        RestoreRecord(end: RestoreEnd.applied, seconds: 1794108761),
-      ]);
       expect(
-        (restoreRecordsOf(
-          const VArray([]),
-        ) as Valid<List<RestoreRecord>>).value,
-        isEmpty,
+        restoreRecordsOf(
+          const VArray([
+            VMap({'t': VInt(1794100000000000), 'op': VStr('token_add')}),
+            VMap({
+              't': VInt(1794108760000000),
+              'op': VStr('restore_failed'),
+              'detail': VStr('registry: bad chain'),
+            }),
+            VMap({'t': VInt(1794108761500000), 'op': VStr('restore_applied')}),
+          ]),
+        ),
+        const <Decoded<RestoreRecord?>>[
+          Valid(null),
+          Valid(
+            RestoreRecord(
+              end: RestoreEnd.failed,
+              seconds: 1794108760,
+              detail: 'registry: bad chain',
+            ),
+          ),
+          Valid(RestoreRecord(end: RestoreEnd.applied, seconds: 1794108761)),
+        ],
       );
+      expect(restoreRecordsOf(const VArray([])), isEmpty);
     });
 
-    test('rows of another shape are refused', () {
-      for (final (rows, field, reason) in <(Value, String, String)>[
-        (const VNull(), '', 'not an array'),
-        (const VMap({}), '', 'not an array'),
-        (
-          const VArray([VStr('restore_applied')]),
-          '',
-          'not a map',
-        ),
-        (
+    test('a row of another shape is refused by itself, the others are '
+        'read', () {
+      expect(
+        restoreRecordsOf(
           const VArray([
+            VStr('restore_applied'),
             VMap({'t': VInt(1)}),
-          ]),
-          'op',
-          'missing',
-        ),
-        (
-          const VArray([
             VMap({'op': VStr('restore_applied')}),
-          ]),
-          't',
-          'missing',
-        ),
-        (
-          const VArray([
             VMap({'op': VStr('restore_applied'), 't': VStr('now')}),
-          ]),
-          't',
-          'not a whole number',
-        ),
-        (
-          const VArray([
             VMap({
               'op': VStr('restore_failed'),
               't': VInt(1),
               'detail': VInt(2),
             }),
+            VMap({'t': VInt(1794108761500000), 'op': VStr('restore_applied')}),
           ]),
-          'detail',
-          'not a text',
         ),
-      ]) {
-        final i = _invalid(restoreRecordsOf(rows));
-        expect((i.field, i.reason), (field, reason), reason: '$rows');
+        const <Decoded<RestoreRecord?>>[
+          Invalid('restore record', '', 'not a map'),
+          Invalid('restore record', 'op', 'missing'),
+          Invalid('restore record', 't', 'missing'),
+          Invalid('restore record', 't', 'not a whole number'),
+          Invalid('restore record', 'detail', 'not a text'),
+          Valid(RestoreRecord(end: RestoreEnd.applied, seconds: 1794108761)),
+        ],
+      );
+    });
+
+    test('an answer that is no array is refused whole', () {
+      for (final rows in const <Value>[VNull(), VMap({})]) {
+        expect(restoreRecordsOf(rows), const <Decoded<RestoreRecord?>>[
+          Invalid('restore record', '', 'not an array'),
+        ]);
       }
     });
   });

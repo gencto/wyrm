@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:models/backup_stage.dart';
 import 'package:models/restore_end.dart';
 import 'package:models/restore_record.dart';
 
 import '../../../wyrm/calls.dart';
 import '../../../wyrm/decode/restore.dart';
+import '../../../wyrm/failures.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 import 'retrieve_backups_action.dart';
@@ -71,13 +74,17 @@ class FollowRestoreAction extends Action with WaitingAction {
           'tail',
           valueOf({'n': 50}),
         );
-        // Only records of this restore, the newest first.
-        found = restoreRecordsOf(rows)
-            .orWarn('$root/sys/audit')
-            ?.where((r) => r.seconds >= since)
-            .lastOrNull;
-      } on Object {
-        // The broker is still coming up: asked again.
+        // Only records of this restore, the newest one. Each row is
+        // read on its own: one that cannot be read is logged with its
+        // field and does not hide the others.
+        found = [
+          for (final r in restoreRecordsOf(rows)) ?r.orWarn('$root/sys/audit'),
+        ].where((r) => r.seconds >= since).lastOrNull;
+      } on StudioException {
+        // The broker refused or did not answer: it is still coming up,
+        // and is asked again. Anything else is a fault and leaves.
+      } on TimeoutException {
+        // No answer in time: asked again.
       }
       if (found == null) {
         await Future<void>.delayed(step);

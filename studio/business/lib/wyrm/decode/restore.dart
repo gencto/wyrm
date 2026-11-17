@@ -92,33 +92,29 @@ Decoded<RestoreAnswer> restoreAnswerOf(Value answer) =>
     });
 
 /// The records of `sys/audit` ▸ `tail` that say how a staged restore
-/// ended (`op` `restore_applied` or `restore_failed`), oldest first; `t`
-/// is µs since the epoch. Records of other operations are not this
-/// shape's and are left out by their `op`; a row that is not a record, or
-/// a restore record without its time, is [Invalid].
-Decoded<List<RestoreRecord>> restoreRecordsOf(Value rows) =>
-    decoding('restore record', () {
-      final items = switch (rows) {
-        VArray(:final v) => v,
-        _ => throw const BadField('', 'not an array'),
-      };
-      final out = <RestoreRecord>[];
-      for (final r in items) {
+/// ended (`op` `restore_applied` or `restore_failed`), in the broker's
+/// order (oldest first); `t` is µs since the epoch. Each row is read on
+/// its own, so one row of another shape does not hide the others: a
+/// record of another operation is a valid null, a row that is no record
+/// (or a restore record without its time) is [Invalid]. An answer that is
+/// no array is one [Invalid].
+List<Decoded<RestoreRecord?>> restoreRecordsOf(Value rows) => switch (rows) {
+  VArray(:final v) => [
+    for (final r in v)
+      decoding('restore record', () {
         final f = Fields.of(r);
         final end = RestoreEnd.fromWire(f.text('op'));
-        if (end == null) {
-          continue;
-        }
-        out.add(
-          RestoreRecord(
-            end: end,
-            seconds: f.whole('t') ~/ Duration.microsecondsPerSecond,
-            detail: f.textOr('detail'),
-          ),
-        );
-      }
-      return out;
-    });
+        return end == null
+            ? null
+            : RestoreRecord(
+                end: end,
+                seconds: f.whole('t') ~/ Duration.microsecondsPerSecond,
+                detail: f.textOr('detail'),
+              );
+      }),
+  ],
+  _ => const [Invalid('restore record', '', 'not an array')],
+};
 
 /// The answer of `sys/backups` ▸ `estimate`: `{sections: {name: bytes},
 /// total}`, as the bytes of each section.
