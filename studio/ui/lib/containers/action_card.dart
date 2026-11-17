@@ -102,7 +102,7 @@ class ActionCard extends StatelessWidget {
                     ].join(' · '),
                 style: off
                     ? TextStyle(fontSize: FontSizes.sm, color: c.text4)
-                    : mono(size: 11, color: c.text4),
+                    : mono(size: FontSizes.xs, color: c.text4),
               ),
             ],
           ),

@@ -1,8 +1,10 @@
 import 'package:material_ui/material_ui.dart';
 
 import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
@@ -82,7 +84,7 @@ class Button extends StatelessWidget {
   final VoidCallback? onPressed;
 
   /// An icon of `ui/assets/svg/icons` (`ui_add`, `action_play`, …).
-  final String? icon;
+  final AppIcon? icon;
 
   /// Stretch to the available width instead of hugging.
   final bool expand;
@@ -127,7 +129,8 @@ class Button extends StatelessWidget {
       mainAxisAlignment: .center,
       spacing: 8,
       children: [
-        if (icon case final name?) AppIcon(name, size: 16, color: fg),
+        if (icon case final name?)
+          AppIconView(name, size: IconSizes.md, color: fg),
         if (label.isNotEmpty)
           Text(
             label,

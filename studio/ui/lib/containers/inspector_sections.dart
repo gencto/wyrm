@@ -107,7 +107,7 @@ class InspectorSections extends StatelessWidget {
                 style: TextStyle(
                   fontSize: FontSizes.sm,
                   fontWeight: .w600,
-                  letterSpacing: 0.72,
+                  letterSpacing: Trackings.label,
                   color: c.text4,
                 ),
               ),
@@ -238,7 +238,10 @@ class InspectorSections extends StatelessWidget {
           ],
         ],
       ),
-      style: mono(size: 12, color: c.text2).copyWith(height: 1.7),
+      style: mono(
+        size: FontSizes.sm,
+        color: c.text2,
+      ).copyWith(height: LineHeights.listing),
     ),
   );
 }

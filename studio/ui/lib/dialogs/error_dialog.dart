@@ -6,10 +6,12 @@ import 'package:material_ui/material_ui.dart';
 
 import '../buttons/button.dart';
 import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/shades.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
@@ -67,7 +69,7 @@ final class ErrorDialogVm extends Equatable {
   final Tone tone;
 
   /// An icon of `ui/assets/svg/icons` (`err_rights`, `err_reach`, …).
-  final String icon;
+  final AppIcon icon;
 
   /// What did not happen: `You can’t deploy pump-control`.
   final String title;
@@ -305,7 +307,7 @@ class _ErrorDialogState extends State<ErrorDialog> {
             borderRadius: const .all(.circular(10)),
           ),
           alignment: .center,
-          child: AppIcon(vm.icon, color: fg),
+          child: AppIconView(vm.icon, color: fg),
         ),
         const SizedBox(width: 14),
         Expanded(
@@ -318,8 +320,8 @@ class _ErrorDialogState extends State<ErrorDialog> {
                 child: Text(
                   vm.title,
                   style: boardText(
-                    size: 18,
-                    height: 1.35,
+                    size: FontSizes.sheetTitle,
+                    height: LineHeights.wrappedTitle,
                     weight: .w600,
                     color: c.text1,
                   ),
@@ -328,7 +330,11 @@ class _ErrorDialogState extends State<ErrorDialog> {
               if (vm.where.isNotEmpty)
                 SelectableText(
                   vm.where,
-                  style: boardText(size: 12, color: c.text4, code: true),
+                  style: boardText(
+                    size: FontSizes.sm,
+                    color: c.text4,
+                    code: true,
+                  ),
                 ),
             ],
           ),
@@ -348,7 +354,11 @@ class _ErrorDialogState extends State<ErrorDialog> {
                 child: SizedBox.square(
                   dimension: 32,
                   child: Center(
-                    child: AppIcon('err_close', size: 16, color: c.text4),
+                    child: AppIconView(
+                      AppIcon.errClose,
+                      size: IconSizes.md,
+                      color: c.text4,
+                    ),
                   ),
                 ),
               ),
@@ -374,7 +384,10 @@ class _ErrorDialogState extends State<ErrorDialog> {
           crossAxisAlignment: .stretch,
           spacing: 6,
           children: [
-            Text(vm.saidLabel, style: boardText(size: 12, color: c.text4)),
+            Text(
+              vm.saidLabel,
+              style: boardText(size: FontSizes.sm, color: c.text4),
+            ),
             Container(
               padding: Insets.card,
               decoration: BoxDecoration(
@@ -384,7 +397,7 @@ class _ErrorDialogState extends State<ErrorDialog> {
               ),
               child: SelectableText(
                 vm.said,
-                style: boardText(height: 1.55, color: c.text1),
+                style: boardText(height: LineHeights.prose, color: c.text1),
               ),
             ),
           ],
@@ -397,9 +410,9 @@ class _ErrorDialogState extends State<ErrorDialog> {
               Text(
                 vm.adviceLabel.toUpperCase(),
                 style: boardText(
-                  size: 12,
+                  size: FontSizes.sm,
                   weight: .w600,
-                  tracking: 0.72,
+                  tracking: Trackings.label,
                   color: c.text4,
                 ),
               ),
@@ -416,7 +429,10 @@ class _ErrorDialogState extends State<ErrorDialog> {
                     Expanded(
                       child: Text(
                         line,
-                        style: boardText(height: 1.5, color: c.text2),
+                        style: boardText(
+                          height: LineHeights.body,
+                          color: c.text2,
+                        ),
                       ),
                     ),
                   ],
@@ -440,12 +456,20 @@ class _ErrorDialogState extends State<ErrorDialog> {
               children: [
                 Padding(
                   padding: const EdgeInsets.only(top: 2),
-                  child: AppIcon('err_warn', size: 16, color: c.warn),
+                  child: AppIconView(
+                    AppIcon.errWarn,
+                    size: IconSizes.md,
+                    color: c.warn,
+                  ),
                 ),
                 Expanded(
                   child: Text(
                     note,
-                    style: boardText(size: 13, height: 1.5, color: c.warn),
+                    style: boardText(
+                      size: FontSizes.md,
+                      height: LineHeights.body,
+                      color: c.warn,
+                    ),
                   ),
                 ),
               ],
@@ -475,15 +499,18 @@ class _ErrorDialogState extends State<ErrorDialog> {
                         children: [
                           RotatedBox(
                             quarterTurns: _open ? 1 : 0,
-                            child: AppIcon(
-                              'err_chevron',
-                              size: 14,
+                            child: AppIconView(
+                              AppIcon.errChevron,
+                              size: IconSizes.sm,
                               color: c.text3,
                             ),
                           ),
                           Text(
                             vm.detailsLabel,
-                            style: boardText(size: 13, color: c.text3),
+                            style: boardText(
+                              size: FontSizes.md,
+                              color: c.text3,
+                            ),
                           ),
                           if (vm.chip.isNotEmpty)
                             Container(
@@ -498,7 +525,7 @@ class _ErrorDialogState extends State<ErrorDialog> {
                               child: Text(
                                 vm.chip,
                                 style: boardText(
-                                  size: 11,
+                                  size: FontSizes.xs,
                                   color: fg,
                                   code: true,
                                 ),
@@ -535,7 +562,10 @@ class _ErrorDialogState extends State<ErrorDialog> {
                                 ),
                                 child: Text(
                                   r.label,
-                                  style: boardText(size: 12, color: c.text4),
+                                  style: boardText(
+                                    size: FontSizes.sm,
+                                    color: c.text4,
+                                  ),
                                 ),
                               ),
                               Padding(
@@ -547,7 +577,7 @@ class _ErrorDialogState extends State<ErrorDialog> {
                                 child: SelectableText(
                                   r.value,
                                   style: boardText(
-                                    size: 12,
+                                    size: FontSizes.sm,
                                     color: c.text2,
                                     code: true,
                                   ),
@@ -592,10 +622,14 @@ class _ErrorDialogState extends State<ErrorDialog> {
                 mainAxisSize: .min,
                 spacing: 6,
                 children: [
-                  AppIcon('err_copy', size: 14, color: c.text3),
+                  AppIconView(
+                    AppIcon.errCopy,
+                    size: IconSizes.sm,
+                    color: c.text3,
+                  ),
                   Text(
                     vm.copy,
-                    style: boardText(size: 13, color: c.text3),
+                    style: boardText(size: FontSizes.md, color: c.text3),
                   ),
                 ],
               ),

@@ -11,6 +11,7 @@ import '../containers/fact_grid.dart';
 import '../containers/section_label.dart';
 import '../forms/param_form.dart';
 import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../indicators/check_list.dart';
 import '../indicators/step_rail.dart';
 import '../models/link_run_mode.dart';
@@ -188,7 +189,11 @@ class LinkInstallPage extends StatelessWidget {
                     ),
                     IconButton(
                       onPressed: onClose,
-                      icon: AppIcon('ui_close', size: 18, color: c.text2),
+                      icon: AppIconView(
+                        AppIcon.uiClose,
+                        size: IconSizes.lg,
+                        color: c.text2,
+                      ),
                     ),
                   ],
                 ),
@@ -237,7 +242,7 @@ class LinkInstallPage extends StatelessWidget {
                                 S.current.installRailNote,
                                 style: TextStyle(
                                   fontSize: FontSizes.sm,
-                                  height: 1.5,
+                                  height: LineHeights.body,
                                   color: c.text3,
                                 ),
                               ),
@@ -361,7 +366,7 @@ class _Center extends StatelessWidget {
                   _why,
                   style: TextStyle(
                     fontSize: FontSizes.lg,
-                    height: 1.5,
+                    height: LineHeights.body,
                     color: c.text2,
                   ),
                 ),
@@ -490,12 +495,16 @@ class _Center extends StatelessWidget {
                 mainAxisSize: .min,
                 spacing: 8,
                 children: [
-                  AppIcon('ui_file', size: 24, color: c.text3),
+                  AppIconView(
+                    AppIcon.uiFile,
+                    size: IconSizes.xxl,
+                    color: c.text3,
+                  ),
                   Text(
                     vm.file ?? hint,
                     style: vm.file == null
                         ? TextStyle(fontSize: FontSizes.lg, color: c.text3)
-                        : mono(size: 14, color: c.text1),
+                        : mono(size: FontSizes.lg, color: c.text1),
                   ),
                 ],
               ),
@@ -622,11 +631,11 @@ class _Center extends StatelessWidget {
       Text.rich(
         TextSpan(
           text: 'wy/${vm.broker}/downstream/',
-          style: mono(size: 12, color: c.text4),
+          style: mono(size: FontSizes.sm, color: c.text4),
           children: [
             TextSpan(
               text: name,
-              style: mono(size: 12, color: c.emberSoft),
+              style: mono(size: FontSizes.sm, color: c.emberSoft),
             ),
           ],
         ),
@@ -863,7 +872,7 @@ class _CatalogFilter extends StatelessWidget {
     child: Row(
       spacing: 8,
       children: [
-        AppIcon('ui_search', size: 14, color: c.text4),
+        AppIconView(AppIcon.uiSearch, size: IconSizes.sm, color: c.text4),
         Expanded(
           child: TextFormField(
             initialValue: query,

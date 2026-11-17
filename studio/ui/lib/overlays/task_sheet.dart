@@ -4,6 +4,7 @@ import 'package:material_ui/material_ui.dart';
 import '../buttons/button.dart';
 import '../containers/fact_grid.dart';
 import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../indicators/arc_spinner.dart';
 import '../indicators/quality_mark.dart';
 import '../inputs/check_row.dart';
@@ -11,6 +12,7 @@ import '../models/tone.dart';
 import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
@@ -542,7 +544,11 @@ class TaskSheet extends StatelessWidget {
                   borderRadius: Radii.chip,
                   child: Padding(
                     padding: const EdgeInsets.all(AppSpacing.xs),
-                    child: AppIcon('ui_close', size: 16, color: c.text3),
+                    child: AppIconView(
+                      AppIcon.uiClose,
+                      size: IconSizes.md,
+                      color: c.text3,
+                    ),
                   ),
                 ),
             ],
@@ -552,7 +558,7 @@ class TaskSheet extends StatelessWidget {
               s,
               style: TextStyle(
                 fontSize: FontSizes.md,
-                height: 1.5,
+                height: LineHeights.body,
                 color: c.text3,
               ),
             ),
@@ -608,7 +614,7 @@ class TaskSheet extends StatelessWidget {
             Button.secondary(label: s, onPressed: onSecondary),
           if (vm.primary case final p?)
             if (vm.busy)
-              Button.primary(label: p, icon: 'ui_spinner', onPressed: null)
+              Button.primary(label: p, icon: AppIcon.uiSpinner, onPressed: null)
             else if (vm.primaryQuiet)
               Button.secondary(
                 label: p,
@@ -693,7 +699,7 @@ class TaskSheet extends StatelessWidget {
           style: TextStyle(
             fontSize: FontSizes.sm,
             fontWeight: .w600,
-            letterSpacing: 0.72,
+            letterSpacing: Trackings.label,
             color: c.text4,
           ),
         );
@@ -702,7 +708,7 @@ class TaskSheet extends StatelessWidget {
           text,
           style: TextStyle(
             fontSize: small ? 12 : 13,
-            height: 1.5,
+            height: LineHeights.body,
             color: tone == .neutral
                 ? (small ? c.text4 : c.text2)
                 : toneColor(c, tone),
@@ -738,7 +744,7 @@ class TaskSheet extends StatelessWidget {
                       line,
                       style: TextStyle(
                         fontSize: FontSizes.md,
-                        height: 1.5,
+                        height: LineHeights.body,
                         color: c.text2,
                       ),
                     ),
@@ -789,7 +795,7 @@ class TaskSheet extends StatelessWidget {
                         detail,
                         style: TextStyle(
                           fontSize: FontSizes.sm,
-                          height: 1.45,
+                          height: LineHeights.row,
                           color: c.text4,
                         ),
                       ),
@@ -870,7 +876,10 @@ class TaskSheet extends StatelessWidget {
                             ),
                           ),
                           if (s.detail case final d? when d.isNotEmpty)
-                            Text(d, style: mono(size: 11, color: c.text4)),
+                            Text(
+                              d,
+                              style: mono(size: FontSizes.xs, color: c.text4),
+                            ),
                         ],
                       ),
                     ),
@@ -920,7 +929,7 @@ class TaskSheet extends StatelessWidget {
                           text,
                           style: TextStyle(
                             fontSize: FontSizes.md,
-                            height: 1.5,
+                            height: LineHeights.body,
                             color: c.text2,
                           ),
                         ),
@@ -954,7 +963,7 @@ class TaskSheet extends StatelessWidget {
                       Text(
                         t.number,
                         style: mono(
-                          size: 20,
+                          size: FontSizes.value,
                           color: t.tone == .neutral
                               ? c.text1
                               : toneColor(c, t.tone),
@@ -994,7 +1003,10 @@ class TaskSheet extends StatelessWidget {
             borderRadius: Radii.control,
             border: .all(color: c.line1),
           ),
-          child: SelectableText(text, style: mono(size: 12, color: c.text2)),
+          child: SelectableText(
+            text,
+            style: mono(size: FontSizes.sm, color: c.text2),
+          ),
         );
       case SheetBar(:final percent, :final text):
         return Column(
@@ -1092,7 +1104,7 @@ class TaskSheet extends StatelessWidget {
               Text(
                 b.text,
                 style: b.mono
-                    ? mono(size: 12, color: c.text2)
+                    ? mono(size: FontSizes.sm, color: c.text2)
                     : TextStyle(fontSize: FontSizes.md, color: c.text2),
               ),
               if (b.divider && (b.note ?? '').isNotEmpty)
@@ -1204,7 +1216,10 @@ class TaskSheet extends StatelessWidget {
                       ),
                     ),
                     if (b.size case final s?)
-                      Text(s, style: mono(size: 12, color: c.text3)),
+                      Text(
+                        s,
+                        style: mono(size: FontSizes.sm, color: c.text3),
+                      ),
                   ],
                 ),
                 if (b.detail case final d? when d.isNotEmpty)
@@ -1212,7 +1227,7 @@ class TaskSheet extends StatelessWidget {
                     d,
                     style: TextStyle(
                       fontSize: FontSizes.sm,
-                      height: 1.45,
+                      height: LineHeights.row,
                       color: c.text4,
                     ),
                   ),
@@ -1314,7 +1329,7 @@ class TaskSheet extends StatelessWidget {
                         label,
                         style: TextStyle(
                           fontSize: FontSizes.md,
-                          height: 1.5,
+                          height: LineHeights.body,
                           color: c.text2,
                         ),
                       ),
@@ -1404,7 +1419,9 @@ class _Box extends StatelessWidget {
         borderRadius: const BorderRadius.all(Radius.circular(AppRadii.mark)),
         border: on ? null : .all(color: c.line3),
       ),
-      child: on ? AppIcon('ui_check', size: 12, color: c.onEmber) : null,
+      child: on
+          ? AppIconView(AppIcon.uiCheck, size: IconSizes.xs, color: c.onEmber)
+          : null,
     );
   }
 }
@@ -1451,7 +1468,11 @@ class _Chip extends StatelessWidget {
                       border: on ? null : .all(color: c.line3),
                     ),
                     child: on
-                        ? AppIcon('ui_check', size: 10, color: c.onEmber)
+                        ? AppIconView(
+                            AppIcon.uiCheck,
+                            size: 10,
+                            color: c.onEmber,
+                          )
                         : null,
                   ),
                 Text(
@@ -1561,7 +1582,7 @@ class _SheetInputState extends State<_SheetInput> {
             n,
             style: TextStyle(
               fontSize: FontSizes.sm,
-              height: 1.45,
+              height: LineHeights.row,
               color: c.text4,
             ),
           ),

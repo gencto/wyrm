@@ -4,6 +4,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../buttons/button.dart';
 import '../containers/section_label.dart';
+import '../indicators/app_icon.dart';
 import '../indicators/quality_mark.dart';
 import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
@@ -137,7 +138,7 @@ class TaskList extends StatelessWidget {
       children: [
         Button.secondary(
           label: S.current.newTask,
-          icon: 'ui_add',
+          icon: AppIcon.uiAdd,
           expand: true,
           disabledReason: newReason,
           onPressed: newReason == null ? onNew : null,
@@ -218,7 +219,10 @@ class _Task extends StatelessWidget {
                         ),
                       ),
                     ),
-                    Text(vm.id, style: mono(size: 11, color: c.text4)),
+                    Text(
+                      vm.id,
+                      style: mono(size: FontSizes.xs, color: c.text4),
+                    ),
                   ],
                 ),
                 if (vm.detail case final d?)

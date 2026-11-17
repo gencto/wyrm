@@ -86,7 +86,10 @@ class _LogTableState extends State<LogTable> {
         ),
         child: SelectableText(
           widget.message,
-          style: mono(size: 12, color: widget.bad ? c.badText : c.text4),
+          style: mono(
+            size: FontSizes.sm,
+            color: widget.bad ? c.badText : c.text4,
+          ),
         ),
       );
     } else {
@@ -155,7 +158,7 @@ class _LogTableState extends State<LogTable> {
       maxLines: 1,
       softWrap: false,
       overflow: .clip,
-      style: mono(size: 12, color: color, weight: weight),
+      style: mono(size: FontSizes.sm, color: color, weight: weight),
     );
     return Container(
       color: ground,

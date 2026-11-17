@@ -77,7 +77,7 @@ class WarnBanner extends StatelessWidget {
                     vm.title,
                     style: TextStyle(
                       fontSize: FontSizes.md,
-                      height: 1.5,
+                      height: LineHeights.body,
                       fontWeight: .w600,
                       color: c.text1,
                     ),
@@ -86,7 +86,7 @@ class WarnBanner extends StatelessWidget {
                     vm.body,
                     style: TextStyle(
                       fontSize: FontSizes.md,
-                      height: 1.5,
+                      height: LineHeights.body,
                       color: c.text2,
                     ),
                   ),
@@ -97,7 +97,7 @@ class WarnBanner extends StatelessWidget {
                         a,
                         style: TextStyle(
                           fontSize: FontSizes.md,
-                          height: 1.5,
+                          height: LineHeights.body,
                           color: c.emberSoft,
                         ),
                       ),

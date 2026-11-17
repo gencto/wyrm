@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 
 import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
@@ -21,7 +22,7 @@ class Segment<T> {
   ///
   /// A name of the canvas icon set (`ui_sun`, `ui_moon`), drawn by [AppIcon]:
   /// the set is bundled SVG, so it draws the same in a golden as in the app.
-  final String? icon;
+  final AppIcon? icon;
 
   /// What assistive technology reads — and what is drawn when [icon] is null.
   final String label;
@@ -155,7 +156,7 @@ class _Segment<T> extends StatelessWidget {
                     context,
                   ).textTheme.labelMedium?.copyWith(color: ink),
                 )
-              : AppIcon(icon, size: _iconSize, color: ink),
+              : AppIconView(icon, size: _iconSize, color: ink),
         ),
       ),
     );

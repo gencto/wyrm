@@ -309,7 +309,7 @@ class TaskCard extends StatelessWidget {
               vm.note.text,
               style: TextStyle(
                 fontSize: FontSizes.md,
-                height: 1.45,
+                height: LineHeights.row,
                 color: vm.caution ? c.warn : c.text3,
               ),
             ),

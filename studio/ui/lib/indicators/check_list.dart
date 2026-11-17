@@ -85,7 +85,7 @@ class CheckList extends StatelessWidget {
                           Text(
                             rows[i].detail,
                             style: mono(
-                              size: 12,
+                              size: FontSizes.sm,
                               color: rows[i].result == .failed
                                   ? c.badText
                                   : c.text3,

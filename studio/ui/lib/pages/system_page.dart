@@ -481,7 +481,7 @@ class SystemPage extends StatelessWidget {
         );
       }
       return DefaultTextStyle.merge(
-        style: const TextStyle(height: 1.3),
+        style: const TextStyle(height: LineHeights.title),
         child: page,
       );
     },
@@ -510,7 +510,7 @@ class SystemPage extends StatelessWidget {
                   style: TextStyle(
                     fontSize: FontSizes.pageTitle,
                     fontWeight: .w600,
-                    letterSpacing: -0.26,
+                    letterSpacing: Trackings.pageTitle,
                     color: c.text1,
                   ),
                 ),
@@ -574,7 +574,7 @@ class SystemPage extends StatelessWidget {
     style: TextStyle(
       fontSize: FontSizes.sm,
       fontWeight: .w600,
-      letterSpacing: 0.72,
+      letterSpacing: Trackings.label,
       color: c.text4,
     ),
   );
@@ -718,7 +718,7 @@ class SystemPage extends StatelessWidget {
                   l.levelNote,
                   style: TextStyle(
                     fontSize: FontSizes.sm,
-                    height: 1.5,
+                    height: LineHeights.body,
                     color: c.text4,
                   ),
                 ),
@@ -914,7 +914,7 @@ class SystemPage extends StatelessWidget {
                   m.backupWarning,
                   style: TextStyle(
                     fontSize: FontSizes.sm,
-                    height: 1.5,
+                    height: LineHeights.body,
                     color: c.warn,
                   ),
                 ),

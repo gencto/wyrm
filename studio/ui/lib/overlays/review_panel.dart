@@ -4,11 +4,13 @@ import 'package:material_ui/material_ui.dart';
 import '../alerts/notice.dart';
 import '../buttons/button.dart';
 import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../indicators/quality_mark.dart';
 import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/shades.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
@@ -107,7 +109,11 @@ class ChangeCard extends StatelessWidget {
               if (onRemove != null)
                 InkWell(
                   onTap: () => onRemove!(vm.id),
-                  child: AppIcon('ui_close', size: 16, color: c.text4),
+                  child: AppIconView(
+                    AppIcon.uiClose,
+                    size: IconSizes.md,
+                    color: c.text4,
+                  ),
                 ),
             ],
           ),
@@ -287,7 +293,11 @@ class ReviewPanel extends StatelessWidget {
                       child: SizedBox.square(
                         dimension: 40,
                         child: Center(
-                          child: AppIcon('ui_close', size: 18, color: c.text3),
+                          child: AppIconView(
+                            AppIcon.uiClose,
+                            size: IconSizes.lg,
+                            color: c.text3,
+                          ),
                         ),
                       ),
                     ),

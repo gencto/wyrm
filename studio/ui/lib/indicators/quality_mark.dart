@@ -4,6 +4,7 @@ import 'package:material_ui/material_ui.dart';
 import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
 import 'app_icon.dart';
+import 'app_icon_view.dart';
 
 /// A state word with its mark, inline (a table cell, a tree row, a header).
 final class QualityMarkVm extends Equatable {
@@ -93,8 +94,8 @@ class StateMark extends StatelessWidget {
   @override
   Widget build(BuildContext context) => switch (mark) {
     .none => const SizedBox.shrink(),
-    .cross => AppIcon('ui_close', size: size + 4, color: color),
-    .check => AppIcon('ui_check', size: size + 4, color: color),
+    .cross => AppIconView(AppIcon.uiClose, size: size + 4, color: color),
+    .check => AppIconView(AppIcon.uiCheck, size: size + 4, color: color),
     .dot || .ring || .dashed => CustomPaint(
       size: Size.square(size),
       painter: _MarkPainter(mark, color),

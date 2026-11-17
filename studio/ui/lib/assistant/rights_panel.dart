@@ -5,6 +5,7 @@ import 'package:material_ui/material_ui.dart';
 import '../containers/fact_grid.dart';
 import '../containers/section_label.dart';
 import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/spacing.dart';
@@ -173,7 +174,7 @@ class RightsPanel extends StatelessWidget {
     final c = context.colors;
     final small = TextStyle(
       fontSize: FontSizes.xs,
-      height: 1.4,
+      height: LineHeights.meta,
       color: c.text3,
     );
     final can = vm.editReason == null;
@@ -277,7 +278,7 @@ class RightsPanel extends StatelessWidget {
                         child: Text(
                           label,
                           overflow: .ellipsis,
-                          style: mono(size: 11, color: c.text1),
+                          style: mono(size: FontSizes.xs, color: c.text1),
                         ),
                       ),
                     ),
@@ -289,8 +290,8 @@ class RightsPanel extends StatelessWidget {
                             : null,
                         child: Padding(
                           padding: const EdgeInsets.all(AppSpacing.xs),
-                          child: AppIcon(
-                            'ui_close',
+                          child: AppIconView(
+                            AppIcon.uiClose,
                             size: 11,
                             color: can ? c.text3 : c.text4,
                           ),

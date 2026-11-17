@@ -6,10 +6,12 @@ import 'package:material_ui/material_ui.dart';
 
 import '../dialogs/error_dialog.dart' show errorTone;
 import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/shades.dart';
+import '../theme/sizes.dart';
 import '../theme/typography.dart';
 import 'system_toast.dart';
 
@@ -248,7 +250,7 @@ class _ToastState extends State<_Toast> {
       onTap: onTap,
       child: Text(
         label,
-        style: boardText(size: 12, color: c.emberSoft).copyWith(
+        style: boardText(size: FontSizes.sm, color: c.emberSoft).copyWith(
           decoration: .underline,
           decorationColor: c.emberSoft,
         ),
@@ -283,9 +285,9 @@ class _ToastState extends State<_Toast> {
                   borderRadius: Radii.button,
                 ),
                 alignment: .center,
-                child: AppIcon(
-                  vm.tone == .good ? 'err_ok' : 'err_mark',
-                  size: 14,
+                child: AppIconView(
+                  vm.tone == .good ? AppIcon.errOk : AppIcon.errMark,
+                  size: IconSizes.sm,
                   color: fg,
                 ),
               ),
@@ -298,7 +300,7 @@ class _ToastState extends State<_Toast> {
                     Text(
                       vm.title,
                       style: boardText(
-                        size: 13,
+                        size: FontSizes.md,
                         weight: .w600,
                         color: c.text1,
                       ),
@@ -309,8 +311,8 @@ class _ToastState extends State<_Toast> {
                         maxLines: 3,
                         overflow: .ellipsis,
                         style: boardText(
-                          size: 12,
-                          height: 1.45,
+                          size: FontSizes.sm,
+                          height: LineHeights.row,
                           color: c.text3,
                         ),
                       ),
@@ -337,7 +339,10 @@ class _ToastState extends State<_Toast> {
                               textAlign: .end,
                               maxLines: 1,
                               overflow: .ellipsis,
-                              style: boardText(size: 12, color: c.muted),
+                              style: boardText(
+                                size: FontSizes.sm,
+                                color: c.muted,
+                              ),
                             ),
                           ),
                         ],
@@ -359,7 +364,11 @@ class _ToastState extends State<_Toast> {
                     child: SizedBox.square(
                       dimension: 26,
                       child: Center(
-                        child: AppIcon('err_close', size: 12, color: c.text4),
+                        child: AppIconView(
+                          AppIcon.errClose,
+                          size: IconSizes.xs,
+                          color: c.text4,
+                        ),
                       ),
                     ),
                   ),

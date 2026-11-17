@@ -2,6 +2,7 @@ import 'package:equatable/equatable.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/spacing.dart';
@@ -12,7 +13,7 @@ final class RailItemVm extends Equatable {
   const RailItemVm({required this.icon, required this.label, this.badge});
 
   /// A `ws_` icon.
-  final String icon;
+  final AppIcon icon;
   final String label;
 
   /// A count to call out (Quarantine waiting, tasks to approve).
@@ -63,7 +64,7 @@ class WorkspaceRail extends StatelessWidget {
                   label: Text(it.badge ?? ''),
                   backgroundColor: c.warn,
                   textColor: c.ground0,
-                  child: AppIcon(it.icon, color: on ? c.text1 : c.text3),
+                  child: AppIconView(it.icon, color: on ? c.text1 : c.text3),
                 ),
                 Text(
                   it.label,
@@ -140,7 +141,7 @@ class WorkspaceBottomBar extends StatelessWidget {
               children: [
                 for (var j = visible; j < items.length; j++)
                   ListTile(
-                    leading: AppIcon(items[j].icon, color: c.text2),
+                    leading: AppIconView(items[j].icon, color: c.text2),
                     title: Text(items[j].label),
                     selected: j == selected,
                     onTap: () => Navigator.of(context).pop(j),
@@ -156,12 +157,12 @@ class WorkspaceBottomBar extends StatelessWidget {
       destinations: [
         for (var i = 0; i < visible && i < items.length; i++)
           NavigationDestination(
-            icon: AppIcon(items[i].icon, color: c.text3),
-            selectedIcon: AppIcon(items[i].icon, color: c.text1),
+            icon: AppIconView(items[i].icon, color: c.text3),
+            selectedIcon: AppIconView(items[i].icon, color: c.text1),
             label: items[i].label,
           ),
         NavigationDestination(
-          icon: Icon(Icons.more_horiz, color: c.text3),
+          icon: AppIconView(AppIcon.materialMore, color: c.text3),
           label: more,
         ),
       ],

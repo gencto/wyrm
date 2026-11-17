@@ -2,8 +2,10 @@ import 'package:material_ui/material_ui.dart';
 
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
 import '../theme/typography.dart';
 import 'app_icon.dart';
+import 'app_icon_view.dart';
 
 /// The full key of the node on screen in mono 13, its last segment in
 /// text/1, and a 28 × 28 Copy key button (docs/design/specs/explorer.md
@@ -98,7 +100,11 @@ class KeyLine extends StatelessWidget {
               child: SizedBox.square(
                 dimension: 28,
                 child: Center(
-                  child: AppIcon('ui_copy', size: 14, color: c.text4),
+                  child: AppIconView(
+                    AppIcon.uiCopy,
+                    size: IconSizes.sm,
+                    color: c.text4,
+                  ),
                 ),
               ),
             ),

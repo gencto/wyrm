@@ -147,7 +147,7 @@ class UnlockOffer extends StatelessWidget {
                 style: TextStyle(
                   fontSize: FontSizes.pageTitle,
                   fontWeight: .w600,
-                  letterSpacing: -.26,
+                  letterSpacing: Trackings.pageTitle,
                   color: c.text1,
                 ),
               ),
@@ -155,7 +155,7 @@ class UnlockOffer extends StatelessWidget {
                 vm.text,
                 style: TextStyle(
                   fontSize: FontSizes.lg,
-                  height: 1.55,
+                  height: LineHeights.prose,
                   color: c.text3,
                 ),
               ),
@@ -186,7 +186,7 @@ class UnlockOffer extends StatelessWidget {
                         f.text,
                         style: TextStyle(
                           fontSize: FontSizes.md,
-                          height: 1.45,
+                          height: LineHeights.row,
                           color: c.text2,
                         ),
                       ),
@@ -233,7 +233,7 @@ class UnlockOffer extends StatelessWidget {
             vm.policy,
             style: TextStyle(
               fontSize: FontSizes.sm,
-              height: 1.5,
+              height: LineHeights.body,
               color: c.text4,
             ),
           ),

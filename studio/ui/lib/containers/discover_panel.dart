@@ -162,7 +162,7 @@ class DiscoverPanel extends StatelessWidget {
     final c = context.colors;
     final text = TextStyle(
       fontSize: FontSizes.md,
-      height: 1.45,
+      height: LineHeights.row,
       leadingDistribution: .even,
       color: c.text2,
     );

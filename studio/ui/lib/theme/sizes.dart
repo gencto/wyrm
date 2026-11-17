@@ -297,3 +297,16 @@ abstract final class AppSizes {
   /// The token Sites shows once it is issued.
   static const double tokenLog = 180;
 }
+
+/// The sizes an icon is drawn at (board *Icons*: the set is drawn on 24 and
+/// read down to 12). A scale, like `AppSpacing`: a step says where a size
+/// sits, not what the icon is. An icon a component sizes by itself has its
+/// own name in [AppSizes].
+abstract final class IconSizes {
+  static const double xs = 12;
+  static const double sm = 14;
+  static const double md = 16;
+  static const double lg = 18;
+  static const double xl = 20;
+  static const double xxl = 24;
+}

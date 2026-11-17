@@ -53,7 +53,8 @@ class SwitchRow extends StatelessWidget {
                     d,
                     style: TextStyle(fontSize: FontSizes.sm, color: c.text3),
                   ),
-                if (keyName case final k?) KeyText(k, size: 12, color: c.text4),
+                if (keyName case final k?)
+                  KeyText(k, size: FontSizes.sm, color: c.text4),
               ],
             ),
           ),

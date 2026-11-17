@@ -2,10 +2,12 @@ import 'package:equatable/equatable.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/shades.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
@@ -140,7 +142,7 @@ class ProblemsDrawer extends StatelessWidget {
                         maxLines: 1,
                         overflow: .ellipsis,
                         style: boardText(
-                          size: 16,
+                          size: FontSizes.sectionTitle,
                           weight: .w600,
                           color: c.text1,
                         ),
@@ -163,7 +165,7 @@ class ProblemsDrawer extends StatelessWidget {
                         child: Text(
                           labels.clear,
                           style: boardText(
-                            size: 12,
+                            size: FontSizes.sm,
                             color: problems.isEmpty ? c.muted : c.text3,
                           ),
                         ),
@@ -179,9 +181,9 @@ class ProblemsDrawer extends StatelessWidget {
                         child: SizedBox.square(
                           dimension: 30,
                           child: Center(
-                            child: AppIcon(
-                              'err_close',
-                              size: 14,
+                            child: AppIconView(
+                              AppIcon.errClose,
+                              size: IconSizes.sm,
                               color: c.text4,
                             ),
                           ),
@@ -200,7 +202,11 @@ class ProblemsDrawer extends StatelessWidget {
                 ),
                 child: Text(
                   labels.note,
-                  style: boardText(size: 12, height: 1.5, color: c.text4),
+                  style: boardText(
+                    size: FontSizes.sm,
+                    height: LineHeights.body,
+                    color: c.text4,
+                  ),
                 ),
               ),
               Expanded(
@@ -209,7 +215,7 @@ class ProblemsDrawer extends StatelessWidget {
                         padding: const EdgeInsets.all(20),
                         child: Text(
                           labels.empty,
-                          style: boardText(size: 13, color: c.text3),
+                          style: boardText(size: FontSizes.md, color: c.text3),
                         ),
                       )
                     : ListView.separated(
@@ -242,7 +248,7 @@ class ProblemsDrawer extends StatelessWidget {
       onTap: onTap,
       child: Text(
         label,
-        style: boardText(size: 12, color: c.emberSoft).copyWith(
+        style: boardText(size: FontSizes.sm, color: c.emberSoft).copyWith(
           decoration: .underline,
           decorationColor: c.emberSoft,
         ),
@@ -285,7 +291,7 @@ class ProblemsDrawer extends StatelessWidget {
                         child: Text(
                           p.title,
                           style: boardText(
-                            size: 13,
+                            size: FontSizes.md,
                             weight: .w600,
                             color: c.text1,
                           ),
@@ -293,21 +299,29 @@ class ProblemsDrawer extends StatelessWidget {
                       ),
                       Text(
                         p.time,
-                        style: boardText(size: 11, color: c.text4),
+                        style: boardText(size: FontSizes.xs, color: c.text4),
                       ),
                     ],
                   ),
                   if (p.where.isNotEmpty)
                     Text(
                       p.where,
-                      style: boardText(size: 11, color: c.text4, code: true),
+                      style: boardText(
+                        size: FontSizes.xs,
+                        color: c.text4,
+                        code: true,
+                      ),
                     ),
                   if (p.said.isNotEmpty)
                     Text(
                       p.said,
                       maxLines: 4,
                       overflow: .ellipsis,
-                      style: boardText(size: 12, height: 1.45, color: c.text3),
+                      style: boardText(
+                        size: FontSizes.sm,
+                        height: LineHeights.row,
+                        color: c.text3,
+                      ),
                     ),
                   Padding(
                     padding: const EdgeInsets.only(top: 2),
@@ -328,7 +342,10 @@ class ProblemsDrawer extends StatelessWidget {
                         if (p.shown)
                           Text(
                             labels.shown,
-                            style: boardText(size: 12, color: c.muted),
+                            style: boardText(
+                              size: FontSizes.sm,
+                              color: c.muted,
+                            ),
                           ),
                       ],
                     ),

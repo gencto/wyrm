@@ -103,7 +103,7 @@ class AttentionPanel extends StatelessWidget {
     final label = TextStyle(
       fontSize: FontSizes.sm,
       fontWeight: .w600,
-      letterSpacing: 0.72,
+      letterSpacing: Trackings.label,
       color: c.text4,
     );
     final head = Container(
@@ -125,7 +125,7 @@ class AttentionPanel extends StatelessWidget {
             vm.note,
             style: TextStyle(
               fontSize: FontSizes.md,
-              height: 1.5,
+              height: LineHeights.body,
               color: c.text3,
             ),
           ),
@@ -269,7 +269,7 @@ class AttentionPanel extends StatelessWidget {
                       overflow: .ellipsis,
                       style: TextStyle(
                         fontSize: FontSizes.sm,
-                        height: 1.45,
+                        height: LineHeights.row,
                         color: c.text3,
                       ),
                     ),

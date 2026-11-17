@@ -4,6 +4,7 @@ import 'package:localization/localization.dart';
 import '../alerts/read_fail.dart';
 import '../containers/action_card.dart';
 import '../forms/param_form.dart';
+import '../indicators/app_icon.dart';
 import '../indicators/fail_chip.dart';
 import '../indicators/flow_state_tag.dart';
 import '../indicators/level_badge.dart';
@@ -22,17 +23,17 @@ export '../indicators/flow_state_tag.dart' show FlowStateTag;
 /// selection bar.
 enum ExplorerTool {
   ping(null),
-  addPoint('ui_add'),
-  importPoints('ui_upload', quiet: true),
-  applyProfile('ui_profile', quiet: true),
-  copyKeys('ui_copy'),
+  addPoint(AppIcon.uiAdd),
+  importPoints(AppIcon.uiUpload, quiet: true),
+  applyProfile(AppIcon.uiProfile, quiet: true),
+  copyKeys(AppIcon.uiCopy),
   setPoll(null),
   record(null),
   removeChecked(null);
 
   const ExplorerTool(this.icon, {this.quiet = false});
 
-  final String? icon;
+  final AppIcon? icon;
 
   /// A quieter outline (Import, Apply profile).
   final bool quiet;

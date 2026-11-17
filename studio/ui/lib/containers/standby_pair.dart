@@ -162,7 +162,7 @@ class StandbyPair extends StatelessWidget {
           style: TextStyle(
             fontSize: FontSizes.sm,
             fontWeight: .w600,
-            letterSpacing: 0.72,
+            letterSpacing: Trackings.label,
             color: tone,
           ),
         ),
@@ -180,7 +180,7 @@ class StandbyPair extends StatelessWidget {
           note,
           style: TextStyle(
             fontSize: FontSizes.md,
-            height: 1.5,
+            height: LineHeights.body,
             color: c.text3,
           ),
         ),

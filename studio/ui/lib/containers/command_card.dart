@@ -2,8 +2,10 @@ import 'package:equatable/equatable.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
 import '../theme/typography.dart';
 
 /// What [CommandCard] draws: shell commands the user runs on a host.
@@ -92,7 +94,7 @@ class CommandCard extends StatelessWidget {
                     style: TextStyle(
                       fontFamily: AppFonts.mono,
                       fontSize: FontSizes.sm,
-                      height: 1.7,
+                      height: LineHeights.listing,
                       color: c.text2,
                     ),
                   ),
@@ -117,7 +119,11 @@ class CommandCard extends StatelessWidget {
                           width: 30,
                           height: 30,
                           child: Center(
-                            child: AppIcon('ui_copy', size: 14, color: c.text3),
+                            child: AppIconView(
+                              AppIcon.uiCopy,
+                              size: IconSizes.sm,
+                              color: c.text3,
+                            ),
                           ),
                         ),
                       ),
@@ -131,7 +137,7 @@ class CommandCard extends StatelessWidget {
             vm.note,
             style: TextStyle(
               fontSize: FontSizes.sm,
-              height: 1.5,
+              height: LineHeights.body,
               color: c.text4,
             ),
           ),

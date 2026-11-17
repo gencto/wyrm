@@ -6,6 +6,7 @@ import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/typography.dart';
 import 'app_icon.dart';
+import 'app_icon_view.dart';
 
 /// What [FailChip] draws: the mark on the thing whose read failed.
 final class FailChipVm extends Equatable {
@@ -74,12 +75,12 @@ class FailChip extends StatelessWidget {
         mainAxisSize: .min,
         spacing: 4,
         children: [
-          AppIcon('err_mark', size: 11, color: c.badText),
+          AppIconView(AppIcon.errMark, size: 11, color: c.badText),
           Text(
             vm.label,
             maxLines: 1,
             softWrap: false,
-            style: boardText(size: 11, color: c.badText),
+            style: boardText(size: FontSizes.xs, color: c.badText),
           ),
         ],
       ),

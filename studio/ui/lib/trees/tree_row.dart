@@ -3,6 +3,7 @@ import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../indicators/fail_chip.dart';
 import '../indicators/node_state.dart';
 import '../indicators/quality_mark.dart';
@@ -10,6 +11,7 @@ import '../models/tone.dart';
 import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
@@ -19,7 +21,7 @@ final class TreeRowVm extends Equatable {
     required this.id,
     required this.name,
     required this.depth,
-    this.icon = 'node_section',
+    this.icon = AppIcon.nodeSection,
     this.hasChildren = false,
     this.expanded = false,
     this.selected = false,
@@ -43,7 +45,7 @@ final class TreeRowVm extends Equatable {
   final int depth;
 
   /// A `node_` icon.
-  final String icon;
+  final AppIcon icon;
 
   /// A child node exists (spec 02 `has_nodes`): the triangle.
   final bool hasChildren;
@@ -172,9 +174,9 @@ class TreeRow extends StatelessWidget {
                         child: AnimatedRotation(
                           turns: vm.expanded ? 0.25 : 0,
                           duration: const Duration(milliseconds: 120),
-                          child: AppIcon(
-                            'ui_chevron_right',
-                            size: 14,
+                          child: AppIconView(
+                            AppIcon.uiChevronRight,
+                            size: IconSizes.sm,
                             color: c.text4,
                           ),
                         ),
@@ -189,14 +191,18 @@ class TreeRow extends StatelessWidget {
                   maxLines: 1,
                   overflow: .clip,
                   style: mono(
-                    size: 10,
+                    size: FontSizes.xxs,
                     weight: vm.ember ? .w600 : .w400,
                     color: vm.ember ? c.emberSoft : c.text4,
                   ),
                 ),
               )
             else
-              AppIcon(vm.icon, size: 16, color: sel ? c.ember : c.text4),
+              AppIconView(
+                vm.icon,
+                size: IconSizes.md,
+                color: sel ? c.ember : c.text4,
+              ),
             Expanded(
               child: Row(
                 spacing: 8,
@@ -207,7 +213,7 @@ class TreeRow extends StatelessWidget {
                       maxLines: 1,
                       overflow: .ellipsis,
                       style: mono(
-                        size: height < 40 ? 12 : 13,
+                        size: height < 40 ? FontSizes.sm : FontSizes.md,
                         weight: sel ? .w600 : .w400,
                         color: sel ? c.text1 : c.text2,
                       ),
@@ -231,12 +237,17 @@ class TreeRow extends StatelessWidget {
                   maxLines: 1,
                   overflow: .ellipsis,
                   style: mono(
-                    size: 11,
+                    size: FontSizes.xs,
                     color: vm.ember ? c.emberSoft : c.text3,
                   ),
                 ),
               ),
-            if (vm.hasHistory) AppIcon('action_hist', size: 14, color: c.text4),
+            if (vm.hasHistory)
+              AppIconView(
+                AppIcon.actionHist,
+                size: IconSizes.sm,
+                color: c.text4,
+              ),
             if (vm.mode case final m?) _Chip(m.label),
             if (vm.count != null || vm.draft)
               Text(
@@ -259,7 +270,11 @@ class TreeRow extends StatelessWidget {
                     color: Color.lerp(c.emberTint, c.emberLine, 0.35),
                     borderRadius: Radii.segment,
                   ),
-                  child: AppIcon('ui_more', size: 16, color: c.emberSoft),
+                  child: AppIconView(
+                    AppIcon.uiMore,
+                    size: IconSizes.md,
+                    color: c.emberSoft,
+                  ),
                 ),
               ),
           ],

@@ -60,7 +60,7 @@ class SectionCard extends StatelessWidget {
               description,
               style: TextStyle(
                 fontSize: FontSizes.md,
-                height: 1.5,
+                height: LineHeights.body,
                 color: c.text3,
               ),
             ),

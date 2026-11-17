@@ -4,6 +4,7 @@ import 'package:business/redux/flow_editor/actions/move_blocks_action.dart';
 import 'package:business/redux/flow_editor/actions/palette_menu_action.dart';
 import 'package:business/redux/flow_editor/actions/pick_palette_entry_action.dart';
 import 'package:business/redux/flow_editor/actions/rename_custom_block_action.dart';
+import 'package:business/wyrm/decode/node_glyph.dart';
 import 'package:business/wyrm/flow_view/block_view.dart';
 import 'package:business/wyrm/flow_view/flow_view.dart';
 import 'package:business/wyrm/flow_view/menu_view.dart';
@@ -31,10 +32,10 @@ import 'package:ui/flows/flow_menu.dart';
 import 'package:ui/flows/flow_status.dart';
 import 'package:ui/flows/scope_prompt.dart';
 import 'package:ui/flows/shortcut_card.dart';
-import 'package:ui/indicators/app_icon.dart';
 import 'package:ui/models/disabled.dart';
 
 import 'explorer_mappers.dart' show TypeCodeValueType;
+import 'icon_mappers.dart';
 import 'rights_mappers.dart';
 
 // The flow editor's business view (business/lib/wyrm/flow_view/) as `ui`
@@ -293,12 +294,12 @@ extension TreeEntryVm on TreeEntry {
       key: key,
       name: name,
       depth: depth,
-      icon: AppIcon.nodeName(
+      icon: nodeGlyphOf(
         key: key,
         root: root,
         profile: n.profile,
         value: type != null,
-      ),
+      ).icon,
       opens: n.opens,
       open: n.open,
       used: n.used,

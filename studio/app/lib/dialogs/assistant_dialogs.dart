@@ -6,6 +6,7 @@ import 'package:business/redux/problems/actions/show_notice_action.dart';
 import 'package:business/redux/tasks/actions/cancel_task_action.dart';
 import 'package:business/redux/tasks/actions/reject_task_action.dart';
 import 'package:business/redux/tasks/actions/save_plan_action.dart';
+import 'package:business/wyrm/decode/node_glyph.dart';
 import 'package:equatable/equatable.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:localization/localization.dart';
@@ -20,6 +21,7 @@ import 'package:ui/overlays/reason_dialog.dart';
 import 'package:ui/overlays/search_palette.dart';
 
 import '../common/files.dart';
+import '../mappers/icon_mappers.dart';
 
 // The dialogs the Assistant opens over [BuildContext] (studio-rules §4: a
 // connector takes no context): each asks the person, then starts one
@@ -187,12 +189,12 @@ Future<void> pickContextKey(BuildContext context) async {
           display,
         final n => n?.name ?? shortKey(k),
       },
-      icon: AppIcon.nodeName(
+      icon: nodeGlyphOf(
         key: k,
         root: root,
         profile: info?.profile,
         value: info?.type != null,
-      ),
+      ).icon,
       detail: detail ?? shortKey(k),
     );
   }
@@ -210,12 +212,12 @@ Future<void> pickContextKey(BuildContext context) async {
       (:final key, reads: false) => SearchEntryVm(
         id: '',
         title: S.current.pickKeyOutside(shortKey(key)),
-        icon: 'ui_close',
+        icon: AppIcon.uiClose,
       ),
       (:final key, reads: true) => SearchEntryVm(
         id: key,
         title: S.current.pickKeyTyped(shortKey(key)),
-        icon: 'ui_chevron_right',
+        icon: AppIcon.uiChevronRight,
       ),
     },
   );

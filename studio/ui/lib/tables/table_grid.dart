@@ -6,9 +6,11 @@ import 'package:material_ui/material_ui.dart';
 
 import '../buttons/button.dart';
 import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../indicators/lines_text.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import 'table_edits.dart';
@@ -234,7 +236,10 @@ class TableGridState extends State<TableGrid> {
     _measured = _t.columns;
     final base = DefaultTextStyle.of(context).style;
     final digits = TextPainter(
-      text: TextSpan(text: '0000000000', style: base.merge(mono(size: 12))),
+      text: TextSpan(
+        text: '0000000000',
+        style: base.merge(mono(size: FontSizes.sm)),
+      ),
       textDirection: .ltr,
     )..layout();
     _charW = digits.width / 10;
@@ -589,7 +594,7 @@ class TableGridState extends State<TableGrid> {
                   key: const ValueKey('table-filter'),
                   controller: _filter,
                   onChanged: (_) => setState(_refilter),
-                  style: mono(size: 12, color: c.text1),
+                  style: mono(size: FontSizes.sm, color: c.text1),
                   decoration: InputDecoration(
                     isDense: true,
                     hintText: s.tableFilter,
@@ -602,7 +607,11 @@ class TableGridState extends State<TableGrid> {
                         left: AppSpacing.sm,
                         right: AppSpacing.xs,
                       ),
-                      child: AppIcon('ui_search', size: 14, color: c.text4),
+                      child: AppIconView(
+                        AppIcon.uiSearch,
+                        size: IconSizes.sm,
+                        color: c.text4,
+                      ),
                     ),
                     prefixIconConstraints: const BoxConstraints(
                       minWidth: 26,
@@ -632,7 +641,7 @@ class TableGridState extends State<TableGrid> {
                 Button.quiet(
                   key: const ValueKey('table-add-row'),
                   label: s.tableAddRow,
-                  icon: 'ui_add',
+                  icon: AppIcon.uiAdd,
                   size: ButtonSize.small,
                   fontSize: FontSizes.sm,
                   inset: 8,
@@ -641,7 +650,7 @@ class TableGridState extends State<TableGrid> {
                 Button.quiet(
                   key: const ValueKey('table-add-column'),
                   label: s.tableAddColumn,
-                  icon: 'ui_add',
+                  icon: AppIcon.uiAdd,
                   size: ButtonSize.small,
                   fontSize: FontSizes.sm,
                   inset: 8,
@@ -778,7 +787,13 @@ class TableGridState extends State<TableGrid> {
       child: SizedBox(
         width: 32,
         height: 32,
-        child: Center(child: AppIcon('ui_more', size: 16, color: c.text3)),
+        child: Center(
+          child: AppIconView(
+            AppIcon.uiMore,
+            size: IconSizes.md,
+            color: c.text3,
+          ),
+        ),
       ),
     );
   }
@@ -878,7 +893,7 @@ class TableGridState extends State<TableGrid> {
               child: Text(
                 '${r + 1}',
                 textAlign: .right,
-                style: mono(size: 11, color: lit ? c.text2 : c.text4),
+                style: mono(size: FontSizes.xs, color: lit ? c.text2 : c.text4),
               ),
             ),
           ),
@@ -903,7 +918,7 @@ class TableGridState extends State<TableGrid> {
         overflow: .ellipsis,
         textAlign: shown.kind == .number ? .right : .left,
         style: mono(
-          size: 12,
+          size: FontSizes.sm,
           color: switch (shown.kind) {
             .text || .number => c.text1,
             .flag => c.warn,
@@ -920,7 +935,7 @@ class TableGridState extends State<TableGrid> {
                 Expanded(child: text),
                 Text(
                   '↲ +${shown.more}',
-                  style: mono(size: 10, color: c.text4),
+                  style: mono(size: FontSizes.xxs, color: c.text4),
                 ),
               ],
             );
@@ -998,7 +1013,9 @@ class TableGridState extends State<TableGrid> {
         focusNode: _textFocus,
         autocorrect: false,
         enableSuggestions: false,
-        style: name ? _headStyle(c.text1) : mono(size: 12, color: c.text1),
+        style: name
+            ? _headStyle(c.text1)
+            : mono(size: FontSizes.sm, color: c.text1),
         cursorHeight: 14,
         decoration: const InputDecoration.collapsed(hintText: '').copyWith(
           enabledBorder: InputBorder.none,

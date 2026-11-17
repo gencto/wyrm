@@ -80,7 +80,7 @@ class ReadFail extends StatelessWidget {
                 line,
                 style: TextStyle(
                   fontSize: FontSizes.sm,
-                  height: 1.5,
+                  height: LineHeights.body,
                   color: c.text2,
                 ),
               ),

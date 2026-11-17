@@ -2,9 +2,11 @@ import 'package:equatable/equatable.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../inputs/switch_row.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
@@ -260,7 +262,11 @@ class ParamField extends StatelessWidget {
           focusNode: vm.focusNode,
           isExpanded: true,
           dropdownColor: c.ground3,
-          icon: AppIcon('ui_chevron_down', size: 16, color: c.text3),
+          icon: AppIconView(
+            AppIcon.uiChevronDown,
+            size: IconSizes.md,
+            color: c.text3,
+          ),
           decoration: _decoration(c),
           style: mono(color: c.text1),
           items: [
@@ -288,7 +294,7 @@ class ParamField extends StatelessWidget {
             child: Row(
               spacing: 8,
               children: [
-                AppIcon('ui_file', size: 16, color: c.text3),
+                AppIconView(AppIcon.uiFile, size: IconSizes.md, color: c.text3),
                 Expanded(
                   child: Text(
                     name ?? vm.hint ?? '',

@@ -46,7 +46,7 @@ class LogView extends StatelessWidget {
                     child: Text(
                       lines[i],
                       style: mono(
-                        size: 12,
+                        size: FontSizes.sm,
                         color: lines[i].contains('ERROR')
                             ? c.badText
                             : (lines[i].contains('WARN') ? c.warn : c.text2),

@@ -3,8 +3,10 @@ import 'package:material_ui/material_ui.dart';
 
 import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
+import '../theme/sizes.dart';
 import '../theme/typography.dart';
 import 'app_icon.dart';
+import 'app_icon_view.dart';
 import 'quality_mark.dart';
 
 /// Where one row of a progress list is.
@@ -69,7 +71,10 @@ class ProgressList extends StatelessWidget {
                       ),
                     ),
                     if (r.detail case final d?)
-                      Text(d, style: mono(size: 12, color: c.text3)),
+                      Text(
+                        d,
+                        style: mono(size: FontSizes.sm, color: c.text3),
+                      ),
                   ],
                 ),
               ),
@@ -80,7 +85,7 @@ class ProgressList extends StatelessWidget {
   }
 
   Widget _mark(AppColors c, ProgressState s) => switch (s) {
-    .done => AppIcon('ui_check', size: 16, color: c.good),
+    .done => AppIconView(AppIcon.uiCheck, size: IconSizes.md, color: c.good),
     .now => SizedBox.square(
       dimension: 12,
       child: CircularProgressIndicator(strokeWidth: 2, color: c.ember),

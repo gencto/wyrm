@@ -48,7 +48,7 @@ class LevelBadge extends StatelessWidget {
       ),
       child: Text(
         label,
-        style: mono(size: 11, color: strong ? c.emberSoft : c.text2),
+        style: mono(size: FontSizes.xs, color: strong ? c.emberSoft : c.text2),
       ),
     );
   }

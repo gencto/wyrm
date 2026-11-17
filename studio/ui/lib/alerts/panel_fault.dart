@@ -5,6 +5,7 @@ import 'package:material_ui/material_ui.dart';
 import '../buttons/button.dart';
 import '../containers/fault_boundary.dart';
 import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../theme/common.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
@@ -109,11 +110,19 @@ class PanelFault extends StatelessWidget {
               _square(c, 36, 18),
               Text(
                 vm.title,
-                style: boardText(size: 16, weight: .w600, color: c.text1),
+                style: boardText(
+                  size: FontSizes.sectionTitle,
+                  weight: .w600,
+                  color: c.text1,
+                ),
               ),
               Text(
                 vm.body,
-                style: boardText(size: 13, height: 1.55, color: c.text3),
+                style: boardText(
+                  size: FontSizes.md,
+                  height: LineHeights.prose,
+                  color: c.text3,
+                ),
               ),
               Container(
                 width: .infinity,
@@ -127,7 +136,11 @@ class PanelFault extends StatelessWidget {
                 ),
                 child: Text(
                   vm.line,
-                  style: boardText(size: 11, color: c.text4, code: true),
+                  style: boardText(
+                    size: FontSizes.xs,
+                    color: c.text4,
+                    code: true,
+                  ),
                 ),
               ),
               Wrap(
@@ -186,7 +199,7 @@ class PanelFault extends StatelessWidget {
       borderRadius: const .all(.circular(10)),
     ),
     alignment: .center,
-    child: AppIcon('err_studio', size: icon, color: c.bad),
+    child: AppIconView(AppIcon.errStudio, size: icon, color: c.bad),
   );
 }
 

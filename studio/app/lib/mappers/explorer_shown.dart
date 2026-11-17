@@ -1,5 +1,6 @@
 import 'package:business/common/memo.dart';
 import 'package:business/redux/app_state.dart';
+import 'package:business/wyrm/decode/node_glyph.dart';
 import 'package:business/wyrm/explorer.dart';
 import 'package:business/wyrm/keys.dart';
 import 'package:equatable/equatable.dart';
@@ -7,7 +8,6 @@ import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:ui/charts/trend.dart';
 import 'package:ui/containers/action_card.dart';
 import 'package:ui/containers/side_panels.dart';
-import 'package:ui/indicators/app_icon.dart';
 import 'package:ui/indicators/fail_chip.dart';
 import 'package:ui/indicators/node_state.dart';
 import 'package:ui/indicators/status_pill.dart';
@@ -19,6 +19,7 @@ import 'package:ui/trees/tree_row.dart';
 
 import '../common/side_panels.dart';
 import 'explorer_mappers.dart';
+import 'icon_mappers.dart';
 
 /// Everything Explorer draws, as `ui` render models: what its connector
 /// compares. Made by [explorerShownOf], which keeps the last one while
@@ -388,12 +389,12 @@ TreeRowVm _treeRow(_Read r, ExplorerTreeRow row) => TreeRowVm(
   id: row.key,
   name: row.name,
   depth: row.depth,
-  icon: AppIcon.nodeName(
+  icon: nodeGlyphOf(
     key: row.key,
     root: r.explorer.root,
     profile: row.info?.profile,
     value: row.info?.type != null,
-  ),
+  ).icon,
   hasChildren: row.section || (row.info?.hasChildren ?? false),
   expanded: row.open,
   selected: row.selected,

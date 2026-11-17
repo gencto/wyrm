@@ -309,7 +309,7 @@ class _LockCardState extends State<_LockCard> {
                     textAlign: .center,
                     style: TextStyle(
                       fontSize: FontSizes.lg,
-                      height: 1.5,
+                      height: LineHeights.body,
                       color: c.text3,
                     ),
                   ),

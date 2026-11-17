@@ -279,7 +279,7 @@ class _SecurityDialogState extends State<SecurityDialog> {
         text.toUpperCase(),
         style: TextStyle(
           fontSize: FontSizes.sm,
-          letterSpacing: 0.72,
+          letterSpacing: Trackings.label,
           color: c.text4,
         ),
       ),
@@ -511,7 +511,7 @@ class _SecurityDialogState extends State<SecurityDialog> {
                                 ),
                                 style: TextStyle(
                                   fontSize: FontSizes.sm,
-                                  height: 1.5,
+                                  height: LineHeights.body,
                                   color: c.text4,
                                 ),
                               ),
@@ -591,7 +591,7 @@ class _Option extends StatelessWidget {
                       text,
                       style: TextStyle(
                         fontSize: FontSizes.sm,
-                        height: 1.45,
+                        height: LineHeights.row,
                         color: c.text4,
                       ),
                     ),

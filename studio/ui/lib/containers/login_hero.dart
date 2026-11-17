@@ -70,7 +70,7 @@ class _LoginHeroState extends State<LoginHero> {
     final headline = size == LoginHeroSize.wide ? 40.0 : 28.0;
     final h1 = TextStyle(
       fontSize: headline,
-      height: 1.12,
+      height: LineHeights.headline,
       leadingDistribution: .even,
       fontWeight: .w600,
       letterSpacing: -.02 * headline,
@@ -139,7 +139,7 @@ class _LoginHeroState extends State<LoginHero> {
                                   S.current.heroLead,
                                   style: TextStyle(
                                     fontSize: FontSizes.heroLead,
-                                    height: 1.6,
+                                    height: LineHeights.lead,
                                     leadingDistribution: .even,
                                     color: c.text3,
                                   ),

@@ -4,9 +4,11 @@ import 'package:material_ui/material_ui.dart';
 
 import '../containers/section_label.dart';
 import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import 'tree_row.dart';
@@ -267,7 +269,7 @@ class _NodeTreeState extends State<NodeTree> {
     child: Row(
       spacing: 8,
       children: [
-        AppIcon('ui_filter', size: 14, color: c.text4),
+        AppIconView(AppIcon.uiFilter, size: IconSizes.sm, color: c.text4),
         Expanded(
           child: TextFormField(
             initialValue: filter,
@@ -306,7 +308,7 @@ class _NodeTreeState extends State<NodeTree> {
   Widget _note(AppColors c, TreeNoteVm n) {
     final base = TextStyle(
       fontSize: FontSizes.sm,
-      height: 1.5,
+      height: LineHeights.body,
       color: c.text4,
     );
     final link = TextStyle(
@@ -325,7 +327,7 @@ class _NodeTreeState extends State<NodeTree> {
       TextSpan(text: '${n.lead} '),
       TextSpan(
         text: n.code,
-        style: mono(size: 12, color: c.text3),
+        style: mono(size: FontSizes.sm, color: c.text3),
       ),
       TextSpan(text: ' ${n.middle} '),
       for (final (i, l) in n.links.indexed) ...[

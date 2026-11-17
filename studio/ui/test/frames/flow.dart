@@ -16,6 +16,7 @@ import 'package:ui/flows/flow_status.dart';
 import 'package:ui/flows/flow_viewer.dart';
 import 'package:ui/flows/scope_prompt.dart';
 import 'package:ui/flows/shortcut_card.dart';
+import 'package:ui/indicators/app_icon.dart';
 import 'package:ui/indicators/quality_mark.dart';
 import 'package:ui/indicators/value_type.dart';
 import 'package:ui/models/disabled.dart';
@@ -2178,7 +2179,7 @@ List<PaletteTreeRowVm> _treeRows() => const [
     key: 'd/modbus',
     name: 'modbus',
     depth: 1,
-    icon: 'node_link',
+    icon: AppIcon.nodeLink,
     opens: true,
     open: true,
   ),
@@ -2186,7 +2187,7 @@ List<PaletteTreeRowVm> _treeRows() => const [
     key: 'd/modbus/tcp-tank',
     name: 'tcp-tank',
     depth: 2,
-    icon: 'node_device',
+    icon: AppIcon.nodeDevice,
     opens: true,
     open: true,
   ),
@@ -2243,7 +2244,7 @@ List<PaletteTreeRowVm> _treeRows() => const [
     key: 'd/modbus/tcp-boiler',
     name: 'tcp-boiler',
     depth: 2,
-    icon: 'node_device',
+    icon: AppIcon.nodeDevice,
     opens: true,
   ),
   PaletteNodeRowVm(
@@ -2256,7 +2257,7 @@ List<PaletteTreeRowVm> _treeRows() => const [
     key: 's',
     name: 'storage',
     depth: 0,
-    icon: 'node_storage',
+    icon: AppIcon.nodeStorage,
     opens: true,
     open: true,
   ),

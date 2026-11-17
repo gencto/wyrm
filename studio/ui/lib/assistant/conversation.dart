@@ -3,10 +3,12 @@ import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../indicators/quality_mark.dart';
 import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import 'task_badge.dart';
@@ -209,7 +211,7 @@ class _Event extends StatelessWidget {
                 vm.shown,
                 style: TextStyle(
                   fontSize: FontSizes.lg,
-                  height: 1.5,
+                  height: LineHeights.body,
                   color: c.text1,
                 ),
               ),
@@ -229,7 +231,11 @@ class _Event extends StatelessWidget {
                 borderRadius: Radii.control,
               ),
               child: Center(
-                child: AppIcon('ws_assistant', size: 16, color: c.ember),
+                child: AppIconView(
+                  AppIcon.wsAssistant,
+                  size: IconSizes.md,
+                  color: c.ember,
+                ),
               ),
             ),
             Expanded(
@@ -239,12 +245,12 @@ class _Event extends StatelessWidget {
                   TextSpan(
                     children: modelSpans(
                       vm.shown,
-                      code: mono(size: 13, color: c.text1),
+                      code: mono(color: c.text1),
                     ),
                   ),
                   style: TextStyle(
                     fontSize: FontSizes.lg,
-                    height: 1.55,
+                    height: LineHeights.prose,
                     color: c.text1,
                   ),
                 ),
@@ -271,7 +277,7 @@ class _Event extends StatelessWidget {
                   ),
                   child: Text(
                     'read · $r',
-                    style: mono(size: 12, color: c.text3),
+                    style: mono(size: FontSizes.sm, color: c.text3),
                   ),
                 ),
             ],
@@ -309,7 +315,7 @@ class _Event extends StatelessWidget {
             ),
             child: SelectableText(
               vm.text,
-              style: mono(size: 12, color: c.badText),
+              style: mono(size: FontSizes.sm, color: c.badText),
             ),
           ),
         );

@@ -9,12 +9,14 @@ import 'package:material_ui/material_ui.dart';
 import '../buttons/button.dart';
 import '../buttons/segmented_tabs.dart';
 import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../indicators/quality_mark.dart';
 import '../models/value_changed.dart';
 import '../tables/table_edits.dart';
 import '../tables/table_grid.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import '../trees/json_tree.dart';
@@ -531,7 +533,7 @@ class _ValueViewerState extends State<ValueViewer> {
   }) => Button.quiet(
     key: ValueKey('viewer-copy-$id'),
     label: _copied == id ? widget.copiedLabel : label,
-    icon: _copied == id ? 'ui_check' : 'ui_copy',
+    icon: _copied == id ? AppIcon.uiCheck : AppIcon.uiCopy,
     size: ButtonSize.small,
     fontSize: dense ? 12 : 14,
     inset: dense ? 10 : 16,
@@ -599,7 +601,7 @@ class _ValueViewerState extends State<ValueViewer> {
                       if (vm.size.isNotEmpty && table == null) vm.size,
                     ].join(' · '),
                     maxLines: 1,
-                    style: mono(size: 11, color: c.text3),
+                    style: mono(size: FontSizes.xs, color: c.text3),
                   ),
                 ),
               ],
@@ -611,7 +613,7 @@ class _ValueViewerState extends State<ValueViewer> {
               label: vm.edit?.kind == .table
                   ? s.viewerEditJson
                   : widget.editLabel,
-              icon: 'action_edit',
+              icon: AppIcon.actionEdit,
               size: ButtonSize.small,
               fontSize: table != null ? 12 : 14,
               inset: table != null ? 10 : 16,
@@ -774,7 +776,11 @@ class _ValueViewerState extends State<ValueViewer> {
                   children: [
                     Padding(
                       padding: const EdgeInsets.only(top: 1),
-                      child: AppIcon('action_lock', size: 14, color: c.text4),
+                      child: AppIconView(
+                        AppIcon.actionLock,
+                        size: IconSizes.sm,
+                        color: c.text4,
+                      ),
                     ),
                     Expanded(
                       child: Text(
@@ -896,7 +902,10 @@ class _ValueViewerState extends State<ValueViewer> {
             autocorrect: false,
             enableSuggestions: false,
             onChanged: (_) => setState(() {}),
-            style: mono(size: 12, color: c.text1).copyWith(height: 1.5),
+            style: mono(
+              size: FontSizes.sm,
+              color: c.text1,
+            ).copyWith(height: LineHeights.body),
             decoration: plain(),
           ),
         );
@@ -916,7 +925,7 @@ class _ValueViewerState extends State<ValueViewer> {
               enableSuggestions: false,
               onChanged: (_) => setState(() {}),
               onSubmitted: (_) => _save(),
-              style: mono(size: 20, color: c.text1),
+              style: mono(size: FontSizes.value, color: c.text1),
               decoration: plain(),
             ),
           ),
@@ -937,7 +946,10 @@ class _ValueViewerState extends State<ValueViewer> {
               ),
               Text(
                 '$on',
-                style: mono(size: 20, color: on ? c.good : c.text2),
+                style: mono(
+                  size: FontSizes.value,
+                  color: on ? c.good : c.text2,
+                ),
               ),
             ],
           ),
@@ -956,8 +968,12 @@ class _ValueViewerState extends State<ValueViewer> {
                 value: edit.choices.contains(_text.text) ? _text.text : null,
                 isExpanded: true,
                 dropdownColor: c.ground3,
-                icon: AppIcon('ui_chevron_down', size: 16, color: c.text4),
-                style: mono(size: 14, color: c.text1),
+                icon: AppIconView(
+                  AppIcon.uiChevronDown,
+                  size: IconSizes.md,
+                  color: c.text4,
+                ),
+                style: mono(size: FontSizes.lg, color: c.text1),
                 items: [
                   for (final ch in edit.choices)
                     DropdownMenuItem(
@@ -984,12 +1000,12 @@ class _ValueViewerState extends State<ValueViewer> {
             children: [
               TextSpan(
                 text: number,
-                style: mono(size: 28, color: c.text1),
+                style: mono(size: FontSizes.soleValue, color: c.text1),
               ),
               if (unit.isNotEmpty)
                 TextSpan(
                   text: '  $unit',
-                  style: mono(size: 16, color: c.text3),
+                  style: mono(size: FontSizes.soleValueUnit, color: c.text3),
                 ),
             ],
           ),
@@ -1009,7 +1025,7 @@ class _ValueViewerState extends State<ValueViewer> {
           ),
           Text(
             word,
-            style: mono(size: 20, color: value ? c.good : c.text2),
+            style: mono(size: FontSizes.value, color: value ? c.good : c.text2),
           ),
         ],
       ),
@@ -1018,13 +1034,16 @@ class _ValueViewerState extends State<ValueViewer> {
           crossAxisAlignment: .start,
           children: [
             for (final r in rows)
-              Text(r, style: mono(size: 12, color: c.text2)),
+              Text(
+                r,
+                style: mono(size: FontSizes.sm, color: c.text2),
+              ),
           ],
         ),
       ),
       EmptyContentVm(:final text) => Text(
         text,
-        style: mono(size: 14, color: c.text4),
+        style: mono(size: FontSizes.lg, color: c.text4),
       ),
       // Drawn by the grid, not in the scrolled body.
       TableContentVm() => const SizedBox.shrink(),
@@ -1085,7 +1104,7 @@ class _Lines extends StatelessWidget {
                     child: Text(
                       '${i + 1}',
                       textAlign: .right,
-                      style: mono(size: 12, color: c.text4),
+                      style: mono(size: FontSizes.sm, color: c.text4),
                     ),
                   ),
                 ),
@@ -1093,7 +1112,7 @@ class _Lines extends StatelessWidget {
                   child: Text(
                     l,
                     softWrap: true,
-                    style: mono(size: 12, color: c.text1),
+                    style: mono(size: FontSizes.sm, color: c.text1),
                   ),
                 ),
               ],

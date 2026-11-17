@@ -246,7 +246,7 @@ class NodeMenu<T> extends StatelessWidget {
                     style: TextStyle(
                       fontSize: FontSizes.xs,
                       fontWeight: .w600,
-                      letterSpacing: 0.66,
+                      letterSpacing: Trackings.smallLabel,
                       color: c.text4,
                     ),
                   ),
@@ -274,7 +274,7 @@ class NodeMenu<T> extends StatelessWidget {
                       ),
                       Text(
                         vm.copyShortcut,
-                        style: mono(size: 12, color: c.text4),
+                        style: mono(size: FontSizes.sm, color: c.text4),
                       ),
                     ],
                   ),

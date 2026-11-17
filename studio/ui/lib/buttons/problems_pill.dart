@@ -66,7 +66,10 @@ class ProblemsPill extends StatelessWidget {
                     shape: .circle,
                   ),
                 ),
-                Text(vm.label, style: boardText(size: 13, color: c.text1)),
+                Text(
+                  vm.label,
+                  style: boardText(size: FontSizes.md, color: c.text1),
+                ),
               ],
             ),
           ),

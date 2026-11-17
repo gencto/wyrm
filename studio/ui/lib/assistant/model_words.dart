@@ -3,8 +3,10 @@ import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
 import '../theme/typography.dart';
 
 /// What [ModelWords] draws: text the model wrote about a step or a run,
@@ -63,7 +65,11 @@ class ModelWords extends StatelessWidget {
           Row(
             spacing: 6,
             children: [
-              AppIcon('ws_assistant', size: 12, color: c.ember),
+              AppIconView(
+                AppIcon.wsAssistant,
+                size: IconSizes.xs,
+                color: c.ember,
+              ),
               Text(
                 vm.label,
                 style: TextStyle(fontSize: FontSizes.xs, color: c.text3),
@@ -74,7 +80,7 @@ class ModelWords extends StatelessWidget {
             vm.text,
             style: TextStyle(
               fontSize: FontSizes.md,
-              height: 1.45,
+              height: LineHeights.row,
               color: c.text2,
             ),
           ),

@@ -3,12 +3,15 @@ import 'package:flutter/services.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../indicators/fail_chip.dart';
 import '../indicators/quality_mark.dart';
 import '../indicators/sample_mark.dart';
 import '../indicators/value_type.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
@@ -452,8 +455,16 @@ class _Box extends StatelessWidget {
           borderRadius: const BorderRadius.all(Radius.circular(AppRadii.mark)),
         ),
         child: switch (value) {
-          true => Icon(Icons.check, size: 12, color: c.onEmber),
-          null => Icon(Icons.remove, size: 12, color: c.onEmber),
+          true => AppIconView(
+            AppIcon.materialCheck,
+            size: IconSizes.xs,
+            color: c.onEmber,
+          ),
+          null => AppIconView(
+            AppIcon.materialMixed,
+            size: IconSizes.xs,
+            color: c.onEmber,
+          ),
           false => null,
         },
       ),

@@ -89,7 +89,7 @@ class GuideCard extends StatelessWidget {
                   vm.body,
                   style: TextStyle(
                     fontSize: FontSizes.lg,
-                    height: 1.6,
+                    height: LineHeights.lead,
                     color: c.text2,
                   ),
                 ),
@@ -102,7 +102,7 @@ class GuideCard extends StatelessWidget {
                     vm.stepsTitle,
                     style: TextStyle(
                       fontSize: FontSizes.md,
-                      height: 1.5,
+                      height: LineHeights.body,
                       fontWeight: .w600,
                       color: c.text1,
                     ),
@@ -113,7 +113,7 @@ class GuideCard extends StatelessWidget {
                       codeColor: c.text1,
                       style: TextStyle(
                         fontSize: FontSizes.md,
-                        height: 1.5,
+                        height: LineHeights.body,
                         color: c.text3,
                       ),
                     ),
