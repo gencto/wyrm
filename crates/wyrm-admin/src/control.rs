@@ -7013,6 +7013,9 @@ async fn watch_metrics(ctl: Arc<Control>, ctx: LinkCtx) {
 }
 
 #[cfg(test)]
+mod schema_snapshot;
+
+#[cfg(test)]
 mod tests {
     use std::collections::HashSet;
     use std::sync::Arc;
