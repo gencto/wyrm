@@ -14,9 +14,7 @@
 //! manifest, and nothing sealed without the key that proves the manifest
 //! authentic (`wyrm_admin::backup`).
 
-use super::backups::{
-    broker_made_secret, io_err, link_prefix, make_private_dir, passphrase_arg, StageDir,
-};
+use super::backups::{broker_made_secret, io_err, link_prefix, make_private_dir, StageDir};
 use super::*;
 use crate::backup::{self as format, Kind, Manifest, SectionName};
 use zeroize::Zeroizing;
@@ -724,14 +722,18 @@ fn asks_of(def: &LinkDef, package: Option<&packages::Unpacked>) -> Vec<String> {
 
 impl Admin {
     /// `sys/links/~act/install_backup`: `Err` is the message of `success: false`.
-    pub(super) async fn install_backup(&self, args: &Value, sub: &str) -> Result<String, String> {
+    pub(super) async fn install_backup(
+        &self,
+        a: InstallBackup,
+        sub: &str,
+    ) -> Result<String, String> {
         let ctl = &self.ctl;
-        let passphrase = passphrase_arg(args).map_err(|e| e.message)?;
-        let upload = arg_str(args, "upload").filter(|u| !u.is_empty());
+        let passphrase = backups::passphrase_bytes(a.passphrase);
+        let upload = a.upload.as_deref();
         // the file: an upload in parts, or the bytes themselves
-        let (path, _tmp) = match (upload, arg(args, "file")) {
+        let (path, _tmp) = match (upload, &a.file) {
             (Some(id), _) => (ctl.upload_take(id).map_err(|e| e.message)?, None),
-            (None, Some(Value::Bytes(b))) => {
+            (None, Some(b)) => {
                 make_private_dir(&ctl.backups_dir())?;
                 let tmp = StageDir::new(&ctl.backups_dir())?;
                 let p = tmp.0.join("file");
@@ -740,7 +742,9 @@ impl Admin {
             }
             _ => return Err("file or upload: required".into()),
         };
-        let r = self.install_backup_from(&path, args, passphrase, sub).await;
+        let r = self
+            .install_backup_from(&path, a.id.as_deref(), a.opts.accept, passphrase, sub)
+            .await;
         if let Some(id) = upload {
             // a refused file can be tried again (another passphrase, accept)
             ctl.upload_release(id, r.is_ok());
@@ -751,7 +755,8 @@ impl Admin {
     async fn install_backup_from(
         &self,
         path: &Path,
-        args: &Value,
+        id: Option<&str>,
+        accept: bool,
         passphrase: Option<Zeroizing<Vec<u8>>>,
         sub: &str,
     ) -> Result<String, String> {
@@ -764,11 +769,11 @@ impl Admin {
             .await
             .map_err(|e| e.to_string())??
         };
-        let id = match arg_str(args, "id").map(str::trim).filter(|i| !i.is_empty()) {
+        let id = match id {
             Some(i) => i.to_owned(),
             None => r.def.id.clone(),
         };
-        self.install_restored(r, id, accepted(args), sub).await
+        self.install_restored(r, id, accept, sub).await
     }
 
     /// Install the link read from a backup as `id` (see the module
@@ -915,13 +920,16 @@ impl Admin {
                 }
             }
             None => {
-                let install = Value::Map(BTreeMap::from([
-                    ("id".to_owned(), Value::Str(id.clone())),
-                    ("driver".to_owned(), Value::Str(r.def.driver.clone())),
-                    ("mode".to_owned(), Value::Str(r.def.mode.name().to_owned())),
-                    ("params".to_owned(), params),
-                ]));
-                let reply = self.install(&install, sub).await.map_err(|e| e.message)?;
+                let reply = self
+                    .install_link(
+                        id.clone(),
+                        r.def.driver.clone(),
+                        Some(r.def.mode),
+                        params,
+                        sub,
+                    )
+                    .await
+                    .map_err(|e| e.message)?;
                 if let Some(Value::Map(m)) = reply {
                     // an external link: its token is shown once, here
                     if let Some(Value::Str(t)) = m.get("token") {
@@ -1092,25 +1100,77 @@ impl Admin {
     }
 }
 
+/// `sys/links ▸ install_backup`.
+#[derive(Args)]
+pub(super) struct InstallBackup {
+    #[arg(
+        display = "Backup file",
+        editor = "file",
+        desc = "A .wyrm-link file; or upload it in parts and give Upload"
+    )]
+    pub file: Option<Vec<u8>>,
+    #[arg(
+        display = "Upload",
+        desc = "The id of a file uploaded with sys/backups restore_begin",
+        nonempty
+    )]
+    pub upload: Option<String>,
+    #[arg(
+        display = "Link ID",
+        desc = "Empty: the id in the backup. An existing link is replaced",
+        trim,
+        nonempty
+    )]
+    pub id: Option<String>,
+    #[arg(
+        display = "Passphrase",
+        secret,
+        nonempty,
+        desc = "Of a backup that holds private data"
+    )]
+    pub passphrase: Option<Secret>,
+    #[arg(flatten)]
+    pub opts: UpdateOpts,
+}
+
+/// `sys/backups ▸ restore_begin`.
+#[derive(Args)]
+pub(super) struct RestoreBegin {
+    #[arg(display = "Size (bytes)")]
+    pub size: u64,
+}
+
+/// The upload a call is about.
+#[derive(Args)]
+pub(super) struct UploadId {
+    #[arg(display = "Upload", desc = "The id restore_begin gave", nonempty)]
+    pub upload: String,
+}
+
+/// `sys/backups ▸ restore_part`.
+#[derive(Args)]
+pub(super) struct RestorePart {
+    #[arg(flatten)]
+    pub of: UploadId,
+    #[arg(display = "Offset (bytes)")]
+    pub offset: u64,
+    /// A part of a local file: `editor: file` lets a gateway take it outside
+    /// a WebSocket frame (ADR 0028, amended 2026-11-15).
+    #[arg(
+        display = "Data",
+        editor = "file",
+        desc = "The next part, at most 16 MiB"
+    )]
+    pub data: Vec<u8>,
+}
+
 /// The upload actions of `sys/backups` and `install_backup` of `sys/links`.
 pub(super) async fn declare(ctx: &LinkCtx) -> wyrm_link_sdk::Result<()> {
-    let upload = || {
-        str_param()
-            .required(true)
-            .display("Upload")
-            .description("The id restore_begin gave")
-    };
     ctx.declare_action(
         "backups",
         "restore_begin",
-        ActionMeta::new()
+        RestoreBegin::action()
             .display("Upload a backup")
-            .param(
-                "size",
-                ParamMeta::of(TypeCode::Number)
-                    .required(true)
-                    .display("Size (bytes)"),
-            )
             .result(ActionResult::Type(TypeCode::Map))
             .level(Perm::Config),
     )
@@ -1118,25 +1178,8 @@ pub(super) async fn declare(ctx: &LinkCtx) -> wyrm_link_sdk::Result<()> {
     ctx.declare_action(
         "backups",
         "restore_part",
-        ActionMeta::new()
+        RestorePart::action()
             .display("Upload part")
-            .param("upload", upload())
-            .param(
-                "offset",
-                ParamMeta::of(TypeCode::Number)
-                    .required(true)
-                    .display("Offset (bytes)"),
-            )
-            .param(
-                "data",
-                // a part of a local file: `editor: file` lets a gateway take
-                // it outside a WebSocket frame (ADR 0028, amended 2026-11-15)
-                ParamMeta::of(TypeCode::Binary)
-                    .required(true)
-                    .display("Data")
-                    .editor(Editor::File)
-                    .description("The next part, at most 16 MiB"),
-            )
             .result(ActionResult::Type(TypeCode::Map))
             .timeout_ms(60_000)
             .level(Perm::Config),
@@ -1145,48 +1188,17 @@ pub(super) async fn declare(ctx: &LinkCtx) -> wyrm_link_sdk::Result<()> {
     ctx.declare_action(
         "backups",
         "restore_abort",
-        ActionMeta::new()
+        UploadId::action()
             .display("Abort upload")
-            .param("upload", upload())
             .level(Perm::Config),
     )
     .await?;
     ctx.declare_action(
         "links",
         "install_backup",
-        install_meta("From backup")
-            .param(
-                "file",
-                ParamMeta::of(TypeCode::Binary)
-                    .display("Backup file")
-                    .editor(Editor::File)
-                    .description("A .wyrm-link file; or upload it in parts and give Upload"),
-            )
-            .param(
-                "upload",
-                str_param()
-                    .display("Upload")
-                    .description("The id of a file uploaded with sys/backups restore_begin"),
-            )
-            .param(
-                "id",
-                str_param()
-                    .display("Link ID")
-                    .description("Empty: the id in the backup. An existing link is replaced"),
-            )
-            .param(
-                "passphrase",
-                str_param()
-                    .display("Passphrase")
-                    .editor(Editor::Password)
-                    .description("Of a backup that holds private data"),
-            ),
+        install_meta::<InstallBackup>("From backup"),
     )
-    .await
-}
-
-/// The restore actions of a broker backup.
-pub(super) async fn declare_broker(ctx: &LinkCtx) -> wyrm_link_sdk::Result<()> {
+    .await?;
     super::restore_broker::declare(ctx).await
 }
 
@@ -1197,15 +1209,9 @@ pub(super) async fn invoke(
     args: &Value,
     _sub: &str,
 ) -> wyrm_link_sdk::Result<Option<Value>> {
-    let upload = || {
-        arg_str(args, "upload")
-            .filter(|u| !u.is_empty())
-            .ok_or_else(|| LinkError::invalid_parameter("upload: required"))
-    };
     match (rest, action) {
         ([], "restore_begin") => {
-            let size = int_arg::<u64>(args, "size")?
-                .ok_or_else(|| LinkError::invalid_parameter("size: required"))?;
+            let size = RestoreBegin::decode(args)?.size;
             let id = ctl.upload_begin(size)?;
             Ok(Some(Value::Map(BTreeMap::from([
                 ("upload".to_owned(), Value::Str(id)),
@@ -1214,13 +1220,9 @@ pub(super) async fn invoke(
             ]))))
         }
         ([], "restore_part") => {
-            let id = upload()?.to_owned();
-            let offset = int_arg::<u64>(args, "offset")?
-                .ok_or_else(|| LinkError::invalid_parameter("offset: required"))?;
-            let Some(Value::Bytes(data)) = arg(args, "data") else {
-                return Err(LinkError::invalid_parameter("data: required"));
-            };
-            let (ctl2, data) = (ctl.clone(), data.clone());
+            let a = RestorePart::decode(args)?;
+            let (id, offset, data) = (a.of.upload, a.offset, a.data);
+            let ctl2 = ctl.clone();
             let received =
                 tokio::task::spawn_blocking(move || ctl2.upload_part(&id, offset, &data))
                     .await
@@ -1231,7 +1233,8 @@ pub(super) async fn invoke(
             )]))))
         }
         ([], "restore_abort") => {
-            let id = upload()?;
+            let a = UploadId::decode(args)?;
+            let id = a.upload.as_str();
             if ctl.uploads().get(id).is_some_and(|u| u.busy) {
                 return Err(LinkError::new(Status::Busy, "the upload is in use"));
             }

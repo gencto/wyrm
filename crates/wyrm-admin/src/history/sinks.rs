@@ -60,36 +60,104 @@ pub fn sink_key(site: &str, name: &str) -> String {
     format!("wy/{site}/sys/{ROOT}/{SINKS}/{name}")
 }
 
-fn groups_param() -> ParamMeta {
-    str_param()
-        .display("Groups")
-        .placeholder("all")
-        .description("Watch groups it takes, comma separated; empty: all.")
+const GROUPS_ABOUT: &str = "Watch groups it takes, comma separated; empty: all.";
+const LINK_ABOUT: &str = "The installed link that reads the batches and sends them on.";
+
+wyrm_core::name_enum! {
+    /// Where a sink's cursor is put.
+    enum Cursor as "cursor" without codec {
+        /// Everything on disk.
+        Start => "start",
+        /// Only rows written from now on.
+        Now => "now",
+    }
 }
 
-fn link_param() -> ParamMeta {
-    str_param()
-        .display("Link")
-        .placeholder("<link id>")
-        .description("The installed link that reads the batches and sends them on.")
+impl Cursor {
+    fn seq(self, st: &wyrm_history::Store) -> u64 {
+        match self {
+            Cursor::Start => 0,
+            Cursor::Now => st.last_seq(),
+        }
+    }
 }
 
-fn with_default(mut p: ParamMeta, v: &str) -> ParamMeta {
-    p.default = Some(Value::from(v));
-    p
+/// `history/sinks ▸ add_sink`.
+#[derive(Args)]
+struct AddSink {
+    #[arg(display = "Name", trim, nonempty)]
+    name: String,
+    #[arg(
+        display = "Link",
+        placeholder = "<link id>",
+        desc = LINK_ABOUT,
+        trim,
+        nonempty
+    )]
+    link: String,
+    #[arg(display = "Groups", placeholder = "all", desc = GROUPS_ABOUT)]
+    groups: Option<String>,
+    #[arg(
+        choice,
+        nonempty,
+        display = "From",
+        desc = "start: everything on disk; now: only rows written from now on."
+    )]
+    from: Option<Cursor>,
 }
 
-/// `groups` as a list; empty or absent = all.
-fn arg_groups(args: &Value) -> Vec<String> {
-    arg_str(args, "groups")
-        .map(|s| {
-            s.split(',')
-                .map(str::trim)
-                .filter(|g| !g.is_empty())
-                .map(str::to_owned)
-                .collect()
-        })
-        .unwrap_or_default()
+/// `history/sinks/<name> ▸ edit`: a field left out stays as it is.
+#[derive(Args)]
+struct EditSink {
+    #[arg(
+        display = "Link",
+        placeholder = "<link id>",
+        desc = LINK_ABOUT,
+        trim,
+        nonempty
+    )]
+    link: Option<String>,
+    /// Given and empty: all groups.
+    #[arg(display = "Groups", placeholder = "all", desc = GROUPS_ABOUT)]
+    groups: Option<String>,
+}
+
+/// `history/sinks/<name> ▸ reset_cursor`.
+#[derive(Args)]
+struct ResetCursor {
+    #[arg(
+        choice,
+        display = "To",
+        desc = "start: send everything on disk again; now: skip what is not sent."
+    )]
+    to: Cursor,
+}
+
+/// `history/sinks/<name> ▸ next`: one batch for the sink's link.
+#[derive(Args)]
+struct Next {
+    /// A journal number is whole: `5.5` would confirm row 5 and send row 6 again.
+    #[arg(
+        display = "After",
+        desc = "Confirms every row up to it; empty: the confirmed one."
+    )]
+    after: Option<u64>,
+    #[arg(
+        display = "Max",
+        placeholder = "1000",
+        desc = "Rows at most (5000).",
+        min = 1
+    )]
+    max: Option<u64>,
+}
+
+/// The names of a `groups` field (`a, b`); empty = all.
+fn group_names(text: &str) -> Vec<String> {
+    text.split(',')
+        .map(str::trim)
+        .filter(|g| !g.is_empty())
+        .map(str::to_owned)
+        .collect()
 }
 
 pub(super) async fn declare(ctx: &LinkCtx, ctl: &Control) -> Result<()> {
@@ -105,19 +173,9 @@ pub(super) async fn declare(ctx: &LinkCtx, ctl: &Control) -> Result<()> {
     ctx.declare_action(
         &p,
         "add_sink",
-        ActionMeta::new()
+        AddSink::action()
             .display("Add sink")
             .group(GROUP_NEW)
-            .param("name", str_param().required(true).display("Name"))
-            .param("link", link_param().required(true))
-            .param("groups", groups_param())
-            .param(
-                "from",
-                str_param()
-                    .display("From")
-                    .enum_values(["start", "now"])
-                    .description("start: everything on disk; now: only rows written from now on."),
-            )
             .level(Perm::Config),
     )
     .await?;
@@ -140,40 +198,28 @@ async fn declare_sink(ctx: &LinkCtx, ctl: &Control, name: &str, def: &SinkDef) -
     ctx.declare_action(
         &p,
         "edit",
-        ActionMeta::new()
+        EditSink::action()
             .display("Edit")
             .group(GROUP_EDIT)
-            .param("link", with_default(link_param(), def.link.as_str()))
-            .param(
-                "groups",
-                with_default(groups_param(), &def.groups.join(", ")),
-            )
+            // what is in force, pre-filled
+            .shown("link", |p| p.default(def.link.as_str()))
+            .shown("groups", |p| p.default(def.groups.join(", ")))
             .level(Perm::Config),
     )
     .await?;
     ctx.declare_action(
         &p,
         "reset_cursor",
-        ActionMeta::new()
+        ResetCursor::action()
             .display("Reset cursor")
             .group(GROUP_EDIT)
-            .param(
-                "to",
-                str_param()
-                    .required(true)
-                    .display("To")
-                    .enum_values(["start", "now"])
-                    .description(
-                        "start: send everything on disk again; now: skip what is not sent.",
-                    ),
-            )
             .level(Perm::Config),
     )
     .await?;
     ctx.declare_action(
         &p,
         "remove",
-        ActionMeta::new()
+        <()>::action()
             .display("Remove")
             .group(GROUP_EDIT)
             .level(Perm::Config),
@@ -182,21 +228,8 @@ async fn declare_sink(ctx: &LinkCtx, ctl: &Control, name: &str, def: &SinkDef) -
     ctx.declare_action(
         &p,
         "next",
-        ActionMeta::new()
+        Next::action()
             .display("Next batch")
-            .param(
-                "after",
-                ParamMeta::of(TypeCode::Number)
-                    .display("After")
-                    .description("Confirms every row up to it; empty: the confirmed one."),
-            )
-            .param(
-                "max",
-                ParamMeta::of(TypeCode::Number)
-                    .display("Max")
-                    .placeholder("1000")
-                    .description("Rows at most (5000)."),
-            )
             // the sink's link only: rows after the cursor, and the cursor to ask after next
             .result(ActionResult::Type(TypeCode::Map))
             .level(Perm::Read),
@@ -294,29 +327,21 @@ pub(super) async fn invoke(
     let st = ctl.history.store().clone();
     match (rest, action) {
         ([], "add_sink") => {
-            let name = arg_str(args, "name").ok_or_else(|| LinkError::invalid_parameter("name"))?;
-            let link = arg_str(args, "link").ok_or_else(|| LinkError::invalid_parameter("link"))?;
+            let a = AddSink::decode(args)?;
+            let (name, link) = (a.name.as_str(), a.link.as_str());
             if ctl.registry().historian.sinks.contains_key(name) {
                 return Err(LinkError::invalid_parameter(format!(
                     "sink {name} exists; use its Edit"
                 )));
             }
-            let groups = arg_groups(args);
+            let groups = a.groups.as_deref().map(group_names).unwrap_or_default();
             ctl.apply(Op::PutSink {
                 name: name.to_owned(),
                 link: link.to_owned(),
                 groups: groups.clone(),
             })
             .map_err(rejected)?;
-            let from = match arg_str(args, "from") {
-                None | Some("start") => 0,
-                Some("now") => st.last_seq(),
-                Some(f) => {
-                    return Err(LinkError::invalid_parameter(format!(
-                        "from {f:?}: start or now"
-                    )))
-                }
-            };
+            let from = a.from.unwrap_or(Cursor::Start).seq(&st);
             set_cursor(&st, name, Some(from)).await?;
             ctl.record(
                 sub,
@@ -330,11 +355,12 @@ pub(super) async fn invoke(
             Ok(None)
         }
         ([name], "edit") => {
+            let a = EditSink::decode(args)?;
             let old = sink_def(ctl, name)?;
-            let link = arg_str(args, "link").unwrap_or(&old.link).to_owned();
-            let groups = match arg(args, "groups") {
+            let link = a.link.unwrap_or_else(|| old.link.clone());
+            let groups = match a.groups.as_deref() {
                 None => old.groups.clone(),
-                Some(_) => arg_groups(args),
+                Some(g) => group_names(g),
             };
             ctl.apply(Op::PutSink {
                 name: (*name).to_owned(),
@@ -354,12 +380,9 @@ pub(super) async fn invoke(
             Ok(None)
         }
         ([name], "reset_cursor") => {
+            let a = ResetCursor::decode(args)?;
             sink_def(ctl, name)?;
-            let to = match arg_str(args, "to") {
-                Some("start") => 0,
-                Some("now") => st.last_seq(),
-                _ => return Err(LinkError::invalid_parameter("to: start or now")),
-            };
+            let to = a.to.seq(&st);
             set_cursor(&st, name, Some(to)).await?;
             ctl.record(
                 sub,
@@ -372,6 +395,7 @@ pub(super) async fn invoke(
             Ok(None)
         }
         ([name], "remove") => {
+            <()>::decode(args)?;
             sink_def(ctl, name)?;
             ctl.apply(Op::RemoveSink((*name).to_owned()))
                 .map_err(rejected)?;
@@ -381,7 +405,9 @@ pub(super) async fn invoke(
             ctx.remove_node(&format!("{ROOT}/{SINKS}/{name}")).await?;
             Ok(None)
         }
-        ([name], "next") => next(ctl, ctx, name, args, sub).await.map(Some),
+        ([name], "next") => next(ctl, ctx, name, Next::decode(args)?, sub)
+            .await
+            .map(Some),
         _ => Err(LinkError::not_supported(format!(
             "{ROOT}/{SINKS}/{}/~act/{action}",
             rest.join("/")
@@ -399,7 +425,7 @@ async fn set_cursor(st: &Arc<wyrm_history::Store>, name: &str, seq: Option<u64>)
 
 /// One batch for the sink's link: `{rows: [{seq, key, t, v, q}], next}`.
 /// `after` (default: the confirmed entry) confirms every row up to it.
-async fn next(ctl: &Control, ctx: &LinkCtx, name: &str, args: &Value, sub: &str) -> Result<Value> {
+async fn next(ctl: &Control, ctx: &LinkCtx, name: &str, a: Next, sub: &str) -> Result<Value> {
     let def = sink_def(ctl, name)?;
     // Nobody else moves its cursor: a person who ran it would confirm rows
     // the database never got.
@@ -407,12 +433,10 @@ async fn next(ctl: &Control, ctx: &LinkCtx, name: &str, args: &Value, sub: &str)
         return Err(LinkError::new(Status::PermissionDenied, ""));
     }
     let st = ctl.history.store().clone();
-    // a journal number is whole: `5.5` would confirm row 5 and send row 6 again
-    let after = crate::control::int_arg::<u64>(args, "after")?;
-    let max = match crate::control::int_arg::<u64>(args, "max")? {
+    let after = a.after;
+    let max = match a.max {
         None => DEFAULT_BATCH_ROWS,
-        Some(m) if m >= 1 => usize::try_from(m).map_or(MAX_BATCH_ROWS, |m| m.min(MAX_BATCH_ROWS)),
-        Some(_) => return Err(LinkError::invalid_parameter("max: 1 to 5000")),
+        Some(m) => usize::try_from(m).map_or(MAX_BATCH_ROWS, |m| m.min(MAX_BATCH_ROWS)),
     };
     let keys = wanted(ctl, &def);
     let n = name.to_owned();

@@ -1668,133 +1668,123 @@ fn history_days(store: &wyrm_history::Store, days: Option<u32>) -> Vec<i64> {
     }
 }
 
-/// A list of section names (`list_arg`), each decoded once: a name that is no section
-/// is refused, listing the names there are.
-pub(super) fn section_list_arg(
-    args: &Value,
-    name: &str,
-) -> Result<Option<Vec<SectionName>>, LinkError> {
-    let Some(names) = list_arg(args, name)? else {
-        return Ok(None);
-    };
-    names
-        .iter()
-        .map(|n| {
-            SectionName::from_name(n).ok_or_else(|| {
-                LinkError::invalid_parameter(format!(
-                    "{name}: no section {n:?} (one of {})",
-                    SectionName::NAMES.join(", ")
-                ))
-            })
-        })
-        .collect::<Result<Vec<_>, _>>()
-        .map(Some)
+/// What a broker backup holds: `sys/backups ▸ estimate`, and `create` with its sealing.
+#[derive(Args, Default)]
+pub(super) struct BrokerBackup {
+    #[arg(
+        choice,
+        display = "Sections",
+        desc = format!("Of: {}", format::section_names(Kind::Broker.sections()))
+    )]
+    pub sections: Option<Vec<SectionName>>,
+    #[arg(display = "Links", desc = "Links of the section links; empty: all")]
+    pub links: Option<Vec<String>>,
+    #[arg(
+        display = "History days",
+        desc = "History of the last N days (UTC); empty: all of it"
+    )]
+    pub history_days: Option<u32>,
 }
 
-fn list_arg(args: &Value, name: &str) -> Result<Option<Vec<String>>, LinkError> {
-    let bad = || LinkError::invalid_parameter(format!("{name}: a list of names"));
-    match arg(args, name) {
-        None | Some(Value::Null) => Ok(None),
-        Some(Value::Array(a)) => a
-            .iter()
-            .map(|v| match v {
-                Value::Str(s) => Ok(s.clone()),
-                _ => Err(bad()),
-            })
-            .collect::<Result<Vec<_>, _>>()
-            .map(Some),
-        // a form field: names separated by commas or spaces
-        Some(Value::Str(s)) => Ok(Some(
-            s.split([',', ' '])
-                .filter(|p| !p.is_empty())
-                .map(str::to_owned)
-                .collect(),
-        )),
-        Some(_) => Err(bad()),
-    }
+/// `sys/backups ▸ create`.
+#[derive(Args, Default)]
+pub(super) struct Create {
+    #[arg(flatten)]
+    pub what: BrokerBackup,
+    #[arg(flatten)]
+    pub seal: Passphrase,
 }
 
-/// The passphrase of a call, out of its arguments.
-pub(super) fn passphrase_arg(args: &Value) -> Result<Option<Zeroizing<Vec<u8>>>, LinkError> {
-    match arg(args, "passphrase") {
-        None | Some(Value::Null) => Ok(None),
-        Some(Value::Str(s)) if s.is_empty() => Ok(None),
-        Some(Value::Str(s)) => Ok(Some(Zeroizing::new(s.as_bytes().to_vec()))),
-        Some(_) => Err(LinkError::invalid_parameter("passphrase: text")),
-    }
+/// The passphrase a backup is sealed with.
+#[derive(Args, Default)]
+pub(super) struct Passphrase {
+    #[arg(
+        display = "Passphrase",
+        secret,
+        nonempty,
+        desc = format!(
+            "At least {} characters; only with backups.export_secrets. Without it, link secrets are sealed for this site",
+            crate::keys::MIN_PASSPHRASE
+        )
+    )]
+    pub passphrase: Option<Secret>,
 }
 
-/// The request of `create` / `estimate` (broker) or `backup` (link `Some`).
-pub(super) fn request_of(
-    args: &Value,
-    link: Option<&str>,
-    remote: bool,
-) -> Result<BackupRequest, LinkError> {
-    let sections = section_list_arg(args, "sections")?.unwrap_or_default();
-    let history_days = match int_arg::<u64>(args, "history_days")? {
-        Some(0) | None => None,
-        Some(n) => Some(
-            u32::try_from(n).map_err(|_| LinkError::invalid_parameter("history_days: too many"))?,
-        ),
-    };
-    Ok(BackupRequest {
-        kind: if link.is_some() {
-            Kind::Link
-        } else {
-            Kind::Broker
-        },
-        sections,
-        links: if link.is_some() {
-            None
-        } else {
-            list_arg(args, "links")?
-        },
-        link: link.map(str::to_owned),
-        history_days,
-        seal: match passphrase_arg(args)? {
+/// `sys/links/<id> ▸ backup`.
+#[derive(Args, Default)]
+pub(super) struct BackupLink {
+    #[arg(
+        choice,
+        display = "Sections",
+        desc = format!("Of: {}", format::section_names(Kind::Link.sections()))
+    )]
+    pub sections: Option<Vec<SectionName>>,
+    #[arg(
+        display = "History days",
+        desc = "History of the last N days (UTC); empty: all of it"
+    )]
+    pub history_days: Option<u32>,
+    #[arg(flatten)]
+    pub seal: Passphrase,
+}
+
+/// `sys/backups/<id> ▸ download_part`.
+#[derive(Args)]
+pub(super) struct DownloadPart {
+    #[arg(display = "Offset (bytes)")]
+    pub offset: u64,
+    #[arg(display = "Length (bytes)", desc = "default 4 MiB, at most 16 MiB")]
+    pub len: Option<u64>,
+}
+
+/// A passphrase argument as the bytes a backup is sealed or opened with.
+pub(super) fn passphrase_bytes(p: Option<Secret>) -> Option<Zeroizing<Vec<u8>>> {
+    p.map(|p| Zeroizing::new(p.expose().to_vec()))
+}
+
+/// The request of `create` / `estimate` (broker).
+pub(super) fn broker_request(what: BrokerBackup, seal: Passphrase, remote: bool) -> BackupRequest {
+    BackupRequest {
+        kind: Kind::Broker,
+        sections: what.sections.unwrap_or_default(),
+        links: what.links,
+        link: None,
+        // 0 days is all of it, as an empty field
+        history_days: what.history_days.filter(|n| *n != 0),
+        seal: match passphrase_bytes(seal.passphrase) {
             Some(p) => SealWith::Passphrase(p),
             None => SealWith::None,
         },
-        label: if link.is_some() {
-            JobKind::Link
-        } else {
-            JobKind::Full
-        },
+        label: JobKind::Full,
         pinned: false,
         remote,
         estimate: false,
-    })
+    }
 }
 
-fn passphrase_param() -> ParamMeta {
-    str_param()
-        .display("Passphrase")
-        .editor(Editor::Password)
-        .description(format!(
-            "At least {} characters; only with backups.export_secrets. Without it, link secrets are sealed for this site",
-            crate::keys::MIN_PASSPHRASE
-        ))
-}
-
-fn sections_param(kind: Kind) -> ParamMeta {
-    ParamMeta::of(TypeCode::Array)
-        .display("Sections")
-        .description(format!("Of: {}", format::section_names(kind.sections())))
-}
-
-fn history_days_param() -> ParamMeta {
-    ParamMeta::of(TypeCode::Number)
-        .display("History days")
-        .description("History of the last N days (UTC); empty: all of it")
+/// The request of `backup` of the link `link`.
+pub(super) fn link_request(a: BackupLink, link: &str, remote: bool) -> BackupRequest {
+    BackupRequest {
+        kind: Kind::Link,
+        sections: a.sections.unwrap_or_default(),
+        links: None,
+        link: Some(link.to_owned()),
+        history_days: a.history_days.filter(|n| *n != 0),
+        seal: match passphrase_bytes(a.seal.passphrase) {
+            Some(p) => SealWith::Passphrase(p),
+            None => SealWith::None,
+        },
+        label: JobKind::Link,
+        pinned: false,
+        remote,
+        estimate: false,
+    }
 }
 
 /// The `backup` action of a link node (`sys/links/<id>`).
 pub(super) fn link_backup_action() -> ActionMeta {
-    ActionMeta::new()
+    BackupLink::action()
         .display("Back up")
-        .param("sections", sections_param(Kind::Link))
-        .param("history_days", history_days_param())
-        .param("passphrase", passphrase_param())
         .result(ActionResult::Type(TypeCode::Map))
         .level(Perm::Config)
 }
@@ -1834,33 +1824,26 @@ pub(super) async fn declare(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Resu
             ),
     )
     .await?;
-    let request = |m: ActionMeta| {
-        m.param("sections", sections_param(Kind::Broker))
-            .param(
-                "links",
-                ParamMeta::of(TypeCode::Array)
-                    .display("Links")
-                    .description("Links of the section links; empty: all"),
-            )
-            .param("history_days", history_days_param())
-            .result(ActionResult::Type(TypeCode::Map))
-            .level(Perm::Config)
-    };
     ctx.declare_action(
         "backups",
         "create",
-        request(ActionMeta::new().display("Back up").group(GROUP_NEW))
-            .param("passphrase", passphrase_param()),
+        Create::action()
+            .display("Back up")
+            .group(GROUP_NEW)
+            .result(ActionResult::Type(TypeCode::Map))
+            .level(Perm::Config),
     )
     .await?;
     ctx.declare_action(
         "backups",
         "estimate",
-        request(ActionMeta::new().display("Estimate")),
+        BrokerBackup::action()
+            .display("Estimate")
+            .result(ActionResult::Type(TypeCode::Map))
+            .level(Perm::Config),
     )
     .await?;
-    super::restore::declare(ctx).await?;
-    super::restore::declare_broker(ctx).await
+    super::restore::declare(ctx).await
 }
 
 fn job_node(j: &Job) -> NodeMeta {
@@ -1908,20 +1891,8 @@ async fn declare_job(ctx: &LinkCtx, j: &Job) -> wyrm_link_sdk::Result<()> {
     ctx.declare_action(
         &path,
         "download_part",
-        ActionMeta::new()
+        DownloadPart::action()
             .display("Download part")
-            .param(
-                "offset",
-                ParamMeta::of(TypeCode::Number)
-                    .required(true)
-                    .display("Offset (bytes)"),
-            )
-            .param(
-                "len",
-                ParamMeta::of(TypeCode::Number)
-                    .display("Length (bytes)")
-                    .description("default 4 MiB, at most 16 MiB"),
-            )
             .result(ActionResult::Type(TypeCode::Map))
             .timeout_ms(60_000)
             .level(Perm::Config),
@@ -1930,7 +1901,7 @@ async fn declare_job(ctx: &LinkCtx, j: &Job) -> wyrm_link_sdk::Result<()> {
     ctx.declare_action(
         &path,
         "remove",
-        ActionMeta::new()
+        <()>::action()
             .display("Remove")
             .group(GROUP_EDIT)
             .level(Perm::Config),
@@ -2089,7 +2060,8 @@ pub(super) async fn invoke(
 ) -> wyrm_link_sdk::Result<Option<Value>> {
     match (rest, action) {
         ([], "create") => {
-            let id = ctl.backup_start(request_of(args, None, remote)?, sub)?;
+            let a = Create::decode(args)?;
+            let id = ctl.backup_start(broker_request(a.what, a.seal, remote), sub)?;
             show_job(ctx, ctl, &id).await;
             Ok(Some(Value::Map(BTreeMap::from([(
                 "id".to_owned(),
@@ -2099,7 +2071,8 @@ pub(super) async fn invoke(
         ([], "estimate") => {
             // sizes do not depend on the sealing: every section is estimated,
             // also one this caller could not make
-            let mut req = request_of(args, None, false)?;
+            let what = BrokerBackup::decode(args)?;
+            let mut req = broker_request(what, Passphrase::default(), false);
             req.seal = SealWith::Broker;
             req.estimate = true;
             let ctl2 = ctl.clone();
@@ -2122,15 +2095,11 @@ pub(super) async fn invoke(
             ]))))
         }
         ([id], "download_part") => {
+            let a = DownloadPart::decode(args)?;
             if let Some(job) = ctl.backups.get(id) {
                 may_download(&job, remote)?;
             }
-            let offset = int_arg::<u64>(args, "offset")?
-                .ok_or_else(|| LinkError::invalid_parameter("offset: required"))?;
-            let len = match int_arg::<u64>(args, "len")? {
-                Some(n) => n,
-                None => int_arg::<u64>(args, "length")?.unwrap_or(DEFAULT_PART),
-            };
+            let (offset, len) = (a.offset, a.len.unwrap_or(DEFAULT_PART));
             let (ctl2, id2) = (ctl.clone(), (*id).to_owned());
             let (data, size) =
                 tokio::task::spawn_blocking(move || ctl2.backup_part(&id2, offset, len))
@@ -2154,6 +2123,7 @@ pub(super) async fn invoke(
             ]))))
         }
         ([id], "remove") => {
+            <()>::decode(args)?;
             match ctl.backups.get(id) {
                 None => return Err(LinkError::not_found(format!("backup {id}"))),
                 Some(j) if j.status == JobStatus::Running => {
@@ -2490,29 +2460,71 @@ mod tests {
                 "sections".to_owned(),
                 Value::Array(vec!["storage".into(), "keys".into()]),
             ),
-            ("links".to_owned(), Value::from("a, b")),
+            (
+                "links".to_owned(),
+                Value::Array(vec!["a".into(), "b".into()]),
+            ),
             ("history_days".to_owned(), Value::Float(7.0)),
             (
                 "passphrase".to_owned(),
                 Value::from("correct horse battery"),
             ),
         ]));
-        let r = request_of(&args, None, false).unwrap();
+        let a = Create::decode(&args).unwrap();
+        let r = broker_request(a.what, a.seal, false);
         assert_eq!(r.sections, [SectionName::Storage, SectionName::Keys]);
         assert_eq!(r.links, Some(vec!["a".to_owned(), "b".to_owned()]));
         assert_eq!(r.history_days, Some(7));
         assert!(matches!(r.seal, SealWith::Passphrase(_)));
-        let r = request_of(&Value::Map(BTreeMap::new()), Some("plc"), true).unwrap();
+        let a = BackupLink::decode(&Value::Map(BTreeMap::new())).unwrap();
+        let r = link_request(a, "plc", true);
         assert!(r.remote);
         assert!(r.kind == Kind::Link && r.link.as_deref() == Some("plc"));
         assert!(matches!(r.seal, SealWith::None) && r.history_days.is_none());
-        let bad = Value::Map(BTreeMap::from([("sections".to_owned(), Value::UInt(1))]));
-        assert!(request_of(&bad, None, false).is_err());
-        let bad = Value::Map(BTreeMap::from([(
-            "history_days".to_owned(),
-            Value::Float(1.5),
-        )]));
-        assert!(request_of(&bad, None, false).is_err());
+        // 0 days and an empty passphrase are "not given"
+        let a = Create::decode(&Value::Map(BTreeMap::from([
+            ("history_days".to_owned(), Value::UInt(0)),
+            ("passphrase".to_owned(), Value::from("")),
+        ])))
+        .unwrap();
+        let r = broker_request(a.what, a.seal, false);
+        assert!(matches!(r.seal, SealWith::None) && r.history_days.is_none());
+        // each refusal names its field
+        for (field, bad) in [
+            ("sections", Value::UInt(1)),
+            // the declared type is a list: a text of names is not one
+            ("sections", Value::from("storage, keys")),
+            (
+                "sections",
+                Value::Array(vec!["storage".into(), "nope".into()]),
+            ),
+            ("links", Value::from("a, b")),
+            ("history_days", Value::Float(1.5)),
+            ("history_days", Value::UInt(1 << 40)),
+            ("passphrase", Value::UInt(1)),
+            // `length` was read beside `len` and never declared
+            ("length", Value::UInt(1)),
+        ] {
+            let args = Value::Map(BTreeMap::from([(field.to_owned(), bad.clone())]));
+            let e = Create::decode(&args).map(|_| ()).unwrap_err();
+            assert_eq!(e.field, field, "{bad:?}");
+        }
+        let part = |kv: &[(&str, Value)]| {
+            DownloadPart::decode(&Value::Map(
+                kv.iter()
+                    .map(|(k, v)| ((*k).to_owned(), v.clone()))
+                    .collect(),
+            ))
+            .map(|a| (a.offset, a.len))
+        };
+        assert_eq!(part(&[("offset", Value::UInt(8))]), Ok((8, None)));
+        assert_eq!(part(&[]).unwrap_err().field, "offset");
+        assert_eq!(
+            part(&[("offset", Value::UInt(0)), ("length", Value::UInt(1))])
+                .unwrap_err()
+                .field,
+            "length"
+        );
     }
 
     /// Review of PR 72, item 7: the rule of `create` (a site's keys and

@@ -151,8 +151,31 @@ pub fn check_folder(folder: &str) -> Result<(), String> {
     }
 }
 
+/// `sys/backups/<id> ▸ send`.
+#[derive(Args)]
+pub(super) struct Send {
+    #[arg(
+        display = "File store link",
+        desc = "One of backups.send_links (attribute send_links of sys/backups)",
+        nonempty
+    )]
+    pub link: String,
+    #[arg(
+        display = "Connection",
+        desc = "A connection of the link; the file goes into the host's folder of it"
+    )]
+    pub connection: String,
+    #[arg(
+        display = "File name",
+        desc = "Below the host's folder: a file name, or sub-folders and a file name. \
+                Default: the backup's own name",
+        nonempty
+    )]
+    pub path: Option<String>,
+}
+
 /// Check the arguments of `send` for the job `j` against the host's list.
-fn target_of(j: &Job, args: &Value, send_links: &[SendLink]) -> Result<Target, LinkError> {
+fn target_of(j: &Job, a: &Send, send_links: &[SendLink]) -> Result<Target, LinkError> {
     let bad = |m: &str| LinkError::invalid_parameter(m.to_owned());
     if j.status != JobStatus::Done {
         return Err(LinkError::new(
@@ -166,9 +189,7 @@ fn target_of(j: &Job, args: &Value, send_links: &[SendLink]) -> Result<Target, L
              gateway",
         ));
     }
-    let link = arg_str(args, "link")
-        .filter(|l| !l.is_empty())
-        .ok_or_else(|| bad("link: required"))?;
+    let link = a.link.as_str();
     crate::registry::validate_link_id(link).map_err(|e| bad(&e))?;
     let Some(entry) = send_links.iter().find(|l| l.link == link) else {
         return Err(bad(&format!(
@@ -177,15 +198,12 @@ fn target_of(j: &Job, args: &Value, send_links: &[SendLink]) -> Result<Target, L
         )));
     };
     check_folder(&entry.folder).map_err(|e| bad(&format!("backups.send_links: {e}")))?;
-    let conn = arg_str(args, "connection")
+    let conn = Some(a.connection.as_str())
         .filter(|c| plain(c))
         .ok_or_else(|| bad("connection: required, a connection of the link"))?;
     // the path is below the host's folder: a file name, or sub-folders and
     // a file name. It is never absolute and never climbs.
-    let path = match arg_str(args, "path").filter(|p| !p.is_empty()) {
-        Some(p) => p,
-        None => j.file.as_str(),
-    };
+    let path = a.path.as_deref().unwrap_or(j.file.as_str());
     let segs: Vec<&str> = path.split('/').collect();
     if !segs.iter().all(|s| plain(s)) {
         return Err(bad(&format!(
@@ -381,14 +399,14 @@ pub(super) async fn send(
     ctl: &Arc<Control>,
     ctx: &LinkCtx,
     id: &str,
-    args: &Value,
+    a: Send,
     sub: &str,
 ) -> wyrm_link_sdk::Result<Option<Value>> {
     let job = ctl
         .backups()
         .get(id)
         .ok_or_else(|| LinkError::not_found(format!("backup {id}")))?;
-    let to = target_of(&job, args, &ctl.cfg.backups.send_links)?;
+    let to = target_of(&job, &a, &ctl.cfg.backups.send_links)?;
     if !ctl.registry().links.contains_key(&to.link) {
         return Err(LinkError::not_found(format!("link {}", to.link)));
     }
@@ -484,31 +502,8 @@ pub(super) async fn declare(ctx: &LinkCtx, path: &str) -> wyrm_link_sdk::Result<
     ctx.declare_action(
         path,
         "send",
-        ActionMeta::new()
+        Send::action()
             .display("Send to a file store")
-            .param(
-                "link",
-                str_param()
-                    .required(true)
-                    .display("File store link")
-                    .description("One of backups.send_links (attribute send_links of sys/backups)"),
-            )
-            .param(
-                "connection",
-                str_param()
-                    .required(true)
-                    .display("Connection")
-                    .description(
-                        "A connection of the link; the file goes into the host's folder of it",
-                    ),
-            )
-            .param(
-                "path",
-                str_param().display("File name").description(
-                    "Below the host's folder: a file name, or sub-folders and a file name. \
-                         Default: the backup's own name",
-                ),
-            )
             .result(ActionResult::Type(TypeCode::Map))
             .timeout_ms(INSTALL_TIMEOUT_MS)
             .level(Perm::Config),
@@ -519,6 +514,12 @@ pub(super) async fn declare(ctx: &LinkCtx, path: &str) -> wyrm_link_sdk::Result<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `send`'s arguments decoded, then checked against the host's list.
+    fn target(j: &Job, args: &Value, send_links: &[SendLink]) -> Result<Target, LinkError> {
+        let a = Send::decode(args)?;
+        target_of(j, &a, send_links)
+    }
 
     /// Review of #127: the commit's state is one of the file store's; another answer
     /// ends the send at once (it was polled until the timeout).
@@ -592,7 +593,7 @@ mod tests {
     fn send_is_refused_without_the_hosts_list_and_for_keys() {
         let allowed = host("files", "backups");
         let ok = args(&[("link", "files"), ("connection", "c1")]);
-        let t = target_of(&job(&["control", "storage"]), &ok, &allowed).unwrap();
+        let t = target(&job(&["control", "storage"]), &ok, &allowed).unwrap();
         assert_eq!(
             (t.conn.as_str(), t.folder.as_str(), t.name.as_str()),
             (
@@ -606,20 +607,20 @@ mod tests {
             "files/c1/files/backups/plant-20261113T101502Z.wyrm-backup"
         );
         // the default: no link is one the broker sends through
-        let e = target_of(&job(&["control"]), &ok, &[]).unwrap_err();
+        let e = target(&job(&["control"]), &ok, &[]).unwrap_err();
         assert!(e.message.contains("backups.send_links"), "{e}");
         assert!(e.status.code() >= 0x20);
         // another link than the host named
         let other = args(&[("link", "s3"), ("connection", "c1")]);
-        let e = target_of(&job(&["control"]), &other, &allowed).unwrap_err();
+        let e = target(&job(&["control"]), &other, &allowed).unwrap_err();
         assert!(e.message.contains("backups.send_links"), "{e}");
         // a backup with the site's keys never goes to a store
-        let e = target_of(&job(&["control", "keys"]), &ok, &allowed).unwrap_err();
+        let e = target(&job(&["control", "keys"]), &ok, &allowed).unwrap_err();
         assert!(e.message.contains("keys"), "{e}");
         assert!(e.status.code() >= 0x20);
         let mut running = job(&["control"]);
         running.status = JobStatus::Running;
-        let e = target_of(&running, &ok, &allowed).unwrap_err();
+        let e = target(&running, &ok, &allowed).unwrap_err();
         assert_eq!(e.status, Status::Busy, "{e}");
     }
 
@@ -633,7 +634,7 @@ mod tests {
         let allowed = host("files", "site/backups");
         let j = job(&["control"]);
         let with = |path: &str| args(&[("link", "files"), ("connection", "c1"), ("path", path)]);
-        let t = target_of(&j, &with("2026/nightly.wyrm-backup"), &allowed).unwrap();
+        let t = target(&j, &with("2026/nightly.wyrm-backup"), &allowed).unwrap();
         assert_eq!(t.root, "c1/files/site/backups");
         assert_eq!(t.folder, "c1/files/site/backups/2026");
         assert_eq!(t.name, "nightly.wyrm-backup");
@@ -651,21 +652,21 @@ mod tests {
             "c1/files/../x",
             "a b\u{0}",
         ] {
-            let e = target_of(&j, &with(path), &allowed).expect_err(path);
+            let e = target(&j, &with(path), &allowed).expect_err(path);
             assert!(e.message.contains("path"), "{path}: {e}");
             assert!(e.status.code() >= 0x20);
         }
         // the connection is one name, not a way to another node
         for conn in ["", "c1/files", "..", "c1/../c2", "a:b"] {
             let a = args(&[("link", "files"), ("connection", conn)]);
-            assert!(target_of(&j, &a, &allowed).is_err(), "{conn}");
+            assert!(target(&j, &a, &allowed).is_err(), "{conn}");
         }
         let none = args(&[("link", "files")]);
-        assert!(target_of(&j, &none, &allowed).is_err());
+        assert!(target(&j, &none, &allowed).is_err());
         // a folder of the host that is no plain path is refused, not used
         for folder in ["", "../x", "/abs", "a//b", "a/.."] {
             assert!(check_folder(folder).is_err(), "{folder}");
-            let e = target_of(&j, &with("x"), &host("files", folder)).unwrap_err();
+            let e = target(&j, &with("x"), &host("files", folder)).unwrap_err();
             assert!(e.message.contains("send_links"), "{folder}: {e}");
         }
         assert!(check_folder("backups").is_ok() && check_folder("a/b").is_ok());

@@ -28,8 +28,8 @@
 //! ([`resume`]), with the time it had left.
 
 use super::{
-    accepted, arg, arg_str, decode_params, encode_params, install_detail, now_s, outcome, packages,
-    rejected, secret, str_param, Admin, BusyOwned, Control, INSTALL_TIMEOUT_MS,
+    decode_params, encode_params, install_detail, now_s, outcome, packages, rejected, secret,
+    Admin, BusyOwned, Control, INSTALL_TIMEOUT_MS,
 };
 use crate::registry::{
     LinkDef, LinkGrant, Op, Origin, PackageDef, PackageKind, PreviousDef, UpdateReport,
@@ -41,10 +41,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, warn};
-use wyrm_core::meta::{ActionResult, ParamMeta, GROUP_EDIT};
-use wyrm_core::{ActionMeta, NodeMeta, Perm, Quality, Status, TypeCode, Value};
+use wyrm_core::meta::{ActionResult, GROUP_EDIT};
+use wyrm_core::{NodeMeta, Perm, Quality, Status, TypeCode, Value};
 use wyrm_link_sdk::package::{Capabilities, RepoEntry};
-use wyrm_link_sdk::{now_us, LinkCtx, LinkError};
+use wyrm_link_sdk::{now_us, Args, LinkCtx, LinkError};
 
 /// `auto_rollback_s` when the caller names none (ADR 0048 §1.2).
 pub const DEFAULT_AUTO_ROLLBACK_S: u32 = 120;
@@ -67,19 +67,43 @@ const KEEP_TICK: Duration = Duration::from_secs(15);
 /// `hello` to the new one first.
 const RESUME_MIN: Duration = Duration::from_secs(30);
 
-/// The arguments an update takes beside `accept` (ADR 0048 §1.2); ignored by
-/// an install of a package that is not installed yet.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// The arguments every install and update takes (ADR 0048 §1.2); the last two
+/// are ignored by an install of a package that is not installed yet.
+#[derive(Args, Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct UpdateOpts {
+    /// The caller has seen what the package asks for (review WASM-1): its
+    /// network allowlist and grants, or what a new version asks for beyond
+    /// what its links have.
+    #[arg(
+        display = "Accept requested rights",
+        desc = "The package's network allowlist and grants: an install without this \
+                shows them and installs nothing",
+        absent = false
+    )]
+    pub accept: bool,
     /// Take a restore point of every link first. Forced when the update
     /// changes the store format: `false` is then refused.
+    #[arg(
+        display = "Save a restore point",
+        desc = "An update (the package is installed already): keep each link's private data \
+                for a rollback. Default true; false is refused when the new version changes \
+                the store format",
+        absent = true
+    )]
     pub restore_point: bool,
     /// Seconds the links have to come back with every key before the broker
     /// rolls back by itself; 0 keeps the new version and reports.
+    #[arg(
+        display = "Roll back by itself after (s)",
+        desc = format!(
+            "An update: the links must come back with every node within this time, else \
+             the broker rolls back. Default {DEFAULT_AUTO_ROLLBACK_S}, at most \
+             {MAX_AUTO_ROLLBACK_S}; 0 keeps the new version and reports"
+        ),
+        max = MAX_AUTO_ROLLBACK_S,
+        absent = DEFAULT_AUTO_ROLLBACK_S
+    )]
     pub auto_rollback_s: u32,
-    /// The caller has seen what the new version asks for beyond what its
-    /// links have (`accept`); set by the install that runs the update.
-    pub accept: bool,
 }
 
 impl Default for UpdateOpts {
@@ -92,50 +116,38 @@ impl Default for UpdateOpts {
     }
 }
 
-impl UpdateOpts {
-    pub fn from_args(args: &Value) -> Result<Self, LinkError> {
-        let mut o = Self::default();
-        match arg(args, "restore_point") {
-            None | Some(Value::Null) => {}
-            Some(Value::Bool(b)) => o.restore_point = *b,
-            Some(_) => return Err(LinkError::invalid_parameter("restore_point: true or false")),
-        }
-        match arg(args, "auto_rollback_s") {
-            None | Some(Value::Null) => {}
-            Some(v) => {
-                o.auto_rollback_s = v
-                    .to_int::<u32>()
-                    .ok()
-                    .filter(|n| *n <= MAX_AUTO_ROLLBACK_S)
-                    .ok_or_else(|| {
-                        LinkError::invalid_parameter(format!(
-                            "auto_rollback_s: 0 (keep and report) to {MAX_AUTO_ROLLBACK_S}"
-                        ))
-                    })?;
-            }
-        }
-        Ok(o)
-    }
+/// `packages/<name> ▸ update`.
+#[derive(Args)]
+pub(super) struct UpdatePackage {
+    #[arg(
+        display = "Version",
+        desc = "Default: the repository's (`latest`)",
+        trim,
+        nonempty
+    )]
+    pub version: Option<String>,
+    #[arg(flatten)]
+    pub opts: UpdateOpts,
 }
 
-pub(super) fn restore_point_param() -> ParamMeta {
-    ParamMeta::of(TypeCode::Bool)
-        .display("Save a restore point")
-        .description(
-            "An update (the package is installed already): keep each link's private data \
-             for a rollback. Default true; false is refused when the new version changes \
-             the store format",
-        )
-}
-
-pub(super) fn auto_rollback_param() -> ParamMeta {
-    ParamMeta::of(TypeCode::Number)
-        .display("Roll back by itself after (s)")
-        .description(format!(
-            "An update: the links must come back with every node within this time, else \
-             the broker rolls back. Default {DEFAULT_AUTO_ROLLBACK_S}, at most \
-             {MAX_AUTO_ROLLBACK_S}; 0 keeps the new version and reports"
-        ))
+/// `packages/<name> ▸ rollback`.
+#[derive(Args)]
+pub(super) struct RollbackPackage {
+    #[arg(
+        display = "Version",
+        desc = "Default: the kept version (`previous`)",
+        trim,
+        nonempty
+    )]
+    pub to: Option<String>,
+    #[arg(
+        display = "Restore the links' data",
+        desc = "Put each link's private data back to its restore point of the \
+                update: what was configured since is lost. Default: true when the \
+                update changed the store format (false is then refused) or did not \
+                end well (links or nodes gone); else the links keep the data they have"
+    )]
+    pub restore_data: Option<bool>,
 }
 
 fn map(pairs: Vec<(&str, Value)>) -> Value {
@@ -362,57 +374,30 @@ pub(super) async fn declare_values(
     ctx.declare_action(
         &node,
         "update",
-        ActionMeta::new()
+        UpdatePackage::action()
             .display("Update")
             .group(GROUP_EDIT)
             .result(ActionResult::Type(TypeCode::Map))
             .timeout_ms(INSTALL_TIMEOUT_MS)
             .level(Perm::Config)
-            .param(
-                "version",
-                str_param()
-                    .display("Version")
-                    .description("Default: the repository's (`latest`)"),
-            )
-            .param(
-                "accept",
-                ParamMeta::of(TypeCode::Bool)
-                    .display("Accept requested rights")
-                    .description(
-                        "Network entries and grants the new version asks for beyond what \
-                         the links have: an update without this shows them and changes nothing",
-                    ),
-            )
-            .param("restore_point", restore_point_param())
-            .param("auto_rollback_s", auto_rollback_param()),
+            // an update shows what the new version asks for beyond the old one
+            .shown("accept", |p| {
+                p.description(
+                    "Network entries and grants the new version asks for beyond what \
+                     the links have: an update without this shows them and changes nothing",
+                )
+            }),
     )
     .await?;
     ctx.declare_action(
         &node,
         "rollback",
-        ActionMeta::new()
+        RollbackPackage::action()
             .display("Roll back")
             .group(GROUP_EDIT)
             .result(ActionResult::Type(TypeCode::Map))
             .timeout_ms(INSTALL_TIMEOUT_MS)
-            .level(Perm::Config)
-            .param(
-                "to",
-                str_param()
-                    .display("Version")
-                    .description("Default: the kept version (`previous`)"),
-            )
-            .param(
-                "restore_data",
-                ParamMeta::of(TypeCode::Bool)
-                    .display("Restore the links' data")
-                    .description(
-                        "Put each link's private data back to its restore point of the \
-                         update: what was configured since is lost. Default: true when the \
-                         update changed the store format (false is then refused) or did not \
-                         end well (links or nodes gone); else the links keep the data they have",
-                    ),
-            ),
+            .level(Perm::Config),
     )
     .await?;
     publish_package(ctx, ctl, p).await;
@@ -1895,7 +1880,7 @@ impl Admin {
     pub(super) async fn update_action(
         &self,
         name: &str,
-        args: &Value,
+        a: UpdatePackage,
         sub: &str,
     ) -> wyrm_link_sdk::Result<Option<Value>> {
         let def = self
@@ -1905,12 +1890,10 @@ impl Admin {
             .get(name)
             .cloned()
             .ok_or_else(|| LinkError::not_found(name.to_owned()))?;
-        let opts = UpdateOpts::from_args(args)?;
+        let opts = a.opts;
         let _busy = self.ctl.busy()?;
         self.ctl.not_updating(name)?;
-        let wanted = arg_str(args, "version")
-            .map(str::trim)
-            .filter(|v| !v.is_empty());
+        let wanted = a.version.as_deref();
         let check = || -> Result<String, String> {
             let e = index_entry(&self.ctl, name).ok_or_else(|| {
                 format!(
@@ -1940,10 +1923,7 @@ impl Admin {
                 })
         };
         let r = match check() {
-            Ok(link) => {
-                self.install_from_repo(&link, name, sub, accepted(args), opts)
-                    .await
-            }
+            Ok(link) => self.install_from_repo(&link, name, sub, opts).await,
             Err(e) => Err(e),
         };
         Ok(Some(outcome(r)))
@@ -1954,7 +1934,7 @@ impl Admin {
     pub(super) async fn rollback_action(
         &self,
         name: &str,
-        args: &Value,
+        a: RollbackPackage,
         sub: &str,
     ) -> wyrm_link_sdk::Result<Option<Value>> {
         let def = self
@@ -1964,11 +1944,7 @@ impl Admin {
             .get(name)
             .cloned()
             .ok_or_else(|| LinkError::not_found(name.to_owned()))?;
-        let restore_data = match arg(args, "restore_data") {
-            None | Some(Value::Null) => None,
-            Some(Value::Bool(b)) => Some(*b),
-            Some(_) => return Err(LinkError::invalid_parameter("restore_data: true or false")),
-        };
+        let restore_data = a.restore_data;
         let _busy = self.ctl.busy()?;
         let prev = match def.previous.as_deref() {
             Some(p) => p,
@@ -1978,10 +1954,7 @@ impl Admin {
                 )))))
             }
         };
-        if let Some(to) = arg_str(args, "to")
-            .map(str::trim)
-            .filter(|v| !v.is_empty() && *v != prev.def.version)
-        {
+        if let Some(to) = a.to.as_deref().filter(|v| *v != prev.def.version) {
             return Ok(Some(outcome(Err(format!(
                 "{name}: the kept version is {}, not {to}",
                 prev.def.version
@@ -2571,14 +2544,14 @@ mod tests {
     fn options() {
         let args = |pairs: Vec<(&str, Value)>| map(pairs);
         assert_eq!(
-            UpdateOpts::from_args(&args(vec![])).unwrap(),
+            UpdateOpts::decode(&args(vec![])).unwrap(),
             UpdateOpts {
                 restore_point: true,
                 auto_rollback_s: 120,
                 accept: false
             }
         );
-        let o = UpdateOpts::from_args(&args(vec![
+        let o = UpdateOpts::decode(&args(vec![
             ("restore_point", Value::Bool(false)),
             ("auto_rollback_s", Value::UInt(0)),
         ]))
@@ -2590,7 +2563,9 @@ mod tests {
             ("auto_rollback_s", Value::Str("soon".into())),
             ("restore_point", Value::Str("yes".into())),
         ] {
-            let e = UpdateOpts::from_args(&args(vec![bad.clone()])).unwrap_err();
+            let e: LinkError = UpdateOpts::decode(&args(vec![bad.clone()]))
+                .unwrap_err()
+                .into();
             assert!(e.status.code() >= 0x20, "{bad:?}: a refusal is an error");
             assert!(e.message.contains(bad.0), "{}", e.message);
         }
