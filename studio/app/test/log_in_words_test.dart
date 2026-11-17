@@ -9,6 +9,7 @@ import 'package:device_key/testing.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:models/change_op.dart';
 import 'package:models/lock_error.dart';
 import 'package:models/login_failure.dart';
 import 'package:models/node_info.dart';
@@ -604,7 +605,7 @@ void main() {
               for (var i = 0; i < 3; i++)
                 'c$i': StagedChange(
                   id: 'c$i',
-                  op: 'Edit',
+                  op: ChangeOp.edit,
                   key: 'wy/plant/sys/x$i',
                   field: 'value',
                   to: '$i',

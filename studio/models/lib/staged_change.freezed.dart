@@ -16,8 +16,8 @@ T _$identity<T>(T value) => value;
 mixin _$StagedChange {
 
 /// Unique within the session.
- String get id;/// `Edit`, `Add` or `Remove`, as the review card says it.
- String get op;/// The node or value the change is on.
+ String get id;/// What it does, as the review card says it.
+ ChangeOp get op;/// The node or value the change is on.
  String get key;/// What changes (`poll`, `value`, `params`).
  String get field;/// Shown in ember/new.
  String get to;/// The level applying it needs; every stager states it, none is
@@ -61,7 +61,7 @@ abstract mixin class $StagedChangeCopyWith<$Res>  {
   factory $StagedChangeCopyWith(StagedChange value, $Res Function(StagedChange) _then) = _$StagedChangeCopyWithImpl;
 @useResult
 $Res call({
- String id, String op, String key, String field, String to, Perm level, String from, Object? value, String? action, IMap<String, Object?> args
+ String id, ChangeOp op, String key, String field, String to, Perm level, String from, Object? value, String? action, IMap<String, Object?> args
 });
 
 
@@ -82,7 +82,7 @@ class _$StagedChangeCopyWithImpl<$Res>
   return _then(StagedChange(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as String,op: null == op ? _self.op : op // ignore: cast_nullable_to_non_nullable
-as String,key: null == key ? _self.key : key // ignore: cast_nullable_to_non_nullable
+as ChangeOp,key: null == key ? _self.key : key // ignore: cast_nullable_to_non_nullable
 as String,field: null == field ? _self.field : field // ignore: cast_nullable_to_non_nullable
 as String,to: null == to ? _self.to : to // ignore: cast_nullable_to_non_nullable
 as String,level: null == level ? _self.level : level // ignore: cast_nullable_to_non_nullable
@@ -106,8 +106,8 @@ class _StagedChange implements StagedChange {
 
 /// Unique within the session.
 @override final  String id;
-/// `Edit`, `Add` or `Remove`, as the review card says it.
-@override final  String op;
+/// What it does, as the review card says it.
+@override final  ChangeOp op;
 /// The node or value the change is on.
 @override final  String key;
 /// What changes (`poll`, `value`, `params`).
@@ -157,7 +157,7 @@ abstract mixin class _$StagedChangeCopyWith<$Res> implements $StagedChangeCopyWi
   factory _$StagedChangeCopyWith(_StagedChange value, $Res Function(_StagedChange) _then) = __$StagedChangeCopyWithImpl;
 @override @useResult
 $Res call({
- String id, String op, String key, String field, String to, Perm level, String from, Object? value, String? action, IMap<String, Object?> args
+ String id, ChangeOp op, String key, String field, String to, Perm level, String from, Object? value, String? action, IMap<String, Object?> args
 });
 
 
@@ -178,7 +178,7 @@ class __$StagedChangeCopyWithImpl<$Res>
   return _then(_StagedChange(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as String,op: null == op ? _self.op : op // ignore: cast_nullable_to_non_nullable
-as String,key: null == key ? _self.key : key // ignore: cast_nullable_to_non_nullable
+as ChangeOp,key: null == key ? _self.key : key // ignore: cast_nullable_to_non_nullable
 as String,field: null == field ? _self.field : field // ignore: cast_nullable_to_non_nullable
 as String,to: null == to ? _self.to : to // ignore: cast_nullable_to_non_nullable
 as String,level: null == level ? _self.level : level // ignore: cast_nullable_to_non_nullable

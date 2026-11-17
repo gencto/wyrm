@@ -17,6 +17,7 @@ import 'package:business/redux/nodes/actions/stage_value_action.dart';
 import 'package:business/wyrm/failures.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:models/change_op.dart';
 import 'package:models/error_call.dart';
 import 'package:models/error_hint.dart';
 import 'package:models/staged_change.dart';
@@ -35,7 +36,7 @@ const _key = 'wy/central/downstream/m/sp';
 
 const _change = StagedChange(
   id: 'c1',
-  op: 'Edit',
+  op: ChangeOp.edit,
   key: _key,
   field: 'value',
   to: '21.5',

@@ -1799,6 +1799,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "cfgModel": MessageLookupByLibrary.simpleMessage("Model"),
     "cfgPrefixes": MessageLookupByLibrary.simpleMessage("May change"),
     "changeAnswers": MessageLookupByLibrary.simpleMessage("Change the answers"),
+    "changeOpAdd": MessageLookupByLibrary.simpleMessage("Add"),
+    "changeOpEdit": MessageLookupByLibrary.simpleMessage("Edit"),
+    "changeOpRemove": MessageLookupByLibrary.simpleMessage("Remove"),
     "changesGuess": m79,
     "checkAtRun": MessageLookupByLibrary.simpleMessage(
       "checked when it runs: an earlier step makes this node",

@@ -1,7 +1,9 @@
 import 'package:business/wyrm/shell.dart';
+import 'package:models/change_op.dart';
 import 'package:models/site_choice.dart';
 import 'package:models/site_relation.dart';
 import 'package:models/workspace.dart';
+import 'package:ui/overlays/review_panel.dart';
 import 'package:ui/shell/studio_frame.dart';
 
 import 'rights_mappers.dart';
@@ -46,10 +48,18 @@ extension SiteChoiceVmOf on SiteChoice {
   );
 }
 
+extension ChangeOpTagOf on ChangeOp {
+  ChangeOpTag get tag => switch (this) {
+    ChangeOp.edit => .edit,
+    ChangeOp.add => .add,
+    ChangeOp.remove => .remove,
+  };
+}
+
 extension ReviewCardDataOf on ReviewCard {
   ReviewCardData get data => ReviewCardData(
     id: change.id,
-    op: change.op,
+    op: change.op.tag,
     key: change.key,
     field: change.field,
     from: change.from,

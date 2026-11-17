@@ -2,6 +2,8 @@ import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 import 'package:wyrm_core/wyrm_core.dart' show Perm;
 
+import 'change_op.dart';
+
 part 'staged_change.freezed.dart';
 
 /// One edit staged in this session and applied with the others (design
@@ -15,8 +17,8 @@ abstract class StagedChange with _$StagedChange {
     /// Unique within the session.
     required String id,
 
-    /// `Edit`, `Add` or `Remove`, as the review card says it.
-    required String op,
+    /// What it does, as the review card says it.
+    required ChangeOp op,
 
     /// The node or value the change is on.
     required String key,

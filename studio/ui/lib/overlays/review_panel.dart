@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../alerts/notice.dart';
@@ -11,6 +12,19 @@ import '../theme/radii.dart';
 import '../theme/shades.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
+
+/// What a staged change does, as its card names it.
+enum ChangeOpTag {
+  edit,
+  add,
+  remove;
+
+  String get label => switch (this) {
+    edit => S.current.changeOpEdit,
+    add => S.current.changeOpAdd,
+    remove => S.current.changeOpRemove,
+  };
+}
 
 /// One staged change as the review card shows it.
 final class ChangeCardVm extends Equatable {
@@ -28,7 +42,7 @@ final class ChangeCardVm extends Equatable {
   final String id;
 
   /// `Edit`, `Add`, `Remove`.
-  final String op;
+  final ChangeOpTag op;
 
   /// The key, shortened (`…/plc1/t2`).
   final String key_;
@@ -88,7 +102,7 @@ class ChangeCard extends StatelessWidget {
                   borderRadius: Radii.chip,
                 ),
                 child: Text(
-                  vm.op.toUpperCase(),
+                  vm.op.label.toUpperCase(),
                   style: TextStyle(
                     fontSize: FontSizes.xs,
                     fontWeight: .w600,

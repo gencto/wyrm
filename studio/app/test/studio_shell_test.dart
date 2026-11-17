@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:models/change_op.dart';
 import 'package:models/error_kind.dart';
 import 'package:models/link_info.dart';
 import 'package:models/node_info.dart';
@@ -83,7 +84,7 @@ void main() {
             table: IMap(const {
               'c1': StagedChange(
                 id: 'c1',
-                op: 'Edit',
+                op: ChangeOp.edit,
                 key: '$plant/downstream/plc1/sp',
                 field: 'value',
                 from: '20',
@@ -92,7 +93,7 @@ void main() {
               ),
               'c2': StagedChange(
                 id: 'c2',
-                op: 'Edit',
+                op: ChangeOp.edit,
                 key: '$plant/sys/links/modbus',
                 field: 'params',
                 to: 'poll_s 5',

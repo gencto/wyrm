@@ -1,4 +1,5 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/change_op.dart';
 import 'package:models/staged_change.dart';
 import 'package:models/staged_change_kind.dart';
 import 'package:wyrm_client/wyrm_client.dart' show Perm;
@@ -28,7 +29,7 @@ class SetAdmissionOptionsAction extends Action with WaitingAction {
           if (holdUnknown case final v?)
             StagedChange(
               id: StagedChangeKind.set.idOf('$root/sys/enable_quarantine'),
-              op: 'Edit',
+              op: ChangeOp.edit,
               key: '$root/sys/enable_quarantine',
               field: 'value',
               from: word(!v),
@@ -39,7 +40,7 @@ class SetAdmissionOptionsAction extends Action with WaitingAction {
           if (allowAll case final v?)
             StagedChange(
               id: StagedChangeKind.set.idOf('$root/sys/allow_all_links'),
-              op: 'Edit',
+              op: ChangeOp.edit,
               key: '$root/sys/allow_all_links',
               field: 'value',
               from: word(!v),

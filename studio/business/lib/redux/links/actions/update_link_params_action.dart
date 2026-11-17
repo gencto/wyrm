@@ -1,5 +1,6 @@
 import 'package:async_redux/async_redux.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/change_op.dart';
 import 'package:models/staged_change.dart';
 import 'package:models/staged_change_kind.dart';
 import 'package:wyrm_client/wyrm_client.dart' show Perm;
@@ -40,7 +41,7 @@ class UpdateLinkParamsAction extends Action with NonReentrant, WaitingAction {
           StagedChange(
             // the full key: the same link id on two sites is two changes
             id: StagedChangeKind.params.idOf('${site.root}/sys/links/$id'),
-            op: 'Edit',
+            op: ChangeOp.edit,
             key: '${site.root}/sys/links/$id',
             field: 'params',
             from: from,

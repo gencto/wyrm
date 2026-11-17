@@ -18414,6 +18414,21 @@ class S {
     );
   }
 
+  /// `Edit`
+  String get changeOpEdit {
+    return Intl.message('Edit', name: 'changeOpEdit', desc: '', args: []);
+  }
+
+  /// `Add`
+  String get changeOpAdd {
+    return Intl.message('Add', name: 'changeOpAdd', desc: '', args: []);
+  }
+
+  /// `Remove`
+  String get changeOpRemove {
+    return Intl.message('Remove', name: 'changeOpRemove', desc: '', args: []);
+  }
+
   /// `k × in + b`
   String get formLinear {
     return Intl.message('k × in + b', name: 'formLinear', desc: '', args: []);

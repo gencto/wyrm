@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/agent_params.dart';
 import 'package:models/approval_mode.dart';
+import 'package:models/change_op.dart';
 import 'package:models/error_hint.dart';
 import 'package:models/error_kind.dart';
 import 'package:models/staged_change.dart';
@@ -117,7 +118,7 @@ class StageAgentParamAction extends Action with WaitingAction {
     }
     final change = StagedChange(
       id: cid,
-      op: 'Edit',
+      op: ChangeOp.edit,
       key: key,
       field: 'params · ${[for (final c in changed) c.name].join(', ')}',
       from:

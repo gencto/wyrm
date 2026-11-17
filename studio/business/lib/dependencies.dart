@@ -224,7 +224,7 @@ class AppDependencies {
           if (site.can(c.level, c.key))
             StepUpLine(
               level: c.level,
-              text: c.action ?? '${c.op.toLowerCase()} ${c.field} = ${c.to}',
+              text: c.action ?? '${c.op.name} ${c.field} = ${c.to}',
               key: c.key,
             ),
     ];

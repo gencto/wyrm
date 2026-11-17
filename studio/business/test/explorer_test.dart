@@ -15,6 +15,7 @@ import 'package:business/redux/nodes/actions/toggle_node_action.dart';
 import 'package:business/wyrm/calls.dart';
 import 'package:business/wyrm/failures.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:models/change_op.dart';
 import 'package:models/error_kind.dart';
 import 'package:models/param_spec.dart';
 import 'package:models/quality.dart' as studio;
@@ -212,7 +213,7 @@ void main() {
       );
 
       final c = s.state.changes.table.values.single;
-      expect(c.op, 'Add');
+      expect(c.op, ChangeOp.add);
       expect(c.action, 'add_point');
       expect(c.args.unlock, {'name': 't3', 'addr': 7});
     },
@@ -226,7 +227,7 @@ void main() {
         StageInvokeAction(dev, 'edit', {'display': 'Boiler room'}),
       );
       final c = s.state.changes.table.values.single;
-      expect(c.op, 'Edit');
+      expect(c.op, ChangeOp.edit);
       expect(c.args.unlock, {'display': 'Boiler room'});
       expect(c.to, 'display: Boiler room');
 

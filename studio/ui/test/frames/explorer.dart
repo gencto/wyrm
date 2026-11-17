@@ -535,7 +535,7 @@ Widget explorerReview() => _shell(
     cards: const [
       ChangeCardVm(
         id: '1',
-        op: 'Edit',
+        op: ChangeOpTag.edit,
         key_: '…/tcp-boiler/plc1/t2',
         field: 'poll',
         from: '1 s',
@@ -545,7 +545,7 @@ Widget explorerReview() => _shell(
       ),
       ChangeCardVm(
         id: '2',
-        op: 'Add',
+        op: ChangeOpTag.add,
         key_: '…/tcp-boiler/plc1',
         field: 'add_point',
         from: '—',
@@ -555,7 +555,7 @@ Widget explorerReview() => _shell(
       ),
       ChangeCardVm(
         id: '3',
-        op: 'Edit',
+        op: ChangeOpTag.edit,
         key_: '…/tcp-boiler/plc1/fan',
         field: 'writable',
         from: 'false',

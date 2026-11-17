@@ -1818,6 +1818,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "cfgModel": MessageLookupByLibrary.simpleMessage("Модель"),
     "cfgPrefixes": MessageLookupByLibrary.simpleMessage("Може змінювати"),
     "changeAnswers": MessageLookupByLibrary.simpleMessage("Змінити відповіді"),
+    "changeOpAdd": MessageLookupByLibrary.simpleMessage("Додавання"),
+    "changeOpEdit": MessageLookupByLibrary.simpleMessage("Зміна"),
+    "changeOpRemove": MessageLookupByLibrary.simpleMessage("Видалення"),
     "changesGuess": m79,
     "checkAtRun": MessageLookupByLibrary.simpleMessage(
       "перевіряється під час виконання: вузол створює попередній крок",

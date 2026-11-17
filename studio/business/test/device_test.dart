@@ -32,6 +32,7 @@ import 'package:fake_async/fake_async.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:models/change_op.dart';
 import 'package:models/lock_error.dart';
 import 'package:models/login_failure.dart';
 import 'package:models/staged_change.dart';
@@ -562,7 +563,7 @@ void main() {
             IList(const [
               StagedChange(
                 id: 'c1',
-                op: 'Edit',
+                op: ChangeOp.edit,
                 key: 'wy/central/sys/x',
                 field: 'value',
                 to: '1',
@@ -571,7 +572,7 @@ void main() {
               ),
               StagedChange(
                 id: 'c2',
-                op: 'Edit',
+                op: ChangeOp.edit,
                 key: 'wy/central/sys/z',
                 field: 'value',
                 to: '2',
@@ -625,7 +626,7 @@ void main() {
             IList(const [
               StagedChange(
                 id: 'c1',
-                op: 'Edit',
+                op: ChangeOp.edit,
                 key: 'k',
                 field: 'value',
                 to: '1',

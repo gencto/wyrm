@@ -93,7 +93,7 @@ final class ReviewCardData extends Equatable {
   });
 
   final String id;
-  final String op;
+  final ChangeOpTag op;
   final String key;
   final String field;
   final String from;
