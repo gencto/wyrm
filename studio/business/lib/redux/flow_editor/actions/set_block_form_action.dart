@@ -42,7 +42,7 @@ class SetBlockFormAction extends Action {
     }
     if (chosen != forms.first) {
       final catalog = {
-        for (final p in [...?t?.params]) ?p.key: p.defaultValue,
+        for (final p in [...?t?.params]) ?p.key: p.defaultValue?.raw,
       };
       for (final key in chosen.params) {
         final v = catalog[key] ?? chosen.defaults[key];

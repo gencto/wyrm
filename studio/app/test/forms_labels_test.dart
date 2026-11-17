@@ -2,6 +2,7 @@ import 'package:app/common/forms.dart';
 import 'package:business/wyrm/calls.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:models/json_value.dart';
 import 'package:models/param_spec.dart';
 import 'package:wyrm_client/wyrm_client.dart' show TypeCode;
 
@@ -35,7 +36,7 @@ void main() {
       const ParamSpec(
         name: 'display',
         display: 'Display name',
-        defaultValue: 'Boiler room',
+        defaultValue: JsonText('Boiler room'),
       ),
     );
     expect(f.label, 'Display name');
@@ -46,7 +47,7 @@ void main() {
       const ParamSpec(
         name: 'display',
         display: 'Display name',
-        defaultValue: 'Boiler room',
+        defaultValue: JsonText('Boiler room'),
       ),
     ];
     expect(

@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:freezed_annotation/freezed_annotation.dart' show immutable;
 
 /// A JSON value of a flow definition that the editor keeps as it came: a
 /// node's config (`FlowBlock.cfg`), a parameter's default, a constant.
@@ -10,6 +11,11 @@ import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 /// stays JSON in the draft. It is read only through this type: [JsonValue.of]
 /// decodes a value once (a map or a list once per object: an edit makes a
 /// new one), and every reader switches over the cases below.
+///
+/// Two values are equal when they hold the same JSON (a number by its
+/// value: `1` and `1.0` are one number), so a model that holds one
+/// compares by what it holds.
+@immutable
 sealed class JsonValue {
   const JsonValue();
 
@@ -61,6 +67,12 @@ final class JsonNull extends JsonValue {
 
   @override
   Object? get raw => null;
+
+  @override
+  bool operator ==(Object other) => other is JsonNull;
+
+  @override
+  int get hashCode => 0;
 }
 
 /// `true` or `false`.
@@ -71,6 +83,12 @@ final class JsonBool extends JsonValue {
 
   @override
   Object? get raw => value;
+
+  @override
+  bool operator ==(Object other) => other is JsonBool && other.value == value;
+
+  @override
+  int get hashCode => value.hashCode;
 }
 
 /// A number.
@@ -81,6 +99,12 @@ final class JsonNumber extends JsonValue {
 
   @override
   Object? get raw => value;
+
+  @override
+  bool operator ==(Object other) => other is JsonNumber && other.value == value;
+
+  @override
+  int get hashCode => value.hashCode;
 }
 
 /// A text.
@@ -91,6 +115,12 @@ final class JsonText extends JsonValue {
 
   @override
   Object? get raw => text;
+
+  @override
+  bool operator ==(Object other) => other is JsonText && other.text == text;
+
+  @override
+  int get hashCode => text.hashCode;
 }
 
 /// An array.
@@ -104,6 +134,12 @@ final class JsonList extends JsonValue {
 
   /// Its items, decoded, in order.
   final IList<JsonValue> items;
+
+  @override
+  bool operator ==(Object other) => other is JsonList && other.items == items;
+
+  @override
+  int get hashCode => items.hashCode;
 
   /// Its non-empty texts in order (the names a list parameter holds).
   List<String> get names => [
@@ -126,6 +162,12 @@ final class JsonMap extends JsonValue {
 
   /// Its fields, decoded, by key.
   final IMap<String, JsonValue> fields;
+
+  @override
+  bool operator ==(Object other) => other is JsonMap && other.fields == fields;
+
+  @override
+  int get hashCode => fields.hashCode;
 
   /// Its entries as the definition writes them, by key.
   Map<String, Object?> get entries => {

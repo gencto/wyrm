@@ -138,6 +138,12 @@ final _rules = <Rule>[
           // a cast written as a pattern (`case final Map<String, Object?> m`)
           // is the same untyped read (audit of #117)
           _matches(c, RegExp(r'\bcase\s+final\s+(?:Map|List)<')) +
+          // and so is a scalar pattern (`case final String s`): the value
+          // it tests is still untyped (audit of #135)
+          _matches(
+            c,
+            RegExp(r'\bcase\s+final\s+(?:String|int|double|bool|num)\b'),
+          ) +
           _matches(c, RegExp(r'\btoDart\(')) +
           // the loose readers of values.dart, outside a decoder
           _matches(
@@ -286,6 +292,14 @@ int _vmEquality(String text) {
 /// ([good]): a change to a pattern that stops seeing what it is for fails
 /// here, not in review.
 const _probes = <String, ({String bad, String good})>{
+  'untyped-wire': (
+    bad: '''
+    if (p.defaultValue case final String prefilled when prefilled.isNotEmpty)
+''',
+    good: '''
+    if (p.defaultValue case JsonText(text: final prefilled))
+''',
+  ),
   'vm-equality': (
     bad: '''
 class _Vm extends Vm {

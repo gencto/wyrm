@@ -124,7 +124,7 @@ AddedBlock withNewBlock(
   final defaults = <String, Object?>{
     for (final p in t?.params ?? const IListConst<ParamSpec>([]))
       if (p.choices.isNotEmpty && p.defaultValue != null)
-        p.name: p.defaultValue,
+        p.name: p.defaultValue?.raw,
   };
   final next = d.copyWith(
     edges: into == null
@@ -487,7 +487,7 @@ enum FieldEditError { number, json, toggle }
 /// The typed value of [f] of [b] as the config holds it: the config's
 /// value, else the parameter's default; [JsonNull] when it has none.
 JsonValue fieldEditValue(FlowBlock b, FlowField f) => switch (f) {
-  FlowField(:final spec?) => b.paramOr(spec.name, spec.defaultValue),
+  FlowField(:final spec?) => b.paramOr(spec.name, spec.defaultValue?.raw),
   FlowField(kind: FieldKind.arg) => b.cfgArgs[f.name] ?? const JsonNull(),
   FlowField(operand: true, :final inPort?) => operandValueOf(b, inPort),
   _ => const JsonNull(),

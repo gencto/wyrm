@@ -5,6 +5,7 @@ import 'package:models/action_answer.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../mappers/values.dart';
+import 'pretty_json.dart';
 
 /// The rows a node's action answered (`invoke`, one per result) as the
 /// Explorer shows them: a table when they are records (a row that is a map,

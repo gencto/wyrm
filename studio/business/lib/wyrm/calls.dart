@@ -1,4 +1,5 @@
 import 'package:models/error_kind.dart';
+import 'package:models/json_value.dart';
 import 'package:models/param_spec.dart';
 import 'package:models/studio_error.dart';
 import 'package:wyrm_client/wyrm_client.dart';
@@ -190,7 +191,7 @@ Map<String, Object?> argsToSend(
 /// field out (the action's own default stands).
 Set<String> clearedNames(Iterable<ParamSpec> params) => {
   for (final p in params)
-    if (p.defaultValue case final String prefilled
+    if (p.defaultValue case JsonText(text: final prefilled)
         when p.name == 'display' && prefilled.trim().isNotEmpty)
       p.name,
 };

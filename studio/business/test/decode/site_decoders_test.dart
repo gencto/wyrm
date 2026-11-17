@@ -1,10 +1,16 @@
+import 'dart:typed_data';
+
+import 'package:business/wyrm/calls.dart';
 import 'package:business/wyrm/decode/decoded.dart';
 import 'package:business/wyrm/decode/flow_val.dart';
+import 'package:business/wyrm/decode/param_spec.dart';
 import 'package:business/wyrm/decode/peers.dart';
 import 'package:business/wyrm/decode/sys_answers.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:models/json_value.dart';
 import 'package:models/link_revision.dart';
+import 'package:models/param_spec.dart';
 import 'package:models/peer.dart';
 import 'package:models/peer_kind.dart';
 import 'package:models/quarantine_entry.dart';
@@ -417,6 +423,48 @@ void main() {
       expect(
         flowValOfWire(const VStr('running')),
         const Invalid<FlowVal>('flow value', '', 'not a map'),
+      );
+    });
+  });
+
+  group("a parameter's default (spec 02)", () {
+    test('is the JSON it is, typed once', () {
+      expect(
+        paramDefaultOf(const VStr('pump')),
+        const Valid<JsonValue?>(JsonText('pump')),
+      );
+      expect(
+        paramDefaultOf(const VInt(5)),
+        const Valid<JsonValue?>(JsonNumber(5)),
+      );
+      expect(paramDefaultOf(null), const Valid<JsonValue?>(null));
+      expect(paramDefaultOf(const VNull()), const Valid<JsonValue?>(null));
+      expect(
+        paramSpecOf('name', ParamMeta(defaultValue: const VStr('x'))),
+        paramSpecOf('name', ParamMeta(defaultValue: const VStr('x'))),
+      );
+    });
+
+    test('a default JSON has no form for is refused', () {
+      expect(
+        paramDefaultOf(VBytes(Uint8List.fromList([1, 2]))),
+        const Invalid<JsonValue?>('parameter', 'default', 'not JSON'),
+      );
+    });
+
+    test('a prefilled display is one whose default is a text', () {
+      ParamSpec display(JsonValue? d) =>
+          ParamSpec(name: 'display', defaultValue: d);
+      expect(clearedNames([display(const JsonText('Pump 1'))]), {'display'});
+      expect(clearedNames([display(const JsonText('  '))]), isEmpty);
+      // a number is not a prefilled name
+      expect(clearedNames([display(const JsonNumber(7))]), isEmpty);
+      expect(clearedNames([display(null)]), isEmpty);
+      expect(
+        clearedNames([
+          const ParamSpec(name: 'unit', defaultValue: JsonText('bar')),
+        ]),
+        isEmpty,
       );
     });
   });

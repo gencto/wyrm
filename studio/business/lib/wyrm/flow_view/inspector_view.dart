@@ -585,7 +585,7 @@ InspectorRow _row(
   }
   final p = f.spec;
   if (p != null) {
-    final v = b.paramOr(p.name, p.defaultValue);
+    final v = b.paramOr(p.name, p.defaultValue?.raw);
     final scoped = p.name == keyed?.scope;
     final keyBound =
         keyed != null &&

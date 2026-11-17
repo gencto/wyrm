@@ -1610,7 +1610,7 @@ FieldValue fieldValue(
   switch (f.kind) {
     case FieldKind.param:
       final p = f.spec!;
-      final typed = b.paramOr(p.name, p.defaultValue).raw;
+      final typed = b.paramOr(p.name, p.defaultValue?.raw).raw;
       if (f.variable) {
         sample =
             live(portKey(PortSide.output, b.id, f.outPort!)) ??

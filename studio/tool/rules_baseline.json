@@ -147,11 +147,12 @@
     "ui/lib/overlays/value_viewer.dart": 3
   },
   "untyped-wire": {
-    "app/lib/common/value_viewer.dart": 6,
+    "app/lib/common/value_viewer.dart": 9,
     "business/lib/wyrm/calls.dart": 2,
     "business/lib/wyrm/mappers/csv_table.dart": 1,
     "business/lib/wyrm/mappers/live_value_mapper.dart": 1,
     "business/lib/wyrm/mappers/node_detail_mapper.dart": 5,
+    "business/lib/wyrm/mappers/profile_mapper.dart": 1,
     "business/lib/wyrm/mappers/table_value.dart": 7,
     "ui/lib/forms/param_form.dart": 2,
     "ui/lib/indicators/value_type.dart": 1,
@@ -159,7 +160,7 @@
     "ui/lib/overlays/value_viewer.dart": 1,
     "ui/lib/pages/log_in_data.dart": 1,
     "ui/lib/tables/table_edits.dart": 8,
-    "ui/lib/tables/table_grid.dart": 1
+    "ui/lib/tables/table_grid.dart": 2
   },
   "multi-dispatch": {},
   "vm-equality": {},
