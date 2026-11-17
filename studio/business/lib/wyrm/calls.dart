@@ -3,6 +3,7 @@ import 'package:models/param_spec.dart';
 import 'package:models/studio_error.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
+import 'decode/sys_verdict.dart';
 import 'failures.dart';
 
 /// Runs one broker call; a refusal becomes a [StudioException] that keeps
@@ -95,23 +96,22 @@ Future<Value> askOne(
   return rows.isEmpty ? const VNull() : rows.first;
 }
 
-/// `{success, message}` of an install-style answer: throws a `broker`
-/// error with the message when success is false. [action] on [key] is the
-/// call that answered.
+/// `{success, message}` of an install-style answer ([sysRunOf]): throws a
+/// `broker` error with the message when the answer does not say it
+/// succeeded. A `success` that is no bool is a failure, never a success.
+/// [action] on [key] is the call that answered.
 void requireSuccess(
   Value answer,
   String key,
   String action, {
   String? thing,
 }) {
-  if (answer['success'] case VBool(v: false)) {
+  final verdict = sysRunOf(answer, where: '$action on $key');
+  if (!verdict.success) {
     throw StudioException(
       StudioError(
         kind: ErrorKind.broker,
-        message: switch (answer['message']) {
-          VStr(:final v) => v,
-          _ => '',
-        },
+        message: verdict.message ?? '',
         key: key,
         call: action,
         thing: thing,
@@ -190,8 +190,7 @@ Map<String, Object?> argsToSend(
 /// field out (the action's own default stands).
 Set<String> clearedNames(Iterable<ParamSpec> params) => {
   for (final p in params)
-    if (p.name == 'display' &&
-        p.defaultValue is String &&
-        (p.defaultValue! as String).trim().isNotEmpty)
+    if (p.defaultValue case final String prefilled
+        when p.name == 'display' && prefilled.trim().isNotEmpty)
       p.name,
 };

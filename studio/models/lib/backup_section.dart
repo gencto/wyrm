@@ -27,7 +27,7 @@ enum BackupSection implements WireName {
 
   /// The sections of a link backup, in the broker's order
   /// (`LINK_SECTIONS`).
-  static const ofLink = [settings, data, package, history];
+  static const List<BackupSection> ofLink = [settings, data, package, history];
 
   /// Always in a backup: the broker's `control`, a link's `settings`.
   bool get always => this == control || this == settings;

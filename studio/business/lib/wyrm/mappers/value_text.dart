@@ -49,16 +49,22 @@ String _number(num n) => switch (n) {
 
 /// A date value of the flow engine (microseconds since the Unix epoch, ADR
 /// 0044 §3) as the user reads it: the local wall time of this computer,
-/// `2026-11-11 12:29:03`, with the milliseconds when it has them. Null for
-/// a value that is no whole number or no date.
-String? dateText(Object? micros) {
+/// [micros] as whole microseconds of a date, or null: a whole number
+/// within 10 000 years either way (a larger number is no date).
+int? _dateMicros(Object? micros) {
   final us = switch (micros) {
     final int i => i,
     final double d when d.isFinite && d == d.truncateToDouble() => d.toInt(),
     _ => null,
   };
-  // 10 000 years either way: a larger number is no date.
-  if (us == null || us.abs() > 315537897600000000) {
+  return us == null || us.abs() > 315537897600000000 ? null : us;
+}
+
+/// `2026-11-11 12:29:03`, with the milliseconds when it has them. Null for
+/// a value that is no whole number or no date.
+String? dateText(Object? micros) {
+  final us = _dateMicros(micros);
+  if (us == null) {
     return null;
   }
   final t = DateTime.fromMicrosecondsSinceEpoch(us, isUtc: true).toLocal();
@@ -73,13 +79,10 @@ String? dateText(Object? micros) {
 /// The same instant in UTC, ISO 8601 (`2026-11-11T10:29:03Z`), for the
 /// value viewer beside [dateText].
 String? dateTextUtc(Object? micros) {
-  final local = dateText(micros);
-  if (local == null) {
+  final us = _dateMicros(micros);
+  if (us == null) {
     return null;
   }
-  final t = DateTime.fromMicrosecondsSinceEpoch(
-    (micros! as num).toInt(),
-    isUtc: true,
-  );
+  final t = DateTime.fromMicrosecondsSinceEpoch(us, isUtc: true);
   return '${t.toIso8601String().split('.').first}Z';
 }

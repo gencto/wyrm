@@ -577,6 +577,201 @@ void main() {
     });
   });
 
+  group('the controls report typed values (studio-rules §2, §7)', () {
+    test('a section, a history range, a link, a place, a store', () {
+      final got = <Object?>[];
+      const links = [SendLink(link: 'files', folder: 'site/backups')];
+      final vm = backupFormSheet(
+        _form(
+          chosen: const {'control', 'history', 'links', 'storage'},
+          where: BackupPlace.store,
+          sendLinks: links,
+          sendConnection: 's3',
+        ),
+        onSection: (part, {required on}) => got.add((part.section, on)),
+        onHistoryDays: got.add,
+        onLink: got.add,
+        onPassphrase: (text) => got.add(text.length),
+        onWhere: (t) => got.add(t.place),
+        onSendLink: (link) => got.add('link $link'),
+        onSendConnection: (c) => got.add('connection $c'),
+        onSendPath: (path) => got.add('path $path'),
+      );
+
+      _section(vm, 'storage').onChanged!(false);
+      // a section that is always in cannot be unticked
+      expect(_section(vm, 'control').locked, isTrue);
+      for (final chip in _section(vm, 'history').chips) {
+        chip.onTap!();
+      }
+      _section(vm, 'links').chips.first.onTap!();
+      vm.blocks.whereType<SheetField>().first.onChanged!('x' * 14);
+      _option(vm, S.current.bakWhere, BackupTarget.broker.label).onPick!();
+      _option(vm, S.current.bakSendLink, 'files').onPick!();
+      _option(vm, S.current.bakSendConnection, 's3').onPick!();
+      vm.blocks.whereType<SheetField>().last.onChanged!('daily/x');
+
+      expect(got, [
+        (BackupSection.storage, false),
+        7,
+        30,
+        90,
+        // all of it
+        0,
+        'modbus',
+        14,
+        BackupPlace.broker,
+        'link files',
+        'connection s3',
+        'path daily/x',
+      ]);
+      // no control of the sheet is known by a text id
+      expect(vm.blocks.whereType<SheetField>().map((f) => f.id), ['', '']);
+    });
+
+    test('without a listener a control cannot be used', () {
+      final vm = backupFormSheet(_form());
+      expect(_section(vm, 'storage').onChanged, isNull);
+      expect(vm.blocks.whereType<SheetField>().single.onChanged, isNull);
+      expect(
+        _option(vm, S.current.bakWhere, BackupTarget.broker.label).onPick,
+        isNull,
+      );
+    });
+
+    test('a restore: its sections, its mode, its confirmations', () {
+      final got = <Object?>[];
+      final vm = restoreSheet(
+        _restore(
+          check: _check(keys: 'differ'),
+          chosen: const {'control', 'keys'},
+          mode: RestoreMode.replace,
+          passphrase: 14,
+        ),
+        onSection: (part, {required on}) => got.add((part.section, on)),
+        onMode: (how) => got.add(how.mode),
+        onReplaceKeys: (on) => got.add('replace keys $on'),
+        onAccept: (on) => got.add('accept $on'),
+        onPassphrase: (text) => got.add(text.length),
+      );
+
+      _section(vm, 'history').onChanged!(true);
+      _option(vm, S.current.rstHow, RestoreHow.add.label).onPick!();
+      final options = vm.blocks.whereType<SheetOption>().toList();
+      options.first.onChanged!(true);
+      options.last.onChanged!(true);
+      vm.blocks.whereType<SheetField>().single.onChanged!('x' * 12);
+
+      expect(got, [
+        (BackupSection.history, true),
+        RestoreMode.add,
+        'replace keys true',
+        'accept true',
+        12,
+      ]);
+    });
+
+    test('a backup: where it goes and its removal', () {
+      final got = <Object?>[];
+      final vm = backupJobSheet(
+        BackupJobData(job: _job(), site: 'plant'),
+        onWhere: (t) => got.add(t.place),
+        onRemove: () => got.add('remove'),
+      );
+
+      _option(vm, S.current.bakWhere, BackupTarget.computer.label).onPick!();
+      vm.blocks.whereType<SheetRow>().single.onAction!();
+
+      expect(got, [BackupPlace.computer, 'remove']);
+      // a kept backup is never moved to "the broker": it is there
+      expect(
+        vm.blocks.whereType<SheetChoice>().single.options.map((o) => o.label),
+        [BackupTarget.computer.label, BackupTarget.store.label],
+      );
+    });
+  });
+
+  group('the domain of backups as the dialogs draw it (studio-rules §3)', () {
+    test('every section, place and mode maps there and back', () {
+      for (final s in BackupSection.values) {
+        expect(s.part.section, s);
+        expect(s.part.name, s.name);
+        expect(s.part.always, s.always);
+        expect(s.part.label, isNotEmpty);
+        expect(s.part.note(ofLink: false), isNotEmpty);
+      }
+      expect(
+        {for (final s in BackupSection.values) s.part},
+        {
+          ...BackupPart.values,
+        },
+      );
+      for (final p in BackupPlace.values) {
+        expect(p.target.place, p);
+      }
+      for (final m in RestoreMode.values) {
+        expect(m.how.mode, m);
+      }
+      for (final k in RestoreKeys.values) {
+        expect(k.found.foreign, k.foreign);
+      }
+    });
+
+    test('the stages of a restore, and those that are not one', () {
+      expect(BackupStage.choose.restoreView, isNull);
+      expect(BackupStage.link.restoreView, isNull);
+      expect(BackupStage.job.restoreView, isNull);
+      expect(BackupStage.restore.restoreView, RestoreView.form);
+      expect(BackupStage.notApplied.restoreView, RestoreView.notApplied);
+      expect(
+        {
+          for (final s in BackupStage.values) ?s.restoreView,
+        },
+        {...RestoreView.values},
+      );
+    });
+
+    test('a job: its step is a section, the writing, or none', () {
+      final copying = _job(status: 'running');
+      expect(copying.view, BackupJobView.working);
+      expect(copying.step, BackupPart.storage);
+      expect(copying.writing, isFalse);
+
+      final writing = _job(status: 'running', step: const BackupStep.writing());
+      expect(writing.step, isNull);
+      expect(writing.writing, isTrue);
+      final vm = backupJobSheet(BackupJobData(job: writing, site: 'plant'));
+      expect(vm.blocks.whereType<SheetBar>().single.text, 'Writing the file');
+      // every section is copied by then
+      expect(
+        vm.blocks.whereType<SheetSteps>().single.steps.map((s) => s.state),
+        [SheetStepState.done, SheetStepState.done],
+      );
+
+      final none = _job(status: 'running', step: const BackupStep.none());
+      expect(none.step, isNull);
+      expect(
+        backupJobSheet(
+          BackupJobData(job: none, site: 'plant'),
+        ).blocks.whereType<SheetSteps>().single.steps.map((s) => s.state),
+        [SheetStepState.todo, SheetStepState.todo],
+      );
+    });
+
+    test('the check: the schemas that differ and the links, in words', () {
+      final vm = restoreSheet(_restore(check: _check()));
+      final cards = vm.blocks.whereType<SheetCard>().toList();
+      expect(
+        cards.map((c) => c.detail),
+        containsAll(['registry 18 → 19', 'modbus: exists here, new1: new']),
+      );
+      expect(
+        cards.first.detail,
+        contains('2026-11-20 15:40'),
+      );
+    });
+  });
+
   group('a file name from the broker (review point 12)', () {
     test('only the last segment, and only a plain name', () {
       expect(safeFileName('plant-1.wyrm-backup'), 'plant-1.wyrm-backup');
