@@ -2164,5 +2164,6 @@
     "bakStepWriting": "Запис файлу",
     "rstLinkNew": "новий",
     "rstLinkExists": "вже є тут",
-    "flowStateUnread": "стан не прочитано"
+    "flowStateUnread": "стан не прочитано",
+    "errUnreadableRows": "Брокер відповів про ці записи у формі, яку ця Studio не читає, тому їх не показано. Решту показано. Поля вказано в журналі."
 }

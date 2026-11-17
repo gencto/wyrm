@@ -17583,6 +17583,16 @@ class S {
       args: [],
     );
   }
+
+  /// `The broker answered these entries in a form this Studio does not read, so they are not shown. The rest is. The fields are in the log.`
+  String get errUnreadableRows {
+    return Intl.message(
+      'The broker answered these entries in a form this Studio does not read, so they are not shown. The rest is. The fields are in the log.',
+      name: 'errUnreadableRows',
+      desc: '',
+      args: [],
+    );
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<S> {

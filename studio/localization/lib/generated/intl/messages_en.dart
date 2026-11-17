@@ -2136,6 +2136,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "errUnreadableAnswer": MessageLookupByLibrary.simpleMessage(
       "The broker answered in a form this Studio does not read, so nothing was changed here. The field is in the log.",
     ),
+    "errUnreadableRows": MessageLookupByLibrary.simpleMessage(
+      "The broker answered these entries in a form this Studio does not read, so they are not shown. The rest is. The fields are in the log.",
+    ),
     "errUserRole": m144,
     "errWhatYouCanDo": MessageLookupByLibrary.simpleMessage("What you can do"),
     "errWriteNote": MessageLookupByLibrary.simpleMessage(

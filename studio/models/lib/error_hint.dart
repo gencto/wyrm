@@ -23,4 +23,9 @@ enum ErrorHint {
   /// The broker answered, and the answer is not of the shape the call
   /// has: Studio reads nothing out of it (the field is in the log).
   unreadableAnswer,
+
+  /// A list was read, and some of its entries are not of the shape they
+  /// have: Studio shows the others and names these (their fields are in
+  /// the log).
+  unreadableRows,
 }

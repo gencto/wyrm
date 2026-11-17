@@ -2180,5 +2180,6 @@
     "bakStepWriting": "Writing the file",
     "rstLinkNew": "new",
     "rstLinkExists": "exists here",
-    "flowStateUnread": "state not read"
+    "flowStateUnread": "state not read",
+    "errUnreadableRows": "The broker answered these entries in a form this Studio does not read, so they are not shown. The rest is. The fields are in the log."
 }

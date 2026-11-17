@@ -1,5 +1,6 @@
 import '../../../wyrm/calls.dart';
 import '../../../wyrm/decode/restore.dart';
+import '../../../wyrm/decode/unreadable.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 import 'create_backup_action.dart';
@@ -9,8 +10,9 @@ import 'create_backup_action.dart';
 /// broker backup as it is chosen now (before compression). Every section is
 /// asked for, so an unticked row shows its size too. A link backup has no
 /// estimate. The answer is dropped when the dialog it was asked for is no
-/// longer the one open; one this client cannot read shows no sizes and
-/// is logged with its field.
+/// longer the one open; one this client cannot read is refused (a toast
+/// and a line in Problems say so, the field is in the log) and no size is
+/// shown.
 class EstimateBackupAction extends Action with WaitingAction {
   EstimateBackupAction() : super(quiet: true);
 
@@ -39,7 +41,10 @@ class EstimateBackupAction extends Action with WaitingAction {
     if (backups.opening != opening || backups.stage == null) {
       return null;
     }
-    final estimate = backupEstimateOf(answer).orWarn('$root/sys/backups');
-    return estimate == null ? null : state.copyWith.backups(estimate: estimate);
+    return state.copyWith.backups(
+      estimate: backupEstimateOf(
+        answer,
+      ).orRefuse(key: '$root/sys/backups', call: 'estimate'),
+    );
   }
 }

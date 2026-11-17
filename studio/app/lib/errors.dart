@@ -243,6 +243,7 @@ String _hintText(ErrorHint h) => switch (h) {
   .runNotByHand => S.current.errRunNotByHand,
   .notSettable => S.current.errNotSettable,
   .unreadableAnswer => S.current.errUnreadableAnswer,
+  .unreadableRows => S.current.errUnreadableRows,
 };
 
 /// The tone of a kind (errors.md §1).

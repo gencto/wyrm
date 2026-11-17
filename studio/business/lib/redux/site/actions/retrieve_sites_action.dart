@@ -4,8 +4,10 @@ import 'package:models/site_relation.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../../wyrm/decode/peers.dart';
+import '../../../wyrm/decode/unreadable.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
+import '../../problems/actions/add_problem_action.dart';
 
 /// Fills the site switcher: the site logged into, every broker below it
 /// (`downstream/<d>` of kind `wy:broker`, and theirs, at most [depth] hops)
@@ -28,6 +30,7 @@ class RetrieveSitesAction extends Action with WaitingAction {
     final api = deps.wyrm;
     final choices = <SiteChoice>[SiteChoice(site: home)];
     final seen = {home};
+    final unread = Unread();
     var frontier = [_Hop(home, null)];
     for (var hop = 0; hop < depth && frontier.isNotEmpty; hop++) {
       final next = <_Hop>[];
@@ -39,9 +42,16 @@ class RetrieveSitesAction extends Action with WaitingAction {
           continue;
         }
         for (final c in below) {
-          // a broker node this client cannot read is no site to choose:
-          // logged with its field
-          final d = brokerSiteOf(c)?.orWarn('wy/$s/downstream/${c.name}');
+          // a broker node this client cannot read is no site to choose;
+          // the user is told of it
+          final d = switch (brokerSiteOf(c)) {
+            final read? => unread.take(
+              read,
+              name: '$s/downstream/${c.name}',
+              where: 'wy/$s/downstream/${c.name}',
+            ),
+            null => null,
+          };
           if (d != null && seen.add(d)) {
             choices.add(
               SiteChoice(
@@ -66,6 +76,10 @@ class RetrieveSitesAction extends Action with WaitingAction {
       }
     } on WyrmException {
       // No rights on sys: no upstream entries.
+    }
+    if (unread.problem(key: 'wy/$home/downstream', call: 'list')
+        case final p?) {
+      dispatchSync(AddProblemAction(p));
     }
     return state.copyWith.site(choices: choices.lock);
   }

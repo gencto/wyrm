@@ -2158,6 +2158,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "errUnreadableAnswer": MessageLookupByLibrary.simpleMessage(
       "Брокер відповів у формі, яку ця Studio не читає, тому тут нічого не змінено. Поле вказано в журналі.",
     ),
+    "errUnreadableRows": MessageLookupByLibrary.simpleMessage(
+      "Брокер відповів про ці записи у формі, яку ця Studio не читає, тому їх не показано. Решту показано. Поля вказано в журналі.",
+    ),
     "errUserRole": m144,
     "errWhatYouCanDo": MessageLookupByLibrary.simpleMessage("Що можна зробити"),
     "errWriteNote": MessageLookupByLibrary.simpleMessage(
