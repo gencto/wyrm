@@ -55,6 +55,10 @@ enum BackupPart {
   bool get always => this == control || this == settings;
 }
 
+/// The text fields of the backup dialogs: which one a field of a sheet
+/// is, whatever its label says.
+enum BackupSheetField { passphrase, sendPath }
+
 /// Where a backup goes.
 enum BackupTarget {
   computer,

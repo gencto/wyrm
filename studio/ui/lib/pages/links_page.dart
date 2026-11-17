@@ -72,8 +72,6 @@ class LinksPage extends StatelessWidget {
     this.sheet,
     this.onSheetPrimary,
     this.onSheetSecondary,
-    this.onSheetToggle,
-    this.onSheetAction,
     this.onSheetClose,
     super.key,
   });
@@ -111,8 +109,6 @@ class LinksPage extends StatelessWidget {
   final TaskSheetVm? sheet;
   final VoidCallback? onSheetPrimary;
   final VoidCallback? onSheetSecondary;
-  final Toggled<String>? onSheetToggle;
-  final ValueChanged<String>? onSheetAction;
   final VoidCallback? onSheetClose;
 
   @override
@@ -200,8 +196,6 @@ class LinksPage extends StatelessWidget {
                 width: wide ? 460 : box.maxWidth,
                 onPrimary: onSheetPrimary,
                 onSecondary: onSheetSecondary,
-                onToggle: onSheetToggle,
-                onAction: onSheetAction,
                 onClose: onSheetClose,
               )
             : DetailInspector(

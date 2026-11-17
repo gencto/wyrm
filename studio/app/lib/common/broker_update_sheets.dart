@@ -1,9 +1,13 @@
+import 'package:flutter/foundation.dart';
 import 'package:localization/localization.dart';
 import 'package:models/broker_self_update.dart';
 import 'package:models/self_update_state.dart';
 import 'package:ui/containers/fact_grid.dart';
 import 'package:ui/models/disabled.dart';
 import 'package:ui/overlays/task_sheet.dart';
+
+/// The text fields of the broker update dialog.
+enum BrokerUpdateField { confirm }
 
 /// Which screen of a broker update the dialog shows.
 enum BrokerUpdateStage { review, restarting, confirmed, rolledBack, external }
@@ -82,15 +86,18 @@ final class BrokerUpdateData {
 }
 
 /// The broker update dialog at its stage.
-TaskSheetVm brokerUpdateSheet(BrokerUpdateData d) => switch (d.stage) {
-  .review => _review(d),
+TaskSheetVm brokerUpdateSheet(
+  BrokerUpdateData d, {
+  ValueChanged<String>? onConfirm,
+}) => switch (d.stage) {
+  .review => _review(d, onConfirm),
   .restarting => _restarting(d),
   .confirmed => _confirmed(d),
   .rolledBack => _rolledBack(d),
   .external => _external(d),
 };
 
-TaskSheetVm _review(BrokerUpdateData d) {
+TaskSheetVm _review(BrokerUpdateData d, ValueChanged<String>? onConfirm) {
   final l = S.current;
   final typed = d.confirm == d.site;
   return TaskSheetVm(
@@ -127,10 +134,11 @@ TaskSheetVm _review(BrokerUpdateData d) {
         numbered: true,
       ),
       SheetField(
-        id: 'confirm',
+        slot: BrokerUpdateField.confirm,
         label: l.bupType(d.site),
         value: d.confirm,
         hint: d.site,
+        onChanged: onConfirm,
       ),
     ],
     note: d.reason?.text ?? l.bupNeedsConfig,

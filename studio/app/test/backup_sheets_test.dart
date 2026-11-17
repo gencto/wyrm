@@ -625,8 +625,11 @@ void main() {
         'connection s3',
         'path daily/x',
       ]);
-      // no control of the sheet is known by a text id
-      expect(vm.blocks.whereType<SheetField>().map((f) => f.id), ['', '']);
+      // a field is known by its slot, never by a text
+      expect(vm.blocks.whereType<SheetField>().map((f) => f.slot), [
+        BackupSheetField.passphrase,
+        BackupSheetField.sendPath,
+      ]);
     });
 
     test('without a listener a control cannot be used', () {

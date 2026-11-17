@@ -77,10 +77,14 @@ void main() {
         vm: TaskSheetVm(
           title: 'Update plant',
           blocks: [
-            SheetField(id: 'confirm', label: 'Type plant', value: value),
+            SheetField(
+              slot: BrokerUpdateFrameField.confirm,
+              label: 'Type plant',
+              value: value,
+              onChanged: (text) => typed.add('confirm:$text'),
+            ),
           ],
         ),
-        onText: (id, text) => typed.add('$id:$text'),
       ),
     );
     await t.pumpWidget(sheet(''));

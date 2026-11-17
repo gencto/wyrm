@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:ui/overlays/backup_data.dart';
 import 'package:ui/overlays/task_sheet.dart';
 import 'package:ui/theme/common.dart';
 
@@ -60,7 +61,11 @@ void main() {
           title: 'Restore',
           blocks: [
             ...before,
-            const SheetField(label: 'Passphrase', secret: true),
+            const SheetField(
+              slot: BackupSheetField.passphrase,
+              label: 'Passphrase',
+              secret: true,
+            ),
           ],
         ),
       ),
@@ -75,7 +80,7 @@ void main() {
         SheetCard(title: 'From plant'),
         SheetCard(title: 'The same keys'),
         SheetSection(name: 'Control plane', on: true),
-        SheetOption(id: 'accept', label: 'Accept', value: false),
+        SheetOption(label: 'Accept', value: false),
       ]),
     );
     expect(
@@ -142,6 +147,7 @@ void main() {
               // A section nobody listens to does not answer.
               const SheetSection(name: 'Storage', on: true),
               SheetField(
+                slot: BackupSheetField.passphrase,
                 label: 'Passphrase',
                 secret: true,
                 onChanged: (text) => got.add('passphrase:${text.length}'),
@@ -191,21 +197,45 @@ void main() {
     expect(find.byTooltip('the host lists no link'), findsOneWidget);
   });
 
-  testWidgets('a field that reports by its id still does', (t) async {
-    final got = <String>[];
-    await t.pumpWidget(
-      frame(
-        TaskSheet(
-          dialog: true,
-          vm: const TaskSheetVm(
-            title: 'Update',
-            blocks: [SheetField(id: 'note', label: 'Note')],
-          ),
-          onText: (id, text) => got.add('$id:$text'),
+  testWidgets('a field is known by its slot, not by its label', (t) async {
+    // The language changes the label; what was typed stays.
+    Widget sheet(String label) => frame(
+      TaskSheet(
+        dialog: true,
+        vm: TaskSheetVm(
+          title: 'Restore',
+          blocks: [
+            SheetField(
+              slot: BackupSheetField.passphrase,
+              label: label,
+              secret: true,
+            ),
+          ],
         ),
       ),
     );
-    await t.enterText(find.byType(TextField), 'ok');
-    expect(got, ['note:ok']);
+    await t.pumpWidget(sheet('Passphrase'));
+    await t.enterText(find.byType(TextField), 'correct-horse-battery');
+    await t.pumpWidget(sheet('Пароль'));
+    expect(
+      t.widget<TextField>(find.byType(TextField)).controller!.text,
+      'correct-horse-battery',
+    );
+  });
+
+  testWidgets('a field of another slot is another field', (t) async {
+    Widget sheet(BackupSheetField slot) => frame(
+      TaskSheet(
+        dialog: true,
+        vm: TaskSheetVm(
+          title: 'Back up',
+          blocks: [SheetField(slot: slot, label: 'Text')],
+        ),
+      ),
+    );
+    await t.pumpWidget(sheet(BackupSheetField.passphrase));
+    await t.enterText(find.byType(TextField), 'secret');
+    await t.pumpWidget(sheet(BackupSheetField.sendPath));
+    expect(t.widget<TextField>(find.byType(TextField)).controller!.text, '');
   });
 }

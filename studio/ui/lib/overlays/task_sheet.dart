@@ -69,37 +69,26 @@ final class SheetCard extends SheetBlock {
 }
 
 /// A checkbox with its sentence. Locked with [reason] when not [enabled].
+/// A change is reported by its own [onChanged].
 final class SheetOption extends SheetBlock {
   const SheetOption({
     required this.label,
     required this.value,
-    this.id = '',
     this.enabled = true,
     this.reason,
     this.onChanged,
   });
 
-  /// What [TaskSheet.onToggle] reports; empty when the option reports
-  /// through its own [onChanged].
-  final String id;
   final String label;
   final bool value;
   final bool enabled;
   final String? reason;
 
-  /// The option's own report of a change (a typed sheet built in `ui`);
-  /// null: [TaskSheet.onToggle] with [id].
+  /// The new state of the checkbox; null: it cannot be changed.
   final ValueChanged<bool>? onChanged;
 
   @override
-  List<Object?> get props => [
-    id,
-    label,
-    value,
-    enabled,
-    reason,
-    onChanged != null,
-  ];
+  List<Object?> get props => [label, value, enabled, reason, onChanged != null];
 }
 
 /// A chip of a [SheetSection]: one of a range, or one of a set. A tap is
@@ -228,7 +217,7 @@ final class SheetTiles extends SheetBlock {
 }
 
 /// A line of a list: a sign, a text (mono when [mono]), a note, and a link
-/// on the right that reports [action] ([TaskSheet.onAction]).
+/// on the right ([actionLabel]) that reports through [onAction].
 final class SheetRow extends SheetBlock {
   const SheetRow({
     required this.text,
@@ -236,7 +225,6 @@ final class SheetRow extends SheetBlock {
     this.tone = Tone.neutral,
     this.note,
     this.mono = true,
-    this.action,
     this.actionLabel,
     this.onAction,
     this.divider = false,
@@ -248,13 +236,10 @@ final class SheetRow extends SheetBlock {
   final String? note;
   final bool mono;
 
-  /// What [TaskSheet.onAction] reports; null when the row reports through
-  /// its own [onAction], or has no link.
-  final String? action;
+  /// The words of the link; null: the row has none.
   final String? actionLabel;
 
-  /// The row's own report of a tap on its link (a typed sheet built in
-  /// `ui`); null: [TaskSheet.onAction] with [action].
+  /// A tap on the link; null: the link is shown and cannot be used.
   final VoidCallback? onAction;
 
   /// A line above the row (a list of restore points).
@@ -267,7 +252,6 @@ final class SheetRow extends SheetBlock {
     tone,
     note,
     mono,
-    action,
     actionLabel,
     onAction != null,
     divider,
@@ -285,13 +269,13 @@ final class SheetFacts extends SheetBlock {
 }
 
 /// A text field. A [secret] one is obscured and never shows a value: what
-/// is typed stays in the field and is reported by its own [onChanged], or
-/// by [TaskSheet.onText] with [id]. The field keeps what is typed while
-/// its [label] (or its [id], when it has one) stays in the sheet.
+/// is typed stays in the field and is reported by its own [onChanged].
+/// The field keeps what is typed while a field of its [slot] stays in the
+/// sheet.
 final class SheetField extends SheetBlock {
   const SheetField({
+    required this.slot,
     required this.label,
-    this.id = '',
     this.value,
     this.hint,
     this.note,
@@ -301,9 +285,10 @@ final class SheetField extends SheetBlock {
     this.onChanged,
   });
 
-  /// What [TaskSheet.onText] reports; empty when the field reports
-  /// through its own [onChanged].
-  final String id;
+  /// Which field of its sheet this is: a value of the sheet's own enum.
+  /// It is the field's identity across rebuilds (never its label, which
+  /// changes with the language).
+  final Enum slot;
   final String label;
   final String? value;
   final String? hint;
@@ -312,13 +297,12 @@ final class SheetField extends SheetBlock {
   final bool secret;
   final bool enabled;
 
-  /// The field's own report of its text (a typed sheet built in `ui`);
-  /// null: [TaskSheet.onText] with [id].
+  /// The text as it is typed; null: nobody listens.
   final ValueChanged<String>? onChanged;
 
   @override
   List<Object?> get props => [
-    id,
+    slot,
     label,
     value,
     hint,
@@ -473,9 +457,6 @@ class TaskSheet extends StatelessWidget {
     this.maxHeight = 860,
     this.onPrimary,
     this.onSecondary,
-    this.onToggle,
-    this.onText,
-    this.onAction,
     this.onClose,
     super.key,
   });
@@ -486,15 +467,6 @@ class TaskSheet extends StatelessWidget {
   final double maxHeight;
   final VoidCallback? onPrimary;
   final VoidCallback? onSecondary;
-
-  /// A checkbox of a [SheetOption] that reports by its id.
-  final Toggled<String>? onToggle;
-
-  /// The text of a [SheetField] by its id.
-  final FieldEdited? onText;
-
-  /// The link of a [SheetRow].
-  final ValueChanged<String>? onAction;
 
   /// Closes the sheet from its head (a drawer has no barrier to tap).
   final VoidCallback? onClose;
@@ -588,7 +560,7 @@ class TaskSheet extends StatelessWidget {
               // A field is found again by its id when the blocks before it
               // change (a check adds cards above the passphrase), so what
               // was typed stays in it.
-              key: b is SheetField ? ValueKey('block-field-${b.id}') : null,
+              key: b is SheetField ? ValueKey(('block', b.slot)) : null,
               padding: EdgeInsets.only(
                 top: i == AppSpacing.none
                     ? AppSpacing.none
@@ -818,10 +790,8 @@ class TaskSheet extends StatelessWidget {
           label: b.label,
           vm: FieldVm(
             value: b.value,
-            enabled: b.enabled && (b.onChanged != null || onToggle != null),
-            onChanged: (v) => b.onChanged != null
-                ? b.onChanged!(v)
-                : onToggle?.call(b.id, on: v),
+            enabled: b.enabled && b.onChanged != null,
+            onChanged: (v) => b.onChanged?.call(v),
           ),
         );
         final shown = b.enabled ? row : Opacity(opacity: 0.55, child: row);
@@ -993,10 +963,9 @@ class TaskSheet extends StatelessWidget {
         return FactGrid(facts: facts, labelWidth: 140);
       case SheetField():
         return _SheetInput(
-          key: ValueKey('field-${b.id.isEmpty ? b.label : b.id}'),
+          key: ValueKey(b.slot),
           field: b,
           ground: card,
-          onText: onText,
         );
       case SheetChoice():
         return _choice(context, b);
@@ -1077,10 +1046,7 @@ class TaskSheet extends StatelessWidget {
 
   Widget _row(BuildContext context, SheetRow b) {
     final c = context.colors;
-    final link = b.action;
-    final tap =
-        b.onAction ??
-        (link == null || onAction == null ? null : () => onAction!(link));
+    final tap = b.onAction;
     final row = Row(
       crossAxisAlignment: .start,
       spacing: 8,
@@ -1125,7 +1091,7 @@ class TaskSheet extends StatelessWidget {
               style: TextStyle(fontSize: FontSizes.sm, color: c.text4),
             ),
           ),
-        if ((link != null || b.onAction != null) && b.actionLabel != null)
+        if (b.actionLabel != null)
           InkWell(
             onTap: tap,
             borderRadius: Radii.chip,
@@ -1483,13 +1449,11 @@ class _SheetInput extends StatefulWidget {
   const _SheetInput({
     required this.field,
     required this.ground,
-    this.onText,
     super.key,
   });
 
   final SheetField field;
   final Color ground;
-  final FieldEdited? onText;
 
   @override
   State<_SheetInput> createState() => _SheetInputState();
@@ -1539,9 +1503,7 @@ class _SheetInputState extends State<_SheetInput> {
             obscureText: f.secret,
             enableSuggestions: !f.secret,
             autocorrect: false,
-            onChanged: (v) => f.onChanged != null
-                ? f.onChanged!(v)
-                : widget.onText?.call(f.id, v),
+            onChanged: f.onChanged,
             style: TextStyle(fontSize: FontSizes.lg, color: c.text1),
             decoration: InputDecoration(
               isDense: true,

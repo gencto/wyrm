@@ -75,6 +75,7 @@ List<SheetBlock> _storeBlocks({
         ),
       ]),
       SheetField(
+        slot: BackupSheetField.sendPath,
         label: l.bakSendPath,
         value: sendPath,
         hint: pathHint,
@@ -172,6 +173,7 @@ TaskSheetVm backupFormSheet(
         SheetText(l.bakLinkRestoreNote, small: true),
       ],
       SheetField(
+        slot: BackupSheetField.passphrase,
         label: isLink ? l.bakPassphraseLink : l.bakPassphrase,
         secret: true,
         enabled: locked == null,
@@ -458,6 +460,7 @@ TaskSheetVm restoreSheet(
         else ...[
           SheetCard(title: l.rstUploaded, detail: l.rstUploadedNote),
           SheetField(
+            slot: BackupSheetField.passphrase,
             label: l.rstPassphrase,
             secret: true,
             note: l.rstPassphraseNote,
@@ -584,6 +587,7 @@ TaskSheetVm restoreSheet(
         onChanged: onAccept,
       ),
       SheetField(
+        slot: BackupSheetField.passphrase,
         label: l.rstPassphrase,
         secret: true,
         note: l.rstPassphraseKept,
