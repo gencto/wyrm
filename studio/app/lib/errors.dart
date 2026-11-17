@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:business/wyrm/device_keys.dart';
 import 'package:business/wyrm/failures.dart';
+import 'package:business/wyrm/keys.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:localization/localization.dart';
 import 'package:models/call_verb.dart';
@@ -46,10 +47,7 @@ String _thing(StudioError e) => switch (e.subject) {
   .biometrics => S.current.unlockNameBiometric,
   null => switch (e.thing) {
     final t? when t.isNotEmpty => t,
-    _ => switch (e.key?.split('/').last) {
-      final k? when k.isNotEmpty && k != '**' => k,
-      _ => e.site ?? S.current.errThingThis,
-    },
+    _ => lastNameOf(e.key) ?? e.site ?? S.current.errThingThis,
   },
 };
 
