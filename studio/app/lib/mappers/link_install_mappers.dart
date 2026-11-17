@@ -1,4 +1,5 @@
 import 'package:business/wyrm/catalog.dart';
+import 'package:models/catalog_category.dart';
 import 'package:models/catalog_item.dart';
 import 'package:models/install_block.dart';
 import 'package:models/install_field.dart';
@@ -6,12 +7,15 @@ import 'package:models/install_name_problem.dart';
 import 'package:models/install_path.dart';
 import 'package:models/install_phase.dart';
 import 'package:models/install_step.dart';
+import 'package:models/known_link.dart';
+import 'package:models/link_category.dart';
 import 'package:models/link_mode.dart';
 import 'package:models/package_check.dart';
 import 'package:models/package_check_result.dart';
 import 'package:models/package_method.dart';
 import 'package:models/requested_right.dart';
 import 'package:ui/containers/catalog_card.dart';
+import 'package:ui/containers/catalog_words.dart';
 import 'package:ui/indicators/check_list.dart';
 import 'package:ui/models/link_run_mode.dart';
 import 'package:ui/pages/link_install_data.dart';
@@ -155,13 +159,95 @@ extension RequestedRightUi on RequestedRight {
   };
 }
 
+extension KnownLinkWords on KnownLink {
+  /// The driver as `ui` words it.
+  LinkWords get words => switch (this) {
+    KnownLink.modbus => .modbus,
+    KnownLink.opcua => .opcua,
+    KnownLink.bacnet => .bacnet,
+    KnownLink.s7 => .s7,
+    KnownLink.snmp => .snmp,
+    KnownLink.mqtt => .mqtt,
+    KnownLink.http => .http,
+    KnownLink.prometheus => .prometheus,
+    KnownLink.dlms => .dlms,
+    KnownLink.mock => .mock,
+    KnownLink.mockdev => .mockdev,
+    KnownLink.s3 => .s3,
+    KnownLink.gdrive => .gdrive,
+    KnownLink.webdav => .webdav,
+    KnownLink.localfs => .localfs,
+    KnownLink.agent => .agent,
+    KnownLink.postgres => .postgres,
+    KnownLink.influxdb => .influxdb,
+    KnownLink.mongodb => .mongodb,
+    KnownLink.mysql => .mysql,
+    KnownLink.dynamodb => .dynamodb,
+    KnownLink.scheduler => .scheduler,
+    KnownLink.alarm => .alarm,
+    KnownLink.dql => .dql,
+    KnownLink.uplink => .uplink,
+  };
+}
+
+extension LinkCategoryUi on LinkCategory {
+  LinkCategoryTag get tag => switch (this) {
+    LinkCategory.equipment => .equipment,
+    LinkCategory.apps => .apps,
+    LinkCategory.fileStores => .fileStores,
+    LinkCategory.historySync => .historySync,
+    LinkCategory.messaging => .messaging,
+    LinkCategory.test => .test,
+    LinkCategory.packages => .packages,
+  };
+}
+
+extension LinkCategoryTagDomain on LinkCategoryTag {
+  LinkCategory get domain => switch (this) {
+    LinkCategoryTag.equipment => .equipment,
+    LinkCategoryTag.apps => .apps,
+    LinkCategoryTag.fileStores => .fileStores,
+    LinkCategoryTag.historySync => .historySync,
+    LinkCategoryTag.messaging => .messaging,
+    LinkCategoryTag.test => .test,
+    LinkCategoryTag.packages => .packages,
+  };
+}
+
+extension CatalogCategoryUi on CatalogCategory {
+  /// The category as its chip.
+  CatalogCategoryVm get ui => switch (this) {
+    CatalogCategoryKnown(:final category) => CatalogCategoryKnownVm(
+      category.tag,
+    ),
+    CatalogCategoryNamed(:final name) => CatalogCategoryNamedVm(name),
+  };
+}
+
+extension CatalogCategoryVmDomain on CatalogCategoryVm {
+  /// The category a picked chip names.
+  CatalogCategory get domain => switch (this) {
+    CatalogCategoryKnownVm(:final tag) => CatalogCategory.known(tag.domain),
+    CatalogCategoryNamedVm(:final name) => CatalogCategory.named(name),
+  };
+}
+
 extension CatalogItemUi on CatalogItem {
+  /// Its title: the broker's, or Studio's words for a driver it knows.
+  CatalogTitleVm get title => CatalogTitleVm(
+    name: name,
+    titled: titled?.words,
+    process: processForm,
+  );
+
   /// Its card, [selected] when it is the item picked.
   CatalogCardVm card({required bool selected}) => CatalogCardVm(
     id: id,
     tag: tag,
-    name: name,
+    code: code,
+    title: title,
     description: description,
+    described: described?.words,
     builtIn: builtIn,
     modes: [for (final m in modes) m.ui],
     existing: existing,

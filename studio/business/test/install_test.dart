@@ -5,6 +5,9 @@ import 'package:archive/archive.dart';
 import 'package:business/wyrm/catalog.dart';
 import 'package:business/wyrm/package_check.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:models/catalog_category.dart';
+import 'package:models/known_link.dart';
+import 'package:models/link_category.dart';
 import 'package:models/link_mode.dart';
 import 'package:models/package_check_result.dart';
 import 'package:models/requested_right.dart';
@@ -164,7 +167,23 @@ void main() {
     expect(c[2].modes, [LinkMode.wasm]);
     expect(c[2].existing, 1);
     expect(c[3].modes, [LinkMode.process]);
-    expect(c[3].name, 'Scheduler (process)');
+    // Studio's words for a driver it knows: `ui` says them, and that the
+    // process form is one.
+    expect(
+      (c[3].name, c[3].titled, c[3].processForm),
+      (
+        '',
+        KnownLink.scheduler,
+        true,
+      ),
+    );
+    expect(c[3].described, KnownLink.scheduler);
+    expect((c[0].titled, c[0].processForm), (KnownLink.modbus, false));
+    expect(c[0].category, const CatalogCategory.known(LinkCategory.equipment));
+    expect(
+      c[2].category,
+      const CatalogCategory.known(LinkCategory.historySync),
+    );
     expect(c.map((i) => i.version), everyElement(isNull));
   });
 
@@ -208,7 +227,12 @@ void main() {
         packages: ['alarm'],
         rows: catalogRowsOf({}),
       );
-      expect(old[1].name, 'Alarms', reason: 'Studio keeps its own names');
+      expect(
+        (old[1].name, old[1].titled, old[1].described),
+        ('', KnownLink.alarm, KnownLink.alarm),
+        reason: 'Studio keeps its own names',
+      );
+      expect(old[1].category, const CatalogCategory.known(LinkCategory.apps));
       expect(old.map((i) => i.official), everyElement(isFalse));
     });
 
@@ -244,16 +268,31 @@ void main() {
       );
       final modbus = c[0];
       expect(modbus.name, 'Modbus');
+      expect(modbus.titled, isNull, reason: "the broker's title is shown");
       expect(modbus.description, 'TCP and RTU');
-      expect(modbus.category, 'Protocols');
+      expect(modbus.described, isNull);
+      expect(modbus.category, const CatalogCategory.named('Protocols'));
       expect(modbus.version, 'wyrmd 0.2.0', reason: "the row's version wins");
       expect(modbus.official, isTrue);
       // A driver with no row keeps Studio's text and the broker version.
-      expect(c[1].name, 'Mock');
+      expect((c[1].name, c[1].titled), ('', KnownLink.mock));
+      expect(c[1].category, const CatalogCategory.known(LinkCategory.test));
       expect(c[1].version, 'wyrmd 0.1.0');
       expect(c[1].official, isFalse);
       final alarm = c[2];
-      expect(alarm.name, 'Alarms (process)');
+      expect(
+        (alarm.name, alarm.titled, alarm.processForm),
+        (
+          'Alarms',
+          null,
+          true,
+        ),
+      );
+      expect(
+        alarm.category,
+        const CatalogCategory.known(LinkCategory.apps),
+        reason: "a category of the manifest is one of Studio's",
+      );
       expect(alarm.modes, [LinkMode.process]);
       expect(alarm.version, '0.1.3');
       expect(alarm.official, isTrue);
@@ -261,7 +300,12 @@ void main() {
       final tg = c[3];
       expect(tg.name, 'telegram');
       expect(tg.description, '');
-      expect(tg.category, 'Packages', reason: 'no empty category chip');
+      expect((tg.titled, tg.described, tg.processForm), (null, null, false));
+      expect(
+        tg.category,
+        const CatalogCategory.known(LinkCategory.packages),
+        reason: 'no empty category chip',
+      );
       expect(tg.version, '1.0.0');
       expect(tg.modes, [LinkMode.wasm]);
       expect(tg.official, isFalse);
@@ -279,11 +323,15 @@ void main() {
       );
       expect(c[0].name, 'My Modbus');
       expect(c[0].description, '', reason: 'not the built-in driver text');
+      expect((c[0].titled, c[0].described), (null, null));
       expect(c[0].tag, 'MODB', reason: 'its own tag, not the official one');
       expect(c[0].official, isFalse);
       // No row for it: its name only, the choices still list it.
-      expect(c[1].name, 'alarm');
-      expect(c[1].category, 'Packages');
+      expect((c[1].name, c[1].titled, c[1].described), ('alarm', null, null));
+      expect(
+        c[1].category,
+        const CatalogCategory.known(LinkCategory.packages),
+      );
     });
 
     test('rows only describe: the choices decide what is listed', () {

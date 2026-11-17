@@ -17879,6 +17879,541 @@ class S {
     return Intl.message('unknown', name: 'osUnknown', desc: '', args: []);
   }
 
+  /// `Modbus`
+  String get linkTitleModbus {
+    return Intl.message('Modbus', name: 'linkTitleModbus', desc: '', args: []);
+  }
+
+  /// `TCP, RTU over TCP, serial RTU · master and slave`
+  String get linkSummaryModbus {
+    return Intl.message(
+      'TCP, RTU over TCP, serial RTU · master and slave',
+      name: 'linkSummaryModbus',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `OPC UA client`
+  String get linkTitleOpcua {
+    return Intl.message(
+      'OPC UA client',
+      name: 'linkTitleOpcua',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Nodes of OPC UA servers as points`
+  String get linkSummaryOpcua {
+    return Intl.message(
+      'Nodes of OPC UA servers as points',
+      name: 'linkSummaryOpcua',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `BACnet/IP`
+  String get linkTitleBacnet {
+    return Intl.message(
+      'BACnet/IP',
+      name: 'linkTitleBacnet',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Who-Is/I-Am, RPM, BBMD, routed devices`
+  String get linkSummaryBacnet {
+    return Intl.message(
+      'Who-Is/I-Am, RPM, BBMD, routed devices',
+      name: 'linkSummaryBacnet',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Siemens S7`
+  String get linkTitleS7 {
+    return Intl.message('Siemens S7', name: 'linkTitleS7', desc: '', args: []);
+  }
+
+  /// `S7-300/400/1200/1500 over ISO-on-TCP`
+  String get linkSummaryS7 {
+    return Intl.message(
+      'S7-300/400/1200/1500 over ISO-on-TCP',
+      name: 'linkSummaryS7',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `SNMP`
+  String get linkTitleSnmp {
+    return Intl.message('SNMP', name: 'linkTitleSnmp', desc: '', args: []);
+  }
+
+  /// `v2c and v3 agents`
+  String get linkSummarySnmp {
+    return Intl.message(
+      'v2c and v3 agents',
+      name: 'linkSummarySnmp',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `MQTT`
+  String get linkTitleMqtt {
+    return Intl.message('MQTT', name: 'linkTitleMqtt', desc: '', args: []);
+  }
+
+  /// `Topics as points`
+  String get linkSummaryMqtt {
+    return Intl.message(
+      'Topics as points',
+      name: 'linkSummaryMqtt',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `HTTP / REST`
+  String get linkTitleHttp {
+    return Intl.message(
+      'HTTP / REST',
+      name: 'linkTitleHttp',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `JSON APIs polled on a schedule`
+  String get linkSummaryHttp {
+    return Intl.message(
+      'JSON APIs polled on a schedule',
+      name: 'linkSummaryHttp',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Prometheus`
+  String get linkTitlePrometheus {
+    return Intl.message(
+      'Prometheus',
+      name: 'linkTitlePrometheus',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Scrapes exporters into points`
+  String get linkSummaryPrometheus {
+    return Intl.message(
+      'Scrapes exporters into points',
+      name: 'linkSummaryPrometheus',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `DLMS/COSEM`
+  String get linkTitleDlms {
+    return Intl.message(
+      'DLMS/COSEM',
+      name: 'linkTitleDlms',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Electricity meters`
+  String get linkSummaryDlms {
+    return Intl.message(
+      'Electricity meters',
+      name: 'linkSummaryDlms',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Mock`
+  String get linkTitleMock {
+    return Intl.message('Mock', name: 'linkTitleMock', desc: '', args: []);
+  }
+
+  /// `Generated points for tests and benchmarks`
+  String get linkSummaryMock {
+    return Intl.message(
+      'Generated points for tests and benchmarks',
+      name: 'linkSummaryMock',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Mock device`
+  String get linkTitleMockdev {
+    return Intl.message(
+      'Mock device',
+      name: 'linkTitleMockdev',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `A simulated device on the driver framework`
+  String get linkSummaryMockdev {
+    return Intl.message(
+      'A simulated device on the driver framework',
+      name: 'linkSummaryMockdev',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `S3 and compatibles`
+  String get linkTitleS3 {
+    return Intl.message(
+      'S3 and compatibles',
+      name: 'linkTitleS3',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `A bucket as a tree of folders and files`
+  String get linkSummaryS3 {
+    return Intl.message(
+      'A bucket as a tree of folders and files',
+      name: 'linkSummaryS3',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Google Drive`
+  String get linkTitleGdrive {
+    return Intl.message(
+      'Google Drive',
+      name: 'linkTitleGdrive',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `A folder or a shared drive`
+  String get linkSummaryGdrive {
+    return Intl.message(
+      'A folder or a shared drive',
+      name: 'linkSummaryGdrive',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `WebDAV`
+  String get linkTitleWebdav {
+    return Intl.message('WebDAV', name: 'linkTitleWebdav', desc: '', args: []);
+  }
+
+  /// `Nextcloud, ownCloud and other WebDAV servers`
+  String get linkSummaryWebdav {
+    return Intl.message(
+      'Nextcloud, ownCloud and other WebDAV servers',
+      name: 'linkSummaryWebdav',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Local folder`
+  String get linkTitleLocalfs {
+    return Intl.message(
+      'Local folder',
+      name: 'linkTitleLocalfs',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `A directory of the host, USB/SD or a mount`
+  String get linkSummaryLocalfs {
+    return Intl.message(
+      'A directory of the host, USB/SD or a mount',
+      name: 'linkSummaryLocalfs',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Assistant agent`
+  String get linkTitleAgent {
+    return Intl.message(
+      'Assistant agent',
+      name: 'linkTitleAgent',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Plans changes for a person to approve`
+  String get linkSummaryAgent {
+    return Intl.message(
+      'Plans changes for a person to approve',
+      name: 'linkSummaryAgent',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `PostgreSQL / TimescaleDB`
+  String get linkTitlePostgres {
+    return Intl.message(
+      'PostgreSQL / TimescaleDB',
+      name: 'linkTitlePostgres',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Sends the historian’s journal to a database`
+  String get linkSummaryPostgres {
+    return Intl.message(
+      'Sends the historian’s journal to a database',
+      name: 'linkSummaryPostgres',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `InfluxDB 2.x / 3.x`
+  String get linkTitleInfluxdb {
+    return Intl.message(
+      'InfluxDB 2.x / 3.x',
+      name: 'linkTitleInfluxdb',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Line protocol, tags site and key`
+  String get linkSummaryInfluxdb {
+    return Intl.message(
+      'Line protocol, tags site and key',
+      name: 'linkSummaryInfluxdb',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `MongoDB`
+  String get linkTitleMongodb {
+    return Intl.message(
+      'MongoDB',
+      name: 'linkTitleMongodb',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `History rows as documents`
+  String get linkSummaryMongodb {
+    return Intl.message(
+      'History rows as documents',
+      name: 'linkSummaryMongodb',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `MySQL / MariaDB`
+  String get linkTitleMysql {
+    return Intl.message(
+      'MySQL / MariaDB',
+      name: 'linkTitleMysql',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `History rows as an upsert per batch`
+  String get linkSummaryMysql {
+    return Intl.message(
+      'History rows as an upsert per batch',
+      name: 'linkSummaryMysql',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `DynamoDB`
+  String get linkTitleDynamodb {
+    return Intl.message(
+      'DynamoDB',
+      name: 'linkTitleDynamodb',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `History rows with a TTL`
+  String get linkSummaryDynamodb {
+    return Intl.message(
+      'History rows with a TTL',
+      name: 'linkSummaryDynamodb',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Scheduler`
+  String get linkTitleScheduler {
+    return Intl.message(
+      'Scheduler',
+      name: 'linkTitleScheduler',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Weekly schedules and special days`
+  String get linkSummaryScheduler {
+    return Intl.message(
+      'Weekly schedules and special days',
+      name: 'linkSummaryScheduler',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Alarms`
+  String get linkTitleAlarm {
+    return Intl.message('Alarms', name: 'linkTitleAlarm', desc: '', args: []);
+  }
+
+  /// `Alarm classes, records and acknowledgement`
+  String get linkSummaryAlarm {
+    return Intl.message(
+      'Alarm classes, records and acknowledgement',
+      name: 'linkSummaryAlarm',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `DQL queries`
+  String get linkTitleDql {
+    return Intl.message(
+      'DQL queries',
+      name: 'linkTitleDql',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Tables from the tree, as DSA queries`
+  String get linkSummaryDql {
+    return Intl.message(
+      'Tables from the tree, as DSA queries',
+      name: 'linkSummaryDql',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Platform upstreams`
+  String get linkTitleUplink {
+    return Intl.message(
+      'Platform upstreams',
+      name: 'linkTitleUplink',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `MQTT, Sparkplug, ThingsBoard, Azure, AWS`
+  String get linkSummaryUplink {
+    return Intl.message(
+      'MQTT, Sparkplug, ThingsBoard, Azure, AWS',
+      name: 'linkSummaryUplink',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Equipment`
+  String get linkCategoryEquipment {
+    return Intl.message(
+      'Equipment',
+      name: 'linkCategoryEquipment',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Apps`
+  String get linkCategoryApps {
+    return Intl.message('Apps', name: 'linkCategoryApps', desc: '', args: []);
+  }
+
+  /// `File stores`
+  String get linkCategoryFileStores {
+    return Intl.message(
+      'File stores',
+      name: 'linkCategoryFileStores',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `History sync`
+  String get linkCategoryHistorySync {
+    return Intl.message(
+      'History sync',
+      name: 'linkCategoryHistorySync',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Messaging`
+  String get linkCategoryMessaging {
+    return Intl.message(
+      'Messaging',
+      name: 'linkCategoryMessaging',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Test`
+  String get linkCategoryTest {
+    return Intl.message('Test', name: 'linkCategoryTest', desc: '', args: []);
+  }
+
+  /// `Packages`
+  String get linkCategoryPackages {
+    return Intl.message(
+      'Packages',
+      name: 'linkCategoryPackages',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{title} (process)`
+  String catalogProcessForm(String title) {
+    return Intl.message(
+      '$title (process)',
+      name: 'catalogProcessForm',
+      desc: '',
+      args: [title],
+    );
+  }
+
   /// `k × in + b`
   String get formLinear {
     return Intl.message('k × in + b', name: 'formLinear', desc: '', args: []);

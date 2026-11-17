@@ -6,6 +6,7 @@ import '../buttons/button.dart';
 import '../buttons/segmented_tabs.dart';
 import '../containers/answer_list.dart';
 import '../containers/catalog_card.dart';
+import '../containers/catalog_words.dart';
 import '../containers/choice_card.dart';
 import '../containers/fact_grid.dart';
 import '../containers/section_label.dart';
@@ -58,7 +59,7 @@ class LinkInstallPage extends StatelessWidget {
   final ValueChanged<InstallFrom>? onFrom;
 
   /// A category of the official list picked; null: all of them.
-  final ValueChanged<String?>? onCategory;
+  final ValueChanged<CatalogCategoryVm?>? onCategory;
 
   /// The words searched for in the official list; null: none.
   final ValueChanged<String?>? onQuery;
@@ -432,7 +433,7 @@ class _Center extends StatelessWidget {
           spacing: 12,
           runSpacing: 12,
           children: [
-            for (final card in vm.cards)
+            for (final card in vm.shownCards)
               SizedBox(
                 width: w,
                 child: CatalogCard(
@@ -787,16 +788,17 @@ class _CatalogFilter extends StatelessWidget {
   });
 
   /// The categories of the list; a chip *All* (null) comes first.
-  final List<String> categories;
-  final String? category;
+  final List<CatalogCategoryVm> categories;
+  final CatalogCategoryVm? category;
   final String? query;
-  final ValueChanged<String?>? onCategory;
+  final ValueChanged<CatalogCategoryVm?>? onCategory;
   final ValueChanged<String?>? onQuery;
 
   /// The chips: *All*, then each category.
-  List<String?> get _chips => [null, ...categories];
+  List<CatalogCategoryVm?> get _chips => [null, ...categories];
 
-  static String _label(String? k) => k ?? S.current.catalogAll;
+  static String _label(CatalogCategoryVm? k) =>
+      k?.label ?? S.current.catalogAll;
 
   static const _height = 36.0;
   static const _gap = 10.0;
@@ -885,8 +887,12 @@ class _CatalogFilter extends StatelessWidget {
     ),
   );
 
-  Widget _chip(AppColors c, String? k, {required bool selected}) => InkWell(
-    key: ValueKey('category:${k ?? '*'}'),
+  Widget _chip(
+    AppColors c,
+    CatalogCategoryVm? k, {
+    required bool selected,
+  }) => InkWell(
+    key: ValueKey('category:${k?.chipKey ?? '*'}'),
     onTap: () => onCategory?.call(k),
     borderRadius: Radii.pill,
     child: Container(

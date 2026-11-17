@@ -15,6 +15,7 @@ import 'package:models/backup_job.dart';
 import 'package:models/block_info.dart';
 import 'package:models/broker_self_update.dart';
 import 'package:models/ca_pin.dart';
+import 'package:models/catalog_category.dart';
 import 'package:models/catalog_item.dart';
 import 'package:models/explorer_tab.dart';
 import 'package:models/field_id.dart';
@@ -940,24 +941,20 @@ extension LinkInstallScreen on Selectors {
   String get installedLinkKey =>
       'wy/$installBroker/downstream/${linkInstall.name ?? ''}';
 
-  /// The official list as filtered on screen: by category and by the
-  /// words searched for in an item's name, code or description.
+  /// The official list of the category on screen. The words searched for
+  /// are matched by the page against the titles and lines it draws (a
+  /// known driver's are `ui`'s words, in the language on screen).
   List<CatalogItem> get installShownCatalog {
-    final q = (linkInstall.query ?? '').toLowerCase();
     final category = linkInstall.category;
     return [
       for (final c in linkInstall.catalog)
-        if ((category == null || c.category == category) &&
-            (q.isEmpty ||
-                '${c.name} ${c.code} ${c.description}'.toLowerCase().contains(
-                  q,
-                )))
-          c,
+        if (category == null || c.category == category) c,
     ];
   }
 
   /// The categories of the official list, each once.
-  List<String> get installCategories => categoriesOf(linkInstall.catalog);
+  List<CatalogCategory> get installCategories =>
+      categoriesOf(linkInstall.catalog);
 
   /// A check of the package or the backup failed.
   bool get installCheckFailed => linkInstall.checks.any(
@@ -2064,7 +2061,7 @@ extension type SelectLinkInstall(AppState _state) {
   InstallPath get path => _state.linkInstall.path;
 
   /// Returns category
-  String? get category => _state.linkInstall.category;
+  CatalogCategory? get category => _state.linkInstall.category;
 
   /// Returns query
   String? get query => _state.linkInstall.query;

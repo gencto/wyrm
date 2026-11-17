@@ -8,6 +8,7 @@ import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
+import 'catalog_words.dart';
 
 /// One entry of the official list, as typed values: [CatalogCard] words
 /// them.
@@ -15,10 +16,12 @@ final class CatalogCardVm extends Equatable {
   const CatalogCardVm({
     required this.id,
     required this.tag,
-    required this.name,
-    required this.description,
+    required this.title,
     required this.builtIn,
     required this.modes,
+    this.code = '',
+    this.description = '',
+    this.described,
     this.existing = 0,
     this.version,
     this.official = false,
@@ -27,8 +30,29 @@ final class CatalogCardVm extends Equatable {
 
   final String id;
   final String tag;
-  final String name;
+
+  /// The driver or package name the broker knows; the search matches it.
+  final String code;
+
+  /// Its title: the broker's, or Studio's words for a driver it knows.
+  final CatalogTitleVm title;
+
+  /// The broker's one line; empty when it gave none.
   final String description;
+
+  /// The driver whose one line Studio words: the broker gave none.
+  final LinkWords? described;
+
+  /// The title as the card reads.
+  String get name => title.text;
+
+  /// The one line as the card reads.
+  String get summary =>
+      description.isNotEmpty ? description : (described?.summary ?? '');
+
+  /// The words searched for are in what the card reads or in its code.
+  bool matches(String query) =>
+      '$name $code $summary'.toLowerCase().contains(query.toLowerCase());
 
   /// Built into wyrmd; else a package of the repository.
   final bool builtIn;
@@ -54,8 +78,10 @@ final class CatalogCardVm extends Equatable {
   List<Object?> get props => [
     id,
     tag,
-    name,
+    code,
+    title,
     description,
+    described,
     builtIn,
     modes,
     existing,
@@ -142,7 +168,7 @@ class CatalogCard extends StatelessWidget {
                     1.4 *
                     descriptionLines,
                 child: Text(
-                  vm.description,
+                  vm.summary,
                   maxLines: descriptionLines,
                   overflow: .ellipsis,
                   style: TextStyle(

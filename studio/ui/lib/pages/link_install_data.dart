@@ -2,6 +2,7 @@ import 'package:equatable/equatable.dart';
 import 'package:localization/localization.dart';
 
 import '../containers/catalog_card.dart';
+import '../containers/catalog_words.dart';
 import '../indicators/check_list.dart';
 import '../indicators/level_badge.dart';
 import '../models/disabled.dart';
@@ -301,7 +302,7 @@ final class LinkInstallVm extends Equatable {
     required this.broker,
     required this.mode,
     this.window = const WindowBarVm(),
-    this.itemName,
+    this.item,
     this.itemBuiltIn = true,
     this.sourceName,
     this.name,
@@ -342,9 +343,12 @@ final class LinkInstallVm extends Equatable {
   final List<InstallStepKey> steps;
   final InstallStepKey step;
 
-  /// The item of the official list picked: its name, and whether it is
+  /// The item of the official list picked: its title, and whether it is
   /// built into wyrmd.
-  final String? itemName;
+  final CatalogTitleVm? item;
+
+  /// The picked item's title as it reads.
+  String? get itemName => item?.text;
   final bool itemBuiltIn;
 
   /// What was brought: a file's name, a URL.
@@ -364,10 +368,20 @@ final class LinkInstallVm extends Equatable {
 
   /// Choose: the categories (null [category]: all), the words searched
   /// for and the cards shown.
-  final List<String> categories;
-  final String? category;
+  final List<CatalogCategoryVm> categories;
+  final CatalogCategoryVm? category;
   final String? query;
   final List<CatalogCardVm> cards;
+
+  /// The cards the words searched for leave: matched against what each
+  /// card reads, in the language on screen.
+  List<CatalogCardVm> get shownCards => switch (query) {
+    final q? when q.isNotEmpty => [
+      for (final c in cards)
+        if (c.matches(q)) c,
+    ],
+    _ => cards,
+  };
 
   /// Bring: the method, the picked file's name, the URL and ref, the field
   /// the broker refused and its words.
@@ -409,7 +423,7 @@ final class LinkInstallVm extends Equatable {
     from,
     steps,
     step,
-    itemName,
+    item,
     itemBuiltIn,
     sourceName,
     broker,

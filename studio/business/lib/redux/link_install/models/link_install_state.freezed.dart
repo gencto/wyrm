@@ -16,7 +16,7 @@ T _$identity<T>(T value) => value;
 mixin _$LinkInstallState {
 
  InstallStep get step; InstallSource? get source; String? get item; String? get broker; LinkMode? get mode; String? get name; bool get acceptRights; IList<PackageCheck> get checks; String? get message; InstallPath get path;/// The category of the official list on screen; null: all of them.
- String? get category; String? get query; InstallPhase? get phase; String? get manifest;/// What the checked package asks for; null when it asks for nothing.
+ CatalogCategory? get category; String? get query; InstallPhase? get phase; String? get manifest;/// What the checked package asks for; null when it asks for nothing.
  IList<RequestedRight>? get rights; IList<CatalogItem> get catalog; IList<InstallTarget> get targets; PackageMethod get method; InstallField? get refusedField; String? get refusedSaid;
 /// Create a copy of LinkInstallState
 /// with the given fields replaced by the non-null parameter values.
@@ -53,11 +53,11 @@ abstract mixin class $LinkInstallStateCopyWith<$Res>  {
   factory $LinkInstallStateCopyWith(LinkInstallState value, $Res Function(LinkInstallState) _then) = _$LinkInstallStateCopyWithImpl;
 @useResult
 $Res call({
- InstallStep step, InstallSource? source, String? item, String? broker, LinkMode? mode, String? name, bool acceptRights, IList<PackageCheck> checks, String? message, InstallPath path, String? category, String? query, InstallPhase? phase, String? manifest, IList<RequestedRight>? rights, IList<CatalogItem> catalog, IList<InstallTarget> targets, PackageMethod method, InstallField? refusedField, String? refusedSaid
+ InstallStep step, InstallSource? source, String? item, String? broker, LinkMode? mode, String? name, bool acceptRights, IList<PackageCheck> checks, String? message, InstallPath path, CatalogCategory? category, String? query, InstallPhase? phase, String? manifest, IList<RequestedRight>? rights, IList<CatalogItem> catalog, IList<InstallTarget> targets, PackageMethod method, InstallField? refusedField, String? refusedSaid
 });
 
 
-$InstallSourceCopyWith<$Res>? get source;
+$InstallSourceCopyWith<$Res>? get source;$CatalogCategoryCopyWith<$Res>? get category;
 
 }
 /// @nodoc
@@ -83,7 +83,7 @@ as bool,checks: null == checks ? _self.checks : checks // ignore: cast_nullable_
 as IList<PackageCheck>,message: freezed == message ? _self.message : message // ignore: cast_nullable_to_non_nullable
 as String?,path: null == path ? _self.path : path // ignore: cast_nullable_to_non_nullable
 as InstallPath,category: freezed == category ? _self.category : category // ignore: cast_nullable_to_non_nullable
-as String?,query: freezed == query ? _self.query : query // ignore: cast_nullable_to_non_nullable
+as CatalogCategory?,query: freezed == query ? _self.query : query // ignore: cast_nullable_to_non_nullable
 as String?,phase: freezed == phase ? _self.phase : phase // ignore: cast_nullable_to_non_nullable
 as InstallPhase?,manifest: freezed == manifest ? _self.manifest : manifest // ignore: cast_nullable_to_non_nullable
 as String?,rights: freezed == rights ? _self.rights : rights // ignore: cast_nullable_to_non_nullable
@@ -106,6 +106,18 @@ $InstallSourceCopyWith<$Res>? get source {
 
   return $InstallSourceCopyWith<$Res>(_self.source!, (value) {
     return _then(_self.copyWith(source: value));
+  });
+}/// Create a copy of LinkInstallState
+/// with the given fields replaced by the non-null parameter values.
+@override
+@pragma('vm:prefer-inline')
+$CatalogCategoryCopyWith<$Res>? get category {
+    if (_self.category == null) {
+    return null;
+  }
+
+  return $CatalogCategoryCopyWith<$Res>(_self.category!, (value) {
+    return _then(_self.copyWith(category: value));
   });
 }
 }
@@ -130,7 +142,7 @@ class _LinkInstallState implements LinkInstallState {
 @override final  String? message;
 @override@JsonKey() final  InstallPath path;
 /// The category of the official list on screen; null: all of them.
-@override final  String? category;
+@override final  CatalogCategory? category;
 @override final  String? query;
 @override final  InstallPhase? phase;
 @override final  String? manifest;
@@ -174,11 +186,11 @@ abstract mixin class _$LinkInstallStateCopyWith<$Res> implements $LinkInstallSta
   factory _$LinkInstallStateCopyWith(_LinkInstallState value, $Res Function(_LinkInstallState) _then) = __$LinkInstallStateCopyWithImpl;
 @override @useResult
 $Res call({
- InstallStep step, InstallSource? source, String? item, String? broker, LinkMode? mode, String? name, bool acceptRights, IList<PackageCheck> checks, String? message, InstallPath path, String? category, String? query, InstallPhase? phase, String? manifest, IList<RequestedRight>? rights, IList<CatalogItem> catalog, IList<InstallTarget> targets, PackageMethod method, InstallField? refusedField, String? refusedSaid
+ InstallStep step, InstallSource? source, String? item, String? broker, LinkMode? mode, String? name, bool acceptRights, IList<PackageCheck> checks, String? message, InstallPath path, CatalogCategory? category, String? query, InstallPhase? phase, String? manifest, IList<RequestedRight>? rights, IList<CatalogItem> catalog, IList<InstallTarget> targets, PackageMethod method, InstallField? refusedField, String? refusedSaid
 });
 
 
-@override $InstallSourceCopyWith<$Res>? get source;
+@override $InstallSourceCopyWith<$Res>? get source;@override $CatalogCategoryCopyWith<$Res>? get category;
 
 }
 /// @nodoc
@@ -204,7 +216,7 @@ as bool,checks: null == checks ? _self.checks : checks // ignore: cast_nullable_
 as IList<PackageCheck>,message: freezed == message ? _self.message : message // ignore: cast_nullable_to_non_nullable
 as String?,path: null == path ? _self.path : path // ignore: cast_nullable_to_non_nullable
 as InstallPath,category: freezed == category ? _self.category : category // ignore: cast_nullable_to_non_nullable
-as String?,query: freezed == query ? _self.query : query // ignore: cast_nullable_to_non_nullable
+as CatalogCategory?,query: freezed == query ? _self.query : query // ignore: cast_nullable_to_non_nullable
 as String?,phase: freezed == phase ? _self.phase : phase // ignore: cast_nullable_to_non_nullable
 as InstallPhase?,manifest: freezed == manifest ? _self.manifest : manifest // ignore: cast_nullable_to_non_nullable
 as String?,rights: freezed == rights ? _self.rights : rights // ignore: cast_nullable_to_non_nullable
@@ -228,6 +240,18 @@ $InstallSourceCopyWith<$Res>? get source {
 
   return $InstallSourceCopyWith<$Res>(_self.source!, (value) {
     return _then(_self.copyWith(source: value));
+  });
+}/// Create a copy of LinkInstallState
+/// with the given fields replaced by the non-null parameter values.
+@override
+@pragma('vm:prefer-inline')
+$CatalogCategoryCopyWith<$Res>? get category {
+    if (_self.category == null) {
+    return null;
+  }
+
+  return $CatalogCategoryCopyWith<$Res>(_self.category!, (value) {
+    return _then(_self.copyWith(category: value));
   });
 }
 }
