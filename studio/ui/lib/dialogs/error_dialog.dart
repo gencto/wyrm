@@ -68,7 +68,8 @@ final class ErrorDialogVm extends Equatable {
   /// The kind's tone: the icon square, the dots, the status chip.
   final Tone tone;
 
-  /// An icon of `ui/assets/svg/icons` (`err_rights`, `err_reach`, …).
+  /// The icon of the error's kind (`AppIcon.errRights`, `AppIcon.errReach`,
+  /// …).
   final AppIcon icon;
 
   /// What did not happen: `You can’t deploy pump-control`.

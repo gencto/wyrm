@@ -515,15 +515,14 @@ class KeyGlyph extends StatelessWidget {
   const KeyGlyph(
     this.token, {
     required this.color,
-    this.size = FontSizes.xs,
+    this.size = KeyGlyphSize.small,
     super.key,
   });
 
   final String token;
   final Color color;
 
-  /// The text size; an icon is drawn two points larger.
-  final FontSize size;
+  final KeyGlyphSize size;
 
   static const _icons = <String, AppIcon>{
     '⌘': AppIcon.keyCmd,
@@ -562,12 +561,15 @@ class KeyGlyph extends StatelessWidget {
   Widget build(BuildContext context) => switch (_icons[token]) {
     final icon? => AppIconView(
       icon,
-      size: size + AppSizes.flowKeyIconGrow,
+      size: size.icon,
       color: color,
     ),
     null => Text(
       token,
-      style: mono(size: size, color: color).copyWith(height: LineHeights.glyph),
+      style: mono(
+        size: size.text,
+        color: color,
+      ).copyWith(height: LineHeights.glyph),
     ),
   };
 }

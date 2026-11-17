@@ -5,6 +5,7 @@ import '../indicators/app_icon_view.dart';
 import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 
 /// One choice in a [SegmentedControl].
@@ -92,7 +93,6 @@ class _Segment<T> extends StatelessWidget {
 
   static const double _width = 32;
   static const double _height = 26;
-  static const double _iconSize = 14;
 
   /// A text segment sets its own width from the label rather than taking
   /// [_width], which is sized for a 14px glyph and would clip two characters.
@@ -156,7 +156,7 @@ class _Segment<T> extends StatelessWidget {
                     context,
                   ).textTheme.labelMedium?.copyWith(color: ink),
                 )
-              : AppIconView(icon, size: _iconSize, color: ink),
+              : AppIconView(icon, size: IconSizes.sm, color: ink),
         ),
       ),
     );

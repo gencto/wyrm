@@ -281,7 +281,7 @@ class _FlowMenuState extends State<FlowMenu> {
                   spacing: AppSpacing.flowKeyGlyphs,
                   children: [
                     for (final t in KeyGlyph.tokens(hint))
-                      KeyGlyph(t, color: c.text4, size: FontSizes.sm),
+                      KeyGlyph(t, color: c.text4, size: .regular),
                   ],
                 ),
             ],

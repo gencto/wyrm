@@ -9,6 +9,7 @@ import '../indicators/app_icon_view.dart';
 import '../theme/common.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
@@ -92,7 +93,11 @@ class PanelFault extends StatelessWidget {
           return Center(
             child: FittedBox(
               fit: .scaleDown,
-              child: _square(c, 28, 14),
+              child: _square(
+                c,
+                AppSizes.faultSquareSmall,
+                IconSizes.sm,
+              ),
             ),
           );
         }
@@ -107,7 +112,7 @@ class PanelFault extends StatelessWidget {
             crossAxisAlignment: .start,
             spacing: 12,
             children: [
-              _square(c, 36, 18),
+              _square(c, AppSizes.faultSquare, IconSizes.lg),
               Text(
                 vm.title,
                 style: boardText(
@@ -191,7 +196,7 @@ class PanelFault extends StatelessWidget {
     );
   }
 
-  Widget _square(AppColors c, double size, double icon) => Container(
+  Widget _square(AppColors c, double size, IconSize icon) => Container(
     width: size,
     height: size,
     decoration: BoxDecoration(

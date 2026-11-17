@@ -83,7 +83,7 @@ class Button extends StatelessWidget {
   /// Null disables the button.
   final VoidCallback? onPressed;
 
-  /// An icon of `ui/assets/svg/icons` (`ui_add`, `action_play`, …).
+  /// The icon before the label (`AppIcon.uiAdd`, `AppIcon.actionPlay`, …).
   final AppIcon? icon;
 
   /// Stretch to the available width instead of hugging.

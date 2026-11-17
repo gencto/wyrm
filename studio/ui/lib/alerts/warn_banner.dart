@@ -1,10 +1,12 @@
 import 'package:equatable/equatable.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../indicators/code_text.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
@@ -36,12 +38,6 @@ class WarnBanner extends StatelessWidget {
   final WarnBannerVm vm;
   final VoidCallback? onAction;
 
-  static const _triangle = '''
-<svg viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2"
-  stroke-linecap="round" stroke-linejoin="round">
-  <path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18h.01"/>
-</svg>''';
-
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
@@ -61,11 +57,10 @@ class WarnBanner extends StatelessWidget {
           children: [
             Padding(
               padding: Insets.iconInRow,
-              child: SvgPicture.string(
-                _triangle,
-                width: 18,
-                height: 18,
-                colorFilter: ColorFilter.mode(c.warn, BlendMode.srcIn),
+              child: AppIconView(
+                AppIcon.uiCaution,
+                size: IconSizes.lg,
+                color: c.warn,
               ),
             ),
             Expanded(

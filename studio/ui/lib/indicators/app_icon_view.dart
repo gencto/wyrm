@@ -15,7 +15,7 @@ class AppIconView extends StatelessWidget {
   final AppIcon icon;
 
   /// A step of [IconSizes] or a component's own icon size of [AppSizes].
-  final double? size;
+  final IconSize? size;
 
   final Color? color;
 

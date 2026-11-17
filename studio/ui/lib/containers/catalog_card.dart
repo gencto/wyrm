@@ -142,10 +142,10 @@ class CatalogCard extends StatelessWidget {
                 ],
               ),
               SizedBox(
-                // Two lines of 12 × 1.4 at the reader's text scale.
+                // Two lines of meta text at the reader's text scale.
                 height:
-                    MediaQuery.textScalerOf(context).scale(12) *
-                    1.4 *
+                    MediaQuery.textScalerOf(context).scale(FontSizes.sm) *
+                    LineHeights.meta *
                     descriptionLines,
                 child: Text(
                   vm.description,
