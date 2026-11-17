@@ -1,5 +1,6 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/backup_job.dart';
+import 'package:models/backup_section.dart';
 import 'package:models/send_link.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -38,7 +39,7 @@ class RetrieveBackupsAction extends Action with WaitingAction {
     const none = (
       exportSecrets: false,
       sendLinks: IListConst<SendLink>([]),
-      sections: IListConst<String>([]),
+      sections: IListConst<BackupSection>([]),
       keepDays: 7,
     );
     final NodeMeta meta;

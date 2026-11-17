@@ -1,6 +1,12 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 
+import 'backup_sealed.dart';
+import 'backup_section.dart';
+import 'restore_keys.dart';
+import 'restore_link_state.dart';
+import 'schema_pair.dart';
+
 part 'restore_check.freezed.dart';
 
 @freezed
@@ -9,27 +15,29 @@ abstract class RestoreCheck with _$RestoreCheck {
   const factory RestoreCheck({
     @Default('') String site,
     @Default(false) bool sameSite,
-    @Default('') String created,
+
+    /// When the backup was made.
+    DateTime? created,
     @Default('') String broker,
 
-    /// `none`, `passphrase` or `broker`.
-    @Default('none') String sealed,
+    /// How the secrets of the file are sealed.
+    @Default(BackupSealed.none) BackupSealed sealed,
 
-    /// Store SCHEMA by store: `(backup, here)`.
-    @Default(IMapConst({})) IMap<String, (int, int)> schemas,
+    /// Store SCHEMA by store: in the backup and here.
+    @Default(IMapConst({})) IMap<String, SchemaPair> schemas,
 
     /// The sections of the file with their bytes.
-    @Default(IMapConst({})) IMap<String, int> sections,
+    @Default(IMapConst({})) IMap<BackupSection, int> sections,
 
-    /// `none`, `same`, `differ` or `other`.
-    @Default('none') String keys,
+    /// How the keys of the file compare with this broker's.
+    @Default(RestoreKeys.none) RestoreKeys keys,
 
     /// The key files that are not this broker's.
     @Default(IListConst([])) IList<String> keysDiffer,
     @Default(true) bool controlOpensHere,
 
-    /// Each link of the file: `new` or `exists`.
-    @Default(IMapConst({})) IMap<String, String> links,
+    /// Each link of the file against this broker.
+    @Default(IMapConst({})) IMap<String, RestoreLinkState> links,
 
     /// Each blocks `replace`.
     @Default(IListConst([])) IList<String> problems,

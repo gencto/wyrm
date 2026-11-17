@@ -17538,6 +17538,41 @@ class S {
   String get problemInvalid {
     return Intl.message('invalid', name: 'problemInvalid', desc: '', args: []);
   }
+
+  /// `The broker answered in a form this Studio does not read, so nothing was changed here. The field is in the log.`
+  String get errUnreadableAnswer {
+    return Intl.message(
+      'The broker answered in a form this Studio does not read, so nothing was changed here. The field is in the log.',
+      name: 'errUnreadableAnswer',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Writing the file`
+  String get bakStepWriting {
+    return Intl.message(
+      'Writing the file',
+      name: 'bakStepWriting',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `new`
+  String get rstLinkNew {
+    return Intl.message('new', name: 'rstLinkNew', desc: '', args: []);
+  }
+
+  /// `exists here`
+  String get rstLinkExists {
+    return Intl.message(
+      'exists here',
+      name: 'rstLinkExists',
+      desc: '',
+      args: [],
+    );
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<S> {

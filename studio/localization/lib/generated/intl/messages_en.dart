@@ -1551,6 +1551,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "A backup is as sensitive as the broker\'s data directory: keep it where only administrators reach it.",
     ),
     "bakShow": MessageLookupByLibrary.simpleMessage("Show in Backups"),
+    "bakStepWriting": MessageLookupByLibrary.simpleMessage("Writing the file"),
     "bakSub": MessageLookupByLibrary.simpleMessage(
       "Pick what goes in. One .wyrm-backup file (a zip with a manifest); the broker keeps running while it is made.",
     ),
@@ -2132,6 +2133,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "errTitleUnsupported": m142,
     "errTryAgain": MessageLookupByLibrary.simpleMessage("Try again"),
     "errTryAgainIn": m143,
+    "errUnreadableAnswer": MessageLookupByLibrary.simpleMessage(
+      "The broker answered in a form this Studio does not read, so nothing was changed here. The field is in the log.",
+    ),
     "errUserRole": m144,
     "errWhatYouCanDo": MessageLookupByLibrary.simpleMessage("What you can do"),
     "errWriteNote": MessageLookupByLibrary.simpleMessage(
@@ -3197,6 +3201,8 @@ class MessageLookup extends MessageLookupByLibrary {
     "rstKeysSameNote": MessageLookupByLibrary.simpleMessage(
       "Every key file of the backup is this broker\'s; tokens and certificates stay valid.",
     ),
+    "rstLinkExists": MessageLookupByLibrary.simpleMessage("exists here"),
+    "rstLinkNew": MessageLookupByLibrary.simpleMessage("new"),
     "rstLinks": m269,
     "rstLogIn": MessageLookupByLibrary.simpleMessage("Log in again"),
     "rstLost": MessageLookupByLibrary.simpleMessage(

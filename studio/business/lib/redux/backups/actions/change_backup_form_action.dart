@@ -1,3 +1,5 @@
+import 'package:models/backup_place.dart';
+
 import '../../app_state.dart';
 import '../../common/action.dart';
 import 'estimate_backup_action.dart';
@@ -25,8 +27,8 @@ class ChangeBackupFormAction extends Action {
       _connectionsOf = link,
       _where = false;
 
-  /// Where the backup goes changed ([where]: `computer`, `store`).
-  ChangeBackupFormAction.where(String where)
+  /// Where the backup goes changed.
+  ChangeBackupFormAction.where(BackupPlace where)
     : change = SetBackupFormAction(where: where),
       _connectionsOf = null,
       _where = true;
@@ -41,7 +43,7 @@ class ChangeBackupFormAction extends Action {
       final links = backups.sendLinks;
       // One link the host lists for a file store: it is the choice, in the
       // same state as the place.
-      final only = change.where == 'store' && links.length == 1
+      final only = change.where == BackupPlace.store && links.length == 1
           ? links.first.link
           : null;
       dispatchSync(change, notify: only == null);

@@ -1,5 +1,7 @@
 import 'package:models/flow_summary.dart';
+import 'package:wyrm_client/wyrm_client.dart';
 
+import '../mappers/values.dart';
 import 'decoded.dart';
 
 /// A flow's own `~val` (`dataflows/<id>`, spec 06): `{state, error,
@@ -46,6 +48,10 @@ Decoded<FlowVal> flowValOf(Object? value) => switch (value) {
   ),
   _ => const Invalid('flow value', '', 'not a map'),
 };
+
+/// [value] (a flow's `~val` as it is read from the wire) read, as
+/// [flowValOf] reads a live one.
+Decoded<FlowVal> flowValOfWire(Value? value) => flowValOf(toDart(value));
 
 int? _whole(Object? x) => switch (x) {
   final int i => i,

@@ -1,3 +1,6 @@
+import 'package:models/backup_section.dart';
+import 'package:models/backup_stage.dart';
+
 import '../../app_state.dart';
 import '../../common/action.dart';
 import 'apply_restore_action.dart';
@@ -14,7 +17,7 @@ import 'set_backup_form_action.dart';
 class RestoreAction extends Action {
   RestoreAction({required this.drop, this.passphrase});
 
-  final Set<String> drop;
+  final Set<BackupSection> drop;
   final String? passphrase;
 
   @override
@@ -25,7 +28,7 @@ class RestoreAction extends Action {
     final status = await dispatchAndWait(
       ApplyRestoreAction(passphrase: passphrase),
     );
-    if (status.isCompletedOk && backups.stage == 'restarting') {
+    if (status.isCompletedOk && backups.stage == BackupStage.restarting) {
       await dispatchAndWait(FollowRestoreAction());
     }
     return null;

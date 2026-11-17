@@ -1,11 +1,10 @@
 import 'dart:convert';
 
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
-import 'package:models/link_revision.dart';
-import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../../wyrm/calls.dart';
-import '../../../wyrm/mappers/values.dart';
+import '../../../wyrm/decode/sys_answers.dart';
+import '../../../wyrm/decode/unreadable.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 import 'retrieve_links_action.dart';
@@ -30,17 +29,11 @@ class RetrieveLinkHistoryAction extends Action with WaitingAction {
       '${site.root}/sys/links/$id',
       'history',
     );
-    final revs = <LinkRevision>[
-      for (final r in rows)
-        for (final e in switch (r) {
-          VArray(:final v) => v,
-          _ => [r],
-        })
-          LinkRevision(
-            rev: integer(e['rev']) ?? 0,
-            params: prettyJson(toDart(e['params'])),
-          ),
-    ]..sort((a, b) => b.rev.compareTo(a.rev));
+    final revs = linkRevisionsOf(rows).orRefuse(
+      key: '${site.root}/sys/links/$id',
+      call: 'history',
+      thing: id,
+    );
     return state.copyWith.links(revisions: revs.lock);
   }
 }

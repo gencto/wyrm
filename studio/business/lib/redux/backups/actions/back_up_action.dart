@@ -1,3 +1,5 @@
+import 'package:models/backup_section.dart';
+
 import '../../app_state.dart';
 import '../../common/action.dart';
 import 'create_backup_action.dart';
@@ -18,7 +20,10 @@ class BackUpAction extends Action {
   @override
   Future<AppState?> reduce() async {
     if (dropKeys) {
-      dispatchSync(SetBackupFormAction(toggle: 'keys'), notify: false);
+      dispatchSync(
+        SetBackupFormAction(toggle: BackupSection.keys),
+        notify: false,
+      );
     }
     await dispatchAndWait(CreateBackupAction(passphrase: passphrase));
     return null;

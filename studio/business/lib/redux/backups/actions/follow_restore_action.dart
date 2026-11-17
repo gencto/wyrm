@@ -1,7 +1,9 @@
-import 'package:wyrm_client/wyrm_client.dart';
+import 'package:models/backup_stage.dart';
+import 'package:models/restore_end.dart';
+import 'package:models/restore_record.dart';
 
 import '../../../wyrm/calls.dart';
-import '../../../wyrm/mappers/values.dart';
+import '../../../wyrm/decode/restore.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 import 'retrieve_backups_action.dart';
@@ -16,8 +18,9 @@ import 'retrieve_backups_action.dart';
 ///    of this Studio is no longer the site's, and the user logs in again.
 /// 3. It reads what the start wrote in the audit (`sys/audit` ▸ `tail`):
 ///    `restore_applied`, or `restore_failed` with the broker's reason (the
-///    state before the restore is then in place). Neither: `stage:
-///    unknown`, said as it is.
+///    state before the restore is then in place). Neither, or an audit
+///    this client cannot read (logged with its field): `stage: unknown`,
+///    said as it is.
 ///
 /// Closing the dialog ends the watch; the restore goes on in the broker.
 class FollowRestoreAction extends Action with WaitingAction {
@@ -31,7 +34,7 @@ class FollowRestoreAction extends Action with WaitingAction {
   final Duration back;
   final Duration step;
 
-  bool get _open => backups.stage == 'restarting';
+  bool get _open => backups.stage == BackupStage.restarting;
 
   Future<bool> _until(bool Function() test, Duration within) async {
     final end = DateTime.now().add(within);
@@ -56,10 +59,10 @@ class FollowRestoreAction extends Action with WaitingAction {
       return null;
     }
     if (!await _until(() => site.connected, back)) {
-      return _open ? state.copyWith.backups(stage: 'lost') : null;
+      return _open ? state.copyWith.backups(stage: BackupStage.lost) : null;
     }
     // The start that applied it writes its record once the stores opened.
-    Value? found;
+    RestoreRecord? found;
     for (var i = 0; i < 20 && found == null && _open; i++) {
       try {
         final rows = await askOne(
@@ -68,21 +71,11 @@ class FollowRestoreAction extends Action with WaitingAction {
           'tail',
           valueOf({'n': 50}),
         );
-        if (rows case VArray(:final v)) {
-          for (final r in v.reversed) {
-            final op = str(r['op']);
-            final t = integer(r['t']) ?? 0;
-            // `t` is unix seconds or finer: only records of this restore.
-            final seconds = t > 100000000000
-                ? t ~/ (t > 100000000000000 ? 1000000 : 1000)
-                : t;
-            if ((op == 'restore_applied' || op == 'restore_failed') &&
-                seconds >= since) {
-              found = r;
-              break;
-            }
-          }
-        }
+        // Only records of this restore, the newest first.
+        found = restoreRecordsOf(rows)
+            .orWarn('$root/sys/audit')
+            ?.where((r) => r.seconds >= since)
+            .lastOrNull;
       } on Object {
         // The broker is still coming up: asked again.
       }
@@ -98,12 +91,12 @@ class FollowRestoreAction extends Action with WaitingAction {
       return null;
     }
     return state.copyWith.backups(
-      stage: switch (str(found?['op'])) {
-        'restore_applied' => 'applied',
-        'restore_failed' => 'not-applied',
-        _ => 'unknown',
+      stage: switch (found?.end) {
+        RestoreEnd.applied => BackupStage.applied,
+        RestoreEnd.failed => BackupStage.notApplied,
+        null => BackupStage.unknown,
       },
-      result: str(found?['detail']) ?? backups.result,
+      result: found?.detail ?? backups.result,
     );
   }
 }

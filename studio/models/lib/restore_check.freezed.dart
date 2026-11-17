@@ -15,13 +15,14 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$RestoreCheck {
 
- String get site; bool get sameSite; String get created; String get broker;/// `none`, `passphrase` or `broker`.
- String get sealed;/// Store SCHEMA by store: `(backup, here)`.
- IMap<String, (int, int,)> get schemas;/// The sections of the file with their bytes.
- IMap<String, int> get sections;/// `none`, `same`, `differ` or `other`.
- String get keys;/// The key files that are not this broker's.
- IList<String> get keysDiffer; bool get controlOpensHere;/// Each link of the file: `new` or `exists`.
- IMap<String, String> get links;/// Each blocks `replace`.
+ String get site; bool get sameSite;/// When the backup was made.
+ DateTime? get created; String get broker;/// How the secrets of the file are sealed.
+ BackupSealed get sealed;/// Store SCHEMA by store: in the backup and here.
+ IMap<String, SchemaPair> get schemas;/// The sections of the file with their bytes.
+ IMap<BackupSection, int> get sections;/// How the keys of the file compare with this broker's.
+ RestoreKeys get keys;/// The key files that are not this broker's.
+ IList<String> get keysDiffer; bool get controlOpensHere;/// Each link of the file against this broker.
+ IMap<String, RestoreLinkState> get links;/// Each blocks `replace`.
  IList<String> get problems; IList<String> get notes;
 /// Create a copy of RestoreCheck
 /// with the given fields replaced by the non-null parameter values.
@@ -58,7 +59,7 @@ abstract mixin class $RestoreCheckCopyWith<$Res>  {
   factory $RestoreCheckCopyWith(RestoreCheck value, $Res Function(RestoreCheck) _then) = _$RestoreCheckCopyWithImpl;
 @useResult
 $Res call({
- String site, bool sameSite, String created, String broker, String sealed, IMap<String, (int, int,)> schemas, IMap<String, int> sections, String keys, IList<String> keysDiffer, bool controlOpensHere, IMap<String, String> links, IList<String> problems, IList<String> notes
+ String site, bool sameSite, DateTime? created, String broker, BackupSealed sealed, IMap<String, SchemaPair> schemas, IMap<BackupSection, int> sections, RestoreKeys keys, IList<String> keysDiffer, bool controlOpensHere, IMap<String, RestoreLinkState> links, IList<String> problems, IList<String> notes
 });
 
 
@@ -75,20 +76,20 @@ class _$RestoreCheckCopyWithImpl<$Res>
 
 /// Create a copy of RestoreCheck
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? site = null,Object? sameSite = null,Object? created = null,Object? broker = null,Object? sealed = null,Object? schemas = null,Object? sections = null,Object? keys = null,Object? keysDiffer = null,Object? controlOpensHere = null,Object? links = null,Object? problems = null,Object? notes = null,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? site = null,Object? sameSite = null,Object? created = freezed,Object? broker = null,Object? sealed = null,Object? schemas = null,Object? sections = null,Object? keys = null,Object? keysDiffer = null,Object? controlOpensHere = null,Object? links = null,Object? problems = null,Object? notes = null,}) {
   return _then(RestoreCheck(
 site: null == site ? _self.site : site // ignore: cast_nullable_to_non_nullable
 as String,sameSite: null == sameSite ? _self.sameSite : sameSite // ignore: cast_nullable_to_non_nullable
-as bool,created: null == created ? _self.created : created // ignore: cast_nullable_to_non_nullable
-as String,broker: null == broker ? _self.broker : broker // ignore: cast_nullable_to_non_nullable
+as bool,created: freezed == created ? _self.created : created // ignore: cast_nullable_to_non_nullable
+as DateTime?,broker: null == broker ? _self.broker : broker // ignore: cast_nullable_to_non_nullable
 as String,sealed: null == sealed ? _self.sealed : sealed // ignore: cast_nullable_to_non_nullable
-as String,schemas: null == schemas ? _self.schemas : schemas // ignore: cast_nullable_to_non_nullable
-as IMap<String, (int, int,)>,sections: null == sections ? _self.sections : sections // ignore: cast_nullable_to_non_nullable
-as IMap<String, int>,keys: null == keys ? _self.keys : keys // ignore: cast_nullable_to_non_nullable
-as String,keysDiffer: null == keysDiffer ? _self.keysDiffer : keysDiffer // ignore: cast_nullable_to_non_nullable
+as BackupSealed,schemas: null == schemas ? _self.schemas : schemas // ignore: cast_nullable_to_non_nullable
+as IMap<String, SchemaPair>,sections: null == sections ? _self.sections : sections // ignore: cast_nullable_to_non_nullable
+as IMap<BackupSection, int>,keys: null == keys ? _self.keys : keys // ignore: cast_nullable_to_non_nullable
+as RestoreKeys,keysDiffer: null == keysDiffer ? _self.keysDiffer : keysDiffer // ignore: cast_nullable_to_non_nullable
 as IList<String>,controlOpensHere: null == controlOpensHere ? _self.controlOpensHere : controlOpensHere // ignore: cast_nullable_to_non_nullable
 as bool,links: null == links ? _self.links : links // ignore: cast_nullable_to_non_nullable
-as IMap<String, String>,problems: null == problems ? _self.problems : problems // ignore: cast_nullable_to_non_nullable
+as IMap<String, RestoreLinkState>,problems: null == problems ? _self.problems : problems // ignore: cast_nullable_to_non_nullable
 as IList<String>,notes: null == notes ? _self.notes : notes // ignore: cast_nullable_to_non_nullable
 as IList<String>,
   ));
@@ -102,26 +103,27 @@ as IList<String>,
 
 
 class _RestoreCheck implements RestoreCheck {
-  const _RestoreCheck({this.site = '', this.sameSite = false, this.created = '', this.broker = '', this.sealed = 'none', this.schemas = const IMapConst({}), this.sections = const IMapConst({}), this.keys = 'none', this.keysDiffer = const IListConst([]), this.controlOpensHere = true, this.links = const IMapConst({}), this.problems = const IListConst([]), this.notes = const IListConst([])});
+  const _RestoreCheck({this.site = '', this.sameSite = false, this.created, this.broker = '', this.sealed = BackupSealed.none, this.schemas = const IMapConst({}), this.sections = const IMapConst({}), this.keys = RestoreKeys.none, this.keysDiffer = const IListConst([]), this.controlOpensHere = true, this.links = const IMapConst({}), this.problems = const IListConst([]), this.notes = const IListConst([])});
   
 
 @override@JsonKey() final  String site;
 @override@JsonKey() final  bool sameSite;
-@override@JsonKey() final  String created;
+/// When the backup was made.
+@override final  DateTime? created;
 @override@JsonKey() final  String broker;
-/// `none`, `passphrase` or `broker`.
-@override@JsonKey() final  String sealed;
-/// Store SCHEMA by store: `(backup, here)`.
-@override@JsonKey() final  IMap<String, (int, int,)> schemas;
+/// How the secrets of the file are sealed.
+@override@JsonKey() final  BackupSealed sealed;
+/// Store SCHEMA by store: in the backup and here.
+@override@JsonKey() final  IMap<String, SchemaPair> schemas;
 /// The sections of the file with their bytes.
-@override@JsonKey() final  IMap<String, int> sections;
-/// `none`, `same`, `differ` or `other`.
-@override@JsonKey() final  String keys;
+@override@JsonKey() final  IMap<BackupSection, int> sections;
+/// How the keys of the file compare with this broker's.
+@override@JsonKey() final  RestoreKeys keys;
 /// The key files that are not this broker's.
 @override@JsonKey() final  IList<String> keysDiffer;
 @override@JsonKey() final  bool controlOpensHere;
-/// Each link of the file: `new` or `exists`.
-@override@JsonKey() final  IMap<String, String> links;
+/// Each link of the file against this broker.
+@override@JsonKey() final  IMap<String, RestoreLinkState> links;
 /// Each blocks `replace`.
 @override@JsonKey() final  IList<String> problems;
 @override@JsonKey() final  IList<String> notes;
@@ -158,7 +160,7 @@ abstract mixin class _$RestoreCheckCopyWith<$Res> implements $RestoreCheckCopyWi
   factory _$RestoreCheckCopyWith(_RestoreCheck value, $Res Function(_RestoreCheck) _then) = __$RestoreCheckCopyWithImpl;
 @override @useResult
 $Res call({
- String site, bool sameSite, String created, String broker, String sealed, IMap<String, (int, int,)> schemas, IMap<String, int> sections, String keys, IList<String> keysDiffer, bool controlOpensHere, IMap<String, String> links, IList<String> problems, IList<String> notes
+ String site, bool sameSite, DateTime? created, String broker, BackupSealed sealed, IMap<String, SchemaPair> schemas, IMap<BackupSection, int> sections, RestoreKeys keys, IList<String> keysDiffer, bool controlOpensHere, IMap<String, RestoreLinkState> links, IList<String> problems, IList<String> notes
 });
 
 
@@ -175,20 +177,20 @@ class __$RestoreCheckCopyWithImpl<$Res>
 
 /// Create a copy of RestoreCheck
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? site = null,Object? sameSite = null,Object? created = null,Object? broker = null,Object? sealed = null,Object? schemas = null,Object? sections = null,Object? keys = null,Object? keysDiffer = null,Object? controlOpensHere = null,Object? links = null,Object? problems = null,Object? notes = null,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? site = null,Object? sameSite = null,Object? created = freezed,Object? broker = null,Object? sealed = null,Object? schemas = null,Object? sections = null,Object? keys = null,Object? keysDiffer = null,Object? controlOpensHere = null,Object? links = null,Object? problems = null,Object? notes = null,}) {
   return _then(_RestoreCheck(
 site: null == site ? _self.site : site // ignore: cast_nullable_to_non_nullable
 as String,sameSite: null == sameSite ? _self.sameSite : sameSite // ignore: cast_nullable_to_non_nullable
-as bool,created: null == created ? _self.created : created // ignore: cast_nullable_to_non_nullable
-as String,broker: null == broker ? _self.broker : broker // ignore: cast_nullable_to_non_nullable
+as bool,created: freezed == created ? _self.created : created // ignore: cast_nullable_to_non_nullable
+as DateTime?,broker: null == broker ? _self.broker : broker // ignore: cast_nullable_to_non_nullable
 as String,sealed: null == sealed ? _self.sealed : sealed // ignore: cast_nullable_to_non_nullable
-as String,schemas: null == schemas ? _self.schemas : schemas // ignore: cast_nullable_to_non_nullable
-as IMap<String, (int, int,)>,sections: null == sections ? _self.sections : sections // ignore: cast_nullable_to_non_nullable
-as IMap<String, int>,keys: null == keys ? _self.keys : keys // ignore: cast_nullable_to_non_nullable
-as String,keysDiffer: null == keysDiffer ? _self.keysDiffer : keysDiffer // ignore: cast_nullable_to_non_nullable
+as BackupSealed,schemas: null == schemas ? _self.schemas : schemas // ignore: cast_nullable_to_non_nullable
+as IMap<String, SchemaPair>,sections: null == sections ? _self.sections : sections // ignore: cast_nullable_to_non_nullable
+as IMap<BackupSection, int>,keys: null == keys ? _self.keys : keys // ignore: cast_nullable_to_non_nullable
+as RestoreKeys,keysDiffer: null == keysDiffer ? _self.keysDiffer : keysDiffer // ignore: cast_nullable_to_non_nullable
 as IList<String>,controlOpensHere: null == controlOpensHere ? _self.controlOpensHere : controlOpensHere // ignore: cast_nullable_to_non_nullable
 as bool,links: null == links ? _self.links : links // ignore: cast_nullable_to_non_nullable
-as IMap<String, String>,problems: null == problems ? _self.problems : problems // ignore: cast_nullable_to_non_nullable
+as IMap<String, RestoreLinkState>,problems: null == problems ? _self.problems : problems // ignore: cast_nullable_to_non_nullable
 as IList<String>,notes: null == notes ? _self.notes : notes // ignore: cast_nullable_to_non_nullable
 as IList<String>,
   ));

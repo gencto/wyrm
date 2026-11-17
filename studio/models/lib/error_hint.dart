@@ -19,4 +19,8 @@ enum ErrorHint {
   /// A value whose meta names no level it can be set at: Studio stages no
   /// set of it (the link would answer `not_supported`, not writable).
   notSettable,
+
+  /// The broker answered, and the answer is not of the shape the call
+  /// has: Studio reads nothing out of it (the field is in the log).
+  unreadableAnswer,
 }

@@ -1,37 +1,24 @@
 // The check messages read better as one string each.
 // ignore_for_file: lines_longer_than_80_chars, cascade_invocations
 
-import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/backup_sealed.dart';
+import 'package:models/backup_section.dart';
 import 'package:models/link_mode.dart';
 import 'package:models/package_check.dart';
 import 'package:models/package_check_result.dart';
+import 'package:models/package_kind.dart';
 import 'package:models/package_report.dart';
 import 'package:models/requested_right.dart';
 
 import 'decode/decoded.dart';
-import 'decode/requested_rights.dart';
+import 'decode/package_manifest.dart';
 
 /// The link protocol of this Studio's brokers (`LINK_PROTOCOL`).
 const linkProtocol = 1;
-
-const _fields = {
-  'name',
-  'version',
-  'description',
-  'wyrm_link',
-  'kind',
-  'entries',
-  'args',
-  'requester',
-  'entry',
-  'world',
-  'capabilities',
-};
 
 PackageCheck _ok(String t, [String d = '']) =>
     PackageCheck(title: t, detail: d);
@@ -97,110 +84,108 @@ PackageReport checkZip(Uint8List bytes, {String? host}) {
     checks.add(_bad('Manifest', 'no wyrm-link.json at the zip root'));
     return PackageReport(checks: checks.lock);
   }
-  final Object? json;
-  try {
-    json = jsonDecode(utf8.decode(mf.content));
-  } on Object catch (e) {
-    checks.add(_bad('Manifest', 'wyrm-link.json is not JSON: $e'));
-    return PackageReport(checks: checks.lock);
+  final PackageManifest m;
+  switch (packageManifestOf(mf.content)) {
+    case Valid(:final value):
+      m = value;
+    case Invalid(:final reason):
+      checks.add(_bad('Manifest', 'wyrm-link.json is $reason'));
+      return PackageReport(checks: checks.lock);
   }
-  if (json is! Map<String, Object?>) {
-    checks.add(_bad('Manifest', 'wyrm-link.json is not an object'));
-    return PackageReport(checks: checks.lock);
-  }
-  final pretty = const JsonEncoder.withIndent('  ').convert(json);
-  final unknown = json.keys.where((k) => !_fields.contains(k)).toList();
-  final name = json['name'];
-  final version = json['version'];
-  final kind = json['kind'];
+  final name = m.name.value;
+  final version = m.version.value;
+  final kind = m.kind.value;
   final missing = [
-    if (name is! String) 'name',
-    if (version is! String) 'version',
-    if (json['wyrm_link'] is! int) 'wyrm_link',
-    if (kind != 'process' && kind != 'wasm') 'kind',
+    if (name == null) 'name',
+    if (version == null) 'version',
+    if (m.protocol.value == null) 'wyrm_link',
+    if (kind == null) 'kind',
   ];
   checks.add(
-    unknown.isNotEmpty
-        ? _bad('Manifest', 'unknown fields: ${unknown.join(', ')}')
+    m.unknown.isNotEmpty
+        ? _bad('Manifest', 'unknown fields: ${m.unknown.join(', ')}')
         : (missing.isNotEmpty
               ? _bad('Manifest', 'missing or wrong: ${missing.join(', ')}')
               : _ok('Manifest', 'wyrm-link.json')),
   );
   checks.add(
-    json['wyrm_link'] == linkProtocol
+    m.protocol.value == linkProtocol
         ? _ok('Protocol', 'wyrm_link $linkProtocol')
         : _bad(
             'Protocol',
-            'wyrm_link ${json['wyrm_link']}; the brokers speak $linkProtocol',
+            'wyrm_link ${m.protocol.shown}; the brokers speak $linkProtocol',
           ),
   );
-  if (name is String) {
+  if (name != null) {
     checks.add(
       RegExp(r'^[A-Za-z0-9._-]{1,64}$').hasMatch(name) &&
-              version is String &&
+              version != null &&
               RegExp(r'^[A-Za-z0-9_+-][A-Za-z0-9._+-]{0,31}$').hasMatch(version)
           ? _ok('Name and version', '$name $version')
           : _bad(
               'Name and version',
-              '$name $version: name a key segment, version 1–32 of A–Z a–z 0–9 . _ - +',
+              '$name ${m.version.shown}: name a key segment, version 1–32 of A–Z a–z 0–9 . _ - +',
             ),
     );
   }
-  if (kind == 'process') {
-    final entries = json['entries'];
-    if (entries is Map<String, Object?> && entries.isNotEmpty) {
-      final absent = entries.entries
-          .where(
-            (e) =>
-                e.value is! String || zip.findFile(e.value! as String) == null,
-          )
-          .map((e) => e.key)
-          .toList();
-      checks.add(
-        absent.isNotEmpty
-            ? _bad('Binaries', 'entry file missing for ${absent.join(', ')}')
-            : _ok('Binaries', entries.keys.join(', ')),
-      );
-      if (host != null) {
+  switch (kind) {
+    case PackageKind.process:
+      final entries = m.entries;
+      if (entries != null && entries.isNotEmpty) {
+        final absent = [
+          for (final MapEntry(:key, :value) in entries.entries)
+            if (value == null || zip.findFile(value) == null) key,
+        ];
         checks.add(
-          entries.containsKey(host)
-              ? _ok('This host', host)
-              : _bad('This host', 'no entry for $host'),
+          absent.isNotEmpty
+              ? _bad('Binaries', 'entry file missing for ${absent.join(', ')}')
+              : _ok('Binaries', entries.keys.join(', ')),
+        );
+        if (host != null) {
+          checks.add(
+            entries.containsKey(host)
+                ? _ok('This host', host)
+                : _bad('This host', 'no entry for $host'),
+          );
+        }
+      } else {
+        checks.add(
+          _bad('Binaries', 'a process package needs entries per host'),
         );
       }
-    } else {
-      checks.add(_bad('Binaries', 'a process package needs entries per host'));
-    }
-  } else if (kind == 'wasm') {
-    final entry = json['entry'];
-    final f = entry is String ? zip.findFile(entry) : null;
-    checks.add(
-      f == null
-          ? _bad('Component', 'entry ${entry ?? '(none)'} not in the zip')
-          : (_isWasm(f.content)
-                ? _ok('Component', entry! as String)
-                : _bad('Component', '$entry is not WebAssembly')),
-    );
-    checks.add(_skip('World', 'read from the component by the broker'));
+    case PackageKind.wasm:
+      final entry = m.entry.value;
+      final f = entry == null ? null : zip.findFile(entry);
+      checks.add(
+        f == null || entry == null
+            ? _bad('Component', 'entry ${m.entry.shown} not in the zip')
+            : (_isWasm(f.content)
+                  ? _ok('Component', entry)
+                  : _bad('Component', '$entry is not WebAssembly')),
+      );
+      checks.add(_skip('World', 'read from the component by the broker'));
+    case null:
+      break;
   }
-  final asked = requestedRightsOf(json['capabilities'], json['requester']);
   final List<RequestedRight> rights;
-  switch (asked) {
+  switch (m.rights) {
     case Valid(:final value):
       rights = value;
+      // the rights themselves: ui says them in the language on screen
+      checks.add(PackageCheck(title: 'Rights asked', rights: rights.lock));
     case Invalid(:final field, :final reason):
       rights = const [];
       checks.add(_bad('Rights asked', '$field: $reason'));
   }
-  if (asked is Valid) {
-    // the rights themselves: ui says them in the language on screen
-    checks.add(PackageCheck(title: 'Rights asked', rights: rights.lock));
-  }
   return PackageReport(
     checks: checks.lock,
-    manifest: pretty,
-    name: name is String ? name : null,
-    kind: kind is String ? LinkMode.fromWire(kind) : null,
+    manifest: m.pretty,
+    name: name,
+    kind: switch (kind) {
+      PackageKind.process => LinkMode.process,
+      PackageKind.wasm => LinkMode.wasm,
+      null => null,
+    },
     rights: rights.isEmpty ? null : rights.lock,
   );
 }
@@ -246,66 +231,59 @@ PackageReport checkBackup(Uint8List bytes) {
   if (entry == null) {
     return stop([...checks, _bad('Manifest', 'no manifest.json')]);
   }
-  final Map<String, Object?> m;
-  try {
-    m = jsonDecode(
-      utf8.decode(entry.content as List<int>),
-    ) as Map<String, Object?>;
-  } on Object catch (e) {
-    return stop([...checks, _bad('Manifest', '$e')]);
-  }
-  final link = m['link'];
-  if (m['kind'] != 'link' || link is! Map<String, Object?>) {
-    checks.add(
-      _bad(
-        'Kind',
-        'a backup of kind ${m['kind']}: Add a link takes a link backup '
-            '(.wyrm-link); a broker backup is restored in System',
-      ),
-    );
-    return stop(checks);
+  final LinkBackup m;
+  switch (backupManifestOf(entry.content)) {
+    case Valid(value: final LinkBackup link):
+      m = link;
+    case Valid(value: OtherBackup(:final kind)):
+      checks.add(
+        _bad(
+          'Kind',
+          'a backup of kind $kind: Add a link takes a link backup '
+              '(.wyrm-link); a broker backup is restored in System',
+        ),
+      );
+      return stop(checks);
+    // a manifest Studio cannot read fails the check with its field: a
+    // seal, a mode or a section it does not know is never taken as one
+    // it knows
+    case Invalid(:final field, :final reason):
+      return stop([
+        ...checks,
+        _bad('Manifest', field.isEmpty ? reason : '$field: $reason'),
+      ]);
   }
   checks.add(
     _ok(
       'Link',
-      '${link['id']} · ${link['mode']} · ${link['driver']} · from '
-          '${m['site']} (wyrmd ${m['broker']}, ${m['created']})',
+      '${m.id} · ${m.mode.wire} · ${m.driver} · from '
+          '${m.site} (wyrmd ${m.broker}, ${m.created})',
     ),
   );
-  final package = link['package'] as String? ?? '';
-  final sections = [
-    if (m['sections'] case final List<Object?> l)
-      for (final s in l)
-        if (s is Map<String, Object?>) s['name'] as String? ?? '',
-  ];
-  if (package.isNotEmpty) {
+  if (m.package.isNotEmpty) {
     checks.add(
-      sections.contains('package')
-          ? _ok('Package', '$package ${link['version']}, in the file')
+      m.sections.contains(BackupSection.package)
+          ? _ok('Package', '${m.package} ${m.version}, in the file')
           : _skip(
               'Package',
-              '$package ${link['version']} is not in the file: the broker '
+              '${m.package} ${m.version} is not in the file: the broker '
                   'must have it installed',
             ),
     );
   }
-  final how = switch (m['sealed']) {
-    {'how': final String h} => BackupSealed.fromWire(h) ?? BackupSealed.none,
-    _ => BackupSealed.none,
-  };
   checks
     ..add(
-      switch (how) {
+      switch (m.sealed) {
         BackupSealed.passphrase => _ok('Secrets', 'sealed with a passphrase'),
         BackupSealed.broker => _skip(
           'Secrets',
-          'sealed for ${m['site']}: the file opens only on a broker with '
+          'sealed for ${m.site}: the file opens only on a broker with '
               'the keys of that site',
         ),
         BackupSealed.none => _ok('Secrets', 'none in the file'),
       },
     )
-    ..add(_ok('Sections', sections.join(', ')))
+    ..add(_ok('Sections', [for (final s in m.sections) s.wire].join(', ')))
     ..add(
       _skip(
         'Definition, grants, package files',
@@ -314,18 +292,9 @@ PackageReport checkBackup(Uint8List bytes) {
     );
   return PackageReport(
     checks: checks.lock,
-    manifest: const JsonEncoder.withIndent('  ').convert({
-      for (final k in ['wyrm_backup', 'kind', 'site', 'broker', 'created'])
-        k: m[k],
-      'sealed': how.wire,
-      'link': link,
-      'sections': sections,
-    }),
-    name: link['id'] as String?,
-    kind: switch (link['mode']) {
-      final String mode => LinkMode.fromWire(mode),
-      _ => null,
-    },
+    manifest: m.pretty,
+    name: m.id,
+    kind: m.mode,
   );
 }
 

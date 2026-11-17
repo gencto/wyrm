@@ -1,29 +1,18 @@
 import 'package:async_redux/async_redux.dart';
+import 'package:models/backup_stage.dart';
 
 import '../../../wyrm/calls.dart';
-import '../../../wyrm/mappers/values.dart';
+import '../../../wyrm/decode/restore.dart';
+import '../../../wyrm/decode/unreadable.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
-
-/// The sections each mode of a restore takes (ADR 0048 §3.6).
-const restoreSections = {
-  'add': ['links', 'storage'],
-  'replace': [
-    'control',
-    'keys',
-    'dataflows',
-    'storage',
-    'history',
-    'links',
-    'packages',
-  ],
-};
 
 /// `sys/backups` ▸ `restore_apply {upload, sections, mode, passphrase,
 /// accept, replace_keys}`. `add` works live and answers `{done, skipped,
 /// restart: false}`; `replace` stages the sections, answers `{sections,
 /// restart: true}` and the broker stops: the next start applies them, and
-/// Studio reconnects by itself.
+/// Studio reconnects by itself. An answer of another shape is refused:
+/// the dialog stays where it is and says so.
 class ApplyRestoreAction extends Action with NonReentrant, WaitingAction {
   ApplyRestoreAction({this.passphrase});
 
@@ -36,33 +25,32 @@ class ApplyRestoreAction extends Action with NonReentrant, WaitingAction {
       return null;
     }
     final mode = backups.mode;
+    final key = '${site.root}/sys/backups';
     final answer = await invokeOne(
       deps.wyrm,
-      '${site.root}/sys/backups',
+      key,
       'restore_apply',
       valueOf({
         'upload': upload,
         'sections': [
-          for (final s in restoreSections[mode] ?? const <String>[])
-            if (backups.chosen.contains(s)) s,
+          for (final s in mode.sections)
+            if (backups.chosen.contains(s)) s.wire,
         ],
-        'mode': mode,
+        'mode': mode.wire,
         if (passphrase case final p? when p.isNotEmpty) 'passphrase': p,
         if (backups.acceptRights) 'accept': true,
         if (backups.replaceKeys) 'replace_keys': true,
       }),
     );
-    final restart = boolean(answer['restart']) ?? false;
-    final done = strings(answer['done']);
-    final skipped = strings(answer['skipped']);
+    final applied = restoreAnswerOf(
+      answer,
+    ).orRefuse(key: key, call: 'restore_apply');
     return state.copyWith.backups(
-      stage: restart ? 'restarting' : 'restored',
-      result: restart
-          ? strings(answer['sections']).join(', ')
-          : [
-              if (done.isNotEmpty) done.join('\n'),
-              if (skipped.isNotEmpty) skipped.join('\n'),
-            ].join('\n'),
+      stage: applied.restart ? BackupStage.restarting : BackupStage.restored,
+      staged: applied.sections,
+      result: applied.restart
+          ? null
+          : [...applied.done, ...applied.skipped].join('\n'),
     );
   }
 }

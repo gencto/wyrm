@@ -7,8 +7,7 @@ import 'package:models/site_relation.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../../wyrm/calls.dart';
-import '../../../wyrm/mappers/peer_mapper.dart';
-import '../../../wyrm/mappers/values.dart';
+import '../../../wyrm/decode/peers.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 
@@ -17,7 +16,8 @@ import '../../common/action.dart';
 /// (`downstream/*` of profile `wy:broker`) and the sites they relay, the
 /// devices of its external links, and its platform upstreams (the
 /// `uplink` link's entries). Quarantine entries come from
-/// `RetrieveQuarantineAction`.
+/// `RetrieveQuarantineAction`. A broker node this client cannot read is
+/// left off the map, and logged with its field.
 class RetrievePeersAction extends Action with WaitingAction {
   @override
   Future<AppState?> reduce() async {
@@ -32,27 +32,36 @@ class RetrievePeersAction extends Action with WaitingAction {
     final ups = await _children(api, '$root/sys/upstream');
     if (ups.isNotEmpty) {
       final values = await readValues(api, '$root/sys/upstream/*/*');
-      final connected = number(
-        await readValue(api, '$root/sys/upstream_connected'),
-      );
+      final connected =
+          upstreamConnectedOf(
+            await readValue(api, '$root/sys/upstream_connected'),
+          ).orWarn('$root/sys') ??
+          false;
       for (final u in ups) {
         final v = {
           for (final e in values.entries)
             if (e.key.startsWith('$root/sys/upstream/${u.name}/'))
               e.key.split('/').last: e.value,
         };
-        peers.add(
-          upstreamPeerOf(viewed, u.name, u.meta, values: v).copyWith(
-            connected: (connected ?? 0) > 0 && (boolean(v['enabled']) ?? true),
-          ),
-        );
+        final peer = upstreamPeerOf(
+          viewed,
+          u.name,
+          u.meta,
+          v,
+          anyConnected: connected,
+        ).orWarn('$root/sys/upstream/${u.name}');
+        if (peer != null) {
+          peers.add(peer);
+        }
       }
     }
 
     final below = await _children(api, '$root/downstream');
     for (final c in below) {
-      if (downstreamPeerOf(viewed, c) case final p?) {
-        peers.add(p);
+      if (downstreamPeerOf(viewed, c) case final read?) {
+        if (read.orWarn('$root/downstream/${c.name}') case final p?) {
+          peers.add(p);
+        }
       } else if (c.name == 'uplink') {
         for (final pl in await _children(api, '$root/downstream/uplink')) {
           if (pl.name == 'stats') {

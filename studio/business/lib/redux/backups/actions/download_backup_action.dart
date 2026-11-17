@@ -4,8 +4,8 @@ import 'package:models/error_kind.dart';
 import 'package:models/studio_error.dart';
 
 import '../../../wyrm/calls.dart';
+import '../../../wyrm/decode/transfer.dart';
 import '../../../wyrm/failures.dart';
-import '../../../wyrm/mappers/values.dart';
 import '../../../wyrm/transfer.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
@@ -70,7 +70,10 @@ class DownloadBackupAction extends Action with NonReentrant, WaitingAction {
     try {
       final expected = sha256.isNotEmpty
           ? sha256
-          : str(await readValue(deps.wyrm, '$key/sha256')) ?? '';
+          : backupDigestOf(
+                  await readValue(deps.wyrm, '$key/sha256'),
+                ).orWarn(key) ??
+                '';
       if (expected.isEmpty) {
         throw _wrong(
           key,

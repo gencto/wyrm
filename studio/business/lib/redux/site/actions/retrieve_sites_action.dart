@@ -3,7 +3,7 @@ import 'package:models/site_choice.dart';
 import 'package:models/site_relation.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
-import '../../../wyrm/mappers/values.dart';
+import '../../../wyrm/decode/peers.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 
@@ -28,10 +28,10 @@ class RetrieveSitesAction extends Action with WaitingAction {
     final api = deps.wyrm;
     final choices = <SiteChoice>[SiteChoice(site: home)];
     final seen = {home};
-    var frontier = [(home, null as String?)];
+    var frontier = [_Hop(home, null)];
     for (var hop = 0; hop < depth && frontier.isNotEmpty; hop++) {
-      final next = <(String, String?)>[];
-      for (final (s, via) in frontier) {
+      final next = <_Hop>[];
+      for (final _Hop(site: s, :via) in frontier) {
         final List<Child> below;
         try {
           below = await api.children('wy/$s/downstream');
@@ -39,11 +39,10 @@ class RetrieveSitesAction extends Action with WaitingAction {
           continue;
         }
         for (final c in below) {
-          if (c.meta.profileName != 'wy:broker') {
-            continue;
-          }
-          final d = str(attrOf(c.meta, 'site')) ?? c.name;
-          if (seen.add(d)) {
+          // a broker node this client cannot read is no site to choose:
+          // logged with its field
+          final d = brokerSiteOf(c)?.orWarn('wy/$s/downstream/${c.name}');
+          if (d != null && seen.add(d)) {
             choices.add(
               SiteChoice(
                 site: d,
@@ -51,7 +50,7 @@ class RetrieveSitesAction extends Action with WaitingAction {
                 via: via ?? s,
               ),
             );
-            next.add((d, s == home ? null : s));
+            next.add(_Hop(d, s == home ? null : s));
           }
         }
       }
@@ -70,4 +69,13 @@ class RetrieveSitesAction extends Action with WaitingAction {
     }
     return state.copyWith.site(choices: choices.lock);
   }
+}
+
+/// A site to list the brokers below, and the site it is relayed through
+/// (null: reached directly from the home site).
+final class _Hop {
+  const _Hop(this.site, this.via);
+
+  final String site;
+  final String? via;
 }

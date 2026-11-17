@@ -1,9 +1,12 @@
 import 'dart:async';
 
 import 'package:async_redux/async_redux.dart';
+import 'package:models/backup_section.dart';
+import 'package:models/backup_stage.dart';
 
 import '../../../wyrm/calls.dart';
-import '../../../wyrm/mappers/values.dart';
+import '../../../wyrm/decode/restore.dart';
+import '../../../wyrm/decode/unreadable.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 import 'retrieve_backups_action.dart';
@@ -12,8 +15,8 @@ import 'retrieve_backups_action.dart';
 /// sections in the broker's order (the always-there one first), the links
 /// of the section `links` when some are unticked, the history range.
 Map<String, Object?> backupArgs({
-  required Iterable<String> sections,
-  required Set<String> chosen,
+  required Iterable<BackupSection> sections,
+  required Set<BackupSection> chosen,
   Iterable<String> allLinks = const [],
   Iterable<String> offLinks = const [],
   int? historyDays,
@@ -23,27 +26,25 @@ Map<String, Object?> backupArgs({
   return {
     'sections': [
       for (final s in sections)
-        if (chosen.contains(s) || s == 'control' || s == 'settings') s,
+        if (chosen.contains(s) || s.always) s.wire,
     ],
-    if (chosen.contains('links') && off.isNotEmpty)
+    if (chosen.contains(BackupSection.links) && off.isNotEmpty)
       'links': [
         for (final l in allLinks)
           if (!off.contains(l)) l,
       ],
-    if (chosen.contains('history') && historyDays != null)
+    if (chosen.contains(BackupSection.history) && historyDays != null)
       'history_days': historyDays,
     if (passphrase != null && passphrase.isNotEmpty) 'passphrase': passphrase,
   };
 }
 
-/// The sections of a link backup, in the broker's order.
-const linkSections = ['settings', 'data', 'package', 'history'];
-
 /// Starts a backup (ADR 0048 §3.4, §3.5): of the broker, `sys/backups` ▸
 /// `create {sections, links, history_days, passphrase}`, or of the link of
 /// the dialog, `sys/links/<id>` ▸ `backup {sections, history_days,
 /// passphrase}`. Both answer `{id}`: a job in `sys/backups` whose values
-/// the dialog then follows.
+/// the dialog then follows. An answer without an id is refused: no job is
+/// opened for it.
 ///
 /// [passphrase] comes from the dialog's own state and goes nowhere else: it
 /// is not kept in the store, and the action logger prints types only.
@@ -60,10 +61,11 @@ class CreateBackupAction extends Action with NonReentrant, WaitingAction {
     }
     final link = backups.link;
     final chosen = backups.chosen.unlock;
+    final key = link == null ? '$root/sys/backups' : '$root/sys/links/$link';
     final answer = link == null
         ? await invokeOne(
             deps.wyrm,
-            '$root/sys/backups',
+            key,
             'create',
             valueOf(
               backupArgs(
@@ -78,11 +80,11 @@ class CreateBackupAction extends Action with NonReentrant, WaitingAction {
           )
         : await invokeOne(
             deps.wyrm,
-            '$root/sys/links/$link',
+            key,
             'backup',
             valueOf(
               backupArgs(
-                sections: linkSections,
+                sections: BackupSection.ofLink,
                 chosen: chosen,
                 historyDays: backups.historyDays,
                 passphrase: passphrase,
@@ -90,8 +92,12 @@ class CreateBackupAction extends Action with NonReentrant, WaitingAction {
             ),
             link,
           );
-    final id = str(answer['id']);
+    final id = backupIdOf(answer).orRefuse(
+      key: key,
+      call: link == null ? 'create' : 'backup',
+      thing: link,
+    );
     await dispatchAndWait(RetrieveBackupsAction(quiet: true));
-    return state.copyWith.backups(stage: 'job', job: id);
+    return state.copyWith.backups(stage: BackupStage.job, job: id);
   }
 }

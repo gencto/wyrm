@@ -16,11 +16,11 @@ T _$identity<T>(T value) => value;
 mixin _$BackupJob {
 
  String get id; BackupKind get kind;/// The file name.
- String get name; IList<String> get sections;/// How its secrets are sealed.
+ String get name; IList<BackupSection> get sections;/// How its secrets are sealed.
  BackupSealed get sealed;/// The link of a link backup.
  String get link;/// Who made it.
  String get by; BackupStatus get status;/// Percent.
- int get progress; String get step;/// Bytes.
+ int get progress; BackupStep get step;/// Bytes.
  int get size; String get sha256; DateTime? get created; DateTime? get expires; String get error; String get sentTo; BackupSendStatus get sendStatus; int get sendProgress; String get sendError;
 /// Create a copy of BackupJob
 /// with the given fields replaced by the non-null parameter values.
@@ -57,11 +57,11 @@ abstract mixin class $BackupJobCopyWith<$Res>  {
   factory $BackupJobCopyWith(BackupJob value, $Res Function(BackupJob) _then) = _$BackupJobCopyWithImpl;
 @useResult
 $Res call({
- String id, BackupKind kind, String name, IList<String> sections, BackupSealed sealed, String link, String by, BackupStatus status, int progress, String step, int size, String sha256, DateTime? created, DateTime? expires, String error, String sentTo, BackupSendStatus sendStatus, int sendProgress, String sendError
+ String id, BackupKind kind, String name, IList<BackupSection> sections, BackupSealed sealed, String link, String by, BackupStatus status, int progress, BackupStep step, int size, String sha256, DateTime? created, DateTime? expires, String error, String sentTo, BackupSendStatus sendStatus, int sendProgress, String sendError
 });
 
 
-
+$BackupStepCopyWith<$Res> get step;
 
 }
 /// @nodoc
@@ -80,13 +80,13 @@ id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as String,kind: null == kind ? _self.kind : kind // ignore: cast_nullable_to_non_nullable
 as BackupKind,name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
 as String,sections: null == sections ? _self.sections : sections // ignore: cast_nullable_to_non_nullable
-as IList<String>,sealed: null == sealed ? _self.sealed : sealed // ignore: cast_nullable_to_non_nullable
+as IList<BackupSection>,sealed: null == sealed ? _self.sealed : sealed // ignore: cast_nullable_to_non_nullable
 as BackupSealed,link: null == link ? _self.link : link // ignore: cast_nullable_to_non_nullable
 as String,by: null == by ? _self.by : by // ignore: cast_nullable_to_non_nullable
 as String,status: null == status ? _self.status : status // ignore: cast_nullable_to_non_nullable
 as BackupStatus,progress: null == progress ? _self.progress : progress // ignore: cast_nullable_to_non_nullable
 as int,step: null == step ? _self.step : step // ignore: cast_nullable_to_non_nullable
-as String,size: null == size ? _self.size : size // ignore: cast_nullable_to_non_nullable
+as BackupStep,size: null == size ? _self.size : size // ignore: cast_nullable_to_non_nullable
 as int,sha256: null == sha256 ? _self.sha256 : sha256 // ignore: cast_nullable_to_non_nullable
 as String,created: freezed == created ? _self.created : created // ignore: cast_nullable_to_non_nullable
 as DateTime?,expires: freezed == expires ? _self.expires : expires // ignore: cast_nullable_to_non_nullable
@@ -98,7 +98,16 @@ as int,sendError: null == sendError ? _self.sendError : sendError // ignore: cas
 as String,
   ));
 }
-
+/// Create a copy of BackupJob
+/// with the given fields replaced by the non-null parameter values.
+@override
+@pragma('vm:prefer-inline')
+$BackupStepCopyWith<$Res> get step {
+  
+  return $BackupStepCopyWith<$Res>(_self.step, (value) {
+    return _then(_self.copyWith(step: value));
+  });
+}
 }
 
 
@@ -107,14 +116,14 @@ as String,
 
 
 class _BackupJob implements BackupJob {
-  const _BackupJob({required this.id, this.kind = BackupKind.full, this.name = '', this.sections = const IListConst([]), this.sealed = BackupSealed.none, this.link = '', this.by = '', this.status = BackupStatus.unknown, this.progress = 0, this.step = '', this.size = 0, this.sha256 = '', this.created, this.expires, this.error = '', this.sentTo = '', this.sendStatus = BackupSendStatus.none, this.sendProgress = 0, this.sendError = ''});
+  const _BackupJob({required this.id, this.kind = BackupKind.full, this.name = '', this.sections = const IListConst([]), this.sealed = BackupSealed.none, this.link = '', this.by = '', this.status = BackupStatus.unknown, this.progress = 0, this.step = const BackupStep.none(), this.size = 0, this.sha256 = '', this.created, this.expires, this.error = '', this.sentTo = '', this.sendStatus = BackupSendStatus.none, this.sendProgress = 0, this.sendError = ''});
   
 
 @override final  String id;
 @override@JsonKey() final  BackupKind kind;
 /// The file name.
 @override@JsonKey() final  String name;
-@override@JsonKey() final  IList<String> sections;
+@override@JsonKey() final  IList<BackupSection> sections;
 /// How its secrets are sealed.
 @override@JsonKey() final  BackupSealed sealed;
 /// The link of a link backup.
@@ -124,7 +133,7 @@ class _BackupJob implements BackupJob {
 @override@JsonKey() final  BackupStatus status;
 /// Percent.
 @override@JsonKey() final  int progress;
-@override@JsonKey() final  String step;
+@override@JsonKey() final  BackupStep step;
 /// Bytes.
 @override@JsonKey() final  int size;
 @override@JsonKey() final  String sha256;
@@ -168,11 +177,11 @@ abstract mixin class _$BackupJobCopyWith<$Res> implements $BackupJobCopyWith<$Re
   factory _$BackupJobCopyWith(_BackupJob value, $Res Function(_BackupJob) _then) = __$BackupJobCopyWithImpl;
 @override @useResult
 $Res call({
- String id, BackupKind kind, String name, IList<String> sections, BackupSealed sealed, String link, String by, BackupStatus status, int progress, String step, int size, String sha256, DateTime? created, DateTime? expires, String error, String sentTo, BackupSendStatus sendStatus, int sendProgress, String sendError
+ String id, BackupKind kind, String name, IList<BackupSection> sections, BackupSealed sealed, String link, String by, BackupStatus status, int progress, BackupStep step, int size, String sha256, DateTime? created, DateTime? expires, String error, String sentTo, BackupSendStatus sendStatus, int sendProgress, String sendError
 });
 
 
-
+@override $BackupStepCopyWith<$Res> get step;
 
 }
 /// @nodoc
@@ -191,13 +200,13 @@ id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as String,kind: null == kind ? _self.kind : kind // ignore: cast_nullable_to_non_nullable
 as BackupKind,name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
 as String,sections: null == sections ? _self.sections : sections // ignore: cast_nullable_to_non_nullable
-as IList<String>,sealed: null == sealed ? _self.sealed : sealed // ignore: cast_nullable_to_non_nullable
+as IList<BackupSection>,sealed: null == sealed ? _self.sealed : sealed // ignore: cast_nullable_to_non_nullable
 as BackupSealed,link: null == link ? _self.link : link // ignore: cast_nullable_to_non_nullable
 as String,by: null == by ? _self.by : by // ignore: cast_nullable_to_non_nullable
 as String,status: null == status ? _self.status : status // ignore: cast_nullable_to_non_nullable
 as BackupStatus,progress: null == progress ? _self.progress : progress // ignore: cast_nullable_to_non_nullable
 as int,step: null == step ? _self.step : step // ignore: cast_nullable_to_non_nullable
-as String,size: null == size ? _self.size : size // ignore: cast_nullable_to_non_nullable
+as BackupStep,size: null == size ? _self.size : size // ignore: cast_nullable_to_non_nullable
 as int,sha256: null == sha256 ? _self.sha256 : sha256 // ignore: cast_nullable_to_non_nullable
 as String,created: freezed == created ? _self.created : created // ignore: cast_nullable_to_non_nullable
 as DateTime?,expires: freezed == expires ? _self.expires : expires // ignore: cast_nullable_to_non_nullable
@@ -210,7 +219,16 @@ as String,
   ));
 }
 
-
+/// Create a copy of BackupJob
+/// with the given fields replaced by the non-null parameter values.
+@override
+@pragma('vm:prefer-inline')
+$BackupStepCopyWith<$Res> get step {
+  
+  return $BackupStepCopyWith<$Res>(_self.step, (value) {
+    return _then(_self.copyWith(step: value));
+  });
+}
 }
 
 // dart format on

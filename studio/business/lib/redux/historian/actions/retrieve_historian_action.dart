@@ -3,7 +3,7 @@ import 'package:models/watch_group.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../../wyrm/calls.dart';
-import '../../../wyrm/mappers/values.dart';
+import '../../../wyrm/decode/sys_answers.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 import 'follow_history_action.dart';
@@ -49,22 +49,15 @@ class RetrieveHistorianAction extends Action with WaitingAction {
     ).wait;
     final groups = <WatchGroup>[];
     for (final (i, name) in named.indexed) {
-      final watches = lists[i];
-      Value? v(String k) => groupValues['$base/$name/$k'];
-      final ws = [
-        for (final w in watches)
-          if (w.meta.ty == null) w,
-      ];
-      groups.add(
-        WatchGroup(
-          name: name,
-          loggingType: str(v('logging_type')) ?? '',
-          interval: number(v('interval')),
-          flush: number(v('buffer_flush_time')),
-          watchIds: [for (final w in ws) w.name].lock,
-          keys: [for (final w in ws) w.meta.displayName ?? w.name].lock,
-        ),
-      );
+      // a group this client cannot read is left out, and logged
+      final group = watchGroupOf(name, {
+        for (final e in groupValues.entries)
+          if (e.key.startsWith('$base/$name/'))
+            e.key.substring('$base/$name/'.length): e.value,
+      }, lists[i]).orWarn('$base/$name');
+      if (group != null) {
+        groups.add(group);
+      }
     }
     final selected = historian.selected ?? groups.firstOrNull?.name;
     final shown = groups.where((g) => g.name == selected).firstOrNull;
@@ -72,7 +65,10 @@ class RetrieveHistorianAction extends Action with WaitingAction {
       groups: groups.lock,
       stats: {
         for (final e in values.entries)
-          e.key.split('/').last: text(e.value) ?? '',
+          e.key.split('/').last: ?historianStatOf(
+            e.key.split('/').last,
+            e.value,
+          ).orWarn(base),
       }.lock,
       selected: selected,
       // A picked point that is no longer recorded leaves the trend.

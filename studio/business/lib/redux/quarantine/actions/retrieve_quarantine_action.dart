@@ -4,7 +4,7 @@ import 'package:models/quarantine_entry.dart';
 
 import '../../../wyrm/calls.dart';
 import '../../../wyrm/decode/param_spec.dart';
-import '../../../wyrm/mappers/quarantine_entry_mapper.dart';
+import '../../../wyrm/decode/peers.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 
@@ -29,7 +29,13 @@ class RetrieveQuarantineAction extends Action with WaitingAction {
     final forms = <String, IList<ParamSpec>>{};
     for (final c in nodes) {
       final m = await metaOf(api, '$base/${c.name}');
-      entries.add(quarantineEntryOf(c.name, m));
+      // an entry this client cannot read is left out, and logged with
+      // its field: it is never shown as a kind it may not be
+      final entry = quarantineEntryOf(c.name, m).orWarn('$base/${c.name}');
+      if (entry == null) {
+        continue;
+      }
+      entries.add(entry);
       if (m.actions?['approve'] case final a?) {
         forms[c.name] = paramSpecsOf(a).lock;
       }

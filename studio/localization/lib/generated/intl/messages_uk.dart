@@ -1565,6 +1565,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "bakShow": MessageLookupByLibrary.simpleMessage(
       "Показати в резервних копіях",
     ),
+    "bakStepWriting": MessageLookupByLibrary.simpleMessage("Запис файлу"),
     "bakSub": MessageLookupByLibrary.simpleMessage(
       "Виберіть, що потрапить у файл. Один файл .wyrm-backup (zip із маніфестом); брокер працює, поки його створюють.",
     ),
@@ -2154,6 +2155,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "errTitleUnsupported": m142,
     "errTryAgain": MessageLookupByLibrary.simpleMessage("Спробувати ще раз"),
     "errTryAgainIn": m143,
+    "errUnreadableAnswer": MessageLookupByLibrary.simpleMessage(
+      "Брокер відповів у формі, яку ця Studio не читає, тому тут нічого не змінено. Поле вказано в журналі.",
+    ),
     "errUserRole": m144,
     "errWhatYouCanDo": MessageLookupByLibrary.simpleMessage("Що можна зробити"),
     "errWriteNote": MessageLookupByLibrary.simpleMessage(
@@ -3243,6 +3247,8 @@ class MessageLookup extends MessageLookupByLibrary {
     "rstKeysSameNote": MessageLookupByLibrary.simpleMessage(
       "Кожен файл ключів копії належить цьому брокеру; токени й сертифікати чинні.",
     ),
+    "rstLinkExists": MessageLookupByLibrary.simpleMessage("вже є тут"),
+    "rstLinkNew": MessageLookupByLibrary.simpleMessage("новий"),
     "rstLinks": m269,
     "rstLogIn": MessageLookupByLibrary.simpleMessage("Увійти знову"),
     "rstLost": MessageLookupByLibrary.simpleMessage(

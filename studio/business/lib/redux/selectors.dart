@@ -12,6 +12,9 @@ import 'package:models/attention_kind.dart';
 import 'package:models/audit_entry.dart';
 import 'package:models/audit_line.dart';
 import 'package:models/backup_job.dart';
+import 'package:models/backup_place.dart';
+import 'package:models/backup_section.dart';
+import 'package:models/backup_stage.dart';
 import 'package:models/block_info.dart';
 import 'package:models/broker_self_update.dart';
 import 'package:models/ca_pin.dart';
@@ -71,6 +74,7 @@ import 'package:models/quarantine_entry.dart';
 import 'package:models/quarantine_kind.dart';
 import 'package:models/requested_right.dart';
 import 'package:models/restore_check.dart';
+import 'package:models/restore_mode.dart';
 import 'package:models/restore_point.dart';
 import 'package:models/role_grant.dart';
 import 'package:models/send_link.dart';
@@ -2610,19 +2614,19 @@ extension type SelectBackups(AppState _state) {
   IList<SendLink> get sendLinks => _state.backups.sendLinks;
 
   /// Returns sections
-  IList<String> get sections => _state.backups.sections;
+  IList<BackupSection> get sections => _state.backups.sections;
 
   /// Returns keepDays
   int get keepDays => _state.backups.keepDays;
 
   /// Returns stage
-  String? get stage => _state.backups.stage;
+  BackupStage? get stage => _state.backups.stage;
 
   /// Returns link
   String? get link => _state.backups.link;
 
   /// Returns chosen
-  ISet<String> get chosen => _state.backups.chosen;
+  ISet<BackupSection> get chosen => _state.backups.chosen;
 
   /// Returns historyDays
   int? get historyDays => _state.backups.historyDays;
@@ -2631,7 +2635,7 @@ extension type SelectBackups(AppState _state) {
   ISet<String> get offLinks => _state.backups.offLinks;
 
   /// Returns where
-  String get where => _state.backups.where;
+  BackupPlace get where => _state.backups.where;
 
   /// Returns sendLink
   String? get sendLink => _state.backups.sendLink;
@@ -2646,7 +2650,7 @@ extension type SelectBackups(AppState _state) {
   IList<String> get connections => _state.backups.connections;
 
   /// Returns estimate
-  IMap<String, int> get estimate => _state.backups.estimate;
+  IMap<BackupSection, int> get estimate => _state.backups.estimate;
 
   /// Returns job
   String? get job => _state.backups.job;
@@ -2673,7 +2677,7 @@ extension type SelectBackups(AppState _state) {
   RestoreCheck? get check => _state.backups.check;
 
   /// Returns mode
-  String get mode => _state.backups.mode;
+  RestoreMode get mode => _state.backups.mode;
 
   /// Returns replaceKeys
   bool get replaceKeys => _state.backups.replaceKeys;
@@ -2692,6 +2696,9 @@ extension type SelectBackups(AppState _state) {
 
   /// Returns opening
   int get opening => _state.backups.opening;
+
+  /// Returns staged
+  IList<BackupSection> get staged => _state.backups.staged;
 }
 
 extension type SelectBrokerUpdate(AppState _state) {

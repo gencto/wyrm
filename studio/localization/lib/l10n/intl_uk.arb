@@ -2159,5 +2159,9 @@
     "formLinear": "k × in + b",
     "formRange": "Діапазон",
     "problemUnnamed": "назвіть потік",
-    "problemInvalid": "недійсний"
+    "problemInvalid": "недійсний",
+    "errUnreadableAnswer": "Брокер відповів у формі, яку ця Studio не читає, тому тут нічого не змінено. Поле вказано в журналі.",
+    "bakStepWriting": "Запис файлу",
+    "rstLinkNew": "новий",
+    "rstLinkExists": "вже є тут"
 }

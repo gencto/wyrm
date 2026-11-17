@@ -1,4 +1,5 @@
 import 'package:async_redux/async_redux.dart';
+import 'package:models/backup_stage.dart';
 
 import '../../../wyrm/transfer.dart';
 import '../../app_state.dart';
@@ -28,7 +29,7 @@ class UploadRestoreAction extends Action with NonReentrant, WaitingAction {
         '${site.root}/sys/backups',
         size: size,
         read: read,
-        cancelled: () => backups.stage != 'restore',
+        cancelled: () => backups.stage != BackupStage.restore,
         onProgress: (sent) => dispatchSync(_Progress(name, size, sent)),
       );
     } on TransferCancelled {
@@ -61,7 +62,7 @@ class _Progress extends Action {
   final int sent;
 
   @override
-  AppState? reduce() => backups.stage != 'restore'
+  AppState? reduce() => backups.stage != BackupStage.restore
       ? null
       : state.copyWith.backups(
           uploadName: name,
