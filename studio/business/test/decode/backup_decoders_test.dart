@@ -123,7 +123,8 @@ void main() {
       expect(BackupSection.fromWire('Control'), isNull);
     });
 
-    test('modes and what each restores', () {
+    test('modes and what Studio sends for each (add: without the '
+        'dataflows the broker skips)', () {
       expect([for (final m in RestoreMode.values) m.wire], ['add', 'replace']);
       expect(
         [for (final s in RestoreMode.add.sections) s.wire],

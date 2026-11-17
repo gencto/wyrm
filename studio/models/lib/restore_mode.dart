@@ -19,8 +19,11 @@ enum RestoreMode implements WireName {
   static RestoreMode? fromWire(String wire) =>
       values.where((m) => m.wire == wire).firstOrNull;
 
-  /// The sections this mode restores, in the broker's order (`ADDABLE`,
-  /// `REPLACEABLE`).
+  /// The sections Studio sends for this mode. `replace`: the broker's
+  /// `REPLACEABLE`, in its order. `add`: `links` and `storage` only; the
+  /// broker's `ADDABLE` also takes `dataflows`, but skips it with a note
+  /// (a flow is deployed with the proofs of its deployer,
+  /// `docs/backups.md`), so Studio does not offer it there.
   List<BackupSection> get sections => switch (this) {
     add => const [BackupSection.links, BackupSection.storage],
     replace => const [
