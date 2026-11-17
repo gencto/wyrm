@@ -238,9 +238,6 @@ abstract final class Insets {
   /// Links*: 28 around, 40 under the table).
   static const workspacePage = EdgeInsets.fromLTRB(28, 28, 28, 40);
 
-  /// Inside a card of the official list (board *Add a link · O1*).
-  static const catalogCard = EdgeInsets.all(14);
-
   /// Inside the short tag of a card of the official list (`MB`).
   static const catalogTag = EdgeInsets.symmetric(horizontal: 5, vertical: 2);
 
@@ -410,14 +407,8 @@ abstract final class Insets {
     vertical: AppSpacing.sm,
   );
 
-  /// Above and below the commands of the flow canvas menu.
-  static const flowMenu = EdgeInsets.symmetric(vertical: 6);
-
   /// Inside the title row of the flow canvas menu.
   static const flowMenuTitle = EdgeInsets.fromLTRB(14, 6, 14, 6);
-
-  /// Inside a command of the flow canvas menu.
-  static const flowMenuItem = EdgeInsets.symmetric(horizontal: 14);
 
   /// Above the menu's `Fields ▸` checklist, so it opens beside its item.
   static const flowMenuFields = EdgeInsets.only(top: 40);
@@ -503,9 +494,6 @@ abstract final class Insets {
   /// *Find on this network*, *Probe*).
   static const button = EdgeInsets.symmetric(horizontal: 14);
 
-  /// Inside a small field of a row of fields (*Probe a range*).
-  static const smallField = EdgeInsets.symmetric(horizontal: 12);
-
   /// Inside the box of the CA code on the trust card.
   static const caCode = EdgeInsets.all(12);
 
@@ -565,28 +553,28 @@ abstract final class Insets {
 
   /// Inside a one-line box of a fixed height that holds what is typed or
   /// picked, and a pill button of the same build: the top bar's site and
-  /// search boxes, Explorer's filter, the value viewer's editor.
+  /// search boxes, Explorer's filter, the value viewer's editor, a field of
+  /// *Probe a range*.
   static const field = EdgeInsets.symmetric(horizontal: 12);
 
   /// Inside a badge of a fixed height: a count, a level, a failure, the
   /// label of a tick of the trend.
   static const badge = EdgeInsets.symmetric(horizontal: 6);
 
-  /// Inside a row of a menu (the account's, a node's).
+  /// Inside a row of a menu (the account's, a node's, the flow canvas's).
   static const menuItem = EdgeInsets.symmetric(horizontal: 14);
 
   /// Inside a box set into a card or a sheet: a note, a tile, a section,
   /// the trend's tip.
   static const innerBox = EdgeInsets.symmetric(horizontal: 12, vertical: 10);
 
-  /// Inside a box of code or of a command.
-  static const codeBox = EdgeInsets.all(12);
+  /// Inside a small box with a border of its own: code or a command, a
+  /// problem, a failed read, an item that asks for attention.
+  static const box = EdgeInsets.all(12);
 
-  /// Inside a small card of a list: a problem, a failed read, an item that
-  /// asks for attention.
-  static const smallCard = EdgeInsets.all(12);
-
-  /// Around the items of a list that fills a panel.
+  /// Around what fills a panel or the foot of a card and has no border of
+  /// its own: the items of a list, a card's buttons, the line said where
+  /// a grid has no rows.
   static const listPanel = EdgeInsets.all(12);
 
   /// Around the words said where a panel has nothing to list.
@@ -596,7 +584,7 @@ abstract final class Insets {
   static const tableNote = EdgeInsets.all(14);
 
   /// Inside a card that pads all its sides alike: a review card, a toast,
-  /// an action card, a command card.
+  /// an action card, a command card, a card of the official list.
   static const cardBody = EdgeInsets.all(14);
 
   /// Inside a section card, and around an inspector's body.
@@ -634,7 +622,8 @@ abstract final class Insets {
   /// Above the links under a message (a problem's, a toast's).
   static const messageLinks = EdgeInsets.only(top: 2);
 
-  /// Above and below the rows of a menu.
+  /// Above and below the rows of a menu (the account's, a node's, the
+  /// flow canvas's).
   static const menu = EdgeInsets.symmetric(vertical: 6);
 
   /// The head of a menu: who is logged in.
@@ -901,15 +890,14 @@ abstract final class Insets {
     vertical: 3,
   );
 
-  /// The title, the caution band, the text and the buttons of a task's
-  /// card.
+  /// The title, the caution band and the text of a task's card (its
+  /// buttons are [listPanel]).
   static const taskCardTitle = EdgeInsets.fromLTRB(14, 12, 14, AppSpacing.sm);
   static const taskCardCaution = EdgeInsets.symmetric(
     horizontal: 14,
     vertical: AppSpacing.sm,
   );
   static const taskCardText = EdgeInsets.fromLTRB(14, AppSpacing.none, 14, 12);
-  static const taskCardButtons = EdgeInsets.all(12);
 
   /// The note under *New task*, the label of a group of tasks, and a row
   /// of the task list.
@@ -920,7 +908,7 @@ abstract final class Insets {
   // --- the table grid (a table value in the viewer and in the flow editor)
 
   /// The bar above the grid (its filter and its tools), the message under
-  /// it, the line said where it has no rows, and a cell being edited.
+  /// it, and a cell at rest and being edited.
   static const gridBar = EdgeInsets.fromLTRB(
     12,
     AppSpacing.sm,
@@ -933,7 +921,6 @@ abstract final class Insets {
     14,
     AppSpacing.sm,
   );
-  static const gridNoRows = EdgeInsets.all(12);
   static const gridCell = EdgeInsets.symmetric(horizontal: AppSpacing.sm);
   static const gridCellEditing = EdgeInsets.symmetric(horizontal: 6);
 }

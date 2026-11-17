@@ -174,6 +174,10 @@ abstract final class FontSizes {
   static const md = FontSize._(13);
   static const lg = FontSize._(14);
 
+  /// One step above the body: the text typed into a tall field, the words
+  /// beside the large logo.
+  static const xl = FontSize._(15);
+
   /// A section's title (`titleMedium`).
   static const sectionTitle = FontSize._(16);
 
@@ -197,8 +201,10 @@ abstract final class FontSizes {
   /// The − / + glyph of a flow block's tool button.
   static const flowToolGlyph = FontSize._(15);
 
-  /// The block's id at the top of the flow inspector (mono 600).
-  static const flowInspectorTitle = FontSize._(18);
+  /// The name at the top of an inspector: a block's id in the flow
+  /// editor, an action's name in Explorer (mono 600), and the line that
+  /// says what it does.
+  static const inspectorTitle = FontSize._(18);
 
   /// A line set above the body: the account and the round button's label
   /// on the unlock, the lock card's lines, the groups of a CA code.
@@ -213,29 +219,28 @@ abstract final class FontSizes {
   /// The title of the lock card over the dimmed shell.
   static const lockTitle = FontSize._(22);
 
-  /// The title of a sheet, an inspector or an error dialog.
+  /// The title of the task sheet and of an error dialog.
   static const sheetTitle = FontSize._(18);
 
   /// A value set large where it is read or edited: the value viewer's
   /// editor and its yes/no, a task's number.
   static const value = FontSize._(20);
 
+  /// The rate of the moment on the traffic card.
+  static const rate = FontSize._(20);
+
   /// The number the value viewer shows alone, and the unit beside it.
   static const soleValue = FontSize._(28);
   static const soleValueUnit = FontSize._(16);
 
-  /// The title of the start fault, of a gallery section.
-  static const faultTitle = FontSize._(28);
-  static const galleryTitle = FontSize._(28);
+  /// A headline set alone: the start fault's title, the hero's headline
+  /// above the form, a section of the gallery.
+  static const headline = FontSize._(28);
 
   /// The wordmark of the logo, small and large, and on the gallery.
   static const logo = FontSize._(16);
   static const logoLarge = FontSize._(18);
   static const display = FontSize._(32);
-
-  /// The words beside the logo, small and large.
-  static const logoWords = FontSize._(14);
-  static const logoWordsLarge = FontSize._(15);
 
   /// The `×` that closes a dialog where it is written as text.
   static const closeGlyph = FontSize._(18);
@@ -243,12 +248,8 @@ abstract final class FontSizes {
   /// The title of the conversation on the Assistant page.
   static const conversationTitle = FontSize._(17);
 
-  /// The text typed into a boxed field (the log-in form).
-  static const boxedField = FontSize._(15);
-
-  /// The hero's headline, beside the form and above it.
+  /// The hero's headline beside the form (above it, it is [headline]).
   static const heroHeadline = FontSize._(40);
-  static const heroHeadlineSmall = FontSize._(28);
 
   /// The wordmark where nothing sets its size.
   static const wordmark = FontSize._(17);

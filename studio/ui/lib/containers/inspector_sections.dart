@@ -220,7 +220,7 @@ class InspectorSections extends StatelessWidget {
   }
 
   Widget _code(AppColors c, List<(String, String)> lines) => Container(
-    padding: Insets.codeBox,
+    padding: Insets.box,
     decoration: BoxDecoration(
       color: c.ground0,
       border: .all(color: c.line1),

@@ -136,7 +136,7 @@ class StartFault extends StatelessWidget {
                         child: Text(
                           vm.title,
                           style: boardText(
-                            size: FontSizes.faultTitle,
+                            size: FontSizes.headline,
                             weight: .w600,
                             tracking: Trackings.faultTitle,
                             color: c.text1,

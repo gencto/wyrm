@@ -248,7 +248,7 @@ class ProblemsDrawer extends StatelessWidget {
       opacity: p.shown || p.tone == .neutral ? 0.72 : 1,
       child: Container(
         key: ValueKey('problem-${p.id}'),
-        padding: Insets.smallCard,
+        padding: Insets.box,
         decoration: BoxDecoration(
           color: c.ground2,
           border: .all(color: c.line1),

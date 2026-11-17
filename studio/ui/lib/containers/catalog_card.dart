@@ -99,7 +99,7 @@ class CatalogCard extends StatelessWidget {
         onTap: onTap == null ? null : () => onTap!(vm.id),
         borderRadius: Radii.card,
         child: Padding(
-          padding: Insets.catalogCard,
+          padding: Insets.cardBody,
           child: Column(
             crossAxisAlignment: .start,
             spacing: 8,

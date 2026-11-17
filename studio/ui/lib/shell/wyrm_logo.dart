@@ -36,7 +36,7 @@ class WyrmLogo extends StatelessWidget {
           Text(
             'Studio',
             style: TextStyle(
-              fontSize: large ? FontSizes.logoWordsLarge : FontSizes.logoWords,
+              fontSize: large ? FontSizes.xl : FontSizes.lg,
               color: c.text3,
             ),
           ),

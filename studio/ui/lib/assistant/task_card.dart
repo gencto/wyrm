@@ -301,7 +301,7 @@ class TaskCard extends StatelessWidget {
           ),
           if (vm.buttons.isNotEmpty)
             Padding(
-              padding: Insets.taskCardButtons,
+              padding: Insets.listPanel,
               child: Wrap(
                 spacing: 8,
                 runSpacing: 8,

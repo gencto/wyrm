@@ -218,7 +218,7 @@ class _FlowMenuState extends State<FlowMenu> {
       child: SizedBox(
         width: FlowMenu.width,
         child: SingleChildScrollView(
-          padding: Insets.flowMenu,
+          padding: Insets.menu,
           child: Column(
             crossAxisAlignment: .stretch,
             mainAxisSize: .min,
@@ -250,7 +250,7 @@ class _FlowMenuState extends State<FlowMenu> {
         child: Container(
           height: AppSizes.flowMenuItem,
           color: isFields && _fields ? c.ground4 : null,
-          padding: Insets.flowMenuItem,
+          padding: Insets.menuItem,
           child: Row(
             spacing: AppSpacing.sm,
             children: [

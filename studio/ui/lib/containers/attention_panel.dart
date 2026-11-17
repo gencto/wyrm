@@ -222,7 +222,7 @@ class AttentionPanel extends StatelessWidget {
       onTap: () => onItem(a.id),
       hoverColor: c.text1.withValues(alpha: 0.04),
       child: Padding(
-        padding: Insets.smallCard,
+        padding: Insets.box,
         child: Row(
           crossAxisAlignment: .start,
           spacing: 10,

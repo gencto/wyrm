@@ -1362,7 +1362,7 @@ class _ExplorerPageState extends State<ExplorerPage> {
                   maxLines: 1,
                   overflow: .ellipsis,
                   style: TextStyle(
-                    fontSize: FontSizes.sheetTitle,
+                    fontSize: FontSizes.inspectorTitle,
                     fontWeight: .w600,
                     color: c.text1,
                   ),
@@ -1379,7 +1379,7 @@ class _ExplorerPageState extends State<ExplorerPage> {
                 ins.name,
                 maxLines: 1,
                 overflow: .ellipsis,
-                style: mono(size: FontSizes.sheetTitle, weight: .w600),
+                style: mono(size: FontSizes.inspectorTitle, weight: .w600),
               ),
             Row(
               spacing: 10,
@@ -1504,7 +1504,7 @@ class _ExplorerPageState extends State<ExplorerPage> {
             ),
             SectionLabel(S.current.sameCallCli),
             Container(
-              padding: Insets.codeBox,
+              padding: Insets.box,
               decoration: BoxDecoration(
                 color: c.ground0,
                 border: .all(color: c.line1),

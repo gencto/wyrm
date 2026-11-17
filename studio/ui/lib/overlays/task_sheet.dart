@@ -980,7 +980,7 @@ class TaskSheet extends StatelessWidget {
         return _choice(context, b);
       case SheetCode(:final text):
         return Container(
-          padding: Insets.codeBox,
+          padding: Insets.box,
           decoration: BoxDecoration(
             color: c.ground0,
             borderRadius: Radii.control,

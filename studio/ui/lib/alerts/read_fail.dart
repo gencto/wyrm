@@ -65,7 +65,7 @@ class ReadFail extends StatelessWidget {
       container: true,
       liveRegion: true,
       child: Container(
-        padding: Insets.smallCard,
+        padding: Insets.box,
         decoration: BoxDecoration(
           color: c.ground2,
           border: .all(color: c.badLine),

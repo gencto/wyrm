@@ -626,7 +626,7 @@ class FieldInspector extends StatelessWidget {
                 Text(
                   s?.title ?? head?.title ?? '',
                   style: mono(
-                    size: FontSizes.flowInspectorTitle,
+                    size: FontSizes.inspectorTitle,
                     weight: .w600,
                     color: c.text1,
                   ),

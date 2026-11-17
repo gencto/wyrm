@@ -165,7 +165,7 @@ class _SmallState extends State<_Small> {
       textField: true,
       child: Container(
         height: AppSizes.probeRow,
-        padding: Insets.smallField,
+        padding: Insets.field,
         decoration: BoxDecoration(
           color: c.ground2,
           borderRadius: const BorderRadius.all(

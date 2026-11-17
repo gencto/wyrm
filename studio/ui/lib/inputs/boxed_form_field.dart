@@ -161,7 +161,7 @@ class _BoxedFormFieldState extends State<BoxedFormField> {
               )
             : TextStyle(
                 fontFamily: AppFonts.sans,
-                fontSize: FontSizes.boxedField,
+                fontSize: FontSizes.xl,
                 height: LineHeights.title,
                 color: c.text1,
                 // 0.2 em while hidden; none of the theme's spacing otherwise.

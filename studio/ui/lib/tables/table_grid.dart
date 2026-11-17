@@ -699,7 +699,7 @@ class TableGridState extends State<TableGrid> {
                                   Expanded(
                                     child: _shown.isEmpty
                                         ? Padding(
-                                            padding: Insets.gridNoRows,
+                                            padding: Insets.listPanel,
                                             child: Text(
                                               s.tableNoRows,
                                               style: TextStyle(

@@ -69,7 +69,7 @@ class _LoginHeroState extends State<LoginHero> {
     final small = size == LoginHeroSize.small;
     final wide = size == LoginHeroSize.wide;
     final h1 = TextStyle(
-      fontSize: wide ? FontSizes.heroHeadline : FontSizes.heroHeadlineSmall,
+      fontSize: wide ? FontSizes.heroHeadline : FontSizes.headline,
       height: LineHeights.headline,
       leadingDistribution: .even,
       fontWeight: .w600,

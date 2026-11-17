@@ -98,7 +98,7 @@ class GallerySection extends StatelessWidget {
       Text(
         title,
         style: const TextStyle(
-          fontSize: FontSizes.galleryTitle,
+          fontSize: FontSizes.headline,
           fontWeight: .w600,
         ),
       ),
