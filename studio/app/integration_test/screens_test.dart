@@ -36,6 +36,7 @@ import 'package:ui/flows/flow_canvas.dart';
 import 'package:ui/flows/flow_menu.dart';
 import 'package:ui/forms/log_toolbar.dart';
 import 'package:ui/indicators/app_icon.dart';
+import 'package:ui/indicators/app_icon_view.dart';
 import 'package:ui/overlays/problems_drawer.dart';
 import 'package:ui/tables/log_table.dart';
 import 'package:ui/trees/tree_row.dart';
@@ -528,7 +529,9 @@ void main() {
         // buttons come after it.
         await tester.tap(
           find
-              .byWidgetPredicate((w) => w is AppIcon && w.name == 'ui_close')
+              .byWidgetPredicate(
+                (w) => w is AppIconView && w.icon == AppIcon.uiClose,
+              )
               .first,
         );
         await settle(tester);

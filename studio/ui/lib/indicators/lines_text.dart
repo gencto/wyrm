@@ -98,7 +98,10 @@ class LinesText extends StatelessWidget {
               child: Text(
                 narrow ? '+$more' : '↲ +$more',
                 maxLines: 1,
-                style: mono(size: 10, color: c.text2).copyWith(height: 1.4),
+                style: mono(
+                  size: FontSizes.xxs,
+                  color: c.text2,
+                ).copyWith(height: LineHeights.meta),
               ),
             ),
           ),

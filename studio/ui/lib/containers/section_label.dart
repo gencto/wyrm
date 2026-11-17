@@ -21,7 +21,7 @@ class SectionLabel extends StatelessWidget {
           style: TextStyle(
             fontSize: FontSizes.sm,
             fontWeight: .w600,
-            letterSpacing: 0.72,
+            letterSpacing: Trackings.label,
             color: context.colors.text3,
           ),
         ),

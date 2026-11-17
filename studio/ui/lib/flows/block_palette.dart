@@ -6,6 +6,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../buttons/segmented_tabs.dart';
 import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../indicators/value_type.dart';
 import '../models/disabled.dart';
 import '../models/value_changed.dart';
@@ -293,7 +294,7 @@ final class PaletteNodeRowVm extends PaletteTreeRowVm {
     required super.key,
     required super.name,
     required super.depth,
-    this.icon = 'node_section',
+    this.icon = AppIcon.nodeSection,
     this.opens = false,
     this.open = false,
     this.used = false,
@@ -303,7 +304,7 @@ final class PaletteNodeRowVm extends PaletteTreeRowVm {
     this.writable = false,
   });
 
-  final String icon;
+  final AppIcon icon;
 
   /// It may open (it has, or may have, children or actions).
   final bool opens;
@@ -674,8 +675,8 @@ class _BlockPaletteState extends State<BlockPalette> {
               child: Row(
                 spacing: AppSpacing.sm,
                 children: [
-                  AppIcon(
-                    'ui_search',
+                  AppIconView(
+                    AppIcon.uiSearch,
                     size: AppSizes.flowSearchIcon,
                     color: c.text4,
                   ),
@@ -767,7 +768,7 @@ class _BlockPaletteState extends State<BlockPalette> {
                       ),
                       style: TextStyle(
                         fontSize: FontSizes.sm,
-                        height: 1.45,
+                        height: LineHeights.row,
                         color: c.text4,
                       ),
                     ),
@@ -798,7 +799,7 @@ class _Empty extends StatelessWidget {
       text,
       style: TextStyle(
         fontSize: FontSizes.sm,
-        height: 1.45,
+        height: LineHeights.row,
         color: context.colors.text4,
       ),
     ),
@@ -836,8 +837,8 @@ class _Group extends StatelessWidget {
             children: [
               RotatedBox(
                 quarterTurns: open ? 1 : 0,
-                child: AppIcon(
-                  'ui_chevron_right',
+                child: AppIconView(
+                  AppIcon.uiChevronRight,
                   size: AppSizes.flowGroupChevron,
                   color: c.text4,
                 ),
@@ -911,7 +912,7 @@ class _BlockRow extends StatelessWidget {
                       weight: .w600,
                       color: ink,
                     ).copyWith(
-                      height: 1.1,
+                      height: LineHeights.glyph,
                     ),
               ),
             ),

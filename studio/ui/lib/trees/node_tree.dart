@@ -4,9 +4,11 @@ import 'package:material_ui/material_ui.dart';
 
 import '../containers/section_label.dart';
 import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import 'tree_row.dart';
@@ -184,12 +186,7 @@ class _NodeTreeState extends State<NodeTree> {
         crossAxisAlignment: .stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(
-              12,
-              14,
-              12,
-              10,
-            ),
+            padding: Insets.treeHead,
             child: Column(
               crossAxisAlignment: .stretch,
               spacing: 10,
@@ -211,15 +208,10 @@ class _NodeTreeState extends State<NodeTree> {
                   )
                 : ListView.builder(
                     controller: _scroll,
-                    padding: const EdgeInsets.fromLTRB(
-                      AppSpacing.sm,
-                      AppSpacing.none,
-                      AppSpacing.sm,
-                      12,
-                    ),
+                    padding: Insets.treeRows,
                     itemCount: rows.length,
                     itemBuilder: (_, i) => Padding(
-                      padding: const EdgeInsets.only(bottom: 1),
+                      padding: Insets.treeRow,
                       child: GestureDetector(
                         onSecondaryTapUp: onMenu == null
                             ? null
@@ -239,13 +231,8 @@ class _NodeTreeState extends State<NodeTree> {
           ),
           if (note case final n?)
             Container(
-              margin: const EdgeInsets.fromLTRB(
-                12,
-                AppSpacing.none,
-                12,
-                14,
-              ),
-              padding: const EdgeInsets.only(top: 12),
+              margin: Insets.treeNoteMargin,
+              padding: Insets.treeNote,
               decoration: BoxDecoration(
                 border: Border(top: BorderSide(color: c.line1)),
               ),
@@ -267,7 +254,7 @@ class _NodeTreeState extends State<NodeTree> {
     child: Row(
       spacing: 8,
       children: [
-        AppIcon('ui_filter', size: 14, color: c.text4),
+        AppIconView(AppIcon.uiFilter, size: IconSizes.sm, color: c.text4),
         Expanded(
           child: TextFormField(
             initialValue: filter,
@@ -306,7 +293,7 @@ class _NodeTreeState extends State<NodeTree> {
   Widget _note(AppColors c, TreeNoteVm n) {
     final base = TextStyle(
       fontSize: FontSizes.sm,
-      height: 1.5,
+      height: LineHeights.body,
       color: c.text4,
     );
     final link = TextStyle(
@@ -325,7 +312,7 @@ class _NodeTreeState extends State<NodeTree> {
       TextSpan(text: '${n.lead} '),
       TextSpan(
         text: n.code,
-        style: mono(size: 12, color: c.text3),
+        style: mono(size: FontSizes.sm, color: c.text3),
       ),
       TextSpan(text: ' ${n.middle} '),
       for (final (i, l) in n.links.indexed) ...[

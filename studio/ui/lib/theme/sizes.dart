@@ -1,5 +1,7 @@
 import 'package:flutter/widgets.dart';
 
+import 'typography.dart';
+
 /// Sizes of components the canvas repeats — layer 3 of the theme strategy
 /// (see `common.dart`). A size two widgets share is here, named for the
 /// component.
@@ -236,47 +238,47 @@ abstract final class AppSizes {
   // The flow editor's glyphs (`AppIcon` sizes), by where they stand.
 
   /// The magnifier of the palette's search box.
-  static const double flowSearchIcon = 14;
+  static const flowSearchIcon = IconSize._(14);
 
   /// The chevron of a palette group that opens or closes it.
-  static const double flowGroupChevron = 12;
+  static const flowGroupChevron = IconSize._(12);
 
   /// The pin before an inspector field's label.
-  static const double flowPinIcon = 14;
+  static const flowPinIcon = IconSize._(14);
 
   /// The link and view glyphs of an inspector field.
-  static const double flowInspectorIcon = 16;
+  static const flowInspectorIcon = IconSize._(16);
 
   /// The chevron of an inspector choice field.
-  static const double flowChoiceChevron = 16;
+  static const flowChoiceChevron = IconSize._(16);
 
   /// The chevron of a small drop-down: a duration's unit, a list editor's
   /// cell, a suggest field's menu.
-  static const double flowDropChevron = 14;
+  static const flowDropChevron = IconSize._(14);
 
   /// The chevron of a block's `Open inside` link row.
-  static const double flowLinkChevron = 12;
+  static const flowLinkChevron = IconSize._(12);
 
   /// The ▶ of a block's command input.
-  static const double flowCommandIcon = 10;
+  static const flowCommandIcon = IconSize._(10);
 
   /// The action button's glyph at the end of a block row.
-  static const double flowRowActionIcon = 12;
+  static const flowRowActionIcon = IconSize._(12);
 
   /// The chevron of the canvas menu's `Fields ▸`.
-  static const double flowMenuChevron = 14;
+  static const flowMenuChevron = IconSize._(14);
 
   /// The tick in a field's box of the `Fields ▸` checklist.
-  static const double flowMenuTickIcon = 12;
+  static const flowMenuTickIcon = IconSize._(12);
 
   /// The × that removes a list editor's row.
-  static const double flowRowsRemoveIcon = 14;
+  static const flowRowsRemoveIcon = IconSize._(14);
 
   /// The × of the shortcut card.
-  static const double flowCardClose = 16;
+  static const flowCardClose = IconSize._(16);
 
   /// The × that closes the flow editor, in its top bar.
-  static const double flowEditorClose = 18;
+  static const flowEditorClose = IconSize._(18);
 
   /// The height of a package's manifest under its checks (Add a link ›
   /// Check).
@@ -294,6 +296,140 @@ abstract final class AppSizes {
   /// A dialog with a broker's own form (Sites' upstream and token).
   static const double wideFormDialog = 640;
 
+  /// The Assistant's mark in the head of its drawer.
+  static const assistantMark = IconSize._(15);
+
+  /// The mark of a guide card beside its title.
+  static const guideMark = IconSize._(28);
+
+  /// The tone square of a panel that failed, and the one that stands for
+  /// the whole card in a box too small for it.
+  static const double faultSquare = 36;
+  static const double faultSquareSmall = 28;
+
   /// The token Sites shows once it is issued.
   static const double tokenLog = 180;
+
+  /// The mark of a step of a task: done, running, waiting.
+  static const double stepMark = 20;
+
+  /// The bar of a task's progress.
+  static const double progressBar = 8;
+
+  /// The sign before a line of a change (`+`, `−`).
+  static const double changeSign = 14;
+
+  /// A segment of the task sheet's choice, and a field of the sheet.
+  static const double sheetSegment = 34;
+  static const double sheetField = 40;
+
+  /// The row that opens and closes the details of an error.
+  static const double errorDetailsToggle = 36;
+
+  /// The columns of a line of the log: its time, its level, its target.
+  static const double logTime = 80;
+  static const double logLevel = 56;
+  static const double logTarget = 170;
+
+  /// The bar above Explorer's points: the filter and the marked count.
+  static const double pointsBar = 40;
+
+  /// The filter of the table grid, and its menu button.
+  static const gridFilter = Size(200, 30);
+  static const double gridMenuButton = 32;
+
+  /// The track of a segmented control: around its segments and between
+  /// them; an icon segment, and the tallest a text segment grows before
+  /// the row scrolls.
+  static const double segmentTrackInset = 2;
+  static const double segmentGap = 3;
+  static const double segmentIconWidth = 32;
+  static const double segmentHeight = 26;
+  static const double segmentMaxHeight = 44;
+
+  /// A line of the log.
+  static const double logRow = 30;
+
+  /// Between the tiles of System's grid.
+  static const double sysTileGap = 12;
+
+  /// The widest a form of the log-in column grows.
+  static const double authForm = 340;
+
+  /// A spinner set in a line of text.
+  static const double inlineSpinner = 12;
+
+  /// The mark of a step of the log-in.
+  static const double loginStepMark = 16;
+
+  /// The square a small icon button is tapped in: a toast's close, a key
+  /// line's copy, the Problems drawer's close, the error dialog's close,
+  /// a field's eye, the review panel's close.
+  static const double toastClose = 26;
+  static const double keyCopy = 28;
+  static const double problemsClose = 30;
+  static const double errorClose = 32;
+  static const double fieldEye = 36;
+  static const double reviewClose = 40;
+}
+
+/// The sizes an icon is drawn at (board *Icons*: the set is drawn on 24 and
+/// read down to 12). A scale, like `AppSpacing`: a step says where a size
+/// sits, not what the icon is. An icon a component sizes by itself has its
+/// own name in [AppSizes].
+/// The size an icon is drawn at: one of [IconSizes], or a component's own
+/// icon size of [AppSizes]. It is a `double` wherever one is read, and it
+/// is made only in this file, so a parameter of this type takes a token
+/// and never a number.
+extension type const IconSize._(double _value) implements double {}
+
+abstract final class IconSizes {
+  /// The tick inside a small check box.
+  static const tick = IconSize._(10);
+
+  /// An icon set in a line of the smallest text, at its size.
+  static const inline = IconSize._(11);
+
+  static const xs = IconSize._(12);
+  static const sm = IconSize._(14);
+  static const md = IconSize._(16);
+  static const lg = IconSize._(18);
+  static const xl = IconSize._(20);
+  static const xxl = IconSize._(24);
+}
+
+/// The sizes of the mark of a state or a quality (a dot, a ring, a dashed
+/// ring), each with the size of the icon that stands in its place (a
+/// check, a cross): the icon is drawn four points larger, so its stroke
+/// reads as the dot does.
+enum MarkSize {
+  /// In a dense pill and a task row.
+  small(6, IconSize._(10)),
+
+  /// Beside a word: a quality, a state, a step.
+  regular(8, IconSize._(12)),
+
+  /// The choice of a card.
+  large(12, IconSize._(16));
+
+  const MarkSize(this.side, this.icon);
+
+  final double side;
+  final IconSize icon;
+}
+
+/// The sizes a key of a shortcut is printed at: its word in mono, and the
+/// icon that stands for a glyph the fonts do not hold, drawn two points
+/// larger so it reads as tall as the word.
+enum KeyGlyphSize {
+  /// On the shortcut card.
+  small(FontSizes.xs, IconSize._(13)),
+
+  /// Beside a command of a menu.
+  regular(FontSizes.sm, IconSize._(14));
+
+  const KeyGlyphSize(this.text, this.icon);
+
+  final FontSize text;
+  final IconSize icon;
 }

@@ -16,6 +16,7 @@ import '../containers/side_panels.dart';
 import '../forms/action_form.dart';
 import '../forms/param_form.dart';
 import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../indicators/arc_spinner.dart';
 import '../indicators/fail_chip.dart';
 import '../indicators/key_line.dart';
@@ -794,12 +795,7 @@ class _ExplorerPageState extends State<ExplorerPage> {
       );
     }
     final header = Padding(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.lg,
-        20,
-        AppSpacing.lg,
-        AppSpacing.none,
-      ),
+      padding: Insets.explorerHeader,
       child: Column(
         crossAxisAlignment: .stretch,
         spacing: 14,
@@ -1022,7 +1018,11 @@ class _ExplorerPageState extends State<ExplorerPage> {
                 maxLines: 1,
                 overflow: .ellipsis,
                 style: _w.titleName == null
-                    ? mono(size: 26, weight: .w600, color: c.text1)
+                    ? mono(
+                        size: FontSizes.pageTitle,
+                        weight: .w600,
+                        color: c.text1,
+                      )
                     : TextStyle(
                         fontSize: FontSizes.pageTitle,
                         fontWeight: .w600,
@@ -1064,7 +1064,7 @@ class _ExplorerPageState extends State<ExplorerPage> {
       if (_w.flowId case final id?)
         Button.secondary(
           label: S.current.editDataflow,
-          icon: 'action_edit',
+          icon: AppIcon.actionEdit,
           onPressed: _w.flowDisabled == null
               ? () => _w.onTapFlowEditor(id)
               : null,
@@ -1093,12 +1093,7 @@ class _ExplorerPageState extends State<ExplorerPage> {
   );
 
   Widget _padded(List<Widget> children) => Padding(
-    padding: const EdgeInsets.fromLTRB(
-      AppSpacing.lg,
-      18,
-      AppSpacing.lg,
-      AppSpacing.none,
-    ),
+    padding: Insets.explorerTab,
     child: Column(
       crossAxisAlignment: .stretch,
       spacing: 16,
@@ -1114,7 +1109,7 @@ class _ExplorerPageState extends State<ExplorerPage> {
         vertical: AppSpacing.md,
       ),
       child: SizedBox(
-        height: 40,
+        height: AppSizes.pointsBar,
         child: bar != null
             ? Row(
                 spacing: 8,
@@ -1192,12 +1187,7 @@ class _ExplorerPageState extends State<ExplorerPage> {
                 ),
         ),
         Padding(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.lg,
-            12,
-            AppSpacing.lg,
-            AppSpacing.none,
-          ),
+          padding: Insets.explorerPointsNote,
           child: Text(
             S.current.pointsNote,
             style: TextStyle(fontSize: FontSizes.md, color: c.text4),
@@ -1215,7 +1205,7 @@ class _ExplorerPageState extends State<ExplorerPage> {
 
   Widget _filterBox(AppColors c) => Container(
     height: 40,
-    padding: const EdgeInsets.symmetric(horizontal: 12),
+    padding: Insets.field,
     decoration: BoxDecoration(
       color: c.ground1,
       border: .all(color: c.line1),
@@ -1224,7 +1214,7 @@ class _ExplorerPageState extends State<ExplorerPage> {
     child: Row(
       spacing: 8,
       children: [
-        AppIcon('ui_search', size: 14, color: c.text4),
+        AppIconView(AppIcon.uiSearch, size: IconSizes.sm, color: c.text4),
         Expanded(
           child: TextFormField(
             initialValue: _w.pointFilter,
@@ -1247,7 +1237,7 @@ class _ExplorerPageState extends State<ExplorerPage> {
   );
 
   Widget _empty(AppColors c) => Container(
-    padding: const EdgeInsets.symmetric(vertical: 48, horizontal: 24),
+    padding: Insets.explorerEmpty,
     decoration: BoxDecoration(
       color: c.ground1,
       border: .all(color: c.line1),
@@ -1372,7 +1362,7 @@ class _ExplorerPageState extends State<ExplorerPage> {
                   maxLines: 1,
                   overflow: .ellipsis,
                   style: TextStyle(
-                    fontSize: 18,
+                    fontSize: FontSizes.inspectorTitle,
                     fontWeight: .w600,
                     color: c.text1,
                   ),
@@ -1382,14 +1372,14 @@ class _ExplorerPageState extends State<ExplorerPage> {
                 ins.name,
                 maxLines: 1,
                 overflow: .ellipsis,
-                style: mono(size: 12, color: c.text3),
+                style: mono(size: FontSizes.sm, color: c.text3),
               ),
             ] else
               Text(
                 ins.name,
                 maxLines: 1,
                 overflow: .ellipsis,
-                style: mono(size: 18, weight: .w600),
+                style: mono(size: FontSizes.inspectorTitle, weight: .w600),
               ),
             Row(
               spacing: 10,
@@ -1398,16 +1388,23 @@ class _ExplorerPageState extends State<ExplorerPage> {
                   child: LinesText(
                     ins.value ?? '—',
                     onOpen: _w.onViewPoint,
-                    style: mono(size: 22, color: c.text1),
+                    style: mono(size: FontSizes.figure, color: c.text1),
                   ),
                 ),
-                QualityMark(vm: ins.mark.vm(at: ins.time), size: 12),
+                QualityMark(
+                  vm: ins.mark.vm(at: ins.time),
+                  size: FontSizes.sm,
+                ),
                 if (_w.onViewPoint case final view?)
                   IconButton(
                     tooltip: S.current.viewValue,
                     visualDensity: .compact,
                     onPressed: view,
-                    icon: AppIcon('ui_view', size: 16, color: c.text3),
+                    icon: AppIconView(
+                      AppIcon.uiView,
+                      size: IconSizes.md,
+                      color: c.text3,
+                    ),
                   ),
               ],
             ),
@@ -1458,7 +1455,7 @@ class _ExplorerPageState extends State<ExplorerPage> {
           crossAxisAlignment: .start,
           spacing: 8,
           children: [
-            KeyText(ins.keyName, size: 12, color: c.text3),
+            KeyText(ins.keyName, size: FontSizes.sm, color: c.text3),
             Wrap(
               spacing: 6,
               runSpacing: 6,
@@ -1469,15 +1466,15 @@ class _ExplorerPageState extends State<ExplorerPage> {
                   if (ins.result case final r?) S.current.returns(r),
                 ])
                   Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 7,
-                      vertical: 3,
-                    ),
+                    padding: Insets.monoTag,
                     decoration: BoxDecoration(
                       color: c.ground4,
                       borderRadius: Radii.chip,
                     ),
-                    child: Text(t, style: mono(size: 11, color: c.text2)),
+                    child: Text(
+                      t,
+                      style: mono(size: FontSizes.xs, color: c.text2),
+                    ),
                   ),
               ],
             ),
@@ -1501,13 +1498,13 @@ class _ExplorerPageState extends State<ExplorerPage> {
                   : S.current.runNowNote(ins.user),
               style: TextStyle(
                 fontSize: FontSizes.sm,
-                height: 1.5,
+                height: LineHeights.body,
                 color: c.text3,
               ),
             ),
             SectionLabel(S.current.sameCallCli),
             Container(
-              padding: const EdgeInsets.all(12),
+              padding: Insets.box,
               decoration: BoxDecoration(
                 color: c.ground0,
                 border: .all(color: c.line1),
@@ -1515,7 +1512,7 @@ class _ExplorerPageState extends State<ExplorerPage> {
               ),
               child: SelectableText(
                 ins.cli,
-                style: mono(size: 12, color: c.text2),
+                style: mono(size: FontSizes.sm, color: c.text2),
               ),
             ),
           ],
@@ -1525,7 +1522,7 @@ class _ExplorerPageState extends State<ExplorerPage> {
         eyebrow: ins.kind.eyebrow,
         title: ins.title,
         header: switch (ins.name) {
-          final n? => KeyText(n, size: 12, color: c.text3),
+          final n? => KeyText(n, size: FontSizes.sm, color: c.text3),
           null => null,
         },
         width: 320,
@@ -1566,7 +1563,7 @@ class _ExplorerPageState extends State<ExplorerPage> {
       borderRadius: Radii.button,
       child: Container(
         height: 40,
-        padding: const EdgeInsets.symmetric(horizontal: 14),
+        padding: Insets.button,
         child: Row(
           mainAxisSize: .min,
           spacing: 8,
@@ -1578,7 +1575,11 @@ class _ExplorerPageState extends State<ExplorerPage> {
             if (_w.menuOpening)
               ArcSpinner(color: c.text1, size: 14)
             else
-              AppIcon('ui_chevron_down', size: 14, color: c.text1),
+              AppIconView(
+                AppIcon.uiChevronDown,
+                size: IconSizes.sm,
+                color: c.text1,
+              ),
           ],
         ),
       ),

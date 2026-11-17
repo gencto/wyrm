@@ -23,7 +23,10 @@ mixin _$NodeInfo {
  Perm? get writable;/// A child without a type exists: the tree draws a triangle.
  bool get hasChildren; bool get hasHistory;/// The node has actions (`~act/*`).
  bool get isAction;/// Profile (`is`), e.g. `wy:node` or `<vendor>:<model>`.
- String? get profile;/// Enum choices of the value, if any.
+ String? get profile;/// What the node is drawn as, decoded with the rest of its meta from
+/// its place and its profile (`nodeGlyphOf`). A node made without its
+/// meta (a test's, a section's) is a folder.
+ NodeGlyph get glyph;/// Enum choices of the value, if any.
  IList<String> get choices;
 /// Create a copy of NodeInfo
 /// with the given fields replaced by the non-null parameter values.
@@ -36,20 +39,20 @@ $NodeInfoCopyWith<NodeInfo> get copyWith => _$NodeInfoCopyWithImpl<NodeInfo>(thi
 @override
 bool operator ==(Object other) {
   final _this = this as NodeInfo;
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is NodeInfo&&(identical(other.key, _this.key) || other.key == _this.key)&&(identical(other.name, _this.name) || other.name == _this.name)&&(identical(other.display, _this.display) || other.display == _this.display)&&(identical(other.type, _this.type) || other.type == _this.type)&&(identical(other.unit, _this.unit) || other.unit == _this.unit)&&(identical(other.writable, _this.writable) || other.writable == _this.writable)&&(identical(other.hasChildren, _this.hasChildren) || other.hasChildren == _this.hasChildren)&&(identical(other.hasHistory, _this.hasHistory) || other.hasHistory == _this.hasHistory)&&(identical(other.isAction, _this.isAction) || other.isAction == _this.isAction)&&(identical(other.profile, _this.profile) || other.profile == _this.profile)&&const DeepCollectionEquality().equals(other.choices, _this.choices));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is NodeInfo&&(identical(other.key, _this.key) || other.key == _this.key)&&(identical(other.name, _this.name) || other.name == _this.name)&&(identical(other.display, _this.display) || other.display == _this.display)&&(identical(other.type, _this.type) || other.type == _this.type)&&(identical(other.unit, _this.unit) || other.unit == _this.unit)&&(identical(other.writable, _this.writable) || other.writable == _this.writable)&&(identical(other.hasChildren, _this.hasChildren) || other.hasChildren == _this.hasChildren)&&(identical(other.hasHistory, _this.hasHistory) || other.hasHistory == _this.hasHistory)&&(identical(other.isAction, _this.isAction) || other.isAction == _this.isAction)&&(identical(other.profile, _this.profile) || other.profile == _this.profile)&&(identical(other.glyph, _this.glyph) || other.glyph == _this.glyph)&&const DeepCollectionEquality().equals(other.choices, _this.choices));
 }
 
 
 @override
 int get hashCode {
   final _this = this as NodeInfo;
-  return Object.hash(runtimeType,_this.key,_this.name,_this.display,_this.type,_this.unit,_this.writable,_this.hasChildren,_this.hasHistory,_this.isAction,_this.profile,const DeepCollectionEquality().hash(_this.choices));
+  return Object.hash(runtimeType,_this.key,_this.name,_this.display,_this.type,_this.unit,_this.writable,_this.hasChildren,_this.hasHistory,_this.isAction,_this.profile,_this.glyph,const DeepCollectionEquality().hash(_this.choices));
 }
 
 @override
 String toString() {
   final _this = this as NodeInfo;
-  return 'NodeInfo(key: ${_this.key}, name: ${_this.name}, display: ${_this.display}, type: ${_this.type}, unit: ${_this.unit}, writable: ${_this.writable}, hasChildren: ${_this.hasChildren}, hasHistory: ${_this.hasHistory}, isAction: ${_this.isAction}, profile: ${_this.profile}, choices: ${_this.choices})';
+  return 'NodeInfo(key: ${_this.key}, name: ${_this.name}, display: ${_this.display}, type: ${_this.type}, unit: ${_this.unit}, writable: ${_this.writable}, hasChildren: ${_this.hasChildren}, hasHistory: ${_this.hasHistory}, isAction: ${_this.isAction}, profile: ${_this.profile}, glyph: ${_this.glyph}, choices: ${_this.choices})';
 }
 
 
@@ -60,7 +63,7 @@ abstract mixin class $NodeInfoCopyWith<$Res>  {
   factory $NodeInfoCopyWith(NodeInfo value, $Res Function(NodeInfo) _then) = _$NodeInfoCopyWithImpl;
 @useResult
 $Res call({
- String key, String name, String? display, TypeCode? type, String? unit, Perm? writable, bool hasChildren, bool hasHistory, bool isAction, String? profile, IList<String> choices
+ String key, String name, String? display, TypeCode? type, String? unit, Perm? writable, bool hasChildren, bool hasHistory, bool isAction, String? profile, NodeGlyph glyph, IList<String> choices
 });
 
 
@@ -77,7 +80,7 @@ class _$NodeInfoCopyWithImpl<$Res>
 
 /// Create a copy of NodeInfo
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? key = null,Object? name = null,Object? display = freezed,Object? type = freezed,Object? unit = freezed,Object? writable = freezed,Object? hasChildren = null,Object? hasHistory = null,Object? isAction = null,Object? profile = freezed,Object? choices = null,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? key = null,Object? name = null,Object? display = freezed,Object? type = freezed,Object? unit = freezed,Object? writable = freezed,Object? hasChildren = null,Object? hasHistory = null,Object? isAction = null,Object? profile = freezed,Object? glyph = null,Object? choices = null,}) {
   return _then(NodeInfo(
 key: null == key ? _self.key : key // ignore: cast_nullable_to_non_nullable
 as String,name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
@@ -89,7 +92,8 @@ as Perm?,hasChildren: null == hasChildren ? _self.hasChildren : hasChildren // i
 as bool,hasHistory: null == hasHistory ? _self.hasHistory : hasHistory // ignore: cast_nullable_to_non_nullable
 as bool,isAction: null == isAction ? _self.isAction : isAction // ignore: cast_nullable_to_non_nullable
 as bool,profile: freezed == profile ? _self.profile : profile // ignore: cast_nullable_to_non_nullable
-as String?,choices: null == choices ? _self.choices : choices // ignore: cast_nullable_to_non_nullable
+as String?,glyph: null == glyph ? _self.glyph : glyph // ignore: cast_nullable_to_non_nullable
+as NodeGlyph,choices: null == choices ? _self.choices : choices // ignore: cast_nullable_to_non_nullable
 as IList<String>,
   ));
 }
@@ -102,7 +106,7 @@ as IList<String>,
 
 
 class _NodeInfo implements NodeInfo {
-  const _NodeInfo({required this.key, required this.name, this.display, this.type, this.unit, this.writable, this.hasChildren = false, this.hasHistory = false, this.isAction = false, this.profile, this.choices = const IListConst([])});
+  const _NodeInfo({required this.key, required this.name, this.display, this.type, this.unit, this.writable, this.hasChildren = false, this.hasHistory = false, this.isAction = false, this.profile, this.glyph = NodeGlyph.section, this.choices = const IListConst([])});
   
 
 /// Full key, `wy/<site>/downstream/<link>/…`.
@@ -123,6 +127,10 @@ class _NodeInfo implements NodeInfo {
 @override@JsonKey() final  bool isAction;
 /// Profile (`is`), e.g. `wy:node` or `<vendor>:<model>`.
 @override final  String? profile;
+/// What the node is drawn as, decoded with the rest of its meta from
+/// its place and its profile (`nodeGlyphOf`). A node made without its
+/// meta (a test's, a section's) is a folder.
+@override@JsonKey() final  NodeGlyph glyph;
 /// Enum choices of the value, if any.
 @override@JsonKey() final  IList<String> choices;
 
@@ -136,18 +144,18 @@ _$NodeInfoCopyWith<_NodeInfo> get copyWith => __$NodeInfoCopyWithImpl<_NodeInfo>
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is _NodeInfo&&(identical(other.key, key) || other.key == key)&&(identical(other.name, name) || other.name == name)&&(identical(other.display, display) || other.display == display)&&(identical(other.type, type) || other.type == type)&&(identical(other.unit, unit) || other.unit == unit)&&(identical(other.writable, writable) || other.writable == writable)&&(identical(other.hasChildren, hasChildren) || other.hasChildren == hasChildren)&&(identical(other.hasHistory, hasHistory) || other.hasHistory == hasHistory)&&(identical(other.isAction, isAction) || other.isAction == isAction)&&(identical(other.profile, profile) || other.profile == profile)&&const DeepCollectionEquality().equals(other.choices, choices));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _NodeInfo&&(identical(other.key, key) || other.key == key)&&(identical(other.name, name) || other.name == name)&&(identical(other.display, display) || other.display == display)&&(identical(other.type, type) || other.type == type)&&(identical(other.unit, unit) || other.unit == unit)&&(identical(other.writable, writable) || other.writable == writable)&&(identical(other.hasChildren, hasChildren) || other.hasChildren == hasChildren)&&(identical(other.hasHistory, hasHistory) || other.hasHistory == hasHistory)&&(identical(other.isAction, isAction) || other.isAction == isAction)&&(identical(other.profile, profile) || other.profile == profile)&&(identical(other.glyph, glyph) || other.glyph == glyph)&&const DeepCollectionEquality().equals(other.choices, choices));
 }
 
 
 @override
 int get hashCode {
-    return Object.hash(runtimeType,key,name,display,type,unit,writable,hasChildren,hasHistory,isAction,profile,const DeepCollectionEquality().hash(choices));
+    return Object.hash(runtimeType,key,name,display,type,unit,writable,hasChildren,hasHistory,isAction,profile,glyph,const DeepCollectionEquality().hash(choices));
 }
 
 @override
 String toString() {
-    return 'NodeInfo(key: $key, name: $name, display: $display, type: $type, unit: $unit, writable: $writable, hasChildren: $hasChildren, hasHistory: $hasHistory, isAction: $isAction, profile: $profile, choices: $choices)';
+    return 'NodeInfo(key: $key, name: $name, display: $display, type: $type, unit: $unit, writable: $writable, hasChildren: $hasChildren, hasHistory: $hasHistory, isAction: $isAction, profile: $profile, glyph: $glyph, choices: $choices)';
 }
 
 
@@ -158,7 +166,7 @@ abstract mixin class _$NodeInfoCopyWith<$Res> implements $NodeInfoCopyWith<$Res>
   factory _$NodeInfoCopyWith(_NodeInfo value, $Res Function(_NodeInfo) _then) = __$NodeInfoCopyWithImpl;
 @override @useResult
 $Res call({
- String key, String name, String? display, TypeCode? type, String? unit, Perm? writable, bool hasChildren, bool hasHistory, bool isAction, String? profile, IList<String> choices
+ String key, String name, String? display, TypeCode? type, String? unit, Perm? writable, bool hasChildren, bool hasHistory, bool isAction, String? profile, NodeGlyph glyph, IList<String> choices
 });
 
 
@@ -175,7 +183,7 @@ class __$NodeInfoCopyWithImpl<$Res>
 
 /// Create a copy of NodeInfo
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? key = null,Object? name = null,Object? display = freezed,Object? type = freezed,Object? unit = freezed,Object? writable = freezed,Object? hasChildren = null,Object? hasHistory = null,Object? isAction = null,Object? profile = freezed,Object? choices = null,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? key = null,Object? name = null,Object? display = freezed,Object? type = freezed,Object? unit = freezed,Object? writable = freezed,Object? hasChildren = null,Object? hasHistory = null,Object? isAction = null,Object? profile = freezed,Object? glyph = null,Object? choices = null,}) {
   return _then(_NodeInfo(
 key: null == key ? _self.key : key // ignore: cast_nullable_to_non_nullable
 as String,name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
@@ -187,7 +195,8 @@ as Perm?,hasChildren: null == hasChildren ? _self.hasChildren : hasChildren // i
 as bool,hasHistory: null == hasHistory ? _self.hasHistory : hasHistory // ignore: cast_nullable_to_non_nullable
 as bool,isAction: null == isAction ? _self.isAction : isAction // ignore: cast_nullable_to_non_nullable
 as bool,profile: freezed == profile ? _self.profile : profile // ignore: cast_nullable_to_non_nullable
-as String?,choices: null == choices ? _self.choices : choices // ignore: cast_nullable_to_non_nullable
+as String?,glyph: null == glyph ? _self.glyph : glyph // ignore: cast_nullable_to_non_nullable
+as NodeGlyph,choices: null == choices ? _self.choices : choices // ignore: cast_nullable_to_non_nullable
 as IList<String>,
   ));
 }

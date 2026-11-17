@@ -57,7 +57,7 @@ class ConfirmDialog extends StatelessWidget {
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 440),
         child: Padding(
-          padding: const EdgeInsets.all(22),
+          padding: Insets.dialog,
           child: Column(
             mainAxisSize: .min,
             crossAxisAlignment: .stretch,

@@ -4,11 +4,13 @@ import 'package:material_ui/material_ui.dart';
 import '../alerts/notice.dart';
 import '../buttons/button.dart';
 import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../indicators/quality_mark.dart';
 import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/shades.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
@@ -68,7 +70,7 @@ class ChangeCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: Insets.cardBody,
       decoration: BoxDecoration(
         color: c.ground2,
         border: .all(color: vm.allowed ? c.line1 : c.badLine),
@@ -82,7 +84,7 @@ class ChangeCard extends StatelessWidget {
             spacing: 10,
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                padding: Insets.monoTag,
                 decoration: BoxDecoration(
                   color: c.ground4,
                   borderRadius: Radii.chip,
@@ -92,7 +94,7 @@ class ChangeCard extends StatelessWidget {
                   style: TextStyle(
                     fontSize: FontSizes.xs,
                     fontWeight: .w600,
-                    letterSpacing: 0.55,
+                    letterSpacing: Trackings.opTag,
                     color: c.text2,
                   ),
                 ),
@@ -107,7 +109,11 @@ class ChangeCard extends StatelessWidget {
               if (onRemove != null)
                 InkWell(
                   onTap: () => onRemove!(vm.id),
-                  child: AppIcon('ui_close', size: 16, color: c.text4),
+                  child: AppIconView(
+                    AppIcon.uiClose,
+                    size: IconSizes.md,
+                    color: c.text4,
+                  ),
                 ),
             ],
           ),
@@ -127,7 +133,7 @@ class ChangeCard extends StatelessWidget {
             ],
           ),
           QualityMark(
-            size: 12,
+            size: FontSizes.sm,
             vm: QualityMarkVm(
               label: vm.levelText,
               tone: vm.allowed ? Tone.good : Tone.bad,
@@ -236,12 +242,7 @@ class ReviewPanel extends StatelessWidget {
           crossAxisAlignment: .stretch,
           children: [
             Container(
-              padding: const EdgeInsets.fromLTRB(
-                22,
-                20,
-                14,
-                AppSpacing.md,
-              ),
+              padding: Insets.reviewHead,
               decoration: BoxDecoration(
                 border: Border(bottom: BorderSide(color: c.line1)),
               ),
@@ -285,9 +286,13 @@ class ReviewPanel extends StatelessWidget {
                       onTap: onClose,
                       borderRadius: Radii.button,
                       child: SizedBox.square(
-                        dimension: 40,
+                        dimension: AppSizes.reviewClose,
                         child: Center(
-                          child: AppIcon('ui_close', size: 18, color: c.text3),
+                          child: AppIconView(
+                            AppIcon.uiClose,
+                            size: IconSizes.lg,
+                            color: c.text3,
+                          ),
                         ),
                       ),
                     ),
@@ -297,12 +302,7 @@ class ReviewPanel extends StatelessWidget {
             ),
             Expanded(
               child: ListView(
-                padding: const EdgeInsets.fromLTRB(
-                  22,
-                  AppSpacing.md,
-                  22,
-                  AppSpacing.md,
-                ),
+                padding: Insets.reviewList,
                 children: [
                   if (error case final e?) ...[
                     Notice(
@@ -312,7 +312,7 @@ class ReviewPanel extends StatelessWidget {
                         tone: .bad,
                       ),
                     ),
-                    const SizedBox(height: 12),
+                    Gaps.reviewCards,
                   ],
                   if (cards.isEmpty)
                     Text(
@@ -321,18 +321,13 @@ class ReviewPanel extends StatelessWidget {
                     ),
                   for (final card in cards) ...[
                     ChangeCard(vm: card, onRemove: onRemove),
-                    const SizedBox(height: 12),
+                    Gaps.reviewCards,
                   ],
                 ],
               ),
             ),
             Container(
-              padding: const EdgeInsets.fromLTRB(
-                22,
-                AppSpacing.md,
-                22,
-                20,
-              ),
+              padding: Insets.reviewFoot,
               decoration: BoxDecoration(
                 border: Border(top: BorderSide(color: c.line1)),
               ),

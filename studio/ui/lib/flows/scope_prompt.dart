@@ -212,7 +212,7 @@ class _ScopePromptState extends State<ScopePrompt> {
                 problem ?? S.current.scopeNote,
                 style: TextStyle(
                   fontSize: FontSizes.xs,
-                  height: 1.4,
+                  height: LineHeights.meta,
                   color: problem == null ? c.text4 : c.bad,
                 ),
               ),

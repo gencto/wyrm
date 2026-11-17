@@ -171,7 +171,7 @@ class _CustomBlockDialogState extends State<CustomBlockDialog> {
       style: TextStyle(
         fontSize: FontSizes.xs,
         fontWeight: .w600,
-        letterSpacing: 0.66,
+        letterSpacing: Trackings.smallLabel,
         color: c.text4,
       ),
     );

@@ -3,10 +3,12 @@ import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../indicators/quality_mark.dart';
 import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import 'task_badge.dart';
@@ -113,19 +115,7 @@ class Conversation extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => ListView(
-    padding: dense
-        ? const EdgeInsets.fromLTRB(
-            14,
-            14,
-            14,
-            AppSpacing.md,
-          )
-        : const EdgeInsets.fromLTRB(
-            AppSpacing.lg,
-            20,
-            AppSpacing.lg,
-            AppSpacing.lg,
-          ),
+    padding: dense ? Insets.conversationDense : Insets.conversation,
     children: [
       for (final e in _rows(events))
         Padding(
@@ -197,10 +187,7 @@ class _Event extends StatelessWidget {
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 600),
             child: Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 14,
-                vertical: 12,
-              ),
+              padding: Insets.askBubble,
               decoration: BoxDecoration(
                 color: c.ground3,
                 borderRadius: Radii.card,
@@ -209,7 +196,7 @@ class _Event extends StatelessWidget {
                 vm.shown,
                 style: TextStyle(
                   fontSize: FontSizes.lg,
-                  height: 1.5,
+                  height: LineHeights.body,
                   color: c.text1,
                 ),
               ),
@@ -229,22 +216,26 @@ class _Event extends StatelessWidget {
                 borderRadius: Radii.control,
               ),
               child: Center(
-                child: AppIcon('ws_assistant', size: 16, color: c.ember),
+                child: AppIconView(
+                  AppIcon.wsAssistant,
+                  size: IconSizes.md,
+                  color: c.ember,
+                ),
               ),
             ),
             Expanded(
               child: Padding(
-                padding: const EdgeInsets.only(top: 5),
+                padding: Insets.answerText,
                 child: SelectableText.rich(
                   TextSpan(
                     children: modelSpans(
                       vm.shown,
-                      code: mono(size: 13, color: c.text1),
+                      code: mono(color: c.text1),
                     ),
                   ),
                   style: TextStyle(
                     fontSize: FontSizes.lg,
-                    height: 1.55,
+                    height: LineHeights.prose,
                     color: c.text1,
                   ),
                 ),
@@ -261,17 +252,14 @@ class _Event extends StatelessWidget {
             children: [
               for (final r in vm.reads)
                 Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppSpacing.sm,
-                    vertical: 3,
-                  ),
+                  padding: Insets.readChip,
                   decoration: BoxDecoration(
                     border: Border.all(color: c.line2),
                     borderRadius: Radii.chip,
                   ),
                   child: Text(
                     'read · $r',
-                    style: mono(size: 12, color: c.text3),
+                    style: mono(size: FontSizes.sm, color: c.text3),
                   ),
                 ),
             ],
@@ -298,10 +286,7 @@ class _Event extends StatelessWidget {
         return Padding(
           padding: Insets.assistantIndent,
           child: Container(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 12,
-              vertical: 10,
-            ),
+            padding: Insets.innerBox,
             decoration: BoxDecoration(
               color: c.badTint,
               border: Border.all(color: c.badLine),
@@ -309,7 +294,7 @@ class _Event extends StatelessWidget {
             ),
             child: SelectableText(
               vm.text,
-              style: mono(size: 12, color: c.badText),
+              style: mono(size: FontSizes.sm, color: c.badText),
             ),
           ),
         );

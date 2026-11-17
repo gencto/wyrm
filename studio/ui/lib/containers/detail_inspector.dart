@@ -163,7 +163,7 @@ class DetailInspector<T> extends StatelessWidget {
                   ],
                 ),
                 if (vm.keyName case final k?)
-                  KeyText(k, size: 12, color: c.text3),
+                  KeyText(k, size: FontSizes.sm, color: c.text3),
               ],
             ),
           ),
@@ -210,7 +210,7 @@ class DetailInspector<T> extends StatelessWidget {
                         n,
                         style: TextStyle(
                           fontSize: FontSizes.md,
-                          height: 1.5,
+                          height: LineHeights.body,
                           color: c.text3,
                         ),
                       ),
@@ -229,7 +229,7 @@ class DetailInspector<T> extends StatelessWidget {
                       n,
                       style: TextStyle(
                         fontSize: FontSizes.md,
-                        height: 1.5,
+                        height: LineHeights.body,
                         color: c.text2,
                       ),
                     ),

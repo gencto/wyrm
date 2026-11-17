@@ -2,6 +2,7 @@ import 'package:equatable/equatable.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/sizes.dart';
 import '../theme/spacing.dart';
@@ -130,8 +131,8 @@ class _SuggestFieldState extends State<SuggestField> {
               width: AppSizes.flowInspectorButton,
               height: AppSizes.flowControl,
               child: Center(
-                child: AppIcon(
-                  'ui_chevron_down',
+                child: AppIconView(
+                  AppIcon.uiChevronDown,
                   size: AppSizes.flowDropChevron,
                   color: c.text4,
                 ),

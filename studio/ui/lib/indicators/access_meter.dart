@@ -53,7 +53,7 @@ class AccessMeter extends StatelessWidget {
                 child: Text(
                   l.label,
                   style: mono(
-                    size: 12,
+                    size: FontSizes.sm,
                     color: i == at ? c.text1 : c.text3,
                   ),
                 ),

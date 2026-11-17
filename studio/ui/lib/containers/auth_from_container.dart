@@ -1,5 +1,6 @@
 import 'package:material_ui/material_ui.dart';
 
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import 'app_card.dart';
 
@@ -28,7 +29,7 @@ class AuthFormContainer extends StatelessWidget {
   /// How wide the card may grow before it stops and centres.
   final double maxWidth;
 
-  static const double _maxWidth = 340;
+  static const double _maxWidth = AppSizes.authForm;
 
   @override
   Widget build(BuildContext context) => SafeArea(

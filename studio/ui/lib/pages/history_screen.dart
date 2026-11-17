@@ -9,6 +9,7 @@ import '../charts/trend_format.dart';
 import '../containers/detail_inspector.dart';
 import '../containers/fact_grid.dart';
 import '../containers/side_panels.dart';
+import '../indicators/app_icon.dart';
 import '../models/disabled.dart';
 import '../models/panels.dart';
 import '../models/tone.dart';
@@ -298,7 +299,7 @@ class HistoryScreen extends StatelessWidget {
     final off = vm.disabled?.text;
     ActionRowVm<HistoryAct> row(
       HistoryAct act,
-      String icon,
+      AppIcon icon,
       String title,
       String note,
       String code, {
@@ -335,7 +336,7 @@ class HistoryScreen extends StatelessWidget {
             actions: [
               row(
                 HistoryAct.unsubscribe,
-                'action_trash',
+                AppIcon.actionTrash,
                 S.current.stopRecording,
                 S.current.unsubscribeNote,
                 'unsubscribe',
@@ -348,14 +349,14 @@ class HistoryScreen extends StatelessWidget {
           actions: [
             row(
               HistoryAct.addPath,
-              'ui_add',
+              AppIcon.uiAdd,
               S.current.addWatchPath,
               S.current.addWatchPathNote,
               'add_watch_path',
             ),
             row(
               HistoryAct.edit,
-              'action_edit',
+              AppIcon.actionEdit,
               S.current.editGroup,
               S.current.editGroupNote,
               'edit',
@@ -367,7 +368,7 @@ class HistoryScreen extends StatelessWidget {
           actions: [
             row(
               HistoryAct.purge,
-              'action_trash',
+              AppIcon.actionTrash,
               S.current.purgeHistory,
               S.current.purgeHistoryNote,
               'purge',
@@ -375,7 +376,7 @@ class HistoryScreen extends StatelessWidget {
             ),
             row(
               HistoryAct.remove,
-              'action_trash',
+              AppIcon.actionTrash,
               S.current.removeGroup,
               S.current.removeGroupNote,
               'remove',

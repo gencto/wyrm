@@ -3,10 +3,12 @@ import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../indicators/login_steps.dart';
 import '../indicators/sweep_bar.dart';
 import '../indicators/wyrm_loader.dart';
 import '../theme/extensions/colors.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
@@ -125,7 +127,11 @@ class WelcomePanel extends StatelessWidget {
                     mainAxisSize: .min,
                     spacing: 4,
                     children: [
-                      AppIcon('ui_check', size: 16, color: c.good),
+                      AppIconView(
+                        AppIcon.uiCheck,
+                        size: IconSizes.md,
+                        color: c.good,
+                      ),
                       Flexible(
                         child: Text(
                           f,

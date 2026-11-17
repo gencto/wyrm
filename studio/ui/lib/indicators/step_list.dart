@@ -2,9 +2,11 @@ import 'package:material_ui/material_ui.dart';
 
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import 'app_icon.dart';
+import 'app_icon_view.dart';
 
 /// The stepper of Add a link: numbered steps, the current one in ember,
 /// the done ones ticked.
@@ -57,7 +59,11 @@ class StepList extends StatelessWidget {
                       border: i > current ? Border.all(color: c.line3) : null,
                     ),
                     child: i < current
-                        ? AppIcon('ui_check', size: 14, color: c.good)
+                        ? AppIconView(
+                            AppIcon.uiCheck,
+                            size: IconSizes.sm,
+                            color: c.good,
+                          )
                         : Text(
                             '$i',
                             style: TextStyle(

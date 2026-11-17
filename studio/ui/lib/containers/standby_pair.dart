@@ -4,6 +4,7 @@ import 'package:material_ui/material_ui.dart';
 import '../indicators/code_text.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/shades.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
@@ -61,12 +62,12 @@ class StandbyPair extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     final dark = Theme.of(context).brightness == .dark;
-    final okLine = dark ? const Color(0xFF2E5A50) : c.goodLine;
-    final okFill = dark ? const Color(0xFF10201C) : c.goodTint;
-    final lagFill = dark ? const Color(0xFF211D10) : c.warnTint;
+    final okLine = dark ? FixedGrounds.standbyOkLine : c.goodLine;
+    final okFill = dark ? FixedGrounds.standbyOkFill : c.goodTint;
+    final lagFill = dark ? FixedGrounds.standbyBehindFill : c.warnTint;
     final tone = vm.behind ? c.warn : c.good;
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: Insets.standbyCard,
       decoration: BoxDecoration(
         color: c.ground1,
         border: .all(color: c.line1),
@@ -162,7 +163,7 @@ class StandbyPair extends StatelessWidget {
           style: TextStyle(
             fontSize: FontSizes.sm,
             fontWeight: .w600,
-            letterSpacing: 0.72,
+            letterSpacing: Trackings.label,
             color: tone,
           ),
         ),
@@ -172,7 +173,7 @@ class StandbyPair extends StatelessWidget {
           overflow: .ellipsis,
           style: TextStyle(
             fontFamily: AppFonts.mono,
-            fontSize: 16,
+            fontSize: FontSizes.sectionTitle,
             color: c.text1,
           ),
         ),
@@ -180,7 +181,7 @@ class StandbyPair extends StatelessWidget {
           note,
           style: TextStyle(
             fontSize: FontSizes.md,
-            height: 1.5,
+            height: LineHeights.body,
             color: c.text3,
           ),
         ),
