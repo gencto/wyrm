@@ -84,7 +84,7 @@ class ChangeCard extends StatelessWidget {
             spacing: 10,
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                padding: Insets.monoTag,
                 decoration: BoxDecoration(
                   color: c.ground4,
                   borderRadius: Radii.chip,
@@ -242,12 +242,7 @@ class ReviewPanel extends StatelessWidget {
           crossAxisAlignment: .stretch,
           children: [
             Container(
-              padding: const EdgeInsets.fromLTRB(
-                22,
-                20,
-                14,
-                AppSpacing.md,
-              ),
+              padding: Insets.reviewHead,
               decoration: BoxDecoration(
                 border: Border(bottom: BorderSide(color: c.line1)),
               ),
@@ -307,12 +302,7 @@ class ReviewPanel extends StatelessWidget {
             ),
             Expanded(
               child: ListView(
-                padding: const EdgeInsets.fromLTRB(
-                  22,
-                  AppSpacing.md,
-                  22,
-                  AppSpacing.md,
-                ),
+                padding: Insets.reviewList,
                 children: [
                   if (error case final e?) ...[
                     Notice(
@@ -322,7 +312,7 @@ class ReviewPanel extends StatelessWidget {
                         tone: .bad,
                       ),
                     ),
-                    const SizedBox(height: 12),
+                    Gaps.reviewCards,
                   ],
                   if (cards.isEmpty)
                     Text(
@@ -331,18 +321,13 @@ class ReviewPanel extends StatelessWidget {
                     ),
                   for (final card in cards) ...[
                     ChangeCard(vm: card, onRemove: onRemove),
-                    const SizedBox(height: 12),
+                    Gaps.reviewCards,
                   ],
                 ],
               ),
             ),
             Container(
-              padding: const EdgeInsets.fromLTRB(
-                22,
-                AppSpacing.md,
-                22,
-                20,
-              ),
+              padding: Insets.reviewFoot,
               decoration: BoxDecoration(
                 border: Border(top: BorderSide(color: c.line1)),
               ),

@@ -578,18 +578,12 @@ class TableGridState extends State<TableGrid> {
       crossAxisAlignment: .stretch,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(
-            12,
-            AppSpacing.sm,
-            AppSpacing.sm,
-            AppSpacing.sm,
-          ),
+          padding: Insets.gridBar,
           child: Row(
             spacing: 8,
             children: [
-              SizedBox(
-                width: 200,
-                height: 30,
+              SizedBox.fromSize(
+                size: AppSizes.gridFilter,
                 child: TextField(
                   key: const ValueKey('table-filter'),
                   controller: _filter,
@@ -663,12 +657,7 @@ class TableGridState extends State<TableGrid> {
         ),
         if (_message case final m?)
           Padding(
-            padding: const EdgeInsets.fromLTRB(
-              14,
-              AppSpacing.none,
-              14,
-              AppSpacing.sm,
-            ),
+            padding: Insets.gridMessage,
             child: Text(
               m,
               key: const ValueKey('table-refused'),
@@ -710,9 +699,7 @@ class TableGridState extends State<TableGrid> {
                                   Expanded(
                                     child: _shown.isEmpty
                                         ? Padding(
-                                            padding: const EdgeInsets.all(
-                                              12,
-                                            ),
+                                            padding: Insets.gridNoRows,
                                             child: Text(
                                               s.tableNoRows,
                                               style: TextStyle(
@@ -784,9 +771,8 @@ class TableGridState extends State<TableGrid> {
           ),
         ),
       ],
-      child: SizedBox(
-        width: 32,
-        height: 32,
+      child: SizedBox.square(
+        dimension: AppSizes.gridMenuButton,
         child: Center(
           child: AppIconView(
             AppIcon.uiMore,
@@ -958,9 +944,7 @@ class TableGridState extends State<TableGrid> {
         child: Container(
           width: _widths[i],
           height: _rowH,
-          padding: EdgeInsets.symmetric(
-            horizontal: editing ? 6 : AppSpacing.sm,
-          ),
+          padding: editing ? Insets.gridCellEditing : Insets.gridCell,
           alignment: shown.kind == .number && !editing
               ? .centerRight
               : .centerLeft,

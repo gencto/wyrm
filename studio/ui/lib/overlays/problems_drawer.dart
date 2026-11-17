@@ -126,10 +126,7 @@ class ProblemsDrawer extends StatelessWidget {
             crossAxisAlignment: .stretch,
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 20,
-                  vertical: AppSpacing.md,
-                ),
+                padding: Insets.problemsHead,
                 decoration: BoxDecoration(
                   border: Border(bottom: BorderSide(color: c.line1)),
                 ),
@@ -194,12 +191,7 @@ class ProblemsDrawer extends StatelessWidget {
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  20,
-                  12,
-                  20,
-                  AppSpacing.xs,
-                ),
+                padding: Insets.problemsLabel,
                 child: Text(
                   labels.note,
                   style: boardText(
@@ -219,10 +211,7 @@ class ProblemsDrawer extends StatelessWidget {
                         ),
                       )
                     : ListView.separated(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: AppSpacing.sm,
-                        ),
+                        padding: Insets.problemsList,
                         itemCount: problems.length,
                         separatorBuilder: (_, _) => Gaps.sm,
                         itemBuilder: (context, i) => _card(c, problems[i]),
@@ -271,10 +260,7 @@ class ProblemsDrawer extends StatelessWidget {
             Container(
               width: 8,
               height: 8,
-              margin: const EdgeInsets.only(
-                top: 6,
-                right: 10,
-              ),
+              margin: Insets.problemDot,
               decoration: BoxDecoration(color: dot, shape: .circle),
             ),
             Expanded(

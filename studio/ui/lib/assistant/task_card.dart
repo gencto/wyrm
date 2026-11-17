@@ -284,27 +284,12 @@ class TaskCard extends StatelessWidget {
         crossAxisAlignment: .stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(
-              14,
-              12,
-              14,
-              AppSpacing.sm,
-            ),
+            padding: Insets.taskCardTitle,
             child: SectionLabel(vm.title),
           ),
           Container(
             color: vm.caution ? c.warnTint : null,
-            padding: vm.caution
-                ? const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: AppSpacing.sm,
-                  )
-                : const EdgeInsets.fromLTRB(
-                    14,
-                    AppSpacing.none,
-                    14,
-                    12,
-                  ),
+            padding: vm.caution ? Insets.taskCardCaution : Insets.taskCardText,
             child: Text(
               vm.note.text,
               style: TextStyle(
@@ -316,7 +301,7 @@ class TaskCard extends StatelessWidget {
           ),
           if (vm.buttons.isNotEmpty)
             Padding(
-              padding: const EdgeInsets.all(12),
+              padding: Insets.taskCardButtons,
               child: Wrap(
                 spacing: 8,
                 runSpacing: 8,

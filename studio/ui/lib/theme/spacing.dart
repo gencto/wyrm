@@ -134,6 +134,12 @@ abstract final class Gaps {
 
   /// Between the error dialog's icon and its title.
   static const Widget hErrorIcon = SizedBox(width: 14);
+
+  /// Between the notices and the cards of the review panel.
+  static const Widget reviewCards = SizedBox(height: 12);
+
+  /// Between the parts of a toast: its mark, its words, its close.
+  static const Widget hToastParts = SizedBox(width: 12);
 }
 
 /// Padding built from the same scale, and the paddings the canvas repeats,
@@ -741,4 +747,193 @@ abstract final class Insets {
     horizontal: 10,
     vertical: AppSpacing.sm,
   );
+
+  // --- the review panel (the staged changes)
+
+  /// The head, the list and the foot of the review panel.
+  static const reviewHead = EdgeInsets.fromLTRB(22, 20, 14, AppSpacing.md);
+  static const reviewList = EdgeInsets.fromLTRB(
+    22,
+    AppSpacing.md,
+    22,
+    AppSpacing.md,
+  );
+  static const reviewFoot = EdgeInsets.fromLTRB(22, AppSpacing.md, 22, 20);
+
+  /// Inside a tag that names a thing in a line of mono text: a change's
+  /// operation, what an action returns.
+  static const monoTag = EdgeInsets.symmetric(horizontal: 7, vertical: 3);
+
+  // --- the Problems drawer
+
+  /// The head of the drawer, the label above its list, and its list.
+  static const problemsHead = EdgeInsets.symmetric(
+    horizontal: 20,
+    vertical: AppSpacing.md,
+  );
+  static const problemsLabel = EdgeInsets.fromLTRB(20, 12, 20, AppSpacing.xs);
+  static const problemsList = EdgeInsets.symmetric(
+    horizontal: 12,
+    vertical: AppSpacing.sm,
+  );
+
+  /// Around the dot of a problem: on its first line, before it.
+  static const problemDot = EdgeInsets.only(top: 6, right: 10);
+
+  // --- the node tree
+
+  /// The head of the tree (its title and its filter), its rows, a row,
+  /// and the note under them with the rule above it.
+  static const treeHead = EdgeInsets.fromLTRB(12, 14, 12, 10);
+  static const treeRows = EdgeInsets.fromLTRB(
+    AppSpacing.sm,
+    AppSpacing.none,
+    AppSpacing.sm,
+    12,
+  );
+  static const treeRow = EdgeInsets.only(bottom: 1);
+  static const treeNoteMargin = EdgeInsets.fromLTRB(
+    12,
+    AppSpacing.none,
+    12,
+    14,
+  );
+  static const treeNote = EdgeInsets.only(top: 12);
+
+  // --- Explorer
+
+  /// The header of the node on screen, a tab's content, and the note
+  /// above the points.
+  static const explorerHeader = EdgeInsets.fromLTRB(
+    AppSpacing.lg,
+    20,
+    AppSpacing.lg,
+    AppSpacing.none,
+  );
+  static const explorerTab = EdgeInsets.fromLTRB(
+    AppSpacing.lg,
+    18,
+    AppSpacing.lg,
+    AppSpacing.none,
+  );
+  static const explorerPointsNote = EdgeInsets.fromLTRB(
+    AppSpacing.lg,
+    12,
+    AppSpacing.lg,
+    AppSpacing.none,
+  );
+
+  /// Inside the box that says a node has nothing to show.
+  static const explorerEmpty = EdgeInsets.symmetric(
+    vertical: 48,
+    horizontal: 24,
+  );
+
+  // --- menus
+
+  /// The first line of a node's menu (its key), the title of a group of
+  /// its commands, and the lines under the account's rule.
+  static const nodeMenuHead = EdgeInsets.fromLTRB(14, 6, 14, AppSpacing.xs);
+  static const menuGroupTitle = EdgeInsets.fromLTRB(14, 10, 14, AppSpacing.xs);
+  static const accountMenuLines = EdgeInsets.fromLTRB(
+    14,
+    12,
+    14,
+    AppSpacing.xs,
+  );
+
+  // --- the log
+
+  /// Around the words said in place of the log's lines, and above and
+  /// below its lines.
+  static const logMessage = EdgeInsets.symmetric(
+    horizontal: AppSpacing.md,
+    vertical: 22,
+  );
+  static const logLines = EdgeInsets.symmetric(vertical: 6);
+
+  // --- System: the standby pair, the panel that asks for attention
+
+  /// Inside the card of the standby pair.
+  static const standbyCard = EdgeInsets.all(20);
+
+  /// The head and the facts of the panel that asks for attention.
+  static const attentionHead = EdgeInsets.fromLTRB(20, 18, 20, 14);
+  static const attentionFacts = EdgeInsets.fromLTRB(20, AppSpacing.md, 20, 20);
+
+  // --- the security dialog
+
+  /// The head and the body of the security dialog.
+  static const securityHead = EdgeInsets.symmetric(
+    horizontal: AppSpacing.lg,
+    vertical: 20,
+  );
+  static const securityBody = EdgeInsets.symmetric(
+    horizontal: AppSpacing.lg,
+    vertical: 18,
+  );
+
+  // --- the Assistant: the conversation, a task's card, the task list
+
+  /// Around the conversation, in the drawer and on the page.
+  static const conversationDense = EdgeInsets.fromLTRB(
+    14,
+    14,
+    14,
+    AppSpacing.md,
+  );
+  static const conversation = EdgeInsets.fromLTRB(
+    AppSpacing.lg,
+    20,
+    AppSpacing.lg,
+    AppSpacing.lg,
+  );
+
+  /// Inside the bubble of what the user asked.
+  static const askBubble = EdgeInsets.symmetric(horizontal: 14, vertical: 12);
+
+  /// Above the answer's text, to sit on the line of the mark before it.
+  static const answerText = EdgeInsets.only(top: 5);
+
+  /// Inside the chip of a key the answer read.
+  static const readChip = EdgeInsets.symmetric(
+    horizontal: AppSpacing.sm,
+    vertical: 3,
+  );
+
+  /// The title, the caution band, the text and the buttons of a task's
+  /// card.
+  static const taskCardTitle = EdgeInsets.fromLTRB(14, 12, 14, AppSpacing.sm);
+  static const taskCardCaution = EdgeInsets.symmetric(
+    horizontal: 14,
+    vertical: AppSpacing.sm,
+  );
+  static const taskCardText = EdgeInsets.fromLTRB(14, AppSpacing.none, 14, 12);
+  static const taskCardButtons = EdgeInsets.all(12);
+
+  /// The note under *New task*, the label of a group of tasks, and a row
+  /// of the task list.
+  static const taskListNote = EdgeInsets.fromLTRB(2, 10, 2, AppSpacing.sm);
+  static const taskListLabel = EdgeInsets.fromLTRB(2, 10, 2, 6);
+  static const taskListRow = EdgeInsets.symmetric(horizontal: 10, vertical: 9);
+
+  // --- the table grid (a table value in the viewer and in the flow editor)
+
+  /// The bar above the grid (its filter and its tools), the message under
+  /// it, the line said where it has no rows, and a cell being edited.
+  static const gridBar = EdgeInsets.fromLTRB(
+    12,
+    AppSpacing.sm,
+    AppSpacing.sm,
+    AppSpacing.sm,
+  );
+  static const gridMessage = EdgeInsets.fromLTRB(
+    14,
+    AppSpacing.none,
+    14,
+    AppSpacing.sm,
+  );
+  static const gridNoRows = EdgeInsets.all(12);
+  static const gridCell = EdgeInsets.symmetric(horizontal: AppSpacing.sm);
+  static const gridCellEditing = EdgeInsets.symmetric(horizontal: 6);
 }

@@ -6,6 +6,8 @@ import 'package:material_ui/material_ui.dart';
 import '../containers/sys_tile.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/shades.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
@@ -80,10 +82,7 @@ class _LogTableState extends State<LogTable> {
     final Widget body;
     if (rows.isEmpty || widget.bad) {
       body = Padding(
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.md,
-          vertical: 22,
-        ),
+        padding: Insets.logMessage,
         child: SelectableText(
           widget.message,
           style: mono(
@@ -114,9 +113,7 @@ class _LogTableState extends State<LogTable> {
                 child: SelectionArea(
                   child: ListView.builder(
                     controller: _down,
-                    padding: const EdgeInsets.symmetric(
-                      vertical: 6,
-                    ),
+                    padding: Insets.logLines,
                     itemExtent: LogTable.rowHeight,
                     itemCount: rows.length,
                     itemBuilder: (_, i) => _row(c, dark, rows[i]),
@@ -144,11 +141,11 @@ class _LogTableState extends State<LogTable> {
     final (Color level, Color? ground) = switch (r.level) {
       'ERROR' => (
         c.bad,
-        dark ? const Color(0xFF1A1110) : c.badTint,
+        dark ? FixedGrounds.logErrorLine : c.badTint,
       ),
       'WARN' => (
         c.warn,
-        dark ? const Color(0xFF16140C) : c.warnTint,
+        dark ? FixedGrounds.logWarnLine : c.warnTint,
       ),
       'INFO' => (c.text3, null),
       _ => (SysTile.keyColor(c), null),
@@ -167,9 +164,12 @@ class _LogTableState extends State<LogTable> {
       child: Row(
         spacing: 12,
         children: [
-          SizedBox(width: 80, child: cell(r.time, c.text4)),
-          SizedBox(width: 56, child: cell(r.level, level, weight: .w600)),
-          SizedBox(width: 170, child: cell(r.target, c.text3)),
+          SizedBox(width: AppSizes.logTime, child: cell(r.time, c.text4)),
+          SizedBox(
+            width: AppSizes.logLevel,
+            child: cell(r.level, level, weight: .w600),
+          ),
+          SizedBox(width: AppSizes.logTarget, child: cell(r.target, c.text3)),
           Expanded(child: cell(r.message, c.text2)),
         ],
       ),

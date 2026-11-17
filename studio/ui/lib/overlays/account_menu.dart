@@ -167,12 +167,7 @@ class _AccountMenuState extends State<AccountMenu> {
               ),
               Divider(height: 1, color: c.line1),
               Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  14,
-                  12,
-                  14,
-                  AppSpacing.xs,
-                ),
+                padding: Insets.accountMenuLines,
                 child: Column(
                   crossAxisAlignment: .stretch,
                   spacing: 8,

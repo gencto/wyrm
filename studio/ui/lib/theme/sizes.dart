@@ -318,6 +318,18 @@ abstract final class AppSizes {
 
   /// The row that opens and closes the details of an error.
   static const double errorDetailsToggle = 36;
+
+  /// The columns of a line of the log: its time, its level, its target.
+  static const double logTime = 80;
+  static const double logLevel = 56;
+  static const double logTarget = 170;
+
+  /// The bar above Explorer's points: the filter and the marked count.
+  static const double pointsBar = 40;
+
+  /// The filter of the table grid, and its menu button.
+  static const gridFilter = Size(200, 30);
+  static const double gridMenuButton = 32;
 }
 
 /// The sizes an icon is drawn at (board *Icons*: the set is drawn on 24 and

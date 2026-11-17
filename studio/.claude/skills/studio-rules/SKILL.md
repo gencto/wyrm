@@ -131,11 +131,24 @@ enum DevicePlatform {
 }
 ```
 
+An icon is a case of `AppIcon` (`ui/lib/indicators/app_icon.dart`), drawn
+by `AppIconView`. The enum owns where the drawing comes from (a file of
+`ui/assets/svg/icons`, or a Material glyph the set does not draw yet); a
+widget, a render model or a mapper never names a file, an `IconData` or
+`Icons.…`. `models` and `business` carry their own typed kind
+(`NodeGlyph`, `ErrorKind`), mapped to an `AppIcon` by one exhaustive
+switch in `app/lib/mappers/icon_mappers.dart`. What comes from the wire
+(a node's place and profile) is decoded once (`nodeGlyphOf`), with its
+fallback case.
+
 **Check.** `string-case` in `app/lib`, `business/lib`, `ui/lib` (decode
 boundary excepted, rule 8), and `string-id`: an id written as text
 (`id: 'git'`) and a record of strings, positional (`(String, String)`) or
 with named fields (`({String key, String scope})`) — a closed set or a typed
-pair carried as text (owner, 2026-11-15).
+pair carried as text (owner, 2026-11-15). `icon-id` in `app/lib`,
+`business/lib`, `ui/lib`, `models/lib`: a file name of the icon set written
+as text, a `String` field named for an icon, `Icons.…`, `IconData`, an
+`Icon(…)`, and an `AppIconView` sized by a number.
 
 ## 3. Each package owns its types; a connector maps, it does not compute
 
@@ -170,12 +183,12 @@ label: switch (task.state) { 'running' => S.current.running, … },
 
 // good — ui/lib/<family>/task_badge.dart owns the drawn enum
 enum TaskBadge {
-  running(Tone.warn, Icons.sync),
-  done(Tone.good, Icons.check),
-  failed(Tone.bad, Icons.close);
+  running(Tone.warn, AppIcon.uiSpinner),
+  done(Tone.good, AppIcon.uiCheck),
+  failed(Tone.bad, AppIcon.uiClose);
   const TaskBadge(this.tone, this.icon);
   final Tone tone;
-  final IconData icon;
+  final AppIcon icon;
   String get label => switch (this) {        // rule 5: text in ui
     running => S.current.taskRunning,
     done => S.current.taskDone,
@@ -275,8 +288,28 @@ When you swap a literal for a token of the same value, goldens must stay
 byte-identical. Snapping a value to a different token is a visible change: do
 it in its own commit and look at every golden PNG it changes.
 
+Text is set in closed types. `FontSize`, `LineHeight` and `Tracking`
+(`typography.dart`) are extension types over `double` that only that file
+can make: `mono()`, `boardText()`, `wordmark()` and every widget parameter
+that carries a text size take them, so a number there does not compile.
+`TextStyle` itself takes a `double`, which is why the checker reads it too.
+
+```dart
+// bad
+style: mono(size: 12, color: c.text3).copyWith(height: 1.7),
+final double fontSize;
+
+// good
+style: mono(size: FontSizes.sm, color: c.text3)
+    .copyWith(height: LineHeights.listing),
+final FontSize fontSize;
+```
+
 **Check.** `number-literal` in `ui/lib` (except `ui/lib/theme/`) and
-`app/lib`.
+`app/lib`. `raw-type` in the same folders: a `fontSize:`, a
+`letterSpacing:`, and a `height:`/`size:`/`tracking:` inside a text style
+or `mono`/`boardText`/`wordmark`, whose value holds a number (also behind
+`?:`), and a field declared `double fontSize`/`letterSpacing`/….
 
 ## 7. Callbacks have shared types
 
@@ -435,10 +468,11 @@ The shared parts the rules point to. Copy the reference connector,
 | Rule | Piece | Where |
 | --- | --- | --- |
 | 1, 9 | one action that awaits its parts (`ReloadShownAction`, `PickTrendPointAction`); a business action, then navigation (`LeaveOnLogOutAction(inner)`) | `business/lib/redux/…/actions/`, `app/lib/navigation/` |
+| 2, 3 | `AppIcon` and `AppIconView`; `NodeGlyph` decoded by `nodeGlyphOf`; `NodeGlyphIcon`, `ErrorKindIcon` | `ui/lib/indicators/`, `business/lib/wyrm/decode/node_glyph.dart`, `app/lib/mappers/icon_mappers.dart` |
 | 2, 3 | a wire enum from `wyrm_client` (`DevicePlatform`, `GatewayDeviceState`, `StepUp`, `GatewayRefusal`, `Perm`…); a domain enum in `models` (`HostPlatform`, `DeviceTag`); what is computed from state and the clock in `business` (`deviceRowOf`, selector `device.rowsAt(now)`); `ui` enums that carry what drawing needs: words (`DeviceOs`), a glyph and a label (`UnlockMethod`), a tone (`SecurityTag`); one exhaustive mapper per domain enum | `dart/wyrm_client`, `models/lib/`, `business/lib/wyrm/device_keys.dart`, `business/lib/redux/selectors.dart`, `ui/lib/indicators/`, `app/lib/mappers/` |
 | 4 | a dialog opener that takes the context (`showSecurityDialog`) | `app/lib/dialogs/` |
 | 5 | `Formats.bytes/mebibytes/age/ago/shortDate/date/clock/clockSeconds/dateTime/minutesSeconds` | `localization/lib/formats.dart` |
-| 6 | `AppSpacing` and `Gaps` (the rhythm), `Insets` named for what they pad (`control`, `card`, `notice`, `assistantCard`), `AppRadii`/`Radii`, `FontSizes` (the body scale `xs`…`lg`, and `sectionTitle`, `panelTitle`, `pageTitle`, `figure`), `AppText`, `Shades` (`dialogShadow`, `popupShadow`, `drawerShadow`, …, `barrier`), `AppSizes` (by component) | `ui/lib/theme/` |
+| 6 | `AppSpacing` and `Gaps` (the rhythm), `Insets` named for what they pad (`control`, `card`, `notice`, `assistantCard`), `AppRadii`/`Radii`, `FontSizes` (the body scale `xxs`…`lg`, and `sectionTitle`, `panelTitle`, `pageTitle`, `figure`), `LineHeights` (`body`, `row`, `meta`, `prose`, …), `Trackings` (`label`, `smallLabel`, …), `AppText`, `IconSizes` (`xs`…`xxl`), `MarkSize`, `Shades` (`dialogShadow`, `popupShadow`, `drawerShadow`, …, `barrier`), `AppSizes` (by component) | `ui/lib/theme/` |
 | 7 | `FieldEdited`, `FieldBound`, `OptionPicked`, `MenuPicked`, `Renamed`, `Toggled`, `RangeChanged`, `RowAction`, `ItemAt`, `Validate`, `PanelResized`, `ToggleVm`, `FieldVm`, `ChoiceVm` | `ui/lib/models/` |
 | 8 | a gateway or agent record: its `fromValue` in `wyrm_client` (`GatewayDevice`, `GatewayInfo`, …, `DecodeError`); a Studio-only shape: `Decoded<T>` = `Valid` / `Invalid(shape, field, reason)` (`flowPermissionsOf`); `orWarn(where)` logs an `Invalid` with its field, never a silent null | `dart/wyrm_client`, `business/lib/wyrm/decode/` |
 

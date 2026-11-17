@@ -192,12 +192,7 @@ class NodeMenu<T> extends StatelessWidget {
             mainAxisSize: .min,
             children: [
               Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  14,
-                  6,
-                  14,
-                  AppSpacing.xs,
-                ),
+                padding: Insets.nodeMenuHead,
                 child: Row(
                   spacing: 8,
                   children: [
@@ -233,12 +228,7 @@ class NodeMenu<T> extends StatelessWidget {
               ),
               for (final (gi, g) in vm.groups.indexed) ...[
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(
-                    14,
-                    10,
-                    14,
-                    AppSpacing.xs,
-                  ),
+                  padding: Insets.menuGroupTitle,
                   child: Text(
                     g.label.toUpperCase(),
                     maxLines: 1,

@@ -795,12 +795,7 @@ class _ExplorerPageState extends State<ExplorerPage> {
       );
     }
     final header = Padding(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.lg,
-        20,
-        AppSpacing.lg,
-        AppSpacing.none,
-      ),
+      padding: Insets.explorerHeader,
       child: Column(
         crossAxisAlignment: .stretch,
         spacing: 14,
@@ -1098,12 +1093,7 @@ class _ExplorerPageState extends State<ExplorerPage> {
   );
 
   Widget _padded(List<Widget> children) => Padding(
-    padding: const EdgeInsets.fromLTRB(
-      AppSpacing.lg,
-      18,
-      AppSpacing.lg,
-      AppSpacing.none,
-    ),
+    padding: Insets.explorerTab,
     child: Column(
       crossAxisAlignment: .stretch,
       spacing: 16,
@@ -1119,7 +1109,7 @@ class _ExplorerPageState extends State<ExplorerPage> {
         vertical: AppSpacing.md,
       ),
       child: SizedBox(
-        height: 40,
+        height: AppSizes.pointsBar,
         child: bar != null
             ? Row(
                 spacing: 8,
@@ -1197,12 +1187,7 @@ class _ExplorerPageState extends State<ExplorerPage> {
                 ),
         ),
         Padding(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.lg,
-            12,
-            AppSpacing.lg,
-            AppSpacing.none,
-          ),
+          padding: Insets.explorerPointsNote,
           child: Text(
             S.current.pointsNote,
             style: TextStyle(fontSize: FontSizes.md, color: c.text4),
@@ -1252,7 +1237,7 @@ class _ExplorerPageState extends State<ExplorerPage> {
   );
 
   Widget _empty(AppColors c) => Container(
-    padding: const EdgeInsets.symmetric(vertical: 48, horizontal: 24),
+    padding: Insets.explorerEmpty,
     decoration: BoxDecoration(
       color: c.ground1,
       border: .all(color: c.line1),
@@ -1481,10 +1466,7 @@ class _ExplorerPageState extends State<ExplorerPage> {
                   if (ins.result case final r?) S.current.returns(r),
                 ])
                   Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 7,
-                      vertical: 3,
-                    ),
+                    padding: Insets.monoTag,
                     decoration: BoxDecoration(
                       color: c.ground4,
                       borderRadius: Radii.chip,

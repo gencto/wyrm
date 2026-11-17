@@ -115,19 +115,7 @@ class Conversation extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => ListView(
-    padding: dense
-        ? const EdgeInsets.fromLTRB(
-            14,
-            14,
-            14,
-            AppSpacing.md,
-          )
-        : const EdgeInsets.fromLTRB(
-            AppSpacing.lg,
-            20,
-            AppSpacing.lg,
-            AppSpacing.lg,
-          ),
+    padding: dense ? Insets.conversationDense : Insets.conversation,
     children: [
       for (final e in _rows(events))
         Padding(
@@ -199,10 +187,7 @@ class _Event extends StatelessWidget {
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 600),
             child: Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 14,
-                vertical: 12,
-              ),
+              padding: Insets.askBubble,
               decoration: BoxDecoration(
                 color: c.ground3,
                 borderRadius: Radii.card,
@@ -240,7 +225,7 @@ class _Event extends StatelessWidget {
             ),
             Expanded(
               child: Padding(
-                padding: const EdgeInsets.only(top: 5),
+                padding: Insets.answerText,
                 child: SelectableText.rich(
                   TextSpan(
                     children: modelSpans(
@@ -267,10 +252,7 @@ class _Event extends StatelessWidget {
             children: [
               for (final r in vm.reads)
                 Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppSpacing.sm,
-                    vertical: 3,
-                  ),
+                  padding: Insets.readChip,
                   decoration: BoxDecoration(
                     border: Border.all(color: c.line2),
                     borderRadius: Radii.chip,

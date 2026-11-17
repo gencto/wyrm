@@ -310,10 +310,7 @@ class _SecurityDialogState extends State<SecurityDialog> {
               crossAxisAlignment: .stretch,
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppSpacing.lg,
-                    vertical: 20,
-                  ),
+                  padding: Insets.securityHead,
                   decoration: BoxDecoration(
                     border: Border(bottom: BorderSide(color: c.ground3)),
                   ),
@@ -348,10 +345,7 @@ class _SecurityDialogState extends State<SecurityDialog> {
                 ),
                 Flexible(
                   child: SingleChildScrollView(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: AppSpacing.lg,
-                      vertical: 18,
-                    ),
+                    padding: Insets.securityBody,
                     child: Column(
                       crossAxisAlignment: .stretch,
                       spacing: 14,

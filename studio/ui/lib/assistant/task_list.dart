@@ -144,12 +144,7 @@ class TaskList extends StatelessWidget {
           onPressed: newReason == null ? onNew : null,
         ),
         Padding(
-          padding: const EdgeInsets.fromLTRB(
-            2,
-            10,
-            2,
-            AppSpacing.sm,
-          ),
+          padding: Insets.taskListNote,
           child: Text(
             note,
             style: TextStyle(fontSize: FontSizes.sm, color: c.text3),
@@ -157,12 +152,7 @@ class TaskList extends StatelessWidget {
         ),
         for (final s in sections) ...[
           Padding(
-            padding: const EdgeInsets.fromLTRB(
-              2,
-              10,
-              2,
-              6,
-            ),
+            padding: Insets.taskListLabel,
             child: SectionLabel(s.label),
           ),
           for (final t in s.tasks) _Task(vm: t, onTap: () => onTask(t.id)),
@@ -194,7 +184,7 @@ class _Task extends StatelessWidget {
           onTap: onTap,
           borderRadius: Radii.control,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+            padding: Insets.taskListRow,
             child: Column(
               crossAxisAlignment: .start,
               spacing: 4,

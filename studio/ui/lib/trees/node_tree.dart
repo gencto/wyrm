@@ -186,12 +186,7 @@ class _NodeTreeState extends State<NodeTree> {
         crossAxisAlignment: .stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(
-              12,
-              14,
-              12,
-              10,
-            ),
+            padding: Insets.treeHead,
             child: Column(
               crossAxisAlignment: .stretch,
               spacing: 10,
@@ -213,15 +208,10 @@ class _NodeTreeState extends State<NodeTree> {
                   )
                 : ListView.builder(
                     controller: _scroll,
-                    padding: const EdgeInsets.fromLTRB(
-                      AppSpacing.sm,
-                      AppSpacing.none,
-                      AppSpacing.sm,
-                      12,
-                    ),
+                    padding: Insets.treeRows,
                     itemCount: rows.length,
                     itemBuilder: (_, i) => Padding(
-                      padding: const EdgeInsets.only(bottom: 1),
+                      padding: Insets.treeRow,
                       child: GestureDetector(
                         onSecondaryTapUp: onMenu == null
                             ? null
@@ -241,13 +231,8 @@ class _NodeTreeState extends State<NodeTree> {
           ),
           if (note case final n?)
             Container(
-              margin: const EdgeInsets.fromLTRB(
-                12,
-                AppSpacing.none,
-                12,
-                14,
-              ),
-              padding: const EdgeInsets.only(top: 12),
+              margin: Insets.treeNoteMargin,
+              padding: Insets.treeNote,
               decoration: BoxDecoration(
                 border: Border(top: BorderSide(color: c.line1)),
               ),

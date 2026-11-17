@@ -107,12 +107,7 @@ class AttentionPanel extends StatelessWidget {
       color: c.text4,
     );
     final head = Container(
-      padding: const EdgeInsets.fromLTRB(
-        20,
-        18,
-        20,
-        14,
-      ),
+      padding: Insets.attentionHead,
       decoration: BoxDecoration(
         border: Border(bottom: BorderSide(color: c.line1)),
       ),
@@ -151,12 +146,7 @@ class AttentionPanel extends StatelessWidget {
       ),
     );
     final facts = Container(
-      padding: const EdgeInsets.fromLTRB(
-        20,
-        AppSpacing.md,
-        20,
-        20,
-      ),
+      padding: Insets.attentionFacts,
       decoration: BoxDecoration(
         border: Border(top: BorderSide(color: c.line1)),
       ),

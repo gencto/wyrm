@@ -292,7 +292,7 @@ class _ToastState extends State<_Toast> {
                   color: fg,
                 ),
               ),
-              const SizedBox(width: 12),
+              Gaps.hToastParts,
               Expanded(
                 child: Column(
                   crossAxisAlignment: .start,
@@ -352,7 +352,7 @@ class _ToastState extends State<_Toast> {
                   ],
                 ),
               ),
-              const SizedBox(width: 12),
+              Gaps.hToastParts,
               Transform.translate(
                 offset: const Offset(4, -4),
                 child: Semantics(
