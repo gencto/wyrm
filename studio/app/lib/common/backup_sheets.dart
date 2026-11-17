@@ -6,6 +6,7 @@ import 'package:models/backup_status.dart';
 import 'package:models/restore_check.dart';
 import 'package:models/send_link.dart';
 import 'package:ui/containers/fact_grid.dart';
+import 'package:ui/models/disabled.dart';
 import 'package:ui/overlays/task_sheet.dart';
 
 import 'sizes.dart';
@@ -77,7 +78,7 @@ final class BackupFormData {
   final String? sendConnection;
   final String? sendPath;
   final int keepDays;
-  final String? reason;
+  final Disabled? reason;
   final bool busy;
 
   /// Why no passphrase may be given, or null.
@@ -282,7 +283,7 @@ TaskSheetVm backupFormSheet(BackupFormData d) {
         !short &&
         (!store || (storeReason == null && d.sendConnection != null)),
     primaryReason:
-        d.reason ??
+        d.reason?.text ??
         (short
             ? l.bakPassphraseShort(minPassphrase)
             : (store ? l.bakChooseConnection : null)),
@@ -329,7 +330,7 @@ final class BackupJobData {
 
   /// The `send` action is in flight.
   final bool sending;
-  final String? reason;
+  final Disabled? reason;
 
   bool get hasKeys => job.sections.contains('keys');
 
@@ -513,7 +514,7 @@ TaskSheetVm backupJobSheet(BackupJobData d) {
           ),
       ],
     ],
-    note: d.reason,
+    note: d.reason?.text,
     secondary: l.updClose,
     primary: switch (primary) {
       'download' => l.bakDownload,
@@ -527,7 +528,7 @@ TaskSheetVm backupJobSheet(BackupJobData d) {
         primary == 'show' ||
         (d.reason == null && (primary != 'send' || d.sendConnection != null)),
     primaryReason:
-        d.reason ?? (primary == 'send' ? l.bakChooseConnection : null),
+        d.reason?.text ?? (primary == 'send' ? l.bakChooseConnection : null),
     busy: d.sending,
   );
 }
@@ -590,7 +591,7 @@ final class RestoreData {
   /// back for this session).
   final String stage;
   final String? result;
-  final String? reason;
+  final Disabled? reason;
 
   /// Why `keys` cannot be restored by this session, or null (the three
   /// gates of ADR 0048 §3.6 rule 1).
@@ -698,13 +699,13 @@ TaskSheetVm restoreSheet(RestoreData d) {
           ),
         ],
       ],
-      note: d.reason ?? l.bakNeedsConfig,
+      note: d.reason?.text ?? l.bakNeedsConfig,
       secondary: l.cancel,
       primary: d.fileName == null
           ? l.rstChoose
           : (d.hasUpload ? l.rstCheck : l.rstUploadingButton),
       primaryEnabled: d.reason == null && (d.fileName == null || d.hasUpload),
-      primaryReason: d.reason,
+      primaryReason: d.reason?.text,
       busy: d.busy || d.uploading,
     );
   }
@@ -812,7 +813,7 @@ TaskSheetVm restoreSheet(RestoreData d) {
         note: l.rstPassphraseKept,
       ),
     ],
-    note: d.reason ?? (replace ? l.rstReplaceNote : l.rstAddNote),
+    note: d.reason?.text ?? (replace ? l.rstReplaceNote : l.rstAddNote),
     secondary: l.cancel,
     primary: replace ? l.rstDoReplace : l.rstDoAdd,
     primaryEnabled:
@@ -821,7 +822,7 @@ TaskSheetVm restoreSheet(RestoreData d) {
         sent.isNotEmpty &&
         (!d.needsReplaceKeys || d.replaceKeys),
     primaryReason:
-        d.reason ??
+        d.reason?.text ??
         (!c.sameSite
             ? l.rstOtherSiteNote
             : (sent.isEmpty

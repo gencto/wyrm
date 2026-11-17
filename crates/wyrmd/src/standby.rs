@@ -654,7 +654,10 @@ const ACTIVE_MARK: &str = "active";
 /// send from their own cursors again.
 pub fn mark_active(data_dir: &Path) {
     let dir = standby_dir(data_dir);
-    let _ = std::fs::remove_file(dir.join("own_sinks"));
+    let own = dir.join("own_sinks");
+    if let Err(e) = std::fs::remove_file(&own).or_else(wyrm_core::files::gone_ok) {
+        tracing::error!("standby: {} stays: {e}", own.display());
+    }
     let r = std::fs::create_dir_all(&dir).and_then(|()| std::fs::write(dir.join(ACTIVE_MARK), b""));
     if let Err(e) = r {
         tracing::warn!("standby: {}: {e}", dir.join(ACTIVE_MARK).display());
@@ -784,7 +787,13 @@ async fn sync_files(
             match aside.as_deref_mut() {
                 Some(a) if local_at_start.contains(&name) => a.keep_file(data_dir, &name),
                 _ => {
-                    let _ = std::fs::remove_file(data_dir.join(&name));
+                    // a sealed secret or a link's data the active no longer has
+                    match std::fs::remove_file(data_dir.join(&name))
+                        .or_else(wyrm_core::files::gone_ok)
+                    {
+                        Ok(()) => {}
+                        Err(e) => tracing::error!(file = %name, "standby: it stays: {e}"),
+                    }
                     tracing::info!(file = %name, "standby: removed (gone on the active)");
                 }
             }
@@ -1192,7 +1201,16 @@ pub async fn follow_with(
                                     for f in a.forks() {
                                         forks.push(f);
                                     }
-                                    let _ = std::fs::remove_file(standby_dir(&cfg.data_dir).join(ACTIVE_MARK));
+                                    let mark = standby_dir(&cfg.data_dir).join(ACTIVE_MARK);
+                                    if let Err(e) = std::fs::remove_file(&mark)
+                                        .or_else(wyrm_core::files::gone_ok)
+                                    {
+                                        // tried again at the next complete sync
+                                        tracing::error!(
+                                            "standby: {} stays: {e}",
+                                            mark.display()
+                                        );
+                                    }
                                 }
                             }
                             if polls % FILES_EVERY == 1 {

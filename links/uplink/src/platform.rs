@@ -342,6 +342,22 @@ fn bounded(m: &Map, k: &str, default: f64, min: f64, max: f64) -> Result<f64, St
     }
 }
 
+/// A whole number in `min..=max` (also given as text): a count, a period or a
+/// level. A fraction is refused, never truncated (`qos: 0.5` was QoS 0).
+fn whole_in<T>(m: &Map, k: &str, default: T, min: T, max: T) -> Result<T, String>
+where
+    T: TryFrom<i64> + PartialOrd + Copy + std::fmt::Display,
+{
+    match number(m, k)? {
+        None => Ok(default),
+        Some(n) => wyrm_core::value::whole(n)
+            .ok()
+            .and_then(|n| T::try_from(n).ok())
+            .filter(|n| (min..=max).contains(n))
+            .ok_or_else(|| format!("{k}: a whole number, {min} to {max}")),
+    }
+}
+
 fn boolean(m: &Map, k: &str, default: bool) -> Result<bool, String> {
     match m.get(k) {
         None | Some(Value::Null) => Ok(default),
@@ -487,8 +503,8 @@ impl Def {
                 let prefix = text(m, "topic_prefix")?.unwrap_or_else(|| "wyrm".into());
                 check_topic_part(&prefix, "topic_prefix")?;
                 extra.insert("topic_prefix".into(), Value::Str(prefix));
-                let qos = bounded(m, "qos", 0.0, 0.0, 1.0)?;
-                extra.insert("qos".into(), Value::UInt(qos as u64));
+                let qos: u64 = whole_in(m, "qos", 0, 0, 1)?;
+                extra.insert("qos".into(), Value::UInt(qos));
                 extra.insert("retain".into(), Value::Bool(boolean(m, "retain", true)?));
                 let payload = text(m, "payload")?.unwrap_or_else(|| "json".into());
                 if !["json", "value"].contains(&payload.as_str()) {
@@ -532,9 +548,7 @@ impl Def {
                 extra.insert("device_id".into(), Value::Str(device));
                 extra.insert(
                     "sas_ttl_s".into(),
-                    Value::UInt(
-                        bounded(m, "sas_ttl_s", DEFAULT_SAS_TTL_S as f64, 300.0, 86_400.0)? as u64,
-                    ),
+                    Value::UInt(whole_in(m, "sas_ttl_s", DEFAULT_SAS_TTL_S, 300, 86_400)?),
                 );
                 if url.is_none() {
                     url = Some(format!("mqtts://{host}:8883"));
@@ -582,13 +596,13 @@ impl Def {
             }
             extra.insert(
                 "keep_alive_s".into(),
-                Value::UInt(bounded(
+                Value::UInt(u64::from(whole_in(
                     m,
                     "keep_alive_s",
-                    f64::from(DEFAULT_KEEP_ALIVE_S),
-                    5.0,
-                    3600.0,
-                )? as u64),
+                    DEFAULT_KEEP_ALIVE_S,
+                    5,
+                    3600,
+                )?)),
             );
         }
         let url = url.ok_or("url: required")?;
@@ -620,18 +634,11 @@ impl Def {
             enabled: boolean(m, "enabled", true)?,
             select: select_of(m, site)?,
             max_hz: bounded(m, "max_hz", 0.0, 0.0, 1000.0)?,
-            queue_max: bounded(m, "queue_max", DEFAULT_QUEUE as f64, 1.0, MAX_QUEUE as f64)?
-                as usize,
-            flush_ms: bounded(m, "flush_ms", DEFAULT_FLUSH_MS as f64, 50.0, 60_000.0)? as u64,
+            queue_max: whole_in(m, "queue_max", DEFAULT_QUEUE, 1, MAX_QUEUE)?,
+            flush_ms: whole_in(m, "flush_ms", DEFAULT_FLUSH_MS, 50, 60_000)?,
             ca_pem,
-            timeout_ms: bounded(
-                m,
-                "timeout_ms",
-                f64::from(DEFAULT_TIMEOUT_MS),
-                500.0,
-                30_000.0,
-            )? as u32,
-            retry_s: bounded(m, "retry_s", DEFAULT_RETRY_S as f64, 1.0, 3600.0)? as u64,
+            timeout_ms: whole_in(m, "timeout_ms", DEFAULT_TIMEOUT_MS, 500, 30_000)?,
+            retry_s: whole_in(m, "retry_s", DEFAULT_RETRY_S, 1, 3600)?,
             insecure_plaintext,
             from_config,
             extra,

@@ -141,6 +141,15 @@ fn arg_num(args: &Value, name: &str) -> Option<f64> {
     arg(args, name).and_then(Value::as_f64)
 }
 
+/// A count of rows: a whole number (`int_arg`), at least 1 (0 or absent is
+/// `default`), at most `max`.
+fn rows_arg(args: &Value, name: &str, default: usize, max: usize) -> Result<usize> {
+    Ok(match crate::control::int_arg::<u64>(args, name)? {
+        None | Some(0) => default,
+        Some(n) => usize::try_from(n).map_or(max, |n| n.min(max)),
+    })
+}
+
 /// A logging type from its name (`All Data`, as the parameter lists it) or its index.
 fn arg_logging(args: &Value) -> Result<Option<Logging>> {
     match arg(args, "logging_type") {
@@ -162,7 +171,10 @@ fn arg_logging(args: &Value) -> Result<Option<Logging>> {
 fn arg_ms(args: &Value, name: &str, current: u64) -> Result<u64> {
     match arg_num(args, name) {
         None => Ok(current),
-        Some(s) if s.is_finite() && s >= 0.0 => Ok((s * 1000.0).round() as u64),
+        Some(s) if s >= 0.0 => wyrm_core::value::whole((s * 1000.0).round())
+            .ok()
+            .and_then(|ms| u64::try_from(ms).ok())
+            .ok_or_else(|| LinkError::invalid_parameter(format!("{name}: seconds"))),
         Some(_) => Err(LinkError::invalid_parameter(format!("{name}: seconds"))),
     }
 }
@@ -642,33 +654,30 @@ pub(crate) async fn set(
             }
         }
         ["disk_space_remaining"] => {
-            keep = value
-                .as_f64()
-                .filter(|v| v.is_finite() && *v >= 0.0)
-                .ok_or_else(|| LinkError::invalid_parameter("disk_space_remaining: MiB"))?
-                as u64
+            keep = value.to_int::<u64>().map_err(|e| {
+                LinkError::invalid_parameter(format!("disk_space_remaining: {e}, whole MiB"))
+            })?
         }
         ["retention_days"] => {
             days = value
-                .as_f64()
-                .filter(|v| v.is_finite() && (0.0..=36_500.0).contains(v))
+                .to_int::<u32>()
+                .ok()
+                .filter(|d| *d <= 36_500)
                 .ok_or_else(|| LinkError::invalid_parameter("retention_days: 0 to 36500"))?
-                as u32
         }
         [KEEP_AFTER_SYNC] => {
-            let days = match value {
-                Value::Null => None,
-                Value::Str(s) if s.trim().is_empty() => None,
-                v => Some(
-                    v.as_f64()
-                        .filter(|v| v.is_finite() && (0.0..=36_500.0).contains(v))
-                        .ok_or_else(|| {
+            let days =
+                match value {
+                    Value::Null => None,
+                    Value::Str(s) if s.trim().is_empty() => None,
+                    v => Some(v.to_int::<u32>().ok().filter(|d| *d <= 36_500).ok_or_else(
+                        || {
                             LinkError::invalid_parameter(
                                 "keep_after_sync_days: 0 to 36500, or empty",
                             )
-                        })? as u32,
-                ),
-            };
+                        },
+                    )?),
+                };
             ctl.apply(Op::SetKeepAfterSync(days)).map_err(rejected)?;
             ctl.record(
                 sub,
@@ -889,9 +898,7 @@ pub(crate) async fn invoke(
                 _ => Rollup::parse(arg_str(args, "rollup").unwrap_or("none")),
             }
             .ok_or_else(|| LinkError::invalid_parameter("rollup?"))?;
-            let limit = arg_num(args, "limit")
-                .filter(|n| n.is_finite() && *n >= 1.0)
-                .map_or(DEFAULT_ROWS, |n| (n as usize).min(MAX_ROWS));
+            let limit = rows_arg(args, "limit", DEFAULT_ROWS, MAX_ROWS)?;
             let rows = query(ctl, &w.key, from, to, interval, rollup, limit).await?;
             Ok(Some(Value::Array(rows)))
         }

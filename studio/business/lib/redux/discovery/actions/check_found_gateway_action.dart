@@ -22,11 +22,18 @@ class CheckFoundGatewayAction extends Action {
       found,
       reader: deps.gatewayInfo,
       trust: GatewayTrust(discovery.pins),
-      now: DateTime.now().millisecondsSinceEpoch,
+      now: deps.clock().millisecondsSinceEpoch,
     );
     if (row == null || scan != discovery.scan || !discovery.open) {
       return null;
     }
-    return state.copyWith.discovery(found: mergeFound(discovery.found, row));
+    // Its row says how long ago it was seen against `clock.now`, stamped
+    // with the row: a new row is `seen now`, never against an older clock.
+    return state.copyWith(
+      clock: state.clock.copyWith(now: deps.clock()),
+      discovery: state.discovery.copyWith(
+        found: mergeFound(discovery.found, row),
+      ),
+    );
   }
 }

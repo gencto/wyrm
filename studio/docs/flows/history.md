@@ -20,8 +20,8 @@ sequenceDiagram
     VM->>A1: dispatch
     Note over A1: async
     A1->>ST: dispatchSync(PickPointAction)
-    A1->>ST: dispatchAndWait(RetrieveSeriesAction)
-    A1->>ST: dispatchAndWait(LoadTrendWindowAction)
+    A1->>ST: dispatchAndWait(ReadTrendSeriesAction)
+    A1->>ST: dispatchAndWait(ReadTrendWindowAction)
 ```
 
 ## onShow
@@ -94,7 +94,7 @@ sequenceDiagram
     VM->>A1: dispatch
     Note over A1: async
     A1->>ST: dispatchSync(SetRangeAction)
-    A1->>ST: dispatchAndWait(RetrieveSeriesAction)
+    A1->>ST: dispatchAndWait(ReadTrendSeriesAction)
 ```
 
 ## onPick
@@ -113,8 +113,8 @@ sequenceDiagram
     VM->>A1: dispatch
     Note over A1: async
     A1->>ST: dispatchSync(PickPointAction)
-    A1->>ST: dispatchAndWait(RetrieveSeriesAction)
-    A1->>ST: dispatchAndWait(LoadTrendWindowAction)
+    A1->>ST: dispatchAndWait(ReadTrendSeriesAction)
+    A1->>ST: dispatchAndWait(ReadTrendWindowAction)
 ```
 
 ## onTrendWindow
@@ -130,8 +130,10 @@ sequenceDiagram
 
     User->>UI: onTrendWindow
     UI->>VM: onTrendWindow()
-    VM->>A1: dispatchSync
+    VM->>A1: dispatch
+    Note over A1: async
     A1->>ST: dispatchSync(SetTrendWindowAction)
+    A1->>ST: dispatchAndWait(ReadTrendWindowAction)
 ```
 
 ## onTrendToggle
@@ -159,14 +161,15 @@ sequenceDiagram
     actor User
     participant UI as HistoryPage
     participant VM as HistoryPageConnector
-    participant A1 as SetTrendWindowAction
+    participant A1 as ZoomHistoryAction.reset
     participant ST as AppState
 
     User->>UI: onTrendReset
     UI->>VM: onTrendReset()
-    VM->>A1: dispatchSync
-    A1->>ST: copyWith(historian.window, historian.trendGen, historian.detail)
-    A1->>ST: dispatchAndWait(LoadTrendWindowAction)
+    VM->>A1: dispatch
+    Note over A1: async
+    A1->>ST: dispatchSync(SetTrendWindowAction)
+    A1->>ST: dispatchAndWait(ReadTrendWindowAction)
 ```
 
 ## onPanelWidth
@@ -196,7 +199,7 @@ sequenceDiagram
 | `onPick` | `PickTrendPointAction` | — |
 | `onTrendWindow` | `ZoomHistoryAction` | — |
 | `onTrendToggle` | `ToggleTrendSeriesAction` | `historian.hidden` |
-| `onTrendReset` | `SetTrendWindowAction` | `historian.window, historian.trendGen, historian.detail` |
+| `onTrendReset` | `ZoomHistoryAction.reset` | — |
 | `onPanelWidth` | `SetPanelWidthAction` | `panels.widths` |
 
 `?` marks a dispatch that only runs under a condition.

@@ -72,8 +72,8 @@ fn window_ok(w: &str) -> bool {
             && w[..w.len() - 1].parse::<u32>().is_ok_and(|n| n > 0))
 }
 
-fn limit_ok(x: f64) -> bool {
-    (1.0..=MAX_HISTORY_ROWS as f64).contains(&x)
+fn limit_ok(x: usize) -> bool {
+    (1..=MAX_HISTORY_ROWS).contains(&x)
 }
 
 /// The history query of `load_history`'s parameters at `now`: `None` with the reason when a
@@ -104,9 +104,9 @@ fn history_query(
     }
     let limit = p
         .get("limit")
-        .and_then(Value::as_f64)
+        .and_then(|x| x.to_int::<usize>().ok())
         .filter(|x| limit_ok(*x))
-        .map_or(MAX_HISTORY_ROWS, |x| x as usize);
+        .unwrap_or(MAX_HISTORY_ROWS);
     Ok(wyrm_client::HistoryQuery {
         from: at(r.start)?,
         to: Some(at(r.end)?),
@@ -140,7 +140,11 @@ pub(crate) fn ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
                 return Err(format!("rollup: one of {ROLLUPS:?}"));
             }
         }
-        if !f(cfg, "limit")?.is_none_or(limit_ok) {
+        // a whole number of rows: `2.5` was accepted here and read as 2
+        if cfg
+            .get("limit")
+            .is_some_and(|v| !v.to_int::<usize>().is_ok_and(limit_ok))
+        {
             return Err(format!("limit: 1..={MAX_HISTORY_ROWS}"));
         }
         let p = crate::catalog::effective_params(ty, cfg);
@@ -606,15 +610,8 @@ impl Node for Reader {
             let Value::Map(r) = &m.v else { return };
             if m.q == Quality::Bad {
                 // a failure never reads as a success: no valid error code is `internal_error`
-                let code = match crate::codes::error_status_of(r.get("code")) {
-                    wyrm_core::status::StatusCode::Known(s) => s,
-                    _ => Status::InternalError,
-                };
-                let message = match r.get("message") {
-                    Some(Value::Str(s)) => s.clone(),
-                    _ => String::new(),
-                };
-                self.failed(code, &message, out);
+                let f = crate::decode::Failure::of(r);
+                self.failed(f.status(), &f.message, out);
             } else {
                 let q = crate::codes::quality_of(r.get("q"));
                 let v = r.get("v").cloned().unwrap_or(Value::Null);
@@ -684,7 +681,7 @@ impl Node for Reader {
             {
                 let name = &p[3..];
                 let ok = match (name, &m.v) {
-                    ("limit", v) => v.as_f64().is_some_and(limit_ok),
+                    ("limit", v) => v.to_int::<usize>().is_ok_and(limit_ok),
                     ("rollup", Value::Str(r)) => ROLLUPS.contains(&r.as_str()),
                     (_, Value::Str(_) | Value::Null) => true,
                     _ => false,

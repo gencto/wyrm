@@ -135,11 +135,11 @@ TaskSheetVm _review(
         for (final q in d.queue) SheetRow(text: q),
       ],
     ],
-    note: d.reason ?? l.updNeedsConfig,
+    note: d.reason?.text ?? l.updNeedsConfig,
     secondary: l.cancel,
     primary: d.official ? l.updDo(n) : l.updChooseArchive,
     primaryEnabled: d.reason == null && (!needsAccept || d.acceptNew),
-    primaryReason: d.reason ?? (needsAccept ? l.acceptFirst : null),
+    primaryReason: d.reason?.text ?? (needsAccept ? l.acceptFirst : null),
     busy: d.busy,
   );
 }
@@ -285,7 +285,7 @@ TaskSheetVm _result(LinkUpdateData d, VoidCallback? onRollBack) {
               : (first == null ? null : l.updOpenLink(first))),
     primaryQuiet: d.offersRollBack,
     primaryEnabled: !d.offersRollBack || d.reason == null,
-    primaryReason: d.reason,
+    primaryReason: d.reason?.text,
     busy: d.rollingBack,
   );
 }

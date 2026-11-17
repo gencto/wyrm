@@ -24,8 +24,12 @@ class RetrieveUserDevicesAction extends Action with WaitingAction {
     }
     try {
       final ds = await session.userDevices(user);
-      return state.copyWith.device(
-        userDevices: state.device.userDevices.add(user, newestFirst(ds)),
+      // The rows are shown as of this read (`clock.now`).
+      return state.copyWith(
+        device: state.device.copyWith(
+          userDevices: state.device.userDevices.add(user, newestFirst(ds)),
+        ),
+        clock: state.clock.copyWith(now: deps.clock()),
       );
     } on WyrmException catch (e) {
       throw StudioException.refused(e, call: 'devices', thing: user);

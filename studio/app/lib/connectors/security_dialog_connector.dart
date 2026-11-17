@@ -22,7 +22,10 @@ import '../navigation/leave_on_log_out_action.dart';
 /// domain's enums through `app/lib/mappers/`, passes typed values (no
 /// `S.current`: the dialog words them) and starts one action per intent.
 class SecurityDialogConnector extends StatelessWidget {
-  const SecurityDialogConnector({super.key});
+  const SecurityDialogConnector({required this.close, super.key});
+
+  /// Closes the dialog: the opener's, which holds the dialog's context.
+  final VoidCallback close;
 
   @override
   Widget build(BuildContext context) => StoreConnector<AppState, _Vm>(
@@ -35,10 +38,10 @@ class SecurityDialogConnector extends StatelessWidget {
       onLockAfter: vm.onLockAfter,
       onDevice: vm.onDevice,
       onSignOut: () {
-        Navigator.of(context).pop();
+        close();
         vm.onSignOut();
       },
-      onClose: () => Navigator.of(context).pop(),
+      onClose: close,
     ),
   );
 }
@@ -49,19 +52,16 @@ class _Factory extends VmFactory<AppState, SecurityDialogConnector, _Vm>
   _Factory(super._connector);
 
   @override
-  _Vm fromStore() => _vm(
-    now: DateTime.now(),
-    policy: device.policy ?? const DevicePolicy(),
-  );
+  _Vm fromStore() => _vm(device.policy ?? const DevicePolicy());
 
-  /// The view-model at [now], with the site's device [policy].
-  _Vm _vm({required DateTime now, required DevicePolicy policy}) => _Vm(
+  /// The view-model with the site's device [policy], rows at `clock.now`.
+  _Vm _vm(DevicePolicy policy) => _Vm(
     dialog: SecurityDialogVm(
       user: (login.user ?? '').trim(),
       site: site.name ?? '',
       os: hostPlatform().os,
       method: device.kind.method,
-      devices: [for (final r in device.rowsAt(now)) r.securityRow],
+      devices: [for (final r in device.rowsAt(clock.now)) r.securityRow],
       biometricHere: device.available,
       unlockOn: device.unlockOn,
       unlockEnabled: device.unlockAllowed,

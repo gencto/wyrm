@@ -232,7 +232,7 @@ pub async fn replay(a: ReplayArgs) -> Result<Summary, Error> {
 
     let dir = std::env::temp_dir().join(format!("wyr-replay-{}-{}", std::process::id(), now_us()));
     let result = run_replay(&a, records, raw, &def, &site, &dir).await;
-    let _ = std::fs::remove_dir_all(&dir);
+    wyrm_core::files::discard_dir(&dir);
     result.map_err(|e| format!("replay of {id}: {e}").into())
 }
 
@@ -246,7 +246,7 @@ async fn run_replay(
 ) -> Result<Summary, Error> {
     let session = zenoh::open(isolated_config()?).await?;
     let mut seed = [0u8; 32];
-    getrandom::fill(&mut seed).map_err(|e| format!("no randomness: {e}"))?;
+    wyrm_core::rand::fill(&mut seed).map_err(|e| e.to_string())?;
     let key = ed25519_dalek::SigningKey::from_bytes(&seed);
     let host = FlowHost::open(dir, &seed, site)?;
     let mut lcfg = LinkConfig::new(site, "dataflows");

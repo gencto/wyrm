@@ -92,8 +92,10 @@ pub fn offset(host: &dyn Host, bot: &str) -> i64 {
         .unwrap_or(0)
 }
 
-pub fn put_offset(host: &mut dyn Host, bot: &str, o: i64) {
-    let _ = host.store_put(&offset_key(bot), &o.to_le_bytes());
+/// Keep the next update to read. Called before the updates it moves past are
+/// run: an offset that is not kept reads them again, never runs them twice.
+pub fn put_offset(host: &mut dyn Host, bot: &str, o: i64) -> Result<(), AppError> {
+    host.store_put(&offset_key(bot), &o.to_le_bytes())
 }
 
 pub fn load_rights(host: &dyn Host, c: char, bot: &str, name: &str) -> Option<Rights> {

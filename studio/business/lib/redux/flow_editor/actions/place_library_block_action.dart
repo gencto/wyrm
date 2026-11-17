@@ -1,3 +1,4 @@
+import 'package:async_redux/async_redux.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/block_type.dart';
 import 'package:models/error_kind.dart';
@@ -10,7 +11,6 @@ import '../../../wyrm/mappers/flow_blocks.dart';
 import '../../../wyrm/mappers/flow_canvas.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
-import 'validate_flow_action.dart';
 
 /// A block of the site's library dropped on the canvas at ([x], [y]): the
 /// flow COPIES it (`dataflows` ▸ `get_block {name}`: its definition and the
@@ -18,17 +18,36 @@ import 'validate_flow_action.dart';
 /// and gets one instance of it, selected, in one step of the history. A
 /// block of that name the flow already has
 /// is used as the flow has it; `Update from library` replaces it.
-class PlaceLibraryBlockAction extends Action {
+///
+/// Started by a drop that does not wait for it: drops run one at a time in
+/// the order they were made (each is a step of the history), and a block
+/// whose answer comes after its flow was left is not placed.
+class PlaceLibraryBlockAction extends Action with Sequential<AppState> {
   PlaceLibraryBlockAction(this.name, this.x, this.y);
 
   final String name;
   final double x;
   final double y;
 
+  /// The flow open when the block was dropped.
+  String? _flow;
+
+  @override
+  Object? sequentialKeyParams() => runtimeType;
+
+  @override
+  Future<void> before() {
+    // At the drop, not at its turn in the queue.
+    _flow = flowEditor.flowId;
+    return super.before();
+  }
+
   @override
   Future<AppState?> reduce() async {
     final root = site.root;
-    if (root == null || flowEditor.draft == null) {
+    if (root == null ||
+        flowEditor.draft == null ||
+        flowEditor.flowId != _flow) {
       return null;
     }
     final answer = switch (libraryBlockOf(
@@ -43,9 +62,10 @@ class PlaceLibraryBlockAction extends Action {
         thing: name,
       ),
     };
-    // The draft as it is now: the read took a while.
+    // The draft as it is now: the read took a while, and the flow may
+    // have been left.
     final d = flowEditor.draft;
-    if (d == null) {
+    if (d == null || flowEditor.flowId != _flow || site.root != root) {
       return null;
     }
     final copied = withLibraryBlock(
@@ -62,7 +82,6 @@ class PlaceLibraryBlockAction extends Action {
     // history: the screen never draws the copy without its instance.
     final types = typesWithBlocks(flowEditor.types, copied);
     final added = withNewBlock(types, copied, CustomType(name), x, y);
-    _validate();
     return state.copyWith.flowEditor(
       draft: added.draft,
       selectedBlock: added.id,
@@ -73,9 +92,4 @@ class PlaceLibraryBlockAction extends Action {
       undoTag: null,
     );
   }
-
-  /// The engine checks the draft again once the edits settle
-  /// ([ValidateFlowAction] is debounced and brings its own state); this
-  /// edit does not wait for it.
-  void _validate() => dispatch(ValidateFlowAction());
 }

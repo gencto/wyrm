@@ -9,10 +9,9 @@ abstract class InstallTarget with _$InstallTarget {
   const factory InstallTarget({
     required String site,
 
-    /// Its `sys/distribution` (`linux-aarch64`), when read.
+    /// Its `sys/distribution` (`linux-aarch64`), when read. Whether the
+    /// user may install on it is the rights check's, from the grants of
+    /// now (selector `installTargetReason`), not kept here.
     String? host,
-
-    /// Why it cannot take the link; null when it can.
-    String? refused,
   }) = _InstallTarget;
 }

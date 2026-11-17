@@ -24,6 +24,7 @@ import 'package:wyrm_client/wyrm_client.dart';
 
 import '../common/app_store.dart';
 import '../common/forms.dart';
+import '../mappers/rights_mappers.dart';
 import 'backup_dialogs.dart';
 import 'close_on_ok_action.dart';
 
@@ -277,6 +278,9 @@ Future<void> showLinkGrant(BuildContext context, String id, String root) {
             required: true,
             value: Perm.read.wire,
             choices: [for (final p in _grantLevels) p.wire],
+            choiceLabels: {
+              for (final p in _grantLevels) p.wire: p.access.label,
+            },
             onChanged: (_) {},
           ),
         ],

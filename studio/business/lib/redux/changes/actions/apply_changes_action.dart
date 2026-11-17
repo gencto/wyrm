@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../app_state.dart';
@@ -25,8 +23,9 @@ class ApplyChangesAction extends Action with WaitingAction {
     String? message;
     for (final id in changes.view) {
       final c = changes.table[id];
-      // With no grants read (an old gateway), the broker alone decides.
-      if (c == null || (site.grants.isNotEmpty && !site.can(c.level, c.key))) {
+      // a change the user's grants do not reach is not sent (none is,
+      // before `/api/me` is read)
+      if (c == null || !site.can(c.level, c.key)) {
         continue;
       }
       try {
@@ -44,11 +43,28 @@ class ApplyChangesAction extends Action with WaitingAction {
         break;
       }
     }
+    // What was applied leaves the list at once, shown; then the keys it
+    // touched are read again, and this action ends with that read.
+    dispatchSync(_Applied(done, message));
     if (touched.isNotEmpty) {
-      unawaited(
-        dispatchAndWait(RetrieveDetailsAction(touched.toList(), force: true)),
+      await dispatchAndWait(
+        RetrieveDetailsAction(touched.toList(), force: true),
       );
     }
+    return null;
+  }
+}
+
+/// The list as an apply leaves it: the [done] changes gone, the broker's
+/// [message] for the first refused one kept.
+class _Applied extends Action {
+  _Applied(this.done, this.message);
+
+  final Set<String> done;
+  final String? message;
+
+  @override
+  AppState reduce() {
     final left = changes.view.removeWhere(done.contains);
     return state.copyWith.changes(
       table: changes.table.removeWhere((k, _) => done.contains(k)),

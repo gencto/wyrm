@@ -1,8 +1,8 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/staged_change.dart';
 import 'package:models/staged_change_kind.dart';
-import 'package:wyrm_client/wyrm_client.dart' show Perm;
 
+import '../../../wyrm/failures.dart';
 import '../../../wyrm/mappers/value_text.dart';
 import '../../app_state.dart';
 import '../../changes/actions/add_changes_action.dart';
@@ -54,11 +54,14 @@ class StageValueAction extends Action {
 
   @override
   AppState? reduce() {
+    // a value whose meta names no level cannot be set: nothing is staged,
+    // no level is assumed for it, and the user is told why (the app words
+    // the refusal)
     final level =
-        (state.nodes.detail[key]?.writable ??
-                state.nodes.table[key]?.writable ??
-                Perm.write)
-            .wire;
+        state.nodes.detail[key]?.writable ?? state.nodes.table[key]?.writable;
+    if (level == null) {
+      throw StudioException(notSettableOf(key));
+    }
     dispatchSync(
       AddChangesAction(
         [

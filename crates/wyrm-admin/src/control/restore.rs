@@ -15,10 +15,10 @@
 //! authentic (`wyrm_admin::backup`).
 
 use super::backups::{
-    broker_made_secret, io_err, link_prefix, make_private_dir, passphrase_arg, uint_arg, StageDir,
+    broker_made_secret, io_err, link_prefix, make_private_dir, passphrase_arg, StageDir,
 };
 use super::*;
-use crate::backup::{self as format, Kind, Manifest};
+use crate::backup::{self as format, Kind, Manifest, SectionName};
 use zeroize::Zeroizing;
 
 /// Largest file taken in parts.
@@ -118,12 +118,12 @@ pub(super) struct LinkLayout {
 impl LinkLayout {
     /// A `.wyrm-link`.
     fn link(m: &Manifest) -> Self {
-        let has = |s: &str| m.section(s).is_some();
+        let has = |s: SectionName| m.section(s).is_some();
         Self {
             settings: "settings/link.cbor".into(),
-            data: has("data").then(|| "data".to_owned()),
-            package: has("package").then(|| "package".to_owned()),
-            history: has("history").then(|| "history/".to_owned()),
+            data: has(SectionName::Data).then(|| "data".to_owned()),
+            package: has(SectionName::Package).then(|| "package".to_owned()),
+            history: has(SectionName::History).then(|| "history/".to_owned()),
         }
     }
 
@@ -187,7 +187,7 @@ impl Control {
         }
         make_private_dir(&self.backups_dir()).map_err(LinkError::internal)?;
         let mut r = [0u8; 8];
-        getrandom::fill(&mut r).map_err(|e| LinkError::internal(format!("no randomness: {e}")))?;
+        wyrm_core::rand::fill(&mut r).map_err(|e| LinkError::internal(e.to_string()))?;
         let id = hex::encode(r);
         let mut ups = self.uploads();
         if ups.len() >= MAX_UPLOADS {
@@ -273,7 +273,7 @@ impl Control {
         let mut ups = self.uploads();
         if remove {
             ups.remove(id);
-            let _ = std::fs::remove_file(self.upload_path(id));
+            wyrm_core::files::discard(&self.upload_path(id));
         } else if let Some(up) = ups.get_mut(id) {
             up.busy = false;
             up.touched = now_s();
@@ -291,7 +291,7 @@ impl Control {
             .collect();
         for id in stale {
             ups.remove(&id);
-            let _ = std::fs::remove_file(self.upload_path(&id));
+            wyrm_core::files::discard(&self.upload_path(&id));
         }
     }
 
@@ -492,7 +492,14 @@ impl Control {
             Ok::<(), String>(())
         })();
         if let Err(e) = filled {
-            let _ = std::fs::remove_dir_all(&fresh);
+            // what was opened into it is the link's data in the clear
+            if let Err(r) = crate::nofollow::remove_any(&fresh) {
+                tracing::error!(
+                    link = id,
+                    "{} stays with restored data: {r}",
+                    fresh.display()
+                );
+            }
             return Err(e);
         }
         let swapped = self.swap_link_data(id, parent, &r.secrets, upto);
@@ -545,7 +552,10 @@ impl Control {
         if let Err(e) = self.secrets.unstash(id, false) {
             warn!(link = id, "kept secrets of the restore: {e}");
         }
-        let _ = std::fs::remove_dir_all(&done);
+        // the data before the restore, replaced
+        if let Err(e) = crate::nofollow::remove_any(&done) {
+            warn!(link = id, "{} stays: {e}", done.display());
+        }
         Ok(())
     }
 
@@ -562,8 +572,14 @@ impl Control {
         let (data, fresh) = (dir.join("data"), dir.join(RESTORING));
         let (old, done) = (dir.join(REPLACED), dir.join(DONE));
         let real_dir = std::fs::symlink_metadata(&old).is_ok_and(|m| m.is_dir());
+        // each holds the link's data (restored, replaced or the old copy)
+        let remove = |p: &std::path::Path| {
+            if let Err(e) = crate::nofollow::remove_any(p) {
+                warn!(link = id, "{} stays: {e}", p.display());
+            }
+        };
         if real_dir {
-            crate::nofollow::remove_any(&data);
+            remove(&data);
             match std::fs::rename(&old, &data) {
                 Ok(()) => info!(
                     link = id,
@@ -572,14 +588,14 @@ impl Control {
                 Err(e) => warn!(link = id, "{}: {e}", old.display()),
             }
         } else {
-            crate::nofollow::remove_any(&old);
+            remove(&old);
         }
         match self.secrets.unstash(id, real_dir) {
             Ok(_) => {}
             Err(e) => warn!(link = id, "kept secrets of a restore: {e}"),
         }
-        crate::nofollow::remove_any(&fresh);
-        crate::nofollow::remove_any(&done);
+        remove(&fresh);
+        remove(&done);
     }
 
     /// [`Self::recover_link`] for every link directory, at a start of the
@@ -967,12 +983,7 @@ impl Admin {
         if grants || agent_params {
             ctl.schedule_reload();
         }
-        let sections: Vec<&str> = r
-            .manifest
-            .sections
-            .iter()
-            .map(|s| s.name.as_str())
-            .collect();
+        let sections: Vec<&str> = r.manifest.sections.iter().map(|s| s.name.name()).collect();
         ctl.record(
             sub,
             "link_restore",
@@ -1193,7 +1204,7 @@ pub(super) async fn invoke(
     };
     match (rest, action) {
         ([], "restore_begin") => {
-            let size = uint_arg(args, "size")?
+            let size = int_arg::<u64>(args, "size")?
                 .ok_or_else(|| LinkError::invalid_parameter("size: required"))?;
             let id = ctl.upload_begin(size)?;
             Ok(Some(Value::Map(BTreeMap::from([
@@ -1204,7 +1215,7 @@ pub(super) async fn invoke(
         }
         ([], "restore_part") => {
             let id = upload()?.to_owned();
-            let offset = uint_arg(args, "offset")?
+            let offset = int_arg::<u64>(args, "offset")?
                 .ok_or_else(|| LinkError::invalid_parameter("offset: required"))?;
             let Some(Value::Bytes(data)) = arg(args, "data") else {
                 return Err(LinkError::invalid_parameter("data: required"));
@@ -1297,7 +1308,7 @@ mod tests {
             (Kind::Link, crate::backup::How::Broker)
         );
         let mut names: Vec<&str> = m
-            .section("data")
+            .section(SectionName::Data)
             .unwrap()
             .files
             .iter()

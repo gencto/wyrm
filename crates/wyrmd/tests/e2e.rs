@@ -5990,6 +5990,15 @@ async fn link_params_update_history_rollback() {
         panic!("history")
     };
     assert_eq!(h.len(), 2, "rev 1 and current rev 2");
+    // `rev` is a whole number: 1.7 was read as 1, -1 as 0, 5e9 as u32::MAX
+    for bad in [1.7, -1.0, 5e9] {
+        assert!(
+            c.invoke_one(&node, "rollback", m(&[("rev", Value::Float(bad))]))
+                .await
+                .is_err(),
+            "rev {bad}"
+        );
+    }
     let rev = c
         .invoke_one(&node, "rollback", m(&[("rev", Value::UInt(1))]))
         .await
@@ -6457,6 +6466,20 @@ async fn runtime_peers_over_quic() {
 
     // 6. A token admits at once, once.
     let c = client(c_tcp, "central").await;
+    // `count` is whole: 0.5 was read as 0, which means no limit (review 2026-11-16)
+    for bad in [0.5, 1.5, -1.0, f64::NAN] {
+        assert!(
+            c.invoke_one(
+                "wy/central/sys/tokens",
+                "add",
+                args(&[("count", Value::Float(bad))]),
+            )
+            .await
+            .is_err(),
+            "count {bad}"
+        );
+    }
+    assert!(c_ctl.registry().tokens.is_empty(), "no token made");
     let token = match c
         .invoke_one(
             "wy/central/sys/tokens",
@@ -11714,7 +11737,11 @@ async fn backup_while_writing() {
     writer.abort();
     assert_eq!(job.progress, 100);
     assert_eq!(job.kind.name(), "full");
-    assert!(job.sections.contains(&"control".to_owned()), "always made");
+    assert!(
+        job.sections
+            .contains(&wyrm_admin::backup::SectionName::Control),
+        "always made"
+    );
     assert!(job.expires > job.created + 6 * 86_400);
 
     // The tree shows it. A job's values are published one after another
@@ -11767,10 +11794,14 @@ async fn backup_while_writing() {
         "history",
         "links",
     ] {
-        assert!(m.section(s).is_some(), "section {s}");
+        assert!(
+            m.section(wyrm_admin::backup::SectionName::from_name(s).unwrap())
+                .is_some(),
+            "section {s}"
+        );
     }
-    assert!(m.section("config").is_none());
-    let keys = m.section("keys").unwrap();
+    assert!(m.section(wyrm_admin::backup::SectionName::Config).is_none());
+    let keys = m.section(wyrm_admin::backup::SectionName::Keys).unwrap();
     assert!(keys.files.iter().all(|f| f.sealed));
     assert!(keys.files.iter().any(|f| f.path == "keys/pki/ca.key"));
     assert!(m.key(Some(b"another passphrase!"), None).is_err());
@@ -11786,14 +11817,21 @@ async fn backup_while_writing() {
 
     // the registry WAL of the backup opens with the site's key at its LSN
     let out = temp_dir("backup-live-out");
-    for f in &m.section("control").unwrap().files {
+    for f in &m
+        .section(wyrm_admin::backup::SectionName::Control)
+        .unwrap()
+        .files
+    {
         r.extract(&f.path, &out.join(&f.path), None).unwrap();
     }
     let state_key = wyrm_admin::secret::load_or_create_key(&dir.join("state.key")).unwrap();
     let reg: wyrm_state::Store<wyrm_admin::registry::Registry> =
         wyrm_state::Store::open(out.join("control/state"), &state_key).unwrap();
     assert!(reg.state().links.contains_key("mock"));
-    let lsn = m.section("control").unwrap().info["state"]
+    let lsn = m
+        .section(wyrm_admin::backup::SectionName::Control)
+        .unwrap()
+        .info["state"]
         .as_u64()
         .unwrap();
     assert_eq!(reg.lsn(), lsn);
@@ -11822,7 +11860,7 @@ async fn backup_while_writing() {
     assert_eq!(def.driver, "mock");
     assert!(def.token_hash.is_empty());
     assert!(m
-        .section("links")
+        .section(wyrm_admin::backup::SectionName::Links)
         .unwrap()
         .files
         .iter()
@@ -11855,9 +11893,9 @@ async fn backup_while_writing() {
     // without a passphrase: link secrets sealed for this site alone
     let m2 = wyrm_admin::backup::read_manifest(&dir.join("backups").join(&job2.file)).unwrap();
     assert_eq!(m2.sealed.how.name(), "broker");
-    assert!(m2.section("keys").is_none());
+    assert!(m2.section(wyrm_admin::backup::SectionName::Keys).is_none());
     assert!(m2
-        .section("links")
+        .section(wyrm_admin::backup::SectionName::Links)
         .unwrap()
         .files
         .iter()
@@ -12039,7 +12077,10 @@ async fn link_backup_restores_on_a_second_broker() {
     let job = backup_done(&a, &id).await;
     assert_eq!((job.kind.name(), job.link.as_str()), ("link", "dev1"));
     assert!(job.file.ends_with(".wyrm-link"));
-    assert_eq!(job.sections, ["settings", "data"]);
+    assert_eq!(
+        wyrm_admin::backup::section_names(&job.sections),
+        "settings, data"
+    );
     let bytes = download_backup(&ca, &id, 16 << 20).await;
     assert!(!bytes.windows(9).any(|w| w == b"pw-123456"));
     let m = wyrm_admin::backup::Reader::new(std::io::Cursor::new(bytes.clone()), 1 << 30)
@@ -12048,7 +12089,12 @@ async fn link_backup_restores_on_a_second_broker() {
         .clone();
     assert_eq!(m.kind, wyrm_admin::backup::Kind::Link);
     assert_eq!(m.link.as_ref().unwrap().id, "dev1");
-    assert!(m.section("data").unwrap().files.iter().all(|f| f.sealed));
+    assert!(m
+        .section(wyrm_admin::backup::SectionName::Data)
+        .unwrap()
+        .files
+        .iter()
+        .all(|f| f.sealed));
     assert!(a
         .ctl
         .audit_tail(100)
@@ -12189,7 +12235,12 @@ async fn link_backup_restores_on_a_second_broker() {
     // passphrase and holds c3; the other broker cannot open it
     let pm = wyrm_admin::backup::read_manifest(&point).unwrap();
     assert_eq!(pm.sealed.how.name(), "broker");
-    assert!(pm.section("data").is_some() && pm.section("package").is_none());
+    assert!(
+        pm.section(wyrm_admin::backup::SectionName::Data).is_some()
+            && pm
+                .section(wyrm_admin::backup::SectionName::Package)
+                .is_none()
+    );
     let secrets_b = wyrm_admin::secret::load_or_create_key(&dir_b.join("secrets.key")).unwrap();
     assert!(pm.key(None, Some(&secrets_b)).is_err());
     let secrets_a = wyrm_admin::secret::load_or_create_key(&dir_a.join("secrets.key")).unwrap();
@@ -12959,13 +13010,21 @@ async fn package_update_that_loses_keys_rolls_back() {
     let pm = wyrm_admin::backup::read_manifest(&sealed[0].path()).unwrap();
     assert_eq!(pm.kind, wyrm_admin::backup::Kind::Link);
     assert_eq!(pm.sealed.how.name(), "broker");
-    let data = pm.section("data").expect("the private data");
+    let data = pm
+        .section(wyrm_admin::backup::SectionName::Data)
+        .expect("the private data");
     assert!(data.files.iter().all(|f| f.sealed));
     assert!(data
         .files
         .iter()
         .any(|f| f.path == "data/files/framework.tree"));
-    assert!(pm.section("package").is_none() && pm.section("history").is_none());
+    assert!(
+        pm.section(wyrm_admin::backup::SectionName::Package)
+            .is_none()
+            && pm
+                .section(wyrm_admin::backup::SectionName::History)
+                .is_none()
+    );
     // the key list of the health check is kept beside it
     let kept = wyrm_admin::restore_point::list(&dir.join("restore"), "u1");
     assert_eq!(kept.len(), 1);
@@ -13682,24 +13741,27 @@ async fn link_backup_of_a_process_link() {
     );
     let job = backup_done(&env, &id).await;
     assert_eq!((job.kind.name(), job.link.as_str()), ("link", "u1"));
-    assert_eq!(job.sections, ["settings", "data", "package"]);
+    assert_eq!(
+        wyrm_admin::backup::section_names(&job.sections),
+        "settings, data, package"
+    );
     // no passphrase: sealed for this site
     assert_eq!(job.sealed.map(|h| h.name()), Some("broker"));
     let m = wyrm_admin::backup::read_manifest(&dir.join("backups").join(&job.file)).unwrap();
     let link = m.link.as_ref().unwrap();
     assert_eq!(
-        (link.id.as_str(), link.mode.as_str(), link.package.as_str()),
+        (link.id.as_str(), link.mode.name(), link.package.as_str()),
         ("u1", "process", "updpkg")
     );
     assert_eq!(link.version, "1.0.0");
     // what the process wrote in its private directory, sealed
-    let data = m.section("data").unwrap();
+    let data = m.section(wyrm_admin::backup::SectionName::Data).unwrap();
     assert!(data
         .files
         .iter()
         .any(|f| f.path == "data/files/framework.tree" && f.sealed));
     assert!(m
-        .section("package")
+        .section(wyrm_admin::backup::SectionName::Package)
         .unwrap()
         .files
         .iter()

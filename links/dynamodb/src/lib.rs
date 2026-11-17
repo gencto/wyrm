@@ -104,16 +104,20 @@ fn parse(cfg: &Map) -> Result<Cfg, String> {
                 .as_f64()
                 .filter(|d| (0.0..=36_500.0).contains(d))
                 .ok_or("params.ttl_days: 0 to 36500")?;
-            // 0: no expiration
-            (d > 0.0).then_some((d * 86_400.0) as u64)
+            // whole seconds (d ≤ 36 500 days is far below 2^53); 0 days: no expiration
+            let s = wyrm_core::value::whole((d * 86_400.0).round())
+                .ok()
+                .and_then(|s| u64::try_from(s).ok())
+                .ok_or("params.ttl_days: 0 to 36500")?;
+            (d > 0.0).then_some(s)
         }
     };
     let timeout_ms = match cfg.get("timeout_ms") {
         None => DEFAULT_TIMEOUT_MS,
         Some(v) => v
-            .as_f64()
-            .filter(|t| (100.0..=60_000.0).contains(t))
-            .map(|t| t as u32)
+            .to_int::<u32>()
+            .ok()
+            .filter(|t| (100..=60_000).contains(t))
             .ok_or("params.timeout_ms: 100 to 60000")?,
     };
     Ok(Cfg {

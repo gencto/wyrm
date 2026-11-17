@@ -363,11 +363,154 @@ impl Value {
             _ => None,
         }
     }
+
+    /// The value as a whole number of type `T`: the one integer decoder of the
+    /// workspace for action arguments, configuration and wire fields.
+    ///
+    /// An integer (`UInt`, `Int`) is taken as it is; a float is taken only when
+    /// it is a whole number a JSON client may have written as `20.0` (see
+    /// [`whole`]). A fraction, NaN, an infinity, a number out of `T`'s range
+    /// (a negative one for an unsigned `T`) or a value that is no number is an
+    /// error, never a truncated, saturated or zero value: `0.5 as u32` is `0`,
+    /// which in a token's count means "no limit".
+    pub fn to_int<T: TryFrom<i128>>(&self) -> Result<T, IntError> {
+        let n = match *self {
+            Value::UInt(u) => i128::from(u),
+            Value::Int(i) => i128::from(i),
+            Value::Float(f) => i128::from(whole(f)?),
+            _ => return Err(IntError::NotANumber),
+        };
+        match T::try_from(n) {
+            Ok(v) => Ok(v),
+            Err(_) if n < 0 => Err(IntError::Negative),
+            Err(_) => Err(IntError::OutOfRange),
+        }
+    }
+}
+
+/// Why a value is not a whole number of the wanted type ([`Value::to_int`], [`whole`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum IntError {
+    #[error("not a number")]
+    NotANumber,
+    #[error("not a finite number")]
+    NotFinite,
+    #[error("not a whole number")]
+    Fractional,
+    #[error("a negative number")]
+    Negative,
+    #[error("out of range")]
+    OutOfRange,
+}
+
+/// The largest float magnitude that still holds every integer exactly (2^53).
+pub const MAX_EXACT_FLOAT: f64 = 9_007_199_254_740_992.0;
+
+/// A float as the whole number it holds: finite, no fraction and at most
+/// [`MAX_EXACT_FLOAT`] in magnitude (above it a float no longer holds every
+/// integer, so `2^53 + 1` would read as `2^53`). Anything else is an error.
+///
+/// For a float that the code itself made from a float input (seconds × 1000
+/// rounded), this is the conversion; never `as`, which truncates, saturates
+/// and makes NaN a `0`.
+pub fn whole(f: f64) -> Result<i64, IntError> {
+    if !f.is_finite() {
+        return Err(IntError::NotFinite);
+    }
+    if f.fract() != 0.0 {
+        return Err(IntError::Fractional);
+    }
+    if f.abs() > MAX_EXACT_FLOAT {
+        return Err(IntError::OutOfRange);
+    }
+    // A whole number of at most 54 bits, read from its IEEE 754 fields: the
+    // value is `mantissa * 2^(exponent - 1075)`, and the bits shifted out to the
+    // right are zero because the number has no fraction.
+    let bits = f.to_bits();
+    let exponent = (bits >> 52) & 0x7ff;
+    if exponent == 0 {
+        // ±0 (a subnormal is a fraction and was refused above)
+        return Ok(0);
+    }
+    let mantissa = (bits & ((1 << 52) - 1)) | (1 << 52);
+    let magnitude = if exponent >= 1075 {
+        mantissa << (exponent - 1075)
+    } else {
+        mantissa >> (1075 - exponent)
+    };
+    // below 2^53 it always fits; kept as an error, not a panic
+    let magnitude = i64::try_from(magnitude).ok().ok_or(IntError::OutOfRange)?;
+    Ok(if bits >> 63 == 1 {
+        -magnitude
+    } else {
+        magnitude
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn whole_numbers_decode_exactly_and_nothing_else_does() {
+        use IntError::*;
+        let f = |x: f64| Value::Float(x);
+        // taken
+        assert_eq!(Value::UInt(7).to_int::<u32>(), Ok(7));
+        assert_eq!(Value::Int(-7).to_int::<i32>(), Ok(-7));
+        assert_eq!(f(20.0).to_int::<u32>(), Ok(20));
+        assert_eq!(f(-0.0).to_int::<u8>(), Ok(0));
+        assert_eq!(f(-3.0).to_int::<i8>(), Ok(-3));
+        assert_eq!(f(MAX_EXACT_FLOAT).to_int::<u64>(), Ok(1 << 53));
+        assert_eq!(f(-MAX_EXACT_FLOAT).to_int::<i64>(), Ok(-(1 << 53)));
+        assert_eq!(Value::UInt(u64::MAX).to_int::<u64>(), Ok(u64::MAX));
+        assert_eq!(Value::Int(i64::MIN).to_int::<i64>(), Ok(i64::MIN));
+        // refused: the inputs `as` turned into 0, 1 or a saturated number
+        assert_eq!(f(0.5).to_int::<u32>(), Err(Fractional));
+        assert_eq!(f(1.7).to_int::<u32>(), Err(Fractional));
+        assert_eq!(f(f64::MIN_POSITIVE / 2.0).to_int::<u32>(), Err(Fractional));
+        assert_eq!(f(f64::NAN).to_int::<u32>(), Err(NotFinite));
+        assert_eq!(f(f64::INFINITY).to_int::<u64>(), Err(NotFinite));
+        assert_eq!(f(-1.0).to_int::<u32>(), Err(Negative));
+        assert_eq!(Value::Int(-1).to_int::<u64>(), Err(Negative));
+        assert_eq!(f(5e9).to_int::<u32>(), Err(OutOfRange));
+        assert_eq!(Value::UInt(256).to_int::<u8>(), Err(OutOfRange));
+        // above 2^53 a float no longer holds every integer: 2^53 + 2 and 2^64
+        // (which `<= u64::MAX as f64` let through and `as` saturated) are refused
+        assert_eq!(f(MAX_EXACT_FLOAT + 2.0).to_int::<u64>(), Err(OutOfRange));
+        assert_eq!(
+            f(18_446_744_073_709_551_616.0).to_int::<u64>(),
+            Err(OutOfRange)
+        );
+        assert_eq!(Value::Str("1".into()).to_int::<u32>(), Err(NotANumber));
+        assert_eq!(Value::Bool(true).to_int::<u32>(), Err(NotANumber));
+        assert_eq!(Value::Null.to_int::<u32>(), Err(NotANumber));
+    }
+
+    #[test]
+    fn whole_reads_every_exact_float_as_its_integer() {
+        // every power of two and its neighbours up to 2^53, both signs, against
+        // the exact integer (test code may use `as` on a known whole number)
+        for e in 0..=53u32 {
+            let p = 1i64 << e;
+            for n in [p - 1, p, p + 1] {
+                if n.unsigned_abs() > 1 << 53 {
+                    continue;
+                }
+                for n in [n, -n] {
+                    assert_eq!(whole(n as f64), Ok(n), "{n}");
+                }
+            }
+        }
+        let mut x = 0x2545_f491_4f6c_dd1du64;
+        for _ in 0..100_000 {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            let n = (x >> 11) as i64 * if x & 1 == 0 { 1 } else { -1 };
+            assert_eq!(whole(n as f64), Ok(n), "{n}");
+        }
+    }
 
     /// `depth` nested one-element arrays around a null.
     fn nested(depth: usize, head: u8) -> Vec<u8> {

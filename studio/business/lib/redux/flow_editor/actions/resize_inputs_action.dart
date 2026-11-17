@@ -5,7 +5,6 @@ import '../../../wyrm/mappers/flow_fields.dart';
 import '../../../wyrm/mappers/flow_mapper.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
-import 'validate_flow_action.dart';
 
 /// The − and + of a block with variable inputs (`add`, `if`, `expression`):
 /// adds the next input, or removes the last one with every edge into it or
@@ -42,7 +41,6 @@ class ResizeInputsAction extends Action {
           if (v.outPrefix case final out?) '$out$n',
         },
     };
-    _validate();
     // A removed input's constant goes with it: the engine refuses a
     // `values` key that is no operand (ADR 0038 §7).
     final cfg = cfgWithoutOperands(b.cfg.add(v.param, names), gone);
@@ -63,9 +61,4 @@ class ResizeInputsAction extends Action {
       undoTag: null,
     );
   }
-
-  /// The engine checks the draft again once the edits settle
-  /// ([ValidateFlowAction] is debounced and brings its own state); this
-  /// edit does not wait for it.
-  void _validate() => dispatch(ValidateFlowAction());
 }

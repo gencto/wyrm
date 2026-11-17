@@ -396,7 +396,7 @@ fn step_up(gw: &Gateway, p: &Principal, request: Value) -> Result<(), ApiError> 
     gw.step_up(p, &request).map_err(|r| {
         gw.audit(AuditEvent::Denied {
             user: p.name.clone(),
-            op: "confirm_required".into(),
+            op: crate::DeniedFor::ConfirmRequired,
             key: String::new(),
         });
         ApiError::from(r)
@@ -696,7 +696,7 @@ async fn check_invoke(
     let deny = || {
         gw.audit(AuditEvent::Denied {
             user: p.name.clone(),
-            op: "invoke".into(),
+            op: crate::DeniedFor::Invoke,
             key: key.clone(),
         });
         ApiError::forbidden()

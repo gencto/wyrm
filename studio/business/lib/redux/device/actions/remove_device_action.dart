@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:models/error_kind.dart';
 import 'package:models/unlock_stage.dart';
 import 'package:wyrm_client/wyrm_client.dart';
@@ -45,16 +43,14 @@ class RemoveDeviceAction extends Action with WaitingAction {
         thing: 'device $id',
       );
     }
-    var next = state;
-    if (id == state.device.deviceId) {
-      next = await forgetOwnKey(this);
-    }
-    if (user case final u?) {
-      unawaited(dispatchAndWait(RetrieveUserDevicesAction(u, quiet: true)));
-    } else {
-      unawaited(dispatchAndWait(RetrieveDevicesAction(quiet: true)));
-    }
-    return next;
+    // The list read again first; what this returns is made of the state
+    // after it.
+    final own = id == state.device.deviceId;
+    await dispatchAndWait(switch (user) {
+      final u? => RetrieveUserDevicesAction(u, quiet: true),
+      null => RetrieveDevicesAction(quiet: true),
+    });
+    return own ? await forgetOwnKey(this) : null;
   }
 }
 

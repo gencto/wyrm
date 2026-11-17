@@ -14,7 +14,9 @@ import 'package:business/dependencies.dart';
 import 'package:business/redux/app_state.dart';
 import 'package:business/redux/common/action.dart';
 import 'package:business/redux/flow_editor/actions/trigger_block_action.dart';
+import 'package:business/redux/nodes/actions/stage_value_action.dart';
 import 'package:business/redux/store.dart';
+import 'package:business/redux/system/actions/aim_log_action.dart';
 import 'package:business/redux/system/actions/set_around_action.dart';
 import 'package:business/wyrm/calls.dart';
 import 'package:business/wyrm/failures.dart';
@@ -22,7 +24,8 @@ import 'package:business/wyrm/mappers/log_line_mapper.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
-import 'package:material_ui/material_ui.dart' hide Action;
+import 'package:material_ui/material_ui.dart' hide Action, ErrorHint;
+import 'package:models/error_hint.dart';
 import 'package:models/error_kind.dart';
 import 'package:models/studio_error.dart';
 import 'package:models/system_tab.dart';
@@ -230,6 +233,36 @@ void main() {
         'This block cannot be run by hand.',
       );
       expect(run(Status.busy, 'queue full').message, 'queue full');
+    });
+
+    test('a value whose meta names no level is not staged; the user reads '
+        'why, in their language', () async {
+      Future<StudioError> refused() async {
+        final store = _store();
+        await store.dispatchAndWait(
+          StageValueAction('wy/plant/downstream/modbus/plc1/t2', 21.5),
+        );
+        expect(store.state.changes.table, isEmpty);
+        return store.state.problems.items.single;
+      }
+
+      final en = await refused();
+      expect(en.hint, ErrorHint.notSettable);
+      expect(en.title, 't2 does not support set');
+      expect(
+        en.message,
+        'Its meta names no level it can be set at, so nothing was staged.',
+      );
+
+      await S.load(const Locale('uk'));
+      addTearDown(() => S.load(const Locale('en')));
+      final uk = await refused();
+      expect(uk.title, 't2 не підтримує set');
+      expect(
+        uk.message,
+        'Його meta не називає рівня, на якому значення можна записати, '
+        'тому нічого не підготовлено.',
+      );
     });
 
     test('what Studio did on its own reads as what stopped', () {
@@ -664,8 +697,8 @@ void main() {
       await tester.pumpAndSettle();
 
       // What the button does before it navigates (this harness has no
-      // router).
-      aimLogAt(store, e);
+      // router): one action, the tab and its time in one state.
+      store.dispatchSync(AimLogAction(e.at));
 
       expect(store.state.system.tab, SystemTab.log);
       expect(store.state.system.around, logClockOf(at));

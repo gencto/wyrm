@@ -166,13 +166,11 @@ Future<AppState> openedSession(
       user: subject,
       name: me.site,
       role: me.roles.isEmpty ? me.max.wire : me.roles.join(', '),
-      // The site slice keeps levels by name until the rights screens move
-      // to `Perm` (`Grant.level`, `SiteState.max`).
-      max: me.max.wire,
+      // `max` and the grants together, as `/api/me` decoded them: a level
+      // that is no `Perm` refused the whole answer above
+      max: me.max,
       connected: true,
-      grants: [
-        for (final g in me.grants) Grant(key: g.k, level: g.p.wire),
-      ].lock,
+      grants: [for (final g in me.grants) Grant(key: g.k, level: g.p)].lock,
     ),
   );
 }

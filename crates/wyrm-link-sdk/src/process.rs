@@ -114,7 +114,10 @@ impl Env {
         );
         let token = Zeroizing::new(text.trim().as_bytes().to_vec());
         if std::env::var("WYRM_TOKEN_DELETE").as_deref() == Ok("1") {
-            let _ = std::fs::remove_file(&path);
+            // asked for: a token file that stays is a secret on disk, named in the log
+            if let Err(e) = std::fs::remove_file(&path) {
+                tracing::error!("token file {path} stays: {e}");
+            }
         }
         let data_dir = std::env::var_os("WYRM_DATA_DIR")
             .filter(|v| !v.is_empty())
@@ -178,9 +181,10 @@ fn limited_key(v: &Value, bound: bool) -> Result<crate::auth::LimitedKey> {
     if kv.len() != if bound { 4 } else { 3 } {
         return Err(bad("entry"));
     }
+    // a whole code (`2.5` is no code, not a truncated 2)
     let cap = kv[1]
-        .as_f64()
-        .and_then(|c| u8::try_from(c as u64).ok())
+        .to_int::<u8>()
+        .ok()
         .and_then(|c| wyrm_core::Perm::try_from(c).ok())
         .ok_or_else(|| bad("cap"))?;
     let Value::Array(sc) = &kv[2] else {
@@ -258,8 +262,8 @@ fn parse_hello(v: Value) -> Result<Hello> {
                         return Err(bad("path"));
                     };
                     let perm = g[1]
-                        .as_f64()
-                        .and_then(|c| u8::try_from(c as u64).ok())
+                        .to_int::<u8>()
+                        .ok()
                         .and_then(|c| wyrm_core::Perm::try_from(c).ok())
                         .ok_or_else(|| bad("permission"))?;
                     Ok((path.clone(), perm))
@@ -709,6 +713,50 @@ mod tests {
             .is_empty());
         assert!(parse_hello(reply(Value::Array(vec![grant("p", 200)]))).is_err());
         assert!(parse_hello(reply(Value::Array(vec![Value::from("p")]))).is_err());
+        // a code is whole: `3.0` (a JSON writer's 3) is 3; `3.5`, `-1` and NaN
+        // are no code, never a truncated or zero one
+        let fgrant = |c: f64| Value::Array(vec![Value::from("p"), Value::Float(c)]);
+        assert_eq!(
+            parse_hello(reply(Value::Array(vec![fgrant(3.0)])))
+                .unwrap()
+                .grants,
+            [("p".to_owned(), wyrm_core::Perm::Write)]
+        );
+        for c in [3.5, 2.9, -1.0, f64::NAN] {
+            assert!(
+                parse_hello(reply(Value::Array(vec![fgrant(c)]))).is_err(),
+                "{c}"
+            );
+        }
+    }
+
+    /// A limited key's cap is a whole permission code: `2.5` was read as 2.
+    #[test]
+    fn hello_refuses_a_fractional_cap() {
+        let key = Value::Bytes(
+            ed25519_dalek::SigningKey::from_bytes(&[7; 32])
+                .verifying_key()
+                .to_bytes()
+                .to_vec(),
+        );
+        let reply = |cap: Value| {
+            Value::Map(
+                [(
+                    "limited_keys".to_owned(),
+                    Value::Array(vec![Value::Array(vec![
+                        key.clone(),
+                        cap,
+                        Value::Array(vec![Value::from("wy/s/downstream/mock")]),
+                    ])]),
+                )]
+                .into(),
+            )
+        };
+        let write = f64::from(wyrm_core::Perm::Write.code());
+        assert!(parse_hello(reply(Value::Float(write))).is_ok());
+        for cap in [write + 0.5, write - 0.5, -1.0, f64::NAN, f64::INFINITY] {
+            assert!(parse_hello(reply(Value::Float(cap))).is_err(), "{cap}");
+        }
     }
     #[test]
     fn endpoint_lists() {

@@ -18,7 +18,10 @@ abstract class NodeDetail with _$NodeDetail {
     String? unit,
     /// The level a set needs; null when the value cannot be set.
     Perm? writable,
-    String? invokable,
+
+    /// The level an action of the node needs when it names none
+    /// (`~meta.invokable`); null when it names none either.
+    Perm? invokable,
     @Default(IListConst([])) IList<String> choices,
     @Default(IListConst([])) IList<ActionInfo> actions,
 

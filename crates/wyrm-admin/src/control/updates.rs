@@ -103,14 +103,15 @@ impl UpdateOpts {
         match arg(args, "auto_rollback_s") {
             None | Some(Value::Null) => {}
             Some(v) => {
-                let n = v.as_f64().filter(|n| {
-                    n.fract() == 0.0 && (0.0..=f64::from(MAX_AUTO_ROLLBACK_S)).contains(n)
-                });
-                o.auto_rollback_s = n.ok_or_else(|| {
-                    LinkError::invalid_parameter(format!(
-                        "auto_rollback_s: 0 (keep and report) to {MAX_AUTO_ROLLBACK_S}"
-                    ))
-                })? as u32;
+                o.auto_rollback_s = v
+                    .to_int::<u32>()
+                    .ok()
+                    .filter(|n| *n <= MAX_AUTO_ROLLBACK_S)
+                    .ok_or_else(|| {
+                        LinkError::invalid_parameter(format!(
+                            "auto_rollback_s: 0 (keep and report) to {MAX_AUTO_ROLLBACK_S}"
+                        ))
+                    })?;
             }
         }
         Ok(o)
@@ -731,7 +732,9 @@ impl Control {
             return;
         };
         if let Some(dir) = path.parent() {
-            let _ = std::fs::create_dir_all(dir);
+            if let Err(e) = std::fs::create_dir_all(dir) {
+                warn!(link = id, "hold: {}: {e}", dir.display());
+            }
         }
         if let Err(e) = secret::write_private(&path, why.as_bytes()) {
             warn!(link = id, "hold: {e}");
@@ -835,7 +838,7 @@ impl Control {
         if p.from != p.to.version {
             let mut gone = p.to.clone();
             gone.version = p.from.clone();
-            let _ = std::fs::remove_dir_all(packages::dir(&self.packages_root(), &gone));
+            wyrm_core::files::discard_dir(&packages::dir(&self.packages_root(), &gone));
         }
         self.clear_rollback(&p.name);
         Ok(out)
@@ -850,8 +853,12 @@ impl Control {
     }
 
     fn clear_rollback(&self, name: &str) {
-        let _ = std::fs::remove_file(self.rollback_file(name));
-        let _ = std::fs::remove_dir(self.rollback_dir());
+        // a record that stayed is finished again at the next start (`complete_rollbacks`)
+        let file = self.rollback_file(name);
+        if let Err(e) = std::fs::remove_file(&file).or_else(wyrm_core::files::gone_ok) {
+            tracing::error!(package = name, "{} stays: {e}", file.display());
+        }
+        wyrm_core::files::discard_empty_dir(&self.rollback_dir());
     }
 
     /// At a start of the broker, before any link runs: finish the rollbacks
@@ -1413,8 +1420,10 @@ impl Admin {
                 ));
             }
             // neither the installed version nor the kept one: what an
-            // install that ended before its registry record left behind
-            let _ = std::fs::remove_dir_all(packages::dir(&root, &def));
+            // install that ended before its registry record left behind; the new
+            // files go in its place, never beside what it holds
+            let left = packages::dir(&root, &def);
+            crate::nofollow::remove_any(&left).map_err(|e| format!("{}: {e}", left.display()))?;
         }
 
         // Before anything stops: each link's keys.
@@ -1516,7 +1525,7 @@ impl Admin {
         if let Err(e) = put {
             // as before the update: the old version is the installed one
             if !reuse {
-                let _ = std::fs::remove_dir_all(packages::dir(&root, &def));
+                wyrm_core::files::discard_dir(&packages::dir(&root, &def));
             }
             if old.kind == PackageKind::Wasm {
                 let _ = ctl.publish_component(old);
@@ -1531,7 +1540,7 @@ impl Admin {
         // one version is kept: the one before `old` goes
         if let Some(pp) = old.previous.as_deref() {
             if pp.def.version != def.version {
-                let _ = std::fs::remove_dir_all(packages::dir(&root, &pp.def));
+                wyrm_core::files::discard_dir(&packages::dir(&root, &pp.def));
             }
         }
         ctl.record(

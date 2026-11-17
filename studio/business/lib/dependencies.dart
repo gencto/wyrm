@@ -215,12 +215,9 @@ class AppDependencies {
     return [
       for (final id in s.changes.view)
         if (s.changes.table[id] case final c?)
-          if (s.site.grants.isEmpty || site.can(c.level, c.key))
+          if (site.can(c.level, c.key))
             StepUpLine(
-              // A staged change keeps its level as text (`write`,
-              // `config`) until the rights move to `Perm`; one Studio does
-              // not know is shown as the strongest, never as a weaker one.
-              level: Perm.fromName(c.level) ?? Perm.config,
+              level: c.level,
               text: c.action ?? '${c.op.toLowerCase()} ${c.field} = ${c.to}',
               key: c.key,
             ),

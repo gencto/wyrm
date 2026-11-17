@@ -98,7 +98,7 @@ class LinksScreen extends StatelessWidget {
       subtitle: S.current.linksSubtitle,
       addLabel: S.current.addALink,
       onTapLinkInstall: vm.addReason == null ? onAdd : null,
-      addReason: vm.addReason,
+      addReason: vm.addReason?.text,
       tabs: [
         for (final t in vm.tabs)
           TabItemVm(
@@ -146,7 +146,7 @@ class LinksScreen extends StatelessWidget {
       onSubmit: approve.onSubmit,
       onSecondary: () => unawaited(_reject(context)),
       secondLabel: vm.updateAll ? S.current.updAllOfficial : null,
-      secondReason: vm.addReason,
+      secondReason: vm.addReason?.text,
       onSecond: onUpdateAll,
       sheet: sheet == null
           ? null
@@ -170,7 +170,7 @@ class LinksScreen extends StatelessWidget {
       title: S.current.holdUnknown,
       description: S.current.holdUnknownNote,
       keyName: 'sys/enable_quarantine',
-      disabledReason: vm.admissionReason,
+      disabledReason: vm.admissionReason?.text,
       value: FieldVm(
         value: vm.holdUnknown,
         enabled: vm.admissionReason == null,
@@ -181,7 +181,7 @@ class LinksScreen extends StatelessWidget {
       title: S.current.allowAllLinks,
       description: S.current.allowAllLinksNote,
       keyName: 'sys/allow_all_links',
-      disabledReason: vm.admissionReason,
+      disabledReason: vm.admissionReason?.text,
       value: FieldVm(
         value: vm.allowAll,
         enabled: vm.admissionReason == null,
@@ -381,7 +381,7 @@ class LinksScreen extends StatelessWidget {
 
   DetailInspectorVm<LinkAct> _localInspector(LinkData l) {
     final s = S.current;
-    final reason = l.reason;
+    final reason = l.reason?.text;
     final running =
         l.state == LinkStateWord.connected || l.state == LinkStateWord.starting;
     final pkg = l.package;
@@ -509,7 +509,7 @@ class LinksScreen extends StatelessWidget {
 
   DetailInspectorVm<LinkAct> _remoteInspector(LinkData l) {
     final s = S.current;
-    final reason = l.reason;
+    final reason = l.reason?.text;
     final on = l.state == LinkStateWord.connected;
     return DetailInspectorVm(
       eyebrow: s.runsOnAnotherDevice,
@@ -600,7 +600,7 @@ class LinksScreen extends StatelessWidget {
               submit: s.approve,
               secondary: s.reject,
               note: q.broker ? s.approveBrokerNote : s.approveLinkNote,
-              disabledReason: q.reason,
+              disabledReason: q.reason?.text,
             ),
     );
   }

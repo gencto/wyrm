@@ -942,7 +942,7 @@ pub fn unpack(
         }
     });
     if let Err(e) = unpacked {
-        let _ = std::fs::remove_dir_all(&part);
+        wyrm_core::files::discard_dir(&part);
         return Err(e);
     }
     sync_dir(&part)?;
@@ -1854,7 +1854,7 @@ pub fn restore_control(
         .map_err(|e| format!("its manifest is not this broker's: {e}"))?;
     let listed: Vec<String> = r
         .manifest()
-        .section("control")
+        .section(crate::backup::SectionName::Control)
         .ok_or("the backup has no control section")?
         .files
         .iter()
@@ -1927,7 +1927,10 @@ pub fn restore_control(
         // back to what was there: the caller starts a version on it
         for (live, moved_to, placed) in done.into_iter().rev() {
             if placed {
-                let _ = std::fs::remove_dir_all(&live);
+                // the new one, out of the way of the old one that goes back
+                if let Err(r) = std::fs::remove_dir_all(&live).or_else(wyrm_core::files::gone_ok) {
+                    tracing::error!("{} stays: {r}", live.display());
+                }
             }
             if let Some(from) = moved_to {
                 if let Err(e) = std::fs::rename(&from, &live) {
@@ -1939,10 +1942,10 @@ pub fn restore_control(
                 }
             }
         }
-        let _ = std::fs::remove_dir_all(&stage);
+        wyrm_core::files::discard_dir(&stage);
         return Err(e);
     }
-    let _ = std::fs::remove_dir_all(&stage);
+    wyrm_core::files::discard_dir(&stage);
     Ok(())
 }
 

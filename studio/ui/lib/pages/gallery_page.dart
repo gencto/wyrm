@@ -11,6 +11,7 @@ import '../generated/assets.gen.dart';
 import '../indicators/access_meter.dart';
 import '../indicators/app_icon.dart';
 import '../indicators/check_list.dart';
+import '../indicators/level_badge.dart';
 import '../indicators/progress_list.dart';
 import '../indicators/quality_mark.dart';
 import '../indicators/status_pill.dart';
@@ -467,7 +468,7 @@ class StatusLanguage extends StatelessWidget {
         width: AppSizes.galleryTile,
         child: _Panel(
           title: 'Access level',
-          child: AccessMeter(level: 'write'),
+          child: AccessMeter(level: AccessLevel.write),
         ),
       ),
     ],

@@ -19,7 +19,6 @@ sequenceDiagram
     UI->>VM: onBack()
     VM->>A1: dispatchSync
     A1->>ST: copyWith(flowEditor.frames, flowEditor.draft, flowEditor.undo, flowEditor.redo, flowEditor.undoTag, flowEditor.selection, flowEditor.selectedBlock, flowEditor.viewedField, flowEditor.scopePrompt)
-    A1->>ST: dispatch(ValidateFlowAction)
 ```
 
 ## onTreeToggle
@@ -35,9 +34,10 @@ sequenceDiagram
 
     User->>UI: onTreeToggle
     UI->>VM: onTreeToggle()
-    VM->>A1: dispatchSync
+    VM->>A1: dispatch
+    Note over A1: async
     A1->>ST: dispatchSync(ToggleNodeAction)
-    A1->>ST: dispatch(action)
+    A1->>ST: dispatchAndWait(RetrieveDetailsAction)
 ```
 
 ## onTreeQuery
@@ -140,7 +140,6 @@ sequenceDiagram
     UI->>VM: onCreateBlock()
     VM->>A1: dispatchSync
     A1->>ST: copyWith(flowEditor.draft, flowEditor.selection, flowEditor.selectedBlock, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
-    A1->>ST: dispatch(ValidateFlowAction)
 ```
 
 ## onPromptSave
@@ -279,7 +278,6 @@ sequenceDiagram
     UI->>VM: newFlowName()
     VM->>A1: dispatchSync
     A1->>ST: copyWith(flowEditor.flowId, flowEditor.draft, flowEditor.dirty)
-    A1->>ST: dispatch(ValidateFlowAction)
 ```
 
 ## onView
@@ -324,15 +322,15 @@ sequenceDiagram
     actor User
     participant UI as FlowEditorPage
     participant VM as FlowEditorPageConnector
-    participant A1 as DeployFlowAction
+    participant A1 as DeployShownFlowAction
     participant ST as AppState
 
     User->>UI: onDeploy
     UI->>VM: onDeploy()
     VM->>A1: dispatch
-    Note over A1: NonReentrant · WaitingAction · async
-    A1->>ST: copyWith(flowEditor.version, flowEditor.dirty, flowEditor.draft, flowEditor.deployed)
-    A1->>ST: dispatch(RetrieveFlowsAction)
+    Note over A1: async
+    A1->>ST: dispatchAndWait(DeployFlowAction)
+    A1->>ST: dispatchAndWait(RetrieveFlowsAction)
 ```
 
 ## onValidate
@@ -381,9 +379,10 @@ sequenceDiagram
 
     User->>UI: onPaletteTab
     UI->>VM: onPaletteTab()
-    VM->>A1: dispatchSync
-    A1->>ST: copyWith(flowEditor.palette)
-    A1->>ST: dispatch(action)
+    VM->>A1: dispatch
+    Note over A1: async
+    A1->>ST: dispatchSync(_Shown)
+    A1->>ST: dispatchAndWait(RetrieveBlockLibraryAction)
 ```
 
 ## onClear
@@ -552,7 +551,6 @@ sequenceDiagram
     UI->>VM: onBind()
     VM->>A1: dispatchSync
     A1->>ST: copyWith(flowEditor.scopePrompt, flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
-    A1->>ST: dispatch(ValidateFlowAction)
 ```
 
 ## onUnbind
@@ -672,7 +670,6 @@ sequenceDiagram
     UI->>VM: onRemove()
     VM->>A1: dispatchSync
     A1->>ST: copyWith(flowEditor.draft, flowEditor.selection, flowEditor.selectedBlock, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
-    A1->>ST: dispatch(ValidateFlowAction)
 ```
 
 ## onLogo
@@ -731,10 +728,10 @@ _Not drawn — these files dispatch outside any interaction:_
 | `newFlowName.onChanged` | `NewFlowAction` | `flowEditor.flowId, flowEditor.draft, flowEditor.dirty` |
 | `onView` | `action` ? | — |
 | `onCloseViewer` | `SetViewedFieldAction` | `flowEditor.viewedField` |
-| `onDeploy` | `DeployFlowAction` | `flowEditor.version, flowEditor.dirty, flowEditor.draft, flowEditor.deployed` |
+| `onDeploy` | `DeployShownFlowAction` | — |
 | `onValidate` | `ValidateFlowAction` | `flowEditor.problems` |
 | `onClose` | `GoAction.pop` | — |
-| `onPaletteTab` | `ShowPaletteTabAction` | `flowEditor.palette` |
+| `onPaletteTab` | `ShowPaletteTabAction` | — |
 | `onClear` | `SetSelectedBlockAction` | `flowEditor.selectedBlock, flowEditor.selection` |
 | `onMove` | `m.action` | — |
 | `onSelect` | `SetSelectedBlockAction` | `flowEditor.selectedBlock, flowEditor.selection` |

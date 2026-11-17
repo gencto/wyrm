@@ -20,6 +20,7 @@ import 'package:business/redux/assistant/actions/stage_agent_param_action.dart';
 import 'package:business/redux/nodes/actions/open_trend_action.dart';
 import 'package:business/redux/nodes/actions/select_node_action.dart';
 import 'package:business/redux/nodes/actions/set_history_window_action.dart';
+import 'package:business/redux/nodes/actions/zoom_history_action.dart';
 import 'package:business/redux/tasks/actions/answer_task_action.dart';
 import 'package:business/redux/tasks/actions/approve_task_action.dart';
 import 'package:business/redux/tasks/actions/new_task_action.dart';
@@ -82,14 +83,14 @@ class AssistantPageConnector extends StatelessWidget {
     // the keys the Result card shows, watched while the tab is shown
     onWillChange: (context, store, before, now) {
       if (store.state.assistant.shown && !_same(before.watch, now.watch)) {
-        store.dispatchSync(SetWatchedAction(now.watch.lock));
+        store.dispatchSync(SetWatchedAction(now.watch));
       }
     },
     builder: (context, vm) => TabVisibility(
       onShow: vm.onShow,
       onHide: vm.onHide,
       child: AssistantPage(
-        sections: vm.sections,
+        sections: vm.sections.unlockView,
         onNew: vm.onNew,
         onTask: vm.onTask,
         agent: vm.agent,
@@ -97,14 +98,14 @@ class AssistantPageConnector extends StatelessWidget {
         title: vm.title,
         badge: vm.badge,
         taskId: vm.taskId,
-        events: vm.events,
+        events: vm.events.unlockView,
         plan: vm.plan,
         onTick: vm.ticks?.onToggle,
         onFix: vm.onPickSuggestion,
         onReveal: vm.onReveal,
         run: vm.run,
         result: vm.result,
-        more: vm.more,
+        more: vm.more.unlockView,
         onRow: vm.rows?.onToggle,
         onMore: vm.onPickSuggestion,
         stopped: vm.stopped,
@@ -127,7 +128,7 @@ class AssistantPageConnector extends StatelessWidget {
         panel: vm.panel,
         onPanel: vm.onPanel,
         facts: vm.facts,
-        reads: vm.reads,
+        reads: vm.reads.unlockView,
         rights: vm.rights,
         onMode: vm.onMode,
         onRemovePrefix: vm.onRemovePrefix,
@@ -138,7 +139,7 @@ class AssistantPageConnector extends StatelessWidget {
   );
 }
 
-bool _same(List<String> a, List<String> b) =>
+bool _same(IList<String> a, IList<String> b) =>
     a.length == b.length && a.every(b.contains);
 
 /// The Assistant as a drawer over Explorer (⌘J, spec `assistant.md` §5):
@@ -169,7 +170,7 @@ class AssistantDrawerConnector extends StatelessWidget {
         taskId: vm.taskId,
         onOpenFull: vm.onOpenFull,
         onClose: vm.onCloseDrawer,
-        events: vm.events,
+        events: vm.events.unlockView,
         choices: vm.choices,
         onPick: switch (vm.onPick) {
           final pick? => (q, o) => pick((question: q, option: o)),
@@ -185,17 +186,7 @@ class AssistantDrawerConnector extends StatelessWidget {
         onWay: vm.onPickSuggestion,
         card: vm.card,
         second: vm.second,
-        onSecond: () async {
-          // while the plan waits the tile is a draft the person copies
-          // (spec §5); after the task it is a follow-up ask
-          if (vm.second case final s?) {
-            if (s.note == TileNote.draft) {
-              await copyDraft(context, label: s.label, detail: s.detail);
-            } else {
-              vm.onPickSuggestion?.call(s.id);
-            }
-          }
-        },
+        onSecond: () => pressSecond(context, vm.second, vm.onPickSuggestion),
         onNewTask: vm.onNewTask,
         onButton: (b) => pressTaskButton(context, b, vm.buttons),
         noAgent: vm.noAgent,
@@ -237,8 +228,8 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
       badge: t?.state.badge,
       taskId: id,
       events: t == null
-          ? [if (agent != null) const ConversationEventVm(kind: .noTasks)]
-          : [for (final e in conversationOf(t)) e.line],
+          ? [if (agent != null) const ConversationEventVm(kind: .noTasks)].lock
+          : [for (final e in conversationOf(t)) e.line].lock,
       plan: t == null || t.plan.isEmpty ? null : _plan(t, choices),
       ticks: id == null || choices == null
           ? null
@@ -256,7 +247,7 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
       onAnswer: id == null ? null : () => dispatch(AnswerTaskAction(id)),
       run: t?.run,
       result: t == null ? null : _result(t),
-      more: t == null ? const [] : _more(t),
+      more: t == null ? const IListConst([]) : _more(t),
       stopped: t == null ? null : _stopped(t),
       card: t == null ? null : _card(t, choices),
       second: t == null ? null : _second(t),
@@ -309,16 +300,11 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
             ? null
             : (text) => dispatch(AskAgentAction(text: text, parent: id)),
       ),
-      watch: assistantWatch,
-      findingKeys: drawerFindingKeys,
+      watch: assistantWatch.lock,
+      findingKeys: drawerFindingKeys.lock,
       found: assistant.drawer ? _found(t) : null,
       timelinePoint: assistant.drawer ? timelinePoint : null,
-      onTimelineWindow: (w) {
-        final (start, end) = _historyRange(nodes.historyKey);
-        dispatchSync(
-          SetHistoryWindowAction(trendWindow(w.start, w.end, start, end)),
-        );
-      },
+      onTimelineWindow: (w) => dispatchSync(ZoomHistoryAction(w.start, w.end)),
       onTimelineReset: () => dispatchSync(SetHistoryWindowAction(null)),
       composer: _composer(t),
       onDraft: (text) => dispatchSync(SetDraftAction(text)),
@@ -334,7 +320,7 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
               owner: t.owner,
               events: sessionOf(t).length,
             ),
-      reads: rights || t == null ? const [] : readsOf(t),
+      reads: rights || t == null ? const IListConst([]) : readsOf(t).lock,
       rights: rights ? _rights() : null,
       onMode: (m) => switch (m.domain) {
         final mode? => dispatch(StageAgentParamAction.mode(mode)),
@@ -368,7 +354,7 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
     );
   }
 
-  List<TaskSectionVm> _sections() {
+  IList<TaskSectionVm> _sections() {
     final (:now, :earlier) = taskGroups;
     TaskItemVm item(AgentTask t) =>
         t.item(selected: t.id == tasks.selectedTask, own: askedByUser(t));
@@ -380,7 +366,7 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
           section: .earlier,
           tasks: [for (final t in earlier) item(t)],
         ),
-    ];
+    ].lock;
   }
 
   /// The task's plan as it is approved: every step with its full key and
@@ -459,8 +445,8 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
 
   /// *Same for more units?* of a task that is done: the suggestions with
   /// rows, each row tickable, none ticked at first.
-  List<MoreRowsCardVm> _more(AgentTask t) => t.state != TaskState.done
-      ? const []
+  IList<MoreRowsCardVm> _more(AgentTask t) => t.state != TaskState.done
+      ? const IListConst([])
       : [
           for (final s in t.withRows)
             MoreRowsCardVm(
@@ -479,7 +465,7 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
               blocked: moreHold(t, s)?.blocked,
               unattended: _unattended,
             ),
-        ];
+        ].lock;
 
   /// Where a run stopped, what the model read about it, and its ways out.
   StoppedCardVm? _stopped(AgentTask t) {
@@ -630,11 +616,7 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
       used: budgetUsed,
       budget: config?.budgetTokensDay,
       apiKeyRef: config?.apiKeyRef,
-      apiKey: switch (apiKeySet) {
-        true => .set,
-        false => .notSet,
-        null => .unknown,
-      },
+      apiKey: apiKeySet.apiKey,
       sentTo: config?.sentTo,
       blocked: editHold?.blocked,
       staged: params.staged,
@@ -672,7 +654,7 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
       range: nodes.historyRange.code,
       timeline: point == null ? null : _timeline(point),
       audit: [for (final a in audit) a.line],
-      auditNote: !site.can('config', '${site.root ?? ''}/sys/audit')
+      auditNote: !site.readsAudit
           ? .needsConfig
           : read && audit.isEmpty
           ? .none
@@ -814,16 +796,20 @@ class _Vm extends Vm {
            rights,
            onNewTask != null,
            onOpenFull != null,
+           onPick != null,
+           onAnswer != null,
+           onPickSuggestion != null,
+           onReveal != null,
          ],
        );
 
   final String? agent;
   final bool noAgent;
-  final List<TaskSectionVm> sections;
+  final IList<TaskSectionVm> sections;
   final String? title;
   final TaskBadge? badge;
   final String? taskId;
-  final List<ConversationEventVm> events;
+  final IList<ConversationEventVm> events;
   final PlanCardVm? plan;
 
   /// The ticks of the plan; null: the plan is only shown.
@@ -835,7 +821,7 @@ class _Vm extends Vm {
   final VoidCallback? onAnswer;
   final RunCardVm? run;
   final ResultCardVm? result;
-  final List<MoreRowsCardVm> more;
+  final IList<MoreRowsCardVm> more;
   final StoppedCardVm? stopped;
   final TaskCardVm? card;
 
@@ -853,10 +839,10 @@ class _Vm extends Vm {
   final TaskButtonActions buttons;
 
   /// The keys whose values the Result card shows.
-  final List<String> watch;
+  final IList<String> watch;
 
   /// The nodes of the findings, watched by the drawer for their marks.
-  final List<String> findingKeys;
+  final IList<String> findingKeys;
 
   /// The drawer's *What I found* and mini timeline; null when closed.
   final FoundCardVm? found;
@@ -872,7 +858,7 @@ class _Vm extends Vm {
   final AssistantTab panel;
   final ValueChanged<AssistantTab> onPanel;
   final TaskFactsVm? facts;
-  final List<ReadRow> reads;
+  final IList<ReadRow> reads;
   final RightsPanelVm? rights;
   final ValueChanged<AgentModeVm> onMode;
   final ValueChanged<String> onRemovePrefix;

@@ -114,10 +114,7 @@ fn opt_uint(m: &Args, k: &str) -> Result<Option<u64>, AppError> {
     let bad = || invalid(k, "must be a whole number from 0");
     match m.get(k) {
         None | Some(Value::Null) => Ok(None),
-        Some(Value::UInt(n)) => Ok(Some(*n)),
-        Some(Value::Int(n)) => u64::try_from(*n).map(Some).map_err(|_| bad()),
-        Some(Value::Float(f)) if f.fract() == 0.0 && *f >= 0.0 && *f < 1e15 => Ok(Some(*f as u64)),
-        Some(_) => Err(bad()),
+        Some(v) => v.to_int().ok().map(Some).ok_or_else(bad),
     }
 }
 

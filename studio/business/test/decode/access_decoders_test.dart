@@ -3,6 +3,7 @@ import 'package:business/wyrm/decode/decoded.dart';
 import 'package:business/wyrm/keys.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/audit_line.dart';
+import 'package:models/grant_level.dart';
 import 'package:models/grant_source.dart';
 import 'package:models/role_grant.dart';
 import 'package:wyrm_client/wyrm_client.dart';
@@ -11,7 +12,7 @@ import 'package:wyrm_client/wyrm_client.dart';
 /// `sys/audit ▸ tail` as wyrm-admin writes them (`perm_row`, the audit
 /// record map), and what a shape it does not write turns into.
 void main() {
-  test('a grant of each source, and one this client does not know', () {
+  test('a grant of each source; one this client does not know is refused', () {
     Value row(String source) => Value.from({
       'subject': 'operator',
       'path': 'wy/{site}/downstream/**',
@@ -24,7 +25,7 @@ void main() {
         RoleGrant(
           subject: 'operator',
           path: 'wy/{site}/downstream/**',
-          level: 'write',
+          level: GrantLevel.perm(Perm.write),
           source: GrantSource.gateway,
         ),
       ),
@@ -44,7 +45,8 @@ void main() {
           'source',
           GrantSource.link,
         ),
-        isA<Valid<RoleGrant>>().having((v) => v.value.source, 'source', null),
+        // the source decides how its level reads: one not known is refused
+        const Invalid<RoleGrant>('grant', 'source', 'not a source'),
       ],
     );
   });

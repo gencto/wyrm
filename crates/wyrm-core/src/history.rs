@@ -195,14 +195,14 @@ impl HistoryQuery {
         };
         let limit = match m.get("limit") {
             None | Some(Value::Null) => None,
-            Some(Value::UInt(n)) => Some(usize::try_from(*n).unwrap_or(usize::MAX)),
-            Some(Value::Int(n)) => Some(usize::try_from(*n).map_err(|_| HistoryParamError::Limit)?),
-            // a whole number of at least 1 (a JSON client's `20.0`); `as` saturates above
-            // `usize::MAX`, where the cap applies anyway
-            Some(Value::Float(f)) if f.is_finite() && f.fract() == 0.0 && *f >= 1.0 => {
-                Some(*f as usize)
-            }
-            Some(_) => return Err(HistoryParamError::Limit),
+            // a whole number (a JSON client's `20.0` too); above `usize::MAX` the cap
+            // applies anyway
+            Some(v) => Some(
+                v.to_int::<u64>()
+                    .ok()
+                    .ok_or(HistoryParamError::Limit)
+                    .map(|n| usize::try_from(n).unwrap_or(usize::MAX))?,
+            ),
         };
         Self::from_text(
             text("from")?.unwrap_or_default(),

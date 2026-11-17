@@ -94,9 +94,9 @@ impl Form<'_> {
     pub fn uint(&self, k: &str, default: u64, lo: u64, hi: u64) -> Result<u64, String> {
         let v = match self.0.get(k) {
             None | Some(Value::Null) => return Ok(default),
-            Some(Value::UInt(u)) => *u,
-            Some(Value::Int(i)) if *i >= 0 => *i as u64,
-            Some(Value::Float(f)) if f.fract() == 0.0 && *f >= 0.0 && *f < 1e15 => *f as u64,
+            Some(v @ (Value::UInt(_) | Value::Int(_) | Value::Float(_))) => v
+                .to_int()
+                .map_err(|e| format!("{k}: a whole number ({e})"))?,
             Some(Value::Str(s)) if s.trim().is_empty() => return Ok(default),
             Some(Value::Str(s)) => s
                 .trim()

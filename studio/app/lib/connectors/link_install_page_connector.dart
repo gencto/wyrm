@@ -26,6 +26,7 @@ import 'package:ui/pages/link_install_page.dart';
 import '../common/install_file_actions.dart';
 import '../common/window.dart';
 import '../mappers/link_install_mappers.dart';
+import '../mappers/rights_mappers.dart';
 import '../navigation/go_action.dart';
 import '../navigation/show_installed_link_action.dart';
 
@@ -129,9 +130,7 @@ class _Factory extends VmFactory<AppState, LinkInstallPageConnector, _Vm>
         refusedSaid: li.refusedSaid,
         checks: [for (final c in li.checks) c.row],
         manifest: li.manifest,
-        brokers: [
-          for (final t in li.targets) t.broker(here: t.site == site.viewed),
-        ],
+        brokers: [for (final b in installBrokers) b.ui],
         modes: [for (final m in installModes) m.ui],
         nameError: installNameProblem?.ui,
         replaces: installReplaces,
@@ -139,7 +138,7 @@ class _Factory extends VmFactory<AppState, LinkInstallPageConnector, _Vm>
         result: li.phase?.ui,
         message: li.message,
         hold: installBlock?.ui,
-        configReason: installConfigReason,
+        configReason: installConfigReason?.disabled,
         canPickStep: !last,
       ),
       onClose: () => dispatch(GoAction.pop()),

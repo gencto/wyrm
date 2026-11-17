@@ -157,10 +157,9 @@ fn as_map<'a>(v: &'a Value, path: &str) -> Result<&'a Map> {
 }
 
 fn uint(v: &Value, path: &str) -> Result<u64> {
-    match v {
-        Value::UInt(u) => Ok(*u),
-        Value::Float(f) if f.fract() == 0.0 && *f >= 0.0 => Ok(*f as u64),
-        _ => err(format!("{path}: expected a non-negative integer")),
+    match v.to_int() {
+        Ok(n) => Ok(n),
+        Err(e) => err(format!("{path}: expected a non-negative integer ({e})")),
     }
 }
 

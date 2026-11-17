@@ -4,6 +4,8 @@ import 'package:models/update_next.dart';
 import 'package:models/update_result.dart';
 import 'package:models/update_stage.dart';
 
+import 'rights.dart';
+
 /// A restore point of one link (`sys/links/<id>/restore_points`).
 final class LinkPoint {
   const LinkPoint(this.link, this.point);
@@ -77,8 +79,8 @@ final class LinkUpdate {
   /// The packages updated after this one.
   final List<String> queue;
 
-  /// Why the user may not update (`needs config on …`), or null.
-  final String? reason;
+  /// Why the user may not update (`config` on `sys/links`), or null.
+  final Lack? reason;
 
   UpdateStage get stage {
     if (!follow) {

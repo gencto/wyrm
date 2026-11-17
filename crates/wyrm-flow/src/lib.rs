@@ -12,6 +12,7 @@ pub mod catalog3;
 pub mod codes;
 mod commands;
 mod cpu_clock;
+pub mod decode;
 pub mod def;
 pub mod engine;
 pub mod modes;

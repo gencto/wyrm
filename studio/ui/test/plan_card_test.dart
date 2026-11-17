@@ -3,6 +3,7 @@ import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:ui/assistant/plan_card.dart';
 import 'package:ui/indicators/app_icon.dart';
+import 'package:ui/indicators/level_badge.dart';
 import 'package:ui/theme/common.dart';
 
 Widget _card(List<PlanStepVm> steps) => MaterialApp(
@@ -33,14 +34,14 @@ void main() {
           n: 1,
           verb: .invoke,
           node: 'wy/plant/downstream/modbus/tcp',
-          level: 'config',
+          level: AccessLevel.config,
           check: .now,
         ),
         PlanStepVm(
           n: 2,
           verb: .set,
           node: 'wy/plant/downstream/modbus/tcp/a',
-          level: 'write',
+          level: AccessLevel.write,
           check: .atRun,
         ),
       ]),
@@ -72,7 +73,7 @@ void main() {
           n: 1,
           verb: .invoke,
           node: 'wy/plant/downstream/http',
-          level: 'config',
+          level: AccessLevel.config,
           args: [StepArgVm.shown('name', 'erp'), StepArgVm.masked('password')],
           argsNote: .secret,
         ),

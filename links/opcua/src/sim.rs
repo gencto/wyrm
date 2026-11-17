@@ -420,7 +420,10 @@ impl Sim {
     /// moving them from `rejected/` to `trusted/`).
     pub fn trust_rejected_clients(&self) {
         let (rejected, trusted) = (self.pki_dir.join("rejected"), self.pki_dir.join("trusted"));
-        let _ = std::fs::create_dir_all(&trusted);
+        if let Err(err) = std::fs::create_dir_all(&trusted) {
+            tracing::warn!(dir = %trusted.display(), "sim: nothing trusted: {err}");
+            return;
+        }
         for e in std::fs::read_dir(&rejected).into_iter().flatten().flatten() {
             if let Err(err) = std::fs::rename(e.path(), trusted.join(e.file_name())) {
                 tracing::warn!(file = %e.path().display(), "sim: not trusted: {err}");

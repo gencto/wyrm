@@ -1,6 +1,6 @@
 import 'package:async_redux/async_redux.dart';
 import 'package:business/redux/app_state.dart';
-import 'package:business/redux/site/actions/view_site_action.dart';
+import 'package:business/redux/site/actions/switch_site_action.dart';
 import 'package:ui/shell/studio_frame.dart';
 
 import '../mappers/shell_mappers.dart';
@@ -18,7 +18,7 @@ class SearchGoAction extends ReduxAction<AppState> {
   Future<AppState?> reduce() async {
     await dispatchAndWait(switch (pick) {
       PickWorkspace(:final tab) => GoAction.workspace(tab.workspace),
-      PickSite(:final site) => ViewSiteAction(site),
+      PickSite(:final site) => SwitchSiteAction(site),
       PickKey(:final key) => ExploreAction(key),
     });
     return null;

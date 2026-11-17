@@ -1039,10 +1039,11 @@ async fn list_series(t: &mut Transport, args: &Value) -> Result<Value, LinkError
     };
     let limit = match args.get("limit") {
         None | Some(Value::Null) => 200,
-        Some(v) => match v.as_f64() {
-            Some(x) if x.fract() == 0.0 && (1.0..=10_000.0).contains(&x) => x as usize,
-            _ => return Err(bad("limit", "an integer 1…10000")),
-        },
+        Some(v) => v
+            .to_int::<usize>()
+            .ok()
+            .filter(|x| (1..=10_000).contains(x))
+            .ok_or_else(|| bad("limit", "an integer 1…10000"))?,
     };
     if let Err(e) = t.ensure(None).await {
         return Err(match e {

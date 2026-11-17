@@ -7,7 +7,6 @@ import 'package:business/redux/historian/actions/follow_history_action.dart';
 import 'package:business/redux/historian/actions/pick_range_action.dart';
 import 'package:business/redux/historian/actions/pick_trend_point_action.dart';
 import 'package:business/redux/historian/actions/set_selected_action.dart';
-import 'package:business/redux/historian/actions/set_trend_window_action.dart';
 import 'package:business/redux/historian/actions/show_history_action.dart';
 import 'package:business/redux/historian/actions/toggle_trend_series_action.dart';
 import 'package:business/redux/historian/actions/zoom_history_action.dart';
@@ -86,9 +85,9 @@ class _Factory extends VmFactory<AppState, HistoryPageConnector, _Vm>
       onGroup: (name) => dispatchSync(SetSelectedAction(name)),
       onSpan: (s) => dispatch(PickRangeAction(s.range)),
       onPick: (key) => dispatch(PickTrendPointAction(key)),
-      onTrendWindow: (w) => dispatchSync(ZoomHistoryAction(w.start, w.end)),
+      onTrendWindow: (w) => dispatch(ZoomHistoryAction(w.start, w.end)),
       onTrendToggle: (k) => dispatchSync(ToggleTrendSeriesAction(k)),
-      onTrendReset: () => dispatchSync(SetTrendWindowAction(null)),
+      onTrendReset: () => dispatch(ZoomHistoryAction.reset()),
       onPanelWidth: (p) => dispatchSync(
         SetPanelWidthAction(WorkspacePanels.history.slot(p.side), p.width),
       ),

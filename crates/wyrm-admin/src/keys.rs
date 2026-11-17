@@ -73,7 +73,7 @@ pub fn export(data_dir: &Path, passphrase: &[u8]) -> Result<Vec<u8>, Error> {
     let plain =
         Zeroizing::new(wyrm_core::codec::to_vec(&Value::Map(files)).map_err(|e| e.to_string())?);
     let mut salt = [0u8; SALT_LEN];
-    getrandom::fill(&mut salt).map_err(|e| format!("no randomness: {e}"))?;
+    wyrm_core::rand::fill(&mut salt).map_err(|e| e.to_string())?;
     let key = derive(passphrase, &salt)?;
     let mut out = Vec::with_capacity(MAGIC.len() + SALT_LEN + plain.len() + 28);
     out.extend_from_slice(MAGIC);

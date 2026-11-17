@@ -46,7 +46,7 @@ Solid arrow: `push`. Dashed: `pop` (drawn back to the only screen that pushes it
 | Screen | Path | Logged out | Use cases | Flow |
 | --- | --- | --- | --- | --- |
 | `SplashPage` _(initial)_ | `/splash` | no | 0 | [splash](splash.md) |
-| `LogInPage` | `/login` | yes | 19 | [logIn](logIn.md) |
+| `LogInPage` | `/login` | yes | 20 | [logIn](logIn.md) |
 | `GalleryPage` | `/gallery` | no | 0 | [gallery](gallery.md) |
 | `StudioPage` | `/studio` | no | 18 | [studio](studio.md) |
 | `ExplorerPage` | `/studio/explorer` | no | 58 | [explorer](explorer.md) |

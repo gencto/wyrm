@@ -1,8 +1,6 @@
 //! Link tokens, key files and the internal CA.
 
-use argon2::password_hash::{
-    rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString,
-};
+use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
 use argon2::Argon2;
 use rcgen::{
     BasicConstraints, CertificateParams, CertificateSigningRequestParams, DnType,
@@ -25,7 +23,7 @@ pub fn write_private(path: &Path, data: &[u8]) -> std::io::Result<()> {
         create_missing_private(dir)?;
     }
     let tmp = path.with_extension("tmp");
-    let _ = std::fs::remove_file(&tmp);
+    wyrm_core::files::discard(&tmp);
     {
         let mut opts = std::fs::OpenOptions::new();
         opts.write(true).create_new(true);
@@ -202,13 +200,15 @@ impl PrivateDir {
 /// 32 random bytes, hex encoded: the plaintext link token.
 pub fn new_token() -> Result<Zeroizing<String>, Error> {
     let mut raw = Zeroizing::new([0u8; 32]);
-    getrandom::fill(raw.as_mut()).map_err(|e| format!("no randomness: {e}"))?;
+    wyrm_core::rand::fill(raw.as_mut()).map_err(|e| e.to_string())?;
     Ok(Zeroizing::new(hex::encode(raw.as_ref())))
 }
 
 /// argon2id PHC string; the registry stores only this.
 pub fn hash_token(token: &str) -> Result<String, Error> {
-    let salt = SaltString::generate(&mut OsRng);
+    // 16 bytes (the recommended salt length) from the one source; no panic when it fails
+    let salt = SaltString::encode_b64(&wyrm_core::rand::bytes::<16>().map_err(|e| e.to_string())?)
+        .map_err(|e| e.to_string())?;
     Ok(Argon2::default()
         .hash_password(token.as_bytes(), &salt)
         .map_err(|e| e.to_string())?
@@ -231,7 +231,7 @@ pub fn load_or_create_key(path: &Path) -> Result<Zeroizing<Vec<u8>>, Error> {
         return Ok(k);
     }
     let mut k = Zeroizing::new(vec![0u8; 32]);
-    getrandom::fill(&mut k).map_err(|e| format!("no randomness: {e}"))?;
+    wyrm_core::rand::fill(&mut k).map_err(|e| e.to_string())?;
     write_private(path, hex::encode(&*k).as_bytes())?;
     Ok(k)
 }
@@ -344,12 +344,6 @@ impl Pki {
         let csr = broker_csr_params(site, csr_pem)?;
         let p = leaf_params(&format!("broker:{site}"), &[], false, LEAF_DAYS)?;
         Ok(p.signed_by(&csr.public_key, &self.issuer)?.pem())
-    }
-
-    /// Remove the files of an identity (link removed).
-    pub fn forget(out: &Path, name: &str) {
-        let _ = std::fs::remove_file(out.join(format!("{name}.pem")));
-        let _ = std::fs::remove_file(out.join(format!("{name}.key")));
     }
 }
 

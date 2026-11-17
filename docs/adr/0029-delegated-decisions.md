@@ -64,6 +64,10 @@ Added 2026-11-15 (typing audit T4). The gateway users store keeps each runtime r
 Added 2026-11-15 (typing audit S2, spec 01 0.2.35). The historian parses a `~val?history=` selector into the typed `wyrm_core::history::HistoryQuery` that requesters encode, and refuses `history` with `since`, a parameter given twice, and any parameter other than `history`, `since`, `agg`, `window`, `limit` (`invalid_parameter`). Names that start with `_` belong to Zenoh and are skipped, so a Zenoh option on the query never breaks a read. A selector without `history` or `since` stays the storage's, whatever else it carries.
 *If wrong:* a third-party client that adds its own parameter to a history read gets `invalid_parameter`.
 
+### 14. An agent task of an unknown state is kept, not loaded
+Added 2026-11-16 (owner decision, typing audit of #127, commit `b961157c`). The agent link keeps each task's `state` by its name as `OrUnknown<TaskState>` (`links/agent/src/store.rs`). A name this build does not know (a newer build wrote it) does not refuse the whole task store, as a closed set otherwise would (item 12): only that task is not loaded. It is logged, its id stays taken, and its record stays as written, byte for byte, through reloads, compaction and later writes, so the build that wrote it reads it again. A task is one operator request, not a grant: dropping it from the running set narrows nothing and widens nothing. This is the one closed set that tolerates an unknown value; every other one refuses it (docs/rust-rules.md §6).
+*If wrong:* after a downgrade, a task a newer build made is not listed until the newer build runs again.
+
 ## Not decided here
 - New framework hooks that links asked for (per-point quality, `poll_period` with connection and device params, the sample time from the driver, `~meta` from device data, a driver-owned connection leaf) are work items in `docs/backlog.md`, not decisions.
 - The `wyrm:app` world after 0.2.0 (TLS imports, a host random source) gets its own ADR.

@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../../wyrm/failures.dart';
@@ -26,9 +24,20 @@ class SaveUserAction extends Action with WaitingAction {
 
   @override
   Future<AppState?> reduce() async {
+    // The table is read again, also after a refusal: it shows what is.
+    // It changes no state itself: what it did shows in the table read.
+    try {
+      await _run();
+    } finally {
+      await dispatchAndWait(RetrieveAccessAction());
+    }
+    return null;
+  }
+
+  Future<void> _run() async {
     final s = deps.session;
     if (s == null) {
-      return null;
+      return;
     }
     try {
       if (isNew) {
@@ -52,12 +61,6 @@ class SaveUserAction extends Action with WaitingAction {
         write: true,
       );
     }
-    return null;
-  }
-
-  @override
-  void after() {
-    super.after();
-    unawaited(dispatchAndWait(RetrieveAccessAction()));
+    return;
   }
 }

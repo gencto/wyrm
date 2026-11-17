@@ -1,6 +1,7 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/staged_change.dart';
 import 'package:models/staged_change_kind.dart';
+import 'package:wyrm_client/wyrm_client.dart' show Perm;
 
 import '../../app_state.dart';
 import '../../changes/actions/add_changes_action.dart';
@@ -32,7 +33,7 @@ class SetAdmissionOptionsAction extends Action with WaitingAction {
               field: 'value',
               from: word(!v),
               to: word(v),
-              level: 'config',
+              level: Perm.config,
               value: v,
             ),
           if (allowAll case final v?)
@@ -43,7 +44,7 @@ class SetAdmissionOptionsAction extends Action with WaitingAction {
               field: 'value',
               from: word(!v),
               to: word(v),
-              level: 'config',
+              level: Perm.config,
               value: v,
             ),
         ].lock,

@@ -80,6 +80,7 @@ void sitesBroker(FakeWyrmApi api) {
       },
       actions: {
         'approve': ActionMeta(
+          level: Perm.config,
           params: {
             'key': ParamMeta(ty: TypeCode.string, required: true),
             'via': ParamMeta(ty: TypeCode.string),
@@ -95,6 +96,7 @@ void sitesBroker(FakeWyrmApi api) {
     ..metas['$_sys/upstream'] = NodeMeta(
       actions: {
         'add': ActionMeta(
+          level: Perm.config,
           params: {
             'url': ParamMeta(ty: TypeCode.string, required: true),
             'token': ParamMeta(ty: TypeCode.string),

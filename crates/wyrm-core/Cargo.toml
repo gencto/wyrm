@@ -8,15 +8,26 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 
+[features]
+# `rand`: the one OS random source of the workspace (`wyrm_core::rand`, docs/rust-rules.md
+# §10). Off by default: wyrm-core builds for wasm32, where a portable link takes randomness
+# from its host. `ring` adds the source as ring's `SecureRandom`.
+rand = ["dep:getrandom"]
+ring = ["rand", "dep:ring"]
+
 [dependencies]
 minicbor.workspace = true
 # `named`: a `name_enum!` set is kept as its name in JSON and postcard files
 serde.workspace = true
 half = "2"
 thiserror.workspace = true
+# `files::discard` logs a scratch file it could not remove
+tracing.workspace = true
 # `mac`: HMAC-SHA-256 with an infallible constructor (pure Rust, builds for wasm32)
 hmac.workspace = true
 sha2.workspace = true
+getrandom = { workspace = true, optional = true }
+ring = { workspace = true, optional = true }
 
 [dev-dependencies]
 postcard.workspace = true

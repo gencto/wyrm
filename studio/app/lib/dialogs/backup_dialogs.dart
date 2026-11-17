@@ -24,10 +24,12 @@ import 'package:material_ui/material_ui.dart';
 import 'package:models/backup_job.dart';
 import 'package:ui/overlays/confirm_dialog.dart';
 import 'package:ui/overlays/task_sheet.dart';
+import 'package:wyrm_client/wyrm_client.dart' show Perm;
 
 import '../common/app_store.dart';
 import '../common/backup_file_actions.dart';
 import '../common/backup_sheets.dart';
+import '../mappers/rights_mappers.dart';
 import '../navigation/leave_on_log_out_action.dart';
 
 /// The selectors over a state, for a dialog's converter.
@@ -153,12 +155,14 @@ class _BackupDialogState extends State<_BackupDialog> {
       sendConnection: b.sendConnection,
       sendPath: b.sendPath,
       keepDays: b.keepDays,
-      reason: s.site.needs(
-        'config',
-        link == null
-            ? '${s.site.root}/sys/backups'
-            : '${s.site.root}/sys/links/$link',
-      ),
+      reason: s.site
+          .lacks(
+            Perm.config,
+            link == null
+                ? '${s.site.root}/sys/backups'
+                : '${s.site.root}/sys/links/$link',
+          )
+          ?.disabled,
       busy: state.wait.isWaitingForType<CreateBackupAction>(),
     );
   }
@@ -183,7 +187,9 @@ class _BackupDialogState extends State<_BackupDialog> {
             downloaded: b.downloaded,
             savedTo: b.saved[j.id],
             sending: state.wait.isWaitingForType<SendBackupAction>(),
-            reason: s.site.needs('config', '${s.site.root}/sys/backups'),
+            reason: s.site
+                .lacks(Perm.config, '${s.site.root}/sys/backups')
+                ?.disabled,
           );
   }
 
@@ -210,7 +216,7 @@ class _BackupDialogState extends State<_BackupDialog> {
           state.wait.isWaitingForType<ApplyRestoreAction>(),
       stage: b.stage ?? 'restore',
       result: b.result,
-      reason: s.site.needs('config', '${s.site.root}/sys/backups'),
+      reason: s.site.lacks(Perm.config, '${s.site.root}/sys/backups')?.disabled,
     );
   }
 

@@ -1,4 +1,5 @@
 import 'package:freezed_annotation/freezed_annotation.dart';
+import 'package:wyrm_core/wyrm_core.dart' show Perm;
 
 part 'grant.freezed.dart';
 
@@ -10,7 +11,8 @@ abstract class Grant with _$Grant {
     /// A key or a pattern with `*` and `**` (`wy/**`).
     required String key,
 
-    /// `none`, `list`, `read`, `write` or `config`.
-    required String level,
+    /// The level it gives, as `/api/me` decodes it (a name that is no
+    /// level refuses the whole answer, `wyrm_client` `GatewayIdentity`).
+    required Perm level,
   }) = _Grant;
 }

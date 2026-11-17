@@ -2072,6 +2072,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "errFaultMessage": MessageLookupByLibrary.simpleMessage(
       "Тут стався збій у Studio. Це помилка Studio, а не брокера; більше нічого не надіслано.",
     ),
+    "errNotSettable": MessageLookupByLibrary.simpleMessage(
+      "Його meta не називає рівня, на якому значення можна записати, тому нічого не підготовлено.",
+    ),
     "errNounDeploy": MessageLookupByLibrary.simpleMessage("розгортання"),
     "errNounInstall": MessageLookupByLibrary.simpleMessage("встановлення"),
     "errNounList": MessageLookupByLibrary.simpleMessage("список"),

@@ -11,7 +11,6 @@
 )]
 
 use futures_util::{SinkExt, StreamExt};
-use ring::rand::SystemRandom;
 use ring::signature::{EcdsaKeyPair, KeyPair, RsaKeyPair, ECDSA_P256_SHA256_ASN1_SIGNING};
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
@@ -378,7 +377,7 @@ enum Key {
 
 impl Key {
     fn p256() -> Self {
-        let rng = SystemRandom::new();
+        let rng = wyrm_core::rand::secure_random();
         let pkcs8 = EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, &rng).unwrap();
         Key::P256(Box::new(
             EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, pkcs8.as_ref(), &rng)
@@ -417,7 +416,7 @@ impl Key {
     }
 
     fn sign(&self, msg: &[u8]) -> Vec<u8> {
-        let rng = SystemRandom::new();
+        let rng = wyrm_core::rand::secure_random();
         match self {
             Key::P256(k) => k.sign(&rng, msg).unwrap().as_ref().to_vec(),
             Key::Rsa(k) => {

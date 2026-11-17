@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart' show AsyncCallback;
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -76,7 +79,10 @@ class AssistantDrawer extends StatelessWidget {
   /// The second button the model may offer (spec §5), as the model's
   /// tile: its words, the guessed changes, what a pick does.
   final SuggestionTileVm? second;
-  final VoidCallback? onSecond;
+
+  /// A press of [second]: it may ask first (a draft is copied after a
+  /// confirm), so it ends when that is done.
+  final AsyncCallback? onSecond;
 
   /// *New task*: a question in the drawer then starts a task of its own;
   /// null before a task.
@@ -214,7 +220,14 @@ class AssistantDrawer extends StatelessWidget {
                                       color: c.text3,
                                     ),
                                   ),
-                                  SuggestionTile(vm: t, onTap: onSecond),
+                                  SuggestionTile(
+                                    vm: t,
+                                    onTap: switch (onSecond) {
+                                      // a dialog it may open, not a dispatch
+                                      final f? => () => unawaited(f()),
+                                      null => null,
+                                    },
+                                  ),
                                 ],
                               ),
                             ),

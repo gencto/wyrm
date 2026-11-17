@@ -15,4 +15,8 @@ enum ErrorHint {
 
   /// The block is not one that runs by hand.
   runNotByHand,
+
+  /// A value whose meta names no level it can be set at: Studio stages no
+  /// set of it (the link would answer `not_supported`, not writable).
+  notSettable,
 }

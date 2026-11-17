@@ -167,26 +167,24 @@ pub fn metric_value(dt: Option<DataType>, m: &Metric) -> Result<Value, String> {
     })
 }
 
+/// A whole number written to a Sparkplug metric (`Value::to_int`): a float only when
+/// it is whole and at most 2^53 (`as` saturated above 2^63 and lost the exact value
+/// above 2^53), then within `min..=max`.
 fn int_in(v: &Value, min: i64, max: i64) -> Result<i64, String> {
-    let i = match v {
-        Value::Int(i) => *i,
-        Value::UInt(u) => i64::try_from(*u).map_err(|_| "value out of range")?,
-        Value::Float(f) if f.fract() == 0.0 && f.is_finite() => *f as i64,
-        _ => return Err("expected an integer".into()),
-    };
+    let i: i64 = v
+        .to_int()
+        .map_err(|e| format!("expected an integer: {e}"))?;
     if i < min || i > max {
         return Err(format!("{i} is out of range {min}..={max}"));
     }
     Ok(i)
 }
 
+/// As [`int_in`], unsigned.
 fn uint_in(v: &Value, max: u64) -> Result<u64, String> {
-    let u = match v {
-        Value::UInt(u) => *u,
-        Value::Int(i) => u64::try_from(*i).map_err(|_| "value out of range")?,
-        Value::Float(f) if f.fract() == 0.0 && *f >= 0.0 && f.is_finite() => *f as u64,
-        _ => return Err("expected an unsigned integer".into()),
-    };
+    let u: u64 = v
+        .to_int()
+        .map_err(|e| format!("expected an unsigned integer: {e}"))?;
     if u > max {
         return Err(format!("{u} is out of range 0..={max}"));
     }
@@ -551,6 +549,27 @@ pub fn rebirth_request(now_ms: u64) -> Payload {
 mod tests {
     use super::*;
     use prost::Message;
+
+    /// Review 2026-11-16: a float written to an integer metric went through `as`, which
+    /// saturated `2^63` to `i64::MAX` (inside the Int64 range, so it was sent) and took
+    /// `2^53 + 2` (a float that no longer holds the integer it was meant to be).
+    #[test]
+    fn a_float_is_written_only_as_the_exact_whole_number() {
+        assert_eq!(int_in(&Value::Float(-5.0), -10, 10), Ok(-5));
+        assert_eq!(uint_in(&Value::Float(5.0), 10), Ok(5));
+        assert!(int_in(
+            &Value::Float(9_223_372_036_854_775_808.0),
+            i64::MIN,
+            i64::MAX
+        )
+        .is_err());
+        assert!(uint_in(&Value::Float(9_007_199_254_740_994.0), u64::MAX).is_err());
+        assert!(uint_in(&Value::Float(2.5), 10).is_err());
+        assert!(uint_in(&Value::Float(-1.0), 10).is_err());
+        assert!(int_in(&Value::Float(f64::NAN), -10, 10).is_err());
+        assert_eq!(int_in(&Value::UInt(7), -10, 10), Ok(7));
+        assert!(uint_in(&Value::Int(-1), 10).is_err());
+    }
 
     /// Hand-encoded protobuf, independent of the prost structs: checks the
     /// field tags against the Tahu proto.

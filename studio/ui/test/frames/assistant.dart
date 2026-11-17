@@ -16,6 +16,7 @@ import 'package:ui/assistant/task_badge.dart';
 import 'package:ui/assistant/task_card.dart';
 import 'package:ui/assistant/task_list.dart';
 import 'package:ui/charts/trend.dart';
+import 'package:ui/indicators/level_badge.dart';
 import 'package:ui/models/value_changed.dart';
 import 'package:ui/overlays/search_palette.dart';
 import 'package:ui/pages/assistant_page.dart';
@@ -190,7 +191,7 @@ Widget assistantFix() {
           verb: .invoke,
           action: 'add_device',
           node: _line2,
-          level: 'config',
+          level: AccessLevel.config,
           args: [
             StepArgVm.shown('name', 'ahu2'),
             StepArgVm.shown('slave_id', '3'),
@@ -452,7 +453,7 @@ PlanCardVm assistantPlanCard({List<bool>? ticks}) => PlanCardVm(
       verb: .invoke,
       action: 'add_device',
       node: _line2,
-      level: 'config',
+      level: AccessLevel.config,
       args: const [
         StepArgVm.shown('name', 'ahu2'),
         StepArgVm.shown('slave_id', '3'),
@@ -466,7 +467,7 @@ PlanCardVm assistantPlanCard({List<bool>? ticks}) => PlanCardVm(
       n: 2,
       verb: .set,
       node: _sp,
-      level: 'write',
+      level: AccessLevel.write,
       args: const [StepArgVm.shown('value', '21.5')],
       check: .atRun,
       warn: "the value 21.5 is at the point's max (21.5)",
@@ -477,7 +478,7 @@ PlanCardVm assistantPlanCard({List<bool>? ticks}) => PlanCardVm(
       n: 3,
       verb: .expect,
       node: _sp,
-      level: 'read',
+      level: AccessLevel.read,
       args: [StepArgVm.shown('equals', '21.5'), StepArgVm.timeout(10)],
       note: StepAfter([2]),
     ),
@@ -553,7 +554,7 @@ Widget assistantDrawer() => Builder(
                 verb: .invoke,
                 action: 'edit',
                 node: _valve,
-                level: 'config',
+                level: AccessLevel.config,
                 args: [StepArgVm.shown('offset', '11')],
                 check: .now,
                 why: 'it read well at 11 until the edit',
@@ -578,7 +579,7 @@ Widget assistantDrawer() => Builder(
             changes: 0,
             note: .draft,
           ),
-          onSecond: () {},
+          onSecond: () async {},
           onNewTask: () {},
           composer: AssistantComposer(
             vm: const ComposerVm(

@@ -1,6 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:ui/indicators/level_badge.dart';
+import 'package:ui/models/disabled.dart';
 import 'package:ui/models/tone.dart';
 import 'package:ui/pages/system_data.dart';
 import 'package:ui/pages/system_page.dart';
@@ -19,7 +21,7 @@ void main() {
   Future<BrokerVersionCardVm?> card(
     WidgetTester t,
     SysVersionData v, {
-    String? reason,
+    Disabled? reason,
   }) async {
     t.view.physicalSize = const Size(1364, 2400);
     t.view.devicePixelRatio = 1;
@@ -114,7 +116,7 @@ void main() {
         newer: true,
         runs: true,
       ),
-      reason: 'needs config on sys',
+      reason: const NeedsLevel(AccessLevel.config, 'sys'),
     );
     expect(c?.line, S.current.bupCardRolledBack('0.1.0'));
     expect(c?.tone, Tone.warn);

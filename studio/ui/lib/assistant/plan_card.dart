@@ -9,6 +9,7 @@ import '../indicators/app_icon.dart';
 import '../indicators/level_badge.dart';
 import '../indicators/quality_mark.dart';
 import '../indicators/tag_chip.dart';
+import '../models/disabled.dart';
 import '../models/tone.dart';
 import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
@@ -176,8 +177,8 @@ final class PlanStepVm extends Equatable {
   /// A sleep: how long, in seconds.
   final double? sleep;
 
-  /// `read`, `write` or `config`.
-  final String level;
+  /// The level it needs.
+  final AccessLevel level;
 
   /// Every argument, as it is sent, or masked.
   final List<StepArgVm> args;
@@ -208,7 +209,7 @@ final class PlanStepVm extends Equatable {
   final bool? ticked;
 
   /// Why the tick cannot be set: the level the user lacks.
-  final String? lacks;
+  final Disabled? lacks;
 
   /// How the approval treats it.
   final StepNoteVm? note;
@@ -249,7 +250,7 @@ final class PlanStepVm extends Equatable {
 
   /// Why the tick is locked: the level lacked, or the step it needs.
   String? get tickReason =>
-      lacks ??
+      lacks?.text ??
       switch (note) {
         StepNeeds(:final step) when ticked != null =>
           S.current.stepSkippedNeeds(step),
@@ -579,7 +580,7 @@ class _Step extends StatelessWidget {
                     if (vm.action case final a?)
                       Text(a, style: mono(size: 13, color: c.text1)),
                     // the badge centres its text: keep it as wide as the text
-                    IntrinsicWidth(child: LevelBadge(level: vm.level)),
+                    IntrinsicWidth(child: LevelBadge.of(vm.level)),
                   ],
                 ),
                 // the key and the arguments are what is approved: whole

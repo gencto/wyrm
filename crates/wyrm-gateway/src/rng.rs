@@ -7,25 +7,19 @@
 #[error("no randomness from the OS")]
 pub struct NoRandomness;
 
-/// Fill `buf` from the OS, or fail.
+/// Fill `buf` from the OS (`wyrm_core::rand`, the workspace's one source), or fail.
 pub fn fill(buf: &mut [u8]) -> Result<(), NoRandomness> {
-    getrandom::fill(buf).map_err(|e| {
-        tracing::error!("gateway: no randomness from the OS ({e})");
+    wyrm_core::rand::fill(buf).map_err(|e| {
+        tracing::error!("gateway: {e}");
         NoRandomness
     })
 }
 
-/// `N` random bytes, or fail. The buffer starts uninitialized: no byte of the
-/// result is a constant the OS did not write.
+/// `N` random bytes (`wyrm_core::rand::bytes`: no byte is a constant the OS did not
+/// write), or fail.
 pub fn bytes<const N: usize>() -> Result<[u8; N], NoRandomness> {
-    let mut b = [std::mem::MaybeUninit::<u8>::uninit(); N];
-    let filled = getrandom::fill_uninit(&mut b).map_err(|e| {
-        tracing::error!("gateway: no randomness from the OS ({e})");
+    wyrm_core::rand::bytes().map_err(|e| {
+        tracing::error!("gateway: {e}");
         NoRandomness
-    })?;
-    match <[u8; N]>::try_from(&*filled) {
-        Ok(out) => Ok(out),
-        // `fill_uninit` hands back the whole buffer it was given
-        Err(_) => Err(NoRandomness),
-    }
+    })
 }

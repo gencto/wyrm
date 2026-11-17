@@ -375,7 +375,7 @@ pub async fn standby_poll(session: &Session, prefix: &str, cfg: &Config) -> Resu
                 ..Default::default()
             };
             u.save(&cfg.data_dir)?;
-            let _ = std::fs::remove_dir_all(cfg.data_dir.join("update.fetch"));
+            wyrm_core::files::discard_dir(&cfg.data_dir.join("update.fetch"));
             Err(e)
         }
     }
@@ -418,7 +418,9 @@ async fn standby_apply(
     }
     // the archive, part by part, into a new private file
     let dir = cfg.data_dir.join("update.fetch");
-    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::remove_dir_all(&dir)
+        .or_else(wyrm_core::files::gone_ok)
+        .map_err(|e| format!("{}: {e}", dir.display()))?;
     let archive = dir.join("archive.tar.gz");
     {
         use std::io::Write;
@@ -466,7 +468,7 @@ async fn standby_apply(
         &asset,
     )
     .await?;
-    let _ = std::fs::remove_dir_all(&dir);
+    wyrm_core::files::discard_dir(&dir);
     let now = release::now_s();
     let u = UpdateFile {
         from: me.version.clone(),
@@ -488,7 +490,12 @@ async fn standby_apply(
     }
     u.save(&cfg.data_dir)?;
     if let Err(e) = layout.switch(&u.to) {
-        let _ = std::fs::remove_file(cfg.data_dir.join(release::STATE_FILE));
+        // a state file that stayed would start a trial of a version not switched to
+        let state = cfg.data_dir.join(release::STATE_FILE);
+        if let Err(r) = std::fs::remove_file(&state).or_else(wyrm_core::files::gone_ok) {
+            tracing::error!("{} stays: {r}", state.display());
+            return Err(format!("{e}; {} stays: {r}", state.display()));
+        }
         return Err(e);
     }
     tracing::warn!(from = %u.from, to = %u.to, "broker update: the standby stops for wyrmd {}", u.to);
@@ -662,7 +669,7 @@ pub fn release_cmd(cmd: ReleaseCmd) -> Result<(), Error> {
     match cmd {
         ReleaseCmd::Keygen => {
             let mut seed = zeroize::Zeroizing::new([0u8; 32]);
-            getrandom::fill(seed.as_mut()).map_err(|e| format!("no randomness: {e}"))?;
+            wyrm_core::rand::fill(seed.as_mut()).map_err(|e| e.to_string())?;
             let key = SigningKey::from_bytes(&seed);
             println!(
                 "secret seed ({RELEASE_KEY_ENV}): {}",
@@ -727,9 +734,9 @@ pub fn release_cmd(cmd: ReleaseCmd) -> Result<(), Error> {
                 // and the binary in it has the hash that will be signed
                 let archive = dir.join(&p.asset.file);
                 let scratch = dir.join(".doc-check");
-                let _ = std::fs::remove_dir_all(&scratch);
+                wyrm_core::files::discard_dir(&scratch);
                 let checked = release::unpack(&archive, &p.asset, &scratch, &p.identity.version);
-                let _ = std::fs::remove_dir_all(&scratch);
+                wyrm_core::files::discard_dir(&scratch);
                 checked.map_err(|e| format!("{}: {e}", archive.display()))?;
                 let mut asset = p.asset.clone();
                 if !base_url.is_empty() {
@@ -795,7 +802,7 @@ pub fn release_cmd(cmd: ReleaseCmd) -> Result<(), Error> {
             }
             let idx = old.with(&read(&doc)?, &text(&sig_path(&doc))?, &keys, &created)?;
             // not signed yet: an old signature does not cover it
-            let _ = std::fs::remove_file(sig_path(&index));
+            std::fs::remove_file(sig_path(&index)).or_else(wyrm_core::files::gone_ok)?;
             std::fs::write(&index, pretty(&idx.to_file()?)?)?;
             println!(
                 "{}: sequence {}, {} releases",

@@ -1,3 +1,4 @@
+import 'package:async_redux/async_redux.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/block_info.dart';
 import 'package:models/library_off.dart';
@@ -12,7 +13,15 @@ import '../../common/action.dart';
 /// has no custom blocks: `flowEditor.libraryOff` keeps why, and the editor
 /// shows them off with that reason. Never a dialog: the editor asks by
 /// itself.
-class RetrieveBlockLibraryAction extends Action {
+///
+/// Started again by every save, update and removal, none of which waits
+/// for it: the reads run one at a time in the order they were started, so
+/// the last answer kept is the newest library; an answer for a site no
+/// longer viewed is dropped.
+class RetrieveBlockLibraryAction extends Action with Sequential<AppState> {
+  @override
+  Object? sequentialKeyParams() => runtimeType;
+
   @override
   Future<AppState?> reduce() async {
     final root = site.root;
@@ -20,6 +29,9 @@ class RetrieveBlockLibraryAction extends Action {
       return null;
     }
     final read = await readLibrary(deps.wyrm, root);
+    if (site.root != root) {
+      return null;
+    }
     return state.copyWith.flowEditor(
       library: read.library,
       libraryOff: read.off,

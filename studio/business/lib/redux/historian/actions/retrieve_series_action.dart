@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/hist_point.dart';
 import 'package:models/node_detail.dart';
@@ -82,13 +80,5 @@ class RetrieveSeriesAction extends Action with WaitingAction {
           if (now.contains(e.key) && !keys.contains(e.key)) e.key: e.value,
       }.lock,
     );
-  }
-
-  @override
-  void after() {
-    super.after();
-    if (status.hasFinishedMethodReduce && historian.points.isNotEmpty) {
-      unawaited(dispatchAndWait(LoadTrendExtremesAction(detail: false)));
-    }
   }
 }

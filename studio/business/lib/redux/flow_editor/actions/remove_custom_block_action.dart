@@ -4,7 +4,6 @@ import '../../../wyrm/mappers/flow_blocks.dart';
 import '../../../wyrm/mappers/flow_canvas.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
-import 'validate_flow_action.dart';
 
 /// Deletes custom block [name] from this flow's definition. Only a block
 /// no instance uses, and only while the canvas shows the flow itself.
@@ -22,7 +21,6 @@ class RemoveCustomBlockAction extends Action {
     if (d == null || next == null) {
       return null;
     }
-    _validate();
     return state.copyWith.flowEditor(
       draft: next,
       dirty: true,
@@ -31,9 +29,4 @@ class RemoveCustomBlockAction extends Action {
       undoTag: null,
     );
   }
-
-  /// The engine checks the draft again once the edits settle
-  /// ([ValidateFlowAction] is debounced and brings its own state); this
-  /// edit does not wait for it.
-  void _validate() => dispatch(ValidateFlowAction());
 }

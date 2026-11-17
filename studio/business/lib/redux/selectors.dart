@@ -224,20 +224,20 @@ mixin Selectors {
   SelectBrokerUpdate get brokerUpdate => SelectBrokerUpdate(state);
   SelectDevice get device => SelectDevice(state);
   SelectDiscovery get discovery => SelectDiscovery(state);
+  SelectClock get clock => SelectClock(state);
 }
 
 /// The approval of a task as the logged-in user may give it.
 extension TaskApproval on Selectors {
   /// The user decides for [t]: its asker, or `config` on its `approve`.
   /// The link takes the level of the token on
-  /// `<agent>/tasks/<id>/~act/approve` (first match, [SelectSite.levelSigned]),
+  /// `<agent>/tasks/<id>/~act/approve` (first match, [SelectSite.levelOn]),
   /// not the highest grant on the link.
   bool decidesFor(AgentTask t) {
     final agent = assistant.agent;
     return askedByUser(t) ||
         (agent != null &&
-            levelRank(site.levelSigned('$agent/tasks/${t.id}/~act/approve')) >=
-                levelRank('config'));
+            site.levelOn('$agent/tasks/${t.id}/~act/approve') >= Perm.config);
   }
 
   /// The user may send a follow-up of [t] (`ask {parent}`, ADR 0049 §9):
@@ -246,9 +246,7 @@ extension TaskApproval on Selectors {
   bool mayFollow(AgentTask t) {
     final agent = assistant.agent;
     return askedByUser(t) ||
-        (agent != null &&
-            levelRank(site.levelSigned('$agent/~act/ask')) >=
-                levelRank('config'));
+        (agent != null && site.levelOn('$agent/~act/ask') >= Perm.config);
   }
 
   /// The logged-in user asked [t] (the record's owner is `user:<name>`).
@@ -261,9 +259,9 @@ extension TaskApproval on Selectors {
     t.plan,
     unticked: assistant.unticked[t.id] ?? const ISetConst({}),
     decides: decidesFor(t),
-    // grants not known (no `/api/me` yet): nothing is locked here, the
-    // gateway checks every step before it signs
-    lacks: (level, key) => site.grants.isEmpty ? null : site.needs(level, key),
+    // a step the user's grants do not reach is locked; with no `/api/me`
+    // read yet, every step that signs is (the gateway checks each again)
+    lacks: site.lacks,
   );
 
   /// The first step of [t] that runs once approved (by [choices]) and
@@ -367,7 +365,7 @@ extension AssistantScreen on Selectors {
     }
     return agent == null
         ? null
-        : _lacks(site.needs('write', '$agent/tasks/${t.id}'));
+        : _lacks(site.lacks(Perm.write, '$agent/tasks/${t.id}'));
   }
 
   /// What the card of the plan of [t] that waits says beside Approve,
@@ -393,7 +391,7 @@ extension AssistantScreen on Selectors {
   /// Why a task cannot be rejected, cancelled or answered: no `write` on
   /// the agent.
   Hold? get writeHold => switch (assistant.agent) {
-    final agent? => _lacks(site.needs('write', agent)),
+    final agent? => _lacks(site.lacks(Perm.write, agent)),
     null => null,
   };
 
@@ -455,14 +453,14 @@ extension AssistantScreen on Selectors {
   Hold? get editHold => switch (assistant.agent) {
     null => const HoldNoAgent(),
     final agent => _lacks(
-      site.needs(
-        'config',
+      site.lacks(
+        Perm.config,
         '${site.root}/sys/links/${agent.split('/').last}/~act/update',
       ),
     ),
   };
 
-  static Hold? _lacks(String? needs) => needs == null ? null : HoldLacks(needs);
+  static Hold? _lacks(Lack? lack) => lack == null ? null : HoldLacks(lack);
 
   /// The agent's mode when it lets a plan's `write` steps run without a
   /// person (`config`, `never`): a picked suggestion's plan may then write
@@ -889,8 +887,23 @@ extension LinkInstallScreen on Selectors {
 
   /// Why the user may not install on the broker: no config on its
   /// `sys/links`; null when they may.
-  String? get installConfigReason =>
-      site.needs('config', 'wy/$installBroker/sys/links');
+  Lack? get installConfigReason => installTargetReason(installBroker);
+
+  /// Why the user may not install on the broker of [site]: no config on
+  /// its `sys/links`; null when they may.
+  Lack? installTargetReason(String site) =>
+      this.site.lacks(Perm.config, 'wy/$site/sys/links');
+
+  /// The brokers a link can go to, each with whether it is the site on
+  /// screen and why the user may not install there.
+  List<InstallBroker> get installBrokers => [
+    for (final t in linkInstall.targets)
+      InstallBroker(
+        t,
+        here: t.site == site.viewed,
+        refused: installTargetReason(t.site),
+      ),
+  ];
 
   /// How the new link can run there, the one to pick first.
   List<LinkMode> get installModes => switch (linkInstall.path) {
@@ -1085,15 +1098,20 @@ extension LinksTables on Selectors {
   bool get showsUpdates => updateCount > 0 || links.tab == LinksTab.updates;
 
   /// Why the user may not install or update links; null when they may.
-  String? get linksConfigReason =>
-      site.needs('config', '$_linksRoot/sys/links');
+  Lack? get linksConfigReason =>
+      site.lacks(Perm.config, '$_linksRoot/sys/links');
 
   /// Why the user may not change the link [id]; null when they may.
-  String? linkConfigReason(String id) =>
-      site.needs('config', '$_linksRoot/sys/links/$id');
+  Lack? linkConfigReason(String id) =>
+      site.lacks(Perm.config, '$_linksRoot/sys/links/$id');
 
   /// Why the user may not change the admission options on `sys`.
-  String? get admissionReason => site.needs('config', '$_linksRoot/sys');
+  Lack? get admissionReason => site.lacks(Perm.config, '$_linksRoot/sys');
+
+  /// Why the user may not decide for the quarantine entry [node]; null
+  /// when they may.
+  Lack? quarantineReason(String node) =>
+      site.lacks(Perm.config, '$_linksRoot/sys/quarantine/$node');
 
   /// `sys/enable_quarantine` and `sys/allow_all_links` as the broker says
   /// them (false when it says nothing).
@@ -1171,9 +1189,9 @@ extension SelectBrokerHealth on Selectors {
   bool get systemLogPolls =>
       system.auto && system.tab == SystemTab.log && sysConfigReason == null;
 
-  /// Why the user may not change `sys` (`needs config on sys`); null when
-  /// they may.
-  String? get sysConfigReason => site.needs('config', _sysKey);
+  /// Why the user may not change `sys` (`config` on it); null when they
+  /// may.
+  Lack? get sysConfigReason => site.lacks(Perm.config, _sysKey);
 
   /// The links `sys ▸ clear_conns` would remove, by the broker's own rule
   /// (wyrm-admin `clear_conns`): mode external, admitted at runtime, not
@@ -1593,6 +1611,9 @@ extension type SelectSite(AppState _state) {
   /// logged into.
   String? get viewed => _state.site.current ?? _state.site.name;
 
+  /// The site on screen is the one logged into.
+  bool get viewsHome => viewed == _state.site.name;
+
   /// `wy/<viewed site>`, the root every screen's keys start from.
   String? get root => viewed == null ? null : 'wy/$viewed';
 
@@ -1612,67 +1633,55 @@ extension type SelectSite(AppState _state) {
   /// Returns isWaiting
   bool get isWaiting => _state.wait.isWaitingForType<RetrieveSitesAction>();
 
-  /// The user's level on [key]: the highest grant whose pattern matches it
-  /// (`none` when none does). Grants below an upstream are rewritten for
-  /// the downstream site by the gateway, so the patterns are full keys.
-  String levelOn(String key) {
-    var best = 0;
-    for (final g in _state.site.grants) {
-      final r = levelRank(g.level);
-      if (r > best && keyMatches(g.key, key)) {
-        best = r;
-      }
-    }
-    return levels[_capped(best)];
-  }
-
-  /// [rank] capped by the session's `max` (`/api/me`), as the gateway caps
-  /// every grant (`Grants::perm`): no level above it is shown or signed.
-  /// No `max` (an older gateway) or a level name not known here: no cap;
-  /// the gateway still caps what it signs.
-  int _capped(int rank) => switch (levelRank(max)) {
-    final m when m >= 0 && m < rank => m,
-    _ => rank,
-  };
-
-  /// The level a token the gateway mints for [key] carries: the first
-  /// grant whose pattern matches it decides, as at the gateway and at the
-  /// link (spec 04, `wyrm_core::ptok::level_on`), so a `none` before a
-  /// wider grant denies. Use it where a link acts on the token's level
-  /// (the agent's `approve`); [levelOn] is the highest matching grant.
-  String levelSigned(String key) {
+  /// The user's level on [key], as the gateway signs it (`Grants::perm`,
+  /// roles.rs) and the link reads it (spec 04, `wyrm_core::ptok::level_on`):
+  /// the FIRST grant whose pattern matches decides, so a narrower grant
+  /// before a wider one (a `read`, or a `none`) wins over it; no match is
+  /// `none`. Capped by `max`. Grants below an upstream are rewritten for the
+  /// downstream site by the gateway, so the patterns are full keys.
+  Perm levelOn(String key) {
     for (final g in _state.site.grants) {
       if (keyMatches(g.key, key)) {
-        return levels[_capped(levelRank(g.level).clamp(0, levels.length - 1))];
+        return _capped(g.level);
       }
     }
-    return levels.first;
+    return Perm.none;
   }
 
-  /// The user has at least [level] on [key].
-  bool can(String level, String key) =>
-      levelRank(levelOn(key)) >= levelRank(level);
+  /// [level] capped by the session's `max` (`/api/me`), as the gateway caps
+  /// every grant (`Grants::perm`): no level above it is shown or signed.
+  /// No `max` (`/api/me` not read): the cap is closed, no level at all.
+  Perm _capped(Perm level) => switch (max) {
+    final m? when m < level => m,
+    _? => level,
+    null => Perm.none,
+  };
 
-  /// The user may read [key]; true while the grants are not known yet, so a
-  /// trend never locks a series on a missing `/api/me`.
-  bool mayRead(String key) => _state.site.grants.isEmpty || can('read', key);
+  /// The user has at least [level] on [key].
+  bool can(Perm level, String key) => levelOn(key) >= level;
+
+  /// The user's level under `downstream` of the site on screen (the
+  /// shell's rights line).
+  Perm get downstreamLevel => levelOn('$root/downstream');
+
+  /// The user may read `sys/audit` of the site on screen (its `tail` needs
+  /// `config`).
+  bool get readsAudit => can(Perm.config, '${root ?? ''}/sys/audit');
+
+  /// The user may read [key]; false while `/api/me` is not read, as for a
+  /// user with no grant on it (a trend locks the series, the gateway would
+  /// refuse it anyway).
+  bool mayRead(String key) => can(Perm.read, key);
 
   /// What the user lacks for a control that needs [level] on [key], or
   /// null when they have it (docs/studio.md §2 rule 8: shown, never
   /// hidden); `ui` words it.
-  Lack? lacks(Perm level, String key) => can(level.wire, key)
-      ? null
-      : Lack(level, key.split('/').skip(2).join('/'));
+  Lack? lacks(Perm level, String key) =>
+      can(level, key) ? null : Lack(level, key.split('/').skip(2).join('/'));
 
-  /// Why a control that needs [level] on [key] is disabled, or null when the
-  /// user has it (docs/studio.md §2 rule 8: shown, never hidden).
-  String? needs(String level, String key) => can(level, key)
-      ? null
-      : 'needs $level on ${key.split('/').skip(2).join('/')}';
-
-  /// The highest level the session may use (`/api/me` `max`); null from a
-  /// gateway that does not send it.
-  String? get max => _state.site.max;
+  /// The highest level the session may use (`/api/me` `max`); null while
+  /// `/api/me` is not read.
+  Perm? get max => _state.site.max;
 
   /// Returns viewedVia
   List<String> get viewedVia => viewedViaOf(_state);
@@ -2980,3 +2989,11 @@ extension type SelectDiscovery(AppState _state) {
     null => defaultProbePort,
   };
 }
+
+extension type SelectClock(AppState _state) {
+  /// The time screens show their rows at (`TickClockAction`); the start of
+  /// the epoch before the first tick.
+  DateTime get now => _state.clock.now ?? _epoch;
+}
+
+final _epoch = DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);

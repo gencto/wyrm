@@ -1,3 +1,4 @@
+import 'package:business/redux/app_state.dart';
 import 'package:business/wyrm/discovery.dart' show FoundTag, RangeFault;
 import 'package:business/wyrm/log_in_page.dart';
 import 'package:models/found_problem.dart';
@@ -17,6 +18,9 @@ import 'package:ui/overlays/step_up_dialog.dart';
 import 'package:ui/overlays/step_up_screen.dart';
 import 'package:ui/pages/log_in_data.dart';
 import 'package:wyrm_client/wyrm_client.dart' show Perm;
+
+import '../common/studio_version.dart';
+import 'device_mappers.dart';
 
 // The log-in page's, the lock's and the step-up's domain values as `ui`
 // draws them: one exhaustive switch per enum or union (studio-rules §3). A
@@ -218,4 +222,32 @@ extension PermStepUpLevel on Perm {
     Perm.write => .write,
     Perm.config => .config,
   };
+}
+
+/// The unlock form [form] of the log-in page as [r] reads it (boards
+/// `Unlock`, `UnlockFallback`, `UnlockChanged`, `UnlockSignedOut`,
+/// `UnlockLinux`).
+UnlockData unlockDataOf(Selectors r, UnlockForm form, HostPlatform platform) {
+  final field = r.login.field;
+  return UnlockData(
+    form: form,
+    fallback: r.device.fallback?.why,
+    signedOut: r.device.refusal?.why,
+    method: r.device.kind.method,
+    os: platform.os,
+    linux: platform == .linux,
+    site: r.login.keySite,
+    user: r.login.formUser,
+    role: r.device.keyRole,
+    host: field.mainHost,
+    withStandby: field.standbyUri != null,
+    down: r.login.down,
+    passwordEveryDays: r.device.passwordEveryDays,
+    lastUsed: r.device.lastUsedAt,
+    keyShown: r.device.keyShown,
+    keyAdded: r.device.keyAddedAt,
+    tlsSite: r.login.keyTlsSite,
+    reEnable: r.device.offersReEnable,
+    version: studioVersion,
+  );
 }

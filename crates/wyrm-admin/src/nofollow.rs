@@ -296,16 +296,14 @@ pub fn new_private_dir(dir: &Path) -> Result<(), String> {
 }
 
 /// Remove what is at `path` as what it is: a directory with its content, a
-/// file or a symlink by its own name (never its target).
-pub fn remove_any(path: &Path) {
+/// file or a symlink by its own name (never its target). Nothing there is
+/// done; any other failure is the caller's to handle (rule 10): what it removes
+/// holds state (restored data, opened secrets, a package).
+pub fn remove_any(path: &Path) -> std::io::Result<()> {
     match std::fs::symlink_metadata(path) {
-        Ok(m) if m.is_dir() => {
-            let _ = std::fs::remove_dir_all(path);
-        }
-        Ok(_) => {
-            let _ = std::fs::remove_file(path);
-        }
-        Err(_) => {}
+        Ok(m) if m.is_dir() => std::fs::remove_dir_all(path),
+        Ok(_) => std::fs::remove_file(path),
+        Err(e) => wyrm_core::files::gone_ok(e),
     }
 }
 
@@ -499,7 +497,7 @@ mod tests {
         assert!(create_new(&target.join("new"), None).is_ok());
         // a stale name is removed as what it is, never through it
         symlink(&outside, d.join("stale")).unwrap();
-        remove_any(&d.join("stale"));
+        remove_any(&d.join("stale")).unwrap();
         assert!(!d.join("stale").exists() && outside.join("secret").is_file());
         assert_eq!(
             std::fs::read(outside.join("secret")).unwrap(),

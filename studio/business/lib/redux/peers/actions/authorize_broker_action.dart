@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:async_redux/async_redux.dart';
 
 import '../../app_state.dart';
@@ -17,13 +15,18 @@ class AuthorizeBrokerAction extends Action with NonReentrant, WaitingAction {
 
   @override
   Future<AppState?> reduce() async {
-    await dispatchAndWait(ApproveQuarantineAction(node, args));
+    // The table is read again, also after a refusal: it shows what is.
+    // It changes no state itself: what it did shows in the table read.
+    try {
+      await _run();
+    } finally {
+      await dispatchAndWait(RetrievePeersAction());
+    }
     return null;
   }
 
-  @override
-  void after() {
-    super.after();
-    unawaited(dispatchAndWait(RetrievePeersAction()));
+  Future<void> _run() async {
+    await dispatchAndWait(ApproveQuarantineAction(node, args));
+    return;
   }
 }

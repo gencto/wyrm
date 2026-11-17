@@ -7,7 +7,6 @@ import '../../../wyrm/mappers/flow_canvas.dart';
 import '../../../wyrm/mappers/flow_mapper.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
-import 'validate_flow_action.dart';
 
 /// Types [value] into operand [port] of block [id]: the node's config
 /// `values.<port>` (ADR 0038 §7; null or empty text removes it). A binding
@@ -33,7 +32,6 @@ class SetOperandValueAction extends Action {
     if (cfg == null || sameCfg(cfg, b.cfg)) {
       return null;
     }
-    _validate();
     final tag = UndoTag(UndoKind.operand, block: id, name: port);
     return state.copyWith.flowEditor(
       draft: d.copyWith(blocks: d.blocks.add(id, b.copyWith(cfg: cfg))),
@@ -48,9 +46,4 @@ class SetOperandValueAction extends Action {
       undoTag: tag,
     );
   }
-
-  /// The engine checks the draft again once the edits settle
-  /// ([ValidateFlowAction] is debounced and brings its own state); this
-  /// edit does not wait for it.
-  void _validate() => dispatch(ValidateFlowAction());
 }

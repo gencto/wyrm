@@ -108,19 +108,55 @@ pub fn must_be_sealed(kind: Kind, path: &str) -> bool {
     )
 }
 
+wyrm_core::name_enum! {
+    /// A section of a backup: the top folder of its files in the zip and its entry in
+    /// the manifest (ADR 0048 §3.2 for a broker backup, §3.5 for a link backup). Kept by
+    /// its name, the text the field held as a `String` (the manifest's bytes and MAC, a
+    /// job record and a restore plan are unchanged). A name that is not here refuses
+    /// the manifest, the job record or the plan: what is sealed and what is restored
+    /// depends on it, so an unknown section is never skipped.
+    pub enum SectionName as "backup section" {
+        Control => "control",
+        Keys => "keys",
+        Dataflows => "dataflows",
+        Storage => "storage",
+        History => "history",
+        Links => "links",
+        Packages => "packages",
+        Config => "config",
+        Settings => "settings",
+        Data => "data",
+        Package => "package",
+    }
+}
+
+/// `a, b, c`: the names of `sections`, for people (an audit line, an error).
+pub fn section_names(sections: &[SectionName]) -> String {
+    sections
+        .iter()
+        .map(|s| s.name())
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 /// The sections of a broker backup (ADR 0048 §3.2).
-pub const BROKER_SECTIONS: [&str; 8] = [
-    "control",
-    "keys",
-    "dataflows",
-    "storage",
-    "history",
-    "links",
-    "packages",
-    "config",
+pub const BROKER_SECTIONS: [SectionName; 8] = [
+    SectionName::Control,
+    SectionName::Keys,
+    SectionName::Dataflows,
+    SectionName::Storage,
+    SectionName::History,
+    SectionName::Links,
+    SectionName::Packages,
+    SectionName::Config,
 ];
 /// The sections of a link backup (ADR 0048 §3.5).
-pub const LINK_SECTIONS: [&str; 4] = ["settings", "data", "package", "history"];
+pub const LINK_SECTIONS: [SectionName; 4] = [
+    SectionName::Settings,
+    SectionName::Data,
+    SectionName::Package,
+    SectionName::History,
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -144,7 +180,7 @@ impl Kind {
         }
     }
 
-    pub fn sections(self) -> &'static [&'static str] {
+    pub fn sections(self) -> &'static [SectionName] {
         match self {
             Kind::Broker => &BROKER_SECTIONS,
             Kind::Link => &LINK_SECTIONS,
@@ -196,11 +232,15 @@ pub struct Sealed {
 }
 
 /// The link of a link backup.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LinkInfo {
     pub id: String,
     pub driver: String,
-    pub mode: String,
+    /// Kept by its name (`"process"`), the text the field held when it was a `String`:
+    /// the manifest's bytes, and so its MAC, are the same. A name that is no link mode
+    /// refuses the manifest.
+    #[serde(with = "wyrm_core::named::serde")]
+    pub mode: crate::registry::Mode,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub package: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -224,7 +264,7 @@ pub struct FileEntry {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Section {
-    pub name: String,
+    pub name: SectionName,
     /// What the section holds, for people and for the restore check (the
     /// LSN of a WAL, the revision of the storage, the days of history, …).
     #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
@@ -262,7 +302,7 @@ pub struct Manifest {
 }
 
 impl Manifest {
-    pub fn section(&self, name: &str) -> Option<&Section> {
+    pub fn section(&self, name: SectionName) -> Option<&Section> {
         self.sections.iter().find(|s| s.name == name)
     }
 
@@ -382,14 +422,14 @@ impl Manifest {
         let mut count = 0usize;
         let mut total = 0u64;
         for s in &self.sections {
-            if !self.kind.sections().contains(&s.name.as_str()) {
+            if !self.kind.sections().contains(&s.name) {
                 return Err(format!(
                     "manifest: no section {:?} in a {} backup",
                     s.name,
                     self.kind.name()
                 ));
             }
-            if !names.insert(s.name.as_str()) {
+            if !names.insert(s.name.name()) {
                 return Err(format!("manifest: section {} twice", s.name));
             }
             count += s.files.len();
@@ -398,7 +438,9 @@ impl Manifest {
             }
             for f in &s.files {
                 check_path(&f.path)?;
-                if f.path.split('/').next() != Some(s.name.as_str()) || !f.path.contains('/') {
+                if f.path.split('/').next().and_then(SectionName::from_name) != Some(s.name)
+                    || !f.path.contains('/')
+                {
                     return Err(format!(
                         "manifest: {} is not under section {}",
                         f.path, s.name
@@ -557,7 +599,7 @@ pub enum Sealing<'a> {
 
 fn new_id() -> Result<Vec<u8>, String> {
     let mut id = [0u8; ID_LEN];
-    getrandom::fill(&mut id).map_err(|e| format!("no randomness: {e}"))?;
+    wyrm_core::rand::fill(&mut id).map_err(|e| e.to_string())?;
     Ok(id.to_vec())
 }
 
@@ -578,7 +620,7 @@ impl Sealing<'_> {
             )),
             Sealing::Passphrase(p) => {
                 let mut salt = [0u8; SALT_LEN];
-                getrandom::fill(&mut salt).map_err(|e| format!("no randomness: {e}"))?;
+                wyrm_core::rand::fill(&mut salt).map_err(|e| e.to_string())?;
                 let d = argon2::Params::default();
                 let kdf = Kdf {
                     name: "argon2id".into(),
@@ -819,11 +861,22 @@ pub struct Staged {
 }
 
 /// One section staged: its name, what it holds, its files.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct StagedSection {
-    pub name: String,
+    pub name: SectionName,
     pub info: serde_json::Map<String, serde_json::Value>,
     pub files: Vec<Staged>,
+}
+
+impl StagedSection {
+    /// Section `name`, nothing in it yet.
+    pub fn new(name: SectionName) -> Self {
+        Self {
+            name,
+            info: serde_json::Map::new(),
+            files: Vec::new(),
+        }
+    }
 }
 
 /// What [`write`] made.
@@ -891,7 +944,7 @@ pub fn write(
             });
         }
         manifest.sections.push(Section {
-            name: s.name.clone(),
+            name: s.name,
             info: s.info.clone(),
             files,
         });
@@ -916,7 +969,7 @@ pub fn write(
         "{}.part",
         out.extension().and_then(|e| e.to_str()).unwrap_or("zip")
     ));
-    let _ = std::fs::remove_file(&part);
+    wyrm_core::files::discard(&part);
     let result = (|| {
         let mut opts = std::fs::OpenOptions::new();
         opts.write(true).create_new(true);
@@ -974,7 +1027,7 @@ pub fn write(
         Ok(())
     })();
     if let Err(e) = result {
-        let _ = std::fs::remove_file(&part);
+        wyrm_core::files::discard(&part);
         return Err(e);
     }
     let (size, sha256) = hash_file(&part).map_err(|e| io(&part, e))?;
@@ -1204,7 +1257,7 @@ impl<R: Read + Seek> Reader<R> {
                     let src = std::io::BufReader::new(File::open(&stored).map_err(io)?);
                     open_stream(key, path, src, &mut out)
                 })();
-                let _ = std::fs::remove_file(&stored);
+                wyrm_core::files::discard(&stored);
                 r?
             } else {
                 self.copy(path, &mut out)?
@@ -1214,7 +1267,8 @@ impl<R: Read + Seek> Reader<R> {
             Ok(n)
         })();
         if r.is_err() {
-            let _ = std::fs::remove_file(dest);
+            // what was written of it: never a whole file
+            wyrm_core::files::discard(dest);
         }
         r
     }
@@ -1267,6 +1321,39 @@ mod tests {
         assert!(e.contains("backup sealing: unknown name"), "{e}");
     }
 
+    /// Review 2026-11-16: `LinkInfo.mode` was a `String` filled from `Mode::name()`. A
+    /// manifest written then reads into [`crate::registry::Mode`] and serializes to the
+    /// same bytes, so its MAC (over the JSON, `mac_text`) still holds; a name that is no
+    /// link mode refuses the manifest instead of reaching a restore as text.
+    #[test]
+    fn link_mode_keeps_the_manifest_bytes() {
+        #[derive(Serialize)]
+        struct OldLinkInfo<'a> {
+            id: &'a str,
+            driver: &'a str,
+            mode: &'a str,
+            #[serde(skip_serializing_if = "str::is_empty")]
+            package: &'a str,
+            #[serde(skip_serializing_if = "str::is_empty")]
+            version: &'a str,
+        }
+        for mode in ["embedded", "process", "external"] {
+            let bytes = serde_json::to_vec(&OldLinkInfo {
+                id: "l1",
+                driver: "pkg:x",
+                mode,
+                package: "x",
+                version: "1.0.0",
+            })
+            .unwrap();
+            let new: LinkInfo = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(new.mode.name(), mode);
+            assert_eq!(serde_json::to_vec(&new).unwrap(), bytes);
+        }
+        let bad = br#"{"id":"l1","driver":"mock","mode":"Process"}"#;
+        assert!(serde_json::from_slice::<LinkInfo>(bad).is_err());
+    }
+
     fn dir(name: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("wyrm-backup-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
@@ -1298,7 +1385,7 @@ mod tests {
         seal_stream(&key, "keys/pki/ca.key", secret.as_slice(), &mut out).unwrap();
         let sections = vec![
             StagedSection {
-                name: "control".into(),
+                name: SectionName::Control,
                 info: serde_json::Map::from_iter([("lsn".to_owned(), 3.into())]),
                 files: vec![Staged {
                     path: "control/state/wal.00000000000000000001.wyw".into(),
@@ -1308,7 +1395,7 @@ mod tests {
                 }],
             },
             StagedSection {
-                name: "keys".into(),
+                name: SectionName::Keys,
                 info: Default::default(),
                 files: vec![Staged {
                     path: "keys/pki/ca.key".into(),
@@ -1560,7 +1647,7 @@ mod tests {
         assert!(Reader::new(Cursor::new(zip), 1 << 30).is_err());
         // with `how: none` there is no sealed file, so no secret file at all
         let mut m = manifest_with(&[("control/a", 3, b"abc")]);
-        m.sections[0].name = "keys".into();
+        m.sections[0].name = SectionName::Keys;
         m.sections[0].files[0].path = "keys/state.key".into();
         assert!(m.check().is_err());
         m.sections[0].files[0].sealed = true;
@@ -1680,6 +1767,39 @@ mod tests {
         w.finish().unwrap().into_inner()
     }
 
+    /// Review 2026-11-16: section names were text. A manifest written then (`"name":
+    /// "keys"`) reads into [`SectionName`] and writes the same bytes, so its MAC (over the
+    /// JSON) still holds; a section this build does not know refuses the manifest, since
+    /// what must be sealed and what is restored depends on it.
+    #[test]
+    fn section_names_keep_the_manifest_bytes_and_an_unknown_one_is_refused() {
+        #[derive(Serialize)]
+        struct OldSection<'a> {
+            name: &'a str,
+            files: Vec<FileEntry>,
+        }
+        for name in SectionName::NAMES {
+            let bytes = serde_json::to_vec(&OldSection {
+                name,
+                files: Vec::new(),
+            })
+            .unwrap();
+            let s: Section = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(s.name.name(), *name);
+            assert_eq!(serde_json::to_vec(&s).unwrap(), bytes);
+        }
+        let m = manifest_with(&[("control/a", 3, b"abc")]);
+        let text = String::from_utf8(serde_json::to_vec(&m).unwrap()).unwrap();
+        assert!(text.contains(r#""name":"control""#), "{text}");
+        let back: Manifest = serde_json::from_str(&text).unwrap();
+        assert_eq!(serde_json::to_vec(&back).unwrap(), text.as_bytes());
+        for bad in ["secrets", "Control", ""] {
+            let other = text.replace(r#""name":"control""#, &format!(r#""name":"{bad}""#));
+            let e = serde_json::from_str::<Manifest>(&other).unwrap_err();
+            assert!(e.to_string().contains("backup section"), "{bad}: {e}");
+        }
+    }
+
     fn manifest_with(files: &[(&str, u64, &[u8])]) -> Manifest {
         Manifest {
             wyrm_backup: VERSION,
@@ -1697,7 +1817,7 @@ mod tests {
             },
             link: None,
             sections: vec![Section {
-                name: "control".into(),
+                name: SectionName::Control,
                 info: Default::default(),
                 files: files
                     .iter()
@@ -1768,7 +1888,7 @@ mod tests {
             let mut m = manifest_with(&[]);
             m.sealed.how = How::Broker;
             m.sections = vec![Section {
-                name: name.into(),
+                name: SectionName::from_name(name).unwrap(),
                 info: Default::default(),
                 files,
             }];
@@ -1822,7 +1942,8 @@ mod tests {
         };
         assert!(with(&|m| m.wyrm_backup = 2).is_err());
         assert!(with(&|m| m.site = "a/b".into()).is_err());
-        assert!(with(&|m| m.sections[0].name = "nope".into()).is_err());
+        // a section of the other kind of backup
+        assert!(with(&|m| m.sections[0].name = SectionName::Settings).is_err());
         assert!(with(&|m| m.sections[0].files[0].path = "keys/a".into()).is_err());
         assert!(with(&|m| m.sections[0].files[0].path = "control".into()).is_err());
         assert!(with(&|m| m.sections[0].files[0].path = "control/../a".into()).is_err());
@@ -1846,9 +1967,15 @@ mod tests {
         // a link backup has link sections
         let mut link = ok.clone();
         link.kind = Kind::Link;
-        link.link = Some(LinkInfo::default());
+        link.link = Some(LinkInfo {
+            id: "l1".into(),
+            driver: "mock".into(),
+            mode: crate::registry::Mode::Embedded,
+            package: String::new(),
+            version: String::new(),
+        });
         assert!(link.check().is_err());
-        link.sections[0].name = "settings".into();
+        link.sections[0].name = SectionName::Settings;
         link.sections[0].files[0].path = "settings/link.cbor".into();
         link.check().unwrap();
     }

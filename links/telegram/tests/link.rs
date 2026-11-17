@@ -618,6 +618,50 @@ fn updates_that_fail_do_not_stop_sending() {
     h.until("updates read again", |h| h.text("ops/error").is_empty());
 }
 
+/// The read position is kept before a command runs: while the store takes no write, a chat
+/// command does not run (it would run again after a restart, the offset being the old one);
+/// once the store works, it runs once, and a restart does not run it again (review
+/// 2026-11-16: `put_offset` dropped its error after the commands had run).
+#[test]
+fn a_command_runs_once_when_the_read_position_is_kept() {
+    let api = Api::start();
+    let mut h = telegram(&api);
+    let code = code_of(
+        &h.invoke(
+            "ops",
+            "invite_user",
+            map(&[
+                ("name", s("bob")),
+                ("level", s("write")),
+                ("select", s("wy/s/downstream/mock")),
+            ]),
+        )
+        .unwrap(),
+    );
+    api.private(77, &format!("/start {code}"));
+    h.until("paired", |h| h.text("ops/users/bob/status") == "active");
+    h.store_down(true);
+    api.private(77, "/set downstream/mock/d1/temp 1");
+    h.until("not kept", |h| {
+        h.text("ops/error").contains("read position is not kept")
+    });
+    for _ in 0..5 {
+        h.advance_ms(5_000);
+        h.settle();
+    }
+    assert!(h.requests.is_empty(), "nothing runs: {:?}", h.requests);
+    h.store_down(false);
+    h.until("ran", |h| !h.requests.is_empty());
+    assert_eq!(h.requests.len(), 1);
+    h.restart();
+    h.until("ready again", |h| h.text("ops/status") == "ready");
+    for _ in 0..5 {
+        h.advance_ms(5_000);
+        h.settle();
+    }
+    assert_eq!(h.requests.len(), 1, "not run again after the restart");
+}
+
 /// `send {update}`: the first send posts the message, later ones edit it in place at each
 /// recipient; an edit that changes nothing is done; a message that is gone is posted again; the
 /// recipient shows the id of its last message (DVPSM demo, 2026-11-13: progress needed

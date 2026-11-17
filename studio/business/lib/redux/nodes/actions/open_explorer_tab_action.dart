@@ -1,5 +1,4 @@
 import 'package:models/explorer_tab.dart';
-import 'package:wyrm_client/wyrm_client.dart' show Perm;
 
 import '../../app_state.dart';
 import '../../common/action.dart';
@@ -27,8 +26,7 @@ class OpenExplorerTabAction extends Action {
           await dispatchAndWait(RetrieveHistoryAction(p));
         }
       case ExplorerTab.audit:
-        if (sel != null &&
-            site.can(Perm.config.wire, '${site.root}/sys/audit')) {
+        if (sel != null && site.readsAudit) {
           await dispatchAndWait(RetrieveAuditAction(sel));
         }
       case ExplorerTab.points ||

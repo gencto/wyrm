@@ -3,7 +3,7 @@ import 'package:models/live_value.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../app_state.dart';
-import '../../flow_editor/actions/load_flow_action.dart';
+import '../../flow_editor/actions/reload_redeployed_flow_action.dart';
 import '../../flow_editor/actions/set_flow_ports_action.dart';
 import '../../flow_editor/actions/set_watch_refused_action.dart';
 import 'flow_watch.dart';
@@ -23,17 +23,9 @@ class FlowWatchDispatcher implements FlowWatchServiceListener {
   void onRefused(Status? status) =>
       _store.dispatchSync(SetWatchRefusedAction(status));
 
-  /// A draft that differs from the deployed version is kept; else the new
-  /// version is read so the blocks match their live values.
+  /// A stream listener does not wait (studio-rules §1): the flow on screen
+  /// is read again unless its draft differs (`ReloadRedeployedFlowAction`).
   @override
-  void onRedeployed(int? version) {
-    final ed = _store.state.flowEditor;
-    final id = ed.flowId;
-    if (id != null && id.isNotEmpty && !ed.dirty) {
-      _load(id);
-    }
-  }
-
-  /// Reads flow [id] again; the stream listener does not wait for it.
-  void _load(String id) => _store.dispatch(LoadFlowAction(id));
+  void onRedeployed(int? version) =>
+      _store.dispatch(ReloadRedeployedFlowAction());
 }

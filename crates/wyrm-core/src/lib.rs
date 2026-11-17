@@ -8,6 +8,7 @@
 pub mod attachment;
 pub mod codec;
 pub mod display;
+pub mod files;
 pub mod history;
 pub mod keyspace;
 pub mod mac;
@@ -15,6 +16,8 @@ pub mod meta;
 pub mod named;
 pub mod profile;
 pub mod ptok;
+#[cfg(feature = "rand")]
+pub mod rand;
 pub mod status;
 pub mod time;
 pub mod value;

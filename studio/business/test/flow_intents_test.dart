@@ -108,9 +108,9 @@ void main() {
       expect(api.calls.where((c) => c.action == 'validate'), isNotEmpty);
     });
 
-    test('close lets go of what open and follow watched', () {
+    test('close lets go of what open and follow watched', () async {
       final view = SelectFlowEditor(s.state).view('tank').follow;
-      s.dispatchSync(
+      await s.dispatchAndWait(
         FollowFlowEditorAction(
           FlowFollow(
             watch: {'$_root/dataflows/tank'}.lock,
@@ -127,7 +127,7 @@ void main() {
       expect(watched.containsKey('$_root/downstream/plc/level'), isFalse);
     });
 
-    test('follow watches what came and lets go of what went', () {
+    test('follow watches what came and lets go of what went', () async {
       const a = FlowFollow(
         watch: ISetConst({'$_root/storage/a'}),
         details: ISetConst({}),
@@ -138,9 +138,8 @@ void main() {
         details: ISetConst({}),
         run: null,
       );
-      s
-        ..dispatchSync(FollowFlowEditorAction(FlowFollow.none, a))
-        ..dispatchSync(FollowFlowEditorAction(a, b));
+      await s.dispatchAndWait(FollowFlowEditorAction(FlowFollow.none, a));
+      await s.dispatchAndWait(FollowFlowEditorAction(a, b));
       expect(s.state.live.watched.containsKey('$_root/storage/a'), isFalse);
       expect(s.state.live.watched['$_root/storage/b'], 1);
     });
@@ -174,11 +173,11 @@ void main() {
       expect(now().blocks.values.last.cfg['key'], 'storage/sp');
     });
 
-    test('My blocks is off without custom blocks; the tree is a tab', () {
-      s.dispatchSync(ShowPaletteTabAction(PaletteTab.tree));
+    test('My blocks is off without custom blocks; the tree is a tab', () async {
+      await s.dispatchAndWait(ShowPaletteTabAction(PaletteTab.tree));
       expect(s.state.flowEditor.palette, PaletteTab.tree);
       if (!SelectFlowEditor(s.state).caps.blocks) {
-        s.dispatchSync(ShowPaletteTabAction(PaletteTab.my));
+        await s.dispatchAndWait(ShowPaletteTabAction(PaletteTab.my));
         expect(s.state.flowEditor.palette, PaletteTab.tree);
       }
     });
@@ -292,6 +291,47 @@ void main() {
       clipboard.text = null;
       await s.dispatchAndWait(PasteBlocksAtAction(x: 10, y: 10));
       expect(now().blocks.length, before + 1);
+    });
+
+    test('two copies, the first written slower: the second stays on the '
+        'system clipboard and a paste after them reads it', () async {
+      clipboard.writeDelays.addAll(const [
+        Duration(milliseconds: 60),
+        Duration(milliseconds: 5),
+      ]);
+      final before = now().blocks.length;
+      s
+        ..dispatchSync(SelectBlocksAction(const ['count']))
+        ..dispatchSync(FlowEditAction(FlowEdit.copy))
+        ..dispatchSync(SelectBlocksAction(const ['level']))
+        ..dispatchSync(FlowEditAction(FlowEdit.copy))
+        ..dispatchSync(FlowEditAction(FlowEdit.paste, x: 10, y: 10));
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      expect(clipboard.text, s.state.flowEditor.clipboard);
+      expect(clipboard.text, contains('"level"'));
+      expect(clipboard.text, isNot(contains('"count"')));
+      expect(now().blocks.length, before + 1);
+      final pasted = now().blocks.keys.toSet().difference({'level', 'count'});
+      expect(now().blocks[pasted.single]!.type, now().blocks['level']!.type);
+    });
+
+    test('a paste pressed in one flow never lands in another', () async {
+      api.invokes['$_root/dataflows/pump ▸ history'] = [
+        Value.from([
+          {..._tank, 'id': 'pump'},
+        ]),
+      ];
+      s
+        ..dispatchSync(SelectBlocksAction(const ['count']))
+        ..dispatchSync(FlowEditAction(FlowEdit.copy));
+      await pumpEventQueue();
+      // the system clipboard answers the paste slowly
+      clipboard.readDelays.add(const Duration(milliseconds: 60));
+      s.dispatchSync(FlowEditAction(FlowEdit.paste, x: 10, y: 10));
+      await s.dispatchAndWait(OpenFlowEditorAction('pump'));
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      expect(s.state.flowEditor.flowId, 'pump');
+      expect(now().blocks.keys, unorderedEquals(['level', 'count']));
     });
 
     test('cut removes what it copied', () {

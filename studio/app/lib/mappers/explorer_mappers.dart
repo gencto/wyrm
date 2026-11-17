@@ -3,6 +3,7 @@ import 'package:business/wyrm/explorer.dart';
 import 'package:business/wyrm/labels.dart';
 import 'package:business/wyrm/points.dart' show pollParam;
 import 'package:models/driver_status.dart';
+import 'package:models/explorer_command.dart';
 import 'package:models/explorer_tab.dart';
 import 'package:models/history_range.dart';
 import 'package:models/link_mode.dart';
@@ -511,4 +512,19 @@ extension ExplorerViewerVm on ExplorerViewer {
 
 extension NodeFactVm on NodeFact {
   FactRowVm get vm => FactRowVm(name, label, value);
+}
+
+/// What a button of Explorer runs; null: the page runs it itself (Copy
+/// keys, Set poll) or it is off (Apply profile, Record).
+extension ExplorerToolCommand on ExplorerTool {
+  ExplorerCommand? get command => switch (this) {
+    ExplorerTool.ping => ExplorerCommand.ping,
+    ExplorerTool.addPoint => ExplorerCommand.addPoint,
+    ExplorerTool.importPoints => ExplorerCommand.importPoints,
+    ExplorerTool.removeChecked => ExplorerCommand.removeChecked,
+    ExplorerTool.copyKeys ||
+    ExplorerTool.setPoll ||
+    ExplorerTool.applyProfile ||
+    ExplorerTool.record => null,
+  };
 }

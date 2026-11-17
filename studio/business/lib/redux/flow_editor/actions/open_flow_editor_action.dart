@@ -1,5 +1,3 @@
-import 'package:async_redux/async_redux.dart';
-
 import '../../../wyrm/flow_view/flow_view.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
@@ -40,23 +38,21 @@ class OpenFlowEditorAction extends Action {
     // rebuild for both: the watch quietly, the preview's state shown.
     dispatchSync(WatchFlowAction(isNew ? null : routeId), notify: false);
     dispatchSync(PreviewFlowAction());
-    // The Tree tab draws the site's live tree: its lists open like the
-    // Explorer's (its own waiting state).
-    if (nodes.expanded.isEmpty) {
-      _start(RetrieveNodesAction(quiet: true));
-    }
-    // Custom blocks: whether this broker has them, and the site's library.
-    _start(RetrieveBlockLibraryAction());
-    // What the actions of the flow's action blocks take.
+    // The reads the page needs, at once, each with its own state; the
+    // editor is open when they have answered.
     final details = flowViewOf(state, routeId).follow.details;
-    if (details.isNotEmpty) {
-      _start(RetrieveDetailsAction(details.toList()));
-    }
-    await dispatchAndWait(ValidateFlowAction());
+    await Future.wait([
+      // The Tree tab draws the site's live tree: its lists open like the
+      // Explorer's.
+      if (nodes.expanded.isEmpty)
+        dispatchAndWait(RetrieveNodesAction(quiet: true)),
+      // Custom blocks: whether this broker has them, and the library.
+      dispatchAndWait(RetrieveBlockLibraryAction()),
+      // What the actions of the flow's action blocks take.
+      if (details.isNotEmpty)
+        dispatchAndWait(RetrieveDetailsAction(details.toList())),
+      dispatchAndWait(ValidateFlowAction()),
+    ]);
     return null;
   }
-
-  /// Starts [action] and does not wait for it: it brings its own state
-  /// (and its own waiting state, where it has one).
-  void _start(ReduxAction<AppState> action) => dispatch(action);
 }

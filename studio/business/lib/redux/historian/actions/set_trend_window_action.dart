@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:models/hist_window.dart';
 
 import '../../app_state.dart';
@@ -26,13 +24,5 @@ class SetTrendWindowAction extends Action {
       trendGen: historian.trendGen + 1,
       detail: next == null ? null : historian.detail,
     );
-  }
-
-  @override
-  void after() {
-    super.after();
-    if (status.hasFinishedMethodReduce) {
-      unawaited(dispatchAndWait(LoadTrendWindowAction()));
-    }
   }
 }

@@ -217,6 +217,7 @@ void main() {
       final params = editParamsOf(
         ActionInfo(
           name: 'edit',
+          level: Perm.config,
           params: [
             const ParamSpec(name: 'table'),
             const ParamSpec(name: 'poll_s'),

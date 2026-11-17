@@ -24,6 +24,7 @@ import 'package:business/redux/tasks/actions/retrieve_tasks_action.dart';
 import 'package:business/redux/tasks/actions/set_selected_task_action.dart';
 import 'package:business/wyrm/approval.dart';
 import 'package:business/wyrm/mappers/agent_task_mapper.dart';
+import 'package:business/wyrm/rights.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/agent_task.dart';
@@ -723,10 +724,10 @@ void main() {
   group('who signs what (approvalOf)', () {
     final plan = taskOf(record('awaiting_approval')).plan;
 
-    List<(bool?, String?, int?)> choices({
+    List<(bool?, Lack?, int?)> choices({
       Set<int> unticked = const {},
       bool decides = true,
-      String? Function(String, String)? lacks,
+      Lack? Function(Perm, String)? lacks,
     }) => [
       for (final c in approvalOf(
         plan,
@@ -757,11 +758,18 @@ void main() {
       final asked = <String>[];
       final got = choices(
         lacks: (level, key) {
-          asked.add('$level $key');
-          return level == 'config' ? 'needs config' : null;
+          asked.add('${level.wire} $key');
+          return level == Perm.config ? Lack(level, key) : null;
         },
       );
-      expect(got.first, (false, 'needs config', null));
+      expect(got.first, (
+        false,
+        const Lack(
+          Perm.config,
+          'wy/central/downstream/modbus/tcp/~act/add_device',
+        ),
+        null,
+      ));
       expect(got[1], (false, null, 1));
       expect(asked, [
         'config wy/central/downstream/modbus/tcp/~act/add_device',
@@ -822,7 +830,12 @@ void main() {
 
     _Reader as(String user, List<Grant> grants) => _Reader(
       AppState.initial().copyWith
-          .site(name: 'central', user: user, grants: grants.lock)
+          .site(
+            name: 'central',
+            user: user,
+            max: Perm.config,
+            grants: grants.lock,
+          )
           .copyWith
           .assistant(agent: agent),
     );
@@ -840,11 +853,14 @@ void main() {
             .site(
               name: 'central',
               user: 'ivan',
-              max: 'config',
+              max: Perm.config,
               grants: const [
-                Grant(key: '$agent/**', level: 'write'),
-                Grant(key: 'wy/central/downstream/modbus/**', level: 'config'),
-                Grant(key: 'wy/central/**', level: 'read'),
+                Grant(key: '$agent/**', level: Perm.write),
+                Grant(
+                  key: 'wy/central/downstream/modbus/**',
+                  level: Perm.config,
+                ),
+                Grant(key: 'wy/central/**', level: Perm.read),
               ].lock,
             )
             .copyWith
@@ -852,10 +868,13 @@ void main() {
       );
       expect(
         me.site.levelOn('wy/central/downstream/modbus/tcp/~act/add_device'),
-        'config',
+        Perm.config,
       );
-      expect(me.site.levelSigned('$agent/tasks/t-1/~act/approve'), 'write');
-      expect(me.site.levelOn('wy/central/sys/links/agent/~act/update'), 'read');
+      expect(me.site.levelOn('$agent/tasks/t-1/~act/approve'), Perm.write);
+      expect(
+        me.site.levelOn('wy/central/sys/links/agent/~act/update'),
+        Perm.read,
+      );
       expect(me.decidesFor(t('user:olena')), isFalse);
       expect(me.mayFollow(t('user:olena')), isFalse);
     });
@@ -869,18 +888,18 @@ void main() {
             .site(
               name: 'central',
               user: 'ivan',
-              max: 'write',
+              max: Perm.write,
               grants: const [
-                Grant(key: 'wy/central/**', level: 'config'),
+                Grant(key: 'wy/central/**', level: Perm.config),
               ].lock,
             )
             .copyWith
             .assistant(agent: agent),
       );
-      expect(capped.site.levelOn('wy/central/downstream/x/~set'), 'write');
+      expect(capped.site.levelOn('wy/central/downstream/x/~set'), Perm.write);
       expect(
-        capped.site.levelSigned('$agent/tasks/t-1/~act/approve'),
-        'write',
+        capped.site.levelOn('$agent/tasks/t-1/~act/approve'),
+        Perm.write,
       );
       expect(capped.decidesFor(t('user:olena')), isFalse);
       expect(capped.mayFollow(t('user:olena')), isFalse);
@@ -888,30 +907,30 @@ void main() {
         taskOf(record('awaiting_approval'), 't-1').plan,
         unticked: const ISetConst({}),
         decides: true,
-        lacks: (level, key) => capped.site.needs(level, key),
+        lacks: capped.site.lacks,
       );
       // the config step is locked; the write step needs it and goes too
       expect(steps.first.locked, isNotNull);
       expect(steps[1].needs, 1);
 
-      // no max (an older gateway): no cap
+      // max config: a config grant keeps config
       final open = as('ivan', const [
-        Grant(key: 'wy/central/**', level: 'config'),
+        Grant(key: 'wy/central/**', level: Perm.config),
       ]);
-      expect(open.site.levelOn('wy/central/downstream/x/~set'), 'config');
+      expect(open.site.levelOn('wy/central/downstream/x/~set'), Perm.config);
     });
 
     test('config on the approve action decides, by the first grant', () {
       // the link takes the level of the token, and the gateway gives the
       // first grant that matches: write on the agent comes first here
       final ivan = as('ivan', const [
-        Grant(key: '$agent/**', level: 'write'),
-        Grant(key: 'wy/central/**', level: 'config'),
+        Grant(key: '$agent/**', level: Perm.write),
+        Grant(key: 'wy/central/**', level: Perm.config),
       ]);
       expect(ivan.decidesFor(t('user:olena')), isFalse);
 
       final admin = as('ivan', const [
-        Grant(key: 'wy/central/**', level: 'config'),
+        Grant(key: 'wy/central/**', level: Perm.config),
       ]);
       expect(admin.decidesFor(t('user:olena')), isTrue);
     });

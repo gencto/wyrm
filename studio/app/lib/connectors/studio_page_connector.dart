@@ -13,7 +13,7 @@ import 'package:business/redux/problems/actions/open_problems_action.dart';
 import 'package:business/redux/problems/actions/retry_problem_action.dart';
 import 'package:business/redux/session/actions/log_out_action.dart';
 import 'package:business/redux/site/actions/retrieve_sites_action.dart';
-import 'package:business/redux/site/actions/view_site_action.dart';
+import 'package:business/redux/site/actions/switch_site_action.dart';
 import 'package:business/redux/theme/actions/set_theme_mode_action.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:material_ui/material_ui.dart';
@@ -24,6 +24,7 @@ import '../common/window.dart';
 import '../dialogs/error_dialogs.dart';
 import '../dialogs/security_dialogs.dart';
 import '../errors.dart';
+import '../mappers/rights_mappers.dart';
 import '../mappers/shell_mappers.dart';
 import '../navigation/go_action.dart';
 import '../navigation/leave_on_log_out_action.dart';
@@ -82,14 +83,12 @@ class _Factory extends VmFactory<AppState, StudioPageConnector, _Vm>
 
   @override
   _Vm fromStore() {
-    final home = site.name ?? '';
-    final viewed = site.viewed ?? home;
     final pill = problems.pill;
     return _Vm(
       frame: StudioFrameVm(
-        site: viewed,
+        site: site.viewed ?? '',
         root: site.root ?? '',
-        home: viewed == home,
+        home: site.viewsHome,
         via: site.viewedVia,
         sites: [for (final c in site.choices) c.vm],
         connected: site.connected,
@@ -107,7 +106,7 @@ class _Factory extends VmFactory<AppState, StudioPageConnector, _Vm>
         reviewError: changes.message,
         applying: changes.isWaiting,
         cards: [for (final c in changes.reviewCards) c.data],
-        level: site.levelOn('${site.root}/downstream'),
+        level: site.downstreamLevel.access,
         audit: changes.reviewAudit,
         links: [
           for (final id in links.view)
@@ -118,7 +117,7 @@ class _Factory extends VmFactory<AppState, StudioPageConnector, _Vm>
         window: windowBar(fullScreen: window.fullScreen),
       ),
       onTab: (t) => dispatch(GoAction.workspace(t.workspace)),
-      onSite: (s) => dispatch(ViewSiteAction(s)),
+      onSite: (s) => dispatch(SwitchSiteAction(s)),
       onSearch: (pick) => dispatch(SearchGoAction(pick)),
       onReview: () => dispatch(SetOpenAction(true)),
       onCloseReview: () => dispatch(SetOpenAction(false)),

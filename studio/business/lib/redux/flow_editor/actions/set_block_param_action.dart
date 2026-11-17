@@ -7,7 +7,6 @@ import 'package:models/undo_tag.dart';
 import '../../../wyrm/mappers/flow_canvas.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
-import 'validate_flow_action.dart';
 
 /// Sets parameter [name] of block [id] (null removes it).
 class SetBlockParamAction extends Action {
@@ -29,7 +28,6 @@ class SetBlockParamAction extends Action {
       JsonNull() || JsonText(text: '') => b.cfg.remove(name),
       _ => b.cfg.add(name, value),
     };
-    _validate();
     return state.copyWith.flowEditor(
       draft: d.copyWith(blocks: d.blocks.add(id, b.copyWith(cfg: cfg))),
       dirty: true,
@@ -43,9 +41,4 @@ class SetBlockParamAction extends Action {
       undoTag: tag,
     );
   }
-
-  /// The engine checks the draft again once the edits settle
-  /// ([ValidateFlowAction] is debounced and brings its own state); this
-  /// edit does not wait for it.
-  void _validate() => dispatch(ValidateFlowAction());
 }

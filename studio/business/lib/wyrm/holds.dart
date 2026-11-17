@@ -1,3 +1,5 @@
+import 'rights.dart';
+
 /// Why a control of the Assistant cannot be used now, as `business`
 /// decides it; the screen words it (`ui` `Blocked`).
 sealed class Hold {
@@ -14,11 +16,11 @@ final class HoldBusy extends Hold {
   const HoldBusy();
 }
 
-/// The user lacks a level on a key ([needs]: what the rights check says).
+/// The user lacks a level on a key ([lack]: what the rights check says).
 final class HoldLacks extends Hold {
-  const HoldLacks(this.needs);
+  const HoldLacks(this.lack);
 
-  final String needs;
+  final Lack lack;
 }
 
 /// The site on screen is not the gateway's own: it cannot sign for it.

@@ -15,9 +15,10 @@ import 'package:business/redux/nodes/actions/retrieve_details_action.dart';
 import 'package:business/redux/nodes/actions/select_node_action.dart';
 import 'package:business/redux/nodes/actions/select_point_action.dart';
 import 'package:business/redux/nodes/actions/set_children_action.dart';
+import 'package:business/redux/nodes/actions/set_point_filter_action.dart';
 import 'package:business/redux/nodes/actions/stage_point_edit_action.dart';
 import 'package:business/redux/nodes/actions/stage_value_action.dart';
-import 'package:business/wyrm/keys.dart';
+import 'package:business/redux/nodes/actions/toggle_node_action.dart';
 import 'package:business/wyrm/points.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -66,7 +67,7 @@ void main() {
               : grants
                     .map((g) => g.$2)
                     .reduce(
-                      (a, b) => levelRank(a) >= levelRank(b) ? a : b,
+                      (a, b) => Perm.fromName(a)! >= Perm.fromName(b)! ? a : b,
                     ),
           grants: grants,
         ),
@@ -139,35 +140,64 @@ void main() {
       );
     });
 
-    test('toggle, range and all check rows; Esc clears', () {
-      final order = ['$dev/a', '$dev/b', '$dev/c', '$dev/d'];
+    test(
+      'toggle, range and all check the rows on screen; Esc clears',
+      () async {
+        s.dispatchSync(
+          SetChildrenAction(
+            dev,
+            [point('a'), point('b'), point('c'), point('d')].lock,
+          ),
+        );
+        await s.dispatchAndWait(SelectNodeAction(dev));
+        final order = ['$dev/a', '$dev/b', '$dev/c', '$dev/d'];
+        s
+          ..dispatchSync(CheckPointsAction.toggle('$dev/b'))
+          ..dispatchSync(CheckPointsAction.range('$dev/d'));
+        expect(s.state.nodes.checked, {'$dev/b', '$dev/c', '$dev/d'});
+
+        s.dispatchSync(CheckPointsAction.toggle('$dev/c'));
+        expect(s.state.nodes.checked, {'$dev/b', '$dev/d'});
+
+        s.dispatchSync(CheckPointsAction.all());
+        expect(s.state.nodes.checked, order.toSet());
+        s.dispatchSync(CheckPointsAction.all());
+        expect(s.state.nodes.checked, isEmpty);
+
+        s
+          ..dispatchSync(CheckPointsAction.toggle('$dev/a'))
+          ..dispatchSync(MarkNodesAction.toggle(dev))
+          ..dispatchSync(ClearSelectionAction());
+        expect(s.state.nodes.checked, isEmpty);
+        expect(s.state.nodes.marked, isEmpty);
+        expect(s.state.nodes.point, isNull);
+      },
+    );
+
+    test('a range checks only the rows that pass the filter', () async {
+      s.dispatchSync(
+        SetChildrenAction(dev, [point('a1'), point('b'), point('a2')].lock),
+      );
+      await s.dispatchAndWait(SelectNodeAction(dev));
       s
-        ..dispatchSync(CheckPointsAction.toggle('$dev/b'))
-        ..dispatchSync(CheckPointsAction.range('$dev/d', order));
-      expect(s.state.nodes.checked, {'$dev/b', '$dev/c', '$dev/d'});
-
-      s.dispatchSync(CheckPointsAction.toggle('$dev/c'));
-      expect(s.state.nodes.checked, {'$dev/b', '$dev/d'});
-
-      s.dispatchSync(CheckPointsAction.all(order));
-      expect(s.state.nodes.checked, order.toSet());
-      s.dispatchSync(CheckPointsAction.all(order));
-      expect(s.state.nodes.checked, isEmpty);
-
-      s
-        ..dispatchSync(CheckPointsAction.toggle('$dev/a'))
-        ..dispatchSync(MarkNodesAction.toggle(dev))
-        ..dispatchSync(ClearSelectionAction());
-      expect(s.state.nodes.checked, isEmpty);
-      expect(s.state.nodes.marked, isEmpty);
-      expect(s.state.nodes.point, isNull);
+        ..dispatchSync(SetPointFilterAction('a'))
+        ..dispatchSync(CheckPointsAction.toggle('$dev/a1'))
+        ..dispatchSync(CheckPointsAction.range('$dev/a2'));
+      expect(s.state.nodes.checked, {'$dev/a1', '$dev/a2'});
     });
 
     test('Shift-click in the tree marks from the selected node', () async {
-      const order = ['wy/central/downstream', 'a', 'b', 'c'];
-      await s.dispatchAndWait(SelectNodeAction('wy/central/downstream'));
-      s.dispatchSync(MarkNodesAction.range('b', order));
-      expect(s.state.nodes.marked, {'wy/central/downstream', 'a', 'b'});
+      const down = 'wy/central/downstream';
+      NodeInfo link(String n) =>
+          NodeInfo(key: '$down/$n', name: n, hasChildren: true);
+      s
+        ..dispatchSync(
+          SetChildrenAction(down, [link('a'), link('b'), link('c')].lock),
+        )
+        ..dispatchSync(ToggleNodeAction(down, open: true));
+      await s.dispatchAndWait(SelectNodeAction(down));
+      s.dispatchSync(MarkNodesAction.range('$down/b'));
+      expect(s.state.nodes.marked, {down, '$down/a', '$down/b'});
     });
   });
 
@@ -186,7 +216,7 @@ void main() {
       expect(s.state.changes.view, ['edit:$dev/temp']);
       final c = s.state.changes.table['edit:$dev/temp']!;
       expect((c.field, c.from, c.to), ('poll, unit', '1 s, °C', '500 ms, K'));
-      expect((c.action, c.level), ('edit', 'config'));
+      expect((c.action, c.level), ('edit', Perm.config));
       expect(c.args.unlock, {
         'table': 'holding',
         'addr': 10,
@@ -220,8 +250,13 @@ void main() {
 
   test('apply leaves the changes the user lacks the level for', () async {
     await logIn(grants: const [('wy/central/downstream/**', 'write')]);
-    api.metas['$dev/temp'] = pointMeta();
-    await s.dispatchAndWait(RetrieveDetailsAction(['$dev/temp']));
+    api
+      ..metas['$dev/temp'] = pointMeta()
+      ..metas['$dev/sp'] = NodeMeta(
+        ty: TypeCode.number,
+        writable: Writable.write,
+      );
+    await s.dispatchAndWait(RetrieveDetailsAction(['$dev/temp', '$dev/sp']));
     s
       ..dispatchSync(StagePointEditAction('$dev/temp', 'poll_s', 0.5))
       ..dispatchSync(StageValueAction('$dev/sp', 21, from: '20'));

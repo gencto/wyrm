@@ -1,5 +1,6 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/staged_change.dart';
+import 'package:wyrm_client/wyrm_client.dart' show Perm;
 
 import '../../../wyrm/calls.dart';
 import '../../app_state.dart';
@@ -44,7 +45,7 @@ class StageInvokeAction extends Action {
             key: key,
             field: display ?? action,
             to: shown.isEmpty ? action : shown,
-            level: 'config',
+            level: Perm.config,
             action: action,
             args: sent.lock,
           ),

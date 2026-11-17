@@ -166,7 +166,7 @@ fn wyrm_core_hex(s: &str) -> Result<[u8; 32], Error> {
 }
 
 fn getrandom_fill(b: &mut [u8]) -> Result<(), Error> {
-    getrandom::fill(b).map_err(|e| format!("no randomness: {e}").into())
+    wyrm_core::rand::fill(b).map_err(|e| e.to_string().into())
 }
 
 fn write_private(path: &Path, text: &str) -> std::io::Result<()> {
@@ -1532,12 +1532,13 @@ impl Link for Engine {
             (id, "rollback") => {
                 // Deploy an earlier definition as a new version, with the
                 // same checks as `deploy` (ADR 0008).
-                let want = match &args {
-                    Value::Map(m) => m.get("version").and_then(Value::as_f64),
+                let want: u64 = match &args {
+                    Value::Map(m) => m.get("version"),
                     _ => None,
                 }
                 .ok_or_else(|| LinkError::invalid_parameter("version: required"))?
-                    as u64;
+                .to_int()
+                .map_err(|e| LinkError::invalid_parameter(format!("version: {e}")))?;
                 let current = st
                     .flows
                     .get(id)

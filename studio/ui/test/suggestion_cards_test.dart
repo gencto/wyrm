@@ -5,6 +5,8 @@ import 'package:ui/assistant/blocked.dart';
 import 'package:ui/assistant/plan_card.dart';
 import 'package:ui/assistant/stopped_card.dart';
 import 'package:ui/assistant/suggestion_tile.dart';
+import 'package:ui/indicators/level_badge.dart';
+import 'package:ui/models/disabled.dart';
 import 'package:ui/theme/common.dart';
 import 'package:ui/theme/extensions/colors.dart';
 
@@ -33,7 +35,7 @@ void main() {
                 id: 'b',
                 label: 'Undo',
                 changes: 1,
-                blocked: BlockedLacks('needs write on agent'),
+                blocked: BlockedLacks(NeedsLevel(AccessLevel.write, 'agent')),
               ),
             ],
           ),
@@ -61,7 +63,7 @@ void main() {
                 n: 1,
                 verb: .set,
                 node: 'wy/plant/downstream/m/a',
-                level: 'write',
+                level: AccessLevel.write,
                 warn: 'at the limit',
                 modelWarn: 'see [the manual](https://example.org)',
               ),

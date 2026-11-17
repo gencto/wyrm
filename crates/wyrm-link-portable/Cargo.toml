@@ -9,7 +9,7 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
-wyrm-core.workspace = true
+wyrm-core = { workspace = true, features = ["rand"] }
 wyrm-link-api.workspace = true
 wyrm-link-sdk.workspace = true
 wyrm-client.workspace = true
@@ -23,7 +23,6 @@ rustls = { workspace = true, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { workspace = true, features = ["std"] }
 rustls-native-certs.workspace = true
 # random_bytes (ADR 0030): the OS source
-getrandom.workspace = true
 
 [dev-dependencies]
 rcgen.workspace = true
