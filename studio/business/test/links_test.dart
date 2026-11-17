@@ -150,4 +150,29 @@ void main() {
       expect(s.state.quarantine.view, isEmpty);
     },
   );
+
+  test('a quarantine entry of a kind Studio does not know is not shown as a '
+      'link', () async {
+    api.children_['wy/central/sys/quarantine'] = [
+      Child('plc-gw-7', NodeMeta()),
+      Child('gw-9', NodeMeta()),
+      Child('old', NodeMeta()),
+    ];
+    api.metas['wy/central/sys/quarantine/plc-gw-7'] = NodeMeta(
+      attr: {'kind': const VStr('link')},
+    );
+    api.metas['wy/central/sys/quarantine/gw-9'] = NodeMeta(
+      attr: {'kind': const VStr('gateway')},
+      actions: {'approve': ActionMeta()},
+    );
+    // no `kind` at all: not a link by default
+    api.metas['wy/central/sys/quarantine/old'] = NodeMeta();
+
+    await s.dispatchAndWait(RetrieveQuarantineAction());
+
+    expect(s.state.quarantine.view, ['plc-gw-7']);
+    expect(s.state.quarantine.table.keys, ['plc-gw-7']);
+    // no Authorize form is offered for what is not shown
+    expect(s.state.quarantine.forms.keys, isEmpty);
+  });
 }

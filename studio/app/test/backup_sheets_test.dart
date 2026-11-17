@@ -1,21 +1,40 @@
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:app/common/backup_sheets.dart';
 import 'package:app/common/files.dart';
+import 'package:app/mappers/backup_mappers.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
 import 'package:models/backup_job.dart';
+import 'package:models/backup_place.dart';
 import 'package:models/backup_sealed.dart';
+import 'package:models/backup_section.dart';
+import 'package:models/backup_stage.dart';
 import 'package:models/backup_status.dart';
+import 'package:models/backup_step.dart';
 import 'package:models/restore_check.dart';
+import 'package:models/restore_keys.dart';
+import 'package:models/restore_link_state.dart';
+import 'package:models/restore_mode.dart';
+import 'package:models/schema_pair.dart';
 import 'package:models/send_link.dart';
 import 'package:ui/indicators/level_badge.dart';
 import 'package:ui/models/disabled.dart';
 import 'package:ui/models/tone.dart';
+import 'package:ui/overlays/backup_data.dart';
+import 'package:ui/overlays/backup_sheet.dart';
 import 'package:ui/overlays/task_sheet.dart';
+
+// The data of these tests is made as the app makes it: the domain values
+// of `models` (read from their wire names, as the decoders read them)
+// through the mappers of `app/lib/mappers/backup_mappers.dart`.
+
+/// The sections of [names] (the broker's names) as the dialog's parts.
+Set<BackupPart> _parts(Iterable<String> names) => {
+  for (final n in names) BackupSection.fromWire(n)!.part,
+};
 
 const _sections = [
   'control',
@@ -33,7 +52,7 @@ BackupFormData _form({
   bool exportSecrets = true,
   bool viaUpstream = false,
   int passphrase = 0,
-  String where = 'computer',
+  BackupPlace where = BackupPlace.computer,
   List<SendLink> sendLinks = const [],
   String? sendConnection,
   String? link,
@@ -41,34 +60,41 @@ BackupFormData _form({
 }) => BackupFormData(
   site: 'plant',
   link: link,
-  sections: link == null ? _sections : const ['settings', 'data', 'package'],
-  chosen: chosen,
-  estimate: const {'control': 1200, 'keys': 48, 'storage': 2000},
+  sections: _parts(
+    link == null ? _sections : const ['settings', 'data', 'package'],
+  ).toList(),
+  chosen: _parts(chosen),
+  estimate: {
+    BackupSection.control.part: 1200,
+    BackupSection.keys.part: 48,
+    BackupSection.storage.part: 2000,
+  },
   linkIds: const ['modbus', 's7'],
   exportSecrets: exportSecrets,
   viaUpstream: viaUpstream,
   passphraseLength: passphrase,
-  where: where,
-  sendLinks: sendLinks,
+  where: where.target,
+  sendLinks: [for (final l in sendLinks) l.target],
   sendLink: sendLinks.isEmpty ? null : sendLinks.first.link,
   connections: const ['s3'],
   sendConnection: sendConnection,
   reason: reason,
 );
 
-BackupJob _job({
+BackupJobFacts _job({
   String status = 'done',
   List<String> sections = const ['control', 'storage'],
   String sealed = 'none',
   String sendStatus = '',
+  BackupStep step = const BackupStep.section(BackupSection.storage),
 }) => BackupJob(
   id: 'b1',
   name: 'plant-2026-11-13-1540.wyrm-backup',
-  sections: sections.lock,
+  sections: [for (final s in sections) BackupSection.fromWire(s)!].lock,
   sealed: BackupSealed.fromWire(sealed)!,
   status: BackupStatus.fromWire(status)!,
   progress: status == 'done' ? 100 : 46,
-  step: 'storage',
+  step: step,
   size: 4096,
   sha256: 'ab' * 32,
   expires: DateTime.utc(2026, 11, 20, 15, 40, 12),
@@ -77,35 +103,40 @@ BackupJob _job({
   sendProgress: 40,
   sentTo: 'files/s3/files/backups/x',
   sendError: 'the name exists',
-);
+).facts;
 
-RestoreCheck _check({
+RestoreCheckData _check({
   String keys = 'same',
   bool sameSite = true,
   List<String> problems = const [],
 }) => RestoreCheck(
   site: sameSite ? 'plant' : 'other',
   sameSite: sameSite,
+  created: DateTime(2026, 11, 20, 15, 40),
   broker: '0.1.0',
-  sealed: 'passphrase',
+  sealed: BackupSealed.passphrase,
+  schemas: const {'registry': SchemaPair(backup: 18, here: 19)}.lock,
   sections: const {
-    'control': 1200,
-    'keys': 48,
-    'history': 9000,
-    'links': 300,
-    'storage': 20,
-    'config': 6,
+    BackupSection.control: 1200,
+    BackupSection.keys: 48,
+    BackupSection.history: 9000,
+    BackupSection.links: 300,
+    BackupSection.storage: 20,
+    BackupSection.config: 6,
   }.lock,
-  keys: keys,
+  keys: RestoreKeys.fromWire(keys)!,
   keysDiffer: [if (keys == 'differ') 'secrets.bin'].lock,
-  links: const {'modbus': 'exists', 'new1': 'new'}.lock,
+  links: const {
+    'modbus': RestoreLinkState.exists,
+    'new1': RestoreLinkState.fresh,
+  }.lock,
   problems: problems.lock,
-);
+).data;
 
 RestoreData _restore({
-  RestoreCheck? check,
+  RestoreCheckData? check,
   Set<String> chosen = const {'control', 'links', 'storage'},
-  String mode = 'add',
+  RestoreMode mode = RestoreMode.add,
   bool exportSecrets = true,
   bool viaUpstream = false,
   int passphrase = 0,
@@ -117,19 +148,35 @@ RestoreData _restore({
   uploaded: 100,
   hasUpload: true,
   check: check,
-  chosen: chosen,
-  mode: mode,
+  chosen: _parts(chosen),
+  mode: mode.how,
+  modeTakes: {for (final s in mode.sections) s.part},
   exportSecrets: exportSecrets,
   viaUpstream: viaUpstream,
   passphraseLength: passphrase,
   replaceKeys: replaceKeys,
 );
 
-SheetSection _section(TaskSheetVm vm, String id) =>
-    vm.blocks.whereType<SheetSection>().firstWhere((s) => s.id == id);
+/// The card of the section the broker names [id].
+SheetSection _section(TaskSheetVm vm, String id) => vm.blocks
+    .whereType<SheetSection>()
+    .firstWhere((s) => s.name == BackupSection.fromWire(id)!.part.label);
 
-SheetChoice _choice(TaskSheetVm vm, String id) =>
-    vm.blocks.whereType<SheetChoice>().firstWhere((c) => c.id == id);
+/// The option of the choice labelled [label] that says [option].
+SheetChoiceOption _option(TaskSheetVm vm, String label, String option) => vm
+    .blocks
+    .whereType<SheetChoice>()
+    .firstWhere((c) => c.label == label)
+    .options
+    .firstWhere((o) => o.label == option);
+
+/// Why a file store cannot be chosen, or null.
+String? _storeReason(TaskSheetVm vm) =>
+    _option(vm, S.current.bakWhere, BackupTarget.store.label).reason;
+
+/// Why a replace cannot be chosen, or null.
+String? _replaceReason(TaskSheetVm vm) =>
+    _option(vm, S.current.rstHow, RestoreHow.replace.label).reason;
 
 /// The states of the backup dialogs (boards `Backup*`, `LinkBackup`, spec
 /// `updates-backups.md` §2, §4).
@@ -140,7 +187,7 @@ void main() {
     test('keys go in only with a passphrase the broker takes', () {
       final none = _form();
       expect(none.withKeys, isFalse);
-      expect(none.sent, {'control', 'storage'});
+      expect(none.sent, _parts(const ['control', 'storage']));
       final keys = _section(backupFormSheet(none), 'keys');
       expect(keys.on, isFalse);
       expect(keys.locked, isTrue);
@@ -190,16 +237,18 @@ void main() {
 
     test('a file store is offered only when the host lists one', () {
       final none = backupFormSheet(_form());
-      expect(_choice(none, 'where').reasons['store'], contains('send_links'));
+      expect(_storeReason(none), contains('send_links'));
 
       const links = [SendLink(link: 'files', folder: 'site/backups')];
-      final pick = backupFormSheet(_form(where: 'store', sendLinks: links));
-      expect(_choice(pick, 'where').reasons, isEmpty);
+      final pick = backupFormSheet(
+        _form(where: BackupPlace.store, sendLinks: links),
+      );
+      expect(_storeReason(pick), isNull);
       // No connection yet: the primary waits for one.
       expect(pick.primaryEnabled, isFalse);
 
       final ready = backupFormSheet(
-        _form(where: 'store', sendLinks: links, sendConnection: 's3'),
+        _form(where: BackupPlace.store, sendLinks: links, sendConnection: 's3'),
       );
       expect(ready.primaryEnabled, isTrue);
       expect(
@@ -212,9 +261,9 @@ void main() {
 
       // A backup with the keys is never sent.
       final keys = backupFormSheet(
-        _form(where: 'store', sendLinks: links, passphrase: 14),
+        _form(where: BackupPlace.store, sendLinks: links, passphrase: 14),
       );
-      expect(_choice(keys, 'where').reasons['store'], contains('never sent'));
+      expect(_storeReason(keys), contains('never sent'));
     });
 
     test('without config the dialog is locked with the reason', () {
@@ -269,12 +318,12 @@ void main() {
         vm.blocks.whereType<SheetBanner>().single.text,
         'no room on the disk',
       );
-      expect(d.primary, 'remove');
+      expect(d.primary, BackupDo.remove);
     });
 
     test('done: download, then show; cancel while it runs', () {
       final done = BackupJobData(job: _job(), site: 'plant');
-      expect(done.primary, 'download');
+      expect(done.primary, BackupDo.download);
       expect(backupJobSheet(done).primary, 'Download…');
 
       final running = BackupJobData(
@@ -283,7 +332,7 @@ void main() {
         downloading: true,
         downloaded: 1024,
       );
-      expect(running.primary, 'cancel');
+      expect(running.primary, BackupDo.cancel);
       expect(
         backupJobSheet(running).blocks.whereType<SheetBar>().single.percent,
         25,
@@ -294,7 +343,7 @@ void main() {
         site: 'plant',
         savedTo: '/tmp/x.wyrm-backup',
       );
-      expect(saved.primary, 'show');
+      expect(saved.primary, BackupDo.show);
       expect(
         backupJobSheet(saved).blocks.whereType<SheetText>().map((t) => t.text),
         contains(contains('/tmp/x.wyrm-backup')),
@@ -305,14 +354,14 @@ void main() {
       final d = BackupJobData(
         job: _job(sections: const ['control', 'keys'], sealed: 'passphrase'),
         site: 'plant',
-        where: 'store',
-        sendLinks: const [SendLink(link: 'files')],
+        where: BackupTarget.store,
+        sendLinks: [const SendLink(link: 'files').target],
         sendLink: 'files',
         sendConnection: 's3',
       );
       final vm = backupJobSheet(d);
-      expect(d.primary, 'show');
-      expect(_choice(vm, 'where').reasons['store'], contains('never sent'));
+      expect(d.primary, BackupDo.show);
+      expect(_storeReason(vm), contains('never sent'));
       expect(
         vm.blocks.whereType<SheetText>().first.text,
         contains('administrator of plant'),
@@ -323,26 +372,26 @@ void main() {
       BackupJobData data(String sendStatus) => BackupJobData(
         job: _job(sendStatus: sendStatus),
         site: 'plant',
-        where: 'store',
-        sendLinks: const [SendLink(link: 'files')],
+        where: BackupTarget.store,
+        sendLinks: [const SendLink(link: 'files').target],
         sendLink: 'files',
         connections: const ['s3'],
         sendConnection: 's3',
       );
-      expect(data('').primary, 'send');
+      expect(data('').primary, BackupDo.send);
       expect(backupJobSheet(data('')).primaryEnabled, isTrue);
 
       final sending = backupJobSheet(data('sending'));
       expect(sending.blocks.whereType<SheetBar>().single.percent, 40);
       // No second send while one runs.
-      expect(data('sending').primary, 'show');
+      expect(data('sending').primary, BackupDo.show);
 
       final failed = backupJobSheet(data('failed'));
       expect(
         failed.blocks.whereType<SheetText>().map((t) => t.text),
         contains('Not sent: the name exists'),
       );
-      expect(data('failed').primary, 'send');
+      expect(data('failed').primary, BackupDo.send);
     });
   });
 
@@ -367,7 +416,7 @@ void main() {
 
     test('add takes links and storage only', () {
       final d = _restore(check: _check());
-      expect(d.sent, {'links', 'storage'});
+      expect(d.sent, _parts(const ['links', 'storage']));
       final vm = restoreSheet(d);
       expect(_section(vm, 'control').locked, isTrue);
       expect(_section(vm, 'control').on, isFalse);
@@ -379,7 +428,7 @@ void main() {
     test('replace is not offered through an upstream, add is', () {
       final d = _restore(check: _check(), viaUpstream: true);
       final vm = restoreSheet(d);
-      expect(_choice(vm, 'mode').reasons['replace'], contains('upstream'));
+      expect(_replaceReason(vm), contains('upstream'));
       expect(vm.primaryEnabled, isTrue);
     });
 
@@ -387,7 +436,7 @@ void main() {
       final vm = restoreSheet(
         _restore(check: _check(problems: const ['registry SCHEMA 21 > 19'])),
       );
-      expect(_choice(vm, 'mode').reasons['replace'], isNotNull);
+      expect(_replaceReason(vm), isNotNull);
       expect(
         vm.blocks.whereType<SheetCard>().map((c) => c.title),
         contains('registry SCHEMA 21 > 19'),
@@ -403,13 +452,13 @@ void main() {
       }) => _restore(
         check: _check(),
         chosen: chosen,
-        mode: 'replace',
+        mode: RestoreMode.replace,
         exportSecrets: exportSecrets,
         viaUpstream: viaUpstream,
         passphrase: passphrase,
       );
-      expect(data().sent, chosen);
-      expect(data(exportSecrets: false).sent, {'control'});
+      expect(data().sent, _parts(chosen));
+      expect(data(exportSecrets: false).sent, _parts(const ['control']));
       expect(data(exportSecrets: false).keysLocked, contains('export_secrets'));
       expect(data(viaUpstream: true).keysLocked, contains('upstream'));
       expect(data(passphrase: 0).keysLocked, contains('passphrase'));
@@ -424,7 +473,7 @@ void main() {
           _restore(
             check: _check(keys: keys),
             chosen: const {'control', 'keys'},
-            mode: 'replace',
+            mode: RestoreMode.replace,
             passphrase: 14,
             replaceKeys: replaceKeys,
           );
@@ -433,7 +482,8 @@ void main() {
       expect(
         held.blocks
             .whereType<SheetOption>()
-            .firstWhere((o) => o.id == 'replaceKeys')
+            // the confirmation of the keys comes before the rights
+            .first
             .label,
         contains('secrets.bin'),
       );
@@ -448,7 +498,8 @@ void main() {
       expect(
         other.blocks
             .whereType<SheetOption>()
-            .firstWhere((o) => o.id == 'replaceKeys')
+            // the confirmation of the keys comes before the rights
+            .first
             .label,
         contains('enrol again'),
       );
@@ -471,47 +522,52 @@ void main() {
       final added = restoreSheet(
         const RestoreData(
           site: 'plant',
-          stage: 'restored',
+          view: RestoreView.restored,
           result: 'link new1',
         ),
       );
       expect(added.blocks.whereType<SheetBanner>().single.text, 'link new1');
       final restart = restoreSheet(
-        const RestoreData(
+        RestoreData(
           site: 'plant',
-          stage: 'restarting',
-          result: 'control, keys',
+          view: BackupStage.restarting.restoreView!,
+          staged: _parts(const ['control', 'keys']).toList(),
         ),
       );
       expect(restart.blocks.whereType<SheetSpinner>(), hasLength(1));
+      // the staged sections are said in the language on screen
+      expect(
+        restart.blocks.whereType<SheetFacts>().single.facts.single.value,
+        '${BackupPart.control.label}, ${BackupPart.keys.label}',
+      );
     });
   });
 
   group('after a replace (review point 5)', () {
-    TaskSheetVm at(String stage, [String? result]) => restoreSheet(
-      RestoreData(site: 'plant', stage: stage, result: result),
+    TaskSheetVm at(BackupStage stage, [String? result]) => restoreSheet(
+      RestoreData(site: 'plant', view: stage.restoreView!, result: result),
     );
 
     test('applied, not applied, unknown', () {
       expect(
-        at('applied').blocks.whereType<SheetBanner>().single.tone,
+        at(BackupStage.applied).blocks.whereType<SheetBanner>().single.tone,
         Tone.good,
       );
-      final failed = at('not-applied', 'registry: bad chain');
+      final failed = at(BackupStage.notApplied, 'registry: bad chain');
       expect(failed.blocks.whereType<SheetBanner>().single.tone, Tone.bad);
       expect(
         failed.blocks.whereType<SheetBanner>().single.text,
         'registry: bad chain',
       );
       expect(
-        at('unknown').blocks.whereType<SheetBanner>().single.tone,
+        at(BackupStage.unknown).blocks.whereType<SheetBanner>().single.tone,
         Tone.warn,
       );
-      expect(at('applied').primary, isNull);
+      expect(at(BackupStage.applied).primary, isNull);
     });
 
     test('lost: the user is sent to log in', () {
-      final vm = at('lost');
+      final vm = at(BackupStage.lost);
       expect(
         vm.blocks.whereType<SheetBanner>().single.text,
         contains('Log in'),

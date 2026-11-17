@@ -253,7 +253,12 @@ class LinkInstallApp {
         'url: host not reachable',
       )
       ..invokes['$sys/backups ▸ restore_begin'] = [
-        Value.from({'upload': 'u1', 'part_size': 1 << 20}),
+        // as the broker answers: {upload, part_size, max_part}
+        Value.from({
+          'upload': 'u1',
+          'part_size': 1 << 20,
+          'max_part': 16 << 20,
+        }),
       ]
       ..invokes['$sys/backups ▸ restore_part'] = const [VNull()]
       ..invokes['$sys/links ▸ install_backup'] = [

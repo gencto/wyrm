@@ -41,6 +41,7 @@ import 'package:business/redux/site/actions/set_connected_action.dart';
 import 'package:business/redux/site/actions/view_site_action.dart';
 import 'package:business/redux/updates/actions/open_update_action.dart';
 import 'package:business/wyrm/decode/backup_job.dart';
+import 'package:business/wyrm/failures.dart';
 import 'package:business/wyrm/package_check.dart';
 import 'package:business/wyrm/transfer.dart';
 import 'package:crypto/crypto.dart';
@@ -51,6 +52,7 @@ import 'package:models/backup_sealed.dart';
 import 'package:models/backup_section.dart';
 import 'package:models/backup_stage.dart';
 import 'package:models/backup_status.dart';
+import 'package:models/error_hint.dart';
 import 'package:models/install_path.dart';
 import 'package:models/install_phase.dart';
 import 'package:models/install_source.dart';
@@ -870,6 +872,70 @@ void main() {
       expect(s.state.backups.stage, BackupStage.restore);
     });
 
+    group('an answer Studio cannot read (studio-rules §8)', () {
+      test('a check with a name it does not know shows no check', () async {
+        await uploaded();
+        for (final over in const <Map<String, Value>>[
+          // none of these is read as `none`, the valid default it had
+          {'keys': VStr('rotated')},
+          {'sealed': VStr('hsm')},
+          {
+            'sections': VMap({'control': VInt(1200), 'flows': VInt(9)}),
+          },
+          {
+            'links': VMap({'modbus': VStr('older')}),
+          },
+          {'same_site': VStr('yes')},
+        ]) {
+          api.invokes['$_b ▸ restore_check'] = [
+            VMap({...check.v, ...over}),
+          ];
+          final status = await s.dispatchAndWait(CheckRestoreAction());
+
+          expect(status.isCompletedFailed, isTrue, reason: '$over');
+          final e = status.originalError! as StudioException;
+          expect(e.error.hint, ErrorHint.unreadableAnswer, reason: '$over');
+          expect(e.error.call, 'restore_check');
+          // nothing to restore on: no check, nothing ticked
+          expect(s.state.backups.check, isNull, reason: '$over');
+          expect(s.state.backups.chosen, isEmpty, reason: '$over');
+          expect(s.state.backups.stage, BackupStage.restore);
+        }
+      });
+
+      test('an apply answered in another shape moves no stage', () async {
+        await uploaded();
+        api.invokes['$_b ▸ restore_check'] = [check];
+        await s.dispatchAndWait(CheckRestoreAction());
+        for (final answer in const <Value>[
+          VNull(),
+          // no mode: whether the broker restarts is not guessed
+          VMap({
+            'sections': VArray([VStr('control')]),
+            'restart': VBool(true),
+          }),
+          VMap({'mode': VStr('merge'), 'restart': VBool(false)}),
+          VMap({
+            'mode': VStr('replace'),
+            'sections': VArray([VStr('flows')]),
+            'restart': VBool(true),
+          }),
+        ]) {
+          api.invokes['$_b ▸ restore_apply'] = [answer];
+          final status = await s.dispatchAndWait(ApplyRestoreAction());
+
+          expect(status.isCompletedFailed, isTrue, reason: '$answer');
+          expect(
+            (status.originalError! as StudioException).error.hint,
+            ErrorHint.unreadableAnswer,
+          );
+          expect(s.state.backups.stage, BackupStage.restore);
+          expect(s.state.backups.result, isNull);
+          expect(s.state.backups.staged, isEmpty);
+        }
+      });
+    });
+
     group('after a replace', () {
       // Review point 5.
       Future<void> restarting() async {
@@ -1101,6 +1167,100 @@ void main() {
     expect(s.state.updates.package, isNull);
     expect(s.state.brokerUpdate.stage, isNull);
     expect(s.state.backups.sections, isEmpty);
+  });
+
+  group('a backup answered in a shape Studio cannot read', () {
+    test('create without an id opens no job', () async {
+      api.invokes['$_b ▸ create'] = [const VMap({})];
+      s.dispatchSync(OpenBackupAction());
+
+      final status = await s.dispatchAndWait(CreateBackupAction());
+
+      expect(status.isCompletedFailed, isTrue);
+      expect(
+        (status.originalError! as StudioException).error.hint,
+        ErrorHint.unreadableAnswer,
+      );
+      expect(s.state.backups.stage, BackupStage.choose);
+      expect(s.state.backups.job, isNull);
+    });
+
+    test(
+      'an estimate with a section it does not know shows no sizes',
+      () async {
+        api.invokes['$_b ▸ estimate'] = [
+          const VMap({
+            'sections': VMap({'control': VInt(1200), 'flows': VInt(9)}),
+          }),
+        ];
+        s.dispatchSync(OpenBackupAction());
+
+        await s.dispatchAndWait(EstimateBackupAction());
+
+        expect(s.state.backups.estimate, isEmpty);
+      },
+    );
+
+    test('a part without its bytes or its end saves nothing', () async {
+      final written = <int>[];
+      for (final part in <Map<String, Value>>[
+        {
+          'offset': const VInt(0),
+          'size': const VInt(10),
+          'eof': const VBool(true),
+        },
+        {
+          'offset': const VInt(0),
+          'size': const VInt(10),
+          'data': VBytes(_bytes(10)),
+        },
+        {
+          'offset': const VInt(5),
+          'size': const VInt(10),
+          'eof': const VBool(true),
+          'data': VBytes(_bytes(10)),
+        },
+      ]) {
+        api.invokes['$_b/b1 ▸ download_part'] = [VMap(part)];
+        await expectLater(
+          downloadParts(
+            api,
+            '$_b/b1',
+            write: (data) async => written.addAll(data),
+          ),
+          throwsA(
+            isA<StudioException>().having(
+              (e) => e.error.hint,
+              'hint',
+              ErrorHint.unreadableAnswer,
+            ),
+          ),
+          reason: '$part',
+        );
+      }
+      expect(written, isEmpty);
+    });
+
+    test('restore_begin without a part size sends no byte', () async {
+      api
+        ..invokes['$_b ▸ restore_begin'] = [
+          const VMap({'upload': VStr('u1')}),
+        ]
+        ..invokes['$_b ▸ restore_part'] = [const VMap({})];
+      await expectLater(
+        uploadParts(
+          api,
+          _b,
+          size: 10,
+          read: (o, n) async => _bytes(10).sublist(o, o + n),
+        ),
+        throwsA(isA<StudioException>()),
+      );
+      expect(
+        api.calls.where((c) => c.op == 'invoke' && c.action == 'restore_part'),
+        isEmpty,
+      );
+    });
   });
 
   group('Add a link ▸ From backup', () {

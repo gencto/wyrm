@@ -26,7 +26,6 @@ Widget over(Widget page, TaskSheetVm sheet, {double width = 680}) => Stack(
         onPrimary: () {},
         onSecondary: () {},
         onToggle: (_, {required on}) {},
-        onPick: (_, _) {},
         onText: (_, _) {},
         onAction: (_) {},
       ),
@@ -41,12 +40,11 @@ List<SheetChip> _ranges(int on) => [
     'Last 90 days',
     'All',
   ].indexed)
-    SheetChip(id: '$i', label: t, on: i == on),
+    SheetChip(label: t, on: i == on, onTap: () {}),
 ];
 
 List<SheetBlock> _sections({bool restore = false}) => [
   SheetSection(
-    id: 'control',
     name: 'Control plane',
     size: '1.2 MiB',
     detail: 'Registry (links, grants, peers, tokens), users and roles, flow store, audit. Needed to restore anything else.',
@@ -55,7 +53,6 @@ List<SheetBlock> _sections({bool restore = false}) => [
     tag: restore ? null : 'always',
   ),
   const SheetSection(
-    id: 'keys',
     name: 'Keys and secrets',
     size: '48 KiB',
     detail: 'Site CA, state and secrets keys, gateway keys, link tokens and sealed secrets. Sealed with the passphrase below.',
@@ -64,21 +61,18 @@ List<SheetBlock> _sections({bool restore = false}) => [
     tagTone: Tone.warn,
   ),
   const SheetSection(
-    id: 'dataflows',
     name: 'Dataflows',
     size: '310 KiB',
     detail: 'The artifacts of the flow engine; the flows themselves are in the control plane.',
     on: true,
   ),
   const SheetSection(
-    id: 'storage',
     name: 'Broker storage',
     size: '2.4 MiB',
     detail: 'The storage tree and its values, with a JSON export for people.',
     on: true,
   ),
   SheetSection(
-    id: 'history',
     name: 'History',
     size: '431 MiB',
     detail: 'The recorded days of the historian and its index.',
@@ -86,7 +80,6 @@ List<SheetBlock> _sections({bool restore = false}) => [
     chips: restore ? const [] : _ranges(1),
   ),
   SheetSection(
-    id: 'links',
     name: 'Links',
     size: '22 MiB',
     detail: 'Per link: its definition, its secrets and its private data, sealed. Their packages go in too.',
@@ -106,18 +99,16 @@ List<SheetBlock> _sections({bool restore = false}) => [
               'dql',
               'uplink',
             ])
-              SheetChip(id: id, label: id, on: true),
+              SheetChip(label: id, on: true, onTap: () {}),
           ],
   ),
   const SheetSection(
-    id: 'packages',
     name: 'Installed packages',
     size: '18 MiB',
     detail: 'Every installed package as its files, so a restore needs no repository.',
     on: true,
   ),
   SheetSection(
-    id: 'config',
     name: 'wyrmd.json5 (read only)',
     size: '6 KiB',
     detail: 'The configuration with secrets masked, for reference; a restore never writes it.',
@@ -136,20 +127,17 @@ Widget backupChoose() => over(
       const SheetLabel('What goes in'),
       ..._sections(),
       const SheetField(
-        id: 'passphrase',
         label: 'Passphrase for the keys and secrets',
         secret: true,
         note: 'Seals Keys and Secrets (Argon2id, ChaCha20-Poly1305), as wyrmd keys export. Without it they stay out. Studio never stores it.',
       ),
       const SheetChoice(
-        id: 'where',
         label: 'Where',
         options: [
-          ('computer', 'This computer'),
-          ('store', 'File store link…'),
-          ('broker', 'Keep on the broker'),
+          SheetChoiceOption(label: 'This computer', selected: true),
+          SheetChoiceOption(label: 'File store link…'),
+          SheetChoiceOption(label: 'Keep on the broker'),
         ],
-        selected: 'computer',
         note: 'A file store link (S3, WebDAV, a USB disk via localfs) takes it without passing through this computer.',
       ),
     ],
@@ -252,23 +240,19 @@ Widget backupRestore() => over(
       const SheetLabel('In the file'),
       ..._sections(restore: true),
       const SheetChoice(
-        id: 'mode',
         label: 'How',
         lines: true,
         options: [
-          (
-            'replace',
-            'Replace what is ticked and restart the broker once (a backup of what it replaces is made first)',
+          SheetChoiceOption(
+            label: 'Replace what is ticked and restart the broker once (a backup of what it replaces is made first)',
+            selected: true,
           ),
-          (
-            'add',
-            'Add only: links, flows and storage that do not exist yet; nothing replaced, no restart',
+          SheetChoiceOption(
+            label: 'Add only: links, flows and storage that do not exist yet; nothing replaced, no restart',
           ),
         ],
-        selected: 'replace',
       ),
       const SheetField(
-        id: 'passphrase',
         label: 'Passphrase of the backup',
         secret: true,
       ),
@@ -288,7 +272,6 @@ Widget linkBackup() => over(
     blocks: [
       const SheetLabel('What goes in'),
       const SheetSection(
-        id: 'settings',
         name: 'Settings and nodes',
         size: '84 KiB',
         detail: 'Connections, devices, points as Export (wyrm-driver-branch/1), and grants and net of the link.',
@@ -297,7 +280,6 @@ Widget linkBackup() => over(
         tag: 'always',
       ),
       const SheetSection(
-        id: 'data',
         name: 'Private data',
         size: '2.9 MiB',
         detail: 'data_dir/links/modbus/data: sealed settings and secrets (framework.tree), stores. Sealed with a passphrase.',
@@ -306,14 +288,12 @@ Widget linkBackup() => over(
         tagTone: Tone.warn,
       ),
       const SheetSection(
-        id: 'package',
         name: 'Package modbus 0.5.0',
         size: '3.4 MiB',
         detail: 'So it restores where the repository cannot be reached.',
         on: true,
       ),
       SheetSection(
-        id: 'history',
         name: 'History of its points',
         size: '64 MiB',
         detail: '142 series watched under downstream/modbus.',
@@ -335,19 +315,16 @@ Widget linkBackup() => over(
         small: true,
       ),
       const SheetField(
-        id: 'passphrase',
         label: 'Passphrase for the keys and secrets',
         secret: true,
       ),
       const SheetChoice(
-        id: 'where',
         label: 'Where',
         options: [
-          ('computer', 'This computer'),
-          ('store', 'File store link…'),
-          ('broker', 'Keep on the broker'),
+          SheetChoiceOption(label: 'This computer', selected: true),
+          SheetChoiceOption(label: 'File store link…'),
+          SheetChoiceOption(label: 'Keep on the broker'),
         ],
-        selected: 'computer',
       ),
     ],
     note: '70 MiB · config on sys/links',

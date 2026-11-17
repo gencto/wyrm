@@ -186,6 +186,7 @@ final class LinkBackup extends BackupManifest {
     required this.package,
     required this.version,
     required this.sections,
+    required this.pretty,
   });
 
   /// `wyrm_backup`: the version of the format.
@@ -206,23 +207,9 @@ final class LinkBackup extends BackupManifest {
   final String version;
   final IList<BackupSection> sections;
 
-  /// The manifest as indented JSON, without its files and seals.
-  String get pretty => const JsonEncoder.withIndent('  ').convert({
-    'wyrm_backup': format,
-    'kind': 'link',
-    'site': site,
-    'broker': broker,
-    'created': created,
-    'sealed': sealed.wire,
-    'link': {
-      'id': id,
-      'driver': driver,
-      'mode': mode.wire,
-      if (package.isNotEmpty) 'package': package,
-      if (version.isNotEmpty) 'version': version,
-    },
-    'sections': [for (final s in sections) s.wire],
-  });
+  /// The manifest as indented JSON, without its files and seals: its
+  /// `link` as the file writes it.
+  final String pretty;
 }
 
 /// The fields of one JSON object of a manifest, read strictly: the typed
@@ -286,12 +273,23 @@ Decoded<BackupManifest> backupManifestOf(List<int> bytes) {
       ],
       _ => throw const BadField('sections', 'not an array'),
     };
+    final how = sealed.name('how', BackupSealed.fromWire);
     return LinkBackup(
       format: m.whole('wyrm_backup'),
       site: m.text('site'),
       broker: m.text('broker'),
       created: m.text('created'),
-      sealed: sealed.name('how', BackupSealed.fromWire),
+      sealed: how,
+      pretty: const JsonEncoder.withIndent('  ').convert({
+        'wyrm_backup': m.whole('wyrm_backup'),
+        'kind': kind,
+        'site': m.text('site'),
+        'broker': m.text('broker'),
+        'created': m.text('created'),
+        'sealed': how.wire,
+        'link': m['link']?.raw,
+        'sections': [for (final s in sections) s.wire],
+      }),
       id: link.text('id'),
       driver: link.text('driver'),
       mode: link.name('mode', LinkMode.fromWire),
