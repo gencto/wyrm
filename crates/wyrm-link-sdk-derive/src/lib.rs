@@ -20,6 +20,29 @@
 //!
 //! Variant attribute for `ParamEnum`: `#[param(name = "...")]`; the default
 //! wire name is the snake_case variant name.
+//!
+//! `#[derive(Args)]` (`wyrm_core::args`): one struct with named fields is an
+//! action's declared parameters and the decoder of its arguments. Its output
+//! names `wyrm_core` only, so a portable link (wasm32) uses it too. A field of
+//! type `T` is required, `Option<T>` optional. Field attributes:
+//! `#[arg(name = "...", display = <text>, desc = <text>, placeholder = <text>,
+//! editor = "...", secret, choice, enum, reversed, suggest = <names>,
+//! min = <n>, max = <n>, trim, nonempty, flatten, absent = <value>,
+//! default = <value>)]`:
+//!
+//! * `choice`: a `Named` type read by its name (a text parameter that lists
+//!   the names; on a `Vec<T>` a list of names); `enum`: read by its index (an
+//!   `enum` parameter); `reversed` lists the names last first;
+//! * `suggest`: names a free text offers (any other text is still taken);
+//! * `trim`: text without the white space around it; `nonempty`: an empty
+//!   text is not there (required: refused; optional: `None`);
+//! * `absent`: the value of a field that is not given, not published;
+//!   `default`: the same, published as the parameter's `default`;
+//! * `secret`: the password editor (the type is a secret type);
+//! * `flatten`: the fields of another `Args` struct are parameters of this
+//!   action too.
+
+mod args;
 
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as Tokens;
@@ -202,6 +225,15 @@ fn default_value(e: &Expr, kind: Kind) -> syn::Result<Tokens> {
             }
         }
     }
+}
+
+/// `#[derive(Args)]` on a struct with named fields (`wyrm_core::args::Args`).
+#[proc_macro_derive(Args, attributes(arg))]
+pub fn derive_args(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    args::expand(&input)
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
 }
 
 /// `#[derive(Params)]` on a struct with named fields.

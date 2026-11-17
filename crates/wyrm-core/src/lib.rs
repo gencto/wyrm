@@ -5,6 +5,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod args;
 pub mod attachment;
 pub mod codec;
 pub mod display;

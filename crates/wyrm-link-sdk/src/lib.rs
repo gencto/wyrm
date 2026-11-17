@@ -43,9 +43,10 @@ pub use harness::TestHarness;
 pub use link::{Link, ReplySink};
 pub use params::{Fields, FromParams};
 pub use runtime::{spawn, LinkConfig, LinkHandle};
-pub use support::{Metrics, Secret, SecretStore};
+pub use support::{Metrics, Secret, SecretBytes, SecretStore};
 /// `#[derive(Params)]` / `#[derive(ParamEnum)]` for driver parameters (ADR 0004).
-pub use wyrm_link_sdk_derive::{ParamEnum, Params};
+pub use wyrm_core::args::Args;
+pub use wyrm_link_sdk_derive::{Args, ParamEnum, Params};
 
 /// Version of the contract between the broker and a process link: the
 /// environment it is started with and the shape of the `hello` reply (params,

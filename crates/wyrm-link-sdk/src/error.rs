@@ -59,6 +59,20 @@ impl LinkError {
     }
 }
 
+/// A refused action argument (`wyrm_core::args`): `invalid_parameter` with
+/// the field's name, `out_of_range` for a value of the right type outside
+/// what the field takes.
+impl From<wyrm_core::args::ArgError> for LinkError {
+    fn from(e: wyrm_core::args::ArgError) -> Self {
+        let status = if e.fault.is_range() {
+            Status::OutOfRange
+        } else {
+            Status::InvalidParameter
+        };
+        Self::new(status, e.to_string())
+    }
+}
+
 impl From<wyrm_core::keyspace::KeyError> for LinkError {
     fn from(e: wyrm_core::keyspace::KeyError) -> Self {
         Self::invalid_parameter(e.to_string())

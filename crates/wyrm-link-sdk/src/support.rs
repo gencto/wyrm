@@ -29,6 +29,33 @@ impl fmt::Debug for Secret {
     }
 }
 
+/// A secret text argument (a passphrase, a token): a text parameter with the
+/// password editor (`#[arg(secret)]`).
+impl wyrm_core::args::ArgValue for Secret {
+    const TYPE: wyrm_core::TypeCode = wyrm_core::TypeCode::String;
+    fn from_value(v: &wyrm_core::Value) -> std::result::Result<Self, wyrm_core::args::Fault> {
+        match v {
+            wyrm_core::Value::Str(s) => Ok(Secret::new(s.as_bytes())),
+            _ => Err(wyrm_core::args::Fault::Type("text")),
+        }
+    }
+}
+
+/// A secret binary argument (a link secret's value): a binary parameter with
+/// the password editor.
+#[derive(Clone, Debug)]
+pub struct SecretBytes(pub Secret);
+
+impl wyrm_core::args::ArgValue for SecretBytes {
+    const TYPE: wyrm_core::TypeCode = wyrm_core::TypeCode::Binary;
+    fn from_value(v: &wyrm_core::Value) -> std::result::Result<Self, wyrm_core::args::Fault> {
+        match v {
+            wyrm_core::Value::Bytes(b) => Ok(SecretBytes(Secret::new(b.as_slice()))),
+            _ => Err(wyrm_core::args::Fault::Type("bytes")),
+        }
+    }
+}
+
 /// Secrets of one link (device passwords, keys). Never from `~def`, never in
 /// the tree. Filled by the host at start.
 #[derive(Debug, Clone, Default)]

@@ -1,6 +1,6 @@
 [package]
 name = "wyrm-link-sdk-derive"
-description = "#[derive(Params)] and #[derive(ParamEnum)] for wyrm-link-sdk driver parameters"
+description = "#[derive(Params)] and #[derive(ParamEnum)] for wyrm-link-sdk driver parameters; #[derive(Args)] for action arguments (wyrm-core)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
