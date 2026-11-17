@@ -5,6 +5,7 @@ import '../forms/param_form.dart';
 import '../inputs/switch_row.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import 'fact_grid.dart';
 
@@ -176,7 +177,7 @@ class InspectorSections extends StatelessWidget {
 
   Widget _segments(AppColors c, InspectorSectionVm s) {
     final bar = Container(
-      padding: const EdgeInsets.all(3),
+      padding: Insets.segmentTrack,
       decoration: BoxDecoration(
         color: c.ground3,
         border: .all(color: c.line1),
@@ -219,7 +220,7 @@ class InspectorSections extends StatelessWidget {
   }
 
   Widget _code(AppColors c, List<(String, String)> lines) => Container(
-    padding: const EdgeInsets.all(12),
+    padding: Insets.codeBox,
     decoration: BoxDecoration(
       color: c.ground0,
       border: .all(color: c.line1),

@@ -12,6 +12,7 @@ import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/shades.dart';
 import '../theme/sizes.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import 'system_toast.dart';
 
@@ -261,7 +262,7 @@ class _ToastState extends State<_Toast> {
       child: Material(
         type: .transparency,
         child: Container(
-          padding: const EdgeInsets.all(14),
+          padding: Insets.cardBody,
           decoration: BoxDecoration(
             color: c.ground3,
             border: .all(color: vm.stays == null ? c.line2 : line),
@@ -317,7 +318,7 @@ class _ToastState extends State<_Toast> {
                         ),
                       ),
                     Padding(
-                      padding: const EdgeInsets.only(top: 2),
+                      padding: Insets.messageLinks,
                       child: Row(
                         spacing: 14,
                         children: [

@@ -6,6 +6,7 @@ import '../indicators/level_badge.dart';
 import '../models/disabled.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// One action of a node, as Explorer's Actions tab shows it.
@@ -69,7 +70,7 @@ class ActionCard extends StatelessWidget {
         onTap: onTap == null ? null : () => onTap!(vm.id),
         borderRadius: Radii.card,
         child: Padding(
-          padding: const EdgeInsets.all(14),
+          padding: Insets.cardBody,
           child: Column(
             crossAxisAlignment: .start,
             spacing: 6,

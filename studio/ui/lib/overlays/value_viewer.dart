@@ -586,10 +586,7 @@ class _ValueViewerState extends State<ValueViewer> {
                   ),
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 7,
-                    vertical: 2,
-                  ),
+                  padding: Insets.viewerKey,
                   decoration: BoxDecoration(
                     color: c.ground4,
                     borderRadius: Radii.chip,
@@ -650,7 +647,7 @@ class _ValueViewerState extends State<ValueViewer> {
           children: [
             if (csv != null && !_editing)
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 6),
+                padding: Insets.viewerTabs,
                 child: SegmentedTabs(
                   key: const ValueKey('viewer-tabs'),
                   height: 34,
@@ -680,12 +677,7 @@ class _ValueViewerState extends State<ValueViewer> {
               ),
             if (csv != null && _asTable && !_editing)
               Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  14,
-                  AppSpacing.sm,
-                  14,
-                  AppSpacing.none,
-                ),
+                padding: Insets.viewerTableNotes,
                 child: Text(
                   [
                     s.viewerCsvRules(
@@ -700,18 +692,13 @@ class _ValueViewerState extends State<ValueViewer> {
             Expanded(
               child: _editing
                   ? Padding(
-                      padding: const EdgeInsets.fromLTRB(
-                        14,
-                        12,
-                        14,
-                        10,
-                      ),
+                      padding: Insets.viewerEditor,
                       child: _editor(context, vm.edit!),
                     )
                   : grid
                   ? (table == null
                         ? Padding(
-                            padding: const EdgeInsets.all(14),
+                            padding: Insets.tableNote,
                             child: Text(
                               s.viewerCsvRefused,
                               key: const ValueKey('viewer-csv-refused'),
@@ -731,12 +718,7 @@ class _ValueViewerState extends State<ValueViewer> {
                           ))
                   : Scrollbar(
                       child: SingleChildScrollView(
-                        padding: const EdgeInsets.fromLTRB(
-                          14,
-                          12,
-                          14,
-                          AppSpacing.md,
-                        ),
+                        padding: Insets.viewerValue,
                         child: _body(context, vm.content),
                       ),
                     ),
@@ -761,12 +743,7 @@ class _ValueViewerState extends State<ValueViewer> {
               )
             else if (vm.locked?.label case final why?)
               Container(
-                padding: const EdgeInsets.fromLTRB(
-                  14,
-                  AppSpacing.sm,
-                  14,
-                  10,
-                ),
+                padding: Insets.viewerBand,
                 decoration: BoxDecoration(
                   border: Border(top: BorderSide(color: c.line1)),
                 ),
@@ -775,7 +752,7 @@ class _ValueViewerState extends State<ValueViewer> {
                   spacing: 8,
                   children: [
                     Padding(
-                      padding: const EdgeInsets.only(top: 1),
+                      padding: Insets.iconInRow,
                       child: AppIconView(
                         AppIcon.actionLock,
                         size: IconSizes.sm,
@@ -796,12 +773,7 @@ class _ValueViewerState extends State<ValueViewer> {
               ),
             if (vm.quality case final q?)
               Container(
-                padding: const EdgeInsets.fromLTRB(
-                  14,
-                  AppSpacing.sm,
-                  14,
-                  10,
-                ),
+                padding: Insets.viewerBand,
                 decoration: BoxDecoration(
                   border: Border(top: BorderSide(color: c.line1)),
                 ),
@@ -829,12 +801,7 @@ class _ValueViewerState extends State<ValueViewer> {
   }) {
     final c = context.colors;
     return Container(
-      padding: const EdgeInsets.fromLTRB(
-        14,
-        AppSpacing.sm,
-        10,
-        AppSpacing.sm,
-      ),
+      padding: Insets.viewerFoot,
       decoration: BoxDecoration(
         border: Border(top: BorderSide(color: c.line1)),
       ),
@@ -887,10 +854,7 @@ class _ValueViewerState extends State<ValueViewer> {
       case .text || .json || .table:
         return Container(
           decoration: box,
-          padding: const EdgeInsets.symmetric(
-            horizontal: 10,
-            vertical: AppSpacing.sm,
-          ),
+          padding: Insets.viewerTextBox,
           child: TextField(
             key: const ValueKey('viewer-editor'),
             controller: _text,
@@ -915,7 +879,7 @@ class _ValueViewerState extends State<ValueViewer> {
           child: Container(
             height: 44,
             decoration: box,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
+            padding: Insets.field,
             alignment: .centerLeft,
             child: TextField(
               key: const ValueKey('viewer-editor'),
@@ -960,7 +924,7 @@ class _ValueViewerState extends State<ValueViewer> {
           child: Container(
             height: 40,
             decoration: box,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
+            padding: Insets.field,
             child: DropdownButtonHideUnderline(
               child: DropdownButton<String>(
                 key: const ValueKey('viewer-editor'),

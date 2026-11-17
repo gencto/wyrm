@@ -295,10 +295,7 @@ class _Chip extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 6,
-        vertical: 2,
-      ),
+      padding: Insets.tag,
       decoration: BoxDecoration(color: c.ground4, borderRadius: Radii.chip),
       child: Text(
         label,

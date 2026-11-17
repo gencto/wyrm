@@ -6,6 +6,7 @@ import '../indicators/app_icon_view.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/sizes.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// What [CommandCard] draws: shell commands the user runs on a host.
@@ -50,7 +51,7 @@ class CommandCard extends StatelessWidget {
     final c = context.colors;
     final dark = Theme.of(context).brightness == .dark;
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: Insets.cardBody,
       decoration: BoxDecoration(
         color: c.ground0,
         border: .all(color: c.line1),
@@ -69,10 +70,7 @@ class CommandCard extends StatelessWidget {
             ),
           ),
           Container(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 12,
-              vertical: 10,
-            ),
+            padding: Insets.innerBox,
             decoration: BoxDecoration(
               color: Color.alphaBlend(
                 Colors.black.withValues(alpha: dark ? 0.2 : 0.03),

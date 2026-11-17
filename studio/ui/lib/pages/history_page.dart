@@ -291,7 +291,7 @@ class HistoryPage<R, A> extends StatelessWidget {
                   style: TextStyle(fontSize: FontSizes.sm, color: c.text4),
                 ),
               ],
-              const SizedBox(height: 10),
+              Gaps.sectionTitle,
               RowTable(
                 columns: columns,
                 rows: points,

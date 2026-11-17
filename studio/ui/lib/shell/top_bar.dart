@@ -246,7 +246,7 @@ class _SiteSwitcher extends StatelessWidget {
       ],
       child: Container(
         height: 40,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
+        padding: Insets.field,
         decoration: BoxDecoration(
           color: c.ground2,
           border: .all(color: c.line2),
@@ -303,7 +303,7 @@ class _SearchBox extends StatelessWidget {
       borderRadius: Radii.control,
       child: Container(
         height: 40,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
+        padding: Insets.field,
         decoration: BoxDecoration(
           color: c.ground2,
           border: .all(color: c.line1),
@@ -326,10 +326,7 @@ class _SearchBox extends StatelessWidget {
                 ),
               if (box.maxWidth >= 140)
                 Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 6,
-                    vertical: 2,
-                  ),
+                  padding: Insets.tag,
                   decoration: BoxDecoration(
                     border: .all(color: c.line2),
                     borderRadius: Radii.chip,
@@ -390,7 +387,7 @@ class _ReviewButton extends StatelessWidget {
               Container(
                 constraints: const BoxConstraints(minWidth: 22),
                 height: 22,
-                padding: const EdgeInsets.symmetric(horizontal: 6),
+                padding: Insets.badge,
                 alignment: .center,
                 decoration: BoxDecoration(
                   color: enabled ? c.ground0 : c.ground4,

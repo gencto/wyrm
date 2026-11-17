@@ -1078,9 +1078,7 @@ class _TrendState extends State<Trend> {
                         translation: const Offset(-0.5, 0),
                         child: Container(
                           height: 20,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 6,
-                          ),
+                          padding: Insets.badge,
                           alignment: .center,
                           decoration: BoxDecoration(
                             color: c.line2,
@@ -1191,10 +1189,7 @@ class _TrendState extends State<Trend> {
     final right = x > w * 0.6;
     final tip = Container(
       width: 232,
-      padding: const EdgeInsets.symmetric(
-        horizontal: 12,
-        vertical: 10,
-      ),
+      padding: Insets.innerBox,
       decoration: BoxDecoration(
         color: c.ground2.withValues(alpha: 0.97),
         border: .all(color: c.line2),

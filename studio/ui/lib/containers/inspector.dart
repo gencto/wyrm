@@ -98,7 +98,7 @@ class Inspector extends StatelessWidget {
           ),
           Expanded(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.all(18),
+              padding: Insets.sectionCard,
               child: child,
             ),
           ),

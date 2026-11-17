@@ -58,7 +58,7 @@ class Notice extends StatelessWidget {
         spacing: 10,
         children: [
           Padding(
-            padding: const EdgeInsets.only(top: 1),
+            padding: Insets.iconInRow,
             child: AppIconView(
               icon,
               size: IconSizes.md,

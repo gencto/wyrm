@@ -128,6 +128,12 @@ abstract final class Gaps {
 
   /// Above Sites' map.
   static const Widget aboveMap = SizedBox(height: AppSpacing.map);
+
+  /// Between the parts of the Assistant's rights panel.
+  static const Widget rightsPart = SizedBox(height: 10);
+
+  /// Between the error dialog's icon and its title.
+  static const Widget hErrorIcon = SizedBox(width: 14);
 }
 
 /// Padding built from the same scale, and the paddings the canvas repeats,
@@ -546,5 +552,193 @@ abstract final class Insets {
   static const levelBadge = EdgeInsets.symmetric(
     horizontal: AppSpacing.sm,
     vertical: 2,
+  );
+
+  /// Inside a small dialog: a confirmation, a reason, a panel of fields.
+  static const dialog = EdgeInsets.all(22);
+
+  /// Inside a one-line box of a fixed height that holds what is typed or
+  /// picked, and a pill button of the same build: the top bar's site and
+  /// search boxes, Explorer's filter, the value viewer's editor.
+  static const field = EdgeInsets.symmetric(horizontal: 12);
+
+  /// Inside a badge of a fixed height: a count, a level, a failure, the
+  /// label of a tick of the trend.
+  static const badge = EdgeInsets.symmetric(horizontal: 6);
+
+  /// Inside a row of a menu (the account's, a node's).
+  static const menuItem = EdgeInsets.symmetric(horizontal: 14);
+
+  /// Inside a box set into a card or a sheet: a note, a tile, a section,
+  /// the trend's tip.
+  static const innerBox = EdgeInsets.symmetric(horizontal: 12, vertical: 10);
+
+  /// Inside a box of code or of a command.
+  static const codeBox = EdgeInsets.all(12);
+
+  /// Inside a small card of a list: a problem, a failed read, an item that
+  /// asks for attention.
+  static const smallCard = EdgeInsets.all(12);
+
+  /// Around the items of a list that fills a panel.
+  static const listPanel = EdgeInsets.all(12);
+
+  /// Around the words said where a panel has nothing to list.
+  static const emptyNote = EdgeInsets.all(20);
+
+  /// Around the line said in place of the rows of a table or a list.
+  static const tableNote = EdgeInsets.all(14);
+
+  /// Inside a card that pads all its sides alike: a review card, a toast,
+  /// an action card, a command card.
+  static const cardBody = EdgeInsets.all(14);
+
+  /// Inside a section card, and around an inspector's body.
+  static const sectionCard = EdgeInsets.all(18);
+
+  /// Inside and around the card of a panel that failed.
+  static const panelFault = EdgeInsets.all(20);
+
+  /// The rows of a table of facts (a label, then what it says): the label
+  /// is parted from its value, and each row after the first from the one
+  /// above it.
+  static const factLabel = EdgeInsets.only(right: AppSpacing.md);
+  static const factLabelNext = EdgeInsets.only(right: AppSpacing.md, top: 6);
+  static const factValueNext = EdgeInsets.only(top: 6);
+
+  /// The same in the panel that asks for attention, its labels closer.
+  static const attentionLabel = EdgeInsets.only(right: 14);
+  static const attentionLabelNext = EdgeInsets.only(right: 14, top: 6);
+
+  /// Above an icon, to sit on the first line of the row text beside it (a
+  /// notice, a banner, why a value is locked).
+  static const iconInRow = EdgeInsets.only(top: 1);
+
+  /// Above an icon or a check box, to sit on the first line of the body
+  /// text beside it.
+  static const iconInBody = EdgeInsets.only(top: 2);
+
+  /// Above a radio mark, to sit on the first line of its choice.
+  static const radioMark = EdgeInsets.only(top: 3);
+
+  /// Above the dot of a row of a card, to sit on the first line of its
+  /// text.
+  static const rowDot = EdgeInsets.only(top: 5);
+
+  /// Above the links under a message (a problem's, a toast's).
+  static const messageLinks = EdgeInsets.only(top: 2);
+
+  /// Above and below the rows of a menu.
+  static const menu = EdgeInsets.symmetric(vertical: 6);
+
+  /// The head of a menu: who is logged in.
+  static const menuHead = EdgeInsets.fromLTRB(14, AppSpacing.sm, 14, 10);
+
+  /// Inside a small tag set in a line: a count in the tree, a code, a
+  /// shortcut.
+  static const tag = EdgeInsets.symmetric(horizontal: 6, vertical: 2);
+
+  /// Inside the track of a row of segments, around the segments.
+  static const segmentTrack = EdgeInsets.all(3);
+
+  /// A band of the value viewer under its value: why it is locked, its
+  /// quality.
+  static const viewerBand = EdgeInsets.fromLTRB(14, AppSpacing.sm, 14, 10);
+
+  /// After the last cell of a row of the points table.
+  static const pointsRow = EdgeInsets.only(right: 12);
+
+  // --- the task sheet (a task's blocks, as a side sheet and as a dialog)
+
+  /// The head and the foot of the task sheet, as a sheet and as a dialog.
+  static const sheetHead = EdgeInsets.fromLTRB(20, 18, 20, 12);
+  static const sheetHeadDialog = EdgeInsets.fromLTRB(24, 22, 24, 12);
+  static const sheetFoot = EdgeInsets.fromLTRB(20, 14, 20, 18);
+  static const sheetFootDialog = EdgeInsets.fromLTRB(24, 14, 24, 20);
+
+  /// Above the dot of a card of the sheet, to sit on its title's line.
+  static const sheetCardDot = EdgeInsets.only(top: 6);
+
+  /// Inside the tag beside a section's title.
+  static const sheetTag = EdgeInsets.symmetric(horizontal: 6, vertical: 1);
+
+  /// Before a section's chips, in line with its title past its check box.
+  static const sheetChips = EdgeInsets.only(left: 26);
+
+  /// Inside a pill of the sheet that is tapped (a link, a copy).
+  static const sheetPill = EdgeInsets.symmetric(horizontal: 10, vertical: 5);
+
+  /// Inside a field of the sheet.
+  static const sheetField = EdgeInsets.symmetric(horizontal: 12, vertical: 11);
+
+  // --- the error dialog (docs/design/specs/errors.md)
+
+  /// The head of the error dialog: its icon and its title.
+  static const errorHead = EdgeInsets.fromLTRB(
+    AppSpacing.lg,
+    22,
+    AppSpacing.lg,
+    AppSpacing.none,
+  );
+
+  /// Around the dot of a line of advice: on its first line, before it.
+  static const errorAdviceDot = EdgeInsets.only(top: 9, right: 10);
+
+  /// Above the details of an error, under their rule.
+  static const errorDetails = EdgeInsets.only(top: 6);
+
+  /// The rows of the details, in line with their title past its chevron.
+  static const errorDetailRows = EdgeInsets.fromLTRB(
+    22,
+    AppSpacing.xs,
+    AppSpacing.none,
+    6,
+  );
+
+  /// The foot of the error dialog: its buttons.
+  static const errorFoot = EdgeInsets.fromLTRB(
+    AppSpacing.lg,
+    14,
+    AppSpacing.lg,
+    20,
+  );
+
+  /// Beside the label of the error dialog's main button.
+  static const errorButton = EdgeInsets.symmetric(horizontal: 18);
+
+  // --- the value viewer
+
+  /// Inside the chip of the key the viewer shows.
+  static const viewerKey = EdgeInsets.symmetric(horizontal: 7, vertical: 2);
+
+  /// Beside the viewer's tabs (Text, Table).
+  static const viewerTabs = EdgeInsets.symmetric(horizontal: 6);
+
+  /// Around the notes above the viewer's table.
+  static const viewerTableNotes = EdgeInsets.fromLTRB(
+    14,
+    AppSpacing.sm,
+    14,
+    AppSpacing.none,
+  );
+
+  /// Around the viewer's editor.
+  static const viewerEditor = EdgeInsets.fromLTRB(14, 12, 14, 10);
+
+  /// Around the value the viewer shows.
+  static const viewerValue = EdgeInsets.fromLTRB(14, 12, 14, AppSpacing.md);
+
+  /// The viewer's foot: its buttons.
+  static const viewerFoot = EdgeInsets.fromLTRB(
+    14,
+    AppSpacing.sm,
+    10,
+    AppSpacing.sm,
+  );
+
+  /// Inside the box of the viewer's text editor.
+  static const viewerTextBox = EdgeInsets.symmetric(
+    horizontal: 10,
+    vertical: AppSpacing.sm,
   );
 }

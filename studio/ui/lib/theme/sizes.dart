@@ -302,6 +302,22 @@ abstract final class AppSizes {
 
   /// The token Sites shows once it is issued.
   static const double tokenLog = 180;
+
+  /// The mark of a step of a task: done, running, waiting.
+  static const double stepMark = 20;
+
+  /// The bar of a task's progress.
+  static const double progressBar = 8;
+
+  /// The sign before a line of a change (`+`, `−`).
+  static const double changeSign = 14;
+
+  /// A segment of the task sheet's choice, and a field of the sheet.
+  static const double sheetSegment = 34;
+  static const double sheetField = 40;
+
+  /// The row that opens and closes the details of an error.
+  static const double errorDetailsToggle = 36;
 }
 
 /// The sizes an icon is drawn at (board *Icons*: the set is drawn on 24 and

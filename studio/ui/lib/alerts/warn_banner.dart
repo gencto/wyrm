@@ -60,7 +60,7 @@ class WarnBanner extends StatelessWidget {
           spacing: 12,
           children: [
             Padding(
-              padding: const EdgeInsets.only(top: 1),
+              padding: Insets.iconInRow,
               child: SvgPicture.string(
                 _triangle,
                 width: 18,

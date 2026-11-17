@@ -133,7 +133,7 @@ class AttentionPanel extends StatelessWidget {
       ),
     );
     final cards = Padding(
-      padding: const EdgeInsets.all(12),
+      padding: Insets.listPanel,
       child: Column(
         crossAxisAlignment: .stretch,
         spacing: 8,
@@ -175,10 +175,9 @@ class AttentionPanel extends StatelessWidget {
                 TableRow(
                   children: [
                     Padding(
-                      padding: EdgeInsets.only(
-                        top: i == AppSpacing.none ? AppSpacing.none : 6,
-                        right: 14,
-                      ),
+                      padding: i == 0
+                          ? Insets.attentionLabel
+                          : Insets.attentionLabelNext,
                       child: Text(
                         f.label,
                         style: TextStyle(
@@ -188,9 +187,7 @@ class AttentionPanel extends StatelessWidget {
                       ),
                     ),
                     Padding(
-                      padding: EdgeInsets.only(
-                        top: i == AppSpacing.none ? AppSpacing.none : 6,
-                      ),
+                      padding: i == 0 ? EdgeInsets.zero : Insets.factValueNext,
                       child: _fact(c, f),
                     ),
                   ],
@@ -235,7 +232,7 @@ class AttentionPanel extends StatelessWidget {
       onTap: () => onItem(a.id),
       hoverColor: c.text1.withValues(alpha: 0.04),
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: Insets.smallCard,
         child: Row(
           crossAxisAlignment: .start,
           spacing: 10,
@@ -243,7 +240,7 @@ class AttentionPanel extends StatelessWidget {
             Container(
               width: 8,
               height: 8,
-              margin: const EdgeInsets.only(top: 5),
+              margin: Insets.rowDot,
               decoration: BoxDecoration(
                 color: toneColor(c, a.tone),
                 shape: .circle,

@@ -1220,7 +1220,7 @@ class _ExplorerPageState extends State<ExplorerPage> {
 
   Widget _filterBox(AppColors c) => Container(
     height: 40,
-    padding: const EdgeInsets.symmetric(horizontal: 12),
+    padding: Insets.field,
     decoration: BoxDecoration(
       color: c.ground1,
       border: .all(color: c.line1),
@@ -1522,7 +1522,7 @@ class _ExplorerPageState extends State<ExplorerPage> {
             ),
             SectionLabel(S.current.sameCallCli),
             Container(
-              padding: const EdgeInsets.all(12),
+              padding: Insets.codeBox,
               decoration: BoxDecoration(
                 color: c.ground0,
                 border: .all(color: c.line1),
@@ -1581,7 +1581,7 @@ class _ExplorerPageState extends State<ExplorerPage> {
       borderRadius: Radii.button,
       child: Container(
         height: 40,
-        padding: const EdgeInsets.symmetric(horizontal: 14),
+        padding: Insets.button,
         child: Row(
           mainAxisSize: .min,
           spacing: 8,

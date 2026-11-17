@@ -97,7 +97,7 @@ class PanelFault extends StatelessWidget {
           );
         }
         final card = Container(
-          padding: const EdgeInsets.all(20),
+          padding: Insets.panelFault,
           decoration: ShapeDecoration(
             color: c.ground2,
             shape: _DashedBorder(color: c.badLine),
@@ -179,11 +179,11 @@ class PanelFault extends StatelessWidget {
           liveRegion: true,
           child: box.hasBoundedHeight
               ? SingleChildScrollView(
-                  padding: const EdgeInsets.all(20),
+                  padding: Insets.panelFault,
                   child: Align(alignment: .topCenter, child: sized),
                 )
               : Padding(
-                  padding: const EdgeInsets.all(20),
+                  padding: Insets.panelFault,
                   child: sized,
                 ),
         );

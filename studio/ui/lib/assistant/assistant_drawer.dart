@@ -174,7 +174,7 @@ class AssistantDrawer extends StatelessWidget {
             Expanded(
               child: noAgent
                   ? Padding(
-                      padding: const EdgeInsets.all(20),
+                      padding: Insets.emptyNote,
                       child: Text(
                         const BlockedNoAgent().text,
                         style: TextStyle(

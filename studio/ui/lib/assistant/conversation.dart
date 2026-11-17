@@ -304,10 +304,7 @@ class _Event extends StatelessWidget {
         return Padding(
           padding: Insets.assistantIndent,
           child: Container(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 12,
-              vertical: 10,
-            ),
+            padding: Insets.innerBox,
             decoration: BoxDecoration(
               color: c.badTint,
               border: Border.all(color: c.badLine),

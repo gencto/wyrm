@@ -134,7 +134,7 @@ class TaskList extends StatelessWidget {
       agent?.split('/').skip(2).join('/') ?? 'agent',
     );
     return ListView(
-      padding: const EdgeInsets.all(12),
+      padding: Insets.listPanel,
       children: [
         Button.secondary(
           label: S.current.newTask,

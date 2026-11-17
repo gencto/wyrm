@@ -129,7 +129,7 @@ class SegmentedTabs<T> extends StatelessWidget {
               Container(
                 constraints: const BoxConstraints(minWidth: 22),
                 height: 22,
-                padding: const EdgeInsets.symmetric(horizontal: 6),
+                padding: Insets.badge,
                 decoration: BoxDecoration(
                   color: t.countTone == .neutral
                       ? c.ground4

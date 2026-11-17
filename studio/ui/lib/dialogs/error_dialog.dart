@@ -173,7 +173,7 @@ class ErrorDialog extends StatefulWidget {
   final VoidCallback? onCopy;
 
   /// The scrim of the board: `rgba(6, 8, 9, 0.66)` over the whole window.
-  static const scrim = Color(0xA8060809);
+  static const Color scrim = Shades.errorBarrier;
 
   /// Shows [dialog] over [context]'s navigator on the board's scrim. A tap
   /// on the scrim does nothing: the dialog closes by its buttons and Esc,
@@ -290,12 +290,7 @@ class _ErrorDialogState extends State<ErrorDialog> {
   }
 
   Widget _header(AppColors c, ErrorDialogVm vm, Color fg, Color bg) => Padding(
-    padding: const EdgeInsets.fromLTRB(
-      AppSpacing.lg,
-      22,
-      AppSpacing.lg,
-      AppSpacing.none,
-    ),
+    padding: Insets.errorHead,
     child: Row(
       crossAxisAlignment: .start,
       children: [
@@ -309,7 +304,7 @@ class _ErrorDialogState extends State<ErrorDialog> {
           alignment: .center,
           child: AppIconView(vm.icon, color: fg),
         ),
-        const SizedBox(width: 14),
+        Gaps.hErrorIcon,
         Expanded(
           child: Column(
             crossAxisAlignment: .start,
@@ -423,7 +418,7 @@ class _ErrorDialogState extends State<ErrorDialog> {
                     Container(
                       width: 5,
                       height: 5,
-                      margin: const EdgeInsets.only(top: 9, right: 10),
+                      margin: Insets.errorAdviceDot,
                       decoration: BoxDecoration(color: fg, shape: .circle),
                     ),
                     Expanded(
@@ -441,10 +436,7 @@ class _ErrorDialogState extends State<ErrorDialog> {
           ),
         if (vm.note case final note?)
           Container(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 12,
-              vertical: 10,
-            ),
+            padding: Insets.innerBox,
             decoration: BoxDecoration(
               color: c.warnTint,
               border: .all(color: c.warnLine),
@@ -455,7 +447,7 @@ class _ErrorDialogState extends State<ErrorDialog> {
               spacing: 10,
               children: [
                 Padding(
-                  padding: const EdgeInsets.only(top: 2),
+                  padding: Insets.iconInBody,
                   child: AppIconView(
                     AppIcon.errWarn,
                     size: IconSizes.md,
@@ -480,7 +472,7 @@ class _ErrorDialogState extends State<ErrorDialog> {
             border: Border(top: BorderSide(color: c.ground4)),
           ),
           child: Padding(
-            padding: const EdgeInsets.only(top: 6),
+            padding: Insets.errorDetails,
             child: Column(
               crossAxisAlignment: .start,
               children: [
@@ -492,7 +484,7 @@ class _ErrorDialogState extends State<ErrorDialog> {
                     onTap: () => setState(() => _open = !_open),
                     borderRadius: Radii.segment,
                     child: SizedBox(
-                      height: 36,
+                      height: AppSizes.errorDetailsToggle,
                       child: Row(
                         mainAxisSize: .min,
                         spacing: 8,
@@ -514,10 +506,7 @@ class _ErrorDialogState extends State<ErrorDialog> {
                           ),
                           if (vm.chip.isNotEmpty)
                             Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 6,
-                                vertical: 2,
-                              ),
+                              padding: Insets.tag,
                               decoration: BoxDecoration(
                                 color: bg,
                                 borderRadius: Radii.chip,
@@ -538,12 +527,7 @@ class _ErrorDialogState extends State<ErrorDialog> {
                 ),
                 if (_open)
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(
-                      22,
-                      AppSpacing.xs,
-                      AppSpacing.none,
-                      6,
-                    ),
+                    padding: Insets.errorDetailRows,
                     child: Table(
                       columnWidths: const {
                         0: IntrinsicColumnWidth(),
@@ -554,12 +538,9 @@ class _ErrorDialogState extends State<ErrorDialog> {
                           TableRow(
                             children: [
                               Padding(
-                                padding: EdgeInsets.only(
-                                  right: AppSpacing.md,
-                                  top: i == AppSpacing.none
-                                      ? AppSpacing.none
-                                      : 6,
-                                ),
+                                padding: i == 0
+                                    ? Insets.factLabel
+                                    : Insets.factLabelNext,
                                 child: Text(
                                   r.label,
                                   style: boardText(
@@ -569,11 +550,9 @@ class _ErrorDialogState extends State<ErrorDialog> {
                                 ),
                               ),
                               Padding(
-                                padding: EdgeInsets.only(
-                                  top: i == AppSpacing.none
-                                      ? AppSpacing.none
-                                      : 6,
-                                ),
+                                padding: i == 0
+                                    ? EdgeInsets.zero
+                                    : Insets.factValueNext,
                                 child: SelectableText(
                                   r.value,
                                   style: boardText(
@@ -597,12 +576,7 @@ class _ErrorDialogState extends State<ErrorDialog> {
   );
 
   Widget _footer(AppColors c, ErrorDialogVm vm, bool counting) => Padding(
-    padding: const EdgeInsets.fromLTRB(
-      AppSpacing.lg,
-      14,
-      AppSpacing.lg,
-      20,
-    ),
+    padding: Insets.errorFoot,
     child: Wrap(
       alignment: .spaceBetween,
       crossAxisAlignment: .center,
@@ -657,9 +631,7 @@ class _ErrorDialogState extends State<ErrorDialog> {
                 child: Container(
                   key: const ValueKey('error-primary'),
                   height: 40,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 18,
-                  ),
+                  padding: Insets.errorButton,
                   decoration: BoxDecoration(
                     color: c.ground4,
                     borderRadius: Radii.button,

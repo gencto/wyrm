@@ -213,7 +213,7 @@ class _Option extends StatelessWidget {
             Container(
               width: 14,
               height: 14,
-              margin: const EdgeInsets.only(top: 3),
+              margin: Insets.radioMark,
               decoration: BoxDecoration(
                 shape: multiple ? .rectangle : .circle,
                 borderRadius: multiple

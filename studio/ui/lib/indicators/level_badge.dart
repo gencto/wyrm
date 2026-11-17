@@ -3,6 +3,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// An access level (spec 04), as `ui` words it.
@@ -40,7 +41,7 @@ class LevelBadge extends StatelessWidget {
     final c = context.colors;
     return Container(
       height: 20,
-      padding: const EdgeInsets.symmetric(horizontal: 6),
+      padding: Insets.badge,
       alignment: .center,
       decoration: BoxDecoration(
         color: strong ? c.emberTint : c.ground4,

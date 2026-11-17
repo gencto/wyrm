@@ -38,7 +38,7 @@ class PanelDialog extends StatelessWidget {
       child: ConstrainedBox(
         constraints: BoxConstraints(maxWidth: width),
         child: Padding(
-          padding: const EdgeInsets.all(22),
+          padding: Insets.dialog,
           child: Column(
             mainAxisSize: .min,
             crossAxisAlignment: .stretch,

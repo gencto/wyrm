@@ -144,7 +144,7 @@ class RowTable<T> extends StatelessWidget {
           ),
           if (rows.isEmpty && empty != null)
             Container(
-              padding: const EdgeInsets.all(20),
+              padding: Insets.emptyNote,
               decoration: BoxDecoration(
                 border: Border(top: BorderSide(color: c.line1)),
               ),

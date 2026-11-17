@@ -70,7 +70,7 @@ class ChangeCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: Insets.cardBody,
       decoration: BoxDecoration(
         color: c.ground2,
         border: .all(color: vm.allowed ? c.line1 : c.badLine),

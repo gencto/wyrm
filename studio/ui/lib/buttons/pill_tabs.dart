@@ -62,7 +62,7 @@ class PillTabs extends StatelessWidget {
     final c = context.colors;
     final gap = inset ? 3.0 : 4.0;
     final track = Container(
-      padding: const EdgeInsets.all(3),
+      padding: Insets.segmentTrack,
       decoration: BoxDecoration(
         color: inset ? c.ground3 : c.ground2,
         border: .all(color: c.line1),

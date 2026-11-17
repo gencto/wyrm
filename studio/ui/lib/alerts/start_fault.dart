@@ -171,12 +171,9 @@ class StartFault extends StatelessWidget {
                           TableRow(
                             children: [
                               Padding(
-                                padding: EdgeInsets.only(
-                                  right: AppSpacing.md,
-                                  top: i == AppSpacing.none
-                                      ? AppSpacing.none
-                                      : 6,
-                                ),
+                                padding: i == 0
+                                    ? Insets.factLabel
+                                    : Insets.factLabelNext,
                                 child: Text(
                                   r.label,
                                   style: boardText(
@@ -186,11 +183,9 @@ class StartFault extends StatelessWidget {
                                 ),
                               ),
                               Padding(
-                                padding: EdgeInsets.only(
-                                  top: i == AppSpacing.none
-                                      ? AppSpacing.none
-                                      : 6,
-                                ),
+                                padding: i == 0
+                                    ? EdgeInsets.zero
+                                    : Insets.factValueNext,
                                 child: SelectableText(
                                   r.value,
                                   style: boardText(

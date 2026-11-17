@@ -212,7 +212,7 @@ class RightsPanel extends StatelessWidget {
                       Container(
                         width: 14,
                         height: 14,
-                        margin: const EdgeInsets.only(top: 2),
+                        margin: Insets.iconInBody,
                         decoration: BoxDecoration(
                           shape: .circle,
                           border: Border.all(
@@ -253,7 +253,7 @@ class RightsPanel extends StatelessWidget {
             ),
             child: Text(u, style: small.copyWith(color: c.warn)),
           ),
-        const SizedBox(height: 10),
+        Gaps.rightsPart,
         SectionLabel(vm.prefixesLabel),
         Wrap(
           spacing: 6,
@@ -332,7 +332,7 @@ class RightsPanel extends StatelessWidget {
             ),
             child: Text(s, style: small.copyWith(color: c.warn)),
           ),
-        const SizedBox(height: 10),
+        Gaps.rightsPart,
         FactGrid(facts: vm.facts, labelWidth: 96),
         Text(vm.note, style: small),
       ],

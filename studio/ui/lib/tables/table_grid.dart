@@ -682,7 +682,7 @@ class TableGridState extends State<TableGrid> {
             ),
             child: _t.columns.isEmpty
                 ? Padding(
-                    padding: const EdgeInsets.all(14),
+                    padding: Insets.tableNote,
                     child: Text(
                       _editable ? s.tableNoColumnsEdit : s.tableNoColumns,
                       style: mono(color: c.text4),

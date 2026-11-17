@@ -425,9 +425,7 @@ class _SecurityDialogState extends State<SecurityDialog> {
                             ],
                             child: Container(
                               height: AppSizes.smallButton,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                              ),
+                              padding: Insets.field,
                               decoration: BoxDecoration(
                                 borderRadius: Radii.control,
                                 border: Border.all(color: c.line2),
@@ -477,7 +475,7 @@ class _SecurityDialogState extends State<SecurityDialog> {
                             children: [
                               if (vm.devices.isEmpty)
                                 Padding(
-                                  padding: const EdgeInsets.all(14),
+                                  padding: Insets.tableNote,
                                   child: Text(
                                     s.securityNoDevices,
                                     style: TextStyle(
@@ -774,7 +772,7 @@ class _SmallButton extends StatelessWidget {
       onTap: onPressed,
       child: Container(
         height: height,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
+        padding: Insets.field,
         alignment: .center,
         child: Text(
           label,

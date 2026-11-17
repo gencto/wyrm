@@ -253,7 +253,7 @@ class PointsTable extends StatelessWidget {
     Text h(String s) => Text(s.toUpperCase(), style: style);
     return Container(
       height: 40,
-      padding: const EdgeInsets.only(right: 12),
+      padding: Insets.pointsRow,
       decoration: BoxDecoration(
         border: Border(bottom: BorderSide(color: c.line1)),
       ),
@@ -276,7 +276,7 @@ class PointsTable extends StatelessWidget {
 
   Widget _skeleton(AppColors c) => Container(
     height: rowHeight,
-    padding: const EdgeInsets.only(right: 12),
+    padding: Insets.pointsRow,
     decoration: BoxDecoration(
       border: Border(bottom: BorderSide(color: c.ground3)),
     ),
@@ -318,7 +318,7 @@ class PointsTable extends StatelessWidget {
         hoverColor: c.ground2,
         child: Container(
           constraints: BoxConstraints(minHeight: rowHeight),
-          padding: const EdgeInsets.only(right: 12),
+          padding: Insets.pointsRow,
           decoration: BoxDecoration(
             border: Border(bottom: BorderSide(color: c.ground3)),
           ),

@@ -137,7 +137,7 @@ class NodeMenu<T> extends StatelessWidget {
         onTap: enabled ? () => onPick(MenuItemSpot(group, index)) : null,
         child: Container(
           height: 38,
-          padding: const EdgeInsets.symmetric(horizontal: 14),
+          padding: Insets.menuItem,
           child: Row(
             children: [
               Expanded(
@@ -186,7 +186,7 @@ class NodeMenu<T> extends StatelessWidget {
       child: SizedBox(
         width: AppSizes.menu,
         child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(vertical: 6),
+          padding: Insets.menu,
           child: Column(
             crossAxisAlignment: .stretch,
             mainAxisSize: .min,
@@ -258,9 +258,7 @@ class NodeMenu<T> extends StatelessWidget {
                 onTap: () => onPick(MenuSpot.copy),
                 child: Container(
                   height: 34,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                  ),
+                  padding: Insets.menuItem,
                   child: Row(
                     children: [
                       Expanded(

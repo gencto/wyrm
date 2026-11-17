@@ -212,7 +212,7 @@ class ProblemsDrawer extends StatelessWidget {
               Expanded(
                 child: problems.isEmpty
                     ? Padding(
-                        padding: const EdgeInsets.all(20),
+                        padding: Insets.emptyNote,
                         child: Text(
                           labels.empty,
                           style: boardText(size: FontSizes.md, color: c.text3),
@@ -259,7 +259,7 @@ class ProblemsDrawer extends StatelessWidget {
       opacity: p.shown || p.tone == .neutral ? 0.72 : 1,
       child: Container(
         key: ValueKey('problem-${p.id}'),
-        padding: const EdgeInsets.all(12),
+        padding: Insets.smallCard,
         decoration: BoxDecoration(
           color: c.ground2,
           border: .all(color: c.line1),
@@ -324,7 +324,7 @@ class ProblemsDrawer extends StatelessWidget {
                       ),
                     ),
                   Padding(
-                    padding: const EdgeInsets.only(top: 2),
+                    padding: Insets.messageLinks,
                     child: Wrap(
                       spacing: 14,
                       children: [

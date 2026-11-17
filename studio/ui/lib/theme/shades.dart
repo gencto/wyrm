@@ -25,6 +25,9 @@ abstract final class Shades {
   /// An opaque paint that only cuts a mask (`BlendMode.dstOut`); its colour
   /// never shows.
   static const mask = Color(0xFF000000);
+
+  /// The scrim under the error dialog: `rgba(6, 8, 9, 0.66)`.
+  static const errorBarrier = Color(0xA8060809);
 }
 
 /// Grounds that stay the same in both brightnesses, outside the palette of

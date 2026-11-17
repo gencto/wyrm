@@ -356,7 +356,7 @@ class AssistantPage extends StatelessWidget {
           ),
           Expanded(
             child: ListView(
-              padding: const EdgeInsets.all(18),
+              padding: Insets.sectionCard,
               children: [
                 if (rights case final r?)
                   RightsPanel(
