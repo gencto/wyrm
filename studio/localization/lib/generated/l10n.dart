@@ -17704,6 +17704,56 @@ class S {
     );
   }
 
+  /// `The prompt was cancelled.`
+  String get errSignCancelled {
+    return Intl.message(
+      'The prompt was cancelled.',
+      name: 'errSignCancelled',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The system locked the key after too many tries.`
+  String get errSignLockedOut {
+    return Intl.message(
+      'The system locked the key after too many tries.',
+      name: 'errSignLockedOut',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The key no longer opens.`
+  String get errSignKeyGone {
+    return Intl.message(
+      'The key no longer opens.',
+      name: 'errSignKeyGone',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Biometrics are not available on this computer.`
+  String get errSignUnavailable {
+    return Intl.message(
+      'Biometrics are not available on this computer.',
+      name: 'errSignUnavailable',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `No link runs the package {name}.`
+  String errPackageHasNoLink(String name) {
+    return Intl.message(
+      'No link runs the package $name.',
+      name: 'errPackageHasNoLink',
+      desc: '',
+      args: [name],
+    );
+  }
+
   /// `assistant`
   String get errThingAssistant {
     return Intl.message(

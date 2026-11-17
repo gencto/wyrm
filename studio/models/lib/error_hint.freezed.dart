@@ -1250,6 +1250,202 @@ as int,
 /// @nodoc
 
 
+class ErrorHintSignCancelled implements ErrorHint {
+  const ErrorHintSignCancelled();
+  
+
+
+
+
+
+
+@override
+bool operator ==(Object other) {
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is ErrorHintSignCancelled);
+}
+
+
+@override
+int get hashCode => runtimeType.hashCode;
+
+@override
+String toString() {
+    return 'ErrorHint.signCancelled()';
+}
+
+
+}
+
+
+
+
+/// @nodoc
+
+
+class ErrorHintSignLockedOut implements ErrorHint {
+  const ErrorHintSignLockedOut();
+  
+
+
+
+
+
+
+@override
+bool operator ==(Object other) {
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is ErrorHintSignLockedOut);
+}
+
+
+@override
+int get hashCode => runtimeType.hashCode;
+
+@override
+String toString() {
+    return 'ErrorHint.signLockedOut()';
+}
+
+
+}
+
+
+
+
+/// @nodoc
+
+
+class ErrorHintSignKeyGone implements ErrorHint {
+  const ErrorHintSignKeyGone();
+  
+
+
+
+
+
+
+@override
+bool operator ==(Object other) {
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is ErrorHintSignKeyGone);
+}
+
+
+@override
+int get hashCode => runtimeType.hashCode;
+
+@override
+String toString() {
+    return 'ErrorHint.signKeyGone()';
+}
+
+
+}
+
+
+
+
+/// @nodoc
+
+
+class ErrorHintSignUnavailable implements ErrorHint {
+  const ErrorHintSignUnavailable();
+  
+
+
+
+
+
+
+@override
+bool operator ==(Object other) {
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is ErrorHintSignUnavailable);
+}
+
+
+@override
+int get hashCode => runtimeType.hashCode;
+
+@override
+String toString() {
+    return 'ErrorHint.signUnavailable()';
+}
+
+
+}
+
+
+
+
+/// @nodoc
+
+
+class ErrorHintPackageHasNoLink implements ErrorHint {
+  const ErrorHintPackageHasNoLink(this.name);
+  
+
+ final  String name;
+
+/// Create a copy of ErrorHint
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$ErrorHintPackageHasNoLinkCopyWith<ErrorHintPackageHasNoLink> get copyWith => _$ErrorHintPackageHasNoLinkCopyWithImpl<ErrorHintPackageHasNoLink>(this, _$identity);
+
+
+
+@override
+bool operator ==(Object other) {
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is ErrorHintPackageHasNoLink&&(identical(other.name, name) || other.name == name));
+}
+
+
+@override
+int get hashCode {
+    return Object.hash(runtimeType,name);
+}
+
+@override
+String toString() {
+    return 'ErrorHint.packageHasNoLink(name: $name)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $ErrorHintPackageHasNoLinkCopyWith<$Res> implements $ErrorHintCopyWith<$Res> {
+  factory $ErrorHintPackageHasNoLinkCopyWith(ErrorHintPackageHasNoLink value, $Res Function(ErrorHintPackageHasNoLink) _then) = _$ErrorHintPackageHasNoLinkCopyWithImpl;
+@useResult
+$Res call({
+ String name
+});
+
+
+
+
+}
+/// @nodoc
+class _$ErrorHintPackageHasNoLinkCopyWithImpl<$Res>
+    implements $ErrorHintPackageHasNoLinkCopyWith<$Res> {
+  _$ErrorHintPackageHasNoLinkCopyWithImpl(this._self, this._then);
+
+  final ErrorHintPackageHasNoLink _self;
+  final $Res Function(ErrorHintPackageHasNoLink) _then;
+
+/// Create a copy of ErrorHint
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') $Res call({Object? name = null,}) {
+  return _then(ErrorHintPackageHasNoLink(
+null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
+as String,
+  ));
+}
+
+
+}
+
+/// @nodoc
+
+
 class ErrorHintEmptyPart implements ErrorHint {
   const ErrorHintEmptyPart();
   

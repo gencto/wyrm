@@ -150,13 +150,23 @@ class EnableDeviceAction extends Action with WaitingAction {
       );
     } on SignStopped catch (e) {
       dispatchSync(_Left());
-      throw StudioException.said(
-        ErrorKind.studio,
-        '$e',
-        call: const .known(.enableDevice),
-        thing: name,
-        subject: subject,
-      );
+      throw switch (signHintOf(e.result)) {
+        final hint? => StudioException.hinted(
+          ErrorKind.studio,
+          hint,
+          call: const .known(.enableDevice),
+          thing: name,
+          subject: subject,
+        ),
+        // the system's own words
+        null => StudioException.said(
+          ErrorKind.studio,
+          '$e',
+          call: const .known(.enableDevice),
+          thing: name,
+          subject: subject,
+        ),
+      };
     }
   }
 }

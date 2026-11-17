@@ -238,6 +238,11 @@ String _hintText(ErrorHint h) {
       size,
     ),
     ErrorHintEmptyPart() => s.errEmptyPart,
+    ErrorHintSignCancelled() => s.errSignCancelled,
+    ErrorHintSignLockedOut() => s.errSignLockedOut,
+    ErrorHintSignKeyGone() => s.errSignKeyGone,
+    ErrorHintSignUnavailable() => s.errSignUnavailable,
+    ErrorHintPackageHasNoLink(:final name) => s.errPackageHasNoLink(name),
   };
 }
 

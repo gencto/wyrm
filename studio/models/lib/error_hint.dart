@@ -123,6 +123,22 @@ sealed class ErrorHint with _$ErrorHint {
     required int size,
   }) = ErrorHintFileEndedEarly;
 
+  /// The system's prompt for the device key was cancelled.
+  const factory ErrorHint.signCancelled() = ErrorHintSignCancelled;
+
+  /// The system locked the device key out (too many tries).
+  const factory ErrorHint.signLockedOut() = ErrorHintSignLockedOut;
+
+  /// The device key no longer opens (the enrolled biometrics changed).
+  const factory ErrorHint.signKeyGone() = ErrorHintSignKeyGone;
+
+  /// This computer has no biometrics to open the device key with.
+  const factory ErrorHint.signUnavailable() = ErrorHintSignUnavailable;
+
+  /// An update from a file of the package [name], which no link runs.
+  const factory ErrorHint.packageHasNoLink(String name) =
+      ErrorHintPackageHasNoLink;
+
   /// The broker sent an empty part before the end of a file.
   const factory ErrorHint.emptyPart() = ErrorHintEmptyPart;
 }

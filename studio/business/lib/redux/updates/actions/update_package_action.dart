@@ -3,6 +3,8 @@ import 'dart:typed_data';
 
 import 'package:async_redux/async_redux.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/error_hint.dart';
+import 'package:models/error_kind.dart';
 import 'package:models/update_result.dart';
 import 'package:models/update_view.dart';
 import 'package:wyrm_client/wyrm_client.dart';
@@ -11,6 +13,7 @@ import '../../../wyrm/calls.dart';
 import '../../../wyrm/decode/broker_text.dart';
 import '../../../wyrm/decode/package_info.dart';
 import '../../../wyrm/decode/sys_verdict.dart';
+import '../../../wyrm/failures.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 import '../../packages/actions/retrieve_packages_action.dart';
@@ -83,7 +86,13 @@ class UpdatePackageAction extends Action with NonReentrant, WaitingAction {
               .where((l) => l.driver == 'pkg:$name')
               .firstOrNull;
           if (link == null) {
-            throw StateError('no link runs the package $name');
+            throw StudioException.hinted(
+              ErrorKind.gone,
+              ErrorHint.packageHasNoLink(name),
+              key: '$root/sys/packages/$name',
+              call: const .known(.update),
+              thing: name,
+            );
           }
           answer = await invokeOne(
             deps.wyrm,

@@ -21,6 +21,7 @@ import 'package:business/redux/system/actions/set_around_action.dart';
 import 'package:business/wyrm/calls.dart';
 import 'package:business/wyrm/failures.dart';
 import 'package:business/wyrm/mappers/log_line_mapper.dart';
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
@@ -28,6 +29,7 @@ import 'package:material_ui/material_ui.dart' hide Action, ErrorHint;
 import 'package:models/error_call.dart';
 import 'package:models/error_hint.dart';
 import 'package:models/error_kind.dart';
+import 'package:models/error_subject.dart';
 import 'package:models/notice_kind.dart';
 import 'package:models/studio_error.dart';
 import 'package:models/system_tab.dart';
@@ -581,6 +583,81 @@ void main() {
       );
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pumpAndSettle();
+    });
+  });
+
+  group('what Studio itself found wrong is said by the app', () {
+    StudioError hinted(ErrorHint h) =>
+        wordError(StudioError(kind: ErrorKind.studio, hint: h));
+
+    test('business names the case; the words keep its data', () {
+      expect(
+        hinted(const ErrorHint.noAssistant()).message,
+        'There is no assistant link on this site.',
+      );
+      expect(
+        hinted(
+          const ErrorHint.taskRecordInvalid(
+            task: 't-7',
+            field: 'plan[2].key',
+            reason: 'missing',
+          ),
+        ).message,
+        'The record of task t-7 is not one Studio reads: plan[2].key: '
+        'missing.',
+      );
+      expect(
+        hinted(
+          ErrorHint.profileUnknownKey(key: 'unit', known: ['type', 'is'].lock),
+        ).message,
+        'Unknown key "unit" (known: type, is).',
+      );
+      expect(
+        hinted(
+          const ErrorHint.backupDigestMismatch(got: 'aa', expected: 'bb'),
+        ).message,
+        contains('SHA-256 aa, the broker says bb'),
+      );
+      expect(
+        hinted(const ErrorHint.rangeTooBig()).message,
+        S.current.rangeTooBig,
+      );
+    });
+
+    test("in Ukrainian too, and the broker's own words win", () async {
+      final en = hinted(const ErrorHint.assistantNoTask()).message;
+      await S.load(const Locale('uk'));
+      addTearDown(() => S.load(const Locale('en')));
+      final uk = hinted(const ErrorHint.assistantNoTask()).message;
+      expect(uk, isNotEmpty);
+      expect(uk, isNot(en));
+      expect(
+        wordError(
+          const StudioError(
+            kind: ErrorKind.broker,
+            message: 'said by the link',
+            hint: ErrorHint.notConnected(),
+          ),
+        ).message,
+        'said by the link',
+      );
+    });
+
+    test('a subject Studio names is worded; a name from the broker is not', () {
+      StudioError of(ErrorSubject s, {String? thing}) => _refused(
+        Status.permissionDenied,
+        'no',
+        key: 'wy/plant/x',
+        call: 'ask',
+      ).copyWith(title: '', subject: s, thing: thing);
+      expect(
+        wordError(of(ErrorSubject.assistant)).title,
+        'You can’t run ask on assistant',
+      );
+      expect(
+        wordError(of(ErrorSubject.device, thing: '7')).title,
+        'You can’t run ask on device 7',
+      );
     });
   });
 
