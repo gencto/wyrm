@@ -198,10 +198,7 @@ fn action_ui_fields() {
     assert_eq!(a.params["unit"].display.as_deref(), Some("Slave ID"));
     assert_eq!(a.params["unit"].description.as_deref(), Some("1..247"));
     assert_eq!(a.params["host"].placeholder.as_deref(), Some("10.0.1.199"));
-    assert_eq!(
-        a.params["password"].editor.as_deref(),
-        Some(wyrm_core::meta::EDITOR_PASSWORD)
-    );
+    assert!(a.params["password"].has_editor(wyrm_core::meta::Editor::Password));
     assert_eq!(m.actions.as_ref().unwrap()["restart"].group, None);
 }
 

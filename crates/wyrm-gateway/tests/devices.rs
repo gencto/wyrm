@@ -66,7 +66,7 @@ impl wyrm_link_sdk::Link for Plant {
                 .param(
                     "file",
                     wyrm_core::meta::ParamMeta::of(TypeCode::Binary)
-                        .editor(wyrm_core::meta::EDITOR_FILE),
+                        .editor(wyrm_core::meta::Editor::File),
                 )
                 .result(ActionResult::Type(TypeCode::String))
                 .level(Perm::Config),

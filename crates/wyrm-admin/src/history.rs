@@ -201,7 +201,7 @@ fn seconds_param(display: &str, about: &str, current: Option<u64>) -> ParamMeta 
     let mut p = ParamMeta::of(TypeCode::Number)
         .display(display)
         .description(about)
-        .editor(wyrm_core::meta::EDITOR_DURATION);
+        .editor(wyrm_core::meta::Editor::Duration);
     if let Some(ms) = current {
         p = p.placeholder(format!("{}", ms as f64 / 1000.0));
     }
@@ -223,7 +223,7 @@ fn timerange_param() -> ParamMeta {
         .required(true)
         .display("Timerange")
         .placeholder("2026-10-22T00:00:00Z/2026-10-23T00:00:00Z")
-        .editor(wyrm_core::meta::EDITOR_DATERANGE)
+        .editor(wyrm_core::meta::Editor::Daterange)
         .description("From/to in RFC 3339 (a date is its midnight UTC); an empty end is now.")
 }
 

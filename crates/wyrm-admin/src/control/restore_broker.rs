@@ -1573,7 +1573,7 @@ pub(super) async fn declare(ctx: &LinkCtx) -> wyrm_link_sdk::Result<()> {
                 "passphrase",
                 str_param()
                     .display("Passphrase")
-                    .editor(EDITOR_PASSWORD)
+                    .editor(Editor::Password)
                     .description("Of a backup sealed with one"),
             )
             .result(ActionResult::Type(TypeCode::Map))

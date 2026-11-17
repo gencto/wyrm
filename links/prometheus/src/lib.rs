@@ -46,7 +46,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::debug;
-use wyrm_core::meta::{ActionResult, ParamMeta, Writable, EDITOR_TEXTAREA};
+use wyrm_core::meta::{ActionResult, Editor, ParamMeta, Writable};
 use wyrm_core::{ActionMeta, NodeMeta, Perm, Status, TypeCode, Value};
 use wyrm_link_sdk::driver::params::{field, ParamSpec};
 use wyrm_link_sdk::driver::{
@@ -144,12 +144,12 @@ impl Params for Conn {
             ParamSpec::new("ca_pem", TypeCode::String)
                 .default("")
                 .dest()
-                .editor(EDITOR_TEXTAREA)
+                .editor(Editor::Textarea)
                 .display("CA certificates (PEM)")
                 .desc("for https; empty = the system roots"),
             ParamSpec::new("cert_pem", TypeCode::String)
                 .default("")
-                .editor(EDITOR_TEXTAREA)
+                .editor(Editor::Textarea)
                 .display("Client certificate (PEM)")
                 .desc("for mutual TLS"),
             ParamSpec::new("key_pem", TypeCode::String)
@@ -164,7 +164,7 @@ impl Params for Conn {
                 .desc("accept any server certificate (testing only)"),
             ParamSpec::new("headers", TypeCode::String)
                 .default("")
-                .editor(EDITOR_TEXTAREA)
+                .editor(Editor::Textarea)
                 .display("Extra headers")
                 .placeholder("X-Scope-OrgID: plant")
                 .desc("one `Name: value` per line; not for credentials"),

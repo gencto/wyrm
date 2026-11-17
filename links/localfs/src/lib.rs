@@ -659,7 +659,7 @@ impl Backend for LocalStore {
     fn link_options() -> Vec<ParamSpec> {
         vec![ParamSpec::new(ALLOWED_ROOTS, TypeCode::String)
             .default("")
-            .editor("textarea")
+            .editor(wyrm_core::meta::Editor::Textarea)
             .display("Allowed directories")
             .desc("one absolute path per line; a connection's directory must be one of them or below one; empty = none")]
     }

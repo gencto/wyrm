@@ -31,10 +31,7 @@ use tokio::sync::{mpsc, Mutex as AsyncMutex};
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 use wyrm_core::meta::Writable;
-use wyrm_core::meta::{
-    is_code, ActionResult, ParamMeta, Profile, EDITOR_FILE, EDITOR_PASSWORD, EDITOR_TEXTAREA,
-    GROUP_EDIT, GROUP_NEW,
-};
+use wyrm_core::meta::{is_code, ActionResult, Editor, ParamMeta, Profile, GROUP_EDIT, GROUP_NEW};
 use wyrm_core::{ActionMeta, NodeMeta, Perm, Quality, Status, TypeCode, Value};
 use wyrm_link_sdk::{
     now_us, Caller, Link, LinkConfig, LinkCtx, LinkError, LinkHandle, ReplySink, VerifyingKey,
@@ -2389,7 +2386,7 @@ async fn declare_link(ctx: &LinkCtx, def: &LinkDef) -> Result<(), LinkError> {
                 ParamMeta::of(TypeCode::Binary)
                     .required(true)
                     .display("Value")
-                    .editor(EDITOR_PASSWORD),
+                    .editor(Editor::Password),
             )
             .result(ActionResult::Type(TypeCode::Array)),
     )
@@ -2899,7 +2896,7 @@ fn ca_param() -> ParamMeta {
     str_param()
         .required(true)
         .display("CA certificate")
-        .editor(EDITOR_TEXTAREA)
+        .editor(Editor::Textarea)
         .description("PEM of that site's CA (its data_dir/pki/ca.pem)")
 }
 
@@ -2929,7 +2926,7 @@ async fn declare_peers(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Result<()
                 "token",
                 str_param()
                     .display("Token")
-                    .editor(EDITOR_PASSWORD)
+                    .editor(Editor::Password)
                     .description("From its sys/tokens, if it gave one: admitted at once"),
             )
             .param("enabled", ParamMeta::of(TypeCode::Bool).display("Enabled"))
@@ -3889,7 +3886,7 @@ impl Link for Admin {
                     ParamMeta::of(TypeCode::Binary)
                         .required(true)
                         .display("ZIP file")
-                        .editor(EDITOR_FILE)
+                        .editor(Editor::File)
                         .description("Link package: a zip with wyrm-link.json"),
                 ),
         )
@@ -3936,7 +3933,7 @@ impl Link for Admin {
                     ParamMeta::of(TypeCode::Binary)
                         .required(true)
                         .display("Component")
-                        .editor(EDITOR_FILE)
+                        .editor(Editor::File)
                         .description("A wyrm:link/driver component (.wasm)"),
                 ),
         )
@@ -3983,7 +3980,7 @@ impl Link for Admin {
                     ParamMeta::of(TypeCode::Binary)
                         .required(true)
                         .display("Profile")
-                        .editor(EDITOR_FILE),
+                        .editor(Editor::File),
                 )
                 .level(Perm::Config),
         )

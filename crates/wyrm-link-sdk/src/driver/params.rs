@@ -5,7 +5,7 @@
 
 use crate::error::{LinkError, Result};
 use std::collections::BTreeMap;
-use wyrm_core::meta::ParamMeta;
+use wyrm_core::meta::{Editor, ParamMeta};
 use wyrm_core::{TypeCode, Value};
 
 /// One parameter of a node kind.
@@ -33,8 +33,8 @@ pub struct ParamSpec {
     pub display: &'static str,
     /// Example value shown in an empty field.
     pub placeholder: &'static str,
-    /// Form editor (`"textarea"`); a secret is always `"password"`.
-    pub editor: &'static str,
+    /// Form editor; a secret is always [`Editor::Password`].
+    pub editor: Option<Editor>,
 }
 
 impl ParamSpec {
@@ -51,7 +51,7 @@ impl ParamSpec {
             desc: "",
             display: "",
             placeholder: "",
-            editor: "",
+            editor: None,
         }
     }
 
@@ -97,8 +97,8 @@ impl ParamSpec {
         self
     }
 
-    pub const fn editor(mut self, e: &'static str) -> Self {
-        self.editor = e;
+    pub const fn editor(mut self, e: Editor) -> Self {
+        self.editor = Some(e);
         self
     }
 
@@ -122,10 +122,11 @@ impl ParamSpec {
         p.description = text(self.desc);
         p.placeholder = text(self.placeholder);
         p.editor = if self.secret {
-            Some(wyrm_core::meta::EDITOR_PASSWORD.to_owned())
+            Some(Editor::Password)
         } else {
-            text(self.editor)
-        };
+            self.editor
+        }
+        .map(Into::into);
         p
     }
 }

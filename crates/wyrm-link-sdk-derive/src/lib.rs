@@ -80,7 +80,7 @@ struct FieldAttrs {
     desc: Option<String>,
     display: Option<String>,
     placeholder: Option<String>,
-    editor: Option<String>,
+    editor: Option<Tokens>,
     name: Option<String>,
     is_enum: bool,
 }
@@ -102,7 +102,7 @@ fn field_attrs(attrs: &[syn::Attribute]) -> syn::Result<FieldAttrs> {
                 Some("placeholder") => {
                     a.placeholder = Some(m.value()?.parse::<syn::LitStr>()?.value())
                 }
-                Some("editor") => a.editor = Some(m.value()?.parse::<syn::LitStr>()?.value()),
+                Some("editor") => a.editor = Some(editor(&m.value()?.parse::<syn::LitStr>()?)?),
                 Some("name") => a.name = Some(m.value()?.parse::<syn::LitStr>()?.value()),
                 _ => {
                     return Err(m.error(
@@ -115,6 +115,25 @@ fn field_attrs(attrs: &[syn::Attribute]) -> syn::Result<FieldAttrs> {
         })?;
     }
     Ok(a)
+}
+
+/// `editor = "textarea"`: the `wyrm_core::meta::Editor` of that wire name. A
+/// name that is not in the set does not compile.
+fn editor(name: &syn::LitStr) -> syn::Result<Tokens> {
+    let variant =
+        match name.value().as_str() {
+            "password" => quote!(Password),
+            "textarea" => quote!(Textarea),
+            "file" => quote!(File),
+            "daterange" => quote!(Daterange),
+            "date" => quote!(Date),
+            "duration" => quote!(Duration),
+            _ => return Err(syn::Error::new_spanned(
+                name,
+                "unknown editor; expected password, textarea, file, daterange, date or duration",
+            )),
+        };
+    Ok(quote!(::wyrm_core::meta::Editor::#variant))
 }
 
 /// A numeric literal (optionally negated) as text, plus whether it is an integer.

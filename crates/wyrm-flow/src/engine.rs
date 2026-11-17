@@ -1180,7 +1180,7 @@ impl Link for Engine {
                     "bytes",
                     ParamMeta::of(TypeCode::Binary)
                         .required(true)
-                        .editor(wyrm_core::meta::EDITOR_FILE),
+                        .editor(wyrm_core::meta::Editor::File),
                 )
                 .result(ActionResult::Type(TypeCode::Map))
                 .level(Perm::Config),

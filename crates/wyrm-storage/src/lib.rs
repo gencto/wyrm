@@ -182,13 +182,13 @@ fn import() -> ActionMeta {
         .param(
             "data",
             ParamMeta::of(TypeCode::String)
-                .editor(wyrm_core::meta::EDITOR_TEXTAREA)
+                .editor(wyrm_core::meta::Editor::Textarea)
                 .description("JSON from Export"),
         )
         .param(
             "file",
             ParamMeta::of(TypeCode::Binary)
-                .editor(wyrm_core::meta::EDITOR_FILE)
+                .editor(wyrm_core::meta::Editor::File)
                 .description("A JSON file from Export, instead of data"),
         )
 }

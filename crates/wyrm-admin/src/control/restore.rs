@@ -1134,7 +1134,7 @@ pub(super) async fn declare(ctx: &LinkCtx) -> wyrm_link_sdk::Result<()> {
                 ParamMeta::of(TypeCode::Binary)
                     .required(true)
                     .display("Data")
-                    .editor(EDITOR_FILE)
+                    .editor(Editor::File)
                     .description("The next part, at most 16 MiB"),
             )
             .result(ActionResult::Type(TypeCode::Map))
@@ -1159,7 +1159,7 @@ pub(super) async fn declare(ctx: &LinkCtx) -> wyrm_link_sdk::Result<()> {
                 "file",
                 ParamMeta::of(TypeCode::Binary)
                     .display("Backup file")
-                    .editor(EDITOR_FILE)
+                    .editor(Editor::File)
                     .description("A .wyrm-link file; or upload it in parts and give Upload"),
             )
             .param(
@@ -1178,7 +1178,7 @@ pub(super) async fn declare(ctx: &LinkCtx) -> wyrm_link_sdk::Result<()> {
                 "passphrase",
                 str_param()
                     .display("Passphrase")
-                    .editor(EDITOR_PASSWORD)
+                    .editor(Editor::Password)
                     .description("Of a backup that holds private data"),
             ),
     )

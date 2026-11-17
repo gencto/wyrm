@@ -1769,7 +1769,7 @@ pub(super) fn request_of(
 fn passphrase_param() -> ParamMeta {
     str_param()
         .display("Passphrase")
-        .editor(EDITOR_PASSWORD)
+        .editor(Editor::Password)
         .description(format!(
             "At least {} characters; only with backups.export_secrets. Without it, link secrets are sealed for this site",
             crate::keys::MIN_PASSPHRASE
