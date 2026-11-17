@@ -52,6 +52,15 @@ extension TaskFacts on AgentTask {
       .map((s) => s.key)
       .lastOrNull;
 
+  /// The plan waits to be approved and no task took its place.
+  bool get waitsForApproval =>
+      state == TaskState.awaitingApproval && replacedBy == null;
+
+  /// The step a run stopped at, while nothing replaced the task: the
+  /// Stopped card says where and what next.
+  PlanStep? get stoppedAt =>
+      state == TaskState.failed && replacedBy == null ? failedStep : null;
+
   /// A question of the task still waits for its answer.
   bool get asksStill => questions.any((q) => !q.answered);
 

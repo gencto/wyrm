@@ -105,6 +105,7 @@ import 'package:wyrm_client/wyrm_client.dart'
     show DevicePolicy, GatewayDevice, Perm, Status, StepUp;
 
 import '../wyrm/approval.dart';
+import '../wyrm/assistant_view.dart';
 import '../wyrm/catalog.dart';
 import '../wyrm/context_keys.dart';
 import '../wyrm/decode/agent_params.dart';
@@ -120,6 +121,7 @@ import '../wyrm/features.dart';
 import '../wyrm/flow_view/flow_view.dart';
 import '../wyrm/gateway_label.dart';
 import '../wyrm/historian_stats.dart';
+import '../wyrm/history_steps.dart';
 import '../wyrm/history_trend.dart';
 import '../wyrm/holds.dart';
 import '../wyrm/keys.dart';
@@ -491,9 +493,9 @@ extension AssistantScreen on Selectors {
       assistant.rowPicks['$task/$suggestion'] ?? const ISetConst({});
 
   /// The rows ticked in every *Same for more units?* of [t].
-  ISet<({String suggestion, String key})> pickedRowsOf(AgentTask t) => {
+  ISet<RowPick> pickedRowsOf(AgentTask t) => {
     for (final s in t.withRows)
-      for (final k in rowPicksOf(t.id, s.id)) (suggestion: s.id, key: k),
+      for (final k in rowPicksOf(t.id, s.id)) RowPick(s.id, k),
   }.lock;
 
   /// The masked arguments of step [n] of [task] are shown.
@@ -503,14 +505,14 @@ extension AssistantScreen on Selectors {
   /// The arguments of [s] of [t] as the plan card shows them: each with its
   /// value as it is sent, or null when it is masked (a secret, or a schema
   /// not known and not looked at). A masked value never leaves here.
-  List<({String name, String? text})> argsOf(AgentTask t, PlanStep s) {
+  List<ShownArg> argsOf(AgentTask t, PlanStep s) {
     final hidden = withheld(s);
     final shown = !s.argsKnown && revealedOf(t.id, s.n);
     return [
       for (final e in s.args.entries)
-        (
-          name: e.key,
-          text: s.secret.contains(e.key) || (hidden.contains(e.key) && !shown)
+        ShownArg(
+          e.key,
+          s.secret.contains(e.key) || (hidden.contains(e.key) && !shown)
               ? null
               : argText(e.value),
         ),
@@ -615,6 +617,124 @@ extension AssistantScreen on Selectors {
     }
     return (key: k, reads: agentReadsKey(k));
   }
+}
+
+/// The Assistant's own decisions over the state.
+extension AssistantView on Selectors {
+  /// The site has no agent link (known: neither the agent nor the links
+  /// are being read).
+  bool get noAgent =>
+      assistant.agent == null && !assistant.isWaiting && !links.isWaiting;
+
+  /// The card under [t] with the plan's [choices] (null: no ticks are
+  /// shown); null for a run that stopped at a step and is not reviewed:
+  /// the Stopped card says where and what next.
+  TaskStanding? standingOf(AgentTask t, List<StepChoice>? choices) {
+    if (t.replacedBy case final next?) {
+      // its `~val` may still say it waits
+      return StandingReplaced(next);
+    }
+    final cancel = writeHold;
+    switch (t.state) {
+      case TaskState.awaitingApproval:
+        final shown = choices ?? const <StepChoice>[];
+        return StandingApproval(
+          note: approvalNote(t, shown),
+          runs: shown.tickedCount == 0 ? 0 : shown.runCount,
+          rejectHold: cancel,
+          approveHold: approveHold(t, shown),
+        );
+      case TaskState.awaitingAnswer:
+        return StandingAnswer(cancelHold: cancel);
+      case TaskState.planning || TaskState.running:
+        return StandingWorking(cancelHold: cancel);
+      case TaskState.done:
+        return StandingDone(
+          task: t.id,
+          leftOut: t.leftOut,
+          changedNode: t.changedNode,
+          trendPoint: t.touched.lastOrNull,
+          savable: t.plan.isNotEmpty,
+          followUpHold: followUpHold,
+        );
+      case TaskState.failed:
+        if (t.failedStep == null) {
+          return StandingFailed(t.error);
+        }
+        // while the model reviews the run it can be cancelled
+        return t.reviewing ? StandingWorking(cancelHold: cancel) : null;
+    }
+  }
+
+  /// The drawer's second button for [t]: while its plan waits a draft,
+  /// after a done task a follow-up; null otherwise, and when another task
+  /// replaced it or the model offered none.
+  SecondOffer? secondOf(AgentTask t) {
+    final s = t.second;
+    final waits = t.state == TaskState.awaitingApproval;
+    if (s == null ||
+        t.replacedBy != null ||
+        (!waits && t.state != TaskState.done)) {
+      return null;
+    }
+    return waits
+        ? SecondOffer(s, draft: true)
+        : SecondOffer(s, draft: false, hold: followHold(t));
+  }
+
+  /// The range of the history read for the timeline's point in µs (as
+  /// Explorer's): its span up to the last read or the newest row since.
+  ExplorerTrendSpan _timelineSpan(IList<HistPoint> rows) {
+    final span = nodes.historyRange.span;
+    final re = trendRangeEnd(nodes.historyAt, [rows.lastOrNull?.time]);
+    final rs = re - span.inMicroseconds;
+    final w = nodes.historyWindow;
+    final we = w?.end?.microsecondsSinceEpoch ?? re;
+    final ws = w == null ? rs : we - w.span.inMicroseconds;
+    return (
+      rangeStart: rs,
+      rangeEnd: re,
+      windowStart: ws.clamp(rs, re),
+      windowEnd: we.clamp(rs, re),
+      minWindow: 12 * stepDuration(stepFor(span, raw: false))!.inMicroseconds,
+      following: w?.end == null,
+    );
+  }
+
+  /// The drawer's mini timeline: the rows Explorer reads for
+  /// [timelinePoint] (none until they are its rows); null with no point.
+  ExplorerTrend? get timeline {
+    final point = timelinePoint;
+    if (point == null) {
+      return null;
+    }
+    final read = nodes.historyKey == point;
+    final rows = read ? nodes.history : const IListConst<HistPoint>([]);
+    final info = nodes.table[point];
+    return (
+      point: point,
+      name: point.split('/').last,
+      display: info?.display,
+      unit: info?.unit,
+      precision: null,
+      rows: rows,
+      span: _timelineSpan(rows),
+      loading: !read || (rows.isEmpty && nodes.historyLoading),
+    );
+  }
+
+  /// The audit records read for [timelinePoint]; null while those in the
+  /// state are another point's (not read yet).
+  IList<AuditEntry>? get timelineAuditRead =>
+      assistant.timelineKey == timelinePoint ? assistant.timelineAudit : null;
+
+  /// The keys whose live value the Assistant draws: those the Result card
+  /// shows and *Today* of What it may do ([assistantWatch]), and for the
+  /// [drawer] the nodes of the findings.
+  List<String> assistantLiveKeys({required bool drawer}) => [
+    ...assistantWatch,
+    if (drawer) ...drawerFindingKeys,
+  ];
 }
 
 /// The params of a link as they will be once the staged update of it is

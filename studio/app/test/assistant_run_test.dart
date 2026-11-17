@@ -133,12 +133,12 @@ void main() {
     // the key the plan set and proved is watched while the tab shows it
     expect(app.store.state.live.watched.keys, contains(sp));
     var result = tester.widget<ResultCard>(find.byType(ResultCard)).vm;
-    expect(result.facts, [(key: sp, value: null)]);
+    expect(result.facts, [const ResultFactVm(sp, null)]);
 
     app.api.subs[sp]!.add(const ValSample(sp, Sample(VFloat(21.5), t: 1)));
     await app.settle(tester);
     result = tester.widget<ResultCard>(find.byType(ResultCard)).vm;
-    expect(result.facts, [(key: sp, value: '21.5')]);
+    expect(result.facts, [const ResultFactVm(sp, '21.5')]);
 
     // leaving the tab's tree stops the watch
     await tester.pumpWidget(const SizedBox());

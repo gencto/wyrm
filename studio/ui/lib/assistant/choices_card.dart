@@ -11,6 +11,17 @@ import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import 'blocked.dart';
 
+/// A pick on the choices card: the [option] of the [question].
+final class OptionPick extends Equatable {
+  const OptionPick(this.question, this.option);
+
+  final String question;
+  final String option;
+
+  @override
+  List<Object?> get props => [question, option];
+}
+
 /// One option of a question: its label, the detail under it, and whether
 /// it is picked.
 final class ChoiceOptionVm extends Equatable {

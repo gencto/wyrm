@@ -10,7 +10,18 @@ import '../theme/typography.dart';
 import 'task_badge.dart';
 
 /// One key a finished plan touched, with its value now.
-typedef ResultFact = ({String key, String? value});
+final class ResultFactVm extends Equatable {
+  const ResultFactVm(this.key, this.value);
+
+  /// The full key.
+  final String key;
+
+  /// Its value now, as text; null: none was read.
+  final String? value;
+
+  @override
+  List<Object?> get props => [key, value];
+}
 
 /// What [ResultCard] draws.
 final class ResultCardVm extends Equatable {
@@ -18,7 +29,7 @@ final class ResultCardVm extends Equatable {
 
   /// The keys the plan touched (full keys) and their values now, as text;
   /// a null value: none was read.
-  final List<ResultFact> facts;
+  final List<ResultFactVm> facts;
 
   /// `Result`.
   String get title => S.current.resultTitle;
@@ -53,7 +64,7 @@ class ResultCard extends StatelessWidget {
         spacing: 8,
         children: [
           SectionLabel(vm.title),
-          for (final (:key, :value) in vm.facts)
+          for (final ResultFactVm(:key, :value) in vm.facts)
             Row(
               crossAxisAlignment: .start,
               spacing: 12,

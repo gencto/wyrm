@@ -1,4 +1,6 @@
+import 'package:business/redux/app_state.dart';
 import 'package:business/wyrm/approval.dart';
+import 'package:business/wyrm/assistant_view.dart';
 import 'package:business/wyrm/holds.dart';
 import 'package:business/wyrm/mappers/agent_task_mapper.dart';
 import 'package:business/wyrm/task_facts.dart';
@@ -8,6 +10,7 @@ import 'package:models/approval_mode.dart';
 import 'package:models/assistant_panel.dart';
 import 'package:models/audit_entry.dart';
 import 'package:models/finding_refusal.dart';
+import 'package:models/node_info.dart';
 import 'package:models/plan_step.dart';
 import 'package:models/quality.dart';
 import 'package:models/step_check.dart';
@@ -31,6 +34,7 @@ import 'package:ui/assistant/suggestion_tile.dart';
 import 'package:ui/assistant/task_badge.dart';
 import 'package:ui/assistant/task_card.dart';
 import 'package:ui/assistant/task_list.dart';
+import 'package:ui/indicators/app_icon.dart';
 import 'package:ui/pages/assistant_page.dart';
 
 import 'rights_mappers.dart';
@@ -311,7 +315,7 @@ extension AgentTaskItem on AgentTask {
 /// [revealed] whether masked arguments are shown now; [fixes] its tiles.
 PlanStepVm planStepVm(
   PlanStep s, {
-  required List<({String name, String? text})> args,
+  required List<ShownArg> args,
   required StepChoice? choice,
   required bool revealed,
   required List<SuggestionTileVm> fixes,
@@ -367,3 +371,82 @@ extension ApiKeySetState on bool? {
     null => ApiKeyState.unknown,
   };
 }
+
+/// The state read through its selectors.
+final class _Read with Selectors {
+  _Read(this.state);
+
+  @override
+  final AppState state;
+}
+
+/// One node *+ from Explorer* offers as an `@` chip.
+final class ChipChoice {
+  const ChipChoice({
+    required this.key,
+    required this.title,
+    required this.icon,
+    required this.selected,
+  });
+
+  final String key;
+
+  /// Its display name, else its name.
+  final String title;
+  final String icon;
+
+  /// It is Explorer's selection or point: offered first.
+  final bool selected;
+}
+
+/// What *+ from Explorer* offers on the site [site].
+final class ChipChoices {
+  const ChipChoices({required this.site, required this.entries});
+
+  final String site;
+  final List<ChipChoice> entries;
+}
+
+/// The nodes *+ from Explorer* offers in [s] (`chipChoices`: the selection
+/// first, then what Explorer read), each with its name and icon; null when
+/// no chip can be added now (no site, or the chips are full).
+ChipChoices? chipChoicesOf(AppState s) {
+  final r = _Read(s);
+  final root = r.site.root;
+  if (root == null || r.chipHold != null) {
+    return null;
+  }
+  ChipChoice choice(String k, {required bool selected}) {
+    final info = r.nodes.table[k];
+    return ChipChoice(
+      key: k,
+      title: switch (info) {
+        NodeInfo(:final display?, :final name)
+            when display.trim().isNotEmpty && display != name =>
+          display,
+        final n => n?.name ?? shortKey(k),
+      },
+      icon: AppIcon.nodeName(
+        key: k,
+        root: root,
+        profile: info?.profile,
+        value: info?.type != null,
+      ),
+      selected: selected,
+    );
+  }
+
+  final (:first, :rest) = r.chipChoices;
+  return ChipChoices(
+    site: root.split('/').last,
+    entries: [
+      for (final k in first) choice(k, selected: true),
+      for (final k in rest) choice(k, selected: false),
+    ],
+  );
+}
+
+/// The key [text] names when typed in the picker, and whether the agent
+/// reads it (`typedChip`); null when it names none or is a chip already.
+({String key, bool reads})? typedChipOf(AppState s, String text) =>
+    _Read(s).typedChip(text);

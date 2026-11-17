@@ -32,7 +32,15 @@ typedef ReadRow = (String tool, int times);
 
 /// A row of *Same for more units?*: the suggestion it belongs to and the
 /// node's key.
-typedef MoreRowRef = ({String suggestion, String key});
+final class MoreRowRef extends Equatable {
+  const MoreRowRef(this.suggestion, this.key);
+
+  final String suggestion;
+  final String key;
+
+  @override
+  List<Object?> get props => [suggestion, key];
+}
 
 /// The panels on the right of the Assistant.
 enum AssistantTab {
@@ -309,10 +317,10 @@ class AssistantPage extends StatelessWidget {
                         for (final m in more)
                           MoreRowsCard(
                             vm: m,
-                            onRow: (key, {required on}) => onRow?.call((
-                              suggestion: m.id,
-                              key: key,
-                            ), on: on),
+                            onRow: (key, {required on}) => onRow?.call(
+                              MoreRowRef(m.id, key),
+                              on: on,
+                            ),
                             onAsk: () => onMore?.call(m.id),
                           ),
                         if (stopped case final st?)

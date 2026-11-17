@@ -127,8 +127,8 @@ void main() {
       'Never — write steps run at once; config steps still wait for a person',
     );
     expect(vm.prefixRows, [
-      ('wy/central/downstream/modbus', 'downstream/modbus'),
-      ('wy/central/storage', 'storage'),
+      const PrefixRowVm('wy/central/downstream/modbus', 'downstream/modbus'),
+      const PrefixRowVm('wy/central/storage', 'storage'),
     ]);
     expect(
       [for (final f in vm.facts) (f.label, f.value)],
