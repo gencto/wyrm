@@ -168,8 +168,17 @@ TaskSheetVm backupFormSheet(
           multi: s == BackupPart.links,
           onChanged: onSection == null ? null : (on) => onSection(s, on: on),
         ),
-      if (d.linkFacts case final f?) ...[
-        SheetFacts([FactVm(label: l.bakFactLink, value: f)]),
+      if ((d.link, d.linkMode, d.linkDriver) case (
+        final id?,
+        final mode?,
+        final driver?,
+      )) ...[
+        SheetFacts([
+          FactVm(
+            label: l.bakFactLink,
+            value: '$id · ${mode.label} · $driver',
+          ),
+        ]),
         SheetText(l.bakLinkRestoreNote, small: true),
       ],
       SheetField(

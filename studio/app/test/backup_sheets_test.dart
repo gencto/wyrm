@@ -3,6 +3,8 @@ import 'dart:typed_data';
 
 import 'package:app/common/files.dart';
 import 'package:app/mappers/backup_mappers.dart';
+import 'package:app/mappers/link_install_mappers.dart';
+import 'package:app/mappers/system_mappers.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -14,6 +16,7 @@ import 'package:models/backup_section.dart';
 import 'package:models/backup_stage.dart';
 import 'package:models/backup_status.dart';
 import 'package:models/backup_step.dart';
+import 'package:models/link_mode.dart';
 import 'package:models/restore_check.dart';
 import 'package:models/restore_keys.dart';
 import 'package:models/restore_link_state.dart';
@@ -22,6 +25,7 @@ import 'package:models/schema_pair.dart';
 import 'package:models/send_link.dart';
 import 'package:ui/indicators/level_badge.dart';
 import 'package:ui/models/disabled.dart';
+import 'package:ui/models/link_run_mode.dart';
 import 'package:ui/models/tone.dart';
 import 'package:ui/overlays/backup_data.dart';
 import 'package:ui/overlays/backup_sheet.dart';
@@ -759,6 +763,36 @@ void main() {
         ).blocks.whereType<SheetSteps>().single.steps.map((s) => s.state),
         [SheetStepState.todo, SheetStepState.todo],
       );
+    });
+
+    test('a link backup says how its link runs in words, not by a code', () {
+      final vm = backupFormSheet(
+        BackupFormData(
+          site: 'plant',
+          link: 'modbus',
+          linkMode: LinkMode.process.ui,
+          linkDriver: 'pkg:modbus',
+          sections: _parts(const ['settings', 'data']).toList(),
+          chosen: _parts(const ['settings']),
+        ),
+      );
+      expect(
+        vm.blocks.whereType<SheetFacts>().single.facts.single.value,
+        'modbus · ${LinkRunMode.process.label} · pkg:modbus',
+      );
+      // a link that is not known yet says nothing of how it runs
+      expect(
+        backupFormSheet(_form(link: 'modbus')).blocks.whereType<SheetFacts>(),
+        isEmpty,
+      );
+    });
+
+    test('a kept backup lists its sections by their labels', () {
+      final row = BackupJob(
+        id: 'b1',
+        sections: const [BackupSection.control, BackupSection.keys].lock,
+      ).row;
+      expect(row.sections, [BackupPart.control, BackupPart.keys]);
     });
 
     test('the check: the schemas that differ and the links, in words', () {

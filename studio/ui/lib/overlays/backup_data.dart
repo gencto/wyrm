@@ -2,6 +2,7 @@ import 'package:equatable/equatable.dart';
 import 'package:localization/localization.dart';
 
 import '../models/disabled.dart';
+import '../models/link_run_mode.dart';
 
 /// The shortest passphrase the broker takes (ADR 0048 §3.4).
 const minPassphrase = 12;
@@ -169,7 +170,8 @@ final class BackupFormData extends Equatable {
     required this.sections,
     required this.chosen,
     this.link,
-    this.linkFacts,
+    this.linkMode,
+    this.linkDriver,
     this.estimate = const {},
     this.historyDays,
     this.linkIds = const [],
@@ -193,8 +195,10 @@ final class BackupFormData extends Equatable {
   /// The link of a link backup; null for the broker.
   final String? link;
 
-  /// A link backup: what the link is (`modbus · process · package …`).
-  final String? linkFacts;
+  /// A link backup: how the link runs and its driver, when the link is
+  /// known.
+  final LinkRunMode? linkMode;
+  final String? linkDriver;
 
   /// Every section the broker makes, in its order.
   final List<BackupPart> sections;
@@ -252,7 +256,8 @@ final class BackupFormData extends Equatable {
   List<Object?> get props => [
     site,
     link,
-    linkFacts,
+    linkMode,
+    linkDriver,
     sections,
     chosen,
     estimate,

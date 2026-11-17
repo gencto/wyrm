@@ -23,6 +23,8 @@ import 'package:ui/pages/system_data.dart';
 
 import '../navigation/system_place.dart';
 
+import 'backup_mappers.dart';
+
 // System's domain as `ui` draws it (studio-rules §3): one exhaustive
 // switch per enum, both ways where a control reports a `ui` value back. A
 // new value on either side is a compile error here, not a silent default.
@@ -229,9 +231,7 @@ extension BackupJobRow on BackupJob {
     name: name,
     kind: kind.sys,
     link: link,
-    // the row lists the sections by the broker's names, as `sys/backups`
-    // writes them
-    sections: [for (final s in sections) s.wire],
+    sections: [for (final s in sections) s.part],
     created: created,
     state: status.sys,
     progress: progress,

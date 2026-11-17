@@ -4,6 +4,7 @@ import 'package:localization/localization.dart';
 
 import '../models/disabled.dart';
 import '../models/tone.dart';
+import '../overlays/backup_data.dart';
 
 // What System is drawn from (specs/system.md), as typed values: the
 // connector maps the domain into these; `SystemScreen` words them in the
@@ -412,7 +413,7 @@ final class SysBackupRow extends Equatable {
   final String name;
   final SysBackupKind kind;
   final String link;
-  final List<String> sections;
+  final List<BackupPart> sections;
   final DateTime? created;
   final SysBackupState state;
 

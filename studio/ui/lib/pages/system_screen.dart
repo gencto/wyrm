@@ -779,7 +779,7 @@ class SystemScreen extends StatelessWidget {
             title: j.name,
             subtitle: [
               j.kind.label(j.link),
-              j.sections.join(', '),
+              [for (final s in j.sections) s.label].join(', '),
               if (j.created case final t?) Formats.dateTime(t),
             ].join(' · '),
             trailing: switch (j.state) {

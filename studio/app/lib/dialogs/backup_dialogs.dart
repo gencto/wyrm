@@ -33,6 +33,7 @@ import 'package:wyrm_client/wyrm_client.dart' show Perm;
 import '../common/app_store.dart';
 import '../common/backup_file_actions.dart';
 import '../mappers/backup_mappers.dart';
+import '../mappers/link_install_mappers.dart';
 import '../mappers/rights_mappers.dart';
 import '../navigation/leave_on_log_out_action.dart';
 
@@ -132,9 +133,8 @@ class _BackupDialogState extends State<_BackupDialog> {
     return BackupFormData(
       site: s.site.viewed ?? '',
       link: link,
-      linkFacts: info == null
-          ? null
-          : '${info.id} · ${info.mode.name} · ${info.driver}',
+      linkMode: info?.mode.ui,
+      linkDriver: info?.driver,
       sections: [
         if (link == null)
           for (final s in b.sections) s.part
