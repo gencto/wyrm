@@ -1,3 +1,6 @@
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/backup_stage.dart';
+
 import '../../../wyrm/transfer.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
@@ -10,7 +13,8 @@ class CloseBackupAction extends Action {
   @override
   Future<AppState?> reduce() async {
     final upload = backups.upload;
-    final applied = backups.result != null;
+    // past the restore form the broker has applied or staged the upload
+    final applied = backups.stage != BackupStage.restore;
     final next = state.copyWith.backups(
       stage: null,
       link: null,
@@ -21,6 +25,7 @@ class CloseBackupAction extends Action {
       uploaded: 0,
       check: null,
       result: null,
+      staged: const IListConst([]),
     );
     if (upload != null && !applied && site.root != null) {
       await abortUpload(deps.wyrm, '${site.root}/sys/backups', upload);

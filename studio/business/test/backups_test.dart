@@ -46,12 +46,20 @@ import 'package:business/wyrm/transfer.dart';
 import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/backup_job.dart';
+import 'package:models/backup_place.dart';
+import 'package:models/backup_sealed.dart';
+import 'package:models/backup_section.dart';
+import 'package:models/backup_stage.dart';
 import 'package:models/backup_status.dart';
 import 'package:models/install_path.dart';
 import 'package:models/install_phase.dart';
 import 'package:models/install_source.dart';
 import 'package:models/link_mode.dart';
 import 'package:models/package_check_result.dart';
+import 'package:models/restore_keys.dart';
+import 'package:models/restore_link_state.dart';
+import 'package:models/restore_mode.dart';
+import 'package:models/schema_pair.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import 'support/fake_wyrm.dart';
@@ -223,7 +231,11 @@ void main() {
     test('a cancelled or failed upload is dropped on the broker', () async {
       api
         ..invokes['$_b ▸ restore_begin'] = [
-          const VMap({'upload': VStr('u1'), 'part_size': VInt(10)}),
+          const VMap({
+            'upload': VStr('u1'),
+            'part_size': VInt(10),
+            'max_part': VInt(16 << 20),
+          }),
         ]
         ..invokes['$_b ▸ restore_part'] = [const VMap({})]
         ..invokes['$_b ▸ restore_abort'] = [];
@@ -346,9 +358,9 @@ void main() {
 
     test('a broker backup starts with every section but keys', () {
       s.dispatchSync(OpenBackupAction());
-      expect(s.state.backups.stage, 'choose');
-      expect(s.state.backups.chosen.contains('keys'), isFalse);
-      expect(s.state.backups.chosen.contains('history'), isTrue);
+      expect(s.state.backups.stage, BackupStage.choose);
+      expect(s.state.backups.chosen.contains(BackupSection.keys), isFalse);
+      expect(s.state.backups.chosen.contains(BackupSection.history), isTrue);
       expect(s.state.backups.historyDays, 30);
     });
 
@@ -371,7 +383,7 @@ void main() {
         expect((args['sections']! as VArray).v, hasLength(8));
         expect(args['history_days'], const VInt(7));
         expect(args['passphrase'], isNull);
-        expect(s.state.backups.estimate['history'], 5000);
+        expect(s.state.backups.estimate[BackupSection.history], 5000);
       },
     );
 
@@ -383,11 +395,11 @@ void main() {
         ];
         s
           ..dispatchSync(OpenBackupAction())
-          ..dispatchSync(SetBackupFormAction(toggle: 'keys'))
-          ..dispatchSync(SetBackupFormAction(toggle: 'history'))
-          ..dispatchSync(SetBackupFormAction(toggle: 'packages'))
+          ..dispatchSync(SetBackupFormAction(toggle: BackupSection.keys))
+          ..dispatchSync(SetBackupFormAction(toggle: BackupSection.history))
+          ..dispatchSync(SetBackupFormAction(toggle: BackupSection.packages))
           // `control` cannot be unticked.
-          ..dispatchSync(SetBackupFormAction(toggle: 'control'));
+          ..dispatchSync(SetBackupFormAction(toggle: BackupSection.control));
 
         await s.dispatchAndWait(CreateBackupAction(passphrase: _secret));
 
@@ -399,7 +411,7 @@ void main() {
         expect(args['passphrase'], const VStr(_secret));
         expect(args['history_days'], isNull);
         expect(args['links'], isNull);
-        expect(s.state.backups.stage, 'job');
+        expect(s.state.backups.stage, BackupStage.job);
         expect(s.state.backups.job, 'b2');
         expect('${s.state}', isNot(contains(_secret)));
       },
@@ -435,7 +447,7 @@ void main() {
       ];
       s
         ..dispatchSync(OpenBackupAction(link: 'modbus'))
-        ..dispatchSync(SetBackupFormAction(toggle: 'history'))
+        ..dispatchSync(SetBackupFormAction(toggle: BackupSection.history))
         ..dispatchSync(SetBackupFormAction(historyDays: 7));
 
       await s.dispatchAndWait(CreateBackupAction());
@@ -465,9 +477,16 @@ void main() {
       await s.dispatchAndWait(RetrieveLinksAction());
 
       s.dispatchSync(OpenBackupAction(link: 'mock'));
-      expect(s.state.backups.chosen.unlock, {'settings', 'data'});
+      expect(s.state.backups.chosen.unlock, {
+        BackupSection.settings,
+        BackupSection.data,
+      });
       s.dispatchSync(OpenBackupAction(link: 'avg'));
-      expect(s.state.backups.chosen.unlock, {'settings', 'data', 'package'});
+      expect(s.state.backups.chosen.unlock, {
+        BackupSection.settings,
+        BackupSection.data,
+        BackupSection.package,
+      });
     });
 
     test('a refused backup fails the action and keeps the dialog', () async {
@@ -482,7 +501,7 @@ void main() {
       );
 
       expect(status.isCompletedFailed, isTrue);
-      expect(s.state.backups.stage, 'choose');
+      expect(s.state.backups.stage, BackupStage.choose);
       // The refusal names the option, never the passphrase.
       expect('${status.originalError}', isNot(contains(_secret)));
     });
@@ -665,7 +684,9 @@ void main() {
         ];
       s
         ..dispatchSync(OpenBackupAction(job: 'b1'))
-        ..dispatchSync(SetBackupFormAction(where: 'store', sendLink: 'files'));
+        ..dispatchSync(
+          SetBackupFormAction(where: BackupPlace.store, sendLink: 'files'),
+        );
       await s.dispatchAndWait(RetrieveSendConnectionsAction('files'));
 
       // The one connection of the link is the choice; a value is none.
@@ -692,8 +713,8 @@ void main() {
       ];
       s
         ..dispatchSync(OpenBackupAction())
-        ..dispatchSync(SetBackupFormAction(toggle: 'keys'));
-      expect(s.state.backups.chosen.contains('keys'), isTrue);
+        ..dispatchSync(SetBackupFormAction(toggle: BackupSection.keys));
+      expect(s.state.backups.chosen.contains(BackupSection.keys), isTrue);
 
       await s.dispatchAndWait(BackUpAction(dropKeys: true));
 
@@ -702,7 +723,7 @@ void main() {
         [for (final v in (args['sections']! as VArray).v) (v as VStr).v],
         isNot(contains('keys')),
       );
-      expect(s.state.backups.stage, 'job');
+      expect(s.state.backups.stage, BackupStage.job);
     });
 
     test('to a file store the host names one link for: that link, and its '
@@ -710,9 +731,9 @@ void main() {
       api.children_['wy/central/downstream/files'] = [Child('s3', NodeMeta())];
       s.dispatchSync(OpenBackupAction(job: 'b1'));
 
-      await s.dispatchAndWait(ChangeBackupFormAction.where('store'));
+      await s.dispatchAndWait(ChangeBackupFormAction.where(BackupPlace.store));
 
-      expect(s.state.backups.where, 'store');
+      expect(s.state.backups.where, BackupPlace.store);
       expect(s.state.backups.sendLink, 'files');
       expect(s.state.backups.connections, ['s3']);
     });
@@ -730,7 +751,7 @@ void main() {
       await s.dispatchAndWait(CloseBackupAction());
       s.dispatchSync(OpenBackupAction(restore: true));
       await estimate;
-      expect(s.state.backups.stage, 'restore');
+      expect(s.state.backups.stage, BackupStage.restore);
       expect(s.state.backups.estimate, isEmpty);
     });
   });
@@ -739,7 +760,11 @@ void main() {
     Future<void> uploaded() async {
       api
         ..invokes['$_b ▸ restore_begin'] = [
-          const VMap({'upload': VStr('u9'), 'part_size': VInt(64)}),
+          const VMap({
+            'upload': VStr('u9'),
+            'part_size': VInt(64),
+            'max_part': VInt(16 << 20),
+          }),
         ]
         ..invokes['$_b ▸ restore_part'] = [const VMap({})]
         ..invokes['$_b ▸ restore_abort'] = [];
@@ -793,13 +818,21 @@ void main() {
       expect(args['passphrase'], const VStr(_secret));
       final c = s.state.backups.check!;
       expect(c.sameSite, isTrue);
-      expect(c.keys, 'differ');
+      expect(c.keys, RestoreKeys.differ);
+      expect(c.sealed, BackupSealed.passphrase);
+      expect(c.created, DateTime.utc(2026, 11, 1, 3));
+      expect(c.sections[BackupSection.history], 9000);
       expect(c.keysDiffer, ['secrets.bin']);
-      expect(c.schemas['registry'], (19, 19));
-      expect(c.links['modbus'], 'exists');
+      expect(c.schemas['registry'], const SchemaPair(backup: 19, here: 19));
+      expect(c.links['modbus'], RestoreLinkState.exists);
+      expect(c.links['new1'], RestoreLinkState.fresh);
       expect(c.notes, ['a note']);
       // History, keys and config are not ticked by themselves.
-      expect(s.state.backups.chosen.unlock, {'control', 'links', 'storage'});
+      expect(s.state.backups.chosen.unlock, {
+        BackupSection.control,
+        BackupSection.links,
+        BackupSection.storage,
+      });
       expect('${s.state}', isNot(contains(_secret)));
     });
 
@@ -807,7 +840,11 @@ void main() {
       // Review point 4.
       api
         ..invokes['$_b ▸ restore_begin'] = [
-          const VMap({'upload': VStr('u9'), 'part_size': VInt(64)}),
+          const VMap({
+            'upload': VStr('u9'),
+            'part_size': VInt(64),
+            'max_part': VInt(16 << 20),
+          }),
         ]
         ..errors['$_b ▸ restore_part'] = WyrmException.of(
           Status.resourceExhausted,
@@ -830,7 +867,7 @@ void main() {
       expect(s.state.backups.uploadName, isNull);
       expect(s.state.backups.upload, isNull);
       expect(s.state.backups.uploaded, 0);
-      expect(s.state.backups.stage, 'restore');
+      expect(s.state.backups.stage, BackupStage.restore);
     });
 
     group('after a replace', () {
@@ -841,14 +878,15 @@ void main() {
           ..invokes['$_b ▸ restore_check'] = [check]
           ..invokes['$_b ▸ restore_apply'] = [
             const VMap({
+              'mode': VStr('replace'),
               'sections': VArray([VStr('control')]),
               'restart': VBool(true),
             }),
           ];
         await s.dispatchAndWait(CheckRestoreAction());
-        s.dispatchSync(SetBackupFormAction(mode: 'replace'));
+        s.dispatchSync(SetBackupFormAction(mode: RestoreMode.replace));
         await s.dispatchAndWait(ApplyRestoreAction());
-        expect(s.state.backups.stage, 'restarting');
+        expect(s.state.backups.stage, BackupStage.restarting);
       }
 
       FollowRestoreAction follow() => FollowRestoreAction(
@@ -860,7 +898,7 @@ void main() {
       List<Value> audit(String op, String detail) => [
         VArray([
           VMap({
-            't': VInt(DateTime.now().millisecondsSinceEpoch ~/ 1000),
+            't': VInt(DateTime.now().microsecondsSinceEpoch),
             'op': VStr(op),
             'detail': VStr(detail),
           }),
@@ -884,7 +922,7 @@ void main() {
         await bounce();
         await run;
 
-        expect(s.state.backups.stage, 'applied');
+        expect(s.state.backups.stage, BackupStage.applied);
         expect(s.state.backups.result, 'sections control');
       });
 
@@ -898,7 +936,7 @@ void main() {
         await bounce();
         await run;
 
-        expect(s.state.backups.stage, 'not-applied');
+        expect(s.state.backups.stage, BackupStage.notApplied);
         expect(s.state.backups.result, contains('bad chain'));
       });
 
@@ -907,7 +945,7 @@ void main() {
         api.invokes['wy/central/sys/audit ▸ tail'] = [
           const VArray([
             VMap({
-              't': VInt(1700000000),
+              't': VInt(1700000000000000),
               'op': VStr('restore_applied'),
               'detail': VStr('long ago'),
             }),
@@ -917,7 +955,7 @@ void main() {
         await bounce();
         await run;
 
-        expect(s.state.backups.stage, 'unknown');
+        expect(s.state.backups.stage, BackupStage.unknown);
       });
 
       test('the broker does not come back: the session is lost', () async {
@@ -927,7 +965,7 @@ void main() {
         s.dispatchSync(SetConnectedAction(false));
         await run;
 
-        expect(s.state.backups.stage, 'lost');
+        expect(s.state.backups.stage, BackupStage.lost);
       });
 
       test('closing the dialog ends the watch', () async {
@@ -946,6 +984,7 @@ void main() {
         ..invokes['$_b ▸ restore_check'] = [check]
         ..invokes['$_b ▸ restore_apply'] = [
           const VMap({
+            'mode': VStr('add'),
             'done': VArray([VStr('link new1')]),
             'skipped': VArray([VStr('link modbus: exists')]),
             'restart': VBool(false),
@@ -961,7 +1000,7 @@ void main() {
       expect(args['sections'], const VArray([VStr('links'), VStr('storage')]));
       expect(args['accept'], const VBool(true));
       expect(args['replace_keys'], isNull);
-      expect(s.state.backups.stage, 'restored');
+      expect(s.state.backups.stage, BackupStage.restored);
       expect(s.state.backups.result, contains('link new1'));
       expect(s.state.backups.result, contains('modbus: exists'));
     });
@@ -972,16 +1011,17 @@ void main() {
         ..invokes['$_b ▸ restore_check'] = [check]
         ..invokes['$_b ▸ restore_apply'] = [
           const VMap({
+            'mode': VStr('replace'),
             'sections': VArray([VStr('control'), VStr('keys')]),
             'restart': VBool(true),
           }),
         ];
       await s.dispatchAndWait(CheckRestoreAction(passphrase: _secret));
       s
-        ..dispatchSync(SetBackupFormAction(mode: 'replace'))
-        ..dispatchSync(SetBackupFormAction(toggle: 'keys'))
-        ..dispatchSync(SetBackupFormAction(toggle: 'links'))
-        ..dispatchSync(SetBackupFormAction(toggle: 'storage'))
+        ..dispatchSync(SetBackupFormAction(mode: RestoreMode.replace))
+        ..dispatchSync(SetBackupFormAction(toggle: BackupSection.keys))
+        ..dispatchSync(SetBackupFormAction(toggle: BackupSection.links))
+        ..dispatchSync(SetBackupFormAction(toggle: BackupSection.storage))
         ..dispatchSync(SetBackupFormAction(replaceKeys: true));
 
       await s.dispatchAndWait(ApplyRestoreAction(passphrase: _secret));
@@ -991,7 +1031,7 @@ void main() {
       expect(args['sections'], const VArray([VStr('control'), VStr('keys')]));
       expect(args['replace_keys'], const VBool(true));
       expect(args['passphrase'], const VStr(_secret));
-      expect(s.state.backups.stage, 'restarting');
+      expect(s.state.backups.stage, BackupStage.restarting);
 
       // An applied upload is the broker's: closing does not abort it.
       await s.dispatchAndWait(CloseBackupAction());
@@ -1147,7 +1187,11 @@ void main() {
       await picked();
       api
         ..invokes['$_b ▸ restore_begin'] = [
-          const VMap({'upload': VStr('u5'), 'part_size': VInt(128)}),
+          const VMap({
+            'upload': VStr('u5'),
+            'part_size': VInt(128),
+            'max_part': VInt(16 << 20),
+          }),
         ]
         ..invokes['$_b ▸ restore_part'] = [const VMap({})]
         ..invokes['wy/central/sys/links ▸ install_backup'] = [
@@ -1182,7 +1226,11 @@ void main() {
         await picked();
         api
           ..invokes['$_b ▸ restore_begin'] = [
-            const VMap({'upload': VStr('u5')}),
+            const VMap({
+              'upload': VStr('u5'),
+              'part_size': VInt(4 << 20),
+              'max_part': VInt(16 << 20),
+            }),
           ]
           ..invokes['$_b ▸ restore_part'] = [const VMap({})]
           ..invokes['wy/central/sys/links ▸ install_backup'] = [

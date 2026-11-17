@@ -22,13 +22,17 @@ import 'package:business/redux/session/actions/log_out_action.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:models/backup_job.dart';
+import 'package:models/backup_section.dart';
+import 'package:models/backup_stage.dart';
+import 'package:ui/overlays/backup_data.dart';
+import 'package:ui/overlays/backup_sheet.dart';
 import 'package:ui/overlays/confirm_dialog.dart';
 import 'package:ui/overlays/task_sheet.dart';
 import 'package:wyrm_client/wyrm_client.dart' show Perm;
 
 import '../common/app_store.dart';
 import '../common/backup_file_actions.dart';
-import '../common/backup_sheets.dart';
+import '../mappers/backup_mappers.dart';
 import '../mappers/rights_mappers.dart';
 import '../navigation/leave_on_log_out_action.dart';
 
@@ -102,7 +106,7 @@ class _BackupDialogState extends State<_BackupDialog> {
   var _passphrase = '';
 
   /// The stage last drawn: the passphrase is forgotten when it moves on.
-  late String? _stage = _store.state.backups.stage;
+  late BackupStage? _stage = _store.state.backups.stage;
 
   Store<AppState> get _store => widget.store;
 
@@ -131,25 +135,29 @@ class _BackupDialogState extends State<_BackupDialog> {
       linkFacts: info == null
           ? null
           : '${info.id} · ${info.mode.name} · ${info.driver}',
-      sections: link == null
-          ? b.sections.unlock
-          : [
-              for (final s in linkSections)
-                // The broker refuses `package` for a built-in driver.
-                if (s != 'package' ||
-                    (info?.driver.startsWith('pkg:') ?? false))
-                  s,
-            ],
-      chosen: b.chosen.unlock,
-      estimate: b.estimate.unlock,
+      sections: [
+        if (link == null)
+          for (final s in b.sections) s.part
+        else
+          for (final s in BackupSection.ofLink)
+            // The broker refuses `package` for a built-in driver.
+            if (s != BackupSection.package ||
+                (info?.driver.startsWith('pkg:') ?? false))
+              s.part,
+      ],
+      chosen: {for (final s in b.chosen) s.part},
+      estimate: {
+        for (final MapEntry(:key, :value) in b.estimate.entries)
+          key.part: value,
+      },
       historyDays: b.historyDays,
       linkIds: s.links.view.unlock,
       offLinks: b.offLinks.unlock,
       exportSecrets: b.exportSecrets,
       viaUpstream: viaUpstreamIn(state),
       passphraseLength: _passphrase.length,
-      where: b.where,
-      sendLinks: b.sendLinks.unlock,
+      where: b.where.target,
+      sendLinks: [for (final l in b.sendLinks) l.target],
       sendLink: b.sendLink,
       connections: b.connections.unlock,
       sendConnection: b.sendConnection,
@@ -167,17 +175,16 @@ class _BackupDialogState extends State<_BackupDialog> {
     );
   }
 
-  BackupJobData? _job(AppState state) {
+  BackupJobData? _job(AppState state, BackupJob? j) {
     final s = _Sel(state);
     final b = s.backups;
-    final j = backupJobIn(state, b.job);
     return j == null
         ? null
         : BackupJobData(
-            job: j,
+            job: j.facts,
             site: s.site.viewed ?? '',
-            where: b.where,
-            sendLinks: b.sendLinks.unlock,
+            where: b.where.target,
+            sendLinks: [for (final l in b.sendLinks) l.target],
             sendLink: b.sendLink,
             connections: b.connections.unlock,
             sendConnection: b.sendConnection,
@@ -193,7 +200,7 @@ class _BackupDialogState extends State<_BackupDialog> {
           );
   }
 
-  RestoreData _restore(AppState state) {
+  RestoreData _restore(AppState state, RestoreView view) {
     final s = _Sel(state);
     final b = s.backups;
     return RestoreData(
@@ -203,9 +210,10 @@ class _BackupDialogState extends State<_BackupDialog> {
       uploaded: b.uploaded,
       uploading: state.wait.isWaitingForType<UploadRestoreAction>(),
       hasUpload: b.upload != null,
-      check: b.check,
-      chosen: b.chosen.unlock,
-      mode: b.mode,
+      check: b.check?.data,
+      chosen: {for (final s in b.chosen) s.part},
+      mode: b.mode.how,
+      modeTakes: {for (final s in b.mode.sections) s.part},
       replaceKeys: b.replaceKeys,
       acceptRights: b.acceptRights,
       exportSecrets: b.exportSecrets,
@@ -214,25 +222,88 @@ class _BackupDialogState extends State<_BackupDialog> {
       busy:
           state.wait.isWaitingForType<CheckRestoreAction>() ||
           state.wait.isWaitingForType<ApplyRestoreAction>(),
-      stage: b.stage ?? 'restore',
+      view: view,
+      staged: [for (final s in b.staged) s.part],
       result: b.result,
       reason: s.site.lacks(Perm.config, '${s.site.root}/sys/backups')?.disabled,
     );
   }
 
-  TaskSheetVm _vm(AppState state) => switch (state.backups.stage) {
-    'choose' || 'link' => backupFormSheet(_form(state)),
-    'job' => switch (_job(state)) {
-      final d? => backupJobSheet(d),
-      // The job is not in the table yet (or was removed).
-      null => TaskSheetVm(
-        title: S.current.bakDoneTitle,
-        blocks: const [],
-        secondary: S.current.updClose,
-      ),
-    },
-    _ => restoreSheet(_restore(state)),
-  };
+  void _section(BackupPart part, {required bool on}) =>
+      _store.dispatchSync(SetBackupFormAction(toggle: part.section));
+
+  void _setPassphrase(String text) => setState(() => _passphrase = text);
+
+  TaskSheetVm _vm(AppState state) {
+    final stage = state.backups.stage;
+    switch (stage) {
+      case BackupStage.choose || BackupStage.link:
+        return backupFormSheet(
+          _form(state),
+          onSection: _section,
+          onHistoryDays: (days) => _store.dispatch(
+            ChangeBackupFormAction.estimate(
+              SetBackupFormAction(historyDays: days),
+            ),
+          ),
+          onLink: (id) => _store.dispatch(
+            ChangeBackupFormAction.estimate(
+              SetBackupFormAction(toggleLink: id),
+            ),
+          ),
+          onPassphrase: _setPassphrase,
+          onWhere: (t) =>
+              _store.dispatch(ChangeBackupFormAction.where(t.place)),
+          onSendLink: (link) =>
+              _store.dispatch(ChangeBackupFormAction.sendLink(link)),
+          onSendConnection: (c) =>
+              _store.dispatchSync(SetBackupFormAction(sendConnection: c)),
+          onSendPath: (path) =>
+              _store.dispatchSync(SetBackupFormAction(sendPath: path)),
+        );
+      case BackupStage.job:
+        final d = _job(state, backupJobIn(state, state.backups.job));
+        return d == null
+            // The job is not in the table yet (or was removed).
+            ? TaskSheetVm(
+                title: S.current.bakDoneTitle,
+                blocks: const [],
+                secondary: S.current.updClose,
+              )
+            : backupJobSheet(
+                d,
+                onWhere: (t) =>
+                    _store.dispatch(ChangeBackupFormAction.where(t.place)),
+                onSendLink: (link) =>
+                    _store.dispatch(ChangeBackupFormAction.sendLink(link)),
+                onSendConnection: (c) => _store.dispatchSync(
+                  SetBackupFormAction(sendConnection: c),
+                ),
+                onSendPath: (path) =>
+                    _store.dispatchSync(SetBackupFormAction(sendPath: path)),
+                onRemove: _remove,
+              );
+      case BackupStage.restore ||
+          BackupStage.restored ||
+          BackupStage.restarting ||
+          BackupStage.applied ||
+          BackupStage.notApplied ||
+          BackupStage.unknown ||
+          BackupStage.lost ||
+          null:
+        return restoreSheet(
+          _restore(state, stage?.restoreView ?? RestoreView.form),
+          onSection: _section,
+          onMode: (how) =>
+              _store.dispatchSync(SetBackupFormAction(mode: how.mode)),
+          onReplaceKeys: (on) =>
+              _store.dispatchSync(SetBackupFormAction(replaceKeys: on)),
+          onAccept: (on) =>
+              _store.dispatchSync(SetBackupFormAction(acceptRights: on)),
+          onPassphrase: _setPassphrase,
+        );
+    }
+  }
 
   /// The passphrase as it may be sent: only where the broker takes one.
   String? get _secret {
@@ -255,36 +326,43 @@ class _BackupDialogState extends State<_BackupDialog> {
   FutureOr<ActionStatus>? _primary() {
     final state = _store.state;
     switch (state.backups.stage) {
-      case 'choose' || 'link':
+      case BackupStage.choose || BackupStage.link:
         final d = _form(state);
         return _store.dispatch(
           // `keys` goes only with a passphrase the broker takes.
           BackUpAction(
-            dropKeys: d.chosen.contains('keys') && !d.withKeys,
+            dropKeys: d.chosen.contains(BackupPart.keys) && !d.withKeys,
             passphrase: _secret,
           ),
         );
-      case 'job':
-        final d = _job(state);
-        switch (d?.primary) {
-          case 'download':
+      case BackupStage.job:
+        final job = backupJobIn(state, state.backups.job);
+        final d = _job(state, job);
+        if (job == null || d == null) {
+          return null;
+        }
+        switch (d.primary) {
+          case BackupDo.download:
             return _store.dispatch(
               DownloadBackupFileAction(
-                d!.job,
-                folderTitle: S.current.bakChooseFolder(d.job.name),
+                job,
+                folderTitle: S.current.bakChooseFolder(job.name),
               ),
             );
-          case 'cancel':
+          case BackupDo.cancel:
             return _store.dispatch(CancelDownloadAction());
-          case 'send':
-            return _store.dispatch(SendBackupAction(d!.job.id));
-          case 'remove':
+          case BackupDo.send:
+            return _store.dispatch(SendBackupAction(job.id));
+          case BackupDo.remove:
             return _remove();
-          case 'show':
+          case BackupDo.show:
             _close();
+            return null;
+          case BackupDo.nothing:
+            return null;
         }
-      case 'restore':
-        final d = _restore(state);
+      case BackupStage.restore:
+        final d = _restore(state, RestoreView.form);
         if (d.fileName == null) {
           return _store.dispatch(UploadRestoreFileAction());
         }
@@ -294,22 +372,28 @@ class _BackupDialogState extends State<_BackupDialog> {
         // Only the sections the mode and the session's rights take.
         return _store.dispatch(
           RestoreAction(
-            drop: d.chosen.difference(d.sent),
+            drop: {for (final s in d.chosen.difference(d.sent)) s.section},
             passphrase: _passphrase,
           ),
         );
-      case 'lost':
+      case BackupStage.lost:
         // The session is no longer the site's: log in again.
         _close();
         return _store.dispatch(LeaveOnLogOutAction(LogOutAction()));
+      case BackupStage.restored ||
+          BackupStage.restarting ||
+          BackupStage.applied ||
+          BackupStage.notApplied ||
+          BackupStage.unknown ||
+          null:
+        return null;
     }
-    return null;
   }
 
   /// *Remove*: asked here, removed by the action, the dialog closed once
   /// it is gone.
   FutureOr<ActionStatus>? _remove() {
-    final j = _job(_store.state)?.job;
+    final j = backupJobIn(_store.state, _store.state.backups.job);
     if (j == null) {
       return null;
     }
@@ -332,49 +416,6 @@ class _BackupDialogState extends State<_BackupDialog> {
     );
   }
 
-  void _toggle(String id, {required bool on}) => _store.dispatchSync(
-    switch (id) {
-      'replaceKeys' => SetBackupFormAction(replaceKeys: on),
-      'accept' => SetBackupFormAction(acceptRights: on),
-      _ => SetBackupFormAction(toggle: id),
-    },
-  );
-
-  /// A choice of the sheet: one action each.
-  FutureOr<ActionStatus>? _pick(String group, String value) {
-    switch (group) {
-      case 'history':
-        return _store.dispatch(
-          ChangeBackupFormAction.estimate(
-            SetBackupFormAction(historyDays: int.parse(value)),
-          ),
-        );
-      case 'links':
-        return _store.dispatch(
-          ChangeBackupFormAction.estimate(
-            SetBackupFormAction(toggleLink: value),
-          ),
-        );
-      case 'where':
-        return _store.dispatch(ChangeBackupFormAction.where(value));
-      case 'sendLink':
-        return _store.dispatch(ChangeBackupFormAction.sendLink(value));
-      case 'sendConnection':
-        return _store.dispatch(SetBackupFormAction(sendConnection: value));
-      case 'mode':
-        return _store.dispatch(SetBackupFormAction(mode: value));
-    }
-    return null;
-  }
-
-  void _text(String id, String text) {
-    if (id == 'passphrase') {
-      setState(() => _passphrase = text);
-    } else if (id == 'sendPath') {
-      _store.dispatchSync(SetBackupFormAction(sendPath: text));
-    }
-  }
-
   @override
   Widget build(BuildContext context) => StoreConnector<AppState, AppState>(
     // The sheet is built here, not in the converter: it also reads the
@@ -394,10 +435,6 @@ class _BackupDialogState extends State<_BackupDialog> {
       width: 680,
       onPrimary: _primary,
       onSecondary: _close,
-      onToggle: _toggle,
-      onPick: _pick,
-      onText: _text,
-      onAction: (a) => a == 'remove' ? _remove() : null,
     ),
   );
 }

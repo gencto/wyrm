@@ -229,7 +229,9 @@ extension BackupJobRow on BackupJob {
     name: name,
     kind: kind.sys,
     link: link,
-    sections: sections.toList(),
+    // the row lists the sections by the broker's names, as `sys/backups`
+    // writes them
+    sections: [for (final s in sections) s.wire],
     created: created,
     state: status.sys,
     progress: progress,
