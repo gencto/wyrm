@@ -189,12 +189,9 @@ Future<void> pickContextKey(BuildContext context) async {
           display,
         final n => n?.name ?? shortKey(k),
       },
-      icon: nodeGlyphOf(
-        key: k,
-        root: root,
-        profile: info?.profile,
-        value: info?.type != null,
-      ).icon,
+      // a key the tree has not listed (typed, or kept from a task) has no
+      // decoded node: its place says what it is
+      icon: nodeGlyphAt(k, root: root, info: info).icon,
       detail: detail ?? shortKey(k),
     );
   }

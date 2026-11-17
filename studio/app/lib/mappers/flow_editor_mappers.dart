@@ -4,7 +4,6 @@ import 'package:business/redux/flow_editor/actions/move_blocks_action.dart';
 import 'package:business/redux/flow_editor/actions/palette_menu_action.dart';
 import 'package:business/redux/flow_editor/actions/pick_palette_entry_action.dart';
 import 'package:business/redux/flow_editor/actions/rename_custom_block_action.dart';
-import 'package:business/wyrm/decode/node_glyph.dart';
 import 'package:business/wyrm/flow_view/block_view.dart';
 import 'package:business/wyrm/flow_view/flow_view.dart';
 import 'package:business/wyrm/flow_view/menu_view.dart';
@@ -294,12 +293,7 @@ extension TreeEntryVm on TreeEntry {
       key: key,
       name: name,
       depth: depth,
-      icon: nodeGlyphOf(
-        key: key,
-        root: root,
-        profile: n.profile,
-        value: type != null,
-      ).icon,
+      icon: n.glyph.icon,
       opens: n.opens,
       open: n.open,
       used: n.used,

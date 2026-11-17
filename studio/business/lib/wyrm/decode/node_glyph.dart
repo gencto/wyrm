@@ -1,4 +1,5 @@
 import 'package:models/node_glyph.dart';
+import 'package:models/node_info.dart';
 
 /// What the node [key] under the site [root] (`wy/<site>`) is drawn as in a
 /// tree, a search result and a breadcrumb (board *Icons* "What a node
@@ -48,3 +49,18 @@ NodeGlyph nodeGlyphOf({
     _ => NodeGlyph.section,
   };
 }
+
+/// The root of the site a full key is under: `wy/<site>` of
+/// `wy/<site>/downstream/…` (spec 01). A key that is not under a site is
+/// its own root.
+String siteRootOf(String key) {
+  final parts = key.split('/');
+  return parts.length < 2 ? key : '${parts[0]}/${parts[1]}';
+}
+
+/// What the node at [key] is drawn as: what its decoded meta says
+/// ([info], from `list(parent)`), or — for a key no list has answered for
+/// yet (a section of the site, the site itself, a key typed by hand) —
+/// what its place alone says.
+NodeGlyph nodeGlyphAt(String key, {required String root, NodeInfo? info}) =>
+    info?.glyph ?? nodeGlyphOf(key: key, root: root);

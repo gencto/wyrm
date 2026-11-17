@@ -155,11 +155,10 @@ final class _Shell with Selectors {
             display,
           final n => n?.name ?? k,
         },
-        glyph: nodeGlyphOf(
-          key: k,
+        glyph: nodeGlyphAt(
+          k,
           root: site.root ?? '',
-          profile: nodes.table[k]?.profile,
-          value: nodes.table[k]?.type != null,
+          info: nodes.table[k],
         ),
       ),
   ];

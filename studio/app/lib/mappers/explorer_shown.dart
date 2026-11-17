@@ -1,6 +1,5 @@
 import 'package:business/common/memo.dart';
 import 'package:business/redux/app_state.dart';
-import 'package:business/wyrm/decode/node_glyph.dart';
 import 'package:business/wyrm/explorer.dart';
 import 'package:business/wyrm/keys.dart';
 import 'package:equatable/equatable.dart';
@@ -389,12 +388,7 @@ TreeRowVm _treeRow(_Read r, ExplorerTreeRow row) => TreeRowVm(
   id: row.key,
   name: row.name,
   depth: row.depth,
-  icon: nodeGlyphOf(
-    key: row.key,
-    root: r.explorer.root,
-    profile: row.info?.profile,
-    value: row.info?.type != null,
-  ).icon,
+  icon: row.glyph.icon,
   hasChildren: row.section || (row.info?.hasChildren ?? false),
   expanded: row.open,
   selected: row.selected,

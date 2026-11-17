@@ -1,6 +1,9 @@
 import 'package:business/wyrm/decode/node_glyph.dart';
+import 'package:business/wyrm/mappers/node_info_mapper.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/node_glyph.dart';
+import 'package:models/node_info.dart';
+import 'package:wyrm_client/wyrm_client.dart';
 
 /// One glyph per node kind (board *Icons*), decoded from what the demo's
 /// edge site lists (2026-11-08): profiles arrive as names
@@ -72,5 +75,55 @@ void main() {
       NodeGlyph.watch,
     );
     expect(glyph('sys/links/modbus'), NodeGlyph.sys);
+  });
+
+  test('a listed node carries its glyph, decoded with its meta', () {
+    NodeInfo listed(String parent, String name, NodeMeta meta) =>
+        nodeInfoOf(parent, Child(name, meta));
+    expect(
+      listed('$root/downstream', 'modbus', NodeMeta()).glyph,
+      NodeGlyph.link,
+    );
+    expect(
+      listed(
+        '$root/downstream/modbus/line1',
+        'status',
+        NodeMeta(ty: TypeCode.number),
+      ).glyph,
+      NodeGlyph.point,
+    );
+    // the root is the key's own site, whatever site is on screen
+    expect(
+      listed('wy/plant/dataflows', 'ahu2_ctl', NodeMeta()).glyph,
+      NodeGlyph.flow,
+    );
+  });
+
+  test('a key no list answered for is drawn by its place', () {
+    expect(nodeGlyphAt(root, root: root), NodeGlyph.site);
+    expect(nodeGlyphAt('$root/sys', root: root), NodeGlyph.sys);
+    expect(
+      nodeGlyphAt('$root/downstream/modbus/line1', root: root),
+      NodeGlyph.section,
+    );
+    // its decoded meta wins over its place
+    expect(
+      nodeGlyphAt(
+        '$root/downstream/modbus/line1',
+        root: root,
+        info: const NodeInfo(
+          key: '$root/downstream/modbus/line1',
+          name: 'line1',
+          glyph: NodeGlyph.connection,
+        ),
+      ),
+      NodeGlyph.connection,
+    );
+  });
+
+  test('the root of the site a key is under', () {
+    expect(siteRootOf('wy/edge/downstream/modbus'), 'wy/edge');
+    expect(siteRootOf('wy/edge'), 'wy/edge');
+    expect(siteRootOf('wy'), 'wy');
   });
 }
