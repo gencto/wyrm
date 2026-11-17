@@ -105,7 +105,7 @@ class ChoiceCard<T> extends StatelessWidget {
                       StateMark(
                         mark: vm.selected ? Mark.dot : Mark.ring,
                         color: vm.selected ? c.ember : c.text4,
-                        size: 12,
+                        size: .large,
                       ),
                     if (vm.dot)
                       StateMark(mark: Mark.dot, color: off ? c.muted : c.good),

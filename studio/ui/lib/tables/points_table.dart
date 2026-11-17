@@ -247,7 +247,7 @@ class PointsTable extends StatelessWidget {
     final style = TextStyle(
       fontSize: FontSizes.sm,
       fontWeight: .w600,
-      letterSpacing: 0.48,
+      letterSpacing: Trackings.columnHead,
       color: c.text4,
     );
     Text h(String s) => Text(s.toUpperCase(), style: style);

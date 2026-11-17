@@ -237,6 +237,19 @@ abstract final class FontSizes {
   static const logoWords = FontSize._(14);
   static const logoWordsLarge = FontSize._(15);
 
+  /// The `×` that closes a dialog where it is written as text.
+  static const closeGlyph = FontSize._(18);
+
+  /// The title of the conversation on the Assistant page.
+  static const conversationTitle = FontSize._(17);
+
+  /// The text typed into a boxed field (the log-in form).
+  static const boxedField = FontSize._(15);
+
+  /// The hero's headline, beside the form and above it.
+  static const heroHeadline = FontSize._(40);
+  static const heroHeadlineSmall = FontSize._(28);
+
   /// The wordmark where nothing sets its size.
   static const wordmark = FontSize._(17);
 }
@@ -303,6 +316,10 @@ abstract final class Trackings {
 
   /// The title of the start fault of 28: −1 %.
   static const faultTitle = Tracking._(-0.28);
+
+  /// The hero's headline of 40 and of 28: −2 %.
+  static const heroHeadline = Tracking._(-0.8);
+  static const heroHeadlineSmall = Tracking._(-0.56);
 
   /// The groups of a CA code.
   static const caCode = Tracking._(1.2);

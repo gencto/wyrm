@@ -213,7 +213,7 @@ class TreeRow extends StatelessWidget {
                       maxLines: 1,
                       overflow: .ellipsis,
                       style: mono(
-                        size: height < 40 ? FontSizes.sm : FontSizes.md,
+                        size: compact ? FontSizes.sm : FontSizes.md,
                         weight: sel ? .w600 : .w400,
                         color: sel ? c.text1 : c.text2,
                       ),

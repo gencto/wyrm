@@ -198,7 +198,7 @@ class TrafficCard extends StatelessWidget {
                 now,
                 style: TextStyle(
                   fontFamily: AppFonts.mono,
-                  fontSize: 20,
+                  fontSize: FontSizes.value,
                   color: c.text1,
                 ),
               ),

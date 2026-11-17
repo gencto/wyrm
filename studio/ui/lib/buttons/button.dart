@@ -25,7 +25,7 @@ class Button extends StatelessWidget {
     this.expand = false,
     this.disabledReason,
     this.size = ButtonSize.toolbar,
-    this.fontSize = 14,
+    this.fontSize = FontSizes.lg,
     this.fontWeight,
     this.autofocus = false,
     this.inset = 16,
@@ -40,7 +40,7 @@ class Button extends StatelessWidget {
     this.expand = false,
     this.disabledReason,
     this.size = ButtonSize.toolbar,
-    this.fontSize = 14,
+    this.fontSize = FontSizes.lg,
     this.fontWeight,
     this.autofocus = false,
     this.inset = 16,
@@ -55,7 +55,7 @@ class Button extends StatelessWidget {
     this.expand = false,
     this.disabledReason,
     this.size = ButtonSize.toolbar,
-    this.fontSize = 14,
+    this.fontSize = FontSizes.lg,
     this.fontWeight,
     this.autofocus = false,
     this.inset = 16,
@@ -70,7 +70,7 @@ class Button extends StatelessWidget {
     this.expand = false,
     this.disabledReason,
     this.size = ButtonSize.toolbar,
-    this.fontSize = 14,
+    this.fontSize = FontSizes.lg,
     this.fontWeight,
     this.autofocus = false,
     this.inset = 16,
@@ -95,7 +95,7 @@ class Button extends StatelessWidget {
   final ButtonSize size;
 
   /// The label's size; 14 everywhere but in a dense toolbar.
-  final double fontSize;
+  final FontSize fontSize;
 
   /// The label's weight; the variant's own when null (600 primary, 500
   /// the others).

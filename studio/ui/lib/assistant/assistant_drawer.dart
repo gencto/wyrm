@@ -127,7 +127,11 @@ class AssistantDrawer extends StatelessWidget {
               child: Row(
                 spacing: 8,
                 children: [
-                  AppIconView(AppIcon.wsAssistant, size: 15, color: c.ember),
+                  AppIconView(
+                    AppIcon.wsAssistant,
+                    size: AppSizes.assistantMark,
+                    color: c.ember,
+                  ),
                   Text(
                     S.current.drawerTitle,
                     style: TextStyle(

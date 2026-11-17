@@ -36,7 +36,7 @@ class PillTabs extends StatelessWidget {
     required this.onSelect,
     this.label,
     this.height = 34,
-    this.fontSize = 13,
+    this.fontSize = FontSizes.md,
     this.inset = false,
     this.equal = false,
     this.mono = false,
@@ -51,7 +51,7 @@ class PillTabs extends StatelessWidget {
   /// What the group is, for assistive technology.
   final String? label;
   final double height;
-  final double fontSize;
+  final FontSize fontSize;
   final bool inset;
   final bool equal;
   final bool mono;

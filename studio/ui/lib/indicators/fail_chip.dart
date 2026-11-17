@@ -4,6 +4,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
 import '../theme/typography.dart';
 import 'app_icon.dart';
 import 'app_icon_view.dart';
@@ -75,7 +76,11 @@ class FailChip extends StatelessWidget {
         mainAxisSize: .min,
         spacing: 4,
         children: [
-          AppIconView(AppIcon.errMark, size: 11, color: c.badText),
+          AppIconView(
+            AppIcon.errMark,
+            size: IconSizes.inline,
+            color: c.badText,
+          ),
           Text(
             vm.label,
             maxLines: 1,

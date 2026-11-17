@@ -149,7 +149,7 @@ class TrustCard extends StatelessWidget {
                                   style: TextStyle(
                                     fontFamily: AppFonts.mono,
                                     fontSize: FontSizes.lead,
-                                    letterSpacing: 1.2,
+                                    letterSpacing: Trackings.caCode,
                                     color: c.text1,
                                   ),
                                 ),

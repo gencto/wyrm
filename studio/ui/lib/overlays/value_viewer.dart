@@ -535,7 +535,7 @@ class _ValueViewerState extends State<ValueViewer> {
     label: _copied == id ? widget.copiedLabel : label,
     icon: _copied == id ? AppIcon.uiCheck : AppIcon.uiCopy,
     size: ButtonSize.small,
-    fontSize: dense ? 12 : 14,
+    fontSize: dense ? FontSizes.sm : FontSizes.lg,
     inset: dense ? 10 : 16,
     onPressed: () => _copy(id, text()),
   );
@@ -615,7 +615,7 @@ class _ValueViewerState extends State<ValueViewer> {
                   : widget.editLabel,
               icon: AppIcon.actionEdit,
               size: ButtonSize.small,
-              fontSize: table != null ? 12 : 14,
+              fontSize: table != null ? FontSizes.sm : FontSizes.lg,
               inset: table != null ? 10 : 16,
               onPressed: _draft != null ? null : () => setState(_begin),
             ),
@@ -805,7 +805,7 @@ class _ValueViewerState extends State<ValueViewer> {
                 decoration: BoxDecoration(
                   border: Border(top: BorderSide(color: c.line1)),
                 ),
-                child: QualityMark(vm: q, size: 12),
+                child: QualityMark(vm: q, size: FontSizes.sm),
               ),
           ],
         ),

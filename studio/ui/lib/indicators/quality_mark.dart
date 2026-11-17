@@ -3,6 +3,8 @@ import 'package:material_ui/material_ui.dart';
 
 import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
+import '../theme/sizes.dart';
+import '../theme/typography.dart';
 import 'app_icon.dart';
 import 'app_icon_view.dart';
 
@@ -25,10 +27,14 @@ final class QualityMarkVm extends Equatable {
 /// `● good`, `○ uncertain`, `○ not applied`: the word in the tone's colour,
 /// the mark differing in shape.
 class QualityMark extends StatelessWidget {
-  const QualityMark({required this.vm, this.size = 13, super.key});
+  const QualityMark({
+    required this.vm,
+    this.size = FontSizes.md,
+    super.key,
+  });
 
   final QualityMarkVm vm;
-  final double size;
+  final FontSize size;
 
   @override
   Widget build(BuildContext context) {
@@ -83,21 +89,29 @@ class StateMark extends StatelessWidget {
   const StateMark({
     required this.mark,
     required this.color,
-    this.size = 8,
+    this.size = MarkSize.regular,
     super.key,
   });
 
   final Mark mark;
   final Color color;
-  final double size;
+  final MarkSize size;
 
   @override
   Widget build(BuildContext context) => switch (mark) {
     .none => const SizedBox.shrink(),
-    .cross => AppIconView(AppIcon.uiClose, size: size + 4, color: color),
-    .check => AppIconView(AppIcon.uiCheck, size: size + 4, color: color),
+    .cross => AppIconView(
+      AppIcon.uiClose,
+      size: size.icon,
+      color: color,
+    ),
+    .check => AppIconView(
+      AppIcon.uiCheck,
+      size: size.icon,
+      color: color,
+    ),
     .dot || .ring || .dashed => CustomPaint(
-      size: Size.square(size),
+      size: Size.square(size.side),
       painter: _MarkPainter(mark, color),
     ),
   };

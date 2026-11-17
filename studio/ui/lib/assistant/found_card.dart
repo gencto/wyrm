@@ -417,7 +417,11 @@ class FoundCard extends StatelessWidget {
                     size: IconSizes.xs,
                     color: color,
                   ),
-                  .bad => AppIconView(AppIcon.uiClose, size: 11, color: color),
+                  .bad => AppIconView(
+                    AppIcon.uiClose,
+                    size: IconSizes.inline,
+                    color: color,
+                  ),
                   .uncertain || .none => Container(
                     width: 4,
                     height: 4,

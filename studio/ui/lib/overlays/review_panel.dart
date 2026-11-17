@@ -94,7 +94,7 @@ class ChangeCard extends StatelessWidget {
                   style: TextStyle(
                     fontSize: FontSizes.xs,
                     fontWeight: .w600,
-                    letterSpacing: 0.55,
+                    letterSpacing: Trackings.opTag,
                     color: c.text2,
                   ),
                 ),
@@ -133,7 +133,7 @@ class ChangeCard extends StatelessWidget {
             ],
           ),
           QualityMark(
-            size: 12,
+            size: FontSizes.sm,
             vm: QualityMarkVm(
               label: vm.levelText,
               tone: vm.allowed ? Tone.good : Tone.bad,

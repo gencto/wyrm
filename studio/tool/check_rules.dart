@@ -194,7 +194,125 @@ final _rules = <Rule>[
     'business/lib/',
     'ui/lib/',
   ], _dispatchCascade),
+  // 6. text is set in tokens: a font size, a line height, a letter spacing
+  // written as a number (also behind `?:`, and in the argument of
+  // `mono`/`boardText`/`wordmark`, whose types refuse it too), and a field
+  // or a parameter that carries one as a bare `double`
+  const Rule(
+    'raw-type',
+    ['ui/lib/', 'app/lib/'],
+    _rawType,
+    except: ['ui/lib/theme/'],
+  ),
+  // 2, 6. an icon is a case of `AppIcon`: not a file name of the set, not
+  // a text field named for an icon, not a Material glyph or an `IconData`
+  // of its own, and it is drawn at a size of `IconSizes`/`AppSizes`
+  const Rule(
+    'icon-id',
+    ['app/lib/', 'business/lib/', 'ui/lib/', 'models/lib/'],
+    _iconId,
+    except: [
+      'ui/lib/indicators/app_icon.dart',
+      'ui/lib/indicators/app_icon_view.dart',
+    ],
+  ),
 ];
+
+/// The argument list of each call of [head] in [code] (`head` is a regular
+/// expression that ends before the `(`).
+Iterable<String> _args(String code, String head) sync* {
+  for (final m in RegExp('$head\\(').allMatches(code)) {
+    var depth = 1;
+    var j = m.end;
+    while (j < code.length && depth > 0) {
+      final ch = code[j];
+      if (ch == '(') {
+        depth++;
+      } else if (ch == ')') {
+        depth--;
+      }
+      j++;
+    }
+    yield code.substring(m.end, j - 1);
+  }
+}
+
+/// A number written in the value of the argument: `12`, `1.5`, `-.26`,
+/// `dense ? 12 : 13`, `size + 2`. A token (`FontSizes.sm`) has no digit
+/// that stands alone.
+const _numberValue = r'\s*:[^,;{}\n]*?(?<![\w.])\.?\d';
+
+/// Typography written as numbers.
+int _rawType(String text) {
+  final c = _code(text);
+  // these two are text wherever they are written
+  var n = _matches(c, RegExp('\\b(?:fontSize|letterSpacing)$_numberValue'));
+  // a height and a size are text inside a text style
+  final inStyle = RegExp('\\b(?:height|size|tracking)$_numberValue');
+  for (final a in _args(
+    c,
+    r'(?:\bTextStyle|\bStrutStyle|\bmono|\bboardText|\bwordmark)',
+  )) {
+    n += _matches(a, inStyle);
+  }
+  // `style.copyWith(height: 1.5)`: a `copyWith` that names a text field
+  for (final a in _args(c, r'\.copyWith')) {
+    if (RegExp(
+      r'\b(?:fontSize|fontWeight|fontFamily|letterSpacing|decoration)\s*:',
+    ).hasMatch(a)) {
+      n += _matches(a, RegExp('\\bheight$_numberValue'));
+    }
+  }
+  n += _matches(
+    c,
+    RegExp(r'\.copyWith\(\s*height\s*:[^,;{}\n]*?(?<![\w.])\.?\d'),
+  );
+  // a carrier of a size typed as a bare number
+  return n +
+      _matches(
+        c,
+        RegExp(
+          r'\bdouble\??\s+(?:fontSize|textSize|lineHeight|letterSpacing|'
+          r'tracking)\b',
+        ),
+      );
+}
+
+/// The file names of the icon set (`ui/assets/svg/icons/<name>.svg`).
+final Set<String> _iconFiles = () {
+  final dir = Directory('ui/assets/svg/icons');
+  return {
+    if (dir.existsSync())
+      for (final f in dir.listSync().whereType<File>())
+        if (f.path.endsWith('.svg'))
+          f.path.replaceAll(r'\', '/').split('/').last.replaceAll('.svg', ''),
+  };
+}();
+
+/// Icons named or sized outside `AppIcon`.
+int _iconId(String text) {
+  final c = _code(text);
+  var n = 0;
+  // a file name of the set, as text
+  for (final m in RegExp(r"'([a-z0-9_]+)'").allMatches(c)) {
+    if (_iconFiles.contains(m.group(1))) {
+      n++;
+    }
+  }
+  // a path into the set, built by hand
+  n += _matches(c, RegExp(r'assets/svg/icons/'));
+  // an icon carried as text
+  n += _matches(c, RegExp(r'\bString\??\s+\w*[iI]con(?:Name|Id)?\b'));
+  // a Material glyph, an `IconData`, an `Icon` of its own
+  n += _matches(c, RegExp(r'(?<![\w.])Icons\.\w'));
+  n += _matches(c, RegExp(r'\bIconData\b'));
+  n += _matches(c, RegExp(r'(?<![\w.])Icon\('));
+  // an icon drawn at a size that is a number
+  for (final a in _args(c, r'\bAppIconView')) {
+    n += _matches(a, RegExp('\\bsize$_numberValue'));
+  }
+  return n;
+}
 
 /// Each method whose whole body is a dispatch, but a service listener's
 /// own callback.
@@ -353,6 +471,44 @@ class D implements TasksServiceListener {
       ..dispatchSync(NextAction());
 ''',
   ),
+  'raw-type': (
+    bad: '''
+  style: mono(size: 12, color: c.text3),
+  style: TextStyle(fontSize: dense ? 12 : 13, height: 1.5),
+  style: boardText(height: 1.55, tracking: -0.28),
+  style: base.copyWith(letterSpacing: .66),
+  style: mono(color: c.text1).copyWith(height: 1.1),
+  final double fontSize;
+''',
+    good: '''
+  style: mono(size: FontSizes.sm, color: c.text3),
+  style: TextStyle(
+    fontSize: dense ? FontSizes.sm : FontSizes.md,
+    height: LineHeights.body,
+  ),
+  style: boardText(height: LineHeights.prose, tracking: Trackings.faultTitle),
+  style: mono(color: c.text1).copyWith(height: LineHeights.glyph),
+  final FontSize fontSize;
+  child: SizedBox(height: box.height, width: w2),
+  final next = box.copyWith(height: h);
+''',
+  ),
+  'icon-id': (
+    bad: '''
+  final String icon;
+  icon: Icon(Icons.close, size: 18),
+  final IconData glyph;
+  child: AppIconView(AppIcon.uiClose, size: 16),
+  SvgPicture.asset('assets/svg/icons/\$name.svg'),
+''',
+    good: '''
+  final AppIcon icon;
+  child: AppIconView(AppIcon.uiClose, size: IconSizes.md, color: c.text3),
+  child: AppIconView(icon, size: AppSizes.flowPinIcon),
+  child: BiometricIcon(kind: kind),
+  await askOne(api, root, 'node_types'),
+''',
+  ),
 };
 
 /// Runs [_probes]; the names of the rules that fail them.
@@ -399,7 +555,7 @@ const _baselinePath = 'tool/rules_baseline.json';
 
 Map<String, Map<String, int>> _measure() {
   final out = <String, Map<String, int>>{for (final r in _rules) r.name: {}};
-  for (final root in ['app/lib', 'business/lib', 'ui/lib']) {
+  for (final root in ['app/lib', 'business/lib', 'ui/lib', 'models/lib']) {
     final dir = Directory(root);
     if (!dir.existsSync()) {
       continue;

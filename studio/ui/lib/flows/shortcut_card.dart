@@ -560,7 +560,11 @@ class KeyGlyph extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => switch (_icons[token]) {
-    final icon? => AppIconView(icon, size: size + 2, color: color),
+    final icon? => AppIconView(
+      icon,
+      size: size + AppSizes.flowKeyIconGrow,
+      color: color,
+    ),
     null => Text(
       token,
       style: mono(size: size, color: color).copyWith(height: LineHeights.glyph),

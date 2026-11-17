@@ -172,7 +172,7 @@ class StandbyPair extends StatelessWidget {
           overflow: .ellipsis,
           style: TextStyle(
             fontFamily: AppFonts.mono,
-            fontSize: 16,
+            fontSize: FontSizes.sectionTitle,
             color: c.text1,
           ),
         ),

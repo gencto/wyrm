@@ -294,6 +294,12 @@ abstract final class AppSizes {
   /// A dialog with a broker's own form (Sites' upstream and token).
   static const double wideFormDialog = 640;
 
+  /// The Assistant's mark in the head of its drawer.
+  static const double assistantMark = 15;
+
+  /// How much larger than its text the icon of a key is drawn.
+  static const double flowKeyIconGrow = 2;
+
   /// The token Sites shows once it is issued.
   static const double tokenLog = 180;
 }
@@ -303,10 +309,36 @@ abstract final class AppSizes {
 /// sits, not what the icon is. An icon a component sizes by itself has its
 /// own name in [AppSizes].
 abstract final class IconSizes {
+  /// The tick inside a small check box.
+  static const double tick = 10;
+
+  /// An icon set in a line of the smallest text, at its size.
+  static const double inline = 11;
+
   static const double xs = 12;
   static const double sm = 14;
   static const double md = 16;
   static const double lg = 18;
   static const double xl = 20;
   static const double xxl = 24;
+}
+
+/// The sizes of the mark of a state or a quality (a dot, a ring, a dashed
+/// ring), each with the size of the icon that stands in its place (a
+/// check, a cross): the icon is drawn four points larger, so its stroke
+/// reads as the dot does.
+enum MarkSize {
+  /// In a dense pill and a task row.
+  small(6, 10),
+
+  /// Beside a word: a quality, a state, a step.
+  regular(8, 12),
+
+  /// The choice of a card.
+  large(12, 16);
+
+  const MarkSize(this.side, this.icon);
+
+  final double side;
+  final double icon;
 }

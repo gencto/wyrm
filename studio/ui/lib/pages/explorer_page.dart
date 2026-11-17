@@ -1377,7 +1377,7 @@ class _ExplorerPageState extends State<ExplorerPage> {
                   maxLines: 1,
                   overflow: .ellipsis,
                   style: TextStyle(
-                    fontSize: 18,
+                    fontSize: FontSizes.sheetTitle,
                     fontWeight: .w600,
                     color: c.text1,
                   ),
@@ -1406,7 +1406,10 @@ class _ExplorerPageState extends State<ExplorerPage> {
                     style: mono(size: FontSizes.figure, color: c.text1),
                   ),
                 ),
-                QualityMark(vm: ins.mark.vm(at: ins.time), size: 12),
+                QualityMark(
+                  vm: ins.mark.vm(at: ins.time),
+                  size: FontSizes.sm,
+                ),
                 if (_w.onViewPoint case final view?)
                   IconButton(
                     tooltip: S.current.viewValue,

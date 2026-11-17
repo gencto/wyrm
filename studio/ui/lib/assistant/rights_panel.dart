@@ -8,6 +8,7 @@ import '../indicators/app_icon.dart';
 import '../indicators/app_icon_view.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import 'blocked.dart';
@@ -292,7 +293,7 @@ class RightsPanel extends StatelessWidget {
                           padding: const EdgeInsets.all(AppSpacing.xs),
                           child: AppIconView(
                             AppIcon.uiClose,
-                            size: 11,
+                            size: IconSizes.inline,
                             color: can ? c.text3 : c.text4,
                           ),
                         ),

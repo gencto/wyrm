@@ -208,7 +208,7 @@ class _Task extends StatelessWidget {
                 Row(
                   spacing: 6,
                   children: [
-                    StateMark(mark: .dot, color: color, size: 6),
+                    StateMark(mark: .dot, color: color, size: .small),
                     Expanded(
                       child: Text(
                         vm.state,

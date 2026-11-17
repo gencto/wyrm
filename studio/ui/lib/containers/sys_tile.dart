@@ -198,7 +198,7 @@ class SysTile extends StatelessWidget {
             overflow: .ellipsis,
             style: TextStyle(
               fontSize: FontSizes.sm,
-              height: relaxed ? 1.5 : null,
+              height: relaxed ? LineHeights.body : null,
               color: vm.subTone == .neutral
                   ? c.text4
                   : toneColor(c, vm.subTone),

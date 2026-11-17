@@ -338,7 +338,7 @@ class _SecurityDialogState extends State<SecurityDialog> {
                         child: Text(
                           '×',
                           style: TextStyle(
-                            fontSize: 18,
+                            fontSize: FontSizes.closeGlyph,
                             color: c.text4,
                           ),
                         ),

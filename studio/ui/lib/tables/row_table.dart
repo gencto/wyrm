@@ -217,7 +217,7 @@ class _Cell extends StatelessWidget {
       );
     } else {
       final base = TextStyle(
-        fontSize: vm.strong ? 14 : 13,
+        fontSize: vm.strong ? FontSizes.lg : FontSizes.md,
         fontWeight: vm.strong ? .w600 : .w400,
         color: vm.strong ? c.text1 : c.text2,
       );

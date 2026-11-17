@@ -264,7 +264,7 @@ class AssistantPage extends StatelessWidget {
                     title ?? '',
                     overflow: .ellipsis,
                     style: TextStyle(
-                      fontSize: 17,
+                      fontSize: FontSizes.conversationTitle,
                       fontWeight: .w600,
                       color: c.text1,
                     ),

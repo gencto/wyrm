@@ -67,13 +67,15 @@ class _LoginHeroState extends State<LoginHero> {
     final size = widget.size;
     final underButtons = widget.underButtons;
     final small = size == LoginHeroSize.small;
-    final headline = size == LoginHeroSize.wide ? 40.0 : 28.0;
+    final wide = size == LoginHeroSize.wide;
     final h1 = TextStyle(
-      fontSize: headline,
+      fontSize: wide ? FontSizes.heroHeadline : FontSizes.heroHeadlineSmall,
       height: LineHeights.headline,
       leadingDistribution: .even,
       fontWeight: .w600,
-      letterSpacing: -.02 * headline,
+      letterSpacing: wide
+          ? Trackings.heroHeadline
+          : Trackings.heroHeadlineSmall,
       color: c.text1,
     );
     return DecoratedBox(

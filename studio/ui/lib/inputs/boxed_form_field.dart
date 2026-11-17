@@ -161,11 +161,11 @@ class _BoxedFormFieldState extends State<BoxedFormField> {
               )
             : TextStyle(
                 fontFamily: AppFonts.sans,
-                fontSize: 15,
+                fontSize: FontSizes.boxedField,
                 height: LineHeights.title,
                 color: c.text1,
                 // 0.2 em while hidden; none of the theme's spacing otherwise.
-                letterSpacing: hidden ? 3 : 0,
+                letterSpacing: hidden ? Trackings.hiddenSecret : Trackings.none,
               );
         return Column(
           crossAxisAlignment: .stretch,

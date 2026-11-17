@@ -511,7 +511,9 @@ class TaskSheet extends StatelessWidget {
                 child: Text(
                   vm.title,
                   style: TextStyle(
-                    fontSize: dialog ? 20 : 18,
+                    fontSize: dialog
+                        ? FontSizes.panelTitle
+                        : FontSizes.sheetTitle,
                     fontWeight: .w600,
                     color: c.text1,
                   ),
@@ -707,7 +709,7 @@ class TaskSheet extends StatelessWidget {
         return Text(
           text,
           style: TextStyle(
-            fontSize: small ? 12 : 13,
+            fontSize: small ? FontSizes.sm : FontSizes.md,
             height: LineHeights.body,
             color: tone == .neutral
                 ? (small ? c.text4 : c.text2)
@@ -1470,7 +1472,7 @@ class _Chip extends StatelessWidget {
                     child: on
                         ? AppIconView(
                             AppIcon.uiCheck,
-                            size: 10,
+                            size: IconSizes.tick,
                             color: c.onEmber,
                           )
                         : null,
