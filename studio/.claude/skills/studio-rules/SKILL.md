@@ -78,7 +78,21 @@ class ReloadSiteAction extends Action with WaitingAction {
 ```
 
 A service that must not block (a stream listener, a timer) dispatches with
-`dispatch(…)`; it never wraps it.
+`dispatch(…)`; it never wraps it. A method whose whole body is a dispatch
+(`void _start(a) => dispatch(a);`, or `{ dispatch(a); }`) drops the Future
+just the same: `dispatch-wrapper` counts it everywhere but in a service's
+dispatcher (`business/lib/redux/services/`), the edge where a stream
+listener or a timer dispatches and returns. An action that needs a read
+after its own state is async and awaits it (`await dispatchAndWait`), with
+its state shown first by a sync step; a sync action reached by a stream
+listener is wrapped by one async intent the listener dispatches
+(`FollowListAction`, `ApplyLiveValuesAction`); what follows an edit of the
+flow is started where the page follows it (`FollowFlowEditorAction`). An action started that way has nobody waiting
+for its answer, so it guards its own order: `Sequential` (one queue, in
+dispatch order: the clipboard, the block library, the flows, a flow's load),
+and a check after each `await` that what it answered for is still on
+screen (the flow, the site, the draft it validated). Each guard has a test
+whose fake answers the older call last (`invokesInTurn`, `writeDelays`).
 
 **Check.** `unawaited-dispatch` in `app/lib`, `business/lib`, `ui/lib`: also
 `dispatchAll([x])` of one action (a `dispatch` whose Future
@@ -392,6 +406,22 @@ class OpenTaskAction extends Action {
 
 **Check.** `multi-dispatch`: a callback body with two or more `dispatch…(`
 calls, in `app/lib/connectors`, `app/lib/pages`, `app/lib/dialogs`.
+`dispatch-cascade`: `..dispatchSync(`, several states in a row.
+`vm-equality`: a `List`/`Set`/`Map` field in a view-model (use `IList`,
+`ISet`, `IMap` or an `Equatable` model: a plain collection made in
+`fromStore` is never equal, and the screen is built on every dispatch in
+the app), and an optional callback that `equals` does not hold as
+`onX != null`, and a field of a type that compares by identity
+(`Object`, `dynamic`, `Future`, `Stream`, `Function`). `vm-clock`:
+`DateTime.now()` in a connector or a mapper — the time a screen shows rows
+at is state (`clock.now`, stamped by a read or by `TickClockAction` from an
+`Every` the screen holds). A callback keeps what it read: the order of rows, the
+target of a form, the name of an import action are read by the action
+when it runs, not captured in `fromStore` (a view-model kept as equal keeps
+its old callbacks). A heavy screen memoizes what it draws keyed by the
+state it reads (`Memo`, `flow_view.dart`, `explorer_shown.dart`), and
+`app/test/rebuild_*_test.dart` checks per screen that a dispatch elsewhere
+and a value of a key not on screen build nothing.
 
 ---
 

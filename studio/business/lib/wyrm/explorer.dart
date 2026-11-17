@@ -21,6 +21,7 @@ import 'package:models/read_failure.dart';
 import 'package:models/staged_change.dart';
 import 'package:wyrm_client/wyrm_client.dart' show Perm, TypeCode;
 
+import '../common/memo.dart';
 import '../redux/app_state.dart';
 import '../redux/nodes/actions/invoke_node_action.dart';
 import '../redux/nodes/actions/stage_point_edit_action.dart';
@@ -1561,4 +1562,77 @@ extension type ExplorerView(AppState _state) {
 
   /// The flow's Edit dataflow id.
   String? get flowId => _flow?.id;
+
+  /// The keys whose live value or failed read the view reads: the tree
+  /// rows (their failed reads, a link's `sys/links/<id>/state` for its
+  /// dot), the node on screen, its children and its `connected`/`status`,
+  /// the point in the inspector and the one in the value viewer.
+  List<String> get readKeys {
+    final sel = selected;
+    return [
+      for (final k in treeOrder) ...[
+        k,
+        if (_isLink(k)) '$root/sys/links/${k.split('/').last}/state',
+      ],
+      if (sel != null) ...[
+        sel,
+        '$sel/connected',
+        '$sel/status',
+        for (final c in childrenOf(sel)) c.key,
+      ],
+      ?_nodes.point,
+      ?_nodes.viewedPoint,
+    ];
+  }
+
+  /// The keys of the tree's rows whose live value or failed read the tree
+  /// reads (a row's failed read, a link's dot).
+  List<String> get treeReadKeys => [
+    for (final k in treeOrder) ...[
+      k,
+      if (_isLink(k)) '$root/sys/links/${k.split('/').last}/state',
+    ],
+  ];
 }
+
+final _readKeys = Memo<List<String>>();
+final _treeReadKeys = Memo<List<String>>();
+
+/// The live samples and failed reads of [keys] in [s]: the items a memo
+/// compares, never the whole maps, which are new on every change of any key.
+List<Object?> _liveOf(AppState s, List<String> keys) => [
+  for (final k in keys) s.live.values[k],
+  for (final k in keys) s.live.failed[k],
+];
+
+/// What [ExplorerView] reads of [s], each the very object it read: what is
+/// made of the view is kept (`Memo`) while every input is the same object.
+/// The parts of the state it reads ([SelectSite], [SelectNodes], the links'
+/// and the changes' tables), the one wait it reads (a history read: the
+/// trend's spinner, [SelectNodes.historyLoading]) and the live values of
+/// [ExplorerView.readKeys]. It reads no clock.
+List<Object?> explorerInputsOf(AppState s) => [
+  s.site,
+  s.nodes,
+  s.links.table,
+  s.changes.table,
+  SelectNodes(s).historyLoading,
+  ..._liveOf(
+    s,
+    _readKeys.of([s.site, s.nodes], () => ExplorerView(s).readKeys),
+  ),
+];
+
+/// What the tree's rows read of [s] ([ExplorerView.treeRows]): the same as
+/// [explorerInputsOf] with the live values of its own rows only, so a
+/// value of the node on screen leaves the tree as it is.
+List<Object?> explorerTreeInputsOf(AppState s) => [
+  s.site,
+  s.nodes,
+  s.links.table,
+  s.changes.table,
+  ..._liveOf(
+    s,
+    _treeReadKeys.of([s.site, s.nodes], () => ExplorerView(s).treeReadKeys),
+  ),
+];

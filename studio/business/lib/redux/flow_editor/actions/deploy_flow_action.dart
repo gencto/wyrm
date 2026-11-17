@@ -38,18 +38,4 @@ class DeployFlowAction extends Action with NonReentrant, WaitingAction {
       deployed: d.copyWith(version: v),
     );
   }
-
-  /// The flows list learns the new version. While Flows follows
-  /// `dataflows` (its tab shown under the editor), the live `~val` brings
-  /// it and reads this flow's definition alone; else one full read.
-  @override
-  void after() {
-    super.after();
-    if (flows.follow == null) {
-      _readFlows();
-    }
-  }
-
-  /// One full read of the flows list; nothing waits for it.
-  void _readFlows() => dispatch(RetrieveFlowsAction());
 }

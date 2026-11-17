@@ -1,3 +1,4 @@
+import 'package:async_redux/async_redux.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/error_kind.dart';
 import 'package:models/flow_draft.dart';
@@ -22,8 +23,16 @@ import 'unload_flow_action.dart';
 /// starts empty. A draft of the same flow that differs from the deployed
 /// version is kept (closing the editor does not drop it) unless the broker
 /// has a newer version.
-class LoadFlowAction extends Action {
+///
+/// The watch of a redeployed flow starts it without waiting, and a person
+/// may open one flow and then another before the first answered: loads run
+/// one at a time in the order they were started, so the flow open last is
+/// the one that stays.
+class LoadFlowAction extends Action with Sequential<AppState> {
   LoadFlowAction(this.id, {this.isNew = false, this.route});
+
+  @override
+  Object? sequentialKeyParams() => runtimeType;
 
   @override
   Action again() => LoadFlowAction(id, isNew: isNew, route: route);

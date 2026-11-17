@@ -6,6 +6,10 @@ import '../../common/action.dart';
 class SetViewedFieldAction extends Action {
   SetViewedFieldAction(this.viewedField);
 
+  /// The viewer opened on [row] of [block].
+  SetViewedFieldAction.at(String block, RowId row)
+    : viewedField = FieldAt(block, row);
+
   final FieldAt? viewedField;
 
   @override

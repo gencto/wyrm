@@ -4,7 +4,6 @@ import '../../../wyrm/mappers/flow_blocks.dart';
 import '../../../wyrm/mappers/flow_canvas.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
-import 'validate_flow_action.dart';
 
 /// `Create custom block…` (flow-editor.md §20): the blocks [ids] become the
 /// inside of a new block [spec] of this flow and are replaced by one
@@ -33,7 +32,6 @@ class CreateCustomBlockAction extends Action {
       return null;
     }
     final (next, id) = made;
-    _validate();
     return state.copyWith.flowEditor(
       draft: next,
       selection: {id}.toISet(),
@@ -44,9 +42,4 @@ class CreateCustomBlockAction extends Action {
       undoTag: null,
     );
   }
-
-  /// The engine checks the draft again once the edits settle
-  /// ([ValidateFlowAction] is debounced and brings its own state); this
-  /// edit does not wait for it.
-  void _validate() => dispatch(ValidateFlowAction());
 }

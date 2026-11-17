@@ -1,3 +1,4 @@
+import 'package:async_redux/async_redux.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -9,8 +10,15 @@ import 'apply_history_list_action.dart';
 /// groups History does not list live (only the selected one is), so their
 /// point counts are right when they appear or the list is read again. A
 /// group the user may not list keeps what it showed.
-class RetrieveGroupWatchesAction extends Action {
+///
+/// Each change of the groups' list starts it without waiting for it: the
+/// reads run one at a time in the order they were started, so an older
+/// answer never lands after a newer one.
+class RetrieveGroupWatchesAction extends Action with Sequential<AppState> {
   RetrieveGroupWatchesAction(this.names);
+
+  @override
+  Object? sequentialKeyParams() => runtimeType;
 
   final List<String> names;
 

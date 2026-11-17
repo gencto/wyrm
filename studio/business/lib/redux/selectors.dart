@@ -224,6 +224,7 @@ mixin Selectors {
   SelectBrokerUpdate get brokerUpdate => SelectBrokerUpdate(state);
   SelectDevice get device => SelectDevice(state);
   SelectDiscovery get discovery => SelectDiscovery(state);
+  SelectClock get clock => SelectClock(state);
 }
 
 /// The approval of a task as the logged-in user may give it.
@@ -2988,3 +2989,11 @@ extension type SelectDiscovery(AppState _state) {
     null => defaultProbePort,
   };
 }
+
+extension type SelectClock(AppState _state) {
+  /// The time screens show their rows at (`TickClockAction`); the start of
+  /// the epoch before the first tick.
+  DateTime get now => _state.clock.now ?? _epoch;
+}
+
+final _epoch = DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);

@@ -44,6 +44,8 @@ void main() {
   }) {
     final a = AppState.initial();
     return a.copyWith(
+      // the time the rows are shown at, as a read of the devices stamps it
+      clock: a.clock.copyWith(now: now),
       site: a.site.copyWith(name: 'plant'),
       login: a.login.copyWith(user: 'olena'),
       device: a.device.copyWith(
@@ -123,7 +125,9 @@ void main() {
           theme: darkTheme(),
           localizationsDelegates: const [S.delegate],
           home: const Scaffold(
-            body: SingleChildScrollView(child: SecurityDialogConnector()),
+            body: SingleChildScrollView(
+              child: SecurityDialogConnector(close: _noClose),
+            ),
           ),
         ),
       ),
@@ -493,3 +497,6 @@ const _long5 =
 const _long6 =
     'plant’s policy: devices on · up to 5 · password every 30 days. An '
     'administrator sees and removes devices in Access › Users.';
+
+/// Shown in a page, not a dialog: nothing to close.
+void _noClose() {}

@@ -1,21 +1,5 @@
 {
-  "unawaited-dispatch": {
-    "app/lib/dialogs/error_dialogs.dart": 3,
-    "business/lib/redux/access/actions/save_user_action.dart": 1,
-    "business/lib/redux/access/actions/set_grant_action.dart": 1,
-    "business/lib/redux/changes/actions/apply_changes_action.dart": 1,
-    "business/lib/redux/device/actions/remove_device_action.dart": 2,
-    "business/lib/redux/flows/actions/apply_flow_values_action.dart": 1,
-    "business/lib/redux/flows/actions/apply_flows_list_action.dart": 1,
-    "business/lib/redux/historian/actions/apply_history_list_action.dart": 1,
-    "business/lib/redux/historian/actions/load_trend_window_action.dart": 1,
-    "business/lib/redux/historian/actions/retrieve_series_action.dart": 1,
-    "business/lib/redux/historian/actions/set_trend_window_action.dart": 1,
-    "business/lib/redux/peers/actions/add_upstream_action.dart": 1,
-    "business/lib/redux/peers/actions/authorize_broker_action.dart": 1,
-    "business/lib/redux/services/gateway_browser/gateway_browser_dispatcher.dart": 1,
-    "business/lib/redux/site/actions/view_site_action.dart": 1
-  },
+  "unawaited-dispatch": {},
   "string-case": {
     "app/lib/common/backup_sheets.dart": 47,
     "app/lib/dialogs/backup_dialogs.dart": 19,
@@ -48,24 +32,24 @@
     "ui/lib/trees/node_tree.dart": 2
   },
   "connector-lines": {
-    "app/lib/connectors/access_page_connector.dart": 117,
-    "app/lib/connectors/assistant_page_connector.dart": 887,
-    "app/lib/connectors/explorer_page_connector.dart": 704,
-    "app/lib/connectors/flow_editor_page_connector.dart": 349,
+    "app/lib/connectors/access_page_connector.dart": 115,
+    "app/lib/connectors/assistant_page_connector.dart": 873,
+    "app/lib/connectors/explorer_page_connector.dart": 314,
+    "app/lib/connectors/flow_editor_page_connector.dart": 347,
     "app/lib/connectors/flows_page_connector.dart": 92,
     "app/lib/connectors/gallery_page_connector.dart": 31,
-    "app/lib/connectors/history_page_connector.dart": 124,
+    "app/lib/connectors/history_page_connector.dart": 123,
     "app/lib/connectors/link_install_page_connector.dart": 234,
     "app/lib/connectors/links_page_connector.dart": 268,
     "app/lib/connectors/lock_overlay_connector.dart": 86,
-    "app/lib/connectors/log_in_page_connector.dart": 330,
+    "app/lib/connectors/log_in_page_connector.dart": 315,
     "app/lib/connectors/security_dialog_connector.dart": 103,
     "app/lib/connectors/sites_page_connector.dart": 89,
     "app/lib/connectors/splash_page_connector.dart": 15,
     "app/lib/connectors/step_up_dialog_connector.dart": 97,
     "app/lib/connectors/studio_page_connector.dart": 175,
     "app/lib/connectors/system_page_connector.dart": 292,
-    "app/lib/connectors/toast_stack_connector.dart": 69,
+    "app/lib/connectors/toast_stack_connector.dart": 62,
     "app/lib/connectors/top_level_page_connector.dart": 52,
     "app/lib/connectors/window_controls_connector.dart": 75
   },
@@ -202,5 +186,16 @@
     "ui/lib/tables/table_edits.dart": 8,
     "ui/lib/tables/table_grid.dart": 1
   },
-  "multi-dispatch": {}
+  "multi-dispatch": {},
+  "vm-equality": {},
+  "vm-clock": {},
+  "dispatch-wrapper": {
+    "business/lib/redux/flow_editor/actions/copy_blocks_action.dart": 1,
+    "business/lib/redux/flow_editor/actions/flow_edit_action.dart": 1,
+    "business/lib/redux/flow_editor/actions/palette_menu_action.dart": 1,
+    "business/lib/redux/flow_editor/actions/pick_palette_entry_action.dart": 1,
+    "business/lib/redux/flow_editor/actions/run_block_action.dart": 1,
+    "business/lib/redux/login/actions/start_preload_reads_action.dart": 1
+  },
+  "dispatch-cascade": {}
 }

@@ -1,6 +1,7 @@
 import 'package:async_redux/async_redux.dart';
 import 'package:auto_route/auto_route.dart';
 import 'package:business/redux/app_state.dart';
+import 'package:business/redux/clock/actions/tick_clock_action.dart';
 import 'package:business/redux/device/actions/accept_offer_action.dart';
 import 'package:business/redux/device/actions/decline_offer_action.dart';
 import 'package:business/redux/device/actions/forget_account_action.dart';
@@ -32,6 +33,7 @@ import 'package:ui/models/value_changed.dart';
 import 'package:ui/pages/log_in_data.dart';
 import 'package:ui/pages/log_in_screen.dart';
 
+import '../common/every.dart';
 import '../common/studio_version.dart';
 import '../common/validators.dart';
 import '../common/window.dart';
@@ -56,26 +58,33 @@ class LogInPageConnector extends StatelessWidget {
     // §6: the gateway in the field is probed as the page opens, and the
     // device unlock of its user is read (unlock-discover.md §2).
     onInit: (store) => store.dispatch(OpenLogInAction()),
-    builder: (context, vm) => LogInScreen(
-      vm: vm.screen,
-      onLogIn: vm.onLogIn,
-      onGatewayLeave: vm.onGatewayLeave,
-      onRecent: vm.onRecent,
-      onUseStandby: vm.onUseStandby,
-      onFind: vm.onFind,
-      onLookAgain: vm.onLookAgain,
-      onPick: vm.onPick,
-      onProbe: vm.onProbe,
-      onOpenSettings: vm.onOpenSettings,
-      onTrust: vm.onTrust,
-      onCancelTrust: vm.onCancelTrust,
-      onOfferUse: vm.onOfferUse,
-      onOfferNotNow: vm.onOfferNotNow,
-      onOfferDontAsk: vm.onOfferDontAsk,
-      onUnlock: vm.onUnlock,
-      onAutoUnlock: vm.onAutoUnlock,
-      onUsePassword: vm.onUsePassword,
-      onAnotherAccount: vm.onAnotherAccount,
+    // A found gateway's `seen 3 s ago` moves on once a second while the
+    // search is open (`clock.now`).
+    builder: (context, vm) => Every(
+      period: const Duration(seconds: 1),
+      enabled: vm.screen.discover != null,
+      onTick: vm.onTick,
+      child: LogInScreen(
+        vm: vm.screen,
+        onLogIn: vm.onLogIn,
+        onGatewayLeave: vm.onGatewayLeave,
+        onRecent: vm.onRecent,
+        onUseStandby: vm.onUseStandby,
+        onFind: vm.onFind,
+        onLookAgain: vm.onLookAgain,
+        onPick: vm.onPick,
+        onProbe: vm.onProbe,
+        onOpenSettings: vm.onOpenSettings,
+        onTrust: vm.onTrust,
+        onCancelTrust: vm.onCancelTrust,
+        onOfferUse: vm.onOfferUse,
+        onOfferNotNow: vm.onOfferNotNow,
+        onOfferDontAsk: vm.onOfferDontAsk,
+        onUnlock: vm.onUnlock,
+        onAutoUnlock: vm.onAutoUnlock,
+        onUsePassword: vm.onUsePassword,
+        onAnotherAccount: vm.onAnotherAccount,
+      ),
     ),
   );
 }
@@ -91,7 +100,6 @@ class _Factory extends VmFactory<AppState, LogInPageConnector, _Vm>
     final field = login.field;
     final standby = field.standbyUri;
     final platform = hostPlatform();
-    final keyReady = login.keyReady;
     return _Vm(
       screen: LogInScreenVm(
         window: windowBar(fullScreen: window.fullScreen),
@@ -174,7 +182,7 @@ class _Factory extends VmFactory<AppState, LogInPageConnector, _Vm>
               )
             : null,
         unlock: switch (device.stage.form) {
-          final form? when !session.isAvailable => _unlock(form, platform),
+          final f? when !session.isAvailable => unlockDataOf(this, f, platform),
           _ => null,
         },
         discover: discovery.open && discovery.pendingRow == null
@@ -212,48 +220,22 @@ class _Factory extends VmFactory<AppState, LogInPageConnector, _Vm>
       onOfferNotNow: () => dispatch(EnterStudioAction(DeclineOfferAction())),
       onOfferDontAsk: () =>
           dispatch(EnterStudioAction(DeclineOfferAction(dontAsk: true))),
-      onUnlock: keyReady
+      onUnlock: login.keyReady
           ? () => dispatch(EnterStudioAction(UnlockWithDeviceAction()))
           : null,
-      onAutoUnlock: keyReady
+      onAutoUnlock: login.keyReady
           ? () =>
                 dispatch(EnterStudioAction(UnlockWithDeviceAction(auto: true)))
           : null,
       onUsePassword: () => dispatchSync(UsePasswordAction()),
       onAnotherAccount: () => dispatchSync(ForgetAccountAction()),
-    );
-  }
-
-  /// The unlock form [form] (boards `Unlock`, `UnlockFallback`,
-  /// `UnlockChanged`, `UnlockSignedOut`, `UnlockLinux`).
-  UnlockData _unlock(UnlockForm form, HostPlatform platform) {
-    final field = login.field;
-    return UnlockData(
-      form: form,
-      fallback: device.fallback?.why,
-      signedOut: device.refusal?.why,
-      method: device.kind.method,
-      os: platform.os,
-      linux: platform == .linux,
-      site: login.keySite,
-      user: login.formUser,
-      role: device.keyRole,
-      host: field.mainHost,
-      withStandby: field.standbyUri != null,
-      down: login.down,
-      passwordEveryDays: device.passwordEveryDays,
-      lastUsed: device.lastUsedAt,
-      keyShown: device.keyShown,
-      keyAdded: device.keyAddedAt,
-      tlsSite: login.keyTlsSite,
-      reEnable: device.offersReEnable,
-      version: studioVersion,
+      onTick: () => dispatchSync(TickClockAction()),
     );
   }
 
   /// *Find on this network* (unlock-discover.md §4).
   DiscoverData _discover(HostPlatform platform) => DiscoverData(
-    rows: [for (final r in discovery.rowsAt(DateTime.now())) r.line],
+    rows: [for (final r in discovery.rowsAt(clock.now)) r.line],
     scanning: discovery.scanning,
     probing: discovery.probing,
     ended: discovery.ended,
@@ -297,6 +279,7 @@ class _Vm extends Vm {
     required this.onAutoUnlock,
     required this.onUsePassword,
     required this.onAnotherAccount,
+    required this.onTick,
   }) : super(
          equals: [
            screen,
@@ -305,6 +288,7 @@ class _Vm extends Vm {
            onOpenSettings != null,
            onTrust != null,
            onUnlock != null,
+           onAutoUnlock != null,
          ],
        );
 
@@ -327,4 +311,5 @@ class _Vm extends Vm {
   final VoidCallback? onAutoUnlock;
   final VoidCallback onUsePassword;
   final VoidCallback onAnotherAccount;
+  final VoidCallback onTick;
 }

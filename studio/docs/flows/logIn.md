@@ -381,6 +381,23 @@ sequenceDiagram
     A1->>ST: copyWith(device, login)
 ```
 
+## onTick
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as LogInPage
+    participant VM as LogInPageConnector
+    participant A1 as TickClockAction
+    participant ST as AppState
+
+    User->>UI: onTick
+    UI->>VM: onTick()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(clock.now)
+```
+
 _Not drawn — these files dispatch outside any interaction:_
 
 - `LogInPageConnector` — 1 dispatch
@@ -406,6 +423,7 @@ _Not drawn — these files dispatch outside any interaction:_
 | `onAutoUnlock` | `EnterStudioAction` | — |
 | `onUsePassword` | `UsePasswordAction` | `device.stage, device.fallback, device.autoPrompted` |
 | `onAnotherAccount` | `ForgetAccountAction` | `device, login` |
+| `onTick` | `TickClockAction` | `clock.now` |
 
 `?` marks a dispatch that only runs under a condition.
 

@@ -37,9 +37,20 @@ class InvokeNodeAction extends Action with WaitingAction {
   static String resultId(String key, String action) => '$key ▸ $action';
 
   @override
-  Future<AppState> reduce() async {
+  Future<AppState> reduce() => run(this, key, action, args, keepEmpty);
+
+  /// [action] run on [key] by [by], and the state with its answer kept: the
+  /// one body of every action that runs a node's action now (this one, the
+  /// inspector's form), so a refusal is the running action's own error.
+  static Future<AppState> run(
+    Action by,
+    String key,
+    String action,
+    Map<String, Object?> args,
+    Set<String> keepEmpty,
+  ) async {
     final rows = await invokeAll(
-      deps.wyrm,
+      by.deps.wyrm,
       key,
       action,
       args.isEmpty ? null : Value.from(argsToSend(args, keepEmpty: keepEmpty)),
@@ -47,11 +58,9 @@ class InvokeNodeAction extends Action with WaitingAction {
     for (final r in rows) {
       requireSuccess(r, key, action);
     }
-    return state.copyWith.nodes(
-      answers: state.nodes.answers.add(
-        resultId(key, action),
-        actionAnswerOf(rows),
-      ),
+    final s = by.state;
+    return s.copyWith.nodes(
+      answers: s.nodes.answers.add(resultId(key, action), actionAnswerOf(rows)),
     );
   }
 }

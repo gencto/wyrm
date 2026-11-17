@@ -47,7 +47,7 @@ class SaveBlockToLibraryAction extends Action with NonReentrant, WaitingAction {
       }
     } on WyrmException {
       // A block it uses may have gone in before the refusal.
-      _readAgain();
+      await dispatchAndWait(RetrieveBlockLibraryAction());
       rethrow;
     }
     final read = await readLibrary(deps.wyrm, root);
@@ -69,7 +69,4 @@ class SaveBlockToLibraryAction extends Action with NonReentrant, WaitingAction {
       }),
     );
   }
-
-  /// The library read again; nothing waits for it.
-  void _readAgain() => dispatch(RetrieveBlockLibraryAction());
 }

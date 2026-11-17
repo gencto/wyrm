@@ -164,6 +164,204 @@ final _rules = <Rule>[
     'app/lib/dialogs/',
     'app/lib/common/',
   ], _multiDispatch),
+  // 9. a rebuild is decided: a view-model compares what is drawn. A plain
+  // List/Set/Map made in `fromStore` is never equal to the last one (the
+  // screen is built on every dispatch in the app); an optional callback is
+  // compared as `onX != null`, or a view-model kept as equal holds a
+  // callback of a moment that has passed (audit of 2026-11-16)
+  const Rule('vm-equality', ['app/lib/', 'ui/lib/'], _vmEquality),
+  // 9. a view-model made of the clock is new on every dispatch (and stale
+  // between them): the time a screen shows is state (`clock.now`, ticked by
+  // `TickClockAction`), not `DateTime.now()` in `fromStore`
+  Rule('vm-clock', [
+    'app/lib/connectors/',
+    'app/lib/mappers/',
+  ], (t) => _matches(_code(t), RegExp(r'\bDateTime\.now\('))),
+  // 1, 9. a dispatch whose Future is dropped behind a method of its own
+  // (`void _start(a) => dispatch(a);`): `unawaited` by another name. A
+  // service listener's own callback (an `@override` of a class that
+  // implements a `…ServiceListener`) is the edge rule 1 names: a stream
+  // listener or a timer does not wait, it dispatches and returns.
+  const Rule('dispatch-wrapper', [
+    'app/lib/',
+    'business/lib/',
+    'ui/lib/',
+  ], _dispatchWrapper),
+  // 9. one dispatch per intent: a cascade of dispatches is several states,
+  // each one built (a cascade of one dispatch is one state)
+  const Rule('dispatch-cascade', [
+    'app/lib/',
+    'business/lib/',
+    'ui/lib/',
+  ], _dispatchCascade),
+];
+
+/// Each method whose whole body is a dispatch, but a service listener's
+/// own callback.
+int _dispatchWrapper(String text) {
+  // `dispatchSync` gives its status at once: no Future is dropped
+  const call = r'(?:\w+\.)?dispatch(?:AndWait\w*|All\w*)?(?:<[^>]*>)?\(';
+  const head = r'^[ \t]*(?:[\w<>?,]+[ \t]+)?_?\w+\([^()]*\)\s*';
+  final c = _code(text);
+  final listener = RegExp(r'implements\s+\w*ServiceListener\b').hasMatch(c);
+  var n = 0;
+  for (final re in [
+    RegExp('$head=>\\s*$call', multiLine: true),
+    // the same with a body of one statement: `void f() { dispatch(x); }`
+    RegExp('$head\\{\\s*$call[^;]*;\\s*\\}', multiLine: true),
+  ]) {
+    for (final m in re.allMatches(c)) {
+      final before = c.substring(0, m.start).trimRight();
+      if (listener && before.endsWith('@override')) {
+        continue;
+      }
+      n++;
+    }
+  }
+  return n;
+}
+
+/// Each dispatch of a cascade after the first in the same statement.
+int _dispatchCascade(String text) {
+  final c = _code(text);
+  var n = 0;
+  var last = -1;
+  for (final m in RegExp(r'\.\.\s*dispatch\w*\(').allMatches(c)) {
+    if (last >= 0 && !c.substring(last, m.start).contains(';')) {
+      n++;
+    }
+    last = m.end;
+  }
+  return n;
+}
+
+/// The body of each `class … extends Vm { … }` in [text].
+Iterable<String> _vmBodies(String text) sync* {
+  for (final m in RegExp(r'class\s+\w+\s+extends\s+Vm\s*\{').allMatches(text)) {
+    var depth = 1;
+    var j = m.end;
+    while (j < text.length && depth > 0) {
+      final ch = text[j];
+      if (ch == '{') {
+        depth++;
+      } else if (ch == '}') {
+        depth--;
+      }
+      j++;
+    }
+    yield text.substring(m.end, j);
+  }
+}
+
+/// In a view-model: each field that is a plain collection, and each
+/// optional callback its `equals` does not hold as `name != null`.
+int _vmEquality(String text) {
+  var n = 0;
+  for (final body in _vmBodies(_code(text))) {
+    // a plain collection, and a type that compares by identity
+    n += _matches(
+      body,
+      RegExp(
+        r'^\s*final\s+(?:List|Set|Map|Iterable|Object|dynamic|Future|Stream|'
+        r'Function)\b[^;(]*;',
+        multiLine: true,
+      ),
+    );
+    final equals =
+        RegExp(r'equals:\s*\[([\s\S]*?)\]').firstMatch(body)?.group(1) ?? '';
+    for (final f in RegExp(
+      r'^\s*final\s+(?:VoidCallback|ValueChanged<[^;]*>|[\w<>?, ]*'
+      r'Function\([^;]*\))\?\s+(\w+);',
+      multiLine: true,
+    ).allMatches(body)) {
+      if (!RegExp('\\b${f.group(1)}\\s*!=\\s*null').hasMatch(equals)) {
+        n++;
+      }
+    }
+  }
+  return n;
+}
+
+/// Samples each rule must count ([bad], at least once) and must not
+/// ([good]): a change to a pattern that stops seeing what it is for fails
+/// here, not in review.
+const _probes = <String, ({String bad, String good})>{
+  'vm-equality': (
+    bad: '''
+class _Vm extends Vm {
+  _Vm({required this.rows, this.onTap}) : super(equals: [rows]);
+  final List<RowVm> rows;
+  final VoidCallback? onTap;
+  final Object? extra;
+  final Future<int> later;
+}
+''',
+    good: '''
+class _Vm extends Vm {
+  _Vm({required this.rows, this.onTap})
+    : super(equals: [rows, onTap != null]);
+  final IList<RowVm> rows;
+  final VoidCallback? onTap;
+  final ValueChanged<String> onPick;
+}
+''',
+  ),
+  'vm-clock': (
+    bad: '''
+  _Vm fromStore() => _vm(now: DateTime.now());
+''',
+    good: '''
+  _Vm fromStore() => _vm(now: clock.now);
+''',
+  ),
+  'dispatch-wrapper': (
+    bad: '''
+  void _start(ReduxAction<AppState> action) => dispatch(action);
+  void _load(String id) =>
+      _store.dispatchAndWait(LoadAction(id));
+  void _read(String id) {
+    _store.dispatch(ReadAction(id));
+  }
+class D implements TasksServiceListener {
+  void _load(String id) => _store.dispatch(LoadAction(id));
+}
+''',
+    good: '''
+      onShow: () => dispatch(ShowAction()),
+      onPick: (k) => dispatchSync(PickAction(k)),
+  void _toggle(String id, {required bool on}) => _store.dispatchSync(
+    ToggleAction(id, on: on),
+  );
+class D implements TasksServiceListener {
+  @override
+  void onTask(String id) => _store.dispatch(ReadAction(id));
+}
+  Future<void> run() async => await dispatchAndWait(RunAction());
+''',
+  ),
+  'dispatch-cascade': (
+    bad: '''
+    store
+      ..dispatchSync(AAction())
+      ..dispatchSync(BAction());
+''',
+    good: '''
+    store.dispatchSync(OneAction());
+    final store = AppStore.of(context)
+      ..dispatchSync(OpenAction());
+    other
+      ..dispatchSync(NextAction());
+''',
+  ),
+};
+
+/// Runs [_probes]; the names of the rules that fail them.
+List<String> _failedProbes() => [
+  for (final e in _probes.entries)
+    for (final r in _rules)
+      if (r.name == e.key &&
+          (r.count(e.value.bad) == 0 || r.count(e.value.good) != 0))
+        r.name,
 ];
 
 /// Callback bodies with two or more dispatches: one intent is one action
@@ -258,6 +456,12 @@ void _write(Map<String, Map<String, int>> counts) {
 }
 
 void main(List<String> args) {
+  final probes = _failedProbes();
+  if (probes.isNotEmpty) {
+    stderr.writeln('studio rules: probes not counted right: $probes');
+    exitCode = 1;
+    return;
+  }
   final now = _measure();
   if (args.contains('--init')) {
     _write(now);

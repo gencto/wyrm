@@ -39,7 +39,7 @@ sequenceDiagram
     UI->>VM: onGo()
     VM->>A4: dispatch
     Note over A4: Selectors · async
-    A4->>ST: dispatchAndWait(switch (go) {SiteGo.quarantine => GoAfterAction(const LinksRoute(), [SetTabAction(LinksTab.quarantine)]), SiteGo.remote => GoAfterAction(const LinksRoute(), [SetTabAction(LinksTab.remote)]), SiteGo.tree => GoAfterAction(const ExplorerRoute(), [ViewSiteAction(name)]), SiteGo.platform => ExploreAction('${site.root}/downstream/uplink/$name')})
+    A4->>ST: dispatchAndWait(switch (go) {SiteGo.quarantine => GoAfterAction(const LinksRoute(), [SetTabAction(LinksTab.quarantine)]), SiteGo.remote => GoAfterAction(const LinksRoute(), [SetTabAction(LinksTab.remote)]), SiteGo.tree => GoAfterAction(const ExplorerRoute(), [SwitchSiteAction(name)]), SiteGo.platform => ExploreAction('${site.root}/downstream/uplink/$name')})
 ```
 
 | Interaction | Dispatches | Writes |

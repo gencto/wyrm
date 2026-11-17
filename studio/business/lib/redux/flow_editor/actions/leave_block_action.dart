@@ -5,7 +5,6 @@ import '../../../wyrm/mappers/flow_blocks.dart';
 import '../../../wyrm/mappers/flow_canvas.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
-import 'validate_flow_action.dart';
 
 /// Back from the inside of a custom block (flow-editor.md §20): [levels]
 /// frames up (all of them: back to the flow). What was done inside becomes
@@ -38,7 +37,6 @@ class LeaveBlockAction extends Action {
       d = folded;
       frames = frames.removeLast();
     }
-    _validate();
     return state.copyWith.flowEditor(
       frames: frames,
       draft: d,
@@ -51,9 +49,4 @@ class LeaveBlockAction extends Action {
       scopePrompt: null,
     );
   }
-
-  /// The engine checks the draft again once the edits settle
-  /// ([ValidateFlowAction] is debounced and brings its own state); this
-  /// edit does not wait for it.
-  void _validate() => dispatch(ValidateFlowAction());
 }

@@ -10,24 +10,19 @@ import 'package:business/redux/problems/actions/dismiss_toast_action.dart';
 import 'package:business/redux/problems/actions/mark_problem_shown_action.dart';
 import 'package:business/redux/problems/actions/retry_problem_action.dart';
 import 'package:business/redux/problems/actions/show_notice_action.dart';
+import 'package:business/redux/system/actions/aim_log_action.dart';
 import 'package:business/redux/system/actions/retrieve_system_log_action.dart';
-import 'package:business/redux/system/actions/set_around_action.dart';
-import 'package:business/redux/system/actions/set_tab_action.dart'
-    as system_slice;
 import 'package:business/wyrm/failures.dart';
-import 'package:business/wyrm/mappers/log_line_mapper.dart';
 import 'package:flutter/services.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:models/access_tab.dart';
 import 'package:models/studio_error.dart';
-import 'package:models/system_tab.dart';
 import 'package:ui/dialogs/error_dialog.dart';
 
 import '../common/app_store.dart';
 import '../errors.dart';
 import '../navigation/app_router.dart';
-import '../navigation/go_action.dart';
 import '../navigation/go_after_action.dart';
 
 /// How an error dialog was closed.
@@ -124,13 +119,6 @@ Future<void> showProblemDetails(BuildContext context, int id) async {
   await _show(ctx, store, e, readOnly: true);
 }
 
-/// *Open the log* (errors.md §3): System › Log is the tab, and its time is
-/// the time of [e] on the rows' clock. `get_log` takes no time: the
-/// toolbar's time keeps the lines within two minutes of it, of those read.
-void aimLogAt(Store<AppState> store, StudioError e) => store
-  ..dispatchSync(SetAroundAction(e.at == null ? null : logClockOf(e.at!)))
-  ..dispatchSync(system_slice.SetTabAction(SystemTab.log));
-
 Future<void> _show(
   BuildContext context,
   Store<AppState> store,
@@ -179,16 +167,21 @@ Future<void> _show(
   switch (closed) {
     case _Closed.primary:
       switch (primary) {
+        // The dialog is closed: what follows is awaited here, and the
+        // dialog's own caller does not wait for it (`showUserException`).
         case .retry:
-          unawaited(store.dispatchAndWait(RetryProblemAction(e.id)));
+          await store.dispatchAndWait(RetryProblemAction(e.id));
         case .refresh:
-          unawaited(
-            store.dispatchAndWait(RetryProblemAction(e.id, refresh: true)),
-          );
+          await store.dispatchAndWait(RetryProblemAction(e.id, refresh: true));
         case .log:
-          aimLogAt(store, e);
-          store.dispatchSync(GoAction.navigate(const SystemRoute()));
-          unawaited(store.dispatchAndWait(RetrieveSystemLogAction()));
+          // *Open the log*: the tab and its time in one state, its lines
+          // read, then System.
+          await store.dispatchAndWait(
+            GoAfterAction(const SystemRoute(), [
+              AimLogAction(e.at),
+              RetrieveSystemLogAction(),
+            ]),
+          );
         case .ok || .form:
           // Back to the form: the form is under this dialog, with its
           // values; it marked the field itself when the dispatch failed

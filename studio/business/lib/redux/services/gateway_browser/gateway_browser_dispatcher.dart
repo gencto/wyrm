@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:async_redux/async_redux.dart';
 
 import '../../../wyrm/discovery.dart';
@@ -13,8 +11,9 @@ class GatewayBrowserDispatcher implements GatewayBrowserServiceListener {
 
   final Store<AppState> _store;
 
+  /// A stream listener does not wait (studio-rules §1): it dispatches and
+  /// returns; the check drops an answer of an older search itself.
   @override
-  void onFound(Announcement found, int scan) {
-    unawaited(_store.dispatchAndWait(CheckFoundGatewayAction(found, scan)));
-  }
+  void onFound(Announcement found, int scan) =>
+      _store.dispatch(CheckFoundGatewayAction(found, scan));
 }

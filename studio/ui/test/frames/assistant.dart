@@ -579,7 +579,7 @@ Widget assistantDrawer() => Builder(
             changes: 0,
             note: .draft,
           ),
-          onSecond: () {},
+          onSecond: () async {},
           onNewTask: () {},
           composer: AssistantComposer(
             vm: const ComposerVm(

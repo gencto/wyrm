@@ -57,10 +57,7 @@ class _Factory extends VmFactory<AppState, AccessPageConnector, _Vm>
   _Factory(super._connector);
 
   @override
-  _Vm fromStore() => _vm(now: DateTime.now());
-
-  /// The view-model at [now] (the devices' rows are computed against it).
-  _Vm _vm({required DateTime now}) {
+  _Vm fromStore() {
     final sys = '${site.home}/sys';
     final u = access.pickedUser;
     return _Vm(
@@ -76,7 +73,8 @@ class _Factory extends VmFactory<AppState, AccessPageConnector, _Vm>
                 user: u.row,
                 grants: [for (final g in access.grantsOf(u)) g.row],
                 devices: [
-                  for (final r in device.userRowsAt(u.name, now)) r.accessRow,
+                  for (final r in device.userRowsAt(u.name, clock.now))
+                    r.accessRow,
                 ],
               ),
         usersLocked: site.lacks(Perm.config, sys) != null,

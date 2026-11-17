@@ -12,7 +12,6 @@ import '../../../wyrm/mappers/flow_blocks.dart';
 import '../../../wyrm/mappers/flow_canvas.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
-import 'validate_flow_action.dart';
 
 /// `Update from library`: the flow's copy of block [name] becomes the
 /// library's newest version (`get_block`), for every instance of it. The
@@ -58,7 +57,6 @@ class UpdateBlockFromLibraryAction extends Action
     // Through the inside's own fold, so instances drop what is gone.
     final inner = insideDraftOf(copied, name);
     final next = inner == null ? copied : foldInside(copied, name, inner);
-    _validate();
     return state.copyWith.flowEditor(
       draft: next,
       dirty: true,
@@ -67,9 +65,4 @@ class UpdateBlockFromLibraryAction extends Action
       undoTag: null,
     );
   }
-
-  /// The engine checks the draft again once the edits settle
-  /// ([ValidateFlowAction] is debounced and brings its own state); this
-  /// edit does not wait for it.
-  void _validate() => dispatch(ValidateFlowAction());
 }
