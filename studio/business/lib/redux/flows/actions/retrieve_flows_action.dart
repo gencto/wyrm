@@ -38,15 +38,13 @@ class RetrieveFlowsAction extends Action
     final flows = <FlowSummary>[];
     for (final c in ids) {
       final def = await RetrieveFlowDefsAction.read(api, base, c.name);
-      // a `~val` this client cannot read says nothing of the flow: it is
-      // listed as its definition alone, and logged
-      final val =
-          flowValOfWire(vals['$base/${c.name}']).orWarn('$base/${c.name}') ??
-          const FlowVal();
+      // a `~val` this client cannot read: the flow is listed as one whose
+      // state is not known, never as a draft
       flows.add(
-        flowSummaryOfVal(
+        flowSummaryOf(
           c.name,
-          val,
+          flowValOfWire(vals['$base/${c.name}']),
+          where: '$base/${c.name}',
           description: c.meta.displayName,
         ).copyWith(
           reads: def?.reads ?? const IListConst([]),

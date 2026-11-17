@@ -5,14 +5,15 @@ import '../decode/flow_val.dart';
 /// A flow's `~val` as a live sample hands it (`{state, error, version,
 /// deployed_by, since}` as plain Dart) read as a [FlowSummary], the way
 /// `RetrieveFlowsAction` reads it: state 0 runs, 2 is an error, no state
-/// is a draft never deployed. A value that is no map reads as none, with a
-/// warning ([flowValOf]).
+/// is a draft never deployed. A value Studio cannot read gives a summary
+/// that says so, with a warning ([flowSummaryOf]).
 FlowSummary flowSummaryOfValue(
   String id,
   Object? value, {
   String? description,
-}) => flowSummaryOfVal(
+}) => flowSummaryOf(
   id,
-  flowValOf(value).orWarn('flow $id') ?? const FlowVal(),
+  flowValOf(value),
+  where: 'flow $id',
   description: description,
 );

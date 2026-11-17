@@ -2179,5 +2179,6 @@
     "errUnreadableAnswer": "The broker answered in a form this Studio does not read, so nothing was changed here. The field is in the log.",
     "bakStepWriting": "Writing the file",
     "rstLinkNew": "new",
-    "rstLinkExists": "exists here"
+    "rstLinkExists": "exists here",
+    "flowStateUnread": "state not read"
 }

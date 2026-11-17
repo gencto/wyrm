@@ -2271,6 +2271,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "flowPropertiesNote2": MessageLookupByLibrary.simpleMessage(
       "A bound field shows the value that comes in; its wire and source light when you point at it. The link icon goes to the source or unbinds.",
     ),
+    "flowStateUnread": MessageLookupByLibrary.simpleMessage("state not read"),
     "flowStopped": m155,
     "flowVersion": m156,
     "flowsFooter": MessageLookupByLibrary.simpleMessage(

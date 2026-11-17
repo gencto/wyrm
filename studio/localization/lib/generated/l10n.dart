@@ -17573,6 +17573,16 @@ class S {
       args: [],
     );
   }
+
+  /// `state not read`
+  String get flowStateUnread {
+    return Intl.message(
+      'state not read',
+      name: 'flowStateUnread',
+      desc: '',
+      args: [],
+    );
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<S> {

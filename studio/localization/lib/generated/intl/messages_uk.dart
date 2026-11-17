@@ -2295,6 +2295,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "flowPropertiesNote2": MessageLookupByLibrary.simpleMessage(
       "Зв’язане поле показує значення, яке надходить; його зв’язок і джерело світяться, коли на нього навести. Значок зв’язку веде до джерела або розв’язує.",
     ),
+    "flowStateUnread": MessageLookupByLibrary.simpleMessage(
+      "стан не прочитано",
+    ),
     "flowStopped": m155,
     "flowVersion": m156,
     "flowsFooter": MessageLookupByLibrary.simpleMessage(

@@ -2163,5 +2163,6 @@
     "errUnreadableAnswer": "Брокер відповів у формі, яку ця Studio не читає, тому тут нічого не змінено. Поле вказано в журналі.",
     "bakStepWriting": "Запис файлу",
     "rstLinkNew": "новий",
-    "rstLinkExists": "вже є тут"
+    "rstLinkExists": "вже є тут",
+    "flowStateUnread": "стан не прочитано"
 }
