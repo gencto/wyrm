@@ -6,10 +6,13 @@ import 'package:business/wyrm/decode/flow_val.dart';
 import 'package:business/wyrm/decode/param_spec.dart';
 import 'package:business/wyrm/decode/peers.dart';
 import 'package:business/wyrm/decode/sys_answers.dart';
+import 'package:business/wyrm/mappers/live_overlay_mapper.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/json_value.dart';
 import 'package:models/link_revision.dart';
+import 'package:models/live_value.dart';
+import 'package:models/logging_type.dart';
 import 'package:models/param_spec.dart';
 import 'package:models/peer.dart';
 import 'package:models/peer_kind.dart';
@@ -353,7 +356,7 @@ void main() {
         Valid(
           WatchGroup(
             name: 'fast',
-            loggingType: 'Interval',
+            loggingType: LoggingType.interval,
             interval: 5,
             flush: 2.5,
             watchIds: const ['w1'].lock,
@@ -424,6 +427,52 @@ void main() {
         flowValOfWire(const VStr('running')),
         const Invalid<FlowVal>('flow value', '', 'not a map'),
       );
+    });
+  });
+
+  group('how a watch group records (wyrm-history `Logging`)', () {
+    test("the names are the broker's", () {
+      expect(
+        [for (final l in LoggingType.values) l.wire],
+        ['None', 'Interval', 'All Data', 'Point Change'],
+      );
+      expect(LoggingType.fromWire('interval'), isNull);
+    });
+
+    test('a name Studio does not know refuses the group', () {
+      final i = _invalid(
+        watchGroupOf('fast', const {
+          'logging_type': VStr('Deadband'),
+        }, const []),
+      );
+      expect((i.field, i.reason), ('logging_type', 'not a known name'));
+      // no value yet is not a way of recording
+      expect(
+        _valid(watchGroupOf('fast', const {}, const [])).loggingType,
+        isNull,
+      );
+    });
+
+    test('a live value of another shape keeps what the group holds', () {
+      const g = WatchGroup(
+        name: 'fast',
+        loggingType: LoggingType.interval,
+        interval: 5,
+      );
+      IList<WatchGroup> live(Map<String, Object?> values) => liveGroups(
+        [g].lock,
+        'wy/p/sys/history',
+        {
+          for (final e in values.entries)
+            'wy/p/sys/history/fast/${e.key}': LiveValue(value: e.value, time: DateTime.utc(2026)),
+        }.lock,
+      );
+      expect(
+        live({'logging_type': 'All Data', 'interval': 2.5}).single,
+        g.copyWith(loggingType: LoggingType.allData, interval: 2.5),
+      );
+      expect(live({'logging_type': 'Deadband', 'interval': '5 s'}).single, g);
+      expect(live(const {}).single, g);
     });
   });
 

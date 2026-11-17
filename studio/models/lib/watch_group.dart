@@ -1,6 +1,8 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 
+import 'logging_type.dart';
+
 part 'watch_group.freezed.dart';
 
 /// A watch group of the historian (`sys/history/<name>`).
@@ -9,8 +11,8 @@ abstract class WatchGroup with _$WatchGroup {
   const factory WatchGroup({
     required String name,
 
-    /// `None`, `Interval`, `All Data`, `Point Change`.
-    @Default('') String loggingType,
+    /// What it records; null while no value of it has arrived.
+    LoggingType? loggingType,
     num? interval,
     num? flush,
 

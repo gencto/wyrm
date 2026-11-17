@@ -1,8 +1,10 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/flow_summary.dart';
 import 'package:models/live_value.dart';
+import 'package:models/logging_type.dart';
 import 'package:models/watch_group.dart';
 
+import '../decode/live_fields.dart' show liveName, liveNumber;
 import 'flow_value_mapper.dart';
 
 /// A live value as the historian's text: a number without a trailing `.0`,
@@ -51,19 +53,32 @@ IList<WatchGroup> liveGroups(
   for (final g in groups)
     () {
       Object? v(String k) => values['$base/${g.name}/$k']?.value;
+      final where = '$base/${g.name}';
+      // a live value of another shape keeps what the group holds, and
+      // is logged with its leaf
       return g.copyWith(
-        loggingType: switch (v('logging_type')) {
-          final String s => s,
-          _ => g.loggingType,
-        },
-        interval: switch (v('interval')) {
-          final num n => n,
-          _ => g.interval,
-        },
-        flush: switch (v('buffer_flush_time')) {
-          final num n => n,
-          _ => g.flush,
-        },
+        loggingType:
+            liveName(
+              v('logging_type'),
+              LoggingType.fromWire,
+              'watch group',
+              'logging_type',
+            ).orWarn(where) ??
+            g.loggingType,
+        interval:
+            liveNumber(
+              v('interval'),
+              'watch group',
+              'interval',
+            ).orWarn(where) ??
+            g.interval,
+        flush:
+            liveNumber(
+              v('buffer_flush_time'),
+              'watch group',
+              'buffer_flush_time',
+            ).orWarn(where) ??
+            g.flush,
       );
     }(),
 ].lock;

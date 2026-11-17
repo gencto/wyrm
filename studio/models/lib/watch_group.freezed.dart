@@ -15,8 +15,8 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$WatchGroup {
 
- String get name;/// `None`, `Interval`, `All Data`, `Point Change`.
- String get loggingType; num? get interval; num? get flush;/// The watches' node names (`w1`) and the keys they record.
+ String get name;/// What it records; null while no value of it has arrived.
+ LoggingType? get loggingType; num? get interval; num? get flush;/// The watches' node names (`w1`) and the keys they record.
  IList<String> get watchIds; IList<String> get keys;
 /// Create a copy of WatchGroup
 /// with the given fields replaced by the non-null parameter values.
@@ -53,7 +53,7 @@ abstract mixin class $WatchGroupCopyWith<$Res>  {
   factory $WatchGroupCopyWith(WatchGroup value, $Res Function(WatchGroup) _then) = _$WatchGroupCopyWithImpl;
 @useResult
 $Res call({
- String name, String loggingType, num? interval, num? flush, IList<String> watchIds, IList<String> keys
+ String name, LoggingType? loggingType, num? interval, num? flush, IList<String> watchIds, IList<String> keys
 });
 
 
@@ -70,11 +70,11 @@ class _$WatchGroupCopyWithImpl<$Res>
 
 /// Create a copy of WatchGroup
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? name = null,Object? loggingType = null,Object? interval = freezed,Object? flush = freezed,Object? watchIds = null,Object? keys = null,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? name = null,Object? loggingType = freezed,Object? interval = freezed,Object? flush = freezed,Object? watchIds = null,Object? keys = null,}) {
   return _then(WatchGroup(
 name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
-as String,loggingType: null == loggingType ? _self.loggingType : loggingType // ignore: cast_nullable_to_non_nullable
-as String,interval: freezed == interval ? _self.interval : interval // ignore: cast_nullable_to_non_nullable
+as String,loggingType: freezed == loggingType ? _self.loggingType : loggingType // ignore: cast_nullable_to_non_nullable
+as LoggingType?,interval: freezed == interval ? _self.interval : interval // ignore: cast_nullable_to_non_nullable
 as num?,flush: freezed == flush ? _self.flush : flush // ignore: cast_nullable_to_non_nullable
 as num?,watchIds: null == watchIds ? _self.watchIds : watchIds // ignore: cast_nullable_to_non_nullable
 as IList<String>,keys: null == keys ? _self.keys : keys // ignore: cast_nullable_to_non_nullable
@@ -90,12 +90,12 @@ as IList<String>,
 
 
 class _WatchGroup implements WatchGroup {
-  const _WatchGroup({required this.name, this.loggingType = '', this.interval, this.flush, this.watchIds = const IListConst([]), this.keys = const IListConst([])});
+  const _WatchGroup({required this.name, this.loggingType, this.interval, this.flush, this.watchIds = const IListConst([]), this.keys = const IListConst([])});
   
 
 @override final  String name;
-/// `None`, `Interval`, `All Data`, `Point Change`.
-@override@JsonKey() final  String loggingType;
+/// What it records; null while no value of it has arrived.
+@override final  LoggingType? loggingType;
 @override final  num? interval;
 @override final  num? flush;
 /// The watches' node names (`w1`) and the keys they record.
@@ -134,7 +134,7 @@ abstract mixin class _$WatchGroupCopyWith<$Res> implements $WatchGroupCopyWith<$
   factory _$WatchGroupCopyWith(_WatchGroup value, $Res Function(_WatchGroup) _then) = __$WatchGroupCopyWithImpl;
 @override @useResult
 $Res call({
- String name, String loggingType, num? interval, num? flush, IList<String> watchIds, IList<String> keys
+ String name, LoggingType? loggingType, num? interval, num? flush, IList<String> watchIds, IList<String> keys
 });
 
 
@@ -151,11 +151,11 @@ class __$WatchGroupCopyWithImpl<$Res>
 
 /// Create a copy of WatchGroup
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? name = null,Object? loggingType = null,Object? interval = freezed,Object? flush = freezed,Object? watchIds = null,Object? keys = null,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? name = null,Object? loggingType = freezed,Object? interval = freezed,Object? flush = freezed,Object? watchIds = null,Object? keys = null,}) {
   return _then(_WatchGroup(
 name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
-as String,loggingType: null == loggingType ? _self.loggingType : loggingType // ignore: cast_nullable_to_non_nullable
-as String,interval: freezed == interval ? _self.interval : interval // ignore: cast_nullable_to_non_nullable
+as String,loggingType: freezed == loggingType ? _self.loggingType : loggingType // ignore: cast_nullable_to_non_nullable
+as LoggingType?,interval: freezed == interval ? _self.interval : interval // ignore: cast_nullable_to_non_nullable
 as num?,flush: freezed == flush ? _self.flush : flush // ignore: cast_nullable_to_non_nullable
 as num?,watchIds: null == watchIds ? _self.watchIds : watchIds // ignore: cast_nullable_to_non_nullable
 as IList<String>,keys: null == keys ? _self.keys : keys // ignore: cast_nullable_to_non_nullable

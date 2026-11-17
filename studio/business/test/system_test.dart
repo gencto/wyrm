@@ -11,6 +11,7 @@ import 'package:business/redux/login/actions/set_user_action.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/audit_line.dart';
 import 'package:models/grant_level.dart';
+import 'package:models/logging_type.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import 'support/fake_wyrm.dart';
@@ -106,7 +107,7 @@ void main() {
 
       final g = s.state.historian.groups.single;
       expect(g.name, 'ahu2');
-      expect(g.loggingType, 'All Data');
+      expect(g.loggingType, LoggingType.allData);
       expect(g.interval, 60);
       expect(g.keys, ['wy/central/downstream/m/count']);
       expect(g.watchIds, ['w1']);

@@ -1,5 +1,6 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/link_revision.dart';
+import 'package:models/logging_type.dart';
 import 'package:models/watch_group.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -41,7 +42,8 @@ Decoded<List<LinkRevision>> linkRevisionsOf(List<Value> rows) =>
 /// One group of `sys/history` with the values of its leaves ([values], by
 /// leaf: `logging_type`, `interval`, `buffer_flush_time`) and its watches
 /// ([watches]: the children that are folders, named by the key they
-/// record). A leaf of another type is [Invalid] with its name.
+/// record). A leaf of another type, or a way of recording this client
+/// does not know, is [Invalid] with its name.
 Decoded<WatchGroup> watchGroupOf(
   String name,
   Map<String, Value> values,
@@ -54,7 +56,7 @@ Decoded<WatchGroup> watchGroupOf(
   ];
   return WatchGroup(
     name: name,
-    loggingType: f.textOr('logging_type') ?? '',
+    loggingType: f.nameOr('logging_type', LoggingType.fromWire),
     interval: f.numberOr('interval'),
     flush: f.numberOr('buffer_flush_time'),
     watchIds: [for (final w in folders) w.name].lock,

@@ -1,10 +1,13 @@
 import 'package:app/mappers/flow_mappers.dart';
+import 'package:app/mappers/history_mappers.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
 import 'package:models/flow_summary.dart';
+import 'package:models/logging_type.dart';
 import 'package:ui/indicators/flow_state_tag.dart';
 import 'package:ui/models/tone.dart';
+import 'package:ui/pages/history_screen.dart';
 
 /// A flow's state as it is drawn: one whose value Studio could not read
 /// is shown as such, in both languages, and never as "not deployed".
@@ -34,5 +37,19 @@ void main() {
 
     await S.load(const Locale('uk'));
     expect(odd.tag.label(odd.version), 'стан не прочитано');
+  });
+
+  test('how a watch group records, in both languages', () async {
+    await S.load(const Locale('en'));
+    expect(
+      [for (final l in LoggingType.values) l.ui.label],
+      ['None', 'Interval', 'All Data', 'Point Change'],
+    );
+    expect(
+      {for (final l in LoggingType.values) l.ui},
+      {...GroupLogging.values},
+    );
+    await S.load(const Locale('uk'));
+    expect(LoggingType.pointChange.ui.label, 'Зміна точки');
   });
 }

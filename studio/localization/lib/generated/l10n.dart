@@ -17593,6 +17593,36 @@ class S {
       args: [],
     );
   }
+
+  /// `None`
+  String get logTypeNone {
+    return Intl.message('None', name: 'logTypeNone', desc: '', args: []);
+  }
+
+  /// `Interval`
+  String get logTypeInterval {
+    return Intl.message(
+      'Interval',
+      name: 'logTypeInterval',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `All Data`
+  String get logTypeAllData {
+    return Intl.message('All Data', name: 'logTypeAllData', desc: '', args: []);
+  }
+
+  /// `Point Change`
+  String get logTypePointChange {
+    return Intl.message(
+      'Point Change',
+      name: 'logTypePointChange',
+      desc: '',
+      args: [],
+    );
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<S> {
