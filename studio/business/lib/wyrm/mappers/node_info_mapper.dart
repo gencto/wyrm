@@ -2,6 +2,8 @@ import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/node_info.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
+import '../decode/node_glyph.dart';
+
 /// A child of `list(parent)` (`~meta?view=list`) as a [NodeInfo].
 NodeInfo nodeInfoOf(String parent, Child child) {
   final m = child.meta;
@@ -10,8 +12,9 @@ NodeInfo nodeInfoOf(String parent, Child child) {
     Writable.config => Perm.config,
     Writable.never || null => null,
   };
+  final key = '$parent/${child.name}';
   return NodeInfo(
-    key: '$parent/${child.name}',
+    key: key,
     name: child.name,
     display: m.displayName,
     type: m.ty,
@@ -22,6 +25,12 @@ NodeInfo nodeInfoOf(String parent, Child child) {
     hasHistory: m.hasHistory ?? false,
     isAction: m.actions?.isNotEmpty ?? false,
     profile: m.profileName,
+    glyph: nodeGlyphOf(
+      key: key,
+      root: siteRootOf(key),
+      profile: m.profileName,
+      value: m.ty != null,
+    ),
     choices: (m.enumValues ?? const <String>[]).lock,
   );
 }

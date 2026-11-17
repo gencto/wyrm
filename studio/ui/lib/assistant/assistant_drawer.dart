@@ -5,8 +5,10 @@ import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import 'assistant_composer.dart';
@@ -125,7 +127,11 @@ class AssistantDrawer extends StatelessWidget {
               child: Row(
                 spacing: 8,
                 children: [
-                  AppIcon('ws_assistant', size: 15, color: c.ember),
+                  AppIconView(
+                    AppIcon.wsAssistant,
+                    size: AppSizes.assistantMark,
+                    color: c.ember,
+                  ),
                   Text(
                     S.current.drawerTitle,
                     style: TextStyle(
@@ -139,7 +145,7 @@ class AssistantDrawer extends StatelessWidget {
                       child: Text(
                         'tasks/$id',
                         overflow: .ellipsis,
-                        style: mono(size: 12, color: c.text3),
+                        style: mono(size: FontSizes.sm, color: c.text3),
                       ),
                     ),
                   const Spacer(),
@@ -156,7 +162,11 @@ class AssistantDrawer extends StatelessWidget {
                   IconButton(
                     tooltip: S.current.closeDrawer,
                     onPressed: onClose,
-                    icon: AppIcon('ui_close', size: 14, color: c.text2),
+                    icon: AppIconView(
+                      AppIcon.uiClose,
+                      size: IconSizes.sm,
+                      color: c.text2,
+                    ),
                   ),
                 ],
               ),
@@ -164,7 +174,7 @@ class AssistantDrawer extends StatelessWidget {
             Expanded(
               child: noAgent
                   ? Padding(
-                      padding: const EdgeInsets.all(20),
+                      padding: Insets.emptyNote,
                       child: Text(
                         const BlockedNoAgent().text,
                         style: TextStyle(

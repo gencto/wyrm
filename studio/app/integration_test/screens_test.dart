@@ -36,6 +36,7 @@ import 'package:ui/flows/flow_canvas.dart';
 import 'package:ui/flows/flow_menu.dart';
 import 'package:ui/forms/log_toolbar.dart';
 import 'package:ui/indicators/app_icon.dart';
+import 'package:ui/indicators/app_icon_view.dart';
 import 'package:ui/overlays/problems_drawer.dart';
 import 'package:ui/tables/log_table.dart';
 import 'package:ui/trees/tree_row.dart';
@@ -359,8 +360,9 @@ void main() {
     // The window opens where the user left it and as large (once it is
     // ready to show); the steps below count on the boards' 1440 × 900.
     await settle(tester, 1000);
-    await windowManager.setSize(const Size(1440, 900));
-    await windowManager.center();
+    WindowManager.instance.getCurrent()
+      ?..setSize(const Size(1440, 900).toNative(), false)
+      ..center();
     await settle(tester, 2500);
     await shot(tester, '00_login');
 
@@ -527,7 +529,9 @@ void main() {
         // buttons come after it.
         await tester.tap(
           find
-              .byWidgetPredicate((w) => w is AppIcon && w.name == 'ui_close')
+              .byWidgetPredicate(
+                (w) => w is AppIconView && w.icon == AppIcon.uiClose,
+              )
               .first,
         );
         await settle(tester);

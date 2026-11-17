@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 
 import '../theme/extensions/colors.dart';
+import '../theme/sizes.dart';
 import '../theme/typography.dart';
 import 'arc_spinner.dart';
 
@@ -39,7 +40,7 @@ class LoginSteps extends StatelessWidget {
             spacing: 10,
             children: [
               SizedBox.square(
-                dimension: 16,
+                dimension: AppSizes.loginStepMark,
                 child: Center(
                   child: i < current && late.contains(i)
                       ? Container(

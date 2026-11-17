@@ -1,6 +1,9 @@
 import 'package:material_ui/material_ui.dart';
 
+import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../theme/extensions/colors.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
@@ -62,7 +65,7 @@ class Inspector extends StatelessWidget {
                           style: TextStyle(
                             fontSize: FontSizes.sm,
                             fontWeight: .w600,
-                            letterSpacing: 0.72,
+                            letterSpacing: Trackings.label,
                             color: c.text3,
                           ),
                         ),
@@ -84,14 +87,18 @@ class Inspector extends StatelessWidget {
                 if (onClose != null)
                   IconButton(
                     onPressed: onClose,
-                    icon: Icon(Icons.close, size: 18, color: c.text3),
+                    icon: AppIconView(
+                      AppIcon.materialClose,
+                      size: IconSizes.lg,
+                      color: c.text3,
+                    ),
                   ),
               ],
             ),
           ),
           Expanded(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.all(18),
+              padding: Insets.sectionCard,
               child: child,
             ),
           ),

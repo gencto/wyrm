@@ -7,7 +7,7 @@ const pointActions = {'add_point'};
 /// The kind of the node [key] under the site [root] (`wy/<site>`), from its
 /// place, its profile (`is`) and its [actions] (docs/design/specs/
 /// explorer.md "Frames by node kind"). It agrees with the tree's icon
-/// (`AppIcon.nodeName`): a section is a folder, `upstream/<u>` and a
+/// (`nodeGlyphOf`): a section is a folder, `upstream/<u>` and a
 /// `wy:broker` are brokers, `downstream/<l>` is a link, `dataflows/<f>` a
 /// flow, anything under `storage` storage.
 NodeKind nodeKindOf({

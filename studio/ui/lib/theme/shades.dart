@@ -25,11 +25,26 @@ abstract final class Shades {
   /// An opaque paint that only cuts a mask (`BlendMode.dstOut`); its colour
   /// never shows.
   static const mask = Color(0xFF000000);
+
+  /// The scrim under the error dialog: `rgba(6, 8, 9, 0.66)`.
+  static const errorBarrier = Color(0xA8060809);
 }
 
-/// Grounds that stay the same in both brightnesses, outside the palette of
-/// `AppColors`. Named for what they fill.
+/// Grounds outside the palette of `AppColors`: one that stays the same in
+/// both brightnesses, and the ones only the dark theme has. Named for what
+/// they fill.
 abstract final class FixedGrounds {
   /// The header of an own (`MY`) block on the flow canvas.
   static const flowOwnBlockHeader = Color(0xFF3A2A1C);
+
+  /// The ground of an error line and of a warning line of the log on the
+  /// dark theme (the tints are too light under a wall of mono text).
+  static const logErrorLine = Color(0xFF1A1110);
+  static const logWarnLine = Color(0xFF16140C);
+
+  /// The line and the fill of the standby pair in step, and its fill when
+  /// the standby is behind, on the dark theme.
+  static const standbyOkLine = Color(0xFF2E5A50);
+  static const standbyOkFill = Color(0xFF10201C);
+  static const standbyBehindFill = Color(0xFF211D10);
 }

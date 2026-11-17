@@ -3,6 +3,7 @@ import 'package:material_ui/material_ui.dart';
 import '../indicators/quality_mark.dart';
 import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
@@ -37,7 +38,7 @@ class OfflineBanner extends StatelessWidget {
             ),
           ),
           SizedBox.square(
-            dimension: 12,
+            dimension: AppSizes.inlineSpinner,
             child: CircularProgressIndicator(strokeWidth: 2, color: c.warn),
           ),
         ],

@@ -5,9 +5,11 @@ import 'package:material_ui/material_ui.dart';
 import '../buttons/button.dart';
 import '../containers/fault_boundary.dart';
 import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../theme/common.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
@@ -91,12 +93,16 @@ class PanelFault extends StatelessWidget {
           return Center(
             child: FittedBox(
               fit: .scaleDown,
-              child: _square(c, 28, 14),
+              child: _square(
+                c,
+                AppSizes.faultSquareSmall,
+                IconSizes.sm,
+              ),
             ),
           );
         }
         final card = Container(
-          padding: const EdgeInsets.all(20),
+          padding: Insets.panelFault,
           decoration: ShapeDecoration(
             color: c.ground2,
             shape: _DashedBorder(color: c.badLine),
@@ -106,14 +112,22 @@ class PanelFault extends StatelessWidget {
             crossAxisAlignment: .start,
             spacing: 12,
             children: [
-              _square(c, 36, 18),
+              _square(c, AppSizes.faultSquare, IconSizes.lg),
               Text(
                 vm.title,
-                style: boardText(size: 16, weight: .w600, color: c.text1),
+                style: boardText(
+                  size: FontSizes.sectionTitle,
+                  weight: .w600,
+                  color: c.text1,
+                ),
               ),
               Text(
                 vm.body,
-                style: boardText(size: 13, height: 1.55, color: c.text3),
+                style: boardText(
+                  size: FontSizes.md,
+                  height: LineHeights.prose,
+                  color: c.text3,
+                ),
               ),
               Container(
                 width: .infinity,
@@ -123,11 +137,15 @@ class PanelFault extends StatelessWidget {
                 ),
                 decoration: BoxDecoration(
                   color: c.ground0,
-                  borderRadius: const .all(.circular(6)),
+                  borderRadius: Radii.segment,
                 ),
                 child: Text(
                   vm.line,
-                  style: boardText(size: 11, color: c.text4, code: true),
+                  style: boardText(
+                    size: FontSizes.xs,
+                    color: c.text4,
+                    code: true,
+                  ),
                 ),
               ),
               Wrap(
@@ -166,11 +184,11 @@ class PanelFault extends StatelessWidget {
           liveRegion: true,
           child: box.hasBoundedHeight
               ? SingleChildScrollView(
-                  padding: const EdgeInsets.all(20),
+                  padding: Insets.panelFault,
                   child: Align(alignment: .topCenter, child: sized),
                 )
               : Padding(
-                  padding: const EdgeInsets.all(20),
+                  padding: Insets.panelFault,
                   child: sized,
                 ),
         );
@@ -178,15 +196,15 @@ class PanelFault extends StatelessWidget {
     );
   }
 
-  Widget _square(AppColors c, double size, double icon) => Container(
+  Widget _square(AppColors c, double size, IconSize icon) => Container(
     width: size,
     height: size,
     decoration: BoxDecoration(
       color: c.badTint,
-      borderRadius: const .all(.circular(10)),
+      borderRadius: Radii.card,
     ),
     alignment: .center,
-    child: AppIcon('err_studio', size: icon, color: c.bad),
+    child: AppIconView(AppIcon.errStudio, size: icon, color: c.bad),
   );
 }
 

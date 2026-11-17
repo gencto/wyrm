@@ -3,11 +3,13 @@ import 'package:material_ui/material_ui.dart';
 
 import '../buttons/problems_pill.dart';
 import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../indicators/quality_mark.dart';
 import '../models/tone.dart';
 import '../overlays/account_menu.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import 'window_bar.dart';
@@ -159,7 +161,7 @@ class TopBar extends StatelessWidget {
             if (compact)
               IconButton(
                 onPressed: onSearch,
-                icon: AppIcon('ui_search', color: c.text3),
+                icon: AppIconView(AppIcon.uiSearch, color: c.text3),
               ),
             if (vm.problems case final p?)
               ProblemsPill(vm: p, onTap: onProblems ?? () {}),
@@ -244,7 +246,7 @@ class _SiteSwitcher extends StatelessWidget {
       ],
       child: Container(
         height: 40,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
+        padding: Insets.field,
         decoration: BoxDecoration(
           color: c.ground2,
           border: .all(color: c.line2),
@@ -263,7 +265,7 @@ class _SiteSwitcher extends StatelessWidget {
                 vm.site,
                 maxLines: 1,
                 overflow: .ellipsis,
-                style: mono(size: 14, color: c.text1),
+                style: mono(size: FontSizes.lg, color: c.text1),
               ),
             ),
             if (!compact && vm.siteDetail != null)
@@ -275,7 +277,11 @@ class _SiteSwitcher extends StatelessWidget {
                   style: TextStyle(fontSize: FontSizes.sm, color: c.text4),
                 ),
               ),
-            AppIcon('ui_chevron_down', size: 16, color: c.text3),
+            AppIconView(
+              AppIcon.uiChevronDown,
+              size: IconSizes.md,
+              color: c.text3,
+            ),
           ],
         ),
       ),
@@ -297,7 +303,7 @@ class _SearchBox extends StatelessWidget {
       borderRadius: Radii.control,
       child: Container(
         height: 40,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
+        padding: Insets.field,
         decoration: BoxDecoration(
           color: c.ground2,
           border: .all(color: c.line1),
@@ -308,7 +314,7 @@ class _SearchBox extends StatelessWidget {
           builder: (context, box) => Row(
             spacing: 10,
             children: [
-              AppIcon('ui_search', size: 16, color: c.text3),
+              AppIconView(AppIcon.uiSearch, size: IconSizes.md, color: c.text3),
               if (box.maxWidth >= 60)
                 Expanded(
                   child: Text(
@@ -320,15 +326,15 @@ class _SearchBox extends StatelessWidget {
                 ),
               if (box.maxWidth >= 140)
                 Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 6,
-                    vertical: 2,
-                  ),
+                  padding: Insets.tag,
                   decoration: BoxDecoration(
                     border: .all(color: c.line2),
                     borderRadius: Radii.chip,
                   ),
-                  child: Text('⌘K', style: mono(size: 12, color: c.text3)),
+                  child: Text(
+                    '⌘K',
+                    style: mono(size: FontSizes.sm, color: c.text3),
+                  ),
                 ),
             ],
           ),
@@ -381,7 +387,7 @@ class _ReviewButton extends StatelessWidget {
               Container(
                 constraints: const BoxConstraints(minWidth: 22),
                 height: 22,
-                padding: const EdgeInsets.symmetric(horizontal: 6),
+                padding: Insets.badge,
                 alignment: .center,
                 decoration: BoxDecoration(
                   color: enabled ? c.ground0 : c.ground4,

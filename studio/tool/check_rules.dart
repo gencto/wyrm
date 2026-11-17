@@ -104,14 +104,12 @@ final _rules = <Rule>[
     'business/lib/',
   ], (t) => _matches(_code(t), RegExp(r'\bS\.(?:current|of\()'))),
   // 6. tokens, not numbers
-  Rule('number-literal', ['ui/lib/', 'app/lib/'], (t) {
-    final c = _code(t);
-    return _matches(c, RegExp(r'fontSize:\s*\d')) +
-        _matches(c, RegExp(r'EdgeInsets\.\w+\([^)]*\b\d')) +
-        _matches(c, RegExp(r'SizedBox\(\s*(?:width|height):\s*\d')) +
-        _matches(c, RegExp(r'(?:BorderRadius|Radius)\.circular\(\s*\d')) +
-        _matches(c, RegExp(r'\bColor\(0x'));
-  }, except: ['ui/lib/theme/']),
+  const Rule(
+    'number-literal',
+    ['ui/lib/', 'app/lib/'],
+    _numberLiteral,
+    except: ['ui/lib/theme/'],
+  ),
   // 7. callbacks have shared types
   Rule(
     'ad-hoc-callback',
@@ -200,7 +198,190 @@ final _rules = <Rule>[
     'business/lib/',
     'ui/lib/',
   ], _dispatchCascade),
+  // 6. text is set in tokens: a font size, a line height, a letter spacing
+  // written as a number (also behind `?:`, and in the argument of
+  // `mono`/`boardText`/`wordmark`, whose types refuse it too), and a field
+  // or a parameter that carries one as a bare `double`
+  const Rule(
+    'raw-type',
+    ['ui/lib/', 'app/lib/'],
+    _rawType,
+    except: ['ui/lib/theme/'],
+  ),
+  // 2, 6. an icon is a case of `AppIcon`: not a file name of the set, not
+  // a text field named for an icon, not a Material glyph or an `IconData`
+  // of its own, and it is drawn at a size of `IconSizes`/`AppSizes`
+  const Rule(
+    'icon-id',
+    ['app/lib/', 'business/lib/', 'ui/lib/', 'models/lib/'],
+    _iconId,
+    except: [
+      'ui/lib/indicators/app_icon.dart',
+      'ui/lib/indicators/app_icon_view.dart',
+      // the one drawing made in code: its strands are chosen by `compact`
+      // and its stroke is a parameter, so it is no file of the set
+      'ui/lib/indicators/biometric_icon.dart',
+      // where `IconSize` is made
+      'ui/lib/theme/sizes.dart',
+    ],
+  ),
 ];
+
+/// The argument list of each call of [head] in [code] (`head` is a regular
+/// expression that ends before the `(`).
+Iterable<String> _args(String code, String head) sync* {
+  for (final m in RegExp('$head\\(').allMatches(code)) {
+    var depth = 1;
+    var j = m.end;
+    while (j < code.length && depth > 0) {
+      final ch = code[j];
+      if (ch == '(') {
+        depth++;
+      } else if (ch == ')') {
+        depth--;
+      }
+      j++;
+    }
+    yield code.substring(m.end, j - 1);
+  }
+}
+
+/// A number written in the value of the argument: `12`, `1.5`, `-.26`,
+/// `dense ? 12 : 13`, `size + 2`, and the same after the line break the
+/// formatter puts behind a long name. A token (`FontSizes.sm`) has no
+/// digit that stands alone. The value ends at the `,` or the `)` that
+/// closes it.
+const _numberValue = r'\s*:[^,;{})]*?(?<![\w.])\.?\d';
+
+/// As [_numberValue], but a `0` alone is not a size: `width: none ? 0 : w`
+/// folds a box away and `leading > 0` asks a question.
+const _sizeValue = r'\s*:[^,;{})]*?(?<![\w.])(?!0(?![\d.]))\.?\d';
+
+/// [args] without what is nested in it: `width: 3, child: Text(…)` keeps
+/// `width: 3, child: Text`.
+String _ownLevel(String args) {
+  var s = args;
+  final nested = RegExp(r'\([^()]*\)');
+  while (nested.hasMatch(s)) {
+    s = s.replaceAll(nested, '');
+  }
+  return s;
+}
+
+/// Sizes, gaps, radii and colours written as numbers (rule 6).
+int _numberLiteral(String text) {
+  final c = _code(text);
+  var n =
+      _matches(c, RegExp(r'fontSize:\s*\d')) +
+      // `TextStyle.apply`: a size moved by a number is a size of its own
+      _matches(c, RegExp(r'\bfontSize(?:Delta|Factor)\s*:\s*-?\.?\d')) +
+      _matches(c, RegExp(r'EdgeInsets(?:Directional)?\.\w+\([^)]*\b\d')) +
+      // the same in dot shorthand: `padding: const .all(3)`,
+      // `.symmetric(horizontal: 6)`, `.only(top: 2)`, `.fromLTRB(…)`. A
+      // border's `.all(color: …)` and a radius' `.only(topLeft: …)` are
+      // not insets.
+      _matches(
+        c,
+        RegExp(
+          r'(?<![\w.)\]])\.(?:all|symmetric|only|fromLTRB|fromSTEB)\('
+          r'(?!\s*(?:color|width|style)\s*:)(?![^)]*circular)[^)]*\b\d',
+        ),
+      ) +
+      // a radius, with its class or in dot shorthand (`.circular(10)`)
+      _matches(c, RegExp(r'\.(?:circular|elliptical)\(\s*\d')) +
+      _matches(c, RegExp(r'\bColor\(0x')) +
+      // a size kept as a number of the file's own, then passed on
+      // (`static const double _inset = 2;` … `.all(_inset)`)
+      _matches(c, RegExp(r'\bconst\s+double\s+\w+\s*=\s*-?\.?\d'));
+  // a box sized by a number, whichever constructor and whichever argument
+  // comes first: `SizedBox(key: k, width: 13)`, `SizedBox.square(
+  // dimension: 20)`, `SizedBox.fromSize(size: Size(200, 30))`
+  final sizeOf = RegExp(r'\bSize(?:\.\w+)?\(\s*\d');
+  for (final a in _args(c, r'\bSizedBox(?:\.\w+)?')) {
+    final own = _ownLevel(a);
+    if (RegExp('\\b(?:width|height|dimension)$_sizeValue').hasMatch(own) ||
+        (RegExp(r'\bsize\s*:').hasMatch(own) && sizeOf.hasMatch(a))) {
+      n++;
+    }
+  }
+  return n;
+}
+
+/// Typography written as numbers.
+int _rawType(String text) {
+  final c = _code(text);
+  // these two are text wherever they are written
+  var n = _matches(c, RegExp('\\b(?:fontSize|letterSpacing)$_numberValue'));
+  // a height and a size are text inside a text style
+  final inStyle = RegExp('\\b(?:height|size|tracking)$_numberValue');
+  for (final a in _args(
+    c,
+    r'(?:\bTextStyle|\bStrutStyle|\bmono|\bboardText|\bwordmark)',
+  )) {
+    n += _matches(a, inStyle);
+  }
+  // `style.copyWith(height: 1.5)`: a `copyWith` that names a text field
+  for (final a in _args(c, r'\.copyWith')) {
+    if (RegExp(
+      r'\b(?:fontSize|fontWeight|fontFamily|letterSpacing|decoration)\s*:',
+    ).hasMatch(a)) {
+      n += _matches(a, RegExp('\\bheight$_numberValue'));
+    }
+  }
+  n += _matches(c, RegExp('\\.copyWith\\(\\s*height$_numberValue'));
+  // a carrier of a size typed as a bare number
+  return n +
+      _matches(
+        c,
+        RegExp(
+          r'\bdouble\??\s+(?:fontSize|textSize|lineHeight|letterSpacing|'
+          r'tracking)\b',
+        ),
+      ) +
+      // a number made into a token by a cast: the types are closed by
+      // their private constructors, and `13.0 as FontSize` opens them
+      _matches(c, RegExp(r'\bas\s+(?:FontSize|LineHeight|Tracking)\b'));
+}
+
+/// The file names of the icon set (`ui/assets/svg/icons/<name>.svg`).
+final Set<String> _iconFiles = () {
+  final dir = Directory('ui/assets/svg/icons');
+  return {
+    if (dir.existsSync())
+      for (final f in dir.listSync().whereType<File>())
+        if (f.path.endsWith('.svg'))
+          f.path.replaceAll(r'\', '/').split('/').last.replaceAll('.svg', ''),
+  };
+}();
+
+/// Icons named or sized outside `AppIcon`.
+int _iconId(String text) {
+  final c = _code(text);
+  var n = 0;
+  // a file name of the set, as text
+  for (final m in RegExp(r"'([a-z0-9_]+)'").allMatches(c)) {
+    if (_iconFiles.contains(m.group(1))) {
+      n++;
+    }
+  }
+  // a path into the set, built by hand
+  n += _matches(c, RegExp(r'assets/svg/icons/'));
+  // a drawing of its own, beside the set (`SvgPicture.string`, `.asset`)
+  n += _matches(c, RegExp(r'\bSvgPicture\b'));
+  // an icon size made of a number by a cast
+  n += _matches(c, RegExp(r'\bas\s+IconSize\b'));
+  // an icon carried as text
+  n += _matches(c, RegExp(r'\bString\??\s+\w*[iI]con(?:Name|Id)?\b'));
+  // a Material glyph, an `IconData`, an `Icon` of its own
+  n += _matches(c, RegExp(r'(?<![\w.])Icons\.\w'));
+  n += _matches(c, RegExp(r'\bIconData\b'));
+  n += _matches(c, RegExp(r'(?<![\w.])Icon\('));
+  // an icon drawn at a size that is a number
+  for (final a in _args(c, r'\bAppIconView')) {
+    n += _matches(a, RegExp('\\bsize$_numberValue'));
+  }
+  return n;
+}
 
 /// Each method whose whole body is a dispatch, but a service listener's
 /// own callback.
@@ -367,15 +548,127 @@ class D implements TasksServiceListener {
       ..dispatchSync(NextAction());
 ''',
   ),
+  'raw-type': (
+    bad: '''
+  style: mono(size: 12, color: c.text3),
+  style: TextStyle(fontSize: dense ? 12 : 13, height: 1.5),
+  style: boardText(height: 1.55, tracking: -0.28),
+  style: base.copyWith(letterSpacing: .66),
+  style: mono(color: c.text1).copyWith(height: 1.1),
+  final double fontSize;
+''',
+    good: '''
+  style: mono(size: FontSizes.sm, color: c.text3),
+  style: TextStyle(
+    fontSize: dense ? FontSizes.sm : FontSizes.md,
+    height: LineHeights.body,
+  ),
+  style: boardText(height: LineHeights.prose, tracking: Trackings.faultTitle),
+  style: mono(color: c.text1).copyWith(height: LineHeights.glyph),
+  final FontSize fontSize;
+  child: SizedBox(height: box.height, width: w2),
+  final next = box.copyWith(height: h);
+''',
+  ),
+  'icon-id': (
+    bad: '''
+  final String icon;
+  icon: Icon(Icons.close, size: 18),
+  final IconData glyph;
+  child: AppIconView(AppIcon.uiClose, size: 16),
+  SvgPicture.asset('assets/svg/icons/\$name.svg'),
+''',
+    good: '''
+  final AppIcon icon;
+  child: AppIconView(AppIcon.uiClose, size: IconSizes.md, color: c.text3),
+  child: AppIconView(icon, size: AppSizes.flowPinIcon),
+  child: BiometricIcon(kind: kind),
+  await askOne(api, root, 'node_types'),
+''',
+  ),
 };
 
-/// Runs [_probes]; the names of the rules that fail them.
+/// Forms a rule must count one by one (each sample at least once), and
+/// forms it must leave alone (each sample not at all): the forms an audit
+/// found a rule blind to stay seen.
+const _forms = <String, ({List<String> counted, List<String> left})>{
+  'number-literal': (
+    counted: [
+      'padding: const EdgeInsets.all(12),',
+      'padding: const EdgeInsetsDirectional.only(start: 12),',
+      'padding: const .all(3),',
+      'padding: const .symmetric(horizontal: 6, vertical: 2),',
+      'margin: const .only(top: 2),',
+      'borderRadius: const .all(.circular(10)),',
+      'borderRadius: BorderRadius.circular(13),',
+      'static const double _inset = 2;',
+      'const SizedBox(height: 10),',
+      'SizedBox(key: k, width: 13),',
+      'SizedBox(width: wide ? 0.5 : w),',
+      'SizedBox.square(dimension: 20, child: mark),',
+      'SizedBox.fromSize(size: const Size(200, 30), child: field),',
+      'SizedBox(\n  height:\n      36,\n  child: row,\n)',
+      'style: base.apply(fontSizeDelta: 2),',
+      'color: const Color(0xFF1A1110),',
+    ],
+    left: [
+      'padding: Insets.dialog,',
+      'border: .all(color: c.line1),',
+      'borderRadius: Radii.card,',
+      'SizedBox(height: AppSizes.pointsBar, child: Text(n, maxLines: 2)),',
+      'SizedBox.square(dimension: AppSizes.stepMark, child: mark),',
+      'static const double rowHeight = AppSizes.flowBlockRow;',
+      'padding: i == 0 ? EdgeInsets.zero : Insets.factValueNext,',
+      'SizedBox(width: toasts.isEmpty ? 0 : ToastStack.width, child: c),',
+      'SizedBox(height: lead > 0 ? AppSizes.heroStacked : h, child: c),',
+    ],
+  ),
+  'raw-type': (
+    counted: [
+      'style: mono(size: 12),',
+      'style: TextStyle(\n  height:\n      1.5,\n),',
+      'style: boardText(\n  tracking:\n      -0.28,\n),',
+      'letterSpacing:\n    0.72,',
+      'final size = 13.0 as FontSize;',
+      'height: 1.5 as LineHeight,',
+      'final t = x as Tracking;',
+    ],
+    left: [
+      'style: mono(size: FontSizes.sm),',
+      'style: TextStyle(\n  height:\n      LineHeights.body,\n),',
+      'child: Container(height: 40, child: Text(s, style: mono())),',
+    ],
+  ),
+  'icon-id': (
+    counted: [
+      "SvgPicture.string(_triangle, width: 18, height: 18),",
+      'child: AppIconView(icon, size: 16),',
+      'child: AppIconView(\n  icon,\n  size:\n      16,\n),',
+      'final s = 16.0 as IconSize;',
+      'final String iconName;',
+    ],
+    left: [
+      'child: AppIconView(AppIcon.uiCaution, size: IconSizes.lg),',
+      'final IconSize size;',
+    ],
+  ),
+};
+
+/// Runs [_probes] and [_forms]; the names of the rules that fail them.
 List<String> _failedProbes() => [
   for (final e in _probes.entries)
     for (final r in _rules)
       if (r.name == e.key &&
           (r.count(e.value.bad) == 0 || r.count(e.value.good) != 0))
         r.name,
+  for (final e in _forms.entries)
+    for (final r in _rules)
+      if (r.name == e.key) ...[
+        for (final s in e.value.counted)
+          if (r.count(s) == 0) '${r.name}: not counted: $s',
+        for (final s in e.value.left)
+          if (r.count(s) != 0) '${r.name}: counted: $s',
+      ],
 ];
 
 /// Callback bodies with two or more dispatches: one intent is one action
@@ -413,7 +706,7 @@ const _baselinePath = 'tool/rules_baseline.json';
 
 Map<String, Map<String, int>> _measure() {
   final out = <String, Map<String, int>>{for (final r in _rules) r.name: {}};
-  for (final root in ['app/lib', 'business/lib', 'ui/lib']) {
+  for (final root in ['app/lib', 'business/lib', 'ui/lib', 'models/lib']) {
     final dir = Directory(root);
     if (!dir.existsSync()) {
       continue;

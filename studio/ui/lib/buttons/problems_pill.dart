@@ -2,6 +2,7 @@ import 'package:equatable/equatable.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../theme/extensions/colors.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// What [ProblemsPill] draws: the count of problems not yet looked at.
@@ -53,7 +54,7 @@ class ProblemsPill extends StatelessWidget {
           customBorder: const StadiumBorder(),
           child: Container(
             height: 32,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
+            padding: Insets.field,
             child: Row(
               mainAxisSize: .min,
               spacing: 8,
@@ -66,7 +67,10 @@ class ProblemsPill extends StatelessWidget {
                     shape: .circle,
                   ),
                 ),
-                Text(vm.label, style: boardText(size: 13, color: c.text1)),
+                Text(
+                  vm.label,
+                  style: boardText(size: FontSizes.md, color: c.text1),
+                ),
               ],
             ),
           ),

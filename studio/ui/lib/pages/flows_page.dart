@@ -7,6 +7,7 @@ import '../buttons/button.dart';
 import '../containers/detail_inspector.dart';
 import '../containers/fact_grid.dart';
 import '../containers/page_header.dart';
+import '../indicators/app_icon.dart';
 import '../indicators/flow_state_tag.dart';
 import '../models/disabled.dart';
 import '../models/tone.dart';
@@ -175,7 +176,7 @@ class FlowsPage extends StatelessWidget {
           actions: [
             ActionRowVm(
               id: f.id,
-              icon: 'action_edit',
+              icon: AppIcon.actionEdit,
               title: S.current.editDataflow,
               description: S.current.editDataflowNote,
               tone: Tone.ember,
@@ -199,7 +200,7 @@ class FlowsPage extends StatelessWidget {
           subtitle: S.current.flowsSubtitle,
           trailing: Button.primary(
             label: S.current.newDataflow,
-            icon: 'ui_add',
+            icon: AppIcon.uiAdd,
             disabledReason: newReason,
             onPressed: newReason == null ? onNew : null,
           ),

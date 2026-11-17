@@ -31,11 +31,11 @@ dependencies:
     path: ../models
   pro_pretty_logging: ^2.0.0
   pro_validator: ^3.0.0
-  screen_retriever: ^0.2.2
+  screen_retriever: ^0.4.0
   ui:
     path: ../ui
   url_launcher: ^6.3.3
-  window_manager: ^0.5.2
+  window_manager: ^0.7.0
   # The gateway's typed records and closed sets (GatewayDevice,
   # DevicePlatform, …): the domain the mappers in lib/mappers/ map from,
   # and the client's own refusals in the error tests.

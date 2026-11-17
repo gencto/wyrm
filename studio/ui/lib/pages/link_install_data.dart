@@ -343,7 +343,7 @@ final class InstallCheckVm extends Equatable {
   );
 
   @override
-  List<Object?> get props => [title, result, detail, rights];
+  List<Object?> get props => [title, result, detail, rights, problem, link];
 }
 
 /// A broker a link can go to: the site, its host when known, and why it

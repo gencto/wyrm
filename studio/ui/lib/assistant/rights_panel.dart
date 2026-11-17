@@ -5,8 +5,10 @@ import 'package:material_ui/material_ui.dart';
 import '../containers/fact_grid.dart';
 import '../containers/section_label.dart';
 import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import 'blocked.dart';
@@ -173,7 +175,7 @@ class RightsPanel extends StatelessWidget {
     final c = context.colors;
     final small = TextStyle(
       fontSize: FontSizes.xs,
-      height: 1.4,
+      height: LineHeights.meta,
       color: c.text3,
     );
     final can = vm.editReason == null;
@@ -210,7 +212,7 @@ class RightsPanel extends StatelessWidget {
                       Container(
                         width: 14,
                         height: 14,
-                        margin: const EdgeInsets.only(top: 2),
+                        margin: Insets.iconInBody,
                         decoration: BoxDecoration(
                           shape: .circle,
                           border: Border.all(
@@ -251,7 +253,7 @@ class RightsPanel extends StatelessWidget {
             ),
             child: Text(u, style: small.copyWith(color: c.warn)),
           ),
-        const SizedBox(height: 10),
+        Gaps.rightsPart,
         SectionLabel(vm.prefixesLabel),
         Wrap(
           spacing: 6,
@@ -277,7 +279,7 @@ class RightsPanel extends StatelessWidget {
                         child: Text(
                           label,
                           overflow: .ellipsis,
-                          style: mono(size: 11, color: c.text1),
+                          style: mono(size: FontSizes.xs, color: c.text1),
                         ),
                       ),
                     ),
@@ -289,9 +291,9 @@ class RightsPanel extends StatelessWidget {
                             : null,
                         child: Padding(
                           padding: const EdgeInsets.all(AppSpacing.xs),
-                          child: AppIcon(
-                            'ui_close',
-                            size: 11,
+                          child: AppIconView(
+                            AppIcon.uiClose,
+                            size: IconSizes.inline,
                             color: can ? c.text3 : c.text4,
                           ),
                         ),
@@ -330,7 +332,7 @@ class RightsPanel extends StatelessWidget {
             ),
             child: Text(s, style: small.copyWith(color: c.warn)),
           ),
-        const SizedBox(height: 10),
+        Gaps.rightsPart,
         FactGrid(facts: vm.facts, labelWidth: 96),
         Text(vm.note, style: small),
       ],

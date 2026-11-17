@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:models/error_kind.dart';
+import 'package:models/json_value.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../failures.dart';
@@ -63,7 +64,7 @@ Uint8List encodeProfile(Map<String, Object?> json) {
     }
   }
   TypeCode? ty;
-  if (json['type'] case final String t) {
+  if (JsonValue.tryOf(json['type']) case JsonText(text: final t)) {
     ty = TypeCode.values.where((c) => c.wireName == t).firstOrNull;
     if (ty == null) {
       throw StudioException.said(

@@ -130,7 +130,7 @@ class SuggestionTile extends StatelessWidget {
                         vm.detail,
                         style: TextStyle(
                           fontSize: FontSizes.sm,
-                          height: 1.45,
+                          height: LineHeights.row,
                           color: c.text3,
                         ),
                       ),

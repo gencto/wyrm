@@ -6,6 +6,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../buttons/button.dart';
 import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../indicators/level_badge.dart';
 import '../indicators/lines_text.dart';
 import '../models/disabled.dart';
@@ -618,14 +619,14 @@ class FieldInspector extends StatelessWidget {
                   style: TextStyle(
                     fontSize: FontSizes.sm,
                     fontWeight: .w600,
-                    letterSpacing: 0.72,
+                    letterSpacing: Trackings.label,
                     color: c.text4,
                   ),
                 ),
                 Text(
                   s?.title ?? head?.title ?? '',
                   style: mono(
-                    size: FontSizes.flowInspectorTitle,
+                    size: FontSizes.inspectorTitle,
                     weight: .w600,
                     color: c.text1,
                   ),
@@ -668,7 +669,7 @@ class FieldInspector extends StatelessWidget {
                               style: TextStyle(
                                 fontSize: FontSizes.xs,
                                 fontWeight: .w600,
-                                letterSpacing: 0.66,
+                                letterSpacing: Trackings.smallLabel,
                                 color: c.text4,
                               ),
                             ),
@@ -717,7 +718,7 @@ class FieldInspector extends StatelessWidget {
                     f,
                     style: TextStyle(
                       fontSize: FontSizes.sm,
-                      height: 1.5,
+                      height: LineHeights.body,
                       color: c.text4,
                     ),
                   ),
@@ -767,7 +768,7 @@ class FieldInspector extends StatelessWidget {
           style: TextStyle(
             fontSize: FontSizes.sm,
             fontWeight: .w600,
-            letterSpacing: 0.72,
+            letterSpacing: Trackings.label,
             color: c.text4,
           ),
         ),
@@ -879,8 +880,8 @@ class _Row extends StatelessWidget {
                     : () => pin(RowPinned(index, on: !pinned)),
                 child: Align(
                   alignment: .centerLeft,
-                  child: AppIcon(
-                    'ui_pin',
+                  child: AppIconView(
+                    AppIcon.uiPin,
                     size: AppSizes.flowPinIcon,
                     color: !pinned
                         ? c.muted
@@ -947,8 +948,8 @@ class _Row extends StatelessWidget {
           height: AppSizes.flowControl,
           child: bound
               ? _LinkMenu(
-                  icon: AppIcon(
-                    'ui_bind',
+                  icon: AppIconView(
+                    AppIcon.uiBind,
                     size: AppSizes.flowInspectorIcon,
                     color: c.emberSoft,
                   ),
@@ -967,8 +968,8 @@ class _Row extends StatelessWidget {
                   child: Opacity(
                     opacity: takes ? 1 : 0.35,
                     child: Center(
-                      child: AppIcon(
-                        'ui_bind',
+                      child: AppIconView(
+                        AppIcon.uiBind,
                         size: AppSizes.flowInspectorIcon,
                         color: c.text4,
                       ),
@@ -984,8 +985,8 @@ class _Row extends StatelessWidget {
               tooltip: S.current.viewValue,
               padding: EdgeInsets.zero,
               onPressed: () => view(index),
-              icon: AppIcon(
-                'ui_view',
+              icon: AppIconView(
+                AppIcon.uiView,
                 size: AppSizes.flowInspectorIcon,
                 color: c.text3,
               ),
@@ -1082,8 +1083,8 @@ class _Row extends StatelessWidget {
               isExpanded: true,
               isDense: true,
               dropdownColor: c.ground3,
-              icon: AppIcon(
-                'ui_chevron_down',
+              icon: AppIconView(
+                AppIcon.uiChevronDown,
                 size: AppSizes.flowChoiceChevron,
                 color: c.text4,
               ),
@@ -1110,8 +1111,8 @@ class _Row extends StatelessWidget {
               isExpanded: true,
               isDense: true,
               dropdownColor: c.ground3,
-              icon: AppIcon(
-                'ui_chevron_down',
+              icon: AppIconView(
+                AppIcon.uiChevronDown,
                 size: AppSizes.flowChoiceChevron,
                 color: c.text4,
               ),
@@ -1212,7 +1213,7 @@ class _Row extends StatelessWidget {
               Button.secondary(
                 key: ValueKey('run-${vm.id}'),
                 label: command ? vm.name : S.current.runBlock,
-                icon: 'action_play',
+                icon: AppIcon.actionPlay,
                 size: ButtonSize.small,
                 disabledReason: why,
                 onPressed: why != null || onRun == null
@@ -1224,7 +1225,7 @@ class _Row extends StatelessWidget {
                   why,
                   style: TextStyle(
                     fontSize: FontSizes.xs,
-                    height: 1.35,
+                    height: LineHeights.wrappedTitle,
                     color: c.text4,
                   ),
                 ),
@@ -1361,8 +1362,8 @@ class _DurationEditorState extends State<_DurationEditor> {
               isExpanded: true,
               isDense: true,
               dropdownColor: c.ground3,
-              icon: AppIcon(
-                'ui_chevron_down',
+              icon: AppIconView(
+                AppIcon.uiChevronDown,
                 size: AppSizes.flowDropChevron,
                 color: c.text4,
               ),

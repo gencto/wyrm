@@ -79,7 +79,7 @@ class TrustCard extends StatelessWidget {
     final c = context.colors;
     final small = TextStyle(
       fontSize: FontSizes.sm,
-      height: 1.5,
+      height: LineHeights.body,
       leadingDistribution: .even,
       color: c.text4,
     );
@@ -117,7 +117,7 @@ class TrustCard extends StatelessWidget {
               vm.why,
               style: TextStyle(
                 fontSize: FontSizes.md,
-                height: 1.5,
+                height: LineHeights.body,
                 leadingDistribution: .even,
                 color: c.text2,
               ),
@@ -149,7 +149,7 @@ class TrustCard extends StatelessWidget {
                                   style: TextStyle(
                                     fontFamily: AppFonts.mono,
                                     fontSize: FontSizes.lead,
-                                    letterSpacing: 1.2,
+                                    letterSpacing: Trackings.caCode,
                                     color: c.text1,
                                   ),
                                 ),

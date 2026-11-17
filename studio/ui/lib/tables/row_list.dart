@@ -90,7 +90,7 @@ class RowList extends StatelessWidget {
                 empty,
                 style: TextStyle(
                   fontSize: FontSizes.md,
-                  height: 1.5,
+                  height: LineHeights.body,
                   color: emptyBad ? c.text3 : c.text4,
                 ),
               ),

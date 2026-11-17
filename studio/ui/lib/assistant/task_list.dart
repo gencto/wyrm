@@ -4,6 +4,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../buttons/button.dart';
 import '../containers/section_label.dart';
+import '../indicators/app_icon.dart';
 import '../indicators/quality_mark.dart';
 import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
@@ -133,22 +134,17 @@ class TaskList extends StatelessWidget {
       agent?.split('/').skip(2).join('/') ?? 'agent',
     );
     return ListView(
-      padding: const EdgeInsets.all(12),
+      padding: Insets.listPanel,
       children: [
         Button.secondary(
           label: S.current.newTask,
-          icon: 'ui_add',
+          icon: AppIcon.uiAdd,
           expand: true,
           disabledReason: newReason,
           onPressed: newReason == null ? onNew : null,
         ),
         Padding(
-          padding: const EdgeInsets.fromLTRB(
-            2,
-            10,
-            2,
-            AppSpacing.sm,
-          ),
+          padding: Insets.taskListNote,
           child: Text(
             note,
             style: TextStyle(fontSize: FontSizes.sm, color: c.text3),
@@ -156,12 +152,7 @@ class TaskList extends StatelessWidget {
         ),
         for (final s in sections) ...[
           Padding(
-            padding: const EdgeInsets.fromLTRB(
-              2,
-              10,
-              2,
-              6,
-            ),
+            padding: Insets.taskListLabel,
             child: SectionLabel(s.label),
           ),
           for (final t in s.tasks) _Task(vm: t, onTap: () => onTask(t.id)),
@@ -193,7 +184,7 @@ class _Task extends StatelessWidget {
           onTap: onTap,
           borderRadius: Radii.control,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+            padding: Insets.taskListRow,
             child: Column(
               crossAxisAlignment: .start,
               spacing: 4,
@@ -207,7 +198,7 @@ class _Task extends StatelessWidget {
                 Row(
                   spacing: 6,
                   children: [
-                    StateMark(mark: .dot, color: color, size: 6),
+                    StateMark(mark: .dot, color: color, size: .small),
                     Expanded(
                       child: Text(
                         vm.state,
@@ -218,7 +209,10 @@ class _Task extends StatelessWidget {
                         ),
                       ),
                     ),
-                    Text(vm.id, style: mono(size: 11, color: c.text4)),
+                    Text(
+                      vm.id,
+                      style: mono(size: FontSizes.xs, color: c.text4),
+                    ),
                   ],
                 ),
                 if (vm.detail case final d?)

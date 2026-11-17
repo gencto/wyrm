@@ -3,9 +3,11 @@ import 'package:material_ui/material_ui.dart';
 
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import 'app_icon.dart';
+import 'app_icon_view.dart';
 
 /// One step of a wizard: its title and what was answered in it.
 final class StepVm extends Equatable {
@@ -75,7 +77,11 @@ class StepRail extends StatelessWidget {
                         ),
                       ),
                       child: i < current
-                          ? AppIcon('ui_check', size: 14, color: c.good)
+                          ? AppIconView(
+                              AppIcon.uiCheck,
+                              size: IconSizes.sm,
+                              color: c.good,
+                            )
                           : Text(
                               '$i',
                               style: TextStyle(

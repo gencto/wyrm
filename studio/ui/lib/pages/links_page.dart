@@ -6,6 +6,7 @@ import '../buttons/segmented_tabs.dart';
 import '../containers/detail_inspector.dart';
 import '../containers/page_header.dart';
 import '../forms/action_form.dart';
+import '../indicators/app_icon.dart';
 import '../inputs/switch_row.dart';
 import '../models/value_changed.dart';
 import '../overlays/task_sheet.dart';
@@ -132,7 +133,7 @@ class LinksPage extends StatelessWidget {
                 ),
               Button.primary(
                 label: addLabel,
-                icon: 'ui_add',
+                icon: AppIcon.uiAdd,
                 disabledReason: addReason,
                 onPressed: onTapLinkInstall,
               ),
