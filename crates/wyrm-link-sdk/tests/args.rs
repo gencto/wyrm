@@ -337,7 +337,7 @@ fn a_refusal_is_a_link_error_with_the_field() {
         "lines: expected a whole number (not a whole number)"
     );
     let e: LinkError = with(&[("lines", Value::UInt(5000))]).unwrap_err().into();
-    assert_eq!(e.status, Status::OutOfRange);
+    assert_eq!(e.status, Status::InvalidParameter);
     assert_eq!(e.message, "lines: 5000 is above 2000");
     let e: LinkError = with(&[("typo", Value::UInt(1))]).unwrap_err().into();
     assert_eq!(e.status, Status::InvalidParameter);

@@ -60,16 +60,12 @@ impl LinkError {
 }
 
 /// A refused action argument (`wyrm_core::args`): `invalid_parameter` with
-/// the field's name, `out_of_range` for a value of the right type outside
-/// what the field takes.
+/// the field's name and why. One status for every refusal of an argument, as
+/// the hand readers gave (a number above its bound was `invalid_parameter`
+/// too); [`wyrm_core::args::Fault`] says which kind it is.
 impl From<wyrm_core::args::ArgError> for LinkError {
     fn from(e: wyrm_core::args::ArgError) -> Self {
-        let status = if e.fault.is_range() {
-            Status::OutOfRange
-        } else {
-            Status::InvalidParameter
-        };
-        Self::new(status, e.to_string())
+        Self::invalid_parameter(e.to_string())
     }
 }
 
