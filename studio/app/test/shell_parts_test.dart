@@ -1,3 +1,4 @@
+import 'package:app/common/window.dart';
 import 'package:app/connectors/gallery_page_connector.dart';
 import 'package:app/connectors/splash_page_connector.dart';
 import 'package:app/connectors/toast_stack_connector.dart';
@@ -6,7 +7,6 @@ import 'package:app/connectors/window_controls_connector.dart';
 import 'package:business/redux/access/actions/set_shown_action.dart';
 import 'package:business/redux/common/action.dart' as redux;
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
@@ -129,21 +129,10 @@ void main() {
       bool maximized = false,
       Locale locale = const Locale('en'),
     }) async {
-      final calls = <String>[];
-      t.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-        const MethodChannel('window_manager'),
-        (call) async {
-          calls.add(call.method);
-          // a window that is not maximized: Maximize maximizes it
-          return call.method.startsWith('is') ? false : null;
-        },
-      );
-      addTearDown(
-        () => t.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-          const MethodChannel('window_manager'),
-          null,
-        ),
-      );
+      final window = _RecordedWindow();
+      final native = appWindow;
+      appWindow = window;
+      addTearDown(() => appWindow = native);
       final app = ScreenApp();
       await app.logIn(t);
       app.put((s) => s.copyWith.window(maximized: maximized));
@@ -152,7 +141,7 @@ void main() {
         const WindowControlsConnector(child: Text('page')),
         locale: locale,
       );
-      return (app, calls);
+      return (app, window.calls);
     }
 
     testWidgets('their tooltips', (t) async {
@@ -236,4 +225,28 @@ class _Blocking extends redux.Action
     with redux.WaitingAction, redux.BlockingAction {
   @override
   Null reduce() => null;
+}
+
+/// The window the buttons act on, as a list of what they asked of it.
+final class _RecordedWindow extends AppWindow {
+  final calls = <String>[];
+
+  // a window that is not maximized: Maximize maximizes it
+  @override
+  bool get isMaximized => false;
+
+  @override
+  void maximize() => calls.add('maximize');
+
+  @override
+  void unmaximize() => calls.add('unmaximize');
+
+  @override
+  void minimize() => calls.add('minimize');
+
+  @override
+  void close() => calls.add('close');
+
+  @override
+  void startDragging() => calls.add('startDragging');
 }

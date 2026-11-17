@@ -70,7 +70,7 @@ Future<void> runEnv(Environment env) async {
   } on StorageFault catch (fault) {
     debugPrint('settings did not open: $fault');
     if (isDesktop) {
-      await setUpPlainWindow();
+      setUpPlainWindow();
     }
     runApp(StartFaultApp(fault: fault, onFresh: () => runEnv(env)));
     return;
@@ -105,7 +105,7 @@ Future<void> runEnv(Environment env) async {
   );
 
   if (isDesktop) {
-    await setUpWindow(store);
+    setUpWindow(store);
   }
 
   runApp(
