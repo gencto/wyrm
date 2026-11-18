@@ -449,7 +449,7 @@ async fn next(ctl: &Control, ctx: &LinkCtx, name: &str, def: &SinkDef, a: Next) 
         None => DEFAULT_BATCH_ROWS,
         Some(m) => usize::try_from(m).map_or(MAX_BATCH_ROWS, |m| m.min(MAX_BATCH_ROWS)),
     };
-    let keys = wanted(ctl, &def);
+    let keys = wanted(ctl, def);
     let n = name.to_owned();
     let batch = tokio::task::spawn_blocking(move || {
         let after = match after {
@@ -494,9 +494,88 @@ async fn next(ctl: &Control, ctx: &LinkCtx, name: &str, def: &SinkDef, a: Next) 
         s.rows_sent += sent;
         s.last_request_us = now_us();
     });
-    refresh_sink(ctx, ctl, name, &def).await;
+    refresh_sink(ctx, ctl, name, def).await;
     Ok(Value::Map(BTreeMap::from([
         ("rows".to_owned(), Value::Array(rows)),
         ("next".to_owned(), Value::UInt(batch.next)),
     ])))
+}
+
+/// Every `Args` struct of this file with the parameter name it declares twice,
+/// if any (audit of #136: a name that comes again through `flatten`). The list
+/// is checked against the file: a struct that is not on it fails the test.
+#[cfg(test)]
+pub(crate) fn arg_structs() -> Vec<(&'static str, Option<&'static str>)> {
+    use wyrm_core::args::repeated_param;
+    let list = vec![
+        (stringify!(AddSink), repeated_param::<AddSink>()),
+        (stringify!(EditSink), repeated_param::<EditSink>()),
+        (stringify!(ResetCursor), repeated_param::<ResetCursor>()),
+        (stringify!(Next), repeated_param::<Next>()),
+    ];
+    let derives = include_str!("sinks.rs")
+        .matches(concat!("#[derive(", "Args"))
+        .count();
+    assert_eq!(
+        list.len(),
+        derives,
+        "history/sinks.rs: list every Args struct"
+    );
+    list
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(kv: &[(&str, Value)]) -> Value {
+        Value::Map(
+            kv.iter()
+                .map(|(k, v)| ((*k).to_owned(), v.clone()))
+                .collect(),
+        )
+    }
+
+    /// A cursor is `start` or `now`, with white space around it as before; a batch
+    /// is at least one row and its cursor a whole number.
+    #[test]
+    fn sink_arguments() {
+        let add = |from: Value| {
+            AddSink::decode(args(&[
+                ("name", " s ".into()),
+                ("link", " ext ".into()),
+                ("from", from),
+            ]))
+            .map(|a| (a.name, a.link, a.from))
+        };
+        assert_eq!(
+            add(" now ".into()),
+            Ok(("s".to_owned(), "ext".to_owned(), Some(Cursor::Now)))
+        );
+        assert_eq!(add("".into()).map(|a| a.2), Ok(None));
+        assert_eq!(add("later".into()).unwrap_err().field, "from");
+        let to = |v: Value| ResetCursor::decode(args(&[("to", v)])).map(|a| a.to);
+        assert_eq!(to(" start".into()), Ok(Cursor::Start));
+        assert_eq!(to("".into()).unwrap_err().field, "to");
+        assert_eq!(
+            ResetCursor::decode(args(&[]))
+                .map(|_| ())
+                .unwrap_err()
+                .field,
+            "to"
+        );
+        // an edit: a field left out stays, `groups` given and empty is all groups
+        let e = EditSink::decode(args(&[("groups", "".into())])).unwrap();
+        assert_eq!(
+            (e.link, e.groups.as_deref().map(group_names)),
+            (None, Some(vec![]))
+        );
+        let next = |kv: &[(&str, Value)]| Next::decode(args(kv)).map(|a| (a.after, a.max));
+        assert_eq!(next(&[("after", Value::UInt(5))]), Ok((Some(5), None)));
+        assert_eq!(
+            next(&[("after", Value::Float(5.5))]).unwrap_err().field,
+            "after"
+        );
+        assert_eq!(next(&[("max", Value::UInt(0))]).unwrap_err().field, "max");
+    }
 }

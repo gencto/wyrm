@@ -1202,6 +1202,29 @@ async fn auto_purge(ctl: &Control) -> bool {
     !dropped.is_empty()
 }
 
+/// Every `Args` struct of this file with the parameter name it declares twice,
+/// if any (audit of #136: a name that comes again through `flatten`). The list
+/// is checked against the file: a struct that is not on it fails the test.
+#[cfg(test)]
+pub(crate) fn arg_structs() -> Vec<(&'static str, Option<&'static str>)> {
+    use wyrm_core::args::repeated_param;
+    let mut list = vec![
+        (stringify!(GroupSettings), repeated_param::<GroupSettings>()),
+        (stringify!(AddWatchGroup), repeated_param::<AddWatchGroup>()),
+        (stringify!(TimeRange), repeated_param::<TimeRange>()),
+        (stringify!(AddWatchPath), repeated_param::<AddWatchPath>()),
+        (stringify!(RemoveGroup), repeated_param::<RemoveGroup>()),
+        (stringify!(GetHistory), repeated_param::<GetHistory>()),
+    ];
+    let derives = include_str!("history.rs")
+        .matches(concat!("#[derive(", "Args"))
+        .count();
+    assert_eq!(list.len(), derives, "history.rs: list every Args struct");
+    // and those of the sinks below
+    list.extend(sinks::arg_structs());
+    list
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1219,6 +1242,11 @@ mod tests {
             assert_eq!(logging(Value::from(l.name())), Ok(Some(*l)));
         }
         assert_eq!(logging(Value::from("")), Ok(None), "an empty field");
+        assert_eq!(
+            logging(Value::from(" All Data ")),
+            Ok(Some(Logging::AllData)),
+            "white space around the name is cut, as before"
+        );
         assert_eq!(
             GroupSettings::action().params["logging_type"]
                 .enum_values
@@ -1305,6 +1333,12 @@ mod tests {
             DEFAULT_ROWS
         );
         assert_eq!(get(&[("rollup", Value::from(""))]).unwrap().rollup, None);
+        // white space around a name is cut, as before (audit of #136)
+        assert_eq!(
+            get(&[("rollup", Value::from(" max "))]).unwrap().rollup,
+            Some(Rollup::Max)
+        );
+        assert_eq!(get(&[("rollup", Value::from("  "))]).unwrap().rollup, None);
         for (field, bad) in [
             ("rollup", Value::UInt(3)),
             ("rollup", Value::from("mean")),

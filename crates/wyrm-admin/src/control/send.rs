@@ -511,6 +511,24 @@ pub(super) async fn declare(ctx: &LinkCtx, path: &str) -> wyrm_link_sdk::Result<
     .await
 }
 
+/// Every `Args` struct of this file with the parameter name it declares twice,
+/// if any (audit of #136: a name that comes again through `flatten`). The list
+/// is checked against the file: a struct that is not on it fails the test.
+#[cfg(test)]
+pub(crate) fn arg_structs() -> Vec<(&'static str, Option<&'static str>)> {
+    use wyrm_core::args::repeated_param;
+    let list = vec![(stringify!(Send), repeated_param::<Send>())];
+    let derives = include_str!("send.rs")
+        .matches(concat!("#[derive(", "Args"))
+        .count();
+    assert_eq!(
+        list.len(),
+        derives,
+        "control/send.rs: list every Args struct"
+    );
+    list
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1619,9 +1619,97 @@ pub(super) async fn declare(ctx: &LinkCtx) -> wyrm_link_sdk::Result<()> {
     .await
 }
 
+/// Every `Args` struct of this file with the parameter name it declares twice,
+/// if any (audit of #136: a name that comes again through `flatten`). The list
+/// is checked against the file: a struct that is not on it fails the test.
+#[cfg(test)]
+pub(crate) fn arg_structs() -> Vec<(&'static str, Option<&'static str>)> {
+    use wyrm_core::args::repeated_param;
+    let list = vec![
+        (stringify!(RestoreCheck), repeated_param::<RestoreCheck>()),
+        (stringify!(ApplyHow), repeated_param::<ApplyHow>()),
+        (stringify!(RestoreApply), repeated_param::<RestoreApply>()),
+    ];
+    let derives = include_str!("restore_broker.rs")
+        .matches(concat!("#[derive(", "Args"))
+        .count();
+    assert_eq!(
+        list.len(),
+        derives,
+        "control/restore_broker.rs: list every Args struct"
+    );
+    list
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Audit of #136: what `restore_apply` takes. A wrong `mode` or `sections` is
+    /// refused when the arguments are decoded, before the upload is taken: the
+    /// uploaded file stays as it is for the next call (it was taken, refused and
+    /// given back before; the caller sees `invalid_parameter` in both cases).
+    #[test]
+    fn restore_apply_arguments() {
+        let args = |kv: &[(&str, Value)]| {
+            Value::Map(
+                kv.iter()
+                    .map(|(k, v)| ((*k).to_owned(), v.clone()))
+                    .collect::<BTreeMap<_, _>>(),
+            )
+        };
+        let sections = Value::Array(vec!["storage".into()]);
+        let a = RestoreApply::decode(args(&[
+            ("upload", "u1".into()),
+            ("passphrase", "   ".into()),
+            ("sections", sections.clone()),
+            ("mode", "add".into()),
+        ]))
+        .unwrap();
+        assert_eq!(a.file.upload, "u1");
+        // a passphrase is never trimmed
+        assert_eq!(
+            a.file.passphrase.map(|p| p.expose().to_vec()),
+            Some(b"   ".to_vec())
+        );
+        assert!(a.how.mode == RestoreMode::Add && !a.how.accept && !a.how.replace_keys);
+        assert_eq!(a.how.sections, [SectionName::Storage]);
+        let field = |kv: &[(&str, Value)]| {
+            RestoreApply::decode(args(kv))
+                .map(|_| ())
+                .unwrap_err()
+                .field
+        };
+        let up = ("upload", Value::from("u1"));
+        assert_eq!(
+            field(&[
+                up.clone(),
+                ("sections", sections.clone()),
+                ("mode", "merge".into())
+            ]),
+            "mode"
+        );
+        assert_eq!(field(&[up.clone(), ("sections", sections.clone())]), "mode");
+        assert_eq!(field(&[up.clone(), ("mode", "add".into())]), "sections");
+        assert_eq!(
+            field(&[
+                up.clone(),
+                ("sections", Value::Array(vec!["nope".into()])),
+                ("mode", "add".into())
+            ]),
+            "sections"
+        );
+        assert_eq!(
+            field(&[
+                ("upload", "".into()),
+                ("sections", sections),
+                ("mode", "add".into())
+            ]),
+            "upload"
+        );
+        let c = RestoreCheck::decode(args(&[up, ("passphrase", "".into())])).unwrap();
+        assert!(c.passphrase.is_none(), "an empty passphrase is none");
+    }
 
     fn dir(name: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("wyrm-pending-{name}-{}", std::process::id()));

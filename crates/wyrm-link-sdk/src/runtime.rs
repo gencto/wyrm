@@ -1683,6 +1683,14 @@ mod tests {
                 .collect()
         };
         assert!(validate_args(&params, &args(&[("mode", Value::UInt(1))])).is_ok());
+        // an unknown name is the caller's text: the refusal repeats 64 bytes of it at most
+        let long = "k".repeat(50_000);
+        let e = validate_args(
+            &params,
+            &args(&[("mode", Value::UInt(1)), (long.as_str(), Value::UInt(1))]),
+        )
+        .unwrap_err();
+        assert_eq!(e.message, format!("unknown param {}", "k".repeat(64)));
         let err = |kv: &[(&str, Value)]| validate_args(&params, &args(kv)).unwrap_err().status;
         assert_eq!(err(&[]), Status::InvalidParameter); // missing required
         assert_eq!(err(&[("mode", Value::UInt(2))]), Status::OutOfRange);

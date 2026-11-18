@@ -2113,6 +2113,31 @@ pub(super) async fn keep(ctl: Arc<Control>, ctx: LinkCtx) {
     }
 }
 
+/// Every `Args` struct of this file with the parameter name it declares twice,
+/// if any (audit of #136: a name that comes again through `flatten`). The list
+/// is checked against the file: a struct that is not on it fails the test.
+#[cfg(test)]
+pub(crate) fn arg_structs() -> Vec<(&'static str, Option<&'static str>)> {
+    use wyrm_core::args::repeated_param;
+    let list = vec![
+        (stringify!(UpdateOpts), repeated_param::<UpdateOpts>()),
+        (stringify!(UpdatePackage), repeated_param::<UpdatePackage>()),
+        (
+            stringify!(RollbackPackage),
+            repeated_param::<RollbackPackage>(),
+        ),
+    ];
+    let derives = include_str!("updates.rs")
+        .matches(concat!("#[derive(", "Args"))
+        .count();
+    assert_eq!(
+        list.len(),
+        derives,
+        "control/updates.rs: list every Args struct"
+    );
+    list
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -277,3 +277,46 @@ async fn sys_action_schemas_are_the_snapshot() {
          not declared any more: {gone:#?}\nnew: {new:#?}"
     );
 }
+
+/// Audit of #136: `history/sinks/<n> ▸ next` is for the sink's link alone. Another
+/// caller is told `permission_denied` whatever it sent: the caller is checked
+/// before its arguments are decoded (a bad argument answered `invalid_parameter`,
+/// which told a stranger that the arguments were looked at).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_strangers_next_is_denied_before_its_arguments_are_read() {
+    let ctl = control_tweaked("order-next", |_| {});
+    state(&ctl);
+    let h = harness(ctl).await;
+    invoke(
+        &h,
+        "history/sinks",
+        "add_sink",
+        args(&[("name", "sink".into()), ("link", "ext".into())]),
+    )
+    .await;
+    // `after: 0.5` passes the SDK's type check (a number) and is refused by the
+    // action's struct (a whole number); `max: 0` is below its bound
+    for bad in [
+        args(&[("after", Value::Float(0.5))]),
+        args(&[("max", Value::UInt(0))]),
+        args(&[]),
+    ] {
+        let r = h
+            .invoke(
+                "history/sinks/sink",
+                "next",
+                bad.clone(),
+                Some(h.ptok(Perm::Config)),
+            )
+            .await;
+        assert!(!r.is_empty(), "no answer");
+        for r in r {
+            assert_eq!(
+                r.att.status.map(|s| s.code()),
+                Some(Status::PermissionDenied.code()),
+                "{bad:?}"
+            );
+        }
+    }
+    h.stop().await;
+}

@@ -2149,6 +2149,30 @@ pub(super) async fn invoke(
     }
 }
 
+/// Every `Args` struct of this file with the parameter name it declares twice,
+/// if any (audit of #136: a name that comes again through `flatten`). The list
+/// is checked against the file: a struct that is not on it fails the test.
+#[cfg(test)]
+pub(crate) fn arg_structs() -> Vec<(&'static str, Option<&'static str>)> {
+    use wyrm_core::args::repeated_param;
+    let list = vec![
+        (stringify!(BrokerBackup), repeated_param::<BrokerBackup>()),
+        (stringify!(Create), repeated_param::<Create>()),
+        (stringify!(Passphrase), repeated_param::<Passphrase>()),
+        (stringify!(BackupLink), repeated_param::<BackupLink>()),
+        (stringify!(DownloadPart), repeated_param::<DownloadPart>()),
+    ];
+    let derives = include_str!("backups.rs")
+        .matches(concat!("#[derive(", "Args"))
+        .count();
+    assert_eq!(
+        list.len(),
+        derives,
+        "control/backups.rs: list every Args struct"
+    );
+    list
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2490,6 +2514,27 @@ mod tests {
         .unwrap();
         let r = broker_request(a.what, a.seal, false);
         assert!(matches!(r.seal, SealWith::None) && r.history_days.is_none());
+        // audit of #136, finding 3: a passphrase of spaces is a passphrase. Read as
+        // "not given", the backup was made unsealed without a word.
+        let spaces = " ".repeat(crate::keys::MIN_PASSPHRASE);
+        let a = Create::decode(Value::Map(BTreeMap::from([(
+            "passphrase".to_owned(),
+            Value::from(spaces.as_str()),
+        )])))
+        .unwrap();
+        match broker_request(a.what, a.seal, false).seal {
+            SealWith::Passphrase(p) => assert_eq!(&p[..], spaces.as_bytes()),
+            _ => assert_eq!("unsealed", "sealed with the passphrase"),
+        }
+        let a = BackupLink::decode(Value::Map(BTreeMap::from([(
+            "passphrase".to_owned(),
+            Value::from(" x "),
+        )])))
+        .unwrap();
+        match link_request(a, "plc", false).seal {
+            SealWith::Passphrase(p) => assert_eq!(&p[..], b" x "),
+            _ => assert_eq!("unsealed", "sealed with the passphrase"),
+        }
         // each refusal names its field
         for (field, bad) in [
             ("sections", Value::UInt(1)),

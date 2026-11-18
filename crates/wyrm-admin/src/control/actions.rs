@@ -407,6 +407,55 @@ pub(super) struct AddUpstream {
     pub allow_config: bool,
 }
 
+/// Every `Args` struct of this file with the parameter name it declares twice,
+/// if any (audit of #136: a name that comes again through `flatten`). The list
+/// is checked against the file: a struct that is not on it fails the test.
+#[cfg(test)]
+pub(crate) fn arg_structs() -> Vec<(&'static str, Option<&'static str>)> {
+    use wyrm_core::args::repeated_param;
+    let list = vec![
+        (stringify!(Install), repeated_param::<Install>()),
+        (stringify!(NewLink), repeated_param::<NewLink>()),
+        (stringify!(InstallZip), repeated_param::<InstallZip>()),
+        (stringify!(InstallWasm), repeated_param::<InstallWasm>()),
+        (stringify!(InstallUrl), repeated_param::<InstallUrl>()),
+        (stringify!(InstallGit), repeated_param::<InstallGit>()),
+        (stringify!(InstallRepo), repeated_param::<InstallRepo>()),
+        (stringify!(Start), repeated_param::<Start>()),
+        (stringify!(UpdateParams), repeated_param::<UpdateParams>()),
+        (stringify!(Rollback), repeated_param::<Rollback>()),
+        (stringify!(SetSecret), repeated_param::<SetSecret>()),
+        (stringify!(DeleteSecret), repeated_param::<DeleteSecret>()),
+        (stringify!(Hello), repeated_param::<Hello>()),
+        (stringify!(Grant), repeated_param::<Grant>()),
+        (stringify!(GetLog), repeated_param::<GetLog>()),
+        (stringify!(GetBrokerLog), repeated_param::<GetBrokerLog>()),
+        (
+            stringify!(UpdatePermissions),
+            repeated_param::<UpdatePermissions>(),
+        ),
+        (stringify!(Enroll), repeated_param::<Enroll>()),
+        (stringify!(AddToken), repeated_param::<AddToken>()),
+        (stringify!(AuditTail), repeated_param::<AuditTail>()),
+        (stringify!(PutProfile), repeated_param::<PutProfile>()),
+        (stringify!(RemoveProfile), repeated_param::<RemoveProfile>()),
+        (stringify!(Approve), repeated_param::<Approve>()),
+        (stringify!(Authorize), repeated_param::<Authorize>()),
+        (stringify!(ApproveBroker), repeated_param::<ApproveBroker>()),
+        (stringify!(Deauthorize), repeated_param::<Deauthorize>()),
+        (stringify!(AddUpstream), repeated_param::<AddUpstream>()),
+    ];
+    let derives = include_str!("actions.rs")
+        .matches(concat!("#[derive(", "Args"))
+        .count();
+    assert_eq!(
+        list.len(),
+        derives,
+        "control/actions.rs: list every Args struct"
+    );
+    list
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -566,6 +615,91 @@ mod tests {
             (a.key.as_deref(), a.via.as_deref(), a.driver),
             (Some("ab"), Some("plant, cell"), None)
         );
+    }
+
+    /// Audit of #136, finding 1: no `Args` struct of the admin declares a parameter
+    /// name twice (its own field and one of a flattened struct). Each file lists its
+    /// structs and checks the list against its own source.
+    #[test]
+    fn no_struct_declares_a_name_twice() {
+        let all: Vec<(&str, Option<&str>)> = [
+            super::arg_structs(),
+            super::super::updates::arg_structs(),
+            super::super::broker_update::arg_structs(),
+            super::super::backups::arg_structs(),
+            super::super::restore::arg_structs(),
+            super::super::restore_broker::arg_structs(),
+            super::super::send::arg_structs(),
+            crate::history::arg_structs(),
+        ]
+        .concat();
+        assert_eq!(all.len(), 55);
+        for (name, twice) in all {
+            assert_eq!(twice, None, "{name}");
+        }
+    }
+
+    /// Audit of #136, finding 4: `role` and `path` of `update_permissions` are
+    /// required and not empty; a text of white space is a value, as it was (the
+    /// roles store says what it thinks of it).
+    #[test]
+    fn update_permissions_takes_what_it_took() {
+        let up = |role: &str, path: &str| {
+            UpdatePermissions::decode(args(&[
+                ("role", role.into()),
+                ("path", path.into()),
+                ("level", "read".into()),
+            ]))
+            .map(|a| (a.role, a.path, a.level))
+        };
+        assert_eq!(
+            up("operator", "wy/{site}/downstream/**"),
+            Ok((
+                "operator".to_owned(),
+                "wy/{site}/downstream/**".to_owned(),
+                Perm::Read
+            ))
+        );
+        assert_eq!(
+            up("  ", " x ").map(|a| (a.0, a.1)),
+            Ok(("  ".to_owned(), " x ".to_owned()))
+        );
+        assert_eq!(up("", "x").unwrap_err().field, "role");
+        assert_eq!(up("r", "").unwrap_err().field, "path");
+    }
+
+    /// Audit of #136, finding 4: `install_backup` declares the options of every
+    /// install (`install_meta`). `auto_rollback_s` and `restore_point` do nothing
+    /// for a backup, but a declared parameter is checked wherever it is declared:
+    /// above its bound it is refused (the hand reader did not look at it here).
+    #[test]
+    fn install_backup_checks_the_options_it_declares() {
+        use super::super::restore::InstallBackup;
+        let a = InstallBackup::decode(args(&[
+            ("upload", "u1".into()),
+            ("id", " plc ".into()),
+            ("accept", Value::Bool(true)),
+            ("auto_rollback_s", Value::UInt(30)),
+        ]))
+        .unwrap();
+        assert_eq!(
+            (a.upload.as_deref(), a.id.as_deref()),
+            (Some("u1"), Some("plc"))
+        );
+        assert!(a.opts.accept && a.file.is_none());
+        assert_eq!(
+            refused::<InstallBackup>(&[("auto_rollback_s", Value::UInt(100_000))]).0,
+            "auto_rollback_s"
+        );
+        // a passphrase is never trimmed; only the empty text is "not given"
+        let pass = |p: &str| {
+            InstallBackup::decode(args(&[("passphrase", p.into())]))
+                .unwrap()
+                .passphrase
+                .map(|p| p.expose().to_vec())
+        };
+        assert_eq!(pass("   "), Some(b"   ".to_vec()));
+        assert_eq!(pass(""), None);
     }
 
     /// An install's options come with every install action, once.
