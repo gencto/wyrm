@@ -6,12 +6,13 @@
 //!
 //! * `perf_a_base`: 1000 points at 10, 20 and 50 Hz (10k, 20k, 50k samples/s), 10 s each.
 //! * `perf_b_wildcard`: 1000 points at 20 Hz while a second client opens
-//!   `WyrmClient::subscribe("wy/**")` again and again (its storage `get`, item 2).
+//!   `WyrmClient::subscribe("wy/<site>/downstream/**")` again and again (its storage `get`,
+//!   item 2); then one `subscribe("wy/**")`, timed to its first event.
 //! * `perf_c_trace`: as the base at 20 Hz with the mock link's log level at `trace` (item 12).
 //! * `perf_d_historian`: 10 000 points at 2 Hz, the historian recording all of them (All
 //!   Data, flush 1 s, item 13). The watches go to the historian directly
 //!   (`Control::historian`, feature `testkit`); the cost of the action that adds one watch
-//!   is measured beside it for the first 300.
+//!   is measured beside it for the first 300, and the time the group takes to start.
 //! * `perf_e_audit`: 1000 `invoke`s of the mock's `reset`, one after another, from 50
 //!   subjects in turn (the link's own rate limit is per subject): latency, and audit records
 //!   per second (`Control::audit_lsn`, feature `testkit`, item 1).
@@ -269,31 +270,44 @@ async fn perf_b_wildcard() {
     let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let stop2 = stop.clone();
     let snaps = tokio::spawn(async move {
-        // each round: subscribe to everything, read until every mock point has come once
-        let mut lat = Lat::new();
-        let mut short = 0u64;
+        // each round: subscribe to everything, read until every mock point has come once;
+        // the first event and the whole set are timed apart
+        let (mut first, mut all) = (Lat::new(), Lat::new());
+        let (mut short, mut most) = (0u64, 0usize);
         while !stop2.load(Ordering::Relaxed) {
             let t0 = Instant::now();
-            let mut st = w.subscribe("wy/**").await.unwrap();
+            let mut st = w
+                .subscribe(&format!("wy/{SITE}/downstream/**"))
+                .await
+                .unwrap();
             let mut seen = std::collections::HashSet::new();
-            let deadline = t0 + Duration::from_secs(5);
+            let deadline = t0 + Duration::from_secs(15);
+            let mut got_first = false;
             while seen.len() < points {
                 match tokio::time::timeout_at(deadline.into(), st.next()).await {
-                    Ok(Some(wyrm_client::ValEvent::Sample { key, .. })) => {
-                        if key.contains("/downstream/mock/") {
-                            seen.insert(key);
+                    Ok(Some(ev)) => {
+                        if !got_first {
+                            first.push(t0.elapsed());
+                            got_first = true;
+                        }
+                        if let wyrm_client::ValEvent::Sample { key, .. } = ev {
+                            if key.contains("/downstream/mock/") {
+                                seen.insert(key);
+                            }
                         }
                     }
-                    Ok(Some(_)) => {}
                     _ => {
                         short += 1;
                         break;
                     }
                 }
             }
-            lat.push(t0.elapsed());
+            most = most.max(seen.len());
+            if seen.len() >= points {
+                all.push(t0.elapsed());
+            }
         }
-        (lat, short)
+        (first, all, short, most)
     });
     let p = window(
         &format!("broker/wildcard/{points}x{hz}hz"),
@@ -301,18 +315,45 @@ async fn perf_b_wildcard() {
         points,
         hz,
         10.0,
-        "base rate while another client subscribes wy/** in a loop",
+        "base rate while another client subscribes wy/<site>/downstream/** in a loop",
     )
     .await;
     stop.store(true, Ordering::Relaxed);
-    let (mut lat, short) = snaps.await.unwrap();
+    let (mut first, mut all, short, most) = snaps.await.unwrap();
     println!("{p}");
     println!(
         "{}",
+        Perf::new("broker/wildcard/first_event")
+            .lat(&mut first)
+            .note("subscribe wy/<site>/downstream/**: time to its first event")
+    );
+    println!(
+        "{}",
         Perf::new("broker/wildcard/snapshot")
-            .lat(&mut lat)
+            .lat(&mut all)
             .field("short", short)
-            .note("subscribe wy/** until every mock point came once (storage get + live)")
+            .field("most_points", most)
+            .note("subscribe wy/<site>/downstream/** until every mock point came once (storage get + live), 15 s at most")
+    );
+    // the whole key space once: the first event of `wy/**`
+    let all = env.client("svc:perf-all").await;
+    let t0 = Instant::now();
+    let mut st = all.subscribe("wy/**").await.unwrap();
+    let got = tokio::time::timeout(Duration::from_secs(15), st.next())
+        .await
+        .ok()
+        .flatten()
+        .is_some();
+    let mut one = Lat::new();
+    if got {
+        one.push(t0.elapsed());
+    }
+    println!(
+        "{}",
+        Perf::new("broker/wildcard/all_first_event")
+            .lat(&mut one)
+            .field("got", got)
+            .note("subscribe wy/** once: time to its first event, 15 s at most")
     );
     drop(c);
     env.stop().await;
@@ -387,9 +428,14 @@ async fn perf_d_historian() {
         .await
         .unwrap();
     let (mut first, mut last) = (Lat::new(), Lat::new());
+    // the admin link's rate limit is per subject (50/s, burst 100): ten subjects in turn
+    let mut adders = Vec::new();
+    for k in 0..10 {
+        adders.push(env.client(&format!("svc:perf{k}")).await);
+    }
     for (i, p) in paths.iter().take(300).enumerate() {
         let t = Instant::now();
-        admin
+        adders[i % 10]
             .invoke_one(
                 &format!("{hist}/a"),
                 "add_watch_path",
@@ -432,7 +478,22 @@ async fn perf_d_historian() {
             })
             .collect(),
     }]);
-    tokio::time::sleep(Duration::from_secs(3)).await;
+    // the group starts when every series is in the store and every point is followed
+    let t_group = Instant::now();
+    let deadline = t_group + Duration::from_secs(300);
+    while h.counters().rows_written.load(Ordering::Relaxed) == 0 && Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    let started = h.counters().rows_written.load(Ordering::Relaxed) > 0;
+    println!(
+        "{}",
+        Perf::new("broker/historian/group_start")
+            .n(points as u64)
+            .num("total_ms", t_group.elapsed().as_secs_f64() * 1e3)
+            .field("started", started)
+            .note("configure 10000 new watches to the first row written (300 s at most)")
+    );
+    tokio::time::sleep(Duration::from_secs(2)).await;
     let rows0 = h.counters().rows_written.load(Ordering::Relaxed);
     let dropped0 = h.counters().dropped.load(Ordering::Relaxed);
     let mut p = window(
@@ -543,8 +604,15 @@ async fn perf_f_gateway() {
     )
     .await;
     let gw = env.gateway.clone().expect("gateway");
-    gw.add_user("perf", "perf-password-1", vec!["viewer".into()])
+    // a user has 8 sockets at most (SOCKETS_PER_USER): one user per client
+    for k in 0..clients {
+        gw.add_user(
+            &format!("perf{k}"),
+            "perf-password-1",
+            vec!["viewer".into()],
+        )
         .unwrap();
+    }
     let s = env.session().await;
     let c = Counter::on(&s).await;
     c.ready(points).await;
@@ -552,10 +620,10 @@ async fn perf_f_gateway() {
     let lat = Arc::new(Mutex::new(Lat::new()));
     let mut conns = Vec::new();
     let mut tasks = Vec::new();
-    for _ in 0..clients {
+    for k in 0..clients {
         let g = wyrm_gateway_client::Gateway::login(
             &format!("http://127.0.0.1:{gw_port}"),
-            "perf",
+            &format!("perf{k}"),
             "perf-password-1",
         )
         .await
