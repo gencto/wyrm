@@ -241,6 +241,34 @@ void main() {
       expect(e.call, const ErrorCall.named('buggy'));
     });
 
+    test('the user:password@ of a URL is in no line of a fault, a report or '
+        'the log', () {
+      final thrown = HttpException(
+        'Connection closed before full header was received',
+        uri: Uri.parse('https://olena:gw-pass@plant.local:8445/api/devices'),
+      );
+      final line = faultLine(thrown);
+      expect(line, isNot(contains('gw-pass')));
+      expect(line, isNot(contains('olena')));
+      expect(line, contains('https://plant.local:8445/api/devices'));
+      expect(
+        faultOf(thrown, StackTrace.current).report!.line,
+        isNot(contains('gw-pass')),
+      );
+      expect(
+        redact(
+          'GET https://olena:gw-pass@plant.local:8445/api/me failed; '
+          'ws://a@b:1/x and http://u:p@h',
+        ),
+        'GET https://plant.local:8445/api/me failed; ws://b:1/x and http://h',
+      );
+      // an address with no user stays as it is; an @ after the host too
+      expect(
+        redact('mailto x@y, https://h/a@b'),
+        'mailto x@y, https://h/a@b',
+      );
+    });
+
     test('a plain UserException keeps its title and reason', () {
       final x = studioExceptionOf(
         const UserException('No network', reason: 'Check the cable.'),

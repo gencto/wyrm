@@ -1,3 +1,5 @@
+import 'package:models/answer_fault.dart';
+import 'package:models/error_hint.dart';
 import 'package:models/error_kind.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -30,9 +32,10 @@ class RetrieveDevicesAction extends Action with WaitingAction {
     } on WyrmException catch (e) {
       throw StudioException.refused(e, call: const .known(.devices));
     } on Object catch (e) {
-      throw StudioException.said(
+      throw StudioException.hinted(
         ErrorKind.reach,
-        faultLine(e),
+        // what was thrown says the URL it was asked on: its type only
+        ErrorHint.noAnswer(AnswerFault.failed('${e.runtimeType}')),
         call: const .known(.devices),
       );
     }

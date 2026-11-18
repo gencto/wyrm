@@ -443,8 +443,10 @@ class FakeSession implements WyrmSession {
       gateway.confirmPassword(password);
 
   @override
-  Future<List<GatewayDevice>> devices() async =>
-      gateway.listOf(userName, own: gateway.sessionDevice);
+  Future<List<GatewayDevice>> devices() async => switch (gateway.listFails) {
+    final e? => throw e,
+    null => gateway.listOf(userName, own: gateway.sessionDevice),
+  };
 
   @override
   Future<List<GatewayDevice>> userDevices(String name) async =>
@@ -495,6 +497,9 @@ class FakeDevices {
   final String password;
 
   final records = <String, FakeDeviceRecord>{};
+
+  /// What the next lists of devices throw instead of answering.
+  Exception? listFails;
   var _next = 0;
   var _nonce = 0;
 

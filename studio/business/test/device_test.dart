@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:async_redux/async_redux.dart';
 import 'package:business/redux/app_state.dart';
 import 'package:business/redux/changes/actions/add_changes_action.dart';
@@ -26,15 +28,17 @@ import 'package:business/redux/login/actions/set_user_action.dart';
 import 'package:business/redux/services/idle_lock/idle_lock.dart';
 import 'package:business/redux/session/actions/log_out_action.dart';
 import 'package:business/wyrm/device_keys.dart';
+import 'package:business/wyrm/failures.dart';
 import 'package:business/wyrm/session.dart';
 import 'package:device_key/testing.dart';
 import 'package:fake_async/fake_async.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart' hide ErrorHint;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/answer_fault.dart';
 import 'package:models/change_op.dart';
 import 'package:models/change_side.dart';
+import 'package:models/error_hint.dart';
 import 'package:models/lock_error.dart';
 import 'package:models/login_failure.dart';
 import 'package:models/staged_change.dart';
@@ -752,6 +756,26 @@ void main() {
   });
 
   group('Account › Security and Access › Users', () {
+    test('a list of devices that throws names the type only, never the '
+        'URL it was asked on', () async {
+      final c = _Computer();
+      await c.enrolled();
+      final s = await c.started();
+      await s.dispatchAndWait(UnlockWithDeviceAction(reason: _reason));
+      c.gateway.listFails = HttpException(
+        'Connection closed',
+        uri: Uri.parse('https://olena:gw-pass@plant.local:8445/api/devices'),
+      );
+      final status = await s.dispatchAndWait(RetrieveDevicesAction());
+      final e = (status.wrappedError! as StudioException).error;
+      expect(
+        e.hint,
+        const ErrorHint.noAnswer(AnswerFault.failed('HttpException')),
+      );
+      expect(e.message, isEmpty);
+      expect('$e', isNot(contains('gw-pass')));
+    });
+
     test(
       'lists the devices; Turn off removes the key and the record',
       () async {

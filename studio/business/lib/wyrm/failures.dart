@@ -192,12 +192,18 @@ final _secretPair = RegExp(
   caseSensitive: false,
 );
 final _bearer = RegExp(r'(Bearer\s+)[A-Za-z0-9._~+/=-]{8,}');
+
+/// `user:password@` (or `user@`) of a URL: from the scheme's `//` up to
+/// the `@` before the host, with no `/`, `?` or `#` in between.
+final _userInfo = RegExp(r'(\b[A-Za-z][A-Za-z0-9+.-]*://)[^/?#@\s]*@');
 final _blob = RegExp('[A-Za-z0-9+/_-]{40,}={0,2}');
 
-/// [text] with what looks like a secret masked: `password: …`, `token=…`,
-/// `Bearer …`, and any run of 40 or more token characters. Details and
-/// reports leave this computer; a value, a token or a password must not.
+/// [text] with what looks like a secret masked: the `user:password@` of
+/// any URL (dropped), `password: …`, `token=…`, `Bearer …`, and any run of
+/// 40 or more token characters. Details, reports and the log leave this
+/// computer; a value, a token or a password must not.
 String redact(String text) => text
+    .replaceAllMapped(_userInfo, (m) => m.group(1)!)
     .replaceAllMapped(_secretPair, (m) => '${m.group(1)}•••')
     .replaceAllMapped(_bearer, (m) => '${m.group(1)}•••')
     .replaceAll(_blob, '•••');
