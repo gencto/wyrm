@@ -27,7 +27,10 @@ class ReloadShownAction extends Action with WaitingAction {
       if (links.view.isNotEmpty) RetrieveLinksAction(),
       if (quarantine.view.isNotEmpty) RetrieveQuarantineAction(),
       if (packages.view.isNotEmpty) RetrievePackagesAction(),
-      if (backups.sections.isNotEmpty) RetrieveBackupsAction(quiet: true),
+      // a shown screen that offers backups (System's card, Links'
+      // buttons) reads them again, whatever the last read gave: after a
+      // site switch they are the new site's, not read yet
+      if (system.shown || links.shown) RetrieveBackupsAction(quiet: true),
       // the Assistant reads its agent again: after a site switch it is the
       // new site's agent, with its own tasks
       if (assistant.shown) LoadAssistantAction(),

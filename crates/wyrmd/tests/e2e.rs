@@ -553,7 +553,7 @@ async fn unknown_cert_quarantine_and_acl_denied() {
     .await;
     let audit = env.ctl.audit_tail(50);
     for op in ["quarantine", "acl_denied", "approve"] {
-        assert!(audit.iter().any(|r| r.op == op), "audit has {op}");
+        assert!(audit.iter().any(|r| r.op.name() == op), "audit has {op}");
     }
     env.stop().await;
 }
@@ -677,7 +677,7 @@ async fn sys_values_and_admission_options() {
     assert!(reg.options.allow_all_links && !reg.options.enable_quarantine);
     let audit = env.ctl.audit_tail(50);
     for op in ["set_option", "auto_install"] {
-        assert!(audit.iter().any(|r| r.op == op), "audit has {op}");
+        assert!(audit.iter().any(|r| r.op.name() == op), "audit has {op}");
     }
 
     // Clear Conns forgets the external link once it is gone (DSA clearConns).
@@ -808,7 +808,11 @@ async fn authorize_and_deauthorize() {
     let _again = env.tls_session("dev-7").await;
     tokio::time::sleep(Duration::from_secs(1)).await;
     assert!(!env.ctl.registry().links.contains_key("dev-7"));
-    assert!(env.ctl.audit_tail(50).iter().any(|r| r.op == "deauthorize"));
+    assert!(env
+        .ctl
+        .audit_tail(50)
+        .iter()
+        .any(|r| r.op.name() == "deauthorize"));
     env.stop().await;
 }
 
@@ -1002,7 +1006,7 @@ async fn install_link_from_zip() {
         .ctl
         .audit_tail(50)
         .iter()
-        .any(|r| r.op == "package_install"));
+        .any(|r| r.op.name() == "package_install"));
     env.stop().await;
 }
 
@@ -1043,10 +1047,9 @@ async fn serve_files(files: std::collections::HashMap<String, (u16, String, Vec<
 /// (file:// only in the dev profile) without `.git`.
 #[tokio::test(flavor = "multi_thread")]
 async fn install_link_from_url_repository_git() {
-    use sha2::Digest;
     let v1 = mock_package("1.0.0");
     let v2 = mock_package("2.0.0");
-    let sha = |b: &[u8]| hex::encode(sha2::Sha256::digest(b));
+    let sha = |b: &[u8]| wyrm_core::hex::sha256_hex(b);
     // one server for the zips; the index (with their URLs) on a second one
     let mut files = std::collections::HashMap::new();
     files.insert("/v1.zip".to_owned(), (200, String::new(), v1.clone()));
@@ -2026,11 +2029,13 @@ async fn portable_app_upgrade_is_a_hot_start() {
     }
     let audit = env.ctl.audit_tail(50);
     assert!(
-        audit.iter().any(|r| r.op == "hot_start" && r.key == "h1"),
+        audit
+            .iter()
+            .any(|r| r.op.name() == "hot_start" && r.key == "h1"),
         "{audit:?}"
     );
     assert!(
-        !audit.iter().any(|r| r.op == "stop" && r.key == "h1"),
+        !audit.iter().any(|r| r.op.name() == "stop" && r.key == "h1"),
         "{audit:?}"
     );
     // ADR 0048: the hot start is an update like any other: a restore point
@@ -2057,7 +2062,7 @@ async fn portable_app_upgrade_is_a_hot_start() {
         .ctl
         .audit_tail(100)
         .iter()
-        .any(|r| r.op == "restore_point" && r.key == "h1"));
+        .any(|r| r.op.name() == "restore_point" && r.key == "h1"));
     // back to 1.0.0 by hand: the link stops, its store is the restore
     // point's (n = 5, written before the update), and v2's node is gone
     let rb = c
@@ -2084,7 +2089,7 @@ async fn portable_app_upgrade_is_a_hot_start() {
     .await;
     // the install record names what the links may use (M6)
     assert!(
-        audit.iter().any(|r| r.op == "package_install"
+        audit.iter().any(|r| r.op.name() == "package_install"
             && r.key == "echohot"
             && r.detail.contains("capabilities net none, store 1 MiB")),
         "{audit:?}"
@@ -2563,7 +2568,7 @@ async fn logs_and_log_levels() {
         .ctl
         .audit_tail(50)
         .iter()
-        .any(|r| r.op == "log_level" && r.key == "pm"));
+        .any(|r| r.op.name() == "log_level" && r.key == "pm"));
     env.stop().await;
 }
 
@@ -2832,7 +2837,7 @@ async fn a_check_does_nothing() {
         env.ctl
             .audit_tail(50)
             .iter()
-            .any(|r| r.op == "check")
+            .any(|r| r.op.name() == "check")
             .then_some(())
     })
     .await;
@@ -3056,7 +3061,11 @@ async fn link_grants_make_a_requester() {
         .await
         .unwrap();
     assert!(format!("{rows:?}").contains("wy/{site}/downstream/mock"));
-    assert!(env.ctl.audit_tail(50).iter().any(|r| r.op == "link_grant"));
+    assert!(env
+        .ctl
+        .audit_tail(50)
+        .iter()
+        .any(|r| r.op.name() == "link_grant"));
     env.stop().await;
 }
 
@@ -5190,10 +5199,10 @@ async fn gateway_in_wyrmd() {
     let audit = env.ctl.audit_tail(200);
     assert!(audit
         .iter()
-        .any(|r| r.op == "login" && r.sub == "user:root"));
+        .any(|r| r.op.name() == "login" && r.sub == "user:root"));
     assert!(audit
         .iter()
-        .any(|r| r.op == "update_permissions" && r.sub == "user:root"));
+        .any(|r| r.op.name() == "update_permissions" && r.sub == "user:root"));
     env.stop().await;
 }
 
@@ -5733,7 +5742,7 @@ async fn a_restored_agent_link_with_another_base_drops_the_key() {
         .ctl
         .audit_tail(100)
         .iter()
-        .any(|r| r.op == "secret_dropped" && r.key == "real"));
+        .any(|r| r.op.name() == "secret_dropped" && r.key == "real"));
     env.stop().await;
 }
 
@@ -5790,7 +5799,7 @@ async fn a_new_api_base_drops_the_agent_api_key() {
         .ctl
         .audit_tail(50)
         .iter()
-        .any(|r| r.op == "secret_dropped"));
+        .any(|r| r.op.name() == "secret_dropped"));
     // another base: dropped, and the audit says so
     let mut up = BTreeMap::new();
     up.insert("params".to_owned(), params("https://llm.example"));
@@ -5801,7 +5810,7 @@ async fn a_new_api_base_drops_the_agent_api_key() {
         .ctl
         .audit_tail(50)
         .iter()
-        .any(|r| r.op == "secret_dropped" && r.key == "ai3"));
+        .any(|r| r.op.name() == "secret_dropped" && r.key == "ai3"));
     // the three-step way round it (automated review of d8ce568): another key name at the same
     // base, then the new base, then the old name back. Each change of either field drops.
     invoke_rebuilt(&env, &node, "set_secret", Value::Map(secret.clone()))
@@ -5819,7 +5828,7 @@ async fn a_new_api_base_drops_the_agent_api_key() {
         env.ctl
             .audit_tail(200)
             .iter()
-            .filter(|r| r.op == "secret_dropped")
+            .filter(|r| r.op.name() == "secret_dropped")
             .count()
     };
     // `api_key_ref` cannot be changed through params at all (it looks like a secret), so the
@@ -6521,7 +6530,10 @@ async fn runtime_peers_over_quic() {
 
     let e_audit = e_ctl.audit_tail(50);
     for op in ["peer_add", "peer_enable", "peer_cert"] {
-        assert!(e_audit.iter().any(|r| r.op == op), "edge audit has {op}");
+        assert!(
+            e_audit.iter().any(|r| r.op.name() == op),
+            "edge audit has {op}"
+        );
     }
     let c_audit = c_ctl.audit_tail(100);
     for op in [
@@ -6531,7 +6543,10 @@ async fn runtime_peers_over_quic() {
         "enroll_token",
         "auto_install",
     ] {
-        assert!(c_audit.iter().any(|r| r.op == op), "central audit has {op}");
+        assert!(
+            c_audit.iter().any(|r| r.op.name() == op),
+            "central audit has {op}"
+        );
     }
     // 8. allow_config at runtime (ADR 0018): edge lets central run its sys
     //    actions once it rebuilds.
@@ -7201,7 +7216,7 @@ async fn history_records_and_answers() {
         .ctl
         .audit_tail(50)
         .iter()
-        .any(|r| r.op == "history_watch"));
+        .any(|r| r.op.name() == "history_watch"));
     env.stop().await;
 }
 
@@ -7543,7 +7558,7 @@ async fn embedded_scheduler_drives_a_process_link() {
     // ruling 2: the target link's responder audits the write
     let audited = |status: wyrm_core::Status| {
         env.ctl.audit_tail(1000).iter().any(|r| {
-            r.op == "set"
+            r.op.name() == "set"
                 && r.sub == "claimed:link:scheduler"
                 && r.key.starts_with(&point)
                 && r.status == status.code()
@@ -7558,7 +7573,16 @@ async fn embedded_scheduler_drives_a_process_link() {
                 .audit_tail(1000)
                 .into_iter()
                 .filter(|r| r.key.contains("/pm/") || r.detail.starts_with("link:pm "))
-                .map(|r| format!("{} {} {} {} {}", r.sub, r.op, r.key, r.status, r.detail))
+                .map(|r| {
+                    format!(
+                        "{} {} {} {} {}",
+                        r.sub,
+                        r.op.name(),
+                        r.key,
+                        r.status,
+                        r.detail
+                    )
+                })
                 .collect();
             panic!("no audit record of the write; pm records: {seen:#?}");
         }
@@ -7790,14 +7814,14 @@ async fn grant_restarts_a_running_process_link() {
         let tail = env.ctl.audit_tail(1000);
         let Some(at) = tail
             .iter()
-            .position(|r| r.op == "link_grant" && r.key == id)
+            .position(|r| r.op.name() == "link_grant" && r.key == id)
         else {
             return Vec::new();
         };
         tail[at..]
             .iter()
-            .filter(|r| r.key == id && (r.op == "stop" || r.op == "start"))
-            .map(|r| r.op.clone())
+            .filter(|r| r.key == id && (r.op.name() == "stop" || r.op.name() == "start"))
+            .map(|r| r.op.name().to_owned())
             .collect::<Vec<_>>()
     };
     // `ps` first: the rebuild after any grant starts every process link of the registry again;
@@ -7829,7 +7853,7 @@ async fn grant_restarts_a_running_process_link() {
         env.ctl
             .audit_tail(1000)
             .iter()
-            .filter(|r| r.op == "link_grant" && r.key == "pm")
+            .filter(|r| r.op.name() == "link_grant" && r.key == "pm")
             .count(),
         2,
         "pm got the grant twice"
@@ -7930,7 +7954,7 @@ fn point_writes(env: &Env, point: &str) -> usize {
     env.ctl
         .audit_tail(10_000)
         .iter()
-        .filter(|r| r.op == "set" && (r.key == point || r.key.starts_with(&below)))
+        .filter(|r| r.op.name() == "set" && (r.key == point || r.key.starts_with(&below)))
         .count()
 }
 
@@ -10797,7 +10821,7 @@ async fn standby_takes_over_and_the_old_active_demotes() {
         .ctl
         .audit_tail(50)
         .into_iter()
-        .filter(|r| r.op == "standby_forked")
+        .filter(|r| r.op.name() == "standby_forked")
         .map(|r| (r.key, r.detail))
         .collect();
     assert_eq!(
@@ -11766,8 +11790,7 @@ async fn backup_while_writing() {
     // read back in small parts: the same bytes as the file, its SHA-256
     let bytes = download_backup(&c, &id, 4096).await;
     assert_eq!(bytes.len() as u64, job.size);
-    use sha2::Digest;
-    assert_eq!(hex::encode(sha2::Sha256::digest(&bytes)), job.sha256);
+    assert_eq!(wyrm_core::hex::sha256_hex(&bytes), job.sha256);
     let too_long = args_map(&[
         ("offset", Value::UInt(0)),
         ("len", Value::UInt((16 << 20) + 1)),
@@ -11868,13 +11891,16 @@ async fn backup_while_writing() {
 
     // the audit names the backup and the download, never the passphrase
     let audit = env.ctl.audit_tail(200);
-    let created = audit.iter().find(|r| r.op == "backup_create").unwrap();
+    let created = audit
+        .iter()
+        .find(|r| r.op.name() == "backup_create")
+        .unwrap();
     assert_eq!(created.key, id);
     assert!(created.detail.contains("sealed passphrase"));
     assert!(created.detail.contains("keys: true") && created.detail.contains("secrets: true"));
     assert!(audit
         .iter()
-        .any(|r| r.op == "backup_download" && r.key == id));
+        .any(|r| r.op.name() == "backup_download" && r.key == id));
     assert!(audit.iter().all(|r| !r.detail.contains(BACKUP_PASS)));
 
     // without a passphrase: no secrets in it, links as their settings
@@ -11903,7 +11929,7 @@ async fn backup_while_writing() {
     let created2 = env.ctl.audit_tail(200);
     let created2 = created2
         .iter()
-        .find(|r| r.op == "backup_create" && r.key == id2)
+        .find(|r| r.op.name() == "backup_create" && r.key == id2)
         .unwrap();
     assert!(created2.detail.contains("keys: false") && created2.detail.contains("secrets: false"));
 
@@ -12099,7 +12125,9 @@ async fn link_backup_restores_on_a_second_broker() {
         .ctl
         .audit_tail(100)
         .iter()
-        .any(|r| r.op == "link_backup" && r.key == "dev1" && !r.detail.contains(BACKUP_PASS)));
+        .any(|r| r.op.name() == "link_backup"
+            && r.key == "dev1"
+            && !r.detail.contains(BACKUP_PASS)));
 
     // the second broker: other keys, nothing of dev1
     let dir_b = temp_dir("linkbak-b");
@@ -12173,7 +12201,7 @@ async fn link_backup_restores_on_a_second_broker() {
         .ctl
         .audit_tail(100)
         .iter()
-        .any(|r| r.op == "link_restore" && r.key == "dev9"));
+        .any(|r| r.op.name() == "link_restore" && r.key == "dev9"));
     // the upload is used up
     let (ok, _) = install_outcome(
         cb.invoke_one(&links, "install_backup", restore(BACKUP_PASS, "dev10"))
@@ -12230,7 +12258,7 @@ async fn link_backup_restores_on_a_second_broker() {
         .ctl
         .audit_tail(100)
         .iter()
-        .any(|r| r.op == "restore_point" && r.key == "dev1"));
+        .any(|r| r.op.name() == "restore_point" && r.key == "dev1"));
     // the restore point is sealed for this broker: it opens here without a
     // passphrase and holds c3; the other broker cannot open it
     let pm = wyrm_admin::backup::read_manifest(&point).unwrap();
@@ -12522,7 +12550,10 @@ async fn backup_restores_into_a_fresh_data_dir() {
     );
     assert!(b.ctl.registry().links.contains_key("mock"));
     let audit = b.ctl.audit_tail(50);
-    assert!(audit.iter().any(|r| r.op == "restore_applied"), "{audit:?}");
+    assert!(
+        audit.iter().any(|r| r.op.name() == "restore_applied"),
+        "{audit:?}"
+    );
     let cb = slow_client(&b).await;
     for i in 0..5u64 {
         let key = format!("{storage}/plant/v{i}");
@@ -12551,7 +12582,6 @@ async fn backup_restores_into_a_fresh_data_dir() {
 /// gateway's refusal.
 #[tokio::test(flavor = "multi_thread")]
 async fn uploads_in_parts_through_the_gateway() {
-    use sha2::Digest;
     let port = free_port();
     let dir = temp_dir("gw-parts");
     let store = temp_dir("gw-parts-store");
@@ -12584,11 +12614,11 @@ async fn uploads_in_parts_through_the_gateway() {
     // 5.8 MB one: text that does not compress to nothing
     let c = slow_client(&env).await;
     let storage = format!("wy/{SITE}/storage");
-    let mut seed = sha2::Sha256::digest(b"gw-parts").to_vec();
+    let mut seed = wyrm_core::hex::sha256(b"gw-parts").to_vec();
     for i in 0..320u64 {
         let mut text = String::with_capacity(30_000);
         while text.len() < 30_000 {
-            seed = sha2::Sha256::digest(&seed).to_vec();
+            seed = wyrm_core::hex::sha256(&seed).to_vec();
             text.push_str(&hex::encode(&seed));
         }
         let publish = args_map(&[("path", format!("v{i}").into()), ("value", text.into())]);
@@ -12686,7 +12716,7 @@ async fn uploads_in_parts_through_the_gateway() {
     .await;
     let mut data = Vec::new();
     while data.len() < 300 << 10 {
-        seed = sha2::Sha256::digest(&seed).to_vec();
+        seed = wyrm_core::hex::sha256(&seed).to_vec();
         data.extend_from_slice(&seed);
     }
     let begin = args_map(&[
@@ -13032,9 +13062,12 @@ async fn package_update_that_loses_keys_rolls_back() {
 
     let audit = env.ctl.audit_tail(200);
     for op in ["restore_point", "package_update", "update_rollback"] {
-        assert!(audit.iter().any(|r| r.op == op), "{op}: {audit:?}");
+        assert!(audit.iter().any(|r| r.op.name() == op), "{op}: {audit:?}");
     }
-    let rb = audit.iter().find(|r| r.op == "update_rollback").unwrap();
+    let rb = audit
+        .iter()
+        .find(|r| r.op.name() == "update_rollback")
+        .unwrap();
     assert!(
         rb.key == "updpkg" && rb.detail.contains("data restored: u1"),
         "{rb:?}"
@@ -13170,7 +13203,7 @@ async fn package_update_reports_gone_and_rolls_back_by_hand() {
         .ctl
         .audit_tail(200)
         .iter()
-        .any(|r| r.op == "update_rollback" && r.detail.contains("rolled back by")));
+        .any(|r| r.op.name() == "update_rollback" && r.detail.contains("rolled back by")));
     env.stop().await;
 }
 
@@ -13288,7 +13321,6 @@ async fn package_update_that_changes_the_store_format() {
 /// `sys/packages/<name>/~act/update` installs it by the index's SHA-256.
 #[tokio::test(flavor = "multi_thread")]
 async fn package_update_from_the_repository() {
-    use sha2::Digest;
     let v2 = upd_good(
         "2.0.0",
         serde_json::json!({ "state": 2, "reads_state": [1, 2] }),
@@ -13296,7 +13328,7 @@ async fn package_update_from_the_repository() {
     let mut files = std::collections::HashMap::new();
     let index = serde_json::json!([
         { "name": "updpkg", "version": "2.0.0", "url": "v2.zip",
-          "sha256": hex::encode(sha2::Sha256::digest(&v2)),
+          "sha256": wyrm_core::hex::sha256_hex(&v2),
           "state": 2, "reads_state": [1, 2] },
     ]);
     files.insert("/v2.zip".to_owned(), (200, String::new(), v2));
@@ -13373,7 +13405,7 @@ async fn package_update_from_the_repository() {
     assert!(
         audit
             .iter()
-            .any(|r| r.op == "package_update" && r.detail.contains("1.0.0 → 2.0.0 ok")),
+            .any(|r| r.op.name() == "package_update" && r.detail.contains("1.0.0 → 2.0.0 ok")),
         "{audit:?}"
     );
     env.stop().await;
@@ -13423,12 +13455,11 @@ async fn backup_is_sent_through_a_file_store_link() {
     );
     let storage = format!("wy/{SITE}/storage");
     // text that does not compress to nothing: the file is sent in several parts
-    use sha2::Digest;
-    let mut seed = sha2::Sha256::digest(b"backup-send").to_vec();
+    let mut seed = wyrm_core::hex::sha256(b"backup-send").to_vec();
     for i in 0..60u64 {
         let mut text = String::with_capacity(30_000);
         while text.len() < 30_000 {
-            seed = sha2::Sha256::digest(&seed).to_vec();
+            seed = wyrm_core::hex::sha256(&seed).to_vec();
             text.push_str(&hex::encode(&seed));
         }
         let publish = args_map(&[("path", format!("v{i}").into()), ("value", text.into())]);
@@ -13524,7 +13555,7 @@ async fn backup_is_sent_through_a_file_store_link() {
     // the file in the store is the backup, byte for byte
     let stored = std::fs::read(store.join("backups").join(&job.file)).unwrap();
     assert_eq!(stored.len() as u64, job.size);
-    assert_eq!(hex::encode(sha2::Sha256::digest(&stored)), job.sha256);
+    assert_eq!(wyrm_core::hex::sha256_hex(&stored), job.sha256);
     assert_eq!(stored, download_backup(&c, &id, 16 << 20).await);
     // the tree shows it
     let shown = eventually("send_status in the tree", 10, || async {
@@ -13543,7 +13574,7 @@ async fn backup_is_sent_through_a_file_store_link() {
     let audit = env.ctl.audit_tail(300);
     let sends: Vec<_> = audit
         .iter()
-        .filter(|r| r.op == "backup_send" && r.key == id)
+        .filter(|r| r.op.name() == "backup_send" && r.key == id)
         .collect();
     // who, the backup, the link, the path, the size, the SHA-256
     assert!(
@@ -13855,7 +13886,10 @@ async fn a_restore_that_does_not_open_is_undone() {
     let env = Env::start_in(&dir, MOCK).await;
     assert!(env.ctl.registry().links.contains_key("mock"));
     let audit = env.ctl.audit_tail(50);
-    let failed: Vec<_> = audit.iter().filter(|r| r.op == "restore_failed").collect();
+    let failed: Vec<_> = audit
+        .iter()
+        .filter(|r| r.op.name() == "restore_failed")
+        .collect();
     assert_eq!(failed.len(), 1, "{audit:?}");
     assert_eq!(failed[0].sub, "user:eve");
     assert!(
@@ -13863,11 +13897,17 @@ async fn a_restore_that_does_not_open_is_undone() {
         "{}",
         failed[0].detail
     );
-    assert!(!audit.iter().any(|r| r.op == "restore_applied"));
+    assert!(!audit.iter().any(|r| r.op.name() == "restore_applied"));
     env.stop().await;
     // said once
     let env = Env::start_in(&dir, MOCK).await;
     let again = env.ctl.audit_tail(100);
-    assert_eq!(again.iter().filter(|r| r.op == "restore_failed").count(), 1);
+    assert_eq!(
+        again
+            .iter()
+            .filter(|r| r.op.name() == "restore_failed")
+            .count(),
+        1
+    );
     env.stop().await;
 }

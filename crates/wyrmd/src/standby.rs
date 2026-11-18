@@ -36,6 +36,7 @@ use std::time::Duration;
 use tokio::time::Instant;
 use wyrm_admin::control::replication::{self, STORES};
 use wyrm_admin::secret::{self, CertFiles, Pki};
+use wyrm_core::clock::now_ms;
 use wyrm_core::Value;
 use wyrm_state::replicate::Follower;
 use zenoh::Session;
@@ -320,10 +321,7 @@ fn hold_of(v: &Value) -> Option<Instant> {
     let Some(Value::UInt(until)) = m.get(replication::HOLD_UNTIL) else {
         return None;
     };
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0);
+    let now = wyrm_core::clock::now_ms();
     let left = Duration::from_millis(until.checked_sub(now)?).min(MAX_HOLD);
     Some(Instant::now() + left)
 }
@@ -419,13 +417,6 @@ struct Files {
     have: BTreeMap<String, (u64, u64)>,
     local_at_start: Option<Vec<String>>,
     too_large: std::collections::BTreeSet<String>,
-}
-
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
 }
 
 /// One set of records moved aside after a healed split, to report to the
@@ -664,10 +655,6 @@ pub fn mark_active(data_dir: &Path) {
     }
 }
 
-fn sha256(bytes: &[u8]) -> Vec<u8> {
-    replication::sha256(bytes)
-}
-
 /// Copy `entry` from the active in parts into `data_dir`: skipped when the
 /// local file already has the active's digest.
 async fn fetch_file(
@@ -696,7 +683,7 @@ async fn fetch_file(
         if offset == 0 {
             digest = part.sha256;
             if let (Some(d), Ok(local)) = (&digest, std::fs::read(&path)) {
-                if local.len() as u64 == part.total && &sha256(&local) == d {
+                if local.len() as u64 == part.total && wyrm_core::hex::sha256(&local)[..] == d[..] {
                     return Ok(()); // the same file already
                 }
             }
@@ -709,7 +696,7 @@ async fn fetch_file(
             break;
         }
     }
-    if digest.as_deref() != Some(&sha256(&buf)[..]) {
+    if digest.as_deref() != Some(&wyrm_core::hex::sha256(&buf)[..]) {
         return Err("digest differs".into());
     }
     if let Some(a) = aside {
@@ -1546,10 +1533,7 @@ mod tests {
 
     #[test]
     fn a_hold_is_read_and_capped() {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as u64;
+        let now = now_ms();
         let page = |until: u64| {
             Value::Map(BTreeMap::from([(
                 replication::HOLD_UNTIL.to_owned(),

@@ -31,6 +31,7 @@ use super::{
     accepted, arg, arg_str, decode_params, encode_params, install_detail, now_s, outcome, packages,
     rejected, secret, str_param, Admin, BusyOwned, Control, INSTALL_TIMEOUT_MS,
 };
+use crate::audit::AuditOp;
 use crate::registry::{
     LinkDef, LinkGrant, Op, Origin, PackageDef, PackageKind, PreviousDef, UpdateReport,
     UpdateResult, UPDATE_REPORT_KEYS,
@@ -895,7 +896,7 @@ impl Control {
             if status != Status::Ok {
                 warn!(package = %p.name, "rollback: {detail}");
             }
-            self.record(&p.sub, "update_rollback", &p.name, status, &detail);
+            self.record(&p.sub, AuditOp::UpdateRollback, &p.name, status, &detail);
         }
     }
 
@@ -1272,7 +1273,7 @@ impl Admin {
         match &made {
             Ok(p) => self.ctl.record(
                 sub,
-                "restore_point",
+                AuditOp::RestorePoint,
                 link,
                 Status::Ok,
                 &format!(
@@ -1287,7 +1288,7 @@ impl Admin {
             ),
             Err(e) => self
                 .ctl
-                .record(sub, "restore_point", link, Status::InternalError, e),
+                .record(sub, AuditOp::RestorePoint, link, Status::InternalError, e),
         }
         publish_restore_points(&self.ctx, &self.ctl, link).await;
         made.map_err(|e| format!("restore point of {link}: {e}"))
@@ -1341,7 +1342,7 @@ impl Admin {
                 .map_err(|e| e.to_string())?;
             self.ctl.record(
                 sub,
-                "update",
+                AuditOp::Update,
                 &l.id,
                 Status::Ok,
                 &format!("net +{} ({} {})", net.join(","), new.name, new.version),
@@ -1545,14 +1546,14 @@ impl Admin {
         }
         ctl.record(
             sub,
-            "package_install",
+            AuditOp::PackageInstall,
             &name,
             Status::Ok,
             &install_detail(&def, app),
         );
         ctl.record(
             sub,
-            "package_update",
+            AuditOp::PackageUpdate,
             &name,
             Status::Ok,
             &format!(
@@ -1723,7 +1724,7 @@ impl Admin {
         };
         self.ctl.record(
             sub,
-            "package_update",
+            AuditOp::PackageUpdate,
             name,
             status,
             &format!(
@@ -1874,7 +1875,7 @@ impl Admin {
         }
         ctl.record(
             sub,
-            "update_rollback",
+            AuditOp::UpdateRollback,
             name,
             if problems.is_empty() {
                 Status::Ok
@@ -2039,7 +2040,7 @@ fn close_stale(ctl: &Control) {
             "the broker stopped while the links were being checked; the new version stays".into();
         ctl.record(
             "broker",
-            "package_update",
+            AuditOp::PackageUpdate,
             &p.name,
             Status::InternalError,
             &format!("{} → {}: {}", r.from, r.to, r.reason),
@@ -2221,7 +2222,7 @@ mod tests {
         assert!(ctl
             .audit_tail(10)
             .iter()
-            .any(|a| a.op == "package_update" && a.key == "pkg"));
+            .any(|a| a.op.name() == "package_update" && a.key == "pkg"));
     }
 
     /// The previous version goes after `keep_until`, never during a check.
@@ -2387,7 +2388,7 @@ mod tests {
         let rollbacks = |ctl: &Control| {
             ctl.audit_tail(20)
                 .into_iter()
-                .filter(|a| a.op == "update_rollback")
+                .filter(|a| a.op.name() == "update_rollback")
                 .collect::<Vec<_>>()
         };
 

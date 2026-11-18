@@ -13,7 +13,7 @@ authors.workspace = true
 advanced = ["dep:zenoh-ext"]
 
 [dependencies]
-wyrm-core.workspace = true
+wyrm-core = { workspace = true, features = ["rand"] }
 # `unstable`: `CancellationToken` ends the query of a dropped `invoke` stream
 zenoh = { workspace = true, features = ["unstable"] }
 tokio = { workspace = true, features = ["rt", "sync", "time", "macros"] }

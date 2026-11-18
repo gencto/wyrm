@@ -1,4 +1,9 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/backup_place.dart';
+import 'package:models/backup_section.dart';
+import 'package:models/backup_stage.dart';
+import 'package:models/link_info.dart';
+import 'package:models/restore_mode.dart';
 
 import '../../app_state.dart';
 import '../../common/action.dart';
@@ -24,25 +29,26 @@ class OpenBackupAction extends Action {
   AppState reduce() => state.copyWith.backups(
     opening: backups.opening + 1,
     stage: restore
-        ? 'restore'
-        : (job != null ? 'job' : (link == null ? 'choose' : 'link')),
+        ? BackupStage.restore
+        : (job != null
+              ? BackupStage.job
+              : (link == null ? BackupStage.choose : BackupStage.link)),
     link: link,
     job: job,
     chosen: restore
         ? const ISetConst({})
         : (link == null
-              ? backups.sections.where((s) => s != 'keys').toISet()
+              ? backups.sections.where((s) => s != BackupSection.keys).toISet()
               : {
-                  'settings',
-                  'data',
+                  BackupSection.settings,
+                  BackupSection.data,
                   // A built-in driver has no package to carry.
-                  if (links.table[link ?? '']?.driver.startsWith('pkg:') ??
-                      false)
-                    'package',
+                  if (links.table[link ?? '']?.runsPackage ?? false)
+                    BackupSection.package,
                 }.toISet()),
     historyDays: link == null && !restore ? 30 : null,
     offLinks: const ISetConst({}),
-    where: 'computer',
+    where: BackupPlace.computer,
     sendLink: null,
     sendConnection: null,
     sendPath: null,
@@ -53,7 +59,9 @@ class OpenBackupAction extends Action {
     uploadSize: 0,
     uploaded: 0,
     check: null,
-    mode: 'add',
+    mode: RestoreMode.add,
+    staged: const IListConst([]),
+    applySent: false,
     replaceKeys: false,
     acceptRights: false,
     result: null,

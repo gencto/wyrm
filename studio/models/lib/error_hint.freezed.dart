@@ -334,46 +334,47 @@ String toString() {
 /// @nodoc
 
 
-class ErrorHintTaskRecordInvalid implements ErrorHint {
-  const ErrorHintTaskRecordInvalid({required this.task, required this.field});
+class ErrorHintUnreadable implements ErrorHint {
+  const ErrorHintUnreadable(this.part, {this.name = '', this.field = ''});
   
 
- final  String task;
- final  String field;
+ final  UnreadablePart part;
+@JsonKey() final  String name;
+@JsonKey() final  String field;
 
 /// Create a copy of ErrorHint
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
 @pragma('vm:prefer-inline')
-$ErrorHintTaskRecordInvalidCopyWith<ErrorHintTaskRecordInvalid> get copyWith => _$ErrorHintTaskRecordInvalidCopyWithImpl<ErrorHintTaskRecordInvalid>(this, _$identity);
+$ErrorHintUnreadableCopyWith<ErrorHintUnreadable> get copyWith => _$ErrorHintUnreadableCopyWithImpl<ErrorHintUnreadable>(this, _$identity);
 
 
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is ErrorHintTaskRecordInvalid&&(identical(other.task, task) || other.task == task)&&(identical(other.field, field) || other.field == field));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is ErrorHintUnreadable&&(identical(other.part, part) || other.part == part)&&(identical(other.name, name) || other.name == name)&&(identical(other.field, field) || other.field == field));
 }
 
 
 @override
 int get hashCode {
-    return Object.hash(runtimeType,task,field);
+    return Object.hash(runtimeType,part,name,field);
 }
 
 @override
 String toString() {
-    return 'ErrorHint.taskRecordInvalid(task: $task, field: $field)';
+    return 'ErrorHint.unreadable(part: $part, name: $name, field: $field)';
 }
 
 
 }
 
 /// @nodoc
-abstract mixin class $ErrorHintTaskRecordInvalidCopyWith<$Res> implements $ErrorHintCopyWith<$Res> {
-  factory $ErrorHintTaskRecordInvalidCopyWith(ErrorHintTaskRecordInvalid value, $Res Function(ErrorHintTaskRecordInvalid) _then) = _$ErrorHintTaskRecordInvalidCopyWithImpl;
+abstract mixin class $ErrorHintUnreadableCopyWith<$Res> implements $ErrorHintCopyWith<$Res> {
+  factory $ErrorHintUnreadableCopyWith(ErrorHintUnreadable value, $Res Function(ErrorHintUnreadable) _then) = _$ErrorHintUnreadableCopyWithImpl;
 @useResult
 $Res call({
- String task, String field
+ UnreadablePart part, String name, String field
 });
 
 
@@ -381,158 +382,19 @@ $Res call({
 
 }
 /// @nodoc
-class _$ErrorHintTaskRecordInvalidCopyWithImpl<$Res>
-    implements $ErrorHintTaskRecordInvalidCopyWith<$Res> {
-  _$ErrorHintTaskRecordInvalidCopyWithImpl(this._self, this._then);
+class _$ErrorHintUnreadableCopyWithImpl<$Res>
+    implements $ErrorHintUnreadableCopyWith<$Res> {
+  _$ErrorHintUnreadableCopyWithImpl(this._self, this._then);
 
-  final ErrorHintTaskRecordInvalid _self;
-  final $Res Function(ErrorHintTaskRecordInvalid) _then;
-
-/// Create a copy of ErrorHint
-/// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') $Res call({Object? task = null,Object? field = null,}) {
-  return _then(ErrorHintTaskRecordInvalid(
-task: null == task ? _self.task : task // ignore: cast_nullable_to_non_nullable
-as String,field: null == field ? _self.field : field // ignore: cast_nullable_to_non_nullable
-as String,
-  ));
-}
-
-
-}
-
-/// @nodoc
-
-
-class ErrorHintLibraryBlockInvalid implements ErrorHint {
-  const ErrorHintLibraryBlockInvalid({required this.name, required this.field});
-  
-
- final  String name;
- final  String field;
+  final ErrorHintUnreadable _self;
+  final $Res Function(ErrorHintUnreadable) _then;
 
 /// Create a copy of ErrorHint
 /// with the given fields replaced by the non-null parameter values.
-@JsonKey(includeFromJson: false, includeToJson: false)
-@pragma('vm:prefer-inline')
-$ErrorHintLibraryBlockInvalidCopyWith<ErrorHintLibraryBlockInvalid> get copyWith => _$ErrorHintLibraryBlockInvalidCopyWithImpl<ErrorHintLibraryBlockInvalid>(this, _$identity);
-
-
-
-@override
-bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is ErrorHintLibraryBlockInvalid&&(identical(other.name, name) || other.name == name)&&(identical(other.field, field) || other.field == field));
-}
-
-
-@override
-int get hashCode {
-    return Object.hash(runtimeType,name,field);
-}
-
-@override
-String toString() {
-    return 'ErrorHint.libraryBlockInvalid(name: $name, field: $field)';
-}
-
-
-}
-
-/// @nodoc
-abstract mixin class $ErrorHintLibraryBlockInvalidCopyWith<$Res> implements $ErrorHintCopyWith<$Res> {
-  factory $ErrorHintLibraryBlockInvalidCopyWith(ErrorHintLibraryBlockInvalid value, $Res Function(ErrorHintLibraryBlockInvalid) _then) = _$ErrorHintLibraryBlockInvalidCopyWithImpl;
-@useResult
-$Res call({
- String name, String field
-});
-
-
-
-
-}
-/// @nodoc
-class _$ErrorHintLibraryBlockInvalidCopyWithImpl<$Res>
-    implements $ErrorHintLibraryBlockInvalidCopyWith<$Res> {
-  _$ErrorHintLibraryBlockInvalidCopyWithImpl(this._self, this._then);
-
-  final ErrorHintLibraryBlockInvalid _self;
-  final $Res Function(ErrorHintLibraryBlockInvalid) _then;
-
-/// Create a copy of ErrorHint
-/// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') $Res call({Object? name = null,Object? field = null,}) {
-  return _then(ErrorHintLibraryBlockInvalid(
-name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
-as String,field: null == field ? _self.field : field // ignore: cast_nullable_to_non_nullable
-as String,
-  ));
-}
-
-
-}
-
-/// @nodoc
-
-
-class ErrorHintFlowDefInvalid implements ErrorHint {
-  const ErrorHintFlowDefInvalid({required this.flow, required this.field});
-  
-
- final  String flow;
- final  String field;
-
-/// Create a copy of ErrorHint
-/// with the given fields replaced by the non-null parameter values.
-@JsonKey(includeFromJson: false, includeToJson: false)
-@pragma('vm:prefer-inline')
-$ErrorHintFlowDefInvalidCopyWith<ErrorHintFlowDefInvalid> get copyWith => _$ErrorHintFlowDefInvalidCopyWithImpl<ErrorHintFlowDefInvalid>(this, _$identity);
-
-
-
-@override
-bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is ErrorHintFlowDefInvalid&&(identical(other.flow, flow) || other.flow == flow)&&(identical(other.field, field) || other.field == field));
-}
-
-
-@override
-int get hashCode {
-    return Object.hash(runtimeType,flow,field);
-}
-
-@override
-String toString() {
-    return 'ErrorHint.flowDefInvalid(flow: $flow, field: $field)';
-}
-
-
-}
-
-/// @nodoc
-abstract mixin class $ErrorHintFlowDefInvalidCopyWith<$Res> implements $ErrorHintCopyWith<$Res> {
-  factory $ErrorHintFlowDefInvalidCopyWith(ErrorHintFlowDefInvalid value, $Res Function(ErrorHintFlowDefInvalid) _then) = _$ErrorHintFlowDefInvalidCopyWithImpl;
-@useResult
-$Res call({
- String flow, String field
-});
-
-
-
-
-}
-/// @nodoc
-class _$ErrorHintFlowDefInvalidCopyWithImpl<$Res>
-    implements $ErrorHintFlowDefInvalidCopyWith<$Res> {
-  _$ErrorHintFlowDefInvalidCopyWithImpl(this._self, this._then);
-
-  final ErrorHintFlowDefInvalid _self;
-  final $Res Function(ErrorHintFlowDefInvalid) _then;
-
-/// Create a copy of ErrorHint
-/// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') $Res call({Object? flow = null,Object? field = null,}) {
-  return _then(ErrorHintFlowDefInvalid(
-flow: null == flow ? _self.flow : flow // ignore: cast_nullable_to_non_nullable
+@pragma('vm:prefer-inline') $Res call({Object? part = null,Object? name = null,Object? field = null,}) {
+  return _then(ErrorHintUnreadable(
+null == part ? _self.part : part // ignore: cast_nullable_to_non_nullable
+as UnreadablePart,name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
 as String,field: null == field ? _self.field : field // ignore: cast_nullable_to_non_nullable
 as String,
   ));
@@ -576,76 +438,85 @@ String toString() {
 /// @nodoc
 
 
-class ErrorHintProfileNotJson implements ErrorHint {
-  const ErrorHintProfileNotJson(this.detail);
+class ErrorHintFileNotRead implements ErrorHint {
+  const ErrorHintFileNotRead(this.problem);
   
 
- final  String detail;
+ final  ManifestProblem problem;
 
 /// Create a copy of ErrorHint
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
 @pragma('vm:prefer-inline')
-$ErrorHintProfileNotJsonCopyWith<ErrorHintProfileNotJson> get copyWith => _$ErrorHintProfileNotJsonCopyWithImpl<ErrorHintProfileNotJson>(this, _$identity);
+$ErrorHintFileNotReadCopyWith<ErrorHintFileNotRead> get copyWith => _$ErrorHintFileNotReadCopyWithImpl<ErrorHintFileNotRead>(this, _$identity);
 
 
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is ErrorHintProfileNotJson&&(identical(other.detail, detail) || other.detail == detail));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is ErrorHintFileNotRead&&(identical(other.problem, problem) || other.problem == problem));
 }
 
 
 @override
 int get hashCode {
-    return Object.hash(runtimeType,detail);
+    return Object.hash(runtimeType,problem);
 }
 
 @override
 String toString() {
-    return 'ErrorHint.profileNotJson(detail: $detail)';
+    return 'ErrorHint.fileNotRead(problem: $problem)';
 }
 
 
 }
 
 /// @nodoc
-abstract mixin class $ErrorHintProfileNotJsonCopyWith<$Res> implements $ErrorHintCopyWith<$Res> {
-  factory $ErrorHintProfileNotJsonCopyWith(ErrorHintProfileNotJson value, $Res Function(ErrorHintProfileNotJson) _then) = _$ErrorHintProfileNotJsonCopyWithImpl;
+abstract mixin class $ErrorHintFileNotReadCopyWith<$Res> implements $ErrorHintCopyWith<$Res> {
+  factory $ErrorHintFileNotReadCopyWith(ErrorHintFileNotRead value, $Res Function(ErrorHintFileNotRead) _then) = _$ErrorHintFileNotReadCopyWithImpl;
 @useResult
 $Res call({
- String detail
+ ManifestProblem problem
 });
 
 
-
+$ManifestProblemCopyWith<$Res> get problem;
 
 }
 /// @nodoc
-class _$ErrorHintProfileNotJsonCopyWithImpl<$Res>
-    implements $ErrorHintProfileNotJsonCopyWith<$Res> {
-  _$ErrorHintProfileNotJsonCopyWithImpl(this._self, this._then);
+class _$ErrorHintFileNotReadCopyWithImpl<$Res>
+    implements $ErrorHintFileNotReadCopyWith<$Res> {
+  _$ErrorHintFileNotReadCopyWithImpl(this._self, this._then);
 
-  final ErrorHintProfileNotJson _self;
-  final $Res Function(ErrorHintProfileNotJson) _then;
+  final ErrorHintFileNotRead _self;
+  final $Res Function(ErrorHintFileNotRead) _then;
 
 /// Create a copy of ErrorHint
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') $Res call({Object? detail = null,}) {
-  return _then(ErrorHintProfileNotJson(
-null == detail ? _self.detail : detail // ignore: cast_nullable_to_non_nullable
-as String,
+@pragma('vm:prefer-inline') $Res call({Object? problem = null,}) {
+  return _then(ErrorHintFileNotRead(
+null == problem ? _self.problem : problem // ignore: cast_nullable_to_non_nullable
+as ManifestProblem,
   ));
 }
 
-
+/// Create a copy of ErrorHint
+/// with the given fields replaced by the non-null parameter values.
+@override
+@pragma('vm:prefer-inline')
+$ManifestProblemCopyWith<$Res> get problem {
+  
+  return $ManifestProblemCopyWith<$Res>(_self.problem, (value) {
+    return _then(_self.copyWith(problem: value));
+  });
+}
 }
 
 /// @nodoc
 
 
-class ErrorHintProfileNotObject implements ErrorHint {
-  const ErrorHintProfileNotObject();
+class ErrorHintBackupNoDigest implements ErrorHint {
+  const ErrorHintBackupNoDigest();
   
 
 
@@ -655,7 +526,7 @@ class ErrorHintProfileNotObject implements ErrorHint {
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is ErrorHintProfileNotObject);
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is ErrorHintBackupNoDigest);
 }
 
 
@@ -664,7 +535,7 @@ int get hashCode => runtimeType.hashCode;
 
 @override
 String toString() {
-    return 'ErrorHint.profileNotObject()';
+    return 'ErrorHint.backupNoDigest()';
 }
 
 
@@ -676,146 +547,8 @@ String toString() {
 /// @nodoc
 
 
-class ErrorHintProfileUnknownKey implements ErrorHint {
-  const ErrorHintProfileUnknownKey({required this.key, required this.known});
-  
-
- final  String key;
- final  IList<String> known;
-
-/// Create a copy of ErrorHint
-/// with the given fields replaced by the non-null parameter values.
-@JsonKey(includeFromJson: false, includeToJson: false)
-@pragma('vm:prefer-inline')
-$ErrorHintProfileUnknownKeyCopyWith<ErrorHintProfileUnknownKey> get copyWith => _$ErrorHintProfileUnknownKeyCopyWithImpl<ErrorHintProfileUnknownKey>(this, _$identity);
-
-
-
-@override
-bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is ErrorHintProfileUnknownKey&&(identical(other.key, key) || other.key == key)&&const DeepCollectionEquality().equals(other.known, known));
-}
-
-
-@override
-int get hashCode {
-    return Object.hash(runtimeType,key,const DeepCollectionEquality().hash(known));
-}
-
-@override
-String toString() {
-    return 'ErrorHint.profileUnknownKey(key: $key, known: $known)';
-}
-
-
-}
-
-/// @nodoc
-abstract mixin class $ErrorHintProfileUnknownKeyCopyWith<$Res> implements $ErrorHintCopyWith<$Res> {
-  factory $ErrorHintProfileUnknownKeyCopyWith(ErrorHintProfileUnknownKey value, $Res Function(ErrorHintProfileUnknownKey) _then) = _$ErrorHintProfileUnknownKeyCopyWithImpl;
-@useResult
-$Res call({
- String key, IList<String> known
-});
-
-
-
-
-}
-/// @nodoc
-class _$ErrorHintProfileUnknownKeyCopyWithImpl<$Res>
-    implements $ErrorHintProfileUnknownKeyCopyWith<$Res> {
-  _$ErrorHintProfileUnknownKeyCopyWithImpl(this._self, this._then);
-
-  final ErrorHintProfileUnknownKey _self;
-  final $Res Function(ErrorHintProfileUnknownKey) _then;
-
-/// Create a copy of ErrorHint
-/// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') $Res call({Object? key = null,Object? known = null,}) {
-  return _then(ErrorHintProfileUnknownKey(
-key: null == key ? _self.key : key // ignore: cast_nullable_to_non_nullable
-as String,known: null == known ? _self.known : known // ignore: cast_nullable_to_non_nullable
-as IList<String>,
-  ));
-}
-
-
-}
-
-/// @nodoc
-
-
-class ErrorHintProfileUnknownType implements ErrorHint {
-  const ErrorHintProfileUnknownType(this.type);
-  
-
- final  String type;
-
-/// Create a copy of ErrorHint
-/// with the given fields replaced by the non-null parameter values.
-@JsonKey(includeFromJson: false, includeToJson: false)
-@pragma('vm:prefer-inline')
-$ErrorHintProfileUnknownTypeCopyWith<ErrorHintProfileUnknownType> get copyWith => _$ErrorHintProfileUnknownTypeCopyWithImpl<ErrorHintProfileUnknownType>(this, _$identity);
-
-
-
-@override
-bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is ErrorHintProfileUnknownType&&(identical(other.type, type) || other.type == type));
-}
-
-
-@override
-int get hashCode {
-    return Object.hash(runtimeType,type);
-}
-
-@override
-String toString() {
-    return 'ErrorHint.profileUnknownType(type: $type)';
-}
-
-
-}
-
-/// @nodoc
-abstract mixin class $ErrorHintProfileUnknownTypeCopyWith<$Res> implements $ErrorHintCopyWith<$Res> {
-  factory $ErrorHintProfileUnknownTypeCopyWith(ErrorHintProfileUnknownType value, $Res Function(ErrorHintProfileUnknownType) _then) = _$ErrorHintProfileUnknownTypeCopyWithImpl;
-@useResult
-$Res call({
- String type
-});
-
-
-
-
-}
-/// @nodoc
-class _$ErrorHintProfileUnknownTypeCopyWithImpl<$Res>
-    implements $ErrorHintProfileUnknownTypeCopyWith<$Res> {
-  _$ErrorHintProfileUnknownTypeCopyWithImpl(this._self, this._then);
-
-  final ErrorHintProfileUnknownType _self;
-  final $Res Function(ErrorHintProfileUnknownType) _then;
-
-/// Create a copy of ErrorHint
-/// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') $Res call({Object? type = null,}) {
-  return _then(ErrorHintProfileUnknownType(
-null == type ? _self.type : type // ignore: cast_nullable_to_non_nullable
-as String,
-  ));
-}
-
-
-}
-
-/// @nodoc
-
-
-class ErrorHintProfileTooBig implements ErrorHint {
-  const ErrorHintProfileTooBig();
+class ErrorHintBackupDigestMismatch implements ErrorHint {
+  const ErrorHintBackupDigestMismatch();
   
 
 
@@ -825,7 +558,7 @@ class ErrorHintProfileTooBig implements ErrorHint {
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is ErrorHintProfileTooBig);
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is ErrorHintBackupDigestMismatch);
 }
 
 
@@ -834,7 +567,71 @@ int get hashCode => runtimeType.hashCode;
 
 @override
 String toString() {
-    return 'ErrorHint.profileTooBig()';
+    return 'ErrorHint.backupDigestMismatch()';
+}
+
+
+}
+
+
+
+
+/// @nodoc
+
+
+class ErrorHintCheckNotRun implements ErrorHint {
+  const ErrorHintCheckNotRun();
+  
+
+
+
+
+
+
+@override
+bool operator ==(Object other) {
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is ErrorHintCheckNotRun);
+}
+
+
+@override
+int get hashCode => runtimeType.hashCode;
+
+@override
+String toString() {
+    return 'ErrorHint.checkNotRun()';
+}
+
+
+}
+
+
+
+
+/// @nodoc
+
+
+class ErrorHintStepBlocked implements ErrorHint {
+  const ErrorHintStepBlocked();
+  
+
+
+
+
+
+
+@override
+bool operator ==(Object other) {
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is ErrorHintStepBlocked);
+}
+
+
+@override
+int get hashCode => runtimeType.hashCode;
+
+@override
+String toString() {
+    return 'ErrorHint.stepBlocked()';
 }
 
 

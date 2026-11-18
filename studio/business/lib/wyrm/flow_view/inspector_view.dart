@@ -598,7 +598,7 @@ InspectorRow _row(
   }
   final p = f.spec;
   if (p != null) {
-    final v = b.paramOr(p.name, p.defaultValue);
+    final v = b.paramOr(p.name, p.defaultValue?.raw);
     final scoped = p.name == keyed?.scope;
     final keyBound =
         keyed != null &&
@@ -624,7 +624,7 @@ InspectorRow _row(
                     choices: c.choices.lock,
                   ),
               ].lock,
-              rows: [for (final r in listRowsOf(v.raw)) r.lock].lock,
+              rows: [for (final r in listRowsOf(v)) r.lock].lock,
             ),
       // A scope that the engine would refuse says why, once it matters.
       scopeError: !scoped
@@ -655,7 +655,7 @@ InspectorRow _row(
         _ => false,
       },
       value: switch (v) {
-        JsonMap() || JsonList() => jsonEditText(v.raw),
+        JsonMap() || JsonList() => jsonEditText(v),
         JsonNull() => '',
         JsonText(:final text) => text,
         JsonNumber(:final value) => '$value',

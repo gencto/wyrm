@@ -27,6 +27,7 @@ import '../theme/radii.dart';
 import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
+import 'system_data.dart';
 
 /// A labelled group of tiles on the Overview.
 final class TileGroupVm extends Equatable {
@@ -182,14 +183,21 @@ final class BackupsCardVm extends Equatable {
     required this.backUpLabel,
     required this.restoreLabel,
     this.reason,
+    this.readAgainLabel,
   });
 
   final String title;
   final String note;
 
   /// One row a backup; its action opens it (download, send, remove).
-  final List<RowItemVm> rows;
+  /// Null when the backups were not read: no list is drawn, so the card
+  /// does not say that none is kept.
+  final List<RowItemVm>? rows;
   final String empty;
+
+  /// The label of the button that reads the backups again, when the read
+  /// failed; null otherwise.
+  final String? readAgainLabel;
   final String backUpLabel;
   final String restoreLabel;
 
@@ -205,6 +213,7 @@ final class BackupsCardVm extends Equatable {
     backUpLabel,
     restoreLabel,
     reason,
+    readAgainLabel,
   ];
 }
 
@@ -344,6 +353,7 @@ class SystemPage extends StatelessWidget {
     this.onBackUp,
     this.onRestore,
     this.onOpenBackup,
+    this.onReadBackups,
     this.onBrokerUpdate,
     this.onGuide,
     this.onTrafficWindow,
@@ -353,10 +363,6 @@ class SystemPage extends StatelessWidget {
   });
 
   /// The tab ids, in the order of the bar.
-  static const overviewTab = 'overview';
-  static const availabilityTab = 'availability';
-  static const logTab = 'log';
-  static const maintenanceTab = 'maintenance';
 
   final String title;
   final StatusPillVm? pill;
@@ -365,8 +371,8 @@ class SystemPage extends StatelessWidget {
   final String meta;
   final List<PillTabVm> tabs;
   final String? tabsLabel;
-  final String tab;
-  final ValueChanged<String> onTab;
+  final SysTab tab;
+  final ValueChanged<SysTab> onTab;
 
   /// The broker does not answer: the values are the last known, greyed.
   final bool stale;
@@ -412,6 +418,9 @@ class SystemPage extends StatelessWidget {
   final VoidCallback? onRestore;
   final ValueChanged<String>? onOpenBackup;
 
+  /// Reads the broker's backups again (the read failed).
+  final VoidCallback? onReadBackups;
+
   /// The button of the card *Broker version*.
   final VoidCallback? onBrokerUpdate;
 
@@ -420,10 +429,10 @@ class SystemPage extends StatelessWidget {
     builder: (context, box) {
       final wide = box.maxWidth >= 1100;
       final body = switch (tab) {
-        availabilityTab => _availability(context),
-        logTab => _log(context),
-        maintenanceTab => _maintenance(context),
-        _ => _overview(context),
+        SysTab.overview => _overview(context),
+        SysTab.availability => _availability(context),
+        SysTab.log => _log(context),
+        SysTab.maintenance => _maintenance(context),
       };
       final main = Padding(
         padding: Insets.systemColumn,
@@ -521,8 +530,12 @@ class SystemPage extends StatelessWidget {
         ),
         PillTabs(
           tabs: tabs,
-          selected: tab,
-          onSelect: onTab,
+          selected: tab.name,
+          onSelect: (id) {
+            if (SysTab.values.asNameMap()[id] case final t?) {
+              onTab(t);
+            }
+          },
           label: tabsLabel,
         ),
       ],
@@ -834,6 +847,14 @@ class SystemPage extends StatelessWidget {
           mainAxisSize: .min,
           spacing: 8,
           children: [
+            if (b.readAgainLabel case final label?)
+              Button.secondary(
+                label: label,
+                onPressed: onReadBackups,
+                size: ButtonSize.compact,
+                fontSize: FontSizes.md,
+                fontWeight: .w400,
+              ),
             Button.secondary(
               label: b.restoreLabel,
               onPressed: b.reason == null ? onRestore : null,
@@ -851,7 +872,14 @@ class SystemPage extends StatelessWidget {
             ),
           ],
         ),
-        child: RowList(rows: b.rows, empty: b.empty, onAction: onOpenBackup),
+        child: switch (b.rows) {
+          final rows? => RowList(
+            rows: rows,
+            empty: b.empty,
+            onAction: onOpenBackup,
+          ),
+          null => null,
+        },
       ),
     };
     final backup = SectionCard(

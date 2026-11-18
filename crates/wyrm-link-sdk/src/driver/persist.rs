@@ -15,7 +15,6 @@
 //! * Without a `data_dir` or a store key, the tree lives in memory only.
 
 use crate::seal::{open_aad, seal_aad};
-use sha2::{Digest, Sha256};
 use std::io::Write;
 use std::path::PathBuf;
 use tracing::{info, warn};
@@ -84,7 +83,7 @@ impl Persist {
             );
             return None;
         };
-        let boot = Sha256::digest(wyrm_core::codec::value_to_vec(bootstrap)).into();
+        let boot = wyrm_core::hex::sha256(wyrm_core::codec::value_to_vec(bootstrap));
         Some(Self {
             path: dir.join(FILE),
             key,

@@ -33,7 +33,6 @@
 //!    not named gets no token, and the link skips it and the steps that need it.
 
 use crate::Refusal;
-use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::time::Duration;
 use wyrm_core::{Perm, Status, Value};
@@ -195,12 +194,7 @@ pub fn plan_hash(plan: &[Value]) -> Option<String> {
         })
         .collect::<Option<Vec<_>>>()?;
     let bytes = wyrm_core::codec::value_to_vec(&Value::Array(steps));
-    Some(
-        Sha256::digest(&bytes)
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect(),
-    )
+    Some(wyrm_core::hex::sha256_hex(&bytes))
 }
 
 impl Request {
@@ -240,7 +234,7 @@ impl Request {
         Ok(Some(Self {
             key: format!("{node}/{suffix}"),
             level,
-            body: Sha256::digest(&body).into(),
+            body: wyrm_core::hex::sha256(&body),
         }))
     }
 }

@@ -1,7 +1,9 @@
 import 'package:wyrm_core/wyrm_core.dart';
 
 /// What waits under `sys/quarantine` (`attr.kind`): a link's certificate,
-/// or a downstream broker asking for Authorize (ADR 0015).
+/// or a downstream broker asking for Authorize (ADR 0015). Names as in
+/// `crates/wyrm-admin`; an entry answered under another kind has none
+/// (`QuarantineEntry.kind` is null).
 enum QuarantineKind implements WireName {
   link('link'),
   broker('broker');

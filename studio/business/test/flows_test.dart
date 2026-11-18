@@ -20,6 +20,7 @@ import 'package:business/wyrm/mappers/values.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/error_hint.dart';
 import 'package:models/flow_problem_kind.dart';
+import 'package:models/unreadable_part.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import 'support/block_types.dart';
@@ -182,8 +183,9 @@ void main() {
       // the refusal names the flow and the decoder's field; the app words it
       expect(
         (status.originalError! as StudioException).error.hint,
-        isA<ErrorHintFlowDefInvalid>()
-            .having((h) => h.flow, 'flow', 'tank')
+        isA<ErrorHintUnreadable>()
+            .having((h) => h.part, 'part', UnreadablePart.flowDef)
+            .having((h) => h.name, 'flow', 'tank')
             .having((h) => h.field, 'field', 'nodes.a.type'),
       );
       expect(s.state.flowEditor.draft, held);
@@ -229,8 +231,9 @@ void main() {
       // the refusal names the flow and the decoder's field; the app words it
       expect(
         (status.originalError! as StudioException).error.hint,
-        isA<ErrorHintFlowDefInvalid>()
-            .having((h) => h.flow, 'flow', 'raw')
+        isA<ErrorHintUnreadable>()
+            .having((h) => h.part, 'part', UnreadablePart.flowDef)
+            .having((h) => h.name, 'flow', 'raw')
             .having((h) => h.field, 'field', 'nodes.a.k'),
       );
       expect(s.state.flowEditor.draft, isNull);

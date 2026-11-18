@@ -3,6 +3,7 @@ import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/block_type.dart';
 import 'package:models/error_hint.dart';
 import 'package:models/error_kind.dart';
+import 'package:models/unreadable_part.dart';
 
 import '../../../wyrm/calls.dart';
 import '../../../wyrm/decode/block_library.dart';
@@ -57,7 +58,8 @@ class PlaceLibraryBlockAction extends Action with Sequential<AppState> {
       Valid(:final value) => value,
       final Invalid<Object?> bad => throw StudioException.hinted(
         ErrorKind.broker,
-        ErrorHint.libraryBlockInvalid(
+        ErrorHint.unreadable(
+          UnreadablePart.libraryBlock,
           name: name,
           field: loggedField('$root/dataflows ▸ get_block $name', bad),
         ),

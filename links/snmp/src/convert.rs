@@ -1,6 +1,5 @@
 //! Varbind values → point values (`conv`), and point values → SET values.
 
-use std::fmt::Write as _;
 use wyrm_core::{TypeCode, Value};
 use wyrm_link_sdk::driver::ParamEnum;
 use wyrm_link_sdk::ParamEnum;
@@ -142,19 +141,8 @@ pub fn octets_text(b: &[u8]) -> String {
         {
             s.to_owned()
         }
-        _ => hex_colon(b),
+        _ => wyrm_core::hex::encode_sep(b, ":"),
     }
-}
-
-fn hex_colon(b: &[u8]) -> String {
-    let mut s = String::with_capacity(b.len() * 3);
-    for (i, x) in b.iter().enumerate() {
-        if i > 0 {
-            s.push(':');
-        }
-        let _ = write!(s, "{x:02x}");
-    }
-    s
 }
 
 fn ip_text(b: &[u8]) -> Option<String> {
@@ -176,7 +164,7 @@ fn text(v: &SnmpValue) -> Option<String> {
         SnmpValue::IpAddress(a) => ip_text(a)?,
         SnmpValue::Counter32(x) | SnmpValue::Gauge32(x) | SnmpValue::TimeTicks(x) => x.to_string(),
         SnmpValue::Counter64(x) => x.to_string(),
-        SnmpValue::Opaque(b) => hex_colon(b),
+        SnmpValue::Opaque(b) => wyrm_core::hex::encode_sep(b, ":"),
         SnmpValue::Null
         | SnmpValue::NoSuchObject
         | SnmpValue::NoSuchInstance
@@ -255,7 +243,9 @@ pub fn convert(conv: Conv, v: &SnmpValue, lin: Linear) -> Result<Value, String> 
             _ => Err(bad()),
         },
         Conv::Mac => match v {
-            SnmpValue::OctetString(b) if b.len() == 6 => Ok(Value::Str(hex_colon(b))),
+            SnmpValue::OctetString(b) if b.len() == 6 => {
+                Ok(Value::Str(wyrm_core::hex::encode_sep(b, ":")))
+            }
             _ => Err(bad()),
         },
         // Needs two samples: see [`rate`].

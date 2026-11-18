@@ -1355,7 +1355,6 @@ async fn external_mode_reports_only() {
 /// verify, and when it holds every release that exists.
 #[test]
 fn release_index_refuses_what_does_not_verify() {
-    use sha2::{Digest, Sha256};
     let d = temp_dir("tooling");
     let seed = hex::encode(RELEASE_SEED);
     let public = hex::encode(release_key().verifying_key().to_bytes());
@@ -1400,7 +1399,7 @@ fn release_index_refuses_what_does_not_verify() {
                 sha256,
                 size,
                 url: String::new(),
-                bin_sha256: hex::encode(Sha256::digest(bin.as_bytes())),
+                bin_sha256: wyrm_core::hex::sha256_hex(bin.as_bytes()),
             },
         });
         std::fs::write(dir.join(format!("{file}.json")), side.to_string()).unwrap();
@@ -1411,7 +1410,7 @@ fn release_index_refuses_what_does_not_verify() {
     // a description that is not of the archive beside it makes no document
     let side = dir2.join(format!("{file2}.json"));
     let good_side = std::fs::read_to_string(&side).unwrap();
-    let hash = hex::encode(Sha256::digest(b"the binary of 0.2.0"));
+    let hash = wyrm_core::hex::sha256_hex(b"the binary of 0.2.0");
     std::fs::write(&side, good_side.replace(&hash, &"0".repeat(64))).unwrap();
     refused(&["doc", "0.2.0"], "binary in the archive");
     std::fs::write(&side, &good_side).unwrap();

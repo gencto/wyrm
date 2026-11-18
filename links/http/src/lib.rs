@@ -42,7 +42,7 @@ pub mod sim;
 
 use base64::Engine as _;
 use bytes::Bytes;
-use client::{check_chars, check_path, encode_query, Client, Fail, Origin, Prepared, Req};
+use client::{check_chars, check_path, Client, Fail, Origin, Prepared, Req};
 use hyper::header::{HeaderName, HeaderValue};
 use hyper::Method;
 use select::Selector;
@@ -437,7 +437,7 @@ fn prepare(p: &ConnParams) -> wyrm_link_sdk::Result<Prepared> {
                     {
                         return Err(bad("api_key_name", "a query name: [A-Za-z0-9-._~]+"));
                     }
-                    let enc = encode_query(&p.token);
+                    let enc = wyrm_core::weburl::percent_encode(&p.token);
                     mask(&enc);
                     query_key = Some((name.to_owned(), enc));
                 }

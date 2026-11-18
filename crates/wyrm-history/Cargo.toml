@@ -10,7 +10,7 @@ authors.workspace = true
 
 [dependencies]
 redb.workspace = true
-wyrm-core.workspace = true
+wyrm-core = { workspace = true, features = ["rand"] }
 minicbor.workspace = true
 thiserror.workspace = true
 tracing.workspace = true

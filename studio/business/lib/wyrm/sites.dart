@@ -27,6 +27,7 @@ final class SiteMapNode {
     this.detail,
     this.count = 0,
     this.waitingBroker = false,
+    this.notRead = false,
     this.selected = false,
   });
 
@@ -44,6 +45,10 @@ final class SiteMapNode {
   /// A waiting node is a broker (else a link).
   final bool waitingBroker;
 
+  /// The node was answered in a form Studio does not read: it is there by
+  /// its name, and its line says so.
+  final bool notRead;
+
   /// The node picked.
   final bool selected;
 
@@ -57,6 +62,7 @@ final class SiteMapNode {
     detail: detail,
     count: count,
     waitingBroker: waitingBroker,
+    notRead: notRead,
     selected: pick == p,
   );
 }
@@ -213,6 +219,7 @@ final class _Sites with Selectors {
         connected: p.connected,
         status: p.status,
         offline: !p.connected,
+        notRead: p.unreadable,
       ),
     for (final p in of(PeerKind.platform))
       SiteMapNode(
@@ -236,6 +243,7 @@ final class _Sites with Selectors {
         name: p.site,
         count: _relays(p.site, all),
         parent: self,
+        notRead: p.unreadable,
       ),
     for (final q in waiting.where((q) => q.kind == QuarantineKind.broker))
       SiteMapNode(
@@ -258,6 +266,7 @@ final class _Sites with Selectors {
         pick: SitePick(SiteNode.waiting, q.node),
         name: q.cn,
         parent: self,
+        notRead: q.kind == null,
       ),
     for (final p in of(PeerKind.relayed))
       SiteMapNode(

@@ -38,7 +38,6 @@
 //! server, with a full session (and the user's credentials) each time.
 
 use opcua::crypto::{CertificateStore, PrivateKey, X509Data, X509};
-use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::Write;
@@ -200,12 +199,12 @@ pub struct Request<'a> {
 }
 
 fn hash16(parts: &[&str]) -> String {
-    let mut h = Sha256::new();
+    let mut h = wyrm_core::hex::Sha256Stream::new();
     for p in parts {
         h.update(p.as_bytes());
         h.update([0u8]);
     }
-    hex::encode(&h.finalize()[..8])
+    wyrm_core::hex::encode(&h.finish()[..8])
 }
 
 /// Prepare the files of one connection under `root`. Blocking (file I/O,
@@ -310,10 +309,7 @@ pub fn plain_store() -> Result<PathBuf, String> {
 /// A new directory `<parent>/<prefix>-<pid>-<nanos>-<n>`, created (not
 /// found) by this process, mode 0700.
 fn new_private_dir(parent: &Path, prefix: &str) -> Result<PathBuf, String> {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.subsec_nanos())
-        .unwrap_or(0);
+    let nanos = wyrm_core::clock::since_epoch().subsec_nanos();
     for n in 0..100u32 {
         let d = parent.join(format!("{prefix}-{}-{nanos}-{n}", std::process::id()));
         let mut b = fs::DirBuilder::new();

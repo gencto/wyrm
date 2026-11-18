@@ -8,6 +8,11 @@ import 'package:ui/pages/links_data.dart';
 import 'package:ui/pages/links_page.dart';
 import 'package:ui/tables/row_table.dart';
 
+// The boards draw their controls live: someone listens to each.
+void _toggled(bool _) {}
+
+void _tapped() {}
+
 // The data of boards `LinkUpdate`, `LinkUpdateProgress`, `LinkUpdateDone`
 // and `LinkUpdateRolledBack` (design canvas), as LinksPage arguments: the
 // Updates tab with the update of `modbus` as a drawer.
@@ -107,8 +112,6 @@ LinksPage _links(TaskSheetVm sheet) => LinksPage(
   sheet: sheet,
   onSheetPrimary: () {},
   onSheetSecondary: () {},
-  onSheetToggle: (_, {required on}) {},
-  onSheetAction: _none,
   onSheetClose: () {},
 );
 
@@ -147,17 +150,17 @@ LinksPage linkUpdateReview() => _links(
       ),
       SheetLabel('Before it starts'),
       SheetOption(
-        id: 'point',
+        onChanged: _toggled,
         label: 'Save a restore point of both links (settings, nodes, store, the package 0.4.2) · 3.1 MiB, kept 7 days',
         value: true,
       ),
       SheetOption(
-        id: 'auto',
+        onChanged: _toggled,
         label: 'Roll back by itself if a link does not come back with all its nodes in 2 min',
         value: true,
       ),
       SheetOption(
-        id: 'accept',
+        onChanged: _toggled,
         label: 'Accept the new rights it asks for (network 10.0.5.0/24)',
         value: false,
       ),
@@ -251,7 +254,7 @@ LinksPage linkUpdateDone() => _links(
         divider: true,
         text: '0.4.2 · before update',
         note: 'today 15:24 · 3.1 MiB · kept 7 days',
-        action: 'rollback',
+        onAction: _tapped,
         actionLabel: 'Roll back to 0.4.2…',
       ),
       SheetRow(

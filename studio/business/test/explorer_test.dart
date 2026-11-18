@@ -18,6 +18,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:models/change_op.dart';
 import 'package:models/change_side.dart';
 import 'package:models/error_kind.dart';
+import 'package:models/json_value.dart';
 import 'package:models/param_spec.dart';
 import 'package:models/quality.dart' as studio;
 import 'package:wyrm_client/wyrm_client.dart';
@@ -251,8 +252,8 @@ void main() {
     test('a cleared name is sent as "", other empty fields are not', () {
       // `edit` prefilled the name: clearing it clears it.
       final keep = clearedNames(const [
-        ParamSpec(name: 'display', defaultValue: 'Boiler room'),
-        ParamSpec(name: 'host', defaultValue: '10.0.0.5'),
+        ParamSpec(name: 'display', defaultValue: JsonText('Boiler room')),
+        ParamSpec(name: 'host', defaultValue: JsonText('10.0.0.5')),
       ]);
       expect(keep, {'display'});
       s.dispatchSync(
@@ -271,7 +272,9 @@ void main() {
         'app that does not prefill it)', () {
       expect(clearedNames(const [ParamSpec(name: 'display')]), isEmpty);
       expect(
-        clearedNames(const [ParamSpec(name: 'display', defaultValue: ' ')]),
+        clearedNames(const [
+          ParamSpec(name: 'display', defaultValue: JsonText(' ')),
+        ]),
         isEmpty,
       );
       s.dispatchSync(

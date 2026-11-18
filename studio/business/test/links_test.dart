@@ -17,6 +17,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:models/call_refusal.dart';
 import 'package:models/change_side.dart';
 import 'package:models/link_mode.dart';
+import 'package:models/quarantine_kind.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import 'support/fake_wyrm.dart';
@@ -161,4 +162,44 @@ void main() {
       expect(s.state.quarantine.view, isEmpty);
     },
   );
+
+  test('a quarantine entry of a kind Studio does not know is not shown as a '
+      'link', () async {
+    api.children_['wy/central/sys/quarantine'] = [
+      Child('plc-gw-7', NodeMeta()),
+      Child('gw-9', NodeMeta()),
+      Child('old', NodeMeta()),
+    ];
+    api.metas['wy/central/sys/quarantine/plc-gw-7'] = NodeMeta(
+      attr: {'kind': const VStr('link')},
+    );
+    api.metas['wy/central/sys/quarantine/gw-9'] = NodeMeta(
+      attr: {'kind': const VStr('gateway')},
+      actions: {'approve': ActionMeta()},
+    );
+    // no `kind` at all: not a link by default
+    api.metas['wy/central/sys/quarantine/old'] = NodeMeta();
+
+    await s.dispatchAndWait(RetrieveQuarantineAction());
+
+    // it does not vanish: it waits in the table as one that was not read
+    expect(s.state.quarantine.view, ['plc-gw-7', 'gw-9', 'old']);
+    final table = s.state.quarantine.table;
+    expect(table['plc-gw-7']!.kind, QuarantineKind.link);
+    expect(table['gw-9']!.kind, isNull);
+    expect(table['old']!.kind, isNull);
+    // and no Authorize form is offered for what was not read
+    expect(s.state.quarantine.forms.keys, isEmpty);
+    // it is neither a link that waits nor a broker that asks to join
+    expect(_Sel(s.state).oldestWaitingLink?.node, 'plc-gw-7');
+    // the wire never names this kind
+    expect(QuarantineKind.fromWire(''), isNull);
+  });
+}
+
+class _Sel with Selectors {
+  _Sel(this.state);
+
+  @override
+  final AppState state;
 }

@@ -16,6 +16,7 @@ import 'package:models/error_title.dart';
 import 'package:models/error_voice.dart';
 import 'package:models/fault_report.dart';
 import 'package:models/studio_error.dart';
+import 'package:models/unreadable_part.dart';
 import 'package:ui/alerts/toast_stack.dart';
 import 'package:ui/dialogs/error_dialog.dart';
 import 'package:ui/dialogs/error_hint_words.dart';
@@ -25,6 +26,7 @@ import 'package:ui/overlays/problems_drawer.dart';
 import '../common/studio_version.dart';
 import 'device_mappers.dart';
 import 'icon_mappers.dart';
+import 'link_install_mappers.dart';
 import 'log_in_mappers.dart';
 
 // One failure as `ui` words it (studio-rules §3, §5): the domain's
@@ -166,7 +168,9 @@ extension ErrorCallVmOf on ErrorCall {
 }
 
 extension ErrorHintVmOf on ErrorHint {
-  ErrorHintVm get vm => switch (this) {
+  /// The hint as `ui` says it; [file] names the file of a
+  /// [ErrorHintFileNotRead] (the error's `thing`).
+  ErrorHintVm vmOf(String? file) => switch (this) {
     ErrorHintRunDenied() => const .tag(.runDenied),
     ErrorHintRunNotRunning() => const .tag(.runNotRunning),
     ErrorHintRunNoTrigger() => const .tag(.runNoTrigger),
@@ -176,30 +180,19 @@ extension ErrorHintVmOf on ErrorHint {
     ErrorHintNoAssistant() => const .tag(.noAssistant),
     ErrorHintAssistantNoTask() => const .tag(.assistantNoTask),
     ErrorHintAgentParamsUnread() => const .tag(.agentParamsUnread),
-    ErrorHintTaskRecordInvalid(:final task, :final field) => .unreadable(
-      .taskRecord,
-      name: task,
-      field: field,
-    ),
-    ErrorHintLibraryBlockInvalid(:final name, :final field) => .unreadable(
-      .libraryBlock,
+    ErrorHintUnreadable(:final part, :final name, :final field) => .unreadable(
+      part.thing,
       name: name,
       field: field,
     ),
-    ErrorHintFlowDefInvalid(:final flow, :final field) => .unreadable(
-      .flowDef,
-      name: flow,
-      field: field,
-    ),
     ErrorHintNoEditAction() => const .tag(.noEditAction),
-    ErrorHintProfileNotJson(:final detail) => .profileNotJson(detail),
-    ErrorHintProfileNotObject() => const .tag(.profileNotObject),
-    ErrorHintProfileUnknownKey(:final key, :final known) => .profileUnknownKey(
-      key,
-      known.unlockView,
+    ErrorHintFileNotRead(:final problem) => .fileNotRead(
+      problem.ui(file ?? ''),
     ),
-    ErrorHintProfileUnknownType(:final type) => .profileUnknownType(type),
-    ErrorHintProfileTooBig() => const .tag(.profileTooBig),
+    ErrorHintBackupNoDigest() => const .tag(.backupNoDigest),
+    ErrorHintBackupDigestMismatch() => const .tag(.backupDigestMismatch),
+    ErrorHintCheckNotRun() => const .tag(.checkNotRun),
+    ErrorHintStepBlocked() => const .tag(.stepBlocked),
     ErrorHintRangeBadText() => const .tag(.rangeBadText),
     ErrorHintRangeBadPart() => const .tag(.rangeBadPart),
     ErrorHintRangeBadPrefix() => const .tag(.rangeBadPrefix),
@@ -218,6 +211,16 @@ extension ErrorHintVmOf on ErrorHint {
     ErrorHintPackageHasNoLink(:final name) => .packageHasNoLink(name),
     ErrorHintEmptyPart() => const .tag(.emptyPart),
     ErrorHintSettingsUnreadable() => const .tag(.settingsUnreadable),
+  };
+}
+
+extension UnreadablePartThing on UnreadablePart {
+  UnreadableThing get thing => switch (this) {
+    UnreadablePart.answer => .answer,
+    UnreadablePart.rows => .rows,
+    UnreadablePart.taskRecord => .taskRecord,
+    UnreadablePart.libraryBlock => .libraryBlock,
+    UnreadablePart.flowDef => .flowDef,
   };
 }
 
@@ -278,7 +281,7 @@ extension ErrorSaidOf on StudioError {
       null => null,
     },
     message: message,
-    hint: hint?.vm,
+    hint: hint?.vmOf(thing),
     status: status?.name,
     statusLine: switch (status) {
       final st? => statusLine(st),

@@ -2,6 +2,7 @@ import 'package:equatable/equatable.dart';
 import 'package:localization/localization.dart';
 
 import '../indicators/device_os.dart';
+import '../pages/install_checks.dart' show ManifestProblemVm;
 import '../pages/log_in_data.dart' show AnswerWhy;
 
 /// A refusal Studio words itself that has no parameter: where the broker
@@ -17,8 +18,10 @@ enum HintTag {
   assistantNoTask,
   agentParamsUnread,
   noEditAction,
-  profileNotObject,
-  profileTooBig,
+  backupNoDigest,
+  backupDigestMismatch,
+  checkNotRun,
+  stepBlocked,
   rangeBadText,
   rangeBadPart,
   rangeBadPrefix,
@@ -44,8 +47,10 @@ enum HintTag {
       assistantNoTask => s.errAssistantNoTask,
       agentParamsUnread => s.errAgentParamsUnread,
       noEditAction => s.errNoEditAction,
-      profileNotObject => s.errProfileNotObject,
-      profileTooBig => s.errProfileTooBig,
+      backupNoDigest => s.errBackupNoDigest,
+      backupDigestMismatch => s.errBackupDigestMismatch,
+      checkNotRun => s.errCheckNotRun,
+      stepBlocked => s.errStepBlocked,
       rangeBadText => s.rangeBadText,
       rangeBadPart => s.rangeBadPart,
       rangeBadPrefix => s.rangeBadPrefix,
@@ -70,24 +75,18 @@ sealed class ErrorHintVm extends Equatable {
   /// A sentence without a parameter.
   const factory ErrorHintVm.tag(HintTag tag) = HintTagVm;
 
-  /// A record that is not one Studio reads: [field] of it (its wire name;
-  /// empty for the record itself).
+  /// An answer that is not one Studio reads: [field] of it (its wire
+  /// name; empty when only the log names it).
   const factory ErrorHintVm.unreadable(
     UnreadableThing what, {
-    required String name,
+    String name,
     String field,
   }) = HintUnreadableVm;
 
-  /// A file that is not JSON: what the parser said.
-  const factory ErrorHintVm.profileNotJson(String detail) =
-      HintProfileNotJsonVm;
-
-  /// A key a profile does not have; the [known] ones.
-  const factory ErrorHintVm.profileUnknownKey(String key, List<String> known) =
-      HintProfileUnknownKeyVm;
-
-  const factory ErrorHintVm.profileUnknownType(String type) =
-      HintProfileUnknownTypeVm;
+  /// A file the user picked that is not of the form its kind has: what is
+  /// wrong with it.
+  const factory ErrorHintVm.fileNotRead(ManifestProblemVm problem) =
+      HintFileNotReadVm;
 
   /// A gateway did not answer: why.
   const factory ErrorHintVm.noAnswer(AnswerWhy why) = HintNoAnswerVm;
@@ -119,11 +118,13 @@ final class HintTagVm extends ErrorHintVm {
   List<Object?> get props => [tag];
 }
 
-/// What a record that does not read is.
-enum UnreadableThing { taskRecord, libraryBlock, flowDef }
+/// What an answer that does not read is: an answer of a call, some
+/// entries of a list, a task's record, a library block, a flow's
+/// definition.
+enum UnreadableThing { answer, rows, taskRecord, libraryBlock, flowDef }
 
 final class HintUnreadableVm extends ErrorHintVm {
-  const HintUnreadableVm(this.what, {required this.name, this.field = ''});
+  const HintUnreadableVm(this.what, {this.name = '', this.field = ''});
 
   final UnreadableThing what;
 
@@ -137,6 +138,8 @@ final class HintUnreadableVm extends ErrorHintVm {
   String get text {
     final s = S.current;
     final whole = switch (what) {
+      UnreadableThing.answer => s.errUnreadableAnswer,
+      UnreadableThing.rows => s.errUnreadableRows,
       UnreadableThing.taskRecord => s.errTaskRecordInvalid(name),
       UnreadableThing.libraryBlock => s.errLibraryBlockInvalid(name),
       UnreadableThing.flowDef => s.errFlowDefInvalid(name),
@@ -148,41 +151,29 @@ final class HintUnreadableVm extends ErrorHintVm {
   List<Object?> get props => [what, name, field];
 }
 
-final class HintProfileNotJsonVm extends ErrorHintVm {
-  const HintProfileNotJsonVm(this.detail);
+final class HintFileNotReadVm extends ErrorHintVm {
+  const HintFileNotReadVm(this.problem);
 
-  final String detail;
-
-  @override
-  String get text => S.current.errProfileNotJson(detail);
+  final ManifestProblemVm problem;
 
   @override
-  List<Object?> get props => [detail];
-}
-
-final class HintProfileUnknownKeyVm extends ErrorHintVm {
-  const HintProfileUnknownKeyVm(this.key, this.known);
-
-  final String key;
-  final List<String> known;
-
-  @override
-  String get text => S.current.errProfileUnknownKey(key, known.join(', '));
-
-  @override
-  List<Object?> get props => [key, known];
-}
-
-final class HintProfileUnknownTypeVm extends ErrorHintVm {
-  const HintProfileUnknownTypeVm(this.type);
-
-  final String type;
+  String get text {
+    final p = problem;
+    // a file without a name is `this`
+    final named = p.file.isNotEmpty
+        ? p
+        : ManifestProblemVm(
+            kind: p.kind,
+            file: S.current.errThingThis,
+            field: p.field,
+            found: p.found,
+            offset: p.offset,
+          );
+    return S.current.errFileNotReadBecause(named.line);
+  }
 
   @override
-  String get text => S.current.errProfileUnknownType(type);
-
-  @override
-  List<Object?> get props => [type];
+  List<Object?> get props => [problem];
 }
 
 final class HintNoAnswerVm extends ErrorHintVm {

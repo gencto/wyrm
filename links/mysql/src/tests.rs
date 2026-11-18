@@ -112,16 +112,10 @@ fn native_ok(password: &str, nonce: &[u8], answer: &[u8]) -> bool {
 }
 
 fn sha2_ok(password: &str, nonce: &[u8], answer: &[u8]) -> bool {
-    let stored = Sha256::digest(Sha256::digest(password.as_bytes()));
-    let mut h = Sha256::new();
-    h.update(stored);
-    h.update(nonce);
-    let p1: Vec<u8> = answer
-        .iter()
-        .zip(h.finalize())
-        .map(|(a, b)| a ^ b)
-        .collect();
-    Sha256::digest(&p1)[..] == stored[..]
+    let stored = wyrm_core::hex::sha256(wyrm_core::hex::sha256(password.as_bytes()));
+    let mix = wyrm_core::hex::sha256_parts(&[&stored, nonce]);
+    let p1: Vec<u8> = answer.iter().zip(mix).map(|(a, b)| a ^ b).collect();
+    wyrm_core::hex::sha256(&p1)[..] == stored[..]
 }
 
 const OK: &[u8] = &[0, 0, 0, 2, 0, 0, 0];

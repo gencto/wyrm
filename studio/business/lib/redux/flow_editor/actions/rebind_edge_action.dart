@@ -1,8 +1,10 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/flow_edge.dart';
+import 'package:models/json_value.dart';
 
 import '../../../wyrm/mappers/flow_blocks.dart';
 import '../../../wyrm/mappers/flow_canvas.dart';
+
 import '../../app_state.dart';
 import '../../common/action.dart';
 
@@ -43,7 +45,13 @@ class RebindEdgeAction extends Action {
     }
     final b = d.blocks[oldTo];
     final param = this.param;
-    final blocks = b != null && param != null && keep != null
+    // A live value comes from the wire: it is kept only when it is JSON
+    // within the bound, since the inspector reads the config as JSON while
+    // it builds. One that is not (bytes, nested past the bound) is not
+    // kept: the parameter shows its default again.
+    final keep = this.keep;
+    final blocks =
+        b != null && param != null && keep != null && JsonValue.isJson(keep)
         ? d.blocks.add(oldTo, b.copyWith(cfg: b.cfg.add(param, keep)))
         : d.blocks;
     return state.copyWith.flowEditor(

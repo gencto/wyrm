@@ -12,6 +12,7 @@ import '../models/link_run_mode.dart';
 import '../models/submit.dart';
 import '../models/tone.dart';
 import '../models/value_changed.dart';
+import '../models/waiting_kind.dart';
 import '../overlays/confirm_dialog.dart';
 import '../overlays/link_update_sheet.dart';
 import '../tables/row_table.dart';
@@ -309,8 +310,11 @@ class LinksScreen extends StatelessWidget {
     );
   }
 
-  String _kind(QuarantineData q) =>
-      q.broker ? S.current.downstreamBrokerQuic : S.current.linkOverTls;
+  String _kind(QuarantineData q) => switch (q.kind) {
+    WaitingKind.notRead => S.current.waitNotRead,
+    WaitingKind.broker => S.current.downstreamBrokerQuic,
+    WaitingKind.link => S.current.linkOverTls,
+  };
 
   String _seen(DateTime t) => S.current.firstSeen(Formats.ago(t));
 
@@ -326,16 +330,24 @@ class LinksScreen extends StatelessWidget {
             : S.current.asksToRelay(q.via.join(', ')),
       ),
       CellVm(
-        chip: q.broker
-            ? S.current.whyBroker
-            : (q.deauthorized ? S.current.whyDeauthorized : S.current.whyNew),
+        chip: switch (q.kind) {
+          WaitingKind.notRead => S.current.whyNotRead,
+          WaitingKind.broker => S.current.whyBroker,
+          WaitingKind.link when q.deauthorized => S.current.whyDeauthorized,
+          WaitingKind.link => S.current.whyNew,
+        },
       ),
       CellVm(
         title: S.current.stateWaiting,
         tone: Tone.warn,
-        subtitle: q.broker
-            ? S.current.decideInSites
-            : (q.firstSeen == null ? null : _seen(q.firstSeen!)),
+        subtitle: switch (q.kind) {
+          WaitingKind.notRead => S.current.waitNotReadNote,
+          WaitingKind.broker => S.current.decideInSites,
+          WaitingKind.link => switch (q.firstSeen) {
+            final t? => _seen(t),
+            null => null,
+          },
+        },
       ),
     ],
   );
@@ -486,8 +498,9 @@ class LinksScreen extends StatelessWidget {
               LinkAct.backup,
               s.actBackUp,
               s.actBackUpNote,
-              // A wyrmd before ADR 0048 has no `sys/backups`.
-              reason: reason ?? (vm.hasBackups ? null : s.bakNoBackups),
+              // No `sys/backups` (a wyrmd before ADR 0048), or one this
+              // Studio does not read: each says which.
+              reason: reason ?? vm.backupsOff?.label,
             ),
           ],
         ),
@@ -595,11 +608,15 @@ class LinksScreen extends StatelessWidget {
           ? null
           : InspectorFormVm(
               id: q.node,
-              label: q.broker ? s.letTheBrokerIn : s.letItIn,
+              label: q.kind == WaitingKind.broker
+                  ? s.letTheBrokerIn
+                  : s.letItIn,
               fields: fields,
               submit: s.approve,
               secondary: s.reject,
-              note: q.broker ? s.approveBrokerNote : s.approveLinkNote,
+              note: q.kind == WaitingKind.broker
+                  ? s.approveBrokerNote
+                  : s.approveLinkNote,
               disabledReason: q.reason?.text,
             ),
     );

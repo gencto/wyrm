@@ -413,7 +413,7 @@ impl Arbiters {
             holder: format!(
                 "{}-{}",
                 host_id(&cfg.data_dir)?,
-                hex::encode(&wyrm_admin::control::replication::sha256(sb.peer.as_bytes())[..4])
+                hex::encode(&wyrm_core::hex::sha256(sb.peer.as_bytes())[..4])
             ),
             server_cn: format!("arbiter:{}", cfg.site),
             ttl: sb.lease_ttl(),

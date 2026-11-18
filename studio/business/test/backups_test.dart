@@ -17,19 +17,24 @@ import 'package:business/redux/backups/actions/estimate_backup_action.dart';
 import 'package:business/redux/backups/actions/follow_restore_action.dart';
 import 'package:business/redux/backups/actions/open_backup_action.dart';
 import 'package:business/redux/backups/actions/remove_backup_action.dart';
+import 'package:business/redux/backups/actions/restore_action.dart';
 import 'package:business/redux/backups/actions/retrieve_backups_action.dart';
 import 'package:business/redux/backups/actions/retrieve_send_connections_action.dart';
 import 'package:business/redux/backups/actions/send_backup_action.dart';
 import 'package:business/redux/backups/actions/set_backup_form_action.dart';
 import 'package:business/redux/backups/actions/upload_restore_action.dart';
 import 'package:business/redux/broker_update/actions/open_broker_update_action.dart';
+import 'package:business/redux/common/action.dart';
 import 'package:business/redux/link_install/actions/check_package_action.dart';
 import 'package:business/redux/link_install/actions/choose_install_source_action.dart';
+import 'package:business/redux/link_install/actions/continue_install_action.dart';
 import 'package:business/redux/link_install/actions/install_backup_action.dart';
 import 'package:business/redux/link_install/actions/set_accept_rights_action.dart';
 import 'package:business/redux/link_install/actions/set_name_action.dart';
 import 'package:business/redux/link_install/actions/set_source_action.dart';
+import 'package:business/redux/links/actions/hide_links_action.dart';
 import 'package:business/redux/links/actions/retrieve_links_action.dart';
+import 'package:business/redux/links/actions/show_links_action.dart';
 import 'package:business/redux/live/actions/unwatch_keys_action.dart';
 import 'package:business/redux/live/actions/watch_keys_action.dart';
 import 'package:business/redux/login/actions/log_in_action.dart';
@@ -37,21 +42,44 @@ import 'package:business/redux/login/actions/set_gateway_action.dart';
 import 'package:business/redux/login/actions/set_password_action.dart';
 import 'package:business/redux/login/actions/set_user_action.dart';
 import 'package:business/redux/session/actions/log_out_action.dart';
+import 'package:business/redux/site/actions/reload_shown_action.dart';
 import 'package:business/redux/site/actions/set_connected_action.dart';
 import 'package:business/redux/site/actions/view_site_action.dart';
+import 'package:business/redux/system/actions/set_shown_action.dart';
 import 'package:business/redux/updates/actions/open_update_action.dart';
+import 'package:business/wyrm/backup_plan.dart';
 import 'package:business/wyrm/decode/backup_job.dart';
+import 'package:business/wyrm/failures.dart';
 import 'package:business/wyrm/package_check.dart';
 import 'package:business/wyrm/transfer.dart';
 import 'package:crypto/crypto.dart';
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/backup_job.dart';
+import 'package:models/backup_link_facts.dart';
+import 'package:models/backup_place.dart';
+import 'package:models/backup_sealed.dart';
+import 'package:models/backup_section.dart';
+import 'package:models/backup_stage.dart';
 import 'package:models/backup_status.dart';
+import 'package:models/backups_read.dart';
+import 'package:models/error_call.dart';
+import 'package:models/error_hint.dart';
 import 'package:models/install_path.dart';
 import 'package:models/install_phase.dart';
 import 'package:models/install_source.dart';
+import 'package:models/install_step.dart';
 import 'package:models/link_mode.dart';
+import 'package:models/manifest_fault.dart';
+import 'package:models/manifest_problem.dart';
+import 'package:models/package_check.dart';
 import 'package:models/package_check_result.dart';
+import 'package:models/package_finding.dart';
+import 'package:models/restore_keys.dart';
+import 'package:models/restore_link_state.dart';
+import 'package:models/restore_mode.dart';
+import 'package:models/schema_pair.dart';
+import 'package:models/unreadable_part.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import 'support/fake_wyrm.dart';
@@ -105,6 +133,14 @@ Uint8List _linkBackup({String how = 'broker', String kind = 'link'}) {
       ),
     );
   return Uint8List.fromList(ZipEncoder().encode(a));
+}
+
+/// The selectors over a state.
+class _Sel with Selectors {
+  _Sel(this.state);
+
+  @override
+  final AppState state;
 }
 
 /// ADR 0048 §3: backups, the transfer in parts, restore, and Add a link ▸
@@ -223,7 +259,11 @@ void main() {
     test('a cancelled or failed upload is dropped on the broker', () async {
       api
         ..invokes['$_b ▸ restore_begin'] = [
-          const VMap({'upload': VStr('u1'), 'part_size': VInt(10)}),
+          const VMap({
+            'upload': VStr('u1'),
+            'part_size': VInt(10),
+            'max_part': VInt(16 << 20),
+          }),
         ]
         ..invokes['$_b ▸ restore_part'] = [const VMap({})]
         ..invokes['$_b ▸ restore_abort'] = [];
@@ -321,6 +361,98 @@ void main() {
       },
     );
 
+    test('a read that fails is not "no sys/backups", and is read again '
+        '(audit 3 of #135, 8)', () async {
+      // before any read nothing is known of the broker
+      final fresh = fakeStore(login: FakeLogin());
+      expect(fresh.state.backups.availability, BackupsRead.unknown);
+
+      // a site whose first read fails, while no screen shows backups
+      const plant = 'wy/plant/sys/backups';
+      api.errors[plant] = WyrmException.of(Status.timeout, 'no answer');
+      await s.dispatchAndWait(ViewSiteAction('plant'));
+      expect(s.state.backups.availability, BackupsRead.unknown);
+      final failed = await s.dispatchAndWait(RetrieveBackupsAction());
+      expect(failed.isCompletedFailed, isTrue);
+      expect(s.state.backups.availability, BackupsRead.failed);
+      expect(_Sel(s.state).backupsOffered, isFalse);
+
+      // the next read of what is shown asks again, and may be answered
+      api
+        ..errors.remove(plant)
+        ..metas[plant] = api.metas[_b]!
+        ..children_[plant] = [];
+      s.dispatchSync(SetShownAction(true));
+      await s.dispatchAndWait(ReloadShownAction());
+      expect(s.state.backups.availability, BackupsRead.read);
+      expect(_Sel(s.state).backupsOffered, isTrue);
+
+      // a later read that fails keeps what was read
+      api.errors[plant] = WyrmException.of(Status.timeout, 'no answer');
+      await s.dispatchAndWait(RetrieveBackupsAction(quiet: true));
+      expect(s.state.backups.availability, BackupsRead.read);
+      expect(s.state.backups.sections, hasLength(8));
+
+      // and the broker that says it has none is the only "absent"
+      api.errors[plant] = WyrmException.of(Status.notFound, 'no such node');
+      await s.dispatchAndWait(RetrieveBackupsAction());
+      expect(s.state.backups.availability, BackupsRead.absent);
+    });
+
+    test('a site change while a screen shows backups reads the new '
+        "site's (audit 4 of #135, 2)", () async {
+      const edge = 'wy/edge/sys/backups';
+      api
+        ..metas[edge] = api.metas[_b]!
+        ..children_[edge] = [];
+      for (final (screen, show, hide) in <(String, Action, Action)>[
+        ('System', SetShownAction(true), SetShownAction(false)),
+        ('Links', ShowLinksAction(), HideLinksAction()),
+      ]) {
+        await s.dispatchAndWait(ViewSiteAction('central'));
+        await s.dispatchAndWait(show);
+        await s.dispatchAndWait(RetrieveBackupsAction());
+        expect(s.state.backups.availability, BackupsRead.read, reason: screen);
+        api.calls.clear();
+
+        // the switch empties what was the old site's, and the shown screen
+        // reads the new site's at once (`deps.reloads`)
+        await s.dispatchAndWait(ViewSiteAction('edge'));
+        await s.dispatchAndWait(ReloadShownAction());
+        expect(
+          api.calls.where((c) => c.op == 'meta' && c.key == edge),
+          isNotEmpty,
+          reason: screen,
+        );
+        expect(s.state.backups.availability, BackupsRead.read, reason: screen);
+        expect(_Sel(s.state).backupsOffered, isTrue, reason: screen);
+
+        // hidden, a switch reads nothing of backups
+        await s.dispatchAndWait(hide);
+        await s.dispatchAndWait(ViewSiteAction('central'));
+        api.calls.clear();
+        await s.dispatchAndWait(ReloadShownAction());
+        expect(
+          api.calls.where((c) => c.key.endsWith('sys/backups')),
+          isEmpty,
+          reason: screen,
+        );
+        expect(s.state.backups.availability, BackupsRead.unknown);
+      }
+    });
+
+    test('the dialogs open only for backups that were read and list a '
+        'section (audit 3 of #135, 7)', () async {
+      expect(_Sel(s.state).backupsOffered, isTrue);
+      api.metas[_b] = NodeMeta(
+        attr: {'keep_days': const VInt(7), 'sections': const VArray([])},
+      );
+      await s.dispatchAndWait(RetrieveBackupsAction());
+      expect(s.state.backups.availability, BackupsRead.read);
+      expect(s.state.backups.sections, isEmpty);
+      expect(_Sel(s.state).backupsOffered, isFalse);
+    });
+
     test('the values of a backup overlay its meta; times are ISO texts', () {
       final j = backupLiveOf(
         const BackupJob(id: 'b1'),
@@ -346,9 +478,9 @@ void main() {
 
     test('a broker backup starts with every section but keys', () {
       s.dispatchSync(OpenBackupAction());
-      expect(s.state.backups.stage, 'choose');
-      expect(s.state.backups.chosen.contains('keys'), isFalse);
-      expect(s.state.backups.chosen.contains('history'), isTrue);
+      expect(s.state.backups.stage, BackupStage.choose);
+      expect(s.state.backups.chosen.contains(BackupSection.keys), isFalse);
+      expect(s.state.backups.chosen.contains(BackupSection.history), isTrue);
       expect(s.state.backups.historyDays, 30);
     });
 
@@ -371,7 +503,7 @@ void main() {
         expect((args['sections']! as VArray).v, hasLength(8));
         expect(args['history_days'], const VInt(7));
         expect(args['passphrase'], isNull);
-        expect(s.state.backups.estimate['history'], 5000);
+        expect(s.state.backups.estimate[BackupSection.history], 5000);
       },
     );
 
@@ -383,11 +515,11 @@ void main() {
         ];
         s
           ..dispatchSync(OpenBackupAction())
-          ..dispatchSync(SetBackupFormAction(toggle: 'keys'))
-          ..dispatchSync(SetBackupFormAction(toggle: 'history'))
-          ..dispatchSync(SetBackupFormAction(toggle: 'packages'))
+          ..dispatchSync(SetBackupFormAction(toggle: BackupSection.keys))
+          ..dispatchSync(SetBackupFormAction(toggle: BackupSection.history))
+          ..dispatchSync(SetBackupFormAction(toggle: BackupSection.packages))
           // `control` cannot be unticked.
-          ..dispatchSync(SetBackupFormAction(toggle: 'control'));
+          ..dispatchSync(SetBackupFormAction(toggle: BackupSection.control));
 
         await s.dispatchAndWait(CreateBackupAction(passphrase: _secret));
 
@@ -399,7 +531,7 @@ void main() {
         expect(args['passphrase'], const VStr(_secret));
         expect(args['history_days'], isNull);
         expect(args['links'], isNull);
-        expect(s.state.backups.stage, 'job');
+        expect(s.state.backups.stage, BackupStage.job);
         expect(s.state.backups.job, 'b2');
         expect('${s.state}', isNot(contains(_secret)));
       },
@@ -435,7 +567,7 @@ void main() {
       ];
       s
         ..dispatchSync(OpenBackupAction(link: 'modbus'))
-        ..dispatchSync(SetBackupFormAction(toggle: 'history'))
+        ..dispatchSync(SetBackupFormAction(toggle: BackupSection.history))
         ..dispatchSync(SetBackupFormAction(historyDays: 7));
 
       await s.dispatchAndWait(CreateBackupAction());
@@ -465,9 +597,16 @@ void main() {
       await s.dispatchAndWait(RetrieveLinksAction());
 
       s.dispatchSync(OpenBackupAction(link: 'mock'));
-      expect(s.state.backups.chosen.unlock, {'settings', 'data'});
+      expect(s.state.backups.chosen.unlock, {
+        BackupSection.settings,
+        BackupSection.data,
+      });
       s.dispatchSync(OpenBackupAction(link: 'avg'));
-      expect(s.state.backups.chosen.unlock, {'settings', 'data', 'package'});
+      expect(s.state.backups.chosen.unlock, {
+        BackupSection.settings,
+        BackupSection.data,
+        BackupSection.package,
+      });
     });
 
     test('a refused backup fails the action and keeps the dialog', () async {
@@ -482,7 +621,7 @@ void main() {
       );
 
       expect(status.isCompletedFailed, isTrue);
-      expect(s.state.backups.stage, 'choose');
+      expect(s.state.backups.stage, BackupStage.choose);
       // The refusal names the option, never the passphrase.
       expect('${status.originalError}', isNot(contains(_secret)));
     });
@@ -665,7 +804,9 @@ void main() {
         ];
       s
         ..dispatchSync(OpenBackupAction(job: 'b1'))
-        ..dispatchSync(SetBackupFormAction(where: 'store', sendLink: 'files'));
+        ..dispatchSync(
+          SetBackupFormAction(where: BackupPlace.store, sendLink: 'files'),
+        );
       await s.dispatchAndWait(RetrieveSendConnectionsAction('files'));
 
       // The one connection of the link is the choice; a value is none.
@@ -684,6 +825,83 @@ void main() {
     });
   });
 
+  group('a backup or a send its plan blocks is refused by the action '
+      'itself (audit 3 of #135, 2)', () {
+    Future<void> refused(
+      Future<ActionStatus> Function() run,
+      String call,
+    ) async {
+      final status = await run();
+      expect(status.isCompletedFailed, isTrue);
+      final e = (status.originalError! as StudioException).error;
+      expect((e.hint, e.call?.name), (const ErrorHint.stepBlocked(), call));
+      expect(invokes(call), isEmpty);
+    }
+
+    test('a passphrase too short to seal anything', () async {
+      s.dispatchSync(OpenBackupAction());
+      await refused(
+        () => s.dispatchAndWait(CreateBackupAction(passphrase: 'short')),
+        'create',
+      );
+      // Back up, the dialog's action, starts nothing either
+      await s.dispatchAndWait(BackUpAction(passphrase: 'short'));
+      expect(invokes('create'), isEmpty);
+      expect(s.state.backups.stage, BackupStage.choose);
+    });
+
+    test('to a file store with no connection chosen', () async {
+      s
+        ..dispatchSync(OpenBackupAction())
+        ..dispatchSync(
+          SetBackupFormAction(where: BackupPlace.store, sendLink: 'files'),
+        );
+      await refused(() => s.dispatchAndWait(CreateBackupAction()), 'create');
+    });
+
+    test('to a file store with the keys in it', () async {
+      s
+        ..dispatchSync(OpenBackupAction())
+        ..dispatchSync(SetBackupFormAction(toggle: BackupSection.keys))
+        ..dispatchSync(
+          SetBackupFormAction(
+            where: BackupPlace.store,
+            sendLink: 'files',
+            sendConnection: 's3',
+          ),
+        );
+      await refused(
+        () => s.dispatchAndWait(CreateBackupAction(passphrase: _secret)),
+        'create',
+      );
+    });
+
+    test('a kept backup: no connection, or the keys in it', () async {
+      s
+        ..dispatchSync(OpenBackupAction(job: 'b1'))
+        ..dispatchSync(
+          SetBackupFormAction(where: BackupPlace.store, sendLink: 'files'),
+        );
+      await refused(() => s.dispatchAndWait(SendBackupAction('b1')), 'send');
+
+      // a backup with the keys is never sent, connection or not
+      api.metas['$_b/b1'] = NodeMeta(
+        attr: {
+          'kind': const VStr('full'),
+          'name': const VStr('central-2026-11-13-1540.wyrm-backup'),
+          'sections': const VArray([VStr('control'), VStr('keys')]),
+          'sealed': const VStr('passphrase'),
+          'by': const VStr('user:admin'),
+        },
+      );
+      await s.dispatchAndWait(RetrieveBackupsAction());
+      s.dispatchSync(SetBackupFormAction(sendConnection: 's3'));
+      await refused(() => s.dispatchAndWait(SendBackupAction('b1')), 'send');
+      // one that is not kept at all
+      await refused(() => s.dispatchAndWait(SendBackupAction('b9')), 'send');
+    });
+  });
+
   group("one intent, one action (the dialog's steps)", () {
     test('Back up leaves keys out when the passphrase cannot take them, '
         'then makes the backup', () async {
@@ -692,17 +910,17 @@ void main() {
       ];
       s
         ..dispatchSync(OpenBackupAction())
-        ..dispatchSync(SetBackupFormAction(toggle: 'keys'));
-      expect(s.state.backups.chosen.contains('keys'), isTrue);
+        ..dispatchSync(SetBackupFormAction(toggle: BackupSection.keys));
+      expect(s.state.backups.chosen.contains(BackupSection.keys), isTrue);
 
-      await s.dispatchAndWait(BackUpAction(dropKeys: true));
+      await s.dispatchAndWait(BackUpAction());
 
       final args = invokes('create').single.args!;
       expect(
         [for (final v in (args['sections']! as VArray).v) (v as VStr).v],
         isNot(contains('keys')),
       );
-      expect(s.state.backups.stage, 'job');
+      expect(s.state.backups.stage, BackupStage.job);
     });
 
     test('to a file store the host names one link for: that link, and its '
@@ -710,9 +928,9 @@ void main() {
       api.children_['wy/central/downstream/files'] = [Child('s3', NodeMeta())];
       s.dispatchSync(OpenBackupAction(job: 'b1'));
 
-      await s.dispatchAndWait(ChangeBackupFormAction.where('store'));
+      await s.dispatchAndWait(ChangeBackupFormAction.where(BackupPlace.store));
 
-      expect(s.state.backups.where, 'store');
+      expect(s.state.backups.where, BackupPlace.store);
       expect(s.state.backups.sendLink, 'files');
       expect(s.state.backups.connections, ['s3']);
     });
@@ -730,7 +948,7 @@ void main() {
       await s.dispatchAndWait(CloseBackupAction());
       s.dispatchSync(OpenBackupAction(restore: true));
       await estimate;
-      expect(s.state.backups.stage, 'restore');
+      expect(s.state.backups.stage, BackupStage.restore);
       expect(s.state.backups.estimate, isEmpty);
     });
   });
@@ -739,7 +957,11 @@ void main() {
     Future<void> uploaded() async {
       api
         ..invokes['$_b ▸ restore_begin'] = [
-          const VMap({'upload': VStr('u9'), 'part_size': VInt(64)}),
+          const VMap({
+            'upload': VStr('u9'),
+            'part_size': VInt(64),
+            'max_part': VInt(16 << 20),
+          }),
         ]
         ..invokes['$_b ▸ restore_part'] = [const VMap({})]
         ..invokes['$_b ▸ restore_abort'] = [];
@@ -793,13 +1015,21 @@ void main() {
       expect(args['passphrase'], const VStr(_secret));
       final c = s.state.backups.check!;
       expect(c.sameSite, isTrue);
-      expect(c.keys, 'differ');
+      expect(c.keys, RestoreKeys.differ);
+      expect(c.sealed, BackupSealed.passphrase);
+      expect(c.created, DateTime.utc(2026, 11, 1, 3));
+      expect(c.sections[BackupSection.history], 9000);
       expect(c.keysDiffer, ['secrets.bin']);
-      expect(c.schemas['registry'], (19, 19));
-      expect(c.links['modbus'], 'exists');
+      expect(c.schemas['registry'], const SchemaPair(backup: 19, here: 19));
+      expect(c.links['modbus'], RestoreLinkState.exists);
+      expect(c.links['new1'], RestoreLinkState.fresh);
       expect(c.notes, ['a note']);
       // History, keys and config are not ticked by themselves.
-      expect(s.state.backups.chosen.unlock, {'control', 'links', 'storage'});
+      expect(s.state.backups.chosen.unlock, {
+        BackupSection.control,
+        BackupSection.links,
+        BackupSection.storage,
+      });
       expect('${s.state}', isNot(contains(_secret)));
     });
 
@@ -807,7 +1037,11 @@ void main() {
       // Review point 4.
       api
         ..invokes['$_b ▸ restore_begin'] = [
-          const VMap({'upload': VStr('u9'), 'part_size': VInt(64)}),
+          const VMap({
+            'upload': VStr('u9'),
+            'part_size': VInt(64),
+            'max_part': VInt(16 << 20),
+          }),
         ]
         ..errors['$_b ▸ restore_part'] = WyrmException.of(
           Status.resourceExhausted,
@@ -830,7 +1064,75 @@ void main() {
       expect(s.state.backups.uploadName, isNull);
       expect(s.state.backups.upload, isNull);
       expect(s.state.backups.uploaded, 0);
-      expect(s.state.backups.stage, 'restore');
+      expect(s.state.backups.stage, BackupStage.restore);
+    });
+
+    group('an answer Studio cannot read (studio-rules §8)', () {
+      test('a check with a name it does not know shows no check', () async {
+        await uploaded();
+        for (final over in const <Map<String, Value>>[
+          // none of these is read as `none`, the valid default it had
+          {'keys': VStr('rotated')},
+          {'sealed': VStr('hsm')},
+          {
+            'sections': VMap({'control': VInt(1200), 'flows': VInt(9)}),
+          },
+          {
+            'links': VMap({'modbus': VStr('older')}),
+          },
+          {'same_site': VStr('yes')},
+        ]) {
+          api.invokes['$_b ▸ restore_check'] = [
+            VMap({...check.v, ...over}),
+          ];
+          final status = await s.dispatchAndWait(CheckRestoreAction());
+
+          expect(status.isCompletedFailed, isTrue, reason: '$over');
+          final e = status.originalError! as StudioException;
+          expect(
+            e.error.hint,
+            const ErrorHint.unreadable(UnreadablePart.answer),
+            reason: '$over',
+          );
+          expect(e.error.call, const ErrorCall.named('restore_check'));
+          // nothing to restore on: no check, nothing ticked
+          expect(s.state.backups.check, isNull, reason: '$over');
+          expect(s.state.backups.chosen, isEmpty, reason: '$over');
+          expect(s.state.backups.stage, BackupStage.restore);
+        }
+      });
+
+      test('an apply answered in another shape moves no stage', () async {
+        await uploaded();
+        api.invokes['$_b ▸ restore_check'] = [check];
+        await s.dispatchAndWait(CheckRestoreAction());
+        for (final answer in const <Value>[
+          VNull(),
+          // no mode: whether the broker restarts is not guessed
+          VMap({
+            'sections': VArray([VStr('control')]),
+            'restart': VBool(true),
+          }),
+          VMap({'mode': VStr('merge'), 'restart': VBool(false)}),
+          VMap({
+            'mode': VStr('replace'),
+            'sections': VArray([VStr('flows')]),
+            'restart': VBool(true),
+          }),
+        ]) {
+          api.invokes['$_b ▸ restore_apply'] = [answer];
+          final status = await s.dispatchAndWait(ApplyRestoreAction());
+
+          expect(status.isCompletedFailed, isTrue, reason: '$answer');
+          expect(
+            (status.originalError! as StudioException).error.hint,
+            const ErrorHint.unreadable(UnreadablePart.answer),
+          );
+          expect(s.state.backups.stage, BackupStage.restore);
+          expect(s.state.backups.result, isNull);
+          expect(s.state.backups.staged, isEmpty);
+        }
+      });
     });
 
     group('after a replace', () {
@@ -841,14 +1143,15 @@ void main() {
           ..invokes['$_b ▸ restore_check'] = [check]
           ..invokes['$_b ▸ restore_apply'] = [
             const VMap({
+              'mode': VStr('replace'),
               'sections': VArray([VStr('control')]),
               'restart': VBool(true),
             }),
           ];
         await s.dispatchAndWait(CheckRestoreAction());
-        s.dispatchSync(SetBackupFormAction(mode: 'replace'));
+        s.dispatchSync(SetBackupFormAction(mode: RestoreMode.replace));
         await s.dispatchAndWait(ApplyRestoreAction());
-        expect(s.state.backups.stage, 'restarting');
+        expect(s.state.backups.stage, BackupStage.restarting);
       }
 
       FollowRestoreAction follow() => FollowRestoreAction(
@@ -860,7 +1163,7 @@ void main() {
       List<Value> audit(String op, String detail) => [
         VArray([
           VMap({
-            't': VInt(DateTime.now().millisecondsSinceEpoch ~/ 1000),
+            't': VInt(DateTime.now().microsecondsSinceEpoch),
             'op': VStr(op),
             'detail': VStr(detail),
           }),
@@ -884,7 +1187,7 @@ void main() {
         await bounce();
         await run;
 
-        expect(s.state.backups.stage, 'applied');
+        expect(s.state.backups.stage, BackupStage.applied);
         expect(s.state.backups.result, 'sections control');
       });
 
@@ -898,7 +1201,7 @@ void main() {
         await bounce();
         await run;
 
-        expect(s.state.backups.stage, 'not-applied');
+        expect(s.state.backups.stage, BackupStage.notApplied);
         expect(s.state.backups.result, contains('bad chain'));
       });
 
@@ -907,7 +1210,7 @@ void main() {
         api.invokes['wy/central/sys/audit ▸ tail'] = [
           const VArray([
             VMap({
-              't': VInt(1700000000),
+              't': VInt(1700000000000000),
               'op': VStr('restore_applied'),
               'detail': VStr('long ago'),
             }),
@@ -917,7 +1220,41 @@ void main() {
         await bounce();
         await run;
 
-        expect(s.state.backups.stage, 'unknown');
+        expect(s.state.backups.stage, BackupStage.unknown);
+      });
+
+      test('a row of the audit Studio cannot read does not hide the '
+          'record', () async {
+        await restarting();
+        api.invokes['wy/central/sys/audit ▸ tail'] = [
+          VArray([
+            const VStr('not a record'),
+            VMap({
+              't': VInt(DateTime.now().microsecondsSinceEpoch),
+              'op': const VStr('restore_applied'),
+              'detail': const VStr('sections control'),
+            }),
+            const VMap({'op': VInt(7)}),
+          ]),
+        ];
+        final run = s.dispatchAndWait(follow());
+        await bounce();
+        await run;
+
+        expect(s.state.backups.stage, BackupStage.applied);
+      });
+
+      test('a fault while the audit is read is not swallowed', () async {
+        await restarting();
+        api.answers['wy/central/sys/audit ▸ tail'] = (_) =>
+            throw StateError('a fault in Studio');
+        final run = s.dispatchAndWait(follow());
+        await bounce();
+        final status = await run;
+
+        expect(status.isCompletedFailed, isTrue);
+        expect(status.originalError, isA<StateError>());
+        expect(s.state.backups.stage, BackupStage.restarting);
       });
 
       test('the broker does not come back: the session is lost', () async {
@@ -927,7 +1264,7 @@ void main() {
         s.dispatchSync(SetConnectedAction(false));
         await run;
 
-        expect(s.state.backups.stage, 'lost');
+        expect(s.state.backups.stage, BackupStage.lost);
       });
 
       test('closing the dialog ends the watch', () async {
@@ -946,6 +1283,7 @@ void main() {
         ..invokes['$_b ▸ restore_check'] = [check]
         ..invokes['$_b ▸ restore_apply'] = [
           const VMap({
+            'mode': VStr('add'),
             'done': VArray([VStr('link new1')]),
             'skipped': VArray([VStr('link modbus: exists')]),
             'restart': VBool(false),
@@ -961,7 +1299,7 @@ void main() {
       expect(args['sections'], const VArray([VStr('links'), VStr('storage')]));
       expect(args['accept'], const VBool(true));
       expect(args['replace_keys'], isNull);
-      expect(s.state.backups.stage, 'restored');
+      expect(s.state.backups.stage, BackupStage.restored);
       expect(s.state.backups.result, contains('link new1'));
       expect(s.state.backups.result, contains('modbus: exists'));
     });
@@ -972,16 +1310,17 @@ void main() {
         ..invokes['$_b ▸ restore_check'] = [check]
         ..invokes['$_b ▸ restore_apply'] = [
           const VMap({
+            'mode': VStr('replace'),
             'sections': VArray([VStr('control'), VStr('keys')]),
             'restart': VBool(true),
           }),
         ];
       await s.dispatchAndWait(CheckRestoreAction(passphrase: _secret));
       s
-        ..dispatchSync(SetBackupFormAction(mode: 'replace'))
-        ..dispatchSync(SetBackupFormAction(toggle: 'keys'))
-        ..dispatchSync(SetBackupFormAction(toggle: 'links'))
-        ..dispatchSync(SetBackupFormAction(toggle: 'storage'))
+        ..dispatchSync(SetBackupFormAction(mode: RestoreMode.replace))
+        ..dispatchSync(SetBackupFormAction(toggle: BackupSection.keys))
+        ..dispatchSync(SetBackupFormAction(toggle: BackupSection.links))
+        ..dispatchSync(SetBackupFormAction(toggle: BackupSection.storage))
         ..dispatchSync(SetBackupFormAction(replaceKeys: true));
 
       await s.dispatchAndWait(ApplyRestoreAction(passphrase: _secret));
@@ -991,12 +1330,252 @@ void main() {
       expect(args['sections'], const VArray([VStr('control'), VStr('keys')]));
       expect(args['replace_keys'], const VBool(true));
       expect(args['passphrase'], const VStr(_secret));
-      expect(s.state.backups.stage, 'restarting');
+      expect(s.state.backups.stage, BackupStage.restarting);
 
       // An applied upload is the broker's: closing does not abort it.
       await s.dispatchAndWait(CloseBackupAction());
       expect(invokes('restore_abort'), isEmpty);
       expect(s.state.backups.stage, isNull);
+    });
+
+    group('a restore its plan blocks is refused by the action itself '
+        '(audit 3 of #135, 2)', () {
+      // Whoever dispatches it: the dialog's locked button is not the guard.
+      Future<void> refused(Future<ActionStatus> Function() run) async {
+        final status = await run();
+        expect(status.isCompletedFailed, isTrue);
+        final e = (status.originalError! as StudioException).error;
+        expect(
+          (e.hint, e.call),
+          (
+            const ErrorHint.stepBlocked(),
+            const ErrorCall.named('restore_apply'),
+          ),
+        );
+        expect(invokes('restore_apply'), isEmpty);
+        expect(s.state.backups.stage, BackupStage.restore);
+        expect(s.state.backups.applySent, isFalse);
+      }
+
+      test('the file step: no check without a file on the broker, no '
+          'second file over one (leftover b of #135)', () async {
+        s.dispatchSync(OpenBackupAction(restore: true));
+        expect(restoreFilePlanOf(s.state.backups).step, RestoreFileStep.choose);
+        // no file at all: a check dispatched directly is refused
+        var status = await s.dispatchAndWait(CheckRestoreAction());
+        expect(status.isCompletedFailed, isTrue);
+        var e = (status.originalError! as StudioException).error;
+        expect(
+          (e.hint, e.call),
+          (
+            const ErrorHint.stepBlocked(),
+            const ErrorCall.named('restore_check'),
+          ),
+        );
+        expect(invokes('restore_check'), isEmpty);
+
+        // a file still going up: the same
+        api
+          ..invokes['$_b ▸ restore_begin'] = [
+            const VMap({
+              'upload': VStr('u9'),
+              'part_size': VInt(64),
+              'max_part': VInt(16 << 20),
+            }),
+          ]
+          ..invokes['$_b ▸ restore_part'] = [const VMap({})]
+          ..delays['$_b ▸ restore_part'] = const Duration(milliseconds: 40);
+        final data = _bytes(100);
+        final up = s.dispatchAndWait(
+          UploadRestoreAction(
+            name: 'plant.wyrm-backup',
+            size: 100,
+            read: (o, n) async => data.sublist(o, o + n),
+          ),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        final going = restoreFilePlanOf(s.state.backups);
+        expect(
+          (going.step, going.blocked, going.canRun),
+          (
+            RestoreFileStep.uploading,
+            RestoreFileBlock.uploading,
+            false,
+          ),
+        );
+        status = await s.dispatchAndWait(CheckRestoreAction());
+        expect(status.isCompletedFailed, isTrue);
+        expect(invokes('restore_check'), isEmpty);
+        await up;
+
+        // the broker has it: the step is the check, and a second file is
+        // refused before anything is sent
+        final has = restoreFilePlanOf(s.state.backups);
+        expect((has.step, has.canRun), (RestoreFileStep.check, true));
+        final begun = invokes('restore_begin').length;
+        status = await s.dispatchAndWait(
+          UploadRestoreAction(
+            name: 'other.wyrm-backup',
+            size: 100,
+            read: (o, n) async => data.sublist(o, o + n),
+          ),
+        );
+        expect(status.isCompletedFailed, isTrue);
+        e = (status.originalError! as StudioException).error;
+        expect(
+          (e.hint, e.call),
+          (
+            const ErrorHint.stepBlocked(),
+            const ErrorCall.named('restore_begin'),
+          ),
+        );
+        expect(invokes('restore_begin'), hasLength(begun));
+        expect(s.state.backups.uploadName, 'plant.wyrm-backup');
+
+        api.invokes['$_b ▸ restore_check'] = [check];
+        await s.dispatchAndWait(CheckRestoreAction());
+        expect(
+          restoreFilePlanOf(s.state.backups).step,
+          RestoreFileStep.restore,
+        );
+      });
+
+      test('a file that is not checked', () async {
+        await uploaded();
+        await refused(() => s.dispatchAndWait(ApplyRestoreAction()));
+      });
+
+      test('a backup of another site', () async {
+        await uploaded();
+        api.invokes['$_b ▸ restore_check'] = [
+          VMap({
+            ...check.v,
+            'site': const VStr('plant'),
+            'same_site': const VBool(false),
+          }),
+        ];
+        await s.dispatchAndWait(CheckRestoreAction());
+        expect(s.state.backups.chosen, isNotEmpty);
+
+        await refused(() => s.dispatchAndWait(ApplyRestoreAction()));
+        // the dialog's own action is refused the same way
+        final status = await s.dispatchAndWait(RestoreAction());
+        expect(status.isCompletedOk, isTrue);
+        expect(invokes('restore_apply'), isEmpty);
+        expect(s.state.backups.stage, BackupStage.restore);
+      });
+
+      test("keys that are not this broker's, not confirmed", () async {
+        await uploaded();
+        api
+          ..invokes['$_b ▸ restore_check'] = [check]
+          ..invokes['$_b ▸ restore_apply'] = [
+            const VMap({
+              'mode': VStr('replace'),
+              'sections': VArray([VStr('control'), VStr('keys')]),
+              'restart': VBool(true),
+            }),
+          ];
+        await s.dispatchAndWait(CheckRestoreAction(passphrase: _secret));
+        s
+          ..dispatchSync(SetBackupFormAction(mode: RestoreMode.replace))
+          ..dispatchSync(SetBackupFormAction(toggle: BackupSection.keys));
+
+        await refused(
+          () => s.dispatchAndWait(ApplyRestoreAction(passphrase: _secret)),
+        );
+
+        // confirmed, the same dispatch goes
+        s.dispatchSync(SetBackupFormAction(replaceKeys: true));
+        await s.dispatchAndWait(ApplyRestoreAction(passphrase: _secret));
+        expect(
+          invokes('restore_apply').single.args!['replace_keys'],
+          const VBool(true),
+        );
+      });
+
+      test('nothing ticked that the mode takes', () async {
+        await uploaded();
+        api.invokes['$_b ▸ restore_check'] = [check];
+        await s.dispatchAndWait(CheckRestoreAction());
+        for (final t in s.state.backups.chosen) {
+          s.dispatchSync(SetBackupFormAction(toggle: t));
+        }
+        await refused(() => s.dispatchAndWait(ApplyRestoreAction()));
+      });
+
+      test('a replace the check found problems for', () async {
+        await uploaded();
+        api.invokes['$_b ▸ restore_check'] = [
+          VMap({
+            ...check.v,
+            'problems': const VArray([VStr('the registry is newer')]),
+          }),
+        ];
+        await s.dispatchAndWait(CheckRestoreAction());
+        s.dispatchSync(SetBackupFormAction(mode: RestoreMode.replace));
+        await refused(() => s.dispatchAndWait(ApplyRestoreAction()));
+      });
+    });
+
+    group('the upload once the apply was sent (audit 3 of #135, 6)', () {
+      Future<void> checked() async {
+        await uploaded();
+        api.invokes['$_b ▸ restore_check'] = [check];
+        await s.dispatchAndWait(CheckRestoreAction());
+      }
+
+      test('an answer Studio cannot read: the broker applied it, so '
+          'closing aborts nothing', () async {
+        await checked();
+        api.invokes['$_b ▸ restore_apply'] = [const VNull()];
+
+        final status = await s.dispatchAndWait(ApplyRestoreAction());
+        expect(status.isCompletedFailed, isTrue);
+        expect(s.state.backups.stage, BackupStage.restore);
+        expect(s.state.backups.applySent, isTrue);
+
+        await s.dispatchAndWait(CloseBackupAction());
+        expect(invokes('restore_abort'), isEmpty);
+        expect(s.state.backups.applySent, isFalse);
+      });
+
+      test(
+        'no answer at all: it may be applied, closing aborts nothing',
+        () async {
+          await checked();
+          api.errors['$_b ▸ restore_apply'] = WyrmException.of(
+            Status.closed,
+            'the session closed',
+          );
+
+          final status = await s.dispatchAndWait(ApplyRestoreAction());
+          expect(status.isCompletedFailed, isTrue);
+          expect(s.state.backups.applySent, isTrue);
+
+          await s.dispatchAndWait(CloseBackupAction());
+          expect(invokes('restore_abort'), isEmpty);
+        },
+      );
+
+      test('a refusal of the broker: nothing was applied, closing drops '
+          'the upload', () async {
+        await checked();
+        api.errors['$_b ▸ restore_apply'] = WyrmException.of(
+          Status.invalidParameter,
+          'the passphrase is wrong',
+        );
+
+        final status = await s.dispatchAndWait(ApplyRestoreAction());
+        expect(status.isCompletedFailed, isTrue);
+        expect(s.state.backups.applySent, isFalse);
+
+        await s.dispatchAndWait(CloseBackupAction());
+        expect(
+          invokes('restore_abort').single.args!['upload'],
+          const VStr('u9'),
+        );
+      });
     });
 
     test('closing before the restore drops the upload', () async {
@@ -1063,6 +1642,100 @@ void main() {
     expect(s.state.backups.sections, isEmpty);
   });
 
+  group('a backup answered in a shape Studio cannot read', () {
+    test('create without an id opens no job', () async {
+      api.invokes['$_b ▸ create'] = [const VMap({})];
+      s.dispatchSync(OpenBackupAction());
+
+      final status = await s.dispatchAndWait(CreateBackupAction());
+
+      expect(status.isCompletedFailed, isTrue);
+      expect(
+        (status.originalError! as StudioException).error.hint,
+        const ErrorHint.unreadable(UnreadablePart.answer),
+      );
+      expect(s.state.backups.stage, BackupStage.choose);
+      expect(s.state.backups.job, isNull);
+    });
+
+    test(
+      'an estimate with a section it does not know shows no sizes',
+      () async {
+        api.invokes['$_b ▸ estimate'] = [
+          const VMap({
+            'sections': VMap({'control': VInt(1200), 'flows': VInt(9)}),
+          }),
+        ];
+        s.dispatchSync(OpenBackupAction());
+
+        await s.dispatchAndWait(EstimateBackupAction());
+
+        expect(s.state.backups.estimate, isEmpty);
+      },
+    );
+
+    test('a part without its bytes or its end saves nothing', () async {
+      final written = <int>[];
+      for (final part in <Map<String, Value>>[
+        {
+          'offset': const VInt(0),
+          'size': const VInt(10),
+          'eof': const VBool(true),
+        },
+        {
+          'offset': const VInt(0),
+          'size': const VInt(10),
+          'data': VBytes(_bytes(10)),
+        },
+        {
+          'offset': const VInt(5),
+          'size': const VInt(10),
+          'eof': const VBool(true),
+          'data': VBytes(_bytes(10)),
+        },
+      ]) {
+        api.invokes['$_b/b1 ▸ download_part'] = [VMap(part)];
+        await expectLater(
+          downloadParts(
+            api,
+            '$_b/b1',
+            write: (data) async => written.addAll(data),
+          ),
+          throwsA(
+            isA<StudioException>().having(
+              (e) => e.error.hint,
+              'hint',
+              const ErrorHint.unreadable(UnreadablePart.answer),
+            ),
+          ),
+          reason: '$part',
+        );
+      }
+      expect(written, isEmpty);
+    });
+
+    test('restore_begin without a part size sends no byte', () async {
+      api
+        ..invokes['$_b ▸ restore_begin'] = [
+          const VMap({'upload': VStr('u1')}),
+        ]
+        ..invokes['$_b ▸ restore_part'] = [const VMap({})];
+      await expectLater(
+        uploadParts(
+          api,
+          _b,
+          size: 10,
+          read: (o, n) async => _bytes(10).sublist(o, o + n),
+        ),
+        throwsA(isA<StudioException>()),
+      );
+      expect(
+        api.calls.where((c) => c.op == 'invoke' && c.action == 'restore_part'),
+        isEmpty,
+      );
+    });
+  });
+
   group('Add a link ▸ From backup', () {
     test('the manifest of a link backup is read here', () {
       final r = checkBackup(_linkBackup());
@@ -1072,17 +1745,77 @@ void main() {
       );
       expect(r.name, 'modbus');
       expect(r.kind, LinkMode.process);
+      // sealed for its site: whether it opens is known on the broker
       expect(
-        r.checks.firstWhere((c) => c.title == 'Secrets').detail,
-        contains('opens only on a broker'),
+        r.checks.firstWhere((c) => c.finding is FindingSecrets),
+        const PackageCheck(
+          PackageFinding.secrets(BackupSealed.broker, 'plant'),
+          result: PackageCheckResult.skipped,
+        ),
+      );
+      expect(
+        r.checks.map((c) => c.finding),
+        containsAll([
+          const PackageFinding.packageOfLink(
+            name: 'modbus',
+            version: '0.5.0',
+            inFile: true,
+          ),
+          PackageFinding.sections(
+            const [
+              BackupSection.settings,
+              BackupSection.data,
+              BackupSection.package,
+            ].lock,
+          ),
+          const PackageFinding.checkedAsNewLink(),
+        ]),
       );
       expect(r.manifest, contains('"kind": "link"'));
     });
 
+    test('what the check shows is typed: the link, and what is wrong with '
+        'a manifest', () {
+      final ok = checkBackup(_linkBackup());
+      final link = ok.checks.firstWhere((c) => c.finding is FindingLink);
+      expect(
+        (link.finding as FindingLink).link,
+        BackupLinkFacts(
+          id: 'modbus',
+          mode: LinkMode.process,
+          driver: 'pkg:modbus',
+          site: 'plant',
+          broker: '0.1.0',
+          created: DateTime.utc(2026, 11, 13, 15, 40),
+        ),
+      );
+
+      // a seal Studio does not know is not "none in the file"
+      final odd = checkBackup(_linkBackup(how: 'hsm'));
+      final bad = odd.checks.last;
+      expect(bad.result, PackageCheckResult.failed);
+      expect(
+        bad.finding,
+        const PackageFinding.manifestProblem(
+          ManifestProblem(
+            fault: ManifestFault.unknownName,
+            field: 'sealed.how',
+            found: 'hsm',
+          ),
+          'manifest.json',
+        ),
+      );
+      expect(odd.checks.where((c) => c.finding is FindingSecrets), isEmpty);
+      expect(odd.name, isNull);
+    });
+
     test('a broker backup and a file that is no zip fail the check', () {
       expect(
-        checkBackup(_linkBackup(kind: 'full')).checks.last.result,
-        PackageCheckResult.failed,
+        checkBackup(_linkBackup(kind: 'full')).checks.last,
+        const PackageCheck(
+          PackageFinding.otherKind('full'),
+          result: PackageCheckResult.failed,
+        ),
       );
       expect(
         checkBackup(Uint8List.fromList([1, 2, 3])).checks.single.result,
@@ -1107,6 +1840,61 @@ void main() {
         );
       await s.dispatchAndWait(CheckPackageAction(backup: file));
     }
+
+    test('Continue does not go on when the check found nothing', () async {
+      // no source: the check has nothing to say
+      s.dispatchSync(ChooseInstallSourceAction(InstallPath.custom));
+      final status = await s.dispatchAndWait(ContinueInstallAction());
+
+      expect(status.isCompletedFailed, isTrue);
+      expect(
+        (status.originalError! as StudioException).error.hint,
+        const ErrorHint.checkNotRun(),
+      );
+      // not on Check with an empty list, which would read as "all fine"
+      expect(s.state.linkInstall.step, InstallStep.choose);
+      expect(s.state.linkInstall.checks, isEmpty);
+    });
+
+    test('a backup whose manifest nests without end: Check shows the '
+        'failed check', () async {
+      final deep = Archive()
+        ..addFile(
+          ArchiveFile.string(
+            'manifest.json',
+            '${'[' * 5000}${']' * 5000}',
+          ),
+        );
+      final bytes = Uint8List.fromList(ZipEncoder().encode(deep));
+      s
+        ..dispatchSync(ChooseInstallSourceAction(InstallPath.backup))
+        ..dispatchSync(
+          SetSourceAction(
+            InstallSource.backup(fileName: 'x.wyrm-link', size: bytes.length),
+          ),
+        );
+      final status = await s.dispatchAndWait(
+        ContinueInstallAction(
+          file: HeldFile(
+            read: (o, n) async => bytes.sublist(o, o + n),
+            size: bytes.length,
+          ),
+        ),
+      );
+
+      expect(status.isCompletedOk, isTrue);
+      expect(s.state.linkInstall.step, InstallStep.check);
+      expect(
+        s.state.linkInstall.checks.last,
+        const PackageCheck(
+          PackageFinding.manifestProblem(
+            ManifestProblem(fault: ManifestFault.tooDeep),
+            'manifest.json',
+          ),
+          result: PackageCheckResult.failed,
+        ),
+      );
+    });
 
     test('the bytes of the file are in no state', () async {
       // Review point 7.
@@ -1147,7 +1935,11 @@ void main() {
       await picked();
       api
         ..invokes['$_b ▸ restore_begin'] = [
-          const VMap({'upload': VStr('u5'), 'part_size': VInt(128)}),
+          const VMap({
+            'upload': VStr('u5'),
+            'part_size': VInt(128),
+            'max_part': VInt(16 << 20),
+          }),
         ]
         ..invokes['$_b ▸ restore_part'] = [const VMap({})]
         ..invokes['wy/central/sys/links ▸ install_backup'] = [
@@ -1182,7 +1974,11 @@ void main() {
         await picked();
         api
           ..invokes['$_b ▸ restore_begin'] = [
-            const VMap({'upload': VStr('u5')}),
+            const VMap({
+              'upload': VStr('u5'),
+              'part_size': VInt(4 << 20),
+              'max_part': VInt(16 << 20),
+            }),
           ]
           ..invokes['$_b ▸ restore_part'] = [const VMap({})]
           ..invokes['wy/central/sys/links ▸ install_backup'] = [

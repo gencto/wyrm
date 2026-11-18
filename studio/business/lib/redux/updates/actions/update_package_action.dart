@@ -5,6 +5,7 @@ import 'package:async_redux/async_redux.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/error_hint.dart';
 import 'package:models/error_kind.dart';
+import 'package:models/link_info.dart';
 import 'package:models/update_result.dart';
 import 'package:models/update_view.dart';
 import 'package:wyrm_client/wyrm_client.dart';
@@ -83,7 +84,7 @@ class UpdatePackageAction extends Action with NonReentrant, WaitingAction {
       try {
         if (zip case final bytes?) {
           final link = links.table.values
-              .where((l) => l.driver == 'pkg:$name')
+              .where((l) => l.packageName == name)
               .firstOrNull;
           if (link == null) {
             throw StudioException.hinted(

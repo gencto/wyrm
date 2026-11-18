@@ -23,7 +23,17 @@ disallowed-methods = [
     # draws from `OsRng`, which panics without randomness; a value `&mut OsRng` is no type
     # use, so the type ban below does not see it
     { path = "password_hash::SaltString::generate", reason = "use SaltString::encode_b64 of wyrm_core::rand::bytes::<16>()", allow-invalid = true },
+    # the standard library's hash seed is OS randomness too: a jitter or an id made of it is
+    # a second source (two were; both read wyrm_core::rand now)
+    { path = "std::hash::RandomState::new", reason = "use wyrm_core::rand::bytes (one source, fails closed)" },
 ]
+# Not banned here, because it cannot be handed our source: the one library call that draws
+# OS randomness by itself (async-opcua's application key). It is named in
+# docs/rust-rules.md §10 and counted by rule A5 of tool/check_rust_rules.py, which also
+# counts any use of rcgen's own `KeyPair` (the broker's keys are `wyrm_admin::eckey::EcKey`).
 disallowed-types = [
+    # the type itself, however it is made (`Default::default()`, a `LazyLock`, a field): three
+    # ids and a shard seed were made of it without a call of `new`
+    { path = "std::hash::RandomState", reason = "its seed is OS randomness outside the one source: use wyrm_core::rand::bytes" },
     { path = "rand_core::OsRng", reason = "panics when the OS gives no randomness: use wyrm_core::rand::bytes", allow-invalid = true },
 ]

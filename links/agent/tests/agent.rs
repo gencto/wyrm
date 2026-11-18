@@ -976,7 +976,7 @@ fn get<'a>(v: &'a Value, k: &str) -> &'a Value {
 
 /// SHA-256 of a request body, as the `args` claim holds it.
 fn sha256(b: &[u8]) -> [u8; 32] {
-    let hex = wyrm_mcp::check::payload_sha256(b);
+    let hex = wyrm_core::hex::sha256_hex(b);
     let mut out = [0u8; 32];
     for (i, o) in out.iter_mut().enumerate() {
         *o = u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).unwrap();
@@ -1844,7 +1844,7 @@ async fn a_stopped_run_gets_ways_out_and_a_step_gets_fixes() {
                 _ => panic!("a step: {s:?}"),
             })
             .collect();
-        wyrm_mcp::check::payload_sha256(&wyrm_core::codec::to_vec(&Value::Array(steps)).unwrap())
+        wyrm_core::hex::sha256_hex(wyrm_core::codec::to_vec(&Value::Array(steps)).unwrap())
     };
     assert_eq!(field(&doc, "plan_hash"), Some(hash_of(&[])));
     assert_ne!(field(&doc, "plan_hash"), Some(hash_of(&["model_warn"])));

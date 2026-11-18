@@ -5,6 +5,7 @@ import 'package:localization/localization.dart';
 import '../models/broker_said.dart';
 import '../models/disabled.dart';
 import '../models/tone.dart';
+import '../overlays/backup_data.dart';
 
 // What System is drawn from (specs/system.md), as typed values: the
 // connector maps the domain into these; `SystemScreen` words them in the
@@ -413,7 +414,7 @@ final class SysBackupRow extends Equatable {
   final String name;
   final SysBackupKind kind;
   final String link;
-  final List<String> sections;
+  final List<BackupPart> sections;
   final DateTime? created;
   final SysBackupState state;
 
@@ -441,15 +442,48 @@ final class SysBackupRow extends Equatable {
   ];
 }
 
+/// What is known of the broker's backups, as the card *Backups* says it.
+enum SysBackupsState {
+  /// Read: the kept backups are listed.
+  read,
+
+  /// The attributes of `sys/backups` came in a form this Studio does not
+  /// read: no backup is offered, no list is drawn, and the card says why.
+  unreadable,
+
+  /// The read failed: nothing is known, no list is drawn, and the card
+  /// offers to read again.
+  failed;
+
+  /// Why no backup is offered, or null when the backups were read.
+  String? get said => switch (this) {
+    read => null,
+    unreadable => S.current.bakNotRead,
+    failed => S.current.bakReadFailed,
+  };
+}
+
 /// The card *Backups*: the days a backup is kept, the kept ones.
 final class SysBackupsData extends Equatable {
-  const SysBackupsData({this.keepDays = 7, this.rows = const []});
+  const SysBackupsData({
+    this.keepDays = 7,
+    this.rows = const [],
+    this.unread = const [],
+    this.state = SysBackupsState.read,
+  });
 
   final int keepDays;
   final List<SysBackupRow> rows;
 
+  /// The kept backups Studio could not read, by their node names: each
+  /// is a row that says so.
+  final List<String> unread;
+
+  /// Whether the backups were read; else why not.
+  final SysBackupsState state;
+
   @override
-  List<Object?> get props => [keepDays, rows];
+  List<Object?> get props => [keepDays, rows, unread, state];
 }
 
 /// Where the broker's update of itself is, as the card *Broker version*
@@ -556,6 +590,9 @@ enum SysAttention {
   linkFailed,
   quarantine,
   brokerWaiting,
+
+  /// What waits in quarantine was not read by Studio.
+  waitingNotRead,
   aclGrown,
   noStandby;
 
@@ -563,7 +600,7 @@ enum SysAttention {
   String get go => switch (this) {
     standbyBehind || noStandby => S.current.sysAttnOpenAvail,
     linkFailed => S.current.sysAttnOpenLinks,
-    quarantine => S.current.sysAttnOpenQuarantine,
+    quarantine || waitingNotRead => S.current.sysAttnOpenQuarantine,
     brokerWaiting => S.current.sysAttnOpenSites,
     aclGrown => S.current.sysAttnOpenAudit,
   };
@@ -571,7 +608,11 @@ enum SysAttention {
   Tone get tone => switch (this) {
     linkFailed => Tone.bad,
     noStandby => Tone.neutral,
-    standbyBehind || quarantine || brokerWaiting || aclGrown => Tone.warn,
+    standbyBehind ||
+    quarantine ||
+    brokerWaiting ||
+    waitingNotRead ||
+    aclGrown => Tone.warn,
   };
 }
 

@@ -5,7 +5,6 @@
 
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
-use std::time::{SystemTime, UNIX_EPOCH};
 use wyrm_core::meta::ParamMeta;
 use wyrm_core::ptok::{self, PtokClaims};
 use wyrm_core::{NodeMeta, Perm, TypeCode, Value, Writable};
@@ -182,12 +181,6 @@ pub fn decode_token(b64: &str) -> Result<Vec<u8>, String> {
         .map_err(|_| "approval is not base64".to_owned())
 }
 
-/// SHA-256 (hex) of a request payload: what an approval binds (claim `args`, spec 04 0.2.14).
-pub fn payload_sha256(payload: &[u8]) -> String {
-    use sha2::Digest;
-    hex::encode(sha2::Sha256::digest(payload))
-}
-
 /// Readable pre-check of a human approval for exactly `key` at `need`:
 /// every grant is exactly `key`, the site matches, it has not expired, the
 /// effective level reaches `need`, the subject is not an AI (`ai:*`), and,
@@ -220,15 +213,12 @@ pub fn precheck_approval(
             c.grants.iter().map(|g| g.k.as_str()).collect::<Vec<_>>()
         ));
     }
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
+    let now = wyrm_core::clock::now_s();
     if c.exp <= now {
         return Err("approval has expired".into());
     }
     if let Some(payload) = payload {
-        let want = payload_sha256(payload);
+        let want = wyrm_core::hex::sha256_hex(payload);
         match c.args {
             None => {
                 return Err(format!(

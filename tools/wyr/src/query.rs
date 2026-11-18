@@ -3,7 +3,8 @@
 //! (`--once`). Nothing is stored. Sinks (`set`, `invoke`) are only printed unless `--sinks`.
 
 use std::collections::HashMap;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
+use wyrm_core::clock::now_us;
 
 use tokio::sync::mpsc;
 use tokio::task::AbortHandle;
@@ -19,13 +20,6 @@ enum Msg {
     Failed(Handle, String),
     Value(String, Sample),
     Reply(u64, bool),
-}
-
-fn now_us() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_micros() as u64)
-        .unwrap_or(0)
 }
 
 fn change_of(ev: ListEvent) -> Option<ListChange> {

@@ -18,6 +18,10 @@ abstract class FlowSummary with _$FlowSummary {
     String? description,
     @Default(false) bool running,
 
+    /// Its `~val` is not one Studio reads: whether it runs is not known.
+    /// It is then neither [draft] nor [running], and is shown as such.
+    @Default(false) bool unreadable,
+
     /// Since when it is in its state (`~val.since`), when the value says.
     DateTime? since,
   }) = _FlowSummary;

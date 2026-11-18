@@ -11,19 +11,13 @@ use rhai::{Dynamic, Engine, Scope, AST};
 use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::time::Duration;
+use wyrm_core::clock::now_ms_signed;
 use wyrm_core::Value;
 
 const TIMEOUT: Duration = Duration::from_millis(10);
 
 thread_local! {
     static STARTED: Cell<Option<Budget>> = const { Cell::new(None) };
-}
-
-fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
 }
 
 /// A locked-down engine.
@@ -45,15 +39,15 @@ pub fn engine() -> Engine {
     });
     e.on_print(|_| {});
     e.on_debug(|_, _, _| {});
-    e.register_fn("now_ms", now_ms);
+    e.register_fn("now_ms", now_ms_signed);
     e.register_fn("clamp", |x: f64, lo: f64, hi: f64| x.clamp(lo, hi));
     e.register_fn("round", |x: f64, n: i64| {
         let p = 10f64.powi(n.clamp(0, 12) as i32);
         (x * p).round() / p
     });
     e.register_fn("lerp", |a: f64, b: f64, t: f64| a + (b - a) * t);
-    e.register_fn("hour", || (now_ms() / 3_600_000) % 24);
-    e.register_fn("weekday", || (now_ms() / 86_400_000 + 3) % 7); // 0 = Monday
+    e.register_fn("hour", || (now_ms_signed() / 3_600_000) % 24);
+    e.register_fn("weekday", || (now_ms_signed() / 86_400_000 + 3) % 7); // 0 = Monday
     e
 }
 

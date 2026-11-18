@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
@@ -13,7 +12,9 @@ import 'package:models/port_end.dart';
 import 'package:models/undo_tag.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
+import '../decode/decoded.dart';
 import '../decode/flow_clip.dart';
+import '../decode/typed_json.dart';
 import 'block_cfg.dart';
 import 'config_text.dart';
 import 'flow_blocks.dart';
@@ -124,7 +125,7 @@ AddedBlock withNewBlock(
   final defaults = <String, Object?>{
     for (final p in t?.params ?? const IListConst<ParamSpec>([]))
       if (p.choices.isNotEmpty && p.defaultValue != null)
-        p.name: p.defaultValue,
+        p.name: p.defaultValue?.raw,
   };
   final next = d.copyWith(
     edges: into == null
@@ -487,7 +488,7 @@ enum FieldEditError { number, json, toggle }
 /// The typed value of [f] of [b] as the config holds it: the config's
 /// value, else the parameter's default; [JsonNull] when it has none.
 JsonValue fieldEditValue(FlowBlock b, FlowField f) => switch (f) {
-  FlowField(:final spec?) => b.paramOr(spec.name, spec.defaultValue),
+  FlowField(:final spec?) => b.paramOr(spec.name, spec.defaultValue?.raw),
   FlowField(kind: FieldKind.arg) => b.cfgArgs[f.name] ?? const JsonNull(),
   FlowField(operand: true, :final inPort?) => operandValueOf(b, inPort),
   _ => const JsonNull(),
@@ -497,7 +498,7 @@ JsonValue fieldEditValue(FlowBlock b, FlowField f) => switch (f) {
 /// config's value, else the parameter's default; a map or a list as
 /// indented JSON; a text as itself.
 String fieldEditText(FlowBlock b, FlowField f) =>
-    jsonEditText(fieldEditValue(b, f).raw);
+    jsonEditText(fieldEditValue(b, f));
 
 /// What is wrong with [text] as a value typed by [edit]; null when it can
 /// be saved. Empty text is always right: it removes the value.
@@ -511,14 +512,12 @@ FieldEditError? fieldEditError(String text, FieldEdit edit) {
       final n = num.tryParse(s);
       return n == null || !n.isFinite ? FieldEditError.number : null;
     case FieldEdit.json:
-      try {
-        return switch (JsonValue.of(jsonDecode(s))) {
-          JsonMap() || JsonList() => null,
-          _ => FieldEditError.json,
-        };
-      } on FormatException {
-        return FieldEditError.json;
-      }
+      // decoded at the boundary: no JSON, or nested past the bound, is
+      // an error to show, never a throw in the build
+      return switch (typedJsonOf(s).orNull) {
+        JsonMap() || JsonList() => null,
+        _ => FieldEditError.json,
+      };
     case FieldEdit.toggle:
       return bool.tryParse(s) == null ? FieldEditError.toggle : null;
     case FieldEdit.choice || FieldEdit.text || FieldEdit.any:
@@ -537,21 +536,22 @@ Object? typedText(String text, FieldEdit edit) {
       return num.tryParse(s) ?? text;
     case FieldEdit.toggle:
       return bool.tryParse(s) ?? text;
+    // A text that does not decode (no JSON, or nested past the bound,
+    // `typedJsonOf`) stays the text: no such value reaches a config.
+    // JSON `null` decodes to null (it removes the value), not to the text.
     case FieldEdit.json:
-      try {
-        return jsonDecode(text);
-      } on FormatException {
-        return text;
-      }
+      return switch (typedJsonOf(text)) {
+        Valid(:final value) => value.raw,
+        Invalid() => text,
+      };
     case FieldEdit.any:
       if (s.isEmpty) {
         return text;
       }
-      try {
-        return jsonDecode(s);
-      } on FormatException {
-        return text;
-      }
+      return switch (typedJsonOf(s)) {
+        Valid(:final value) => value.raw,
+        Invalid() => text,
+      };
     case FieldEdit.choice || FieldEdit.text:
       return text;
   }

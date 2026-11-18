@@ -1,8 +1,6 @@
-import 'package:fast_immutable_collections/fast_immutable_collections.dart';
-import 'package:wyrm_client/wyrm_client.dart';
-
 import '../../../wyrm/calls.dart';
-import '../../../wyrm/mappers/values.dart';
+import '../../../wyrm/decode/restore.dart';
+import '../../../wyrm/decode/unreadable.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 import 'create_backup_action.dart';
@@ -12,7 +10,9 @@ import 'create_backup_action.dart';
 /// broker backup as it is chosen now (before compression). Every section is
 /// asked for, so an unticked row shows its size too. A link backup has no
 /// estimate. The answer is dropped when the dialog it was asked for is no
-/// longer the one open.
+/// longer the one open; one this client cannot read is refused (a toast
+/// and a line in Problems say so, the field is in the log) and no size is
+/// shown.
 class EstimateBackupAction extends Action with WaitingAction {
   EstimateBackupAction() : super(quiet: true);
 
@@ -42,10 +42,9 @@ class EstimateBackupAction extends Action with WaitingAction {
       return null;
     }
     return state.copyWith.backups(
-      estimate: {
-        if (answer['sections'] case VMap(:final v))
-          for (final e in v.entries) e.key: integer(e.value) ?? 0,
-      }.lock,
+      estimate: backupEstimateOf(
+        answer,
+      ).orRefuse(key: '$root/sys/backups', call: const .named('estimate')),
     );
   }
 }

@@ -64,7 +64,7 @@ Widget brokerUpdateReview() => _over(
         numbered: true,
       ),
       SheetField(
-        id: 'confirm',
+        slot: SheetSlot.brokerUpdateConfirm,
         label: 'Type plant to confirm',
         value: 'plant',
       ),

@@ -2,7 +2,8 @@ import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../../wyrm/calls.dart';
-import '../../../wyrm/mappers/values.dart';
+import '../../../wyrm/decode/log_lines.dart';
+import '../../../wyrm/decode/unreadable.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 import 'retrieve_links_action.dart';
@@ -36,20 +37,20 @@ class GetLinkLogAction extends Action with WaitingAction {
         'filter': ?filter,
       }),
     );
-    return state.copyWith.links(log: logLines(rows).lock);
+    final key = '${site.root}/sys/links/$id';
+    return state.copyWith.links(
+      log: [
+        for (final l in logLinesOf(rows).orRefuse(
+          key: key,
+          call: const .known(.getLog),
+          thing: id,
+        ))
+          [
+            if (l.time.isNotEmpty) l.time,
+            ?l.level?.wire.toUpperCase(),
+            l.message,
+          ].join('  '),
+      ].lock,
+    );
   }
 }
-
-/// The records of a `get_log` answer (one array, or a row per record).
-List<String> logLines(List<Value> rows) => [
-  for (final r in rows)
-    for (final e in switch (r) {
-      VArray(:final v) => v,
-      _ => [r],
-    })
-      [
-        str(e['time']),
-        str(e['level'])?.toUpperCase(),
-        str(e['message']) ?? text(e),
-      ].nonNulls.join('  '),
-];

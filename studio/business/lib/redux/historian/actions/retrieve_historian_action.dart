@@ -3,9 +3,11 @@ import 'package:models/watch_group.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../../wyrm/calls.dart';
-import '../../../wyrm/mappers/values.dart';
+import '../../../wyrm/decode/sys_answers.dart';
+import '../../../wyrm/decode/unreadable.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
+import '../../problems/actions/add_problem_action.dart';
 import 'follow_history_action.dart';
 
 /// Reads the historian of the site (`sys/history`): its values (rows
@@ -48,32 +50,40 @@ class RetrieveHistorianAction extends Action with WaitingAction {
       readValues(api, '$base/*/*'),
     ).wait;
     final groups = <WatchGroup>[];
+    final unread = Unread();
     for (final (i, name) in named.indexed) {
-      final watches = lists[i];
-      Value? v(String k) => groupValues['$base/$name/$k'];
-      final ws = [
-        for (final w in watches)
-          if (w.meta.ty == null) w,
-      ];
-      groups.add(
-        WatchGroup(
-          name: name,
-          loggingType: str(v('logging_type')) ?? '',
-          interval: number(v('interval')),
-          flush: number(v('buffer_flush_time')),
-          watchIds: [for (final w in ws) w.name].lock,
-          keys: [for (final w in ws) w.meta.displayName ?? w.name].lock,
-        ),
+      // a group this client cannot read is left out; the user is told
+      final group = unread.take(
+        watchGroupOf(name, {
+          for (final e in groupValues.entries)
+            if (e.key.startsWith('$base/$name/'))
+              e.key.substring('$base/$name/'.length): e.value,
+        }, lists[i]),
+        name: name,
+        where: '$base/$name',
       );
+      if (group != null) {
+        groups.add(group);
+      }
+    }
+    // a value of the statistics this client cannot read is left out; the
+    // user is told
+    final stats = {
+      for (final e in values.entries)
+        e.key.split('/').last: ?unread.take(
+          historianStatOf(e.key.split('/').last, e.value),
+          name: e.key.split('/').last,
+          where: base,
+        ),
+    };
+    if (unread.problem(key: base, call: const .known(.list)) case final p?) {
+      dispatchSync(AddProblemAction(p));
     }
     final selected = historian.selected ?? groups.firstOrNull?.name;
     final shown = groups.where((g) => g.name == selected).firstOrNull;
     return state.copyWith.historian(
       groups: groups.lock,
-      stats: {
-        for (final e in values.entries)
-          e.key.split('/').last: text(e.value) ?? '',
-      }.lock,
+      stats: stats.lock,
       selected: selected,
       // A picked point that is no longer recorded leaves the trend.
       points: historian.points

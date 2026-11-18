@@ -46,7 +46,6 @@
 //! and `sys/standby_lag` show it.
 
 use super::*;
-use sha2::Digest;
 use wyrm_state::replicate::records_after;
 
 /// The control-plane WALs a standby follows: name on the wire, directory
@@ -103,10 +102,7 @@ pub fn replication_key(site: &str) -> String {
 /// The key the files travel under: derived from `secrets.key`, which both
 /// brokers hold from the key bundle.
 pub fn file_key(secrets_key: &[u8]) -> [u8; 32] {
-    let mut h = sha2::Sha256::new();
-    h.update(b"wyrm-replication-files");
-    h.update(secrets_key);
-    h.finalize().into()
+    wyrm_core::hex::sha256_parts(&[b"wyrm-replication-files", secrets_key])
 }
 
 /// One replicated file as listed: its name relative to `data_dir`, length
@@ -134,10 +130,11 @@ fn is_exec(m: &std::fs::Metadata) -> bool {
 }
 
 fn mtime_ns(m: &std::fs::Metadata) -> u64 {
+    // nanoseconds until 2554 fit; a time before 1970 or past that reads as 0 (no mtime)
     m.modified()
         .ok()
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|d| d.as_nanos() as u64)
+        .and_then(wyrm_core::clock::unix)
+        .and_then(|d| u64::try_from(d.as_nanos()).ok())
         .unwrap_or(0)
 }
 
@@ -243,11 +240,6 @@ pub fn is_file_name(name: &str) -> bool {
         ["packages", _, ..] => true,
         _ => false,
     }
-}
-
-/// SHA-256 of `bytes`.
-pub fn sha256(bytes: &[u8]) -> Vec<u8> {
-    sha2::Sha256::digest(bytes).to_vec()
 }
 
 /// A page of one WAL as a value: `{chain, last, records: [[lsn, mac, op], …]}`.
@@ -598,16 +590,8 @@ fn read_part(data_dir: &Path, name: &str, offset: u64, len: u64) -> Result<Part,
         return Err("file too large to replicate".into());
     }
     let digest = if offset == 0 {
-        let mut h = sha2::Sha256::new();
-        let mut block = vec![0u8; 64 << 10];
-        loop {
-            let n = f.read(&mut block).map_err(|e| e.to_string())?;
-            if n == 0 {
-                break;
-            }
-            h.update(&block[..n]);
-        }
-        Some(h.finalize().to_vec())
+        let (sum, _) = wyrm_core::hex::sha256_reader(&mut f).map_err(|e| e.to_string())?;
+        Some(sum.to_vec())
     } else {
         None
     };
@@ -704,15 +688,13 @@ impl Control {
             f.0 += 1;
         }
         warn!(set = what, "{detail}");
-        self.record("system", "standby_forked", what, Status::Ok, detail);
+        self.record("system", AuditOp::StandbyForked, what, Status::Ok, detail);
     }
 
     /// Ask the standby to wait for `d` (the router is about to be rebuilt).
     pub fn hold_standby(&self, d: Duration) {
-        let until = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|n| (n + d).as_millis() as u64)
-            .unwrap_or(0);
+        let until =
+            u64::try_from((wyrm_core::clock::since_epoch() + d).as_millis()).unwrap_or(u64::MAX);
         self.standby_hold
             .store(until, std::sync::atomic::Ordering::SeqCst);
     }

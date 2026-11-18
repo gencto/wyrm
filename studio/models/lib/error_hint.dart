@@ -1,8 +1,9 @@
-import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 
 import 'answer_fault.dart';
 import 'host_platform.dart';
+import 'manifest_problem.dart';
+import 'unreadable_part.dart';
 
 part 'error_hint.freezed.dart';
 
@@ -44,48 +45,45 @@ sealed class ErrorHint with _$ErrorHint {
   /// The agent link's parameters did not read, so no edit was staged.
   const factory ErrorHint.agentParamsUnread() = ErrorHintAgentParamsUnread;
 
-  /// The record of task [task] is not one Studio reads: its [field] (by
-  /// its wire name; empty for the record itself). Why the field does not
-  /// read is the decoder's and goes to the log, never to the screen.
-  const factory ErrorHint.taskRecordInvalid({
-    required String task,
-    required String field,
-  }) = ErrorHintTaskRecordInvalid;
-
-  /// The library block [name] is not one Studio reads: its [field].
-  const factory ErrorHint.libraryBlockInvalid({
-    required String name,
-    required String field,
-  }) = ErrorHintLibraryBlockInvalid;
-
-  /// The definition of flow [flow] is not one Studio reads: its [field].
-  const factory ErrorHint.flowDefInvalid({
-    required String flow,
-    required String field,
-  }) = ErrorHintFlowDefInvalid;
+  /// The broker answered, and what came is not of the shape it has, so
+  /// Studio reads nothing out of it ([part]): an answer of a call, some
+  /// entries of a list (their names are the error's `thing`; the others
+  /// are shown), the record of task [name], the library block [name], the
+  /// definition of flow [name]. [field] is the one that does not read, by
+  /// its wire name (empty: only the log names it). Why it does not read is
+  /// the decoder's and goes to the log, never to the screen.
+  const factory ErrorHint.unreadable(
+    UnreadablePart part, {
+    @Default('') String name,
+    @Default('') String field,
+  }) = ErrorHintUnreadable;
 
   /// The node has no `edit` action.
   const factory ErrorHint.noEditAction() = ErrorHintNoEditAction;
 
-  /// A profile file that is not JSON; [detail] is the parser's own line.
-  const factory ErrorHint.profileNotJson(String detail) =
-      ErrorHintProfileNotJson;
+  /// A file the user picked is not of the form its kind has (a profile
+  /// that is no profile): nothing of it was sent. [problem] says which
+  /// field or which name, and where the JSON stops.
+  const factory ErrorHint.fileNotRead(ManifestProblem problem) =
+      ErrorHintFileNotRead;
 
-  /// A profile file whose JSON is not an object.
-  const factory ErrorHint.profileNotObject() = ErrorHintProfileNotObject;
+  /// The broker shows no SHA-256 of a backup: what arrives cannot be
+  /// checked, so nothing was downloaded.
+  const factory ErrorHint.backupNoDigest() = ErrorHintBackupNoDigest;
 
-  /// A profile with the key [key], which is none of [known].
-  const factory ErrorHint.profileUnknownKey({
-    required String key,
-    required IList<String> known,
-  }) = ErrorHintProfileUnknownKey;
+  /// The file that arrived is not the backup: its SHA-256 is not the one
+  /// the broker shows (both are in the log). Nothing was saved.
+  const factory ErrorHint.backupDigestMismatch() =
+      ErrorHintBackupDigestMismatch;
 
-  /// A profile entry of the type [type], which is not one.
-  const factory ErrorHint.profileUnknownType(String type) =
-      ErrorHintProfileUnknownType;
+  /// The check of a file brought for a link could not be run, or found
+  /// nothing: the install does not go on.
+  const factory ErrorHint.checkNotRun() = ErrorHintCheckNotRun;
 
-  /// A profile with too many entries to add `extends`.
-  const factory ErrorHint.profileTooBig() = ErrorHintProfileTooBig;
+  /// A step was started that its own plan blocks (a restore of another
+  /// site's backup, keys not confirmed, no connection chosen): nothing
+  /// was sent. The dialog names what is missing.
+  const factory ErrorHint.stepBlocked() = ErrorHintStepBlocked;
 
   /// *Probe a range*: the text is not an IPv4 range.
   const factory ErrorHint.rangeBadText() = ErrorHintRangeBadText;

@@ -4,6 +4,7 @@ import 'package:models/error_hint.dart';
 import 'package:models/error_kind.dart';
 import 'package:models/plan_step.dart';
 import 'package:models/step_kind.dart';
+import 'package:models/unreadable_part.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../../wyrm/decode/agent_task.dart';
@@ -51,7 +52,11 @@ class RetrieveTaskRecordAction extends Action with WaitingAction, Sequential {
         // stays as it was, never an empty one
         final Invalid<Object?> bad => throw StudioException.hinted(
           ErrorKind.broker,
-          ErrorHint.taskRecordInvalid(task: id, field: loggedField(key, bad)),
+          ErrorHint.unreadable(
+            UnreadablePart.taskRecord,
+            name: id,
+            field: loggedField(key, bad),
+          ),
           key: key,
           call: const .known(.doc),
           thing: id,

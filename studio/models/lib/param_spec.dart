@@ -1,8 +1,9 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
-import 'package:freezed_annotation/freezed_annotation.dart';
+import 'package:freezed_annotation/freezed_annotation.dart' hide JsonValue;
 import 'package:wyrm_core/wyrm_core.dart';
 
 import 'block_cfg_key.dart';
+import 'json_value.dart';
 
 part 'param_spec.freezed.dart';
 
@@ -17,7 +18,10 @@ abstract class ParamSpec with _$ParamSpec {
     /// [TypeCode.enum_].
     @Default(TypeCode.string) TypeCode type,
     @Default(false) bool required,
-    Object? defaultValue,
+
+    /// Its default, as the JSON the catalog or the meta gives; null when
+    /// it has none.
+    JsonValue? defaultValue,
     num? min,
     num? max,
     @Default(IListConst([])) IList<String> choices,

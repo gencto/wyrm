@@ -512,7 +512,7 @@ pub const TYPES: &[NodeType] = &[
         params: &[
             pick(
                 p("op", ParamTy::String, "= all equal; != the first equals none of the others; and / or of the inputs; > < >= <= between each input and the next; contains / starts_with / ends_with: the first as text with any of the others."),
-                crate::blocks::IF_OPS,
+                crate::blocks::IfOp::NAMES,
                 "=",
             ),
             db(p("then", ParamTy::Dynamic, "Sent when it passes (default true)."), true),
@@ -592,7 +592,7 @@ pub const TYPES: &[NodeType] = &[
         params: &[
             pick(
                 p("op", ParamTy::String, "How in is compared with each case: = != > < >= <= (as numbers), contains / starts_with / ends_with (as text; an empty case matches nothing); regexp: in as text has a match of the case as a pattern."),
-                crate::blocks::CASE_OPS,
+                crate::blocks::CaseOp::NAMES,
                 "=",
             ),
             p("else", ParamTy::Dynamic, "Sent when no case matches (default null)."),

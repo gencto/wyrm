@@ -31,7 +31,6 @@ import 'package:business/wyrm/error_view.dart';
 import 'package:business/wyrm/failures.dart';
 import 'package:business/wyrm/mappers/log_line_mapper.dart';
 import 'package:business/wyrm/session.dart';
-import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
@@ -41,9 +40,12 @@ import 'package:models/error_call.dart';
 import 'package:models/error_hint.dart';
 import 'package:models/error_kind.dart';
 import 'package:models/error_subject.dart';
+import 'package:models/manifest_fault.dart';
+import 'package:models/manifest_problem.dart';
 import 'package:models/notice_kind.dart';
 import 'package:models/studio_error.dart';
 import 'package:models/system_tab.dart';
+import 'package:models/unreadable_part.dart';
 import 'package:storage/storage.dart';
 import 'package:ui/alerts/panel_fault.dart';
 import 'package:ui/alerts/toast_stack.dart';
@@ -646,8 +648,9 @@ void main() {
       );
       expect(
         hinted(
-          const ErrorHint.taskRecordInvalid(
-            task: 't-7',
+          const ErrorHint.unreadable(
+            UnreadablePart.taskRecord,
+            name: 't-7',
             field: 'plan[2].key',
           ),
         ).words,
@@ -656,9 +659,19 @@ void main() {
       );
       expect(
         hinted(
-          ErrorHint.profileUnknownKey(key: 'unit', known: ['type', 'is'].lock),
+          const ErrorHint.fileNotRead(
+            ManifestProblem(fault: ManifestFault.unknownField, field: 'unit'),
+          ),
+        ).copyWith(thing: 'temp.json').words,
+        'unit is not a field this file has. Nothing was sent.',
+      );
+      expect(
+        hinted(
+          const ErrorHint.fileNotRead(
+            ManifestProblem(fault: ManifestFault.notObject),
+          ),
         ).words,
-        'Unknown key "unit" (known: type, is).',
+        'this is not a JSON object. Nothing was sent.',
       );
       expect(
         hinted(const ErrorHint.rangeTooBig()).words,

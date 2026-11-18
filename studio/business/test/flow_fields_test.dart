@@ -17,6 +17,7 @@ import 'package:business/wyrm/decode/flow_def.dart';
 import 'package:business/wyrm/decode/node_type.dart';
 import 'package:business/wyrm/mappers/flow_fields.dart';
 import 'package:business/wyrm/mappers/values.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/field_id.dart';
@@ -959,13 +960,33 @@ void main() {
       expect(heard.refused, isEmpty);
     });
 
-    test('a stream that fails at once backs off', () async {
-      api.streamed.remove(id);
-      api.errors[id] = WyrmException.of(Status.timeout, 'slow');
-      svc.follow('wy/central/dataflows/tank');
-      await settle(60);
-      final n = api.calls.where((c) => c.action == 'watch').length;
-      expect(n, inInclusiveRange(2, 5), reason: '10, 20, 20 ms apart');
+    test('a stream that fails at once backs off', () {
+      // On a clock the test owns: counted against the real one, the
+      // number of calls in 60 ms depended on how busy the machine was
+      // (a late timer gave fewer than two, a late end of the wait more
+      // than five).
+      fakeAsync((time) {
+        int asked() => api.calls.where((c) => c.action == 'watch').length;
+        api.streamed.remove(id);
+        api.errors[id] = WyrmException.of(Status.timeout, 'slow');
+        svc.follow('wy/central/dataflows/tank');
+        time.flushMicrotasks();
+        expect(asked(), 1, reason: 'asked at once');
+        // 10 ms, then 20, then never more than `retryMax` apart
+        time.elapse(const Duration(milliseconds: 9));
+        expect(asked(), 1);
+        time.elapse(const Duration(milliseconds: 1));
+        expect(asked(), 2, reason: 'again 10 ms after the first');
+        time.elapse(const Duration(milliseconds: 19));
+        expect(asked(), 2);
+        time.elapse(const Duration(milliseconds: 1));
+        expect(asked(), 3, reason: 'again 20 ms after the second');
+        time.elapse(const Duration(milliseconds: 100));
+        expect(asked(), 8, reason: 'every 20 ms from then on, never faster');
+        svc.follow(null);
+        time.elapse(const Duration(milliseconds: 100));
+        expect(asked(), 8, reason: 'not asked once nothing is followed');
+      });
     });
   });
 }

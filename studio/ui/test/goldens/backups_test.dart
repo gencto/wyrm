@@ -61,7 +61,7 @@ void main() {
           blocks: [
             ...before,
             const SheetField(
-              id: 'passphrase',
+              slot: SheetSlot.backupPassphrase,
               label: 'Passphrase',
               secret: true,
             ),
@@ -78,8 +78,8 @@ void main() {
         SheetLabel('Checked'),
         SheetCard(title: 'From plant'),
         SheetCard(title: 'The same keys'),
-        SheetSection(id: 'control', name: 'Control plane', on: true),
-        SheetOption(id: 'accept', label: 'Accept', value: false),
+        SheetSection(name: 'Control plane', on: true),
+        SheetOption(label: 'Accept', value: false),
       ]),
     );
     expect(
@@ -94,52 +94,79 @@ void main() {
       frame(
         TaskSheet(
           dialog: true,
-          vm: const TaskSheetVm(
+          vm: TaskSheetVm(
             title: 'Back up',
             blocks: [
               SheetSection(
-                id: 'control',
                 name: 'Control plane',
                 on: true,
                 locked: true,
+                onChanged: (on) => got.add('control=$on'),
               ),
               SheetSection(
-                id: 'history',
                 name: 'History',
                 on: true,
                 chips: [
-                  SheetChip(id: '7', label: 'Last 7 days'),
-                  SheetChip(id: '30', label: 'Last 30 days', on: true),
+                  SheetChip(
+                    label: 'Last 7 days',
+                    onTap: () => got.add('history:7'),
+                  ),
+                  SheetChip(
+                    label: 'Last 30 days',
+                    on: true,
+                    onTap: () => got.add('history:30'),
+                  ),
                 ],
+                onChanged: (on) => got.add('history=$on'),
               ),
               SheetSection(
-                id: 'links',
                 name: 'Links',
                 on: true,
                 multi: true,
-                chips: [SheetChip(id: 'modbus', label: 'modbus', on: true)],
+                chips: [
+                  SheetChip(
+                    label: 'modbus',
+                    on: true,
+                    onTap: () => got.add('links:modbus'),
+                  ),
+                ],
+                onChanged: (on) => got.add('links=$on'),
               ),
               SheetSection(
-                id: 'packages',
                 name: 'Installed packages',
                 on: false,
-                chips: [SheetChip(id: 'x', label: 'hidden chip')],
-              ),
-              SheetField(id: 'passphrase', label: 'Passphrase', secret: true),
-              SheetChoice(
-                id: 'where',
-                options: [
-                  ('computer', 'This computer'),
-                  ('store', 'File store link…'),
+                chips: [
+                  SheetChip(
+                    label: 'hidden chip',
+                    onTap: () => got.add('packages:x'),
+                  ),
                 ],
-                selected: 'computer',
-                reasons: {'store': 'the host lists no link'},
+                onChanged: (on) => got.add('packages=$on'),
+              ),
+              // A section nobody listens to does not answer.
+              const SheetSection(name: 'Storage', on: true),
+              SheetField(
+                slot: SheetSlot.backupPassphrase,
+                label: 'Passphrase',
+                secret: true,
+                onChanged: (text) => got.add('passphrase:${text.length}'),
+              ),
+              SheetChoice(
+                options: [
+                  SheetChoiceOption(
+                    label: 'This computer',
+                    selected: true,
+                    onPick: () => got.add('where:computer'),
+                  ),
+                  SheetChoiceOption(
+                    label: 'File store link…',
+                    reason: 'the host lists no link',
+                    onPick: () => got.add('where:store'),
+                  ),
+                ],
               ),
             ],
           ),
-          onToggle: (id, {required on}) => got.add('$id=$on'),
-          onPick: (g, v) => got.add('$g:$v'),
-          onText: (id, text) => got.add('$id:${text.length}'),
         ),
       ),
     );
@@ -149,6 +176,7 @@ void main() {
     await t.tap(find.text('Last 7 days'));
     await t.tap(find.text('modbus'));
     await t.tap(find.text('Installed packages'));
+    await t.tap(find.text('Storage'));
     // An option with a reason cannot be chosen.
     await t.tap(find.text('File store link…'));
     await t.tap(find.text('This computer'));
@@ -166,5 +194,47 @@ void main() {
     // A secret is obscured.
     expect(t.widget<TextField>(find.byType(TextField)).obscureText, isTrue);
     expect(find.byTooltip('the host lists no link'), findsOneWidget);
+  });
+
+  testWidgets('a field is known by its slot, not by its label', (t) async {
+    // The language changes the label; what was typed stays.
+    Widget sheet(String label) => frame(
+      TaskSheet(
+        dialog: true,
+        vm: TaskSheetVm(
+          title: 'Restore',
+          blocks: [
+            SheetField(
+              slot: SheetSlot.backupPassphrase,
+              label: label,
+              secret: true,
+            ),
+          ],
+        ),
+      ),
+    );
+    await t.pumpWidget(sheet('Passphrase'));
+    await t.enterText(find.byType(TextField), 'correct-horse-battery');
+    await t.pumpWidget(sheet('Пароль'));
+    expect(
+      t.widget<TextField>(find.byType(TextField)).controller!.text,
+      'correct-horse-battery',
+    );
+  });
+
+  testWidgets('a field of another slot is another field', (t) async {
+    Widget sheet(SheetSlot slot) => frame(
+      TaskSheet(
+        dialog: true,
+        vm: TaskSheetVm(
+          title: 'Back up',
+          blocks: [SheetField(slot: slot, label: 'Text')],
+        ),
+      ),
+    );
+    await t.pumpWidget(sheet(SheetSlot.backupPassphrase));
+    await t.enterText(find.byType(TextField), 'secret');
+    await t.pumpWidget(sheet(SheetSlot.backupSendPath));
+    expect(t.widget<TextField>(find.byType(TextField)).controller!.text, '');
   });
 }

@@ -3,6 +3,7 @@ import 'package:models/error_hint.dart';
 import 'package:models/error_kind.dart';
 import 'package:models/flow_draft.dart';
 import 'package:models/library_off.dart';
+import 'package:models/unreadable_part.dart';
 
 import '../../../common/latest.dart';
 import '../../../wyrm/calls.dart';
@@ -221,7 +222,11 @@ class LoadFlowAction extends Action {
     }
     return StudioException.hinted(
       ErrorKind.broker,
-      ErrorHint.flowDefInvalid(flow: id, field: field),
+      ErrorHint.unreadable(
+        UnreadablePart.flowDef,
+        name: id,
+        field: field,
+      ),
       key: key,
       call: const .known(.history),
       thing: id,

@@ -53,7 +53,7 @@ class StagePointEditAction extends Action {
       );
     }
     final changes = s.changes;
-    final current = {for (final p in edit.params) p.name: p.defaultValue};
+    final current = {for (final p in edit.params) p.name: p.defaultValue?.raw};
     final id = idOf(key);
     final before = changes.table[id];
     final args = {...(before?.args.unlock ?? current), param: value};

@@ -1124,7 +1124,7 @@ extension type ExplorerView(AppState _state) {
           param: param,
           label: labelOf(spec.name, display: spec.display),
           spec: spec,
-          value: staged?[spec.name] ?? spec.defaultValue,
+          value: staged?[spec.name] ?? spec.defaultValue?.raw,
           description: spec.description,
           missing: false,
         ),
@@ -1241,8 +1241,8 @@ extension type ExplorerView(AppState _state) {
         _missing(PointParam.wordOrder, value: wordOrderOf(dtype)),
       );
     }
-    final pollNow = staged?[PointParam.poll.wire] ?? poll?.defaultValue;
-    final pollWas = poll?.defaultValue;
+    final pollNow = staged?[PointParam.poll.wire] ?? poll?.defaultValue?.raw;
+    final pollWas = poll?.defaultValue?.raw;
     return [
       RegisterSection(key, registerFields),
       ValueSection(key, [

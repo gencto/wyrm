@@ -5,6 +5,7 @@ import 'package:models/field_id.dart';
 import 'package:models/flow_block.dart';
 import 'package:models/flow_draft.dart';
 import 'package:models/flow_edge.dart';
+import 'package:models/json_value.dart';
 import 'package:models/port_end.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -108,6 +109,9 @@ FlowRead _read(String id, Value def) {
       final String t when t.isNotEmpty => t,
       _ => throw _Bad('nodes.$node.type', 'missing'),
     };
+    for (final MapEntry(:key, :value) in cfg.entries) {
+      _bounded(value, 'nodes.$node.$key');
+    }
     final saved = switch (layout[node]) {
       null => null,
       VArray(:final v) when v.length == 2 => switch ((
@@ -195,7 +199,7 @@ FlowRead _read(String id, Value def) {
       edges: edges.lock,
       rest: {
         for (final e in def.v.entries)
-          if (!_own.contains(e.key)) e.key: toDart(e.value),
+          if (!_own.contains(e.key)) e.key: _bounded(toDart(e.value), e.key),
       }.lock,
       defs: defs.lock,
       permissions: flowPermissionsOf(def['permissions']).orWarn('flow $id'),
@@ -239,22 +243,38 @@ PortEnd? portEndOf(String? s) {
 
 /// Throws, naming its field ([at]), when [v] holds a value JSON has no
 /// form for (bytes) at any depth.
-void _jsonOnly(Value v, String at) {
+void _jsonOnly(Value v, String at, [int depth = 0]) {
+  if (depth > _deepest) {
+    throw _Bad(at, 'nested too deep');
+  }
   switch (v) {
     case VBytes():
       throw _Bad(at, 'not JSON');
     case VArray(:final v):
       for (final (i, x) in v.indexed) {
-        _jsonOnly(x, '$at[$i]');
+        _jsonOnly(x, '$at[$i]', depth + 1);
       }
     case VMap(:final v):
       for (final MapEntry(:key, :value) in v.entries) {
-        _jsonOnly(value, at.isEmpty ? key : '$at.$key');
+        _jsonOnly(value, at.isEmpty ? key : '$at.$key', depth + 1);
       }
     case VNull() || VBool() || VInt() || VFloat() || VStr():
       break;
   }
 }
+
+/// The deepest [_jsonOnly] walks a definition: a value may nest as deep
+/// as [JsonValue.maxDepth] (each is checked on its own, [_bounded]), and a
+/// definition puts a few levels around it (`blocks.<b>.nodes.<n>.<key>`).
+/// Past this it is refused before it is walked further.
+const int _deepest = JsonValue.maxDepth + 8;
+
+/// [v] (a value of a node's config, or of the definition's own fields),
+/// refused with its field [at] when it nests deeper than
+/// [JsonValue.maxDepth]: the editor reads each such value as JSON while it
+/// builds, so none past the bound may come in.
+Object? _bounded(Object? v, String at) =>
+    JsonValue.isJson(v) ? v : throw _Bad(at, 'nested too deep');
 
 final class _Bad implements Exception {
   const _Bad(this.field, this.reason);

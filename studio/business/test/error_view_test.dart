@@ -15,6 +15,8 @@ import 'package:models/error_voice.dart';
 import 'package:models/fault_report.dart';
 import 'package:models/foreign_words.dart';
 import 'package:models/gateway_field_problem.dart';
+import 'package:models/manifest_fault.dart';
+import 'package:models/manifest_problem.dart';
 import 'package:models/studio_error.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -91,7 +93,9 @@ void main() {
       const StudioError(
         kind: ErrorKind.input,
         call: ErrorCall.known(.read),
-        hint: ErrorHint.profileNotObject(),
+        hint: ErrorHint.fileNotRead(
+          ManifestProblem(fault: ManifestFault.notObject),
+        ),
       ).titleKind,
       ErrorTitle.studioCould,
     );

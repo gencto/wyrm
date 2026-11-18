@@ -1,3 +1,7 @@
+import 'package:models/backup_place.dart';
+import 'package:models/backup_section.dart';
+import 'package:models/restore_mode.dart';
+
 import '../../app_state.dart';
 import '../../common/action.dart';
 
@@ -20,7 +24,7 @@ class SetBackupFormAction extends Action {
 
   /// The section to tick or untick. `control` (broker) and `settings`
   /// (link) are always in.
-  final String? toggle;
+  final BackupSection? toggle;
 
   /// A link of the section `links` to tick or untick.
   final String? toggleLink;
@@ -28,21 +32,19 @@ class SetBackupFormAction extends Action {
   /// The last N days of history; 0 = all of it.
   final int? historyDays;
 
-  /// `computer`, `store` or `broker`.
-  final String? where;
+  final BackupPlace? where;
   final String? sendLink;
   final String? sendConnection;
   final String? sendPath;
 
-  /// `add` or `replace`.
-  final String? mode;
+  final RestoreMode? mode;
   final bool? replaceKeys;
   final bool? acceptRights;
 
   @override
   AppState reduce() {
     var chosen = backups.chosen;
-    if (toggle case final s? when s != 'control' && s != 'settings') {
+    if (toggle case final s? when !s.always) {
       chosen = chosen.contains(s) ? chosen.remove(s) : chosen.add(s);
     }
     var off = backups.offLinks;

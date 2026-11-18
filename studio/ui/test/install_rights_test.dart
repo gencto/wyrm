@@ -3,6 +3,7 @@ import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:ui/indicators/check_list.dart';
 import 'package:ui/indicators/level_badge.dart';
+import 'package:ui/pages/install_checks.dart';
 import 'package:ui/pages/link_install_data.dart';
 
 /// The rights a package asks for are said in one place, `ui`, in the
@@ -30,9 +31,8 @@ void main() {
       ],
     );
     const check = InstallCheckVm(
-      title: 'Rights asked',
+      finding: RightsFinding([]),
       result: CheckResult.ok,
-      rights: [],
     );
     expect(check.row.detail, 'none');
   });
@@ -50,9 +50,8 @@ void main() {
       ],
     );
     const check = InstallCheckVm(
-      title: 'Rights asked',
+      finding: RightsFinding(rights),
       result: CheckResult.ok,
-      rights: rights,
     );
     expect(check.row.detail, startsWith('мережа 10.0.5.0/24:502; сховище'));
   });

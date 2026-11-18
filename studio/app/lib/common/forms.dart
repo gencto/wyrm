@@ -35,7 +35,7 @@ ParamFieldVm paramField(ParamSpec p) {
     id: p.name,
     label: labelOf(p.name, display: p.display),
     kind: kind,
-    value: p.defaultValue,
+    value: p.defaultValue?.raw,
     choices: p.choices.unlock,
     choiceLabels: choiceLabels(p.choices),
     required: p.required,

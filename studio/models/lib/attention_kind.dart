@@ -13,6 +13,10 @@ enum AttentionKind {
   /// A downstream broker waiting for Authorize.
   brokerWaiting,
 
+  /// A connection waiting under `sys/quarantine` whose entry Studio could
+  /// not read: what it is (a link, a broker) is not known.
+  waitingNotRead,
+
   /// `acl_denied` has grown since the screen was last shown.
   aclGrown,
 

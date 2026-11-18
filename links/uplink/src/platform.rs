@@ -881,28 +881,15 @@ pub fn azure_sas(
     let key = base64::engine::general_purpose::STANDARD
         .decode(key_b64.trim())
         .map_err(|_| "the device key is not base64".to_owned())?;
-    let sr = url_encode(&format!("{hub}/devices/{device_id}"));
+    let sr = wyrm_core::weburl::percent_encode(&format!("{hub}/devices/{device_id}"));
     let to_sign = format!("{sr}\n{expiry_s}");
     let mut mac = wyrm_core::mac::hmac_sha256(&key);
     mac.update(to_sign.as_bytes());
     let sig = base64::engine::general_purpose::STANDARD.encode(mac.finalize().into_bytes());
     Ok(format!(
         "SharedAccessSignature sr={sr}&sig={}&se={expiry_s}",
-        url_encode(&sig)
+        wyrm_core::weburl::percent_encode(&sig)
     ))
-}
-
-/// Percent-encoding of everything but the unreserved characters (RFC 3986).
-pub fn url_encode(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for b in s.bytes() {
-        if b.is_ascii_alphanumeric() || b"-_.~".contains(&b) {
-            out.push(b as char);
-        } else {
-            out.push_str(&format!("%{b:02X}"));
-        }
-    }
-    out
 }
 
 #[cfg(test)]
@@ -1153,7 +1140,7 @@ mod tests {
         );
         assert!(t.ends_with("&se=1700000000"));
         assert!(azure_sas("h", "d", "not base64!", 1).is_err());
-        assert_eq!(url_encode("a b/c"), "a%20b%2Fc");
+        assert_eq!(wyrm_core::weburl::percent_encode("a b/c"), "a%20b%2Fc");
         assert_eq!(
             json_sample(&Sample {
                 v: Value::Float(1.5),

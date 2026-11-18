@@ -6,6 +6,7 @@ import 'package:models/catalog_row.dart';
 import 'package:models/install_target.dart';
 import 'package:models/known_link.dart';
 import 'package:models/link_category.dart';
+import 'package:models/link_info.dart';
 import 'package:models/link_mode.dart';
 
 import 'rights.dart';
@@ -159,7 +160,7 @@ IList<CatalogItem> catalogOf({
           LinkMode.wasm,
         ]),
       },
-      existing: existing[builtIn ? code : 'pkg:$code'] ?? 0,
+      existing: existing[builtIn ? code : packageDriverOf(code)] ?? 0,
       // A driver's row carries the broker's own version.
       version: version == null ? null : (builtIn ? 'wyrmd $version' : version),
       official: official,
