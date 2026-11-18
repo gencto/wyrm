@@ -1,90 +1,10 @@
 //! Secrets and metrics handed to the driver through `LinkCtx`.
 
 use std::collections::HashMap;
-use std::fmt;
 use std::sync::atomic::{AtomicU64, Ordering};
-use zeroize::Zeroizing;
 
-/// A secret value. Zeroed on drop; `Debug` prints `***`.
-#[derive(Clone)]
-pub struct Secret(Zeroizing<Vec<u8>>);
-
-impl Secret {
-    pub fn new(bytes: impl Into<Vec<u8>>) -> Self {
-        Self(Zeroizing::new(bytes.into()))
-    }
-
-    pub fn expose(&self) -> &[u8] {
-        &self.0
-    }
-
-    pub fn expose_str(&self) -> Option<&str> {
-        std::str::from_utf8(&self.0).ok()
-    }
-}
-
-impl fmt::Debug for Secret {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("***")
-    }
-}
-
-/// A secret text argument (a passphrase, a token): a text parameter with the
-/// password editor (`#[param(secret)]`).
-impl wyrm_core::args::ArgValue for Secret {
-    const TYPE: wyrm_core::TypeCode = wyrm_core::TypeCode::String;
-    fn from_value(v: wyrm_core::Value) -> std::result::Result<Self, wyrm_core::args::Fault> {
-        match v {
-            // the text's own buffer becomes the secret: no copy is left behind
-            wyrm_core::Value::Str(s) => Ok(Secret::new(s.into_bytes())),
-            _ => Err(wyrm_core::args::Fault::Type("text")),
-        }
-    }
-}
-
-impl wyrm_core::args::SecretArg for Secret {}
-
-/// A secret a person pastes as one line: an enrolment token. The white space
-/// around it is cut (a pasted token often ends with a newline, and a token
-/// holds none), so a text of white space is no token. This is the one secret
-/// that is trimmed (`#[param(secret, trim)]`, docs/rust-rules.md §12); a
-/// passphrase is a [`Secret`], whose spaces are part of it.
-#[derive(Clone, Debug)]
-pub struct SecretLine(pub Secret);
-
-impl wyrm_core::args::ArgValue for SecretLine {
-    const TYPE: wyrm_core::TypeCode = wyrm_core::TypeCode::String;
-    fn from_value(v: wyrm_core::Value) -> std::result::Result<Self, wyrm_core::args::Fault> {
-        match v {
-            wyrm_core::Value::Str(s) => {
-                // the pasted text is cleared; only the token itself is kept
-                let s = Zeroizing::new(s);
-                Ok(SecretLine(Secret::new(s.trim().as_bytes())))
-            }
-            _ => Err(wyrm_core::args::Fault::Type("text")),
-        }
-    }
-}
-
-impl wyrm_core::args::SecretArg for SecretLine {}
-impl wyrm_core::args::PastedSecretArg for SecretLine {}
-
-/// A secret binary argument (a link secret's value): a binary parameter with
-/// the password editor.
-#[derive(Clone, Debug)]
-pub struct SecretBytes(pub Secret);
-
-impl wyrm_core::args::ArgValue for SecretBytes {
-    const TYPE: wyrm_core::TypeCode = wyrm_core::TypeCode::Binary;
-    fn from_value(v: wyrm_core::Value) -> std::result::Result<Self, wyrm_core::args::Fault> {
-        match v {
-            wyrm_core::Value::Bytes(b) => Ok(SecretBytes(Secret::new(b))),
-            _ => Err(wyrm_core::args::Fault::Type("bytes")),
-        }
-    }
-}
-
-impl wyrm_core::args::SecretArg for SecretBytes {}
+/// The secret types (`wyrm_core::secret`): zeroed on drop, `Debug` prints `***`.
+pub use wyrm_core::secret::{Secret, SecretBytes, SecretLine};
 
 /// Secrets of one link (device passwords, keys). Never from `~def`, never in
 /// the tree. Filled by the host at start.

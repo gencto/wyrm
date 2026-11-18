@@ -311,7 +311,12 @@ neither does a name that comes again through `flatten` (the derive asserts it
 in a `const` over `Args::NAMES`, in every crate, with no list to keep).
 `flatten` stands alone: another attribute beside it does not compile.
 `#[param(nonempty)]` is the empty text only; a text of white space is empty
-only with `trim`. What a refused call leaves in the map is zeroed. The caller
+only with `trim`. A refused call zeroes the text and bytes the decoder still
+holds: what no field took, a value its field refused (a passphrase sent as
+bytes), arguments that are no map. Not cleared by the decoder: a value a field
+took (a secret type clears itself; plain text and bytes are the handler's),
+and the Zenoh payload bytes the SDK decoded the arguments from (the SDK moves
+the decoded value on, so there is no second copy). The caller
 is checked before its arguments are decoded (a stranger is told
 `permission_denied`, never that its arguments were wrong), and so is the state
 the action is about: what does not exist is `not_found`, and a broker that is
@@ -551,11 +556,15 @@ An action argument (`#[derive(Args)]`) takes `Secret` (a text parameter) and
 `SecretBytes` (a binary one), and nothing else: `#[param(secret)]` on a
 `String` or a `Vec<u8>` does not compile (`wyrm_core::args::SecretArg`), and a
 secret is never trimmed (`nonempty` drops only the empty text, so a passphrase
-of spaces is a passphrase). **One named exception:** a token a person pastes
-as one line (an enrolment token of `upstream ▸ add`) is a `SecretLine`, whose
-type cuts the white space around it: a pasted line often ends with a newline,
-and a token holds none. `secret` with `trim` compiles only on that type
-(`PastedSecretArg`); never use it for a passphrase or a key.
+of spaces is a passphrase). The secret types (`wyrm_core::secret`: `Secret`,
+`SecretBytes`, `SecretLine`) are the only ones: the traits are sealed.
+**One named exception:** a token a person pastes as one line (an enrolment
+token of `upstream ▸ add`) is a `SecretLine`, whose type cuts the white space
+around it: a pasted line often ends with a newline, and a token holds none.
+`SecretLine` is no `ArgValue`: a field of it compiles only with
+`#[param(secret, trim)]`, and `secret, trim` only on it. Every field of that
+type is counted (A4, baseline 1), and C10 refuses it for a field named as a
+passphrase, a password or a key.
 
 A field of an `Args` struct that is named `token`, `passphrase`, `password`,
 `secret` or `key` has a secret type, with or without the attribute. What is

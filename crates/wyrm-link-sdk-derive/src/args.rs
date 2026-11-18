@@ -142,6 +142,13 @@ impl<'a> Shape<'a> {
     fn codec(&self, a: &Attrs) -> (Tokens, Tokens) {
         let args = quote!(::wyrm_core::args);
         let (value_ty, set_ty) = (self.value_ty, self.set_ty);
+        if a.secret && a.trim {
+            // the one secret that is trimmed, by its own decoder
+            return (
+                quote!(<#value_ty as #args::PastedSecretArg>::TYPE),
+                quote!(<#value_ty as #args::PastedSecretArg>::pasted),
+            );
+        }
         if a.choice && self.list {
             (
                 quote!(::wyrm_core::TypeCode::Array),
@@ -162,7 +169,7 @@ impl<'a> Shape<'a> {
                 quote!(::wyrm_core::TypeCode::Enum),
                 quote!(#args::by_index::<#set_ty>),
             )
-        } else if a.trim && !a.secret {
+        } else if a.trim {
             (
                 quote!(<#value_ty as #args::ArgValue>::TYPE),
                 quote!(#args::trimmed),
@@ -262,14 +269,8 @@ fn reading(sh: &Shape<'_>, a: &Attrs, name: &str, decode: &Tokens) -> Tokens {
                 keeps_a_secret::<#value_ty>();
             })
         }
-        (true, true) => {
-            let value_ty = sh.value_ty;
-            quote!({
-                fn is_a_pasted_token<T: #args::PastedSecretArg>() {}
-                is_a_pasted_token::<#value_ty>();
-            })
-        }
-        (false, _) => quote!(),
+        // the type's own decoder is used: it compiles only on a pasted token
+        (true, true) | (false, _) => quote!(),
     };
     quote!({
         #secret

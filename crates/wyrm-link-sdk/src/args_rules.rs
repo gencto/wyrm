@@ -242,3 +242,71 @@
 //!     passphrase: Option<Secret>,
 //! }
 //! ```
+//!
+//! A pasted token is written out as the exception it is: `SecretLine` without
+//! `secret, trim` does not compile (it is no `ArgValue`).
+//!
+//! ```compile_fail
+//! use wyrm_link_sdk::{Args, SecretLine};
+//!
+//! #[derive(Args)]
+//! struct Enrol {
+//!     #[param(nonempty)]
+//!     token: Option<SecretLine>,
+//! }
+//! ```
+//!
+//! ```compile_fail
+//! use wyrm_link_sdk::{Args, SecretLine};
+//!
+//! #[derive(Args)]
+//! struct Enrol {
+//!     #[param(secret, nonempty)]
+//!     token: Option<SecretLine>,
+//! }
+//! ```
+//!
+//! The secret types are sealed: no other crate adds one.
+//!
+//! ```
+//! use wyrm_link_sdk::Secret;
+//! fn is_secret<T: wyrm_core::args::SecretArg>() {}
+//! is_secret::<Secret>();
+//! ```
+//!
+//! A plain argument type of another crate compiles; as a secret it does not.
+//!
+//! ```
+//! struct Mine(String);
+//! impl wyrm_core::args::ArgValue for Mine {
+//!     const TYPE: wyrm_core::TypeCode = wyrm_core::TypeCode::String;
+//!     fn from_value(
+//!         v: &mut wyrm_core::Value,
+//!     ) -> Result<Self, wyrm_core::args::Fault> {
+//!         <String as wyrm_core::args::ArgValue>::from_value(v).map(Mine)
+//!     }
+//! }
+//! ```
+//!
+//! ```compile_fail
+//! struct Mine(String);
+//! impl wyrm_core::args::ArgValue for Mine {
+//!     const TYPE: wyrm_core::TypeCode = wyrm_core::TypeCode::String;
+//!     fn from_value(
+//!         v: &mut wyrm_core::Value,
+//!     ) -> Result<Self, wyrm_core::args::Fault> {
+//!         <String as wyrm_core::args::ArgValue>::from_value(v).map(Mine)
+//!     }
+//! }
+//! impl wyrm_core::args::SecretArg for Mine {}
+//! ```
+//!
+//! ```compile_fail
+//! struct Mine;
+//! impl wyrm_core::args::PastedSecretArg for Mine {
+//!     const TYPE: wyrm_core::TypeCode = wyrm_core::TypeCode::String;
+//!     fn pasted(_: &mut wyrm_core::Value) -> Result<Self, wyrm_core::args::Fault> {
+//!         Ok(Mine)
+//!     }
+//! }
+//! ```

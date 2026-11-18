@@ -24,8 +24,10 @@
 //!   pass as "not given";
 //! * a name is one field: a struct that names a parameter twice, by two of its
 //!   fields or through `#[param(flatten)]`, does not compile ([`Names`]);
-//! * what a refused call leaves in the map is cleared (a passphrase beside a
-//!   wrong field does not stay in freed memory);
+//! * a refused call clears the text and bytes this decoder still holds: what no
+//!   field took, a value of the wrong type, arguments that are no map. (Not
+//!   cleared here: the transport's buffer the arguments were decoded from, and
+//!   a value a field already took, which is the field type's own to clear.)
 //! * a whole number goes through [`Value::to_int`], the one integer decoder: a
 //!   fraction, a negative number for an unsigned type and a number out of the
 //!   type's range are refused, never truncated;
@@ -114,22 +116,52 @@ impl fmt::Display for ArgError {
 impl std::error::Error for ArgError {}
 
 /// A type one argument decodes into, with the `type` its parameter declares.
-/// The value is taken, not borrowed: bytes and text move into the field.
+/// The value is taken out of `v` (left `Null`), not copied: bytes and
+/// text move into the field. On a refusal `v` is left as it was, and the
+/// reader clears it.
 pub trait ArgValue: Sized {
     const TYPE: TypeCode;
-    fn from_value(v: Value) -> Result<Self, Fault>;
+    fn from_value(v: &mut Value) -> Result<Self, Fault>;
+}
+
+/// `v` taken as the variant `pick` wants, or left in place and refused.
+pub(crate) fn take<T>(
+    v: &mut Value,
+    what: &'static str,
+    pick: impl FnOnce(Value) -> Result<T, Value>,
+) -> Result<T, Fault> {
+    match pick(std::mem::replace(v, Value::Null)) {
+        Ok(t) => Ok(t),
+        Err(back) => {
+            *v = back;
+            Err(Fault::Type(what))
+        }
+    }
+}
+
+pub(crate) mod sealed {
+    /// Only the secret types of `wyrm_core::secret` are secret arguments: no
+    /// other crate can add one.
+    pub trait Sealed {}
 }
 
 /// A type that keeps a secret argument: its memory is cleared when it is
 /// dropped and its `Debug` prints no part of the value. `#[param(secret)]`
-/// compiles only on such a type (`wyrm_link_sdk::Secret`, `SecretBytes`).
-pub trait SecretArg: ArgValue {}
+/// compiles only on such a type: [`Secret`](crate::secret::Secret) and
+/// [`SecretBytes`](crate::secret::SecretBytes). Sealed.
+pub trait SecretArg: ArgValue + sealed::Sealed {}
 
-/// The one secret that is trimmed: a token a person pastes as one line
-/// (`wyrm_link_sdk::SecretLine`). A token holds no white space, and a pasted
-/// one often ends with a newline. `#[param(secret, trim)]` compiles only on
-/// such a type; a passphrase is never one (its spaces are part of it).
-pub trait PastedSecretArg: SecretArg {}
+/// The one secret that is trimmed: a token a person pastes as one line,
+/// [`SecretLine`](crate::secret::SecretLine). A token holds no white space,
+/// and a pasted one often ends with a newline. Sealed, and no [`ArgValue`]:
+/// a field of this type compiles only with `#[param(secret, trim)]`, so the
+/// exception is always written out. A passphrase is never one (its spaces are
+/// part of it).
+pub trait PastedSecretArg: Sized + sealed::Sealed {
+    const TYPE: TypeCode;
+    /// The token without the white space around it; the pasted text is cleared.
+    fn pasted(v: &mut Value) -> Result<Self, Fault>;
+}
 
 /// The parameter names of an `Args` struct: its own fields and the structs it
 /// flattens. The derive checks them when the struct is compiled.
@@ -195,19 +227,19 @@ impl Names {
 
 impl ArgValue for String {
     const TYPE: TypeCode = TypeCode::String;
-    fn from_value(v: Value) -> Result<Self, Fault> {
-        match v {
+    fn from_value(v: &mut Value) -> Result<Self, Fault> {
+        take(v, "text", |v| match v {
             Value::Str(s) => Ok(s),
-            _ => Err(Fault::Type("text")),
-        }
+            other => Err(other),
+        })
     }
 }
 
 impl ArgValue for bool {
     const TYPE: TypeCode = TypeCode::Bool;
-    fn from_value(v: Value) -> Result<Self, Fault> {
+    fn from_value(v: &mut Value) -> Result<Self, Fault> {
         match v {
-            Value::Bool(b) => Ok(b),
+            Value::Bool(b) => Ok(*b),
             _ => Err(Fault::Type("true or false")),
         }
     }
@@ -217,7 +249,7 @@ macro_rules! int_arg {
     ($($t:ty),+) => {$(
         impl ArgValue for $t {
             const TYPE: TypeCode = TypeCode::Number;
-            fn from_value(v: Value) -> Result<Self, Fault> {
+            fn from_value(v: &mut Value) -> Result<Self, Fault> {
                 v.to_int::<$t>().map_err(|e| match e {
                     IntError::NotANumber => Fault::Type("a number"),
                     e => Fault::Int(e),
@@ -230,7 +262,7 @@ int_arg!(u8, u16, u32, u64, usize, i8, i16, i32, i64, isize);
 
 impl ArgValue for f64 {
     const TYPE: TypeCode = TypeCode::Number;
-    fn from_value(v: Value) -> Result<Self, Fault> {
+    fn from_value(v: &mut Value) -> Result<Self, Fault> {
         match v.as_f64() {
             Some(x) if x.is_finite() => Ok(x),
             Some(_) => Err(Fault::NotFinite),
@@ -242,32 +274,32 @@ impl ArgValue for f64 {
 /// A binary argument.
 impl ArgValue for Vec<u8> {
     const TYPE: TypeCode = TypeCode::Binary;
-    fn from_value(v: Value) -> Result<Self, Fault> {
-        match v {
+    fn from_value(v: &mut Value) -> Result<Self, Fault> {
+        take(v, "bytes", |v| match v {
             Value::Bytes(b) => Ok(b),
-            _ => Err(Fault::Type("bytes")),
-        }
+            other => Err(other),
+        })
     }
 }
 
 /// A map argument whose content the action checks itself (a link's `params`).
 impl ArgValue for BTreeMap<String, Value> {
     const TYPE: TypeCode = TypeCode::Map;
-    fn from_value(v: Value) -> Result<Self, Fault> {
-        match v {
+    fn from_value(v: &mut Value) -> Result<Self, Fault> {
+        take(v, "a map", |v| match v {
             Value::Map(m) => Ok(m),
-            _ => Err(Fault::Type("a map")),
-        }
+            other => Err(other),
+        })
     }
 }
 
 /// Each element of a list through `f`; a refusal says which element.
-fn list<T>(v: Value, f: impl Fn(Value) -> Result<T, Fault>) -> Result<Vec<T>, Fault> {
+fn list<T>(v: &mut Value, f: impl Fn(&mut Value) -> Result<T, Fault>) -> Result<Vec<T>, Fault> {
     let Value::Array(items) = v else {
         return Err(Fault::Type("a list"));
     };
     items
-        .into_iter()
+        .iter_mut()
         .enumerate()
         .map(|(index, v)| {
             f(v).map_err(|fault| Fault::Item {
@@ -281,27 +313,27 @@ fn list<T>(v: Value, f: impl Fn(Value) -> Result<T, Fault>) -> Result<Vec<T>, Fa
 /// A list of texts.
 impl ArgValue for Vec<String> {
     const TYPE: TypeCode = TypeCode::Array;
-    fn from_value(v: Value) -> Result<Self, Fault> {
+    fn from_value(v: &mut Value) -> Result<Self, Fault> {
         list(v, String::from_value)
     }
 }
 
 /// `#[param(choice)]` on a `Vec<T>`: a list of names of one set.
-pub fn names<T: Named>(v: Value) -> Result<Vec<T>, Fault> {
+pub fn names<T: Named>(v: &mut Value) -> Result<Vec<T>, Fault> {
     list(v, by_name::<T>)
 }
 
 /// `#[param(choice)]`: a value of the set `T` from its name.
-pub fn by_name<T: Named>(v: Value) -> Result<T, Fault> {
+pub fn by_name<T: Named>(v: &mut Value) -> Result<T, Fault> {
     match v {
-        Value::Str(s) => crate::named::parse::<T>(&s).map_err(Fault::Name),
+        Value::Str(s) => crate::named::parse::<T>(s).map_err(Fault::Name),
         _ => Err(Fault::Type("a name")),
     }
 }
 
 /// `#[param(choice, trim)]`: [`by_name`] of the text without the white space
 /// around it.
-pub fn by_name_trimmed<T: Named>(v: Value) -> Result<T, Fault> {
+pub fn by_name_trimmed<T: Named>(v: &mut Value) -> Result<T, Fault> {
     match v {
         Value::Str(s) => crate::named::parse::<T>(s.trim()).map_err(Fault::Name),
         _ => Err(Fault::Type("a name")),
@@ -310,7 +342,7 @@ pub fn by_name_trimmed<T: Named>(v: Value) -> Result<T, Fault> {
 
 /// `#[param(enum)]`: a value of the set `T` from its index in [`Named::NAMES`],
 /// the form an `enum` parameter has on the wire (spec 02).
-pub fn by_index<T: Named>(v: Value) -> Result<T, Fault> {
+pub fn by_index<T: Named>(v: &mut Value) -> Result<T, Fault> {
     let index: u64 = v.to_int().map_err(|e| match e {
         IntError::NotANumber => Fault::Type("an index"),
         e => Fault::Int(e),
@@ -327,7 +359,7 @@ pub fn by_index<T: Named>(v: Value) -> Result<T, Fault> {
 }
 
 /// `#[param(trim)]`: text without the white space around it.
-pub fn trimmed(v: Value) -> Result<String, Fault> {
+pub fn trimmed(v: &mut Value) -> Result<String, Fault> {
     match v {
         Value::Str(s) => Ok(s.trim().to_owned()),
         _ => Err(Fault::Type("text")),
@@ -369,7 +401,11 @@ impl Reader {
                 map,
                 taken: Vec::new(),
             }),
-            _ => Err(ArgError::new("args", Fault::NotAMap)),
+            mut other => {
+                // no map: whatever it is, it is cleared before it is freed
+                wipe(&mut other);
+                Err(ArgError::new("args", Fault::NotAMap))
+            }
         }
     }
 
@@ -400,7 +436,7 @@ impl Reader {
 }
 
 /// Text and bytes of `v`, and of what it holds, overwritten with zeros.
-fn wipe(v: &mut Value) {
+pub(crate) fn wipe(v: &mut Value) {
     use zeroize::Zeroize;
     match v {
         Value::Str(s) => s.zeroize(),
@@ -413,7 +449,10 @@ fn wipe(v: &mut Value) {
 
 /// What no field took is cleared: when a call is refused on one field, a
 /// passphrase or a token that was still in the map does not stay in freed
-/// memory. (A value a field took is the field's: a secret type clears itself.)
+/// memory. A value that a field refused is cleared by [`Field::optional`], and
+/// arguments that are no map by [`Reader::new`]. Not cleared here: a value a
+/// field took (a secret type clears itself; plain text and bytes are the
+/// handler's), and the buffer the transport decoded the arguments from.
 impl Drop for Reader {
     fn drop(&mut self) {
         self.map.values_mut().for_each(wipe);
@@ -447,7 +486,10 @@ impl Field {
         self
     }
 
-    pub fn required<T>(self, f: impl FnOnce(Value) -> Result<T, Fault>) -> Result<T, ArgError> {
+    pub fn required<T>(
+        self,
+        f: impl FnOnce(&mut Value) -> Result<T, Fault>,
+    ) -> Result<T, ArgError> {
         let name = self.name;
         match self.optional(f) {
             Ok(Some(v)) => Ok(v),
@@ -458,15 +500,27 @@ impl Field {
 
     pub fn optional<T>(
         self,
-        f: impl FnOnce(Value) -> Result<T, Fault>,
+        f: impl FnOnce(&mut Value) -> Result<T, Fault>,
     ) -> Result<Option<T>, ArgError> {
-        if self.repeated {
-            return Err(ArgError::new(self.name, Fault::Repeated));
+        let Some(mut v) = self.value else {
+            return match self.repeated {
+                true => Err(ArgError::new(self.name, Fault::Repeated)),
+                false => Ok(None),
+            };
+        };
+        let r = match self.repeated {
+            true => Err(Fault::Repeated),
+            false => f(&mut v),
+        };
+        match r {
+            Ok(t) => Ok(Some(t)),
+            Err(fault) => {
+                // a refused value may be a secret of the wrong type (a
+                // passphrase sent as bytes): cleared before it is freed
+                wipe(&mut v);
+                Err(ArgError::new(self.name, fault))
+            }
         }
-        self.value
-            .map(f)
-            .transpose()
-            .map_err(|fault| ArgError::new(self.name, fault))
     }
 }
 
@@ -649,24 +703,30 @@ mod tests {
 
     #[test]
     fn numbers_are_whole_and_in_range() {
-        let int = u8::from_value;
-        assert_eq!(int(Value::UInt(7)), Ok(7));
-        assert_eq!(int(Value::Float(7.0)), Ok(7));
+        let int = |v: &mut Value| u8::from_value(v);
+        assert_eq!(int(&mut Value::UInt(7)), Ok(7));
+        assert_eq!(int(&mut Value::Float(7.0)), Ok(7));
         assert_eq!(
-            int(Value::Float(0.5)),
+            int(&mut Value::Float(0.5)),
             Err(Fault::Int(IntError::Fractional))
         );
-        assert_eq!(int(Value::Int(-1)), Err(Fault::Int(IntError::Negative)));
-        assert_eq!(int(Value::UInt(256)), Err(Fault::Int(IntError::OutOfRange)));
-        assert_eq!(int(Value::from("7")), Err(Fault::Type("a number")));
-        assert_eq!(f64::from_value(Value::UInt(2)), Ok(2.0));
-        assert_eq!(f64::from_value(Value::Int(-2)), Ok(-2.0));
         assert_eq!(
-            f64::from_value(Value::Float(f64::NAN)),
+            int(&mut Value::Int(-1)),
+            Err(Fault::Int(IntError::Negative))
+        );
+        assert_eq!(
+            int(&mut Value::UInt(256)),
+            Err(Fault::Int(IntError::OutOfRange))
+        );
+        assert_eq!(int(&mut Value::from("7")), Err(Fault::Type("a number")));
+        assert_eq!(f64::from_value(&mut Value::UInt(2)), Ok(2.0));
+        assert_eq!(f64::from_value(&mut Value::Int(-2)), Ok(-2.0));
+        assert_eq!(
+            f64::from_value(&mut Value::Float(f64::NAN)),
             Err(Fault::NotFinite)
         );
         assert_eq!(
-            f64::from_value(Value::from("2")),
+            f64::from_value(&mut Value::from("2")),
             Err(Fault::Type("a number"))
         );
         assert!(at_least("n", &3u32, 5).is_err());
@@ -680,31 +740,37 @@ mod tests {
     #[test]
     fn a_set_is_read_by_name_or_by_index_never_both() {
         assert_eq!(Mode::ALL.len(), 2);
-        assert_eq!(by_name::<Mode>(Value::from("replace")), Ok(Mode::Replace));
-        assert!(matches!(
-            by_name::<Mode>(Value::from("Replace")),
-            Err(Fault::Name(_))
-        ));
-        assert!(matches!(
-            by_name::<Mode>(Value::from(" replace ")),
-            Err(Fault::Name(_))
-        ));
         assert_eq!(
-            by_name_trimmed::<Mode>(Value::from(" replace ")),
+            by_name::<Mode>(&mut Value::from("replace")),
             Ok(Mode::Replace)
         );
-        assert_eq!(by_name::<Mode>(Value::UInt(1)), Err(Fault::Type("a name")));
-        assert_eq!(by_index::<Mode>(Value::UInt(1)), Ok(Mode::Replace));
+        assert!(matches!(
+            by_name::<Mode>(&mut Value::from("Replace")),
+            Err(Fault::Name(_))
+        ));
+        assert!(matches!(
+            by_name::<Mode>(&mut Value::from(" replace ")),
+            Err(Fault::Name(_))
+        ));
         assert_eq!(
-            by_index::<Mode>(Value::UInt(2)),
+            by_name_trimmed::<Mode>(&mut Value::from(" replace ")),
+            Ok(Mode::Replace)
+        );
+        assert_eq!(
+            by_name::<Mode>(&mut Value::UInt(1)),
+            Err(Fault::Type("a name"))
+        );
+        assert_eq!(by_index::<Mode>(&mut Value::UInt(1)), Ok(Mode::Replace));
+        assert_eq!(
+            by_index::<Mode>(&mut Value::UInt(2)),
             Err(Fault::Index { index: 2, len: 2 })
         );
         assert_eq!(
-            by_index::<Mode>(Value::from("add")),
+            by_index::<Mode>(&mut Value::from("add")),
             Err(Fault::Type("an index"))
         );
         assert_eq!(
-            names::<Mode>(Value::Array(vec!["add".into(), Value::UInt(1)])),
+            names::<Mode>(&mut Value::Array(vec!["add".into(), Value::UInt(1)])),
             Err(Fault::Item {
                 index: 1,
                 fault: Box::new(Fault::Type("a name"))
@@ -777,6 +843,32 @@ mod tests {
         assert_eq!(
             (BAD.count("name"), GOOD.count("name"), GOOD.count("zz")),
             (2, 1, 0)
+        );
+    }
+
+    /// A value its field refuses is left where it was (so it can be cleared), and
+    /// a value its field takes is moved out.
+    #[test]
+    fn a_refused_value_stays_and_a_taken_one_moves() {
+        let mut v = Value::Bytes(vec![1, 2, 3]);
+        assert_eq!(String::from_value(&mut v), Err(Fault::Type("text")));
+        assert_eq!(v, Value::Bytes(vec![1, 2, 3]));
+        assert_eq!(Vec::<u8>::from_value(&mut v), Ok(vec![1, 2, 3]));
+        assert_eq!(v, Value::Null);
+        // the reader clears what the field refused: a secret of the wrong type
+        let mut seen = Vec::new();
+        let args = map(&[("passphrase", Value::Bytes(b"hunter2".to_vec()))]);
+        let mut r = Reader::new(args).unwrap();
+        let e = r.take("passphrase").optional(|v: &mut Value| {
+            let r = String::from_value(v);
+            seen.push(v.clone());
+            r
+        });
+        assert_eq!(e, Err(ArgError::new("passphrase", Fault::Type("text"))));
+        assert_eq!(
+            seen,
+            [Value::Bytes(b"hunter2".to_vec())],
+            "left for the wipe"
         );
     }
 
