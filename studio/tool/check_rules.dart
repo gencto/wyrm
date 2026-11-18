@@ -402,6 +402,18 @@ int _dispatchWrapper(String text) {
     RegExp('$head=>\\s*$call', multiLine: true),
     // the same with a body of one statement: `void f() { dispatch(x); }`
     RegExp('$head\\{\\s*$call[^;]*;\\s*\\}', multiLine: true),
+    // a dispatch behind a condition is the whole body all the same:
+    // `=> cond ? dispatch(x) : null` and `{ if (cond) dispatch(x); }`
+    // (the condition at the body's own level: its parentheses close
+    // before the `?`, so a ternary inside an argument is not this)
+    RegExp(
+      '$head=>[^;{}()]*(?:\\([^()]*\\)[^;{}()]*)*\\?\\s*$call',
+      multiLine: true,
+    ),
+    RegExp(
+      '$head\\{\\s*if\\s*\\([^{};]*\\)\\s*\\{?\\s*$call[^;]*;\\s*\\}?\\s*\\}',
+      multiLine: true,
+    ),
   ]) {
     for (final m in re.allMatches(c)) {
       final before = c.substring(0, m.start).trimRight();
@@ -527,6 +539,15 @@ class _Vm extends Vm {
       _store.dispatchAndWait(LoadAction(id));
   void _read(String id) {
     _store.dispatch(ReadAction(id));
+  }
+  void report(Object e) =>
+      fresh(e)
+      ? store.dispatch(ReportAction(e))
+      : null;
+  void _maybe(String id) {
+    if (id.isNotEmpty) {
+      _store.dispatch(ReadAction(id));
+    }
   }
 class D implements TasksServiceListener {
   void _load(String id) => _store.dispatch(LoadAction(id));

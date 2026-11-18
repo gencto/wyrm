@@ -190,7 +190,7 @@ sequenceDiagram
     User->>UI: onHoldUnknown
     UI->>VM: onHoldUnknown()
     VM->>A1: dispatch
-    Note over A1: WaitingAction · async
+    Note over A1: WaitingAction
     A1->>ST: dispatchSync(AddChangesAction)
 ```
 
@@ -208,7 +208,7 @@ sequenceDiagram
     User->>UI: onAllowAll
     UI->>VM: onAllowAll()
     VM->>A1: dispatch
-    Note over A1: WaitingAction · async
+    Note over A1: WaitingAction
     A1->>ST: dispatchSync(AddChangesAction)
 ```
 

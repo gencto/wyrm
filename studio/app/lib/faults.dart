@@ -73,47 +73,27 @@ void installFaultHooks(Store<AppState> store, {bool cardInDebug = false}) {
     ErrorWidget.builder = PanelFault.builder;
   }
 
-  // A part that throws on every build would report itself on every frame,
-  // and each report changes the state it is built from: the same fault is
-  // taken once in two seconds.
-  String? last;
-  var lastAt = DateTime.fromMillisecondsSinceEpoch(0);
-
-  /// Whether [error] is taken now: not the fault taken less than two
-  /// seconds ago.
-  bool fresh(Object error) {
-    final line = faultLine(error);
-    final now = DateTime.now();
-    if (line == last && now.difference(lastAt) < const Duration(seconds: 2)) {
-      return false;
-    }
-    last = line;
-    lastAt = now;
-    debugPrint('uncaught: $line');
-    return true;
-  }
-
-  // A fault raised while building must not change the state of a tree that
-  // is being built: the report's reducer is asynchronous (and says in the
-  // log when it cannot add the fault). A fault handler waits for nothing:
-  // it dispatches and returns.
-  void report(Object error, StackTrace? stack, {String? library}) =>
-      fresh(error)
-      ? store.dispatch(
-          ReportProblemAction(uncaughtFault(error, stack, library: library)),
-        )
-      : null;
-
   final presentError = FlutterError.onError;
   FlutterError.onError = (details) {
     // Still printed for a developer.
     presentError?.call(details);
+    // A handler waits for nothing: it dispatches and returns. The same
+    // fault again within two seconds is not taken again (the action says
+    // so), and it says the fault in the log.
     if (!details.silent) {
-      report(details.exception, details.stack, library: details.library);
+      store.dispatchSync(
+        ReportProblemAction(
+          uncaughtFault(
+            details.exception,
+            details.stack,
+            library: details.library,
+          ),
+        ),
+      );
     }
   };
   PlatformDispatcher.instance.onError = (error, stack) {
-    report(error, stack);
+    store.dispatchSync(ReportProblemAction(uncaughtFault(error, stack)));
     return true;
   };
 }
