@@ -245,6 +245,7 @@ String _hintText(ErrorHint h) => switch (h) {
   .notSettable => S.current.errNotSettable,
   .unreadableAnswer => S.current.errUnreadableAnswer,
   .unreadableRows => S.current.errUnreadableRows,
+  .fileNotRead => S.current.errFileNotRead,
 };
 
 /// The tone of a kind (errors.md §1).

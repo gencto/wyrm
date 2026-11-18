@@ -1,119 +1,76 @@
-import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:models/error_hint.dart';
 import 'package:models/error_kind.dart';
-import 'package:models/json_value.dart';
+import 'package:models/profile_draft.dart';
+import 'package:models/studio_error.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
+import '../decode/decoded.dart';
+import '../decode/profile_draft.dart';
 import '../failures.dart';
 
 /// The bytes `sys/profiles ▸ put` takes for a picked file: a `.cbor` file is
-/// the CBOR `ProfileDef` already and goes as it is; a JSON file is encoded
-/// here (specs/system.md, proposed).
+/// the CBOR `ProfileDef` already and goes as it is; a JSON file is read
+/// once into a [ProfileDraft] ([profileDraftOf]) and encoded here
+/// (specs/system.md, proposed).
 ///
-/// The JSON form is the profile's `~meta` in words: `extends`, `type`
-/// (`number`, `string`, `bool`, `enum`, …), `unit`, `enum` (names),
-/// `display`, `children` (names), `cfg` and `attr` (maps).
+/// A JSON file that is no profile is refused before the call: a typed
+/// refusal the app words ([ErrorHint.fileNotRead]) with the field at
+/// fault, which is also in the log.
 Uint8List profileBytes(String fileName, Uint8List bytes) {
   if (!fileName.toLowerCase().endsWith('.json')) {
     return bytes;
   }
-  final Object? json;
-  try {
-    json = jsonDecode(utf8.decode(bytes));
-  } on FormatException catch (e) {
-    throw StudioException.said(
-      ErrorKind.input,
-      'It is not JSON: ${e.message}',
-      call: 'read',
-      thing: fileName,
-    );
+  switch (profileDraftOf(bytes)..record(fileName)) {
+    case Valid(:final value):
+      return encodeProfile(value, fileName: fileName);
+    case Invalid(:final field):
+      throw _notRead(fileName, field);
   }
-  if (json is! Map<String, Object?>) {
-    throw StudioException.said(
-      ErrorKind.input,
-      'A profile is a JSON object.',
-      call: 'read',
-      thing: fileName,
-    );
-  }
-  return encodeProfile(json);
 }
 
-/// A CBOR `ProfileDef` (spec 02): the `NodeMeta` entries under their integer
-/// keys, then the text key `extends`.
-Uint8List encodeProfile(Map<String, Object?> json) {
-  const known = {
-    'extends',
-    'type',
-    'unit',
-    'enum',
-    'display',
-    'children',
-    'cfg',
-    'attr',
-  };
-  for (final k in json.keys) {
-    if (!known.contains(k)) {
-      throw StudioException.said(
-        ErrorKind.input,
-        'Unknown key "$k" (known: ${known.join(', ')}).',
-        call: 'encode',
-        thing: 'profile',
-      );
-    }
-  }
-  TypeCode? ty;
-  if (JsonValue.tryOf(json['type']) case JsonText(text: final t)) {
-    ty = TypeCode.values.where((c) => c.wireName == t).firstOrNull;
-    if (ty == null) {
-      throw StudioException.said(
-        ErrorKind.input,
-        'Unknown type "$t".',
-        call: 'encode',
-        thing: 'profile',
-      );
-    }
-  }
-  List<String>? names(String key) => switch (json[key]) {
-    final List<Object?> l => [for (final e in l) '$e'],
-    _ => null,
-  };
-  Map<String, Value>? map(String key) => switch (json[key]) {
-    final Map<String, Object?> m => {
-      for (final e in m.entries) e.key: Value.from(e.value),
-    },
-    _ => null,
-  };
+StudioException _notRead(String fileName, String field) => StudioException(
+  StudioError(
+    kind: ErrorKind.input,
+    hint: ErrorHint.fileNotRead,
+    call: 'read',
+    thing: fileName,
+    field: field.isEmpty ? null : field,
+  ),
+);
+
+/// A CBOR `ProfileDef` (spec 02) of [draft]: the `NodeMeta` entries under
+/// their integer keys, then the text key `extends`.
+Uint8List encodeProfile(ProfileDraft draft, {String fileName = 'profile'}) {
+  Map<String, Value>? values(ProfileDraft d, {required bool cfg}) =>
+      switch (cfg ? d.cfg : d.attr) {
+        final m? => {
+          for (final e in m.entries) e.key: Value.from(e.value.raw),
+        },
+        null => null,
+      };
   final meta = NodeMeta(
-    ty: ty,
-    unit: switch (json['unit']) {
-      final String u => TText(u),
-      _ => null,
+    ty: draft.type,
+    unit: switch (draft.unit) {
+      final u? => TText(u),
+      null => null,
     },
-    enumValues: names('enum'),
-    cfg: map('cfg'),
-    attr: map('attr'),
-    children: names('children'),
-    display: switch (json['display']) {
-      final String d => d,
-      _ => null,
-    },
+    enumValues: draft.enumValues?.unlock,
+    cfg: values(draft, cfg: true),
+    attr: values(draft, cfg: false),
+    children: draft.children?.unlock,
+    display: draft.display,
   ).toCbor();
-  final parent = json['extends'];
-  if (parent is! String) {
+  final parent = draft.parent;
+  if (parent == null) {
     return meta;
   }
   // A map of fewer than 23 entries has a one-byte head (0xA0 + n): one more
   // entry is one more in that byte.
   final n = meta.first & 0x1f;
   if (meta.first >> 5 != 5 || n >= 23) {
-    throw StudioException.said(
-      ErrorKind.input,
-      'The profile has too many entries to add extends.',
-      call: 'encode',
-      thing: 'profile',
-    );
+    throw _notRead(fileName, 'extends');
   }
   return Uint8List.fromList([
     0xa0 + n + 1,

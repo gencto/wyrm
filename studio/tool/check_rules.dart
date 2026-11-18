@@ -142,6 +142,9 @@ final _rules = <Rule>[
             c,
             RegExp(r'\bcase\s+final\s+(?:String|int|double|bool|num)\b'),
           ) +
+          // a value read through `JsonValue` outside a decoder is the same
+          // untyped read in another spelling (re-audit of #135)
+          _matches(c, RegExp(r'\bJsonValue\.(?:of|tryOf)\(')) +
           _matches(c, RegExp(r'\btoDart\(')) +
           // the loose readers of values.dart, outside a decoder
           _matches(
@@ -476,6 +479,7 @@ const _probes = <String, ({String bad, String good})>{
   'untyped-wire': (
     bad: '''
     if (p.defaultValue case final String prefilled when prefilled.isNotEmpty)
+    if (JsonValue.tryOf(json['type']) case JsonText(text: final t)) {}
 ''',
     good: '''
     if (p.defaultValue case JsonText(text: final prefilled))

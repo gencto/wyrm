@@ -2204,5 +2204,6 @@
     "bakRowNotRead": "not read: in a form this Studio does not know",
     "waitNotRead": "not read by this Studio",
     "whyNotRead": "not read",
-    "waitNotReadNote": "Answered in a form this Studio does not read; decide on the broker. See Problems."
+    "waitNotReadNote": "Answered in a form this Studio does not read; decide on the broker. See Problems.",
+    "errFileNotRead": "This file is not in a form Studio reads, so nothing was sent. The field at fault is in the log."
 }

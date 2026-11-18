@@ -2078,6 +2078,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "errFaultMessage": MessageLookupByLibrary.simpleMessage(
       "Something in Studio failed here. This is a fault in Studio, not on the broker; nothing more was sent.",
     ),
+    "errFileNotRead": MessageLookupByLibrary.simpleMessage(
+      "This file is not in a form Studio reads, so nothing was sent. The field at fault is in the log.",
+    ),
     "errNotSettable": MessageLookupByLibrary.simpleMessage(
       "Its meta names no level it can be set at, so nothing was staged.",
     ),

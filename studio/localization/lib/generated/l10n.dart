@@ -17745,6 +17745,16 @@ class S {
       args: [],
     );
   }
+
+  /// `This file is not in a form Studio reads, so nothing was sent. The field at fault is in the log.`
+  String get errFileNotRead {
+    return Intl.message(
+      'This file is not in a form Studio reads, so nothing was sent. The field at fault is in the log.',
+      name: 'errFileNotRead',
+      desc: '',
+      args: [],
+    );
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<S> {

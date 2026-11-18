@@ -27,12 +27,18 @@ import 'package:business/redux/system/actions/set_shown_action.dart';
 import 'package:business/redux/system/actions/set_source_action.dart';
 import 'package:business/redux/system/actions/set_tab_action.dart';
 import 'package:business/redux/system/actions/zoom_traffic_action.dart';
+import 'package:business/wyrm/decode/decoded.dart';
+import 'package:business/wyrm/decode/profile_draft.dart';
+import 'package:business/wyrm/failures.dart';
 import 'package:business/wyrm/mappers/log_line_mapper.dart';
 import 'package:business/wyrm/mappers/profile_mapper.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/attention_kind.dart';
+import 'package:models/error_hint.dart';
+import 'package:models/error_kind.dart';
 import 'package:models/hist_window.dart';
+import 'package:models/json_value.dart';
 import 'package:models/link_info.dart';
 import 'package:models/link_mode.dart';
 import 'package:models/link_origin.dart';
@@ -41,9 +47,11 @@ import 'package:models/live_value.dart';
 import 'package:models/log_level.dart';
 import 'package:models/log_line.dart';
 import 'package:models/log_read_error.dart';
+import 'package:models/profile_draft.dart';
 import 'package:models/quarantine_entry.dart';
 import 'package:models/quarantine_kind.dart';
 import 'package:models/standby_state.dart';
+import 'package:models/studio_error.dart';
 import 'package:models/system_tab.dart';
 import 'package:models/workspace.dart';
 import 'package:wyrm_client/wyrm_client.dart';
@@ -405,17 +413,98 @@ void main() {
     });
 
     test('a JSON file that is not a profile is refused before the call', () {
+      StudioError refused(String json) {
+        try {
+          profileBytes('x.json', Uint8List.fromList(utf8.encode(json)));
+        } on StudioException catch (e) {
+          return e.error;
+        }
+        fail('$json must not pass');
+      }
+
+      for (final (json, field) in [
+        ('[1]', null),
+        ('{', null),
+        ('{"points": 3}', 'points'),
+        ('{"type": "colour"}', 'type'),
+        // a field of another form is not dropped, it refuses the file
+        ('{"unit": 5}', 'unit'),
+        ('{"enum": "a,b"}', 'enum'),
+        ('{"enum": [1, 2]}', 'enum'),
+        ('{"cfg": []}', 'cfg'),
+        ('{"extends": 7}', 'extends'),
+      ]) {
+        final e = refused(json);
+        expect(
+          (e.kind, e.hint, e.field, e.thing, e.call),
+          (ErrorKind.input, ErrorHint.fileNotRead, field, 'x.json', 'read'),
+          reason: json,
+        );
+        // said by the app, not here
+        expect(e.message, isEmpty, reason: json);
+      }
+    });
+
+    test('the profile decoder: each field typed, the fault with its field', () {
       expect(
-        () => profileBytes('x.json', Uint8List.fromList(utf8.encode('[1]'))),
-        throwsA(isA<UserException>()),
+        profileDraftOfJson({
+          'extends': 'wy:number',
+          'type': 'number',
+          'unit': '°C',
+          'enum': ['a', 'b'],
+          'display': 'Temp',
+          'children': ['x'],
+          'cfg': {'min': -40},
+          'attr': {'k': 'v'},
+        }),
+        Valid(
+          ProfileDraft(
+            parent: 'wy:number',
+            type: TypeCode.number,
+            unit: '°C',
+            enumValues: const ['a', 'b'].lock,
+            display: 'Temp',
+            children: const ['x'].lock,
+            cfg: {'min': JsonValue.of(-40)}.lock,
+            attr: {'k': JsonValue.of('v')}.lock,
+          ),
+        ),
       );
       expect(
-        () => encodeProfile({'points': 3}),
-        throwsA(isA<UserException>()),
+        profileDraftOfJson(const <String, Object?>{}),
+        const Valid(ProfileDraft()),
       );
+      for (final (json, field, reason) in <(Object?, String, String)>[
+        ([1], '', 'not a JSON object'),
+        ('profile', '', 'not a JSON object'),
+        ({'points': 3}, 'points', 'not a field of a profile'),
+        ({'type': 'colour'}, 'type', 'not a known type'),
+        ({'type': 3}, 'type', 'not a text'),
+        (
+          {
+            'children': {'a': 1},
+          },
+          'children',
+          'not a list',
+        ),
+        (
+          {
+            'enum': ['a', 2],
+          },
+          'enum',
+          'not texts',
+        ),
+        ({'attr': 'x'}, 'attr', 'not a map'),
+      ]) {
+        expect(
+          profileDraftOfJson(json),
+          Invalid<ProfileDraft>('profile', field, reason),
+          reason: '$json',
+        );
+      }
       expect(
-        () => encodeProfile({'type': 'colour'}),
-        throwsA(isA<UserException>()),
+        profileDraftOf(utf8.encode('{')),
+        const Invalid<ProfileDraft>('profile', '', 'not JSON'),
       );
     });
 

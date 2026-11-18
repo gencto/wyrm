@@ -28,4 +28,9 @@ enum ErrorHint {
   /// have: Studio shows the others and names these (their fields are in
   /// the log).
   unreadableRows,
+
+  /// A file the user picked is not of the form its kind has (a profile
+  /// that is no profile): nothing of it was sent. The field at fault is
+  /// in the error and in the log.
+  fileNotRead,
 }
