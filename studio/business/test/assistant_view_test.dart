@@ -28,6 +28,7 @@ import 'package:models/step_kind.dart';
 import 'package:models/step_result.dart';
 import 'package:models/step_status.dart';
 import 'package:models/step_wait.dart';
+import 'package:models/task_finding.dart';
 import 'package:models/task_row.dart';
 import 'package:models/task_state.dart';
 import 'package:models/task_suggestion.dart';
@@ -492,9 +493,19 @@ void main() {
         ).rightsShown,
         isTrue,
       );
-      expect(_Reader(agent).foundShown(null), isFalse);
+      expect(_Reader(agent).foundShown(null, drawer: true), isFalse);
       const t = AgentTask(id: 't-1', state: TaskState.done);
-      expect(_Reader(agent).foundShown(t), isFalse);
+      expect(_Reader(agent).foundShown(t, drawer: true), isFalse);
+    });
+
+    test('What I found: in the drawer with findings, never in the tab', () {
+      final t = AgentTask(
+        id: 't-1',
+        state: TaskState.done,
+        findings: [const TaskFinding(key: sp, label: 'set point')].lock,
+      );
+      expect(read().foundShown(t, drawer: true), isTrue);
+      expect(read().foundShown(t, drawer: false), isFalse);
     });
   });
 

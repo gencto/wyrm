@@ -632,12 +632,14 @@ extension AssistantScreen on Selectors {
   /// The rights panel is open.
   bool get rightsShown => assistant.panel == AssistantPanel.rights;
 
-  /// *What I found* has something to show for [t]: findings, findings the
-  /// link refused, or the drawer's mini timeline.
-  bool foundShown(AgentTask? t) =>
-      (t != null &&
-          (findingsShown(t).isNotEmpty || t.findingsRefused.isNotEmpty)) ||
-      timeline != null;
+  /// *What I found* is shown for [t]: only in the drawer ([drawer]), and
+  /// only with findings, findings the link refused, or the drawer's mini
+  /// timeline.
+  bool foundShown(AgentTask? t, {required bool drawer}) =>
+      drawer &&
+      ((t != null &&
+              (findingsShown(t).isNotEmpty || t.findingsRefused.isNotEmpty)) ||
+          timeline != null);
 
   /// Whether the masked arguments of [s] of [t] are shown now; null for a
   /// step whose arguments are not masked for an unknown schema (nothing

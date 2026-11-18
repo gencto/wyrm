@@ -223,7 +223,7 @@ AssistantShown _shownOf(_Read r, {required bool drawer}) {
     },
     watch: r.assistantWatch.lock,
     findingKeys: r.drawerFindingKeys.lock,
-    found: drawer ? _found(r, t) : null,
+    found: r.foundShown(t, drawer: drawer) ? _found(r, t) : null,
     timelinePoint: drawer ? r.timelinePoint : null,
     composer: _composer(r, t, drawer: drawer),
     panel: r.assistant.panel.tab,
@@ -402,11 +402,8 @@ RightsPanelVm _rights(_Read r) {
 
 /// *What I found* (the task's findings, each marked from its node's live
 /// value) and the mini timeline of the drawer's point with the audit
-/// records on it (spec assistant.md §5); null with nothing to show.
-FoundCardVm? _found(_Read r, AgentTask? t) {
-  if (!r.foundShown(t)) {
-    return null;
-  }
+/// records on it (spec assistant.md §5); shown when `foundShown` says so.
+FoundCardVm _found(_Read r, AgentTask? t) {
   final rows = [
     if (t != null)
       for (final f in r.findingsShown(t)) f.row(r.live.values[f.key]?.quality),
