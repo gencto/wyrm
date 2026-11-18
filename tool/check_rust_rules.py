@@ -400,7 +400,10 @@ def c4(s: Source) -> list[int]:
     """A field of a `Value` map read by hand outside a decoder: `Some(Value::…`, `if let
     Value::…(`, `let Value::…(..) =`, `.get/get_mut/remove/contains_key("x" | CONST)`,
     `m["x"]`, `Value::as_*`, and the argument helpers (`arg_str(&args, "x")`, …)."""
-    if s.path.endswith("/decode.rs") or "/decode/" in s.path or s.path in DECODERS:
+    # a `decode.rs` is a decoder module; not in `wyrm-admin`, where an action's struct is the
+    # decoder and C12 counts every other read of its arguments
+    decoder = s.path.endswith("/decode.rs") or "/decode/" in s.path
+    if (decoder and not s.path.startswith("crates/wyrm-admin/src/")) or s.path in DECODERS:
         return []
     hits = [m.start() for p in C4_PATTERNS for m in re.finditer(p, s.code)]
     return s.hits("C4", hits)
@@ -886,26 +889,100 @@ C12_PATTERNS = [
     # an argument reader, defined or called (not a method: `cmd.arg(…)` of a process)
     r"(?<!\.)\b(?:arg|arg_str|arg_num|arg_ms|arg_bool|arg_bytes|opt_str|req_str|get_str|get_u64|"
     r"get_bool|\w+_arg|\w+_args|from_args|accepted)\s*(?:(?:::)?<[^>()]*>)?\(",
-    # the arguments map taken apart
-    r"\bargs\s*\.\s*(?:get|get_mut|remove|contains_key|iter|keys|values|as_\w+|to_int)\b",
-    r"\bmatch\s+[&*]*args\b",
-    r"=\s*[&*]*args\s*(?:else\b|\{)",
-    r"\bargs\s*\[",
-    # a parameter declared by hand
+    # a parameter declared by hand, or an action made without a struct
     r"\bParamMeta\b",
     r"\.\s*param\(",
+    r"\bActionMeta\s*::\s*(?:new|default)\s*\(",
+    r"(?<!-> )\bActionMeta\s*\{",
+    # the declared parameters of an action changed after the struct made them
+    r"\.\s*params\s*\.\s*(?:entry|insert|retain|values_mut|get_mut|iter_mut|remove|append|extend|clear|"
+    r"pop_first|pop_last|first_entry|last_entry|split_off|extract_if|drain\w*)\b",
+    r"&mut\s+[\w.]*\bparams\b(?!\s*:)",
+    r"\.\s*params\s*=(?!=)",
+    # a decoder written by hand
+    r"\bimpl\s+(?:[\w:]+::)?(?:Args|ArgValue|SecretArg)\s+for\b",
+    r"\bfn\s+decode\s*(?:<[^>]*>)?\(\s*(?:mut\s+)?\w+\s*:\s*&?\s*(?:mut\s+)?(?:wyrm_core::)?Value\b",
 ]
+# `args` is the name of an action's arguments in `wyrm-admin`, and of nothing else.
+ARGS_WORD = re.compile(r"(?<![.\w])args\b")
+ARGS_DECODE_BEFORE = re.compile(r"(?:\b[A-Z]\w*|<\(\)>)::decode\(\s*$")
+ARGS_DECODE_AFTER = re.compile(r"(?:\.clone\(\))?\s*\)")
+# a parameter, a struct field or a field of a struct literal (`args: argv`)
+ARGS_PARAM_AFTER = re.compile(r"\s*:(?!:)")
+DISPATCH_FN = re.compile(r"\bfn\s+(on_invoke|on_check|invoke)\s*(?:<[^>]*>)?\(")
+VALUE_PARAM = re.compile(r"(\w+)\s*:\s*&?\s*(?:mut\s+)?(?:wyrm_core::)?Value\s*[,)]")
+
+
+def enclosing_call(text: str, at: int) -> str:
+    """The name of the function whose argument list holds offset `at` (`invoke` for
+    `history::invoke(a, args)`), or "" when `at` is in no call."""
+    depth, k = 0, at - 1
+    while k >= 0:
+        ch = text[k]
+        if ch in ")]}":
+            depth += 1
+        elif ch in "([{":
+            if depth == 0:
+                if ch != "(":
+                    return ""
+                m = re.search(r"(\w+)\s*$", text[:k])
+                return m.group(1) if m else ""
+            depth -= 1
+        elif ch == ";" and depth == 0:
+            return ""
+        k -= 1
+    return ""
+
+
+def args_uses(s: Source) -> list[int]:
+    """Every `args` that is not: the parameter itself (`args: Value`, `args: &Value`), the
+    one argument of a struct's decoder (`X::decode(args)`, `<()>::decode(args)`,
+    `X::decode(args.clone())`), or handed whole to a dispatcher (`…::invoke(…, args, …)`)."""
+    text, hits = s.masked, []
+    for m in ARGS_WORD.finditer(text):
+        a, b = m.start(), m.end()
+        if ARGS_PARAM_AFTER.match(text, b):
+            continue
+        if ARGS_DECODE_BEFORE.search(text[max(0, a - 120) : a]) and ARGS_DECODE_AFTER.match(text, b):
+            continue
+        before, after = text[max(0, a - 80) : a], text[b : b + 8]
+        whole = re.search(r"[,(]\s*$", before) and re.match(r"\s*[,)]", after)
+        if whole and enclosing_call(text, a) == "invoke":
+            continue
+        hits.append(a)
+    return hits
+
+
+def renamed_args(s: Source) -> list[int]:
+    """A dispatcher (`on_invoke`, `on_check`, `invoke`) that takes its arguments under
+    another name than `args`: the name is what the rule follows."""
+    hits = []
+    for m in DISPATCH_FN.finditer(s.masked):
+        end = signature_end(s.masked, m.end())
+        for p in VALUE_PARAM.finditer(s.masked, m.end(), end):
+            if p.group(1) != "args":
+                hits.append(p.start())
+    return hits
 
 
 def c12(s: Source) -> list[int]:
-    """In `wyrm-admin`, an action's arguments read or declared by hand: an argument reader
-    (`arg(…)`, `arg_str(…)`, `int_arg(…)`, any `…_arg(…)`, `from_args(…)`), the `args` map
-    taken apart (`args.get(…)`, `match args`, `let … = args else`, `args["x"]`), or a
-    parameter written out (`ParamMeta`, `.param(…)`). An action's struct with
-    `#[derive(Args)]` is the one declaration and the one decoder (docs/rust-rules.md §7)."""
+    """In `wyrm-admin`, an action's arguments read or declared outside its struct.
+    `args` names an action's arguments and nothing else, and it has three uses: the
+    parameter (`args: Value`), `X::decode(args)`, and a whole hand-over to a dispatcher
+    (`…::invoke(…, args, …)`). Every other `args` counts: a helper called with it
+    (`text(&args, "x")`, `decode::text(&args, …)`), a method on it (`args.get(…)`,
+    `args.text("x")`), a macro (`take!(args, "x")`), a new name for it (`let a = args`), a
+    `match` on it. So does a dispatcher that names its arguments otherwise, an argument
+    reader (`arg(…)`, `…_arg(…)`, `from_args(…)`), a parameter or an action written out
+    (`ParamMeta`, `.param(…)`, `ActionMeta::new()`, `ActionMeta { … }`), a change of an
+    action's declared parameters (`a.params.insert(…)`, `.entry`, `.retain`,
+    `.values_mut()`, `&mut a.params`, `a.params = …`) and a decoder written by hand
+    (`impl Args for`, `fn decode`). An action's struct with `#[derive(Args)]` is the one
+    declaration and the one decoder (docs/rust-rules.md §7)."""
     if not s.path.startswith(ADMIN):
         return []
-    return s.hits("C12", [m.start() for p in C12_PATTERNS for m in re.finditer(p, s.masked)])
+    hits = [m.start() for p in C12_PATTERNS for m in re.finditer(p, s.masked)]
+    return s.hits("C12", hits + args_uses(s) + renamed_args(s))
 
 
 PATTERNS = {
@@ -932,26 +1009,91 @@ PATTERNS = {
 # change to a pattern cannot silently stop counting what it was written for.
 PROBES = [
     # C12: wyrm-admin reads and declares an action's arguments only through its struct
-    ("C12", ADMIN + "x.rs", 'fn f(args: &Value) { let n = arg_str(args, "name"); }', 1),
-    ("C12", ADMIN + "x.rs", 'fn f(args: &Value) { let n = int_arg::<u32>(args, "n")?; }', 1),
+    ("C12", ADMIN + "x.rs", 'fn f(args: &Value) { let n = arg_str(args, "name"); }', 2),
+    ("C12", ADMIN + "x.rs", 'fn f(args: &Value) { let n = int_arg::<u32>(args, "n")?; }', 2),
     ("C12", ADMIN + "x.rs", "fn arg<'a>(args: &'a Value, name: &str) -> Option<&'a Value> { None }", 1),
-    ("C12", ADMIN + "x.rs", 'fn f(args: &Value) { let p = passphrase_arg(args)?; }', 1),
-    ("C12", ADMIN + "x.rs", "fn f(args: &Value) { let o = UpdateOpts::from_args(args)?; }", 1),
-    ("C12", ADMIN + "x.rs", "fn f(args: &Value) -> bool { accepted(args) }", 1),
+    ("C12", ADMIN + "x.rs", 'fn f(args: &Value) { let p = passphrase_arg(args)?; }', 2),
+    ("C12", ADMIN + "x.rs", "fn f(args: &Value) { let o = UpdateOpts::from_args(args)?; }", 2),
+    ("C12", ADMIN + "x.rs", "fn f(args: &Value) -> bool { accepted(args) }", 2),
     ("C12", ADMIN + "x.rs", 'fn f(args: &BTreeMap<String, Value>) { let n = args.get("name"); }', 1),
     ("C12", ADMIN + "x.rs", "fn f(args: &Value) { match args { Value::Map(m) => go(m), _ => {} } }", 1),
     ("C12", ADMIN + "x.rs", "fn f(args: &Value) { let Value::Map(m) = args else { return }; }", 1),
     ("C12", ADMIN + "x.rs", "fn f(args: &Value) { if let Value::Map(m) = &args { go(m) } }", 1),
     ("C12", ADMIN + "x.rs", 'fn f(args: &Value) { let n = &args["name"]; }', 1),
     ("C12", ADMIN + "x.rs", "fn f() -> ParamMeta { ParamMeta::of(TypeCode::String) }", 2),
-    ("C12", ADMIN + "x.rs", 'fn f() -> ActionMeta { ActionMeta::new().param("n", p()) }', 1),
+    ("C12", ADMIN + "x.rs", 'fn f() -> ActionMeta { ActionMeta::new().param("n", p()) }', 2),
+    # the audit of #136: every way around the first C12 (it counted names, not uses)
+    (
+        "C12",
+        ADMIN + "x.rs",
+        "fn text<'a>(m: &'a Value, k: &str) -> Option<&'a str> { m.as_map()?.get(k)?.as_str() }\n"
+        'fn f(args: &Value) { let n = text(&args, "name"); }',
+        1,
+    ),
+    ("C12", ADMIN + "x.rs", 'fn f(args: &Value) { let n = decode::text(&args, "name"); let b = decode::flag(&args, "force"); }', 2),
+    ("C12", ADMIN + "x.rs", 'fn f(args: &Value) { let n = args.text("name"); }', 1),
+    ("C12", ADMIN + "x.rs", 'fn f(args: &Value) { let a = args; if let Value::Map(m) = a { let n = m.get("name"); } }', 1),
+    ("C12", ADMIN + "x.rs", "fn f(args: &Value) { let a = args; let m = a.as_map().unwrap_or(&EMPTY); let n = m.get(NAME); }", 1),
+    (
+        "C12",
+        ADMIN + "x.rs",
+        "macro_rules! take { ($m:expr, $k:literal) => { $m.as_map().and_then(|m| m.get($k)) } }\n"
+        'fn f(args: &Value) { let n = take!(args, "name"); }',
+        1,
+    ),
+    ("C12", ADMIN + "x.rs", "fn f(args: &Value) { let raw: Raw = wyrm_core::codec::from_slice(&wyrm_core::codec::to_vec(args)?)?; }", 1),
+    ("C12", ADMIN + "x.rs", "fn f(args: Value) { helper(args) }", 1),
+    ("C12", ADMIN + "x.rs", "fn f(args: Value) { my::decode(args) }", 1),
+    ("C12", ADMIN + "x.rs", "fn f(args: Value) { X::decode(strip(args)) }", 1),
+    ("C12", ADMIN + "x.rs", "fn f(args: Value) { history::invoke(ctl, peek(&args), sub) }", 1),
+    ("C12", ADMIN + "x.rs", 'async fn on_invoke(&mut self, path: &str, input: Value, who: &Caller) { read(input) }', 1),
+    ("C12", ADMIN + "x.rs", 'pub(crate) async fn invoke(ctl: &Control, rest: &[&str], a: &Value) { read(a) }', 1),
+    ("C12", ADMIN + "x.rs", 'fn f() -> ActionMeta { let mut a = X::action(); a.params.entry("extra".to_owned()).or_default().ty = Some(TypeCode::String); a }', 1),
+    ("C12", ADMIN + "x.rs", 'fn f() -> ActionMeta { let mut a = X::action(); a.params.insert("extra".to_owned(), Default::default()); a }', 1),
+    ("C12", ADMIN + "x.rs", 'fn f() -> ActionMeta { let mut a = X::action(); a.params.retain(|k, _| k != "secret"); a }', 1),
+    ("C12", ADMIN + "x.rs", "fn f() -> ActionMeta { let mut a = X::action(); for p in a.params.values_mut() { p.ty = Some(TypeCode::Dynamic); } a }", 1),
+    ("C12", ADMIN + "x.rs", "fn f() -> ActionMeta { let mut a = X::action(); let m = &mut a.params; m.clear(); a }", 1),
+    ("C12", ADMIN + "x.rs", "fn f() -> ActionMeta { let mut a = X::action(); a.params = other(); a }", 1),
+    ("C12", ADMIN + "x.rs", "fn f() -> ActionMeta { ActionMeta::new().display(\"X\") }", 1),
+    ("C12", ADMIN + "x.rs", "fn f() -> ActionMeta { ActionMeta { params: p(), ..Default::default() } }", 1),
+    ("C12", ADMIN + "x.rs", "impl Args for X { fn params() -> Vec<P> { vec![] } }", 1),
+    ("C12", ADMIN + "x.rs", "impl X { fn decode(v: Value) -> Self { hand(v) } }", 1),
+    ("C12", ADMIN + "x.rs", "impl X { fn decode(args: &Value) -> Self { Self } }", 1),
+    # a codec of another form is no decoder of arguments
+    ("C12", ADMIN + "x.rs", "fn decode(b: &[u8]) -> Result<Db, Error> { parse(b) }", 0),
+    # a `decode.rs` in the admin is no decoder module: its reads count (C4)
+    (
+        "C4",
+        ADMIN + "control/decode.rs",
+        "pub fn text<'a>(m: &'a Value, k: &str) -> Option<&'a str> { match m { Value::Map(m) => match m.get(k) { Some(Value::Str(s)) => Some(s), _ => None }, _ => None } }",
+        1,
+    ),
+    ("C4", "links/x/src/decode.rs", "pub fn text(m: &Value) -> Option<&str> { match m { Some(Value::Str(s)) => Some(s), _ => None } }", 0),
+    # what stays: the parameter, the struct's decoder, a whole hand-over to a dispatcher,
+    # a link's own `params`, a process's `args` field, a request built under another name
+    (
+        "C12",
+        ADMIN + "x.rs",
+        "async fn on_invoke(&mut self, path: &str, action: &str, args: Value, who: &Caller) {\n"
+        "    match action {\n"
+        '        "a" => self.a(A::decode(args)?).await,\n'
+        '        "b" => { <()>::decode(args)?; self.b().await }\n'
+        "        _ => crate::history::invoke(&self.ctl, &self.ctx, rest, action, args, &sub).await,\n"
+        "    }\n}\n"
+        "async fn on_check(&mut self, args: &Value) { let a = A::decode(args.clone())?; }\n"
+        "pub(super) async fn invoke(ctl: &Control, args: Value) { sinks::invoke(ctl, args).await }\n"
+        "fn g(d: &LinkDef, p: &PackageDef) { let v = decode_params(&d.params); let argv = p.args.clone(); "
+        "let spec = ProcSpec { exe, args: argv }; cmd.args(argv); if d.params != other { } }\n"
+        "fn h(a: UpdateParams) -> Value { Value::Map(a.params) }",
+        0,
+    ),
     # the typed way, a dispatcher that hands the map on, and a call built for another link
     (
         "C12",
         ADMIN + "x.rs",
         "#[derive(Args)]\nstruct A {\n    #[param(display = \"N\", min = 1)]\n    n: u32,\n}\n"
         "fn f(args: &Value) -> Result<A, ArgError> { A::decode(args) }\n"
-        "fn g(args: &Value) { sinks::invoke(args); let mut args = BTreeMap::new(); args.insert(k, v); }\n"
+        "fn g(args: &Value) { sinks::invoke(args); let mut request = BTreeMap::new(); request.insert(k, v); }\n"
         "fn h() -> ActionMeta { A::action().shown(\"n\", |p| p.placeholder(\"1\")) }",
         0,
     ),

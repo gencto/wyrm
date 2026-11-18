@@ -301,10 +301,17 @@ default.
 An action's arguments are one struct with `#[derive(Args)]`
 (`wyrm_core::args`, re-exported by `wyrm-link-sdk` and `wyrm-link-api`): the
 struct is what `~meta` declares (`X::action()`) and what the handler gets
-(`X::decode(&args)?`). A field `T` is required, `Option<T>` optional; whole
-numbers go through `Value::to_int`; a closed set is a `name_enum!` type with
-`#[param(choice)]` (by name) or `#[param(enum)]` (by index); a name that is no
-field is refused; every refusal names its field. What a form shows from the
+(`X::decode(args)?`; the arguments are taken, so a large binary argument moves
+into the struct and is never copied). A field `T` is required, `Option<T>`
+optional; whole numbers go through `Value::to_int`; a closed set is a
+`name_enum!` type with `#[param(choice)]` (by name) or `#[param(enum)]` (by
+index); a name that is no field is refused; every refusal names its field. A
+name is one field: two fields of one struct with one name do not compile, and
+a crate's tests walk its structs with `wyrm_core::args::repeated_param` for a
+name that comes again through `flatten`. `#[param(nonempty)]` is the empty
+text only; a text of white space is empty only with `trim`. The caller is
+checked before its arguments are decoded (a stranger is told
+`permission_denied`, never that its arguments were wrong). What a form shows from the
 state of the moment (the choices of a list, the value in force) is set with
 `ActionMeta::shown`, which cannot change a type or add a parameter. In
 `wyrm-admin` this is the only way (C12): no argument reader, no `ParamMeta`
@@ -326,7 +333,7 @@ struct AddUpstream {
     enabled: bool,
     // …
 }
-let a = AddUpstream::decode(&args)?; // `enabled: "no"` is refused, with the field's name
+let a = AddUpstream::decode(args)?; // `enabled: "no"` is refused, with the field's name
 ```
 
 **Check.** C4 `value-field-read`: `Some(Value::…`, `if let Value::…(`,
@@ -337,11 +344,21 @@ literal or a `CONST` key, `m["x"]`, `Value::as_*`, and the argument helpers
 `#[derive(Args)]` (`wyrm-core/src/args.rs`) are exempt.
 
 C12 `admin-arg-read`, in `crates/wyrm-admin/src` (baseline 0; the other crates
-follow as they move, audit T3): an argument reader defined or called (`arg(…)`,
-`arg_str(…)`, `int_arg(…)`, any `…_arg(…)`, `from_args(…)`), the `args` map
-taken apart (`args.get(…)`, `match args`, `let … = args else`, `args["x"]`),
-and a parameter declared by hand (`ParamMeta`, `.param(…)`). A dispatcher may
-hand `args` on and call `X::decode(args)`; nothing else.
+follow as they move, audit T3). There `args` names an action's arguments and
+nothing else (a process's arguments are `argv`, a call built for another link
+is a `request`), and it has three uses: the parameter (`args: Value`), the
+one argument of a struct's decoder (`X::decode(args)`, `<()>::decode(args)`),
+and a whole hand-over to a dispatcher (`…::invoke(…, args, …)`). **Every other
+`args` counts**: a helper called with it, a method on it, a macro, a new name
+for it, a `match`. Also counted: a dispatcher (`on_invoke`, `on_check`,
+`invoke`) that names its arguments otherwise; an argument reader by name
+(`arg(…)`, `…_arg(…)`, `from_args(…)`); a parameter or an action written out
+(`ParamMeta`, `.param(…)`, `ActionMeta::new()`, `ActionMeta { … }`: an action
+is `X::action()`); a change of an action's declared parameters
+(`a.params.insert(…)`, `.entry`, `.retain`, `.values_mut()`, `&mut a.params`,
+`a.params = …`); a decoder written by hand (`impl Args for`, `fn decode(v:
+Value)`). A file named `decode.rs` is no decoder module inside `wyrm-admin`:
+C4 counts its reads.
 
 ## 8. A public error is a type, not a `String`
 
@@ -516,7 +533,10 @@ before every run.
 `String`.
 
 An action argument (`#[derive(Args)]`) takes `Secret` (a text parameter) and
-`SecretBytes` (a binary one). The driver derive (`#[derive(Params)]`) does not
+`SecretBytes` (a binary one), and nothing else: `#[param(secret)]` on a
+`String` or a `Vec<u8>` does not compile (`wyrm_core::args::SecretArg`), and a
+secret is never trimmed (`secret` with `trim` does not compile; `nonempty`
+drops only the empty text, so a passphrase of spaces is a passphrase). The driver derive (`#[derive(Params)]`) does not
 take `Secret` yet; until then its count only goes down as links move.
 
 **Why.** Today secrets stay out of `Debug` by a comment ("No `Debug`: it holds
