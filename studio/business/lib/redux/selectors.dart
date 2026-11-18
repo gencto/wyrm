@@ -897,6 +897,9 @@ extension LinkInstallScreen on Selectors {
       ? linkInstall.step
       : installSteps.first;
 
+  /// The wizard is at its last step: the result of the install.
+  bool get installEnded => installStep == InstallStep.result;
+
   /// The item of the official list picked; null before one is.
   CatalogItem? get installItem =>
       linkInstall.catalog.where((c) => c.id == linkInstall.item).firstOrNull;

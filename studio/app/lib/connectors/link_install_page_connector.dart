@@ -19,7 +19,6 @@ import 'package:business/redux/link_install/actions/set_query_action.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:models/install_path.dart';
 import 'package:models/install_phase.dart';
-import 'package:models/install_step.dart';
 import 'package:ui/containers/catalog_words.dart';
 import 'package:ui/models/link_run_mode.dart';
 import 'package:ui/pages/link_install_page.dart';
@@ -97,7 +96,7 @@ class _Factory extends VmFactory<AppState, LinkInstallPageConnector, _Vm>
   _Vm fromStore() {
     final li = linkInstall;
     final step = installStep;
-    final last = step == InstallStep.result;
+    final last = installEnded;
     final item = installItem;
     return _Vm(
       page: LinkInstallVm(
