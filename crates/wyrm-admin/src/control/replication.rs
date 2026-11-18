@@ -46,7 +46,6 @@
 //! and `sys/standby_lag` show it.
 
 use super::*;
-use sha2::Digest;
 use wyrm_state::replicate::records_after;
 
 /// The control-plane WALs a standby follows: name on the wire, directory
@@ -103,10 +102,7 @@ pub fn replication_key(site: &str) -> String {
 /// The key the files travel under: derived from `secrets.key`, which both
 /// brokers hold from the key bundle.
 pub fn file_key(secrets_key: &[u8]) -> [u8; 32] {
-    let mut h = sha2::Sha256::new();
-    h.update(b"wyrm-replication-files");
-    h.update(secrets_key);
-    h.finalize().into()
+    wyrm_core::hex::sha256_parts(&[b"wyrm-replication-files", secrets_key])
 }
 
 /// One replicated file as listed: its name relative to `data_dir`, length
@@ -594,16 +590,8 @@ fn read_part(data_dir: &Path, name: &str, offset: u64, len: u64) -> Result<Part,
         return Err("file too large to replicate".into());
     }
     let digest = if offset == 0 {
-        let mut h = sha2::Sha256::new();
-        let mut block = vec![0u8; 64 << 10];
-        loop {
-            let n = f.read(&mut block).map_err(|e| e.to_string())?;
-            if n == 0 {
-                break;
-            }
-            h.update(&block[..n]);
-        }
-        Some(h.finalize().to_vec())
+        let (sum, _) = wyrm_core::hex::sha256_reader(&mut f).map_err(|e| e.to_string())?;
+        Some(sum.to_vec())
     } else {
         None
     };

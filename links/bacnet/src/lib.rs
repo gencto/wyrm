@@ -143,23 +143,13 @@ fn parse_mac(s: &str) -> Result<Vec<u8>, String> {
         .chars()
         .filter(|c| !matches!(c, ':' | ' ' | '-'))
         .collect();
-    // ASCII hex digits only, checked before any slicing: a multi-byte
-    // character would split a char boundary, and `from_str_radix` takes a
-    // sign
     if !h.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err(format!("mac: {s:?} is not hex"));
     }
     if h.is_empty() || !h.len().is_multiple_of(2) || h.len() > 14 {
         return Err(format!("mac: {s:?} is not 1…7 hex octets"));
     }
-    let digit = |b: u8| char::from(b).to_digit(16);
-    // the length is even: no remainder
-    let (pairs, _) = h.as_bytes().as_chunks::<2>();
-    pairs
-        .iter()
-        .map(|[hi, lo]| u8::try_from(digit(*hi)? * 16 + digit(*lo)?).ok())
-        .collect::<Option<Vec<u8>>>()
-        .ok_or_else(|| format!("mac: {s:?} is not hex"))
+    wyrm_core::hex::decode(&h).ok_or_else(|| format!("mac: {s:?} is not hex"))
 }
 
 /// A BACnet device. Hand-written `Params`: the address, network and MAC

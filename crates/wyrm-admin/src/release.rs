@@ -19,7 +19,6 @@
 
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -1092,7 +1091,7 @@ impl Layout {
             .current_version()
             .ok_or_else(|| format!("{}: not a link to a version", self.current().display()))?;
         let bytes = read_plain_file(&self.bin_of(&version), MAX_BINARY)?;
-        let sha = hex::encode(Sha256::digest(&bytes));
+        let sha = wyrm_core::hex::sha256_hex(&bytes);
         self.verify_hash(&version, &sha, keys)?;
         let guard = self.guard();
         if sha256_file(&guard).is_ok_and(|(g, _)| g == sha) {
@@ -2196,7 +2195,7 @@ mod tests {
                 sha256,
                 size,
                 url: String::new(),
-                bin_sha256: hex::encode(Sha256::digest(bin)),
+                bin_sha256: wyrm_core::hex::sha256_hex(bin),
             },
         )
     }
@@ -2976,7 +2975,7 @@ mod tests {
             r.targets.insert(
                 target(),
                 Asset {
-                    bin_sha256: hex::encode(Sha256::digest(bin)),
+                    bin_sha256: wyrm_core::hex::sha256_hex(bin),
                     ..asset
                 },
             );

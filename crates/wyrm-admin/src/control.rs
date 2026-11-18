@@ -692,7 +692,6 @@ fn check_ca_pem(pem: &str) -> Result<(), String> {
 /// The certificate an upstream site sent: for `broker:<own site>` and for
 /// our key (SHA-256 of its public key).
 fn check_issued_cert(pem: &str, own: &str, key_sha256: &str) -> Result<(), String> {
-    use sha2::{Digest, Sha256};
     let (_, block) = x509_parser::pem::parse_x509_pem(pem.trim().as_bytes())
         .map_err(|e| format!("bad answer: certificate: {e}"))?;
     let cert = block
@@ -707,7 +706,7 @@ fn check_issued_cert(pem: &str, own: &str, key_sha256: &str) -> Result<(), Strin
     if cn != Some(want.as_str()) {
         return Err(format!("bad answer: certificate for {}", cn.unwrap_or("?")));
     }
-    if hex::encode(Sha256::digest(cert.public_key().raw)) != key_sha256 {
+    if wyrm_core::hex::sha256_hex(cert.public_key().raw) != key_sha256 {
         return Err("bad answer: certificate for another key".into());
     }
     Ok(())
@@ -4867,7 +4866,7 @@ impl Admin {
             .ok_or_else(|| format!("{package}: no build for this host ({host})"))?;
         let url = wyrm_link_sdk::package::resolve(&index, &a.url)?;
         let zip = crate::fetch::get(&url, packages::MAX_ZIP, FETCH_TIMEOUT).await?;
-        let got = hex::encode(<sha2::Sha256 as sha2::Digest>::digest(&zip));
+        let got = wyrm_core::hex::sha256_hex(&zip);
         if !got.eq_ignore_ascii_case(&a.sha256) {
             return Err(format!("{package}: sha256 {got} does not match the index"));
         }

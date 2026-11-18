@@ -1844,7 +1844,7 @@ async fn a_stopped_run_gets_ways_out_and_a_step_gets_fixes() {
                 _ => panic!("a step: {s:?}"),
             })
             .collect();
-        wyrm_core::hex::sha256_hex(&wyrm_core::codec::to_vec(&Value::Array(steps)).unwrap())
+        wyrm_core::hex::sha256_hex(wyrm_core::codec::to_vec(&Value::Array(steps)).unwrap())
     };
     assert_eq!(field(&doc, "plan_hash"), Some(hash_of(&[])));
     assert_ne!(field(&doc, "plan_hash"), Some(hash_of(&["model_warn"])));

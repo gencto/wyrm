@@ -990,14 +990,13 @@ async fn broker_overlays_merge_into_meta() {
 /// the payload whose SHA-256 it names.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_token_bound_to_arguments_takes_only_them() {
-    use sha2::Digest;
     let (h, calls) = harness().await;
     let k = h.key("ahu1/supply_temp", "~set");
     let bound = |v: f64| {
         let mut c = h.claims(&[(&k, Perm::Write)]);
         let payload =
             wyrm_core::codec::to_vec(&wyrm_core::SetRequest { v: Value::Float(v) }).unwrap();
-        c.args = Some(sha2::Sha256::digest(&payload).into());
+        c.args = Some(wyrm_core::hex::sha256(&payload));
         h.sign(&c)
     };
     let att = h.set("ahu1/supply_temp", 21.5, Some(bound(21.5))).await;

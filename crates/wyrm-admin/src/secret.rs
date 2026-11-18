@@ -6,7 +6,6 @@ use rcgen::{
     BasicConstraints, CertificateParams, CertificateSigningRequestParams, DnType,
     ExtendedKeyUsagePurpose, IsCa, Issuer, KeyPair, KeyUsagePurpose, PublicKeyData,
 };
-use sha2::{Digest, Sha256};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use zeroize::Zeroizing;
@@ -472,16 +471,16 @@ fn dn_text(v: &rcgen::DnValue) -> String {
 /// both administrators compare before Authorize.
 pub fn broker_csr_key(site: &str, csr_pem: &str) -> Result<String, Error> {
     let csr = broker_csr_params(site, csr_pem)?;
-    Ok(hex::encode(Sha256::digest(
+    Ok(wyrm_core::hex::sha256_hex(
         csr.public_key.subject_public_key_info(),
-    )))
+    ))
 }
 
 /// A new key for this broker towards an upstream site: `(key PEM, SHA-256
 /// of its public key)`. The key stays on this site (ADR 0015).
 pub fn new_broker_key() -> Result<(Zeroizing<String>, String), Error> {
     let key = KeyPair::generate()?;
-    let sha = hex::encode(Sha256::digest(key.subject_public_key_info()));
+    let sha = wyrm_core::hex::sha256_hex(key.subject_public_key_info());
     Ok((Zeroizing::new(key.serialize_pem()), sha))
 }
 
@@ -642,7 +641,7 @@ mod tests {
         let cert = block.parse_x509().unwrap();
         let cn = cert.subject().iter_common_name().next().unwrap();
         assert_eq!(cn.as_str().unwrap(), "broker:edge");
-        assert_eq!(hex::encode(Sha256::digest(cert.public_key().raw)), sha);
+        assert_eq!(wyrm_core::hex::sha256_hex(cert.public_key().raw), sha);
         // a request whose signature does not match is refused
         let mut bad = csr.clone();
         let mid = bad.len() / 2;

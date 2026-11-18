@@ -14,7 +14,6 @@
 //! they become its link params the same way, without `component`.
 
 use crate::registry::{PackageDef, PackageKind};
-use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::io::{Cursor, Read, Write};
 use std::path::{Path, PathBuf};
@@ -337,7 +336,7 @@ pub fn unpack(zip: &[u8], root: &Path, source: &str, now: u64) -> Result<Unpacke
             kind: PackageKind::Process,
             entry: String::new(),
             args: Vec::new(),
-            sha256: hex::encode(Sha256::digest(zip)),
+            sha256: wyrm_core::hex::sha256_hex(zip),
             source: source.to_owned(),
             description: String::new(),
             installed: now,

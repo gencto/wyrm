@@ -1047,10 +1047,9 @@ async fn serve_files(files: std::collections::HashMap<String, (u16, String, Vec<
 /// (file:// only in the dev profile) without `.git`.
 #[tokio::test(flavor = "multi_thread")]
 async fn install_link_from_url_repository_git() {
-    use sha2::Digest;
     let v1 = mock_package("1.0.0");
     let v2 = mock_package("2.0.0");
-    let sha = |b: &[u8]| hex::encode(sha2::Sha256::digest(b));
+    let sha = |b: &[u8]| wyrm_core::hex::sha256_hex(b);
     // one server for the zips; the index (with their URLs) on a second one
     let mut files = std::collections::HashMap::new();
     files.insert("/v1.zip".to_owned(), (200, String::new(), v1.clone()));
@@ -11791,8 +11790,7 @@ async fn backup_while_writing() {
     // read back in small parts: the same bytes as the file, its SHA-256
     let bytes = download_backup(&c, &id, 4096).await;
     assert_eq!(bytes.len() as u64, job.size);
-    use sha2::Digest;
-    assert_eq!(hex::encode(sha2::Sha256::digest(&bytes)), job.sha256);
+    assert_eq!(wyrm_core::hex::sha256_hex(&bytes), job.sha256);
     let too_long = args_map(&[
         ("offset", Value::UInt(0)),
         ("len", Value::UInt((16 << 20) + 1)),
@@ -12584,7 +12582,6 @@ async fn backup_restores_into_a_fresh_data_dir() {
 /// gateway's refusal.
 #[tokio::test(flavor = "multi_thread")]
 async fn uploads_in_parts_through_the_gateway() {
-    use sha2::Digest;
     let port = free_port();
     let dir = temp_dir("gw-parts");
     let store = temp_dir("gw-parts-store");
@@ -12617,11 +12614,11 @@ async fn uploads_in_parts_through_the_gateway() {
     // 5.8 MB one: text that does not compress to nothing
     let c = slow_client(&env).await;
     let storage = format!("wy/{SITE}/storage");
-    let mut seed = sha2::Sha256::digest(b"gw-parts").to_vec();
+    let mut seed = wyrm_core::hex::sha256(b"gw-parts").to_vec();
     for i in 0..320u64 {
         let mut text = String::with_capacity(30_000);
         while text.len() < 30_000 {
-            seed = sha2::Sha256::digest(&seed).to_vec();
+            seed = wyrm_core::hex::sha256(&seed).to_vec();
             text.push_str(&hex::encode(&seed));
         }
         let publish = args_map(&[("path", format!("v{i}").into()), ("value", text.into())]);
@@ -12719,7 +12716,7 @@ async fn uploads_in_parts_through_the_gateway() {
     .await;
     let mut data = Vec::new();
     while data.len() < 300 << 10 {
-        seed = sha2::Sha256::digest(&seed).to_vec();
+        seed = wyrm_core::hex::sha256(&seed).to_vec();
         data.extend_from_slice(&seed);
     }
     let begin = args_map(&[
@@ -13324,7 +13321,6 @@ async fn package_update_that_changes_the_store_format() {
 /// `sys/packages/<name>/~act/update` installs it by the index's SHA-256.
 #[tokio::test(flavor = "multi_thread")]
 async fn package_update_from_the_repository() {
-    use sha2::Digest;
     let v2 = upd_good(
         "2.0.0",
         serde_json::json!({ "state": 2, "reads_state": [1, 2] }),
@@ -13332,7 +13328,7 @@ async fn package_update_from_the_repository() {
     let mut files = std::collections::HashMap::new();
     let index = serde_json::json!([
         { "name": "updpkg", "version": "2.0.0", "url": "v2.zip",
-          "sha256": hex::encode(sha2::Sha256::digest(&v2)),
+          "sha256": wyrm_core::hex::sha256_hex(&v2),
           "state": 2, "reads_state": [1, 2] },
     ]);
     files.insert("/v2.zip".to_owned(), (200, String::new(), v2));
@@ -13459,12 +13455,11 @@ async fn backup_is_sent_through_a_file_store_link() {
     );
     let storage = format!("wy/{SITE}/storage");
     // text that does not compress to nothing: the file is sent in several parts
-    use sha2::Digest;
-    let mut seed = sha2::Sha256::digest(b"backup-send").to_vec();
+    let mut seed = wyrm_core::hex::sha256(b"backup-send").to_vec();
     for i in 0..60u64 {
         let mut text = String::with_capacity(30_000);
         while text.len() < 30_000 {
-            seed = sha2::Sha256::digest(&seed).to_vec();
+            seed = wyrm_core::hex::sha256(&seed).to_vec();
             text.push_str(&hex::encode(&seed));
         }
         let publish = args_map(&[("path", format!("v{i}").into()), ("value", text.into())]);
@@ -13560,7 +13555,7 @@ async fn backup_is_sent_through_a_file_store_link() {
     // the file in the store is the backup, byte for byte
     let stored = std::fs::read(store.join("backups").join(&job.file)).unwrap();
     assert_eq!(stored.len() as u64, job.size);
-    assert_eq!(hex::encode(sha2::Sha256::digest(&stored)), job.sha256);
+    assert_eq!(wyrm_core::hex::sha256_hex(&stored), job.sha256);
     assert_eq!(stored, download_backup(&c, &id, 16 << 20).await);
     // the tree shows it
     let shown = eventually("send_status in the tree", 10, || async {

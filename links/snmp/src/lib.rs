@@ -184,21 +184,13 @@ pub fn parse_engine_id(s: &str) -> Result<Vec<u8>, String> {
         .strip_prefix("0x")
         .or_else(|| t.strip_prefix("0X"))
         .unwrap_or(t);
-    let digits: Vec<u8> = t
-        .bytes()
-        .filter(|b| !matches!(b, b':' | b' ' | b'-'))
+    let digits: String = t
+        .chars()
+        .filter(|c| !matches!(c, ':' | ' ' | '-'))
         .collect();
-    if !digits.len().is_multiple_of(2) || !digits.iter().all(u8::is_ascii_hexdigit) {
-        return Err("hex octets, e.g. 0x80001f8880…".into());
-    }
-    let octets: Vec<u8> = digits
-        .chunks(2)
-        .map(|p| {
-            let hi = char::from(p[0]).to_digit(16).unwrap_or(0);
-            let lo = char::from(p[1]).to_digit(16).unwrap_or(0);
-            u8::try_from(hi * 16 + lo).unwrap_or(0)
-        })
-        .collect();
+    // the one decoder: a text that is not whole hex octets is refused, never read as 0
+    let octets =
+        wyrm_core::hex::decode(&digits).ok_or("hex octets, e.g. 0x80001f8880…".to_owned())?;
     if !(5..=32).contains(&octets.len()) {
         return Err(format!("{} octets; an engine id has 5 to 32", octets.len()));
     }

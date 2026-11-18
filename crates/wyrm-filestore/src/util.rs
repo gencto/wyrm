@@ -16,8 +16,7 @@ pub fn pct_decode(s: &str) -> Option<String> {
     let mut i = 0;
     while i < b.len() {
         if b[i] == b'%' {
-            let hex = s.get(i + 1..i + 3)?;
-            out.push(u8::from_str_radix(hex, 16).ok()?);
+            out.push(wyrm_core::hex::decode_byte(*b.get(i + 1)?, *b.get(i + 2)?)?);
             i += 3;
         } else {
             out.push(b[i]);

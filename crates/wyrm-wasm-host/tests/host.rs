@@ -124,8 +124,8 @@ fn hot_reload_swaps_behavior_and_keeps_state() {
     let old = n
         .slot()
         .swap(host.load::<NodeWorld>(&guests::add(10)).unwrap());
-    assert_eq!(old.sha256(), sha256_hex(&guests::add(1)));
-    assert_eq!(n.slot().sha256(), sha256_hex(&guests::add(10)));
+    assert_eq!(old.sha256(), sha256_hex(guests::add(1)));
+    assert_eq!(n.slot().sha256(), sha256_hex(guests::add(10)));
     // same runner, same state blob, new code
     let (out, st) = n.process("in", &sample(5), &st).unwrap();
     assert_eq!(out, emits(15));

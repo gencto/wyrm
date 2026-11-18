@@ -856,9 +856,17 @@ def c9(s: Source) -> list[int]:
 # The bodies of the helpers rule 11 keeps in one place, whatever a copy is named.
 DIRECT_CLOCK = re.compile(r"\bSystemTime\s*::\s*now\s*\(|\bUNIX_EPOCH\b")
 HAND_HEX = re.compile(r":0?2[xX]\}")
+# a SHA-256 made by hand (`Sha256::new()`, `Sha256::digest(..)`, `<Sha256 as Digest>::digest`)
+# and two hex digits read by hand (`to_digit(16)`, `u8::from_str_radix(.., 16)`)
+HAND_SHA = re.compile(
+    r"\bSha256\s*::\s*(?:new|new_with_prefix|digest)\s*\(|\bSha256\s+as\s+[\w:]*Digest\s*>\s*::"
+)
+HAND_UNHEX = re.compile(r"\bto_digit\s*\(\s*16\s*\)|\bu8\s*::\s*from_str_radix\s*\([^;]*?,\s*16\s*\)")
 ONE_PLACE = {
     "crates/wyrm-core/src/clock.rs",
     "crates/wyrm-core/src/hex.rs",
+    # HMAC-SHA-256 brings a long key to one block with the digest (RFC 2104)
+    "crates/wyrm-core/src/mac.rs",
 }
 
 
@@ -866,7 +874,9 @@ def c13(s: Source) -> list[int]:
     """A clock or hex helper written out again: a read of the system clock
     (`SystemTime::now()`, `UNIX_EPOCH`; a `use` line is not a read) outside
     `wyrm_core::clock`, and a two-digit hex format (`{b:02x}`, `%{b:02X}`) outside
-    `wyrm_core::hex`. C9 goes by the helper's name; this goes by what it does."""
+    `wyrm_core::hex`, a SHA-256 made by hand (`Sha256::new()`, `Sha256::digest(..)`)
+    and two hex digits read by hand (`to_digit(16)`, `u8::from_str_radix(.., 16)`).
+    C9 goes by the helper's name; this goes by what it does."""
     if s.path in ONE_PLACE:
         return []
     hits = []
@@ -876,6 +886,8 @@ def c13(s: Source) -> list[int]:
             hits.append(m.start())
     # format strings: `code` keeps them (comments and tests are blank in it)
     hits += [m.start() for m in HAND_HEX.finditer(s.code)]
+    hits += [m.start() for m in HAND_SHA.finditer(s.masked)]
+    hits += [m.start() for m in HAND_UNHEX.finditer(s.masked)]
     return s.hits("C13", hits)
 
 
@@ -1127,6 +1139,16 @@ PROBES = [
     ("C13", "x.rs", 'fn f(n: u32) -> String { format!("{n:04x} {n:08X} {n:2} {n:02}") }', 0),
     ("C13", "x.rs", "fn t() -> u64 { wyrm_core::clock::now_s() } // SystemTime::now() and {b:02x}", 0),
     ("C13", "x.rs", '#[cfg(test)]\nmod tests { fn t() { let _ = SystemTime::now(); let _ = format!("{:02x}", 1); } }', 0),
+    ("C13", "x.rs", "fn d(b: &[u8]) -> String { hex::encode(Sha256::digest(b)) }", 1),
+    ("C13", "x.rs", "fn d(b: &[u8]) -> Vec<u8> { sha2::Sha256::digest(b).to_vec() }", 1),
+    ("C13", "x.rs", "fn d(b: &[u8]) -> [u8; 32] { let mut h = Sha256::new(); h.update(b); h.finalize().into() }", 1),
+    ("C13", "x.rs", "fn d(b: &[u8]) -> String { hex::encode(<sha2::Sha256 as sha2::Digest>::digest(b)) }", 1),
+    ("C13", "x.rs", "fn d(b: &[u8]) -> [u8; 32] { wyrm_core::hex::sha256(b) }\ntype M = hmac::Hmac<Sha256>;", 0),
+    ("C13", "x.rs", "fn k<D: Digest>(p: &[u8]) -> Vec<u8> { localize::<Sha256>(p); D::digest(p).to_vec() }", 0),
+    ("C13", "crates/wyrm-core/src/mac.rs", "fn k(b: &[u8]) { Sha256::digest(b); }", 0),
+    ("C13", "x.rs", "fn u(a: u8, b: u8) -> Option<u32> { Some(char::from(a).to_digit(16)? * 16 + (b as char).to_digit(16)?) }", 2),
+    ("C13", "x.rs", "fn u(s: &str) -> Option<u8> { u8::from_str_radix(&s[0..2], 16).ok() }", 1),
+    ("C13", "x.rs", "fn u(s: &str) -> Option<u32> { u32::from_str_radix(s, 16).ok()?; c.to_digit(10); u8::from_str_radix(s, 10).ok() }", 0),
     ("C13", "crates/wyrm-core/src/clock.rs", "pub fn now() -> SystemTime { SystemTime::now() }", 0),
     ("C13", "crates/wyrm-core/src/time.rs", "pub fn now() -> SystemTime { SystemTime::now() }", 1),
     # A5: a library that draws randomness itself

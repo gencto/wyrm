@@ -43,7 +43,13 @@ pub fn decode_array<const N: usize>(text: &str) -> Option<[u8; N]> {
     Some(out)
 }
 
-/// `text` is hex of exactly `bytes` bytes; upper and lower case both pass.
+/// The byte two hex digits name (`%XX` of a percent escape); `None` when one of them is
+/// not a hex digit. A sign is not a digit (`u8::from_str_radix("+1", 16)` is 1).
+pub fn decode_byte(high: u8, low: u8) -> Option<u8> {
+    decode_array::<1>(std::str::from_utf8(&[high, low]).ok()?).map(|[b]| b)
+}
+
+/// `text` is hex of exactly `bytes` bytes, in either case.
 pub fn is_hex(text: &str, bytes: usize) -> bool {
     text.len() == bytes * 2 && text.bytes().all(|b| b.is_ascii_hexdigit())
 }
@@ -55,8 +61,42 @@ pub fn is_lower_hex(text: &str, bytes: usize) -> bool {
 }
 
 /// SHA-256 of `bytes`.
-pub fn sha256(bytes: &[u8]) -> [u8; 32] {
+pub fn sha256(bytes: impl AsRef<[u8]>) -> [u8; 32] {
     Sha256::digest(bytes).into()
+}
+
+/// SHA-256 of the `parts` one after another (a key derived from a label and a key, a
+/// challenge answer): the same digest as of their concatenation, without making it.
+pub fn sha256_parts(parts: &[&[u8]]) -> [u8; 32] {
+    let mut h = Sha256Stream::new();
+    for p in parts {
+        h.update(p);
+    }
+    h.finish()
+}
+
+/// SHA-256 of bytes that come in pieces, for a place that hashes what it copies (a
+/// backup entry as it is written or opened). A whole file goes to [`sha256_reader`].
+#[derive(Clone, Default)]
+pub struct Sha256Stream(Sha256);
+
+impl Sha256Stream {
+    pub fn new() -> Self {
+        Self(Sha256::new())
+    }
+
+    pub fn update(&mut self, bytes: impl AsRef<[u8]>) {
+        self.0.update(bytes);
+    }
+
+    pub fn finish(self) -> [u8; 32] {
+        self.0.finalize().into()
+    }
+
+    /// The digest as lowercase hex.
+    pub fn finish_hex(self) -> String {
+        encode(self.finish())
+    }
 }
 
 /// SHA-256 of everything `r` gives, read in parts of 1 MiB, and how many bytes that
@@ -82,7 +122,7 @@ pub fn sha256_reader(mut r: impl std::io::Read) -> std::io::Result<([u8; 32], u6
 }
 
 /// SHA-256 of `bytes` as lowercase hex (64 characters).
-pub fn sha256_hex(bytes: &[u8]) -> String {
+pub fn sha256_hex(bytes: impl AsRef<[u8]>) -> String {
     encode(sha256(bytes))
 }
 
@@ -109,6 +149,10 @@ mod tests {
         assert_eq!(decode_array::<2>("001aff"), None);
         assert_eq!(decode_array::<4>("001aff"), None);
         assert_eq!(decode_array::<1>("+1"), None);
+        assert_eq!(decode_byte(b'4', b'F'), Some(0x4f));
+        assert_eq!(decode_byte(b'+', b'1'), None);
+        assert_eq!(decode_byte(b'g', b'0'), None);
+        assert_eq!(decode_byte(0xC3, 0xA9), None);
         assert!(is_hex("00AAff", 3) && !is_hex("00AAff", 2) && !is_hex("00AAfg", 3));
         assert!(is_lower_hex("00aaff", 3) && !is_lower_hex("00AAff", 3));
     }
@@ -120,6 +164,13 @@ mod tests {
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
         );
         assert_eq!(encode(sha256(b"abc")), sha256_hex(b"abc"));
+        assert_eq!(sha256_parts(&[b"a", b"", b"bc"]), sha256(b"abc"));
+        assert_eq!(sha256_parts(&[]), sha256(b""));
+        let mut s = Sha256Stream::new();
+        s.update(b"ab");
+        s.update(b"c");
+        assert_eq!(s.clone().finish(), sha256(b"abc"));
+        assert_eq!(s.finish_hex(), sha256_hex(b"abc"));
         let big = vec![7u8; (1 << 20) + 5];
         let (sum, len) = sha256_reader(&big[..]).unwrap();
         assert_eq!((sum, len), (sha256(&big), (1 << 20) + 5));

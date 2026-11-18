@@ -39,7 +39,6 @@
 //! `serde_json` is used here because a backup is a user file (principle 5).
 
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
 use std::io::{Read, Seek, Write};
@@ -513,21 +512,21 @@ pub struct MasterKey {
 
 impl MasterKey {
     fn file_key(&self, path: &str) -> Zeroizing<[u8; 32]> {
-        let mut h = Sha256::new();
-        h.update(b"wyrm-backup-file\0");
-        h.update(self.key.as_ref());
-        h.update(&self.id);
-        h.update(b"\0");
-        h.update(path.as_bytes());
-        Zeroizing::new(h.finalize().into())
+        Zeroizing::new(wyrm_core::hex::sha256_parts(&[
+            b"wyrm-backup-file\0",
+            self.key.as_ref(),
+            &self.id,
+            b"\0",
+            path.as_bytes(),
+        ]))
     }
 
     fn mac_key(&self) -> ring::hmac::Key {
-        let mut h = Sha256::new();
-        h.update(b"wyrm-backup-mac\0");
-        h.update(self.key.as_ref());
-        h.update(&self.id);
-        let k: Zeroizing<[u8; 32]> = Zeroizing::new(h.finalize().into());
+        let k = Zeroizing::new(wyrm_core::hex::sha256_parts(&[
+            b"wyrm-backup-mac\0",
+            self.key.as_ref(),
+            &self.id,
+        ]));
         ring::hmac::Key::new(ring::hmac::HMAC_SHA256, k.as_ref())
     }
 
@@ -552,11 +551,11 @@ impl MasterKey {
 }
 
 fn broker_key(secrets_key: &[u8], id: Vec<u8>) -> MasterKey {
-    let mut h = Sha256::new();
-    h.update(b"wyrm-backup-broker\0");
-    h.update(secrets_key);
     MasterKey {
-        key: Zeroizing::new(h.finalize().into()),
+        key: Zeroizing::new(wyrm_core::hex::sha256_parts(&[
+            b"wyrm-backup-broker\0",
+            secrets_key,
+        ])),
         id,
     }
 }
@@ -883,19 +882,8 @@ pub struct Written {
 }
 
 fn hash_file(path: &Path) -> std::io::Result<(u64, String)> {
-    let mut f = File::open(path)?;
-    let mut h = Sha256::new();
-    let mut buf = vec![0u8; 256 << 10];
-    let mut size = 0u64;
-    loop {
-        let n = f.read(&mut buf)?;
-        if n == 0 {
-            break;
-        }
-        h.update(&buf[..n]);
-        size += n as u64;
-    }
-    Ok((size, hex::encode(h.finalize())))
+    let (sum, size) = wyrm_core::hex::sha256_reader(File::open(path)?)?;
+    Ok((size, wyrm_core::hex::encode(sum)))
 }
 
 /// Write the backup `out` from staged files: the manifest first, then
@@ -995,7 +983,7 @@ pub fn write(
                 let mut src = File::open(&f.source).map_err(|e| io(&f.source, e))?;
                 // hashed again as it goes in: a source that changed since the
                 // manifest was made fails the backup instead of spoiling it
-                let mut h = Sha256::new();
+                let mut h = wyrm_core::hex::Sha256Stream::new();
                 let mut left = e.size;
                 while left > 0 {
                     let want = buf.len().min(left as usize);
@@ -1009,7 +997,7 @@ pub fn write(
                     done += n as u64;
                     progress(done, total);
                 }
-                if hex::encode(h.finalize()) != e.sha256 {
+                if h.finish_hex() != e.sha256 {
                     return Err(format!("{}: changed while it was read", f.source.display()));
                 }
             }
@@ -1144,7 +1132,7 @@ impl<R: Read + Seek> Reader<R> {
         let e = self.zip.by_name(path).map_err(|e| format!("{path}: {e}"))?;
         // one byte more than listed shows a longer entry (a zip bomb)
         let mut src = e.take(f.size + 1);
-        let mut h = Sha256::new();
+        let mut h = wyrm_core::hex::Sha256Stream::new();
         let mut buf = vec![0u8; 256 << 10];
         let mut n = 0u64;
         loop {
@@ -1160,7 +1148,7 @@ impl<R: Read + Seek> Reader<R> {
             dst.write_all(&buf[..k])
                 .map_err(|e| format!("{path}: {e}"))?;
         }
-        if n != f.size || !hex::encode(h.finalize()).eq_ignore_ascii_case(&f.sha256) {
+        if n != f.size || !h.finish_hex().eq_ignore_ascii_case(&f.sha256) {
             return Err(format!("{path}: size or SHA-256 differs from the manifest"));
         }
         Ok(n)
@@ -1627,7 +1615,7 @@ mod tests {
         assert!(f.sealed);
         f.sealed = false;
         f.size = 6;
-        f.sha256 = hex::encode(Sha256::digest(b"forged"));
+        f.sha256 = wyrm_core::hex::sha256_hex(b"forged");
         assert!(m.check().unwrap_err().contains("not sealed"));
         let wal = std::fs::read(d.join("wal")).unwrap();
         let zip = zip_of(
@@ -1817,7 +1805,7 @@ mod tests {
                     .map(|(p, size, data)| FileEntry {
                         path: (*p).to_owned(),
                         size: *size,
-                        sha256: hex::encode(Sha256::digest(data)),
+                        sha256: wyrm_core::hex::sha256_hex(data),
                         sealed: false,
                         exec: false,
                     })

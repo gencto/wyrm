@@ -29,7 +29,6 @@ use axum::Form;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use serde::Deserialize;
-use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Mutex;
@@ -803,7 +802,7 @@ pub(crate) struct TokenForm {
 }
 
 fn s256(verifier: &str) -> String {
-    URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()))
+    URL_SAFE_NO_PAD.encode(wyrm_core::hex::sha256(verifier.as_bytes()))
 }
 
 /// Constant time on equal lengths.

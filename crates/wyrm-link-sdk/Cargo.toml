@@ -30,7 +30,6 @@ minicbor.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 zeroize.workspace = true
-sha2.workspace = true
 # Branch export/import text (ruling 11), like the storage export (ADR 0017).
 serde_json.workspace = true
 ring.workspace = true

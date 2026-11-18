@@ -33,7 +33,6 @@
 //!    not named gets no token, and the link skips it and the steps that need it.
 
 use crate::Refusal;
-use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::time::Duration;
 use wyrm_core::{Perm, Status, Value};
@@ -235,7 +234,7 @@ impl Request {
         Ok(Some(Self {
             key: format!("{node}/{suffix}"),
             level,
-            body: Sha256::digest(&body).into(),
+            body: wyrm_core::hex::sha256(&body),
         }))
     }
 }

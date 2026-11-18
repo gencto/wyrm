@@ -233,10 +233,11 @@ pub(super) fn url_decode(s: &str) -> String {
         match b[i] {
             b'+' => out.push(b' '),
             b'%' => {
-                let hex = b
-                    .get(i + 1..i + 3)
-                    .and_then(|h| std::str::from_utf8(h).ok());
-                match hex.and_then(|h| u8::from_str_radix(h, 16).ok()) {
+                let byte = match (b.get(i + 1), b.get(i + 2)) {
+                    (Some(h), Some(l)) => wyrm_core::hex::decode_byte(*h, *l),
+                    _ => None,
+                };
+                match byte {
                     Some(x) => {
                         out.push(x);
                         i += 2;
@@ -300,7 +301,7 @@ fn digest(alg: &str, data: &[u8]) -> String {
     match alg {
         "sha1" => hex::encode(sha1::Sha1::digest(data)),
         "md5" => hex::encode(md5(data)),
-        _ => hex::encode(sha2::Sha256::digest(data)),
+        _ => wyrm_core::hex::sha256_hex(data),
     }
 }
 

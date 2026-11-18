@@ -1189,7 +1189,6 @@ impl<C: Send + 'static> Shared<C> {
         let Some(key) = &self.audit_key else {
             return;
         };
-        use sha2::Digest;
         let status = match r {
             Ok(()) => Status::Ok,
             Err(e) => e.status,
@@ -1217,7 +1216,7 @@ impl<C: Send + 'static> Shared<C> {
         );
         m.insert(
             "args_hash".to_owned(),
-            Value::Bytes(sha2::Sha256::digest(args).to_vec()),
+            Value::Bytes(wyrm_core::hex::sha256(args).to_vec()),
         );
         m.insert("status".to_owned(), Value::UInt(status.code().into()));
         if let Ok(p) = encode(&Value::Map(m)) {
@@ -1613,9 +1612,8 @@ fn validate_value(meta: &NodeMeta, v: &Value) -> Result<()> {
 /// A token bound to arguments (claim `args`, spec 04 0.2.14) is good only for the payload whose
 /// SHA-256 it names: a human approved those exact arguments (security review AI-1).
 fn bound_args(caller: &Caller, payload: &[u8]) -> Result<()> {
-    use sha2::Digest;
     match caller.claims.as_ref().and_then(|c| c.args) {
-        Some(h) if h[..] != sha2::Sha256::digest(payload)[..] => Err(LinkError::quiet(
+        Some(h) if h[..] != wyrm_core::hex::sha256(payload)[..] => Err(LinkError::quiet(
             Status::PermissionDenied,
             "the token is bound to other arguments",
         )),

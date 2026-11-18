@@ -2,7 +2,7 @@ use super::*;
 use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine as _;
 use hmac::{Hmac, Mac};
-use sha2::{Digest, Sha256};
+use sha2::Sha256;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
@@ -143,7 +143,7 @@ impl ScramServer {
         let (without, proof) = client_final.rsplit_once(",p=")?;
         let auth = format!("{},{},{without}", self.first_bare, self.server_first);
         let client_key = hmac(&self.salted, b"Client Key");
-        let stored = Sha256::digest(&client_key);
+        let stored = wyrm_core::hex::sha256(&client_key);
         let sig = hmac(&stored, auth.as_bytes());
         let key: Vec<u8> = B64
             .decode(proof)
@@ -152,7 +152,7 @@ impl ScramServer {
             .zip(sig)
             .map(|(a, b)| a ^ b)
             .collect();
-        (Sha256::digest(&key) == stored).then(|| {
+        (wyrm_core::hex::sha256(&key) == stored).then(|| {
             let server_key = hmac(&self.salted, b"Server Key");
             format!("v={}", B64.encode(hmac(&server_key, auth.as_bytes())))
         })
