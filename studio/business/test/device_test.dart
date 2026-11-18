@@ -32,10 +32,13 @@ import 'package:fake_async/fake_async.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:models/answer_fault.dart';
 import 'package:models/change_op.dart';
+import 'package:models/change_side.dart';
 import 'package:models/lock_error.dart';
 import 'package:models/login_failure.dart';
 import 'package:models/staged_change.dart';
+import 'package:models/step_up_deed.dart';
 import 'package:models/step_up_error.dart';
 import 'package:models/unlock_refusal.dart';
 import 'package:models/unlock_stage.dart';
@@ -441,7 +444,7 @@ void main() {
         keys: c.keys,
         login: FakeLogin(
           session: c.login.session,
-          answer: const GatewayProbe.noAnswer('timed out'),
+          answer: const GatewayProbe.noAnswer(AnswerFault.timedOut()),
         ),
       );
       final s = fakeStore(
@@ -566,7 +569,7 @@ void main() {
                 op: ChangeOp.edit,
                 key: 'wy/central/sys/x',
                 field: 'value',
-                to: '1',
+                to: ChangeSide.text('1'),
                 level: Perm.config,
                 value: 1,
               ),
@@ -575,7 +578,7 @@ void main() {
                 op: ChangeOp.edit,
                 key: 'wy/central/sys/z',
                 field: 'value',
-                to: '2',
+                to: ChangeSide.text('2'),
                 level: Perm.write,
                 value: 2,
               ),
@@ -603,7 +606,10 @@ void main() {
 
       final add = depsOf(s).session!.addUser('ivan', 'pw', ['operator']);
       await pumpEventQueue();
-      expect(s.state.device.stepUp!.lines.single.text, 'add user ivan');
+      expect(
+        s.state.device.stepUp!.lines.single.deed,
+        const StepUpDeed.addUser('ivan'),
+      );
       await s.dispatchAndWait(ConfirmStepUpAction(reason: 'c'));
       await add;
 
@@ -629,7 +635,7 @@ void main() {
                 op: ChangeOp.edit,
                 key: 'k',
                 field: 'value',
-                to: '1',
+                to: ChangeSide.text('1'),
                 level: Perm.write,
               ),
             ]),

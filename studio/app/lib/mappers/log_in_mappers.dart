@@ -7,6 +7,7 @@ import 'package:models/host_platform.dart';
 import 'package:models/lock_error.dart';
 import 'package:models/refusal_code.dart';
 import 'package:models/step_up_error.dart';
+import 'package:models/step_up_line.dart';
 import 'package:models/trust_refusal.dart';
 import 'package:models/unlock_fallback.dart';
 import 'package:models/unlock_refusal.dart';
@@ -22,6 +23,7 @@ import 'package:wyrm_client/wyrm_client.dart' show Perm;
 
 import '../common/studio_version.dart';
 import 'device_mappers.dart';
+import 'shell_mappers.dart';
 
 // The log-in page's, the lock's and the step-up's domain values as `ui`
 // draws them: one exhaustive switch per enum or union (studio-rules §3). A
@@ -145,6 +147,9 @@ extension AnswerFaultView on AnswerFault {
     AnswerFaultWrongShape(:final path, :final expected, :final got) =>
       AnswerWhy.wrongShape(path: path, expected: expected, got: got),
     AnswerFaultHttp(:final code) => AnswerWhy.http(code),
+    AnswerFaultUntrusted() => const AnswerWhy.untrusted(),
+    AnswerFaultRefusedAfter(:final ms) => AnswerWhy.refusedAfter(ms),
+    AnswerFaultNoRoute() => const AnswerWhy.noRoute(),
     AnswerFaultSaid(:final text) => AnswerWhy.said(text),
   };
 }
@@ -226,6 +231,12 @@ extension StepUpErrorProblem on StepUpError {
     StepUpGateway(:final code) => StepUpProblem.refused(code.reason),
     StepUpRefused(:final message) => StepUpProblem.said(message),
   };
+}
+
+extension StepUpLineDataOf on StepUpLine {
+  /// One line of the step-up: its level's badge, what it does, its key.
+  StepUpLineData get data =>
+      StepUpLineData(level: level.badge, deed: deed.vm, key: key);
 }
 
 extension PermStepUpLevel on Perm {

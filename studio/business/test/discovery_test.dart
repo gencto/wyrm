@@ -793,7 +793,7 @@ void main() {
       final answered = await pinned.probe(byAddress);
 
       expect(refused.answered, isFalse);
-      expect(refused.reason, 'certificate is not trusted');
+      expect(refused.why, const AnswerFault.untrusted());
       expect(answered.answered, isTrue);
     });
 

@@ -4,6 +4,7 @@ import 'package:async_redux/async_redux.dart';
 import 'package:device_key/device_key.dart';
 import 'package:models/error_hint.dart';
 import 'package:models/error_kind.dart';
+import 'package:models/step_up_deed.dart';
 import 'package:models/step_up_line.dart';
 import 'package:models/studio_error.dart';
 import 'package:storage/storage.dart';
@@ -224,7 +225,14 @@ class AppDependencies {
           if (site.can(c.level, c.key))
             StepUpLine(
               level: c.level,
-              text: c.action ?? '${c.op.name} ${c.field} = ${c.to}',
+              deed: switch (c.action) {
+                final a? => StepUpDeed.action(a),
+                null => StepUpDeed.change(
+                  op: c.op,
+                  field: c.field,
+                  to: c.to,
+                ),
+              },
               key: c.key,
             ),
     ];

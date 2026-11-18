@@ -11,6 +11,7 @@ import '../containers/fault_boundary.dart';
 import '../containers/refresh_frame.dart';
 import '../indicators/app_icon.dart';
 import '../indicators/level_badge.dart';
+import '../models/change_words.dart';
 import '../overlays/problems_drawer.dart';
 import '../overlays/review_panel.dart';
 import '../overlays/search_palette.dart';
@@ -96,8 +97,8 @@ final class ReviewCardData extends Equatable {
   final ChangeOpTag op;
   final String key;
   final String field;
-  final String from;
-  final String to;
+  final ChangeSideVm from;
+  final ChangeSideVm to;
   final AccessLevel level;
   final AccessLevel have;
   final bool allowed;
@@ -445,8 +446,8 @@ class StudioFrame extends StatelessWidget {
         // a link's params: the whole key, so the site is never hidden
         key_: c.key.contains('/sys/links/') ? c.key : _short(c.key),
         field: c.field,
-        from: c.from,
-        to: c.to,
+        from: c.from.text,
+        to: c.to.text,
         allowed: c.allowed,
         levelText: c.allowed
             ? S.current.needsLevelYouHaveIt(c.level.label)

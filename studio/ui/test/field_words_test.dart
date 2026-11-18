@@ -6,7 +6,7 @@ import 'package:ui/flows/field_inspector.dart';
 import 'package:ui/flows/field_word.dart';
 import 'package:ui/flows/flow_block_view.dart';
 import 'package:ui/flows/flow_menu.dart';
-import 'package:ui/overlays/review_panel.dart';
+import 'package:ui/models/change_words.dart';
 
 /// Studio's own words for a field of a block and for a staged change are
 /// said by `ui` from the `.arb` files (studio-rules §5): in English the

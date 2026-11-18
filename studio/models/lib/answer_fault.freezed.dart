@@ -182,6 +182,138 @@ as String,
 /// @nodoc
 
 
+class AnswerFaultUntrusted implements AnswerFault {
+  const AnswerFaultUntrusted();
+  
+
+
+
+
+
+
+@override
+bool operator ==(Object other) {
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is AnswerFaultUntrusted);
+}
+
+
+@override
+int get hashCode => runtimeType.hashCode;
+
+@override
+String toString() {
+    return 'AnswerFault.untrusted()';
+}
+
+
+}
+
+
+
+
+/// @nodoc
+
+
+class AnswerFaultRefusedAfter implements AnswerFault {
+  const AnswerFaultRefusedAfter(this.ms);
+  
+
+ final  int ms;
+
+/// Create a copy of AnswerFault
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$AnswerFaultRefusedAfterCopyWith<AnswerFaultRefusedAfter> get copyWith => _$AnswerFaultRefusedAfterCopyWithImpl<AnswerFaultRefusedAfter>(this, _$identity);
+
+
+
+@override
+bool operator ==(Object other) {
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is AnswerFaultRefusedAfter&&(identical(other.ms, ms) || other.ms == ms));
+}
+
+
+@override
+int get hashCode {
+    return Object.hash(runtimeType,ms);
+}
+
+@override
+String toString() {
+    return 'AnswerFault.refusedAfter(ms: $ms)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $AnswerFaultRefusedAfterCopyWith<$Res> implements $AnswerFaultCopyWith<$Res> {
+  factory $AnswerFaultRefusedAfterCopyWith(AnswerFaultRefusedAfter value, $Res Function(AnswerFaultRefusedAfter) _then) = _$AnswerFaultRefusedAfterCopyWithImpl;
+@useResult
+$Res call({
+ int ms
+});
+
+
+
+
+}
+/// @nodoc
+class _$AnswerFaultRefusedAfterCopyWithImpl<$Res>
+    implements $AnswerFaultRefusedAfterCopyWith<$Res> {
+  _$AnswerFaultRefusedAfterCopyWithImpl(this._self, this._then);
+
+  final AnswerFaultRefusedAfter _self;
+  final $Res Function(AnswerFaultRefusedAfter) _then;
+
+/// Create a copy of AnswerFault
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') $Res call({Object? ms = null,}) {
+  return _then(AnswerFaultRefusedAfter(
+null == ms ? _self.ms : ms // ignore: cast_nullable_to_non_nullable
+as int,
+  ));
+}
+
+
+}
+
+/// @nodoc
+
+
+class AnswerFaultNoRoute implements AnswerFault {
+  const AnswerFaultNoRoute();
+  
+
+
+
+
+
+
+@override
+bool operator ==(Object other) {
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is AnswerFaultNoRoute);
+}
+
+
+@override
+int get hashCode => runtimeType.hashCode;
+
+@override
+String toString() {
+    return 'AnswerFault.noRoute()';
+}
+
+
+}
+
+
+
+
+/// @nodoc
+
+
 class AnswerFaultHttp implements AnswerFault {
   const AnswerFaultHttp(this.code);
   

@@ -5,7 +5,9 @@ import 'package:models/action_answer.dart';
 import 'package:models/agent_config.dart';
 import 'package:models/agent_params.dart';
 import 'package:models/agent_task.dart';
+import 'package:models/answer_fault.dart';
 import 'package:models/approval_mode.dart';
+import 'package:models/approval_refusal.dart';
 import 'package:models/assistant_panel.dart';
 import 'package:models/attention_item.dart';
 import 'package:models/attention_kind.dart';
@@ -17,6 +19,7 @@ import 'package:models/broker_self_update.dart';
 import 'package:models/ca_pin.dart';
 import 'package:models/catalog_category.dart';
 import 'package:models/catalog_item.dart';
+import 'package:models/change_side.dart';
 import 'package:models/explorer_tab.dart';
 import 'package:models/field_id.dart';
 import 'package:models/flow_draft.dart';
@@ -1445,8 +1448,10 @@ extension SelectBrokerHealth on Selectors {
   /// the broker's own, else `info`.
   LogLevel get shownLogLevel =>
       switch (stagedLogLevel) {
-        final c? => LogLevel.fromWire(c.to),
-        null => null,
+        StagedChange(to: ChangeSideText(:final text)) => LogLevel.fromWire(
+          text,
+        ),
+        _ => null,
       } ??
       brokerLogLevel ??
       LogLevel.info;
@@ -1578,7 +1583,7 @@ extension type SelectLogin(AppState _state) {
   LoginFailure? get failure => _state.login.failure;
 
   /// Returns reason
-  String? get reason => _state.login.reason;
+  AnswerFault? get reason => _state.login.reason;
 
   /// Returns isProbing
   bool get isProbing => _state.wait.isWaitingForType<ProbeGatewayAction>();
@@ -2350,7 +2355,7 @@ extension type SelectAssistant(AppState _state) {
   IMap<String, ISet<int>> get unticked => _state.assistant.unticked;
 
   /// Returns refusals
-  IMap<String, String> get refusals => _state.assistant.refusals;
+  IMap<String, ApprovalRefusal> get refusals => _state.assistant.refusals;
 
   /// Returns isApproving
   bool get isApproving => _state.wait.isWaitingForType<ApproveTaskAction>();

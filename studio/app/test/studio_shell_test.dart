@@ -9,6 +9,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:models/change_op.dart';
+import 'package:models/change_side.dart';
 import 'package:models/error_kind.dart';
 import 'package:models/link_info.dart';
 import 'package:models/node_info.dart';
@@ -87,8 +88,8 @@ void main() {
                 op: ChangeOp.edit,
                 key: '$plant/downstream/plc1/sp',
                 field: 'value',
-                from: '20',
-                to: '21.5',
+                from: ChangeSide.text('20'),
+                to: ChangeSide.text('21.5'),
                 level: Perm.write,
               ),
               'c2': StagedChange(
@@ -96,7 +97,7 @@ void main() {
                 op: ChangeOp.edit,
                 key: '$plant/sys/links/modbus',
                 field: 'params',
-                to: 'poll_s 5',
+                to: ChangeSide.text('poll_s 5'),
                 level: Perm.config,
               ),
             }),

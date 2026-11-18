@@ -1010,6 +1010,83 @@ String toString() {
 /// @nodoc
 
 
+class ErrorHintNoAnswer implements ErrorHint {
+  const ErrorHintNoAnswer(this.why);
+  
+
+ final  AnswerFault why;
+
+/// Create a copy of ErrorHint
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$ErrorHintNoAnswerCopyWith<ErrorHintNoAnswer> get copyWith => _$ErrorHintNoAnswerCopyWithImpl<ErrorHintNoAnswer>(this, _$identity);
+
+
+
+@override
+bool operator ==(Object other) {
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is ErrorHintNoAnswer&&(identical(other.why, why) || other.why == why));
+}
+
+
+@override
+int get hashCode {
+    return Object.hash(runtimeType,why);
+}
+
+@override
+String toString() {
+    return 'ErrorHint.noAnswer(why: $why)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $ErrorHintNoAnswerCopyWith<$Res> implements $ErrorHintCopyWith<$Res> {
+  factory $ErrorHintNoAnswerCopyWith(ErrorHintNoAnswer value, $Res Function(ErrorHintNoAnswer) _then) = _$ErrorHintNoAnswerCopyWithImpl;
+@useResult
+$Res call({
+ AnswerFault why
+});
+
+
+$AnswerFaultCopyWith<$Res> get why;
+
+}
+/// @nodoc
+class _$ErrorHintNoAnswerCopyWithImpl<$Res>
+    implements $ErrorHintNoAnswerCopyWith<$Res> {
+  _$ErrorHintNoAnswerCopyWithImpl(this._self, this._then);
+
+  final ErrorHintNoAnswer _self;
+  final $Res Function(ErrorHintNoAnswer) _then;
+
+/// Create a copy of ErrorHint
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') $Res call({Object? why = null,}) {
+  return _then(ErrorHintNoAnswer(
+null == why ? _self.why : why // ignore: cast_nullable_to_non_nullable
+as AnswerFault,
+  ));
+}
+
+/// Create a copy of ErrorHint
+/// with the given fields replaced by the non-null parameter values.
+@override
+@pragma('vm:prefer-inline')
+$AnswerFaultCopyWith<$Res> get why {
+  
+  return $AnswerFaultCopyWith<$Res>(_self.why, (value) {
+    return _then(_self.copyWith(why: value));
+  });
+}
+}
+
+/// @nodoc
+
+
 class ErrorHintNoDeviceKey implements ErrorHint {
   const ErrorHintNoDeviceKey(this.host);
   

@@ -1,5 +1,6 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/change_op.dart';
+import 'package:models/change_side.dart';
 import 'package:models/error_hint.dart';
 import 'package:models/error_kind.dart';
 import 'package:models/staged_change.dart';
@@ -73,8 +74,12 @@ class StagePointEditAction extends Action {
       op: ChangeOp.edit,
       key: key,
       field: changed.map(editFieldName).join(', '),
-      from: [for (final p in changed) editFieldText(p, current[p])].join(', '),
-      to: [for (final p in changed) editFieldText(p, args[p])].join(', '),
+      from: ChangeSide.text(
+        [for (final p in changed) editFieldText(p, current[p])].join(', '),
+      ),
+      to: ChangeSide.text(
+        [for (final p in changed) editFieldText(p, args[p])].join(', '),
+      ),
       level: edit.level,
       action: 'edit',
       args: {

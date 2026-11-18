@@ -8,6 +8,7 @@ import 'package:business/wyrm/task_facts.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/agent_task.dart';
 import 'package:models/approval_mode.dart';
+import 'package:models/approval_refusal.dart';
 import 'package:models/assistant_panel.dart';
 import 'package:models/audit_entry.dart';
 import 'package:models/finding_refusal.dart';
@@ -170,7 +171,11 @@ extension ApprovalNoteView on ApprovalNote {
   TaskNoteVm get note => switch (this) {
     ApprovalNoRecord() => const TaskNoteNoRecord(),
     ApprovalOtherSite(:final site) => TaskNoteOtherSite(site),
-    ApprovalRefused(:final why) => TaskNoteRefused(why),
+    ApprovalRefused(:final why) => switch (why) {
+      ApprovalRefusalChanged() => const TaskNoteRefused.changed(),
+      ApprovalRefusalUnseen(:final step) => TaskNoteRefused.unseen(step),
+      ApprovalRefusalSaid(:final message) => TaskNoteRefused(message),
+    },
     ApprovalWaiting() => const TaskNoteWaiting(),
     ApprovalSigns(:final role, :final byAgent) => TaskNoteSigns(
       role: role,

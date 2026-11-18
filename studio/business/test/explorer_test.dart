@@ -21,6 +21,7 @@ import 'package:models/param_spec.dart';
 import 'package:models/quality.dart' as studio;
 import 'package:wyrm_client/wyrm_client.dart';
 
+import 'support/change_words.dart';
 import 'support/fake_wyrm.dart';
 
 void main() {
@@ -165,7 +166,7 @@ void main() {
     s.dispatchSync(StageValueAction(key, 1, from: 'auto'));
 
     final c = s.state.changes.table.values.single;
-    expect((c.value, c.from, c.to), (1, 'auto', 'manual'));
+    expect((c.value, c.from.en, c.to.en), (1, 'auto', 'manual'));
   });
 
   test('closing a node closes the lists under it', () {
@@ -190,7 +191,7 @@ void main() {
 
       final c = s.state.changes.table.values.single;
       expect(
-        (c.key, c.value, c.from, c.to, c.level),
+        (c.key, c.value, c.from.en, c.to.en, c.level),
         ('wy/central/downstream/m/sp', 21.5, '20', '21.5', Perm.write),
       );
 
@@ -229,7 +230,7 @@ void main() {
       final c = s.state.changes.table.values.single;
       expect(c.op, ChangeOp.edit);
       expect(c.args.unlock, {'display': 'Boiler room'});
-      expect(c.to, 'display: Boiler room');
+      expect(c.to.en, 'display: Boiler room');
 
       await s.dispatchAndWait(ApplyChangesAction());
       final sent = api.calls.lastWhere((x) => x.op == 'invoke');
@@ -254,7 +255,7 @@ void main() {
       );
       final c = s.state.changes.table.values.single;
       expect(c.args.unlock, {'display': '', 'port': 502});
-      expect(c.to, 'display: "", port: 502');
+      expect(c.to.en, 'display: "", port: 502');
     });
 
     test('an empty name that was never there stays out (an Add form, an '

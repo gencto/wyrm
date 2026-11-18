@@ -14,9 +14,11 @@ import 'package:business/redux/quarantine/actions/approve_quarantine_action.dart
 import 'package:business/redux/quarantine/actions/retrieve_quarantine_action.dart';
 import 'package:business/redux/quarantine/actions/set_admission_options_action.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:models/change_side.dart';
 import 'package:models/link_mode.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
+import 'support/change_words.dart';
 import 'support/fake_wyrm.dart';
 
 void main() {
@@ -90,11 +92,15 @@ void main() {
 
   test('Edit params stages an update, Apply runs it', () async {
     await s.dispatchAndWait(
-      UpdateLinkParamsAction('modbus', '{"connections": {}}', from: 'rev 1'),
+      UpdateLinkParamsAction('modbus', '{"connections": {}}', rev: 1),
     );
     expect(s.state.changes.view, hasLength(1));
     final c = s.state.changes.table.values.single;
-    expect((c.action, c.level, c.from), ('update', Perm.config, 'rev 1'));
+    expect(
+      (c.action, c.level, c.from),
+      ('update', Perm.config, const ChangeSide.rev(1)),
+    );
+    expect(c.from.en, 'rev 1');
 
     api.invokes['wy/central/sys/links/modbus ▸ update'] = [const VInt(2)];
     await s.dispatchAndWait(ApplyChangesAction());

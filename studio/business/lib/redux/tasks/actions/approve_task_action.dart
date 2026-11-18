@@ -1,5 +1,6 @@
 import 'package:async_redux/async_redux.dart';
 import 'package:flutter/foundation.dart' show listEquals;
+import 'package:models/approval_refusal.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../../wyrm/approval.dart';
@@ -36,17 +37,6 @@ class ApproveTaskAction extends Action with NonReentrant, WaitingAction {
   /// The ticked steps as they were shown, by number.
   final List<int> steps;
 
-  /// The refusal kept when the plan or the ticks moved after they were
-  /// shown.
-  static const changed =
-      'the plan or its ticks changed after they were shown. Read the plan '
-      'again and approve what it says now.';
-
-  /// The refusal kept when step [n]'s masked arguments were not shown.
-  static String unseen(int n) =>
-      'the arguments of step $n are masked: its schema is not known. Show '
-      'them, then approve.';
-
   @override
   Future<AppState?> reduce() async {
     final agent = assistant.agent;
@@ -63,12 +53,12 @@ class ApproveTaskAction extends Action with NonReentrant, WaitingAction {
     // before they are approved (spec assistant.md §3)
     if (unseenArgs(task, choicesOf(task)) case final n?) {
       return state.copyWith.assistant(
-        refusals: assistant.refusals.add(id, unseen(n)),
+        refusals: assistant.refusals.add(id, ApprovalRefusal.unseen(n)),
       );
     }
     if (plan != this.plan || !listEquals(steps, this.steps)) {
       return state.copyWith.assistant(
-        refusals: assistant.refusals.add(id, changed),
+        refusals: assistant.refusals.add(id, const ApprovalRefusal.changed()),
       );
     }
     final key = '$agent/tasks/$id';
@@ -107,6 +97,7 @@ class _Refused extends Action {
   final String message;
 
   @override
-  AppState reduce() =>
-      state.copyWith.assistant(refusals: assistant.refusals.add(id, message));
+  AppState reduce() => state.copyWith.assistant(
+    refusals: assistant.refusals.add(id, ApprovalRefusal.said(message)),
+  );
 }

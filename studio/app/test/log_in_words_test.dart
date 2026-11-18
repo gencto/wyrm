@@ -9,7 +9,9 @@ import 'package:device_key/testing.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:models/answer_fault.dart';
 import 'package:models/change_op.dart';
+import 'package:models/change_side.dart';
 import 'package:models/lock_error.dart';
 import 'package:models/login_failure.dart';
 import 'package:models/node_info.dart';
@@ -17,6 +19,7 @@ import 'package:models/refusal_code.dart';
 import 'package:models/site_choice.dart';
 import 'package:models/site_relation.dart';
 import 'package:models/staged_change.dart';
+import 'package:models/step_up_deed.dart';
 import 'package:models/step_up_error.dart';
 import 'package:models/step_up_line.dart';
 import 'package:models/step_up_request.dart';
@@ -89,7 +92,9 @@ void main() {
       (t) => logIn(
         t,
         'no answer',
-        app: LogInApp(answer: const GatewayProbe.noAnswer('timed out')),
+        app: LogInApp(
+          answer: const GatewayProbe.noAnswer(AnswerFault.timedOut()),
+        ),
       ),
       variant: mac,
     );
@@ -124,14 +129,16 @@ void main() {
           t,
           name,
           locale: locale,
-          app: LogInApp(answer: const GatewayProbe.noAnswer('timed out')),
+          app: LogInApp(
+            answer: const GatewayProbe.noAnswer(AnswerFault.timedOut()),
+          ),
           before: (a) => a.copyWith.login(
             gateway: '$gw, $standbyGw',
             user: user,
           ),
           after: (a) => a.copyWith.login(
             failure: LoginFailure.unreachable,
-            reason: 'connection refused after 3 ms',
+            reason: const AnswerFault.refusedAfter(3),
           ),
         ),
         variant: mac,
@@ -608,7 +615,7 @@ void main() {
                   op: ChangeOp.edit,
                   key: 'wy/plant/sys/x$i',
                   field: 'value',
-                  to: '$i',
+                  to: ChangeSide.text('$i'),
                   level: Perm.write,
                   value: i,
                 ),
@@ -668,8 +675,12 @@ void main() {
 
   group('the step-up', () {
     const lines = [
-      StepUpLine(level: Perm.config, text: 'set value', key: 'wy/plant/sys/x'),
-      StepUpLine(level: Perm.write, text: 'add user ivan'),
+      StepUpLine(
+        level: Perm.config,
+        deed: StepUpDeed.set('value'),
+        key: 'wy/plant/sys/x',
+      ),
+      StepUpLine(level: Perm.write, deed: StepUpDeed.addUser('ivan')),
     ];
 
     Future<void> stepUp(

@@ -19,6 +19,7 @@ import 'package:models/explorer_tab.dart';
 import 'package:models/staged_change.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
+import 'support/change_words.dart';
 import 'support/fake_wyrm.dart';
 
 /// Spec `assistant.md` §2 step 6: what the agent may do, its params staged
@@ -237,8 +238,8 @@ void main() {
 
     final c = staged();
     expect(c.field, 'params · require_approval, allowed_prefixes');
-    expect(c.from, 'rev 4: require_approval write; allowed_prefixes A, B');
-    expect(c.to, 'require_approval config; allowed_prefixes B');
+    expect(c.from.en, 'rev 4: require_approval write; allowed_prefixes A, B');
+    expect(c.to.en, 'require_approval config; allowed_prefixes B');
   });
 
   test(

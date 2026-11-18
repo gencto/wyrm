@@ -90,9 +90,8 @@ final class UnreachableData extends Equatable {
   /// The main gateway as typed.
   final String gateway;
 
-  /// What the last probe said (`connection refused after 3 ms`), the
-  /// system's words.
-  final String? reason;
+  /// What the last probe said (`connection refused after 3 ms`).
+  final AnswerWhy? reason;
 
   /// The standby's `host:port`, when one is set.
   final String? standby;
@@ -423,6 +422,11 @@ final class AnswerWhy extends Equatable {
     required String got,
   }) : this._(_Why.wrongShape, text: path, expected: expected, got: got);
   const AnswerWhy.http(int code) : this._(_Why.http, code: code);
+  const AnswerWhy.untrusted() : this._(_Why.untrusted);
+
+  /// The connection was refused [ms] milliseconds after it was tried.
+  const AnswerWhy.refusedAfter(int ms) : this._(_Why.refusedAfter, code: ms);
+  const AnswerWhy.noRoute() : this._(_Why.noRoute);
 
   /// The system's own words, as they came.
   const AnswerWhy.said(String text) : this._(_Why.said, text: text);
@@ -446,6 +450,14 @@ final class AnswerWhy extends Equatable {
     _Why.notGateway => S.current.answerNotGateway,
     _Why.wrongShape => S.current.answerWrongShape(_text, _expected, _got),
     _Why.http => S.current.answerHttp(_code),
+    _Why.untrusted => S.current.answerUntrusted,
+    // under a second in milliseconds, else in whole seconds
+    _Why.refusedAfter => S.current.answerRefusedAfter(
+      _code < 1000
+          ? S.current.answerMs(_code)
+          : S.current.answerSeconds(_code ~/ 1000),
+    ),
+    _Why.noRoute => S.current.answerNoRoute,
     _Why.said => _text,
   };
 
@@ -453,7 +465,16 @@ final class AnswerWhy extends Equatable {
   List<Object?> get props => [_kind, _text, _expected, _got, _code];
 }
 
-enum _Why { timedOut, notGateway, wrongShape, http, said }
+enum _Why {
+  timedOut,
+  notGateway,
+  wrongShape,
+  http,
+  untrusted,
+  refusedAfter,
+  noRoute,
+  said,
+}
 
 /// A found gateway's row.
 final class FoundRowData extends Equatable {

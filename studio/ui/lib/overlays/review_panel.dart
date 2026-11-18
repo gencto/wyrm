@@ -1,5 +1,4 @@
 import 'package:equatable/equatable.dart';
-import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../alerts/notice.dart';
@@ -7,6 +6,7 @@ import '../buttons/button.dart';
 import '../indicators/app_icon.dart';
 import '../indicators/app_icon_view.dart';
 import '../indicators/quality_mark.dart';
+import '../models/change_words.dart';
 import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
@@ -14,19 +14,6 @@ import '../theme/shades.dart';
 import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
-
-/// What a staged change does, as its card names it.
-enum ChangeOpTag {
-  edit,
-  add,
-  remove;
-
-  String get label => switch (this) {
-    edit => S.current.changeOpEdit,
-    add => S.current.changeOpAdd,
-    remove => S.current.changeOpRemove,
-  };
-}
 
 /// One staged change as the review card shows it.
 final class ChangeCardVm extends Equatable {

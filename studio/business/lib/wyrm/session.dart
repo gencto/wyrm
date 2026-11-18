@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:logging/logging.dart';
+import 'package:models/answer_fault.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import 'discovery.dart';
@@ -98,16 +99,15 @@ abstract interface class WyrmSession {
 /// What a timed `GET <gateway>/api/me` without a session found
 /// (docs/design/specs/login.md §6).
 final class GatewayProbe {
-  const GatewayProbe.answered(int this.ms) : reason = null;
+  const GatewayProbe.answered(int this.ms) : why = null;
 
-  const GatewayProbe.noAnswer(String this.reason) : ms = null;
+  const GatewayProbe.noAnswer(AnswerFault this.why) : ms = null;
 
   /// How long the gateway took to answer; null when it did not.
   final int? ms;
 
-  /// Why there is no answer: `connection refused`, `timed out`,
-  /// `certificate is not trusted`, …
-  final String? reason;
+  /// Why there is no answer; the screen says it.
+  final AnswerFault? why;
 
   bool get answered => ms != null;
 }
@@ -260,33 +260,30 @@ final class GatewayLogin implements WyrmLogin {
       return res.statusCode == HttpStatus.unauthorized ||
               res.statusCode == HttpStatus.ok
           ? GatewayProbe.answered(ms)
-          : GatewayProbe.noAnswer('answered HTTP ${res.statusCode}');
+          : GatewayProbe.noAnswer(AnswerFault.http(res.statusCode));
     } on TimeoutException {
-      return const GatewayProbe.noAnswer('timed out');
+      return const GatewayProbe.noAnswer(AnswerFault.timedOut());
     } on HandshakeException {
-      return const GatewayProbe.noAnswer('certificate is not trusted');
+      return const GatewayProbe.noAnswer(AnswerFault.untrusted());
     } on TlsException {
-      return const GatewayProbe.noAnswer('certificate is not trusted');
+      return const GatewayProbe.noAnswer(AnswerFault.untrusted());
     } on SocketException catch (e) {
       final refused = e.osError?.errorCode == 61 || e.osError?.errorCode == 111;
       return GatewayProbe.noAnswer(
         refused
-            ? 'connection refused after ${_seconds(watch.elapsed)}'
+            ? AnswerFault.refusedAfter(watch.elapsedMilliseconds)
             : e.message.isEmpty
-            ? 'no network route'
-            : e.message,
+            ? const AnswerFault.noRoute()
+            : AnswerFault.said(e.message),
       );
     } on Object catch (e) {
-      return GatewayProbe.noAnswer('$e');
+      return GatewayProbe.noAnswer(AnswerFault.said('$e'));
     } finally {
       http.close(force: true);
     }
   }
 
   static final _log = Logger('wyrm.login');
-
-  static String _seconds(Duration d) =>
-      d.inMilliseconds < 1000 ? '${d.inMilliseconds} ms' : '${d.inSeconds} s';
 }
 
 final class _GatewaySession implements WyrmSession {

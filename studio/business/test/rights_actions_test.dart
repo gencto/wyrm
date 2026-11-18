@@ -18,6 +18,7 @@ import 'package:business/wyrm/failures.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/change_op.dart';
+import 'package:models/change_side.dart';
 import 'package:models/error_call.dart';
 import 'package:models/error_hint.dart';
 import 'package:models/staged_change.dart';
@@ -39,7 +40,7 @@ const _change = StagedChange(
   op: ChangeOp.edit,
   key: _key,
   field: 'value',
-  to: '21.5',
+  to: ChangeSide.text('21.5'),
   level: Perm.write,
   value: 21.5,
 );

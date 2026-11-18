@@ -4,6 +4,7 @@ import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/agent_params.dart';
 import 'package:models/approval_mode.dart';
 import 'package:models/change_op.dart';
+import 'package:models/change_side.dart';
 import 'package:models/error_hint.dart';
 import 'package:models/error_kind.dart';
 import 'package:models/staged_change.dart';
@@ -61,10 +62,13 @@ class StageAgentParamAction extends Action with WaitingAction {
     final key = '${site.root}/sys/links/$id';
     final staged = stagedAgentParamsOf(key);
     AgentParams revision;
-    String rev;
+    int rev;
     if (staged case (:final change, :final base, params: _)) {
       revision = base;
-      rev = change.from.split(':').first;
+      rev = switch (change.from) {
+        ChangeSideRev(:final rev) => rev,
+        _ => 0,
+      };
     } else {
       // `links.revisions` is one list for every link: only a read of this
       // link's history that just succeeded is its base. Without it nothing
@@ -85,7 +89,7 @@ class StageAgentParamAction extends Action with WaitingAction {
         );
       }
       revision = params;
-      rev = 'rev ${newest!.rev}';
+      rev = newest!.rev;
     }
     final next = _edit(staged?.params ?? revision);
     final changed = [
@@ -121,11 +125,15 @@ class StageAgentParamAction extends Action with WaitingAction {
       op: ChangeOp.edit,
       key: key,
       field: 'params · ${[for (final c in changed) c.name].join(', ')}',
-      from:
-          '$rev: ${[for (final c in changed) '${c.name} ${c.was ?? '—'}'].join(
-            '; ',
-          )}',
-      to: [for (final c in changed) '${c.name} ${c.now ?? '—'}'].join('; '),
+      from: ChangeSide.rev(
+        rev,
+        detail: [
+          for (final c in changed) '${c.name} ${c.was ?? '—'}',
+        ].join('; '),
+      ),
+      to: ChangeSide.text(
+        [for (final c in changed) '${c.name} ${c.now ?? '—'}'].join('; '),
+      ),
       level: Perm.config,
       action: 'update',
       args: {'params': agentParamsJson(next)}.lock,

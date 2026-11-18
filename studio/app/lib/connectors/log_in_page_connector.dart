@@ -150,7 +150,7 @@ class _Factory extends VmFactory<AppState, LogInPageConnector, _Vm>
         unreachable: login.failure == .unreachable
             ? UnreachableData(
                 gateway: field.main,
-                reason: login.reason,
+                reason: login.reason?.view,
                 standby: field.standbyHost,
               )
             : null,

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:app/connectors/assistant_page_connector.dart';
+import 'package:app/mappers/shell_mappers.dart';
 import 'package:app/navigation/go_action.dart';
 import 'package:flutter/gestures.dart' show kSecondaryButton;
 import 'package:flutter/services.dart';
@@ -123,7 +124,9 @@ void main() {
   List<String> staged(ExplorerApp app) => [
     for (final id in app.store.state.changes.view)
       switch (app.store.state.changes.table[id]) {
-        final c? => '${c.op.name} ${c.key} ${c.field}: ${c.from} → ${c.to}',
+        final c? =>
+          '${c.op.name} ${c.key} ${c.field}: ${c.from.vm.text} → '
+              '${c.to.vm.text}',
         null => id,
       },
   ];

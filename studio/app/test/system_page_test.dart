@@ -1,3 +1,4 @@
+import 'package:app/mappers/shell_mappers.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
@@ -355,15 +356,15 @@ void main() {
     final staged = app.store.state.changes.table.values.single;
     expect(staged.key, '$sys/log_level');
     expect(staged.field, 'value');
-    expect(staged.from, 'info');
-    expect(staged.to, 'debug');
+    expect(staged.from.vm.text, 'info');
+    expect(staged.to.vm.text, 'debug');
     expect(staged.level, Perm.config);
     expect(staged.value, 3);
 
     // a second pick replaces it
     await t.tap(find.text('trace'));
     await app.settle(t);
-    expect(app.store.state.changes.table.values.single.to, 'trace');
+    expect(app.store.state.changes.table.values.single.to.vm.text, 'trace');
     expect(app.store.state.changes.table.values.single.value, 4);
 
     // the broker's own level takes it back
@@ -381,7 +382,7 @@ void main() {
     );
     await t.tap(find.text('debug'));
     await app.settle(t);
-    expect(app.store.state.changes.table.values.single.from, 'warn');
+    expect(app.store.state.changes.table.values.single.from.vm.text, 'warn');
     await app.leave(t);
   });
 

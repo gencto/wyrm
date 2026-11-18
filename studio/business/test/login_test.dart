@@ -15,6 +15,7 @@ import 'package:business/redux/login/actions/set_user_action.dart';
 import 'package:business/wyrm/session.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:models/answer_fault.dart';
 import 'package:models/login_failure.dart';
 import 'package:storage/storage.dart';
 import 'package:wyrm_client/wyrm_client.dart';
@@ -60,7 +61,7 @@ void main() {
       'no answer from any gateway is unreachable, before any login',
       () async {
         final login = FakeLogin(
-          answer: const GatewayProbe.noAnswer('connection refused after 5 s'),
+          answer: const GatewayProbe.noAnswer(AnswerFault.refusedAfter(5000)),
         );
         final s = fakeStore(login: login);
         await fill(s, gateway: 'http://a:8445, http://b:8445');
@@ -72,7 +73,7 @@ void main() {
         expect(login.gateways, isNull, reason: 'no login was tried');
         expect(login.probed, hasLength(2), reason: 'the standby is tried too');
         expect(s.state.login.failure, LoginFailure.unreachable);
-        expect(s.state.login.reason, 'connection refused after 5 s');
+        expect(s.state.login.reason, const AnswerFault.refusedAfter(5000));
         expect(s.state.login.probes['http://b:8445'], -1);
       },
     );
@@ -126,7 +127,9 @@ void main() {
       });
 
       final down = fakeStore(
-        login: FakeLogin(answer: const GatewayProbe.noAnswer('timed out')),
+        login: FakeLogin(
+          answer: const GatewayProbe.noAnswer(AnswerFault.timedOut()),
+        ),
       );
       await down.dispatchAndWait(ProbeGatewayAction('http://a:8445'));
 

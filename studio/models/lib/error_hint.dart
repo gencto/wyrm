@@ -1,6 +1,7 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 
+import 'answer_fault.dart';
 import 'host_platform.dart';
 
 part 'error_hint.freezed.dart';
@@ -102,6 +103,9 @@ sealed class ErrorHint with _$ErrorHint {
 
   /// *Probe a range*: the port is not 1 to 65535.
   const factory ErrorHint.portOutOfRange() = ErrorHintPortOutOfRange;
+
+  /// A gateway did not answer the probe before a log-in: [why].
+  const factory ErrorHint.noAnswer(AnswerFault why) = ErrorHintNoAnswer;
 
   /// This computer's platform ([host]) holds no device key.
   const factory ErrorHint.noDeviceKey(HostPlatform host) = ErrorHintNoDeviceKey;

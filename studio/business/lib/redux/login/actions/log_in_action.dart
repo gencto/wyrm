@@ -1,4 +1,6 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/answer_fault.dart';
+import 'package:models/error_hint.dart';
 import 'package:models/error_kind.dart';
 import 'package:models/grant.dart';
 import 'package:models/login_failure.dart';
@@ -63,11 +65,16 @@ class LogInAction extends Action with WaitingAction {
       dispatchSync(
         SetLoginProgressAction(
           failure: LoginFailure.unreachable,
-          reason: last.reason,
+          reason: last.why,
           probes: probes,
         ),
       );
-      throw _unreachable(last.reason ?? '', gateways.first).withDialog(false);
+      throw StudioException.hinted(
+        ErrorKind.reach,
+        ErrorHint.noAnswer(last.why ?? const AnswerFault.timedOut()),
+        call: const .known(.logIn),
+        thing: '${gateways.first}',
+      ).withDialog(false);
     }
 
     // 2. Checking the user and the password. A device key of this user here
@@ -89,7 +96,7 @@ class LogInAction extends Action with WaitingAction {
         SetLoginProgressAction(
           step: 1,
           failure: wrong ? LoginFailure.wrong : LoginFailure.unreachable,
-          reason: e.message,
+          reason: AnswerFault.said(e.message),
         ),
       );
       // The page shows both inline (spec §5), so no dialog.
@@ -103,7 +110,7 @@ class LogInAction extends Action with WaitingAction {
         SetLoginProgressAction(
           step: 1,
           failure: LoginFailure.unreachable,
-          reason: '$e',
+          reason: AnswerFault.said('$e'),
         ),
       );
       throw _unreachable(faultLine(e), gateways.first).withDialog(false);

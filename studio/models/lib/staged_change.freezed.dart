@@ -20,10 +20,10 @@ mixin _$StagedChange {
  ChangeOp get op;/// The node or value the change is on.
  String get key;/// What changes (`poll`, `value`, `params`).
  String get field;/// Shown in ember/new.
- String get to;/// The level applying it needs; every stager states it, none is
+ ChangeSide get to;/// The level applying it needs; every stager states it, none is
 /// assumed.
  Perm get level;/// Shown struck through.
- String get from;/// For a set: the value written to `key`.
+ ChangeSide get from;/// For a set: the value written to `key`.
  Object? get value;/// For an invoke: the action and its arguments.
  String? get action; IMap<String, Object?> get args;
 /// Create a copy of StagedChange
@@ -61,11 +61,11 @@ abstract mixin class $StagedChangeCopyWith<$Res>  {
   factory $StagedChangeCopyWith(StagedChange value, $Res Function(StagedChange) _then) = _$StagedChangeCopyWithImpl;
 @useResult
 $Res call({
- String id, ChangeOp op, String key, String field, String to, Perm level, String from, Object? value, String? action, IMap<String, Object?> args
+ String id, ChangeOp op, String key, String field, ChangeSide to, Perm level, ChangeSide from, Object? value, String? action, IMap<String, Object?> args
 });
 
 
-
+$ChangeSideCopyWith<$Res> get to;$ChangeSideCopyWith<$Res> get from;
 
 }
 /// @nodoc
@@ -85,14 +85,32 @@ as String,op: null == op ? _self.op : op // ignore: cast_nullable_to_non_nullabl
 as ChangeOp,key: null == key ? _self.key : key // ignore: cast_nullable_to_non_nullable
 as String,field: null == field ? _self.field : field // ignore: cast_nullable_to_non_nullable
 as String,to: null == to ? _self.to : to // ignore: cast_nullable_to_non_nullable
-as String,level: null == level ? _self.level : level // ignore: cast_nullable_to_non_nullable
+as ChangeSide,level: null == level ? _self.level : level // ignore: cast_nullable_to_non_nullable
 as Perm,from: null == from ? _self.from : from // ignore: cast_nullable_to_non_nullable
-as String,value: freezed == value ? _self.value : value ,action: freezed == action ? _self.action : action // ignore: cast_nullable_to_non_nullable
+as ChangeSide,value: freezed == value ? _self.value : value ,action: freezed == action ? _self.action : action // ignore: cast_nullable_to_non_nullable
 as String?,args: null == args ? _self.args : args // ignore: cast_nullable_to_non_nullable
 as IMap<String, Object?>,
   ));
 }
-
+/// Create a copy of StagedChange
+/// with the given fields replaced by the non-null parameter values.
+@override
+@pragma('vm:prefer-inline')
+$ChangeSideCopyWith<$Res> get to {
+  
+  return $ChangeSideCopyWith<$Res>(_self.to, (value) {
+    return _then(_self.copyWith(to: value));
+  });
+}/// Create a copy of StagedChange
+/// with the given fields replaced by the non-null parameter values.
+@override
+@pragma('vm:prefer-inline')
+$ChangeSideCopyWith<$Res> get from {
+  
+  return $ChangeSideCopyWith<$Res>(_self.from, (value) {
+    return _then(_self.copyWith(from: value));
+  });
+}
 }
 
 
@@ -101,7 +119,7 @@ as IMap<String, Object?>,
 
 
 class _StagedChange implements StagedChange {
-  const _StagedChange({required this.id, required this.op, required this.key, required this.field, required this.to, required this.level, this.from = '—', this.value, this.action, this.args = const IMapConst({})});
+  const _StagedChange({required this.id, required this.op, required this.key, required this.field, required this.to, required this.level, this.from = const ChangeSide.none(), this.value, this.action, this.args = const IMapConst({})});
   
 
 /// Unique within the session.
@@ -113,12 +131,12 @@ class _StagedChange implements StagedChange {
 /// What changes (`poll`, `value`, `params`).
 @override final  String field;
 /// Shown in ember/new.
-@override final  String to;
+@override final  ChangeSide to;
 /// The level applying it needs; every stager states it, none is
 /// assumed.
 @override final  Perm level;
 /// Shown struck through.
-@override@JsonKey() final  String from;
+@override@JsonKey() final  ChangeSide from;
 /// For a set: the value written to `key`.
 @override final  Object? value;
 /// For an invoke: the action and its arguments.
@@ -157,11 +175,11 @@ abstract mixin class _$StagedChangeCopyWith<$Res> implements $StagedChangeCopyWi
   factory _$StagedChangeCopyWith(_StagedChange value, $Res Function(_StagedChange) _then) = __$StagedChangeCopyWithImpl;
 @override @useResult
 $Res call({
- String id, ChangeOp op, String key, String field, String to, Perm level, String from, Object? value, String? action, IMap<String, Object?> args
+ String id, ChangeOp op, String key, String field, ChangeSide to, Perm level, ChangeSide from, Object? value, String? action, IMap<String, Object?> args
 });
 
 
-
+@override $ChangeSideCopyWith<$Res> get to;@override $ChangeSideCopyWith<$Res> get from;
 
 }
 /// @nodoc
@@ -181,15 +199,33 @@ as String,op: null == op ? _self.op : op // ignore: cast_nullable_to_non_nullabl
 as ChangeOp,key: null == key ? _self.key : key // ignore: cast_nullable_to_non_nullable
 as String,field: null == field ? _self.field : field // ignore: cast_nullable_to_non_nullable
 as String,to: null == to ? _self.to : to // ignore: cast_nullable_to_non_nullable
-as String,level: null == level ? _self.level : level // ignore: cast_nullable_to_non_nullable
+as ChangeSide,level: null == level ? _self.level : level // ignore: cast_nullable_to_non_nullable
 as Perm,from: null == from ? _self.from : from // ignore: cast_nullable_to_non_nullable
-as String,value: freezed == value ? _self.value : value ,action: freezed == action ? _self.action : action // ignore: cast_nullable_to_non_nullable
+as ChangeSide,value: freezed == value ? _self.value : value ,action: freezed == action ? _self.action : action // ignore: cast_nullable_to_non_nullable
 as String?,args: null == args ? _self.args : args // ignore: cast_nullable_to_non_nullable
 as IMap<String, Object?>,
   ));
 }
 
-
+/// Create a copy of StagedChange
+/// with the given fields replaced by the non-null parameter values.
+@override
+@pragma('vm:prefer-inline')
+$ChangeSideCopyWith<$Res> get to {
+  
+  return $ChangeSideCopyWith<$Res>(_self.to, (value) {
+    return _then(_self.copyWith(to: value));
+  });
+}/// Create a copy of StagedChange
+/// with the given fields replaced by the non-null parameter values.
+@override
+@pragma('vm:prefer-inline')
+$ChangeSideCopyWith<$Res> get from {
+  
+  return $ChangeSideCopyWith<$Res>(_self.from, (value) {
+    return _then(_self.copyWith(from: value));
+  });
+}
 }
 
 // dart format on

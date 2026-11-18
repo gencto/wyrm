@@ -18,6 +18,7 @@ import 'package:ui/overlays/problems_drawer.dart';
 import 'common/studio_version.dart';
 import 'mappers/device_mappers.dart';
 import 'mappers/icon_mappers.dart';
+import 'mappers/log_in_mappers.dart';
 
 // The words of an error (docs/design/specs/errors.md §1, §3, §7). They live
 // in `app` because this is the only package that may name `S`: `business`
@@ -228,6 +229,7 @@ String _hintText(ErrorHint h) {
     ErrorHintRangeBadPrefix() => s.rangeBadPrefix,
     ErrorHintRangeTooBig() => s.rangeTooBig,
     ErrorHintPortOutOfRange() => s.errPortOutOfRange,
+    ErrorHintNoAnswer(:final why) => why.view.words,
     ErrorHintNoDeviceKey(:final host) => s.errNoDeviceKey(host.os.system),
     ErrorHintFileEndedEarly(:final offset, :final size) => s.errFileEndedEarly(
       offset,

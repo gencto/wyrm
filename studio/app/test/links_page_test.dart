@@ -1,4 +1,5 @@
 import 'package:app/connectors/links_page_connector.dart';
+import 'package:app/mappers/shell_mappers.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
@@ -409,7 +410,7 @@ void main() {
       expect(
         [
           for (final c in app.store.state.changes.table.values)
-            (c.key, c.from, c.to, c.value),
+            (c.key, c.from.vm.text, c.to.vm.text, c.value),
         ],
         [
           ('$sys/enable_quarantine', 'on', 'off', false),
@@ -684,7 +685,7 @@ void main() {
       final c = app.store.state.changes.table.values.single;
       expect(c.id, 'params:$sys/links/modbus');
       expect(c.key, '$sys/links/modbus');
-      expect(c.from, 'rev 3');
+      expect(c.from.vm.text, 'rev 3');
       expect(c.args['params'], {'poll_s': 2});
       await app.leave(t);
     });

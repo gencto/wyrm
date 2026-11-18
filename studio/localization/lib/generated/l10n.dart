@@ -14250,6 +14250,26 @@ class S {
     );
   }
 
+  /// `the plan or its ticks changed after they were shown. Read the plan again and approve what it says now.`
+  String get approveRefusedChanged {
+    return Intl.message(
+      'the plan or its ticks changed after they were shown. Read the plan again and approve what it says now.',
+      name: 'approveRefusedChanged',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `the arguments of step {step} are masked: its schema is not known. Show them, then approve.`
+  String approveRefusedUnseen(int step) {
+    return Intl.message(
+      'the arguments of step $step are masked: its schema is not known. Show them, then approve.',
+      name: 'approveRefusedUnseen',
+      desc: '',
+      args: [step],
+    );
+  }
+
   /// `Untick the step it names and approve the rest. When the plan is done, ask for the steps left out as a follow-up: they are approved then.`
   String get approveRefusedHint {
     return Intl.message(
@@ -15969,6 +15989,126 @@ class S {
     return Intl.message(
       'The password is wrong.',
       name: 'lockWrongPassword',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `rev {rev}`
+  String changeRev(int rev) {
+    return Intl.message('rev $rev', name: 'changeRev', desc: '', args: [rev]);
+  }
+
+  /// `rev {rev}: {detail}`
+  String changeRevOf(int rev, String detail) {
+    return Intl.message(
+      'rev $rev: $detail',
+      name: 'changeRevOf',
+      desc: '',
+      args: [rev, detail],
+    );
+  }
+
+  /// `on`
+  String get changeOn {
+    return Intl.message('on', name: 'changeOn', desc: '', args: []);
+  }
+
+  /// `off`
+  String get changeOff {
+    return Intl.message('off', name: 'changeOff', desc: '', args: []);
+  }
+
+  /// `{count} top-level keys`
+  String changeKeys(int count) {
+    return Intl.message(
+      '$count top-level keys',
+      name: 'changeKeys',
+      desc: '',
+      args: [count],
+    );
+  }
+
+  /// `set {name}`
+  String stepUpSet(String name) {
+    return Intl.message('set $name', name: 'stepUpSet', desc: '', args: [name]);
+  }
+
+  /// `{op} {field} = {to}`
+  String stepUpChange(String op, String field, String to) {
+    return Intl.message(
+      '$op $field = $to',
+      name: 'stepUpChange',
+      desc: '',
+      args: [op, field, to],
+    );
+  }
+
+  /// `add user {name}`
+  String stepUpAddUser(String name) {
+    return Intl.message(
+      'add user $name',
+      name: 'stepUpAddUser',
+      desc: '',
+      args: [name],
+    );
+  }
+
+  /// `remove user {name}`
+  String stepUpRemoveUser(String name) {
+    return Intl.message(
+      'remove user $name',
+      name: 'stepUpRemoveUser',
+      desc: '',
+      args: [name],
+    );
+  }
+
+  /// `set roles of {name}`
+  String stepUpSetRoles(String name) {
+    return Intl.message(
+      'set roles of $name',
+      name: 'stepUpSetRoles',
+      desc: '',
+      args: [name],
+    );
+  }
+
+  /// `set password of {name}`
+  String stepUpSetPassword(String name) {
+    return Intl.message(
+      'set password of $name',
+      name: 'stepUpSetPassword',
+      desc: '',
+      args: [name],
+    );
+  }
+
+  /// `disable user {name}`
+  String stepUpDisableUser(String name) {
+    return Intl.message(
+      'disable user $name',
+      name: 'stepUpDisableUser',
+      desc: '',
+      args: [name],
+    );
+  }
+
+  /// `enable user {name}`
+  String stepUpEnableUser(String name) {
+    return Intl.message(
+      'enable user $name',
+      name: 'stepUpEnableUser',
+      desc: '',
+      args: [name],
+    );
+  }
+
+  /// `remove device`
+  String get stepUpRemoveDevice {
+    return Intl.message(
+      'remove device',
+      name: 'stepUpRemoveDevice',
       desc: '',
       args: [],
     );
@@ -17732,6 +17872,46 @@ class S {
       desc: '',
       args: [name],
     );
+  }
+
+  /// `certificate is not trusted`
+  String get answerUntrusted {
+    return Intl.message(
+      'certificate is not trusted',
+      name: 'answerUntrusted',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `connection refused after {after}`
+  String answerRefusedAfter(String after) {
+    return Intl.message(
+      'connection refused after $after',
+      name: 'answerRefusedAfter',
+      desc: '',
+      args: [after],
+    );
+  }
+
+  /// `no network route`
+  String get answerNoRoute {
+    return Intl.message(
+      'no network route',
+      name: 'answerNoRoute',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{ms} ms`
+  String answerMs(int ms) {
+    return Intl.message('$ms ms', name: 'answerMs', desc: '', args: [ms]);
+  }
+
+  /// `{s} s`
+  String answerSeconds(int s) {
+    return Intl.message('$s s', name: 'answerSeconds', desc: '', args: [s]);
   }
 
   /// `timed out`

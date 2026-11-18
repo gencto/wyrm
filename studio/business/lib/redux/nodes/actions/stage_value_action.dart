@@ -1,5 +1,6 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/change_op.dart';
+import 'package:models/change_side.dart';
 import 'package:models/staged_change.dart';
 import 'package:models/staged_change_kind.dart';
 
@@ -71,10 +72,12 @@ class StageValueAction extends Action {
             op: ChangeOp.edit,
             key: key,
             field: 'value',
-            from: from,
-            to: valueText(
-              value,
-              choices: state.nodes.detail[key]?.choices.unlock ?? const [],
+            from: ChangeSide.text(from),
+            to: ChangeSide.text(
+              valueText(
+                value,
+                choices: state.nodes.detail[key]?.choices.unlock ?? const [],
+              ),
             ),
             level: level,
             value: value,
