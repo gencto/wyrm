@@ -25,6 +25,7 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tracing::Instrument;
 use tracing::{debug, info, warn};
+use wyrm_core::audit::LinkOp;
 use wyrm_core::codec::{from_slice, to_vec};
 use wyrm_core::keyspace::{self, SUFFIX_META, SUFFIX_SET, SUFFIX_VAL};
 use wyrm_core::meta::{is_code, ActionResult, ParamMeta, Profile, TypeCode, Writable};
@@ -1185,7 +1186,7 @@ impl<C: Send + 'static> Shared<C> {
     }
 
     /// Audit record of one `set`/`invoke` (args as SHA-256, never the values).
-    async fn audit(&self, q: &Query, op: &str, sub: &str, args: &[u8], r: &Result<()>) {
+    async fn audit(&self, q: &Query, op: LinkOp, sub: &str, args: &[u8], r: &Result<()>) {
         let Some(key) = &self.audit_key else {
             return;
         };
@@ -1209,7 +1210,7 @@ impl<C: Send + 'static> Shared<C> {
         }
         m.insert("t".to_owned(), Value::UInt(crate::ctx::now_us()));
         m.insert("sub".to_owned(), Value::Str(sub.to_owned()));
-        m.insert("op".to_owned(), Value::Str(op.to_owned()));
+        m.insert("op".to_owned(), Value::Str(op.name().to_owned()));
         m.insert(
             "key".to_owned(),
             Value::Str(q.key_expr().as_str().to_owned()),
@@ -1258,7 +1259,7 @@ impl<C: Send + 'static> Shared<C> {
                 (sub, r)
             }
         };
-        self.audit(q, "set", &sub, &args, &r).await;
+        self.audit(q, LinkOp::Set, &sub, &args, &r).await;
         r
     }
 
@@ -1345,9 +1346,9 @@ impl<C: Send + 'static> Shared<C> {
             }
         };
         let op = if param(q, "check").is_some() {
-            "check"
+            LinkOp::Check
         } else {
-            "invoke"
+            LinkOp::Invoke
         };
         self.audit(q, op, &sub, &args, &r).await;
         r

@@ -5,6 +5,7 @@
 use minicbor::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
+use wyrm_core::audit::LinkOp;
 use wyrm_core::named::OrUnknown;
 
 const RECENT: usize = 1000;
@@ -117,6 +118,28 @@ wyrm_core::name_enum! {
 /// operation of this build.
 pub type StoredOp = OrUnknown<AuditOp>;
 
+impl From<LinkOp> for AuditOp {
+    fn from(op: LinkOp) -> Self {
+        match op {
+            LinkOp::Set => AuditOp::Set,
+            LinkOp::Invoke => AuditOp::Invoke,
+            LinkOp::Check => AuditOp::Check,
+        }
+    }
+}
+
+/// The `op` of an event a link reported for itself. A link may claim only what a link
+/// does ([`LinkOp`]): `set`, `invoke`, `check`. Any other text, the name of a broker
+/// operation among them (`promoted`, `peer_add`, `login`), is kept as the link wrote it
+/// and is never a known operation: a link cannot write a broker's record into the
+/// journal. (The record's `sub` is `claimed:<…>` and its detail names the link too.)
+pub fn claimed_op(text: &str) -> StoredOp {
+    match LinkOp::from_name(text) {
+        Some(op) => OrUnknown::Known(op.into()),
+        None => OrUnknown::Unknown(text.to_owned()),
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct AuditRecord {
     /// Microseconds since the Unix epoch.
@@ -195,6 +218,36 @@ mod tests {
         assert_eq!(log.count, 2);
         assert_eq!(log.recent, [known, retired]);
         assert_eq!(postcard::to_allocvec(&log).unwrap(), bytes);
+    }
+
+    #[test]
+    fn a_link_cannot_forge_a_broker_op() {
+        for op in LinkOp::ALL {
+            assert_eq!(
+                claimed_op(op.name()),
+                OrUnknown::Known(AuditOp::from(*op)),
+                "{}",
+                op.name()
+            );
+            assert_eq!(AuditOp::from(*op).name(), op.name());
+        }
+        for op in AuditOp::ALL {
+            if LinkOp::from_name(op.name()).is_some() {
+                continue;
+            }
+            // every broker operation a link names stays the link's text
+            let got = claimed_op(op.name());
+            assert_eq!(
+                got,
+                OrUnknown::Unknown(op.name().to_owned()),
+                "{}",
+                op.name()
+            );
+            assert_eq!(got.known(), None);
+            assert_ne!(got, StoredOp::from(*op));
+        }
+        assert_eq!(claimed_op("Set").known(), None);
+        assert_eq!(claimed_op("").known(), None);
     }
 
     #[test]

@@ -12,7 +12,7 @@
 //! the host to rebuild the router runtime through the reload channel.
 
 use crate::acl;
-use crate::audit::{AuditLog, AuditOp, AuditRecord, StoredOp};
+use crate::audit::{AuditLog, AuditOp, AuditRecord};
 use crate::logs::LogLevel;
 use crate::packages;
 use crate::registry::{
@@ -6657,9 +6657,7 @@ async fn watch_audit(ctl: Arc<Control>, ctx: LinkCtx) {
         let rec = AuditRecord {
             t: now_us(),
             sub: format!("claimed:{}", text("sub")),
-            // the link's own word, from another process: a name this build does not
-            // know is kept as the link wrote it (`StoredOp`)
-            op: StoredOp::of(&text("op")),
+            op: crate::audit::claimed_op(&text("op")),
             key,
             status,
             detail: format!(

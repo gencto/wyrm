@@ -21,8 +21,8 @@ use zeroize::Zeroizing;
 pub enum EcKeyError {
     #[error("no key made: the random source failed")]
     Generate,
-    #[error("not a PKCS#8 private key in PEM")]
-    Pem,
+    #[error("not a PKCS#8 private key in PEM: {0}")]
+    Pem(String),
     #[error("not an ECDSA P-256 key: {0}")]
     Rejected(String),
     #[error("no signature made: the random source failed")]
@@ -40,14 +40,14 @@ impl EcKey {
     pub fn generate() -> Result<Self, EcKeyError> {
         let rng = wyrm_core::rand::secure_random();
         let doc = EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, &rng)
-            .map_err(|_| EcKeyError::Generate)?;
+            .map_err(|ring::error::Unspecified| EcKeyError::Generate)?;
         Self::from_pkcs8(doc.as_ref())
     }
 
     /// The key of a `PRIVATE KEY` PEM block (what [`Self::pem`] and rcgen write).
     pub fn from_pem(pem: &str) -> Result<Self, EcKeyError> {
-        let der =
-            PrivatePkcs8KeyDer::from_pem_slice(pem.as_bytes()).map_err(|_| EcKeyError::Pem)?;
+        let der = PrivatePkcs8KeyDer::from_pem_slice(pem.as_bytes())
+            .map_err(|e| EcKeyError::Pem(e.to_string()))?;
         Self::from_pkcs8(der.secret_pkcs8_der())
     }
 
@@ -96,7 +96,7 @@ impl rcgen::SigningKey for EcKey {
         self.pair
             .sign(&rng, msg)
             .map(|s| s.as_ref().to_vec())
-            .map_err(|_| rcgen::Error::RingUnspecified)
+            .map_err(|ring::error::Unspecified| rcgen::Error::RingUnspecified)
     }
 }
 
@@ -142,11 +142,11 @@ mod tests {
 
     #[test]
     fn what_is_not_a_p256_pkcs8_key_is_refused() {
-        assert_eq!(EcKey::from_pem("").err(), Some(EcKeyError::Pem));
-        assert_eq!(
-            EcKey::from_pem("-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n").err(),
-            Some(EcKeyError::Pem)
-        );
+        assert!(matches!(EcKey::from_pem(""), Err(EcKeyError::Pem(_))));
+        assert!(matches!(
+            EcKey::from_pem("-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n"),
+            Err(EcKeyError::Pem(_))
+        ));
         let ed = rcgen::KeyPair::generate_for(&rcgen::PKCS_ED25519).unwrap();
         assert!(matches!(
             EcKey::from_pem(&ed.serialize_pem()),

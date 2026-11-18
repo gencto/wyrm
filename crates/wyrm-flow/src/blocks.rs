@@ -968,17 +968,7 @@ fn check(k: Kind, cfg: &Map) -> Result<Ports, String> {
     } else {
         constants(k, &sh, cfg)?;
     }
-    if let Some(ops) = ops_of(k) {
-        match cfg.get("op") {
-            None => {}
-            Some(Value::Str(o)) => {
-                if !is_op_of(k, o) {
-                    return Err(format!("op: one of {ops:?}"));
-                }
-            }
-            Some(_) => return Err("op: expected a string".into()),
-        }
-    }
+    Ops::of_config(k, cfg)?;
     let mut inputs: Vec<(String, PortType)> = sh
         .inputs
         .iter()
@@ -1070,22 +1060,56 @@ enum TextCmp {
     EndsWith,
 }
 
-/// The operators of a block with `op`, for errors and the catalog.
-fn ops_of(k: Kind) -> Option<&'static [&'static str]> {
-    match k {
-        Kind::If => Some(IfOp::NAMES),
-        Kind::Case | Kind::Router => Some(CaseOp::NAMES),
-        _ => None,
+/// The operator a block runs with, decoded where it comes in: from the config when the
+/// block is built, from a sample on `in.op` when it arrives. `if` reads `if_op`, `case`
+/// and `router` read `case_op`; a block of another kind has no `op` and reads neither.
+/// A block whose config has no `op` runs with the spec's default, `=`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct Ops {
+    if_op: IfOp,
+    case_op: CaseOp,
+}
+
+impl Ops {
+    /// The operators of the config of a block of kind `k`. A name that is not an operator
+    /// of the kind is an error that lists them: the flow does not compile.
+    fn of_config(k: Kind, cfg: &Map) -> Result<Self, String> {
+        let mut ops = Self::default();
+        match cfg.get("op") {
+            None => Ok(ops),
+            Some(Value::Str(name)) => {
+                ops.set(k, name)?;
+                Ok(ops)
+            }
+            Some(_) if Self::has(k) => Err("op: expected a string".into()),
+            Some(_) => Ok(ops),
+        }
+    }
+
+    /// A block of kind `k` has the parameter `op`.
+    fn has(k: Kind) -> bool {
+        matches!(k, Kind::If | Kind::Case | Kind::Router)
+    }
+
+    /// Take the operator `name` for a block of kind `k`. `Err` (the operators of the
+    /// kind) when it is not one; the operator in use stays. A kind without `op` takes
+    /// nothing and refuses nothing.
+    fn set(&mut self, k: Kind, name: &str) -> Result<(), String> {
+        match k {
+            Kind::If => {
+                self.if_op = IfOp::from_name(name).ok_or_else(|| one_of(IfOp::NAMES))?;
+            }
+            Kind::Case | Kind::Router => {
+                self.case_op = CaseOp::from_name(name).ok_or_else(|| one_of(CaseOp::NAMES))?;
+            }
+            _ => {}
+        }
+        Ok(())
     }
 }
 
-/// Whether `name` is an operator of a block of kind `k` (`false` for a kind without `op`).
-fn is_op_of(k: Kind, name: &str) -> bool {
-    match k {
-        Kind::If => IfOp::from_name(name).is_some(),
-        Kind::Case | Kind::Router => CaseOp::from_name(name).is_some(),
-        _ => false,
-    }
+fn one_of(names: &[&str]) -> String {
+    format!("op: one of {names:?}")
 }
 
 /// `x op p` for the text operators, both as text; a `null` never matches. (`case` skips an
@@ -1201,6 +1225,7 @@ pub fn build(ty: &str, flow: &str, id: &str, cfg: &Map) -> Option<Result<Box<dyn
             constants(k, &sh, cfg)?
         };
         Ok(Box::new(Block {
+            ops: Ops::of_config(k, cfg)?,
             consts: consts.clone(),
             values: consts,
             kind: k,
@@ -1241,6 +1266,8 @@ pub fn build(ty: &str, flow: &str, id: &str, cfg: &Map) -> Option<Result<Box<dyn
 }
 
 struct Block {
+    /// The operator in use (`if`, `case`, `router`), typed.
+    ops: Ops,
     kind: Kind,
     /// `<flow>/<node>`, for `trace`.
     name: String,
@@ -1297,16 +1324,6 @@ struct Block {
 impl Block {
     fn param(&self, name: &str) -> &Value {
         self.params.get(name).unwrap_or(&Value::Null)
-    }
-
-    /// The block's operator: parameter `op` as the typed set `T`. The compile check and
-    /// the port filter let only a name of the set become the parameter, so the default
-    /// (`=`) is what a block without `op` runs with.
-    fn op<T: wyrm_core::named::Named + Default>(&self) -> T {
-        match self.param("op") {
-            Value::Str(o) => T::from_name(o).unwrap_or_default(),
-            _ => T::default(),
-        }
     }
 
     fn item_values(&self) -> Vec<Value> {
@@ -1475,7 +1492,7 @@ impl Block {
             }
             Kind::If => {
                 let vs = self.item_values();
-                let op: IfOp = self.op();
+                let op = self.ops.if_op;
                 // each input against the next, as numbers
                 let chain = |c: NumCmp| {
                     vs.len() > 1
@@ -1518,7 +1535,7 @@ impl Block {
             }
             Kind::Case => {
                 let x = self.in_value().clone();
-                let op: CaseOp = self.op();
+                let op = self.ops.case_op;
                 let vs = self.item_values();
                 let mut cache = self.re.take();
                 let hit = vs
@@ -1870,7 +1887,7 @@ impl Block {
             }
             Kind::Router => {
                 let x = self.values.get("condition").cloned().unwrap_or(Value::Null);
-                let op: CaseOp = self.op();
+                let op = self.ops.case_op;
                 let mut cache = self.re.take();
                 let names = self.items.clone();
                 let hit = names.iter().find(|name| {
@@ -2292,11 +2309,11 @@ impl Node for Block {
         };
         let name = name.to_owned();
         // `op` takes only an operator the block knows: another text is ignored (spec 06 0.2.20)
-        if name == "op"
-            && ops_of(self.kind).is_some()
-            && !matches!(&m.v, Value::Str(o) if is_op_of(self.kind, o))
-        {
-            return;
+        if name == "op" && Ops::has(self.kind) {
+            let Value::Str(o) = &m.v else { return };
+            if self.ops.set(self.kind, o).is_err() {
+                return;
+            }
         }
         // a number that is not finite never becomes a parameter: the last good value stays
         let is_param = port.starts_with("in.") && self.param_ports.contains(&name.as_str());
@@ -2404,5 +2421,45 @@ impl Node for Block {
                 (port, v.clone())
             })
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod ops_tests {
+    use super::*;
+
+    #[test]
+    fn an_operator_is_decoded_once_and_an_unknown_one_is_refused() {
+        let cfg = |op: Value| Map::from([("op".to_owned(), op)]);
+        // no `op`: the spec's default
+        let ops = Ops::of_config(Kind::If, &Map::new()).unwrap();
+        assert_eq!((ops.if_op, ops.case_op), (IfOp::Eq, CaseOp::Eq));
+        assert_eq!(
+            Ops::of_config(Kind::If, &cfg("and".into())).unwrap().if_op,
+            IfOp::And
+        );
+        assert_eq!(
+            Ops::of_config(Kind::Router, &cfg("regexp".into()))
+                .unwrap()
+                .case_op,
+            CaseOp::Regexp
+        );
+        // an operator of the other block, a wrong case and a wrong type do not compile
+        for (k, bad) in [
+            (Kind::If, Value::from("regexp")),
+            (Kind::Case, "and".into()),
+            (Kind::Case, "Contains".into()),
+            (Kind::If, "".into()),
+            (Kind::If, Value::UInt(1)),
+        ] {
+            let e = Ops::of_config(k, &cfg(bad.clone())).unwrap_err();
+            assert!(e.starts_with("op: "), "{bad:?}: {e}");
+        }
+        // a sample with an unknown operator changes nothing; a known one is taken
+        let mut ops = Ops::of_config(Kind::Case, &cfg(">".into())).unwrap();
+        assert!(ops.set(Kind::Case, "and").is_err());
+        assert_eq!(ops.case_op, CaseOp::Gt);
+        ops.set(Kind::Case, "<=").unwrap();
+        assert_eq!(ops.case_op, CaseOp::Le);
     }
 }

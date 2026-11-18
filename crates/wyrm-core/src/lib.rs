@@ -6,6 +6,7 @@
 #![forbid(unsafe_code)]
 
 pub mod attachment;
+pub mod audit;
 pub mod clock;
 pub mod codec;
 pub mod display;
