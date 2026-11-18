@@ -177,10 +177,9 @@ impl Store {
                 id = match stored {
                     Some(id) if id != 0 => id,
                     _ => {
-                        use std::hash::{BuildHasher, Hasher};
-                        let mut h = std::collections::hash_map::RandomState::new().build_hasher();
-                        h.write_u128(wyrm_core::clock::now_ns());
-                        let id = h.finish().max(1);
+                        // the store's identity, from the one random source: a store
+                        // without one is not made (a standby keeps its cursor by this id)
+                        let id = u64::from_le_bytes(wyrm_core::rand::bytes().map_err(db)?).max(1);
                         meta.insert("id", id).map_err(db)?;
                         id
                     }
