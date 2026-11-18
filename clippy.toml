@@ -32,5 +32,8 @@ disallowed-methods = [
 # key). They are named in docs/rust-rules.md §10 and every call is counted by rule A5 of
 # tool/check_rust_rules.py.
 disallowed-types = [
+    # the type itself, however it is made (`Default::default()`, a `LazyLock`, a field): three
+    # ids and a shard seed were made of it without a call of `new`
+    { path = "std::hash::RandomState", reason = "its seed is OS randomness outside the one source: use wyrm_core::rand::bytes" },
     { path = "rand_core::OsRng", reason = "panics when the OS gives no randomness: use wyrm_core::rand::bytes", allow-invalid = true },
 ]

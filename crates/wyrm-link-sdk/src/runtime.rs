@@ -373,7 +373,8 @@ pub async fn spawn<L: Link>(
         shard_limiter: cfg.read_rate_limit.map(|(r, b)| {
             crate::guard::RateLimiter::new(r * SHARD_SHARE, (b * SHARD_SHARE).max(2.0))
         }),
-        shard_seed: Default::default(),
+        shard_seed: wyrm_core::rand::bytes()
+            .map_err(|e| LinkError::internal(format!("read limiter: {e}")))?,
         audit_key: cfg
             .audit
             .then(|| format!("{}/{}/sys/audit/{}", keyspace::ROOT, cfg.site, cfg.link)),
@@ -672,8 +673,9 @@ struct Shared<C> {
     /// `pub/**` profiles of the site, followed live (spec 02 inheritance).
     profiles: Profiles,
     shard_limiter: Option<crate::guard::RateLimiter>,
-    /// Random per link: a caller cannot pick keys that share a shard.
-    shard_seed: std::collections::hash_map::RandomState,
+    /// Random per link, from the one random source: a caller cannot pick keys that
+    /// share a shard (the shard of a key is a keyed hash under it).
+    shard_seed: [u8; 16],
     audit_key: Option<String>,
     audit_suppressed: std::sync::atomic::AtomicU64,
     next_rid: AtomicU32,
@@ -755,6 +757,17 @@ fn bound_origin(claimed: Option<&str>, sub: &str) -> String {
 }
 
 use wyrm_core::clock::now_s;
+
+/// The read shard of `target` under `seed`: the first 8 bytes of
+/// `HMAC-SHA-256(seed, target)`, modulo [`READ_SHARDS`].
+fn shard_of(seed: &[u8; 16], target: &str) -> u64 {
+    let mac = wyrm_core::mac::hmac_sha256_of(seed, target.as_bytes());
+    let mut first = [0u8; 8];
+    for (o, b) in first.iter_mut().zip(mac) {
+        *o = b;
+    }
+    u64::from_le_bytes(first) % READ_SHARDS
+}
 
 fn is_wild(key: &str) -> bool {
     key.contains('*')
@@ -862,9 +875,8 @@ impl<C: Send + 'static> Shared<C> {
     }
 
     fn read_allowed(&self, target: &str) -> bool {
-        use std::hash::BuildHasher;
         let shard_ok = self.shard_limiter.as_ref().is_none_or(|l| {
-            let shard = self.shard_seed.hash_one(target) % READ_SHARDS;
+            let shard = shard_of(&self.shard_seed, target);
             l.allow(&format!("s{shard}"))
         });
         shard_ok && self.read_limiter.as_ref().is_none_or(|l| l.allow(READS))

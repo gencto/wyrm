@@ -1490,7 +1490,7 @@ impl<B: Backend> FileStore<B> {
             data_dir: self.ctx.data_dir().map(std::path::Path::to_path_buf),
             options: self.options.clone(),
             // what an earlier session left is gone before uploads begin
-            uploads: crate::parts::Uploads::open(spool_dir(&self.ctx, name)).await,
+            uploads: crate::parts::Uploads::open(spool_dir(&self.ctx, name)?).await,
             commits: std::sync::Mutex::new(Vec::new()),
         });
         let task = tokio::spawn(run(s.clone()));
@@ -1645,22 +1645,23 @@ fn public_of<B: Backend>(raw: &Map) -> Map {
 /// Where a connection spools its uploads in parts: `<data_dir>/uploads/c-<conn>`,
 /// or, without a `data_dir`, a directory of its own in the system's
 /// temporary one (never shared: each start clears its directory).
-fn spool_dir(ctx: &LinkCtx, conn: &str) -> std::path::PathBuf {
+fn spool_dir(ctx: &LinkCtx, conn: &str) -> Result<std::path::PathBuf> {
     spool_path(ctx.data_dir(), conn)
 }
 
-fn spool_path(data_dir: Option<&std::path::Path>, conn: &str) -> std::path::PathBuf {
-    match data_dir {
+fn spool_path(data_dir: Option<&std::path::Path>, conn: &str) -> Result<std::path::PathBuf> {
+    Ok(match data_dir {
         // a key segment may be `.` or `..`: the prefix keeps the name one
         // plain directory below `uploads` (it is removed on every start and
         // stop, so `..` would remove the link's data)
         Some(d) => d.join("uploads").join(format!("c-{conn}")),
+        // the temporary directory is shared with other users: the name is not guessed
         None => std::env::temp_dir().join(format!(
             "wyrm-filestore-{}-{}-{conn}",
             std::process::id(),
-            crate::parts::new_id()
+            crate::parts::new_id()?
         )),
-    }
+    })
 }
 
 /// The subject an upload belongs to: the `ptok` subject, else the origin.
@@ -1919,7 +1920,7 @@ mod tests {
         let keep = base.join("filestore.conns");
         std::fs::write(&keep, b"sealed").unwrap();
         for conn in ["..", ".", "a"] {
-            let p = spool_path(Some(&base), conn);
+            let p = spool_path(Some(&base), conn).unwrap();
             assert_eq!(p.parent(), Some(base.join("uploads").as_path()), "{conn}");
             let n = p.file_name().and_then(|n| n.to_str()).unwrap();
             assert!(n != "." && n != "..", "{conn}");

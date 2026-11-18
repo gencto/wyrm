@@ -147,23 +147,13 @@ fn bad(what: impl std::fmt::Display) -> LinkError {
     LinkError::invalid_parameter(what.to_string())
 }
 
-/// An id nobody can guess (std's per-process random hash keys, time, a
-/// counter): it names a spool file and is checked with the owner.
-pub(crate) fn new_id() -> String {
-    use std::hash::{BuildHasher, Hasher};
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static N: AtomicU64 = AtomicU64::new(0);
-    static KEYS: std::sync::LazyLock<std::collections::hash_map::RandomState> =
-        std::sync::LazyLock::new(Default::default);
-    let mut out = String::new();
-    for salt in 0..2u64 {
-        let mut h = KEYS.build_hasher();
-        h.write_u64(crate::util::now_us());
-        h.write_u64(N.fetch_add(1, Ordering::Relaxed));
-        h.write_u64(salt);
-        out.push_str(&format!("{:016x}", h.finish()));
-    }
-    out
+/// An id nobody can guess: 16 bytes from the one random source, as 32 hex characters.
+/// It names a spool file and is checked with the owner. Without randomness there is no
+/// id, and the caller refuses the upload.
+pub(crate) fn new_id() -> Result<String, LinkError> {
+    wyrm_core::rand::bytes::<16>()
+        .map(wyrm_core::hex::encode)
+        .map_err(|e| LinkError::internal(format!("upload id: {e}")))
 }
 
 /// The uploads of one connection.
@@ -347,7 +337,7 @@ impl Uploads {
         };
         let parts = b.size.div_ceil(part);
         self.room(b.size).await?;
-        let id = new_id();
+        let id = new_id()?;
         let file = self.dir.join(format!("{id}.part"));
         let size = b.size;
         {

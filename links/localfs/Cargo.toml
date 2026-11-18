@@ -17,7 +17,7 @@ name = "wyrm-link-localfs"
 required-features = ["process"]
 
 [dependencies]
-wyrm-core.workspace = true
+wyrm-core = { workspace = true, features = ["rand"] }
 wyrm-link-sdk.workspace = true
 wyrm-filestore.workspace = true
 # std::fs only (Linux, macOS, Windows, BSD), blocking calls off the async workers.

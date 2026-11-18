@@ -15,7 +15,7 @@ sim = ["hyper/server"]
 testkit = ["sim", "wyrm-link-sdk/harness"]
 
 [dependencies]
-wyrm-core.workspace = true
+wyrm-core = { workspace = true, features = ["rand"] }
 wyrm-link-sdk.workspace = true
 tokio = { workspace = true, features = ["rt", "time", "macros", "sync", "net"] }
 tracing.workspace = true

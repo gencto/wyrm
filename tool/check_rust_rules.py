@@ -895,7 +895,9 @@ LIBRARY_RNG = [
     r"\bX509\s*::\s*cert_and_pkey\s*\(",
 ]
 SECOND_RNG = [
-    r"\bRandomState\s*::\s*new\s*\(",
+    # any mention of the type: `RandomState::new()`, `::default()`, a field or a static
+    # of the type filled by `Default::default()`, an import. The seed is OS randomness.
+    r"\bRandomState\b",
     r"\bSigningKey\s*::\s*(?:generate|random)\s*\(",
     r"\bSecretKey\s*::\s*random\s*\(",
     r"\bRsaPrivateKey\s*::\s*new\s*\(",
@@ -1132,6 +1134,11 @@ PROBES = [
     ("A5", "x.rs", "fn k() -> R { rcgen::KeyPair::generate_for(&ALG)?; rcgen::generate_simple_self_signed(names) }", 2),
     ("A5", "x.rs", "fn k() -> R { p.serialize_request(&key)?; X509::cert_and_pkey(&data) }", 2),
     ("A5", "x.rs", "fn k() { let h = RandomState::new(); let u = Uuid::new_v4(); let r = rand::random(); }", 3),
+    ("A5", "x.rs", "struct S { seed: std::collections::hash_map::RandomState }\nfn n() -> S { S { seed: Default::default() } }", 1),
+    ("A5", "x.rs", "fn k() -> u64 { std::hash::RandomState::default().hash_one(1) }", 1),
+    ("A5", "x.rs", "static KEYS: LazyLock<RandomState> = LazyLock::new(Default::default);", 1),
+    ("A5", "x.rs", "use std::hash::RandomState;", 1),
+    ("A5", "x.rs", "fn k() { let m: HashMap<String, u8> = HashMap::new(); let r = MyRandomStateful; }", 0),
     ("A5", "x.rs", "fn k() { let k = SigningKey::generate(&mut r); let mut g = thread_rng(); fastrand::u8(..); }", 3),
     ("A5", "x.rs", "fn k() -> R { KeyPair::from_pem(pem)?; wyrm_core::rand::bytes::<8>()?; SigningKey::from_bytes(&b) }", 0),
     ("A5", "x.rs", "#[cfg(test)]\nmod tests { fn k() { KeyPair::generate().unwrap(); } }", 0),
