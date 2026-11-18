@@ -11,7 +11,7 @@ Two checks run in CI job `check`:
    has `lints.workspace = true`. `cargo clippy --workspace --all-targets
    --all-features -- -D warnings` fails on one hit.
 2. **Baselined rules.** `python3 tool/check_rust_rules.py` counts the patterns
-   C1–C11, the exceptions A1–A3 and seven costly clippy lints per file against
+   C1–C11 and C13, the exceptions A1–A5 and seven costly clippy lints per file against
    `tool/rust_rules_baseline.json`. **A count may only go down. A file that is
    not in the baseline starts at zero.** The check fails on a count above its
    baseline and also on a count below it: after you remove hits, run
@@ -34,8 +34,11 @@ reason that says why the code is right: `#[allow(clippy::expect_used, reason =
 allow(C4) <why>` on its line or the line above. A reason under 12 characters
 does not count (A2), and every exception is itself counted (A1), so none is
 invisible; so is every removal whose error is only logged (A3: each call of
-`wyrm_core::files::discard`, `discard_dir`, `discard_empty_dir`). Prefer a restructure: an exception is for the place where the code
-is provably right as it is.
+`wyrm_core::files::discard`, `discard_dir`, `discard_empty_dir`), every text
+field that rule 6's pattern counts and that is open on purpose (A4: the list
+`C3_OPEN` in the checker, one reason per entry) and every call of a library
+that draws randomness by itself (A5, rule 10). Prefer a restructure: an
+exception is for the place where the code is provably right as it is.
 
 Test code (`#[test]`, `#[cfg(test)]`) may unwrap, expect, panic and print
 (`clippy.toml`). Integration tests, benches and examples are crates of their
@@ -264,10 +267,14 @@ role grants stored as `(String, u8)` silently drop a grant whose code does not
 decode, which in a first-match list widens access.
 
 ```rust
-// bad — crates/wyrm-link-sdk/src/package.rs (a repository entry; still in the
-// code, C3 counts it)
-/// `Equipment`, `Apps`, `History sync`, `File stores`, …
-pub category: String,
+// bad — crates/wyrm-admin/src/audit.rs (before): any text is an audit op
+/// `install|start|stop|remove|hello|approve|reject|quarantine|acl_denied`.
+pub op: String,
+ctl.record(sub, "peer_remvoe", key, Status::Ok, "");   // compiles
+
+// good — crates/wyrm-admin/src/audit.rs: a record is made only from an `AuditOp`
+wyrm_core::name_enum! { pub enum AuditOp as "audit op" { Install => "install", … } }
+pub fn record(&self, sub: &str, op: AuditOp, key: &str, status: Status, detail: &str)
 
 // good — crates/wyrm-admin/src/control/backups.rs (#125)
 wyrm_core::name_enum! { pub enum JobStatus as "backup job status" { Running => "running", Done => "done", Failed => "failed" } }
@@ -282,7 +289,26 @@ if job.status != JobStatus::Done { … }
 variant, documented or not, that the crate fills from an enum's `name()` (`mode: def.mode.name().to_owned()`
 in a literal of the struct, `x.mode = m.name().into()`, `String::from(m.name())`):
 its set is that enum (`LinkInfo.mode` was one, now `Mode`; the gateway's
-`AuditEvent::Denied.op`, now `DeniedFor`). C6 `string-set`: inline `["a", "b"]` (with or
+`AuditEvent::Denied.op`, now `DeniedFor`). C3 reads doc comments, so it also
+counts a text field whose doc gives *examples* of an open value (`w1`, `w2`,
+…) and an argument that stands near a list of something else. Such a hit is
+not fixed by rewording the doc and not hidden by a marker: the checker's list
+`C3_OPEN` names it as `(file, item)` with the reason its values are open (an
+id, a key, a URL, a label, a name another crate or another repository
+chooses). Each entry is counted as A4 `open-text` (31 after the follow-up of
+2026-11-17), an entry that no longer matches a C3 hit fails the check, and a
+field whose values are a fixed list never goes there: it becomes a
+`name_enum!`. One C3 hit is left: the flow catalog's `Param.editor` (spec 02
+`editor`), which takes the type `ParamMeta.editor` gets.
+
+**Unknown names.** `wyrm_core::named::OrUnknown<T>` is for a record this build
+did not write and must still read: a store or journal that outlives the build
+(`AuditRecord.op`: the WAL holds every earlier version's records, a standby
+follows a newer active, a rollback reads what the newer version wrote), an
+entry of a file many versions read (a repository index), the word of another
+process (a link's own audit event). The type alias says why at its
+declaration. It is never used for an argument, a config field or a state this
+build makes itself: there an unknown name is refused. C6 `string-set`: inline `["a", "b"]` (with or
 without `&`, `vec![…]`; not the key list of `only(&[…])`), `matches!(x, "a" |
 "b")`, `x == "a" || x == "b"`, and `const`/`static` tables of `&str` (also of
 tuples). The bodies of the `name_enum!` and `wire_enum!` macros (in
@@ -398,9 +424,37 @@ without a random salt). `clippy.toml` bans the direct calls
 (`getrandom::fill`, `fill_uninit`, `u32`, `u64`, `ring::rand::SystemRandom::new`,
 `password_hash::SaltString::generate` and the type `rand_core::OsRng`, which
 panic without randomness); the three functions of `wyrm_core::rand` are the only
-items that allow them, each with its own `allow`. Randomness inside a library
-call that returns a `Result` (rustls, `rcgen::KeyPair::generate`) is that
-library's, not a second source of ours. A portable link takes randomness from its host
+items that allow them, each with its own `allow`. The standard library's hash
+seed is OS randomness too: `std::hash::RandomState::new` is banned the same
+way (a store id and a restart jitter were made of it; both read
+`wyrm_core::rand` now).
+
+**Libraries that draw randomness themselves.** Some library calls take no
+random source and open their own. They cannot be routed through
+`wyrm_core::rand`, so they are the named exception, and every call is counted
+(A5 `library-rng`, 8 calls):
+
+| Library call | What it draws | Call sites |
+|---|---|---|
+| `rcgen::KeyPair::generate()` | an ECDSA P-256 key pair, from its own `ring::rand::SystemRandom` | `wyrm-admin/src/secret.rs`: the CA key (`Ca::open_or_create`), a leaf key (`Ca::issue_lasting`), a broker key (`new_broker_key`) |
+| `rcgen` `CertificateParams::self_signed`, `signed_by`, `serialize_request` | the nonce of the ECDSA signature, from its own `SystemRandom` | `wyrm-admin/src/secret.rs`: the CA certificate (`Ca::open_or_create`), `Ca::issue_lasting`, `Ca::sign_broker_csr`, `broker_csr` |
+| `opcua::crypto::X509::cert_and_pkey` | the RSA key of the OPC UA application certificate | `links/opcua/src/pki.rs`: `generated` |
+
+Why rcgen is not routed: making the key with ring and our `secure_random()`
+and handing rcgen the PKCS#8 would move one of its three draws. rcgen opens a
+`SystemRandom` again to read that key and again for every signature, and its
+API has no place for a source. A half-routed key would read as fixed and not
+be. All of these fail closed: each returns a `Result` and the caller refuses
+with it, and ring's `SystemRandom` is the same OS source `wyrm_core::rand`
+reads. Protocol libraries draw randomness with no call of ours that could be
+counted: rustls and quinn (handshakes), Zenoh (its ids), tungstenite (frame
+masks), async-opcua (session nonces). They are libraries' internals behind a
+`Result`, not sources of ours. A5 also counts, at zero, the calls that would
+be a second source of ours: `RandomState::new`, `SigningKey::generate`/`random`,
+`SecretKey::random`, `RsaPrivateKey::new`, `Uuid::new_v4`, `thread_rng`,
+`rand::random`, `rand::rng`, `fastrand`. A key of ours is made from
+`wyrm_core::rand::bytes` (`SigningKey::from_bytes`) or by ring with
+`secure_random()` (`EcdsaKeyPair::generate_pkcs8`). A portable link takes randomness from its host
 (`Host::random_bytes`); the SCRAM clock nonce of `wyrm-history-sync`, for a host
 that answers `not_supported`, calls no random source.
 
@@ -453,16 +507,40 @@ of a function whose last expression has no `;` (it read the next function's
 
 ## 11. One clock and one hex helper
 
-**Rule.** `now_us`/`now_s`/`now_ms`, hex and `sha256_hex` live once, in
-`wyrm-core` (the clock behind a trait where tests need it). A crate does not
-define its own.
+**Rule.** These helpers live once, in `wyrm-core`, and a crate does not write
+its own:
+
+| Helper | Where |
+|---|---|
+| the wall clock: `now_us`, `now_ms`, `now_s`, `since_epoch`, `unix(SystemTime)` | `wyrm_core::clock` |
+| hex: `encode`, `encode_upper`, `encode_sep`, `decode`, `decode_array::<N>`, `is_hex`, `is_lower_hex` | `wyrm_core::hex` (over the `hex` crate, which a crate may also call) |
+| SHA-256: `sha256`, `sha256_hex`, `sha256_reader` (a file) | `wyrm_core::hex` |
+| percent-encoding: `percent_encode`, `percent_encode_keep` | `wyrm_core::weburl` |
+| a read that fills its buffer: `read_full` | `wyrm_core::files` |
+
+A portable link reads the clock of its host (`Host::now_us`): that trait is the
+clock behind a trait, and its implementations are not copies. A crate that
+exported a helper under its own name re-exports the one (`pub use
+wyrm_core::clock::now_us;`).
 
 **Why.** **X2**: 33 clock helpers, each with its own `as u64` from `u128`; 12
-hex helpers (one named `wyrm_core_hex` in `wyrm-flow`), 4 `sha256_hex`.
+hex helpers (one named `wyrm_core_hex` in `wyrm-flow`), with three rules for
+case and length; 4 `sha256_hex`; 7 percent-encoders; 2 `read_full`.
 
 **Check.** C9 `duplicate-helper`: a `fn` or a closure (`let now = || …`)
 outside `wyrm-core` named `now…`, `…_now`, `unix_…`, `timestamp…`, or holding
-`hex`, `sha256` or `digest`.
+`hex`, `sha256` or `digest`. It goes by the name, so it also counts what is
+not a copy; the 43 left after 2026-11-17 are those: implementations of the
+host clock (`Host::now_us`, `Services::now_us`: 11) and readers of it (`now_of`,
+`now`: 5), names with `now` in another sense (`first_tick_now`, `backup_now`,
+`push_now`, …: 16), an artifact's `sha256()` accessors (3), the two file
+digests that give `sha256_reader`'s result their crate's error type, readers
+and writers of a hex *number* (`hex4`, three closures), `hex_text` (a SQL
+literal over `hex::encode_upper`) and the flow block `hash`'s `digest`. C13
+`helper-body` goes by what a helper does, whatever its name: a read of the
+system clock (`SystemTime::now()`, `UNIX_EPOCH`) outside `wyrm_core::clock`
+and a two-digit hex format (`{b:02x}`, `%{b:02X}`) outside `wyrm_core::hex`.
+Three are left: one byte code in an S7 error message (`0x{reason:02X}`).
 
 **URLs.** A configured URL (an HTTP target, a file store, a sync target, an
 uplink, the gateway's origins and public URL, a release channel, a

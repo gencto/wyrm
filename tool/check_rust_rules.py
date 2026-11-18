@@ -6,8 +6,10 @@ zero. A count that went down must be written down at once (`--lower`): the
 check fails on a count above and on a count below its baseline, so a fixed
 hit cannot be spent again by the next change. Two kinds of rules:
 
-* patterns C1..C10, read from the source (non-test code: `tests/`,
-  `benches/`, `examples/` and `#[cfg(test)]` items are left out);
+* patterns C1..C11 and C13 (C12 is taken by another change) and the counted
+  exceptions A1..A5, read from the source
+  (non-test code: `tests/`, `benches/`, `examples/` and `#[cfg(test)]` items
+  are left out);
 * clippy lints that are too costly to deny at once, counted from one
   `cargo clippy --lib --bins --all-features` run in JSON.
 
@@ -353,7 +355,7 @@ def field_bodies(code: str) -> list[tuple[str, int, int]]:
     return out
 
 
-def c3(s: Source) -> list[int]:
+def c3_all(s: Source) -> list[int]:
     """A text field or `fn` argument whose doc lists its values: a closed set carried as
     text (`String`, `&str`, `Box<str>`, `Cow<str>`, also inside `Option`); and a text field,
     documented or not, that the crate fills from an enum's `name()` (the set is the enum)."""
@@ -379,7 +381,77 @@ def c3(s: Source) -> list[int]:
                 if re.search(rf"`{arg}`[^\n]*?(?:{ALTS.pattern})", doc):
                     hits.append(s.starts[i])
                     break
-    return s.hits("C3", hits)
+    return hits
+
+
+def c3_item(s: Source, offset: int) -> str:
+    """The field or function a C3 hit is on."""
+    line = s.lines[s.line_of(offset) - 1]
+    fm = FIELD.match(line)
+    if fm:
+        return fm.group(1)
+    fn = re.search(r"\bfn\s+(\w+)", line)
+    return fn.group(1) if fn else ""
+
+
+# Text that C3's pattern counts and that is not a closed set: `(file, item)` with the
+# reason. C3 reads a doc comment, so it also counts a field whose doc gives examples of an
+# open value (`w1`, `w2`, …), and an argument whose name stands near a list of something
+# else. Such a hit is not fixed by rewording the doc and not hidden by a marker: it is
+# named here, with why its values are open, and counted as A4 so the list cannot grow
+# unseen. An entry that no longer matches a C3 hit fails the check (the code changed:
+# take the entry out). A field whose values ARE a fixed list never goes here: it becomes
+# a `name_enum!`.
+C3_OPEN: dict[tuple[str, str], str] = {
+    ("crates/wyrm-core/src/time.rs", "parse_interval"): "the interval text `<n><unit>` this function parses: it is the decoder, and the listed letters are the units of its grammar",
+    ("crates/wyrm-link-sdk/src/auth.rs", "perm_on"): "`key` is a Zenoh key; the doc speaks of a grant of level `none`, which is typed (`Perm`)",
+    ("crates/wyrm-link-sdk/src/package.rs", "category"): "a repository entry's category is the text its repository wrote (any repository, ADR 0021, 0043); the broker shows it and branches on nothing; the doc lists examples",
+    ("crates/wyrm-link-sdk/src/driver/branch.rs", "parse"): "`driver` is a driver id (any driver crate has its own); `one of top` speaks of the typed `Level` list",
+    ("crates/wyrmd/src/announce.rs", "txt"): "the arguments are a site name and a host; the doc lists the keys of the TXT record the function writes",
+    ("tools/wyr/src/pack.rs", "add_to_index"): "`url` and `sha256` are a URL and a digest; the doc names the arguments",
+    ("crates/wyrm-history/src/engine.rs", "id"): "a watch's node id, numbered by the broker (`w<n>`); the doc gives two examples",
+    ("crates/wyrm-admin/src/audit.rs", "sub"): "a subject: `user:<id>`, `link:<id>`, `claimed:<text>`; it carries an id, so its values are open",
+    ("crates/wyrm-admin/src/control.rs", "revoke_widening"): "`keys` and `probe` are key expressions; `exactly one of keys` is prose",
+    ("crates/wyrm-gateway/src/lib.rs", "revoke_widening"): "`keys` and `probe` are key expressions; `exactly one of keys` is prose",
+    ("crates/wyrm-admin/src/fetch.rs", "redirect"): "`location` is the URL of a Location header, read by `wyrm_core::weburl`",
+    ("crates/wyrm-admin/src/history.rs", "query"): "`key` is a point key; the doc lists the columns of the rows it returns",
+    ("crates/wyrm-admin/src/registry.rs", "key_sha256"): "a SHA-256 digest in hex; `the admitted one of` is prose",
+    ("crates/wyrm-admin/src/secret.rs", "still_good"): "a certificate PEM, a common name and DNS names; `every one of sans` is prose",
+    ("crates/wyrm-flow/src/blocks.rs", "range"): "`date_range`'s text: an ISO range, a named range or a relative one with a number (`last 7 days`), parsed by `date::range`",
+    ("crates/wyrm-flow/src/catalog.rs", "display"): "a label for people; the doc gives two examples",
+    ("crates/wyrm-flow/src/scope.rs", "in_sections"): "`site` and `full` are a site name and a key; `one of this site's sections` is prose",
+    ("crates/wyrm-flow/src/scope.rs", "param"): "the name of a node type's parameter as its catalog entry declares it (125 types, each with its own names); the doc gives two examples",
+    ("crates/wyrm-gateway/src/lib.rs", "downstream_site_of"): "`key` is a key; `one of downstream_sites` speaks of a configured list of site names",
+    ("tools/wyrm-mcp/src/gateway.rs", "path"): "a node key; the doc gives examples for the model that calls the tool",
+    ("links/agent/src/lib.rs", "agent_key_ref"): "the name of a secret; `raw or hex` is the form of the secret's bytes",
+    ("links/agent/src/lib.rs", "id"): "a question's id, numbered per task (`q<n>`); the doc gives two examples",
+    ("links/agent/src/tools.rs", "id"): "a suggestion's id, numbered per task (`s<n>`); the doc gives two examples",
+    ("links/wasm/src/lib.rs", "package_world"): "`name` is a package name; the doc names the worlds, which are typed (`ComponentWorld`)",
+    ("crates/wyrm-link-api/src/lib.rs", "tls_connect"): "a host name and a PEM; the doc names the other host calls",
+    ("links/prometheus/src/expo.rs", "name"): "a metric name as the endpoint exposes it; the doc gives two examples",
+    ("crates/wyrm-dql/src/engine.rs", "error"): "a message for people, made of keys and causes; the doc lists what it may speak of",
+    ("crates/wyrm-dql/src/pattern.rs", "resolve"): "`row` is a key and `target` a path relative to it (`.`, `..`, segments)",
+    ("crates/wyrm-messenger/src/api.rs", "origin"): "text for an error message, composed (`template <name>`, `<origin> → <recipient>`)",
+    ("crates/wyrm-messenger/src/api.rs", "name"): "the link's own name: each messenger link crate brings its `Platform`, and the core branches on no platform name (ADR 0039)",
+    ("crates/wyrm-messenger/src/api.rs", "identify"): "a method name of the platform's API, set by the link crate",
+}
+# The entries a run matched (a full run must match every one).
+C3_OPEN_SEEN: set[tuple[str, str]] = set()
+
+
+def c3(s: Source) -> list[int]:
+    return s.hits("C3", [o for o in c3_all(s) if (s.path, c3_item(s, o)) not in C3_OPEN])
+
+
+def a4(s: Source) -> list[int]:
+    """Every C3 hit that `C3_OPEN` names as open text, counted like an exception."""
+    hits = []
+    for o in c3_all(s):
+        key = (s.path, c3_item(s, o))
+        if key in C3_OPEN:
+            C3_OPEN_SEEN.add(key)
+            hits.append(o)
+    return [s.line_of(o) for o in sorted(set(hits))]
 
 
 ARG_HELPERS = r"\b(?:arg|arg_str|opt_str|req_str|get_str|get_u64|get_bool|get_f64|enum_arg|text_arg|choice|uint_arg|bool_arg)\(\s*[^;)]*?\""
@@ -781,6 +853,66 @@ def c9(s: Source) -> list[int]:
     return s.hits("C9", [m.start() for p in pats for m in re.finditer(p, s.masked)])
 
 
+# The bodies of the helpers rule 11 keeps in one place, whatever a copy is named.
+DIRECT_CLOCK = re.compile(r"\bSystemTime\s*::\s*now\s*\(|\bUNIX_EPOCH\b")
+HAND_HEX = re.compile(r":0?2[xX]\}")
+ONE_PLACE = {
+    "crates/wyrm-core/src/clock.rs",
+    "crates/wyrm-core/src/hex.rs",
+}
+
+
+def c13(s: Source) -> list[int]:
+    """A clock or hex helper written out again: a read of the system clock
+    (`SystemTime::now()`, `UNIX_EPOCH`; a `use` line is not a read) outside
+    `wyrm_core::clock`, and a two-digit hex format (`{b:02x}`, `%{b:02X}`) outside
+    `wyrm_core::hex`. C9 goes by the helper's name; this goes by what it does."""
+    if s.path in ONE_PLACE:
+        return []
+    hits = []
+    for m in DIRECT_CLOCK.finditer(s.masked):
+        line = s.masked_lines[s.line_of(m.start()) - 1].lstrip()
+        if not line.startswith(("use ", "pub use ")):
+            hits.append(m.start())
+    # format strings: `code` keeps them (comments and tests are blank in it)
+    hits += [m.start() for m in HAND_HEX.finditer(s.code)]
+    return s.hits("C13", hits)
+
+
+# Calls into a library that draws randomness from the OS by itself, not through
+# `wyrm_core::rand` (rule 10). None of them can be handed our source: each is named, with
+# why, and every call is counted, so a new one shows in review. The second list is what
+# has no call today and must stay so (a hit there is a new second source).
+LIBRARY_RNG = [
+    # rcgen makes its own `ring::rand::SystemRandom` for a key pair, for every ECDSA
+    # signature (the nonce) and to read a PKCS#8 key; its API takes no random source
+    r"\bKeyPair\s*::\s*generate(?:_for|_rsa_for)?\s*\(",
+    r"\bgenerate_simple_self_signed\s*\(",
+    r"\.\s*signed_by\s*\(",
+    r"\.\s*self_signed\s*\(",
+    r"\.\s*serialize_request(?:_with_attributes)?\s*\(",
+    # async-opcua makes the RSA key of an application certificate with its own source
+    r"\bX509\s*::\s*cert_and_pkey\s*\(",
+]
+SECOND_RNG = [
+    r"\bRandomState\s*::\s*new\s*\(",
+    r"\bSigningKey\s*::\s*(?:generate|random)\s*\(",
+    r"\bSecretKey\s*::\s*random\s*\(",
+    r"\bRsaPrivateKey\s*::\s*new\s*\(",
+    r"\bUuid\s*::\s*new_v[47]\s*\(",
+    r"\bthread_rng\s*\(",
+    r"\brand\s*::\s*(?:random|rng)\s*\(",
+    r"\bfastrand\s*::",
+]
+LIBRARY_RNG_RE = re.compile("|".join(LIBRARY_RNG + SECOND_RNG))
+
+
+def a5(s: Source) -> list[int]:
+    """Every call of a library function that draws OS randomness by itself (rule 10),
+    counted like an exception."""
+    return [s.line_of(m.start()) for m in LIBRARY_RNG_RE.finditer(s.masked)]
+
+
 def c10(s: Source) -> list[int]:
     """A `#[param(secret)]` field whose type is not a `Secret` (a type alias of this file is
     followed to its type)."""
@@ -891,9 +1023,12 @@ PATTERNS = {
     "C9-duplicate-helper": c9,
     "C10-plain-secret": c10,
     "C11-url-split": c11,
+    "C13-helper-body": c13,
     "A1-allow": a1,
     "A2-short-reason": a2,
     "A3-scratch-discard": a3,
+    "A4-open-text": a4,
+    "A5-library-rng": a5,
 }
 
 # ---------- probes ----------
@@ -964,6 +1099,42 @@ PROBES = [
     ("A3", "x.rs", "fn discard(p: &Path) {}\n// files::discard(p)", 0),
     ("A3", "x.rs", "fn f(r: io::Result<()>, p: &Path) { r.inspect_err(|_| ()); ps.iter().for_each(|p| ()); xs.for_each(wyrm_core::files::discard); }", 1),
     ("A3", "x.rs", "use wyrm_core::files::{discard_dir as rm, gone_ok};\nfn f(p: &Path) { rm(p); }", 1),
+    # C3/A4: a field whose doc lists values is counted; one `C3_OPEN` names moves to A4
+    ("C3", "x.rs", "pub struct R {\n    /// `a`, `b` or `c`.\n    pub kind: String,\n}", 1),
+    ("A4", "x.rs", "pub struct R {\n    /// `a`, `b` or `c`.\n    pub kind: String,\n}", 0),
+    (
+        "C3",
+        "crates/wyrm-history/src/engine.rs",
+        "pub struct W {\n    /// `w1`, `w2`, …\n    pub id: String,\n    /// `a`, `b` or `c`.\n    pub kind: String,\n}",
+        1,
+    ),
+    (
+        "A4",
+        "crates/wyrm-history/src/engine.rs",
+        "pub struct W {\n    /// `w1`, `w2`, …\n    pub id: String,\n    /// `a`, `b` or `c`.\n    pub kind: String,\n}",
+        1,
+    ),
+    # the same item name in a file the list does not name stays in C3
+    ("C3", "crates/wyrm-history/src/store.rs", "pub struct W {\n    /// `w1`, `w2`, …\n    pub id: String,\n}", 1),
+    # C13: the body of a clock or hex helper, under any name
+    ("C13", "x.rs", "fn t() -> u64 { SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs()) }", 2),
+    ("C13", "x.rs", "fn t() -> u64 { std::time::SystemTime :: now ().elapsed().map_or(0, |d| d.as_secs()) }", 1),
+    ("C13", "x.rs", "use std::time::{SystemTime, UNIX_EPOCH};\npub use std::time::UNIX_EPOCH;", 0),
+    ("C13", "x.rs", 'fn h(b: &[u8]) -> String { b.iter().map(|x| format!("{x:02x}")).collect() }', 1),
+    ("C13", "x.rs", 'fn p(b: u8, o: &mut String) { o.push_str(&format!("%{b:02X}")); write!(o, "{:02x}", b); }', 2),
+    ("C13", "x.rs", 'fn f(n: u32) -> String { format!("{n:04x} {n:08X} {n:2} {n:02}") }', 0),
+    ("C13", "x.rs", "fn t() -> u64 { wyrm_core::clock::now_s() } // SystemTime::now() and {b:02x}", 0),
+    ("C13", "x.rs", '#[cfg(test)]\nmod tests { fn t() { let _ = SystemTime::now(); let _ = format!("{:02x}", 1); } }', 0),
+    ("C13", "crates/wyrm-core/src/clock.rs", "pub fn now() -> SystemTime { SystemTime::now() }", 0),
+    ("C13", "crates/wyrm-core/src/time.rs", "pub fn now() -> SystemTime { SystemTime::now() }", 1),
+    # A5: a library that draws randomness itself
+    ("A5", "x.rs", "fn k() -> R { let key = KeyPair::generate()?; p.signed_by(&key, &ca)?; p.self_signed(&key) }", 3),
+    ("A5", "x.rs", "fn k() -> R { rcgen::KeyPair::generate_for(&ALG)?; rcgen::generate_simple_self_signed(names) }", 2),
+    ("A5", "x.rs", "fn k() -> R { p.serialize_request(&key)?; X509::cert_and_pkey(&data) }", 2),
+    ("A5", "x.rs", "fn k() { let h = RandomState::new(); let u = Uuid::new_v4(); let r = rand::random(); }", 3),
+    ("A5", "x.rs", "fn k() { let k = SigningKey::generate(&mut r); let mut g = thread_rng(); fastrand::u8(..); }", 3),
+    ("A5", "x.rs", "fn k() -> R { KeyPair::from_pem(pem)?; wyrm_core::rand::bytes::<8>()?; SigningKey::from_bytes(&b) }", 0),
+    ("A5", "x.rs", "#[cfg(test)]\nmod tests { fn k() { KeyPair::generate().unwrap(); } }", 0),
     ("C6", "x.rs", 'const NAMES: [&str; 2] = ["a", "b"];', 2),
     ("C6", "x.rs", "trait T { const NAMES: &'static [&'static str]; }", 0),
     ("C6", "x.rs", "trait T { const PAIRS: &'static [(&'static str, &'static str)]; }", 0),
@@ -1111,7 +1282,14 @@ def main(argv: list[str]) -> int:
     if "--show" in argv:
         measure_patterns(argv[argv.index("--show") + 1])
         return 0
+    C3_OPEN_SEEN.clear()
     now = measure_patterns()
+    stale = sorted(set(C3_OPEN) - C3_OPEN_SEEN)
+    if stale:
+        sys.stderr.write("rust rules: C3_OPEN names text that C3 no longer counts: take the entry out\n")
+        for f, item in stale:
+            sys.stderr.write(f"  {f}: {item}\n")
+        return 1
     use_clippy = "--no-clippy" not in argv
     if "--clippy-json" in argv:
         now.update(measure_clippy(Path(argv[argv.index("--clippy-json") + 1]).read_text().splitlines()))
