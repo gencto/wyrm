@@ -87,7 +87,8 @@ final class TlsCertificateNote extends TlsNote {
 final class UnreachableData extends Equatable {
   const UnreachableData({required this.gateway, this.reason, this.standby});
 
-  /// The main gateway as typed.
+  /// The main gateway's address (never with `user:password@`: the field
+  /// refuses one).
   final String gateway;
 
   /// What the last probe said (`connection refused after 3 ms`).
@@ -647,4 +648,19 @@ final class TrustData extends Equatable {
 
   @override
   List<Object?> get props => [site, code, host, refused, busy];
+}
+
+/// What is wrong with the gateway field, as the field says it.
+enum GatewayFieldError {
+  empty,
+  invalid,
+
+  /// `user:password@` in the address: they have their own fields.
+  credentials;
+
+  String get label => switch (this) {
+    empty => S.current.requiredField,
+    invalid => S.current.invalidGatewayUrl,
+    credentials => S.current.gatewayHasCredentials,
+  };
 }

@@ -349,7 +349,7 @@ class FakeSession implements WyrmSession {
   Stream<bool> get connection => connected.stream;
 
   @override
-  Uri get base => Uri.parse('http://127.0.0.1:8445');
+  GatewayAddress get base => addressOf(Uri.parse('http://127.0.0.1:8445'));
 
   @override
   Future<GatewayIdentity> identity() async => switch (me) {
@@ -684,6 +684,9 @@ class FakeDevices {
   }
 }
 
+/// The address of [url], as the gateway field would give it.
+GatewayAddress addressOf(Uri url) => parseGateways('$url').single;
+
 /// What one call of a list answers: the list, or its refusal.
 final class ListAnswer {
   const ListAnswer(List<Child> this.list) : refusal = null;
@@ -727,12 +730,12 @@ class FakeLogin implements WyrmLogin {
 
   @override
   Future<WyrmSession> open(
-    List<Uri> gateways, {
+    List<GatewayAddress> gateways, {
     required String user,
     required String password,
     String? device,
   }) async {
-    this.gateways = gateways;
+    this.gateways = [for (final g in gateways) g.uri];
     this.user = user;
     this.password = password;
     this.device = device;
@@ -748,13 +751,13 @@ class FakeLogin implements WyrmLogin {
 
   @override
   Future<WyrmSession> openWithDevice(
-    Uri gateway, {
+    GatewayAddress gateway, {
     required String site,
     required String user,
     required String device,
     required Future<Uint8List> Function(Uint8List message) sign,
   }) async {
-    gateways = [gateway];
+    gateways = [gateway.uri];
     this.user = user;
     await session.gateway.login(
       site: site,
@@ -768,16 +771,16 @@ class FakeLogin implements WyrmLogin {
 
   @override
   Future<GatewayInfo?> info(
-    Uri gateway, {
+    GatewayAddress gateway, {
     Duration timeout = const Duration(seconds: 5),
   }) async => info_;
 
   @override
   Future<GatewayProbe> probe(
-    Uri gateway, {
+    GatewayAddress gateway, {
     Duration timeout = const Duration(seconds: 5),
   }) async {
-    probed.add(gateway);
+    probed.add(gateway.uri);
     return answer;
   }
 }

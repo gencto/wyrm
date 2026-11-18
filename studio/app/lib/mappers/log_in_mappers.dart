@@ -3,6 +3,7 @@ import 'package:business/wyrm/discovery.dart' show FoundTag, RangeFault;
 import 'package:business/wyrm/log_in_page.dart';
 import 'package:models/answer_fault.dart';
 import 'package:models/found_problem.dart';
+import 'package:models/gateway_field_problem.dart';
 import 'package:models/host_platform.dart';
 import 'package:models/lock_error.dart';
 import 'package:models/refusal_code.dart';
@@ -275,4 +276,12 @@ UnlockData unlockDataOf(Selectors r, UnlockForm form, HostPlatform platform) {
     reEnable: r.device.offersReEnable,
     version: studioVersion,
   );
+}
+
+extension GatewayFieldProblemUi on GatewayFieldProblem {
+  GatewayFieldError get ui => switch (this) {
+    GatewayFieldProblem.empty => .empty,
+    GatewayFieldProblem.invalid => .invalid,
+    GatewayFieldProblem.credentials => .credentials,
+  };
 }

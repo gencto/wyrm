@@ -20,7 +20,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:models/answer_fault.dart';
 import 'package:models/error_hint.dart';
 import 'package:models/login_failure.dart';
-import 'package:models/studio_error.dart';
 import 'package:storage/storage.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -61,41 +60,38 @@ void main() {
       expect(s.state.login.probes['http://a:8445'], 12);
     });
 
-    test('a gateway typed with user:password@ never puts them into an error: '
-        'unreachable, a refused login, a thrown one', () async {
+    test('a gateway typed with user:password@ is refused: nothing is probed '
+        'or opened, and no error holds them', () async {
       const typed = 'https://olena:gw-pass@plant.local:8445';
-      Future<StudioError> failed(FakeLogin login) async {
-        final s = fakeStore(login: login);
-        await fill(s, gateway: typed);
-        final status = await s.dispatchAndWait(LogInAction());
-        return (status.originalError! as StudioException).error;
-      }
+      final login = FakeLogin();
+      final s = fakeStore(login: login);
+      await fill(s, gateway: typed);
+      final status = await s.dispatchAndWait(LogInAction());
+      expect(status.isCompletedOk, isTrue);
+      expect(login.probed, isEmpty);
+      expect(login.gateways, isNull);
+      expect(s.state.problems.items, isEmpty);
+      expect(s.state.site.gateway, isNull);
+    });
 
-      for (final e in [
-        await failed(
-          FakeLogin(
-            answer: const GatewayProbe.noAnswer(AnswerFault.timedOut()),
-          ),
+    test('what a login throws names its type only, never the URL it was '
+        'asked on', () async {
+      final login = FakeLogin(
+        error: const HttpException(
+          'refused, uri = https://olena:gw-pass@plant.local:8445',
         ),
-        await failed(
-          FakeLogin(error: WyrmException.of(Status.permissionDenied, 'no')),
-        ),
-        // what was thrown names the URL it was asked on, as HttpException does
-        await failed(
-          FakeLogin(error: const HttpException('refused, uri = $typed')),
-        ),
-      ]) {
-        expect(e.thing, 'https://plant.local:8445');
-        expect('$e', isNot(contains('gw-pass')));
-      }
-      final thrown = await failed(
-        FakeLogin(error: const HttpException('refused, uri = $typed')),
       );
+      final s = fakeStore(login: login);
+      await fill(s, gateway: 'https://plant.local:8445');
+      final status = await s.dispatchAndWait(LogInAction());
+      final e = (status.originalError! as StudioException).error;
+      expect(e.thing, 'https://plant.local:8445');
       expect(
-        thrown.hint,
+        e.hint,
         const ErrorHint.noAnswer(AnswerFault.failed('HttpException')),
       );
-      expect(thrown.message, isEmpty);
+      expect(e.message, isEmpty);
+      expect('$e', isNot(contains('gw-pass')));
     });
 
     test(

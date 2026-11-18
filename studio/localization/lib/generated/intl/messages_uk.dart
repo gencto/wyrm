@@ -2594,6 +2594,9 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "gateway": MessageLookupByLibrary.simpleMessage("Gateway"),
     "gatewayAnswered": m192,
+    "gatewayHasCredentials": MessageLookupByLibrary.simpleMessage(
+      "Введіть користувача й пароль у їхні поля, а не в адресу.",
+    ),
     "gatewayNoAnswer": m193,
     "gatewayUrl": MessageLookupByLibrary.simpleMessage("URL gateway"),
     "gatewayUrlHint": MessageLookupByLibrary.simpleMessage(

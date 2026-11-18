@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:app/common/app_store.dart';
 import 'package:app/common/forms.dart';
 import 'package:app/common/studio_version.dart';
+import 'package:app/common/validators.dart';
 import 'package:app/dialogs/error_dialogs.dart';
 import 'package:app/dialogs/exception_dialog.dart';
 import 'package:app/faults.dart';
@@ -13,9 +14,14 @@ import 'package:app/run_env.dart' show devicePrompts;
 import 'package:app/start_fault_app.dart';
 import 'package:async_redux/async_redux.dart';
 import 'package:business/dependencies.dart';
+import 'package:business/persistor.dart';
 import 'package:business/redux/app_state.dart';
 import 'package:business/redux/common/action.dart';
 import 'package:business/redux/flow_editor/actions/trigger_block_action.dart';
+import 'package:business/redux/login/actions/log_in_action.dart';
+import 'package:business/redux/login/actions/set_gateway_action.dart';
+import 'package:business/redux/login/actions/set_password_action.dart';
+import 'package:business/redux/login/actions/set_user_action.dart';
 import 'package:business/redux/nodes/actions/stage_value_action.dart';
 import 'package:business/redux/store.dart';
 import 'package:business/redux/system/actions/aim_log_action.dart';
@@ -30,7 +36,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart' hide Action, ErrorHint;
-import 'package:models/answer_fault.dart';
 import 'package:models/error_action.dart';
 import 'package:models/error_call.dart';
 import 'package:models/error_hint.dart';
@@ -714,37 +719,33 @@ void main() {
     expect(e.report, isNotNull);
   });
 
-  test('a gateway typed with user:password@: neither is in the title, the '
-      'toast, the Problems card or Copy details', () {
-    final e = StudioError(
-      kind: ErrorKind.reach,
-      id: 3,
-      call: const .known(.logIn),
-      thing: GatewayAddress(
-        Uri.parse('https://olena:gw-pass@plant.local:8445'),
-      ).text,
-      hint: const ErrorHint.noAnswer(AnswerFault.failed('HttpException')),
-      at: DateTime(2026, 11, 10, 11, 52, 4),
+  test('a gateway typed with user:password@ is refused by its field and '
+      'reaches no state, no error and no disk', () async {
+    const typed = 'https://olena:gw-pass@plant.local:8445';
+    final store = _store()
+      ..dispatchSync(SetGatewayAction(typed))
+      ..dispatchSync(SetUserAction('olena'))
+      ..dispatchSync(SetPasswordAction('pw'));
+    // the field says why, in its own words
+    expect(
+      gatewayValidator(typed),
+      'Enter the user and the password in their own fields, not in the '
+      'address.',
     );
-    expect(e.title, 'https://plant.local:8445 did not answer');
-    final shown = [
-      e.title,
-      e.toast.title,
-      e.toast.line,
-      e.problem.title,
-      e.problem.said,
-      errorDialogVm(e).title,
-      errorDialogVm(e).said,
-      detailsText(e, const ErrorContext(), report: true),
-    ].join('\n');
-    expect(shown, isNot(contains('gw-pass')));
-    expect(shown, isNot(contains('olena')));
-    expect(e.words, 'failed (HttpException)');
+    final status = await store.dispatchAndWait(LogInAction());
+    // with Remember on, what the field holds is kept, without them
+    final settings = InMemoryKeyValueStorage();
+    await AppPersistor(settings).persistDifference(newState: store.state);
+    expect(status.isCompletedOk, isTrue);
+    expect(store.state.problems.items, isEmpty);
+    expect(store.state.site.gateway, isNull);
+    expect(store.state.login.recent, isEmpty);
+    expect(await settings.get<String>('gateway'), 'https://plant.local:8445');
   });
 
   group('Copy details (errors.md §3)', () {
-    // who is logged in where, as the app reads it from the state (the
-    // gateway's URL loses its `user:password@` there); Studio's own line is
+    // who is logged in where, as the app reads it from the state; Studio's
+    // own line is
     // fixed, so the text is the same on every machine
     final a = AppState.initial();
     final from = errorContextOf(
@@ -752,7 +753,7 @@ void main() {
         site: a.site.copyWith(
           user: 'olena',
           role: 'operator',
-          gateway: 'https://olena:gw-pass@plant.local:8445',
+          gateway: parseGateways('https://plant.local:8445').single,
         ),
       ),
     );

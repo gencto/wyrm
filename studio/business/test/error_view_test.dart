@@ -10,6 +10,7 @@ import 'package:models/error_title.dart';
 import 'package:models/error_voice.dart';
 import 'package:models/fault_report.dart';
 import 'package:models/foreign_words.dart';
+import 'package:models/gateway_field_problem.dart';
 import 'package:models/studio_error.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -182,12 +183,34 @@ void main() {
     expect(again(refused(Status.timeout, write: false)).offersRetry, isTrue);
   });
 
-  test('a gateway address never holds user:password@', () {
-    final a = GatewayAddress(
-      Uri.parse('https://olena:gw-pass@plant.local:8445/x'),
+  test('the gateway field refuses user:password@; nothing else of it is '
+      'lost', () {
+    // the user and the password have their own fields
+    for (final typed in [
+      'https://olena:gw-pass@plant.local:8445',
+      'olena@plant.local:8445',
+      'http://a:8445, https://olena:pw@b:8445',
+    ]) {
+      expect(gatewayProblemOf(typed), GatewayFieldProblem.credentials);
+      expect(
+        [for (final g in parseGateways(typed)) g.text],
+        isNot(contains(contains('olena'))),
+      );
+    }
+    expect(parseGateways('https://olena:gw-pass@plant.local:8445'), isEmpty);
+    expect(
+      [for (final g in parseGateways('http://a:8445, b:8446')) g.text],
+      ['http://a:8445', 'http://b:8446'],
     );
-    expect(a.text, 'https://plant.local:8445/x');
-    expect('$a', isNot(contains('gw-pass')));
-    expect(GatewayAddress(Uri.parse('http://a:8445')).text, 'http://a:8445');
+    expect(gatewayProblemOf('http://a:8445, b:8446'), isNull);
+    expect(gatewayProblemOf('  '), GatewayFieldProblem.empty);
+    expect(gatewayProblemOf('ftp://a'), GatewayFieldProblem.invalid);
+    // what is kept on disk keeps every part, without the credentials
+    expect(
+      gatewayFieldWithoutCredentials(
+        'https://olena:gw-pass@plant.local:8445, u@edge:8446,http://c',
+      ),
+      'https://plant.local:8445, edge:8446,http://c',
+    );
   });
 }

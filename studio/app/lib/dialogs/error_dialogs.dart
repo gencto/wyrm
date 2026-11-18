@@ -40,10 +40,7 @@ bool get errorDialogOpen => _open;
 ErrorContext errorContextOf(AppState state) => ErrorContext(
   user: state.site.user,
   role: state.site.role,
-  gateway: switch (state.site.gateway) {
-    final g? => withoutUserInfo(g),
-    null => null,
-  },
+  gateway: state.site.gateway?.text,
   about: studioAbout,
 );
 

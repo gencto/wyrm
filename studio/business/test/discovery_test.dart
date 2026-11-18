@@ -651,7 +651,7 @@ void main() {
 
     test('gives the log-in page no policy', () async {
       final info = await const GatewayLogin().info(
-        Uri.parse('http://127.0.0.1:${server.port}'),
+        addressOf(Uri.parse('http://127.0.0.1:${server.port}')),
       );
       expect(info, isNull);
     });
@@ -789,8 +789,8 @@ void main() {
         trust: () => const GatewayTrust().plus([pin(byAddress)]),
       );
 
-      final refused = await none.probe(byAddress);
-      final answered = await pinned.probe(byAddress);
+      final refused = await none.probe(addressOf(byAddress));
+      final answered = await pinned.probe(addressOf(byAddress));
 
       expect(refused.answered, isFalse);
       expect(refused.why, const AnswerFault.untrusted());
@@ -805,14 +805,14 @@ void main() {
       Future<Uint8List> sign(Uint8List _) async => Uint8List(0);
 
       // `/api/info` for the log-in page's policy.
-      expect(await none.info(byAddress), isNull);
-      expect((await pinned.info(byAddress))?.site, 'lab');
+      expect(await none.info(addressOf(byAddress)), isNull);
+      expect((await pinned.info(addressOf(byAddress)))?.site, 'lab');
 
       // The device login: without the pin the handshake fails; with it the
       // gateway answers (this one refuses the challenge with a 401).
       await expectLater(
         none.openWithDevice(
-          byAddress,
+          addressOf(byAddress),
           site: 'lab',
           user: 'olena',
           device: 'd1',
@@ -822,7 +822,7 @@ void main() {
       );
       await expectLater(
         pinned.openWithDevice(
-          byAddress,
+          addressOf(byAddress),
           site: 'lab',
           user: 'olena',
           device: 'd1',

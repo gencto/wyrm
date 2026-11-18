@@ -19,6 +19,7 @@
     "gatewayUrl": "Gateway URL",
     "gatewayUrlHint": "http://host:8445, or several separated by commas",
     "user": "User",
+    "gatewayHasCredentials": "Enter the user and the password in their own fields, not in the address.",
     "invalidGatewayUrl": "Not a gateway URL (http:// or https:// and a host)",
     "cannotReachGateway": "Cannot reach the gateway",
     "wsExplorer": "Explorer",

@@ -12,6 +12,7 @@ import 'redux/login/models/login_state.dart';
 import 'redux/panels/models/panels_state.dart';
 import 'redux/theme/models/theme_state.dart';
 import 'redux/window/models/window_state.dart';
+import 'wyrm/session.dart';
 
 /// AsyncRedux [Persistor] backed by the `storage` package ([KeyValueStorage]).
 ///
@@ -74,9 +75,12 @@ class AppPersistor extends Persistor<AppState> {
   Future<AppState?> readState() async {
     final themeIndex = await _storage.get<int>(_themeKey);
     final locale = await _storage.get<String>(_localeKey);
-    final gateway = await _storage.get<String>(_gatewayKey);
     final user = await _storage.get<String>(_userKey);
-    final recent = await _storage.get<String>(_recentKey);
+    // An older Studio kept the field as typed, `user:password@` too: what
+    // is read is cleaned, and written back clean at once (the state read
+    // is the one persisted, so nothing else would write it again).
+    final gateway = await _cleaned(_gatewayKey);
+    final recent = await _cleaned(_recentKey);
     final remember = await _storage.get<bool>(_rememberKey);
     final pins = await PinnedCas(_storage).read();
     await _storage.delete(_legacyTokenKey);
@@ -168,10 +172,12 @@ class AppPersistor extends Persistor<AppState> {
     }
     // Remember off: what was kept goes, and nothing is written in its place.
     final kept = before == null || before.remember;
+    // The field as typed, without `user:password@`: credentials have their
+    // own fields and are never kept with the address.
     await _putOrDelete(
       _gatewayKey,
-      kept ? before?.gateway : null,
-      now.remember ? now.gateway : null,
+      kept ? _clean(before?.gateway) : null,
+      now.remember ? _clean(now.gateway) : null,
     );
     await _putOrDelete(
       _userKey,
@@ -180,8 +186,8 @@ class AppPersistor extends Persistor<AppState> {
     );
     await _putOrDelete(
       _recentKey,
-      kept ? _joined(before?.recent) : null,
-      now.remember ? _joined(now.recent) : null,
+      kept ? _clean(_joined(before?.recent)) : null,
+      now.remember ? _clean(_joined(now.recent)) : null,
     );
 
     final pins = newState.discovery.pins;
@@ -225,6 +231,21 @@ class AppPersistor extends Persistor<AppState> {
     for (final (i, key) in _windowKeys.indexed) {
       await _storage.put(key, frame[i]);
     }
+  }
+
+  /// [text] (gateway fields, one per line) without the `user:password@` of
+  /// any address in it.
+  static String? _clean(String? text) =>
+      text?.split('\n').map(gatewayFieldWithoutCredentials).join('\n');
+
+  /// The value of [key] cleaned ([_clean]); written back when it was not.
+  Future<String?> _cleaned(String key) async {
+    final kept = await _storage.get<String>(key);
+    final clean = _clean(kept);
+    if (clean != kept) {
+      await _storage.put(key, clean!);
+    }
+    return clean;
   }
 
   /// The recent gateways, one per line (a gateway is itself a comma list).

@@ -200,6 +200,16 @@ class S {
     return Intl.message('User', name: 'user', desc: '', args: []);
   }
 
+  /// `Enter the user and the password in their own fields, not in the address.`
+  String get gatewayHasCredentials {
+    return Intl.message(
+      'Enter the user and the password in their own fields, not in the address.',
+      name: 'gatewayHasCredentials',
+      desc: '',
+      args: [],
+    );
+  }
+
   /// `Not a gateway URL (http:// or https:// and a host)`
   String get invalidGatewayUrl {
     return Intl.message(

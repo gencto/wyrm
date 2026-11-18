@@ -1750,7 +1750,7 @@ extension type SelectLogin(AppState _state) {
     final ours =
         site.gateway != null &&
         site.name != null &&
-        parseGateways(site.gateway!).firstOrNull?.origin == uri?.origin;
+        site.gateway!.origin == uri?.origin;
     final https = uri?.isScheme('https') ?? false;
     return switch ((pending, pin, https)) {
       (final p?, _, _) => TlsNotTrusted(p.site),
@@ -1784,7 +1784,7 @@ extension type SelectLanguage(AppState _state) {
 
 extension type SelectSite(AppState _state) {
   /// Returns gateway
-  String? get gateway => _state.site.gateway;
+  GatewayAddress? get gateway => _state.site.gateway;
 
   /// Returns user
   String? get user => _state.site.user;

@@ -19,6 +19,7 @@
     "gatewayUrl": "URL gateway",
     "gatewayUrlHint": "http://host:8445 або кілька через кому",
     "user": "Користувач",
+    "gatewayHasCredentials": "Введіть користувача й пароль у їхні поля, а не в адресу.",
     "invalidGatewayUrl": "Це не URL gateway (http:// або https:// і хост)",
     "cannotReachGateway": "Не вдалося з’єднатися з gateway",
     "wsExplorer": "Дерево",

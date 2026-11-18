@@ -155,14 +155,14 @@ class UnlockWithDeviceAction extends Action with NonReentrant, WaitingAction {
         ErrorKind.reach,
         ErrorHint.noAnswer(AnswerFault.failed('${e.runtimeType}')),
         call: const .known(.logIn),
-        thing: GatewayAddress(account.gateway).text,
+        thing: account.gateway.text,
       ).withDialog(false);
     }
   }
 
   /// The first gateway of the field that answers a probe; none → the
   /// unreachable state, without a prompt.
-  Future<Uri> _reachable(Uri first) async {
+  Future<GatewayAddress> _reachable(GatewayAddress first) async {
     final gateways = parseGateways(login.gateway ?? '');
     final probes = <String, int>{};
     GatewayProbe? last;

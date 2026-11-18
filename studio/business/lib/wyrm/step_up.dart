@@ -161,7 +161,7 @@ final class StepUpSession implements WyrmSession {
   Stream<bool> get connection => inner.connection;
 
   @override
-  Uri get base => inner.base;
+  GatewayAddress get base => inner.base;
 
   @override
   Future<GatewayIdentity> identity() => inner.identity();

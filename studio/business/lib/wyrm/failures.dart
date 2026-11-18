@@ -208,14 +208,6 @@ String redact(String text) => text
     .replaceAllMapped(_bearer, (m) => '${m.group(1)}•••')
     .replaceAll(_blob, '•••');
 
-/// A gateway URL without `user:password@`, for *Copy details*.
-String withoutUserInfo(String url) {
-  final u = Uri.tryParse(url);
-  return u == null || u.userInfo.isEmpty
-      ? url
-      : u.replace(userInfo: '').toString();
-}
-
 /// A [StudioError] on its way through the store: a [UserException], so the
 /// observer, the error queue and `onOk` / `onCancel` work as before, with
 /// the error as data instead of text (`UserException.code` is an `int` and

@@ -73,7 +73,7 @@ class LogInAction extends Action with WaitingAction {
         ErrorKind.reach,
         ErrorHint.noAnswer(last.why ?? const AnswerFault.timedOut()),
         call: const .known(.logIn),
-        thing: GatewayAddress(gateways.first).text,
+        thing: gateways.first.text,
       ).withDialog(false);
     }
 
@@ -103,7 +103,7 @@ class LogInAction extends Action with WaitingAction {
       throw StudioException.refused(
         e,
         call: const .known(.logIn),
-        thing: GatewayAddress(gateways.first).text,
+        thing: gateways.first.text,
       ).withDialog(false);
     } on Object catch (e) {
       dispatchSync(
@@ -141,7 +141,7 @@ Future<AppState> openedSession(
   Action a,
   WyrmSession session,
   String user,
-  Uri gateway,
+  GatewayAddress gateway,
 ) async {
   final GatewayIdentity me;
   try {
@@ -152,13 +152,13 @@ Future<AppState> openedSession(
       final WyrmException w => StudioException.refused(
         w,
         call: const .known(.me),
-        thing: GatewayAddress(gateway).text,
+        thing: gateway.text,
       ),
       _ => StudioException.hinted(
         ErrorKind.reach,
         ErrorHint.noAnswer(AnswerFault.failed('${e.runtimeType}')),
         call: const .known(.me),
-        thing: GatewayAddress(gateway).text,
+        thing: gateway.text,
       ),
     };
   }
@@ -169,7 +169,7 @@ Future<AppState> openedSession(
   return a.state.copyWith(
     session: SessionState(token: subject),
     site: SiteState(
-      gateway: session.base.toString(),
+      gateway: session.base,
       user: subject,
       name: me.site,
       role: me.roles.isEmpty ? me.max.wire : me.roles.join(', '),
@@ -193,10 +193,10 @@ IList<String> remembered(IList<String> recent, String gateway) {
 /// ([thrown]): a `reach` error that names its type only (what it says of
 /// itself may hold the URL it was asked on). The page shows it itself
 /// (login.md §5), so it opens no dialog.
-StudioException _unreachable(Object thrown, Uri gateway) =>
+StudioException _unreachable(Object thrown, GatewayAddress gateway) =>
     StudioException.hinted(
       ErrorKind.reach,
       ErrorHint.noAnswer(AnswerFault.failed('${thrown.runtimeType}')),
       call: const .known(.logIn),
-      thing: GatewayAddress(gateway).text,
+      thing: gateway.text,
     );

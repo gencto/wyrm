@@ -296,7 +296,7 @@ int nowS() => DateTime.now().millisecondsSinceEpoch ~/ 1000;
 
 /// The gateway (the first of the field) and the user a device key is for,
 /// or null while the form has none.
-({Uri gateway, String origin, String user})? accountOf(
+({GatewayAddress gateway, String origin, String user})? accountOf(
   String? gatewayField,
   String? userField,
 ) {
