@@ -2,7 +2,6 @@
 //! `~meta`). Tokens are single-use (`jti`), so a source mints one per request.
 
 use ed25519_dalek::{Signer, SigningKey};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use wyrm_core::ptok::{Grant, PtokClaims, PTOK_VERSION};
 use wyrm_core::Perm;
@@ -31,7 +30,6 @@ pub struct SigningTokens {
     grants: Vec<Grant>,
     max: Perm,
     ttl: Duration,
-    counter: AtomicU64,
     args: Option<[u8; 32]>,
 }
 
@@ -50,7 +48,6 @@ impl SigningTokens {
             sub: "svc:wyr".into(),
             max: Perm::Config,
             ttl: Duration::from_secs(60),
-            counter: AtomicU64::new(0),
             args: None,
         }
     }
@@ -82,15 +79,16 @@ impl SigningTokens {
         self.ttl = ttl;
         self
     }
+}
 
-    fn jti(&self) -> [u8; 16] {
-        // nanoseconds since 1970 fit a u64 until 2554
-        let nanos = u64::try_from(wyrm_core::clock::now_ns()).unwrap_or(u64::MAX);
-        let mut jti = [0u8; 16];
-        jti[..8].copy_from_slice(&nanos.to_be_bytes());
-        jti[8..].copy_from_slice(&self.counter.fetch_add(1, Ordering::Relaxed).to_be_bytes());
-        jti
-    }
+/// A token id (spec 04 `jti`: 16 bytes, single use per responder) from the one random
+/// source: nobody can predict the id of a token that is not yet made, and two processes
+/// that sign with one key never make the same one. Without randomness there is no id
+/// and so no token.
+fn new_jti() -> Option<[u8; 16]> {
+    wyrm_core::rand::bytes()
+        .inspect_err(|e| tracing::error!("no token made: {e}"))
+        .ok()
 }
 
 impl SigningTokens {
@@ -122,7 +120,7 @@ impl TokenSource for SigningTokens {
             max: self.max,
             iat: now,
             exp: now + self.ttl.as_secs().max(1),
-            jti: self.jti(),
+            jti: new_jti()?,
             site: self.site.clone(),
             // an action may act for the caller on keys it names (spec 04 `auth`): only there
             auth: key.contains("/~act/").then(|| self.grants.clone()),

@@ -44,25 +44,17 @@ pub fn now_ms_signed() -> i64 {
     i64::try_from(now_ms()).unwrap_or(i64::MAX)
 }
 
-/// Nanoseconds since the Unix epoch: a value that differs between two calls, for
-/// a file name or a jitter seed. Never a secret and never a nonce
-/// (`wyrm_core::rand` is the source of those).
-pub fn now_ns() -> u128 {
-    since_epoch().as_nanos()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn the_units_agree() {
-        let (s, ms, us, ns) = (now_s(), now_ms(), now_us(), now_ns());
+        let (s, ms, us) = (now_s(), now_ms(), now_us());
         // 2020-01-01 as a floor: the clock is read, not a constant
         assert!(s > 1_577_836_800);
         assert!(ms / 1000 >= s && ms / 1000 <= s + 2);
         assert!(us / 1_000_000 >= s && us / 1_000_000 <= s + 2);
-        assert!(ns / 1_000_000_000 >= u128::from(s));
         assert_eq!(now_s_signed().unsigned_abs() / 10, now_s() / 10);
     }
 

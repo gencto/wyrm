@@ -13,7 +13,7 @@ authors.workspace = true
 process = ["wyrm-link-sdk/process"]
 
 [dependencies]
-wyrm-core.workspace = true
+wyrm-core = { workspace = true, features = ["rand"] }
 wyrm-link-sdk.workspace = true
 tokio = { workspace = true, features = ["rt", "time", "macros", "sync"] }
 rumqttc.workspace = true

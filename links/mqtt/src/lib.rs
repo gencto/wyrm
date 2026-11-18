@@ -758,13 +758,13 @@ fn tls_config(c: &Conn) -> Result<rustls::ClientConfig, DriverError> {
         .map_err(|e| tls_err("cert_pem/key_pem", &e))
 }
 
-fn random_client_id() -> String {
-    let n = wyrm_core::clock::now_ns();
-    let mut x = (n as u64) ^ 0x9E37_79B9_7F4A_7C15 ^ u64::from(std::process::id()).rotate_left(32);
-    x ^= x << 13;
-    x ^= x >> 7;
-    x ^= x << 17;
-    format!("wyrm-{x:016x}")
+/// A client id from the one random source. A broker ends the session of a client when
+/// another connects under its id, so the id is not one that can be guessed from the
+/// clock; without randomness the connection is not opened.
+fn random_client_id() -> Result<String, DriverError> {
+    wyrm_core::rand::bytes::<8>()
+        .map(|b| format!("wyrm-{}", wyrm_core::hex::encode(b)))
+        .map_err(|e| DriverError::Transport(format!("client id: {e}")))
 }
 
 // ---------- driver ----------
@@ -789,7 +789,7 @@ impl Driver for MqttDriver {
     async fn open(c: &Conn) -> Result<Transport, DriverError> {
         let timeout = Duration::from_millis(c.timeout_ms.into());
         let id = if c.client_id.is_empty() {
-            random_client_id()
+            random_client_id()?
         } else {
             c.client_id.clone()
         };
