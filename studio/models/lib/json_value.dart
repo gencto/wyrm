@@ -55,11 +55,17 @@ sealed class JsonValue {
   /// [maxDepth]: a reader of live values that only takes JSON, such as a
   /// time in microseconds or a short mark for a map, reads none there. A
   /// definition never holds one: its decoder refuses it.
-  static JsonValue? tryOf(Object? v) => isJson(v) ? JsonValue.of(v) : null;
+  ///
+  /// [nestedIn]: how many levels [v] will sit inside once stored (a value
+  /// typed for an operand goes into the map `values`, 1); it must fit the
+  /// bound there too.
+  static JsonValue? tryOf(Object? v, {int nestedIn = 0}) =>
+      isJson(v, nestedIn: nestedIn) ? JsonValue.of(v) : null;
 
   /// Whether [v] is JSON through and through (no bytes inside, and not
-  /// nested deeper than [maxDepth]).
-  static bool isJson(Object? v) => _isJson(v, 0);
+  /// nested deeper than [maxDepth], counting the [nestedIn] levels it will
+  /// sit inside).
+  static bool isJson(Object? v, {int nestedIn = 0}) => _isJson(v, nestedIn);
 
   static bool _isJson(Object? v, int depth) =>
       depth <= maxDepth &&

@@ -12,6 +12,7 @@ import 'package:models/port_end.dart';
 import 'package:models/undo_tag.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
+import '../decode/decoded.dart';
 import '../decode/flow_clip.dart';
 import '../decode/typed_json.dart';
 import 'block_cfg.dart';
@@ -537,13 +538,20 @@ Object? typedText(String text, FieldEdit edit) {
       return bool.tryParse(s) ?? text;
     // A text that does not decode (no JSON, or nested past the bound,
     // `typedJsonOf`) stays the text: no such value reaches a config.
+    // JSON `null` decodes to null (it removes the value), not to the text.
     case FieldEdit.json:
-      return typedJsonOf(text).orNull?.raw ?? text;
+      return switch (typedJsonOf(text)) {
+        Valid(:final value) => value.raw,
+        Invalid() => text,
+      };
     case FieldEdit.any:
       if (s.isEmpty) {
         return text;
       }
-      return typedJsonOf(s).orNull?.raw ?? text;
+      return switch (typedJsonOf(s)) {
+        Valid(:final value) => value.raw,
+        Invalid() => text,
+      };
     case FieldEdit.choice || FieldEdit.text:
       return text;
   }

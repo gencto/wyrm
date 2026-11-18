@@ -16,8 +16,11 @@ void main() {
   String nested(int depth) => '${'[' * depth}1${']' * depth}';
 
   group('typed text', () {
-    test('a value at the bound is JSON; one level more is not', () {
-      expect(fieldEditError(nested(64), FieldEdit.json), isNull);
+    test('a value that fits the bound where it is stored is JSON; one '
+        'level more is not', () {
+      // a typed value sits up to one level inside a config value
+      expect(fieldEditError(nested(63), FieldEdit.json), isNull);
+      expect(fieldEditError(nested(64), FieldEdit.json), FieldEditError.json);
       expect(fieldEditError(nested(65), FieldEdit.json), FieldEditError.json);
       // far past any stack: still an answer, not a throw
       expect(
@@ -27,10 +30,13 @@ void main() {
     });
 
     test('a deep text is not saved as a structure: it stays the text', () {
-      expect(typedText(nested(64), FieldEdit.json), isA<List<Object?>>());
-      expect(typedText(nested(65), FieldEdit.json), nested(65));
+      expect(typedText(nested(63), FieldEdit.json), isA<List<Object?>>());
+      expect(typedText(nested(64), FieldEdit.json), nested(64));
       expect(typedText(nested(65), FieldEdit.any), nested(65));
       expect(typedText('{"a": 1}', FieldEdit.any), {'a': 1});
+      // JSON null is null (it removes the value), not the text "null"
+      expect(typedText('null', FieldEdit.any), isNull);
+      expect(typedText('null', FieldEdit.json), isNull);
     });
   });
 
