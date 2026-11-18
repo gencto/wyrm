@@ -172,13 +172,20 @@ class AppPersistor extends Persistor<AppState> {
     }
     // Remember off: what was kept goes, and nothing is written in its place.
     final kept = before == null || before.remember;
-    // The field as typed, without `user:password@`: credentials have their
-    // own fields and are never kept with the address.
-    await _putOrDelete(
-      _gatewayKey,
-      kept ? _clean(before?.gateway) : null,
-      now.remember ? _clean(now.gateway) : null,
-    );
+    // The field as typed, and only while it holds addresses and nothing
+    // else: a field with `user:password@` (whole, or a part of it while it
+    // is typed) is never written; what was kept stays. Credentials have
+    // their own fields and are never kept with the address.
+    final gateway = now.gateway;
+    if (!now.remember) {
+      if (kept && before?.gateway != null) {
+        await _storage.delete(_gatewayKey);
+      }
+    } else if (gateway != null &&
+        (!kept || gateway != before?.gateway) &&
+        gatewayProblemOf(gateway) == null) {
+      await _storage.put(_gatewayKey, gateway);
+    }
     await _putOrDelete(
       _userKey,
       kept ? before?.user : null,

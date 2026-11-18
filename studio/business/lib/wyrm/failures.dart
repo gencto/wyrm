@@ -206,7 +206,13 @@ final _bearer = RegExp(r'(Bearer\s+)[A-Za-z0-9._~+/=-]{8,}');
 
 /// `user:password@` (or `user@`) of a URL: from the scheme's `//` up to
 /// the `@` before the host, with no `/`, `?` or `#` in between.
-final _userInfo = RegExp(r'(\b[A-Za-z][A-Za-z0-9+.-]*://)[^/?#@\s]*@');
+// `user:password@` of a URL as `Uri` reads it: up to the last `@` before
+// the path, the query or the fragment (a password may hold `@` and
+// spaces); and `user:password@host` written without a scheme.
+final _userInfo = RegExp(r'(\b[A-Za-z][A-Za-z0-9+.-]*://)[^/?#\r\n]*@');
+final _bareUserInfo = RegExp(
+  r'(?<![\w.+-])[A-Za-z0-9._~%-]+:[^\s/?#]*@(?=[A-Za-z0-9\[])',
+);
 final _blob = RegExp('[A-Za-z0-9+/_-]{40,}={0,2}');
 
 /// [text] with what looks like a secret masked: the `user:password@` of
@@ -215,6 +221,7 @@ final _blob = RegExp('[A-Za-z0-9+/_-]{40,}={0,2}');
 /// computer; a value, a token or a password must not.
 String redact(String text) => text
     .replaceAllMapped(_userInfo, (m) => m.group(1)!)
+    .replaceAll(_bareUserInfo, '')
     .replaceAllMapped(_secretPair, (m) => '${m.group(1)}•••')
     .replaceAllMapped(_bearer, (m) => '${m.group(1)}•••')
     .replaceAll(_blob, '•••');

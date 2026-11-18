@@ -15,7 +15,9 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$LinksState {
 
- IMap<String, LinkInfo> get table; IList<String> get view; LinksTab get tab; String? get selectedLink; IList<String> get log; IList<LinkRevision> get revisions; String? get version; int get updatesAvailable; bool get shown;
+ IMap<String, LinkInfo> get table; IList<String> get view; LinksTab get tab; String? get selectedLink; IList<String> get log; IList<LinkRevision> get revisions; String? get version; int get updatesAvailable;/// Links is on screen (its workspace tab is the active one): what it
+/// shows is read again after a site switch or a reconnect.
+ bool get shown;
 /// Create a copy of LinksState
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -102,6 +104,8 @@ class _LinksState implements LinksState {
 @override@JsonKey() final  IList<LinkRevision> revisions;
 @override final  String? version;
 @override@JsonKey() final  int updatesAvailable;
+/// Links is on screen (its workspace tab is the active one): what it
+/// shows is read again after a site switch or a reconnect.
 @override@JsonKey() final  bool shown;
 
 /// Create a copy of LinksState

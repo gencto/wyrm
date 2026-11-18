@@ -267,6 +267,21 @@ void main() {
         redact('mailto x@y, https://h/a@b'),
         'mailto x@y, https://h/a@b',
       );
+      // a password with @ or a space in it goes whole, as `Uri` reads it;
+      // so does one written without a scheme (final audit of #137, 1)
+      expect(
+        redact('to https://admin:p@ss@plant.local:8445/api'),
+        'to https://plant.local:8445/api',
+      );
+      expect(
+        redact('to https://admin:pa ss@plant.local:8445'),
+        'to https://plant.local:8445',
+      );
+      expect(
+        redact('to admin:secret@plant.local:8445, ok'),
+        'to plant.local:8445, ok',
+      );
+      expect(redact('at 12:30 by olena'), 'at 12:30 by olena');
     });
 
     test('a plain UserException keeps its title and reason', () {

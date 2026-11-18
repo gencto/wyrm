@@ -468,14 +468,16 @@ GatewayFieldProblem? gatewayProblemOf(String? text) {
 }
 
 /// `user:password@` (or `user@`) of one part of the gateway field, with or
-/// without its scheme.
+/// without its scheme: as `Uri` reads it, up to the last `@` before the
+/// path, the query or the fragment (a password may hold `@` and spaces).
 final _fieldUserInfo = RegExp(
-  r'^(\s*(?:[A-Za-z][A-Za-z0-9+.-]*://)?)[^/?#@\s]*@',
+  r'^(\s*(?:[A-Za-z][A-Za-z0-9+.-]*://)?)[^/?#]*@',
 );
 
-/// The gateway field [text] without the `user:password@` of any part: what
-/// may be kept on disk. Every part keeps its place; a part without
-/// credentials stays as it was typed.
+/// The gateway field [text] without the `user:password@` of any part: an
+/// older file is read with this. Every part keeps its place; a part
+/// without credentials stays as it was typed. A field typed now is kept
+/// only when it holds no credentials at all ([gatewayProblemOf]).
 String gatewayFieldWithoutCredentials(String text) => [
   for (final part in text.split(','))
     part.replaceFirstMapped(
