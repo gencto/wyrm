@@ -121,13 +121,59 @@ final class TaskGroups {
   final List<AgentTask> earlier;
 }
 
-/// The keys *+ from Explorer* offers: the selection and the point
-/// [first], then the [rest] Explorer read.
+/// The keys *+ from Explorer* offers on the site [root]: the selection
+/// and the point [first], then the [rest] Explorer read.
 final class ChipOffer {
-  const ChipOffer({required this.first, required this.rest});
+  const ChipOffer({
+    required this.root,
+    required this.first,
+    required this.rest,
+  });
 
+  final String root;
   final List<String> first;
   final List<String> rest;
+}
+
+/// The note under a step of the plan card.
+sealed class StepNote extends Equatable {
+  const StepNote();
+}
+
+/// The step it needs ([step]) is left out: it is skipped with it.
+final class StepNoteNeeds extends StepNote {
+  const StepNoteNeeds(this.step);
+
+  final int step;
+
+  @override
+  List<Object?> get props => [step];
+}
+
+/// The person left it out.
+final class StepNoteLeftOut extends StepNote {
+  const StepNoteLeftOut();
+
+  @override
+  List<Object?> get props => const [];
+}
+
+/// It runs with the agent's own key: it has no tick.
+final class StepNoteByAgent extends StepNote {
+  const StepNoteByAgent();
+
+  @override
+  List<Object?> get props => const [];
+}
+
+/// It runs after the [steps] it needs.
+final class StepNoteAfter extends StepNote {
+  const StepNoteAfter(this.steps);
+
+  final List<int> steps;
+
+  @override
+  List<Object?> get props => [steps];
 }
 
 /// A key typed in the picker: the plain node [key] it names, and whether

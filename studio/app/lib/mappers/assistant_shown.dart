@@ -9,7 +9,6 @@ import 'package:equatable/equatable.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/agent_task.dart';
 import 'package:models/approval_mode.dart';
-import 'package:models/assistant_panel.dart';
 import 'package:models/audit_entry.dart';
 import 'package:ui/assistant/assistant_composer.dart';
 import 'package:ui/assistant/choices_card.dart';
@@ -183,7 +182,6 @@ AssistantShown _shownOf(_Read r, {required bool drawer}) {
   final t = r.shownTask;
   final agent = r.assistant.agent;
   final choices = t == null ? null : r.choicesShown(t);
-  final rights = r.assistant.panel == AssistantPanel.rights;
   return AssistantShown(
     agent: agent,
     noAgent: r.noAgent,
@@ -195,12 +193,12 @@ AssistantShown _shownOf(_Read r, {required bool drawer}) {
     planHash: t?.planHash,
     tickedSteps: choices?.tickedSteps.lock,
     events: t == null
-        ? [if (agent != null) const ConversationEventVm(kind: .noTasks)].lock
+        ? [if (r.showsNoTasks) const ConversationEventVm(kind: .noTasks)].lock
         : [for (final e in r.conversationOf(t)) e.line].lock,
-    plan: t == null || t.plan.isEmpty ? null : _plan(r, t, choices),
-    choices: t == null || t.questions.isEmpty ? null : _choices(r, t),
+    plan: t == null || !t.showsPlan ? null : _plan(r, t, choices),
+    choices: t == null || !t.showsChoices ? null : _choices(r, t),
     run: t?.run,
-    result: t == null ? null : _result(r, t),
+    result: t == null || !t.showsResult ? null : _result(r, t),
     more: t == null ? const IListConst([]) : _more(r, t),
     pickedRows: t == null
         ? null
@@ -238,7 +236,7 @@ AssistantShown _shownOf(_Read r, {required bool drawer}) {
             events: r.sessionOf(t).length,
           ),
     reads: [for (final x in r.shownReads) ReadRow(x.tool, x.times)].lock,
-    rights: rights ? _rights(r) : null,
+    rights: r.rightsShown ? _rights(r) : null,
   );
 }
 
@@ -283,18 +281,16 @@ PlanCardVm _plan(_Read r, AgentTask t, List<StepChoice>? choices) {
           s,
           args: r.argsOf(t, s),
           choice: choices?.elementAt(i),
-          revealed: r.revealedOf(t.id, s.n),
+          revealed: r.revealedShown(t, s),
           // the fixes the model offers for this step, while it waits
-          fixes: waits
-              ? [
-                  for (final f in t.fixesOf(s.n))
-                    f.tile(
-                      note: .fix,
-                      unattended: r.unattendedVm,
-                      hold: r.followHold(t),
-                    ),
-                ]
-              : const [],
+          fixes: [
+            for (final f in t.fixesShownOf(s.n))
+              f.tile(
+                note: .fix,
+                unattended: r.unattendedVm,
+                hold: r.followHold(t),
+              ),
+          ],
         ),
     ],
   );
@@ -315,20 +311,15 @@ ChoicesCardVm _choices(_Read r, AgentTask t) {
 
 /// What a finished plan left behind: the keys it touched with their
 /// values now.
-ResultCardVm? _result(_Read r, AgentTask t) {
-  final keys = t.touched;
-  return keys.isEmpty
-      ? null
-      : ResultCardVm(
-          facts: [
-            for (final k in keys)
-              ResultFactVm(k, switch (r.live.values[k]) {
-                final v? => valueText(v.value),
-                null => null,
-              }),
-          ],
-        );
-}
+ResultCardVm _result(_Read r, AgentTask t) => ResultCardVm(
+  facts: [
+    for (final k in t.touched)
+      ResultFactVm(k, switch (r.live.values[k]) {
+        final v? => valueText(v.value),
+        null => null,
+      }),
+  ],
+);
 
 /// *Same for more units?* of a task that is done: the suggestions with
 /// rows, each row tickable, none ticked at first.
@@ -413,6 +404,9 @@ RightsPanelVm _rights(_Read r) {
 /// value) and the mini timeline of the drawer's point with the audit
 /// records on it (spec assistant.md §5); null with nothing to show.
 FoundCardVm? _found(_Read r, AgentTask? t) {
+  if (!r.foundShown(t)) {
+    return null;
+  }
   final rows = [
     if (t != null)
       for (final f in r.findingsShown(t)) f.row(r.live.values[f.key]?.quality),
@@ -423,9 +417,6 @@ FoundCardVm? _found(_Read r, AgentTask? t) {
         FoundMissingVm(key.view, value),
   ];
   final timeline = r.timeline;
-  if (rows.isEmpty && missing.isEmpty && timeline == null) {
-    return null;
-  }
   final audit = r.timelineAuditRead;
   return FoundCardVm(
     rows: rows,

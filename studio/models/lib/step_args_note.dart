@@ -1,0 +1,4 @@
+enum StepArgsNote {
+  masked,
+  secret,
+}

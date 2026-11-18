@@ -12,17 +12,22 @@ import 'package:business/redux/login/actions/set_user_action.dart';
 import 'package:business/redux/nodes/actions/set_tree_filter_action.dart';
 import 'package:business/redux/tasks/actions/add_tasks_action.dart';
 import 'package:business/redux/tasks/actions/set_selected_task_action.dart';
+import 'package:business/wyrm/approval.dart';
 import 'package:business/wyrm/assistant_view.dart';
 import 'package:business/wyrm/context_keys.dart';
 import 'package:business/wyrm/task_facts.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/agent_task.dart';
+import 'package:models/assistant_panel.dart';
 import 'package:models/live_value.dart';
+import 'package:models/node_info.dart';
 import 'package:models/plan_step.dart';
+import 'package:models/step_args_note.dart';
 import 'package:models/step_kind.dart';
 import 'package:models/step_result.dart';
 import 'package:models/step_status.dart';
+import 'package:models/step_wait.dart';
 import 'package:models/task_row.dart';
 import 'package:models/task_state.dart';
 import 'package:models/task_suggestion.dart';
@@ -325,6 +330,194 @@ void main() {
       s.dispatchSync(SetWatchedAction.shown());
       expect(s.state.assistant.watched, isEmpty);
       expect(s.state.live.watched.keys, isNot(contains(sp)));
+    });
+  });
+
+  group('what the cards of a task show', () {
+    test('the plan, the choices, the result and the run card', () {
+      const none = AgentTask(id: 't-0');
+      expect(none.showsPlan, isFalse);
+      expect(none.showsChoices, isFalse);
+      expect(none.showsResult, isFalse);
+      expect(none.showsRun, isFalse);
+
+      final waits = AgentTask(
+        id: 't-1',
+        state: TaskState.awaitingApproval,
+        plan: [step(1)].lock,
+      );
+      expect(waits.showsPlan, isTrue);
+      expect(waits.showsRun, isFalse, reason: 'no run before an approval');
+
+      final runs = AgentTask(
+        id: 't-2',
+        state: TaskState.running,
+        step: 2,
+        plan: [step(1, status: StepStatus.ok), step(2), step(3)].lock,
+      );
+      expect(runs.showsRun, isTrue);
+      expect(runs.runEnded, isFalse);
+      expect(runs.waitOf(runs.plan[1]), StepWait.running);
+      expect(runs.waitOf(runs.plan[2]), StepWait.waiting);
+
+      final done = runs.copyWith(state: TaskState.done, step: 0);
+      expect(done.showsRun, isTrue);
+      expect(done.runEnded, isTrue);
+      expect(done.waitOf(done.plan[1]), StepWait.waiting);
+      expect(done.showsResult, isTrue);
+    });
+
+    test('fixes only while the plan waits', () {
+      const fix = TaskSuggestion(id: 'f', label: 'use 21', step: 1);
+      final waits = AgentTask(
+        id: 't-1',
+        state: TaskState.awaitingApproval,
+        plan: [step(1)].lock,
+        suggestions: [fix].lock,
+      );
+      expect(waits.fixesShownOf(1), [fix]);
+      expect(waits.copyWith(state: TaskState.done).fixesShownOf(1), isEmpty);
+      expect(waits.copyWith(replacedBy: 't-2').fixesShownOf(1), isEmpty);
+    });
+
+    test('a task row: who asked, where it failed, that it changed nothing', () {
+      final failed = AgentTask(
+        id: 't-1',
+        state: TaskState.failed,
+        owner: 'user:olena',
+        recorded: true,
+        plan: [
+          step(1, status: StepStatus.ok),
+          step(2, status: StepStatus.failed),
+        ].lock,
+      );
+      expect(failed.byOf(own: false), 'olena');
+      expect(failed.byOf(own: true), isNull);
+      expect(failed.failedAt, 2);
+      expect(failed.copyWith(recorded: false).byOf(own: false), isNull);
+      expect(failed.copyWith(recorded: false).failedAt, isNull);
+      expect(failed.copyWith(owner: '').byOf(own: false), isNull);
+      const empty = AgentTask(id: 't-2', state: TaskState.done, recorded: true);
+      expect(empty.noChanges, isTrue);
+      expect(empty.copyWith(recorded: false).noChanges, isFalse);
+      expect(failed.noChanges, isFalse);
+    });
+
+    test('a step: its sleep, its timeout, the note under its arguments', () {
+      const sleep = PlanStep(
+        kind: StepKind.sleep,
+        key: '',
+        level: Perm.read,
+        seconds: 5,
+      );
+      expect(sleep.sleepSeconds, 5);
+      expect(sleep.timeoutArg, isNull);
+      const wait = PlanStep(
+        kind: StepKind.wait,
+        key: sp,
+        level: Perm.read,
+        seconds: 10,
+      );
+      expect(wait.sleepSeconds, isNull);
+      expect(wait.timeoutArg, 10);
+      expect(
+        const PlanStep(
+          kind: StepKind.sleep,
+          key: '',
+          level: Perm.read,
+        ).sleepSeconds,
+        0,
+      );
+
+      final plain = step(1);
+      expect(plain.argsGuessed, isFalse);
+      expect(plain.argsNote, isNull);
+      final secret = plain.copyWith(
+        args: {'password': 'x'}.lock,
+        secret: {'password'}.lock,
+      );
+      expect(secret.argsNote, StepArgsNote.secret);
+      final unknown = plain.copyWith(
+        kind: StepKind.invoke,
+        action: 'add',
+        args: {'host': 'h'}.lock,
+        argsKnown: false,
+      );
+      expect(unknown.argsGuessed, isTrue);
+      expect(unknown.argsNote, StepArgsNote.masked);
+    });
+
+    test('the note under a step: needs, left out, by the agent, after', () {
+      final s2 = step(2).copyWith(after: [1].lock);
+      expect(
+        s2.noteWith(const StepChoice(n: 2, ticked: true, needs: 1)),
+        const StepNoteNeeds(1),
+      );
+      expect(
+        s2.noteWith(const StepChoice(n: 2, ticked: false)),
+        const StepNoteLeftOut(),
+      );
+      expect(
+        s2.noteWith(const StepChoice(n: 2, byAgent: true)),
+        const StepNoteByAgent(),
+      );
+      expect(s2.noteWith(null), const StepNoteAfter([1]));
+      expect(step(1).noteWith(null), isNull);
+    });
+
+    test('masked arguments are revealed only where they were guessed', () {
+      final guessed = step(1).copyWith(
+        kind: StepKind.invoke,
+        args: {'host': 'h'}.lock,
+        argsKnown: false,
+      );
+      final t = AgentTask(
+        id: 't-1',
+        state: TaskState.awaitingApproval,
+        plan: [guessed].lock,
+      );
+      expect(read().revealedShown(t, guessed), isFalse);
+      expect(read().revealedShown(t, step(1)), isNull);
+    });
+
+    test('No tasks yet, the rights panel, What I found', () {
+      final base = AppState.initial().copyWith.site(name: 'central');
+      expect(_Reader(base).showsNoTasks, isFalse, reason: 'no agent');
+      final agent = base.copyWith.assistant(agent: 'agent');
+      expect(_Reader(agent).showsNoTasks, isTrue);
+      expect(_Reader(agent).rightsShown, isFalse);
+      expect(
+        _Reader(
+          agent.copyWith.assistant(panel: AssistantPanel.rights),
+        ).rightsShown,
+        isTrue,
+      );
+      expect(_Reader(agent).foundShown(null), isFalse);
+      const t = AgentTask(id: 't-1', state: TaskState.done);
+      expect(_Reader(agent).foundShown(t), isFalse);
+    });
+  });
+
+  group('the chip picker', () {
+    test('offers nothing without a site or with the chips full', () {
+      expect(_Reader(AppState.initial()).chipChoices, isNull);
+      expect(read().chipChoices, isNotNull);
+      for (var i = 0; i < maxContextKeys; i++) {
+        s.dispatchSync(PickChipAction('$sp/p$i'));
+      }
+      expect(read().chipChoices, isNull);
+    });
+
+    test("a chip's name: its own display name, else its name", () {
+      NodeInfo info(String? display) =>
+          NodeInfo(key: sp, name: 'sp', display: display);
+      AppState withNode(NodeInfo n) =>
+          s.state.copyWith.nodes(table: {sp: n}.lock);
+      expect(_Reader(withNode(info('Set point'))).chipNameOf(sp), 'Set point');
+      expect(_Reader(withNode(info('sp'))).chipNameOf(sp), 'sp');
+      expect(_Reader(withNode(info('  '))).chipNameOf(sp), 'sp');
+      expect(_Reader(withNode(info(null))).chipNameOf(sp), 'sp');
+      expect(read().chipNameOf('wy/central/downstream/unlisted'), isNull);
     });
   });
 

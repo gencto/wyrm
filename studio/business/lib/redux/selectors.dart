@@ -589,10 +589,12 @@ extension AssistantScreen on Selectors {
   /// The keys *+ from Explorer* offers: the selection and the point
   /// first, then the nodes Explorer read on the site on screen; only plain
   /// node keys of this site the agent reads, none twice, none a chip.
-  ChipOffer get chipChoices {
+  /// Null when no chip can be added now ([chipHold]: no site, or the
+  /// chips are full).
+  ChipOffer? get chipChoices {
     final root = site.root;
-    if (root == null) {
-      return const ChipOffer(first: [], rest: []);
+    if (root == null || chipHold != null) {
+      return null;
     }
     final chips = assistant.chips.toSet();
     final selected = offeredChip;
@@ -604,6 +606,7 @@ extension AssistantScreen on Selectors {
       if (point != null && point != selected) point,
     ].where(fits).toList();
     return ChipOffer(
+      root: root,
       first: first,
       rest: [
         for (final k in nodes.view.take(400))
@@ -611,6 +614,36 @@ extension AssistantScreen on Selectors {
       ],
     );
   }
+
+  /// The name a chip for [key] shows in the picker: the node's display
+  /// name when it has one of its own, else its name; null for a key the
+  /// tree has not listed.
+  String? chipNameOf(String key) => switch (nodes.table[key]) {
+    NodeInfo(:final display?, :final name)
+        when display.trim().isNotEmpty && display != name =>
+      display,
+    final n => n?.name,
+  };
+
+  /// The line *No tasks yet* is shown: no task is on screen and the site
+  /// has an agent.
+  bool get showsNoTasks => shownTask == null && assistant.agent != null;
+
+  /// The rights panel is open.
+  bool get rightsShown => assistant.panel == AssistantPanel.rights;
+
+  /// *What I found* has something to show for [t]: findings, findings the
+  /// link refused, or the drawer's mini timeline.
+  bool foundShown(AgentTask? t) =>
+      (t != null &&
+          (findingsShown(t).isNotEmpty || t.findingsRefused.isNotEmpty)) ||
+      timeline != null;
+
+  /// Whether the masked arguments of [s] of [t] are shown now; null for a
+  /// step whose arguments are not masked for an unknown schema (nothing
+  /// to reveal).
+  bool? revealedShown(AgentTask t, PlanStep s) =>
+      s.argsGuessed ? revealedOf(t.id, s.n) : null;
 
   /// A key typed in the picker, in full or below the site: the plain node
   /// key it names, and whether the agent reads it; null when it names none
