@@ -3,9 +3,13 @@ import 'package:business/wyrm/failures.dart';
 import 'package:business/wyrm/session.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/error_action.dart';
+import 'package:models/error_advice.dart';
 import 'package:models/error_call.dart';
+import 'package:models/error_chip.dart';
 import 'package:models/error_hint.dart';
 import 'package:models/error_kind.dart';
+import 'package:models/error_saying.dart';
+import 'package:models/error_secondary.dart';
 import 'package:models/error_title.dart';
 import 'package:models/error_voice.dart';
 import 'package:models/fault_report.dart';
@@ -163,6 +167,99 @@ void main() {
       again(refused(Status.timeout, write: false)).action(readOnly: true),
       ErrorAction.retry,
     );
+  });
+
+  test('what its words are: the broker, another package, a hint, a fault; '
+      'else a site that did not answer, a status alone, or nothing', () {
+    expect(
+      refused(Status.timeout, message: 'slow').saying,
+      ErrorSaying.broker,
+    );
+    expect(
+      const StudioError(
+        kind: ErrorKind.studio,
+        foreign: ForeignWords(
+          title: 'The picker closed',
+          detail: 'Pick it again.',
+        ),
+      ).saying,
+      ErrorSaying.foreign,
+    );
+    expect(
+      const StudioError(
+        kind: ErrorKind.input,
+        hint: ErrorHint.rangeTooBig(),
+      ).saying,
+      ErrorSaying.hint,
+    );
+    expect(faultOf(StateError('x'), null).saying, ErrorSaying.fault);
+    expect(refused(Status.timeout).saying, ErrorSaying.silentReach);
+    expect(
+      refused(Status.timeout, key: 'nowhere').saying,
+      ErrorSaying.silentStatus,
+    );
+    expect(const StudioError(kind: ErrorKind.gone).saying, ErrorSaying.nothing);
+  });
+
+  test('what you can do, for each kind', () {
+    expect(refused(Status.permissionDenied).advice(), [ErrorAdvice.rights]);
+    expect(refused(Status.permissionDenied).advice(role: 'operator'), [
+      ErrorAdvice.rights,
+      ErrorAdvice.rightsRole,
+    ]);
+    expect(refused(Status.permissionDenied).advice(role: ''), [
+      ErrorAdvice.rights,
+    ]);
+    expect(refused(Status.timeout).advice(), [ErrorAdvice.reach]);
+    expect(const StudioError(kind: ErrorKind.reach).advice(), [
+      ErrorAdvice.reachLogin,
+    ]);
+    expect(refused(Status.invalidParameter).advice(), [ErrorAdvice.input]);
+    expect(
+      refused(Status.invalidParameter).copyWith(field: 'unit').advice(),
+      [ErrorAdvice.inputField],
+    );
+    expect(again(refused(Status.busy)).advice(), [ErrorAdvice.busyAuto]);
+    expect(again(refused(Status.busy)).advice(readOnly: true), [
+      ErrorAdvice.busy,
+    ]);
+    expect(refused(Status.notFound).advice(), [ErrorAdvice.gone]);
+    expect(refused(Status.notSupported).advice(), [ErrorAdvice.unsupported]);
+    final at = DateTime(2026, 11, 19, 11, 52);
+    expect(refused(Status.internalError).copyWith(at: at).advice(), [
+      ErrorAdvice.brokerLog,
+    ]);
+    expect(const StudioError(kind: ErrorKind.broker).advice(), [
+      ErrorAdvice.brokerSaid,
+    ]);
+    expect(faultOf(StateError('x'), null).advice(), [
+      ErrorAdvice.studio,
+      ErrorAdvice.report,
+    ]);
+    expect(const StudioError(kind: ErrorKind.studio).advice(), [
+      ErrorAdvice.studio,
+    ]);
+  });
+
+  test('the second button, the write note and the chip', () {
+    expect(
+      refused(Status.permissionDenied).secondary(),
+      ErrorSecondary.seeAccess,
+    );
+    expect(refused(Status.timeout).secondary(), ErrorSecondary.none);
+    expect(refused(Status.invalidParameter).secondary(), ErrorSecondary.none);
+    expect(again(refused(Status.timeout)).secondary(), ErrorSecondary.close);
+    expect(
+      again(refused(Status.timeout)).secondary(readOnly: true),
+      ErrorSecondary.none,
+    );
+    expect(refused(Status.internalError).secondary(), ErrorSecondary.close);
+    expect(refused(Status.timeout).writeNote, isTrue);
+    expect(refused(Status.timeout, write: false).writeNote, isFalse);
+    expect(refused(Status.permissionDenied).writeNote, isFalse);
+    expect(refused(Status.timeout).chip, ErrorChip.status);
+    expect(const StudioError(kind: ErrorKind.reach).chip, ErrorChip.kind);
+    expect(faultOf(StateError('x'), null).chip, ErrorChip.studio);
   });
 
   test('busy counts down, with the hint of the broker when it gave one', () {

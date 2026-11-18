@@ -20,6 +20,8 @@ void main() {
     icon: AppIcon.errRights,
     thing: ErrorThingVm.named('pump-control'),
     titleKind: ErrorTitleTag.rights,
+    saying: ErrorSayingTag.broker,
+    chipKind: ErrorChipTag.status,
     message: 'needs config on dataflows',
     status: 'permission_denied',
     statusLine: 'permission_denied (0x21)',
@@ -54,6 +56,8 @@ void main() {
       icon: AppIcon.errStudio,
       thing: ErrorThingVm.unnamed(),
       titleKind: ErrorTitleTag.foreign,
+      saying: ErrorSayingTag.foreign,
+      chipKind: ErrorChipTag.kind,
       voice: ErrorVoiceTag.studio,
       foreign: ErrorForeignVm('The picker closed', 'Pick it again.'),
     );
@@ -68,9 +72,10 @@ void main() {
       icon: AppIcon.errGone,
       thing: ErrorThingVm.named('t2'),
       titleKind: ErrorTitleTag.unsupported,
+      saying: ErrorSayingTag.hint,
+      chipKind: ErrorChipTag.status,
       hint: ErrorHintVm.tag(HintTag.notSettable),
       status: 'not_supported',
-      unsupported: true,
       call: ErrorCallVm('set', verb: ErrorVerb.write),
     );
     expect(silent.title, 't2 does not support set');
@@ -90,6 +95,8 @@ void main() {
       titleKind: screen == null
           ? ErrorTitleTag.uncaughtBackground
           : ErrorTitleTag.uncaughtPanel,
+      saying: ErrorSayingTag.fault,
+      chipKind: ErrorChipTag.studio,
       quiet: true,
       report: ErrorReportVm(
         type: 'StateError',
@@ -110,6 +117,8 @@ void main() {
       icon: AppIcon.errReach,
       thing: ErrorThingVm.named('edge'),
       titleKind: ErrorTitleTag.stream,
+      saying: ErrorSayingTag.silentReach,
+      chipKind: ErrorChipTag.kind,
       stream: 'edge',
       site: 'edge',
     );
@@ -128,6 +137,8 @@ void main() {
       icon: AppIcon.errRights,
       thing: ErrorThingVm.named('pump-control'),
       titleKind: ErrorTitleTag.rights,
+      saying: ErrorSayingTag.nothing,
+      chipKind: ErrorChipTag.kind,
     );
     expect(ToastVm.failure(denied), isNot(ToastVm.failure(other)));
   });

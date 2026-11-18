@@ -134,6 +134,7 @@ Future<void> _show(
     store.dispatchSync(MarkProblemShownAction(e.id));
   }
   final primary = e.action(readOnly: readOnly);
+  final secondary = e.secondary(readOnly: readOnly);
   final _Closed closed;
   try {
     closed =
@@ -185,7 +186,7 @@ Future<void> _show(
           break;
       }
     case _Closed.secondary:
-      if (e.kind == .rights) {
+      if (secondary == .seeAccess) {
         // Access, on the user's own line: one action, the tab and the
         // user in one state, then the route.
         await store.dispatchAndWait(

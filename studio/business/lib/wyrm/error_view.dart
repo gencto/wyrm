@@ -1,6 +1,10 @@
 import 'package:models/error_action.dart';
+import 'package:models/error_advice.dart';
+import 'package:models/error_chip.dart';
 import 'package:models/error_hint.dart';
 import 'package:models/error_kind.dart';
+import 'package:models/error_saying.dart';
+import 'package:models/error_secondary.dart';
 import 'package:models/error_title.dart';
 import 'package:models/error_voice.dart';
 import 'package:models/known_call.dart';
@@ -9,9 +13,10 @@ import 'package:models/studio_error.dart';
 import 'failures.dart';
 
 // What is decided of one failure (docs/design/specs/errors.md §1, §2, §7):
-// which title it has, who is said to have spoken, what its dialog's main
-// button does and how long it counts down. Decided here from the error as
-// data; `ui` only says it (studio-rules §3).
+// which title it has, what its words are, who is said to have spoken, what
+// its dialog advises, what its buttons do and how long it counts down, and
+// what its chip shows. Decided here from the error as data; `ui` only says
+// it (studio-rules §3).
 
 /// Seconds a `busy` dialog waits before it tries again by itself.
 const busyWait = 4;
@@ -77,13 +82,40 @@ extension ErrorView on StudioError {
     };
   }
 
+  /// What its words are: the broker's as they came, else another
+  /// package's detail, else Studio's sentence for the case, else the
+  /// sentence of a fault in Studio. With none of them: a site that did not
+  /// answer, a status that came alone, or nothing at all.
+  ErrorSaying get saying {
+    if (message.isNotEmpty) {
+      return ErrorSaying.broker;
+    }
+    if ((foreign?.detail ?? '').isNotEmpty) {
+      return ErrorSaying.foreign;
+    }
+    if (hint != null) {
+      return ErrorSaying.hint;
+    }
+    if (kind == ErrorKind.studio) {
+      return ErrorSaying.fault;
+    }
+    if (kind == ErrorKind.reach && site != null) {
+      return ErrorSaying.silentReach;
+    }
+    return status != null ? ErrorSaying.silentStatus : ErrorSaying.nothing;
+  }
+
   /// Nothing was said of it: no words of the broker's, of another
   /// package's, and no sentence of Studio's for the case.
-  bool get silent =>
-      message.isEmpty &&
-      hint == null &&
-      (foreign?.detail ?? '').isEmpty &&
-      kind != ErrorKind.studio;
+  bool get silent => switch (saying) {
+    ErrorSaying.broker ||
+    ErrorSaying.foreign ||
+    ErrorSaying.hint ||
+    ErrorSaying.fault => false,
+    ErrorSaying.silentReach ||
+    ErrorSaying.silentStatus ||
+    ErrorSaying.nothing => true,
+  };
 
   /// Who is said to have spoken: Studio of what it found itself, nobody
   /// when a call that did not reach was not answered, else the broker.
@@ -119,6 +151,73 @@ extension ErrorView on StudioError {
           action(readOnly: readOnly) == ErrorAction.retry
       ? (wait ?? busyWait)
       : null;
+
+  /// The lines under *What you can do* of its dialog, in their order.
+  /// [role] is the role of who is logged in (a `rights` failure names it
+  /// with the site); [readOnly] is the dialog opened from Problems.
+  List<ErrorAdvice> advice({String? role, bool readOnly = false}) =>
+      switch (kind) {
+        ErrorKind.rights => [
+          ErrorAdvice.rights,
+          if (role != null && role.isNotEmpty && site != null)
+            ErrorAdvice.rightsRole,
+        ],
+        ErrorKind.reach => [
+          if (call == null && key == null)
+            ErrorAdvice.reachLogin
+          else
+            ErrorAdvice.reach,
+        ],
+        ErrorKind.input => [
+          if (field != null) ErrorAdvice.inputField else ErrorAdvice.input,
+        ],
+        ErrorKind.busy => [
+          if (countdown(readOnly: readOnly) != null)
+            ErrorAdvice.busyAuto
+          else
+            ErrorAdvice.busy,
+        ],
+        ErrorKind.gone => [
+          if (isUnsupported(this))
+            ErrorAdvice.unsupported
+          else
+            ErrorAdvice.gone,
+        ],
+        ErrorKind.broker => [
+          if (status == null) ErrorAdvice.brokerSaid,
+          if (at != null && action(readOnly: readOnly) == ErrorAction.log)
+            ErrorAdvice.brokerLog,
+        ],
+        ErrorKind.studio => [
+          ErrorAdvice.studio,
+          if (report != null) ErrorAdvice.report,
+        ],
+      };
+
+  /// Its dialog says that a write may have been applied: a call that
+  /// changes something did not get its answer.
+  bool get writeNote => kind == ErrorKind.reach && write;
+
+  /// The second button of its dialog, beside the main one ([action]):
+  /// *See access* for a refusal of rights, *Close* beside a button that
+  /// does something, none beside OK or *Back to the form*.
+  ErrorSecondary secondary({bool readOnly = false}) => switch (action(
+    readOnly: readOnly,
+  )) {
+    ErrorAction.ok when kind == ErrorKind.rights => ErrorSecondary.seeAccess,
+    ErrorAction.ok || ErrorAction.form => ErrorSecondary.none,
+    ErrorAction.retry ||
+    ErrorAction.refresh ||
+    ErrorAction.log => ErrorSecondary.close,
+  };
+
+  /// What its chip shows: the status by name, else its kind, else for a
+  /// fault in Studio what was thrown.
+  ErrorChip get chip => status != null
+      ? ErrorChip.status
+      : report == null
+      ? ErrorChip.kind
+      : ErrorChip.studio;
 
   /// Its dialog opens with Details shown: the broker's own failure and a
   /// fault in Studio are read there.

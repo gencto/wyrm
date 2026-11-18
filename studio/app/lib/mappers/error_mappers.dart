@@ -4,9 +4,13 @@ import 'package:business/wyrm/failures.dart';
 import 'package:business/wyrm/keys.dart';
 import 'package:models/call_verb.dart';
 import 'package:models/error_action.dart';
+import 'package:models/error_advice.dart';
 import 'package:models/error_call.dart';
+import 'package:models/error_chip.dart';
 import 'package:models/error_hint.dart';
 import 'package:models/error_kind.dart';
+import 'package:models/error_saying.dart';
+import 'package:models/error_secondary.dart';
 import 'package:models/error_subject.dart';
 import 'package:models/error_title.dart';
 import 'package:models/error_voice.dart';
@@ -54,6 +58,53 @@ extension ErrorButtonOf on ErrorAction {
     ErrorAction.form => .form,
     ErrorAction.refresh => .refresh,
     ErrorAction.log => .log,
+  };
+}
+
+extension ErrorSayingTagOf on ErrorSaying {
+  ErrorSayingTag get tag => switch (this) {
+    ErrorSaying.broker => .broker,
+    ErrorSaying.foreign => .foreign,
+    ErrorSaying.hint => .hint,
+    ErrorSaying.fault => .fault,
+    ErrorSaying.silentReach => .silentReach,
+    ErrorSaying.silentStatus => .silentStatus,
+    ErrorSaying.nothing => .nothing,
+  };
+}
+
+extension ErrorAdviceTagOf on ErrorAdvice {
+  ErrorAdviceTag get tag => switch (this) {
+    ErrorAdvice.rights => .rights,
+    ErrorAdvice.rightsRole => .rightsRole,
+    ErrorAdvice.reachLogin => .reachLogin,
+    ErrorAdvice.reach => .reach,
+    ErrorAdvice.inputField => .inputField,
+    ErrorAdvice.input => .input,
+    ErrorAdvice.busyAuto => .busyAuto,
+    ErrorAdvice.busy => .busy,
+    ErrorAdvice.unsupported => .unsupported,
+    ErrorAdvice.gone => .gone,
+    ErrorAdvice.brokerSaid => .brokerSaid,
+    ErrorAdvice.brokerLog => .brokerLog,
+    ErrorAdvice.studio => .studio,
+    ErrorAdvice.report => .report,
+  };
+}
+
+extension ErrorSecondaryTagOf on ErrorSecondary {
+  ErrorSecondaryTag get tag => switch (this) {
+    ErrorSecondary.none => .none,
+    ErrorSecondary.seeAccess => .seeAccess,
+    ErrorSecondary.close => .close,
+  };
+}
+
+extension ErrorChipTagOf on ErrorChip {
+  ErrorChipTag get tag => switch (this) {
+    ErrorChip.status => .status,
+    ErrorChip.kind => .kind,
+    ErrorChip.studio => .studio,
   };
 }
 
@@ -198,13 +249,17 @@ extension ErrorSaidOf on StudioError {
     },
   };
 
-  /// Its dialog, for who is logged in where ([ctx]): the main button and
-  /// the countdown as `business` decides them. [readOnly] is the dialog
-  /// opened from Problems.
+  /// Its dialog, for who is logged in where ([ctx]): the buttons, the
+  /// advice and the countdown as `business` decides them. [readOnly] is
+  /// the dialog opened from Problems.
   ErrorDialogVm dialog(ErrorContext ctx, {bool readOnly = false}) =>
       said.dialog(
         ctx,
         button: action(readOnly: readOnly).button,
+        secondary: secondary(readOnly: readOnly).tag,
+        advice: [
+          for (final a in advice(role: ctx.role, readOnly: readOnly)) a.tag,
+        ],
         countdown: countdown(readOnly: readOnly),
       );
 
@@ -215,6 +270,8 @@ extension ErrorSaidOf on StudioError {
     icon: kind.icon,
     thing: _thing,
     titleKind: titleKind.tag,
+    saying: saying.tag,
+    chipKind: chip.tag,
     voice: voice.tag,
     foreign: switch (foreign) {
       final f? => ErrorForeignVm(f.title, f.detail),
@@ -227,8 +284,6 @@ extension ErrorSaidOf on StudioError {
       final st? => statusLine(st),
       null => null,
     },
-    timeout: isTimeout(this),
-    unsupported: isUnsupported(this),
     key: key,
     call: call?.vm,
     site: site,
@@ -236,6 +291,7 @@ extension ErrorSaidOf on StudioError {
     at: at,
     quiet: quiet,
     write: write,
+    writeNote: writeNote,
     offersRetry: offersRetry,
     detailsOpen: detailsOpen,
     field: field,

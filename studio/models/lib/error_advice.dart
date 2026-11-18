@@ -1,0 +1,16 @@
+enum ErrorAdvice {
+  rights,
+  rightsRole,
+  reachLogin,
+  reach,
+  inputField,
+  input,
+  busyAuto,
+  busy,
+  unsupported,
+  gone,
+  brokerSaid,
+  brokerLog,
+  studio,
+  report,
+}
