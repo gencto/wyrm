@@ -66,18 +66,44 @@ Decoded<FlowVal> flowValOf(Object? value) {
 Decoded<FlowVal> flowValOfWire(Value? value) => flowValOf(toDart(value));
 
 /// The summary of flow [id] from its `~val` as [read]. A value Studio
-/// cannot read gives a summary that says so ([FlowSummary.unreadable]),
-/// logged with its field and [where]: the flow is listed, and is neither
-/// a draft nor running.
+/// cannot read gives a summary that says so ([FlowSummary.unreadable]):
+/// the flow is listed, and is neither a draft nor running. Nothing is
+/// recorded here (a selector calls this on every rebuild): the caller
+/// that received the value records it once ([Decoded.record]).
 FlowSummary flowSummaryOf(
   String id,
   Decoded<FlowVal> read, {
-  required String where,
   String? description,
-}) => switch (read.orWarn(where)) {
-  final v? => flowSummaryOfVal(id, v, description: description),
-  null => FlowSummary(id: id, description: description, unreadable: true),
+}) => switch (read) {
+  Valid(:final value) => flowSummaryOfVal(id, value, description: description),
+  Invalid() => FlowSummary(id: id, description: description, unreadable: true),
 };
+
+/// [shown] (a flow's row as it was last read) under its live `~val` as
+/// [read]. A value Studio reads gives the row its state, error, deployer
+/// and version (the row's version when the value names none), and the
+/// row is readable again. A value it cannot read leaves the last version
+/// and deployer read and says the state is not known: the flow is then
+/// neither running, nor stopped, nor a draft.
+FlowSummary flowUnderLive(FlowSummary shown, Decoded<FlowVal> read) =>
+    switch (read) {
+      Valid(:final value) => switch (flowSummaryOfVal(shown.id, value)) {
+        final l => shown.copyWith(
+          version: l.version ?? shown.version,
+          deployedBy: l.deployedBy,
+          problem: l.problem,
+          draft: l.draft,
+          running: l.running,
+          unreadable: false,
+        ),
+      },
+      Invalid() => shown.copyWith(
+        problem: null,
+        draft: false,
+        running: false,
+        unreadable: true,
+      ),
+    };
 
 /// The summary of flow [id] its `~val` [v] gives.
 FlowSummary flowSummaryOfVal(String id, FlowVal v, {String? description}) =>

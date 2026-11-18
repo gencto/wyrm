@@ -73,6 +73,27 @@ enum GroupLogging {
   };
 }
 
+/// How a watch group records, as it is said: one of the ways Studio knows
+/// by its label, or the broker's own name of a way it does not know.
+final class GroupLoggingVm extends Equatable {
+  const GroupLoggingVm.known(GroupLogging this.known) : other = null;
+
+  const GroupLoggingVm.other(String this.other) : known = null;
+
+  final GroupLogging? known;
+
+  /// The broker's name of a way of recording Studio does not know.
+  final String? other;
+
+  String get label => switch (known) {
+    final k? => k.label,
+    null => S.current.logTypeOther(other ?? ''),
+  };
+
+  @override
+  List<Object?> get props => [known, other];
+}
+
 /// A watch group: its name, how it records (null: not known yet), its
 /// interval and flush (s) and its watches.
 final class WatchGroupVm extends Equatable {
@@ -85,7 +106,7 @@ final class WatchGroupVm extends Equatable {
   });
 
   final String name;
-  final GroupLogging? logging;
+  final GroupLoggingVm? logging;
   final num? interval;
   final num? flush;
   final List<WatchPointVm> points;

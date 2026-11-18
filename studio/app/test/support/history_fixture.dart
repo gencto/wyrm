@@ -1,5 +1,6 @@
 import 'package:business/redux/app_state.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/logging.dart';
 import 'package:models/logging_type.dart';
 import 'package:models/watch_group.dart';
 import 'package:wyrm_client/wyrm_client.dart';
@@ -17,14 +18,14 @@ const t2 = '$plant/downstream/plc1/t2';
 final groupsOfPlant = [
   WatchGroup(
     name: 'boiler-1',
-    loggingType: LoggingType.pointChange,
+    logging: const Logging.known(LoggingType.pointChange),
     flush: 5,
     watchIds: ['w1', 'w2'].lock,
     keys: [t1, t2].lock,
   ),
   WatchGroup(
     name: 'tank',
-    loggingType: LoggingType.interval,
+    logging: const Logging.known(LoggingType.interval),
     interval: 5,
     flush: 2.5,
     watchIds: ['w1'].lock,

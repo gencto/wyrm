@@ -9,9 +9,11 @@ import 'package:business/wyrm/decode/sys_answers.dart';
 import 'package:business/wyrm/mappers/live_overlay_mapper.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:models/json_value.dart';
 import 'package:models/link_revision.dart';
 import 'package:models/live_value.dart';
+import 'package:models/logging.dart';
 import 'package:models/logging_type.dart';
 import 'package:models/param_spec.dart';
 import 'package:models/peer.dart';
@@ -356,7 +358,7 @@ void main() {
         Valid(
           WatchGroup(
             name: 'fast',
-            loggingType: LoggingType.interval,
+            logging: const Logging.known(LoggingType.interval),
             interval: 5,
             flush: 2.5,
             watchIds: const ['w1'].lock,
@@ -439,43 +441,84 @@ void main() {
       expect(LoggingType.fromWire('interval'), isNull);
     });
 
-    test('a name Studio does not know refuses the group', () {
-      final i = _invalid(
+    test('a name Studio does not know is kept as the broker wrote it; the '
+        'group stays whole', () {
+      final watches = [
+        Child('w1', _wire(NodeMeta(display: 'wy/plant/downstream/modbus/t1'))),
+      ];
+      final g = _valid(
         watchGroupOf('fast', const {
           'logging_type': VStr('Deadband'),
-        }, const []),
+          'interval': VInt(5),
+        }, watches),
       );
-      expect((i.field, i.reason), ('logging_type', 'not a known name'));
+      expect(g.logging, const Logging.other('Deadband'));
+      // it is shown only: the watches and the settings are all there
+      expect(g.keys, ['wy/plant/downstream/modbus/t1']);
+      expect(g.interval, 5);
+      expect(loggingOf('All Data'), const Logging.known(LoggingType.allData));
       // no value yet is not a way of recording
+      expect(_valid(watchGroupOf('fast', const {}, const [])).logging, isNull);
+      // a value that is no text is not a name of any way
       expect(
-        _valid(watchGroupOf('fast', const {}, const [])).loggingType,
-        isNull,
+        _invalid(
+          watchGroupOf('fast', const {'logging_type': VInt(1)}, const []),
+        ).field,
+        'logging_type',
       );
     });
 
-    test('a live value of another shape keeps what the group holds', () {
+    test('the live path reads it the same; a selector records nothing', () {
+      final warned = <String>[];
+      Logger.root.level = Level.ALL;
+      final sub = decodeLog.onRecord.listen((r) => warned.add(r.message));
+      addTearDown(sub.cancel);
       const g = WatchGroup(
         name: 'fast',
-        loggingType: LoggingType.interval,
+        logging: Logging.known(LoggingType.interval),
         interval: 5,
       );
-      IList<WatchGroup> live(Map<String, Object?> values) => liveGroups(
-        [g].lock,
-        'wy/p/sys/history',
-        {
-          for (final e in values.entries)
-            'wy/p/sys/history/fast/${e.key}': LiveValue(
-              value: e.value,
-              time: DateTime.utc(2026),
-            ),
-        }.lock,
-      );
+      Map<String, LiveValue> at(Map<String, Object?> values) => {
+        for (final e in values.entries)
+          'wy/p/sys/history/fast/${e.key}': LiveValue(
+            value: e.value,
+            time: DateTime.utc(2026),
+          ),
+      };
+      IList<WatchGroup> live(Map<String, Object?> values) =>
+          liveGroups([g].lock, 'wy/p/sys/history', at(values).lock);
+
       expect(
         live({'logging_type': 'All Data', 'interval': 2.5}).single,
-        g.copyWith(loggingType: LoggingType.allData, interval: 2.5),
+        g.copyWith(
+          logging: const Logging.known(LoggingType.allData),
+          interval: 2.5,
+        ),
       );
-      expect(live({'logging_type': 'Deadband', 'interval': '5 s'}).single, g);
+      // a way this Studio does not know: the broker's name, as a read
+      // gives it, not the stale one
+      expect(
+        live({'logging_type': 'Deadband'}).single.logging,
+        const Logging.other('Deadband'),
+      );
+      // values of another shape keep what the group holds
+      const odd = {'logging_type': 7, 'interval': '5 s'};
+      for (var i = 0; i < 5; i++) {
+        expect(live(odd).single, g);
+      }
       expect(live(const {}).single, g);
+      // read five times, recorded by none of them
+      expect(warned, isEmpty);
+
+      // recorded once, where the values arrive
+      warnUnreadLive(at(odd), 'wy/p');
+      expect(warned, [
+        'wy/p/sys/history/fast: watch group.logging_type: not a text',
+        'wy/p/sys/history/fast: watch group.interval: not a number',
+      ]);
+      warned.clear();
+      warnUnreadLive(at({'logging_type': 'Deadband', 'interval': 5}), 'wy/p');
+      expect(warned, isEmpty, reason: 'an unknown way is no fault');
     });
   });
 

@@ -2197,5 +2197,7 @@
     "chkUnknownName": "{field}: {found} is a name this Studio does not know",
     "@chkUnknownName": {"placeholders": {"field": {"type": "String"}, "found": {"type": "String"}}},
     "chkLinkFrom": "{id} · {mode} · {driver} · from {site} (wyrmd {broker}, {created})",
-    "@chkLinkFrom": {"placeholders": {"id": {"type": "String"}, "mode": {"type": "String"}, "driver": {"type": "String"}, "site": {"type": "String"}, "broker": {"type": "String"}, "created": {"type": "String"}}}
+    "@chkLinkFrom": {"placeholders": {"id": {"type": "String"}, "mode": {"type": "String"}, "driver": {"type": "String"}, "site": {"type": "String"}, "broker": {"type": "String"}, "created": {"type": "String"}}},
+    "logTypeOther": "{name} (a way this Studio does not know)",
+    "@logTypeOther": {"placeholders": {"name": {"type": "String"}}}
 }

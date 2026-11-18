@@ -475,694 +475,696 @@ class MessageLookup extends MessageLookupByLibrary {
 
   static String m199(id) => "Журнал ${id}";
 
-  static String m200(n) =>
+  static String m200(name) => "${name} (спосіб, якого ця Studio не знає)";
+
+  static String m201(n) =>
       "${Intl.plural(n, one: 'його вживає 1 екземпляр', few: 'його вживають ${n} екземпляри', other: 'його вживають ${n} екземплярів')}";
 
-  static String m201(n) => "бібліотека v${n}";
+  static String m202(n) => "бібліотека v${n}";
 
-  static String m202(n) => "вжито: ${n}";
+  static String m203(n) => "вжито: ${n}";
 
-  static String m203(n) => "v${n}";
+  static String m204(n) => "v${n}";
 
-  static String m204(kind, count) => "${kind} · дій: ${count}";
+  static String m205(kind, count) => "${kind} · дій: ${count}";
 
-  static String m205(status) =>
+  static String m206(status) =>
       "Не вдалося прочитати опис: ${status}. Подробиці в «Проблемах».";
 
-  static String m206(n) =>
+  static String m207(n) =>
       "${Intl.plural(n, zero: 'Скласти план', one: 'Скласти план для 1 пристрою', few: 'Скласти план для ${n} пристроїв', other: 'Скласти план для ${n} пристроїв')}";
 
-  static String m207(count) =>
+  static String m208(count) =>
       "${Intl.plural(count, one: '… ще ${count} байт', few: '… ще ${count} байти', other: '… ще ${count} байтів')}";
 
-  static String m208(count) =>
+  static String m209(count) =>
       "${Intl.plural(count, one: 'ще ${count} рядок', few: 'ще ${count} рядки', other: 'ще ${count} рядків')}";
 
-  static String m209(count) => "Вибрано: ${count}";
+  static String m210(count) => "Вибрано: ${count}";
 
-  static String m210(level, path) => "потрібен рівень ${level} на ${path}";
+  static String m211(level, path) => "потрібен рівень ${level} на ${path}";
 
-  static String m211(level, have) => "Потрібно ${level} · у вас ${have}";
+  static String m212(level, have) => "Потрібно ${level} · у вас ${have}";
 
-  static String m212(level) => "Потрібно ${level} · у вас є";
+  static String m213(level) => "Потрібно ${level} · у вас є";
 
-  static String m213(action) => "Цей вузол не має дії ${action}.";
+  static String m214(action) => "Цей вузол не має дії ${action}.";
 
-  static String m214(param) => "Драйвер не має параметра ${param}.";
+  static String m215(param) => "Драйвер не має параметра ${param}.";
 
-  static String m215(site) => "немає: ${site} — вершина";
+  static String m216(site) => "немає: ${site} — вершина";
 
-  static String m216(site) => "підписано CA сайту ${site} (відомий)";
+  static String m217(site) => "підписано CA сайту ${site} (відомий)";
 
-  static String m217(site) => "сертифікат CA сайту ${site}, закріплено";
+  static String m218(site) => "сертифікат CA сайту ${site}, закріплено";
 
-  static String m218(version) => "wyrmd ${version}";
+  static String m219(version) => "wyrmd ${version}";
 
-  static String m219(site) => "Дерево покаже wy/${site}.";
+  static String m220(site) => "Дерево покаже wy/${site}.";
 
-  static String m220(node) => "Відкрити ${node} в Explorer";
+  static String m221(node) => "Відкрити ${node} в Explorer";
 
-  static String m221(id) => "Відкрити tasks/${id}";
+  static String m222(id) => "Відкрити tasks/${id}";
 
-  static String m222(site) => "Відкриваємо дерево сайту ${site}…";
+  static String m223(site) => "Відкриваємо дерево сайту ${site}…";
 
-  static String m223(name) => "пакет ${name}";
-
-  static String m224(n) =>
-      "${Intl.plural(n, one: '1 випадок', few: '${n} випадки', other: '${n} випадків')}";
+  static String m224(name) => "пакет ${name}";
 
   static String m225(n) =>
+      "${Intl.plural(n, one: '1 випадок', few: '${n} випадки', other: '${n} випадків')}";
+
+  static String m226(n) =>
       "${Intl.plural(n, zero: 'без параметрів', one: '${n} параметр', few: '${n} параметри', other: '${n} параметрів')}";
 
-  static String m226(rev) => "Параметри (ревізія ${rev}, JSON)";
+  static String m227(rev) => "Параметри (ревізія ${rev}, JSON)";
 
-  static String m227(detail) => "Це не JSON: ${detail}";
+  static String m228(detail) => "Це не JSON: ${detail}";
 
-  static String m228(n) =>
+  static String m229(n) =>
       "Додано ${n} ключів, найбільше для одного запиту. Спершу приберіть один.";
 
-  static String m229(site) =>
+  static String m230(site) =>
       "Додайте вузол ${site} як @-чип: фільтруйте або введіть його ключ";
 
-  static String m230(key) => "${key} поза тим, що агент може читати";
+  static String m231(key) => "${key} поза тим, що агент може читати";
 
-  static String m231(key) => "Додати ${key}";
+  static String m232(key) => "Додати ${key}";
 
-  static String m232(site) => "${site} · вибрано в цій мережі";
+  static String m233(site) => "${site} · вибрано в цій мережі";
 
-  static String m233(site) =>
+  static String m234(site) =>
       "${site} · вибрано в цій мережі · резерв заповнено";
 
-  static String m234(now, atRun) =>
+  static String m235(now, atRun) =>
       "чекає на схвалення · перевірено зараз: ${now}, під час виконання: ${atRun}";
 
-  static String m235(n) => "потребує кроку ${n}";
+  static String m236(n) => "потребує кроку ${n}";
 
-  static String m236(path) =>
+  static String m237(path) =>
       "Збережено ${path}. Запустіть його через wyrm-agent run.";
 
-  static String m237(steps) =>
+  static String m238(steps) =>
       "Секретних аргументів у файлі немає: ${steps}. Додайте їх перед запуском.";
 
-  static String m238(s) => "${s} с";
+  static String m239(s) => "${s} с";
 
-  static String m239(n) =>
+  static String m240(n) =>
       "${Intl.plural(n, one: 'План · ${n} крок', few: 'План · ${n} кроки', many: 'План · ${n} кроків', other: 'План · ${n} кроку')}";
 
-  static String m240(s) => "тайм-аут ${s} с";
-
-  static String m241(n) =>
-      "${Intl.plural(n, one: '${n} точка', few: '${n} точки', other: '${n} точок')}";
+  static String m241(s) => "тайм-аут ${s} с";
 
   static String m242(n) =>
+      "${Intl.plural(n, one: '${n} точка', few: '${n} точки', other: '${n} точок')}";
+
+  static String m243(n) =>
       "${Intl.plural(n, one: '1 порт', few: '${n} порти', other: '${n} портів')}";
 
-  static String m243(step) => "${step} · пізніше";
+  static String m244(step) => "${step} · пізніше";
 
-  static String m244(site) => "Читання дерева сайту ${site}";
+  static String m245(site) => "Читання дерева сайту ${site}";
 
-  static String m245(message) => "Чернетка не запускається: ${message}";
+  static String m246(message) => "Чернетка не запускається: ${message}";
 
-  static String m246(reason) =>
+  static String m247(reason) =>
       "Недоступно: /api/info не відповів (${reason}).";
 
-  static String m247(version) =>
+  static String m248(version) =>
       "Недоступно: цьому gateway потрібна Studio ${version} або новіша.";
 
-  static String m248(count) =>
+  static String m249(count) =>
       "${Intl.plural(count, one: '1 проблема', few: '${count} проблеми', many: '${count} проблем', other: '${count} проблеми')}";
 
-  static String m249(name) => "${name} встановлено";
+  static String m250(name) => "${name} встановлено";
 
-  static String m250(name) => "Встановлення ${name}…";
+  static String m251(name) => "Встановлення ${name}…";
 
-  static String m251(sites) => "досягає ${sites}";
+  static String m252(sites) => "досягає ${sites}";
 
-  static String m252(status) =>
+  static String m253(status) =>
       "Не вдалося прочитати значення: ${status}. Подробиці в «Проблемах».";
 
-  static String m253(field) =>
+  static String m254(field) =>
       "Цей брокер не може прив\'язати ${field} (його рушій флоу старший за ADR 0040)";
 
-  static String m254(field) => "${field} не має входу: введіть значення";
+  static String m255(field) => "${field} не має входу: введіть значення";
 
-  static String m255(from, to) => "${from} не підходить до ${to}";
+  static String m256(from, to) => "${from} не підходить до ${to}";
 
-  static String m256(cn) => "Відхилити ${cn}?";
+  static String m257(cn) => "Відхилити ${cn}?";
 
-  static String m257(n) =>
+  static String m258(n) =>
       "${Intl.plural(n, one: 'ретранслює ${n} сайт', few: 'ретранслює ${n} сайти', other: 'ретранслює ${n} сайтів')}";
 
-  static String m258(id) => "Видалити ${id}?";
+  static String m259(id) => "Видалити ${id}?";
 
-  static String m259(name) => "Видалити ${name}?";
+  static String m260(name) => "Видалити ${name}?";
 
-  static String m260(id) =>
+  static String m261(id) =>
       "Цей план замінило завдання tasks/${id}, і його не можна схвалити. Схваліть план того завдання.";
 
-  static String m261(action) => "Результат · ${action}";
+  static String m262(action) => "Результат · ${action}";
 
-  static String m262(what) => "повертає ${what}";
+  static String m263(what) => "повертає ${what}";
 
-  static String m263(audit) =>
+  static String m264(audit) =>
       "Кожен запис перевіряє лінк і фіксує в ${audit}. Значення зʼявляється лише після зворотного читання.";
 
-  static String m264(rev) => "Ревізія ${rev}";
+  static String m265(rev) => "Ревізія ${rev}";
 
-  static String m265(rev) => "Ревізія ${rev} · діє";
+  static String m266(rev) => "Ревізія ${rev} · діє";
 
-  static String m266(n) => "${n} MiB";
+  static String m267(n) => "${n} MiB";
 
-  static String m267(n) => "${n} мс";
+  static String m268(n) => "${n} мс";
 
-  static String m268(path) => "на ${path}";
+  static String m269(path) => "на ${path}";
 
-  static String m269(site, user, role, level) =>
+  static String m270(site, user, role, level) =>
       "Сайт ${site} · застосовується з вашими правами: ${user}, ${role} (${level})";
 
-  static String m270(role, site) => "${role} на ${site}";
+  static String m271(role, site) => "${role} на ${site}";
 
-  static String m271(rev) => "Повернути ревізію ${rev}?";
+  static String m272(rev) => "Повернути ревізію ${rev}?";
 
-  static String m272(n) =>
+  static String m273(n) =>
       "${Intl.plural(n, one: '${n} рядок', few: '${n} рядки', other: '${n} рядків')}";
 
-  static String m273(site, broker) => "З ${site} · wyrmd ${broker}";
+  static String m274(site, broker) => "З ${site} · wyrmd ${broker}";
 
-  static String m274(when, n, sealed) =>
+  static String m275(when, n, sealed) =>
       "Створено ${when} · секцій: ${n} · секрети: ${sealed}";
 
-  static String m275(fresh, exists) =>
+  static String m276(fresh, exists) =>
       "Лінки: нових ${fresh}, наявних тут ${exists}";
 
-  static String m276(site) => "Копія іншого сайту: ${site}";
+  static String m277(site) => "Копія іншого сайту: ${site}";
 
-  static String m277(files) => "Замінити ключі сайту: ${files}";
+  static String m278(files) => "Замінити ключі сайту: ${files}";
 
-  static String m278(site) => "${site} перезапускається і застосовує копію";
+  static String m279(site) => "${site} перезапускається і застосовує копію";
 
-  static String m279(site) => "Відновити ${site} з резервної копії";
+  static String m280(site) => "Відновити ${site} з резервної копії";
 
-  static String m280(done, size) => "Вивантаження: ${done} з ${size}";
+  static String m281(done, size) => "Вивантаження: ${done} з ${size}";
 
-  static String m281(user) =>
+  static String m282(user) =>
       "Виконується як ${user}. Нічого більше в дереві не змінюється, якщо результат не використати.";
 
-  static String m282(s) => "усі кроки пройшли · ${s} с";
+  static String m283(s) => "усі кроки пройшли · ${s} с";
 
-  static String m283(steps) => "виконано · пропущені кроки: ${steps}";
+  static String m284(steps) => "виконано · пропущені кроки: ${steps}";
 
-  static String m284(steps) =>
+  static String m285(steps) =>
       "зупинено · кроки ${steps} щось змінили й лишаються виконаними";
 
-  static String m285(n) =>
+  static String m286(n) =>
       "зупинено · крок ${n} щось змінив і лишається виконаним";
 
-  static String m286(n, of) => "Виконання · крок ${n} з ${of}";
+  static String m287(n, of) => "Виконання · крок ${n} з ${of}";
 
-  static String m287(of) => "Виконання · кроків: ${of}";
+  static String m288(of) => "Виконання · кроків: ${of}";
 
-  static String m288(site) => "Працює на ${site}";
+  static String m289(site) => "Працює на ${site}";
 
-  static String m289(task) => "Зберегти план завдання ${task}";
+  static String m290(task) => "Зберегти план завдання ${task}";
 
-  static String m290(name) => "${name}";
+  static String m291(name) => "${name}";
 
-  static String m291(date) => "додано ${date}";
-
-  static String m292(site) =>
-      "Встановлено ${site} (gateway.devices.step_up: config); тут це не вимкнути.";
+  static String m292(date) => "додано ${date}";
 
   static String m293(site) =>
+      "Встановлено ${site} (gateway.devices.step_up: config); тут це не вимкнути.";
+
+  static String m294(site) =>
       "${site} цього не просить (gateway.devices.step_up: none); увімкнути може лише шлюз.";
 
-  static String m294(site) => "Ваші пристрої на ${site}";
+  static String m295(site) => "Ваші пристрої на ${site}";
 
-  static String m295(n) =>
+  static String m296(n) =>
       "${Intl.plural(n, zero: 'пароль потрібен сьогодні', one: 'пароль потрібен за 1 день', few: 'пароль потрібен за ${n} дні', other: 'пароль потрібен за ${n} днів')}";
 
-  static String m296(site, max) =>
+  static String m297(site, max) =>
       "Приховує дерево і значення; сесію і «Переглянути і застосувати» збережено. ${site} дозволяє щонайбільше ${max} хв.";
 
-  static String m297(n) => "${n} хв";
+  static String m298(n) => "${n} хв";
 
-  static String m298(device) => "На ${device}";
+  static String m299(device) => "На ${device}";
 
-  static String m299(site) => "${site} просить ваш пароль перед новим ключем.";
+  static String m300(site) => "${site} просить ваш пароль перед новим ключем.";
 
-  static String m300(site, state, max, days, confirm) =>
+  static String m301(site, state, max, days, confirm) =>
       "Політика ${site}: пристрої ${state} · до ${max} · пароль кожні ${days} днів${confirm}. Адміністратор бачить і видаляє пристрої в Доступ › Користувачі.";
 
-  static String m301(admin) => "видалив ${admin}";
+  static String m302(admin) => "видалив ${admin}";
 
-  static String m302(user) =>
+  static String m303(user) =>
       "Усі сесії й усі пристрої ${user} завершуються, цей теж.";
 
-  static String m303(store, date, device) =>
+  static String m304(store, date, device) =>
       "Ключ у ${store}, додано ${date}. Вимкнення видаляє ключ тут і ${device} з ваших пристроїв.";
 
-  static String m304(store) =>
+  static String m305(store) =>
       "Вимкнено: Studio тут питає пароль. Увімкнення створює ключ у ${store}.";
 
-  static String m305(s) => "${s} с";
+  static String m306(s) => "${s} с";
 
-  static String m306(level) => "Рівень журналу ${level}";
+  static String m307(level) => "Рівень журналу ${level}";
 
-  static String m307(site) => "Сайти навколо ${site}";
+  static String m308(site) => "Сайти навколо ${site}";
 
-  static String m308(site) =>
+  static String m309(site) =>
       "До чого під’єднаний ${site} і що під’єднано до нього: брокери вище й нижче, платформи, куди він надсилає, і пристрої, чиї лінки працюють поза брокером.";
 
-  static String m309(count) =>
+  static String m310(count) =>
       "${Intl.plural(count, one: '${count} байт', few: '${count} байти', other: '${count} байтів')}";
 
-  static String m310(count) =>
+  static String m311(count) =>
       "${Intl.plural(count, one: '${count} символ', few: '${count} символи', other: '${count} символів')}";
 
-  static String m311(count) =>
+  static String m312(count) =>
       "${Intl.plural(count, one: '${count} стовпець', few: '${count} стовпці', other: '${count} стовпців')}";
 
-  static String m312(count) =>
+  static String m313(count) =>
       "${Intl.plural(count, one: '${count} елемент', few: '${count} елементи', other: '${count} елементів')}";
 
-  static String m313(count) =>
-      "${Intl.plural(count, one: '${count} ключ', few: '${count} ключі', other: '${count} ключів')}";
-
   static String m314(count) =>
-      "${Intl.plural(count, one: '${count} рядок', few: '${count} рядки', other: '${count} рядків')}";
+      "${Intl.plural(count, one: '${count} ключ', few: '${count} ключі', other: '${count} ключів')}";
 
   static String m315(count) =>
       "${Intl.plural(count, one: '${count} рядок', few: '${count} рядки', other: '${count} рядків')}";
 
   static String m316(count) =>
+      "${Intl.plural(count, one: '${count} рядок', few: '${count} рядки', other: '${count} рядків')}";
+
+  static String m317(count) =>
       "${Intl.plural(count, zero: 'Немає підготовлених змін', one: '${count} підготовлена зміна', few: '${count} підготовлені зміни', other: '${count} підготовлених змін')}";
 
-  static String m317(was) => "підготовлено · було ${was}";
+  static String m318(was) => "підготовлено · було ${was}";
 
-  static String m318(host) => "Резерв: ${host}";
+  static String m319(host) => "Резерв: ${host}";
 
-  static String m319(n, total) => "Крок ${n} з ${total}";
+  static String m320(n, total) => "Крок ${n} з ${total}";
 
-  static String m320(host) => "З’єднання з ${host}";
+  static String m321(host) => "З’єднання з ${host}";
 
-  static String m321(n) => "пропущено: потрібен крок ${n}";
+  static String m322(n) => "пропущено: потрібен крок ${n}";
 
-  static String m322(name) => "Підтвердити через ${name}";
+  static String m323(name) => "Підтвердити через ${name}";
 
-  static String m323(name, site, device) =>
+  static String m324(name, site, device) =>
       "${name} підписує лише цей запит: ${site} отримує доказ, прив’язаний до цих змін, і лишається підтвердженим на ${device} 5 хвилин.";
 
-  static String m324(site) =>
+  static String m325(site) =>
       "${site} не прийняв підтвердження: ключ більше не відкривається";
 
-  static String m325(n, site) =>
+  static String m326(n, site) =>
       "${Intl.plural(n, one: 'Застосувати 1 зміну на ${site}.', few: 'Застосувати ${n} зміни на ${site}.', other: 'Застосувати ${n} змін на ${site}.')} ${site} просить свіже підтвердження перед змінами рівня config.";
 
-  static String m326(site) =>
+  static String m327(site) =>
       "Введіть пароль: ${site} лишається підтвердженим 5 хвилин.";
 
-  static String m327(site, reason) =>
+  static String m328(site, reason) =>
       "${site} не прийняв підтвердження: ${reason}";
 
-  static String m328(name) =>
+  static String m329(name) =>
       "${name} не підтвердив. Спробуйте ще раз або введіть пароль.";
 
-  static String m329(name) => "Очікування ${name}…";
+  static String m330(name) => "Очікування ${name}…";
 
-  static String m330(n) => "Зупинено на кроці ${n}";
+  static String m331(n) => "Зупинено на кроці ${n}";
 
-  static String m331(n, code) => "Зупинено на кроці ${n} · ${code}";
+  static String m332(n, code) => "Зупинено на кроці ${n} · ${code}";
 
-  static String m332(why) =>
+  static String m333(why) =>
       "${why}\nЗроблене до нього лишається; ніщо не скасовується само.";
 
-  static String m333(version, os) => "${version} (${os})";
+  static String m334(version, os) => "${version} (${os})";
 
-  static String m334(version, language) => "Studio ${version} · ${language}";
+  static String m335(version, language) => "Studio ${version} · ${language}";
 
-  static String m335(n) => "Відмов ACL побільшало на ${n}";
+  static String m336(n) => "Відмов ACL побільшало на ${n}";
 
-  static String m336(from) =>
+  static String m337(from) =>
       "acl_denied дорівнював ${from}, коли цей екран показували востаннє";
 
-  static String m337(n) => "Резерв відстає на ${n} записів";
+  static String m338(n) => "Резерв відстає на ${n} записів";
 
-  static String m338(n) => "Відкладено розгалужень після розколу: ${n}";
+  static String m339(n) => "Відкладено розгалужень після розколу: ${n}";
 
-  static String m339(site) => "${site} чекає на Authorize";
+  static String m340(site) => "${site} чекає на Authorize";
 
-  static String m340(n) => "Нижчий брокер, що ретранслює сайтів: ${n}";
+  static String m341(n) => "Нижчий брокер, що ретранслює сайтів: ${n}";
 
-  static String m341(id) =>
+  static String m342(id) =>
       "sys/links/${id}/state має стан failed; причина в його журналі";
 
-  static String m342(id) => "${id} не працює";
+  static String m343(id) => "${id} не працює";
 
-  static String m343(cn) => "${cn} чекає в карантині";
+  static String m344(cn) => "${cn} чекає в карантині";
 
-  static String m344(cn) => "Невідомий сертифікат CN ${cn}";
+  static String m345(cn) => "Невідомий сертифікат CN ${cn}";
 
-  static String m345(cn, t) => "Невідомий сертифікат CN ${cn} від ${t}";
+  static String m346(cn, t) => "Невідомий сертифікат CN ${cn} від ${t}";
 
-  static String m346(size) =>
+  static String m347(size) =>
       "Усе, чим володіє брокер, лежить у його `data_dir` (тут ${size}). Studio не робить резервних копій: вони містять ключі сайту, їх роблять на хості. Кроки, готові до копіювання:";
 
-  static String m347(n) =>
+  static String m348(n) =>
       "Наборів записів, відкладених після того, як обидва брокери були активні (усунений розкол): ${n}. Запис аудиту `standby_forked` каже які.";
 
-  static String m348(n) =>
+  static String m349(n) =>
       "Записів реєстру, яких ще немає на резерві: ${n}. Перемикання зараз їх втратить.";
 
-  static String m349(n) => "Очистити від’єднані лінки (${n})…";
+  static String m350(n) => "Очистити від’єднані лінки (${n})…";
 
-  static String m350(ids) =>
+  static String m351(ids) =>
       "${ids}\n\nЇхні id вибувають і більше не можуть бути використані.";
 
-  static String m351(n) => "Очистити від’єднані лінки: ${n}…";
+  static String m352(n) => "Очистити від’єднані лінки: ${n}…";
 
-  static String m352(ids) => "Вилучено: ${ids}";
+  static String m353(ids) => "Вилучено: ${ids}";
 
-  static String m353(title) => "Копіювати: ${title}";
+  static String m354(title) => "Копіювати: ${title}";
 
-  static String m354(url) => "Посилання на посібник скопійовано: ${url}";
+  static String m355(url) => "Посилання на посібник скопійовано: ${url}";
 
-  static String m355(id) => "лінк: ${id}";
+  static String m356(id) => "лінк: ${id}";
 
-  static String m356(n) => "Скопійовано рядків: ${n}";
+  static String m357(n) => "Скопійовано рядків: ${n}";
 
-  static String m357(detail) => "Відповідь не є журналом (${detail}).";
+  static String m358(detail) => "Відповідь не є журналом (${detail}).";
 
-  static String m358(path) => "Збережено ${path}";
+  static String m359(path) => "Збережено ${path}";
 
-  static String m359(n) =>
+  static String m360(n) =>
       "Рядків із кільця брокера: ${n} · новіші зверху · `sys/~act/get_log`";
 
-  static String m360(n, m, time) =>
+  static String m361(n, m, time) =>
       "Рядків у межах 2 хв від ${time} UTC: ${n} з ${m} · новіші зверху · `sys/~act/get_log`";
 
-  static String m361(t) => "запущено ${t}";
+  static String m362(t) => "запущено ${t}";
 
-  static String m362(n) => "Потребує уваги · ${n}";
+  static String m363(n) => "Потребує уваги · ${n}";
 
-  static String m363(m, time) =>
+  static String m364(m, time) =>
       "Серед найновіших ${m} рядків немає жодного в межах 2 хв від ${time} UTC. Запитайте більше рядків або очистьте час.";
 
-  static String m364(standby) =>
+  static String m365(standby) =>
       "2. У `wyrmd.json5` на обох хостах: `${standby}` і `peers.listen`; радимо `arbiter` оренди на третьому хості.";
 
-  static String m365(t) => "${t} · зараз";
+  static String m366(t) => "${t} · зараз";
 
-  static String m366(n) => "з ${n}";
+  static String m367(n) => "з ${n}";
 
-  static String m367(name) =>
+  static String m368(name) =>
       "Файл ${name}. Файл .cbor надсилається як є; файл JSON спершу кодується.";
 
-  static String m368(name) => "Профіль ${name} додано";
+  static String m369(name) => "Профіль ${name} додано";
 
-  static String m369(name) => "Профіль ${name} вилучено";
+  static String m370(name) => "Профіль ${name} вилучено";
 
-  static String m370(reason) =>
+  static String m371(reason) =>
       "Цей брокер не віддає перелік профілів через шлюз (${reason}). Профіль усе одно можна додати; брокер віддаватиме його як pub/<name>.";
 
-  static String m371(name) => "Вилучити профіль ${name}";
+  static String m372(name) => "Вилучити профіль ${name}";
 
-  static String m372(name) =>
+  static String m373(name) =>
       "Брокер перестає віддавати pub/${name} і записує це в журнал аудиту (profile_remove).";
 
-  static String m373(cn) => "зовнішній · CN ${cn}";
+  static String m374(cn) => "зовнішній · CN ${cn}";
 
-  static String m374(size) => "історія ${size} · відкрити Історію";
+  static String m375(size) => "історія ${size} · відкрити Історію";
 
-  static String m375(id) => "${id} не працює · відкрити Лінки";
+  static String m376(id) => "${id} не працює · відкрити Лінки";
 
-  static String m376(site) => "${site} · відкрити Сайти";
+  static String m377(site) => "${site} · відкрити Сайти";
 
-  static String m377(cn) => "${cn} чекає · відкрити Карантин";
+  static String m378(cn) => "${cn} чекає · відкрити Карантин";
 
-  static String m378(measure, from, to) =>
+  static String m379(measure, from, to) =>
       "${measure} на вхід і вихід за секунду від ${from} до ${to}";
 
-  static String m379(shown, total) => "${shown} з ${total} рядків";
+  static String m380(shown, total) => "${shown} з ${total} рядків";
 
-  static String m380(up) => "нижче ${up}";
+  static String m381(up) => "нижче ${up}";
 
-  static String m381(level) => "потрібно ${level}";
+  static String m382(level) => "потрібно ${level}";
 
-  static String m382(who) => "від ${who}";
+  static String m383(who) => "від ${who}";
 
-  static String m383(n) => "помилка на кроці ${n}";
+  static String m384(n) => "помилка на кроці ${n}";
 
-  static String m384(agent) => "Кожна задача — вузол: ${agent}/tasks/<id>";
+  static String m385(agent) => "Кожна задача — вузол: ${agent}/tasks/<id>";
 
-  static String m385(id) => "замінено на ${id}";
+  static String m386(id) => "замінено на ${id}";
 
-  static String m386(who, op, key) => "${who} · ${op} ${key}";
+  static String m387(who, op, key) => "${who} · ${op} ${key}";
 
-  static String m387(point, range) => "${point} · останні ${range}";
+  static String m388(point, range) => "${point} · останні ${range}";
 
-  static String m388(site) => "TLS · сертифікат CA сайту ${site}";
+  static String m389(site) => "TLS · сертифікат CA сайту ${site}";
 
-  static String m389(site) => "TLS · CA сайту ${site}, ще не довірено";
+  static String m390(site) => "TLS · CA сайту ${site}, ще не довірено";
 
-  static String m390(site) =>
+  static String m391(site) =>
       "TLS · CA сайту ${site}, закріплено на цьому комп’ютері";
 
-  static String m391(seconds) => "зникне через ${seconds} с";
+  static String m392(seconds) => "зникне через ${seconds} с";
 
-  static String m392(site) => "лишається, доки ${site} не повернеться";
+  static String m393(site) => "лишається, доки ${site} не повернеться";
 
-  static String m393(used, budget) => "${used} з ${budget} токенів";
+  static String m394(used, budget) => "${used} з ${budget} токенів";
 
-  static String m394(site) => "Дерево · ${site}";
+  static String m395(site) => "Дерево · ${site}";
 
-  static String m395(step) => "середнє за ${step}";
+  static String m396(step) => "середнє за ${step}";
 
-  static String m396(rollup, from, to) => "${rollup} · ${from}–${to}";
+  static String m397(rollup, from, to) => "${rollup} · ${from}–${to}";
 
-  static String m397(at, delta, key, over) =>
+  static String m398(at, delta, key, over) =>
       "Δ від A (${at}): ${delta} ${key} за ${over}";
 
-  static String m398(what, range) =>
+  static String m399(what, range) =>
       "${what}, ${range}. Виберіть діапазон вікном нижче.";
 
-  static String m399(h, m) => "${h} год ${m} хв";
+  static String m400(h, m) => "${h} год ${m} хв";
 
-  static String m400(key) => "Ви не можете читати ${key}";
+  static String m401(key) => "Ви не можете читати ${key}";
 
-  static String m401(t) => "A · ${t}";
+  static String m402(t) => "A · ${t}";
 
-  static String m402(min, max) => "мін ${min} · макс ${max}";
+  static String m403(min, max) => "мін ${min} · макс ${max}";
 
-  static String m403(m) => "${m} хв";
+  static String m404(m) => "${m} хв";
 
-  static String m404(point) => "Тренд ${point}";
+  static String m405(point) => "Тренд ${point}";
 
-  static String m405(t) => "сирі · ${t}";
+  static String m406(t) => "сирі · ${t}";
 
-  static String m406(s) => "${s} с";
+  static String m407(s) => "${s} с";
 
-  static String m407(name) => "Показати або сховати ${name}";
+  static String m408(name) => "Показати або сховати ${name}";
 
-  static String m408(n) => "${n} д";
+  static String m409(n) => "${n} д";
 
-  static String m409(n) => "${n} год";
+  static String m410(n) => "${n} год";
 
-  static String m410(n) => "${n} хв";
+  static String m411(n) => "${n} хв";
 
-  static String m411(site) => "Збігається · довіряти ${site}";
+  static String m412(site) => "Збігається · довіряти ${site}";
 
-  static String m412(host) =>
+  static String m413(host) =>
       "Сертифікат gateway не підписано цим CA, або він не називає ${host}. Нічому не довірено.";
 
-  static String m413(site) => "Вперше на ${site} · перевірте сертифікат";
+  static String m414(site) => "Вперше на ${site} · перевірте сертифікат";
 
-  static String m414(command) =>
+  static String m415(command) =>
       "На брокері: System › Gateway › Certificate code, або ${command} на його хості.";
 
-  static String m415(site) =>
+  static String m416(site) =>
       "Gateway сайту ${site} має власний CA, якого цей комп’ютер не знає. Порівняйте код із кодом на брокері, перш ніж довіряти: будь-хто в цій мережі може оголосити ім’я.";
 
-  static String m416(unit) => "адреса ${unit}";
+  static String m417(unit) => "адреса ${unit}";
 
-  static String m417(name) => "${name} не відкрив ключ";
-
-  static String m418(device) =>
-      "Обличчя на ${device} змінилися, тож ключ, який зберігав Studio, більше не відкривається. Людина з новим обличчям не ввійде як ви.";
+  static String m418(name) => "${name} не відкрив ключ";
 
   static String m419(device) =>
+      "Обличчя на ${device} змінилися, тож ключ, який зберігав Studio, більше не відкривається. Людина з новим обличчям не ввійде як ви.";
+
+  static String m420(device) =>
       "Відбитки пальців на ${device} змінилися, тож ключ, який зберігав Studio, більше не відкривається. Людина з новим відбитком не ввійде як ви.";
 
-  static String m420(name) => "${name} вимкнено для цього облікового запису";
+  static String m421(name) => "${name} вимкнено для цього облікового запису";
 
-  static String m421(site) => "Перевірка ключа на ${site}…";
+  static String m422(site) => "Перевірка ключа на ${site}…";
 
-  static String m422(site) => "підтвердити зміни на ${site}";
+  static String m423(site) => "підтвердити зміни на ${site}";
 
-  static String m423(days, name) =>
+  static String m424(days, name) =>
       "Від останнього пароля тут минуло ${days} днів. Після цього входу ${name} знову працює.";
 
-  static String m424(site, days) => "${site} просить пароль кожні ${days} днів";
+  static String m425(site, days) => "${site} просить пароль кожні ${days} днів";
 
-  static String m425(site, user) => "увімкнути відмикання ${site} як ${user}";
+  static String m426(site, user) => "увімкнути відмикання ${site} як ${user}";
 
-  static String m426(site, days) =>
+  static String m427(site, days) =>
       "${site} просить пароль раз на ${days} днів.";
 
-  static String m427(site) =>
+  static String m428(site) =>
       "Працює з ${site}. Інші шлюзи просять свій власний.";
 
-  static String m428(site, standby) =>
+  static String m429(site, standby) =>
       "Працює з ${site} і його резервним ${standby}. Інші шлюзи просять свій власний.";
 
-  static String m429(user, site, store) =>
+  static String m430(user, site, store) =>
       "Один ключ для ${user} на ${site}, створений у ${store}. Він ніколи звідти не виходить; Studio ніколи не зберігає ваш пароль.";
 
-  static String m430(name) =>
+  static String m431(name) =>
       "Увійдіть з паролем. ${name} лишається ввімкненим на наступний раз.";
 
-  static String m431(store, date) => "Ключ у ${store} · додано ${date}";
+  static String m432(store, date) => "Ключ у ${store} · додано ${date}";
 
-  static String m432(name, when) => "${name} · ${when}";
+  static String m433(name, when) => "${name} · ${when}";
 
-  static String m433(name) => "${name} не збігся 3 рази";
+  static String m434(name) => "${name} не збігся 3 рази";
 
-  static String m434(site) => "до шлюзу ${site}.";
+  static String m435(site) => "до шлюзу ${site}.";
 
-  static String m435(site) =>
+  static String m436(site) =>
       "${site} більше не дозволяє біометричне відмикання";
 
-  static String m436(name) => "Не вдалося ввімкнути ${name}";
+  static String m437(name) => "Не вдалося ввімкнути ${name}";
 
-  static String m437(site, user, role) => "Вхід у ${site} як ${user} · ${role}";
+  static String m438(site, user, role) => "Вхід у ${site} як ${user} · ${role}";
 
-  static String m438(name, site, device) =>
+  static String m439(name, site, device) =>
       "Замість пароля ${name} відкриває ключ, який доводить ${site}, що на ${device} саме ви.";
 
-  static String m439(name) => "Наступного разу відмикати через ${name}?";
+  static String m440(name) => "Наступного разу відмикати через ${name}?";
 
-  static String m440(user) => "Пароль для ${user}";
+  static String m441(user) => "Пароль для ${user}";
 
-  static String m441(host) => "${host} + резервний";
+  static String m442(host) => "${host} + резервний";
 
-  static String m442(site, max) =>
+  static String m443(site, max) =>
       "${site} це дозволяє: біометричні пристрої увімкнено, до ${max} на користувача (gateway.devices). Вимкнути можна в меню облікового запису › Безпека.";
 
-  static String m443(site, user) => "увійти в ${site} як ${user}";
+  static String m444(site, user) => "увійти в ${site} як ${user}";
 
-  static String m444(name) => "Знову ввімкнути ${name} після входу";
+  static String m445(name) => "Знову ввімкнути ${name} після входу";
 
-  static String m445(device, name) =>
+  static String m446(device, name) =>
       "Адміністратор видалив ${device} з ваших пристроїв. Увійдіть з паролем; потім можна знову ввімкнути ${name}.";
 
-  static String m446(role, site) => "· ${role} на ${site}";
+  static String m447(role, site) => "· ${role} на ${site}";
 
-  static String m447(site) => "Відімкніть, щоб відкрити дерево ${site}.";
+  static String m448(site) => "Відімкніть, щоб відкрити дерево ${site}.";
 
-  static String m448(device, name) =>
+  static String m449(device, name) =>
       "Шлюз більше не має запису про ${device}. Увійдіть з паролем; потім можна знову ввімкнути ${name}.";
 
-  static String m449(site) => "${site} не знає цього ключа";
+  static String m450(site) => "${site} не знає цього ключа";
 
-  static String m450(name) => "Використати ${name}";
+  static String m451(name) => "Використати ${name}";
 
-  static String m451(name) => "Відімкнути через ${name}";
+  static String m452(name) => "Відімкнути через ${name}";
 
-  static String m452(d) => "працює ${d}";
+  static String m453(d) => "працює ${d}";
 
-  static String m453(n) => "Оновити лінків: ${n}";
+  static String m454(n) => "Оновити лінків: ${n}";
 
-  static String m454(version) => "${version} залишається, лінк не відповів";
+  static String m455(version) => "${version} залишається, лінк не відповів";
 
-  static String m455(package) =>
+  static String m456(package) =>
       "Дайте zip пакета ${package} з вищою версією. Брокер перевіряє його як будь-яке встановлення і оновлює всі лінки пакета.";
 
-  static String m456(links) => "Гарячий старт, без перезапуску: ${links}";
+  static String m457(links) => "Гарячий старт, без перезапуску: ${links}";
 
-  static String m457(version, when) =>
+  static String m458(version, when) =>
       "${version} залишається встановленою до ${when}. Точка відновлення запечатана для цього брокера і залишається на ньому.";
 
-  static String m458(n) => "лінків: ${n}";
+  static String m459(n) => "лінків: ${n}";
 
-  static String m459(n, links) => "Лінки, що перезапускаються (${n}): ${links}";
+  static String m460(n, links) => "Лінки, що перезапускаються (${n}): ${links}";
 
-  static String m460(link) => "Відкрити ${link}";
+  static String m461(link) => "Відкрити ${link}";
 
-  static String m461(link) => "${link} · перед відновленням з резервної копії";
+  static String m462(link) => "${link} · перед відновленням з резервної копії";
 
-  static String m462(link, version) =>
+  static String m463(link, version) =>
       "${link} · ${version} · перед оновленням";
 
-  static String m463(version, links) =>
+  static String m464(version, links) =>
       "Ці лінки зупиняться і запустяться на ${version}: ${links}. Брокер повертає їхні приватні дані до точки відновлення оновлення, якщо оновлення змінило формат сховища або закінчилося погано; після вдалого оновлення вони зберігають поточні дані. Після цього жодна версія не зберігається: другого відкату немає.";
 
-  static String m464(package, version) => "Відкотити ${package} до ${version}?";
+  static String m465(package, version) => "Відкотити ${package} до ${version}?";
 
-  static String m465(version) => "Відкотити до ${version}…";
+  static String m466(version) => "Відкотити до ${version}…";
 
-  static String m466(version) => "Відкочено до ${version}";
+  static String m467(version) => "Відкочено до ${version}";
 
-  static String m467(version) => "Лінки працюють на ${version}";
+  static String m468(version) => "Лінки працюють на ${version}";
 
-  static String m468(links) => "${links}: повернулися з усіма вузлами.";
+  static String m469(links) => "${links}: повернулися з усіма вузлами.";
 
-  static String m469(state) => "Він змінює формат сховища (зі state ${state})";
+  static String m470(state) => "Він змінює формат сховища (зі state ${state})";
 
-  static String m470(state) => "Формат сховища: той самий (state ${state})";
+  static String m471(state) => "Формат сховища: той самий (state ${state})";
 
-  static String m471(back, gone) =>
+  static String m472(back, gone) =>
       "оголошено знову: ${back} · ще немає або зникло: ${gone}";
 
-  static String m472(n) => "Власний пакет · лінків на ньому: ${n}";
+  static String m473(n) => "Власний пакет · лінків на ньому: ${n}";
 
-  static String m473(n) => "Пакет репозиторію · лінків на ньому: ${n}";
+  static String m474(n) => "Пакет репозиторію · лінків на ньому: ${n}";
 
-  static String m474(package, from, to) => "Оновити ${package} ${from} → ${to}";
+  static String m475(package, from, to) => "Оновити ${package} ${from} → ${to}";
 
-  static String m475(package, from) => "Оновити ${package} ${from} з файлу";
+  static String m476(package, from) => "Оновити ${package} ${from} з файлу";
 
-  static String m476(package) => "${package} оновлено";
+  static String m477(package) => "${package} оновлено";
 
-  static String m477(package) => "Оновлення ${package} відкочено";
+  static String m478(package) => "Оновлення ${package} відкочено";
 
-  static String m478(result) => "Брокер завершив його як «${result}»";
+  static String m479(result) => "Брокер завершив його як «${result}»";
 
-  static String m479(package) => "Оновлення ${package}";
+  static String m480(package) => "Оновлення ${package}";
 
-  static String m480(package) => "Версії ${package}";
+  static String m481(package) => "Версії ${package}";
 
-  static String m481(version) => "Що нового у ${version}";
+  static String m482(version) => "Що нового у ${version}";
 
-  static String m482(v) => "Версія ${v} · розгорнута";
+  static String m483(v) => "Версія ${v} · розгорнута";
 
-  static String m483(site) => "через ${site}";
+  static String m484(site) => "через ${site}";
 
-  static String m484(delimiter, header) =>
+  static String m485(delimiter, header) =>
       "Так, як його читає блок: роздільник ${delimiter}, ${header}";
 
-  static String m485(keys) => "${keys} зберігає · Esc скасовує";
+  static String m486(keys) => "${keys} зберігає · Esc скасовує";
 
-  static String m486(keys) => "${keys} зберігає · Esc відкидає зміни";
+  static String m487(keys) => "${keys} зберігає · Esc відкидає зміни";
 
-  static String m487(n, who) => "${n} чекають на допуск: ${who}";
+  static String m488(n, who) => "${n} чекають на допуск: ${who}";
 
-  static String m488(value) => "було ${value}";
+  static String m489(value) => "було ${value}";
 
-  static String m489(n) => "Групи спостереження · ${n}";
+  static String m490(n) => "Групи спостереження · ${n}";
 
-  static String m490(mode) =>
+  static String m491(mode) =>
       "З require_approval «${mode}» план вибраного варіанта виконує кроки запису без людини. Мітка — здогад асистента, а не перевірка. Прочитайте плитку, перш ніж вибрати її.";
 
-  static String m491(user) => "Вітаємо, ${user}";
+  static String m492(user) => "Вітаємо, ${user}";
 
-  static String m492(value) => "запустив би на ${value}";
+  static String m493(value) => "запустив би на ${value}";
 
-  static String m493(value) => "надіслав би ${value}";
+  static String m494(value) => "надіслав би ${value}";
 
-  static String m494(value) => "записав би ${value}";
+  static String m495(value) => "записав би ${value}";
 
-  static String m495(level) => "Щоб увімкнути, потрібен рівень ${level}";
+  static String m496(level) => "Щоб увімкнути, потрібен рівень ${level}";
 
-  static String m496(site) => "wyrmd на ${site}";
+  static String m497(site) => "wyrmd на ${site}";
 
   final messages = _notInlinedMessages(_notInlinedMessages);
   static Map<String, Function> _notInlinedMessages(_) => <String, Function>{
@@ -2591,6 +2593,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "logTypeAllData": MessageLookupByLibrary.simpleMessage("Усі дані"),
     "logTypeInterval": MessageLookupByLibrary.simpleMessage("Інтервал"),
     "logTypeNone": MessageLookupByLibrary.simpleMessage("Нічого"),
+    "logTypeOther": m200,
     "logTypePointChange": MessageLookupByLibrary.simpleMessage("Зміна точки"),
     "lookAgain": MessageLookupByLibrary.simpleMessage("Шукати ще"),
     "mAclDenials": MessageLookupByLibrary.simpleMessage("Відмови ACL"),
@@ -2617,7 +2620,7 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "mbDelete": MessageLookupByLibrary.simpleMessage("Видалити"),
     "mbEdit": MessageLookupByLibrary.simpleMessage("Редагувати власний блок"),
-    "mbInUse": m200,
+    "mbInUse": m201,
     "mbInsideItself": MessageLookupByLibrary.simpleMessage(
       "Блок не може містити сам себе",
     ),
@@ -2636,17 +2639,17 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "mbSave": MessageLookupByLibrary.simpleMessage("Зберегти в бібліотеку"),
     "mbUpdate": MessageLookupByLibrary.simpleMessage("Оновити з бібліотеки"),
-    "mbUpdateTo": m201,
-    "mbUsed": m202,
-    "mbVersion": m203,
+    "mbUpdateTo": m202,
+    "mbUsed": m203,
+    "mbVersion": m204,
     "menuLanguage": MessageLookupByLibrary.simpleMessage("Мова"),
     "menuOther": MessageLookupByLibrary.simpleMessage("Інше"),
-    "menuSubtitle": m204,
+    "menuSubtitle": m205,
     "menuTheme": MessageLookupByLibrary.simpleMessage("Тема"),
     "messagesPerSecond": MessageLookupByLibrary.simpleMessage(
       "Повідомлень роутера за секунду",
     ),
-    "metaFailedTip": m205,
+    "metaFailedTip": m206,
     "modeConfig": MessageLookupByLibrary.simpleMessage("Лише кроки config"),
     "modeConfigDetail": MessageLookupByLibrary.simpleMessage(
       "Кроки запису виконуються одразу власним ключем агента; кроки config чекають на людину.",
@@ -2692,9 +2695,9 @@ class MessageLookup extends MessageLookupByLibrary {
       "січ,лют,бер,кві,тра,чер,лип,сер,вер,жов,лис,гру",
     ),
     "more": MessageLookupByLibrary.simpleMessage("Ще"),
-    "moreButton": m206,
-    "moreBytes": m207,
-    "moreLines": m208,
+    "moreButton": m207,
+    "moreBytes": m208,
+    "moreLines": m209,
     "moreNone": MessageLookupByLibrary.simpleMessage(
       "Позначте вузли, для яких потрібен план.",
     ),
@@ -2712,7 +2715,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Потрібні власні блоки в рушії",
     ),
     "myBlocksThisFlow": MessageLookupByLibrary.simpleMessage("Цей флоу"),
-    "nSelected": m209,
+    "nSelected": m210,
     "nameIt": MessageLookupByLibrary.simpleMessage("Дайте лінку назву."),
     "nameRule": MessageLookupByLibrary.simpleMessage(
       "Літери, цифри, . _ - · не зайнята іншим лінком, видаленим лінком або сайтом",
@@ -2723,9 +2726,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "needsConfigOnSys": MessageLookupByLibrary.simpleMessage(
       "Потрібен config на sys",
     ),
-    "needsLevelOn": m210,
-    "needsLevelYouHave": m211,
-    "needsLevelYouHaveIt": m212,
+    "needsLevelOn": m211,
+    "needsLevelYouHave": m212,
+    "needsLevelYouHaveIt": m213,
     "networkError": MessageLookupByLibrary.simpleMessage(
       "Проблема зі з’єднанням",
     ),
@@ -2734,7 +2737,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "newTask": MessageLookupByLibrary.simpleMessage("Нова задача"),
     "newValue": MessageLookupByLibrary.simpleMessage("Нове значення"),
     "no": MessageLookupByLibrary.simpleMessage("ні"),
-    "noActionReason": m213,
+    "noActionReason": m214,
     "noAgent": MessageLookupByLibrary.simpleMessage(
       "На цьому сайті немає асистента. Асистент — це link агента: додай його, дай йому API-ключ і питай тут.",
     ),
@@ -2765,7 +2768,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "noLocalLinks": MessageLookupByLibrary.simpleMessage(
       "На цьому брокері ще немає лінків. Додайте лінк, щоб під’єднати пристрій.",
     ),
-    "noParamReason": m214,
+    "noParamReason": m215,
     "noPingReason": MessageLookupByLibrary.simpleMessage(
       "Цей вузол не має дії ping: драйвер пінгує сам (cfg ping).",
     ),
@@ -2786,7 +2789,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "noTasks": MessageLookupByLibrary.simpleMessage(
       "Опиши зміну. Агент читає дерево, пише план і чекає схвалення. Нічого не зміниться без твого схвалення.",
     ),
-    "noUpstream": m215,
+    "noUpstream": m216,
     "noUsers": MessageLookupByLibrary.simpleMessage(
       "Немає користувачів, доступних вам.",
     ),
@@ -2821,11 +2824,11 @@ class MessageLookup extends MessageLookupByLibrary {
     "noteBlockOutputs": MessageLookupByLibrary.simpleMessage(
       "Що блок віддає. Перетягни внутрішній вихід на кожен. + додає вихід.",
     ),
-    "noteKnownAs": m216,
+    "noteKnownAs": m217,
     "noteNew": MessageLookupByLibrary.simpleMessage(
       "власний CA · перевірте код, перш ніж довіряти",
     ),
-    "notePinned": m217,
+    "notePinned": m218,
     "notePlain": MessageLookupByLibrary.simpleMessage(
       "простий http на цьому комп’ютері",
     ),
@@ -2835,7 +2838,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "noteTrusted": MessageLookupByLibrary.simpleMessage(
       "цей комп’ютер довіряє сертифікату",
     ),
-    "noteWyrmd": m218,
+    "noteWyrmd": m219,
     "nothingInQuarantine": MessageLookupByLibrary.simpleMessage(
       "У карантині нічого не чекає.",
     ),
@@ -2868,12 +2871,12 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "openInside": MessageLookupByLibrary.simpleMessage("Відкрити вміст"),
     "openItsTree": MessageLookupByLibrary.simpleMessage("Відкрити його дерево"),
-    "openItsTreeNote": m219,
-    "openNodeInExplorer": m220,
-    "openReplacement": m221,
+    "openItsTreeNote": m220,
+    "openNodeInExplorer": m221,
+    "openReplacement": m222,
     "openSettings": MessageLookupByLibrary.simpleMessage("Відкрити параметри"),
     "openingTree": MessageLookupByLibrary.simpleMessage("Відкриваємо дерево"),
-    "openingTreeOf": m222,
+    "openingTreeOf": m223,
     "operateRunsNow": MessageLookupByLibrary.simpleMessage(
       "Керування · виконується одразу",
     ),
@@ -2881,12 +2884,12 @@ class MessageLookup extends MessageLookupByLibrary {
       "Виконується на пристрої з вашими правами і записується в аудит.",
     ),
     "package": MessageLookupByLibrary.simpleMessage("пакет"),
-    "packageNamed": m223,
+    "packageNamed": m224,
     "packageSummary": MessageLookupByLibrary.simpleMessage(
       "Пакет із вашого репозиторію · SHA-256 звіряється з індексом під час завантаження",
     ),
     "packageUrl": MessageLookupByLibrary.simpleMessage("URL пакета (HTTPS)"),
-    "pairsCount": m224,
+    "pairsCount": m225,
     "paletteBlocks": MessageLookupByLibrary.simpleMessage("Блоки"),
     "paletteMyBlocks": MessageLookupByLibrary.simpleMessage("Мої блоки"),
     "paletteTree": MessageLookupByLibrary.simpleMessage("Дерево"),
@@ -2897,9 +2900,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "panelThisTask": MessageLookupByLibrary.simpleMessage("Ця задача"),
     "panelTree": MessageLookupByLibrary.simpleMessage("дерево"),
     "panelWorkspace": MessageLookupByLibrary.simpleMessage("робоча область"),
-    "paramCount": m225,
-    "paramsJson": m226,
-    "paramsNotJson": m227,
+    "paramCount": m226,
+    "paramsJson": m227,
+    "paramsNotJson": m228,
     "paramsNotObject": MessageLookupByLibrary.simpleMessage(
       "Параметри мають бути одним об’єктом JSON.",
     ),
@@ -2917,13 +2920,13 @@ class MessageLookup extends MessageLookupByLibrary {
     "pickAPoint": MessageLookupByLibrary.simpleMessage(
       "Виберіть точку в таблиці, щоб побачити її історію.",
     ),
-    "pickKeyFull": m228,
-    "pickKeyHint": m229,
-    "pickKeyOutside": m230,
+    "pickKeyFull": m229,
+    "pickKeyHint": m230,
+    "pickKeyOutside": m231,
     "pickKeySelected": MessageLookupByLibrary.simpleMessage(
       "вибрано в Explorer",
     ),
-    "pickKeyTyped": m231,
+    "pickKeyTyped": m232,
     "pickOne": MessageLookupByLibrary.simpleMessage("Оберіть лінк зі списку."),
     "pickPointHint": MessageLookupByLibrary.simpleMessage(
       "Клацніть точку, щоб побачити її тренд; ⌘/Ctrl-клацання додає до трьох.",
@@ -2931,8 +2934,8 @@ class MessageLookup extends MessageLookupByLibrary {
     "pickPointTrend": MessageLookupByLibrary.simpleMessage(
       "Виберіть точку, щоб побачити її тренд",
     ),
-    "pickedFrom": m232,
-    "pickedWithStandby": m233,
+    "pickedFrom": m233,
+    "pickedWithStandby": m234,
     "pinField": MessageLookupByLibrary.simpleMessage("Закріпити на блоці"),
     "pinLocked": MessageLookupByLibrary.simpleMessage(
       "Зв’язане поле лишається на блоці",
@@ -2942,19 +2945,19 @@ class MessageLookup extends MessageLookupByLibrary {
     "planChecked": MessageLookupByLibrary.simpleMessage(
       "чекає на схвалення · перевірено",
     ),
-    "planCheckedPartly": m234,
-    "planNeedsStep": m235,
+    "planCheckedPartly": m235,
+    "planNeedsStep": m236,
     "planNote": MessageLookupByLibrary.simpleMessage(
       "План записаний у задачі. Studio покаже його, коли gateway зможе читати документи (docs/studio.md §10 п. 11). Поки що читай план через wyrm-agent.",
     ),
-    "planSaved": m236,
-    "planSavedSecrets": m237,
+    "planSaved": m237,
+    "planSavedSecrets": m238,
     "planSecretNote": MessageLookupByLibrary.simpleMessage(
       "Секретний аргумент не показано. Схвалення все одно стосується значення, яке тримає план.",
     ),
-    "planSleep": m238,
-    "planSteps": m239,
-    "planTimeout": m240,
+    "planSleep": m239,
+    "planSteps": m240,
+    "planTimeout": m241,
     "planWaiting": MessageLookupByLibrary.simpleMessage(
       "План чекає на схвалення. До нього нічого не виконується.",
     ),
@@ -2973,12 +2976,12 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "pointR": MessageLookupByLibrary.simpleMessage("R"),
     "pointRw": MessageLookupByLibrary.simpleMessage("RW"),
-    "pointsCount": m241,
+    "pointsCount": m242,
     "pointsNote": MessageLookupByLibrary.simpleMessage(
       "Значення оновлюються наживо. Зміни готуються в цій сесії; нічого не записується в пристрій до застосування.",
     ),
     "portBad": MessageLookupByLibrary.simpleMessage("Порт — від 1 до 65535."),
-    "portsCount": m242,
+    "portsCount": m243,
     "prefixesLabel": MessageLookupByLibrary.simpleMessage(
       "Де він може пропонувати зміни",
     ),
@@ -2989,11 +2992,11 @@ class MessageLookup extends MessageLookupByLibrary {
       "Читання блоків потоків",
     ),
     "preloadFlows": MessageLookupByLibrary.simpleMessage("Читання потоків"),
-    "preloadLater": m243,
+    "preloadLater": m244,
     "preloadLinks": MessageLookupByLibrary.simpleMessage("Читання лінків"),
     "preloadSites": MessageLookupByLibrary.simpleMessage("Читання сайтів"),
-    "preloadTree": m244,
-    "previewInvalid": m245,
+    "preloadTree": m245,
+    "previewInvalid": m246,
     "previewTag": MessageLookupByLibrary.simpleMessage("перегляд"),
     "probeButton": MessageLookupByLibrary.simpleMessage("Перевірити"),
     "probeNote": MessageLookupByLibrary.simpleMessage(
@@ -3008,7 +3011,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Недоступно: оголошений код CA не збігається з кодом його CA.",
     ),
     "problemInvalid": MessageLookupByLibrary.simpleMessage("недійсний"),
-    "problemNoAnswer": m246,
+    "problemNoAnswer": m247,
     "problemNoCa": MessageLookupByLibrary.simpleMessage(
       "Недоступно: цей комп’ютер не довіряє сертифікату, а CA для перевірки gateway не надсилає.",
     ),
@@ -3021,12 +3024,12 @@ class MessageLookup extends MessageLookupByLibrary {
     "problemPlainHttp": MessageLookupByLibrary.simpleMessage(
       "Недоступно: простий http поза цим комп’ютером заборонено (insecure_plaintext).",
     ),
-    "problemStudioTooOld": m247,
+    "problemStudioTooOld": m248,
     "problemUnnamed": MessageLookupByLibrary.simpleMessage("назвіть потік"),
     "problems": MessageLookupByLibrary.simpleMessage("Проблеми"),
     "problemsClear": MessageLookupByLibrary.simpleMessage("Очистити все"),
     "problemsClose": MessageLookupByLibrary.simpleMessage("Закрити проблеми"),
-    "problemsCount": m248,
+    "problemsCount": m249,
     "problemsEmpty": MessageLookupByLibrary.simpleMessage(
       "У цьому сеансі проблем немає.",
     ),
@@ -3051,8 +3054,8 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "qChoose": MessageLookupByLibrary.simpleMessage("Що ви хочете додати?"),
     "qFailed": MessageLookupByLibrary.simpleMessage("Брокер не встановив його"),
-    "qInstalled": m249,
-    "qInstalling": m250,
+    "qInstalled": m250,
+    "qInstalling": m251,
     "qRun": MessageLookupByLibrary.simpleMessage(
       "Де він працюватиме і під якою назвою?",
     ),
@@ -3078,10 +3081,10 @@ class MessageLookup extends MessageLookupByLibrary {
     "rangeTooBig": MessageLookupByLibrary.simpleMessage(
       "Не більше 1024 адрес: /22 або менше.",
     ),
-    "reachesSites": m251,
+    "reachesSites": m252,
     "readAgain": MessageLookupByLibrary.simpleMessage("Прочитати знову"),
     "readFailed": MessageLookupByLibrary.simpleMessage("не прочитано"),
-    "readFailedTip": m252,
+    "readFailedTip": m253,
     "readsNote": MessageLookupByLibrary.simpleMessage(
       "Читання не потребує схвалення. Агент читає лише в межах ваших прав і своїх.",
     ),
@@ -3117,15 +3120,15 @@ class MessageLookup extends MessageLookupByLibrary {
     "refuseLoop": MessageLookupByLibrary.simpleMessage(
       "Це замикає цикл (лише через delay)",
     ),
-    "refuseNeedsBroker": m253,
-    "refuseNoInput": m254,
+    "refuseNeedsBroker": m254,
+    "refuseNoInput": m255,
     "refuseOutput": MessageLookupByLibrary.simpleMessage(
       "Вихід не можна зв’язати",
     ),
     "refuseSelf": MessageLookupByLibrary.simpleMessage(
       "Блок не може живити сам себе",
     ),
-    "refuseType": m255,
+    "refuseType": m256,
     "reject": MessageLookupByLibrary.simpleMessage("Відхилити"),
     "rejectNote": MessageLookupByLibrary.simpleMessage(
       "Цей сертифікат надалі відхилятиметься.",
@@ -3135,11 +3138,11 @@ class MessageLookup extends MessageLookupByLibrary {
       "План не виконується. Причина зберігається в записі завдання.",
     ),
     "rejectPlanTitle": MessageLookupByLibrary.simpleMessage("Відхилити план?"),
-    "rejectTitle": m256,
+    "rejectTitle": m257,
     "relayedFooter": MessageLookupByLibrary.simpleMessage(
       "Звідси нічого робити: він прийшов разом зі своїм ретранслятором. Відкличте ретранслятор, щоб відрізати його.",
     ),
-    "relaysSites": m257,
+    "relaysSites": m258,
     "rememberGatewayAndUser": MessageLookupByLibrary.simpleMessage(
       "Запам’ятати gateway і користувача на цьому комп’ютері",
     ),
@@ -3159,7 +3162,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "removeInput": MessageLookupByLibrary.simpleMessage(
       "Прибрати останній вхід",
     ),
-    "removeLinkTitle": m258,
+    "removeLinkTitle": m259,
     "removePair": MessageLookupByLibrary.simpleMessage(
       "Прибрати останній випадок",
     ),
@@ -3173,35 +3176,35 @@ class MessageLookup extends MessageLookupByLibrary {
     "removeUserNote": MessageLookupByLibrary.simpleMessage(
       "Він більше не зможе увійти; його сесії завершаться.",
     ),
-    "removeUserTitle": m259,
-    "replacedNote": m260,
+    "removeUserTitle": m260,
+    "replacedNote": m261,
     "replacedTitle": MessageLookupByLibrary.simpleMessage("замінено"),
     "requiredField": MessageLookupByLibrary.simpleMessage("Обов’язкове поле"),
     "resultNoValue": MessageLookupByLibrary.simpleMessage("—"),
     "resultNote": MessageLookupByLibrary.simpleMessage(
       "Ключі, яких торкнувся план, з їхніми значеннями зараз.",
     ),
-    "resultOf": m261,
+    "resultOf": m262,
     "resultTitle": MessageLookupByLibrary.simpleMessage("Результат"),
-    "returns": m262,
+    "returns": m263,
     "review": MessageLookupByLibrary.simpleMessage("Перегляд"),
     "reviewAndApply": MessageLookupByLibrary.simpleMessage(
       "Переглянути й застосувати",
     ),
-    "reviewNote": m263,
+    "reviewNote": m264,
     "reviewingNote": MessageLookupByLibrary.simpleMessage(
       "Асистент читає, чому виконання зупинилось…",
     ),
-    "revision": m264,
-    "revisionNow": m265,
+    "revision": m265,
+    "revisionNow": m266,
     "rightCall": MessageLookupByLibrary.simpleMessage("виклик"),
     "rightMemory": MessageLookupByLibrary.simpleMessage("пам’ять"),
-    "rightMib": m266,
-    "rightMs": m267,
+    "rightMib": m267,
+    "rightMs": m268,
     "rightNetwork": MessageLookupByLibrary.simpleMessage("мережа"),
-    "rightOn": m268,
+    "rightOn": m269,
     "rightStore": MessageLookupByLibrary.simpleMessage("сховище"),
-    "rightsLine": m269,
+    "rightsLine": m270,
     "rightsNone": MessageLookupByLibrary.simpleMessage("немає"),
     "rightsNote": MessageLookupByLibrary.simpleMessage(
       "Без цього брокер нічого не встановить. Доступи змінюються пізніше через «Надати доступ», інше — параметрами лінка.",
@@ -3209,14 +3212,14 @@ class MessageLookup extends MessageLookupByLibrary {
     "rightsTitle": MessageLookupByLibrary.simpleMessage(
       "Пакет просить такі права",
     ),
-    "roleOnSite": m270,
+    "roleOnSite": m271,
     "rollBack": MessageLookupByLibrary.simpleMessage("Повернути"),
     "rollBackNote": MessageLookupByLibrary.simpleMessage(
       "Ці параметри стануть новою ревізією, і лінк перезапуститься з ними.",
     ),
-    "rollBackTo": m271,
+    "rollBackTo": m272,
     "rowsAdd": MessageLookupByLibrary.simpleMessage("Додати рядок"),
-    "rowsAnswered": m272,
+    "rowsAnswered": m273,
     "rowsEmpty": MessageLookupByLibrary.simpleMessage("Рядків ще немає"),
     "rowsRemove": MessageLookupByLibrary.simpleMessage("Прибрати цей рядок"),
     "rstAcceptLinks": MessageLookupByLibrary.simpleMessage(
@@ -3255,8 +3258,8 @@ class MessageLookup extends MessageLookupByLibrary {
       "Відновити й перезапустити",
     ),
     "rstFactSections": MessageLookupByLibrary.simpleMessage("Секції"),
-    "rstFile": m273,
-    "rstFileNote": m274,
+    "rstFile": m274,
+    "rstFileNote": m275,
     "rstHow": MessageLookupByLibrary.simpleMessage("Як"),
     "rstInTheFile": MessageLookupByLibrary.simpleMessage("У файлі"),
     "rstKeysDiffer": MessageLookupByLibrary.simpleMessage(
@@ -3279,7 +3282,7 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "rstLinkExists": MessageLookupByLibrary.simpleMessage("вже є тут"),
     "rstLinkNew": MessageLookupByLibrary.simpleMessage("новий"),
-    "rstLinks": m275,
+    "rstLinks": m276,
     "rstLogIn": MessageLookupByLibrary.simpleMessage("Увійти знову"),
     "rstLost": MessageLookupByLibrary.simpleMessage(
       "Брокер не повернувся для цієї сесії",
@@ -3299,7 +3302,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "rstNothingTicked": MessageLookupByLibrary.simpleMessage(
       "Позначте секцію, яку бере цей режим",
     ),
-    "rstOtherSite": m276,
+    "rstOtherSite": m277,
     "rstOtherSiteNote": MessageLookupByLibrary.simpleMessage(
       "Брокер відмовляє копії з іншою назвою сайту. Спершу задайте site у wyrmd.json5 як у копії.",
     ),
@@ -3321,7 +3324,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "rstReplace": MessageLookupByLibrary.simpleMessage(
       "Замінити позначене і один раз перезапустити брокер (спершу створюється копія того, що замінюється)",
     ),
-    "rstReplaceKeys": m277,
+    "rstReplaceKeys": m278,
     "rstReplaceKeysOther": MessageLookupByLibrary.simpleMessage(
       "Замінити ключі сайту іншим CA: лінки, оператори й сусідні брокери реєструються знову",
     ),
@@ -3334,7 +3337,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "rstReplaceUpstream": MessageLookupByLibrary.simpleMessage(
       "Ця сесія дістається сайту через вищий брокер: брокер відмовляє в заміні згори. Додавання доступне.",
     ),
-    "rstRestarting": m278,
+    "rstRestarting": m279,
     "rstRestartingMore": MessageLookupByLibrary.simpleMessage(
       "Спершу створено копію того, що замінюється (pre-restore, у резервних копіях). Брокер зупиняється, і наступний старт застосовує підготовлені секції до відкриття сховищ.",
     ),
@@ -3345,7 +3348,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Формати сховищ відрізняються (копія → тут)",
     ),
     "rstTick": MessageLookupByLibrary.simpleMessage("позначте, що повернути"),
-    "rstTitle": m279,
+    "rstTitle": m280,
     "rstUnknown": MessageLookupByLibrary.simpleMessage("Брокер повернувся"),
     "rstUnknownNote": MessageLookupByLibrary.simpleMessage(
       "В аудиті ще немає ні restore_applied, ні restore_failed. Перегляньте Система › Журнал, перш ніж покладатися на відновлення.",
@@ -3354,7 +3357,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "rstUploadedNote": MessageLookupByLibrary.simpleMessage(
       "Ще нічого не змінено. Перевірка читає маніфест і порівнює його з цим брокером.",
     ),
-    "rstUploading": m280,
+    "rstUploading": m281,
     "rstUploadingButton": MessageLookupByLibrary.simpleMessage("Вивантаження…"),
     "runBlock": MessageLookupByLibrary.simpleMessage("Запустити"),
     "runDraft": MessageLookupByLibrary.simpleMessage(
@@ -3371,31 +3374,31 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "runNotRun": MessageLookupByLibrary.simpleMessage("не виконано"),
     "runNow": MessageLookupByLibrary.simpleMessage("Виконати"),
-    "runNowNote": m281,
+    "runNowNote": m282,
     "runOff": MessageLookupByLibrary.simpleMessage("Блок вимкнено"),
     "runOnStartTitle": MessageLookupByLibrary.simpleMessage(
       "Запускати на кожному старті?",
     ),
     "runPassed": MessageLookupByLibrary.simpleMessage("усі кроки пройшли"),
-    "runPassedIn": m282,
-    "runPassedLeftOut": m283,
+    "runPassedIn": m283,
+    "runPassedLeftOut": m284,
     "runRunning": MessageLookupByLibrary.simpleMessage("виконується…"),
-    "runStopped": m284,
+    "runStopped": m285,
     "runStoppedFirst": MessageLookupByLibrary.simpleMessage(
       "зупинено · нічого не змінено",
     ),
-    "runStoppedOne": m285,
+    "runStoppedOne": m286,
     "runStopsNote": MessageLookupByLibrary.simpleMessage(
       "зупиняється на першому кроці, що не вдався",
     ),
-    "runTitle": m286,
-    "runTitleEnded": m287,
+    "runTitle": m287,
+    "runTitleEnded": m288,
     "runWaiting": MessageLookupByLibrary.simpleMessage("чекає"),
     "running": MessageLookupByLibrary.simpleMessage("Працює"),
     "runningNote": MessageLookupByLibrary.simpleMessage(
       "Агент працює над задачею. Скасування зупиняє її; зроблене лишається.",
     ),
-    "runsOn": m288,
+    "runsOn": m289,
     "runsOnAnotherDevice": MessageLookupByLibrary.simpleMessage(
       "Працює на іншому пристрої",
     ),
@@ -3403,7 +3406,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Той самий виклик з CLI",
     ),
     "saveAsPlan": MessageLookupByLibrary.simpleMessage("Зберегти як план"),
-    "savePlanTitle": m289,
+    "savePlanTitle": m290,
     "scAddToSelection": MessageLookupByLibrary.simpleMessage(
       "Додати до виділення або зняти",
     ),
@@ -3480,7 +3483,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "scopeTitle": MessageLookupByLibrary.simpleMessage(
       "Цей блок може читати ключі в межах",
     ),
-    "screenOf": m290,
+    "screenOf": m291,
     "searchHint": MessageLookupByLibrary.simpleMessage(
       "Перейти до вузла, дії або лінка",
     ),
@@ -3503,31 +3506,31 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "sectionEarlier": MessageLookupByLibrary.simpleMessage("Раніше"),
     "sectionNow": MessageLookupByLibrary.simpleMessage("Зараз"),
-    "securityAdded": m291,
+    "securityAdded": m292,
     "securityConfirm": MessageLookupByLibrary.simpleMessage(
       "Підтверджувати перед змінами config",
     ),
-    "securityConfirmForced": m292,
-    "securityConfirmNone": m293,
-    "securityDevicesOn": m294,
-    "securityDue": m295,
+    "securityConfirmForced": m293,
+    "securityConfirmNone": m294,
+    "securityDevicesOn": m295,
+    "securityDue": m296,
     "securityForget": MessageLookupByLibrary.simpleMessage("Забути"),
     "securityLockAfter": MessageLookupByLibrary.simpleMessage(
       "Блокувати Studio через",
     ),
-    "securityLockDesc": m296,
+    "securityLockDesc": m297,
     "securityLockOff": MessageLookupByLibrary.simpleMessage("Вимкнено"),
     "securityMenu": MessageLookupByLibrary.simpleMessage("Безпека"),
-    "securityMinutes": m297,
+    "securityMinutes": m298,
     "securityNoBio": MessageLookupByLibrary.simpleMessage(
       "На цьому комп’ютері немає біометричного відмикання: він питає пароль.",
     ),
     "securityNoDevices": MessageLookupByLibrary.simpleMessage(
       "Пристроїв ще немає.",
     ),
-    "securityOn": m298,
-    "securityPasswordNeeded": m299,
-    "securityPolicy": m300,
+    "securityOn": m299,
+    "securityPasswordNeeded": m300,
+    "securityPolicy": m301,
     "securityPolicyConfirm": MessageLookupByLibrary.simpleMessage(
       " · підтвердження змін config",
     ),
@@ -3537,27 +3540,27 @@ class MessageLookup extends MessageLookupByLibrary {
     "securityRemoved": MessageLookupByLibrary.simpleMessage(
       "видалено · входить лише з паролем",
     ),
-    "securityRemovedBy": m301,
+    "securityRemovedBy": m302,
     "securitySignOutAll": MessageLookupByLibrary.simpleMessage("Вийти всюди"),
-    "securitySignOutAllNote": m302,
+    "securitySignOutAllNote": m303,
     "securitySignedOut": MessageLookupByLibrary.simpleMessage("вийшов"),
     "securityThisDevice": MessageLookupByLibrary.simpleMessage("цей пристрій"),
     "securityTitle": MessageLookupByLibrary.simpleMessage("Безпека"),
     "securityTurnOff": MessageLookupByLibrary.simpleMessage("Вимкнути"),
     "securityTurnOn": MessageLookupByLibrary.simpleMessage("Увімкнути"),
-    "securityUnlockDesc": m303,
-    "securityUnlockOffDesc": m304,
+    "securityUnlockDesc": m304,
+    "securityUnlockOffDesc": m305,
     "securityUsedNow": MessageLookupByLibrary.simpleMessage(
       "використано зараз",
     ),
     "seeLinks": MessageLookupByLibrary.simpleMessage("див. Лінки"),
-    "seenAgo": m305,
+    "seenAgo": m306,
     "seenNow": MessageLookupByLibrary.simpleMessage("зараз"),
     "selectANode": MessageLookupByLibrary.simpleMessage(
       "Оберіть вузол у дереві.",
     ),
     "sessionExpired": MessageLookupByLibrary.simpleMessage("Сесія завершилася"),
-    "setLogLevel": m306,
+    "setLogLevel": m307,
     "setLogLevelNote": MessageLookupByLibrary.simpleMessage(
       "Діє одразу, без перезапуску. Готується разом з іншими змінами.",
     ),
@@ -3579,30 +3582,30 @@ class MessageLookup extends MessageLookupByLibrary {
     "siteRelayedBelow": MessageLookupByLibrary.simpleMessage(
       "Сайт, ретрансльований нижче",
     ),
-    "sitesAround": m307,
-    "sitesSubtitle": m308,
-    "sizeBytes": m309,
-    "sizeChars": m310,
-    "sizeColumns": m311,
-    "sizeItems": m312,
-    "sizeKeys": m313,
-    "sizeLines": m314,
-    "sizeRows": m315,
+    "sitesAround": m308,
+    "sitesSubtitle": m309,
+    "sizeBytes": m310,
+    "sizeChars": m311,
+    "sizeColumns": m312,
+    "sizeItems": m313,
+    "sizeKeys": m314,
+    "sizeLines": m315,
+    "sizeRows": m316,
     "stage": MessageLookupByLibrary.simpleMessage("Підготувати"),
     "stagedActionNote": MessageLookupByLibrary.simpleMessage(
       "«Підготувати» додає дію до перегляду разом з іншими змінами.",
     ),
-    "stagedChanges": m316,
+    "stagedChanges": m317,
     "stagedNote": MessageLookupByLibrary.simpleMessage(
       "Нічого не записується, доки ви не застосуєте. Кожна зміна виконується з вашими правами.",
     ),
-    "stagedWas": m317,
+    "stagedWas": m318,
     "stale": MessageLookupByLibrary.simpleMessage("застаріле"),
     "standbyAnswersAt": MessageLookupByLibrary.simpleMessage(
       "Його резервний gateway відповідає на",
     ),
     "standbyGateway": MessageLookupByLibrary.simpleMessage("Резервний gateway"),
-    "standbyIs": m318,
+    "standbyIs": m319,
     "stateConnected": MessageLookupByLibrary.simpleMessage("Під’єднано"),
     "stateFailed": MessageLookupByLibrary.simpleMessage("Збій"),
     "stateInstalled": MessageLookupByLibrary.simpleMessage("Встановлено"),
@@ -3624,34 +3627,34 @@ class MessageLookup extends MessageLookupByLibrary {
     "stepLeftOut": MessageLookupByLibrary.simpleMessage(
       "пропущено: не виконається",
     ),
-    "stepOf": m319,
-    "stepReaching": m320,
+    "stepOf": m320,
+    "stepReaching": m321,
     "stepReading": MessageLookupByLibrary.simpleMessage(
       "Читання вашої ролі та сайтів",
     ),
-    "stepSkippedNeeds": m321,
+    "stepSkippedNeeds": m322,
     "stepUpConfirm": MessageLookupByLibrary.simpleMessage("Підтвердити"),
-    "stepUpConfirmWith": m322,
-    "stepUpDevice": m323,
-    "stepUpKeyGone": m324,
-    "stepUpLead": m325,
-    "stepUpPasswordOnly": m326,
-    "stepUpRefused": m327,
-    "stepUpStopped": m328,
+    "stepUpConfirmWith": m323,
+    "stepUpDevice": m324,
+    "stepUpKeyGone": m325,
+    "stepUpLead": m326,
+    "stepUpPasswordOnly": m327,
+    "stepUpRefused": m328,
+    "stepUpStopped": m329,
     "stepUpTitle": MessageLookupByLibrary.simpleMessage(
       "Підтвердіть, що це ви",
     ),
-    "stepUpWaiting": m329,
+    "stepUpWaiting": m330,
     "stepWhere": MessageLookupByLibrary.simpleMessage("Де працює"),
     "stopRecording": MessageLookupByLibrary.simpleMessage("Припинити запис"),
-    "stoppedAt": m330,
-    "stoppedAtCode": m331,
-    "stoppedNote": m332,
-    "studioAbout": m333,
+    "stoppedAt": m331,
+    "stoppedAtCode": m332,
+    "stoppedNote": m333,
+    "studioAbout": m334,
     "studioSignedInHere": MessageLookupByLibrary.simpleMessage(
       "Studio увійшла сюди",
     ),
-    "studioVersion": m334,
+    "studioVersion": m335,
     "suggestPick": MessageLookupByLibrary.simpleMessage("Вибрати значення"),
     "sysActiveNote": MessageLookupByLibrary.simpleMessage(
       "Обслуговує лінки, потоки, шлюз і сусідів. Відповідає на `sys/replication/**` для свого резерву.",
@@ -3664,21 +3667,21 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "sysAroundClear": MessageLookupByLibrary.simpleMessage("Показати весь час"),
     "sysAroundHint": MessageLookupByLibrary.simpleMessage("гг:хх:сс"),
-    "sysAttnAcl": m335,
-    "sysAttnAclDetail": m336,
-    "sysAttnBehind": m337,
-    "sysAttnBehindDetail": m338,
+    "sysAttnAcl": m336,
+    "sysAttnAclDetail": m337,
+    "sysAttnBehind": m338,
+    "sysAttnBehindDetail": m339,
     "sysAttnBehindPlain": MessageLookupByLibrary.simpleMessage(
       "standby_lag більший за 0: перемикання зараз втратить записи",
     ),
-    "sysAttnBroker": m339,
+    "sysAttnBroker": m340,
     "sysAttnBrokerPlain": MessageLookupByLibrary.simpleMessage("Нижчий брокер"),
-    "sysAttnBrokerRelays": m340,
+    "sysAttnBrokerRelays": m341,
     "sysAttnFork": MessageLookupByLibrary.simpleMessage(
       "Резерв відклав розгалуження",
     ),
-    "sysAttnLinkDetail": m341,
-    "sysAttnLinkFailed": m342,
+    "sysAttnLinkDetail": m342,
+    "sysAttnLinkFailed": m343,
     "sysAttnNoStandby": MessageLookupByLibrary.simpleMessage(
       "За цим брокером не слідує резерв",
     ),
@@ -3700,13 +3703,13 @@ class MessageLookup extends MessageLookupByLibrary {
     "sysAttnOpenSites": MessageLookupByLibrary.simpleMessage(
       "Відкрити в Сайтах ›",
     ),
-    "sysAttnQuarantine": m343,
-    "sysAttnQuarantineDetail": m344,
-    "sysAttnQuarantineSince": m345,
+    "sysAttnQuarantine": m344,
+    "sysAttnQuarantineDetail": m345,
+    "sysAttnQuarantineSince": m346,
     "sysBackup": MessageLookupByLibrary.simpleMessage(
       "Резервна копія та відновлення",
     ),
-    "sysBackupNote": m346,
+    "sysBackupNote": m347,
     "sysBackupNoteNoSize": MessageLookupByLibrary.simpleMessage(
       "Усе, чим володіє брокер, лежить у його `data_dir`. Studio не робить резервних копій: вони містять ключі сайту, їх роблять на хості. Кроки, готові до копіювання:",
     ),
@@ -3720,19 +3723,19 @@ class MessageLookup extends MessageLookupByLibrary {
     "sysBannerFork": MessageLookupByLibrary.simpleMessage(
       "Резерв відклав розгалуження",
     ),
-    "sysBannerForks": m347,
-    "sysBannerLag": m348,
+    "sysBannerForks": m348,
+    "sysBannerLag": m349,
     "sysBrokerAll": MessageLookupByLibrary.simpleMessage("брокер (усе)"),
     "sysBrokerLogLevel": MessageLookupByLibrary.simpleMessage(
       "Рівень журналу брокера",
     ),
     "sysBytes": MessageLookupByLibrary.simpleMessage("Байти"),
-    "sysClear": m349,
+    "sysClear": m350,
     "sysClearAsk": MessageLookupByLibrary.simpleMessage(
       "Очистити ці від’єднані лінки?",
     ),
-    "sysClearAskBody": m350,
-    "sysClearBoard": m351,
+    "sysClearAskBody": m351,
+    "sysClearBoard": m352,
     "sysClearConfirm": MessageLookupByLibrary.simpleMessage("Очистити"),
     "sysClearFooter": MessageLookupByLibrary.simpleMessage(
       "`sys/~act/clear_conns` · config · питає перед запуском",
@@ -3743,7 +3746,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "sysClearOne": MessageLookupByLibrary.simpleMessage(
       "Очистити 1 від’єднаний лінк…",
     ),
-    "sysCleared": m352,
+    "sysCleared": m353,
     "sysClearedNone": MessageLookupByLibrary.simpleMessage(
       "Брокер не вилучив жодного лінка.",
     ),
@@ -3768,7 +3771,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Команди скопійовано",
     ),
     "sysCopy": MessageLookupByLibrary.simpleMessage("Копіювати"),
-    "sysCopyCommand": m353,
+    "sysCopyCommand": m354,
     "sysDownstream": MessageLookupByLibrary.simpleMessage("Нижчі брокери"),
     "sysElsewhere": MessageLookupByLibrary.simpleMessage(
       "Також налаштування брокера, що лежать там, де їх застосовують:",
@@ -3800,7 +3803,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "sysGetLog": MessageLookupByLibrary.simpleMessage("Отримати журнал"),
     "sysGroupLinks": MessageLookupByLibrary.simpleMessage("Лінки та сайти"),
     "sysGroupProcess": MessageLookupByLibrary.simpleMessage("Процес і диск"),
-    "sysGuideCopied": m354,
+    "sysGuideCopied": m355,
     "sysGuideLink": MessageLookupByLibrary.simpleMessage(
       "Посібник: docs/operations.md › Warm standby ›",
     ),
@@ -3827,9 +3830,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "sysLag": MessageLookupByLibrary.simpleMessage("Відставання"),
     "sysLevelMore": MessageLookupByLibrary.simpleMessage("Рівень і суворіші"),
     "sysLines": MessageLookupByLibrary.simpleMessage("Рядків"),
-    "sysLinkSource": m355,
-    "sysLogCopied": m356,
-    "sysLogInvalid": m357,
+    "sysLinkSource": m356,
+    "sysLogCopied": m357,
+    "sysLogInvalid": m358,
     "sysLogLevelNote": MessageLookupByLibrary.simpleMessage(
       "Потрапляє до «Переглянути й застосувати»; після застосування діє одразу, без перезапуску, і замінює `RUST_LOG`. Zenoh лишається на warn нижче trace. Значення й токени не журналюються нижче trace. Власний рівень лінка: Лінки › лінк › Журнал.",
     ),
@@ -3839,22 +3842,22 @@ class MessageLookup extends MessageLookupByLibrary {
     "sysLogNotSaved": MessageLookupByLibrary.simpleMessage(
       "Не вдалося зберегти журнал",
     ),
-    "sysLogSaved": m358,
-    "sysLogSummary": m359,
-    "sysLogSummaryAround": m360,
+    "sysLogSaved": m359,
+    "sysLogSummary": m360,
+    "sysLogSummaryAround": m361,
     "sysLogSummaryNone": MessageLookupByLibrary.simpleMessage(
       "`sys/~act/get_log` · config",
     ),
     "sysMessages": MessageLookupByLibrary.simpleMessage("Повідомлення"),
-    "sysMetaStarted": m361,
-    "sysNeedsLook": m362,
+    "sysMetaStarted": m362,
+    "sysNeedsLook": m363,
     "sysNeedsLookNote": MessageLookupByLibrary.simpleMessage(
       "Зі значень самого брокера. Кожна картка відкриває екран, де це виправляють.",
     ),
     "sysNoLines": MessageLookupByLibrary.simpleMessage(
       "На цьому рівні рядків немає.",
     ),
-    "sysNoLinesAround": m363,
+    "sysNoLinesAround": m364,
     "sysNoProfiles": MessageLookupByLibrary.simpleMessage("Профілів немає."),
     "sysNoStale": MessageLookupByLibrary.simpleMessage(
       "Від’єднаних лінків немає.",
@@ -3865,7 +3868,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "sysNoStandbyStep1": MessageLookupByLibrary.simpleMessage(
       "1. Скопіюйте ключі на другий хост: `wyrmd keys export` тут, `wyrmd keys import` там.",
     ),
-    "sysNoStandbyStep2": m364,
+    "sysNoStandbyStep2": m365,
     "sysNoStandbyStep3": MessageLookupByLibrary.simpleMessage(
       "3. Запустіть другий хост; ця вкладка покаже його за секунду.",
     ),
@@ -3882,20 +3885,20 @@ class MessageLookup extends MessageLookupByLibrary {
     "sysNothingToClear": MessageLookupByLibrary.simpleMessage(
       "Немає від’єднаних лінків для очищення",
     ),
-    "sysNow": m365,
-    "sysOfTotal": m366,
+    "sysNow": m366,
+    "sysOfTotal": m367,
     "sysOpenAuditRecord": MessageLookupByLibrary.simpleMessage(
       "Відкрити запис аудиту ›",
     ),
     "sysOut": MessageLookupByLibrary.simpleMessage("вихід"),
     "sysPackages": MessageLookupByLibrary.simpleMessage("Пакети"),
-    "sysProfileFile": m367,
+    "sysProfileFile": m368,
     "sysProfileName": MessageLookupByLibrary.simpleMessage("Назва"),
     "sysProfileNameHint": MessageLookupByLibrary.simpleMessage(
       "<vendor>:<model>",
     ),
-    "sysProfilePut": m368,
-    "sysProfileRemoved": m369,
+    "sysProfilePut": m369,
+    "sysProfileRemoved": m370,
     "sysProfiles": MessageLookupByLibrary.simpleMessage("Профілі пристроїв"),
     "sysProfilesFooter": MessageLookupByLibrary.simpleMessage(
       "`sys/profiles` › Put Profile, Remove Profile · config",
@@ -3903,14 +3906,14 @@ class MessageLookup extends MessageLookupByLibrary {
     "sysProfilesNote": MessageLookupByLibrary.simpleMessage(
       "Моделі, які брокер віддає як `pub/<vendor>:<model>`: точки, одиниці та діапазони, що їх успадковують лінки й асистент.",
     ),
-    "sysProfilesUnlisted": m370,
+    "sysProfilesUnlisted": m371,
     "sysPulled": MessageLookupByLibrary.simpleMessage("забирає щосекунди"),
     "sysPut": MessageLookupByLibrary.simpleMessage("Додати профіль"),
     "sysPutProfile": MessageLookupByLibrary.simpleMessage("Додати профіль…"),
     "sysRecords": MessageLookupByLibrary.simpleMessage("записів"),
     "sysRemove": MessageLookupByLibrary.simpleMessage("Вилучити"),
-    "sysRemoveProfile": m371,
-    "sysRemoveProfileAsk": m372,
+    "sysRemoveProfile": m372,
+    "sysRemoveProfileAsk": m373,
     "sysRunningActive": MessageLookupByLibrary.simpleMessage(
       "Працює · активний",
     ),
@@ -3922,7 +3925,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "sysStaleNote": MessageLookupByLibrary.simpleMessage(
       "Лінки, допущені під час роботи, що працюють на інших машинах і зараз не з’єднані. Очищення вилучає їх із реєстру; їхні id вибувають і більше не можуть бути використані.",
     ),
-    "sysStaleRow": m373,
+    "sysStaleRow": m374,
     "sysStandbyBehind": MessageLookupByLibrary.simpleMessage(
       "Резерв · відстає",
     ),
@@ -3942,7 +3945,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "хто що зробив · відкрити Аудит",
     ),
     "sysSubCpu": MessageLookupByLibrary.simpleMessage("100 = одне ядро"),
-    "sysSubData": m374,
+    "sysSubData": m375,
     "sysSubDisk": MessageLookupByLibrary.simpleMessage(
       "на файловій системі data_dir",
     ),
@@ -3967,7 +3970,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "sysSubLeaseLate": MessageLookupByLibrary.simpleMessage(
       "поновлюється пізно: перевірте хост арбітра",
     ),
-    "sysSubLinkFailed": m375,
+    "sysSubLinkFailed": m376,
     "sysSubMemory": MessageLookupByLibrary.simpleMessage("резидентна"),
     "sysSubNoArbiter": MessageLookupByLibrary.simpleMessage(
       "арбітра не налаштовано",
@@ -3983,11 +3986,11 @@ class MessageLookup extends MessageLookupByLibrary {
     "sysSubPackages": MessageLookupByLibrary.simpleMessage(
       "встановлені пакети лінків",
     ),
-    "sysSubPeer": m376,
+    "sysSubPeer": m377,
     "sysSubSessions": MessageLookupByLibrary.simpleMessage(
       "мережеві сесії; користувачів шлюзу не враховано",
     ),
-    "sysSubWaits": m377,
+    "sysSubWaits": m378,
     "sysTabAvailability": MessageLookupByLibrary.simpleMessage("Доступність"),
     "sysTabLog": MessageLookupByLibrary.simpleMessage("Журнал"),
     "sysTabMaintenance": MessageLookupByLibrary.simpleMessage("Обслуговування"),
@@ -3998,7 +4001,7 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "sysThisBroker": MessageLookupByLibrary.simpleMessage("Цей брокер"),
     "sysTraffic": MessageLookupByLibrary.simpleMessage("Трафік маршрутизатора"),
-    "sysTrafficDescribe": m378,
+    "sysTrafficDescribe": m379,
     "sysTrafficNote": MessageLookupByLibrary.simpleMessage(
       "Зібрано зі значень `sys`, поки Studio відкрито (брокер не зберігає їхньої історії). Лише мережеві сесії: вбудовані лінки та користувачі шлюзу працюють усередині процесу, їх не враховано.",
     ),
@@ -4019,7 +4022,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "tableAddColumn": MessageLookupByLibrary.simpleMessage("Додати стовпець"),
     "tableAddRow": MessageLookupByLibrary.simpleMessage("Додати рядок"),
     "tableFilter": MessageLookupByLibrary.simpleMessage("Фільтр рядків"),
-    "tableFiltered": m379,
+    "tableFiltered": m380,
     "tableMore": MessageLookupByLibrary.simpleMessage("Ще"),
     "tableNoColumns": MessageLookupByLibrary.simpleMessage(
       "таблиця без стовпців",
@@ -4053,8 +4056,8 @@ class MessageLookup extends MessageLookupByLibrary {
     "tagActiveStandby": MessageLookupByLibrary.simpleMessage(
       "активний + резерв",
     ),
-    "tagDownstreamOf": m380,
-    "tagNeeds": m381,
+    "tagDownstreamOf": m381,
+    "tagNeeds": m382,
     "tagNew": MessageLookupByLibrary.simpleMessage("новий"),
     "tagPlainHttp": MessageLookupByLibrary.simpleMessage("простий http"),
     "tagRunsNow": MessageLookupByLibrary.simpleMessage("виконується одразу"),
@@ -4064,37 +4067,37 @@ class MessageLookup extends MessageLookupByLibrary {
     "taskAwaitingAnswer": MessageLookupByLibrary.simpleMessage(
       "чекає на твою відповідь",
     ),
-    "taskBy": m382,
+    "taskBy": m383,
     "taskDone": MessageLookupByLibrary.simpleMessage("виконано"),
     "taskFailed": MessageLookupByLibrary.simpleMessage(
       "не вдалося або зупинено",
     ),
-    "taskFailedAt": m383,
-    "taskListNote": m384,
+    "taskFailedAt": m384,
+    "taskListNote": m385,
     "taskNoChanges": MessageLookupByLibrary.simpleMessage("нічого не змінено"),
     "taskPlanning": MessageLookupByLibrary.simpleMessage("планує"),
-    "taskReplaced": m385,
+    "taskReplaced": m386,
     "taskRunning": MessageLookupByLibrary.simpleMessage("виконує"),
     "thisBroker": MessageLookupByLibrary.simpleMessage("цей брокер"),
     "thisNetwork": MessageLookupByLibrary.simpleMessage("цій мережі"),
     "timelineAudit": MessageLookupByLibrary.simpleMessage("З sys/audit"),
-    "timelineAuditLine": m386,
+    "timelineAuditLine": m387,
     "timelineAuditNone": MessageLookupByLibrary.simpleMessage(
       "Немає змін цієї точки в останніх 500 записах sys/audit.",
     ),
-    "timelineLabel": m387,
-    "tlsCertificateOf": m388,
-    "tlsNotTrusted": m389,
-    "tlsPinned": m390,
+    "timelineLabel": m388,
+    "tlsCertificateOf": m389,
+    "tlsNotTrusted": m390,
+    "tlsPinned": m391,
     "toAccept": MessageLookupByLibrary.simpleMessage("прийняти"),
     "toastDismiss": MessageLookupByLibrary.simpleMessage("Закрити"),
-    "toastHidesIn": m391,
+    "toastHidesIn": m392,
     "toastNotifications": MessageLookupByLibrary.simpleMessage("Сповіщення"),
-    "toastStays": m392,
+    "toastStays": m393,
     "toastStream": MessageLookupByLibrary.simpleMessage(
       "Studio відкриє потоки знову, коли він повернеться.",
     ),
-    "todayUsed": m393,
+    "todayUsed": m394,
     "tokenForBelow": MessageLookupByLibrary.simpleMessage(
       "Токен для сайту нижче",
     ),
@@ -4117,7 +4120,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Дерево показує лише дані.",
     ),
     "treeNoteMiddle": MessageLookupByLibrary.simpleMessage("змінюється в"),
-    "treeOf": m394,
+    "treeOf": m395,
     "treePoint": MessageLookupByLibrary.simpleMessage("Точка"),
     "treePointNote": MessageLookupByLibrary.simpleMessage(
       "на блоці: додає її як поле. На полотні: новий блок цього вузла.",
@@ -4127,25 +4130,25 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "trendAll": MessageLookupByLibrary.simpleMessage("усе"),
     "trendAllHidden": MessageLookupByLibrary.simpleMessage("Усі ряди сховано."),
-    "trendAvg": m395,
+    "trendAvg": m396,
     "trendBadRecorded": MessageLookupByLibrary.simpleMessage(
       "записано погану якість",
     ),
-    "trendBucket": m396,
+    "trendBucket": m397,
     "trendClearMarker": MessageLookupByLibrary.simpleMessage(
       "Клацніть A ще раз, щоб прибрати її",
     ),
-    "trendDelta": m397,
-    "trendDescribe": m398,
+    "trendDelta": m398,
+    "trendDescribe": m399,
     "trendFollowNow": MessageLookupByLibrary.simpleMessage("До поточного часу"),
     "trendHint": MessageLookupByLibrary.simpleMessage(
       "Наведіть для значень · тягніть по графіку, щоб наблизити · клацніть, щоб поставити мітку A · тягніть або змінюйте вікно внизу · подвійне клацання скидає · ← → рухають вибрану ручку",
     ),
-    "trendHoursMinutes": m399,
-    "trendLocked": m400,
-    "trendMarker": m401,
-    "trendMinMax": m402,
-    "trendMinutes": m403,
+    "trendHoursMinutes": m400,
+    "trendLocked": m401,
+    "trendMarker": m402,
+    "trendMinMax": m403,
+    "trendMinutes": m404,
     "trendMonths": MessageLookupByLibrary.simpleMessage(
       "січ,лют,бер,кві,тра,чер,лип,сер,вер,жов,лис,гру",
     ),
@@ -4160,18 +4163,18 @@ class MessageLookup extends MessageLookupByLibrary {
       "У цьому діапазоні немає записаних значень.",
     ),
     "trendNow": MessageLookupByLibrary.simpleMessage("зараз"),
-    "trendPoint": m404,
+    "trendPoint": m405,
     "trendRaw": MessageLookupByLibrary.simpleMessage("сирі"),
-    "trendRawAt": m405,
+    "trendRawAt": m406,
     "trendResetZoom": MessageLookupByLibrary.simpleMessage("Скинути масштаб"),
-    "trendSeconds": m406,
+    "trendSeconds": m407,
     "trendSetMarker": MessageLookupByLibrary.simpleMessage(
       "Клацніть, щоб поставити мітку A",
     ),
-    "trendShowHide": m407,
-    "trendStepDays": m408,
-    "trendStepHours": m409,
-    "trendStepMinutes": m410,
+    "trendShowHide": m408,
+    "trendStepDays": m409,
+    "trendStepHours": m410,
+    "trendStepMinutes": m411,
     "trendUncertain": MessageLookupByLibrary.simpleMessage(
       "uncertain · застарілі читання в цьому інтервалі",
     ),
@@ -4181,8 +4184,8 @@ class MessageLookup extends MessageLookupByLibrary {
     "trendWindowEnd": MessageLookupByLibrary.simpleMessage("Кінець вікна"),
     "trendWindowStart": MessageLookupByLibrary.simpleMessage("Початок вікна"),
     "trustCode": MessageLookupByLibrary.simpleMessage("Код CA"),
-    "trustMatches": m411,
-    "trustRefusedChain": m412,
+    "trustMatches": m412,
+    "trustRefusedChain": m413,
     "trustRefusedChanged": MessageLookupByLibrary.simpleMessage(
       "Gateway тепер надсилає інший CA, ніж показано. Нічому не довірено.",
     ),
@@ -4192,26 +4195,26 @@ class MessageLookup extends MessageLookupByLibrary {
     "trustRefusedNoAnswer": MessageLookupByLibrary.simpleMessage(
       "Gateway не відповів удруге. Нічому не довірено.",
     ),
-    "trustTitle": m413,
-    "trustWhere": m414,
-    "trustWhy": m415,
+    "trustTitle": m414,
+    "trustWhere": m415,
+    "trustWhy": m416,
     "tryAgain": MessageLookupByLibrary.simpleMessage("Спробувати ще"),
     "turnOn": MessageLookupByLibrary.simpleMessage("Увімкнути"),
     "typeOrFind": MessageLookupByLibrary.simpleMessage(
       "Введіть адресу або знайдіть її в цій мережі.",
     ),
     "unbind": MessageLookupByLibrary.simpleMessage("Розв’язати"),
-    "unitNumber": m416,
+    "unitNumber": m417,
     "unlockAgoNow": MessageLookupByLibrary.simpleMessage("зараз"),
     "unlockAnother": MessageLookupByLibrary.simpleMessage(
       "Інший обліковий запис або шлюз",
     ),
-    "unlockCancelTitle": m417,
-    "unlockChangedFaces": m418,
-    "unlockChangedFingers": m419,
-    "unlockChangedTitle": m420,
-    "unlockChecking": m421,
-    "unlockConfirmPrompt": m422,
+    "unlockCancelTitle": m418,
+    "unlockChangedFaces": m419,
+    "unlockChangedFingers": m420,
+    "unlockChangedTitle": m421,
+    "unlockChecking": m422,
+    "unlockConfirmPrompt": m423,
     "unlockDeviceComputer": MessageLookupByLibrary.simpleMessage(
       "цьому комп’ютері",
     ),
@@ -4222,25 +4225,25 @@ class MessageLookup extends MessageLookupByLibrary {
     "unlockDontAsk": MessageLookupByLibrary.simpleMessage(
       "Не питати на цьому комп’ютері",
     ),
-    "unlockDueText": m423,
-    "unlockDueTitle": m424,
-    "unlockEnablePrompt": m425,
+    "unlockDueText": m424,
+    "unlockDueTitle": m425,
+    "unlockEnablePrompt": m426,
     "unlockFactEndsFaces": MessageLookupByLibrary.simpleMessage(
       "Він перестає діяти, коли тут змінюються обличчя, коли змінюється ваш пароль або коли адміністратор видаляє цей пристрій.",
     ),
     "unlockFactEndsFingers": MessageLookupByLibrary.simpleMessage(
       "Він перестає діяти, коли тут змінюються відбитки пальців, коли змінюється ваш пароль або коли адміністратор видаляє цей пристрій.",
     ),
-    "unlockFactPassword": m426,
-    "unlockFactSite": m427,
-    "unlockFactStandby": m428,
-    "unlockFactStore": m429,
-    "unlockFallbackText": m430,
-    "unlockKeyIn": m431,
+    "unlockFactPassword": m427,
+    "unlockFactSite": m428,
+    "unlockFactStandby": m429,
+    "unlockFactStore": m430,
+    "unlockFallbackText": m431,
+    "unlockKeyIn": m432,
     "unlockLastPassword": MessageLookupByLibrary.simpleMessage("пароль"),
-    "unlockLastUsed": m432,
-    "unlockLockoutTitle": m433,
-    "unlockLogInTo": m434,
+    "unlockLastUsed": m433,
+    "unlockLockoutTitle": m434,
+    "unlockLogInTo": m435,
     "unlockNameBiometric": MessageLookupByLibrary.simpleMessage("біометрію"),
     "unlockNameFace": MessageLookupByLibrary.simpleMessage(
       "розпізнавання обличчя",
@@ -4274,11 +4277,11 @@ class MessageLookup extends MessageLookupByLibrary {
     "unlockOffText": MessageLookupByLibrary.simpleMessage(
       "Адміністратор вимкнув пристрої на цьому шлюзі. Studio видалив свій ключ; увійдіть з паролем.",
     ),
-    "unlockOffTitle": m435,
-    "unlockOffToast": m436,
-    "unlockOfferChecked": m437,
-    "unlockOfferText": m438,
-    "unlockOfferTitle": m439,
+    "unlockOffTitle": m436,
+    "unlockOffToast": m437,
+    "unlockOfferChecked": m438,
+    "unlockOfferText": m439,
+    "unlockOfferTitle": m440,
     "unlockOpenStudio": MessageLookupByLibrary.simpleMessage("Відкрити Studio"),
     "unlockOrEnter": MessageLookupByLibrary.simpleMessage(
       "Або натисніть Enter",
@@ -4289,16 +4292,16 @@ class MessageLookup extends MessageLookupByLibrary {
     "unlockPasswordChangedTitle": MessageLookupByLibrary.simpleMessage(
       "Ваш пароль змінився",
     ),
-    "unlockPasswordFor": m440,
-    "unlockPlusStandby": m441,
-    "unlockPolicyLine": m442,
-    "unlockPrompt": m443,
-    "unlockReEnable": m444,
-    "unlockRemovedText": m445,
+    "unlockPasswordFor": m441,
+    "unlockPlusStandby": m442,
+    "unlockPolicyLine": m443,
+    "unlockPrompt": m444,
+    "unlockReEnable": m445,
+    "unlockRemovedText": m446,
     "unlockRemovedTitle": MessageLookupByLibrary.simpleMessage(
       "Видалено адміністратором",
     ),
-    "unlockRoleOn": m446,
+    "unlockRoleOn": m447,
     "unlockStoreAndroid": MessageLookupByLibrary.simpleMessage(
       "апаратному сховищі ключів цього телефона",
     ),
@@ -4309,15 +4312,15 @@ class MessageLookup extends MessageLookupByLibrary {
       "Secure Enclave цього Mac",
     ),
     "unlockStoreWindows": MessageLookupByLibrary.simpleMessage("TPM цього ПК"),
-    "unlockToOpen": m447,
-    "unlockUnknownText": m448,
-    "unlockUnknownTitle": m449,
-    "unlockUse": m450,
+    "unlockToOpen": m448,
+    "unlockUnknownText": m449,
+    "unlockUnknownTitle": m450,
+    "unlockUse": m451,
     "unlockUsePassword": MessageLookupByLibrary.simpleMessage(
       "Увійти з паролем",
     ),
     "unlockWelcomeBack": MessageLookupByLibrary.simpleMessage("З поверненням"),
-    "unlockWith": m451,
+    "unlockWith": m452,
     "unpinField": MessageLookupByLibrary.simpleMessage("Відкріпити від блока"),
     "unreachableAdvice": MessageLookupByLibrary.simpleMessage(
       "Брокер, можливо, перезапускається, або цей комп’ютер в іншій мережі.",
@@ -4325,7 +4328,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "unsubscribeNote": MessageLookupByLibrary.simpleMessage(
       "Точка більше не записується; рядки лишаються.",
     ),
-    "upFor": m452,
+    "upFor": m453,
     "updAllOfficial": MessageLookupByLibrary.simpleMessage(
       "Оновити всі офіційні…",
     ),
@@ -4345,16 +4348,16 @@ class MessageLookup extends MessageLookupByLibrary {
     "updColPackage": MessageLookupByLibrary.simpleMessage("Пакет"),
     "updColVersion": MessageLookupByLibrary.simpleMessage("Версія"),
     "updCustom": MessageLookupByLibrary.simpleMessage("власний"),
-    "updDo": m453,
-    "updFailed": m454,
+    "updDo": m454,
+    "updFailed": m455,
     "updFailedNote": MessageLookupByLibrary.simpleMessage(
       "Перевірка стану закінчилась без відповіді від кожного лінка.",
     ),
     "updFromFile": MessageLookupByLibrary.simpleMessage("Новіший архів"),
-    "updFromFileNote": m455,
+    "updFromFileNote": m456,
     "updFromFileRow": MessageLookupByLibrary.simpleMessage("Оновити з файлу…"),
     "updGoneTile": MessageLookupByLibrary.simpleMessage("зникли"),
-    "updHotStart": m456,
+    "updHotStart": m457,
     "updHotStartNote": MessageLookupByLibrary.simpleMessage(
       "Запущений застосунок отримує новий код на місці.",
     ),
@@ -4365,12 +4368,12 @@ class MessageLookup extends MessageLookupByLibrary {
       "Кожен лінк зберігає свої приватні дані; нова версія їх читає.",
     ),
     "updKeptTile": MessageLookupByLibrary.simpleMessage("збережено"),
-    "updKeptUntil": m457,
+    "updKeptUntil": m458,
     "updLeave": MessageLookupByLibrary.simpleMessage(
       "Можна піти з цього екрана; оновлення триває.",
     ),
-    "updLinksCount": m458,
-    "updLinksRestart": m459,
+    "updLinksCount": m459,
+    "updLinksRestart": m460,
     "updLinksRestartNote": MessageLookupByLibrary.simpleMessage(
       "Їхні значення зупиняються на час перезапуску; вузли оголошуються знову з налаштувань, які вони зберігають.",
     ),
@@ -4390,7 +4393,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "updNodes": MessageLookupByLibrary.simpleMessage("Вузли до і після"),
     "updNothing": MessageLookupByLibrary.simpleMessage("Усі пакети актуальні."),
     "updOfficial": MessageLookupByLibrary.simpleMessage("офіційний"),
-    "updOpenLink": m460,
+    "updOpenLink": m461,
     "updOpenLog": MessageLookupByLibrary.simpleMessage("Відкрити журнал"),
     "updOptAccept": MessageLookupByLibrary.simpleMessage(
       "Прийняти нові права, які він просить",
@@ -4408,25 +4411,25 @@ class MessageLookup extends MessageLookupByLibrary {
     "updPillFailed": MessageLookupByLibrary.simpleMessage("помилка"),
     "updPillRolledBack": MessageLookupByLibrary.simpleMessage("відкочено"),
     "updPillUnknown": MessageLookupByLibrary.simpleMessage("невідомо"),
-    "updPointBeforeRestore": m461,
-    "updPointBeforeUpdate": m462,
+    "updPointBeforeRestore": m462,
+    "updPointBeforeUpdate": m463,
     "updPoints": MessageLookupByLibrary.simpleMessage("Точки відновлення"),
     "updRights": MessageLookupByLibrary.simpleMessage("Права і мережа"),
     "updRightsNote": MessageLookupByLibrary.simpleMessage(
       "Якщо нова версія просить більше, ніж мають лінки, брокер нічого не встановлює і показує перелік тут для прийняття.",
     ),
     "updRollBack": MessageLookupByLibrary.simpleMessage("Відкотити"),
-    "updRollBackNote": m463,
-    "updRollBackTitle": m464,
-    "updRollBackTo": m465,
+    "updRollBackNote": m464,
+    "updRollBackTitle": m465,
+    "updRollBackTo": m466,
     "updRolledBackNote": MessageLookupByLibrary.simpleMessage(
       "Лінки знову працюють на збереженій версії.",
     ),
-    "updRolledBackTo": m466,
+    "updRolledBackTo": m467,
     "updRowChecking": MessageLookupByLibrary.simpleMessage("перевіряється"),
-    "updRuns": m467,
-    "updRunsNote": m468,
-    "updStateChanges": m469,
+    "updRuns": m468,
+    "updRunsNote": m469,
+    "updStateChanges": m470,
     "updStateChangesNote": MessageLookupByLibrary.simpleMessage(
       "Стара версія не читає нове сховище: відкат відновлює сховище з точки відновлення.",
     ),
@@ -4436,14 +4439,14 @@ class MessageLookup extends MessageLookupByLibrary {
     "updStateCustomNote": MessageLookupByLibrary.simpleMessage(
       "Якщо архів не читає встановлений формат сховища, брокер відмовляє в оновленні без точки відновлення.",
     ),
-    "updStateSame": m470,
+    "updStateSame": m471,
     "updStateSameNote": MessageLookupByLibrary.simpleMessage(
       "Нова версія читає сховище встановленої.",
     ),
     "updStepNodes": MessageLookupByLibrary.simpleMessage(
       "Стан: кожен лінк повернувся зі своїми вузлами",
     ),
-    "updStepNodesCount": m471,
+    "updStepNodesCount": m472,
     "updStepPackage": MessageLookupByLibrary.simpleMessage(
       "Пакет отримано, перевірено і розпаковано поруч зі старою версією",
     ),
@@ -4459,32 +4462,32 @@ class MessageLookup extends MessageLookupByLibrary {
     "updStopAndRollBack": MessageLookupByLibrary.simpleMessage(
       "Зупинити і відкотити",
     ),
-    "updSubCustom": m472,
-    "updSubOfficial": m473,
+    "updSubCustom": m473,
+    "updSubOfficial": m474,
     "updTab": MessageLookupByLibrary.simpleMessage("Оновлення"),
     "updTabNote": MessageLookupByLibrary.simpleMessage(
       "Лінки, пакет яких має новішу версію. Усі лінки пакета оновлюються разом, і брокер зберігає потрібне для повернення.",
     ),
     "updThen": MessageLookupByLibrary.simpleMessage("Потім"),
-    "updTitle": m474,
-    "updTitleCustom": m475,
-    "updTitleDone": m476,
-    "updTitleRolledBack": m477,
+    "updTitle": m475,
+    "updTitleCustom": m476,
+    "updTitleDone": m477,
+    "updTitleRolledBack": m478,
     "updTogether": MessageLookupByLibrary.simpleMessage("оновлюються разом"),
-    "updUnknownResult": m478,
+    "updUnknownResult": m479,
     "updUnknownResultNote": MessageLookupByLibrary.simpleMessage(
       "Studio не знає такого результату. Більше скаже журнал брокера.",
     ),
-    "updUpdating": m479,
+    "updUpdating": m480,
     "updUpdatingButton": MessageLookupByLibrary.simpleMessage("Оновлення…"),
     "updUpdatingSub": MessageLookupByLibrary.simpleMessage(
       "Значення його лінків зупиняються на час перезапуску.",
     ),
-    "updVersionsOf": m480,
+    "updVersionsOf": m481,
     "updWhatChanges": MessageLookupByLibrary.simpleMessage(
       "Що змінюється для брокера",
     ),
-    "updWhatIsNew": m481,
+    "updWhatIsNew": m482,
     "updWorking": MessageLookupByLibrary.simpleMessage("встановлення"),
     "updating": MessageLookupByLibrary.simpleMessage("Оновлення…"),
     "upstream": MessageLookupByLibrary.simpleMessage("вище"),
@@ -4502,8 +4505,8 @@ class MessageLookup extends MessageLookupByLibrary {
     "valuesPreview": MessageLookupByLibrary.simpleMessage(
       "перегляд чернетки; нічого не записано",
     ),
-    "versionDeployed": m482,
-    "viaSite": m483,
+    "versionDeployed": m483,
+    "viaSite": m484,
     "viewValue": MessageLookupByLibrary.simpleMessage("Переглянути значення"),
     "viewerBadBool": MessageLookupByLibrary.simpleMessage("true або false"),
     "viewerBadJson": MessageLookupByLibrary.simpleMessage(
@@ -4521,7 +4524,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "viewerCsvRefused": MessageLookupByLibrary.simpleMessage(
       "Блок відмовляє цьому тексту (parse_error): у ньому немає рядка, або він перевищує межу таблиці.",
     ),
-    "viewerCsvRules": m484,
+    "viewerCsvRules": m485,
     "viewerCsvWired": MessageLookupByLibrary.simpleMessage(
       "Роздільник або заголовок надходить дротом: таблиця бере їхні поточні значення.",
     ),
@@ -4543,24 +4546,24 @@ class MessageLookup extends MessageLookupByLibrary {
       "Лише читання: цей вихід обчислює блок.",
     ),
     "viewerSave": MessageLookupByLibrary.simpleMessage("Зберегти"),
-    "viewerSaveHint": m485,
+    "viewerSaveHint": m486,
     "viewerTabTable": MessageLookupByLibrary.simpleMessage("Як таблиця"),
     "viewerTabText": MessageLookupByLibrary.simpleMessage("Текст"),
-    "viewerTableHint": m486,
+    "viewerTableHint": m487,
     "waitingInQuarantine": MessageLookupByLibrary.simpleMessage(
       "Чекає в карантині",
     ),
-    "waitingToBeLetIn": m487,
-    "wasValue": m488,
+    "waitingToBeLetIn": m488,
+    "wasValue": m489,
     "wasWord": MessageLookupByLibrary.simpleMessage("було"),
     "watchGroup": MessageLookupByLibrary.simpleMessage("Група спостереження"),
-    "watchGroups": m489,
-    "waysCaution": m490,
+    "watchGroups": m490,
+    "waysCaution": m491,
     "waysNote": MessageLookupByLibrary.simpleMessage(
       "Вибір — це нове прохання. Його план перевіряють, і він чекає на ваше схвалення крок за кроком.",
     ),
     "waysOut": MessageLookupByLibrary.simpleMessage("Що далі"),
-    "welcomeUser": m491,
+    "welcomeUser": m492,
     "whatItRead": MessageLookupByLibrary.simpleMessage("Що прочитано"),
     "whyAnnounce": MessageLookupByLibrary.simpleMessage(
       "На брокері може бути вимкнено gateway.announce (захищені сайти), або його gateway слухає лише loopback.",
@@ -4620,10 +4623,10 @@ class MessageLookup extends MessageLookupByLibrary {
     "wordOrderReason": MessageLookupByLibrary.simpleMessage(
       "Задається типом даних: суфіксом _wswap, _bswap або _wbswap.",
     ),
-    "wouldRun": m492,
-    "wouldSend": m493,
-    "wouldWrite": m494,
-    "writableNeeds": m495,
+    "wouldRun": m493,
+    "wouldSend": m494,
+    "wouldWrite": m495,
+    "writableNeeds": m496,
     "wrongPassword": MessageLookupByLibrary.simpleMessage(
       "Неправильний користувач або пароль. Попросіть адміністратора скинути пароль; gateway ніколи не надсилає його поштою.",
     ),
@@ -4635,7 +4638,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "wsLinks": MessageLookupByLibrary.simpleMessage("Лінки"),
     "wsSites": MessageLookupByLibrary.simpleMessage("Сайти"),
     "wsSystem": MessageLookupByLibrary.simpleMessage("Система"),
-    "wyrmdOn": m496,
+    "wyrmdOn": m497,
     "yes": MessageLookupByLibrary.simpleMessage("так"),
     "youTag": MessageLookupByLibrary.simpleMessage("ВИ"),
     "yourAnswers": MessageLookupByLibrary.simpleMessage("Ваші відповіді"),

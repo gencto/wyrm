@@ -43,8 +43,7 @@ class RetrieveFlowsAction extends Action
       flows.add(
         flowSummaryOf(
           c.name,
-          flowValOfWire(vals['$base/${c.name}']),
-          where: '$base/${c.name}',
+          flowValOfWire(vals['$base/${c.name}'])..record('$base/${c.name}'),
           description: c.meta.displayName,
         ).copyWith(
           reads: def?.reads ?? const IListConst([]),

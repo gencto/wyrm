@@ -2175,5 +2175,6 @@
     "chkMissing": "немає {field}",
     "chkWrongForm": "{field} має не ту форму, яку має в маніфесті",
     "chkUnknownName": "{field}: {found} — назва, якої ця Studio не знає",
-    "chkLinkFrom": "{id} · {mode} · {driver} · із {site} (wyrmd {broker}, {created})"
+    "chkLinkFrom": "{id} · {mode} · {driver} · із {site} (wyrmd {broker}, {created})",
+    "logTypeOther": "{name} (спосіб, якого ця Studio не знає)"
 }

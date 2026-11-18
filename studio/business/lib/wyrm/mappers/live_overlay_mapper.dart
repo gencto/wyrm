@@ -1,11 +1,11 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/flow_summary.dart';
 import 'package:models/live_value.dart';
-import 'package:models/logging_type.dart';
 import 'package:models/watch_group.dart';
 
-import '../decode/live_fields.dart' show liveName, liveNumber;
-import 'flow_value_mapper.dart';
+import '../decode/flow_val.dart';
+import '../decode/live_fields.dart' show liveNumber;
+import '../decode/sys_answers.dart';
 
 /// A live value as the historian's text: a number without a trailing `.0`,
 /// a text or a bool as it is; null for anything else.
@@ -44,7 +44,10 @@ IMap<String, String> liveStats(
 }
 
 /// [groups] with each group's settings (`<base>/<group>/logging_type`,
-/// `interval`, `buffer_flush_time`) from [values] where they are live.
+/// `interval`, `buffer_flush_time`) from [values] where they are live. A
+/// live value of another shape keeps what the group holds; it is recorded
+/// where it arrives ([warnUnreadLive]), not here: a selector calls this
+/// on every rebuild.
 IList<WatchGroup> liveGroups(
   IList<WatchGroup> groups,
   String base,
@@ -53,48 +56,61 @@ IList<WatchGroup> liveGroups(
   for (final g in groups)
     () {
       Object? v(String k) => values['$base/${g.name}/$k']?.value;
-      final where = '$base/${g.name}';
-      // a live value of another shape keeps what the group holds, and
-      // is logged with its leaf
       return g.copyWith(
-        loggingType:
-            liveName(
-              v('logging_type'),
-              LoggingType.fromWire,
-              'watch group',
-              'logging_type',
-            ).orWarn(where) ??
-            g.loggingType,
+        logging: liveLoggingOf(v('logging_type')).orNull ?? g.logging,
         interval:
-            liveNumber(
-              v('interval'),
-              'watch group',
-              'interval',
-            ).orWarn(where) ??
+            liveNumber(v('interval'), 'watch group', 'interval').orNull ??
             g.interval,
         flush:
             liveNumber(
               v('buffer_flush_time'),
               'watch group',
               'buffer_flush_time',
-            ).orWarn(where) ??
+            ).orNull ??
             g.flush,
       );
     }(),
 ].lock;
 
-/// [f] with its running state, version, deployer and error from its live
-/// `~val` [v] (`{state, error, version, deployed_by}`), when there is one.
-FlowSummary liveFlow(FlowSummary f, LiveValue? v) {
-  if (v == null) {
-    return f;
+/// [f] under its live `~val` [v], when there is one ([flowUnderLive]): its
+/// state, version, deployer and error; a value Studio cannot read says
+/// the state is not known and keeps the last version read.
+FlowSummary liveFlow(FlowSummary f, LiveValue? v) =>
+    v == null ? f : flowUnderLive(f, flowValOf(v.value));
+
+/// Records each value of [changed] (one batch of the live values, under
+/// the site [root]) that the screens read and that is not of its shape: a
+/// flow's `~val` and the settings of a watch group. Called once per batch
+/// where the values arrive, so a value is recorded once per change and
+/// the selectors that read it record nothing.
+void warnUnreadLive(Map<String, LiveValue?> changed, String root) {
+  final flows = '$root/dataflows/';
+  final history = '$root/sys/history/';
+  for (final MapEntry(:key, :value) in changed.entries) {
+    if (value == null) {
+      continue;
+    }
+    if (key.startsWith(flows)) {
+      final id = key.substring(flows.length);
+      if (!id.contains('/')) {
+        flowValOf(value.value).record(key);
+      }
+    } else if (key.startsWith(history)) {
+      final parts = key.substring(history.length).split('/');
+      if (parts.length != 2) {
+        continue;
+      }
+      final where = '$history${parts.first}';
+      switch (parts.last) {
+        case _loggingLeaf:
+          liveLoggingOf(value.value).record(where);
+        case _intervalLeaf || _flushLeaf:
+          liveNumber(value.value, 'watch group', parts.last).record(where);
+      }
+    }
   }
-  final l = flowSummaryOfValue(f.id, v.value);
-  return f.copyWith(
-    version: l.version ?? f.version,
-    deployedBy: l.deployedBy,
-    problem: l.problem,
-    draft: l.draft,
-    running: l.running,
-  );
 }
+
+const _loggingLeaf = 'logging_type';
+const _intervalLeaf = 'interval';
+const _flushLeaf = 'buffer_flush_time';

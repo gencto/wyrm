@@ -3,6 +3,7 @@ import 'package:business/wyrm/history_trend.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/hist_point.dart';
 import 'package:models/history_call.dart';
+import 'package:models/logging.dart';
 import 'package:models/logging_type.dart';
 import 'package:models/trend_range.dart';
 import 'package:models/watch_group.dart';
@@ -45,7 +46,11 @@ extension LoggingTypeUi on LoggingType {
 extension WatchGroupVmOf on WatchGroup {
   WatchGroupVm vm(IMap<String, IList<HistPoint>> series) => WatchGroupVm(
     name: name,
-    logging: loggingType?.ui,
+    logging: switch (logging) {
+      LoggingKnown(:final type) => GroupLoggingVm.known(type.ui),
+      LoggingOther(:final name) => GroupLoggingVm.other(name),
+      null => null,
+    },
     interval: interval,
     flush: flush,
     points: [

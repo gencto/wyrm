@@ -1,10 +1,13 @@
 import 'package:app/mappers/flow_mappers.dart';
 import 'package:app/mappers/history_mappers.dart';
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
 import 'package:models/flow_summary.dart';
+import 'package:models/logging.dart';
 import 'package:models/logging_type.dart';
+import 'package:models/watch_group.dart';
 import 'package:ui/indicators/flow_state_tag.dart';
 import 'package:ui/models/tone.dart';
 import 'package:ui/pages/history_screen.dart';
@@ -51,5 +54,25 @@ void main() {
     );
     await S.load(const Locale('uk'));
     expect(LoggingType.pointChange.ui.label, 'Зміна точки');
+  });
+
+  test('a way of recording Studio does not know is said by its name', () async {
+    await S.load(const Locale('en'));
+    const g = WatchGroup(name: 'fast', logging: Logging.other('Deadband'));
+    final vm = g.vm(const IMapConst({}));
+    expect(vm.logging, const GroupLoggingVm.other('Deadband'));
+    expect(
+      vm.logging!.label,
+      'Deadband (a way this Studio does not know)',
+    );
+    expect(
+      const WatchGroup(
+        name: 'fast',
+        logging: Logging.known(LoggingType.allData),
+      ).vm(const IMapConst({})).logging!.label,
+      'All Data',
+    );
+    await S.load(const Locale('uk'));
+    expect(vm.logging!.label, 'Deadband (спосіб, якого ця Studio не знає)');
   });
 }

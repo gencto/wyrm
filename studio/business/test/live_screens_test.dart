@@ -19,6 +19,7 @@ import 'package:business/redux/login/actions/set_password_action.dart';
 import 'package:business/redux/login/actions/set_user_action.dart';
 import 'package:business/redux/site/actions/view_site_action.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:models/logging.dart';
 import 'package:models/logging_type.dart';
 import 'package:models/trend_range.dart';
 import 'package:wyrm_client/wyrm_client.dart';
@@ -194,7 +195,10 @@ void main() {
       await batch();
       final h = SelectHistorian(s.state);
       expect(h.shownStats['rows_written'], '42');
-      expect(h.shownGroups.first.loggingType, LoggingType.pointChange);
+      expect(
+        h.shownGroups.first.logging,
+        const Logging.known(LoggingType.pointChange),
+      );
     });
 
     test('another group moves the watch list; hide closes all', () async {

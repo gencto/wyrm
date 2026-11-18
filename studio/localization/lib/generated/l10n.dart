@@ -17690,6 +17690,16 @@ class S {
       args: [id, mode, driver, site, broker, created],
     );
   }
+
+  /// `{name} (a way this Studio does not know)`
+  String logTypeOther(String name) {
+    return Intl.message(
+      '$name (a way this Studio does not know)',
+      name: 'logTypeOther',
+      desc: '',
+      args: [name],
+    );
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<S> {

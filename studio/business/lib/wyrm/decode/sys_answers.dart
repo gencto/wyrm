@@ -1,5 +1,6 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/link_revision.dart';
+import 'package:models/logging.dart';
 import 'package:models/logging_type.dart';
 import 'package:models/watch_group.dart';
 import 'package:wyrm_client/wyrm_client.dart';
@@ -39,11 +40,27 @@ Decoded<List<LinkRevision>> linkRevisionsOf(List<Value> rows) =>
       return out;
     });
 
+/// How a watch group records, from the broker's name of it: one of the
+/// ways this client knows, or the name as it is.
+Logging loggingOf(String name) => switch (LoggingType.fromWire(name)) {
+  final type? => Logging.known(type),
+  null => Logging.other(name),
+};
+
+/// The live `logging_type` of a watch group, read as [watchGroupOf] reads
+/// it; none while no value arrived. A value that is no text is [Invalid].
+Decoded<Logging?> liveLoggingOf(Object? value) => switch (value) {
+  null => const Valid(null),
+  final String name => Valid(loggingOf(name)),
+  _ => const Invalid('watch group', 'logging_type', 'not a text'),
+};
+
 /// One group of `sys/history` with the values of its leaves ([values], by
 /// leaf: `logging_type`, `interval`, `buffer_flush_time`) and its watches
 /// ([watches]: the children that are folders, named by the key they
-/// record). A leaf of another type, or a way of recording this client
-/// does not know, is [Invalid] with its name.
+/// record). A leaf of another type is [Invalid] with its name. How the
+/// group records is shown only: a name this client does not know is kept
+/// as the broker wrote it ([loggingOf]) and the group stays whole.
 Decoded<WatchGroup> watchGroupOf(
   String name,
   Map<String, Value> values,
@@ -56,7 +73,10 @@ Decoded<WatchGroup> watchGroupOf(
   ];
   return WatchGroup(
     name: name,
-    loggingType: f.nameOr('logging_type', LoggingType.fromWire),
+    logging: switch (f.textOr('logging_type')) {
+      final name? => loggingOf(name),
+      null => null,
+    },
     interval: f.numberOr('interval'),
     flush: f.numberOr('buffer_flush_time'),
     watchIds: [for (final w in folders) w.name].lock,

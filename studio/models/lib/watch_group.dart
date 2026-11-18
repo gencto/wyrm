@@ -1,7 +1,7 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 
-import 'logging_type.dart';
+import 'logging.dart';
 
 part 'watch_group.freezed.dart';
 
@@ -12,7 +12,7 @@ abstract class WatchGroup with _$WatchGroup {
     required String name,
 
     /// What it records; null while no value of it has arrived.
-    LoggingType? loggingType,
+    Logging? logging,
     num? interval,
     num? flush,
 
