@@ -443,13 +443,26 @@ final class SysBackupRow extends Equatable {
 
 /// The card *Backups*: the days a backup is kept, the kept ones.
 final class SysBackupsData extends Equatable {
-  const SysBackupsData({this.keepDays = 7, this.rows = const []});
+  const SysBackupsData({
+    this.keepDays = 7,
+    this.rows = const [],
+    this.unread = const [],
+    this.unreadable = false,
+  });
 
   final int keepDays;
   final List<SysBackupRow> rows;
 
+  /// The kept backups Studio could not read, by their node names: each
+  /// is a row that says so.
+  final List<String> unread;
+
+  /// The attributes of `sys/backups` were not read: no backup is offered,
+  /// and the card says why.
+  final bool unreadable;
+
   @override
-  List<Object?> get props => [keepDays, rows];
+  List<Object?> get props => [keepDays, rows, unread, unreadable];
 }
 
 /// Where the broker's update of itself is, as the card *Broker version*

@@ -1459,6 +1459,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "bakNoSendLinks": MessageLookupByLibrary.simpleMessage(
       "Хост не вказав лінк файлового сховища для резервних копій (backups.send_links у wyrmd.json5).",
     ),
+    "bakNotRead": MessageLookupByLibrary.simpleMessage(
+      "Брокер описав свої резервні копії у формі, яку ця Studio не читає, тому тут їх не запропоновано. Поле вказано в журналі; дивись Проблеми.",
+    ),
     "bakOffline": MessageLookupByLibrary.simpleMessage(
       "Коли брокер не запускається",
     ),
@@ -1492,6 +1495,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "bakRemoveTitle": m31,
     "bakRestore": MessageLookupByLibrary.simpleMessage("Відновити…"),
     "bakRowFailed": MessageLookupByLibrary.simpleMessage("помилка"),
+    "bakRowNotRead": MessageLookupByLibrary.simpleMessage(
+      "не прочитано: у формі, якої ця Studio не знає",
+    ),
     "bakRowRunning": m32,
     "bakRowSending": m33,
     "bakSaved": m34,

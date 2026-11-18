@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:app/common/files.dart';
 import 'package:app/mappers/backup_mappers.dart';
 import 'package:app/mappers/link_install_mappers.dart';
+import 'package:app/mappers/links_mappers.dart';
 import 'package:app/mappers/system_mappers.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter/widgets.dart';
@@ -16,6 +17,7 @@ import 'package:models/backup_section.dart';
 import 'package:models/backup_stage.dart';
 import 'package:models/backup_status.dart';
 import 'package:models/backup_step.dart';
+import 'package:models/backups_read.dart';
 import 'package:models/link_mode.dart';
 import 'package:models/restore_check.dart';
 import 'package:models/restore_keys.dart';
@@ -30,6 +32,8 @@ import 'package:ui/models/tone.dart';
 import 'package:ui/overlays/backup_data.dart';
 import 'package:ui/overlays/backup_sheet.dart';
 import 'package:ui/overlays/task_sheet.dart';
+import 'package:ui/pages/links_data.dart';
+import 'package:ui/pages/system_data.dart';
 
 // The data of these tests is made as the app makes it: the domain values
 // of `models` (read from their wire names, as the decoders read them)
@@ -785,6 +789,32 @@ void main() {
         backupFormSheet(_form(link: 'modbus')).blocks.whereType<SheetFacts>(),
         isEmpty,
       );
+    });
+
+    test('why no backup is offered: no sys/backups, or one not read', () {
+      expect(BackupsRead.read.off, isNull);
+      expect(BackupsRead.absent.off, BackupsOff.absent);
+      expect(BackupsRead.unreadable.off, BackupsOff.unreadable);
+      // two reasons, two sentences: the second is not "a wyrmd before…"
+      expect(BackupsOff.absent.label, contains('ADR 0048'));
+      expect(BackupsOff.unreadable.label, contains('does not read'));
+      expect(BackupsOff.unreadable.label, isNot(contains('ADR 0048')));
+
+      SysBackupsData? card(BackupsRead a) => a.card(
+        keepDays: 7,
+        rows: const [BackupJob(id: 'b1')],
+        unread: const ['b2'].lock,
+      );
+      expect(card(BackupsRead.absent), isNull);
+      expect(
+        card(BackupsRead.unreadable),
+        const SysBackupsData(unreadable: true),
+      );
+      final read = card(BackupsRead.read)!;
+      expect(read.unreadable, isFalse);
+      expect(read.rows.map((r) => r.id), ['b1']);
+      // a backup that was not read is still a row
+      expect(read.unread, ['b2']);
     });
 
     test('a kept backup lists its sections by their labels', () {

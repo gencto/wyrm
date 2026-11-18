@@ -170,12 +170,11 @@ class _Factory extends VmFactory<AppState, SystemPageConnector, _Vm>
           for (final p in system.profiles) SysProfile(p.name, points: p.points),
         ],
         profilesUnlisted: system.profilesNote,
-        backups: backups.sections.isEmpty
-            ? null
-            : SysBackupsData(
-                keepDays: backups.keepDays,
-                rows: [for (final j in backupRows) j.row],
-              ),
+        backups: backups.availability.card(
+          keepDays: backups.keepDays,
+          rows: backupRows,
+          unread: backups.unread,
+        ),
         version: offeredSelfUpdate?.card,
         dataSize: status[SysValue.dataSize],
       ),

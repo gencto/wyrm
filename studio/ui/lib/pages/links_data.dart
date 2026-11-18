@@ -338,6 +338,20 @@ final class LinkPointData extends Equatable {
   List<Object?> get props => [link, version, at, size];
 }
 
+/// Why a broker offers no backup.
+enum BackupsOff {
+  /// It has no `sys/backups` (a wyrmd before ADR 0048).
+  absent,
+
+  /// It has one, in a form this Studio does not read.
+  unreadable;
+
+  String get label => switch (this) {
+    absent => S.current.bakNoBackups,
+    unreadable => S.current.bakNotRead,
+  };
+}
+
 /// The update sheet of one package, as typed values.
 final class LinkUpdateData extends Equatable {
   const LinkUpdateData({
@@ -460,7 +474,7 @@ final class LinksScreenVm extends Equatable {
     this.holdUnknown = false,
     this.allowAll = false,
     this.admissionReason,
-    this.hasBackups = true,
+    this.backupsOff,
     this.busy = false,
     this.sheet,
   });
@@ -499,7 +513,8 @@ final class LinksScreenVm extends Equatable {
   final Disabled? admissionReason;
 
   /// The broker has `sys/backups` (ADR 0048).
-  final bool hasBackups;
+  /// Why the link cannot be backed up from here; null: it can.
+  final BackupsOff? backupsOff;
   final bool busy;
   final LinkUpdateData? sheet;
 
@@ -523,7 +538,7 @@ final class LinksScreenVm extends Equatable {
     holdUnknown,
     allowAll,
     admissionReason,
-    hasBackups,
+    backupsOff,
     busy,
     sheet,
   ];

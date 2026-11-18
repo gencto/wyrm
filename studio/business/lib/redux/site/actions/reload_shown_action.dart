@@ -1,3 +1,5 @@
+import 'package:models/backups_read.dart';
+
 import '../../app_state.dart';
 import '../../assistant/actions/load_assistant_action.dart';
 import '../../backups/actions/retrieve_backups_action.dart';
@@ -27,7 +29,9 @@ class ReloadShownAction extends Action with WaitingAction {
       if (links.view.isNotEmpty) RetrieveLinksAction(),
       if (quarantine.view.isNotEmpty) RetrieveQuarantineAction(),
       if (packages.view.isNotEmpty) RetrievePackagesAction(),
-      if (backups.sections.isNotEmpty) RetrieveBackupsAction(quiet: true),
+      // also one that was not read: the next read may be
+      if (backups.availability != BackupsRead.absent)
+        RetrieveBackupsAction(quiet: true),
       // the Assistant reads its agent again: after a site switch it is the
       // new site's agent, with its own tasks
       if (assistant.shown) LoadAssistantAction(),

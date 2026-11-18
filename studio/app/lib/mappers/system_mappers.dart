@@ -6,6 +6,7 @@ import 'package:models/attention_kind.dart';
 import 'package:models/backup_job.dart';
 import 'package:models/backup_kind.dart';
 import 'package:models/backup_status.dart';
+import 'package:models/backups_read.dart';
 import 'package:models/broker_self_update.dart';
 import 'package:models/log_level.dart';
 import 'package:models/log_line.dart';
@@ -22,7 +23,6 @@ import 'package:ui/alerts/system_toast.dart';
 import 'package:ui/pages/system_data.dart';
 
 import '../navigation/system_place.dart';
-
 import 'backup_mappers.dart';
 
 // System's domain as `ui` draws it (studio-rules §3): one exhaustive
@@ -222,6 +222,25 @@ extension BackupSendStatusSys on BackupSendStatus {
     BackupSendStatus.none ||
     BackupSendStatus.done ||
     BackupSendStatus.failed => false,
+  };
+}
+
+extension BackupsReadCard on BackupsRead {
+  /// The card *Backups* of System: none for a broker without
+  /// `sys/backups`, a card that says it was not read, or the kept backups
+  /// ([rows]) with those that could not be read ([unread]).
+  SysBackupsData? card({
+    required int keepDays,
+    required List<BackupJob> rows,
+    required IList<String> unread,
+  }) => switch (this) {
+    BackupsRead.absent => null,
+    BackupsRead.unreadable => const SysBackupsData(unreadable: true),
+    BackupsRead.read => SysBackupsData(
+      keepDays: keepDays,
+      rows: [for (final j in rows) j.row],
+      unread: unread.unlock,
+    ),
   };
 }
 

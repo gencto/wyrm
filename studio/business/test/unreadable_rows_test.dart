@@ -14,6 +14,7 @@ import 'package:business/redux/site/actions/retrieve_sites_action.dart';
 import 'package:business/wyrm/decode/decoded.dart';
 import 'package:business/wyrm/decode/unreadable.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:models/backups_read.dart';
 import 'package:models/error_hint.dart';
 import 'package:models/error_kind.dart';
 import 'package:models/studio_error.dart';
@@ -186,6 +187,86 @@ void main() {
     final p = unread().single;
     expect(p.key, base);
     expect(p.thing, 'slow, odd');
+  });
+
+  group('sys/backups', () {
+    const b = '$_root/sys/backups';
+
+    test('a kept backup Studio cannot read stays in the list as not '
+        'read', () async {
+      api
+        ..metas[b] = NodeMeta(
+          attr: {
+            'sections': const VArray([VStr('control'), VStr('storage')]),
+          },
+        )
+        ..children_[b] = [
+          Child('b1', NodeMeta()),
+          Child('b2', NodeMeta()),
+          Child('b3', NodeMeta()),
+          Child('b4', NodeMeta()),
+        ]
+        ..metas['$b/b1'] = NodeMeta(attr: {'kind': const VStr('full')})
+        ..metas['$b/b2'] = NodeMeta(attr: {'kind': const VStr('snapshot')})
+        ..metas['$b/b3'] = NodeMeta(attr: {'sealed': const VStr('hsm')})
+        ..metas['$b/b4'] = NodeMeta(
+          attr: {
+            'sections': const VArray([VStr('control'), VStr('flows')]),
+          },
+        );
+
+      await s.dispatchAndWait(RetrieveBackupsAction());
+
+      final st = s.state.backups;
+      expect(st.availability, BackupsRead.read);
+      expect(st.view, ['b1']);
+      // not dropped: each is there for the screen to say so
+      expect(st.unread, ['b2', 'b3', 'b4']);
+      final p = unread().single;
+      expect((p.key, p.thing), (b, 'b2, b3, b4'));
+      expect(s.state.problems.toasts, contains(p.id));
+    });
+
+    test('attributes Studio cannot read are "not read", not a broker '
+        'without backups', () async {
+      api
+        ..children_[b] = [Child('b1', NodeMeta())]
+        ..metas['$b/b1'] = NodeMeta()
+        ..metas[b] = NodeMeta(
+          attr: {
+            'sections': const VArray([VStr('control'), VStr('flows')]),
+          },
+        );
+
+      await s.dispatchAndWait(RetrieveBackupsAction());
+
+      expect(s.state.backups.availability, BackupsRead.unreadable);
+      expect(s.state.backups.sections, isEmpty);
+      final said = s.state.problems.items.first;
+      expect(
+        (said.hint, said.key, said.call, said.quiet),
+        (ErrorHint.unreadableAnswer, b, 'meta', true),
+      );
+
+      // read again once the broker answers in a form Studio reads
+      api.metas[b] = NodeMeta(
+        attr: {
+          'sections': const VArray([VStr('control')]),
+        },
+      );
+      await s.dispatchAndWait(RetrieveBackupsAction());
+      expect(s.state.backups.availability, BackupsRead.read);
+      expect(s.state.backups.view, ['b1']);
+    });
+
+    test('a broker without sys/backups has none', () async {
+      api.errors[b] = WyrmException.of(Status.notFound, 'no node');
+
+      await s.dispatchAndWait(RetrieveBackupsAction());
+
+      expect(s.state.backups.availability, BackupsRead.absent);
+      expect(unread(), isEmpty);
+    });
   });
 
   test('an estimate that is not read is refused and said', () async {

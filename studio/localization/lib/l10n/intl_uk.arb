@@ -2176,5 +2176,7 @@
     "chkWrongForm": "{field} має не ту форму, яку має в маніфесті",
     "chkUnknownName": "{field}: {found} — назва, якої ця Studio не знає",
     "chkLinkFrom": "{id} · {mode} · {driver} · із {site} (wyrmd {broker}, {created})",
-    "logTypeOther": "{name} (спосіб, якого ця Studio не знає)"
+    "logTypeOther": "{name} (спосіб, якого ця Studio не знає)",
+    "bakNotRead": "Брокер описав свої резервні копії у формі, яку ця Studio не читає, тому тут їх не запропоновано. Поле вказано в журналі; дивись Проблеми.",
+    "bakRowNotRead": "не прочитано: у формі, якої ця Studio не знає"
 }

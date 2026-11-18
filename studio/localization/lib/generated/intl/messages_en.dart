@@ -1450,6 +1450,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "bakNoSendLinks": MessageLookupByLibrary.simpleMessage(
       "The host lists no file-store link for backups (backups.send_links in wyrmd.json5).",
     ),
+    "bakNotRead": MessageLookupByLibrary.simpleMessage(
+      "The broker described its backups in a form this Studio does not read, so none is offered here. The field is in the log; see Problems.",
+    ),
     "bakOffline": MessageLookupByLibrary.simpleMessage(
       "When the broker does not start",
     ),
@@ -1483,6 +1486,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "bakRemoveTitle": m31,
     "bakRestore": MessageLookupByLibrary.simpleMessage("Restore…"),
     "bakRowFailed": MessageLookupByLibrary.simpleMessage("failed"),
+    "bakRowNotRead": MessageLookupByLibrary.simpleMessage(
+      "not read: in a form this Studio does not know",
+    ),
     "bakRowRunning": m32,
     "bakRowSending": m33,
     "bakSaved": m34,

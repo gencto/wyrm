@@ -4,6 +4,7 @@ import 'package:models/backup_job.dart';
 import 'package:models/backup_place.dart';
 import 'package:models/backup_section.dart';
 import 'package:models/backup_stage.dart';
+import 'package:models/backups_read.dart';
 import 'package:models/restore_check.dart';
 import 'package:models/restore_mode.dart';
 import 'package:models/send_link.dart';
@@ -48,5 +49,7 @@ abstract class BackupsState with _$BackupsState {
     String? result,
     @Default(IMapConst({})) IMap<String, String> saved,
     @Default(IListConst([])) IList<BackupSection> staged,
+    @Default(BackupsRead.absent) BackupsRead availability,
+    @Default(IListConst([])) IList<String> unread,
   }) = _BackupsState;
 }

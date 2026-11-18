@@ -486,8 +486,9 @@ class LinksScreen extends StatelessWidget {
               LinkAct.backup,
               s.actBackUp,
               s.actBackUpNote,
-              // A wyrmd before ADR 0048 has no `sys/backups`.
-              reason: reason ?? (vm.hasBackups ? null : s.bakNoBackups),
+              // No `sys/backups` (a wyrmd before ADR 0048), or one this
+              // Studio does not read: each says which.
+              reason: reason ?? vm.backupsOff?.label,
             ),
           ],
         ),

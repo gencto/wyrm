@@ -17700,6 +17700,26 @@ class S {
       args: [name],
     );
   }
+
+  /// `The broker described its backups in a form this Studio does not read, so none is offered here. The field is in the log; see Problems.`
+  String get bakNotRead {
+    return Intl.message(
+      'The broker described its backups in a form this Studio does not read, so none is offered here. The field is in the log; see Problems.',
+      name: 'bakNotRead',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `not read: in a form this Studio does not know`
+  String get bakRowNotRead {
+    return Intl.message(
+      'not read: in a form this Studio does not know',
+      name: 'bakRowNotRead',
+      desc: '',
+      args: [],
+    );
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<S> {

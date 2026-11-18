@@ -767,12 +767,17 @@ class SystemScreen extends StatelessWidget {
     null => null,
     final b => BackupsCardVm(
       title: S.current.bakCard,
-      note: S.current.bakCardNote(b.keepDays),
+      note: b.unreadable
+          ? S.current.bakNotRead
+          : S.current.bakCardNote(b.keepDays),
       empty: S.current.bakCardEmpty,
       backUpLabel: S.current.bakBackUp,
       restoreLabel: S.current.bakRestore,
-      reason: reason,
+      reason: b.unreadable ? S.current.bakNotRead : reason,
       rows: [
+        // a backup Studio could not read is there, and says so
+        for (final id in b.unread)
+          RowItemVm(id: id, title: id, subtitle: S.current.bakRowNotRead),
         for (final j in b.rows)
           RowItemVm(
             id: j.id,

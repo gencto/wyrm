@@ -15,6 +15,7 @@ import 'package:models/backup_job.dart';
 import 'package:models/backup_place.dart';
 import 'package:models/backup_section.dart';
 import 'package:models/backup_stage.dart';
+import 'package:models/backups_read.dart';
 import 'package:models/block_info.dart';
 import 'package:models/broker_self_update.dart';
 import 'package:models/ca_pin.dart';
@@ -2699,6 +2700,12 @@ extension type SelectBackups(AppState _state) {
 
   /// Returns staged
   IList<BackupSection> get staged => _state.backups.staged;
+
+  /// Returns availability
+  BackupsRead get availability => _state.backups.availability;
+
+  /// Returns unread
+  IList<String> get unread => _state.backups.unread;
 }
 
 extension type SelectBrokerUpdate(AppState _state) {

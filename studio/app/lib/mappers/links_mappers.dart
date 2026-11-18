@@ -1,4 +1,5 @@
 import 'package:business/wyrm/link_update.dart';
+import 'package:models/backups_read.dart';
 import 'package:models/link_state.dart';
 import 'package:models/links_tab.dart';
 import 'package:models/package_info.dart';
@@ -177,4 +178,13 @@ extension LinkUpdateUi on LinkUpdate {
       canRollBack: canRollBack,
     );
   }
+}
+
+extension BackupsReadOff on BackupsRead {
+  /// Why no backup is offered; null when one is.
+  BackupsOff? get off => switch (this) {
+    BackupsRead.read => null,
+    BackupsRead.absent => BackupsOff.absent,
+    BackupsRead.unreadable => BackupsOff.unreadable,
+  };
 }
