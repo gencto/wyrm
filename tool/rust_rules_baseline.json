@@ -572,6 +572,7 @@
   },
   "C12-admin-arg-read": {},
   "A1-allow": {
+    "crates/wyrm-admin/src/control/actions.rs": 2,
     "crates/wyrm-admin/src/official.rs": 1,
     "crates/wyrm-admin/src/release.rs": 1,
     "crates/wyrm-client/src/lib.rs": 3,
@@ -1012,5 +1013,8 @@
     "links/uplink/src/platform.rs": 1,
     "tools/wyr/src/admin.rs": 1,
     "tools/wyr/src/main.rs": 1
+  },
+  "A4-secret-line": {
+    "crates/wyrm-admin/src/control/actions.rs": 1
   }
 }
