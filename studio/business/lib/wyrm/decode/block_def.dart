@@ -138,7 +138,9 @@ List<BlockPort> _ports(Object? v, String field, String endsKey) {
               },
           ],
           // read as JSON while the editor builds: none past the bound
-          defaultValue: JsonValue.isJson(m['default'])
+          // where it is shown, one level down in the boundary block's
+          // `defaults`
+          defaultValue: JsonValue.isJson(m['default'], nestedIn: 1)
               ? m['default']
               : throw _Bad('$field[$i].default', 'nested too deep'),
           hasDefault: m.containsKey('default'),

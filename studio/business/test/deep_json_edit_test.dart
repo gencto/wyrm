@@ -113,9 +113,10 @@ void main() {
           },
         },
       });
-      expect(flowReadOf('f', withBlock(deepValue(64))), isA<Valid<FlowRead>>());
+      // the default is shown one level down, in the boundary's `defaults`
+      expect(flowReadOf('f', withBlock(deepValue(63))), isA<Valid<FlowRead>>());
       expect(
-        flowReadOf('f', withBlock(deepValue(65))),
+        flowReadOf('f', withBlock(deepValue(64))),
         isA<Invalid<FlowRead>>(),
       );
     });
