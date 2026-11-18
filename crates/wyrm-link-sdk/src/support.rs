@@ -33,13 +33,16 @@ impl fmt::Debug for Secret {
 /// password editor (`#[param(secret)]`).
 impl wyrm_core::args::ArgValue for Secret {
     const TYPE: wyrm_core::TypeCode = wyrm_core::TypeCode::String;
-    fn from_value(v: &wyrm_core::Value) -> std::result::Result<Self, wyrm_core::args::Fault> {
+    fn from_value(v: wyrm_core::Value) -> std::result::Result<Self, wyrm_core::args::Fault> {
         match v {
-            wyrm_core::Value::Str(s) => Ok(Secret::new(s.as_bytes())),
+            // the text's own buffer becomes the secret: no copy is left behind
+            wyrm_core::Value::Str(s) => Ok(Secret::new(s.into_bytes())),
             _ => Err(wyrm_core::args::Fault::Type("text")),
         }
     }
 }
+
+impl wyrm_core::args::SecretArg for Secret {}
 
 /// A secret binary argument (a link secret's value): a binary parameter with
 /// the password editor.
@@ -48,13 +51,15 @@ pub struct SecretBytes(pub Secret);
 
 impl wyrm_core::args::ArgValue for SecretBytes {
     const TYPE: wyrm_core::TypeCode = wyrm_core::TypeCode::Binary;
-    fn from_value(v: &wyrm_core::Value) -> std::result::Result<Self, wyrm_core::args::Fault> {
+    fn from_value(v: wyrm_core::Value) -> std::result::Result<Self, wyrm_core::args::Fault> {
         match v {
-            wyrm_core::Value::Bytes(b) => Ok(SecretBytes(Secret::new(b.as_slice()))),
+            wyrm_core::Value::Bytes(b) => Ok(SecretBytes(Secret::new(b))),
             _ => Err(wyrm_core::args::Fault::Type("bytes")),
         }
     }
 }
+
+impl wyrm_core::args::SecretArg for SecretBytes {}
 
 /// Secrets of one link (device passwords, keys). Never from `~def`, never in
 /// the tree. Filled by the host at start.

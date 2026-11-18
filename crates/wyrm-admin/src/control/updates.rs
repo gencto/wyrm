@@ -2544,14 +2544,14 @@ mod tests {
     fn options() {
         let args = |pairs: Vec<(&str, Value)>| map(pairs);
         assert_eq!(
-            UpdateOpts::decode(&args(vec![])).unwrap(),
+            UpdateOpts::decode(args(vec![])).unwrap(),
             UpdateOpts {
                 restore_point: true,
                 auto_rollback_s: 120,
                 accept: false
             }
         );
-        let o = UpdateOpts::decode(&args(vec![
+        let o = UpdateOpts::decode(args(vec![
             ("restore_point", Value::Bool(false)),
             ("auto_rollback_s", Value::UInt(0)),
         ]))
@@ -2563,7 +2563,7 @@ mod tests {
             ("auto_rollback_s", Value::Str("soon".into())),
             ("restore_point", Value::Str("yes".into())),
         ] {
-            let e: LinkError = UpdateOpts::decode(&args(vec![bad.clone()]))
+            let e: LinkError = UpdateOpts::decode(args(vec![bad.clone()]))
                 .unwrap_err()
                 .into();
             assert!(e.status.code() >= 0x20, "{bad:?}: a refusal is an error");

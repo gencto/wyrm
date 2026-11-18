@@ -45,6 +45,7 @@ pub use params::{Fields, FromParams};
 pub use runtime::{spawn, LinkConfig, LinkHandle};
 pub use support::{Metrics, Secret, SecretBytes, SecretStore};
 /// `#[derive(Params)]` / `#[derive(ParamEnum)]` for driver parameters (ADR 0004).
+mod args_rules;
 pub use wyrm_core::args::Args;
 pub use wyrm_link_sdk_derive::{Args, ParamEnum, Params};
 

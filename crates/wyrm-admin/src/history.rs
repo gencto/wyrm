@@ -139,7 +139,7 @@ const FLUSH_ABOUT: &str = "Seconds between writes to disk (0 = 0.1 s, at most 10
 #[derive(Args, Debug)]
 struct GroupSettings {
     /// By the name the parameter lists (`All Data`).
-    #[param(choice, nonempty, display = "Logging type", desc = LOGGING_ABOUT)]
+    #[param(choice, trim, nonempty, display = "Logging type", desc = LOGGING_ABOUT)]
     logging_type: Option<Logging>,
     #[param(
         display = "Interval",
@@ -234,6 +234,7 @@ struct GetHistory {
     interval: Option<String>,
     #[param(
         choice,
+        trim,
         nonempty,
         display = "Rollup",
         desc = "How the samples of one interval become one value (none: the first)."
@@ -742,7 +743,7 @@ pub(crate) async fn invoke(
     ctx: &LinkCtx,
     rest: &[&str],
     action: &str,
-    args: &Value,
+    args: Value,
     sub: &str,
 ) -> Result<Option<Value>> {
     match (rest, action) {
@@ -1211,11 +1212,8 @@ mod tests {
     #[test]
     fn a_logging_type_is_taken_by_the_one_name_it_lists() {
         let logging = |v: Value| {
-            GroupSettings::decode(&Value::Map(BTreeMap::from([(
-                "logging_type".to_owned(),
-                v,
-            )])))
-            .map(|s| s.logging_type)
+            GroupSettings::decode(Value::Map(BTreeMap::from([("logging_type".to_owned(), v)])))
+                .map(|s| s.logging_type)
         };
         for l in Logging::ALL {
             assert_eq!(logging(Value::from(l.name())), Ok(Some(*l)));
@@ -1249,7 +1247,7 @@ mod tests {
     /// only after the group's name was checked.
     #[test]
     fn group_times_are_seconds_or_refused() {
-        let set = |kv: &[(&str, Value)]| GroupSettings::decode(&args(kv));
+        let set = |kv: &[(&str, Value)]| GroupSettings::decode(args(kv));
         let s = set(&[
             ("interval", Value::Float(0.5)),
             ("buffer_flush_time", Value::UInt(2)),
@@ -1284,7 +1282,7 @@ mod tests {
         let get = |kv: &[(&str, Value)]| {
             let mut all = vec![range.clone()];
             all.extend(kv.iter().cloned());
-            GetHistory::decode(&args(&all))
+            GetHistory::decode(args(&all))
         };
         let a = get(&[]).unwrap();
         assert_eq!((a.rollup, a.rows()), (None, DEFAULT_ROWS));
@@ -1321,11 +1319,11 @@ mod tests {
             );
         }
         assert_eq!(
-            GetHistory::decode(&args(&[])).unwrap_err().field,
+            GetHistory::decode(args(&[])).unwrap_err().field,
             "timerange"
         );
         assert_eq!(
-            TimeRange::decode(&args(&[("timerange", Value::from("  "))]))
+            TimeRange::decode(args(&[("timerange", Value::from("  "))]))
                 .unwrap_err()
                 .field,
             "timerange"

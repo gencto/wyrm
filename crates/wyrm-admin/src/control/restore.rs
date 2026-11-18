@@ -1206,7 +1206,7 @@ pub(super) async fn invoke(
     ctl: &Arc<Control>,
     rest: &[&str],
     action: &str,
-    args: &Value,
+    args: Value,
     _sub: &str,
 ) -> wyrm_link_sdk::Result<Option<Value>> {
     match (rest, action) {

@@ -260,7 +260,7 @@ fn text(v: &Option<Value>, name: &str) -> String {
     }
 }
 
-fn args_of<const N: usize>(pairs: [(&str, Value); N]) -> Value {
+fn request_of<const N: usize>(pairs: [(&str, Value); N]) -> Value {
     Value::Map(pairs.into_iter().map(|(k, v)| (k.to_owned(), v)).collect())
 }
 
@@ -284,9 +284,9 @@ impl Sending {
         )
     }
 
-    async fn call(&self, action: &str, args: Value) -> Result<Option<Value>, String> {
+    async fn call(&self, action: &str, request: Value) -> Result<Option<Value>, String> {
         self.client
-            .invoke_one(&self.conn_node(), action, args)
+            .invoke_one(&self.conn_node(), action, request)
             .await
             .map_err(|e| format!("{action}: {e}"))
     }
@@ -305,12 +305,12 @@ impl Sending {
             let mut tries = 0;
             loop {
                 tries += 1;
-                let args = args_of([
+                let part = request_of([
                     ("upload", Value::from(self.upload.clone())),
                     ("index", Value::UInt(index)),
                     ("data", Value::Bytes(data.clone())),
                 ]);
-                match self.call("upload_part", args).await {
+                match self.call("upload_part", part).await {
                     Ok(_) => break,
                     Err(e) if tries >= PART_TRIES => return Err(format!("part {index}: {e}")),
                     Err(_) => tokio::time::sleep(Duration::from_secs(1)).await,
@@ -321,7 +321,7 @@ impl Sending {
                 .backups()
                 .update(&self.id, |j| j.send_progress = done);
         }
-        let upload = || args_of([("upload", Value::from(self.upload.clone()))]);
+        let upload = || request_of([("upload", Value::from(self.upload.clone()))]);
         self.call("upload_commit", upload()).await?;
         let until = tokio::time::Instant::now() + COMMIT_TIMEOUT;
         loop {
@@ -347,7 +347,7 @@ impl Sending {
         let r = self.run().await;
         if r.is_err() {
             // nothing half sent stays on the link's disk
-            let abort = args_of([("upload", Value::from(self.upload.clone()))]);
+            let abort = request_of([("upload", Value::from(self.upload.clone()))]);
             let _ = self.call("upload_abort", abort).await;
         }
         let ctl = &self.ctl;
@@ -426,7 +426,7 @@ pub(super) async fn send(
             "a backup is being sent; one at a time",
         ));
     }
-    let begin = args_of([
+    let begin = request_of([
         ("name", Value::from(to.name.clone())),
         ("size", Value::UInt(job.size)),
         ("part_size", Value::UInt(PART)),
@@ -479,7 +479,7 @@ pub(super) async fn send(
             to.link, to.folder, to.name, job.size, job.sha256
         ),
     );
-    let answer = args_of([
+    let answer = request_of([
         ("to", Value::from(to.shown())),
         ("upload", Value::from(upload.clone())),
         ("parts", Value::UInt(job.size.div_ceil(PART))),
@@ -517,7 +517,7 @@ mod tests {
 
     /// `send`'s arguments decoded, then checked against the host's list.
     fn target(j: &Job, args: &Value, send_links: &[SendLink]) -> Result<Target, LinkError> {
-        let a = Send::decode(args)?;
+        let a = Send::decode(args.clone())?;
         target_of(j, &a, send_links)
     }
 

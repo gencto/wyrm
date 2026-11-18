@@ -2054,7 +2054,7 @@ pub(super) async fn invoke(
     ctx: &LinkCtx,
     rest: &[&str],
     action: &str,
-    args: &Value,
+    args: Value,
     sub: &str,
     remote: bool,
 ) -> wyrm_link_sdk::Result<Option<Value>> {
@@ -2095,10 +2095,11 @@ pub(super) async fn invoke(
             ]))))
         }
         ([id], "download_part") => {
-            let a = DownloadPart::decode(args)?;
+            // who may have the bytes first, whatever the arguments are
             if let Some(job) = ctl.backups.get(id) {
                 may_download(&job, remote)?;
             }
+            let a = DownloadPart::decode(args)?;
             let (offset, len) = (a.offset, a.len.unwrap_or(DEFAULT_PART));
             let (ctl2, id2) = (ctl.clone(), (*id).to_owned());
             let (data, size) =
@@ -2470,19 +2471,19 @@ mod tests {
                 Value::from("correct horse battery"),
             ),
         ]));
-        let a = Create::decode(&args).unwrap();
+        let a = Create::decode(args).unwrap();
         let r = broker_request(a.what, a.seal, false);
         assert_eq!(r.sections, [SectionName::Storage, SectionName::Keys]);
         assert_eq!(r.links, Some(vec!["a".to_owned(), "b".to_owned()]));
         assert_eq!(r.history_days, Some(7));
         assert!(matches!(r.seal, SealWith::Passphrase(_)));
-        let a = BackupLink::decode(&Value::Map(BTreeMap::new())).unwrap();
+        let a = BackupLink::decode(Value::Map(BTreeMap::new())).unwrap();
         let r = link_request(a, "plc", true);
         assert!(r.remote);
         assert!(r.kind == Kind::Link && r.link.as_deref() == Some("plc"));
         assert!(matches!(r.seal, SealWith::None) && r.history_days.is_none());
         // 0 days and an empty passphrase are "not given"
-        let a = Create::decode(&Value::Map(BTreeMap::from([
+        let a = Create::decode(Value::Map(BTreeMap::from([
             ("history_days".to_owned(), Value::UInt(0)),
             ("passphrase".to_owned(), Value::from("")),
         ])))
@@ -2506,11 +2507,11 @@ mod tests {
             ("length", Value::UInt(1)),
         ] {
             let args = Value::Map(BTreeMap::from([(field.to_owned(), bad.clone())]));
-            let e = Create::decode(&args).map(|_| ()).unwrap_err();
+            let e = Create::decode(args).map(|_| ()).unwrap_err();
             assert_eq!(e.field, field, "{bad:?}");
         }
         let part = |kv: &[(&str, Value)]| {
-            DownloadPart::decode(&Value::Map(
+            DownloadPart::decode(Value::Map(
                 kv.iter()
                     .map(|(k, v)| ((*k).to_owned(), v.clone()))
                     .collect(),

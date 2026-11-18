@@ -99,6 +99,7 @@ struct AddSink {
     groups: Option<String>,
     #[param(
         choice,
+        trim,
         nonempty,
         display = "From",
         desc = "start: everything on disk; now: only rows written from now on."
@@ -127,6 +128,7 @@ struct EditSink {
 struct ResetCursor {
     #[param(
         choice,
+        trim,
         display = "To",
         desc = "start: send everything on disk again; now: skip what is not sent."
     )]
@@ -321,7 +323,7 @@ pub(super) async fn invoke(
     ctx: &LinkCtx,
     rest: &[&str],
     action: &str,
-    args: &Value,
+    args: Value,
     sub: &str,
 ) -> Result<Option<Value>> {
     let st = ctl.history.store().clone();
@@ -405,9 +407,14 @@ pub(super) async fn invoke(
             ctx.remove_node(&format!("{ROOT}/{SINKS}/{name}")).await?;
             Ok(None)
         }
-        ([name], "next") => next(ctl, ctx, name, Next::decode(args)?, sub)
-            .await
-            .map(Some),
+        ([name], "next") => {
+            // the caller first: nobody but the sink's link learns anything of
+            // this action, not even that its arguments were wrong
+            let def = its_link(ctl, name, sub)?;
+            next(ctl, ctx, name, &def, Next::decode(args)?)
+                .await
+                .map(Some)
+        }
         _ => Err(LinkError::not_supported(format!(
             "{ROOT}/{SINKS}/{}/~act/{action}",
             rest.join("/")
@@ -425,13 +432,17 @@ async fn set_cursor(st: &Arc<wyrm_history::Store>, name: &str, seq: Option<u64>)
 
 /// One batch for the sink's link: `{rows: [{seq, key, t, v, q}], next}`.
 /// `after` (default: the confirmed entry) confirms every row up to it.
-async fn next(ctl: &Control, ctx: &LinkCtx, name: &str, a: Next, sub: &str) -> Result<Value> {
+/// The sink `name` for its own link `sub`. Nobody else moves its cursor: a
+/// person who ran `next` would confirm rows the database never got.
+fn its_link(ctl: &Control, name: &str, sub: &str) -> Result<SinkDef> {
     let def = sink_def(ctl, name)?;
-    // Nobody else moves its cursor: a person who ran it would confirm rows
-    // the database never got.
     if sub != format!("link:{}", def.link) {
         return Err(LinkError::new(Status::PermissionDenied, ""));
     }
+    Ok(def)
+}
+
+async fn next(ctl: &Control, ctx: &LinkCtx, name: &str, def: &SinkDef, a: Next) -> Result<Value> {
     let st = ctl.history.store().clone();
     let after = a.after;
     let max = match a.max {

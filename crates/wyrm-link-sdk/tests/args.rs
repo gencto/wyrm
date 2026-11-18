@@ -2,8 +2,9 @@
 //! the decoder of its arguments.
 
 #![allow(
+    dead_code,
     clippy::unwrap_used,
-    reason = "test code: a failed step fails the test"
+    reason = "test code: a failed step fails the test; some structs are only declared and decoded"
 )]
 
 use std::collections::BTreeMap;
@@ -26,6 +27,32 @@ struct Common {
     accept: bool,
     #[param(display = "Seconds", min = 0.0, max = 3600.0)]
     wait_s: Option<f64>,
+}
+
+/// A flattened struct that names `name` again, with another type.
+#[derive(Args, Debug)]
+struct NameAgain {
+    name: Option<u32>,
+}
+
+#[derive(Args, Debug)]
+struct Twice {
+    name: String,
+    #[param(flatten)]
+    again: NameAgain,
+}
+
+/// A secret, a text that is trimmed, a set that is trimmed.
+#[derive(Args, Debug)]
+struct Sealed {
+    #[param(secret, nonempty)]
+    passphrase: Option<Secret>,
+    #[param(nonempty)]
+    role: Option<String>,
+    #[param(trim, nonempty)]
+    note: Option<String>,
+    #[param(choice, trim, nonempty)]
+    mode: Option<Mode>,
 }
 
 #[derive(Args, Debug)]
@@ -74,7 +101,7 @@ fn base() -> Vec<(&'static str, Value)> {
 fn with(extra: &[(&'static str, Value)]) -> Result<Install, ArgError> {
     let mut kv = base();
     kv.extend(extra.iter().cloned());
-    Install::decode(&map(&kv))
+    Install::decode(map(&kv))
 }
 
 fn fault(extra: &[(&'static str, Value)]) -> (String, Fault) {
@@ -227,9 +254,9 @@ fn the_struct_decodes_the_arguments() {
 fn a_bad_argument_is_refused_with_its_name() {
     let name = |s: &str| s.to_owned();
     // required
-    let e = Install::decode(&map(&[("zip", Value::Bytes(vec![]))])).unwrap_err();
+    let e = Install::decode(map(&[("zip", Value::Bytes(vec![]))])).unwrap_err();
     assert_eq!(e, ArgError::new("name", Fault::Missing));
-    let e = Install::decode(&map(&[("name", " ".into()), ("zip", Value::Bytes(vec![]))]));
+    let e = Install::decode(map(&[("name", " ".into()), ("zip", Value::Bytes(vec![]))]));
     assert_eq!(e.unwrap_err(), ArgError::new("name", Fault::Missing));
     // a wrong type
     assert_eq!(
@@ -322,7 +349,7 @@ fn a_bad_argument_is_refused_with_its_name() {
         (name("acept"), Fault::Unknown)
     );
     assert_eq!(
-        Install::decode(&Value::Array(vec![])).unwrap_err(),
+        Install::decode(Value::Array(vec![])).unwrap_err(),
         ArgError::new("args", Fault::NotAMap)
     );
 }
@@ -342,4 +369,84 @@ fn a_refusal_is_a_link_error_with_the_field() {
     let e: LinkError = with(&[("typo", Value::UInt(1))]).unwrap_err().into();
     assert_eq!(e.status, Status::InvalidParameter);
     assert_eq!(e.message, "typo: unknown argument");
+}
+
+/// Audit of #136, finding 1: a parameter name is one field. Two fields of one
+/// struct with one name do not compile (`wyrm_link_sdk::args_rules`); a name that
+/// comes again through `flatten` refuses every call, and a test finds it.
+#[test]
+fn a_name_declared_twice_through_flatten_refuses_every_call() {
+    assert_eq!(wyrm_core::args::repeated_param::<Twice>(), Some("name"));
+    assert_eq!(wyrm_core::args::repeated_param::<Install>(), None);
+    assert_eq!(wyrm_core::args::repeated_param::<Sealed>(), None);
+    for args in [
+        map(&[("name", "x".into())]),
+        map(&[("name", Value::UInt(1))]),
+        map(&[]),
+    ] {
+        match Twice::decode(args) {
+            Err(e) => assert_eq!(e, ArgError::new("name", Fault::Repeated)),
+            Ok(_) => assert_eq!("decoded", "refused"),
+        }
+    }
+}
+
+/// Audit of #136, finding 3: a secret is never trimmed. A passphrase of spaces
+/// is a passphrase (read as "not given", a backup would be made unsealed); only
+/// the empty text is "not given".
+#[test]
+fn a_secret_of_spaces_is_a_secret() {
+    let pass = |text: &str| {
+        Sealed::decode(map(&[("passphrase", text.into())]))
+            .unwrap()
+            .passphrase
+            .map(|p| p.expose().to_vec())
+    };
+    assert_eq!(pass("            "), Some(b"            ".to_vec()));
+    assert_eq!(pass(" a b "), Some(b" a b ".to_vec()));
+    assert_eq!(pass(""), None);
+    // a text without `trim`: only "" is not there
+    let a = Sealed::decode(map(&[("role", "  ".into()), ("note", "  ".into())])).unwrap();
+    assert_eq!((a.role.as_deref(), a.note), (Some("  "), None));
+    // a set with `trim`: the name with white space around it
+    let a = Sealed::decode(map(&[("mode", " replace ".into())])).unwrap();
+    assert_eq!(a.mode, Some(Mode::Replace));
+    assert_eq!(
+        Sealed::decode(map(&[("mode", "  ".into())])).unwrap().mode,
+        None
+    );
+    // the value is not in `Debug`
+    let a = Sealed::decode(map(&[("passphrase", "hunter2hunter2".into())])).unwrap();
+    assert!(!format!("{a:?}").contains("hunter2"), "{a:?}");
+}
+
+/// Audit of #136, finding 8: the arguments are taken, so a large binary argument
+/// moves into the struct: the same allocation, no copy.
+#[test]
+fn bytes_move_into_the_struct() {
+    let zip = vec![7u8; 1 << 20];
+    let at = zip.as_ptr();
+    let a = Install::decode(map_owned(vec![
+        ("name", "a".into()),
+        ("zip", Value::Bytes(zip)),
+    ]))
+    .unwrap();
+    assert_eq!(a.zip.as_ptr(), at);
+    assert_eq!(a.zip.len(), 1 << 20);
+}
+
+fn map_owned(kv: Vec<(&str, Value)>) -> Value {
+    Value::Map(kv.into_iter().map(|(k, v)| (k.to_owned(), v)).collect())
+}
+
+/// Audit of #136, finding 6: an unknown name is the caller's text; the refusal
+/// repeats at most 64 bytes of it.
+#[test]
+fn an_unknown_name_does_not_size_the_answer() {
+    let long = "k".repeat(50_000);
+    let e: LinkError = with(&[(Box::leak(long.into_boxed_str()), Value::UInt(1))])
+        .unwrap_err()
+        .into();
+    assert!(e.message.len() < 100, "{}", e.message.len());
+    assert!(e.message.ends_with(": unknown argument"));
 }

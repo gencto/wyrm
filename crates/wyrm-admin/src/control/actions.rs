@@ -423,7 +423,7 @@ mod tests {
 
     /// The field and fault of a refused call.
     fn refused<A: Args>(kv: &[(&str, Value)]) -> (String, Fault) {
-        match A::decode(&args(kv)) {
+        match A::decode(args(kv)) {
             Ok(_) => (String::new(), Fault::Missing),
             Err(e) => (e.field, e.fault),
         }
@@ -438,7 +438,7 @@ mod tests {
             refused::<SetSecret>(&[("name", "k".into()), ("value", "text".into())]),
             ("value".to_owned(), Fault::Type("bytes"))
         );
-        let a = SetSecret::decode(&args(&[
+        let a = SetSecret::decode(args(&[
             ("name", "k".into()),
             ("value", Value::Bytes(vec![1, 2])),
         ]))
@@ -446,7 +446,7 @@ mod tests {
         assert_eq!(a.value.0.expose(), [1, 2]);
         // `grant.level` lists none, list, read, write; the reader took every level
         let grant = |level: &str| {
-            Grant::decode(&args(&[
+            Grant::decode(args(&[
                 ("path", " wy/s/x ".into()),
                 ("level", level.into()),
             ]))
@@ -489,7 +489,7 @@ mod tests {
 
     #[test]
     fn numbers_are_whole_and_bounded() {
-        let token = |kv: &[(&str, Value)]| AddToken::decode(&args(kv)).map(|a| (a.count, a.hours));
+        let token = |kv: &[(&str, Value)]| AddToken::decode(args(kv)).map(|a| (a.count, a.hours));
         assert_eq!(token(&[]), Ok((None, None)));
         assert_eq!(
             token(&[("count", Value::Float(3.0)), ("hours", Value::UInt(1))]),
@@ -510,7 +510,10 @@ mod tests {
             let (f, fault) = refused::<AddToken>(&[(field, bad.clone())]);
             assert_eq!(f, field, "{bad:?}");
             assert!(
-                fault.is_range() || fault == Fault::NotFinite,
+                matches!(
+                    fault,
+                    Fault::Int(_) | Fault::Above(..) | Fault::Below(..) | Fault::NotFinite
+                ),
                 "{bad:?}: {fault}"
             );
         }
@@ -519,7 +522,7 @@ mod tests {
             ("rev".to_owned(), Fault::Int(IntError::Fractional))
         );
         assert_eq!(refused::<Rollback>(&[]), ("rev".to_owned(), Fault::Missing));
-        let log = |kv: &[(&str, Value)]| GetLog::decode(&args(kv)).map(|a| (a.lines(), a.level()));
+        let log = |kv: &[(&str, Value)]| GetLog::decode(args(kv)).map(|a| (a.lines(), a.level()));
         assert_eq!(log(&[]), Ok((200, tracing::Level::TRACE)));
         assert_eq!(
             log(&[("lines", Value::UInt(9000)), ("level", "warn".into())]),
@@ -553,7 +556,7 @@ mod tests {
             refused::<ApproveBroker>(&[("driver", "mock".into())]),
             ("driver".to_owned(), Fault::Unknown)
         );
-        let a: Approve = ApproveBroker::decode(&args(&[
+        let a: Approve = ApproveBroker::decode(args(&[
             ("key", " ab ".into()),
             ("via", "plant, cell".into()),
         ]))
@@ -568,7 +571,7 @@ mod tests {
     /// An install's options come with every install action, once.
     #[test]
     fn an_install_takes_its_options() {
-        let a = InstallGit::decode(&args(&[
+        let a = InstallGit::decode(args(&[
             ("name", " plc ".into()),
             ("url", " https://git.example/x.git ".into()),
             ("ref", " main ".into()),
@@ -603,12 +606,12 @@ mod tests {
             ("url", Value::from("quic/central.example:7450")),
             ("ca", Value::from("PEM")),
         ];
-        let a = AddUpstream::decode(&args(&base)).unwrap();
+        let a = AddUpstream::decode(args(&base)).unwrap();
         assert_eq!(a.name, "central");
         assert!(a.enabled && !a.allow_config && a.token.is_none());
         let mut with = base.to_vec();
         with.extend([("token", Value::from("")), ("enabled", Value::Bool(false))]);
-        let a = AddUpstream::decode(&args(&with)).unwrap();
+        let a = AddUpstream::decode(args(&with)).unwrap();
         assert!(
             !a.enabled && a.token.is_none(),
             "an empty token is no token"

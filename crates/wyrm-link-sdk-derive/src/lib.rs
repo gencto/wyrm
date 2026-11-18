@@ -34,13 +34,21 @@
 //!   the names; on a `Vec<T>` a list of names); `enum`: read by its index (an
 //!   `enum` parameter); `reversed` lists the names last first;
 //! * `suggest`: names a free text offers (any other text is still taken);
-//! * `trim`: text without the white space around it; `nonempty`: an empty
-//!   text is not there (required: refused; optional: `None`);
+//! * `trim`: text without the white space around it (also the name of a
+//!   `choice`); `nonempty`: the empty text `""` is not there (required:
+//!   refused; optional: `None`), and with `trim` a text of white space too;
 //! * `absent`: the value of a field that is not given, not published;
 //!   `default`: the same, published as the parameter's `default`;
-//! * `secret`: the password editor (the type is a secret type);
+//! * `secret`: the password editor. The field's type must keep a secret
+//!   (`wyrm_core::args::SecretArg`: `Secret`, `SecretBytes`); a `String` does
+//!   not compile. A secret is never trimmed;
 //! * `flatten`: the fields of another `Args` struct are parameters of this
 //!   action too.
+//!
+//! Two fields of one struct with the same parameter name do not compile. A
+//! name that comes a second time through `flatten` cannot be seen here: such
+//! a struct refuses every call (`Fault::Repeated`), and
+//! `wyrm_core::args::repeated_param` finds it in a test.
 
 mod args;
 

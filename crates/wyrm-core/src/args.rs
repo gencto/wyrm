@@ -15,16 +15,25 @@
 //!
 //! Rules of the decoder:
 //!
+//! * the arguments are taken by value: a field takes its value out of the map,
+//!   so a large binary argument (a package, a part of a file) is moved into the
+//!   struct, never copied;
 //! * a field of type `T` is required, `Option<T>` is optional; an argument that
 //!   is absent or `null` is not there;
 //! * a name that is not a field is refused ([`Fault::Unknown`]): a typo must not
 //!   pass as "not given";
+//! * a name is one field: the derive refuses a struct that names one twice, and
+//!   a struct that gets a name a second time through `#[param(flatten)]`
+//!   refuses every call ([`Fault::Repeated`]; [`repeated_param`] for a test);
 //! * a whole number goes through [`Value::to_int`], the one integer decoder: a
 //!   fraction, a negative number for an unsigned type and a number out of the
 //!   type's range are refused, never truncated;
 //! * a closed set of names is a [`Named`] type (`name_enum!`, `wire_enum!`):
 //!   `#[param(choice)]` takes its name (a text parameter that lists the names),
-//!   `#[param(enum)]` its index (an `enum` parameter, spec 02).
+//!   `#[param(enum)]` its index (an `enum` parameter, spec 02);
+//! * `#[param(nonempty)]`: the empty text `""` is not there (a form sends an
+//!   empty field so). Only with `#[param(trim)]` is a text of white space empty
+//!   too: a secret is never trimmed, so a passphrase of spaces is a passphrase.
 //!
 //! This module has no dependency beyond the wire types, so a portable link
 //! (wasm32) decodes its arguments the same way.
@@ -44,6 +53,10 @@ pub enum Fault {
     /// The name is no parameter of the action.
     #[error("unknown argument")]
     Unknown,
+    /// The action's struct names this parameter twice (through
+    /// `#[param(flatten)]`): a fault of the action, not of the caller.
+    #[error("declared twice by the action")]
+    Repeated,
     /// The arguments are not a map.
     #[error("expected a map of arguments")]
     NotAMap,
@@ -73,22 +86,11 @@ pub enum Fault {
     Item { index: usize, fault: Box<Fault> },
 }
 
-impl Fault {
-    /// The value is of the right type and outside what the field takes.
-    pub fn is_range(&self) -> bool {
-        match self {
-            Fault::Below(..) | Fault::Above(..) | Fault::Index { .. } => true,
-            Fault::Int(e) => matches!(e, IntError::Negative | IntError::OutOfRange),
-            Fault::Item { fault, .. } => fault.is_range(),
-            _ => false,
-        }
-    }
-}
-
 /// A refused argument: the field's name and why.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ArgError {
-    /// The argument's name as the action declares it (`args` for the whole map).
+    /// The argument's name as the action declares it (`args` for the whole
+    /// map); a name the caller made up is cut at 64 bytes.
     pub field: String,
     pub fault: Fault,
 }
@@ -111,16 +113,22 @@ impl fmt::Display for ArgError {
 impl std::error::Error for ArgError {}
 
 /// A type one argument decodes into, with the `type` its parameter declares.
+/// The value is taken, not borrowed: bytes and text move into the field.
 pub trait ArgValue: Sized {
     const TYPE: TypeCode;
-    fn from_value(v: &Value) -> Result<Self, Fault>;
+    fn from_value(v: Value) -> Result<Self, Fault>;
 }
+
+/// A type that keeps a secret argument: its memory is cleared when it is
+/// dropped and its `Debug` prints no part of the value. `#[param(secret)]`
+/// compiles only on such a type (`wyrm_link_sdk::Secret`, `SecretBytes`).
+pub trait SecretArg: ArgValue {}
 
 impl ArgValue for String {
     const TYPE: TypeCode = TypeCode::String;
-    fn from_value(v: &Value) -> Result<Self, Fault> {
+    fn from_value(v: Value) -> Result<Self, Fault> {
         match v {
-            Value::Str(s) => Ok(s.clone()),
+            Value::Str(s) => Ok(s),
             _ => Err(Fault::Type("text")),
         }
     }
@@ -128,9 +136,9 @@ impl ArgValue for String {
 
 impl ArgValue for bool {
     const TYPE: TypeCode = TypeCode::Bool;
-    fn from_value(v: &Value) -> Result<Self, Fault> {
+    fn from_value(v: Value) -> Result<Self, Fault> {
         match v {
-            Value::Bool(b) => Ok(*b),
+            Value::Bool(b) => Ok(b),
             _ => Err(Fault::Type("true or false")),
         }
     }
@@ -140,7 +148,7 @@ macro_rules! int_arg {
     ($($t:ty),+) => {$(
         impl ArgValue for $t {
             const TYPE: TypeCode = TypeCode::Number;
-            fn from_value(v: &Value) -> Result<Self, Fault> {
+            fn from_value(v: Value) -> Result<Self, Fault> {
                 v.to_int::<$t>().map_err(|e| match e {
                     IntError::NotANumber => Fault::Type("a number"),
                     e => Fault::Int(e),
@@ -153,17 +161,11 @@ int_arg!(u8, u16, u32, u64, usize, i8, i16, i32, i64, isize);
 
 impl ArgValue for f64 {
     const TYPE: TypeCode = TypeCode::Number;
-    fn from_value(v: &Value) -> Result<Self, Fault> {
-        let x = match *v {
-            Value::Float(f) => f,
-            Value::UInt(u) => u as f64,
-            Value::Int(i) => i as f64,
-            _ => return Err(Fault::Type("a number")),
-        };
-        if x.is_finite() {
-            Ok(x)
-        } else {
-            Err(Fault::NotFinite)
+    fn from_value(v: Value) -> Result<Self, Fault> {
+        match v.as_f64() {
+            Some(x) if x.is_finite() => Ok(x),
+            Some(_) => Err(Fault::NotFinite),
+            None => Err(Fault::Type("a number")),
         }
     }
 }
@@ -171,9 +173,9 @@ impl ArgValue for f64 {
 /// A binary argument.
 impl ArgValue for Vec<u8> {
     const TYPE: TypeCode = TypeCode::Binary;
-    fn from_value(v: &Value) -> Result<Self, Fault> {
+    fn from_value(v: Value) -> Result<Self, Fault> {
         match v {
-            Value::Bytes(b) => Ok(b.clone()),
+            Value::Bytes(b) => Ok(b),
             _ => Err(Fault::Type("bytes")),
         }
     }
@@ -182,44 +184,24 @@ impl ArgValue for Vec<u8> {
 /// A map argument whose content the action checks itself (a link's `params`).
 impl ArgValue for BTreeMap<String, Value> {
     const TYPE: TypeCode = TypeCode::Map;
-    fn from_value(v: &Value) -> Result<Self, Fault> {
+    fn from_value(v: Value) -> Result<Self, Fault> {
         match v {
-            Value::Map(m) => Ok(m.clone()),
+            Value::Map(m) => Ok(m),
             _ => Err(Fault::Type("a map")),
         }
     }
 }
 
-/// A list of texts.
-impl ArgValue for Vec<String> {
-    const TYPE: TypeCode = TypeCode::Array;
-    fn from_value(v: &Value) -> Result<Self, Fault> {
-        let Value::Array(items) = v else {
-            return Err(Fault::Type("a list"));
-        };
-        items
-            .iter()
-            .enumerate()
-            .map(|(index, v)| {
-                String::from_value(v).map_err(|fault| Fault::Item {
-                    index,
-                    fault: Box::new(fault),
-                })
-            })
-            .collect()
-    }
-}
-
-/// A list of names of one set.
-pub fn names<T: Named>(v: &Value) -> Result<Vec<T>, Fault> {
+/// Each element of a list through `f`; a refusal says which element.
+fn list<T>(v: Value, f: impl Fn(Value) -> Result<T, Fault>) -> Result<Vec<T>, Fault> {
     let Value::Array(items) = v else {
         return Err(Fault::Type("a list"));
     };
     items
-        .iter()
+        .into_iter()
         .enumerate()
         .map(|(index, v)| {
-            by_name::<T>(v).map_err(|fault| Fault::Item {
+            f(v).map_err(|fault| Fault::Item {
                 index,
                 fault: Box::new(fault),
             })
@@ -227,17 +209,39 @@ pub fn names<T: Named>(v: &Value) -> Result<Vec<T>, Fault> {
         .collect()
 }
 
+/// A list of texts.
+impl ArgValue for Vec<String> {
+    const TYPE: TypeCode = TypeCode::Array;
+    fn from_value(v: Value) -> Result<Self, Fault> {
+        list(v, String::from_value)
+    }
+}
+
+/// `#[param(choice)]` on a `Vec<T>`: a list of names of one set.
+pub fn names<T: Named>(v: Value) -> Result<Vec<T>, Fault> {
+    list(v, by_name::<T>)
+}
+
 /// `#[param(choice)]`: a value of the set `T` from its name.
-pub fn by_name<T: Named>(v: &Value) -> Result<T, Fault> {
+pub fn by_name<T: Named>(v: Value) -> Result<T, Fault> {
     match v {
-        Value::Str(s) => crate::named::parse::<T>(s).map_err(Fault::Name),
+        Value::Str(s) => crate::named::parse::<T>(&s).map_err(Fault::Name),
+        _ => Err(Fault::Type("a name")),
+    }
+}
+
+/// `#[param(choice, trim)]`: [`by_name`] of the text without the white space
+/// around it.
+pub fn by_name_trimmed<T: Named>(v: Value) -> Result<T, Fault> {
+    match v {
+        Value::Str(s) => crate::named::parse::<T>(s.trim()).map_err(Fault::Name),
         _ => Err(Fault::Type("a name")),
     }
 }
 
 /// `#[param(enum)]`: a value of the set `T` from its index in [`Named::NAMES`],
 /// the form an `enum` parameter has on the wire (spec 02).
-pub fn by_index<T: Named>(v: &Value) -> Result<T, Fault> {
+pub fn by_index<T: Named>(v: Value) -> Result<T, Fault> {
     let index: u64 = v.to_int().map_err(|e| match e {
         IntError::NotANumber => Fault::Type("an index"),
         e => Fault::Int(e),
@@ -254,7 +258,7 @@ pub fn by_index<T: Named>(v: &Value) -> Result<T, Fault> {
 }
 
 /// `#[param(trim)]`: text without the white space around it.
-pub fn trimmed(v: &Value) -> Result<String, Fault> {
+pub fn trimmed(v: Value) -> Result<String, Fault> {
     match v {
         Value::Str(s) => Ok(s.trim().to_owned()),
         _ => Err(Fault::Type("text")),
@@ -283,14 +287,14 @@ pub fn at_most<T: PartialOrd + fmt::Display>(field: &str, v: &T, max: T) -> Resu
     Ok(())
 }
 
-/// The arguments of one call while a struct takes its fields from them.
-pub struct Reader<'a> {
-    map: &'a BTreeMap<String, Value>,
+/// The arguments of one call while a struct takes its fields out of them.
+pub struct Reader {
+    map: BTreeMap<String, Value>,
     taken: Vec<&'static str>,
 }
 
-impl<'a> Reader<'a> {
-    pub fn new(args: &'a Value) -> Result<Self, ArgError> {
+impl Reader {
+    pub fn new(args: Value) -> Result<Self, ArgError> {
         match args {
             Value::Map(map) => Ok(Self {
                 map,
@@ -300,51 +304,75 @@ impl<'a> Reader<'a> {
         }
     }
 
-    /// The argument `name`; absent and `null` are the same.
-    pub fn take(&mut self, name: &'static str) -> Field<'a> {
+    /// The argument `name`, taken out of the map; absent and `null` are the
+    /// same. A name is taken once: a second take is the action's fault
+    /// ([`Fault::Repeated`]), whatever the caller sent.
+    pub fn take(&mut self, name: &'static str) -> Field {
+        let repeated = self.taken.contains(&name);
         self.taken.push(name);
         Field {
             name,
-            value: self.map.get(name).filter(|v| !matches!(v, Value::Null)),
+            value: self.map.remove(name).filter(|v| !matches!(v, Value::Null)),
+            repeated,
         }
     }
 
-    /// Refuses the first argument no field took.
+    /// Refuses the first argument no field took. Its name is the caller's
+    /// text: at most 64 bytes of it are repeated.
     pub fn finish(self) -> Result<(), ArgError> {
-        match self.map.keys().find(|k| !self.taken.contains(&k.as_str())) {
-            Some(k) => Err(ArgError::new(k.clone(), Fault::Unknown)),
+        match self.map.keys().next() {
+            Some(k) => Err(ArgError::new(
+                crate::named::shown(k).to_owned(),
+                Fault::Unknown,
+            )),
             None => Ok(()),
         }
     }
 }
 
 /// One argument on its way into a field.
-pub struct Field<'a> {
+pub struct Field {
     name: &'static str,
-    value: Option<&'a Value>,
+    value: Option<Value>,
+    repeated: bool,
 }
 
-impl<'a> Field<'a> {
-    /// `#[param(nonempty)]`: a text that is empty or white space is not there
-    /// (a form sends an empty field as `""`).
+impl Field {
+    /// `#[param(nonempty)]`: the empty text is not there (a form sends an
+    /// empty field as `""`). A text of white space is a value: a secret is
+    /// never trimmed.
     pub fn nonempty(mut self) -> Self {
-        if matches!(self.value, Some(Value::Str(s)) if s.trim().is_empty()) {
+        if matches!(&self.value, Some(Value::Str(s)) if s.is_empty()) {
             self.value = None;
         }
         self
     }
 
-    pub fn required<T>(self, f: impl FnOnce(&'a Value) -> Result<T, Fault>) -> Result<T, ArgError> {
-        match self.value {
-            Some(v) => f(v).map_err(|fault| ArgError::new(self.name, fault)),
-            None => Err(ArgError::new(self.name, Fault::Missing)),
+    /// `#[param(trim, nonempty)]`: a text that is empty or white space is not
+    /// there.
+    pub fn nonblank(mut self) -> Self {
+        if matches!(&self.value, Some(Value::Str(s)) if s.trim().is_empty()) {
+            self.value = None;
+        }
+        self
+    }
+
+    pub fn required<T>(self, f: impl FnOnce(Value) -> Result<T, Fault>) -> Result<T, ArgError> {
+        let name = self.name;
+        match self.optional(f) {
+            Ok(Some(v)) => Ok(v),
+            Ok(None) => Err(ArgError::new(name, Fault::Missing)),
+            Err(e) => Err(e),
         }
     }
 
     pub fn optional<T>(
         self,
-        f: impl FnOnce(&'a Value) -> Result<T, Fault>,
+        f: impl FnOnce(Value) -> Result<T, Fault>,
     ) -> Result<Option<T>, ArgError> {
+        if self.repeated {
+            return Err(ArgError::new(self.name, Fault::Repeated));
+        }
         self.value
             .map(f)
             .transpose()
@@ -360,14 +388,20 @@ pub trait Args: Sized {
 
     /// The fields from `r` (a struct inside another one, `#[param(flatten)]`,
     /// reads from the same arguments).
-    fn read(r: &mut Reader<'_>) -> Result<Self, ArgError>;
+    fn read(r: &mut Reader) -> Result<Self, ArgError>;
 
-    /// The struct from an action's arguments.
-    fn decode(args: &Value) -> Result<Self, ArgError> {
+    /// The struct from an action's arguments, which it takes.
+    fn decode(args: Value) -> Result<Self, ArgError> {
         let mut r = Reader::new(args)?;
-        let v = Self::read(&mut r)?;
-        r.finish()?;
-        Ok(v)
+        match Self::read(&mut r) {
+            Ok(v) => r.finish().map(|()| v),
+            // a struct that names a parameter twice refuses every call the same
+            // way, whichever of its fields met the value first
+            Err(e) => Err(match repeated_param::<Self>() {
+                Some(name) => ArgError::new(name, Fault::Repeated),
+                None => e,
+            }),
+        }
     }
 
     /// An action that declares these parameters and nothing else yet.
@@ -380,13 +414,25 @@ pub trait Args: Sized {
     }
 }
 
+/// The first parameter name `A` declares twice (its own field and one of a
+/// flattened struct, or two flattened structs). Such a struct refuses every
+/// call; a crate's tests walk its structs with this.
+pub fn repeated_param<A: Args>() -> Option<&'static str> {
+    let names: Vec<&'static str> = A::params().into_iter().map(|(n, _)| n).collect();
+    names
+        .iter()
+        .enumerate()
+        .find(|(i, n)| names.iter().skip(i + 1).any(|m| m == *n))
+        .map(|(_, n)| *n)
+}
+
 /// An action without parameters: any argument is refused.
 impl Args for () {
     fn params() -> Vec<(&'static str, ParamMeta)> {
         Vec::new()
     }
 
-    fn read(_: &mut Reader<'_>) -> Result<Self, ArgError> {
+    fn read(_: &mut Reader) -> Result<Self, ArgError> {
         Ok(())
     }
 }
@@ -465,7 +511,7 @@ mod tests {
             ("typo", Value::Bool(true)),
             ("gone", Value::Null),
         ]);
-        let mut r = Reader::new(&args).unwrap();
+        let mut r = Reader::new(args).unwrap();
         assert_eq!(r.take("n").required(u32::from_value), Ok(20));
         assert_eq!(r.take("name").required(trimmed), Ok("a".to_owned()));
         assert_eq!(r.take("gone").optional(bool::from_value), Ok(None));
@@ -476,14 +522,54 @@ mod tests {
         );
         assert_eq!(r.finish(), Err(ArgError::new("typo", Fault::Unknown)));
         assert_eq!(
-            Reader::new(&Value::UInt(1)).err(),
+            Reader::new(Value::UInt(1)).err(),
             Some(ArgError::new("args", Fault::NotAMap))
         );
     }
 
+    /// One name is one field: a second take is refused, given or not, so a struct
+    /// that names a parameter twice cannot read it as two types.
+    #[test]
+    fn a_name_is_taken_once() {
+        for args in [map(&[("name", Value::from("x"))]), map(&[])] {
+            let mut r = Reader::new(args).unwrap();
+            assert!(r.take("name").optional(String::from_value).is_ok());
+            assert_eq!(
+                r.take("name").optional(u32::from_value),
+                Err(ArgError::new("name", Fault::Repeated))
+            );
+            assert_eq!(
+                r.take("name").required(String::from_value),
+                Err(ArgError::new("name", Fault::Repeated))
+            );
+        }
+    }
+
+    /// The name of an unknown argument is the caller's text: an error repeats at
+    /// most 64 bytes of it, on a character boundary.
+    #[test]
+    fn an_unknown_name_is_cut() {
+        let long = "k".repeat(50_000);
+        let e = Reader::new(map(&[(&long, Value::UInt(1))]))
+            .unwrap()
+            .finish()
+            .unwrap_err();
+        assert_eq!(e.field, "k".repeat(64));
+        assert!(e.to_string().len() < 100);
+        let wide = "é".repeat(100);
+        let e = Reader::new(map(&[(&wide, Value::UInt(1))]))
+            .unwrap()
+            .finish()
+            .unwrap_err();
+        assert_eq!(e.field, "é".repeat(32));
+        // an unknown name with a null is unknown too
+        let e = Reader::new(map(&[("zzz", Value::Null)])).unwrap().finish();
+        assert_eq!(e, Err(ArgError::new("zzz", Fault::Unknown)));
+    }
+
     #[test]
     fn numbers_are_whole_and_in_range() {
-        let int = |v: Value| u8::from_value(&v);
+        let int = u8::from_value;
         assert_eq!(int(Value::UInt(7)), Ok(7));
         assert_eq!(int(Value::Float(7.0)), Ok(7));
         assert_eq!(
@@ -493,12 +579,15 @@ mod tests {
         assert_eq!(int(Value::Int(-1)), Err(Fault::Int(IntError::Negative)));
         assert_eq!(int(Value::UInt(256)), Err(Fault::Int(IntError::OutOfRange)));
         assert_eq!(int(Value::from("7")), Err(Fault::Type("a number")));
-        assert!(Fault::Int(IntError::OutOfRange).is_range());
-        assert!(!Fault::Int(IntError::Fractional).is_range());
-        assert_eq!(f64::from_value(&Value::UInt(2)), Ok(2.0));
+        assert_eq!(f64::from_value(Value::UInt(2)), Ok(2.0));
+        assert_eq!(f64::from_value(Value::Int(-2)), Ok(-2.0));
         assert_eq!(
-            f64::from_value(&Value::Float(f64::NAN)),
+            f64::from_value(Value::Float(f64::NAN)),
             Err(Fault::NotFinite)
+        );
+        assert_eq!(
+            f64::from_value(Value::from("2")),
+            Err(Fault::Type("a number"))
         );
         assert!(at_least("n", &3u32, 5).is_err());
         assert!(at_most("n", &3u32, 5).is_ok());
@@ -511,23 +600,31 @@ mod tests {
     #[test]
     fn a_set_is_read_by_name_or_by_index_never_both() {
         assert_eq!(Mode::ALL.len(), 2);
-        assert_eq!(by_name::<Mode>(&Value::from("replace")), Ok(Mode::Replace));
+        assert_eq!(by_name::<Mode>(Value::from("replace")), Ok(Mode::Replace));
         assert!(matches!(
-            by_name::<Mode>(&Value::from("Replace")),
+            by_name::<Mode>(Value::from("Replace")),
             Err(Fault::Name(_))
         ));
-        assert_eq!(by_name::<Mode>(&Value::UInt(1)), Err(Fault::Type("a name")));
-        assert_eq!(by_index::<Mode>(&Value::UInt(1)), Ok(Mode::Replace));
+        assert!(matches!(
+            by_name::<Mode>(Value::from(" replace ")),
+            Err(Fault::Name(_))
+        ));
         assert_eq!(
-            by_index::<Mode>(&Value::UInt(2)),
+            by_name_trimmed::<Mode>(Value::from(" replace ")),
+            Ok(Mode::Replace)
+        );
+        assert_eq!(by_name::<Mode>(Value::UInt(1)), Err(Fault::Type("a name")));
+        assert_eq!(by_index::<Mode>(Value::UInt(1)), Ok(Mode::Replace));
+        assert_eq!(
+            by_index::<Mode>(Value::UInt(2)),
             Err(Fault::Index { index: 2, len: 2 })
         );
         assert_eq!(
-            by_index::<Mode>(&Value::from("add")),
+            by_index::<Mode>(Value::from("add")),
             Err(Fault::Type("an index"))
         );
         assert_eq!(
-            names::<Mode>(&Value::Array(vec!["add".into(), Value::UInt(1)])),
+            names::<Mode>(Value::Array(vec!["add".into(), Value::UInt(1)])),
             Err(Fault::Item {
                 index: 1,
                 fault: Box::new(Fault::Type("a name"))
@@ -535,30 +632,37 @@ mod tests {
         );
     }
 
+    /// `nonempty` is the empty text only; white space is empty only for a field
+    /// that is trimmed (`nonblank`). A secret of spaces stays a secret.
     #[test]
     fn an_empty_text_of_a_nonempty_field_is_not_there() {
-        let args = map(&[("a", Value::from(" ")), ("b", Value::from(""))]);
-        let mut r = Reader::new(&args).unwrap();
+        let args = || map(&[("a", Value::from(" ")), ("b", Value::from(""))]);
+        let mut r = Reader::new(args()).unwrap();
         assert_eq!(
             r.take("a").nonempty().optional(String::from_value),
-            Ok(None)
+            Ok(Some(" ".to_owned()))
         );
         assert_eq!(
             r.take("b").nonempty().required(String::from_value),
             Err(ArgError::new("b", Fault::Missing))
         );
+        let mut r = Reader::new(args()).unwrap();
+        assert_eq!(r.take("a").nonblank().optional(trimmed), Ok(None));
+        assert_eq!(r.take("b").nonblank().optional(trimmed), Ok(None));
         // without `nonempty` an empty text is a value
+        let mut r = Reader::new(args()).unwrap();
         assert_eq!(r.take("b").required(String::from_value), Ok(String::new()));
     }
 
     #[test]
     fn no_parameters_means_no_arguments() {
-        assert_eq!(<()>::decode(&map(&[])), Ok(()));
+        assert_eq!(<()>::decode(map(&[])), Ok(()));
         assert_eq!(
-            <()>::decode(&map(&[("x", Value::UInt(1))])),
+            <()>::decode(map(&[("x", Value::UInt(1))])),
             Err(ArgError::new("x", Fault::Unknown))
         );
         assert!(<()>::action().params.is_empty());
+        assert_eq!(repeated_param::<()>(), None);
     }
 
     #[test]

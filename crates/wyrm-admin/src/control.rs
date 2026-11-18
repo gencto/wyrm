@@ -1900,7 +1900,7 @@ impl Control {
         let cert = self.link_cert(&def.id).ok()?;
         // A package link runs the package's entry with its args (ADR 0011);
         // a built-in driver runs as `<wyrmd> link <driver>`.
-        let (exe, args) = match def.driver.strip_prefix(packages::DRIVER_PREFIX) {
+        let (exe, argv) = match def.driver.strip_prefix(packages::DRIVER_PREFIX) {
             Some(name) => {
                 let p = self.registry().packages.get(name).cloned()?;
                 let dir = packages::dir(&self.packages_root(), &p);
@@ -1914,7 +1914,7 @@ impl Control {
         Some(ProcSpec {
             id: def.id.clone(),
             exe,
-            args,
+            args: argv,
             env: vec![
                 ("WYRM_SITE".into(), self.cfg.site.clone()),
                 // see wyrm_link_sdk::process::PARENT_PID_ENV
@@ -3228,7 +3228,7 @@ async fn ask_certificate(ctl: &Control, def: &PeerDef) -> Result<Answer, String>
     let session = zenoh::open(zc)
         .await
         .map_err(|e| format!("unreachable: {}: {e}", def.enroll))?;
-    let mut args = BTreeMap::from([
+    let mut request = BTreeMap::from([
         ("site".to_owned(), Value::Str(ctl.cfg.site.clone())),
         ("csr".to_owned(), Value::Str(csr)),
         (
@@ -3246,11 +3246,15 @@ async fn ask_certificate(ctl: &Control, def: &PeerDef) -> Result<Answer, String>
         .get(PEER_TOKEN)
         .and_then(|t| std::str::from_utf8(t).ok())
     {
-        args.insert("token".to_owned(), Value::Str(t.to_owned()));
+        request.insert("token".to_owned(), Value::Str(t.to_owned()));
     }
     let client = wyrm_client::WyrmClient::new(session.clone()).with_timeout(Duration::from_secs(5));
     let answer = client
-        .invoke_one(&format!("wy/{}/sys", def.site), "enroll", Value::Map(args))
+        .invoke_one(
+            &format!("wy/{}/sys", def.site),
+            "enroll",
+            Value::Map(request),
+        )
         .await;
     let _ = session.close().await;
     let m = match answer {
@@ -3788,7 +3792,7 @@ impl Link for Admin {
     ) -> wyrm_link_sdk::Result<()> {
         match (path, action) {
             ("", "update") => {
-                let a = broker_update::Update::decode(args)?;
+                let a = broker_update::Update::decode(args.clone())?;
                 broker_update::check(&self.ctl, &a, &sub_of(who)).await
             }
             _ => Ok(()),
@@ -3806,15 +3810,15 @@ impl Link for Admin {
         let sub = sub_of(who);
         let segs: Vec<&str> = path.split('/').collect();
         let result = match (segs.as_slice(), action) {
-            (["links"], "install") => self.install(Install::decode(&args)?, &sub).await,
-            ([""], "enroll") => self.enroll(Enroll::decode(&args)?).await,
-            (["tokens"], "add") => self.add_token(AddToken::decode(&args)?, &sub).await,
+            (["links"], "install") => self.install(Install::decode(args)?, &sub).await,
+            ([""], "enroll") => self.enroll(Enroll::decode(args)?).await,
+            (["tokens"], "add") => self.add_token(AddToken::decode(args)?, &sub).await,
             (["tokens", id], "remove") => {
-                <()>::decode(&args)?;
+                <()>::decode(args)?;
                 self.remove_token(id, &sub).await
             }
             (["links"], "install_zip") => {
-                let a = InstallZip::decode(&args)?;
+                let a = InstallZip::decode(args)?;
                 let _busy = self.ctl.busy()?;
                 let r = self
                     .install_package(&a.link.name, a.zip, "zip".into(), &sub, a.opts)
@@ -3822,7 +3826,7 @@ impl Link for Admin {
                 Ok(Some(outcome(r)))
             }
             (["links"], "install_wasm") => {
-                let a = InstallWasm::decode(&args)?;
+                let a = InstallWasm::decode(args)?;
                 let _busy = self.ctl.busy()?;
                 let r = match packages::wrap_component(&a.link.name, &a.wasm) {
                     Ok(zip) => {
@@ -3834,7 +3838,7 @@ impl Link for Admin {
                 Ok(Some(outcome(r)))
             }
             (["links"], "install_url") => {
-                let a = InstallUrl::decode(&args)?;
+                let a = InstallUrl::decode(args)?;
                 let _busy = self.ctl.busy()?;
                 let r = match crate::fetch::get(&a.url, packages::MAX_ZIP, FETCH_TIMEOUT).await {
                     Ok(zip) => {
@@ -3847,7 +3851,7 @@ impl Link for Admin {
                 Ok(Some(outcome(r)))
             }
             (["links"], "install_git") => {
-                let a = InstallGit::decode(&args)?;
+                let a = InstallGit::decode(args)?;
                 let _busy = self.ctl.busy()?;
                 let (url, git_ref) = (&a.url, &a.git_ref);
                 let root = self.ctl.packages_root();
@@ -3863,7 +3867,7 @@ impl Link for Admin {
                 Ok(Some(outcome(r)))
             }
             (["links"], "install_repo") => {
-                let a = InstallRepo::decode(&args)?;
+                let a = InstallRepo::decode(args)?;
                 let _busy = self.ctl.busy()?;
                 Ok(Some(outcome(
                     self.install_from_repo(&a.link.name, &a.package, &sub, a.opts)
@@ -3871,21 +3875,21 @@ impl Link for Admin {
                 )))
             }
             (["packages", name], "remove") => {
-                <()>::decode(&args)?;
+                <()>::decode(args)?;
                 match self.ctl.claim_package(name) {
                     Ok(_claim) => self.remove_package(name, &sub).await,
                     Err(e) => Err(e),
                 }
             }
             (["packages", name], "update") => {
-                self.update_action(name, updates::UpdatePackage::decode(&args)?, &sub)
+                self.update_action(name, updates::UpdatePackage::decode(args)?, &sub)
                     .await
             }
             (["packages", name], "rollback") => {
-                self.rollback_action(name, updates::RollbackPackage::decode(&args)?, &sub)
+                self.rollback_action(name, updates::RollbackPackage::decode(args)?, &sub)
                     .await
             }
-            (["links", id], "hello") => self.hello(id, Hello::decode(&args)?).await,
+            (["links", id], "hello") => self.hello(id, Hello::decode(args)?).await,
             // a link that an operation holds (an update of its package with
             // its check, a rollback, a restore of the link) is that
             // operation's to stop and start (ADR 0048 §1.9): `busy` until it ends
@@ -3897,7 +3901,7 @@ impl Link for Admin {
                 }))
             }
             (["links", id], "start") => {
-                let a = Start::decode(&args)?;
+                let a = Start::decode(args)?;
                 // a link held after a rollback that did not restore its data
                 // starts only when the operator says so (ADR 0048 §1.6)
                 if a.force && self.ctl.release_hold(id) {
@@ -3907,30 +3911,30 @@ impl Link for Admin {
                 self.start_link(id, &sub).await.map(|_| None)
             }
             (["links", id], "stop") => {
-                <()>::decode(&args)?;
+                <()>::decode(args)?;
                 self.stop_link(id, &sub).await.map(|_| None)
             }
             (["links", id], "remove") => {
-                <()>::decode(&args)?;
+                <()>::decode(args)?;
                 self.remove(id, &sub).await.map(|_| None)
             }
             (["links", id], "update") => {
-                let a = UpdateParams::decode(&args)?;
+                let a = UpdateParams::decode(args)?;
                 self.update_params(id, Value::Map(a.params), &sub, "update")
                     .await
             }
             (["links", id], "history") => {
-                <()>::decode(&args)?;
+                <()>::decode(args)?;
                 self.params_history(id)
             }
             (["links", id], "grant") => {
-                let a = Grant::decode(&args)?;
+                let a = Grant::decode(args)?;
                 self.grant(id, &a.path, a.level.perm(), &sub)
                     .await
                     .map(|_| None)
             }
             (["links", id], "get_log") => {
-                let a = GetLog::decode(&args)?;
+                let a = GetLog::decode(args)?;
                 let (n, level, filter) = (a.lines(), a.level(), a.filter);
                 let def = self.def(id)?;
                 let lines = match def.mode {
@@ -3947,7 +3951,7 @@ impl Link for Admin {
                 Ok(Some(log_rows(lines)))
             }
             ([""], "get_log") => {
-                let a = GetBrokerLog::decode(&args)?;
+                let a = GetBrokerLog::decode(args)?;
                 let lc = crate::logs::global()
                     .ok_or_else(|| LinkError::not_supported("no log control"))?;
                 let lines = lc.tail(
@@ -3959,7 +3963,7 @@ impl Link for Admin {
                 Ok(Some(log_rows(lines)))
             }
             (["links", id], "rollback") => {
-                let rev = Rollback::decode(&args)?.rev;
+                let rev = Rollback::decode(args)?.rev;
                 let old = self
                     .ctl
                     .registry()
@@ -3970,12 +3974,12 @@ impl Link for Admin {
                 self.update_params(id, decode_params(&old.1), &sub, "rollback")
                     .await
             }
-            (["links", id], "set_secret") => self.set_secret(id, SetSecret::decode(&args)?, &sub),
+            (["links", id], "set_secret") => self.set_secret(id, SetSecret::decode(args)?, &sub),
             (["links", id], "delete_secret") => {
-                self.delete_secret(id, DeleteSecret::decode(&args)?, &sub)
+                self.delete_secret(id, DeleteSecret::decode(args)?, &sub)
             }
             (["links", id], "secrets") => {
-                <()>::decode(&args)?;
+                <()>::decode(args)?;
                 self.def(id)?;
                 Ok(Some(self.secret_names(id)))
             }
@@ -3983,56 +3987,59 @@ impl Link for Admin {
                 let cn = self.quarantine_key(node);
                 // a downstream broker declares only its key and the sites it relays
                 let how = if crate::registry::broker_site(&cn).is_some() {
-                    ApproveBroker::decode(&args)?.into()
+                    ApproveBroker::decode(args)?.into()
                 } else {
-                    Approve::decode(&args)?
+                    Approve::decode(args)?
                 };
                 self.approve(&cn, how, &sub).await
             }
             (["quarantine"], "authorize") => {
-                let a = Authorize::decode(&args)?;
+                let a = Authorize::decode(args)?;
                 self.approve(&a.dsid, a.how, &sub).await
             }
             (["quarantine"], "deauthorize") => {
-                let a = Deauthorize::decode(&args)?;
+                let a = Deauthorize::decode(args)?;
                 self.deauthorize(&a.link, &sub).await
             }
             (["quarantine", node], "reject") => {
-                <()>::decode(&args)?;
+                <()>::decode(args)?;
                 let cn = self.quarantine_key(node);
                 self.reject(&cn, &sub).await.map(|_| None)
             }
             (["profiles"], "put") => self
-                .put_profile(PutProfile::decode(&args)?, &sub)
+                .put_profile(PutProfile::decode(args)?, &sub)
                 .await
                 .map(|_| None),
             (["profiles"], "remove") => self
-                .remove_profile(RemoveProfile::decode(&args)?, &sub)
+                .remove_profile(RemoveProfile::decode(args)?, &sub)
                 .await
                 .map(|_| None),
             ([""], "clear_conns") => {
-                <()>::decode(&args)?;
+                <()>::decode(args)?;
                 self.clear_conns(&sub).await
             }
             ([""], "update") => {
-                let a = broker_update::Update::decode(&args)?;
+                let a = broker_update::Update::decode(args)?;
                 broker_update::update(&self.ctl, &self.ctx, a, &sub).await
             }
             ([""], "rollback_update") => {
-                let a = broker_update::RollbackUpdate::decode(&args)?;
-                broker_update::rollback(&self.ctl, a, &sub, who.signer.is_some()).await
+                // who may do it first: a caller from an upstream is told so,
+                // whatever its arguments are
+                broker_update::rollback_is_local(who.signer.is_some())?;
+                let a = broker_update::RollbackUpdate::decode(args)?;
+                broker_update::rollback(&self.ctl, a, &sub).await
             }
             ([""], "check_updates") => {
-                <()>::decode(&args)?;
+                <()>::decode(args)?;
                 broker_update::check_updates(&self.ctl).await
             }
-            (["upstream"], "add") => self.add_upstream(AddUpstream::decode(&args)?, &sub).await,
+            (["upstream"], "add") => self.add_upstream(AddUpstream::decode(args)?, &sub).await,
             (["upstream", site], "remove") => {
-                <()>::decode(&args)?;
+                <()>::decode(args)?;
                 self.remove_upstream(site, &sub).await
             }
             ([""], "get_permissions") => {
-                <()>::decode(&args)?;
+                <()>::decode(args)?;
                 let mut rows: Vec<Value> = self
                     .ctl
                     .role_grants()
@@ -4054,7 +4061,7 @@ impl Link for Admin {
                     .ctl
                     .role_grants()
                     .ok_or_else(|| LinkError::not_supported("no user gateway"))?;
-                let a = UpdatePermissions::decode(&args)?;
+                let a = UpdatePermissions::decode(args)?;
                 let (role, path, level) = (a.role.as_str(), a.path.as_str(), a.level);
                 roles
                     .set_grant(role, path, level)
@@ -4069,7 +4076,7 @@ impl Link for Admin {
                 Ok(None)
             }
             (["audit"], "tail") => {
-                let n = AuditTail::decode(&args)?.n.unwrap_or(50);
+                let n = AuditTail::decode(args)?.n.unwrap_or(50);
                 Ok(Some(Value::Array(
                     self.ctl
                         .audit_tail(n.min(1000))
@@ -4088,32 +4095,32 @@ impl Link for Admin {
                 )))
             }
             (["backups"], "restore_check") => {
-                let file = restore_broker::RestoreCheck::decode(&args)?;
+                let file = restore_broker::RestoreCheck::decode(args)?;
                 self.restore_broker(file, None, &sub, who.signer.is_some())
                     .await
             }
             (["backups"], "restore_apply") => {
-                let a = restore_broker::RestoreApply::decode(&args)?;
+                let a = restore_broker::RestoreApply::decode(args)?;
                 self.restore_broker(a.file, Some(a.how), &sub, who.signer.is_some())
                     .await
             }
             (["backups", id], "send") => {
-                let a = send::Send::decode(&args)?;
+                let a = send::Send::decode(args)?;
                 let _busy = self.ctl.busy()?;
                 send::send(&self.ctl, &self.ctx, id, a, &sub).await
             }
             (["backups", rest @ ..], _) => {
                 // a limited key signed it: an upstream site with allow_config
                 let remote = who.signer.is_some();
-                backups::invoke(&self.ctl, &self.ctx, rest, action, &args, &sub, remote).await
+                backups::invoke(&self.ctl, &self.ctx, rest, action, args, &sub, remote).await
             }
             (["links"], "install_backup") => {
-                let a = restore::InstallBackup::decode(&args)?;
+                let a = restore::InstallBackup::decode(args)?;
                 let _busy = self.ctl.busy()?;
                 Ok(Some(outcome(self.install_backup(a, &sub).await)))
             }
             (["links", id], "backup") => {
-                let a = backups::BackupLink::decode(&args)?;
+                let a = backups::BackupLink::decode(args)?;
                 // the link must exist before anything is said about it
                 self.def(id)?;
                 let job = self
@@ -4127,7 +4134,7 @@ impl Link for Admin {
             }
             (["history", rest @ ..], _) => {
                 let r =
-                    crate::history::invoke(&self.ctl, &self.ctx, rest, action, &args, &sub).await;
+                    crate::history::invoke(&self.ctl, &self.ctx, rest, action, args, &sub).await;
                 if r.is_ok()
                     && rest.first() == Some(&"sinks")
                     && matches!(action, "add_sink" | "edit" | "remove")
@@ -5148,7 +5155,13 @@ impl Admin {
                 "url {url}: expected quic/<host>:<port> (its peers.enroll)"
             )));
         }
-        let token = a.token.as_ref().and_then(|t| t.expose_str()).map(str::trim);
+        // a token of white space is no token
+        let token = a
+            .token
+            .as_ref()
+            .and_then(|t| t.expose_str())
+            .map(str::trim)
+            .filter(|t| !t.is_empty());
         let (enabled, allow_config) = (a.enabled, a.allow_config);
         let (key, key_sha256) =
             secret::new_broker_key().map_err(|e| LinkError::internal(e.to_string()))?;

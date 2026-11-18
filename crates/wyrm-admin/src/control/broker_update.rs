@@ -487,14 +487,14 @@ pub async fn stage(
         tokio::task::spawn_blocking(move || state_copy(&d, &c))
             .await
             .map_err(|e| e.to_string())??;
-        let args: Vec<std::ffi::OsString> = vec![
+        let argv: Vec<std::ffi::OsString> = vec![
             "-c".into(),
             config.into_os_string(),
             "check".into(),
             "--state".into(),
             copy.0.clone().into_os_string(),
         ];
-        release::run_binary(&bin, &args, BINARY_TIMEOUT)
+        release::run_binary(&bin, &argv, BINARY_TIMEOUT)
             .await
             .map_err(|e| {
                 format!("the new version refuses this broker's configuration or state: {e}")
@@ -1443,14 +1443,10 @@ async fn stage_for_standby(ctl: &Arc<Control>, plan: &Plan, archive: &Path) -> R
     Ok(())
 }
 
-/// `sys/~act/rollback_update`: go back to the version before a confirmed
-/// update, on purpose. The guard does it at the next start.
-pub(super) async fn rollback(
-    ctl: &Arc<Control>,
-    a: RollbackUpdate,
-    sub: &str,
-    remote: bool,
-) -> wyrm_link_sdk::Result<Option<Value>> {
+/// `rollback_update` is done on the broker's own gateway: a caller whose
+/// authority comes from an upstream (`remote`) is refused, before its
+/// arguments are read.
+pub(super) fn rollback_is_local(remote: bool) -> Result<(), LinkError> {
     if remote {
         return Err(LinkError::new(
             Status::PermissionDenied,
@@ -1458,6 +1454,17 @@ pub(super) async fn rollback(
              done on the broker's own gateway, not through its upstream",
         ));
     }
+    Ok(())
+}
+
+/// `sys/~act/rollback_update`: go back to the version before a confirmed
+/// update, on purpose. The guard does it at the next start. The caller is
+/// checked first ([`rollback_is_local`]).
+pub(super) async fn rollback(
+    ctl: &Arc<Control>,
+    a: RollbackUpdate,
+    sub: &str,
+) -> wyrm_link_sdk::Result<Option<Value>> {
     let d = &ctl.cfg.data_dir;
     let me = &release::identity().version;
     let mut u = UpdateFile::load(d)
@@ -1904,7 +1911,7 @@ mod tests {
             if let Some(t) = t {
                 m.insert("target".to_owned(), Value::from(t));
             }
-            Update::decode(&Value::Map(m)).map(|a| a.target())
+            Update::decode(Value::Map(m)).map(|a| a.target())
         };
         assert_eq!(target(None), Ok(UpdateRole::Active));
         assert_eq!(target(Some("")), Ok(UpdateRole::Active));
@@ -1914,7 +1921,7 @@ mod tests {
         assert_eq!(e.field, "target");
         assert!(e.to_string().contains("active, standby"), "{e}");
         // `release` is declared as text; the reader took bytes too
-        let e = Update::decode(&Value::Map(BTreeMap::from([
+        let e = Update::decode(Value::Map(BTreeMap::from([
             ("confirm_site".to_owned(), Value::from("plant")),
             ("release".to_owned(), Value::Bytes(vec![b'{'])),
         ])))
@@ -1922,7 +1929,7 @@ mod tests {
         .unwrap_err();
         assert_eq!(e.field, "release");
         // the confirmation is required
-        let e = Update::decode(&Value::Map(BTreeMap::new()))
+        let e = Update::decode(Value::Map(BTreeMap::new()))
             .map(|_| ())
             .unwrap_err();
         assert_eq!(e.field, "confirm_site");

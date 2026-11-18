@@ -1525,7 +1525,13 @@ fn validate_args(
     for (name, v) in given {
         let p = params
             .get(name)
-            .ok_or_else(|| LinkError::invalid_parameter(format!("unknown param {name}")))?;
+            // the caller's text: at most 64 bytes of it go into the answer
+            .ok_or_else(|| {
+                LinkError::invalid_parameter(format!(
+                    "unknown param {}",
+                    wyrm_core::named::shown(name)
+                ))
+            })?;
         let as_meta = NodeMeta {
             ty: p.ty,
             enum_values: p.enum_values.clone(),

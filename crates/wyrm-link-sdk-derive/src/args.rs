@@ -91,8 +91,11 @@ fn check(f: &syn::Field, a: &Attrs, option: bool) -> syn::Result<()> {
     if a.reversed && !set {
         return bad("reversed needs choice or enum");
     }
-    if a.trim && set {
-        return bad("trim is for text");
+    if a.trim && a.index {
+        return bad("trim is for text: an enum is read by its index");
+    }
+    if a.trim && a.secret {
+        return bad("a secret is never trimmed");
     }
     if a.suggest.is_some() && set {
         return bad("suggest lists examples of a free text; a closed set is choice or enum");
@@ -145,6 +148,11 @@ impl<'a> Shape<'a> {
             (
                 quote!(::wyrm_core::TypeCode::Array),
                 quote!(#args::names::<#set_ty>),
+            )
+        } else if a.choice && a.trim {
+            (
+                quote!(::wyrm_core::TypeCode::String),
+                quote!(#args::by_name_trimmed::<#set_ty>),
             )
         } else if a.choice {
             (
@@ -219,10 +227,11 @@ fn declared(sh: &Shape<'_>, a: &Attrs, code: &Tokens) -> Tokens {
 fn reading(sh: &Shape<'_>, a: &Attrs, name: &str, decode: &Tokens) -> Tokens {
     let args = quote!(::wyrm_core::args);
     let ty = sh.ty;
-    let field = if a.nonempty {
-        quote!(r.take(#name).nonempty())
-    } else {
-        quote!(r.take(#name))
+    // an empty text is not there; white space counts only for a trimmed field
+    let field = match (a.nonempty, a.trim) {
+        (true, true) => quote!(r.take(#name).nonblank()),
+        (true, false) => quote!(r.take(#name).nonempty()),
+        (false, _) => quote!(r.take(#name)),
     };
     let take = match (sh.option, a.absent.as_ref().or(a.default.as_ref())) {
         (true, _) => quote!(#field.optional(#decode)?),
@@ -243,15 +252,28 @@ fn reading(sh: &Shape<'_>, a: &Attrs, name: &str, decode: &Tokens) -> Tokens {
             quote!(#args::#check(#name, &v, #e)?;)
         });
     }
+    // `secret` compiles only on a type that keeps a secret (zeroized, no value
+    // in `Debug`): a `String` here is a compile error
+    let secret = if a.secret {
+        let value_ty = sh.value_ty;
+        quote!({
+            fn keeps_a_secret<T: #args::SecretArg>() {}
+            keeps_a_secret::<#value_ty>();
+        })
+    } else {
+        quote!()
+    };
     quote!({
+        #secret
         let v: #ty = #take;
         #(#checks)*
         v
     })
 }
 
-/// One field as `(a statement that declares it, its initializer)`.
-fn field(f: &syn::Field) -> syn::Result<(Tokens, Tokens)> {
+/// One field as `(a statement that declares it, its initializer)`; its wire
+/// name goes to `names`, where a second field of the same name is refused.
+fn field(f: &syn::Field, names: &mut Vec<String>) -> syn::Result<(Tokens, Tokens)> {
     let args = quote!(::wyrm_core::args);
     let Some(ident) = f.ident.as_ref() else {
         return Err(syn::Error::new_spanned(f, "a named field"));
@@ -273,6 +295,13 @@ fn field(f: &syn::Field) -> syn::Result<(Tokens, Tokens)> {
     let sh = Shape::of(ty, &a);
     check(f, &a, sh.option)?;
     let name = a.name.clone().unwrap_or_else(|| ident.to_string());
+    if names.contains(&name) {
+        return Err(syn::Error::new_spanned(
+            f,
+            format!("two fields are the parameter {name:?}: a name is one field"),
+        ));
+    }
+    names.push(name.clone());
     let (code, decode) = sh.codec(&a);
     let p = declared(&sh, &a, &code);
     let read = reading(&sh, &a, &name, &decode);
@@ -301,9 +330,9 @@ pub(crate) fn expand(input: &DeriveInput) -> syn::Result<Tokens> {
     };
     let args = quote!(::wyrm_core::args);
     let meta = quote!(::wyrm_core::meta);
-    let (mut params, mut reads) = (Vec::new(), Vec::new());
+    let (mut params, mut reads, mut names) = (Vec::new(), Vec::new(), Vec::new());
     for f in fields {
-        let (param, read) = field(f)?;
+        let (param, read) = field(f, &mut names)?;
         params.push(param);
         reads.push(read);
     }
@@ -316,7 +345,7 @@ pub(crate) fn expand(input: &DeriveInput) -> syn::Result<Tokens> {
                 out
             }
             fn read(
-                r: &mut #args::Reader<'_>,
+                r: &mut #args::Reader,
             ) -> ::std::result::Result<Self, #args::ArgError> {
                 ::std::result::Result::Ok(Self { #(#reads),* })
             }
