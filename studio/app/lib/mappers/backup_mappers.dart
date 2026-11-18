@@ -1,3 +1,5 @@
+import 'package:business/redux/backups/models/backups_state.dart';
+import 'package:business/wyrm/backup_plan.dart';
 import 'package:models/backup_job.dart';
 import 'package:models/backup_kind.dart';
 import 'package:models/backup_place.dart';
@@ -6,12 +8,16 @@ import 'package:models/backup_section.dart';
 import 'package:models/backup_stage.dart';
 import 'package:models/backup_status.dart';
 import 'package:models/backup_step.dart';
+import 'package:models/link_info.dart';
 import 'package:models/restore_check.dart';
 import 'package:models/restore_keys.dart';
 import 'package:models/restore_link_state.dart';
 import 'package:models/restore_mode.dart';
 import 'package:models/send_link.dart';
+import 'package:ui/models/disabled.dart';
 import 'package:ui/overlays/backup_data.dart';
+
+import 'link_install_mappers.dart';
 
 // The domain of backups (`models`) as the backup dialogs draw it (`ui`):
 // one exhaustive map per enum (studio-rules §3), in both directions where
@@ -193,3 +199,138 @@ extension RestoreCheckDataOf on RestoreCheck {
     notes: notes.unlock,
   );
 }
+
+extension SecretsLockUi on SecretsLock {
+  SecretsLockReason get ui => switch (this) {
+    SecretsLock.viaUpstream => SecretsLockReason.viaUpstream,
+    SecretsLock.hostForbids => SecretsLockReason.hostForbids,
+    SecretsLock.noPassphrase => SecretsLockReason.noPassphrase,
+  };
+}
+
+extension ReplaceLockUi on ReplaceLock {
+  ReplaceLockReason get ui => switch (this) {
+    ReplaceLock.viaUpstream => ReplaceLockReason.viaUpstream,
+    ReplaceLock.problems => ReplaceLockReason.problems,
+  };
+}
+
+extension BackupJobStepUi on BackupJobStep {
+  BackupDo get ui => switch (this) {
+    BackupJobStep.nothing => BackupDo.nothing,
+    BackupJobStep.remove => BackupDo.remove,
+    BackupJobStep.cancel => BackupDo.cancel,
+    BackupJobStep.send => BackupDo.send,
+    BackupJobStep.show => BackupDo.show,
+    BackupJobStep.download => BackupDo.download,
+  };
+}
+
+/// The *Back up* form as it is drawn: the state [b], what [plan] decided
+/// goes to the broker, and what only the screen knows ([link]: the link
+/// of a link backup when it is known, [passphraseTyped]).
+BackupFormData backupFormDataOf({
+  required String site,
+  required BackupsState b,
+  required BackupFormPlan plan,
+  required bool passphraseTyped,
+  LinkInfo? link,
+  List<String> linkIds = const [],
+  Disabled? reason,
+  bool busy = false,
+}) => BackupFormData(
+  site: site,
+  link: b.link,
+  linkMode: link?.mode.ui,
+  linkDriver: link?.driver,
+  sections: [
+    for (final s in backupSectionsOf(
+      b,
+      runsPackage: link?.driver.startsWith('pkg:') ?? false,
+    ))
+      s.part,
+  ],
+  chosen: {for (final s in b.chosen) s.part},
+  estimate: {
+    for (final MapEntry(:key, :value) in b.estimate.entries) key.part: value,
+  },
+  historyRange: BackupRange.ofDays(b.historyDays),
+  linkIds: linkIds,
+  offLinks: b.offLinks.unlock,
+  secretsLock: plan.secretsLock?.ui,
+  passphraseTyped: passphraseTyped,
+  passphraseOk: plan.passphraseOk,
+  passphraseMin: minPassphrase,
+  withKeys: plan.withKeys,
+  sent: {for (final s in plan.sent) s.part},
+  where: b.where.target,
+  sendLinks: [for (final l in b.sendLinks) l.target],
+  sendLink: b.sendLink,
+  connections: b.connections.unlock,
+  sendConnection: b.sendConnection,
+  sendPath: b.sendPath,
+  keepDays: b.keepDays,
+  reason: reason,
+  busy: busy,
+);
+
+/// The dialog of the kept backup [job] as it is drawn; [step] is what
+/// its main button does.
+BackupJobData backupJobDataOf({
+  required String site,
+  required BackupsState b,
+  required BackupJob job,
+  required BackupJobStep step,
+  bool sending = false,
+  Disabled? reason,
+}) => BackupJobData(
+  job: job.facts,
+  site: site,
+  primary: step.ui,
+  where: b.where.target,
+  sendLinks: [for (final l in b.sendLinks) l.target],
+  sendLink: b.sendLink,
+  connections: b.connections.unlock,
+  sendConnection: b.sendConnection,
+  sendPath: b.sendPath,
+  keepDays: b.keepDays,
+  downloading: b.downloading == job.id,
+  downloaded: b.downloaded,
+  savedTo: b.saved[job.id],
+  sending: sending,
+  reason: reason,
+);
+
+/// The *Restore* form as it is drawn at [view]: the state [b] and what
+/// [plan] decided goes to the broker.
+RestoreData restoreDataOf({
+  required String site,
+  required BackupsState b,
+  required RestorePlan plan,
+  required RestoreView view,
+  bool uploading = false,
+  bool busy = false,
+  Disabled? reason,
+}) => RestoreData(
+  site: site,
+  fileName: b.uploadName,
+  size: b.uploadSize,
+  uploaded: b.uploaded,
+  uploading: uploading,
+  hasUpload: b.upload != null,
+  check: b.check?.data,
+  chosen: {for (final s in b.chosen) s.part},
+  mode: b.mode.how,
+  takes: {for (final s in plan.takes) s.part},
+  sent: {for (final s in plan.sent) s.part},
+  keysLock: plan.keysLock?.ui,
+  replaceLock: plan.replaceLock?.ui,
+  needsReplaceKeys: plan.needsReplaceKeys,
+  replaceKeys: b.replaceKeys,
+  acceptRights: b.acceptRights,
+  busy: busy,
+  view: view,
+  staged: [for (final s in b.staged) s.part],
+  result: b.result,
+  reason: reason,
+);

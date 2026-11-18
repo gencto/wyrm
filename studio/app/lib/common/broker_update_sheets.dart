@@ -6,9 +6,6 @@ import 'package:ui/containers/fact_grid.dart';
 import 'package:ui/models/disabled.dart';
 import 'package:ui/overlays/task_sheet.dart';
 
-/// The text fields of the broker update dialog.
-enum BrokerUpdateField { confirm }
-
 /// Which screen of a broker update the dialog shows.
 enum BrokerUpdateStage { review, restarting, confirmed, rolledBack, external }
 
@@ -134,7 +131,7 @@ TaskSheetVm _review(BrokerUpdateData d, ValueChanged<String>? onConfirm) {
         numbered: true,
       ),
       SheetField(
-        slot: BrokerUpdateField.confirm,
+        slot: SheetSlot.brokerUpdateConfirm,
         label: l.bupType(d.site),
         value: d.confirm,
         hint: d.site,

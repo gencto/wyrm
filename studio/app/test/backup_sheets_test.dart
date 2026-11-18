@@ -6,6 +6,8 @@ import 'package:app/mappers/backup_mappers.dart';
 import 'package:app/mappers/link_install_mappers.dart';
 import 'package:app/mappers/links_mappers.dart';
 import 'package:app/mappers/system_mappers.dart';
+import 'package:business/redux/backups/models/backups_state.dart';
+import 'package:business/wyrm/backup_plan.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -55,6 +57,34 @@ const _sections = [
   'config',
 ];
 
+/// The state of the backup dialog these tests draw.
+BackupsState _state({
+  String? link,
+  Set<String> chosen = const {},
+  bool exportSecrets = true,
+  BackupPlace where = BackupPlace.computer,
+  List<SendLink> sendLinks = const [],
+  String? sendConnection,
+}) => BackupsState(
+  availability: BackupsRead.read,
+  sections: [for (final s in _sections) BackupSection.fromWire(s)!].lock,
+  link: link,
+  chosen: {for (final s in chosen) BackupSection.fromWire(s)!}.lock,
+  estimate: const {
+    BackupSection.control: 1200,
+    BackupSection.keys: 48,
+    BackupSection.storage: 2000,
+  }.lock,
+  exportSecrets: exportSecrets,
+  where: where,
+  sendLinks: sendLinks.lock,
+  sendLink: sendLinks.isEmpty ? null : sendLinks.first.link,
+  connections: const ['s3'].lock,
+  sendConnection: sendConnection,
+);
+
+/// The *Back up* form as the app builds it: what goes to the broker is
+/// decided by `business` (`backupFormPlanOf`), the mapper only maps.
 BackupFormData _form({
   Set<String> chosen = const {'control', 'keys', 'storage'},
   bool exportSecrets = true,
@@ -65,31 +95,30 @@ BackupFormData _form({
   String? sendConnection,
   String? link,
   Disabled? reason,
-}) => BackupFormData(
-  site: 'plant',
-  link: link,
-  sections: _parts(
-    link == null ? _sections : const ['settings', 'data', 'package'],
-  ).toList(),
-  chosen: _parts(chosen),
-  estimate: {
-    BackupSection.control.part: 1200,
-    BackupSection.keys.part: 48,
-    BackupSection.storage.part: 2000,
-  },
-  linkIds: const ['modbus', 's7'],
-  exportSecrets: exportSecrets,
-  viaUpstream: viaUpstream,
-  passphraseLength: passphrase,
-  where: where.target,
-  sendLinks: [for (final l in sendLinks) l.target],
-  sendLink: sendLinks.isEmpty ? null : sendLinks.first.link,
-  connections: const ['s3'],
-  sendConnection: sendConnection,
-  reason: reason,
-);
+}) {
+  final b = _state(
+    link: link,
+    chosen: chosen,
+    exportSecrets: exportSecrets,
+    where: where,
+    sendLinks: sendLinks,
+    sendConnection: sendConnection,
+  );
+  return backupFormDataOf(
+    site: 'plant',
+    b: b,
+    plan: backupFormPlanOf(
+      b,
+      viaUpstream: viaUpstream,
+      passphraseLength: passphrase,
+    ),
+    passphraseTyped: passphrase > 0,
+    linkIds: const ['modbus', 's7'],
+    reason: reason,
+  );
+}
 
-BackupJobFacts _job({
+BackupJob _jobModel({
   String status = 'done',
   List<String> sections = const ['control', 'storage'],
   String sealed = 'none',
@@ -111,9 +140,39 @@ BackupJobFacts _job({
   sendProgress: 40,
   sentTo: 'files/s3/files/backups/x',
   sendError: 'the name exists',
-).facts;
+);
 
-RestoreCheckData _check({
+/// The dialog of a kept backup as the app builds it: what its main button
+/// does is decided by `business` (`backupJobStepOf`).
+BackupJobData _jobData({
+  BackupJob? job,
+  BackupPlace where = BackupPlace.computer,
+  List<SendLink> sendLinks = const [],
+  String? sendConnection,
+  bool downloading = false,
+  int downloaded = 0,
+  String? savedTo,
+}) {
+  final j = job ?? _jobModel();
+  final b =
+      _state(
+        where: where,
+        sendLinks: sendLinks,
+        sendConnection: sendConnection,
+      ).copyWith(
+        downloading: downloading ? j.id : null,
+        downloaded: downloaded,
+        saved: {j.id: ?savedTo}.lock,
+      );
+  return backupJobDataOf(
+    site: 'plant',
+    b: b,
+    job: j,
+    step: backupJobStepOf(b, j),
+  );
+}
+
+RestoreCheck _check({
   String keys = 'same',
   bool sameSite = true,
   List<String> problems = const [],
@@ -139,31 +198,39 @@ RestoreCheckData _check({
     'new1': RestoreLinkState.fresh,
   }.lock,
   problems: problems.lock,
-).data;
+);
 
+/// The *Restore* form as the app builds it: what goes to the broker is
+/// decided by `business` (`restorePlanOf`).
 RestoreData _restore({
-  RestoreCheckData? check,
+  RestoreCheck? check,
   Set<String> chosen = const {'control', 'links', 'storage'},
   RestoreMode mode = RestoreMode.add,
   bool exportSecrets = true,
   bool viaUpstream = false,
   int passphrase = 0,
   bool replaceKeys = false,
-}) => RestoreData(
-  site: 'plant',
-  fileName: 'plant.wyrm-backup',
-  size: 100,
-  uploaded: 100,
-  hasUpload: true,
-  check: check,
-  chosen: _parts(chosen),
-  mode: mode.how,
-  modeTakes: {for (final s in mode.sections) s.part},
-  exportSecrets: exportSecrets,
-  viaUpstream: viaUpstream,
-  passphraseLength: passphrase,
-  replaceKeys: replaceKeys,
-);
+}) {
+  final b = _state(chosen: chosen, exportSecrets: exportSecrets).copyWith(
+    upload: 'u1',
+    uploadName: 'plant.wyrm-backup',
+    uploadSize: 100,
+    uploaded: 100,
+    check: check,
+    mode: mode,
+    replaceKeys: replaceKeys,
+  );
+  return restoreDataOf(
+    site: 'plant',
+    b: b,
+    plan: restorePlanOf(
+      b,
+      viaUpstream: viaUpstream,
+      passphraseLength: passphrase,
+    ),
+    view: RestoreView.form,
+  );
+}
 
 /// The card of the section the broker names [id].
 SheetSection _section(TaskSheetVm vm, String id) => vm.blocks
@@ -302,9 +369,8 @@ void main() {
   group('a backup job', () {
     test('running: the bar, the sections as steps, nothing to press', () {
       final vm = backupJobSheet(
-        BackupJobData(
-          job: _job(status: 'running'),
-          site: 'plant',
+        _jobData(
+          job: _jobModel(status: 'running'),
         ),
       );
       expect(vm.blocks.whereType<SheetBar>().single.percent, 46);
@@ -316,9 +382,8 @@ void main() {
     });
 
     test('failed: the broker error and Remove', () {
-      final d = BackupJobData(
-        job: _job(status: 'failed'),
-        site: 'plant',
+      final d = _jobData(
+        job: _jobModel(status: 'failed'),
       );
       final vm = backupJobSheet(d);
       expect(vm.blocks.whereType<SheetBanner>().single.tone, Tone.bad);
@@ -330,13 +395,12 @@ void main() {
     });
 
     test('done: download, then show; cancel while it runs', () {
-      final done = BackupJobData(job: _job(), site: 'plant');
+      final done = _jobData();
       expect(done.primary, BackupDo.download);
       expect(backupJobSheet(done).primary, 'Download…');
 
-      final running = BackupJobData(
-        job: _job(),
-        site: 'plant',
+      final running = _jobData(
+        job: _jobModel(),
         downloading: true,
         downloaded: 1024,
       );
@@ -346,9 +410,8 @@ void main() {
         25,
       );
 
-      final saved = BackupJobData(
-        job: _job(),
-        site: 'plant',
+      final saved = _jobData(
+        job: _jobModel(),
         savedTo: '/tmp/x.wyrm-backup',
       );
       expect(saved.primary, BackupDo.show);
@@ -359,12 +422,13 @@ void main() {
     });
 
     test('a backup with keys warns and is never sent', () {
-      final d = BackupJobData(
-        job: _job(sections: const ['control', 'keys'], sealed: 'passphrase'),
-        site: 'plant',
-        where: BackupTarget.store,
-        sendLinks: [const SendLink(link: 'files').target],
-        sendLink: 'files',
+      final d = _jobData(
+        job: _jobModel(
+          sections: const ['control', 'keys'],
+          sealed: 'passphrase',
+        ),
+        where: BackupPlace.store,
+        sendLinks: const [SendLink(link: 'files')],
         sendConnection: 's3',
       );
       final vm = backupJobSheet(d);
@@ -377,13 +441,10 @@ void main() {
     });
 
     test('send: offered, then its progress, then a failure said', () {
-      BackupJobData data(String sendStatus) => BackupJobData(
-        job: _job(sendStatus: sendStatus),
-        site: 'plant',
-        where: BackupTarget.store,
-        sendLinks: [const SendLink(link: 'files').target],
-        sendLink: 'files',
-        connections: const ['s3'],
+      BackupJobData data(String sendStatus) => _jobData(
+        job: _jobModel(sendStatus: sendStatus),
+        where: BackupPlace.store,
+        sendLinks: const [SendLink(link: 'files')],
         sendConnection: 's3',
       );
       expect(data('').primary, BackupDo.send);
@@ -467,9 +528,12 @@ void main() {
       );
       expect(data().sent, _parts(chosen));
       expect(data(exportSecrets: false).sent, _parts(const ['control']));
-      expect(data(exportSecrets: false).keysLocked, contains('export_secrets'));
-      expect(data(viaUpstream: true).keysLocked, contains('upstream'));
-      expect(data(passphrase: 0).keysLocked, contains('passphrase'));
+      expect(
+        data(exportSecrets: false).keysLock!.label,
+        contains('export_secrets'),
+      );
+      expect(data(viaUpstream: true).keysLock!.label, contains('upstream'));
+      expect(data(passphrase: 0).keysLock!.label, contains('passphrase'));
       expect(
         _section(restoreSheet(data(passphrase: 0)), 'keys').locked,
         isTrue,
@@ -597,7 +661,7 @@ void main() {
           sendConnection: 's3',
         ),
         onSection: (part, {required on}) => got.add((part.section, on)),
-        onHistoryDays: got.add,
+        onHistoryRange: (range) => got.add(range.days),
         onLink: got.add,
         onPassphrase: (text) => got.add(text.length),
         onWhere: (t) => got.add(t.place),
@@ -635,8 +699,8 @@ void main() {
       ]);
       // a field is known by its slot, never by a text
       expect(vm.blocks.whereType<SheetField>().map((f) => f.slot), [
-        BackupSheetField.passphrase,
-        BackupSheetField.sendPath,
+        SheetSlot.backupPassphrase,
+        SheetSlot.backupSendPath,
       ]);
     });
 
@@ -685,7 +749,7 @@ void main() {
     test('a backup: where it goes and its removal', () {
       final got = <Object?>[];
       final vm = backupJobSheet(
-        BackupJobData(job: _job(), site: 'plant'),
+        _jobData(),
         onWhere: (t) => got.add(t.place),
         onRemove: () => got.add('remove'),
       );
@@ -743,15 +807,18 @@ void main() {
     });
 
     test('a job: its step is a section, the writing, or none', () {
-      final copying = _job(status: 'running');
+      final copying = _jobModel(status: 'running').facts;
       expect(copying.view, BackupJobView.working);
       expect(copying.step, BackupPart.storage);
       expect(copying.writing, isFalse);
 
-      final writing = _job(status: 'running', step: const BackupStep.writing());
-      expect(writing.step, isNull);
-      expect(writing.writing, isTrue);
-      final vm = backupJobSheet(BackupJobData(job: writing, site: 'plant'));
+      final writing = _jobModel(
+        status: 'running',
+        step: const BackupStep.writing(),
+      );
+      expect(writing.facts.step, isNull);
+      expect(writing.facts.writing, isTrue);
+      final vm = backupJobSheet(_jobData(job: writing));
       expect(vm.blocks.whereType<SheetBar>().single.text, 'Writing the file');
       // every section is copied by then
       expect(
@@ -759,11 +826,11 @@ void main() {
         [SheetStepState.done, SheetStepState.done],
       );
 
-      final none = _job(status: 'running', step: const BackupStep.none());
-      expect(none.step, isNull);
+      final none = _jobModel(status: 'running', step: const BackupStep.none());
+      expect(none.facts.step, isNull);
       expect(
         backupJobSheet(
-          BackupJobData(job: none, site: 'plant'),
+          _jobData(job: none),
         ).blocks.whereType<SheetSteps>().single.steps.map((s) => s.state),
         [SheetStepState.todo, SheetStepState.todo],
       );

@@ -19,10 +19,10 @@ import 'package:business/redux/backups/actions/upload_restore_action.dart';
 import 'package:business/redux/live/actions/unwatch_keys_action.dart';
 import 'package:business/redux/live/actions/watch_keys_action.dart';
 import 'package:business/redux/session/actions/log_out_action.dart';
+import 'package:business/wyrm/backup_plan.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:models/backup_job.dart';
-import 'package:models/backup_section.dart';
 import 'package:models/backup_stage.dart';
 import 'package:models/backups_read.dart';
 import 'package:ui/overlays/backup_data.dart';
@@ -34,7 +34,6 @@ import 'package:wyrm_client/wyrm_client.dart' show Perm;
 import '../common/app_store.dart';
 import '../common/backup_file_actions.dart';
 import '../mappers/backup_mappers.dart';
-import '../mappers/link_install_mappers.dart';
 import '../mappers/rights_mappers.dart';
 import '../navigation/leave_on_log_out_action.dart';
 
@@ -49,13 +48,6 @@ class _Sel with Selectors {
 /// The backup [id] of [state] with its live values, or null.
 BackupJob? backupJobIn(AppState state, String? id) =>
     id == null ? null : _Sel(state).backupJob(id);
-
-/// The session reaches the viewed site through an upstream broker: the
-/// broker then refuses `keys`, a passphrase and a restore that replaces.
-bool viaUpstreamIn(AppState state) {
-  final s = _Sel(state);
-  return s.site.viewed != s.site.name;
-}
 
 /// Opens the backup dialog (boards `Backup*`, `LinkBackup`): of the broker,
 /// of one [link], of a kept backup ([job]: its progress or its download,
@@ -128,44 +120,22 @@ class _BackupDialogState extends State<_BackupDialog> {
     super.dispose();
   }
 
+  BackupFormPlan _formPlan(AppState state) =>
+      _Sel(state).backupFormPlan(passphraseLength: _passphrase.length);
+
+  RestorePlan _restorePlan(AppState state) =>
+      _Sel(state).restorePlan(passphraseLength: _passphrase.length);
+
   BackupFormData _form(AppState state) {
     final s = _Sel(state);
-    final b = s.backups;
-    final link = b.link;
-    final info = link == null ? null : s.links.table[link];
-    return BackupFormData(
+    final link = s.backups.link;
+    return backupFormDataOf(
       site: s.site.viewed ?? '',
-      link: link,
-      linkMode: info?.mode.ui,
-      linkDriver: info?.driver,
-      sections: [
-        if (link == null)
-          for (final s in b.sections) s.part
-        else
-          for (final s in BackupSection.ofLink)
-            // The broker refuses `package` for a built-in driver.
-            if (s != BackupSection.package ||
-                (info?.driver.startsWith('pkg:') ?? false))
-              s.part,
-      ],
-      chosen: {for (final s in b.chosen) s.part},
-      estimate: {
-        for (final MapEntry(:key, :value) in b.estimate.entries)
-          key.part: value,
-      },
-      historyDays: b.historyDays,
+      b: state.backups,
+      plan: _formPlan(state),
+      passphraseTyped: _passphrase.isNotEmpty,
+      link: link == null ? null : s.links.table[link],
       linkIds: s.links.view.unlock,
-      offLinks: b.offLinks.unlock,
-      exportSecrets: b.exportSecrets,
-      viaUpstream: viaUpstreamIn(state),
-      passphraseLength: _passphrase.length,
-      where: b.where.target,
-      sendLinks: [for (final l in b.sendLinks) l.target],
-      sendLink: b.sendLink,
-      connections: b.connections.unlock,
-      sendConnection: b.sendConnection,
-      sendPath: b.sendPath,
-      keepDays: b.keepDays,
       reason: s.site
           .lacks(
             Perm.config,
@@ -180,22 +150,13 @@ class _BackupDialogState extends State<_BackupDialog> {
 
   BackupJobData? _job(AppState state, BackupJob? j) {
     final s = _Sel(state);
-    final b = s.backups;
     return j == null
         ? null
-        : BackupJobData(
-            job: j.facts,
+        : backupJobDataOf(
             site: s.site.viewed ?? '',
-            where: b.where.target,
-            sendLinks: [for (final l in b.sendLinks) l.target],
-            sendLink: b.sendLink,
-            connections: b.connections.unlock,
-            sendConnection: b.sendConnection,
-            sendPath: b.sendPath,
-            keepDays: b.keepDays,
-            downloading: b.downloading == j.id,
-            downloaded: b.downloaded,
-            savedTo: b.saved[j.id],
+            b: state.backups,
+            job: j,
+            step: s.backupJobStep(j),
             sending: state.wait.isWaitingForType<SendBackupAction>(),
             reason: s.site
                 .lacks(Perm.config, '${s.site.root}/sys/backups')
@@ -205,29 +166,15 @@ class _BackupDialogState extends State<_BackupDialog> {
 
   RestoreData _restore(AppState state, RestoreView view) {
     final s = _Sel(state);
-    final b = s.backups;
-    return RestoreData(
+    return restoreDataOf(
       site: s.site.viewed ?? '',
-      fileName: b.uploadName,
-      size: b.uploadSize,
-      uploaded: b.uploaded,
+      b: state.backups,
+      plan: _restorePlan(state),
+      view: view,
       uploading: state.wait.isWaitingForType<UploadRestoreAction>(),
-      hasUpload: b.upload != null,
-      check: b.check?.data,
-      chosen: {for (final s in b.chosen) s.part},
-      mode: b.mode.how,
-      modeTakes: {for (final s in b.mode.sections) s.part},
-      replaceKeys: b.replaceKeys,
-      acceptRights: b.acceptRights,
-      exportSecrets: b.exportSecrets,
-      viaUpstream: viaUpstreamIn(state),
-      passphraseLength: _passphrase.length,
       busy:
           state.wait.isWaitingForType<CheckRestoreAction>() ||
           state.wait.isWaitingForType<ApplyRestoreAction>(),
-      view: view,
-      staged: [for (final s in b.staged) s.part],
-      result: b.result,
       reason: s.site.lacks(Perm.config, '${s.site.root}/sys/backups')?.disabled,
     );
   }
@@ -244,9 +191,9 @@ class _BackupDialogState extends State<_BackupDialog> {
         return backupFormSheet(
           _form(state),
           onSection: _section,
-          onHistoryDays: (days) => _store.dispatch(
+          onHistoryRange: (range) => _store.dispatch(
             ChangeBackupFormAction.estimate(
-              SetBackupFormAction(historyDays: days),
+              SetBackupFormAction(historyDays: range.days),
             ),
           ),
           onLink: (id) => _store.dispatch(
@@ -309,10 +256,8 @@ class _BackupDialogState extends State<_BackupDialog> {
   }
 
   /// The passphrase as it may be sent: only where the broker takes one.
-  String? get _secret {
-    final d = _form(_store.state);
-    return d.passphraseLocked == null && d.passphraseOk ? _passphrase : null;
-  }
+  String? get _secret =>
+      _formPlan(_store.state).sendsPassphrase ? _passphrase : null;
 
   void _close() => Navigator.of(context).pop();
 
@@ -330,52 +275,52 @@ class _BackupDialogState extends State<_BackupDialog> {
     final state = _store.state;
     switch (state.backups.stage) {
       case BackupStage.choose || BackupStage.link:
-        final d = _form(state);
         return _store.dispatch(
-          // `keys` goes only with a passphrase the broker takes.
+          // `keys` goes only with a passphrase the broker takes: what goes
+          // is decided in `business` (`backupFormPlanOf`).
           BackUpAction(
-            dropKeys: d.chosen.contains(BackupPart.keys) && !d.withKeys,
+            dropKeys: _formPlan(state).dropKeys,
             passphrase: _secret,
           ),
         );
       case BackupStage.job:
         final job = backupJobIn(state, state.backups.job);
-        final d = _job(state, job);
-        if (job == null || d == null) {
+        if (job == null) {
           return null;
         }
-        switch (d.primary) {
-          case BackupDo.download:
+        switch (_Sel(state).backupJobStep(job)) {
+          case BackupJobStep.download:
             return _store.dispatch(
               DownloadBackupFileAction(
                 job,
                 folderTitle: S.current.bakChooseFolder(job.name),
               ),
             );
-          case BackupDo.cancel:
+          case BackupJobStep.cancel:
             return _store.dispatch(CancelDownloadAction());
-          case BackupDo.send:
+          case BackupJobStep.send:
             return _store.dispatch(SendBackupAction(job.id));
-          case BackupDo.remove:
+          case BackupJobStep.remove:
             return _remove();
-          case BackupDo.show:
+          case BackupJobStep.show:
             _close();
             return null;
-          case BackupDo.nothing:
+          case BackupJobStep.nothing:
             return null;
         }
       case BackupStage.restore:
-        final d = _restore(state, RestoreView.form);
-        if (d.fileName == null) {
+        final b = state.backups;
+        if (b.uploadName == null) {
           return _store.dispatch(UploadRestoreFileAction());
         }
-        if (d.check == null) {
+        if (b.check == null) {
           return _store.dispatch(CheckRestoreAction(passphrase: _passphrase));
         }
-        // Only the sections the mode and the session's rights take.
+        // Only the sections the mode and the session's rights take: which
+        // is decided in `business` (`restorePlanOf`).
         return _store.dispatch(
           RestoreAction(
-            drop: {for (final s in d.chosen.difference(d.sent)) s.section},
+            drop: _restorePlan(state).drop.unlock,
             passphrase: _passphrase,
           ),
         );

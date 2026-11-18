@@ -4,8 +4,62 @@ import 'package:localization/localization.dart';
 import '../models/disabled.dart';
 import '../models/link_run_mode.dart';
 
-/// The shortest passphrase the broker takes (ADR 0048 §3.4).
-const minPassphrase = 12;
+// What the backup dialogs draw. Every decision of what goes to the
+// broker (which sections, whether the keys, what the main button does) is
+// made in `business` and arrives here as a value: these types hold what
+// is shown and word it.
+
+/// Why secrets cannot be sealed or restored by this session, as it is
+/// said.
+enum SecretsLockReason {
+  viaUpstream,
+  hostForbids,
+  noPassphrase;
+
+  String get label => switch (this) {
+    viaUpstream => S.current.bakSecretsUpstream,
+    hostForbids => S.current.bakSecretsHost,
+    noPassphrase => S.current.rstKeysNeedPassphrase,
+  };
+}
+
+/// Why a restore cannot replace, as it is said.
+enum ReplaceLockReason {
+  viaUpstream,
+  problems;
+
+  String get label => switch (this) {
+    viaUpstream => S.current.rstReplaceUpstream,
+    problems => S.current.rstReplaceProblems,
+  };
+}
+
+/// How much of the history a backup takes.
+enum BackupRange {
+  week(7),
+  month(30),
+  quarter(90),
+
+  /// All of it.
+  all(0);
+
+  const BackupRange(this.days);
+
+  /// The last N days; 0 for all of it.
+  final int days;
+
+  String get label => switch (this) {
+    week => S.current.bakLast7,
+    month => S.current.bakLast30,
+    quarter => S.current.bakLast90,
+    all => S.current.bakAll,
+  };
+
+  /// The range of [days] (null: all of it); null for a number of days
+  /// that is none of the ranges.
+  static BackupRange? ofDays(int? days) =>
+      values.where((r) => r.days == (days ?? 0)).firstOrNull;
+}
 
 /// A section of a backup, as the backup dialogs word it.
 enum BackupPart {
@@ -55,10 +109,6 @@ enum BackupPart {
   /// Always in a backup: its checkbox is fixed.
   bool get always => this == control || this == settings;
 }
-
-/// The text fields of the backup dialogs: which one a field of a sheet
-/// is, whatever its label says.
-enum BackupSheetField { passphrase, sendPath }
 
 /// Where a backup goes.
 enum BackupTarget {
@@ -173,12 +223,15 @@ final class BackupFormData extends Equatable {
     this.linkMode,
     this.linkDriver,
     this.estimate = const {},
-    this.historyDays,
+    this.historyRange,
     this.linkIds = const [],
     this.offLinks = const {},
-    this.exportSecrets = false,
-    this.viaUpstream = false,
-    this.passphraseLength = 0,
+    this.secretsLock,
+    this.passphraseTyped = false,
+    this.passphraseOk = false,
+    this.passphraseMin = 0,
+    this.withKeys = false,
+    this.sent = const {},
     this.where = BackupTarget.computer,
     this.sendLinks = const [],
     this.sendLink,
@@ -207,21 +260,26 @@ final class BackupFormData extends Equatable {
   /// Bytes by section, when the broker gave them.
   final Map<BackupPart, int> estimate;
 
-  /// The last N days of history; null = all of it.
-  final int? historyDays;
+  /// How much of the history goes in; null when it is none of the ranges.
+  final BackupRange? historyRange;
   final List<String> linkIds;
   final Set<String> offLinks;
 
-  /// The host lets secrets leave the broker (`backups.export_secrets`).
-  final bool exportSecrets;
+  /// Why no passphrase may be given, or null.
+  final SecretsLockReason? secretsLock;
 
-  /// The session reaches the site through an upstream: it never gets
-  /// `keys` or a passphrase-sealed file.
-  final bool viaUpstream;
+  /// A passphrase is typed in the dialog (the text itself stays in the
+  /// dialog's own state), and whether it is long enough ([passphraseMin]
+  /// characters).
+  final bool passphraseTyped;
+  final bool passphraseOk;
+  final int passphraseMin;
 
-  /// How long the passphrase in the dialog is; the text itself stays in
-  /// the dialog's own state.
-  final int passphraseLength;
+  /// The section `keys` goes in: ticked, and a passphrase seals it.
+  final bool withKeys;
+
+  /// The sections that go to the broker.
+  final Set<BackupPart> sent;
   final BackupTarget where;
   final List<BackupSendTarget> sendLinks;
   final String? sendLink;
@@ -232,26 +290,6 @@ final class BackupFormData extends Equatable {
   final Disabled? reason;
   final bool busy;
 
-  /// Why no passphrase may be given, or null.
-  String? get passphraseLocked => viaUpstream
-      ? S.current.bakSecretsUpstream
-      : (exportSecrets ? null : S.current.bakSecretsHost);
-
-  bool get passphraseOk => passphraseLength >= minPassphrase;
-
-  /// The section `keys` goes in: ticked, and a passphrase seals it.
-  bool get withKeys =>
-      link == null &&
-      chosen.contains(BackupPart.keys) &&
-      passphraseLocked == null &&
-      passphraseOk;
-
-  /// The sections that go to the broker.
-  Set<BackupPart> get sent => {
-    for (final s in chosen)
-      if (s != BackupPart.keys || withKeys) s,
-  };
-
   @override
   List<Object?> get props => [
     site,
@@ -261,12 +299,15 @@ final class BackupFormData extends Equatable {
     sections,
     chosen,
     estimate,
-    historyDays,
+    historyRange,
     linkIds,
     offLinks,
-    exportSecrets,
-    viaUpstream,
-    passphraseLength,
+    secretsLock,
+    passphraseTyped,
+    passphraseOk,
+    passphraseMin,
+    withKeys,
+    sent,
     where,
     sendLinks,
     sendLink,
@@ -360,6 +401,7 @@ final class BackupJobData extends Equatable {
   const BackupJobData({
     required this.job,
     required this.site,
+    required this.primary,
     this.where = BackupTarget.computer,
     this.sendLinks = const [],
     this.sendLink,
@@ -398,32 +440,13 @@ final class BackupJobData extends Equatable {
   bool get hasKeys => job.sections.contains(BackupPart.keys);
 
   /// What the primary button does.
-  BackupDo get primary {
-    if (job.view == BackupJobView.failed) {
-      return BackupDo.remove;
-    }
-    if (job.view != BackupJobView.done) {
-      return BackupDo.nothing;
-    }
-    if (downloading) {
-      return BackupDo.cancel;
-    }
-    if (where == BackupTarget.store && !hasKeys && sendLinks.isNotEmpty) {
-      return job.send == BackupSendView.sending ||
-              job.send == BackupSendView.done
-          ? BackupDo.show
-          : BackupDo.send;
-    }
-    if (where == BackupTarget.computer && savedTo == null) {
-      return BackupDo.download;
-    }
-    return BackupDo.show;
-  }
+  final BackupDo primary;
 
   @override
   List<Object?> get props => [
     job,
     site,
+    primary,
     where,
     sendLinks,
     sendLink,
@@ -543,12 +566,13 @@ final class RestoreData extends Equatable {
     this.check,
     this.chosen = const {},
     this.mode = RestoreHow.add,
-    this.modeTakes = const {},
+    this.takes = const {},
+    this.sent = const {},
+    this.keysLock,
+    this.replaceLock,
+    this.needsReplaceKeys = false,
     this.replaceKeys = false,
     this.acceptRights = false,
-    this.exportSecrets = false,
-    this.viaUpstream = false,
-    this.passphraseLength = 0,
     this.busy = false,
     this.view = RestoreView.form,
     this.staged = const [],
@@ -566,13 +590,21 @@ final class RestoreData extends Equatable {
   final Set<BackupPart> chosen;
   final RestoreHow mode;
 
-  /// The sections [mode] restores (ADR 0048 §3.6).
-  final Set<BackupPart> modeTakes;
+  /// The sections [mode] restores for this session, and those of the
+  /// ticked ones that go to the broker.
+  final Set<BackupPart> takes;
+  final Set<BackupPart> sent;
+
+  /// Why `keys` cannot be restored by this session, or null.
+  final SecretsLockReason? keysLock;
+
+  /// Why a replace is not offered, or null.
+  final ReplaceLockReason? replaceLock;
+
+  /// The keys of the file are not this broker's and are to be restored.
+  final bool needsReplaceKeys;
   final bool replaceKeys;
   final bool acceptRights;
-  final bool exportSecrets;
-  final bool viaUpstream;
-  final int passphraseLength;
 
   /// A check or an apply is in flight.
   final bool busy;
@@ -585,35 +617,6 @@ final class RestoreData extends Equatable {
   final String? result;
   final Disabled? reason;
 
-  /// Why `keys` cannot be restored by this session, or null (the three
-  /// gates of ADR 0048 §3.6 rule 1).
-  String? get keysLocked => viaUpstream
-      ? S.current.bakSecretsUpstream
-      : (!exportSecrets
-            ? S.current.bakSecretsHost
-            : (passphraseLength == 0 ? S.current.rstKeysNeedPassphrase : null));
-
-  /// Why a replace is not offered, or null.
-  String? get replaceLocked => viaUpstream
-      ? S.current.rstReplaceUpstream
-      : ((check?.problems.isNotEmpty ?? false)
-            ? S.current.rstReplaceProblems
-            : null);
-
-  bool takes(BackupPart section) =>
-      modeTakes.contains(section) &&
-      (section != BackupPart.keys || keysLocked == null);
-
-  /// The sections that go to the broker.
-  Set<BackupPart> get sent => {
-    for (final s in chosen)
-      if (takes(s)) s,
-  };
-
-  /// The keys of the file are not this broker's and are to be restored.
-  bool get needsReplaceKeys =>
-      sent.contains(BackupPart.keys) && (check?.keys.foreign ?? false);
-
   @override
   List<Object?> get props => [
     site,
@@ -625,12 +628,13 @@ final class RestoreData extends Equatable {
     check,
     chosen,
     mode,
-    modeTakes,
+    takes,
+    sent,
+    keysLock,
+    replaceLock,
+    needsReplaceKeys,
     replaceKeys,
     acceptRights,
-    exportSecrets,
-    viaUpstream,
-    passphraseLength,
     busy,
     view,
     staged,

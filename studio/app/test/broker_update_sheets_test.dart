@@ -177,7 +177,7 @@ void main() {
 
     expect(typed, ['pla']);
     // the field is known by its slot, not by a text id or its label
-    expect(field.slot, BrokerUpdateField.confirm);
+    expect(field.slot, SheetSlot.brokerUpdateConfirm);
     // nobody listening: the field reports to nobody
     expect(
       brokerUpdateSheet(_data()).blocks

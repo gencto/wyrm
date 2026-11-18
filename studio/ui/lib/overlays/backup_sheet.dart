@@ -12,16 +12,6 @@ import 'task_sheet.dart';
 // section by its [BackupPart], a place by its [BackupTarget], a mode by
 // its [RestoreHow]. No control is known by a text id.
 
-/// The history ranges of a backup, in days; 0 is all of it.
-const _historyRanges = [7, 30, 90, 0];
-
-String _rangeLabel(int days) => switch (days) {
-  7 => S.current.bakLast7,
-  30 => S.current.bakLast30,
-  90 => S.current.bakLast90,
-  _ => S.current.bakAll,
-};
-
 /// The choice of a file store, its connection and the path in it, shown
 /// once a store is where the backup goes.
 List<SheetBlock> _storeBlocks({
@@ -75,7 +65,7 @@ List<SheetBlock> _storeBlocks({
         ),
       ]),
       SheetField(
-        slot: BackupSheetField.sendPath,
+        slot: SheetSlot.backupSendPath,
         label: l.bakSendPath,
         value: sendPath,
         hint: pathHint,
@@ -90,7 +80,7 @@ List<SheetBlock> _storeBlocks({
 TaskSheetVm backupFormSheet(
   BackupFormData d, {
   Toggled<BackupPart>? onSection,
-  ValueChanged<int>? onHistoryDays,
+  ValueChanged<BackupRange>? onHistoryRange,
   ValueChanged<String>? onLink,
   ValueChanged<String>? onPassphrase,
   ValueChanged<BackupTarget>? onWhere,
@@ -100,8 +90,8 @@ TaskSheetVm backupFormSheet(
 }) {
   final l = S.current;
   final isLink = d.link != null;
-  final locked = d.passphraseLocked;
-  final typed = d.passphraseLength > 0;
+  final locked = d.secretsLock?.label;
+  final typed = d.passphraseTyped;
   final short = typed && !d.passphraseOk;
   final total = d.estimate.isEmpty
       ? null
@@ -148,11 +138,13 @@ TaskSheetVm backupFormSheet(
           },
           chips: switch (s) {
             BackupPart.history => [
-              for (final n in _historyRanges)
+              for (final r in BackupRange.values)
                 SheetChip(
-                  label: _rangeLabel(n),
-                  on: (d.historyDays ?? 0) == n,
-                  onTap: onHistoryDays == null ? null : () => onHistoryDays(n),
+                  label: r.label,
+                  on: r == d.historyRange,
+                  onTap: onHistoryRange == null
+                      ? null
+                      : () => onHistoryRange(r),
                 ),
             ],
             BackupPart.links => [
@@ -182,11 +174,11 @@ TaskSheetVm backupFormSheet(
         SheetText(l.bakLinkRestoreNote, small: true),
       ],
       SheetField(
-        slot: BackupSheetField.passphrase,
+        slot: SheetSlot.backupPassphrase,
         label: isLink ? l.bakPassphraseLink : l.bakPassphrase,
         secret: true,
         enabled: locked == null,
-        error: short ? l.bakPassphraseShort(minPassphrase) : null,
+        error: short ? l.bakPassphraseShort(d.passphraseMin) : null,
         note:
             locked ?? (isLink ? l.bakPassphraseLinkNote : l.bakPassphraseNote),
         onChanged: onPassphrase,
@@ -235,7 +227,7 @@ TaskSheetVm backupFormSheet(
     primaryReason:
         d.reason?.text ??
         (short
-            ? l.bakPassphraseShort(minPassphrase)
+            ? l.bakPassphraseShort(d.passphraseMin)
             : (store ? l.bakChooseConnection : null)),
     busy: d.busy,
   );
@@ -469,7 +461,7 @@ TaskSheetVm restoreSheet(
         else ...[
           SheetCard(title: l.rstUploaded, detail: l.rstUploadedNote),
           SheetField(
-            slot: BackupSheetField.passphrase,
+            slot: SheetSlot.backupPassphrase,
             label: l.rstPassphrase,
             secret: true,
             note: l.rstPassphraseNote,
@@ -559,13 +551,13 @@ TaskSheetVm restoreSheet(
       for (final RestorePart(:part, :bytes) in c.sections)
         SheetSection(
           name: part.label,
-          on: d.chosen.contains(part) && d.takes(part),
-          locked: !d.takes(part),
+          on: d.chosen.contains(part) && d.takes.contains(part),
+          locked: !d.takes.contains(part),
           reason: part == BackupPart.config
               ? l.rstConfigNever
               : (part == BackupPart.keys && replace
-                    ? d.keysLocked
-                    : (d.takes(part) ? null : l.rstNotInAdd)),
+                    ? d.keysLock?.label
+                    : (d.takes.contains(part) ? null : l.rstNotInAdd)),
           size: Formats.bytes(bytes),
           onChanged: onSection == null ? null : (on) => onSection(part, on: on),
         ),
@@ -577,7 +569,7 @@ TaskSheetVm restoreSheet(
             SheetChoiceOption(
               label: m.label,
               selected: m == d.mode,
-              reason: m == RestoreHow.replace ? d.replaceLocked : null,
+              reason: m == RestoreHow.replace ? d.replaceLock?.label : null,
               onPick: onMode == null ? null : () => onMode(m),
             ),
         ],
@@ -596,7 +588,7 @@ TaskSheetVm restoreSheet(
         onChanged: onAccept,
       ),
       SheetField(
-        slot: BackupSheetField.passphrase,
+        slot: SheetSlot.backupPassphrase,
         label: l.rstPassphrase,
         secret: true,
         note: l.rstPassphraseKept,

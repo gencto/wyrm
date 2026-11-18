@@ -78,7 +78,7 @@ void main() {
           title: 'Update plant',
           blocks: [
             SheetField(
-              slot: BrokerUpdateFrameField.confirm,
+              slot: SheetSlot.brokerUpdateConfirm,
               label: 'Type plant',
               value: value,
               onChanged: (text) => typed.add('confirm:$text'),

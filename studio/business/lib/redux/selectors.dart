@@ -110,6 +110,7 @@ import 'package:wyrm_client/wyrm_client.dart'
     show DevicePolicy, GatewayDevice, Perm, Status, StepUp;
 
 import '../wyrm/approval.dart';
+import '../wyrm/backup_plan.dart';
 import '../wyrm/catalog.dart';
 import '../wyrm/context_keys.dart';
 import '../wyrm/decode/agent_params.dart';
@@ -1348,6 +1349,31 @@ extension SelectBrokerHealth on Selectors {
           when l.mode == LinkMode.embedded || l.mode == LinkMode.wasm)
         l,
   ];
+
+  /// The session reaches the viewed site through an upstream broker: the
+  /// broker then refuses `keys`, a passphrase and a restore that
+  /// replaces.
+  bool get viaUpstream => site.viewed != site.name;
+
+  /// What *Back up* sends for the form as it is ([backupFormPlanOf]);
+  /// [passphraseLength] is the one thing only the dialog knows.
+  BackupFormPlan backupFormPlan({required int passphraseLength}) =>
+      backupFormPlanOf(
+        state.backups,
+        viaUpstream: viaUpstream,
+        passphraseLength: passphraseLength,
+      );
+
+  /// What *Restore* sends for the form as it is ([restorePlanOf]).
+  RestorePlan restorePlan({required int passphraseLength}) => restorePlanOf(
+    state.backups,
+    viaUpstream: viaUpstream,
+    passphraseLength: passphraseLength,
+  );
+
+  /// What the main button of the kept backup [job] does.
+  BackupJobStep backupJobStep(BackupJob job) =>
+      backupJobStepOf(state.backups, job);
 
   /// The kept backup [id] with its live values, or null.
   BackupJob? backupJob(String id) => switch (backups.table[id]) {

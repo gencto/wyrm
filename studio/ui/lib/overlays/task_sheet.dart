@@ -270,6 +270,20 @@ final class SheetFacts extends SheetBlock {
   List<Object?> get props => [facts];
 }
 
+/// The text fields the task sheets have: one closed set, so a field is
+/// one of these and nothing else. A sheet that needs another text field
+/// names it here.
+enum SheetSlot {
+  /// The passphrase of a backup or of a restore.
+  backupPassphrase,
+
+  /// The path a backup is sent to in a file store.
+  backupSendPath,
+
+  /// The site's name typed to confirm a broker update.
+  brokerUpdateConfirm,
+}
+
 /// A text field. A [secret] one is obscured and never shows a value: what
 /// is typed stays in the field and is reported by its own [onChanged].
 /// The field keeps what is typed while a field of its [slot] stays in the
@@ -287,10 +301,9 @@ final class SheetField extends SheetBlock {
     this.onChanged,
   });
 
-  /// Which field of its sheet this is: a value of the sheet's own enum.
-  /// It is the field's identity across rebuilds (never its label, which
-  /// changes with the language).
-  final Enum slot;
+  /// Which text field this is. It is the field's identity across rebuilds
+  /// (never its label, which changes with the language).
+  final SheetSlot slot;
   final String label;
   final String? value;
   final String? hint;

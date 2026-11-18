@@ -3,7 +3,6 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:ui/overlays/backup_data.dart';
 import 'package:ui/overlays/task_sheet.dart';
 import 'package:ui/theme/common.dart';
 
@@ -62,7 +61,7 @@ void main() {
           blocks: [
             ...before,
             const SheetField(
-              slot: BackupSheetField.passphrase,
+              slot: SheetSlot.backupPassphrase,
               label: 'Passphrase',
               secret: true,
             ),
@@ -147,7 +146,7 @@ void main() {
               // A section nobody listens to does not answer.
               const SheetSection(name: 'Storage', on: true),
               SheetField(
-                slot: BackupSheetField.passphrase,
+                slot: SheetSlot.backupPassphrase,
                 label: 'Passphrase',
                 secret: true,
                 onChanged: (text) => got.add('passphrase:${text.length}'),
@@ -206,7 +205,7 @@ void main() {
           title: 'Restore',
           blocks: [
             SheetField(
-              slot: BackupSheetField.passphrase,
+              slot: SheetSlot.backupPassphrase,
               label: label,
               secret: true,
             ),
@@ -224,7 +223,7 @@ void main() {
   });
 
   testWidgets('a field of another slot is another field', (t) async {
-    Widget sheet(BackupSheetField slot) => frame(
+    Widget sheet(SheetSlot slot) => frame(
       TaskSheet(
         dialog: true,
         vm: TaskSheetVm(
@@ -233,9 +232,9 @@ void main() {
         ),
       ),
     );
-    await t.pumpWidget(sheet(BackupSheetField.passphrase));
+    await t.pumpWidget(sheet(SheetSlot.backupPassphrase));
     await t.enterText(find.byType(TextField), 'secret');
-    await t.pumpWidget(sheet(BackupSheetField.sendPath));
+    await t.pumpWidget(sheet(SheetSlot.backupSendPath));
     expect(t.widget<TextField>(find.byType(TextField)).controller!.text, '');
   });
 }

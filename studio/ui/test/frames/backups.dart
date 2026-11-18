@@ -4,7 +4,6 @@
 import 'package:material_ui/material_ui.dart';
 import 'package:ui/containers/fact_grid.dart';
 import 'package:ui/models/tone.dart';
-import 'package:ui/overlays/backup_data.dart';
 import 'package:ui/overlays/task_sheet.dart';
 
 import 'links.dart';
@@ -125,7 +124,7 @@ Widget backupChoose() => over(
       const SheetLabel('What goes in'),
       ..._sections(),
       const SheetField(
-        slot: BackupSheetField.passphrase,
+        slot: SheetSlot.backupPassphrase,
         label: 'Passphrase for the keys and secrets',
         secret: true,
         note: 'Seals Keys and Secrets (Argon2id, ChaCha20-Poly1305), as wyrmd keys export. Without it they stay out. Studio never stores it.',
@@ -252,7 +251,7 @@ Widget backupRestore() => over(
         ],
       ),
       const SheetField(
-        slot: BackupSheetField.passphrase,
+        slot: SheetSlot.backupPassphrase,
         label: 'Passphrase of the backup',
         secret: true,
       ),
@@ -315,7 +314,7 @@ Widget linkBackup() => over(
         small: true,
       ),
       const SheetField(
-        slot: BackupSheetField.passphrase,
+        slot: SheetSlot.backupPassphrase,
         label: 'Passphrase for the keys and secrets',
         secret: true,
       ),

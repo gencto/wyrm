@@ -9,9 +9,6 @@ import 'package:ui/overlays/task_sheet.dart';
 import 'backups.dart';
 import 'system.dart';
 
-/// The one text field of the board.
-enum BrokerUpdateFrameField { confirm }
-
 // The data of boards `BrokerUpdate`, `BrokerUpdateRestart`,
 // `BrokerUpdateDone`, `BrokerUpdateRolledBack` and `BrokerUpdateExternal`
 // (design canvas): the dialog over System. The broker side (ADR 0048 §2)
@@ -67,7 +64,7 @@ Widget brokerUpdateReview() => _over(
         numbered: true,
       ),
       SheetField(
-        slot: BrokerUpdateFrameField.confirm,
+        slot: SheetSlot.brokerUpdateConfirm,
         label: 'Type plant to confirm',
         value: 'plant',
       ),
