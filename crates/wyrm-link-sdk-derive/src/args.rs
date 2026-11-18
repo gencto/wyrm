@@ -94,9 +94,7 @@ fn check(f: &syn::Field, a: &Attrs, option: bool) -> syn::Result<()> {
     if a.trim && a.index {
         return bad("trim is for text: an enum is read by its index");
     }
-    if a.trim && a.secret {
-        return bad("a secret is never trimmed");
-    }
+
     if a.suggest.is_some() && set {
         return bad("suggest lists examples of a free text; a closed set is choice or enum");
     }
@@ -164,7 +162,7 @@ impl<'a> Shape<'a> {
                 quote!(::wyrm_core::TypeCode::Enum),
                 quote!(#args::by_index::<#set_ty>),
             )
-        } else if a.trim {
+        } else if a.trim && !a.secret {
             (
                 quote!(<#value_ty as #args::ArgValue>::TYPE),
                 quote!(#args::trimmed),
@@ -254,14 +252,24 @@ fn reading(sh: &Shape<'_>, a: &Attrs, name: &str, decode: &Tokens) -> Tokens {
     }
     // `secret` compiles only on a type that keeps a secret (zeroized, no value
     // in `Debug`): a `String` here is a compile error
-    let secret = if a.secret {
-        let value_ty = sh.value_ty;
-        quote!({
-            fn keeps_a_secret<T: #args::SecretArg>() {}
-            keeps_a_secret::<#value_ty>();
-        })
-    } else {
-        quote!()
+    // and `secret, trim` only on the one kind that is trimmed, a pasted token
+    // (its type cuts the white space itself)
+    let secret = match (a.secret, a.trim) {
+        (true, false) => {
+            let value_ty = sh.value_ty;
+            quote!({
+                fn keeps_a_secret<T: #args::SecretArg>() {}
+                keeps_a_secret::<#value_ty>();
+            })
+        }
+        (true, true) => {
+            let value_ty = sh.value_ty;
+            quote!({
+                fn is_a_pasted_token<T: #args::PastedSecretArg>() {}
+                is_a_pasted_token::<#value_ty>();
+            })
+        }
+        (false, _) => quote!(),
     };
     quote!({
         #secret
@@ -271,9 +279,50 @@ fn reading(sh: &Shape<'_>, a: &Attrs, name: &str, decode: &Tokens) -> Tokens {
     })
 }
 
-/// One field as `(a statement that declares it, its initializer)`; its wire
-/// name goes to `names`, where a second field of the same name is refused.
-fn field(f: &syn::Field, names: &mut Vec<String>) -> syn::Result<(Tokens, Tokens)> {
+/// What `#[param(flatten)]` stands beside: nothing. Another attribute there
+/// would be dropped without a word.
+fn only_flatten(f: &syn::Field, a: &Attrs) -> syn::Result<()> {
+    let other = a.name.is_some()
+        || a.display.is_some()
+        || a.desc.is_some()
+        || a.placeholder.is_some()
+        || a.editor.is_some()
+        || a.secret
+        || a.choice
+        || a.index
+        || a.reversed
+        || a.suggest.is_some()
+        || a.min.is_some()
+        || a.max.is_some()
+        || a.trim
+        || a.nonempty
+        || a.absent.is_some()
+        || a.default.is_some();
+    if other {
+        return Err(syn::Error::new_spanned(
+            f,
+            "flatten takes no other attribute: say it on the fields of the flattened struct",
+        ));
+    }
+    Ok(())
+}
+
+/// What the derive makes of the fields.
+#[derive(Default)]
+struct Made {
+    /// Statements that declare the parameters, in field order.
+    params: Vec<Tokens>,
+    /// The initializer of each field.
+    reads: Vec<Tokens>,
+    /// The parameter names of the struct's own fields.
+    own: Vec<String>,
+    /// The types of the flattened structs.
+    flat: Vec<Type>,
+}
+
+/// One field into `made`; a second field of one name is refused here, a name
+/// that comes again through `flatten` by the `const` check of [`expand`].
+fn field(f: &syn::Field, made: &mut Made) -> syn::Result<()> {
     let args = quote!(::wyrm_core::args);
     let Some(ident) = f.ident.as_ref() else {
         return Err(syn::Error::new_spanned(f, "a named field"));
@@ -281,31 +330,30 @@ fn field(f: &syn::Field, names: &mut Vec<String>) -> syn::Result<(Tokens, Tokens
     let ty = &f.ty;
     let a = attrs(&f.attrs)?;
     if a.flatten {
-        if a.name.is_some() || a.choice || a.index || a.absent.is_some() {
-            return Err(syn::Error::new_spanned(
-                f,
-                "flatten takes no other attribute",
-            ));
-        }
-        return Ok((
-            quote!(out.extend(<#ty as #args::Args>::params());),
-            quote!(#ident: <#ty as #args::Args>::read(r)?),
-        ));
+        only_flatten(f, &a)?;
+        made.params
+            .push(quote!(out.extend(<#ty as #args::Args>::params());));
+        made.reads
+            .push(quote!(#ident: <#ty as #args::Args>::read(r)?));
+        made.flat.push(ty.clone());
+        return Ok(());
     }
     let sh = Shape::of(ty, &a);
     check(f, &a, sh.option)?;
     let name = a.name.clone().unwrap_or_else(|| ident.to_string());
-    if names.contains(&name) {
+    if made.own.contains(&name) {
         return Err(syn::Error::new_spanned(
             f,
             format!("two fields are the parameter {name:?}: a name is one field"),
         ));
     }
-    names.push(name.clone());
     let (code, decode) = sh.codec(&a);
     let p = declared(&sh, &a, &code);
     let read = reading(&sh, &a, &name, &decode);
-    Ok((quote!(out.push((#name, #p));), quote!(#ident: #read)))
+    made.params.push(quote!(out.push((#name, #p));));
+    made.reads.push(quote!(#ident: #read));
+    made.own.push(name);
+    Ok(())
 }
 
 pub(crate) fn expand(input: &DeriveInput) -> syn::Result<Tokens> {
@@ -330,15 +378,32 @@ pub(crate) fn expand(input: &DeriveInput) -> syn::Result<Tokens> {
     };
     let args = quote!(::wyrm_core::args);
     let meta = quote!(::wyrm_core::meta);
-    let (mut params, mut reads, mut names) = (Vec::new(), Vec::new(), Vec::new());
+    let mut made = Made::default();
     for f in fields {
-        let (param, read) = field(f, &mut names)?;
-        params.push(param);
-        reads.push(read);
+        field(f, &mut made)?;
     }
+    let Made {
+        params,
+        reads,
+        own,
+        flat,
+    } = made;
     let ident = &input.ident;
+    let twice = format!(
+        "{ident}: a parameter name is declared twice (by a field and a flattened struct, or by \
+         two flattened structs): a name is one field"
+    );
     Ok(quote! {
+        // a name that comes a second time through `flatten`: a compile error
+        const _: () = ::core::assert!(
+            !<#ident as #args::Args>::NAMES.repeats_in(&<#ident as #args::Args>::NAMES),
+            #twice
+        );
         impl #args::Args for #ident {
+            const NAMES: #args::Names = #args::Names {
+                own: &[#(#own),*],
+                flat: &[#(&<#flat as #args::Args>::NAMES),*],
+            };
             fn params() -> ::std::vec::Vec<(&'static str, #meta::ParamMeta)> {
                 let mut out = ::std::vec::Vec::new();
                 #(#params)*

@@ -9,7 +9,7 @@
 //! review. `WYRM_SNAPSHOT=write cargo test -p wyrm-admin sys_action_schemas`
 //! writes the file again.
 
-use super::tests::control_tweaked;
+use super::tests::{control, control_tweaked};
 use super::*;
 use crate::registry::{Op, PackageDef, PackageKind, PeerDef, TokenDef};
 use wyrm_link_sdk::TestHarness;
@@ -317,6 +317,277 @@ async fn a_strangers_next_is_denied_before_its_arguments_are_read() {
                 "{bad:?}"
             );
         }
+    }
+    h.stop().await;
+}
+
+/// The admin with `key` as an upstream site's key: trusted on `sys` up to
+/// `config`, as `allow_config` gives it (a limited key, so `Caller::signer` is set).
+async fn harness_with_upstream(
+    ctl: Arc<Control>,
+    key: &ed25519_dalek::SigningKey,
+) -> TestHarness<Admin> {
+    let start = AdminStart {
+        ctl,
+        embedded: Arc::new(AsyncMutex::new(HashMap::new())),
+    };
+    let limited = wyrm_link_sdk::LimitedKey {
+        key: key.verifying_key(),
+        cap: Perm::Config,
+        scopes: vec!["wy/s/sys".into()],
+        subject: None,
+    };
+    TestHarness::<Admin>::start_with(start, |c| {
+        c.root = Some("wy/s/sys".into());
+        c.open_actions = vec!["hello".into(), "enroll".into()];
+        c.overlays = false;
+        c.audit = false;
+        c.limited_keys = vec![limited];
+    })
+    .await
+}
+
+/// A `config` token on all of the admin signed by `key`.
+fn token_of(h: &TestHarness<Admin>, key: &ed25519_dalek::SigningKey) -> Vec<u8> {
+    use ed25519_dalek::Signer;
+    let all = h.key("**", "");
+    let claims = h.claims(&[(&all, Perm::Config)]);
+    let mut tok = vec![wyrm_core::ptok::PTOK_VERSION];
+    tok.extend(wyrm_core::codec::to_vec(&claims).unwrap());
+    let sig = key.sign(&tok);
+    tok.extend(sig.to_bytes());
+    tok
+}
+
+/// A kept backup `id` that holds the site's keys, as the broker finds it at a start.
+fn kept_keys_backup(dir: &std::path::Path, id: &str) {
+    use super::backups::{Job, JobKind, JobStatus};
+    let backups = dir.join("backups");
+    std::fs::create_dir_all(&backups).unwrap();
+    let file = format!("s-{id}.wyrm-backup");
+    std::fs::write(backups.join(&file), b"not read by this test").unwrap();
+    let job = Job {
+        id: id.to_owned(),
+        kind: JobKind::Full,
+        link: String::new(),
+        sections: vec![
+            crate::backup::SectionName::Control,
+            crate::backup::SectionName::Keys,
+        ],
+        status: JobStatus::Done,
+        progress: 100,
+        step: String::new(),
+        size: 21,
+        sha256: "00".repeat(32),
+        created: 1,
+        expires: u64::MAX / 2,
+        error: String::new(),
+        file: file.clone(),
+        sealed: Some(crate::backup::How::Passphrase),
+        by: "user:a".into(),
+        pinned: true,
+        sent_to: String::new(),
+        send_status: None,
+        send_progress: 0,
+        send_error: String::new(),
+    };
+    std::fs::write(
+        backups.join(format!("{file}.json")),
+        serde_json::to_vec(&job).unwrap(),
+    )
+    .unwrap();
+}
+
+/// Second audit of #136: a backup that holds the site's keys never travels to
+/// another site. A caller from an upstream is told `permission_denied` whatever
+/// its arguments are: `offset: 0.5` passes the SDK's type check and is refused by
+/// the action's struct, so it shows which check runs first. The site's own
+/// administrator, with the same argument, is told what is wrong with it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_upstream_callers_download_is_denied_before_its_arguments_are_read() {
+    const ID: &str = "20261113t101502z";
+    let ctl = control("order-download", false, |dir| kept_keys_backup(dir, ID));
+    assert!(ctl.backups().get(ID).is_some(), "the kept backup is listed");
+    let upstream = ed25519_dalek::SigningKey::from_bytes(&[9; 32]);
+    let h = harness_with_upstream(ctl.clone(), &upstream).await;
+    super::backups::show_job(h.ctx(), &ctl, ID).await;
+    let path = format!("backups/{ID}");
+    let status = |r: Vec<wyrm_link_sdk::harness::Reply>| -> Vec<Option<u8>> {
+        assert!(!r.is_empty(), "no answer");
+        r.iter().map(|r| r.att.status.map(|s| s.code())).collect()
+    };
+    for bad in [
+        args(&[("offset", Value::Float(0.5))]),
+        args(&[("offset", Value::UInt(0)), ("len", Value::Float(1.5))]),
+        args(&[("offset", Value::UInt(0))]),
+    ] {
+        let r = h
+            .invoke(
+                &path,
+                "download_part",
+                bad.clone(),
+                Some(token_of(&h, &upstream)),
+            )
+            .await;
+        assert_eq!(
+            status(r),
+            [Some(Status::PermissionDenied.code())],
+            "from an upstream: {bad:?}"
+        );
+    }
+    // the site's own key: the argument is what is wrong
+    let r = h
+        .invoke(
+            &path,
+            "download_part",
+            args(&[("offset", Value::Float(0.5))]),
+            Some(h.ptok(Perm::Config)),
+        )
+        .await;
+    assert_eq!(status(r), [Some(Status::InvalidParameter.code())]);
+    h.stop().await;
+}
+
+/// Second audit of #136: `rollback_update` is done on the broker's own gateway.
+/// A caller whose authority comes from an upstream is refused before its
+/// arguments are read. Over the wire the SDK refuses an empty map first (the
+/// confirmation is required), so the handler is called itself: with an empty
+/// map and with an argument that is no parameter.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_upstream_callers_rollback_is_denied_before_its_arguments_are_read() {
+    let ctl = control_tweaked("order-rollback", |_| {});
+    let h = harness(ctl.clone()).await;
+    let mut admin = Admin {
+        ctx: h.ctx().clone(),
+        ctl,
+        embedded: Arc::new(AsyncMutex::new(HashMap::new())),
+        _broker: None,
+    };
+    let from = |signer: Option<wyrm_link_sdk::auth::SignerScopes>| Caller {
+        origin: None,
+        perm: Perm::Config,
+        claims: None,
+        signer,
+    };
+    let upstream = || from(Some(vec![("wy/s/sys".to_owned(), Perm::Config)]));
+    for bad in [args(&[]), args(&[("nope", Value::UInt(1))])] {
+        let e = admin
+            .on_invoke(
+                "",
+                "rollback_update",
+                bad.clone(),
+                &upstream(),
+                wyrm_link_sdk::harness::unread_sink(),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(e.status, Status::PermissionDenied, "{bad:?}: {}", e.message);
+    }
+    // the site's own administrator: the arguments are read, and refused
+    let e = admin
+        .on_invoke(
+            "",
+            "rollback_update",
+            args(&[]),
+            &from(None),
+            wyrm_link_sdk::harness::unread_sink(),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(e.status, Status::InvalidParameter);
+    assert_eq!(e.message, "confirm_site: required");
+    h.stop().await;
+}
+
+/// Second audit of #136: a state check that came before the arguments on `main`
+/// comes before them again. Each call names something that does not exist and
+/// carries an argument only the action's struct refuses (a fraction, a name of
+/// no set, a text of white space): the answer is `not_found`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn what_does_not_exist_is_said_before_the_arguments_are_read() {
+    let ctl = control_tweaked("order-state", |_| {});
+    state(&ctl);
+    let h = harness(ctl.clone()).await;
+    // the nodes are declared for what exists; the handler is asked about what does not
+    let mut admin = Admin {
+        ctx: h.ctx().clone(),
+        ctl,
+        embedded: Arc::new(AsyncMutex::new(HashMap::new())),
+        _broker: None,
+    };
+    let who = Caller {
+        origin: None,
+        perm: Perm::Config,
+        claims: None,
+        signer: None,
+    };
+    let frac = Value::Float(0.5);
+    for (path, action, bad) in [
+        (
+            "links/gone",
+            "backup",
+            args(&[("history_days", frac.clone())]),
+        ),
+        ("links/gone", "set_secret", args(&[("nope", frac.clone())])),
+        (
+            "links/gone",
+            "delete_secret",
+            args(&[("nope", frac.clone())]),
+        ),
+        (
+            "packages/gone",
+            "update",
+            args(&[("auto_rollback_s", frac.clone())]),
+        ),
+        ("packages/gone", "rollback", args(&[("nope", frac.clone())])),
+        (
+            "quarantine/gone",
+            "approve",
+            args(&[("nope", frac.clone())]),
+        ),
+        (
+            "history/gone",
+            "edit",
+            args(&[("logging_type", "Never".into())]),
+        ),
+        ("history/gone", "remove", args(&[("nope", frac.clone())])),
+        (
+            "history/g/gone",
+            "get_history",
+            args(&[("limit", frac.clone())]),
+        ),
+        (
+            "history/g/gone",
+            "purge",
+            args(&[("timerange", "  ".into())]),
+        ),
+        (
+            "history/sinks/gone",
+            "edit",
+            args(&[("nope", frac.clone())]),
+        ),
+        (
+            "history/sinks/gone",
+            "reset_cursor",
+            args(&[("to", "later".into())]),
+        ),
+    ] {
+        let e = admin
+            .on_invoke(
+                path,
+                action,
+                bad,
+                &who,
+                wyrm_link_sdk::harness::unread_sink(),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(
+            e.status,
+            Status::NotFound,
+            "{path} ▸ {action}: {}",
+            e.message
+        );
     }
     h.stop().await;
 }

@@ -8,7 +8,7 @@ use crate::logs::LogLevel;
 use crate::registry::Mode;
 use std::collections::BTreeMap;
 use wyrm_core::{Perm, Value};
-use wyrm_link_sdk::{Args, Secret, SecretBytes};
+use wyrm_link_sdk::{Args, Secret, SecretBytes, SecretLine};
 
 /// `links ▸ install`.
 #[derive(Args)]
@@ -321,12 +321,14 @@ pub(super) struct Approve {
     pub params: Option<BTreeMap<String, Value>>,
     #[param(display = "Via", placeholder = "plant, cell", desc = VIA_ABOUT)]
     pub via: Option<String>,
+    /// A fingerprint people compare, not a secret: the argument is `key`.
     #[param(
+        name = "key",
         display = "Key",
         desc = "Downstream brokers: the SHA-256 of its key you compared",
         trim
     )]
-    pub key: Option<String>,
+    pub key_sha256: Option<String>,
 }
 
 /// `quarantine ▸ authorize`: [`Approve`] of the CN the form's list names.
@@ -342,12 +344,14 @@ pub(super) struct Authorize {
 /// and the key it was reviewed with.
 #[derive(Args)]
 pub(super) struct ApproveBroker {
+    /// A fingerprint people compare, not a secret: the argument is `key`.
     #[param(
+        name = "key",
         display = "Key",
         desc = "SHA-256 of its key: the same as its sys/upstream/<this site>/key",
         trim
     )]
-    pub key: Option<String>,
+    pub key_sha256: Option<String>,
     #[param(display = "Via", placeholder = "plant, cell", desc = VIA_ABOUT)]
     pub via: Option<String>,
 }
@@ -355,7 +359,7 @@ pub(super) struct ApproveBroker {
 impl From<ApproveBroker> for Approve {
     fn from(b: ApproveBroker) -> Self {
         Approve {
-            key: b.key,
+            key_sha256: b.key_sha256,
             via: b.via,
             ..Approve::default()
         }
@@ -390,13 +394,17 @@ pub(super) struct AddUpstream {
         nonempty
     )]
     pub ca: String,
+    /// Pasted by a person from the other broker's `sys/tokens`: the one kind
+    /// of secret that is trimmed (`SecretLine`, docs/rust-rules.md §12). A
+    /// pasted line often ends with a newline, and a token holds no white space.
     #[param(
         display = "Token",
         secret,
-        desc = "From its sys/tokens, if it gave one: admitted at once",
-        nonempty
+        trim,
+        nonempty,
+        desc = "From its sys/tokens, if it gave one: admitted at once"
     )]
-    pub token: Option<Secret>,
+    pub token: Option<SecretLine>,
     #[param(display = "Enabled", absent = true)]
     pub enabled: bool,
     #[param(
@@ -405,55 +413,6 @@ pub(super) struct AddUpstream {
         absent = false
     )]
     pub allow_config: bool,
-}
-
-/// Every `Args` struct of this file with the parameter name it declares twice,
-/// if any (audit of #136: a name that comes again through `flatten`). The list
-/// is checked against the file: a struct that is not on it fails the test.
-#[cfg(test)]
-pub(crate) fn arg_structs() -> Vec<(&'static str, Option<&'static str>)> {
-    use wyrm_core::args::repeated_param;
-    let list = vec![
-        (stringify!(Install), repeated_param::<Install>()),
-        (stringify!(NewLink), repeated_param::<NewLink>()),
-        (stringify!(InstallZip), repeated_param::<InstallZip>()),
-        (stringify!(InstallWasm), repeated_param::<InstallWasm>()),
-        (stringify!(InstallUrl), repeated_param::<InstallUrl>()),
-        (stringify!(InstallGit), repeated_param::<InstallGit>()),
-        (stringify!(InstallRepo), repeated_param::<InstallRepo>()),
-        (stringify!(Start), repeated_param::<Start>()),
-        (stringify!(UpdateParams), repeated_param::<UpdateParams>()),
-        (stringify!(Rollback), repeated_param::<Rollback>()),
-        (stringify!(SetSecret), repeated_param::<SetSecret>()),
-        (stringify!(DeleteSecret), repeated_param::<DeleteSecret>()),
-        (stringify!(Hello), repeated_param::<Hello>()),
-        (stringify!(Grant), repeated_param::<Grant>()),
-        (stringify!(GetLog), repeated_param::<GetLog>()),
-        (stringify!(GetBrokerLog), repeated_param::<GetBrokerLog>()),
-        (
-            stringify!(UpdatePermissions),
-            repeated_param::<UpdatePermissions>(),
-        ),
-        (stringify!(Enroll), repeated_param::<Enroll>()),
-        (stringify!(AddToken), repeated_param::<AddToken>()),
-        (stringify!(AuditTail), repeated_param::<AuditTail>()),
-        (stringify!(PutProfile), repeated_param::<PutProfile>()),
-        (stringify!(RemoveProfile), repeated_param::<RemoveProfile>()),
-        (stringify!(Approve), repeated_param::<Approve>()),
-        (stringify!(Authorize), repeated_param::<Authorize>()),
-        (stringify!(ApproveBroker), repeated_param::<ApproveBroker>()),
-        (stringify!(Deauthorize), repeated_param::<Deauthorize>()),
-        (stringify!(AddUpstream), repeated_param::<AddUpstream>()),
-    ];
-    let derives = include_str!("actions.rs")
-        .matches(concat!("#[derive(", "Args"))
-        .count();
-    assert_eq!(
-        list.len(),
-        derives,
-        "control/actions.rs: list every Args struct"
-    );
-    list
 }
 
 #[cfg(test)]
@@ -612,31 +571,9 @@ mod tests {
         .unwrap()
         .into();
         assert_eq!(
-            (a.key.as_deref(), a.via.as_deref(), a.driver),
+            (a.key_sha256.as_deref(), a.via.as_deref(), a.driver),
             (Some("ab"), Some("plant, cell"), None)
         );
-    }
-
-    /// Audit of #136, finding 1: no `Args` struct of the admin declares a parameter
-    /// name twice (its own field and one of a flattened struct). Each file lists its
-    /// structs and checks the list against its own source.
-    #[test]
-    fn no_struct_declares_a_name_twice() {
-        let all: Vec<(&str, Option<&str>)> = [
-            super::arg_structs(),
-            super::super::updates::arg_structs(),
-            super::super::broker_update::arg_structs(),
-            super::super::backups::arg_structs(),
-            super::super::restore::arg_structs(),
-            super::super::restore_broker::arg_structs(),
-            super::super::send::arg_structs(),
-            crate::history::arg_structs(),
-        ]
-        .concat();
-        assert_eq!(all.len(), 55);
-        for (name, twice) in all {
-            assert_eq!(twice, None, "{name}");
-        }
     }
 
     /// Audit of #136, finding 4: `role` and `path` of `update_permissions` are
@@ -750,6 +687,17 @@ mod tests {
             !a.enabled && a.token.is_none(),
             "an empty token is no token"
         );
+        // second audit of #136: a pasted token is the one secret that is trimmed
+        let token = |t: &str| {
+            let mut kv = base.to_vec();
+            kv.push(("token", Value::from(t)));
+            AddUpstream::decode(args(&kv))
+                .unwrap()
+                .token
+                .map(|t| t.0.expose().to_vec())
+        };
+        assert_eq!(token(" ab12.cd34\n"), Some(b"ab12.cd34".to_vec()));
+        assert_eq!(token(" \n "), None);
         // each of the three is required, and an empty text is not a value
         for i in 0..base.len() {
             let mut kv = base.to_vec();

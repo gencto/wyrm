@@ -3787,12 +3787,12 @@ impl Link for Admin {
         &mut self,
         path: &str,
         action: &str,
-        args: &Value,
+        args: Value,
         who: &Caller,
     ) -> wyrm_link_sdk::Result<()> {
         match (path, action) {
             ("", "update") => {
-                let a = broker_update::Update::decode(args.clone())?;
+                let a = broker_update::Update::decode(args)?;
                 broker_update::check(&self.ctl, &a, &sub_of(who)).await
             }
             _ => Ok(()),
@@ -3881,14 +3881,9 @@ impl Link for Admin {
                     Err(e) => Err(e),
                 }
             }
-            (["packages", name], "update") => {
-                self.update_action(name, updates::UpdatePackage::decode(args)?, &sub)
-                    .await
-            }
-            (["packages", name], "rollback") => {
-                self.rollback_action(name, updates::RollbackPackage::decode(args)?, &sub)
-                    .await
-            }
+            // the package must exist before its arguments are read
+            (["packages", name], "update") => self.update_action(name, args, &sub).await,
+            (["packages", name], "rollback") => self.rollback_action(name, args, &sub).await,
             (["links", id], "hello") => self.hello(id, Hello::decode(args)?).await,
             // a link that an operation holds (an update of its package with
             // its check, a rollback, a restore of the link) is that
@@ -3974,8 +3969,13 @@ impl Link for Admin {
                 self.update_params(id, decode_params(&old.1), &sub, "rollback")
                     .await
             }
-            (["links", id], "set_secret") => self.set_secret(id, SetSecret::decode(args)?, &sub),
+            // the link must exist before its arguments are read
+            (["links", id], "set_secret") => {
+                self.def(id)?;
+                self.set_secret(id, SetSecret::decode(args)?, &sub)
+            }
             (["links", id], "delete_secret") => {
+                self.def(id)?;
                 self.delete_secret(id, DeleteSecret::decode(args)?, &sub)
             }
             (["links", id], "secrets") => {
@@ -3985,6 +3985,10 @@ impl Link for Admin {
             }
             (["quarantine", node], "approve") => {
                 let cn = self.quarantine_key(node);
+                // it must be in quarantine before its arguments are read
+                if !self.ctl.registry().quarantine.contains_key(&cn) {
+                    return Err(LinkError::not_found(cn));
+                }
                 // a downstream broker declares only its key and the sites it relays
                 let how = if crate::registry::broker_site(&cn).is_some() {
                     ApproveBroker::decode(args)?.into()
@@ -4094,19 +4098,25 @@ impl Link for Admin {
                         .collect(),
                 )))
             }
+            // A check reads the whole file and `add` installs links: a rebuild
+            // of the router waits for both, as for `replace` and any install,
+            // and neither starts on a broker that is closing for one. `busy`
+            // comes before the arguments, as for every install.
             (["backups"], "restore_check") => {
+                let _busy = self.ctl.busy()?;
                 let file = restore_broker::RestoreCheck::decode(args)?;
                 self.restore_broker(file, None, &sub, who.signer.is_some())
                     .await
             }
             (["backups"], "restore_apply") => {
+                let _busy = self.ctl.busy()?;
                 let a = restore_broker::RestoreApply::decode(args)?;
                 self.restore_broker(a.file, Some(a.how), &sub, who.signer.is_some())
                     .await
             }
             (["backups", id], "send") => {
-                let a = send::Send::decode(args)?;
                 let _busy = self.ctl.busy()?;
+                let a = send::SendBackup::decode(args)?;
                 send::send(&self.ctl, &self.ctx, id, a, &sub).await
             }
             (["backups", rest @ ..], _) => {
@@ -4115,14 +4125,14 @@ impl Link for Admin {
                 backups::invoke(&self.ctl, &self.ctx, rest, action, args, &sub, remote).await
             }
             (["links"], "install_backup") => {
-                let a = restore::InstallBackup::decode(args)?;
                 let _busy = self.ctl.busy()?;
+                let a = restore::InstallBackup::decode(args)?;
                 Ok(Some(outcome(self.install_backup(a, &sub).await)))
             }
             (["links", id], "backup") => {
-                let a = backups::BackupLink::decode(args)?;
                 // the link must exist before anything is said about it
                 self.def(id)?;
+                let a = backups::BackupLink::decode(args)?;
                 let job = self
                     .ctl
                     .backup_start(backups::link_request(a, id, who.signer.is_some()), &sub)?;
@@ -4987,7 +4997,7 @@ impl Admin {
         }
         if let Some(site) = crate::registry::broker_site(cn) {
             return self
-                .authorize_broker(site, a.key.as_deref(), a.via.as_deref(), sub)
+                .authorize_broker(site, a.key_sha256.as_deref(), a.via.as_deref(), sub)
                 .await;
         }
         let driver = a.driver.unwrap_or_else(|| "unknown".to_owned());
@@ -5152,16 +5162,13 @@ impl Admin {
         let url = a.url.as_str();
         if !url.starts_with("quic/") || url.contains(['#', '?', ';']) || url.len() > 256 {
             return Err(LinkError::invalid_parameter(format!(
-                "url {url}: expected quic/<host>:<port> (its peers.enroll)"
+                "url {}: expected quic/<host>:<port> (its peers.enroll)",
+                wyrm_core::named::shown(url)
             )));
         }
-        // a token of white space is no token
-        let token = a
-            .token
-            .as_ref()
-            .and_then(|t| t.expose_str())
-            .map(str::trim)
-            .filter(|t| !t.is_empty());
+        // a pasted token: its type cut the white space, and one of white space
+        // only is no token (`SecretLine`)
+        let token = a.token.as_ref().and_then(|t| t.0.expose_str());
         let (enabled, allow_config) = (a.enabled, a.allow_config);
         let (key, key_sha256) =
             secret::new_broker_key().map_err(|e| LinkError::internal(e.to_string()))?;

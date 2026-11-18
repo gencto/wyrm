@@ -619,7 +619,7 @@ async fn run_driver<L: Link>(ctx: LinkCtx, mut link: L, mut rx: mpsc::Receiver<C
             } => {
                 let r = guarded(tokio::time::timeout(
                     timeout,
-                    link.on_check(&path, &action, &args, &caller),
+                    link.on_check(&path, &action, args, &caller),
                 ))
                 .await;
                 let Ok(r) = r else {

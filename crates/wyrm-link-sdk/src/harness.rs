@@ -61,6 +61,12 @@ impl Reply {
     }
 }
 
+/// A reply sink nobody reads: for a test that calls a link's handler itself
+/// and looks at what it returns (a refusal comes back as the `Err`).
+pub fn unread_sink() -> crate::ReplySink {
+    crate::ReplySink::new(1).0
+}
+
 pub struct TestHarness<L: Link> {
     session: Session,
     handle: Option<LinkHandle<L>>,

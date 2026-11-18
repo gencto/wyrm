@@ -186,7 +186,8 @@ impl TimeRange {
         let r = self.timerange.as_str();
         parse_range(r, now_us()).ok_or_else(|| {
             LinkError::invalid_parameter(format!(
-                "timerange {r:?}: <from>/<to> in RFC 3339, from before to"
+                "timerange {:?}: <from>/<to> in RFC 3339, from before to",
+                wyrm_core::named::shown(r)
             ))
         })
     }
@@ -791,7 +792,7 @@ pub(crate) async fn invoke(
             Ok(Some(deleted(n)))
         }
         ([group], "edit") => {
-            let set = GroupSettings::decode(args)?;
+            // the group must exist before its arguments are read
             let g = ctl
                 .registry()
                 .historian
@@ -799,6 +800,7 @@ pub(crate) async fn invoke(
                 .get(*group)
                 .cloned()
                 .ok_or_else(|| LinkError::not_found(format!("watch group {group}")))?;
+            let set = GroupSettings::decode(args)?;
             let logging = set
                 .logging_type
                 .or(Logging::try_from(g.logging).ok())
@@ -853,7 +855,6 @@ pub(crate) async fn invoke(
             Ok(None)
         }
         ([group], "remove") => {
-            let a = RemoveGroup::decode(args)?;
             let g = ctl
                 .registry()
                 .historian
@@ -861,6 +862,7 @@ pub(crate) async fn invoke(
                 .get(*group)
                 .cloned()
                 .ok_or_else(|| LinkError::not_found(format!("watch group {group}")))?;
+            let a = RemoveGroup::decode(args)?;
             ctl.apply(Op::RemoveWatchGroup((*group).to_owned()))
                 .map_err(rejected)?;
             apply_groups(ctl);
@@ -882,8 +884,9 @@ pub(crate) async fn invoke(
             Ok(None)
         }
         ([group, id], "get_history") => {
-            let a = GetHistory::decode(args)?;
+            // the watch must exist before its arguments are read
             let w = watch_def(ctl, group, id)?;
+            let a = GetHistory::decode(args)?;
             let (from, to) = a.range.us()?;
             let interval = parse_interval(a.interval.as_deref().unwrap_or("none"))
                 .map_err(LinkError::invalid_parameter)?;
@@ -893,8 +896,8 @@ pub(crate) async fn invoke(
             Ok(Some(Value::Array(rows)))
         }
         ([group, id], "purge") => {
-            let range = TimeRange::decode(args)?;
             let w = watch_def(ctl, group, id)?;
+            let range = TimeRange::decode(args)?;
             let (from, to) = range.us()?;
             let n = purge(ctl, Some(&w.key), from, to).await?;
             ctl.record(
@@ -1200,29 +1203,6 @@ async fn auto_purge(ctl: &Control) -> bool {
         }
     }
     !dropped.is_empty()
-}
-
-/// Every `Args` struct of this file with the parameter name it declares twice,
-/// if any (audit of #136: a name that comes again through `flatten`). The list
-/// is checked against the file: a struct that is not on it fails the test.
-#[cfg(test)]
-pub(crate) fn arg_structs() -> Vec<(&'static str, Option<&'static str>)> {
-    use wyrm_core::args::repeated_param;
-    let mut list = vec![
-        (stringify!(GroupSettings), repeated_param::<GroupSettings>()),
-        (stringify!(AddWatchGroup), repeated_param::<AddWatchGroup>()),
-        (stringify!(TimeRange), repeated_param::<TimeRange>()),
-        (stringify!(AddWatchPath), repeated_param::<AddWatchPath>()),
-        (stringify!(RemoveGroup), repeated_param::<RemoveGroup>()),
-        (stringify!(GetHistory), repeated_param::<GetHistory>()),
-    ];
-    let derives = include_str!("history.rs")
-        .matches(concat!("#[derive(", "Args"))
-        .count();
-    assert_eq!(list.len(), derives, "history.rs: list every Args struct");
-    // and those of the sinks below
-    list.extend(sinks::arg_structs());
-    list
 }
 
 #[cfg(test)]

@@ -1274,7 +1274,8 @@ pub(super) struct RestoreApply {
 }
 
 impl Admin {
-    /// `sys/backups/~act/restore_check` and `restore_apply`.
+    /// `sys/backups/~act/restore_check` and `restore_apply`. The caller holds
+    /// `Control::busy` (taken before the arguments are read).
     pub(super) async fn restore_broker(
         &self,
         file: RestoreCheck,
@@ -1283,10 +1284,6 @@ impl Admin {
         remote: bool,
     ) -> wyrm_link_sdk::Result<Option<Value>> {
         let ctl = &self.ctl;
-        // A check reads the whole file and `add` installs links: a rebuild
-        // of the router waits for both, as for `replace` and any install,
-        // and neither starts on a broker that is closing for one.
-        let _busy = ctl.busy()?;
         let upload = file.upload;
         let passphrase = super::backups::passphrase_bytes(file.passphrase);
         let path = ctl.upload_take(&upload)?;
@@ -1617,28 +1614,6 @@ pub(super) async fn declare(ctx: &LinkCtx) -> wyrm_link_sdk::Result<()> {
             .level(Perm::Config),
     )
     .await
-}
-
-/// Every `Args` struct of this file with the parameter name it declares twice,
-/// if any (audit of #136: a name that comes again through `flatten`). The list
-/// is checked against the file: a struct that is not on it fails the test.
-#[cfg(test)]
-pub(crate) fn arg_structs() -> Vec<(&'static str, Option<&'static str>)> {
-    use wyrm_core::args::repeated_param;
-    let list = vec![
-        (stringify!(RestoreCheck), repeated_param::<RestoreCheck>()),
-        (stringify!(ApplyHow), repeated_param::<ApplyHow>()),
-        (stringify!(RestoreApply), repeated_param::<RestoreApply>()),
-    ];
-    let derives = include_str!("restore_broker.rs")
-        .matches(concat!("#[derive(", "Args"))
-        .count();
-    assert_eq!(
-        list.len(),
-        derives,
-        "control/restore_broker.rs: list every Args struct"
-    );
-    list
 }
 
 #[cfg(test)]

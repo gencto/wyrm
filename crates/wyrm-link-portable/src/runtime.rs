@@ -1532,13 +1532,13 @@ where
         &mut self,
         path: &str,
         action: &str,
-        args: &Value,
+        args: Value,
         who: &Caller,
     ) -> wyrm_link_sdk::Result<()> {
         let ev = Event::Check {
             path: path.to_owned(),
             action: action.to_owned(),
-            args: args.clone(),
+            args,
             who: who_of(who),
         };
         self.ask(ev, Instant::now(), None).await.map(|_| ())

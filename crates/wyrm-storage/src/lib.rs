@@ -605,9 +605,10 @@ impl Link for Storage {
         &mut self,
         path: &str,
         action: &str,
-        args: &Value,
+        args: Value,
         who: &Caller,
     ) -> Result<()> {
+        let args = &args;
         match (path, action) {
             (_, "add_node" | "add_value") => {
                 self.new_child(path, text_arg(args, "name")?, 1)?;

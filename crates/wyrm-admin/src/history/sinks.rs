@@ -333,7 +333,8 @@ pub(super) async fn invoke(
             let (name, link) = (a.name.as_str(), a.link.as_str());
             if ctl.registry().historian.sinks.contains_key(name) {
                 return Err(LinkError::invalid_parameter(format!(
-                    "sink {name} exists; use its Edit"
+                    "sink {} exists; use its Edit",
+                    wyrm_core::named::shown(name)
                 )));
             }
             let groups = a.groups.as_deref().map(group_names).unwrap_or_default();
@@ -357,8 +358,9 @@ pub(super) async fn invoke(
             Ok(None)
         }
         ([name], "edit") => {
-            let a = EditSink::decode(args)?;
+            // the sink must exist before its arguments are read
             let old = sink_def(ctl, name)?;
+            let a = EditSink::decode(args)?;
             let link = a.link.unwrap_or_else(|| old.link.clone());
             let groups = match a.groups.as_deref() {
                 None => old.groups.clone(),
@@ -382,8 +384,8 @@ pub(super) async fn invoke(
             Ok(None)
         }
         ([name], "reset_cursor") => {
-            let a = ResetCursor::decode(args)?;
             sink_def(ctl, name)?;
+            let a = ResetCursor::decode(args)?;
             let to = a.to.seq(&st);
             set_cursor(&st, name, Some(to)).await?;
             ctl.record(
@@ -499,29 +501,6 @@ async fn next(ctl: &Control, ctx: &LinkCtx, name: &str, def: &SinkDef, a: Next) 
         ("rows".to_owned(), Value::Array(rows)),
         ("next".to_owned(), Value::UInt(batch.next)),
     ])))
-}
-
-/// Every `Args` struct of this file with the parameter name it declares twice,
-/// if any (audit of #136: a name that comes again through `flatten`). The list
-/// is checked against the file: a struct that is not on it fails the test.
-#[cfg(test)]
-pub(crate) fn arg_structs() -> Vec<(&'static str, Option<&'static str>)> {
-    use wyrm_core::args::repeated_param;
-    let list = vec![
-        (stringify!(AddSink), repeated_param::<AddSink>()),
-        (stringify!(EditSink), repeated_param::<EditSink>()),
-        (stringify!(ResetCursor), repeated_param::<ResetCursor>()),
-        (stringify!(Next), repeated_param::<Next>()),
-    ];
-    let derives = include_str!("sinks.rs")
-        .matches(concat!("#[derive(", "Args"))
-        .count();
-    assert_eq!(
-        list.len(),
-        derives,
-        "history/sinks.rs: list every Args struct"
-    );
-    list
 }
 
 #[cfg(test)]

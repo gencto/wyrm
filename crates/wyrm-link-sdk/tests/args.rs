@@ -12,7 +12,7 @@ use wyrm_core::args::{ArgError, Fault};
 use wyrm_core::meta::{Editor, ParamMeta};
 use wyrm_core::value::IntError;
 use wyrm_core::{TypeCode, Value};
-use wyrm_link_sdk::{Args, LinkError, Secret, SecretBytes};
+use wyrm_link_sdk::{Args, LinkError, Secret, SecretBytes, SecretLine};
 
 wyrm_core::name_enum! {
     pub enum Mode as "mode" {
@@ -29,19 +29,6 @@ struct Common {
     wait_s: Option<f64>,
 }
 
-/// A flattened struct that names `name` again, with another type.
-#[derive(Args, Debug)]
-struct NameAgain {
-    name: Option<u32>,
-}
-
-#[derive(Args, Debug)]
-struct Twice {
-    name: String,
-    #[param(flatten)]
-    again: NameAgain,
-}
-
 /// A secret, a text that is trimmed, a set that is trimmed.
 #[derive(Args, Debug)]
 struct Sealed {
@@ -53,6 +40,8 @@ struct Sealed {
     note: Option<String>,
     #[param(choice, trim, nonempty)]
     mode: Option<Mode>,
+    #[param(secret, trim, nonempty)]
+    token: Option<SecretLine>,
 }
 
 #[derive(Args, Debug)]
@@ -371,26 +360,6 @@ fn a_refusal_is_a_link_error_with_the_field() {
     assert_eq!(e.message, "typo: unknown argument");
 }
 
-/// Audit of #136, finding 1: a parameter name is one field. Two fields of one
-/// struct with one name do not compile (`wyrm_link_sdk::args_rules`); a name that
-/// comes again through `flatten` refuses every call, and a test finds it.
-#[test]
-fn a_name_declared_twice_through_flatten_refuses_every_call() {
-    assert_eq!(wyrm_core::args::repeated_param::<Twice>(), Some("name"));
-    assert_eq!(wyrm_core::args::repeated_param::<Install>(), None);
-    assert_eq!(wyrm_core::args::repeated_param::<Sealed>(), None);
-    for args in [
-        map(&[("name", "x".into())]),
-        map(&[("name", Value::UInt(1))]),
-        map(&[]),
-    ] {
-        match Twice::decode(args) {
-            Err(e) => assert_eq!(e, ArgError::new("name", Fault::Repeated)),
-            Ok(_) => assert_eq!("decoded", "refused"),
-        }
-    }
-}
-
 /// Audit of #136, finding 3: a secret is never trimmed. A passphrase of spaces
 /// is a passphrase (read as "not given", a backup would be made unsealed); only
 /// the empty text is "not given".
@@ -415,6 +384,16 @@ fn a_secret_of_spaces_is_a_secret() {
         Sealed::decode(map(&[("mode", "  ".into())])).unwrap().mode,
         None
     );
+    // the one secret that is trimmed: a pasted token
+    let token = |text: &str| {
+        Sealed::decode(map(&[("token", text.into())]))
+            .unwrap()
+            .token
+            .map(|t| t.0.expose().to_vec())
+    };
+    assert_eq!(token(" abc.def\n"), Some(b"abc.def".to_vec()));
+    assert_eq!(token(" \n"), None);
+    assert_eq!(token(""), None);
     // the value is not in `Debug`
     let a = Sealed::decode(map(&[("passphrase", "hunter2hunter2".into())])).unwrap();
     assert!(!format!("{a:?}").contains("hunter2"), "{a:?}");
@@ -449,4 +428,22 @@ fn an_unknown_name_does_not_size_the_answer() {
         .into();
     assert!(e.message.len() < 100, "{}", e.message.len());
     assert!(e.message.ends_with(": unknown argument"));
+}
+
+/// Second audit of #136: the names of a struct and of what it flattens are a
+/// constant the derive checks (`wyrm_link_sdk::args_rules` has the structs that
+/// do not compile).
+#[test]
+fn the_names_are_a_constant() {
+    let n = &<Install as Args>::NAMES;
+    assert!(n.own.contains(&"name") && n.own.contains(&"ref"));
+    assert_eq!(n.flat.len(), 1);
+    assert_eq!(n.flat[0].own, ["accept", "wait_s"]);
+    assert_eq!(
+        (n.count("accept"), n.count("zip"), n.count("nope")),
+        (1, 1, 0)
+    );
+    assert!(!n.repeats_in(n));
+    // every declared parameter is a name, and the reverse
+    assert_eq!(Install::params().len(), n.own.len() + n.flat[0].own.len());
 }

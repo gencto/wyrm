@@ -43,7 +43,7 @@ pub use harness::TestHarness;
 pub use link::{Link, ReplySink};
 pub use params::{Fields, FromParams};
 pub use runtime::{spawn, LinkConfig, LinkHandle};
-pub use support::{Metrics, Secret, SecretBytes, SecretStore};
+pub use support::{Metrics, Secret, SecretBytes, SecretLine, SecretStore};
 /// `#[derive(Params)]` / `#[derive(ParamEnum)]` for driver parameters (ADR 0004).
 mod args_rules;
 pub use wyrm_core::args::Args;

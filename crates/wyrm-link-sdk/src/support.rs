@@ -44,6 +44,31 @@ impl wyrm_core::args::ArgValue for Secret {
 
 impl wyrm_core::args::SecretArg for Secret {}
 
+/// A secret a person pastes as one line: an enrolment token. The white space
+/// around it is cut (a pasted token often ends with a newline, and a token
+/// holds none), so a text of white space is no token. This is the one secret
+/// that is trimmed (`#[param(secret, trim)]`, docs/rust-rules.md §12); a
+/// passphrase is a [`Secret`], whose spaces are part of it.
+#[derive(Clone, Debug)]
+pub struct SecretLine(pub Secret);
+
+impl wyrm_core::args::ArgValue for SecretLine {
+    const TYPE: wyrm_core::TypeCode = wyrm_core::TypeCode::String;
+    fn from_value(v: wyrm_core::Value) -> std::result::Result<Self, wyrm_core::args::Fault> {
+        match v {
+            wyrm_core::Value::Str(s) => {
+                // the pasted text is cleared; only the token itself is kept
+                let s = Zeroizing::new(s);
+                Ok(SecretLine(Secret::new(s.trim().as_bytes())))
+            }
+            _ => Err(wyrm_core::args::Fault::Type("text")),
+        }
+    }
+}
+
+impl wyrm_core::args::SecretArg for SecretLine {}
+impl wyrm_core::args::PastedSecretArg for SecretLine {}
+
 /// A secret binary argument (a link secret's value): a binary parameter with
 /// the password editor.
 #[derive(Clone, Debug)]

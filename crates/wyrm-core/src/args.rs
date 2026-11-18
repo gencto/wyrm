@@ -22,9 +22,10 @@
 //!   is absent or `null` is not there;
 //! * a name that is not a field is refused ([`Fault::Unknown`]): a typo must not
 //!   pass as "not given";
-//! * a name is one field: the derive refuses a struct that names one twice, and
-//!   a struct that gets a name a second time through `#[param(flatten)]`
-//!   refuses every call ([`Fault::Repeated`]; [`repeated_param`] for a test);
+//! * a name is one field: a struct that names a parameter twice, by two of its
+//!   fields or through `#[param(flatten)]`, does not compile ([`Names`]);
+//! * what a refused call leaves in the map is cleared (a passphrase beside a
+//!   wrong field does not stay in freed memory);
 //! * a whole number goes through [`Value::to_int`], the one integer decoder: a
 //!   fraction, a negative number for an unsigned type and a number out of the
 //!   type's range are refused, never truncated;
@@ -53,8 +54,8 @@ pub enum Fault {
     /// The name is no parameter of the action.
     #[error("unknown argument")]
     Unknown,
-    /// The action's struct names this parameter twice (through
-    /// `#[param(flatten)]`): a fault of the action, not of the caller.
+    /// A reader took this name twice: a fault of the action's code, not of the
+    /// caller (the derive does not compile such a struct, see [`Names`]).
     #[error("declared twice by the action")]
     Repeated,
     /// The arguments are not a map.
@@ -123,6 +124,74 @@ pub trait ArgValue: Sized {
 /// dropped and its `Debug` prints no part of the value. `#[param(secret)]`
 /// compiles only on such a type (`wyrm_link_sdk::Secret`, `SecretBytes`).
 pub trait SecretArg: ArgValue {}
+
+/// The one secret that is trimmed: a token a person pastes as one line
+/// (`wyrm_link_sdk::SecretLine`). A token holds no white space, and a pasted
+/// one often ends with a newline. `#[param(secret, trim)]` compiles only on
+/// such a type; a passphrase is never one (its spaces are part of it).
+pub trait PastedSecretArg: SecretArg {}
+
+/// The parameter names of an `Args` struct: its own fields and the structs it
+/// flattens. The derive checks them when the struct is compiled.
+pub struct Names {
+    pub own: &'static [&'static str],
+    pub flat: &'static [&'static Names],
+}
+
+const fn same(a: &str, b: &str) -> bool {
+    let (a, b) = (a.as_bytes(), b.as_bytes());
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut i = 0;
+    while i < a.len() {
+        if a[i] != b[i] {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+impl Names {
+    /// How many fields of this struct and of those it flattens are `name`.
+    pub const fn count(&self, name: &str) -> usize {
+        let (mut n, mut i) = (0, 0);
+        while i < self.own.len() {
+            if same(self.own[i], name) {
+                n += 1;
+            }
+            i += 1;
+        }
+        let mut i = 0;
+        while i < self.flat.len() {
+            n += self.flat[i].count(name);
+            i += 1;
+        }
+        n
+    }
+
+    /// A name below `self` is declared twice in `root`. The derive asserts
+    /// `!NAMES.repeats_in(&NAMES)` in a `const`, so a struct that gets a name a
+    /// second time through `flatten` is a compile error.
+    pub const fn repeats_in(&self, root: &Names) -> bool {
+        let mut i = 0;
+        while i < self.own.len() {
+            if root.count(self.own[i]) > 1 {
+                return true;
+            }
+            i += 1;
+        }
+        let mut i = 0;
+        while i < self.flat.len() {
+            if self.flat[i].repeats_in(root) {
+                return true;
+            }
+            i += 1;
+        }
+        false
+    }
+}
 
 impl ArgValue for String {
     const TYPE: TypeCode = TypeCode::String;
@@ -319,7 +388,7 @@ impl Reader {
 
     /// Refuses the first argument no field took. Its name is the caller's
     /// text: at most 64 bytes of it are repeated.
-    pub fn finish(self) -> Result<(), ArgError> {
+    pub fn finish(&mut self) -> Result<(), ArgError> {
         match self.map.keys().next() {
             Some(k) => Err(ArgError::new(
                 crate::named::shown(k).to_owned(),
@@ -327,6 +396,27 @@ impl Reader {
             )),
             None => Ok(()),
         }
+    }
+}
+
+/// Text and bytes of `v`, and of what it holds, overwritten with zeros.
+fn wipe(v: &mut Value) {
+    use zeroize::Zeroize;
+    match v {
+        Value::Str(s) => s.zeroize(),
+        Value::Bytes(b) => b.zeroize(),
+        Value::Array(items) => items.iter_mut().for_each(wipe),
+        Value::Map(m) => m.values_mut().for_each(wipe),
+        _ => {}
+    }
+}
+
+/// What no field took is cleared: when a call is refused on one field, a
+/// passphrase or a token that was still in the map does not stay in freed
+/// memory. (A value a field took is the field's: a secret type clears itself.)
+impl Drop for Reader {
+    fn drop(&mut self) {
+        self.map.values_mut().for_each(wipe);
     }
 }
 
@@ -383,6 +473,9 @@ impl Field {
 /// The arguments of one action: what it declares and how it reads them.
 /// Made by `#[derive(Args)]`; never written by hand.
 pub trait Args: Sized {
+    /// The parameter names, checked when the struct is compiled.
+    const NAMES: Names;
+
     /// Every parameter with its declared meta, in field order.
     fn params() -> Vec<(&'static str, ParamMeta)>;
 
@@ -393,15 +486,9 @@ pub trait Args: Sized {
     /// The struct from an action's arguments, which it takes.
     fn decode(args: Value) -> Result<Self, ArgError> {
         let mut r = Reader::new(args)?;
-        match Self::read(&mut r) {
-            Ok(v) => r.finish().map(|()| v),
-            // a struct that names a parameter twice refuses every call the same
-            // way, whichever of its fields met the value first
-            Err(e) => Err(match repeated_param::<Self>() {
-                Some(name) => ArgError::new(name, Fault::Repeated),
-                None => e,
-            }),
-        }
+        let v = Self::read(&mut r)?;
+        r.finish()?;
+        Ok(v)
     }
 
     /// An action that declares these parameters and nothing else yet.
@@ -414,20 +501,13 @@ pub trait Args: Sized {
     }
 }
 
-/// The first parameter name `A` declares twice (its own field and one of a
-/// flattened struct, or two flattened structs). Such a struct refuses every
-/// call; a crate's tests walk its structs with this.
-pub fn repeated_param<A: Args>() -> Option<&'static str> {
-    let names: Vec<&'static str> = A::params().into_iter().map(|(n, _)| n).collect();
-    names
-        .iter()
-        .enumerate()
-        .find(|(i, n)| names.iter().skip(i + 1).any(|m| m == *n))
-        .map(|(_, n)| *n)
-}
-
 /// An action without parameters: any argument is refused.
 impl Args for () {
+    const NAMES: Names = Names {
+        own: &[],
+        flat: &[],
+    };
+
     fn params() -> Vec<(&'static str, ParamMeta)> {
         Vec::new()
     }
@@ -662,7 +742,59 @@ mod tests {
             Err(ArgError::new("x", Fault::Unknown))
         );
         assert!(<()>::action().params.is_empty());
-        assert_eq!(repeated_param::<()>(), None);
+    }
+
+    /// The check the derive asserts at compile time: a name declared twice, by
+    /// two fields or through a flattened struct at any depth.
+    #[test]
+    fn names_find_a_repeat_at_any_depth() {
+        const INNER: Names = Names {
+            own: &["name", "n"],
+            flat: &[],
+        };
+        const MID: Names = Names {
+            own: &["mid"],
+            flat: &[&INNER],
+        };
+        const GOOD: Names = Names {
+            own: &["a", "nam"],
+            flat: &[&MID],
+        };
+        const BAD: Names = Names {
+            own: &["a", "name"],
+            flat: &[&MID],
+        };
+        const TWICE: Names = Names {
+            own: &[],
+            flat: &[&INNER, &MID],
+        };
+        const OWN: Names = Names {
+            own: &["x", "x"],
+            flat: &[],
+        };
+        assert!(!GOOD.repeats_in(&GOOD) && !INNER.repeats_in(&INNER));
+        assert!(BAD.repeats_in(&BAD) && TWICE.repeats_in(&TWICE) && OWN.repeats_in(&OWN));
+        assert_eq!(
+            (BAD.count("name"), GOOD.count("name"), GOOD.count("zz")),
+            (2, 1, 0)
+        );
+    }
+
+    /// What a refused call leaves in the map is zeroed when the reader goes.
+    #[test]
+    fn what_no_field_took_is_cleared() {
+        let mut v = map(&[
+            ("passphrase", Value::from("hunter2")),
+            ("nested", map(&[("k", Value::Bytes(vec![7; 4]))])),
+            ("list", Value::Array(vec![Value::from("s")])),
+            ("n", Value::UInt(1)),
+        ]);
+        wipe(&mut v);
+        let Value::Map(m) = v else { return };
+        assert_eq!(m["passphrase"], Value::Str(String::new()));
+        assert_eq!(m["nested"], map(&[("k", Value::Bytes(Vec::new()))]));
+        assert_eq!(m["list"], Value::Array(vec![Value::Str(String::new())]));
+        assert_eq!(m["n"], Value::UInt(1));
     }
 
     #[test]

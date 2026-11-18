@@ -30,6 +30,172 @@
 //! }
 //! ```
 //!
+//! Neither does a name that comes a second time through `flatten`, at any
+//! depth: the derive asserts it in a `const` (`wyrm_core::args::Names`).
+//!
+//! ```compile_fail
+//! use wyrm_link_sdk::Args;
+//!
+//! #[derive(Args)]
+//! struct Inner {
+//!     name: Option<u32>,
+//! }
+//!
+//! #[derive(Args)]
+//! struct Twice {
+//!     name: String,
+//!     #[param(flatten)]
+//!     inner: Inner,
+//! }
+//! ```
+//!
+//! ```compile_fail
+//! use wyrm_link_sdk::Args;
+//!
+//! #[derive(Args)]
+//! struct Inner {
+//!     name: Option<u32>,
+//! }
+//!
+//! #[derive(Args)]
+//! struct Mid {
+//!     #[param(flatten)]
+//!     inner: Inner,
+//! }
+//!
+//! #[derive(Debug, wyrm_link_sdk::Args)]
+//! struct Twice {
+//!     #[param(flatten)]
+//!     a: Mid,
+//!     #[param(flatten)]
+//!     b: Inner,
+//! }
+//! ```
+//!
+//! `flatten` stands alone: an attribute beside it would be dropped.
+//!
+//! ```
+//! use wyrm_link_sdk::Args;
+//!
+//! #[derive(Args)]
+//! struct Inner {
+//!     n: Option<u32>,
+//! }
+//!
+//! #[derive(Args)]
+//! struct Outer {
+//!     name: String,
+//!     #[param(flatten)]
+//!     inner: Inner,
+//! }
+//! assert_eq!(Outer::params().len(), 2);
+//! ```
+//!
+//! ```compile_fail
+//! use wyrm_link_sdk::Args;
+//!
+//! #[derive(Args)]
+//! struct Inner {
+//!     n: Option<u32>,
+//! }
+//!
+//! #[derive(Args)]
+//! struct Outer {
+//!     #[param(flatten, secret)]
+//!     inner: Inner,
+//! }
+//! ```
+//!
+//! ```compile_fail
+//! use wyrm_link_sdk::Args;
+//!
+//! #[derive(Args)]
+//! struct Inner {
+//!     n: Option<u32>,
+//! }
+//!
+//! #[derive(Args)]
+//! struct Outer {
+//!     #[param(flatten, trim)]
+//!     inner: Inner,
+//! }
+//! ```
+//!
+//! ```compile_fail
+//! use wyrm_link_sdk::Args;
+//!
+//! #[derive(Args)]
+//! struct Inner {
+//!     n: Option<u32>,
+//! }
+//!
+//! #[derive(Args)]
+//! struct Outer {
+//!     #[param(flatten, nonempty)]
+//!     inner: Inner,
+//! }
+//! ```
+//!
+//! ```compile_fail
+//! use wyrm_link_sdk::Args;
+//!
+//! #[derive(Args)]
+//! struct Inner {
+//!     n: Option<u32>,
+//! }
+//!
+//! #[derive(Args)]
+//! struct Outer {
+//!     #[param(flatten, min = 1)]
+//!     inner: Inner,
+//! }
+//! ```
+//!
+//! ```compile_fail
+//! use wyrm_link_sdk::Args;
+//!
+//! #[derive(Args)]
+//! struct Inner {
+//!     n: Option<u32>,
+//! }
+//!
+//! #[derive(Args)]
+//! struct Outer {
+//!     #[param(flatten, max = 1)]
+//!     inner: Inner,
+//! }
+//! ```
+//!
+//! ```compile_fail
+//! use wyrm_link_sdk::Args;
+//!
+//! #[derive(Args)]
+//! struct Inner {
+//!     n: Option<u32>,
+//! }
+//!
+//! #[derive(Args)]
+//! struct Outer {
+//!     #[param(flatten, display = "Inner")]
+//!     inner: Inner,
+//! }
+//! ```
+//!
+//! ```compile_fail
+//! use wyrm_link_sdk::Args;
+//!
+//! #[derive(Args)]
+//! struct Inner {
+//!     n: Option<u32>,
+//! }
+//!
+//! #[derive(Args)]
+//! struct Outer {
+//!     #[param(flatten, default = 1)]
+//!     inner: Inner,
+//! }
+//! ```
+//!
 //! A secret is kept in a secret type: `secret` on a `String` does not compile
 //! (a derived `Debug` would print it, and nothing would clear it).
 //!
@@ -53,7 +219,19 @@
 //! }
 //! ```
 //!
-//! A secret is never trimmed.
+//! A secret is never trimmed, but for a token a person pastes as one line
+//! (`SecretLine`):
+//!
+//! ```
+//! use wyrm_link_sdk::{Args, SecretLine};
+//!
+//! #[derive(Args)]
+//! struct Enrol {
+//!     #[param(secret, trim, nonempty)]
+//!     token: Option<SecretLine>,
+//! }
+//! assert_eq!(Enrol::params().len(), 1);
+//! ```
 //!
 //! ```compile_fail
 //! use wyrm_link_sdk::{Args, Secret};

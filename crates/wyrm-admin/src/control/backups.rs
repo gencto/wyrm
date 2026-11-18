@@ -2149,30 +2149,6 @@ pub(super) async fn invoke(
     }
 }
 
-/// Every `Args` struct of this file with the parameter name it declares twice,
-/// if any (audit of #136: a name that comes again through `flatten`). The list
-/// is checked against the file: a struct that is not on it fails the test.
-#[cfg(test)]
-pub(crate) fn arg_structs() -> Vec<(&'static str, Option<&'static str>)> {
-    use wyrm_core::args::repeated_param;
-    let list = vec![
-        (stringify!(BrokerBackup), repeated_param::<BrokerBackup>()),
-        (stringify!(Create), repeated_param::<Create>()),
-        (stringify!(Passphrase), repeated_param::<Passphrase>()),
-        (stringify!(BackupLink), repeated_param::<BackupLink>()),
-        (stringify!(DownloadPart), repeated_param::<DownloadPart>()),
-    ];
-    let derives = include_str!("backups.rs")
-        .matches(concat!("#[derive(", "Args"))
-        .count();
-    assert_eq!(
-        list.len(),
-        derives,
-        "control/backups.rs: list every Args struct"
-    );
-    list
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

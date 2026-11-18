@@ -41,14 +41,17 @@
 //!   `default`: the same, published as the parameter's `default`;
 //! * `secret`: the password editor. The field's type must keep a secret
 //!   (`wyrm_core::args::SecretArg`: `Secret`, `SecretBytes`); a `String` does
-//!   not compile. A secret is never trimmed;
+//!   not compile. A secret is never trimmed, but for a token a person pastes
+//!   as one line: `secret, trim` compiles only on `SecretLine`
+//!   (`wyrm_core::args::PastedSecretArg`);
 //! * `flatten`: the fields of another `Args` struct are parameters of this
-//!   action too.
+//!   action too. It stands alone: any other attribute beside it does not
+//!   compile.
 //!
-//! Two fields of one struct with the same parameter name do not compile. A
-//! name that comes a second time through `flatten` cannot be seen here: such
-//! a struct refuses every call (`Fault::Repeated`), and
-//! `wyrm_core::args::repeated_param` finds it in a test.
+//! A parameter name is one field. Two fields of one struct with the same name
+//! do not compile, and neither does a name that comes a second time through
+//! `flatten`: the derive writes the names as `Args::NAMES` and asserts in a
+//! `const` that none repeats (`wyrm_core::args::Names`).
 
 mod args;
 

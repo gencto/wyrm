@@ -153,7 +153,7 @@ pub fn check_folder(folder: &str) -> Result<(), String> {
 
 /// `sys/backups/<id> ▸ send`.
 #[derive(Args)]
-pub(super) struct Send {
+pub(super) struct SendBackup {
     #[param(
         display = "File store link",
         desc = "One of backups.send_links (attribute send_links of sys/backups)",
@@ -175,7 +175,7 @@ pub(super) struct Send {
 }
 
 /// Check the arguments of `send` for the job `j` against the host's list.
-fn target_of(j: &Job, a: &Send, send_links: &[SendLink]) -> Result<Target, LinkError> {
+fn target_of(j: &Job, a: &SendBackup, send_links: &[SendLink]) -> Result<Target, LinkError> {
     let bad = |m: &str| LinkError::invalid_parameter(m.to_owned());
     if j.status != JobStatus::Done {
         return Err(LinkError::new(
@@ -399,7 +399,7 @@ pub(super) async fn send(
     ctl: &Arc<Control>,
     ctx: &LinkCtx,
     id: &str,
-    a: Send,
+    a: SendBackup,
     sub: &str,
 ) -> wyrm_link_sdk::Result<Option<Value>> {
     let job = ctl
@@ -502,7 +502,7 @@ pub(super) async fn declare(ctx: &LinkCtx, path: &str) -> wyrm_link_sdk::Result<
     ctx.declare_action(
         path,
         "send",
-        Send::action()
+        SendBackup::action()
             .display("Send to a file store")
             .result(ActionResult::Type(TypeCode::Map))
             .timeout_ms(INSTALL_TIMEOUT_MS)
@@ -511,31 +511,13 @@ pub(super) async fn declare(ctx: &LinkCtx, path: &str) -> wyrm_link_sdk::Result<
     .await
 }
 
-/// Every `Args` struct of this file with the parameter name it declares twice,
-/// if any (audit of #136: a name that comes again through `flatten`). The list
-/// is checked against the file: a struct that is not on it fails the test.
-#[cfg(test)]
-pub(crate) fn arg_structs() -> Vec<(&'static str, Option<&'static str>)> {
-    use wyrm_core::args::repeated_param;
-    let list = vec![(stringify!(Send), repeated_param::<Send>())];
-    let derives = include_str!("send.rs")
-        .matches(concat!("#[derive(", "Args"))
-        .count();
-    assert_eq!(
-        list.len(),
-        derives,
-        "control/send.rs: list every Args struct"
-    );
-    list
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     /// `send`'s arguments decoded, then checked against the host's list.
     fn target(j: &Job, args: &Value, send_links: &[SendLink]) -> Result<Target, LinkError> {
-        let a = Send::decode(args.clone())?;
+        let a = SendBackup::decode(args.clone())?;
         target_of(j, &a, send_links)
     }
 
