@@ -1,6 +1,5 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
-import 'package:models/error_call.dart';
-import 'package:models/error_kind.dart';
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:models/studio_error.dart';
 
 import '../../../wyrm/failures.dart';
@@ -21,9 +20,17 @@ class AddProblemAction extends Action {
   static const limit = 200;
 
   /// What makes two failures the same line.
-  static (ErrorKind, int?, String?, ErrorCall?, String, String?) _same(
-    StudioError e,
-  ) => (e.kind, e.status?.code, e.key, e.call, e.title, e.stream);
+  static List<Object?> _same(StudioError e) => [
+    e.kind,
+    e.status?.code,
+    e.key,
+    e.call,
+    e.title,
+    e.subject,
+    e.thing,
+    e.site,
+    e.stream,
+  ];
 
   @override
   AppState reduce() {
@@ -37,7 +44,9 @@ class AddProblemAction extends Action {
         site: error.site ?? site.viewed,
       ),
     );
-    final old = p.items.where((o) => _same(o) == _same(e)).firstOrNull;
+    final old = p.items
+        .where((o) => listEquals(_same(o), _same(e)))
+        .firstOrNull;
     final items = [
       e,
       ...p.items.where((o) => o.id != old?.id),

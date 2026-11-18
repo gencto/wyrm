@@ -3,7 +3,7 @@ import 'package:models/notice_kind.dart';
 import 'package:models/studio_notice.dart';
 import 'package:ui/alerts/toast_stack.dart';
 
-import '../errors.dart';
+import 'error_mappers.dart';
 import 'system_mappers.dart';
 
 // A notice as the toast stack draws it (studio-rules §3, §5): one
@@ -36,7 +36,7 @@ extension StudioNoticeToast on StudioNotice {
 extension ToastVmOf on Toast {
   /// A toast as the stack draws it: a quiet failure or a notice.
   ToastVm get vm => switch (this) {
-    ErrorToast(:final error) => errorToastVm(error),
+    ErrorToast(:final error) => error.toast,
     NoticeToast(:final notice) => notice.toast,
   };
 }

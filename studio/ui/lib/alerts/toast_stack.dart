@@ -5,6 +5,7 @@ import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../dialogs/error_dialog.dart' show errorTone;
+import '../dialogs/error_said.dart';
 import '../indicators/app_icon.dart';
 import '../indicators/app_icon_view.dart';
 import '../models/tone.dart';
@@ -29,8 +30,23 @@ final class ToastVm extends Equatable {
     this.details = false,
     this.retry = false,
     this.seconds = 8,
-    this.stays,
-  }) : words = null;
+    this._stays,
+  }) : words = null,
+       failure = null;
+
+  /// A failure nobody was waiting for ([failure]), worded here when it is
+  /// drawn: 8 s; one of a stream that is down stays until the stream is
+  /// back.
+  ToastVm.failure(ErrorSaid this.failure)
+    : id = failure.id,
+      tone = failure.kind.tone,
+      details = true,
+      retry = failure.canRetry && !failure.write,
+      seconds = 8,
+      _title = '',
+      _line = '',
+      _stays = null,
+      words = null;
 
   /// A toast of System, worded here from [words], in `good`, gone after
   /// 3 s.
@@ -43,7 +59,8 @@ final class ToastVm extends Equatable {
        details = false,
        retry = false,
        seconds = 3,
-       stays = null;
+       _stays = null,
+       failure = null;
 
   /// Something was copied (`Key copied`, `3 keys copied`): a toast in
   /// `good` for 3 s.
@@ -93,14 +110,17 @@ final class ToastVm extends Equatable {
   /// What a toast of System says, typed (worded by [title] and [line]).
   final SysToastVm? words;
 
-  String get title => words?.title ?? _title;
+  /// A failure, typed (worded by [title], [line] and [stays]).
+  final ErrorSaid? failure;
+
+  String get title => words?.title ?? failure?.title ?? _title;
 
   /// The tone of the mark: `warn`, `bad`, `neutral`, or `good` for a
   /// success.
   final Tone tone;
 
   /// One line under the title: `timeout: the device did not answer.`
-  String get line => words?.line ?? _line;
+  String get line => words?.line ?? failure?.toastLine ?? _line;
 
   /// It has a *Details* link (a failure does, a success does not).
   final bool details;
@@ -113,7 +133,11 @@ final class ToastVm extends Equatable {
 
   /// A toast that does not hide by itself says why (`stays until edge is
   /// back`): a stream that is down. Its border is the tone's line.
-  final String? stays;
+  String? get stays => switch (failure?.stream) {
+    final site? => S.current.toastStays(site),
+    null => _stays,
+  };
+  final String? _stays;
 
   @override
   List<Object?> get props => [
@@ -125,7 +149,8 @@ final class ToastVm extends Equatable {
     details,
     retry,
     seconds,
-    stays,
+    _stays,
+    failure,
   ];
 }
 

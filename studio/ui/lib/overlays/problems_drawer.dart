@@ -1,6 +1,7 @@
 import 'package:equatable/equatable.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../dialogs/error_said.dart';
 import '../indicators/app_icon.dart';
 import '../indicators/app_icon_view.dart';
 import '../models/tone.dart';
@@ -15,30 +16,48 @@ import '../theme/typography.dart';
 final class ProblemVm extends Equatable {
   const ProblemVm({
     required this.id,
-    required this.title,
-    required this.time,
+    required this._title,
+    required this._time,
     this.tone = Tone.warn,
     this.where = '',
-    this.said = '',
+    this._said = '',
     this.retry = false,
     this.shown = false,
-  });
+  }) : failure = null;
+
+  /// The failure [failure], worded here when the card is drawn.
+  ProblemVm.failure(ErrorSaid this.failure)
+    : id = failure.id,
+      tone = failure.kind.tone,
+      where = failure.where,
+      retry = failure.canRetry && !failure.write,
+      shown = failure.shown,
+      _title = '',
+      _time = '',
+      _said = '';
 
   final int id;
 
   /// `warn` (rights, reach), `neutral` (busy, gone), `bad` (broker, studio):
   /// the colour of the dot.
   final Tone tone;
-  final String title;
+
+  /// A failure, typed (worded by [title], [time] and [said]).
+  final ErrorSaid? failure;
+
+  String get title => failure?.title ?? _title;
+  final String _title;
 
   /// `11:52:06`.
-  final String time;
+  String get time => failure?.time ?? _time;
+  final String _time;
 
   /// The key and the call, in mono.
   final String where;
 
   /// `timeout: the device did not answer within 2 s.`
-  final String said;
+  String get said => failure?.line ?? _said;
+  final String _said;
 
   /// It has a *Try again* link.
   final bool retry;
@@ -47,7 +66,17 @@ final class ProblemVm extends Equatable {
   final bool shown;
 
   @override
-  List<Object?> get props => [id, tone, title, time, where, said, retry, shown];
+  List<Object?> get props => [
+    id,
+    tone,
+    _title,
+    _time,
+    where,
+    _said,
+    retry,
+    shown,
+    failure,
+  ];
 }
 
 /// The words of the drawer, localized by the connector.

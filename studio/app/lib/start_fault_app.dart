@@ -14,9 +14,10 @@ import 'package:models/fault_report.dart';
 import 'package:models/studio_error.dart';
 import 'package:ui/alerts/start_fault.dart';
 import 'package:ui/dialogs/error_dialog.dart';
+import 'package:ui/dialogs/error_said.dart';
 import 'package:ui/theme/common.dart';
 
-import 'errors.dart';
+import 'mappers/error_mappers.dart';
 
 /// The app shown instead of Studio when its own settings do not open
 /// (docs/design/specs/errors.md §6): one screen, no store, no router.
@@ -100,9 +101,9 @@ class _StartFaultAppState extends State<StartFaultApp> {
     unawaited(
       Clipboard.setData(
         ClipboardData(
-          text: detailsText(
-            e,
-            DetailsContext(studio: studioAbout),
+          text: e.said.details(
+            ErrorContext(about: studioAbout),
+            redact: redact,
             report: true,
           ),
         ),
@@ -134,7 +135,7 @@ class _StartFaultAppState extends State<StartFaultApp> {
               rows: [
                 ErrorRowVm(s.errRowError, faultLine(widget.fault.error)),
                 ErrorRowVm(s.fatalFile, _shownPath),
-                ErrorRowVm(s.errRowStudio, studioAbout),
+                ErrorRowVm(s.errRowStudio, studioAbout.text),
               ],
               note: s.fatalNote('$_file.broken'),
               noteCode: '$_file.broken',

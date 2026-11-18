@@ -41,6 +41,16 @@ ErrorKind kindOf(StatusCode? status) => switch (status?.known) {
 /// that something below it is not connected.
 bool isTimeout(StudioError e) => e.status?.known == Status.timeout;
 
+/// Who did not answer [e]: the site, when the broker there was silent (a
+/// timeout); the link, when the broker answered that the link below it is
+/// not connected (`disconnected`, `not_available`, `closed` on a key under
+/// `downstream/<link>`). Null when neither is known.
+String? unreachedOf(StudioError e) {
+  final parts = e.key?.split('/') ?? const <String>[];
+  final link = parts.length > 3 && parts[2] == 'downstream' ? parts[3] : null;
+  return isTimeout(e) || link == null ? e.site : link;
+}
+
 /// The call is one this broker or link does not have (`not_supported`),
 /// rather than a thing that is gone.
 bool isUnsupported(StudioError e) => e.status?.known == Status.notSupported;

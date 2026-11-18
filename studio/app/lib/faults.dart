@@ -8,13 +8,12 @@ import 'package:business/wyrm/failures.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
-import 'package:localization/localization.dart';
 import 'package:models/error_call.dart';
 import 'package:models/studio_error.dart';
 import 'package:ui/alerts/panel_fault.dart';
 
 import 'dialogs/error_dialogs.dart';
-import 'errors.dart';
+import 'mappers/error_mappers.dart';
 
 /// A fault outside any action (a widget that threw while building, a
 /// callback, a future nobody awaited) as a quiet problem of kind `studio`:
@@ -32,11 +31,10 @@ StudioError uncaughtFault(
     step: library == null ? null : ErrorCall.named(library),
     screen: panel,
   );
+  // `ui` says what it is when it draws it: a fault in the background, or
+  // the panel that could not be drawn
   return e.copyWith(
-    title: panel == null
-        ? S.current.faultUncaught
-        : S.current.faultProblem(panel),
-    message: S.current.errFaultMessage,
+    report: e.report?.copyWith(uncaught: true),
     quiet: true,
   );
 }
@@ -59,7 +57,11 @@ void installFaultHooks(Store<AppState> store, {bool cardInDebug = false}) {
     unawaited(
       Clipboard.setData(
         ClipboardData(
-          text: detailsText(e, detailsContextOf(store.state), report: true),
+          text: e.said.details(
+            errorContextOf(store.state),
+            redact: redact,
+            report: true,
+          ),
         ),
       ),
     );

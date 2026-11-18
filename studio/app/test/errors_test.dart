@@ -5,8 +5,8 @@ import 'package:app/common/forms.dart';
 import 'package:app/common/studio_version.dart';
 import 'package:app/dialogs/error_dialogs.dart';
 import 'package:app/dialogs/exception_dialog.dart';
-import 'package:app/errors.dart';
 import 'package:app/faults.dart';
+import 'package:app/mappers/error_mappers.dart';
 import 'package:app/run_env.dart' show devicePrompts;
 import 'package:app/start_fault_app.dart';
 import 'package:async_redux/async_redux.dart';
@@ -35,12 +35,44 @@ import 'package:models/studio_error.dart';
 import 'package:models/system_tab.dart';
 import 'package:storage/storage.dart';
 import 'package:ui/alerts/panel_fault.dart';
+import 'package:ui/alerts/toast_stack.dart';
 import 'package:ui/dialogs/error_dialog.dart';
+import 'package:ui/dialogs/error_said.dart';
 import 'package:ui/forms/action_form.dart';
 import 'package:ui/forms/param_form.dart';
 import 'package:ui/overlays/panel_dialog.dart';
 import 'package:ui/theme/common.dart';
 import 'package:wyrm_client/wyrm_client.dart';
+
+// How these tests read an error: through the app's mapper and the words
+// `ui` says of it (`ErrorSaid`), as the screens do.
+
+/// [e] with the title and what was said of it, in the language loaded.
+StudioError wordError(StudioError e) {
+  final said = e.said;
+  return e.copyWith(title: said.title, message: said.said);
+}
+
+/// [e] as its dialog, for who is logged in where.
+ErrorDialogVm errorDialogVm(
+  StudioError e, {
+  String? user,
+  String? role,
+  String? gateway,
+  bool readOnly = false,
+}) => e.said.dialog(
+  ErrorContext(user: user, role: role, gateway: gateway, about: studioAbout),
+  readOnly: readOnly,
+);
+
+ErrorAction errorPrimary(StudioError e, {bool readOnly = false}) =>
+    e.said.primary(readOnly: readOnly);
+
+ToastVm errorToastVm(StudioError e) => e.toast;
+
+/// The text of *Copy details* of [e] for [ctx], redacted as the app does.
+String detailsText(StudioError e, ErrorContext ctx, {bool report = false}) =>
+    e.said.details(ctx, redact: redact, report: report);
 
 StudioError _refused(
   Status status,
@@ -85,7 +117,6 @@ Store<AppState> _store() => Store<AppState>(
   dependencies: (s) => AppDependencies(
     s,
     InMemoryKeyValueStorage(),
-    wording: wordError,
     prompts: devicePrompts,
   ),
 );
@@ -257,7 +288,7 @@ void main() {
         return store.state.problems.items.single;
       }
 
-      final en = await refused();
+      final en = wordError(await refused());
       expect(en.hint, const ErrorHint.notSettable());
       expect(en.title, 't2 does not support set');
       expect(
@@ -267,7 +298,7 @@ void main() {
 
       await S.load(const Locale('uk'));
       addTearDown(() => S.load(const Locale('en')));
-      final uk = await refused();
+      final uk = wordError(await refused());
       expect(uk.title, 't2 не підтримує set');
       expect(
         uk.message,
@@ -463,7 +494,7 @@ void main() {
       final vm = errorDialogVm(e);
       expect(vm.title, 'No network');
       expect(vm.said, 'Check the cable.');
-      expect(vm.tone, errorToneOf(ErrorKind.studio));
+      expect(vm.tone, ErrorKind.studio.tag.tone);
       expect(vm.primary, 'OK');
       expect(vm.copy, 'Copy details');
     });
@@ -656,11 +687,24 @@ void main() {
   });
 
   group('Copy details (errors.md §3)', () {
-    const ctx = DetailsContext(
-      user: 'olena',
-      role: 'operator',
-      gateway: 'https://olena:gw-pass@plant.local:8445',
-      studio: '1.0 (macOS 15.1)',
+    // who is logged in where, as the app reads it from the state (the
+    // gateway's URL loses its `user:password@` there); Studio's own line is
+    // fixed, so the text is the same on every machine
+    final a = AppState.initial();
+    final from = errorContextOf(
+      a.copyWith(
+        site: a.site.copyWith(
+          user: 'olena',
+          role: 'operator',
+          gateway: 'https://olena:gw-pass@plant.local:8445',
+        ),
+      ),
+    );
+    final ctx = ErrorContext(
+      user: from.user,
+      role: from.role,
+      gateway: from.gateway,
+      about: const StudioAbout(version: '1.0', os: .mac, osVersion: '15.1'),
     );
 
     test('holds the title, key › call, status with code, message, site, '
@@ -907,7 +951,9 @@ void main() {
       expect(e.kind, ErrorKind.studio);
       expect(e.quiet, isTrue);
       expect(e.report!.type, 'IndexError');
-      expect(e.title, 'Studio hit a fault in the background');
+      // the store keeps no words; the screen says them when it draws it
+      expect(e.title, isEmpty);
+      expect(e.said.title, 'Studio hit a fault in the background');
       expect(find.byType(ErrorDialog), findsNothing);
       expect(ErrorWidget.builder, PanelFault.builder);
       restore();

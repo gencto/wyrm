@@ -18,9 +18,10 @@ import 'package:material_ui/material_ui.dart';
 import 'package:models/access_tab.dart';
 import 'package:models/studio_error.dart';
 import 'package:ui/dialogs/error_dialog.dart';
+import 'package:ui/dialogs/error_said.dart';
 
 import '../common/app_store.dart';
-import '../errors.dart';
+import '../mappers/error_mappers.dart';
 import '../navigation/app_router.dart';
 import '../navigation/go_after_action.dart';
 
@@ -35,11 +36,14 @@ var _open = false;
 bool get errorDialogOpen => _open;
 
 /// Who is logged in where, for Details and *Copy details*.
-DetailsContext detailsContextOf(AppState state) => DetailsContext(
+ErrorContext errorContextOf(AppState state) => ErrorContext(
   user: state.site.user,
   role: state.site.role,
-  gateway: state.site.gateway,
-  studio: studioAbout,
+  gateway: switch (state.site.gateway) {
+    final g? => withoutUserInfo(g),
+    null => null,
+  },
+  about: studioAbout,
 );
 
 /// Puts the details of [e] (its report, for a fault in Studio) on the
@@ -50,7 +54,11 @@ void copyErrorDetails(Store<AppState> store, StudioError e) {
   unawaited(
     Clipboard.setData(
       ClipboardData(
-        text: detailsText(e, detailsContextOf(store.state), report: report),
+        text: e.said.details(
+          errorContextOf(store.state),
+          redact: redact,
+          report: report,
+        ),
       ),
     ),
   );
@@ -76,7 +84,7 @@ void showUserException({
   var e = thrown.error;
   if (userException is! StudioException) {
     // It did not come through an action of ours: it is not in Problems yet.
-    e = wordError(e.copyWith(id: nextErrorId(), at: DateTime.now()));
+    e = e.copyWith(id: nextErrorId(), at: DateTime.now());
     store.dispatchSync(AddProblemAction(e));
   }
   if (_open) {
@@ -127,18 +135,16 @@ Future<void> _show(
   if (!readOnly) {
     store.dispatchSync(MarkProblemShownAction(e.id));
   }
-  final primary = errorPrimary(e, readOnly: readOnly);
+  final said = e.said;
+  final primary = said.primary(readOnly: readOnly);
   final _Closed closed;
   try {
     closed =
         await ErrorDialog.show<_Closed>(
           context,
           (dialog) => ErrorDialog(
-            vm: errorDialogVm(
-              e,
-              user: store.state.site.user,
-              role: store.state.site.role,
-              gateway: store.state.site.gateway,
+            vm: said.dialog(
+              errorContextOf(store.state),
               readOnly: readOnly,
             ),
             onPrimary: () => Navigator.of(dialog).pop(_Closed.primary),
