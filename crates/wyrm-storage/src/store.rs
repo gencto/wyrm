@@ -156,11 +156,7 @@ impl Store {
             }
             txn.commit().map_err(db)?;
         }
-        let epoch = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_micros() as u64)
-            .unwrap_or(1)
-            .max(1);
+        let epoch = wyrm_core::clock::now_us().max(1);
         Ok(Self {
             db: db_,
             inner: Mutex::new(Inner {

@@ -218,10 +218,7 @@ async fn expect(
 pub async fn run(conn: &Conn, sc: &Scenario, mut vars: BTreeMap<String, String>) -> Report {
     let started = Instant::now();
     vars.entry("run".into()).or_insert_with(|| {
-        let n = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis())
-            .unwrap_or_default();
+        let n = wyrm_core::clock::now_ms();
         format!("{}", n % 100_000_000)
     });
     let mut watches: BTreeMap<String, Feed> = BTreeMap::new();

@@ -1416,7 +1416,7 @@ impl Admin {
         };
         ctl.record(
             sub,
-            "restore_apply",
+            AuditOp::RestoreApply,
             &plan.backup,
             Status::Ok,
             &format!(
@@ -1538,7 +1538,7 @@ impl Admin {
         }
         ctl.record(
             sub,
-            "restore_apply",
+            AuditOp::RestoreApply,
             &format!("{} {}", manifest.site, manifest.created),
             Status::Ok,
             &format!(

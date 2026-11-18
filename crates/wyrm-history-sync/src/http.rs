@@ -228,19 +228,6 @@ pub fn parse_url(url: &str) -> Result<(bool, String, u16, String), String> {
     Ok((u.tls, u.url.host.text(), u.port, base.to_owned()))
 }
 
-/// Percent-encode a query value.
-pub fn query_value(s: &str) -> String {
-    let mut out = String::new();
-    for b in s.bytes() {
-        if b.is_ascii_alphanumeric() || b"-._~".contains(&b) {
-            out.push(b as char);
-        } else {
-            out.push_str(&format!("%{b:02X}"));
-        }
-    }
-    out
-}
-
 /// A loopback host, where a secret may go without TLS.
 pub fn loopback(host: &str) -> bool {
     host == "localhost"

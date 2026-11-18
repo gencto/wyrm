@@ -20,7 +20,6 @@
 //!   commands, so the next event reads them and they are durable before the reply leaves.
 
 use std::collections::{BTreeSet, HashMap, VecDeque};
-use std::hash::{BuildHasher, Hasher};
 use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -449,11 +448,13 @@ async fn next_code(code: &mut Option<watch::Receiver<u64>>) -> u64 {
     std::future::pending().await
 }
 
-/// ±20 % around `d`.
+/// ±20 % around `d`, from the one random source. Without randomness the delay is `d`
+/// itself: a restart back-off is right without its jitter, so nothing is refused.
 fn jitter(d: Duration) -> Duration {
-    let mut h = std::collections::hash_map::RandomState::new().build_hasher();
-    h.write_u128(std::time::UNIX_EPOCH.elapsed().map_or(0, |t| t.as_nanos()));
-    let frac = (h.finish() % 10_001) as f64 / 10_000.0;
+    let frac = match wyrm_core::rand::bytes::<2>() {
+        Ok(b) => f64::from(u16::from_le_bytes(b) % 10_001) / 10_000.0,
+        Err(_) => 0.5,
+    };
     d.mul_f64(0.8 + 0.4 * frac)
 }
 

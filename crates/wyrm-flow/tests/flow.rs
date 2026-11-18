@@ -655,7 +655,7 @@ async fn put_artifact(env: &Env, bytes: Vec<u8>) -> Result<String, wyrm_client::
 async fn wasm_node_hot_load() {
     let mut env = Env::start("wasm").await;
     let a = put_artifact(&env, guests::add(1)).await.unwrap();
-    assert_eq!(a, wyrm_wasm_host::sha256_hex(&guests::add(1)));
+    assert_eq!(a, wyrm_wasm_host::sha256_hex(guests::add(1)));
     let spin = put_artifact(&env, guests::spin()).await.unwrap();
     // flow `~val` states (no storage here: watch the publications)
     let states = Arc::new(std::sync::Mutex::new(Vec::new()));

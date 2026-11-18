@@ -6,8 +6,10 @@ zero. A count that went down must be written down at once (`--lower`): the
 check fails on a count above and on a count below its baseline, so a fixed
 hit cannot be spent again by the next change. Two kinds of rules:
 
-* patterns C1..C10, read from the source (non-test code: `tests/`,
-  `benches/`, `examples/` and `#[cfg(test)]` items are left out);
+* patterns C1..C11 and C13 (C12 is taken by another change) and the counted
+  exceptions A1..A5, read from the source
+  (non-test code: `tests/`, `benches/`, `examples/` and `#[cfg(test)]` items
+  are left out);
 * clippy lints that are too costly to deny at once, counted from one
   `cargo clippy --lib --bins --all-features` run in JSON.
 
@@ -262,7 +264,11 @@ ALTS = re.compile(
     r"`[\w.-]+`\s*(?:,|\||/|\bor\b)\s*`[\w.-]+`"
     r"|`[\w-]+(?:\s*\|\s*[\w-]+)+`"
     r'|"[\w.-]+"\s*(?:,|\||/|\bor\b)\s*"[\w.-]+"'
-    r"|\b(?:one of|either)\b"
+    # "one of `a`, …", "either `a` or `b`": the words with values after them. The words
+    # alone are prose ("one of this site's sections", "every one of `names`", "in either
+    # case").
+    r"|\bone of:?\s+[`\"][\w.-]+[`\"]\s*(?:,|\||/|\bor\b)"
+    r"|\beither\s+[`\"][\w.-]+[`\"]\s+or\b"
     r"|\b[a-z_]+, [a-z_]+(?:, [a-z_]+)*,? or [a-z_]+\b"
 )
 
@@ -353,7 +359,7 @@ def field_bodies(code: str) -> list[tuple[str, int, int]]:
     return out
 
 
-def c3(s: Source) -> list[int]:
+def c3_all(s: Source) -> list[int]:
     """A text field or `fn` argument whose doc lists its values: a closed set carried as
     text (`String`, `&str`, `Box<str>`, `Cow<str>`, also inside `Option`); and a text field,
     documented or not, that the crate fills from an enum's `name()` (the set is the enum)."""
@@ -376,10 +382,88 @@ def c3(s: Source) -> list[int]:
             doc = doc_above(s, i)
             sig = s.masked[s.starts[i] : s.masked.find("{", s.starts[i]) + 1 or s.starts[i] + 400]
             for arg in re.findall(rf"\b([a-z_][a-z0-9_]*)\s*:\s*{STRINGY}", sig):
-                if re.search(rf"`{arg}`[^\n]*?(?:{ALTS.pattern})", doc):
+                # the list is about the argument: in the sentence that names it
+                if re.search(rf"`{arg}`(?:(?!\.\s)[^\n]){{0,120}}?(?:{ALTS.pattern})", doc):
                     hits.append(s.starts[i])
                     break
-    return s.hits("C3", hits)
+    return hits
+
+
+def c3_item(s: Source, offset: int) -> str:
+    """What a C3 hit is on: `Struct.field` (the struct, or the enum variant, that holds the
+    field) or `fn name`. A second field of the same name in another struct of the file is
+    another item."""
+    line = s.lines[s.line_of(offset) - 1]
+    fm = FIELD.match(line)
+    if fm:
+        owner = ""
+        for name, open_at, end in field_bodies(s.masked):
+            if open_at < offset < end:
+                owner = name  # the innermost body is listed last for a nested one
+        return f"{owner}.{fm.group(1)}"
+    fn = re.search(r"\bfn\s+(\w+)", line)
+    return f"fn {fn.group(1)}" if fn else ""
+
+
+# Text that C3's pattern counts and that is not a closed set: `(file, item)` with the
+# reason. C3 reads a doc comment, so it also counts a field whose doc gives examples of an
+# open value (`w1`, `w2`, …), and an argument whose name stands near a list of something
+# else. Such a hit is not fixed by rewording the doc and not hidden by a marker: it is
+# named here as `(file, "Struct.field" | "fn name")`, with why its values are open, and
+# counted as A4 (one hit per entry) so the list cannot grow unseen. An entry that no longer matches a C3 hit fails the check (the code changed:
+# take the entry out). A field whose values ARE a fixed list never goes here: it becomes
+# a `name_enum!`.
+C3_OPEN: dict[tuple[str, str], str] = {
+    ("crates/wyrm-core/src/time.rs", "fn parse_interval"): "the interval text `<n><unit>` this function parses: it is the decoder, and the listed letters are the units of its grammar",
+    ("crates/wyrm-link-sdk/src/auth.rs", "fn perm_on"): "`key` is a Zenoh key; the doc speaks of a grant of level `none`, which is typed (`Perm`)",
+    ("crates/wyrm-link-sdk/src/package.rs", "RepoEntry.category"): "a repository entry's category is the text its repository wrote (any repository, ADR 0021, 0043); the broker shows it and branches on nothing; the doc lists examples",
+    ("crates/wyrmd/src/announce.rs", "fn txt"): "the arguments are a site name and a host; the doc lists the keys of the TXT record the function writes",
+    ("crates/wyrm-history/src/engine.rs", "WatchCfg.id"): "a watch's node id, numbered by the broker (`w<n>`); the doc gives two examples",
+    ("crates/wyrm-admin/src/audit.rs", "AuditRecord.sub"): "a subject: `user:<id>`, `link:<id>`, `claimed:<text>`; it carries an id, so its values are open",
+    ("crates/wyrm-admin/src/fetch.rs", "fn redirect"): "`location` is the URL of a Location header, read by `wyrm_core::weburl`",
+    ("crates/wyrm-admin/src/history.rs", "fn query"): "`key` is a point key; the doc lists the columns of the rows it returns",
+    ("crates/wyrm-flow/src/blocks.rs", "Block.range"): "`date_range`'s text: an ISO range, a named range or a relative one with a number (`last 7 days`), parsed by `date::range`",
+    ("crates/wyrm-flow/src/catalog.rs", "Param.display"): "a label for people; the doc gives two examples",
+    ("crates/wyrm-flow/src/scope.rs", "Read.param"): "the name of a node type's parameter as its catalog entry declares it (125 types, each with its own names); the doc gives two examples",
+    ("tools/wyrm-mcp/src/gateway.rs", "TreeParams.path"): "a node key; the doc gives examples for the model that calls the tool",
+    ("links/agent/src/lib.rs", "AgentParams.agent_key_ref"): "the name of a secret; `raw or hex` is the form of the secret's bytes",
+    ("links/agent/src/lib.rs", "Question.id"): "a question's id, numbered per task (`q<n>`); the doc gives two examples",
+    ("links/agent/src/tools.rs", "Suggestion.id"): "a suggestion's id, numbered per task (`s<n>`); the doc gives two examples",
+    ("links/wasm/src/lib.rs", "fn package_world"): "`name` is a package name; the doc names the worlds, which are typed (`ComponentWorld`)",
+    ("links/prometheus/src/expo.rs", "Series.name"): "a metric name as the endpoint exposes it; the doc gives two examples",
+    ("crates/wyrm-dql/src/engine.rs", "Progress.error"): "a message for people, made of keys and causes; the doc lists what it may speak of",
+    ("crates/wyrm-messenger/src/api.rs", "Outgoing.origin"): "text for an error message, composed (`template <name>`, `<origin> → <recipient>`)",
+    ("crates/wyrm-messenger/src/api.rs", "Platform.name"): "the link's own name: each messenger link crate brings its `Platform`, and the core branches on no platform name (ADR 0039)",
+    ("crates/wyrm-messenger/src/api.rs", "Platform.identify"): "a method name of the platform's API, set by the link crate",
+}
+# The entries a run matched (a full run must match every one).
+C3_OPEN_SEEN: set[tuple[str, str]] = set()
+
+
+def c3_split(s: Source) -> tuple[list[int], list[int]]:
+    """C3's hits as `(closed, open)`: an entry of `C3_OPEN` takes exactly one hit, the first
+    of its item; a second hit on the same item (two functions of one name) stays in C3."""
+    closed, opened, taken = [], [], set()
+    for o in sorted(set(c3_all(s))):
+        key = (s.path, c3_item(s, o))
+        if key in C3_OPEN and key not in taken:
+            taken.add(key)
+            opened.append(o)
+        else:
+            closed.append(o)
+    return closed, opened
+
+
+def c3(s: Source) -> list[int]:
+    return s.hits("C3", c3_split(s)[0])
+
+
+def a4(s: Source) -> list[int]:
+    """Every C3 hit that `C3_OPEN` names as open text, counted like an exception: one per
+    entry, so the count is the length of the list and can only go down with it."""
+    opened = c3_split(s)[1]
+    C3_OPEN_SEEN.update((s.path, c3_item(s, o)) for o in opened)
+    return [s.line_of(o) for o in opened]
 
 
 ARG_HELPERS = r"\b(?:arg|arg_str|opt_str|req_str|get_str|get_u64|get_bool|get_f64|enum_arg|text_arg|choice|uint_arg|bool_arg)\(\s*[^;)]*?\""
@@ -768,17 +852,104 @@ def probe() -> list[str]:
     return bad
 
 
-CLOCK_HEX = r"(?:now\w*|\w*_now|unix_\w+|timestamp\w*|\w*hex\w*|\w*sha256\w*|\w*digest\w*)"
+CLOCK_HEX = (
+    r"(?:now(?:_(?:us|ms|s|ns|unix|secs|millis|micros|nanos))?|unix_\w+|timestamp\w*"
+    r"|\w*hex\w*|\w*sha256\w*|\w*digest\w*)"
+)
+# a method (`&self`, `&mut self`, `self`): the host's clock behind a trait, an accessor
+SELF_FIRST = re.compile(r"\s*(?:<[^>]*>)?\s*\(\s*(?:&\s*(?:'\w+\s+)?)?(?:mut\s+)?self\b")
 
 
 def c9(s: Source) -> list[int]:
-    """A clock or hex/digest helper defined outside `wyrm-core`: a `fn` or a closure
-    (`let now = || …`) named `now…`, `…_now`, `unix_…`, `timestamp…`, or holding `hex`,
-    `sha256` or `digest`."""
+    """A clock or hex/digest helper defined outside `wyrm-core`: a free `fn` or a closure
+    (`let now = || …`) named `now`, `now_us`/`_ms`/`_s`/…, `unix_…`, `timestamp…`, or
+    holding `hex`, `sha256` or `digest`. A method is not one (an implementation of
+    `Host::now_us`, an artifact's `sha256()`): C13 counts a helper's body wherever it is.
+    A name with `now` in another sense (`first_tick_now`, `now_every`) is not one."""
     if s.path.startswith("crates/wyrm-core/"):
         return []
-    pats = [rf"\bfn\s+{CLOCK_HEX}\b", rf"\blet\s+{CLOCK_HEX}\s*=\s*(?:move\s*)?\|"]
-    return s.hits("C9", [m.start() for p in pats for m in re.finditer(p, s.masked)])
+    hits = [
+        m.start()
+        for m in re.finditer(rf"\bfn\s+{CLOCK_HEX}\b", s.masked)
+        if not SELF_FIRST.match(s.masked, m.end())
+    ]
+    hits += [m.start() for m in re.finditer(rf"\blet\s+{CLOCK_HEX}\s*=\s*(?:move\s*)?\|", s.masked)]
+    return s.hits("C9", hits)
+
+
+# The bodies of the helpers rule 11 keeps in one place, whatever a copy is named.
+DIRECT_CLOCK = re.compile(r"\bSystemTime\s*::\s*now\s*\(|\bUNIX_EPOCH\b")
+HAND_HEX = re.compile(r":0?2[xX]\}")
+# a SHA-256 made by hand (`Sha256::new()`, `Sha256::digest(..)`, `<Sha256 as Digest>::digest`)
+# and two hex digits read by hand (`to_digit(16)`, `u8::from_str_radix(.., 16)`)
+HAND_SHA = re.compile(
+    r"\bSha256\s*::\s*(?:new|new_with_prefix|digest)\s*\(|\bSha256\s+as\s+[\w:]*Digest\s*>\s*::"
+)
+HAND_UNHEX = re.compile(r"\bto_digit\s*\(\s*16\s*\)|\bu8\s*::\s*from_str_radix\s*\([^;]*?,\s*16\s*\)")
+ONE_PLACE = {
+    "crates/wyrm-core/src/clock.rs",
+    "crates/wyrm-core/src/hex.rs",
+    # HMAC-SHA-256 brings a long key to one block with the digest (RFC 2104)
+    "crates/wyrm-core/src/mac.rs",
+}
+
+
+def c13(s: Source) -> list[int]:
+    """A clock or hex helper written out again: a read of the system clock
+    (`SystemTime::now()`, `UNIX_EPOCH`; a `use` line is not a read) outside
+    `wyrm_core::clock`, and a two-digit hex format (`{b:02x}`, `%{b:02X}`) outside
+    `wyrm_core::hex`, a SHA-256 made by hand (`Sha256::new()`, `Sha256::digest(..)`)
+    and two hex digits read by hand (`to_digit(16)`, `u8::from_str_radix(.., 16)`).
+    C9 goes by the helper's name; this goes by what it does."""
+    if s.path in ONE_PLACE:
+        return []
+    hits = []
+    for m in DIRECT_CLOCK.finditer(s.masked):
+        line = s.masked_lines[s.line_of(m.start()) - 1].lstrip()
+        if not line.startswith(("use ", "pub use ")):
+            hits.append(m.start())
+    # format strings: `code` keeps them (comments and tests are blank in it)
+    hits += [m.start() for m in HAND_HEX.finditer(s.code)]
+    hits += [m.start() for m in HAND_SHA.finditer(s.masked)]
+    hits += [m.start() for m in HAND_UNHEX.finditer(s.masked)]
+    return s.hits("C13", hits)
+
+
+# Calls into a library that draws randomness from the OS by itself, not through
+# `wyrm_core::rand` (rule 10). None of them can be handed our source: each is named, with
+# why, and every call is counted, so a new one shows in review. The second list is what
+# has no call today and must stay so (a hit there is a new second source).
+LIBRARY_RNG = [
+    # rcgen's own key type opens a `ring::rand::SystemRandom` to make a key pair, to read
+    # one and for every signature. The broker's keys are `wyrm_admin::eckey::EcKey` (ring
+    # with `wyrm_core::rand::secure_random()`, handed to rcgen as its `SigningKey`), so any
+    # use of the rcgen type is counted: a path, an import, a constructor.
+    r"\brcgen\s*::\s*KeyPair\b",
+    r"\brcgen\s*::\s*\{[^}]*\bKeyPair\b[^}]*\}",
+    r"(?<![\w:])KeyPair\s*::\s*(?:generate\w*|from_\w+|try_from)\s*\(",
+    r"\bgenerate_simple_self_signed\s*\(",
+    # async-opcua makes the RSA key of an application certificate with its own source
+    r"\bX509\s*::\s*cert_and_pkey\s*\(",
+]
+SECOND_RNG = [
+    # any mention of the type: `RandomState::new()`, `::default()`, a field or a static
+    # of the type filled by `Default::default()`, an import. The seed is OS randomness.
+    r"\bRandomState\b",
+    r"\bSigningKey\s*::\s*(?:generate|random)\s*\(",
+    r"\bSecretKey\s*::\s*random\s*\(",
+    r"\bRsaPrivateKey\s*::\s*new\s*\(",
+    r"\bUuid\s*::\s*new_v[47]\s*\(",
+    r"\bthread_rng\s*\(",
+    r"\brand\s*::\s*(?:random|rng)\s*\(",
+    r"\bfastrand\s*::",
+]
+LIBRARY_RNG_RE = re.compile("|".join(LIBRARY_RNG + SECOND_RNG))
+
+
+def a5(s: Source) -> list[int]:
+    """Every call of a library function that draws OS randomness by itself (rule 10),
+    counted like an exception."""
+    return [s.line_of(m.start()) for m in LIBRARY_RNG_RE.finditer(s.masked)]
 
 
 def c10(s: Source) -> list[int]:
@@ -891,9 +1062,12 @@ PATTERNS = {
     "C9-duplicate-helper": c9,
     "C10-plain-secret": c10,
     "C11-url-split": c11,
+    "C13-helper-body": c13,
     "A1-allow": a1,
     "A2-short-reason": a2,
     "A3-scratch-discard": a3,
+    "A4-open-text": a4,
+    "A5-library-rng": a5,
 }
 
 # ---------- probes ----------
@@ -964,6 +1138,82 @@ PROBES = [
     ("A3", "x.rs", "fn discard(p: &Path) {}\n// files::discard(p)", 0),
     ("A3", "x.rs", "fn f(r: io::Result<()>, p: &Path) { r.inspect_err(|_| ()); ps.iter().for_each(|p| ()); xs.for_each(wyrm_core::files::discard); }", 1),
     ("A3", "x.rs", "use wyrm_core::files::{discard_dir as rm, gone_ok};\nfn f(p: &Path) { rm(p); }", 1),
+    # C3/A4: a field whose doc lists values is counted; one `C3_OPEN` names moves to A4
+    ("C3", "x.rs", "pub struct R {\n    /// `a`, `b` or `c`.\n    pub kind: String,\n}", 1),
+    ("A4", "x.rs", "pub struct R {\n    /// `a`, `b` or `c`.\n    pub kind: String,\n}", 0),
+    (
+        "C3",
+        "crates/wyrm-history/src/engine.rs",
+        "pub struct WatchCfg {\n    /// `w1`, `w2`, …\n    pub id: String,\n    /// `a`, `b` or `c`.\n    pub kind: String,\n}",
+        1,
+    ),
+    (
+        "A4",
+        "crates/wyrm-history/src/engine.rs",
+        "pub struct WatchCfg {\n    /// `w1`, `w2`, …\n    pub id: String,\n    /// `a`, `b` or `c`.\n    pub kind: String,\n}",
+        1,
+    ),
+    # a field of the same name in another struct of the file is another item: it stays in C3
+    ("C3", "crates/wyrm-history/src/engine.rs", "pub struct WatchCfg {\n    /// `w1`, `w2`, …\n    pub id: String,\n}\npub struct Other {\n    /// `a`, `b` or `c`.\n    pub id: String,\n}", 1),
+    ("A4", "crates/wyrm-history/src/engine.rs", "pub struct WatchCfg {\n    /// `w1`, `w2`, …\n    pub id: String,\n}\npub struct Other {\n    /// `a`, `b` or `c`.\n    pub id: String,\n}", 1),
+    # an entry takes one hit: a second item of the same key stays in C3
+    ("C3", "crates/wyrm-admin/src/fetch.rs", "/// `location`: `a`, `b` or `c`.\nfn redirect(location: &str) {}\n/// `location`: `a`, `b` or `c`.\nfn redirect(location: &str, n: u8) {}", 1),
+    ("A4", "crates/wyrm-admin/src/fetch.rs", "/// `location`: `a`, `b` or `c`.\nfn redirect(location: &str) {}\n/// `location`: `a`, `b` or `c`.\nfn redirect(location: &str, n: u8) {}", 1),
+    # "one of" and "either" count with a value after them, not as prose
+    ("C3", "x.rs", "pub struct R {\n    /// One of `a`, `b`.\n    pub kind: String,\n    /// Either `a` or `b`.\n    pub mode: String,\n}", 2),
+    ("C3", "x.rs", "pub struct R {\n    /// One of this site's sections, in either case.\n    pub key: String,\n}", 0),
+    ("C3", "x.rs", "/// Whether `key` is hex, in either case; every one of `names` is kept.\nfn f(key: &str, names: &str) {}", 0),
+    ("C3", "x.rs", "/// `mode`: `hold`, `clear` or `keep`.\nfn f(mode: &str) {}", 1),
+    ("C3", "x.rs", "/// Reads `key`. The rows have `time`, `value` and `quality`.\nfn f(key: &str) {}", 0),
+    # the same item name in a file the list does not name stays in C3
+    ("C3", "crates/wyrm-history/src/store.rs", "pub struct W {\n    /// `w1`, `w2`, …\n    pub id: String,\n}", 1),
+    # C9: a helper by its name, as a free function or a closure
+    ("C9", "x.rs", "fn now_us() -> u64 { 0 }\nfn hex_of(b: &[u8]) -> String { String::new() }", 2),
+    ("C9", "x.rs", "pub(crate) fn token_sha256(t: &str) -> String { String::new() }\nfn unix_secs() -> i64 { 0 }", 2),
+    ("C9", "x.rs", "fn f() { let now = || 0u64; let hex = move |b: u8| b; }", 2),
+    ("C9", "x.rs", "pub fn digest_hex(d: &[u8; 32]) -> String { String::new() }\nfn timestamp() -> u64 { 0 }", 2),
+    ("C9", "x.rs", "impl Host for H { fn now_us(&self) -> u64 { 0 } }\ntrait T { fn now_us(&mut self) -> u64; }", 0),
+    ("C9", "x.rs", "impl A { pub fn sha256(&self) -> &str { &self.sha } fn now(self) -> u64 { 0 } }", 0),
+    ("C9", "x.rs", "fn first_tick_now(&self) -> bool { true }\nfn backup_now() {}\nfn now_every() {}\nfn now_interval_ok() {}", 0),
+    ("C9", "crates/wyrm-core/src/clock.rs", "pub fn now_us() -> u64 { 0 }", 0),
+    # C13: the body of a clock or hex helper, under any name
+    ("C13", "x.rs", "fn t() -> u64 { SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs()) }", 2),
+    ("C13", "x.rs", "fn t() -> u64 { std::time::SystemTime :: now ().elapsed().map_or(0, |d| d.as_secs()) }", 1),
+    ("C13", "x.rs", "use std::time::{SystemTime, UNIX_EPOCH};\npub use std::time::UNIX_EPOCH;", 0),
+    ("C13", "x.rs", 'fn h(b: &[u8]) -> String { b.iter().map(|x| format!("{x:02x}")).collect() }', 1),
+    ("C13", "x.rs", 'fn p(b: u8, o: &mut String) { o.push_str(&format!("%{b:02X}")); write!(o, "{:02x}", b); }', 2),
+    ("C13", "x.rs", 'fn f(n: u32) -> String { format!("{n:04x} {n:08X} {n:2} {n:02}") }', 0),
+    ("C13", "x.rs", "fn t() -> u64 { wyrm_core::clock::now_s() } // SystemTime::now() and {b:02x}", 0),
+    ("C13", "x.rs", '#[cfg(test)]\nmod tests { fn t() { let _ = SystemTime::now(); let _ = format!("{:02x}", 1); } }', 0),
+    ("C13", "x.rs", "fn d(b: &[u8]) -> String { hex::encode(Sha256::digest(b)) }", 1),
+    ("C13", "x.rs", "fn d(b: &[u8]) -> Vec<u8> { sha2::Sha256::digest(b).to_vec() }", 1),
+    ("C13", "x.rs", "fn d(b: &[u8]) -> [u8; 32] { let mut h = Sha256::new(); h.update(b); h.finalize().into() }", 1),
+    ("C13", "x.rs", "fn d(b: &[u8]) -> String { hex::encode(<sha2::Sha256 as sha2::Digest>::digest(b)) }", 1),
+    ("C13", "x.rs", "fn d(b: &[u8]) -> [u8; 32] { wyrm_core::hex::sha256(b) }\ntype M = hmac::Hmac<Sha256>;", 0),
+    ("C13", "x.rs", "fn k<D: Digest>(p: &[u8]) -> Vec<u8> { localize::<Sha256>(p); D::digest(p).to_vec() }", 0),
+    ("C13", "crates/wyrm-core/src/mac.rs", "fn k(b: &[u8]) { Sha256::digest(b); }", 0),
+    ("C13", "x.rs", "fn u(a: u8, b: u8) -> Option<u32> { Some(char::from(a).to_digit(16)? * 16 + (b as char).to_digit(16)?) }", 2),
+    ("C13", "x.rs", "fn u(s: &str) -> Option<u8> { u8::from_str_radix(&s[0..2], 16).ok() }", 1),
+    ("C13", "x.rs", "fn u(s: &str) -> Option<u32> { u32::from_str_radix(s, 16).ok()?; c.to_digit(10); u8::from_str_radix(s, 10).ok() }", 0),
+    ("C13", "crates/wyrm-core/src/clock.rs", "pub fn now() -> SystemTime { SystemTime::now() }", 0),
+    ("C13", "crates/wyrm-core/src/time.rs", "pub fn now() -> SystemTime { SystemTime::now() }", 1),
+    # A5: a library that draws randomness itself
+    ("A5", "x.rs", "fn k() -> R { let key = KeyPair::generate()?; p.signed_by(&key, &ca)?; p.self_signed(&key) }", 1),
+    ("A5", "x.rs", "fn k() -> R { rcgen::KeyPair::generate_for(&ALG)?; rcgen::generate_simple_self_signed(names) }", 2),
+    ("A5", "x.rs", "use rcgen::{CertificateParams, KeyPair, Issuer};\nstruct P { i: Issuer<'static, KeyPair> }", 1),
+    ("A5", "x.rs", "fn k() -> R { let k = KeyPair::from_pem(pem)?; KeyPair::try_from(der) }", 2),
+    ("A5", "x.rs", "fn k() -> R { p.serialize_request(&key)?; X509::cert_and_pkey(&data) }", 1),
+    # the broker's own key type and ring's are not rcgen's
+    ("A5", "x.rs", "fn k() -> R { let k = EcKey::generate()?; p.signed_by(&k, &ca)?; EcdsaKeyPair::generate_pkcs8(&ALG, &rng); ring::signature::KeyPair::public_key(&p) }", 0),
+    ("A5", "x.rs", "fn k() { let h = RandomState::new(); let u = Uuid::new_v4(); let r = rand::random(); }", 3),
+    ("A5", "x.rs", "struct S { seed: std::collections::hash_map::RandomState }\nfn n() -> S { S { seed: Default::default() } }", 1),
+    ("A5", "x.rs", "fn k() -> u64 { std::hash::RandomState::default().hash_one(1) }", 1),
+    ("A5", "x.rs", "static KEYS: LazyLock<RandomState> = LazyLock::new(Default::default);", 1),
+    ("A5", "x.rs", "use std::hash::RandomState;", 1),
+    ("A5", "x.rs", "fn k() { let m: HashMap<String, u8> = HashMap::new(); let r = MyRandomStateful; }", 0),
+    ("A5", "x.rs", "fn k() { let k = SigningKey::generate(&mut r); let mut g = thread_rng(); fastrand::u8(..); }", 3),
+    ("A5", "x.rs", "fn k() -> R { EcKey::from_pem(pem)?; wyrm_core::rand::bytes::<8>()?; SigningKey::from_bytes(&b) }", 0),
+    ("A5", "x.rs", "#[cfg(test)]\nmod tests { fn k() { KeyPair::generate().unwrap(); } }", 0),
     ("C6", "x.rs", 'const NAMES: [&str; 2] = ["a", "b"];', 2),
     ("C6", "x.rs", "trait T { const NAMES: &'static [&'static str]; }", 0),
     ("C6", "x.rs", "trait T { const PAIRS: &'static [(&'static str, &'static str)]; }", 0),
@@ -1111,7 +1361,14 @@ def main(argv: list[str]) -> int:
     if "--show" in argv:
         measure_patterns(argv[argv.index("--show") + 1])
         return 0
+    C3_OPEN_SEEN.clear()
     now = measure_patterns()
+    stale = sorted(set(C3_OPEN) - C3_OPEN_SEEN)
+    if stale:
+        sys.stderr.write("rust rules: C3_OPEN names text that C3 no longer counts: take the entry out\n")
+        for f, item in stale:
+            sys.stderr.write(f"  {f}: {item}\n")
+        return 1
     use_clippy = "--no-clippy" not in argv
     if "--clippy-json" in argv:
         now.update(measure_clippy(Path(argv[argv.index("--clippy-json") + 1]).read_text().splitlines()))

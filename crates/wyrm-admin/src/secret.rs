@@ -1,14 +1,15 @@
 //! Link tokens, key files and the internal CA.
 
+use crate::eckey::EcKey;
 use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
 use argon2::Argon2;
 use rcgen::{
     BasicConstraints, CertificateParams, CertificateSigningRequestParams, DnType,
-    ExtendedKeyUsagePurpose, IsCa, Issuer, KeyPair, KeyUsagePurpose, PublicKeyData,
+    ExtendedKeyUsagePurpose, IsCa, Issuer, KeyUsagePurpose, PublicKeyData,
 };
-use sha2::{Digest, Sha256};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use wyrm_core::clock::now_s_signed;
 use zeroize::Zeroizing;
 
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
@@ -246,7 +247,7 @@ pub struct CertFiles {
 /// Internal CA (wiki "Транспорт"): `ca.pem` public, `ca.key` 0600.
 pub struct Pki {
     dir: PathBuf,
-    issuer: Issuer<'static, KeyPair>,
+    issuer: Issuer<'static, EcKey>,
 }
 
 impl Pki {
@@ -261,18 +262,18 @@ impl Pki {
             std::fs::read_to_string(&key_p),
         ) {
             (Ok(cert), Ok(key)) => {
-                let key = KeyPair::from_pem(&key)?;
+                let key = EcKey::from_pem(&key)?;
                 Issuer::from_ca_cert_pem(&cert, key)?
             }
             _ => {
-                let key = KeyPair::generate()?;
+                let key = EcKey::generate()?;
                 let mut p = CertificateParams::new(Vec::<String>::new())?;
                 p.distinguished_name.push(DnType::CommonName, "wyrm-ca");
                 p.is_ca = IsCa::Ca(BasicConstraints::Constrained(0));
                 p.key_usages = vec![KeyUsagePurpose::KeyCertSign, KeyUsagePurpose::CrlSign];
                 p.not_after = rcgen::date_time_ymd(2046, 1, 1);
                 let cert = p.self_signed(&key)?;
-                pd.write_file("ca.key", key.serialize_pem().as_bytes(), false)?;
+                pd.write_file("ca.key", key.pem().as_bytes(), false)?;
                 pd.write_file("ca.pem", cert.pem().as_bytes(), false)?;
                 Issuer::new(p, key)
             }
@@ -322,17 +323,13 @@ impl Pki {
                 }
             }
         }
-        let key = KeyPair::generate()?;
+        let key = EcKey::generate()?;
         let p = leaf_params(cn, sans, server, days)?;
         let cert = p.signed_by(&key, &self.issuer)?;
         // `out` (`pki`, `links/<id>`, `operators`) as a private directory: never
         // through a symlink, the key written through its handle
         let pd = private_dir_of(out)?;
-        pd.write_file(
-            &format!("{name}.key"),
-            key.serialize_pem().as_bytes(),
-            false,
-        )?;
+        pd.write_file(&format!("{name}.key"), key.pem().as_bytes(), false)?;
         pd.write_file(&format!("{name}.pem"), cert.pem().as_bytes(), false)?;
         Ok(files)
     }
@@ -352,13 +349,6 @@ const LEAF_DAYS: i64 = 365;
 /// A certificate with less than this left is issued again (and an enrolled broker asks again).
 pub const RENEW_BEFORE_S: i64 = 30 * 86_400;
 
-fn now_unix() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0)
-}
-
 /// `not_after` (Unix seconds) of a PEM certificate; `None` if it does not parse.
 pub fn cert_not_after(pem: &str) -> Option<i64> {
     let (_, block) = x509_parser::pem::parse_x509_pem(pem.trim().as_bytes()).ok()?;
@@ -368,7 +358,7 @@ pub fn cert_not_after(pem: &str) -> Option<i64> {
 
 /// It has less than [`RENEW_BEFORE_S`] left, or cannot be read: time to issue it again.
 pub fn cert_due(pem: &str) -> bool {
-    cert_not_after(pem).is_none_or(|t| t - now_unix() < RENEW_BEFORE_S)
+    cert_not_after(pem).is_none_or(|t| t - now_s_signed() < RENEW_BEFORE_S)
 }
 
 /// A kept certificate is for `cn`, names every one of `sans` and is not due.
@@ -436,7 +426,7 @@ fn leaf_params(
     }];
     p.key_usages = vec![KeyUsagePurpose::DigitalSignature];
     p.not_before = rcgen::date_time_ymd(1975, 1, 1);
-    let (y, m, d) = civil_from_days(now_unix().div_euclid(86_400) + days);
+    let (y, m, d) = civil_from_days(now_s_signed().div_euclid(86_400) + days);
     p.not_after = rcgen::date_time_ymd(y as i32, m as u8, d as u8);
     Ok(p)
 }
@@ -477,22 +467,22 @@ fn dn_text(v: &rcgen::DnValue) -> String {
 /// both administrators compare before Authorize.
 pub fn broker_csr_key(site: &str, csr_pem: &str) -> Result<String, Error> {
     let csr = broker_csr_params(site, csr_pem)?;
-    Ok(hex::encode(Sha256::digest(
+    Ok(wyrm_core::hex::sha256_hex(
         csr.public_key.subject_public_key_info(),
-    )))
+    ))
 }
 
 /// A new key for this broker towards an upstream site: `(key PEM, SHA-256
 /// of its public key)`. The key stays on this site (ADR 0015).
 pub fn new_broker_key() -> Result<(Zeroizing<String>, String), Error> {
-    let key = KeyPair::generate()?;
-    let sha = hex::encode(Sha256::digest(key.subject_public_key_info()));
-    Ok((Zeroizing::new(key.serialize_pem()), sha))
+    let key = EcKey::generate()?;
+    let sha = wyrm_core::hex::sha256_hex(key.subject_public_key_info());
+    Ok((key.pem(), sha))
 }
 
 /// The certificate request of `broker:<site>` for the key `key_pem`.
 pub fn broker_csr(site: &str, key_pem: &str) -> Result<String, Error> {
-    let key = KeyPair::from_pem(key_pem)?;
+    let key = EcKey::from_pem(key_pem)?;
     let mut p = CertificateParams::new(Vec::<String>::new())?;
     p.distinguished_name
         .push(DnType::CommonName, format!("broker:{site}"));
@@ -647,7 +637,7 @@ mod tests {
         let cert = block.parse_x509().unwrap();
         let cn = cert.subject().iter_common_name().next().unwrap();
         assert_eq!(cn.as_str().unwrap(), "broker:edge");
-        assert_eq!(hex::encode(Sha256::digest(cert.public_key().raw)), sha);
+        assert_eq!(wyrm_core::hex::sha256_hex(cert.public_key().raw), sha);
         // a request whose signature does not match is refused
         let mut bad = csr.clone();
         let mid = bad.len() / 2;
@@ -674,7 +664,7 @@ mod tests {
         let renewed = read();
         assert_ne!(renewed, short, "renewed");
         assert!(!cert_due(&renewed));
-        assert!(cert_not_after(&renewed).unwrap() - now_unix() > 300 * 86_400);
+        assert!(cert_not_after(&renewed).unwrap() - now_s_signed() > 300 * 86_400);
         pki.issue("broker:s", &sans, true, &out, "srv").unwrap();
         assert_eq!(read(), renewed, "kept while fresh");
         // a new name in the SANs, or another CN: issued again

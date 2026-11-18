@@ -686,7 +686,7 @@ impl Control {
             };
             self.record(
                 "system",
-                "update_rollback",
+                AuditOp::UpdateRollback,
                 &u.to,
                 status,
                 &format!(
@@ -794,9 +794,13 @@ impl Control {
                     tracing::error!("{} stays: {e}", order.display());
                 }
                 let (op, status, text) = if done {
-                    ("update_confirmed", Status::Ok, U::Confirmed.name())
+                    (AuditOp::UpdateConfirmed, Status::Ok, U::Confirmed.name())
                 } else {
-                    ("update_rollback", Status::InternalError, said_name(state))
+                    (
+                        AuditOp::UpdateRollback,
+                        Status::InternalError,
+                        said_name(state),
+                    )
                 };
                 *lock(&self.update.order_result) = format!("{} {text}", o.version);
                 self.record(
@@ -1134,7 +1138,7 @@ pub(super) async fn update(
                 }
                 warn!(to = %to, "broker update: {e}");
                 let key = if standby { "standby" } else { to.as_str() };
-                ctl2.record(&by, "update_start", key, Status::InternalError, &e);
+                ctl2.record(&by, AuditOp::UpdateStart, key, Status::InternalError, &e);
                 *lock(&ctl2.update.failed) = Some(BTreeMap::from([
                     ("to".to_owned(), Value::from(to)),
                     (
@@ -1318,7 +1322,7 @@ async fn run(
     debug!(bin = %bin.display(), "broker update: staged");
     ctl.record(
         &plan.by,
-        "update_start",
+        AuditOp::UpdateStart,
         &u.to,
         Status::Ok,
         &format!(
@@ -1390,7 +1394,7 @@ async fn stage_for_standby(ctl: &Arc<Control>, plan: &Plan, archive: &Path) -> R
     *lock(&ctl.update.order) = Some(order.clone());
     ctl.record(
         &plan.by,
-        "update_start",
+        AuditOp::UpdateStart,
         "standby",
         Status::Ok,
         &format!(
@@ -1457,7 +1461,7 @@ pub(super) async fn rollback(
     }
     ctl.record(
         sub,
-        "update_rollback",
+        AuditOp::UpdateRollback,
         &u.to,
         Status::Ok,
         &format!(
@@ -1813,7 +1817,7 @@ async fn trial(ctl: &Arc<Control>, session: &Session) {
             }
             ctl.record(
                 &u.by,
-                "update_confirmed",
+                AuditOp::UpdateConfirmed,
                 &u.to,
                 Status::Ok,
                 &format!(
@@ -2220,7 +2224,7 @@ mod tests {
         assert!(ctl
             .audit_tail(20)
             .iter()
-            .any(|r| r.op == "update_rollback" && r.status == Status::InternalError.code()));
+            .any(|r| r.op.name() == "update_rollback" && r.status == Status::InternalError.code()));
     }
 
     #[test]
@@ -2264,7 +2268,7 @@ mod tests {
             s.apply(crate::audit::AuditRecord {
                 t: 1,
                 sub: "a".into(),
-                op: "b".into(),
+                op: crate::audit::AuditOp::Hello.into(),
                 key: "c".into(),
                 status: 0,
                 detail: String::new(),

@@ -19,11 +19,12 @@
 
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
+pub use wyrm_core::clock::now_s;
+use wyrm_core::files::read_full;
 
 /// Version of the release and index documents.
 pub const FORMAT: u32 = 1;
@@ -184,12 +185,6 @@ pub struct Asset {
     pub bin_sha256: String,
 }
 
-fn is_sha256(s: &str) -> bool {
-    s.len() == 64
-        && s.bytes()
-            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-}
-
 /// One release of `wyrmd`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Release {
@@ -319,10 +314,10 @@ impl Release {
                     a.file
                 ));
             }
-            if !is_sha256(&a.sha256) {
+            if !wyrm_core::hex::is_lower_hex(&a.sha256, 32) {
                 return Err(format!("target {t}: sha256: 64 lower-case hex digits"));
             }
-            if !is_sha256(&a.bin_sha256) {
+            if !wyrm_core::hex::is_lower_hex(&a.bin_sha256, 32) {
                 return Err(format!("target {t}: bin_sha256: 64 lower-case hex digits"));
             }
             if a.size == 0 || a.size > MAX_ARCHIVE {
@@ -675,19 +670,9 @@ fn io(path: &Path, e: std::io::Error) -> String {
 
 /// SHA-256 (hex) and length of a file.
 pub fn sha256_file(path: &Path) -> Result<(String, u64), String> {
-    let mut f = std::fs::File::open(path).map_err(|e| io(path, e))?;
-    let mut h = Sha256::new();
-    let mut buf = vec![0u8; 1 << 20];
-    let mut total = 0u64;
-    loop {
-        let n = f.read(&mut buf).map_err(|e| io(path, e))?;
-        if n == 0 {
-            break;
-        }
-        h.update(&buf[..n]);
-        total += n as u64;
-    }
-    Ok((hex::encode(h.finalize()), total))
+    let f = std::fs::File::open(path).map_err(|e| io(path, e))?;
+    let (sum, total) = wyrm_core::hex::sha256_reader(f).map_err(|e| io(path, e))?;
+    Ok((wyrm_core::hex::encode(sum), total))
 }
 
 /// Make the entries of `dir` durable: a rename is not on disk before its directory is.
@@ -744,17 +729,6 @@ fn octal(field: &[u8]) -> Option<u64> {
         n = n.checked_mul(8)?.checked_add(u64::from(b - b'0'))?;
     }
     Some(n)
-}
-
-fn read_full(r: &mut impl Read, buf: &mut [u8]) -> std::io::Result<usize> {
-    let mut got = 0;
-    while got < buf.len() {
-        match r.read(&mut buf[got..])? {
-            0 => break,
-            n => got += n,
-        }
-    }
-    Ok(got)
 }
 
 /// Unpack the tar stream `src` into the new, empty directory `dir`: plain
@@ -1117,7 +1091,7 @@ impl Layout {
             .current_version()
             .ok_or_else(|| format!("{}: not a link to a version", self.current().display()))?;
         let bytes = read_plain_file(&self.bin_of(&version), MAX_BINARY)?;
-        let sha = hex::encode(Sha256::digest(&bytes));
+        let sha = wyrm_core::hex::sha256_hex(&bytes);
         self.verify_hash(&version, &sha, keys)?;
         let guard = self.guard();
         if sha256_file(&guard).is_ok_and(|(g, _)| g == sha) {
@@ -1518,13 +1492,6 @@ impl UpdateFile {
         }
         self.expired_starts >= 2 || past_s >= 3600
     }
-}
-
-/// Unix seconds now.
-pub fn now_s() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs())
 }
 
 /// Note that the guard ran (`data_dir/update.guard`): a broker in
@@ -2226,7 +2193,7 @@ mod tests {
                 sha256,
                 size,
                 url: String::new(),
-                bin_sha256: hex::encode(Sha256::digest(bin)),
+                bin_sha256: wyrm_core::hex::sha256_hex(bin),
             },
         )
     }
@@ -3006,7 +2973,7 @@ mod tests {
             r.targets.insert(
                 target(),
                 Asset {
-                    bin_sha256: hex::encode(Sha256::digest(bin)),
+                    bin_sha256: wyrm_core::hex::sha256_hex(bin),
                     ..asset
                 },
             );

@@ -1103,11 +1103,7 @@ mod tests {
         let cfg = crate::GatewayConfig::new(site, &dir, "127.0.0.1:0".parse().unwrap());
         let gw = Gateway::open(cfg, b"test state key").unwrap();
         // nobody logs in: the principals are made from claims, so any password will do
-        let pw: String = session::new_jti()
-            .unwrap()
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect();
+        let pw = wyrm_core::hex::encode(session::new_jti().unwrap());
         assert!(gw.ensure_admin("root", &pw).unwrap());
         gw.set_agent_links(vec!["agent".into()]);
         let zs = zenoh::open(wyrm_link_sdk::harness::isolated_config())

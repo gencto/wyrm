@@ -331,7 +331,7 @@ pub const TYPES: &[NodeType] = &[
         params: &[
             pick(
                 p("op", ParamTy::String, "How condition is compared with each case: = != > < >= <= (as numbers), contains / starts_with / ends_with / regexp (as text)."),
-                crate::blocks::CASE_OPS,
+                crate::blocks::CaseOp::NAMES,
                 "=",
             ),
             db(p("single_output", ParamTy::Bool, "When the route changes, the output routed before goes back to null (default false: each output keeps its value)."), false),

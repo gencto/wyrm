@@ -16,7 +16,7 @@
 //! A row whose value is not a number, a bool or text (or a number that is not finite) is skipped.
 
 use wyrm_core::{Quality, Value};
-use wyrm_history_sync::http::{self, loopback, parse_url, query_value, Client};
+use wyrm_history_sync::http::{self, loopback, parse_url, Client};
 use wyrm_history_sync::{Map, Row, SyncApp, Target, TargetError};
 use wyrm_link_api::Host;
 
@@ -223,8 +223,8 @@ impl Target for Influx {
         let path = format!(
             "{}/api/v2/write?org={}&bucket={}&precision=us",
             self.cfg.base,
-            query_value(&self.cfg.org),
-            query_value(&self.cfg.bucket)
+            wyrm_core::weburl::percent_encode(&self.cfg.org),
+            wyrm_core::weburl::percent_encode(&self.cfg.bucket)
         );
         let r = self.request(net, "POST", &path, body.as_bytes())?;
         judge(&r, "write")

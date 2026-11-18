@@ -23,6 +23,7 @@ use tracing::{Event, Level, Subscriber};
 use tracing_subscriber::layer::Context;
 use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::Layer;
+pub use wyrm_core::clock::now_ms;
 
 wyrm_core::name_enum! {
     /// A level a log may be set to, lowest first (`sys/log_level`, a link's
@@ -168,13 +169,6 @@ impl Ring {
         out.reverse();
         out
     }
-}
-
-pub fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
 }
 
 /// The `id` of a `link` span, kept in the span's extensions.

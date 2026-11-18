@@ -136,19 +136,6 @@ pub fn path_only(pq: &str) -> &str {
     pq.split('?').next().unwrap_or(pq)
 }
 
-/// Percent-encode a query component (RFC 3986 unreserved left as is).
-pub fn encode_query(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for b in s.bytes() {
-        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~') {
-            out.push(b as char);
-        } else {
-            out.push_str(&format!("%{b:02X}"));
-        }
-    }
-    out
-}
-
 /// What every request of a connection carries (built when its params are
 /// parsed).
 pub struct Prepared {
@@ -774,7 +761,10 @@ mod tests {
         assert!(check_path("/a#b").is_err());
         assert!(check_path("/a\u{e9}").is_err());
         assert_eq!(path_only("/a/b?key=secret"), "/a/b");
-        assert_eq!(encode_query("a b&c=d~"), "a%20b%26c%3Dd~");
+        assert_eq!(
+            wyrm_core::weburl::percent_encode("a b&c=d~"),
+            "a%20b%26c%3Dd~"
+        );
     }
 
     fn client(prefix: &str) -> Client {

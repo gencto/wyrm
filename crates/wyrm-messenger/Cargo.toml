@@ -22,7 +22,6 @@ wyrm-history-sync.workspace = true
 # JSON bodies of the chat APIs (the WYRM wire stays CBOR, principle 5).
 serde_json.workspace = true
 # Pairing codes are kept as SHA-256 only.
-sha2.workspace = true
 
 [lints]
 workspace = true

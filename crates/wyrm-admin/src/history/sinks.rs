@@ -6,6 +6,7 @@
 //! key, which the admin trusts at `read` on the sink's node alone.
 
 use super::*;
+use crate::audit::AuditOp;
 use crate::registry::SinkDef;
 use wyrm_history::ChangeLimit;
 
@@ -320,7 +321,7 @@ pub(super) async fn invoke(
             set_cursor(&st, name, Some(from)).await?;
             ctl.record(
                 sub,
-                "history_sink",
+                AuditOp::HistorySink,
                 name,
                 Status::Ok,
                 &format!("added: link {link}, groups [{}]", groups.join(", ")),
@@ -344,7 +345,7 @@ pub(super) async fn invoke(
             .map_err(rejected)?;
             ctl.record(
                 sub,
-                "history_sink",
+                AuditOp::HistorySink,
                 name,
                 Status::Ok,
                 &format!("edited: link {link}, groups [{}]", groups.join(", ")),
@@ -363,7 +364,7 @@ pub(super) async fn invoke(
             set_cursor(&st, name, Some(to)).await?;
             ctl.record(
                 sub,
-                "history_sink",
+                AuditOp::HistorySink,
                 name,
                 Status::Ok,
                 &format!("cursor reset to {to}"),
@@ -377,7 +378,7 @@ pub(super) async fn invoke(
                 .map_err(rejected)?;
             set_cursor(&st, name, None).await?;
             ctl.history.forget_sink(name);
-            ctl.record(sub, "history_sink", name, Status::Ok, "removed");
+            ctl.record(sub, AuditOp::HistorySink, name, Status::Ok, "removed");
             ctx.remove_node(&format!("{ROOT}/{SINKS}/{name}")).await?;
             Ok(None)
         }

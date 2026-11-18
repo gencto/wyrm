@@ -14,7 +14,6 @@
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use serde_json::{json, Value as Json};
-use sha2::{Digest, Sha256};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -210,7 +209,7 @@ impl Env {
         .await;
         assert_eq!(r.status, 201, "{}", r.body);
         let client_id = r.json()["client_id"].as_str().unwrap().to_owned();
-        let challenge = URL_SAFE_NO_PAD.encode(Sha256::digest(VERIFIER.as_bytes()));
+        let challenge = URL_SAFE_NO_PAD.encode(wyrm_core::hex::sha256(VERIFIER.as_bytes()));
         let params = [
             ("response_type", "code"),
             ("client_id", client_id.as_str()),

@@ -1,15 +1,11 @@
 //! AWS Signature Version 4 for S3 (header auth, signed payload hash).
 
-use ring::digest::{digest, SHA256};
 use ring::hmac;
+pub use wyrm_core::hex::sha256_hex;
 
 pub const ALGORITHM: &str = "AWS4-HMAC-SHA256";
 /// `x-amz-content-sha256` of an empty body.
 pub const EMPTY_SHA256: &str = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
-
-pub fn sha256_hex(b: &[u8]) -> String {
-    hex::encode(digest(&SHA256, b).as_ref())
-}
 
 fn hmac(key: &[u8], msg: &str) -> Vec<u8> {
     hmac::sign(&hmac::Key::new(hmac::HMAC_SHA256, key), msg.as_bytes())
