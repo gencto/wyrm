@@ -1310,7 +1310,7 @@ extension SelectBrokerHealth on Selectors {
       // a connection that awaits a decision and that Studio could not
       // read is seen here too
       for (final q in waiting)
-        if (q.kind == QuarantineKind.notRead)
+        if (q.kind == null)
           AttentionItem(
             kind: AttentionKind.waitingNotRead,
             subject: q.node,

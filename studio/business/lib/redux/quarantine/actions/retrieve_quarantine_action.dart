@@ -1,7 +1,6 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/param_spec.dart';
 import 'package:models/quarantine_entry.dart';
-import 'package:models/quarantine_kind.dart';
 
 import '../../../wyrm/calls.dart';
 import '../../../wyrm/decode/param_spec.dart';
@@ -47,7 +46,8 @@ class RetrieveQuarantineAction extends Action with WaitingAction {
           QuarantineEntry(
             cn: m.displayName ?? c.name,
             node: c.name,
-            kind: QuarantineKind.notRead,
+            // what it is, is not known
+            kind: null,
           ),
         );
         continue;

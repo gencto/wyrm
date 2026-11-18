@@ -14,6 +14,7 @@ import '../indicators/app_icon.dart';
 import '../indicators/status_pill.dart';
 import '../models/disabled.dart';
 import '../models/tone.dart';
+import '../models/waiting_kind.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/spacing.dart';
@@ -196,8 +197,7 @@ final class WaitingSiteVm extends SiteDetailVm {
     super.name,
     super.key, {
     required this.cn,
-    this.broker = false,
-    this.notRead = false,
+    this.kind = WaitingKind.link,
     this.from,
     this.via = const [],
     this.hash,
@@ -205,10 +205,10 @@ final class WaitingSiteVm extends SiteDetailVm {
   });
 
   final String cn;
-  final bool broker;
 
-  /// What waits was answered in a form Studio does not read.
-  final bool notRead;
+  /// What waits: a link, a downstream broker, or an entry Studio could
+  /// not read.
+  final WaitingKind kind;
   final String? from;
   final List<String> via;
 
@@ -221,8 +221,7 @@ final class WaitingSiteVm extends SiteDetailVm {
     name,
     key,
     cn,
-    broker,
-    notRead,
+    kind,
     from,
     via,
     hash,
@@ -522,9 +521,11 @@ class SitesPage extends StatelessWidget {
         ],
       ),
       WaitingSiteVm(:final key) && final d => DetailInspectorVm(
-        eyebrow: d.notRead
-            ? s.waitNotRead
-            : (d.broker ? s.brokerWaiting : s.waitingInQuarantine),
+        eyebrow: switch (d.kind) {
+          WaitingKind.notRead => s.waitNotRead,
+          WaitingKind.broker => s.brokerWaiting,
+          WaitingKind.link => s.waitingInQuarantine,
+        },
         title: d.cn,
         pill: StatusPillVm(
           label: s.stateWaiting,
@@ -541,7 +542,7 @@ class SitesPage extends StatelessWidget {
             FactVm(label: s.factKey, value: k, mono: true),
         ],
         form: switch (d.fields) {
-          final fields? when d.broker => InspectorFormVm(
+          final fields? when d.kind == WaitingKind.broker => InspectorFormVm(
             id: d.name,
             label: s.letTheBrokerIn,
             fields: fields,
@@ -552,7 +553,7 @@ class SitesPage extends StatelessWidget {
           ),
           _ => null,
         },
-        groups: d.broker
+        groups: d.kind == WaitingKind.broker
             ? const []
             : [
                 ActionGroupVm(

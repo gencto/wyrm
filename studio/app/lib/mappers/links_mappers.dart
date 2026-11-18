@@ -12,6 +12,7 @@ import 'package:models/update_result.dart';
 import 'package:models/update_stage.dart';
 import 'package:ui/forms/param_form.dart';
 import 'package:ui/models/disabled.dart';
+import 'package:ui/models/waiting_kind.dart';
 import 'package:ui/pages/links_data.dart';
 
 import 'rights_mappers.dart';
@@ -118,6 +119,16 @@ extension PackageInfoUi on PackageInfo {
       );
 }
 
+extension QuarantineKindUi on QuarantineKind? {
+  /// What waits, as the screens tell it apart; no kind is an entry that
+  /// was not read.
+  WaitingKind get waiting => switch (this) {
+    QuarantineKind.link => WaitingKind.link,
+    QuarantineKind.broker => WaitingKind.broker,
+    null => WaitingKind.notRead,
+  };
+}
+
 extension QuarantineEntryUi on QuarantineEntry {
   /// Its row and inspector; [fields] the form of its `approve`, [reason]
   /// why the user may not decide.
@@ -125,8 +136,7 @@ extension QuarantineEntryUi on QuarantineEntry {
       QuarantineData(
         node: node,
         cn: cn,
-        broker: kind == QuarantineKind.broker,
-        notRead: kind == QuarantineKind.notRead,
+        kind: kind.waiting,
         from: from,
         via: via.unlock,
         deauthorized: deauthorized,

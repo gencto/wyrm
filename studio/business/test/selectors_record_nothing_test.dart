@@ -11,7 +11,6 @@ import 'package:models/link_info.dart';
 import 'package:models/link_state.dart';
 import 'package:models/live_value.dart';
 import 'package:models/quarantine_entry.dart';
-import 'package:models/quarantine_kind.dart';
 
 class _Sel with Selectors {
   _Sel(this.state);
@@ -130,12 +129,12 @@ void main() {
           'gw-9': QuarantineEntry(
             cn: 'gateway:gw-9',
             node: 'gw-9',
-            kind: QuarantineKind.notRead,
+            kind: null,
           ),
           'held': QuarantineEntry(
             cn: 'x',
             node: 'held',
-            kind: QuarantineKind.notRead,
+            kind: null,
             deauthorized: true,
           ),
         }.lock,

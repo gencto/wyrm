@@ -5,6 +5,7 @@ import 'package:models/backup_sealed.dart';
 import 'package:models/backup_section.dart';
 import 'package:models/backup_status.dart';
 import 'package:models/backup_step.dart';
+import 'package:models/backups_attrs.dart';
 import 'package:models/send_link.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -178,14 +179,6 @@ Decoded<IList<SendLink>> _sendLinks(List<Value> rows) {
   return Valid(out.lock);
 }
 
-/// The attributes of `sys/backups` (ADR 0048 §3.4).
-typedef BackupsAttrs = ({
-  bool exportSecrets,
-  IList<SendLink> sendLinks,
-  IList<BackupSection> sections,
-  int keepDays,
-});
-
 /// The [BackupsAttrs] of the meta of `sys/backups`: `export_secrets`
 /// (default false), `send_links`, `sections` (the sections a backup may
 /// hold), `keep_days` (default 7). An attribute of another shape is
@@ -224,12 +217,14 @@ Decoded<BackupsAttrs> backupsAttrsOf(NodeMeta m) {
     return const Invalid('backups', 'sections', 'not known sections');
   }
   return switch (sendLinksOf(attr['send_links'])) {
-    Valid(value: final sendLinks) => Valid((
-      exportSecrets: exportSecrets,
-      sendLinks: sendLinks,
-      sections: sections.nonNulls.toIList(),
-      keepDays: keepDays,
-    )),
+    Valid(value: final sendLinks) => Valid(
+      BackupsAttrs(
+        exportSecrets: exportSecrets,
+        sendLinks: sendLinks,
+        sections: sections.nonNulls.toIList(),
+        keepDays: keepDays,
+      ),
+    ),
     final Invalid<IList<SendLink>> i => Invalid(i.shape, i.field, i.reason),
   };
 }

@@ -3,7 +3,6 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
 import 'package:models/quarantine_entry.dart';
-import 'package:models/quarantine_kind.dart';
 import 'package:ui/pages/sites_page.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -101,7 +100,7 @@ void main() {
             const QuarantineEntry(
               cn: 'gateway:gw-9',
               node: 'gw-9',
-              kind: QuarantineKind.notRead,
+              kind: null,
             ),
           ),
           view: s.quarantine.view.add('gw-9'),

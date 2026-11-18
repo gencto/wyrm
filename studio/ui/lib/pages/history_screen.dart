@@ -75,23 +75,38 @@ enum GroupLogging {
 
 /// How a watch group records, as it is said: one of the ways Studio knows
 /// by its label, or the broker's own name of a way it does not know.
-final class GroupLoggingVm extends Equatable {
-  const GroupLoggingVm.known(GroupLogging this.known) : other = null;
+sealed class GroupLoggingVm extends Equatable {
+  const GroupLoggingVm();
 
-  const GroupLoggingVm.other(String this.other) : known = null;
+  /// One of the ways Studio knows.
+  const factory GroupLoggingVm.known(GroupLogging way) = GroupLoggingKnown;
 
-  final GroupLogging? known;
+  /// A way Studio does not know, by the broker's own [name] of it.
+  const factory GroupLoggingVm.other(String name) = GroupLoggingOther;
 
-  /// The broker's name of a way of recording Studio does not know.
-  final String? other;
-
-  String get label => switch (known) {
-    final k? => k.label,
-    null => S.current.logTypeOther(other ?? ''),
+  String get label => switch (this) {
+    GroupLoggingKnown(:final way) => way.label,
+    GroupLoggingOther(:final name) => S.current.logTypeOther(name),
   };
+}
+
+final class GroupLoggingKnown extends GroupLoggingVm {
+  const GroupLoggingKnown(this.way);
+
+  final GroupLogging way;
 
   @override
-  List<Object?> get props => [known, other];
+  List<Object?> get props => [way];
+}
+
+final class GroupLoggingOther extends GroupLoggingVm {
+  const GroupLoggingOther(this.name);
+
+  /// The broker's name of the way of recording.
+  final String name;
+
+  @override
+  List<Object?> get props => [name];
 }
 
 /// A watch group: its name, how it records (null: not known yet), its

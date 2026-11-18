@@ -15,6 +15,7 @@ import 'package:models/backup_kind.dart';
 import 'package:models/backup_sealed.dart';
 import 'package:models/backup_section.dart';
 import 'package:models/backup_status.dart';
+import 'package:models/backups_attrs.dart';
 import 'package:models/broker_self_update.dart';
 import 'package:models/live_value.dart';
 import 'package:models/log_level.dart';

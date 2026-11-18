@@ -56,6 +56,6 @@ Solid arrow: `push`. Dashed: `pop` (drawn back to the only screen that pushes it
 | `AccessPage` | `/studio/access` | no | 5 | [access](access.md) |
 | `SitesPage` | `/studio/sites` | no | 4 | [sites](sites.md) |
 | `AssistantPage` | `/studio/assistant` | no | 23 | [assistant](assistant.md) |
-| `SystemPage` | `/studio/system` | no | 26 | [system](system.md) |
+| `SystemPage` | `/studio/system` | no | 27 | [system](system.md) |
 | `LinkInstallPage` | `/link-install` | no | 17 | [linkInstall](linkInstall.md) |
 | `FlowEditorPage` | `/flow-editor/:id` | no | 41 | [flowEditor](flowEditor.md) |

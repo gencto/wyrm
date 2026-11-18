@@ -6,6 +6,7 @@ import 'package:models/quarantine_entry.dart';
 import 'package:models/quarantine_kind.dart';
 import 'package:models/site_node.dart';
 import 'package:models/site_pick.dart';
+import 'package:ui/models/waiting_kind.dart';
 
 /// A waiting connection and a broker node Studio could not read stay on
 /// the screens as "not read" (re-audit of #135, 11): never as a link, a
@@ -15,21 +16,21 @@ void main() {
     const q = QuarantineEntry(
       cn: 'gw-9',
       node: 'gw-9',
-      kind: QuarantineKind.notRead,
+      kind: null,
     );
     final row = q.data();
-    expect((row.notRead, row.broker), (true, false));
+    expect(row.kind, WaitingKind.notRead);
     // no form of Authorize is made up for it
     expect(row.fields, isNull);
 
     const link = QuarantineEntry(cn: 'plc', node: 'plc');
-    expect(link.data().notRead, isFalse);
+    expect(link.data().kind, WaitingKind.link);
     const broker = QuarantineEntry(
       cn: 'broker:plant',
       node: 'broker_plant',
       kind: QuarantineKind.broker,
     );
-    expect((broker.data().notRead, broker.data().broker), (false, true));
+    expect(broker.data().kind, WaitingKind.broker);
   });
 
   test('a node of the map that was not read says so', () {

@@ -175,8 +175,8 @@ void main() {
     expect(s.state.quarantine.view, ['plc-gw-7', 'gw-9', 'old']);
     final table = s.state.quarantine.table;
     expect(table['plc-gw-7']!.kind, QuarantineKind.link);
-    expect(table['gw-9']!.kind, QuarantineKind.notRead);
-    expect(table['old']!.kind, QuarantineKind.notRead);
+    expect(table['gw-9']!.kind, isNull);
+    expect(table['old']!.kind, isNull);
     // and no Authorize form is offered for what was not read
     expect(s.state.quarantine.forms.keys, isEmpty);
     // it is neither a link that waits nor a broker that asks to join

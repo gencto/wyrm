@@ -1,5 +1,5 @@
-import 'package:business/redux/app_state.dart'
-    show SelectBackups, TrafficTrendView;
+import 'package:business/redux/app_state.dart' show TrafficTrendView;
+import 'package:business/redux/backups/models/backups_state.dart';
 import 'package:business/redux/last_result.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/attention_item.dart';
@@ -251,7 +251,7 @@ extension BackupsReadCard on BackupsRead {
   };
 }
 
-extension BackupsCard on SelectBackups {
+extension BackupsCard on BackupsState {
   /// The card *Backups* of System from what is known of `sys/backups`,
   /// with the kept backups [rows].
   SysBackupsData? card(List<BackupJob> rows) =>

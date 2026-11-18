@@ -266,7 +266,7 @@ final class _Sites with Selectors {
         pick: SitePick(SiteNode.waiting, q.node),
         name: q.cn,
         parent: self,
-        notRead: q.kind == QuarantineKind.notRead,
+        notRead: q.kind == null,
       ),
     for (final p in of(PeerKind.relayed))
       SiteMapNode(

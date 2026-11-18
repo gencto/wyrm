@@ -6,6 +6,7 @@ import '../indicators/app_icon.dart';
 import '../models/disabled.dart';
 import '../models/link_run_mode.dart';
 import '../models/tone.dart';
+import '../models/waiting_kind.dart';
 
 /// A tab of Links, as drawn.
 enum LinksTabKey {
@@ -214,8 +215,7 @@ final class QuarantineData extends Equatable {
   const QuarantineData({
     required this.node,
     required this.cn,
-    required this.broker,
-    this.notRead = false,
+    required this.kind,
     this.from,
     this.via = const [],
     this.deauthorized = false,
@@ -228,12 +228,9 @@ final class QuarantineData extends Equatable {
   final String node;
   final String cn;
 
-  /// A downstream broker asking for Authorize; else a link.
-  final bool broker;
-
-  /// The entry was answered in a form Studio does not read: what waits is
-  /// not known, and the row says so.
-  final bool notRead;
+  /// What waits: a link, a downstream broker, or an entry Studio could
+  /// not read (the row says so).
+  final WaitingKind kind;
   final String? from;
   final List<String> via;
   final bool deauthorized;
@@ -248,10 +245,9 @@ final class QuarantineData extends Equatable {
 
   @override
   List<Object?> get props => [
-    notRead,
     node,
     cn,
-    broker,
+    kind,
     from,
     via,
     deauthorized,

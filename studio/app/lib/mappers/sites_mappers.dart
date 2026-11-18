@@ -1,11 +1,11 @@
 import 'package:business/wyrm/sites.dart';
-import 'package:models/quarantine_kind.dart';
 import 'package:models/site_node.dart';
 import 'package:models/site_pick.dart';
 import 'package:ui/charts/site_map.dart';
 import 'package:ui/pages/sites_page.dart';
 
 import '../common/forms.dart';
+import 'links_mappers.dart' show QuarantineKindUi;
 
 /// A node of the domain as the map draws it; a waiting one by what waits
 /// (`broker`: a broker, else a link).
@@ -79,8 +79,7 @@ extension SiteDetailVmOf on SiteDetail {
         name,
         key,
         cn: entry.cn,
-        broker: entry.kind == QuarantineKind.broker,
-        notRead: entry.kind == QuarantineKind.notRead,
+        kind: entry.kind.waiting,
         from: entry.from,
         via: entry.via.unlock,
         hash: entry.key,

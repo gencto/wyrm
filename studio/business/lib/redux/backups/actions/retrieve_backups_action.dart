@@ -1,5 +1,6 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/backup_job.dart';
+import 'package:models/backups_attrs.dart';
 import 'package:models/backups_read.dart';
 import 'package:models/error_hint.dart';
 import 'package:models/error_kind.dart';

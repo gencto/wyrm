@@ -105,7 +105,7 @@ void main() {
         for (final id in s.state.quarantine.view)
           s.state.quarantine.table[id]!.kind,
       ],
-      [QuarantineKind.link, QuarantineKind.notRead, QuarantineKind.notRead],
+      [QuarantineKind.link, null, null],
     );
     final p = unread().single;
     expect(p.key, '$_root/sys/quarantine');
