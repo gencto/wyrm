@@ -81,6 +81,9 @@ the wire:
 - `ParamMeta::editor` takes an `Editor` (it took text), and the field
   `ParamMeta.editor` is an `Option<OrUnknown<Editor>>`; ask with
   `ParamMeta::has_editor(Editor::File)`.
+- `Link::on_check` takes its arguments by value (`args: Value`, it was
+  `&Value`), like `on_invoke`. `App::on_check` of a portable link is as it
+  was.
 - `ParamSpec.editor` is an `Option<Editor>` and `ParamSpec::editor` takes an
   `Editor`. `#[param(editor = "textarea")]` of the driver derive is as it
   was; a name that is no editor does not compile any more.

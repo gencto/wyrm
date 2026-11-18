@@ -1880,17 +1880,10 @@ impl Admin {
     pub(super) async fn update_action(
         &self,
         name: &str,
-        args: Value,
+        a: UpdatePackage,
         sub: &str,
     ) -> wyrm_link_sdk::Result<Option<Value>> {
-        let def = self
-            .ctl
-            .registry()
-            .packages
-            .get(name)
-            .cloned()
-            .ok_or_else(|| LinkError::not_found(name.to_owned()))?;
-        let a = UpdatePackage::decode(args)?;
+        let def = self.package(name)?;
         let opts = a.opts;
         let _busy = self.ctl.busy()?;
         self.ctl.not_updating(name)?;
@@ -1935,17 +1928,10 @@ impl Admin {
     pub(super) async fn rollback_action(
         &self,
         name: &str,
-        args: Value,
+        a: RollbackPackage,
         sub: &str,
     ) -> wyrm_link_sdk::Result<Option<Value>> {
-        let def = self
-            .ctl
-            .registry()
-            .packages
-            .get(name)
-            .cloned()
-            .ok_or_else(|| LinkError::not_found(name.to_owned()))?;
-        let a = RollbackPackage::decode(args)?;
+        let def = self.package(name)?;
         let restore_data = a.restore_data;
         let _busy = self.ctl.busy()?;
         let prev = match def.previous.as_deref() {

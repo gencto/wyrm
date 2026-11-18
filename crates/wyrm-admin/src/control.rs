@@ -3882,8 +3882,16 @@ impl Link for Admin {
                 }
             }
             // the package must exist before its arguments are read
-            (["packages", name], "update") => self.update_action(name, args, &sub).await,
-            (["packages", name], "rollback") => self.rollback_action(name, args, &sub).await,
+            (["packages", name], "update") => {
+                self.package(name)?;
+                self.update_action(name, updates::UpdatePackage::decode(args)?, &sub)
+                    .await
+            }
+            (["packages", name], "rollback") => {
+                self.package(name)?;
+                self.rollback_action(name, updates::RollbackPackage::decode(args)?, &sub)
+                    .await
+            }
             (["links", id], "hello") => self.hello(id, Hello::decode(args)?).await,
             // a link that an operation holds (an update of its package with
             // its check, a rollback, a restore of the link) is that
@@ -4851,6 +4859,16 @@ impl Admin {
             debug!("delete {key}: {e}");
         }
         Ok(())
+    }
+
+    /// The installed package `name`, or `not_found`.
+    pub(super) fn package(&self, name: &str) -> wyrm_link_sdk::Result<PackageDef> {
+        self.ctl
+            .registry()
+            .packages
+            .get(name)
+            .cloned()
+            .ok_or_else(|| LinkError::not_found(name.to_owned()))
     }
 
     fn def(&self, id: &str) -> wyrm_link_sdk::Result<LinkDef> {

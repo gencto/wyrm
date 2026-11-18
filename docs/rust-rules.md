@@ -307,11 +307,15 @@ optional; whole numbers go through `Value::to_int`; a closed set is a
 `name_enum!` type with `#[param(choice)]` (by name) or `#[param(enum)]` (by
 index); a name that is no field is refused; every refusal names its field. A
 name is one field: two fields of one struct with one name do not compile, and
-a crate's tests walk its structs with `wyrm_core::args::repeated_param` for a
-name that comes again through `flatten`. `#[param(nonempty)]` is the empty
-text only; a text of white space is empty only with `trim`. The caller is
-checked before its arguments are decoded (a stranger is told
-`permission_denied`, never that its arguments were wrong). What a form shows from the
+neither does a name that comes again through `flatten` (the derive asserts it
+in a `const` over `Args::NAMES`, in every crate, with no list to keep).
+`flatten` stands alone: another attribute beside it does not compile.
+`#[param(nonempty)]` is the empty text only; a text of white space is empty
+only with `trim`. What a refused call leaves in the map is zeroed. The caller
+is checked before its arguments are decoded (a stranger is told
+`permission_denied`, never that its arguments were wrong), and so is the state
+the action is about: what does not exist is `not_found`, and a broker that is
+closing is `busy`, whatever the arguments are. What a form shows from the
 state of the moment (the choices of a list, the value in force) is set with
 `ActionMeta::shown`, which cannot change a type or add a parameter. In
 `wyrm-admin` this is the only way (C12): no argument reader, no `ParamMeta`
@@ -348,17 +352,28 @@ follow as they move, audit T3). There `args` names an action's arguments and
 nothing else (a process's arguments are `argv`, a call built for another link
 is a `request`), and it has three uses: the parameter (`args: Value`), the
 one argument of a struct's decoder (`X::decode(args)`, `<()>::decode(args)`),
-and a whole hand-over to a dispatcher (`…::invoke(…, args, …)`). **Every other
-`args` counts**: a helper called with it, a method on it, a macro, a new name
-for it, a `match`. Also counted: a dispatcher (`on_invoke`, `on_check`,
-`invoke`) that names its arguments otherwise; an argument reader by name
+and a whole hand-over to a dispatcher of the crate (`history::invoke(…, args,
+…)`: a lower-case module path, never a bare or a closure `invoke`). The
+decoder is that of a struct of the crate that derives `Args` (the script
+collects the names) or `<()>`: `Raw::decode(args)`, `Self::decode(args)`, a
+type of another crate and a second read (`X::decode(args.clone())`) count.
+**Every other `args` counts**: a helper called with it, a method on it, a
+macro, a new name for it (`let a = args`, `let args: T = …`), a `match`. Also
+counted: a function that takes the arguments (`on_invoke`, `on_check`,
+`invoke`, `decode`) with any `Value` in its parameters or generics other than
+`args: Value` / `args: &Value` (`&'a Value`, `impl Into<Value>`,
+`Option<Value>`, `Arc<Value>`, a full path), or without it; `invoke` and
+`decode` as a closure or a method; a `Value` taken apart in a parameter; a
+type alias of `Value`; `let a: ActionMeta = Default::default()`; an argument
+reader by name
 (`arg(…)`, `…_arg(…)`, `from_args(…)`); a parameter or an action written out
 (`ParamMeta`, `.param(…)`, `ActionMeta::new()`, `ActionMeta { … }`: an action
 is `X::action()`); a change of an action's declared parameters
 (`a.params.insert(…)`, `.entry`, `.retain`, `.values_mut()`, `&mut a.params`,
 `a.params = …`); a decoder written by hand (`impl Args for`, `fn decode(v:
 Value)`). A file named `decode.rs` is no decoder module inside `wyrm-admin`:
-C4 counts its reads.
+C4 counts its reads. C4 also counts, in every crate, a map view of a value
+(`.as_map()`) and a key that is a variable or a call (`m.get(k)?.as_str()`).
 
 ## 8. A public error is a type, not a `String`
 
@@ -535,8 +550,16 @@ before every run.
 An action argument (`#[derive(Args)]`) takes `Secret` (a text parameter) and
 `SecretBytes` (a binary one), and nothing else: `#[param(secret)]` on a
 `String` or a `Vec<u8>` does not compile (`wyrm_core::args::SecretArg`), and a
-secret is never trimmed (`secret` with `trim` does not compile; `nonempty`
-drops only the empty text, so a passphrase of spaces is a passphrase). The driver derive (`#[derive(Params)]`) does not
+secret is never trimmed (`nonempty` drops only the empty text, so a passphrase
+of spaces is a passphrase). **One named exception:** a token a person pastes
+as one line (an enrolment token of `upstream ▸ add`) is a `SecretLine`, whose
+type cuts the white space around it: a pasted line often ends with a newline,
+and a token holds none. `secret` with `trim` compiles only on that type
+(`PastedSecretArg`); never use it for a passphrase or a key.
+
+A field of an `Args` struct that is named `token`, `passphrase`, `password`,
+`secret` or `key` has a secret type, with or without the attribute. What is
+not a secret is called what it is (`key_sha256` with `name = "key"`). The driver derive (`#[derive(Params)]`) does not
 take `Secret` yet; until then its count only goes down as links move.
 
 **Why.** Today secrets stay out of `Debug` by a comment ("No `Debug`: it holds
@@ -553,7 +576,8 @@ password: Secret,
 ```
 
 **Check.** C10 `plain-secret` (a type alias of the file is followed to its
-type).
+type): a `#[param(secret)]` field, and a field of an `Args` struct with one
+of the five names above.
 
 ## 13. Baselined clippy lints
 
