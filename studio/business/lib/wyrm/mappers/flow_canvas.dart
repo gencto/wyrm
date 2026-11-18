@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
@@ -14,6 +13,7 @@ import 'package:models/undo_tag.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../decode/flow_clip.dart';
+import '../decode/typed_json.dart';
 import 'block_cfg.dart';
 import 'config_text.dart';
 import 'flow_blocks.dart';
@@ -497,7 +497,7 @@ JsonValue fieldEditValue(FlowBlock b, FlowField f) => switch (f) {
 /// config's value, else the parameter's default; a map or a list as
 /// indented JSON; a text as itself.
 String fieldEditText(FlowBlock b, FlowField f) =>
-    jsonEditText(fieldEditValue(b, f).raw);
+    jsonEditText(fieldEditValue(b, f));
 
 /// What is wrong with [text] as a value typed by [edit]; null when it can
 /// be saved. Empty text is always right: it removes the value.
@@ -511,14 +511,12 @@ FieldEditError? fieldEditError(String text, FieldEdit edit) {
       final n = num.tryParse(s);
       return n == null || !n.isFinite ? FieldEditError.number : null;
     case FieldEdit.json:
-      try {
-        return switch (JsonValue.of(jsonDecode(s))) {
-          JsonMap() || JsonList() => null,
-          _ => FieldEditError.json,
-        };
-      } on FormatException {
-        return FieldEditError.json;
-      }
+      // decoded at the boundary: no JSON, or nested past the bound, is
+      // an error to show, never a throw in the build
+      return switch (typedJsonOf(s).orNull) {
+        JsonMap() || JsonList() => null,
+        _ => FieldEditError.json,
+      };
     case FieldEdit.toggle:
       return bool.tryParse(s) == null ? FieldEditError.toggle : null;
     case FieldEdit.choice || FieldEdit.text || FieldEdit.any:
@@ -537,21 +535,15 @@ Object? typedText(String text, FieldEdit edit) {
       return num.tryParse(s) ?? text;
     case FieldEdit.toggle:
       return bool.tryParse(s) ?? text;
+    // A text that does not decode (no JSON, or nested past the bound,
+    // `typedJsonOf`) stays the text: no such value reaches a config.
     case FieldEdit.json:
-      try {
-        return jsonDecode(text);
-      } on FormatException {
-        return text;
-      }
+      return typedJsonOf(text).orNull?.raw ?? text;
     case FieldEdit.any:
       if (s.isEmpty) {
         return text;
       }
-      try {
-        return jsonDecode(s);
-      } on FormatException {
-        return text;
-      }
+      return typedJsonOf(s).orNull?.raw ?? text;
     case FieldEdit.choice || FieldEdit.text:
       return text;
   }

@@ -611,7 +611,7 @@ InspectorRow _row(
                     choices: c.choices.lock,
                   ),
               ].lock,
-              rows: [for (final r in listRowsOf(v.raw)) r.lock].lock,
+              rows: [for (final r in listRowsOf(v)) r.lock].lock,
             ),
       // A scope that the engine would refuse says why, once it matters.
       scopeError: !scoped
@@ -642,7 +642,7 @@ InspectorRow _row(
         _ => false,
       },
       value: switch (v) {
-        JsonMap() || JsonList() => jsonEditText(v.raw),
+        JsonMap() || JsonList() => jsonEditText(v),
         JsonNull() => '',
         JsonText(:final text) => text,
         JsonNumber(:final value) => '$value',

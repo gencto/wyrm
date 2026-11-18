@@ -1920,6 +1920,9 @@ extension type SelectLinks(AppState _state) {
 
   /// Returns updatesAvailable
   int get updatesAvailable => _state.links.updatesAvailable;
+
+  /// Returns shown
+  bool get shown => _state.links.shown;
 }
 
 extension type SelectQuarantine(AppState _state) {

@@ -1,5 +1,3 @@
-import 'package:models/backups_read.dart';
-
 import '../../app_state.dart';
 import '../../assistant/actions/load_assistant_action.dart';
 import '../../backups/actions/retrieve_backups_action.dart';
@@ -29,12 +27,10 @@ class ReloadShownAction extends Action with WaitingAction {
       if (links.view.isNotEmpty) RetrieveLinksAction(),
       if (quarantine.view.isNotEmpty) RetrieveQuarantineAction(),
       if (packages.view.isNotEmpty) RetrievePackagesAction(),
-      // what a screen asked for: also backups that were not read, or
-      // whose read failed (the next read may be); not those nobody asked
-      // for yet, nor those of a broker that has none
-      if (backups.availability != BackupsRead.unknown &&
-          backups.availability != BackupsRead.absent)
-        RetrieveBackupsAction(quiet: true),
+      // a shown screen that offers backups (System's card, Links'
+      // buttons) reads them again, whatever the last read gave: after a
+      // site switch they are the new site's, not read yet
+      if (system.shown || links.shown) RetrieveBackupsAction(quiet: true),
       // the Assistant reads its agent again: after a site switch it is the
       // new site's agent, with its own tasks
       if (assistant.shown) LoadAssistantAction(),

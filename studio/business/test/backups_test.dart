@@ -24,6 +24,7 @@ import 'package:business/redux/backups/actions/send_backup_action.dart';
 import 'package:business/redux/backups/actions/set_backup_form_action.dart';
 import 'package:business/redux/backups/actions/upload_restore_action.dart';
 import 'package:business/redux/broker_update/actions/open_broker_update_action.dart';
+import 'package:business/redux/common/action.dart';
 import 'package:business/redux/link_install/actions/check_package_action.dart';
 import 'package:business/redux/link_install/actions/choose_install_source_action.dart';
 import 'package:business/redux/link_install/actions/continue_install_action.dart';
@@ -31,7 +32,9 @@ import 'package:business/redux/link_install/actions/install_backup_action.dart';
 import 'package:business/redux/link_install/actions/set_accept_rights_action.dart';
 import 'package:business/redux/link_install/actions/set_name_action.dart';
 import 'package:business/redux/link_install/actions/set_source_action.dart';
+import 'package:business/redux/links/actions/hide_links_action.dart';
 import 'package:business/redux/links/actions/retrieve_links_action.dart';
+import 'package:business/redux/links/actions/show_links_action.dart';
 import 'package:business/redux/live/actions/unwatch_keys_action.dart';
 import 'package:business/redux/live/actions/watch_keys_action.dart';
 import 'package:business/redux/login/actions/log_in_action.dart';
@@ -42,6 +45,7 @@ import 'package:business/redux/session/actions/log_out_action.dart';
 import 'package:business/redux/site/actions/reload_shown_action.dart';
 import 'package:business/redux/site/actions/set_connected_action.dart';
 import 'package:business/redux/site/actions/view_site_action.dart';
+import 'package:business/redux/system/actions/set_shown_action.dart';
 import 'package:business/redux/updates/actions/open_update_action.dart';
 import 'package:business/wyrm/backup_plan.dart';
 import 'package:business/wyrm/decode/backup_job.dart';
@@ -361,11 +365,11 @@ void main() {
       final fresh = fakeStore(login: FakeLogin());
       expect(fresh.state.backups.availability, BackupsRead.unknown);
 
-      // a site whose first read fails
-      await s.dispatchAndWait(ViewSiteAction('plant'));
-      expect(s.state.backups.availability, BackupsRead.unknown);
+      // a site whose first read fails, while no screen shows backups
       const plant = 'wy/plant/sys/backups';
       api.errors[plant] = WyrmException.of(Status.timeout, 'no answer');
+      await s.dispatchAndWait(ViewSiteAction('plant'));
+      expect(s.state.backups.availability, BackupsRead.unknown);
       final failed = await s.dispatchAndWait(RetrieveBackupsAction());
       expect(failed.isCompletedFailed, isTrue);
       expect(s.state.backups.availability, BackupsRead.failed);
@@ -376,6 +380,7 @@ void main() {
         ..errors.remove(plant)
         ..metas[plant] = api.metas[_b]!
         ..children_[plant] = [];
+      s.dispatchSync(SetShownAction(true));
       await s.dispatchAndWait(ReloadShownAction());
       expect(s.state.backups.availability, BackupsRead.read);
       expect(_Sel(s.state).backupsOffered, isTrue);
@@ -390,6 +395,48 @@ void main() {
       api.errors[plant] = WyrmException.of(Status.notFound, 'no such node');
       await s.dispatchAndWait(RetrieveBackupsAction());
       expect(s.state.backups.availability, BackupsRead.absent);
+    });
+
+    test('a site change while a screen shows backups reads the new '
+        "site's (audit 4 of #135, 2)", () async {
+      const edge = 'wy/edge/sys/backups';
+      api
+        ..metas[edge] = api.metas[_b]!
+        ..children_[edge] = [];
+      for (final (screen, show, hide) in <(String, Action, Action)>[
+        ('System', SetShownAction(true), SetShownAction(false)),
+        ('Links', ShowLinksAction(), HideLinksAction()),
+      ]) {
+        await s.dispatchAndWait(ViewSiteAction('central'));
+        await s.dispatchAndWait(show);
+        await s.dispatchAndWait(RetrieveBackupsAction());
+        expect(s.state.backups.availability, BackupsRead.read, reason: screen);
+        api.calls.clear();
+
+        // the switch empties what was the old site's, and the shown screen
+        // reads the new site's at once (`deps.reloads`)
+        await s.dispatchAndWait(ViewSiteAction('edge'));
+        await s.dispatchAndWait(ReloadShownAction());
+        expect(
+          api.calls.where((c) => c.op == 'meta' && c.key == edge),
+          isNotEmpty,
+          reason: screen,
+        );
+        expect(s.state.backups.availability, BackupsRead.read, reason: screen);
+        expect(_Sel(s.state).backupsOffered, isTrue, reason: screen);
+
+        // hidden, a switch reads nothing of backups
+        await s.dispatchAndWait(hide);
+        await s.dispatchAndWait(ViewSiteAction('central'));
+        api.calls.clear();
+        await s.dispatchAndWait(ReloadShownAction());
+        expect(
+          api.calls.where((c) => c.key.endsWith('sys/backups')),
+          isEmpty,
+          reason: screen,
+        );
+        expect(s.state.backups.availability, BackupsRead.unknown);
+      }
     });
 
     test('the dialogs open only for backups that were read and list a '

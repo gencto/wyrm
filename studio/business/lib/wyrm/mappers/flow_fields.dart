@@ -707,7 +707,7 @@ final class ListColumn {
 /// The items of a list parameter as rows of texts by key ([listItemsOf]):
 /// a text as it is, another value as JSON. A value that is no list of maps
 /// gives no rows.
-List<Map<String, String>> listRowsOf(Object? v) => listRowsIn(v);
+List<Map<String, String>> listRowsOf(JsonValue v) => listRowsIn(v);
 
 /// Whether the input at engine port [port] of a block of [type] is a
 /// command ([commandInputs]).
