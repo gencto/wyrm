@@ -14,6 +14,7 @@ import 'package:ui/forms/log_toolbar.dart';
 import 'package:ui/indicators/status_pill.dart';
 import 'package:ui/models/tone.dart';
 import 'package:ui/models/value_changed.dart';
+import 'package:ui/pages/system_data.dart';
 import 'package:ui/pages/system_page.dart';
 import 'package:ui/tables/log_table.dart';
 import 'package:ui/tables/row_list.dart';
@@ -107,7 +108,7 @@ TrendVm _traffic(List<double> inward, List<double> outward) {
 const _reason = 'needs config on sys';
 
 SystemPage _page({
-  String tab = 'overview',
+  SysTab tab = SysTab.overview,
   Ha ha = Ha.ok,
   bool loading = false,
   bool rights = true,
@@ -714,30 +715,31 @@ SystemPage _page({
 SystemPage systemOverview() => _page();
 
 /// Board `SystemAvail`: the standby follows.
-SystemPage systemAvail() => _page(tab: 'availability');
+SystemPage systemAvail() => _page(tab: SysTab.availability);
 
 /// Board `SystemAvailLag`: the standby is behind and moved a fork aside.
-SystemPage systemAvailLag() => _page(tab: 'availability', ha: Ha.lagging);
+SystemPage systemAvailLag() => _page(tab: SysTab.availability, ha: Ha.lagging);
 
 /// Board `SystemAvailNone`: no standby.
-SystemPage systemAvailNone() => _page(tab: 'availability', ha: Ha.none);
+SystemPage systemAvailNone() => _page(tab: SysTab.availability, ha: Ha.none);
 
 /// Board `SystemLog`.
-SystemPage systemLog() => _page(tab: 'log');
+SystemPage systemLog() => _page(tab: SysTab.log);
 
 /// Board `SystemMaint`.
-SystemPage systemMaint() => _page(tab: 'maintenance');
+SystemPage systemMaint() => _page(tab: SysTab.maintenance);
 
 /// Maintenance of a broker with backups (ADR 0048 §3) and, as it will be
 /// once the broker updates itself (§2), the card *Broker version*.
-SystemPage systemMaintBackups() => _page(tab: 'maintenance', backups: true);
+SystemPage systemMaintBackups() =>
+    _page(tab: SysTab.maintenance, backups: true);
 
 /// No `sys` value yet: tiles with `—`, the traffic `Collecting…`.
 SystemPage systemLoading() => _page(loading: true);
 
 /// The user's grants do not reach `config` on `sys`: the values are shown,
 /// the controls are disabled with the reason (Maintenance).
-SystemPage systemNoRights() => _page(tab: 'maintenance', rights: false);
+SystemPage systemNoRights() => _page(tab: SysTab.maintenance, rights: false);
 
 /// The same on the Log tab: the log cannot be read, the level not changed.
-SystemPage systemLogNoRights() => _page(tab: 'log', rights: false);
+SystemPage systemLogNoRights() => _page(tab: SysTab.log, rights: false);

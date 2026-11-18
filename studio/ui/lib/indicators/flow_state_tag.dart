@@ -9,7 +9,10 @@ enum FlowStateTag {
   error(Tone.bad),
   deployed(Tone.good),
   stopped(Tone.neutral),
-  notDeployed(Tone.neutral);
+  notDeployed(Tone.neutral),
+
+  /// The flow's value is not one Studio reads: its state is not known.
+  unreadable(Tone.warn);
 
   const FlowStateTag(this.tone);
 
@@ -20,6 +23,7 @@ enum FlowStateTag {
     deployed => S.current.flowDeployed(version ?? 0),
     stopped => S.current.flowStopped(version ?? 0),
     notDeployed => S.current.notDeployed,
+    unreadable => S.current.flowStateUnread,
   };
 
   StatusPillVm pill(int? version) =>

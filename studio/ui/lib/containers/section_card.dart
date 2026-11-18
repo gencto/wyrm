@@ -28,7 +28,10 @@ class SectionCard extends StatelessWidget {
 
   /// A control at the right of the heading (`Put profile…`).
   final Widget? trailing;
-  final Widget child;
+
+  /// The content; null for a card that is its heading alone (what it
+  /// would list was not read).
+  final Widget? child;
 
   /// Code between backticks.
   final String footer;
@@ -93,7 +96,7 @@ class SectionCard extends StatelessWidget {
               )
             else
               head,
-            child,
+            ?child,
             if (footer.isNotEmpty)
               CodeText(
                 footer,

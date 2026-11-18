@@ -69,21 +69,25 @@ void main() {
           children: [
             const Spacer(),
             TaskSheet(
-              vm: const TaskSheetVm(
+              vm: TaskSheetVm(
                 title: 'Update',
                 blocks: [
-                  SheetOption(id: 'auto', label: 'Roll back', value: true),
                   SheetOption(
-                    id: 'point',
+                    label: 'Roll back',
+                    value: true,
+                    onChanged: (on) => got.add('auto=$on'),
+                  ),
+                  SheetOption(
                     label: 'Restore point',
                     value: true,
                     enabled: false,
                     reason: 'the store format changes',
+                    onChanged: (on) => got.add('point=$on'),
                   ),
                   SheetRow(
                     text: '0.4.2',
-                    action: 'rollback',
                     actionLabel: 'Roll back to 0.4.2…',
+                    onAction: () => got.add('rollback'),
                   ),
                 ],
                 secondary: 'Cancel',
@@ -91,8 +95,6 @@ void main() {
               ),
               onPrimary: () => got.add('primary'),
               onSecondary: () => got.add('secondary'),
-              onToggle: (id, {required on}) => got.add('$id=$on'),
-              onAction: got.add,
               onClose: () => got.add('close'),
             ),
           ],

@@ -5,6 +5,8 @@ import 'error_hint.dart';
 import 'error_kind.dart';
 import 'fault_report.dart';
 
+import 'manifest_problem.dart';
+
 part 'studio_error.freezed.dart';
 
 /// One failure, as data (docs/design/specs/errors.md §1). The broker's
@@ -68,6 +70,10 @@ abstract class StudioError with _$StudioError {
     /// The parameter an `invalid_parameter` names, when the broker named
     /// one.
     String? field,
+
+    /// What is wrong with a file the user picked, when the error is of
+    /// one ([ErrorHint.fileNotRead]): the app says which field or name.
+    ManifestProblem? fileProblem,
 
     /// Studio faults only.
     FaultReport? report,

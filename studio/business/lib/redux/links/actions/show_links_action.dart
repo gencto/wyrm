@@ -11,12 +11,16 @@ import 'retrieve_links_action.dart';
 /// the links, the quarantine, the packages and whether the broker keeps
 /// backups.
 ///
-/// Rebuilds, decided: the watch changes nothing Links draws before the
-/// values come (`notify: false`); each read notifies when its own slice
-/// changes. This action changes no state itself (`null`).
+/// It is marked shown, so `ReloadShownAction` reads it again after a site
+/// switch or a reconnect.
+///
+/// Rebuilds, decided: the mark and the watch change nothing Links draws
+/// before the values come (`notify: false`); each read notifies when its
+/// own slice changes. This action changes no state itself (`null`).
 class ShowLinksAction extends Action {
   @override
   Future<AppState?> reduce() async {
+    dispatchSync(_Shown(true), notify: false);
     dispatchSync(WatchKeysAction(linksKeys), notify: false);
     await dispatchAndWaitAll([
       RetrieveLinksAction(),
@@ -26,4 +30,15 @@ class ShowLinksAction extends Action {
     ]);
     return null;
   }
+}
+
+/// Links is on screen ([shown]) or not.
+class _Shown extends Action {
+  _Shown(this.shown);
+
+  final bool shown;
+
+  @override
+  AppState? reduce() =>
+      state.links.shown == shown ? null : state.copyWith.links(shown: shown);
 }

@@ -57,6 +57,15 @@ class StageAgentParamAction extends Action with WaitingAction {
     }
     final id = agent.split('/').last;
     final key = '${site.root}/sys/links/$id';
+    // What is staged for the link is read back once here, and what does
+    // not read is recorded here: the selector that reads it on every
+    // rebuild records nothing.
+    for (final c in changes.table.values) {
+      if (c.key == key && c.action == 'update') {
+        agentParamsOf(c.args['params']).record(key);
+        agentParamsOf(c.value).record(key);
+      }
+    }
     final staged = stagedAgentParamsOf(key);
     AgentParams revision;
     String rev;

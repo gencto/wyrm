@@ -1,12 +1,16 @@
 import 'package:async_redux/async_redux.dart';
+import 'package:models/backup_stage.dart';
 
+import '../../../wyrm/backup_plan.dart';
+import '../../../wyrm/failures.dart';
 import '../../../wyrm/transfer.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 
 /// Sends the `.wyrm-backup` the user picked to the broker in parts
 /// (`sys/backups` ▸ `restore_begin`, `restore_part`); `backups.uploaded`
-/// follows. Closing the dialog stops it and drops the upload.
+/// follows. Closing the dialog stops it and drops the upload. With a file
+/// already there (`restoreFilePlan`) it is refused: nothing is sent.
 class UploadRestoreAction extends Action with NonReentrant, WaitingAction {
   UploadRestoreAction({
     required this.name,
@@ -20,6 +24,9 @@ class UploadRestoreAction extends Action with NonReentrant, WaitingAction {
 
   @override
   Future<AppState?> reduce() async {
+    if (restoreFilePlan.step != RestoreFileStep.choose) {
+      throw stepBlockedOf('${site.root}/sys/backups', 'restore_begin');
+    }
     dispatchSync(_Progress(name, size, 0));
     final String upload;
     try {
@@ -28,7 +35,7 @@ class UploadRestoreAction extends Action with NonReentrant, WaitingAction {
         '${site.root}/sys/backups',
         size: size,
         read: read,
-        cancelled: () => backups.stage != 'restore',
+        cancelled: () => backups.stage != BackupStage.restore,
         onProgress: (sent) => dispatchSync(_Progress(name, size, sent)),
       );
     } on TransferCancelled {
@@ -39,7 +46,11 @@ class UploadRestoreAction extends Action with NonReentrant, WaitingAction {
       dispatchSync(_Failed());
       rethrow;
     }
-    return state.copyWith.backups(upload: upload, uploaded: size);
+    return state.copyWith.backups(
+      upload: upload,
+      uploaded: size,
+      applySent: false,
+    );
   }
 }
 
@@ -61,7 +72,7 @@ class _Progress extends Action {
   final int sent;
 
   @override
-  AppState? reduce() => backups.stage != 'restore'
+  AppState? reduce() => backups.stage != BackupStage.restore
       ? null
       : state.copyWith.backups(
           uploadName: name,

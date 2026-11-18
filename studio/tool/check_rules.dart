@@ -57,7 +57,8 @@ final _rules = <Rule>[
   Rule('string-case', ['app/lib/', 'business/lib/', 'ui/lib/'], (t) {
     final c = _code(t);
     return _matches(c, RegExp(r"'[^'\n]*'(?:\s*\|\|\s*'[^'\n]*')*\s*=>")) +
-        _matches(c, RegExp(r"^\s*case\s+'[^'\n]*'", multiLine: true));
+        _matches(c, RegExp(r"^\s*case\s+'[^'\n]*'", multiLine: true)) +
+        _constStringCases(c);
   }, except: ['business/lib/wyrm/decode/']),
   // 2. a closed set carried as text: string ids and records of strings
   // (owner, 2026-11-15: `id: 'git'`, `List<(String, String)>`)
@@ -136,6 +137,15 @@ final _rules = <Rule>[
           // a cast written as a pattern (`case final Map<String, Object?> m`)
           // is the same untyped read (audit of #117)
           _matches(c, RegExp(r'\bcase\s+final\s+(?:Map|List)<')) +
+          // and so is a scalar pattern (`case final String s`): the value
+          // it tests is still untyped (audit of #135)
+          _matches(
+            c,
+            RegExp(r'\bcase\s+final\s+(?:String|int|double|bool|num)\b'),
+          ) +
+          // a value read through `JsonValue` outside a decoder is the same
+          // untyped read in another spelling (re-audit of #135)
+          _matches(c, RegExp(r'\bJsonValue\.(?:of|tryOf)\(')) +
           _matches(c, RegExp(r'\btoDart\(')) +
           // the loose readers of values.dart, outside a decoder
           _matches(
@@ -377,6 +387,28 @@ int _iconId(String text) {
   return n;
 }
 
+/// A string switch written through names: each `case` label and each
+/// switch-expression arm that is a constant this file declares as a text
+/// (`const _stateLeaf = 'state';` … `case _stateLeaf:`). It is the same
+/// closed set carried as text (audit of #135).
+int _constStringCases(String c) {
+  final names = {
+    for (final m in RegExp(
+      r"\bconst\s+(?:String\s+)?(\w+)\s*=\s*'",
+    ).allMatches(c))
+      m.group(1)!,
+  };
+  if (names.isEmpty) {
+    return 0;
+  }
+  final any = names.map(RegExp.escape).join('|');
+  return _matches(c, RegExp('^\\s*case\\s+(?:$any)\\b', multiLine: true)) +
+      _matches(
+        c,
+        RegExp('^\\s*(?:$any)(?:\\s*\\|\\|\\s*\\w+)*\\s*=>', multiLine: true),
+      );
+}
+
 /// Each method whose whole body is a dispatch, but a service listener's
 /// own callback.
 int _dispatchWrapper(String text) {
@@ -467,6 +499,39 @@ int _vmEquality(String text) {
 /// ([good]): a change to a pattern that stops seeing what it is for fails
 /// here, not in review.
 const _probes = <String, ({String bad, String good})>{
+  'string-case': (
+    bad: '''
+const _stateLeaf = 'state';
+void f(String leaf) {
+  switch (leaf) {
+    case _stateLeaf:
+      break;
+  }
+}
+''',
+    good: '''
+const _limit = 12;
+void f(Leaf leaf, int n) {
+  switch (leaf) {
+    case Leaf.state:
+      break;
+  }
+  switch (n) {
+    case _limit:
+      break;
+  }
+}
+''',
+  ),
+  'untyped-wire': (
+    bad: '''
+    if (p.defaultValue case final String prefilled when prefilled.isNotEmpty)
+    if (JsonValue.tryOf(json['type']) case JsonText(text: final t)) {}
+''',
+    good: '''
+    if (p.defaultValue case JsonText(text: final prefilled))
+''',
+  ),
   'vm-equality': (
     bad: '''
 class _Vm extends Vm {

@@ -3,9 +3,11 @@ import 'package:models/site_choice.dart';
 import 'package:models/site_relation.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
-import '../../../wyrm/mappers/values.dart';
+import '../../../wyrm/decode/peers.dart';
+import '../../../wyrm/decode/unreadable.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
+import '../../problems/actions/add_problem_action.dart';
 
 /// Fills the site switcher: the site logged into, every broker below it
 /// (`downstream/<d>` of kind `wy:broker`, and theirs, at most [depth] hops)
@@ -28,10 +30,11 @@ class RetrieveSitesAction extends Action with WaitingAction {
     final api = deps.wyrm;
     final choices = <SiteChoice>[SiteChoice(site: home)];
     final seen = {home};
-    var frontier = [(home, null as String?)];
+    final unread = Unread();
+    var frontier = [_Hop(home, null)];
     for (var hop = 0; hop < depth && frontier.isNotEmpty; hop++) {
-      final next = <(String, String?)>[];
-      for (final (s, via) in frontier) {
+      final next = <_Hop>[];
+      for (final _Hop(site: s, :via) in frontier) {
         final List<Child> below;
         try {
           below = await api.children('wy/$s/downstream');
@@ -39,11 +42,17 @@ class RetrieveSitesAction extends Action with WaitingAction {
           continue;
         }
         for (final c in below) {
-          if (c.meta.profileName != 'wy:broker') {
-            continue;
-          }
-          final d = str(attrOf(c.meta, 'site')) ?? c.name;
-          if (seen.add(d)) {
+          // a broker node this client cannot read is no site to choose;
+          // the user is told of it
+          final d = switch (brokerSiteOf(c)) {
+            final read? => unread.take(
+              read,
+              name: '$s/downstream/${c.name}',
+              where: 'wy/$s/downstream/${c.name}',
+            ),
+            null => null,
+          };
+          if (d != null && seen.add(d)) {
             choices.add(
               SiteChoice(
                 site: d,
@@ -51,7 +60,7 @@ class RetrieveSitesAction extends Action with WaitingAction {
                 via: via ?? s,
               ),
             );
-            next.add((d, s == home ? null : s));
+            next.add(_Hop(d, s == home ? null : s));
           }
         }
       }
@@ -68,6 +77,19 @@ class RetrieveSitesAction extends Action with WaitingAction {
     } on WyrmException {
       // No rights on sys: no upstream entries.
     }
+    if (unread.problem(key: 'wy/$home/downstream', call: 'list')
+        case final p?) {
+      dispatchSync(AddProblemAction(p));
+    }
     return state.copyWith.site(choices: choices.lock);
   }
+}
+
+/// A site to list the brokers below, and the site it is relayed through
+/// (null: reached directly from the home site).
+final class _Hop {
+  const _Hop(this.site, this.via);
+
+  final String site;
+  final String? via;
 }

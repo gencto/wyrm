@@ -58,19 +58,70 @@ enum HistoryAct {
   unsubscribe,
 }
 
-/// A watch group: its name, how it records (the broker's words: `Point
-/// Change`, `Interval`), its interval and flush (s) and its watches.
+/// How a watch group records.
+enum GroupLogging {
+  none,
+  interval,
+  allData,
+  pointChange;
+
+  String get label => switch (this) {
+    none => S.current.logTypeNone,
+    interval => S.current.logTypeInterval,
+    allData => S.current.logTypeAllData,
+    pointChange => S.current.logTypePointChange,
+  };
+}
+
+/// How a watch group records, as it is said: one of the ways Studio knows
+/// by its label, or the broker's own name of a way it does not know.
+sealed class GroupLoggingVm extends Equatable {
+  const GroupLoggingVm();
+
+  /// One of the ways Studio knows.
+  const factory GroupLoggingVm.known(GroupLogging way) = GroupLoggingKnown;
+
+  /// A way Studio does not know, by the broker's own [name] of it.
+  const factory GroupLoggingVm.other(String name) = GroupLoggingOther;
+
+  String get label => switch (this) {
+    GroupLoggingKnown(:final way) => way.label,
+    GroupLoggingOther(:final name) => S.current.logTypeOther(name),
+  };
+}
+
+final class GroupLoggingKnown extends GroupLoggingVm {
+  const GroupLoggingKnown(this.way);
+
+  final GroupLogging way;
+
+  @override
+  List<Object?> get props => [way];
+}
+
+final class GroupLoggingOther extends GroupLoggingVm {
+  const GroupLoggingOther(this.name);
+
+  /// The broker's name of the way of recording.
+  final String name;
+
+  @override
+  List<Object?> get props => [name];
+}
+
+/// A watch group: its name, how it records (null: not known yet), its
+/// interval and flush (s) and its watches.
 final class WatchGroupVm extends Equatable {
   const WatchGroupVm({
     required this.name,
-    this.logging = '',
+    this.logging,
     this.interval,
     this.flush,
     this.points = const [],
   });
 
   final String name;
-  final String logging;
+  final GroupLoggingVm? logging;
   final num? interval;
   final num? flush;
   final List<WatchPointVm> points;
@@ -253,7 +304,7 @@ class HistoryScreen extends StatelessWidget {
   /// `2 points · Point Change · every 5 s`.
   static String _about(WatchGroupVm g) => [
     S.current.pointsCount(g.points.length),
-    g.logging,
+    g.logging?.label ?? '',
     _every(g.interval),
   ].where((s) => s.isNotEmpty).join(' · ');
 
@@ -319,7 +370,8 @@ class HistoryScreen extends StatelessWidget {
       title: g.name,
       keyName: 'sys/history/${g.name}',
       facts: [
-        FactVm(label: S.current.factRecord, value: g.logging),
+        if (g.logging case final how?)
+          FactVm(label: S.current.factRecord, value: how.label),
         if (g.interval != null)
           FactVm(label: S.current.factInterval, value: _every(g.interval)),
         if (g.flush != null)

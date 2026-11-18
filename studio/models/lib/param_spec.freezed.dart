@@ -17,7 +17,9 @@ mixin _$ParamSpec {
 
  String get name; String? get display;/// Its type (spec 02 `TypeCode`); a parameter with choices is
 /// [TypeCode.enum_].
- TypeCode get type; bool get required; Object? get defaultValue; num? get min; num? get max; IList<String> get choices;/// How a form edits it (spec 02 `editor`); null for none, for a
+ TypeCode get type; bool get required;/// Its default, as the JSON the catalog or the meta gives; null when
+/// it has none.
+ JsonValue? get defaultValue; num? get min; num? get max; IList<String> get choices;/// How a form edits it (spec 02 `editor`); null for none, for a
 /// secret (`secret` says it) and for an editor this Studio does not
 /// know (a UI ignores those, spec 02).
  ParamEditor? get editor; bool get secret; String? get description;/// The input port that feeds it (`in.<name>`, ADR 0038 §2); null when
@@ -45,14 +47,14 @@ $ParamSpecCopyWith<ParamSpec> get copyWith => _$ParamSpecCopyWithImpl<ParamSpec>
 @override
 bool operator ==(Object other) {
   final _this = this as ParamSpec;
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is ParamSpec&&(identical(other.name, _this.name) || other.name == _this.name)&&(identical(other.display, _this.display) || other.display == _this.display)&&(identical(other.type, _this.type) || other.type == _this.type)&&(identical(other.required, _this.required) || other.required == _this.required)&&const DeepCollectionEquality().equals(other.defaultValue, _this.defaultValue)&&(identical(other.min, _this.min) || other.min == _this.min)&&(identical(other.max, _this.max) || other.max == _this.max)&&const DeepCollectionEquality().equals(other.choices, _this.choices)&&(identical(other.editor, _this.editor) || other.editor == _this.editor)&&(identical(other.secret, _this.secret) || other.secret == _this.secret)&&(identical(other.description, _this.description) || other.description == _this.description)&&(identical(other.port, _this.port) || other.port == _this.port)&&(identical(other.echo, _this.echo) || other.echo == _this.echo)&&(identical(other.scope, _this.scope) || other.scope == _this.scope)&&(identical(other.key, _this.key) || other.key == _this.key)&&(identical(other.warns, _this.warns) || other.warns == _this.warns));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is ParamSpec&&(identical(other.name, _this.name) || other.name == _this.name)&&(identical(other.display, _this.display) || other.display == _this.display)&&(identical(other.type, _this.type) || other.type == _this.type)&&(identical(other.required, _this.required) || other.required == _this.required)&&(identical(other.defaultValue, _this.defaultValue) || other.defaultValue == _this.defaultValue)&&(identical(other.min, _this.min) || other.min == _this.min)&&(identical(other.max, _this.max) || other.max == _this.max)&&const DeepCollectionEquality().equals(other.choices, _this.choices)&&(identical(other.editor, _this.editor) || other.editor == _this.editor)&&(identical(other.secret, _this.secret) || other.secret == _this.secret)&&(identical(other.description, _this.description) || other.description == _this.description)&&(identical(other.port, _this.port) || other.port == _this.port)&&(identical(other.echo, _this.echo) || other.echo == _this.echo)&&(identical(other.scope, _this.scope) || other.scope == _this.scope)&&(identical(other.key, _this.key) || other.key == _this.key)&&(identical(other.warns, _this.warns) || other.warns == _this.warns));
 }
 
 
 @override
 int get hashCode {
   final _this = this as ParamSpec;
-  return Object.hash(runtimeType,_this.name,_this.display,_this.type,_this.required,const DeepCollectionEquality().hash(_this.defaultValue),_this.min,_this.max,const DeepCollectionEquality().hash(_this.choices),_this.editor,_this.secret,_this.description,_this.port,_this.echo,_this.scope,_this.key,_this.warns);
+  return Object.hash(runtimeType,_this.name,_this.display,_this.type,_this.required,_this.defaultValue,_this.min,_this.max,const DeepCollectionEquality().hash(_this.choices),_this.editor,_this.secret,_this.description,_this.port,_this.echo,_this.scope,_this.key,_this.warns);
 }
 
 @override
@@ -69,7 +71,7 @@ abstract mixin class $ParamSpecCopyWith<$Res>  {
   factory $ParamSpecCopyWith(ParamSpec value, $Res Function(ParamSpec) _then) = _$ParamSpecCopyWithImpl;
 @useResult
 $Res call({
- String name, String? display, TypeCode type, bool required, Object? defaultValue, num? min, num? max, IList<String> choices, ParamEditor? editor, bool secret, String? description, String? port, bool? echo, String? scope, BlockCfgKey? key, bool warns
+ String name, String? display, TypeCode type, bool required, JsonValue? defaultValue, num? min, num? max, IList<String> choices, ParamEditor? editor, bool secret, String? description, String? port, bool? echo, String? scope, BlockCfgKey? key, bool warns
 });
 
 
@@ -92,7 +94,8 @@ name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
 as String,display: freezed == display ? _self.display : display // ignore: cast_nullable_to_non_nullable
 as String?,type: null == type ? _self.type : type // ignore: cast_nullable_to_non_nullable
 as TypeCode,required: null == required ? _self.required : required // ignore: cast_nullable_to_non_nullable
-as bool,defaultValue: freezed == defaultValue ? _self.defaultValue : defaultValue ,min: freezed == min ? _self.min : min // ignore: cast_nullable_to_non_nullable
+as bool,defaultValue: freezed == defaultValue ? _self.defaultValue : defaultValue // ignore: cast_nullable_to_non_nullable
+as JsonValue?,min: freezed == min ? _self.min : min // ignore: cast_nullable_to_non_nullable
 as num?,max: freezed == max ? _self.max : max // ignore: cast_nullable_to_non_nullable
 as num?,choices: null == choices ? _self.choices : choices // ignore: cast_nullable_to_non_nullable
 as IList<String>,editor: freezed == editor ? _self.editor : editor // ignore: cast_nullable_to_non_nullable
@@ -124,7 +127,9 @@ class _ParamSpec implements ParamSpec {
 /// [TypeCode.enum_].
 @override@JsonKey() final  TypeCode type;
 @override@JsonKey() final  bool required;
-@override final  Object? defaultValue;
+/// Its default, as the JSON the catalog or the meta gives; null when
+/// it has none.
+@override final  JsonValue? defaultValue;
 @override final  num? min;
 @override final  num? max;
 @override@JsonKey() final  IList<String> choices;
@@ -163,13 +168,13 @@ _$ParamSpecCopyWith<_ParamSpec> get copyWith => __$ParamSpecCopyWithImpl<_ParamS
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is _ParamSpec&&(identical(other.name, name) || other.name == name)&&(identical(other.display, display) || other.display == display)&&(identical(other.type, type) || other.type == type)&&(identical(other.required, required) || other.required == required)&&const DeepCollectionEquality().equals(other.defaultValue, defaultValue)&&(identical(other.min, min) || other.min == min)&&(identical(other.max, max) || other.max == max)&&const DeepCollectionEquality().equals(other.choices, choices)&&(identical(other.editor, editor) || other.editor == editor)&&(identical(other.secret, secret) || other.secret == secret)&&(identical(other.description, description) || other.description == description)&&(identical(other.port, port) || other.port == port)&&(identical(other.echo, echo) || other.echo == echo)&&(identical(other.scope, scope) || other.scope == scope)&&(identical(other.key, key) || other.key == key)&&(identical(other.warns, warns) || other.warns == warns));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _ParamSpec&&(identical(other.name, name) || other.name == name)&&(identical(other.display, display) || other.display == display)&&(identical(other.type, type) || other.type == type)&&(identical(other.required, required) || other.required == required)&&(identical(other.defaultValue, defaultValue) || other.defaultValue == defaultValue)&&(identical(other.min, min) || other.min == min)&&(identical(other.max, max) || other.max == max)&&const DeepCollectionEquality().equals(other.choices, choices)&&(identical(other.editor, editor) || other.editor == editor)&&(identical(other.secret, secret) || other.secret == secret)&&(identical(other.description, description) || other.description == description)&&(identical(other.port, port) || other.port == port)&&(identical(other.echo, echo) || other.echo == echo)&&(identical(other.scope, scope) || other.scope == scope)&&(identical(other.key, key) || other.key == key)&&(identical(other.warns, warns) || other.warns == warns));
 }
 
 
 @override
 int get hashCode {
-    return Object.hash(runtimeType,name,display,type,required,const DeepCollectionEquality().hash(defaultValue),min,max,const DeepCollectionEquality().hash(choices),editor,secret,description,port,echo,scope,key,warns);
+    return Object.hash(runtimeType,name,display,type,required,defaultValue,min,max,const DeepCollectionEquality().hash(choices),editor,secret,description,port,echo,scope,key,warns);
 }
 
 @override
@@ -185,7 +190,7 @@ abstract mixin class _$ParamSpecCopyWith<$Res> implements $ParamSpecCopyWith<$Re
   factory _$ParamSpecCopyWith(_ParamSpec value, $Res Function(_ParamSpec) _then) = __$ParamSpecCopyWithImpl;
 @override @useResult
 $Res call({
- String name, String? display, TypeCode type, bool required, Object? defaultValue, num? min, num? max, IList<String> choices, ParamEditor? editor, bool secret, String? description, String? port, bool? echo, String? scope, BlockCfgKey? key, bool warns
+ String name, String? display, TypeCode type, bool required, JsonValue? defaultValue, num? min, num? max, IList<String> choices, ParamEditor? editor, bool secret, String? description, String? port, bool? echo, String? scope, BlockCfgKey? key, bool warns
 });
 
 
@@ -208,7 +213,8 @@ name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
 as String,display: freezed == display ? _self.display : display // ignore: cast_nullable_to_non_nullable
 as String?,type: null == type ? _self.type : type // ignore: cast_nullable_to_non_nullable
 as TypeCode,required: null == required ? _self.required : required // ignore: cast_nullable_to_non_nullable
-as bool,defaultValue: freezed == defaultValue ? _self.defaultValue : defaultValue ,min: freezed == min ? _self.min : min // ignore: cast_nullable_to_non_nullable
+as bool,defaultValue: freezed == defaultValue ? _self.defaultValue : defaultValue // ignore: cast_nullable_to_non_nullable
+as JsonValue?,min: freezed == min ? _self.min : min // ignore: cast_nullable_to_non_nullable
 as num?,max: freezed == max ? _self.max : max // ignore: cast_nullable_to_non_nullable
 as num?,choices: null == choices ? _self.choices : choices // ignore: cast_nullable_to_non_nullable
 as IList<String>,editor: freezed == editor ? _self.editor : editor // ignore: cast_nullable_to_non_nullable

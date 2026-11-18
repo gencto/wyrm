@@ -142,17 +142,15 @@ class _BrokerUpdateDialogState extends State<_BrokerUpdateDialog> {
   Widget build(BuildContext context) => StoreConnector<AppState, AppState>(
     converter: (s) => s.state,
     builder: (context, state) => TaskSheet(
-      vm: brokerUpdateSheet(_data(state)),
+      vm: brokerUpdateSheet(
+        _data(state),
+        onConfirm: (text) => _store.dispatchSync(SetConfirmAction(text)),
+      ),
       dialog: true,
       width: 640,
       maxHeight: 840,
       onPrimary: () => unawaited(_primary()),
       onSecondary: _close,
-      onText: (id, text) {
-        if (id == 'confirm') {
-          _store.dispatchSync(SetConfirmAction(text));
-        }
-      },
     ),
   );
 }

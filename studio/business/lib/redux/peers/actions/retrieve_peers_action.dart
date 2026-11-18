@@ -7,17 +7,20 @@ import 'package:models/site_relation.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../../wyrm/calls.dart';
-import '../../../wyrm/mappers/peer_mapper.dart';
-import '../../../wyrm/mappers/values.dart';
+import '../../../wyrm/decode/peers.dart';
+import '../../../wyrm/decode/unreadable.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
+import '../../problems/actions/add_problem_action.dart';
 
 /// Reads what the Sites map draws around the site on screen: its upstreams
 /// (`sys/upstream/*` and their values), the brokers below it
 /// (`downstream/*` of profile `wy:broker`) and the sites they relay, the
 /// devices of its external links, and its platform upstreams (the
 /// `uplink` link's entries). Quarantine entries come from
-/// `RetrieveQuarantineAction`.
+/// `RetrieveQuarantineAction`. A broker node this client cannot read is
+/// on the map by its name as one that was not read; the user is told
+/// which (a toast and a line in Problems).
 class RetrievePeersAction extends Action with WaitingAction {
   @override
   Future<AppState?> reduce() async {
@@ -28,31 +31,60 @@ class RetrievePeersAction extends Action with WaitingAction {
     }
     final api = deps.wyrm;
     final peers = <Peer>[];
+    final unread = Unread();
 
     final ups = await _children(api, '$root/sys/upstream');
     if (ups.isNotEmpty) {
       final values = await readValues(api, '$root/sys/upstream/*/*');
-      final connected = number(
-        await readValue(api, '$root/sys/upstream_connected'),
-      );
+      final connected =
+          unread.take(
+            upstreamConnectedOf(
+              await readValue(api, '$root/sys/upstream_connected'),
+            ),
+            name: 'sys/upstream_connected',
+            where: '$root/sys',
+          ) ??
+          false;
       for (final u in ups) {
         final v = {
           for (final e in values.entries)
             if (e.key.startsWith('$root/sys/upstream/${u.name}/'))
               e.key.split('/').last: e.value,
         };
+        final peer = unread.take(
+          upstreamPeerOf(viewed, u.name, u.meta, v, anyConnected: connected),
+          name: 'sys/upstream/${u.name}',
+          where: '$root/sys/upstream/${u.name}',
+        );
+        // not read: on the map by its name, as one that was not read
         peers.add(
-          upstreamPeerOf(viewed, u.name, u.meta, values: v).copyWith(
-            connected: (connected ?? 0) > 0 && (boolean(v['enabled']) ?? true),
-          ),
+          peer ??
+              Peer(
+                site: u.name,
+                kind: PeerKind.upstream,
+                parent: viewed,
+                unreadable: true,
+              ),
         );
       }
     }
 
     final below = await _children(api, '$root/downstream');
     for (final c in below) {
-      if (downstreamPeerOf(viewed, c) case final p?) {
-        peers.add(p);
+      if (downstreamPeerOf(viewed, c) case final read?) {
+        peers.add(
+          unread.take(
+                read,
+                name: 'downstream/${c.name}',
+                where: '$root/downstream/${c.name}',
+              ) ??
+              Peer(
+                site: c.name,
+                kind: PeerKind.downstream,
+                parent: viewed,
+                unreadable: true,
+              ),
+        );
       } else if (c.name == 'uplink') {
         for (final pl in await _children(api, '$root/downstream/uplink')) {
           if (pl.name == 'stats') {
@@ -97,6 +129,9 @@ class RetrievePeersAction extends Action with WaitingAction {
           ),
         );
       }
+    }
+    if (unread.problem(key: root, call: 'list') case final p?) {
+      dispatchSync(AddProblemAction(p));
     }
     return state.copyWith.peers(
       table: IMap<String, Peer>.fromValues(

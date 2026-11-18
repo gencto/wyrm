@@ -18,6 +18,7 @@ import 'package:models/error_hint.dart';
 import 'package:models/flow_block.dart';
 import 'package:models/flow_draft.dart';
 import 'package:models/flow_edge.dart';
+import 'package:models/json_value.dart';
 import 'package:models/live_value.dart';
 import 'package:models/node_type.dart';
 import 'package:models/param_spec.dart';
@@ -443,11 +444,13 @@ void main() {
         isNull,
       );
       expect(
-        listRowsOf([
-          {'column': 'v', 'method': 'max', 'as': 't_max'},
-          {'column': 'n', 'method': 'count', 'as': null},
-          3,
-        ]),
+        listRowsOf(
+          JsonValue.of(const [
+            {'column': 'v', 'method': 'max', 'as': 't_max'},
+            {'column': 'n', 'method': 'count', 'as': null},
+            3,
+          ]),
+        ),
         [
           {'column': 'v', 'method': 'max', 'as': 't_max'},
           {'column': 'n', 'method': 'count', 'as': ''},

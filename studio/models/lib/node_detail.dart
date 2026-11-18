@@ -16,6 +16,7 @@ abstract class NodeDetail with _$NodeDetail {
     String? profile,
     TypeCode? type,
     String? unit,
+
     /// The level a set needs; null when the value cannot be set.
     Perm? writable,
 

@@ -8,6 +8,7 @@ import '../indicators/quality_mark.dart';
 import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
 import '../theme/typography.dart';
 
 /// What a node of the map is, which decides its row and its look.
@@ -225,6 +226,11 @@ class _Card extends StatelessWidget {
                   ),
                   if (vm.tag case final t?)
                     Container(
+                      // a long tag is cut, it never pushes the row out of
+                      // the node
+                      constraints: const BoxConstraints(
+                        maxWidth: AppSizes.siteNodeTag,
+                      ),
                       padding: const EdgeInsets.symmetric(
                         horizontal: 5,
                         vertical: 1,
@@ -235,6 +241,8 @@ class _Card extends StatelessWidget {
                       ),
                       child: Text(
                         t,
+                        maxLines: 1,
+                        overflow: .ellipsis,
                         style: mono(
                           size: FontSizes.xxs,
                           weight: .w600,

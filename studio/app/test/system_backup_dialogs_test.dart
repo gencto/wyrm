@@ -1,6 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:models/backup_section.dart';
+import 'package:models/backup_stage.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import 'support/system_app.dart';
@@ -34,9 +36,9 @@ void main() {
     await t.tap(find.text('Back up…'));
     await app.settle(t);
     expect(find.byType(Dialog), findsOneWidget);
-    expect(app.store.state.backups.stage, 'choose');
+    expect(app.store.state.backups.stage, BackupStage.choose);
     expect(app.calls('estimate'), hasLength(1));
-    expect(app.store.state.backups.estimate['history'], 81920);
+    expect(app.store.state.backups.estimate[BackupSection.history], 81920);
 
     await t.tap(inDialog(S.current.cancel));
     await app.settle(t);
@@ -60,7 +62,7 @@ void main() {
 
     await t.tap(find.text('Restore…'));
     await app.settle(t);
-    expect(app.store.state.backups.stage, 'restore');
+    expect(app.store.state.backups.stage, BackupStage.restore);
     // an upload of the restore is under way
     app.put(
       (s) => s.copyWith.backups(upload: 'u1', uploadName: 'plant.wyrm-backup'),
@@ -70,7 +72,7 @@ void main() {
     await t.pump(const Duration(seconds: 4));
     await app.settle(t);
     final b = app.store.state.backups;
-    expect(b.stage, 'restore');
+    expect(b.stage, BackupStage.restore);
     expect(b.upload, 'u1');
     expect(b.uploadName, 'plant.wyrm-backup');
     expect(b.estimate, isEmpty, reason: 'read for the closed dialog');

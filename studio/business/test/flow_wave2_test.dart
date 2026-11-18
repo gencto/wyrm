@@ -48,6 +48,7 @@ import 'package:models/field_id.dart';
 import 'package:models/flow_block.dart';
 import 'package:models/flow_draft.dart';
 import 'package:models/flow_edge.dart';
+import 'package:models/json_value.dart';
 import 'package:models/library_off.dart';
 import 'package:models/live_value.dart';
 import 'package:models/node_type.dart';
@@ -334,7 +335,7 @@ void main() {
         const ParamSpec(
           name: 'ramp_s',
           type: TypeCode.number,
-          defaultValue: 30,
+          defaultValue: JsonNumber(30),
         ),
         const ParamSpec(
           name: 'mode',
@@ -988,7 +989,7 @@ void main() {
             const ParamSpec(
               name: 'ramp_s',
               type: TypeCode.number,
-              defaultValue: 30,
+              defaultValue: JsonNumber(30),
             ),
           ].lock,
         ),

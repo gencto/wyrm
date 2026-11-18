@@ -1,6 +1,7 @@
 import 'package:models/live_value.dart';
 
 import '../../../wyrm/failures.dart';
+import '../../../wyrm/mappers/live_overlay_mapper.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 import '../../flows/actions/apply_flow_values_action.dart';
@@ -25,6 +26,11 @@ class ApplyLiveValuesAction extends Action {
   Future<AppState?> reduce() async {
     if (changed.isEmpty) {
       return null;
+    }
+    // What a screen will not be able to read is recorded here, once per
+    // change; the selectors that read the values record nothing.
+    if (site.root case final root?) {
+      warnUnreadLive(changed, root);
     }
     dispatchSync(AppendSamplesAction(changed), notify: false);
     final flows = ApplyFlowValuesAction(changed);

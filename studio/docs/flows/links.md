@@ -38,6 +38,7 @@ sequenceDiagram
     UI->>VM: onShow()
     VM->>A1: dispatch
     Note over A1: async
+    A1->>ST: dispatchSync(_Shown)
     A1->>ST: dispatchSync(WatchKeysAction)
 ```
 
@@ -55,6 +56,7 @@ sequenceDiagram
     User->>UI: onHide
     UI->>VM: onHide()
     VM->>A1: dispatch
+    A1->>ST: copyWith(links.shown)
     A1->>ST: dispatchSync(UnwatchKeysAction)
 ```
 
@@ -376,7 +378,7 @@ sequenceDiagram
 | --- | --- | --- |
 | `approve.onSubmit` | `ApproveQuarantineAction` | `quarantine.table, quarantine.view, quarantine.selectedEntry` |
 | `onShow` | `ShowLinksAction` | — |
-| `onHide` | `HideLinksAction` | — |
+| `onHide` | `HideLinksAction` | `links.shown` |
 | `onAdd` | `GoAction.push` | — |
 | `onTab` | `SetTabAction` | `links.tab` |
 | `onRow` | `OpenLinksRowAction` | — |

@@ -3,7 +3,9 @@ import 'package:freezed_annotation/freezed_annotation.dart';
 
 import 'backup_kind.dart';
 import 'backup_sealed.dart';
+import 'backup_section.dart';
 import 'backup_status.dart';
+import 'backup_step.dart';
 
 part 'backup_job.freezed.dart';
 
@@ -18,7 +20,7 @@ abstract class BackupJob with _$BackupJob {
 
     /// The file name.
     @Default('') String name,
-    @Default(IListConst([])) IList<String> sections,
+    @Default(IListConst([])) IList<BackupSection> sections,
 
     /// How its secrets are sealed.
     @Default(BackupSealed.none) BackupSealed sealed,
@@ -33,7 +35,7 @@ abstract class BackupJob with _$BackupJob {
 
     /// Percent.
     @Default(0) int progress,
-    @Default('') String step,
+    @Default(BackupStep.none()) BackupStep step,
 
     /// Bytes.
     @Default(0) int size,

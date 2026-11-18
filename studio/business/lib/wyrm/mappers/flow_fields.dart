@@ -707,7 +707,7 @@ final class ListColumn {
 /// The items of a list parameter as rows of texts by key ([listItemsOf]):
 /// a text as it is, another value as JSON. A value that is no list of maps
 /// gives no rows.
-List<Map<String, String>> listRowsOf(Object? v) => listRowsIn(v);
+List<Map<String, String>> listRowsOf(JsonValue v) => listRowsIn(v);
 
 /// Whether the input at engine port [port] of a block of [type] is a
 /// command ([commandInputs]).
@@ -1610,7 +1610,7 @@ FieldValue fieldValue(
   switch (f.kind) {
     case FieldKind.param:
       final p = f.spec!;
-      final typed = b.paramOr(p.name, p.defaultValue).raw;
+      final typed = b.paramOr(p.name, p.defaultValue?.raw).raw;
       if (f.variable) {
         sample =
             live(portKey(PortSide.output, b.id, f.outPort!)) ??

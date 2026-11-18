@@ -13,6 +13,7 @@ import 'package:ui/overlays/problems_drawer.dart';
 
 import 'common/studio_version.dart';
 import 'mappers/icon_mappers.dart';
+import 'mappers/link_install_mappers.dart';
 
 // The words of an error (docs/design/specs/errors.md §1, §3, §7). They live
 // in `app` because this is the only package that may name `S`: `business`
@@ -230,6 +231,10 @@ StudioError wordError(StudioError e) => e.copyWith(
   message: e.message.isNotEmpty
       ? e.message
       : switch (e.hint) {
+          ErrorHint.fileNotRead when e.fileProblem != null =>
+            S.current.errFileNotReadBecause(
+              e.fileProblem!.ui(e.thing ?? S.current.errThingThis).line,
+            ),
           final h? => _hintText(h),
           null when e.kind == .studio => S.current.errFaultMessage,
           null => e.message,
@@ -243,6 +248,13 @@ String _hintText(ErrorHint h) => switch (h) {
   .runNoTrigger => S.current.errRunNoTrigger,
   .runNotByHand => S.current.errRunNotByHand,
   .notSettable => S.current.errNotSettable,
+  .unreadableAnswer => S.current.errUnreadableAnswer,
+  .unreadableRows => S.current.errUnreadableRows,
+  .fileNotRead => S.current.errFileNotRead,
+  .backupNoDigest => S.current.errBackupNoDigest,
+  .backupDigestMismatch => S.current.errBackupDigestMismatch,
+  .checkNotRun => S.current.errCheckNotRun,
+  .stepBlocked => S.current.errStepBlocked,
 };
 
 /// The tone of a kind (errors.md §1).

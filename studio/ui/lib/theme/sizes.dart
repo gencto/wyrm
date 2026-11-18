@@ -12,6 +12,10 @@ abstract final class AppSizes {
   /// The tallest a dialog grows before it scrolls.
   static const double dialogMaxHeight = 900;
 
+  /// The widest a tag of a node of the Sites map grows before it is cut:
+  /// the node's name keeps the rest of the pill.
+  static const double siteNodeTag = 72;
+
   /// A menu's width (the account menu, a node's menu).
   static const double menu = 300;
 

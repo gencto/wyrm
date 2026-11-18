@@ -12,6 +12,10 @@ import 'package:models/attention_kind.dart';
 import 'package:models/audit_entry.dart';
 import 'package:models/audit_line.dart';
 import 'package:models/backup_job.dart';
+import 'package:models/backup_place.dart';
+import 'package:models/backup_section.dart';
+import 'package:models/backup_stage.dart';
+import 'package:models/backups_read.dart';
 import 'package:models/block_info.dart';
 import 'package:models/broker_self_update.dart';
 import 'package:models/ca_pin.dart';
@@ -71,6 +75,7 @@ import 'package:models/quarantine_entry.dart';
 import 'package:models/quarantine_kind.dart';
 import 'package:models/requested_right.dart';
 import 'package:models/restore_check.dart';
+import 'package:models/restore_mode.dart';
 import 'package:models/restore_point.dart';
 import 'package:models/role_grant.dart';
 import 'package:models/send_link.dart';
@@ -105,6 +110,7 @@ import 'package:wyrm_client/wyrm_client.dart'
     show DevicePolicy, GatewayDevice, Perm, Status, StepUp;
 
 import '../wyrm/approval.dart';
+import '../wyrm/backup_plan.dart';
 import '../wyrm/catalog.dart';
 import '../wyrm/context_keys.dart';
 import '../wyrm/decode/agent_params.dart';
@@ -623,14 +629,15 @@ extension AssistantScreen on Selectors {
 extension StagedParams on Selectors {
   /// The update staged for the agent link [key]: the params it sends and
   /// those it was made from; null when none is staged. Studio writes both
-  /// itself (`agentParamsJson`); one that does not read back is logged
-  /// and is no base for a new edit.
+  /// itself (`agentParamsJson`); one that does not read back is no base
+  /// for a new edit. Nothing is recorded here (a selector runs on every
+  /// rebuild): the action that stages the change records it once.
   ({StagedChange change, AgentParams params, AgentParams base})?
   stagedAgentParamsOf(String key) {
     for (final c in changes.table.values) {
       if (c.key == key && c.action == 'update') {
-        final params = agentParamsOf(c.args['params']).orWarn(key);
-        final base = agentParamsOf(c.value).orWarn(key);
+        final params = agentParamsOf(c.args['params']).orNull;
+        final base = agentParamsOf(c.value).orNull;
         return params == null || base == null
             ? null
             : (change: c, params: params, base: base);
@@ -946,8 +953,7 @@ extension LinkInstallScreen on Selectors {
 }
 
 /// The package a link runs (`pkg:<name>`), or null for a built-in driver.
-String? packageOfLink(LinkInfo l) =>
-    l.driver.startsWith('pkg:') ? l.driver.substring(4) : null;
+String? packageOfLink(LinkInfo l) => l.packageName;
 
 final _linkStates = LastResult<Map<String, LinkState>>();
 final _livePackages = LastResult<Map<String, PackageInfo>>();
@@ -983,7 +989,8 @@ extension LinksTables on Selectors {
     () => {
       for (final id in links.view)
         if (_live('links/$id/state') case final v?)
-          id: ?linkStateSampleOf(v).orWarn('sys/links/$id/state'),
+          // recorded where the value arrived (`warnUnreadLive`)
+          id: ?linkStateSampleOf(v).orNull,
     },
   );
 
@@ -1028,7 +1035,7 @@ extension LinksTables on Selectors {
   /// The links that run the package [name], by id, in list order.
   List<String> linksOfPackage(String name) => [
     for (final id in links.view)
-      if (links.table[id]?.driver == 'pkg:$name') id,
+      if (links.table[id]?.packageName == name) id,
   ];
 
   /// The restore points of [link] (`sys/links/<id>/restore_points`).
@@ -1043,10 +1050,8 @@ extension LinksTables on Selectors {
         () => {
           for (final id in links.view)
             id:
-                restorePointsOf(
-                  _live('links/$id/restore_points'),
-                  where: 'sys/links/$id/restore_points',
-                ).orWarn('sys/links/$id/restore_points') ??
+                // recorded where the value arrived (`warnUnreadLive`)
+                restorePointsOf(_live('links/$id/restore_points')).orNull ??
                 const [],
         },
       )[link] ??
@@ -1223,7 +1228,7 @@ extension SelectBrokerHealth on Selectors {
   QuarantineEntry? get oldestWaitingLink =>
       ([
             for (final q in _waiting)
-              if (q.kind != QuarantineKind.broker) q,
+              if (q.kind == QuarantineKind.link) q,
           ]..sort(
             (a, b) => (a.firstSeen ?? DateTime(0)).compareTo(
               b.firstSeen ?? DateTime(0),
@@ -1287,7 +1292,7 @@ extension SelectBrokerHealth on Selectors {
       for (final l in failedLinks)
         AttentionItem(kind: AttentionKind.linkFailed, subject: l.id),
       for (final q in waiting)
-        if (q.kind != QuarantineKind.broker)
+        if (q.kind == QuarantineKind.link)
           AttentionItem(
             kind: AttentionKind.quarantine,
             subject: q.node,
@@ -1301,6 +1306,15 @@ extension SelectBrokerHealth on Selectors {
             subject: q.node,
             name: q.cn,
             count: q.via.length,
+          ),
+      // a connection that awaits a decision and that Studio could not
+      // read is seen here too
+      for (final q in waiting)
+        if (q.kind == null)
+          AttentionItem(
+            kind: AttentionKind.waitingNotRead,
+            subject: q.node,
+            name: q.cn,
           ),
       if (acl != null && seen != null && acl > seen)
         AttentionItem(
@@ -1344,12 +1358,46 @@ extension SelectBrokerHealth on Selectors {
         l,
   ];
 
+  /// The session reaches the viewed site through an upstream broker: the
+  /// broker then refuses `keys`, a passphrase and a restore that
+  /// replaces.
+  bool get viaUpstream => site.viewed != site.name;
+
+  /// The broker's backups were read and it makes some: the backup
+  /// dialogs may open.
+  bool get backupsOffered =>
+      backups.availability == BackupsRead.read && backups.sections.isNotEmpty;
+
+  /// What *Back up* sends for the form as it is ([backupFormPlanOf]);
+  /// [passphraseLength] is the one thing only the dialog knows.
+  BackupFormPlan backupFormPlan({required int passphraseLength}) =>
+      backupFormPlanOf(
+        state.backups,
+        viaUpstream: viaUpstream,
+        passphraseLength: passphraseLength,
+      );
+
+  /// The file step of the restore dialog ([restoreFilePlanOf]).
+  RestoreFilePlan get restoreFilePlan => restoreFilePlanOf(state.backups);
+
+  /// What *Restore* sends for the form as it is ([restorePlanOf]).
+  RestorePlan restorePlan({required int passphraseLength}) => restorePlanOf(
+    state.backups,
+    viaUpstream: viaUpstream,
+    passphraseLength: passphraseLength,
+  );
+
+  /// What the dialog of the kept backup [job] does, and whether it may
+  /// ([backupJobPlanOf]); its live values decide (a send that runs).
+  BackupJobPlan backupJobPlan(BackupJob job) =>
+      backupJobPlanOf(state.backups, backupJob(job.id) ?? job);
+
   /// The kept backup [id] with its live values, or null.
   BackupJob? backupJob(String id) => switch (backups.table[id]) {
+    // recorded where the values arrive (`warnUnreadLive`)
     final j? => backupLiveOf(
       j,
       (leaf) => live.values['$_sysKey/backups/$id/$leaf']?.value,
-      '$_sysKey/backups/$id',
     ),
     null => null,
   };
@@ -1872,6 +1920,9 @@ extension type SelectLinks(AppState _state) {
 
   /// Returns updatesAvailable
   int get updatesAvailable => _state.links.updatesAvailable;
+
+  /// Returns shown
+  bool get shown => _state.links.shown;
 }
 
 extension type SelectQuarantine(AppState _state) {
@@ -2610,19 +2661,19 @@ extension type SelectBackups(AppState _state) {
   IList<SendLink> get sendLinks => _state.backups.sendLinks;
 
   /// Returns sections
-  IList<String> get sections => _state.backups.sections;
+  IList<BackupSection> get sections => _state.backups.sections;
 
   /// Returns keepDays
   int get keepDays => _state.backups.keepDays;
 
   /// Returns stage
-  String? get stage => _state.backups.stage;
+  BackupStage? get stage => _state.backups.stage;
 
   /// Returns link
   String? get link => _state.backups.link;
 
   /// Returns chosen
-  ISet<String> get chosen => _state.backups.chosen;
+  ISet<BackupSection> get chosen => _state.backups.chosen;
 
   /// Returns historyDays
   int? get historyDays => _state.backups.historyDays;
@@ -2631,7 +2682,7 @@ extension type SelectBackups(AppState _state) {
   ISet<String> get offLinks => _state.backups.offLinks;
 
   /// Returns where
-  String get where => _state.backups.where;
+  BackupPlace get where => _state.backups.where;
 
   /// Returns sendLink
   String? get sendLink => _state.backups.sendLink;
@@ -2646,7 +2697,7 @@ extension type SelectBackups(AppState _state) {
   IList<String> get connections => _state.backups.connections;
 
   /// Returns estimate
-  IMap<String, int> get estimate => _state.backups.estimate;
+  IMap<BackupSection, int> get estimate => _state.backups.estimate;
 
   /// Returns job
   String? get job => _state.backups.job;
@@ -2673,7 +2724,7 @@ extension type SelectBackups(AppState _state) {
   RestoreCheck? get check => _state.backups.check;
 
   /// Returns mode
-  String get mode => _state.backups.mode;
+  RestoreMode get mode => _state.backups.mode;
 
   /// Returns replaceKeys
   bool get replaceKeys => _state.backups.replaceKeys;
@@ -2692,6 +2743,18 @@ extension type SelectBackups(AppState _state) {
 
   /// Returns opening
   int get opening => _state.backups.opening;
+
+  /// Returns staged
+  IList<BackupSection> get staged => _state.backups.staged;
+
+  /// Returns availability
+  BackupsRead get availability => _state.backups.availability;
+
+  /// Returns unread
+  IList<String> get unread => _state.backups.unread;
+
+  /// Returns applySent
+  bool get applySent => _state.backups.applySent;
 }
 
 extension type SelectBrokerUpdate(AppState _state) {

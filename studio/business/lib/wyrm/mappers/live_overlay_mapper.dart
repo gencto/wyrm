@@ -1,9 +1,16 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/backup_job.dart';
 import 'package:models/flow_summary.dart';
 import 'package:models/live_value.dart';
 import 'package:models/watch_group.dart';
 
-import 'flow_value_mapper.dart';
+import '../decode/backup_job.dart';
+import '../decode/flow_val.dart';
+import '../decode/live_fields.dart' show liveNumber;
+import '../decode/live_leaves.dart';
+import '../decode/live_values.dart';
+import '../decode/package_info.dart';
+import '../decode/sys_answers.dart';
 
 /// A live value as the historian's text: a number without a trailing `.0`,
 /// a text or a bool as it is; null for anything else.
@@ -42,7 +49,10 @@ IMap<String, String> liveStats(
 }
 
 /// [groups] with each group's settings (`<base>/<group>/logging_type`,
-/// `interval`, `buffer_flush_time`) from [values] where they are live.
+/// `interval`, `buffer_flush_time`) from [values] where they are live. A
+/// live value of another shape keeps what the group holds; it is recorded
+/// where it arrives ([warnUnreadLive]), not here: a selector calls this
+/// on every rebuild.
 IList<WatchGroup> liveGroups(
   IList<WatchGroup> groups,
   String base,
@@ -50,36 +60,87 @@ IList<WatchGroup> liveGroups(
 ) => [
   for (final g in groups)
     () {
-      Object? v(String k) => values['$base/${g.name}/$k']?.value;
+      Object? v(GroupLiveLeaf leaf) =>
+          values['$base/${g.name}/${leaf.wire}']?.value;
+      num? liveNum(GroupLiveLeaf leaf) =>
+          liveNumber(v(leaf), 'watch group', leaf.wire).orNull;
       return g.copyWith(
-        loggingType: switch (v('logging_type')) {
-          final String s => s,
-          _ => g.loggingType,
-        },
-        interval: switch (v('interval')) {
-          final num n => n,
-          _ => g.interval,
-        },
-        flush: switch (v('buffer_flush_time')) {
-          final num n => n,
-          _ => g.flush,
-        },
+        logging:
+            liveLoggingOf(v(GroupLiveLeaf.loggingType)).orNull ?? g.logging,
+        interval: liveNum(GroupLiveLeaf.interval) ?? g.interval,
+        flush: liveNum(GroupLiveLeaf.flush) ?? g.flush,
       );
     }(),
 ].lock;
 
-/// [f] with its running state, version, deployer and error from its live
-/// `~val` [v] (`{state, error, version, deployed_by}`), when there is one.
-FlowSummary liveFlow(FlowSummary f, LiveValue? v) {
-  if (v == null) {
-    return f;
+/// [f] under its live `~val` [v], when there is one ([flowUnderLive]): its
+/// state, version, deployer and error; a value Studio cannot read says
+/// the state is not known and keeps the last version read.
+FlowSummary liveFlow(FlowSummary f, LiveValue? v) =>
+    v == null ? f : flowUnderLive(f, flowValOf(v.value));
+
+/// Records each value of [changed] (one batch of the live values, under
+/// the site [root]) that the screens read and that is not of its shape: a
+/// flow's `~val`, the settings of a watch group, and a link's `state` and
+/// `restore_points`. Called once per batch
+/// where the values arrive, so a value is recorded once per change and
+/// the selectors that read it record nothing.
+void warnUnreadLive(Map<String, LiveValue?> changed, String root) {
+  final flows = '$root/dataflows/';
+  final history = '$root/sys/history/';
+  final links = '$root/sys/links/';
+  final backups = '$root/sys/backups/';
+  for (final MapEntry(:key, :value) in changed.entries) {
+    if (value == null) {
+      continue;
+    }
+    if (key.startsWith(flows)) {
+      final id = key.substring(flows.length);
+      if (!id.contains('/')) {
+        flowValOf(value.value).record(key);
+      }
+    } else if (key.startsWith(links)) {
+      final parts = key.substring(links.length).split('/');
+      if (parts.length != 2) {
+        continue;
+      }
+      final where = 'sys/links/${parts.first}/${parts.last}';
+      switch (LinkLiveLeaf.fromWire(parts.last)) {
+        case LinkLiveLeaf.state:
+          linkStateSampleOf(value.value).record(where);
+        case LinkLiveLeaf.restorePoints:
+          restorePointsOf(value.value, where: where).record(where);
+        // a leaf the screens do not decode
+        case null:
+          break;
+      }
+    } else if (key.startsWith(backups)) {
+      final parts = key.substring(backups.length).split('/');
+      if (parts.length == 2 && backupLeaves.contains(parts.last)) {
+        // the one leaf that changed, laid over an empty job: only its
+        // own fault is recorded
+        backupLiveOf(
+          BackupJob(id: parts.first),
+          (leaf) => leaf == parts.last ? value.value : null,
+          '$backups${parts.first}',
+        );
+      }
+    } else if (key.startsWith(history)) {
+      final parts = key.substring(history.length).split('/');
+      if (parts.length != 2) {
+        continue;
+      }
+      final where = '$history${parts.first}';
+      switch (GroupLiveLeaf.fromWire(parts.last)) {
+        case GroupLiveLeaf.loggingType:
+          liveLoggingOf(value.value).record(where);
+        case final GroupLiveLeaf leaf &&
+            (GroupLiveLeaf.interval || GroupLiveLeaf.flush):
+          liveNumber(value.value, 'watch group', leaf.wire).record(where);
+        // a leaf the screens do not decode
+        case null:
+          break;
+      }
+    }
   }
-  final l = flowSummaryOfValue(f.id, v.value);
-  return f.copyWith(
-    version: l.version ?? f.version,
-    deployedBy: l.deployedBy,
-    problem: l.problem,
-    draft: l.draft,
-    running: l.running,
-  );
 }

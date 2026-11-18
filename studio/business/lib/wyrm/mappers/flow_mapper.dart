@@ -111,6 +111,12 @@ IMap<String, Object?>? cfgWithOperandValue(
   } else {
     m[port] = value;
   }
+  // `values` is read as JSON while the editor builds: a map past the bound
+  // is refused here, in the action, never stored (typed text cannot make
+  // one, `typedJsonOf`).
+  if (!JsonValue.isJson(m)) {
+    throw const JsonTooDeep();
+  }
   return m.isEmpty
       ? b.cfg.remove(operandValuesKey)
       : b.cfg.add(operandValuesKey, m);
