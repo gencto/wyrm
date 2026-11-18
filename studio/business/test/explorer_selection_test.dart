@@ -22,10 +22,10 @@ import 'package:business/redux/nodes/actions/toggle_node_action.dart';
 import 'package:business/wyrm/points.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:models/change_side.dart';
 import 'package:models/node_info.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
-import 'support/change_words.dart';
 import 'support/fake_wyrm.dart';
 
 const dev = 'wy/central/downstream/modbus/line1/ahu1';
@@ -217,8 +217,12 @@ void main() {
       expect(s.state.changes.view, ['edit:$dev/temp']);
       final c = s.state.changes.table['edit:$dev/temp']!;
       expect(
-        (c.field, c.from.en, c.to.en),
-        ('poll, unit', '1 s, °C', '500 ms, K'),
+        (c.field, c.from, c.to),
+        (
+          'poll, unit',
+          const ChangeSide.text('1 s, °C'),
+          const ChangeSide.text('500 ms, K'),
+        ),
       );
       expect((c.action, c.level), ('edit', Perm.config));
       expect(c.args.unlock, {

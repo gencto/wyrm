@@ -1994,6 +1994,8 @@
     "@changeRev": {"placeholders": {"rev": {"type": "int"}}},
     "changeRevOf": "rev {rev}: {detail}",
     "@changeRevOf": {"placeholders": {"rev": {"type": "int"}, "detail": {"type": "String"}}},
+    "changeFieldOf": "{field} · {names}",
+    "@changeFieldOf": {"placeholders": {"field": {"type": "String"}, "names": {"type": "String"}}},
     "changeOn": "on",
     "changeOff": "off",
     "changeKeys": "{count} top-level keys",

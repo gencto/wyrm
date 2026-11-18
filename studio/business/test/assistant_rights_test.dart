@@ -13,13 +13,15 @@ import 'package:business/redux/login/actions/set_user_action.dart';
 import 'package:business/redux/nodes/actions/open_trend_action.dart';
 import 'package:business/redux/nodes/actions/select_node_action.dart';
 import 'package:business/redux/site/actions/view_site_action.dart';
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/approval_mode.dart';
+import 'package:models/change_side.dart';
 import 'package:models/explorer_tab.dart';
+import 'package:models/param_side.dart';
 import 'package:models/staged_change.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
-import 'support/change_words.dart';
 import 'support/fake_wyrm.dart';
 
 /// Spec `assistant.md` §2 step 6: what the agent may do, its params staged
@@ -237,9 +239,26 @@ void main() {
     await s.dispatchAndWait(StageAgentParamAction.removePrefix('A'));
 
     final c = staged();
-    expect(c.field, 'params · require_approval, allowed_prefixes');
-    expect(c.from.en, 'rev 4: require_approval write; allowed_prefixes A, B');
-    expect(c.to.en, 'require_approval config; allowed_prefixes B');
+    expect(c.field, 'params');
+    expect(
+      c.from,
+      ChangeSide.params(
+        [
+          const ParamSide(name: 'require_approval', text: 'write'),
+          ParamSide(name: 'allowed_prefixes', list: ['A', 'B'].lock),
+        ].lock,
+        rev: 4,
+      ),
+    );
+    expect(
+      c.to,
+      ChangeSide.params(
+        [
+          const ParamSide(name: 'require_approval', text: 'config'),
+          ParamSide(name: 'allowed_prefixes', list: ['B'].lock),
+        ].lock,
+      ),
+    );
   });
 
   test(

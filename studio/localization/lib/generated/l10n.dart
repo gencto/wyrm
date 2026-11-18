@@ -16044,6 +16044,16 @@ class S {
     );
   }
 
+  /// `{field} · {names}`
+  String changeFieldOf(String field, String names) {
+    return Intl.message(
+      '$field · $names',
+      name: 'changeFieldOf',
+      desc: '',
+      args: [field, names],
+    );
+  }
+
   /// `on`
   String get changeOn {
     return Intl.message('on', name: 'changeOn', desc: '', args: []);

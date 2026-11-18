@@ -3,7 +3,6 @@ import 'package:material_ui/material_ui.dart';
 import 'package:models/access_tab.dart';
 import 'package:models/action_answer.dart';
 import 'package:models/agent_config.dart';
-import 'package:models/agent_params.dart';
 import 'package:models/agent_task.dart';
 import 'package:models/answer_fault.dart';
 import 'package:models/approval_mode.dart';
@@ -303,7 +302,7 @@ extension AssistantScreen on Selectors {
 
   /// The tasks of the list, newest first: those under way, and those that
   /// ended.
-  ({List<AgentTask> now, List<AgentTask> earlier}) get taskGroups {
+  TaskGroups get taskGroups {
     final now = <AgentTask>[];
     final earlier = <AgentTask>[];
     for (final id in tasks.view.reversed) {
@@ -311,7 +310,7 @@ extension AssistantScreen on Selectors {
         (t.state.finished ? earlier : now).add(t);
       }
     }
-    return (now: now, earlier: earlier);
+    return TaskGroups(now: now, earlier: earlier);
   }
 
   /// The lines of [t]'s conversation in this session.
@@ -587,10 +586,10 @@ extension AssistantScreen on Selectors {
   /// The keys *+ from Explorer* offers: the selection and the point
   /// first, then the nodes Explorer read on the site on screen; only plain
   /// node keys of this site the agent reads, none twice, none a chip.
-  ({List<String> first, List<String> rest}) get chipChoices {
+  ChipOffer get chipChoices {
     final root = site.root;
     if (root == null) {
-      return (first: const [], rest: const []);
+      return const ChipOffer(first: [], rest: []);
     }
     final chips = assistant.chips.toSet();
     final selected = offeredChip;
@@ -601,7 +600,7 @@ extension AssistantScreen on Selectors {
       ?selected,
       if (point != null && point != selected) point,
     ].where(fits).toList();
-    return (
+    return ChipOffer(
       first: first,
       rest: [
         for (final k in nodes.view.take(400))
@@ -613,13 +612,13 @@ extension AssistantScreen on Selectors {
   /// A key typed in the picker, in full or below the site: the plain node
   /// key it names, and whether the agent reads it; null when it names none
   /// or is a chip already.
-  ({String key, bool reads})? typedChip(String text) {
+  TypedChip? typedChip(String text) {
     final root = site.root;
     final k = text.contains('/') ? contextKey(root, text) : null;
     if (root == null || k == null || assistant.chips.contains(k)) {
       return null;
     }
-    return (key: k, reads: agentReadsKey(k));
+    return TypedChip(k, reads: agentReadsKey(k));
   }
 }
 
@@ -749,15 +748,14 @@ extension StagedParams on Selectors {
   /// those it was made from; null when none is staged. Studio writes both
   /// itself (`agentParamsJson`); one that does not read back is logged
   /// and is no base for a new edit.
-  ({StagedChange change, AgentParams params, AgentParams base})?
-  stagedAgentParamsOf(String key) {
+  StagedAgentParams? stagedAgentParamsOf(String key) {
     for (final c in changes.table.values) {
       if (c.key == key && c.action == 'update') {
         final params = agentParamsOf(c.args['params']).orWarn(key);
         final base = agentParamsOf(c.value).orWarn(key);
         return params == null || base == null
             ? null
-            : (change: c, params: params, base: base);
+            : StagedAgentParams(change: c, params: params, base: base);
       }
     }
     return null;
@@ -766,14 +764,14 @@ extension StagedParams on Selectors {
   /// The agent link's `require_approval` and `allowed_prefixes` as they will
   /// be: from the update staged for it on this site, else as read. The mode
   /// is null when it is not known (the agent's settings did not read).
-  ({ApprovalMode? mode, List<String> prefixes, bool staged}) get agentParams {
+  AgentParamsShown get agentParams {
     final agent = assistant.agent;
     final staged = agent == null
         ? null
         : stagedAgentParamsOf(
             '${site.root}/sys/links/${agent.split('/').last}',
           );
-    return (
+    return AgentParamsShown(
       mode: staged?.params.requireApproval ?? assistant.mode,
       prefixes: (staged?.params.allowedPrefixes ?? assistant.prefixes).toList(),
       staged: staged != null,

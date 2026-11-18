@@ -33,8 +33,9 @@ import 'package:business/redux/panels/actions/set_panel_width_action.dart';
 import 'package:business/wyrm/explorer.dart' show explorerPolls;
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:ui/containers/side_panels.dart';
+import 'package:ui/models/panels.dart';
 import 'package:ui/models/submit.dart';
+import 'package:ui/models/value_changed.dart';
 import 'package:ui/pages/explorer_page.dart';
 
 import '../common/forms.dart';
@@ -129,7 +130,7 @@ class ExplorerPageConnector extends StatelessWidget {
         range: vm.shown.range,
         onHistoryRange: vm.onHistoryRange,
         trend: vm.shown.trend,
-        onTrendWindow: (a, b) => vm.onTrendWindow((start: a, end: b)),
+        onTrendWindow: (a, b) => vm.onTrendWindow(TrendWindow(a, b)),
         onTrendReset: vm.onTrendReset,
         historyRows: vm.shown.historyRows.unlockView,
         historyNoPoint: vm.shown.historyNoPoint,
@@ -141,7 +142,7 @@ class ExplorerPageConnector extends StatelessWidget {
         onReadAgain: vm.onReadAgain,
         onCloseInspector: vm.onCloseInspector,
         panels: vm.shown.panelWidths,
-        onPanelWidth: (side, w) => vm.onPanelWidth((side: side, width: w)),
+        onPanelWidth: (side, w) => vm.onPanelWidth(PanelWidth(side, w)),
         viewer: vm.shown.viewer,
         viewerTables: viewerTables,
         onViewPoint: vm.onViewPoint,
@@ -300,14 +301,14 @@ class _Vm extends Vm {
   final ValueChanged<ExplorerTabTag> onTab;
   final ValueChanged<String> onAction;
   final ValueChanged<HistoryRangeTag> onHistoryRange;
-  final ValueChanged<({int start, int end})> onTrendWindow;
+  final ValueChanged<TrendWindow> onTrendWindow;
   final VoidCallback onTrendReset;
   final VoidCallback onCloseInspector;
   final ValueChanged<String> onReadAgain;
   final ValueChanged<ExplorerTool> onTool;
   final ValueChanged<double> onSetPoll;
   final ValueChanged<ParamEdit> onParam;
-  final ValueChanged<({PanelSide side, double width})> onPanelWidth;
+  final ValueChanged<PanelWidth> onPanelWidth;
   final ValueChanged<String> onTapFlowEditor;
   final VoidCallback? onViewPoint;
   final VoidCallback onCloseViewer;

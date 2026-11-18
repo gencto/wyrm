@@ -445,7 +445,14 @@ class StudioFrame extends StatelessWidget {
         op: c.op,
         // a link's params: the whole key, so the site is never hidden
         key_: c.key.contains('/sys/links/') ? c.key : _short(c.key),
-        field: c.field,
+        // a link's params: which of them change
+        field: switch (c.to) {
+          ChangeSideParamsVm(:final names) => S.current.changeFieldOf(
+            c.field,
+            names,
+          ),
+          _ => c.field,
+        },
         from: c.from.text,
         to: c.to.text,
         allowed: c.allowed,

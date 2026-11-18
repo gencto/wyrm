@@ -244,7 +244,7 @@ AssistantShown _shownOf(_Read r, {required bool drawer}) {
 
 /// The tasks of the list: those under way, then those that ended.
 IList<TaskSectionVm> _sections(_Read r) {
-  final (:now, :earlier) = r.taskGroups;
+  final TaskGroups(:now, :earlier) = r.taskGroups;
   TaskItemVm item(AgentTask t) => t.item(
     selected: t.id == r.tasks.selectedTask,
     own: r.askedByUser(t),
@@ -268,7 +268,10 @@ PlanCardVm _plan(_Read r, AgentTask t, List<StepChoice>? choices) {
     line: switch (t.replacedBy) {
       final next? => PlanReplaced(next),
       null when t.state == .awaitingApproval => switch (planChecks(t.plan)) {
-        (:final now, :final atRun) => PlanChecked(now: now, atRun: atRun),
+        PlanChecks(:final now, :final atRun) => PlanChecked(
+          now: now,
+          atRun: atRun,
+        ),
       },
       null => switch (t.approvedBy) {
         final line? => PlanApproved(line),

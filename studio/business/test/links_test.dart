@@ -18,7 +18,6 @@ import 'package:models/change_side.dart';
 import 'package:models/link_mode.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
-import 'support/change_words.dart';
 import 'support/fake_wyrm.dart';
 
 void main() {
@@ -100,7 +99,6 @@ void main() {
       (c.action, c.level, c.from),
       ('update', Perm.config, const ChangeSide.rev(1)),
     );
-    expect(c.from.en, 'rev 1');
 
     api.invokes['wy/central/sys/links/modbus ▸ update'] = [const VInt(2)];
     await s.dispatchAndWait(ApplyChangesAction());

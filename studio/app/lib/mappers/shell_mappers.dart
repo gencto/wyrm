@@ -63,7 +63,11 @@ extension ChangeSideVmOf on ChangeSide {
   ChangeSideVm get vm => switch (this) {
     ChangeSideText(:final text) => .text(text),
     ChangeSideNone() => const .none(),
-    ChangeSideRev(:final rev, :final detail) => .rev(rev, detail: detail),
+    ChangeSideRev(:final rev) => .rev(rev),
+    ChangeSideParams(:final values, :final rev) => .params([
+      for (final v in values)
+        ParamSideVm(v.name, value: v.text, list: v.list?.unlockView),
+    ], rev: rev),
     ChangeSideFlag(:final on) => .flag(on: on),
     ChangeSideKeys(:final count) => .keys(count),
   };

@@ -1989,6 +1989,8 @@
     "@changeRev": {"placeholders": {"rev": {"type": "int"}}},
     "changeRevOf": "ред. {rev}: {detail}",
     "@changeRevOf": {"placeholders": {"rev": {"type": "int"}, "detail": {"type": "String"}}},
+    "changeFieldOf": "{field} · {names}",
+    "@changeFieldOf": {"placeholders": {"field": {"type": "String"}, "names": {"type": "String"}}},
     "changeOn": "увімкнено",
     "changeOff": "вимкнено",
     "changeKeys": "ключів верхнього рівня: {count}",

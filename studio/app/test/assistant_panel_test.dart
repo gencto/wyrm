@@ -401,7 +401,7 @@ void main() {
 
     final card = _Reader(app.store.state).changes.reviewCards.single.change;
     expect(card.key, _links);
-    expect(card.field, 'params · require_approval');
+    expect(card.field, 'params');
     expect(card.from.vm.text, 'rev 2: require_approval write');
     expect(card.to.vm.text, 'require_approval config');
   });

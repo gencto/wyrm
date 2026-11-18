@@ -1,4 +1,7 @@
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
+
+import 'param_side.dart';
 
 part 'change_side.freezed.dart';
 
@@ -13,10 +16,13 @@ sealed class ChangeSide with _$ChangeSide {
   /// Nothing to show (`—`).
   const factory ChangeSide.none() = ChangeSideNone;
 
-  /// The revision [rev] of a link's params, with what of it changes
-  /// ([detail]: param names and their values, data); empty for all of it.
-  const factory ChangeSide.rev(int rev, {@Default('') String detail}) =
-      ChangeSideRev;
+  /// The revision [rev] of a link's params, all of it.
+  const factory ChangeSide.rev(int rev) = ChangeSideRev;
+
+  /// Some params of a link as they are on this side ([values]), of the
+  /// revision [rev] when the side is what was there.
+  const factory ChangeSide.params(IList<ParamSide> values, {int? rev}) =
+      ChangeSideParams;
 
   /// A switch: on or off.
   const factory ChangeSide.flag({required bool on}) = ChangeSideFlag;

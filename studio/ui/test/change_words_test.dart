@@ -14,9 +14,22 @@ void main() {
     expect(const ChangeSideVm.text('500 ms').text, '500 ms');
     expect(const ChangeSideVm.none().text, '—');
     expect(const ChangeSideVm.rev(3).text, 'rev 3');
+    const was = ChangeSideVm.params([
+      ParamSideVm('require_approval', value: 'write'),
+      ParamSideVm('allowed_prefixes', list: ['A', 'B']),
+      ParamSideVm('emptied', list: []),
+      ParamSideVm('unset'),
+    ], rev: 2);
     expect(
-      const ChangeSideVm.rev(2, detail: 'require_approval write').text,
-      'rev 2: require_approval write',
+      was.text,
+      'rev 2: require_approval write; allowed_prefixes A, B; emptied []; '
+      'unset —',
+    );
+    expect(
+      const ChangeSideVm.params([
+        ParamSideVm('require_approval', value: 'config'),
+      ]).text,
+      'require_approval config',
     );
     expect(const ChangeSideVm.flag(on: true).text, 'on');
     expect(const ChangeSideVm.flag(on: false).text, 'off');

@@ -25,8 +25,13 @@ sealed class ChangeSideVm extends Equatable {
   /// Nothing to show.
   const factory ChangeSideVm.none() = ChangeSideNoneVm;
 
-  /// The revision [rev] of a link's params, and what of it changes.
-  const factory ChangeSideVm.rev(int rev, {String detail}) = ChangeSideRevVm;
+  /// The revision [rev] of a link's params.
+  const factory ChangeSideVm.rev(int rev) = ChangeSideRevVm;
+
+  /// Some params of a link as they are on this side, of the revision
+  /// [rev] when the side is what was there.
+  const factory ChangeSideVm.params(List<ParamSideVm> values, {int? rev}) =
+      ChangeSideParamsVm;
 
   /// A switch: on or off.
   const factory ChangeSideVm.flag({required bool on}) = ChangeSideFlagVm;
@@ -59,20 +64,57 @@ final class ChangeSideNoneVm extends ChangeSideVm {
 }
 
 final class ChangeSideRevVm extends ChangeSideVm {
-  const ChangeSideRevVm(this.rev, {this.detail = ''});
+  const ChangeSideRevVm(this.rev);
 
   final int rev;
 
-  /// The params that change with their values (data); empty for all.
-  final String detail;
+  @override
+  String get text => S.current.changeRev(rev);
 
   @override
-  String get text => detail.isEmpty
-      ? S.current.changeRev(rev)
-      : S.current.changeRevOf(rev, detail);
+  List<Object?> get props => [rev];
+}
+
+/// One param on one side of a change: its wire name and what it holds: a
+/// text, a list, or neither (not set).
+final class ParamSideVm extends Equatable {
+  const ParamSideVm(this.name, {this.value, this.list});
+
+  final String name;
+  final String? value;
+  final List<String>? list;
+
+  /// `require_approval write`, `allowed_prefixes A, B`, `x []`, `y —`.
+  String get text => switch ((value, list)) {
+    (final v?, _) => '$name $v',
+    (null, final l?) => '$name ${l.isEmpty ? '[]' : l.join(', ')}',
+    (null, null) => '$name —',
+  };
 
   @override
-  List<Object?> get props => [rev, detail];
+  List<Object?> get props => [name, value, list];
+}
+
+final class ChangeSideParamsVm extends ChangeSideVm {
+  const ChangeSideParamsVm(this.values, {this.rev});
+
+  final List<ParamSideVm> values;
+  final int? rev;
+
+  /// The names of the params that change: `require_approval, x`.
+  String get names => [for (final v in values) v.name].join(', ');
+
+  @override
+  String get text {
+    final detail = [for (final v in values) v.text].join('; ');
+    return switch (rev) {
+      final r? => S.current.changeRevOf(r, detail),
+      null => detail,
+    };
+  }
+
+  @override
+  List<Object?> get props => [values, rev];
 }
 
 final class ChangeSideFlagVm extends ChangeSideVm {

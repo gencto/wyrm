@@ -440,7 +440,7 @@ ChipChoices? chipChoicesOf(AppState s) {
     );
   }
 
-  final (:first, :rest) = r.chipChoices;
+  final ChipOffer(:first, :rest) = r.chipChoices;
   return ChipChoices(
     site: root.split('/').last,
     entries: [
@@ -452,5 +452,4 @@ ChipChoices? chipChoicesOf(AppState s) {
 
 /// The key [text] names when typed in the picker, and whether the agent
 /// reads it (`typedChip`); null when it names none or is a chip already.
-({String key, bool reads})? typedChipOf(AppState s, String text) =>
-    _Read(s).typedChip(text);
+TypedChip? typedChipOf(AppState s, String text) => _Read(s).typedChip(text);

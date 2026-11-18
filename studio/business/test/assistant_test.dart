@@ -23,6 +23,7 @@ import 'package:business/redux/tasks/actions/retrieve_task_record_action.dart';
 import 'package:business/redux/tasks/actions/retrieve_tasks_action.dart';
 import 'package:business/redux/tasks/actions/set_selected_task_action.dart';
 import 'package:business/wyrm/approval.dart';
+import 'package:business/wyrm/assistant_view.dart';
 import 'package:business/wyrm/mappers/agent_task_mapper.dart';
 import 'package:business/wyrm/rights.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
@@ -497,8 +498,8 @@ void main() {
   test('how far a plan was checked counts the steps that change something', () {
     final plan = taskOf(record('awaiting_approval')).plan;
     // step 1 now, step 2 when it runs, step 3 only reads
-    expect(planChecks(plan), (now: 1, atRun: 1));
-    expect(planChecks(plan.take(1)), (now: 1, atRun: 0));
+    expect(planChecks(plan), const PlanChecks(now: 1, atRun: 1));
+    expect(planChecks(plan.take(1)), const PlanChecks(now: 1, atRun: 0));
   });
 
   group('approve through the gateway (ADR 0049 §2–4)', () {

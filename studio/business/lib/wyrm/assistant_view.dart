@@ -1,4 +1,8 @@
 import 'package:equatable/equatable.dart';
+import 'package:models/agent_params.dart';
+import 'package:models/agent_task.dart';
+import 'package:models/approval_mode.dart';
+import 'package:models/staged_change.dart';
 import 'package:models/task_suggestion.dart';
 
 import '../common/memo.dart';
@@ -106,6 +110,74 @@ final class ShownArg extends Equatable {
 
   @override
   List<Object?> get props => [name, text];
+}
+
+/// The tasks of the list, newest first: those under way, and those that
+/// ended.
+final class TaskGroups {
+  const TaskGroups({required this.now, required this.earlier});
+
+  final List<AgentTask> now;
+  final List<AgentTask> earlier;
+}
+
+/// The keys *+ from Explorer* offers: the selection and the point
+/// [first], then the [rest] Explorer read.
+final class ChipOffer {
+  const ChipOffer({required this.first, required this.rest});
+
+  final List<String> first;
+  final List<String> rest;
+}
+
+/// A key typed in the picker: the plain node [key] it names, and whether
+/// the agent reads it.
+final class TypedChip {
+  const TypedChip(this.key, {required this.reads});
+
+  final String key;
+  final bool reads;
+}
+
+/// The update staged for the agent link: the [change], the params it
+/// sends and the [base] they were made from.
+final class StagedAgentParams {
+  const StagedAgentParams({
+    required this.change,
+    required this.params,
+    required this.base,
+  });
+
+  final StagedChange change;
+  final AgentParams params;
+  final AgentParams base;
+}
+
+/// The agent link's approval mode and prefixes as they will be: from the
+/// update staged for it, else as read. [mode] is null when it is not
+/// known.
+final class AgentParamsShown {
+  const AgentParamsShown({
+    required this.mode,
+    required this.prefixes,
+    required this.staged,
+  });
+
+  final ApprovalMode? mode;
+  final List<String> prefixes;
+  final bool staged;
+}
+
+/// How far the steps of a plan that change something were checked: [now]
+/// against the live tree, [atRun] only when they run.
+final class PlanChecks extends Equatable {
+  const PlanChecks({required this.now, required this.atRun});
+
+  final int now;
+  final int atRun;
+
+  @override
+  List<Object?> get props => [now, atRun];
 }
 
 /// A ticked row of *Same for more units?*: the suggestion it belongs to

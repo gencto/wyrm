@@ -147,11 +147,10 @@ String toString() {
 
 
 class ChangeSideRev implements ChangeSide {
-  const ChangeSideRev(this.rev, {this.detail = ''});
+  const ChangeSideRev(this.rev);
   
 
  final  int rev;
-@JsonKey() final  String detail;
 
 /// Create a copy of ChangeSide
 /// with the given fields replaced by the non-null parameter values.
@@ -163,18 +162,18 @@ $ChangeSideRevCopyWith<ChangeSideRev> get copyWith => _$ChangeSideRevCopyWithImp
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is ChangeSideRev&&(identical(other.rev, rev) || other.rev == rev)&&(identical(other.detail, detail) || other.detail == detail));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is ChangeSideRev&&(identical(other.rev, rev) || other.rev == rev));
 }
 
 
 @override
 int get hashCode {
-    return Object.hash(runtimeType,rev,detail);
+    return Object.hash(runtimeType,rev);
 }
 
 @override
 String toString() {
-    return 'ChangeSide.rev(rev: $rev, detail: $detail)';
+    return 'ChangeSide.rev(rev: $rev)';
 }
 
 
@@ -185,7 +184,7 @@ abstract mixin class $ChangeSideRevCopyWith<$Res> implements $ChangeSideCopyWith
   factory $ChangeSideRevCopyWith(ChangeSideRev value, $Res Function(ChangeSideRev) _then) = _$ChangeSideRevCopyWithImpl;
 @useResult
 $Res call({
- int rev, String detail
+ int rev
 });
 
 
@@ -202,11 +201,80 @@ class _$ChangeSideRevCopyWithImpl<$Res>
 
 /// Create a copy of ChangeSide
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') $Res call({Object? rev = null,Object? detail = null,}) {
+@pragma('vm:prefer-inline') $Res call({Object? rev = null,}) {
   return _then(ChangeSideRev(
 null == rev ? _self.rev : rev // ignore: cast_nullable_to_non_nullable
-as int,detail: null == detail ? _self.detail : detail // ignore: cast_nullable_to_non_nullable
-as String,
+as int,
+  ));
+}
+
+
+}
+
+/// @nodoc
+
+
+class ChangeSideParams implements ChangeSide {
+  const ChangeSideParams(this.values, {this.rev});
+  
+
+ final  IList<ParamSide> values;
+ final  int? rev;
+
+/// Create a copy of ChangeSide
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$ChangeSideParamsCopyWith<ChangeSideParams> get copyWith => _$ChangeSideParamsCopyWithImpl<ChangeSideParams>(this, _$identity);
+
+
+
+@override
+bool operator ==(Object other) {
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is ChangeSideParams&&const DeepCollectionEquality().equals(other.values, values)&&(identical(other.rev, rev) || other.rev == rev));
+}
+
+
+@override
+int get hashCode {
+    return Object.hash(runtimeType,const DeepCollectionEquality().hash(values),rev);
+}
+
+@override
+String toString() {
+    return 'ChangeSide.params(values: $values, rev: $rev)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $ChangeSideParamsCopyWith<$Res> implements $ChangeSideCopyWith<$Res> {
+  factory $ChangeSideParamsCopyWith(ChangeSideParams value, $Res Function(ChangeSideParams) _then) = _$ChangeSideParamsCopyWithImpl;
+@useResult
+$Res call({
+ IList<ParamSide> values, int? rev
+});
+
+
+
+
+}
+/// @nodoc
+class _$ChangeSideParamsCopyWithImpl<$Res>
+    implements $ChangeSideParamsCopyWith<$Res> {
+  _$ChangeSideParamsCopyWithImpl(this._self, this._then);
+
+  final ChangeSideParams _self;
+  final $Res Function(ChangeSideParams) _then;
+
+/// Create a copy of ChangeSide
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') $Res call({Object? values = null,Object? rev = freezed,}) {
+  return _then(ChangeSideParams(
+null == values ? _self.values : values // ignore: cast_nullable_to_non_nullable
+as IList<ParamSide>,rev: freezed == rev ? _self.rev : rev // ignore: cast_nullable_to_non_nullable
+as int?,
   ));
 }
 

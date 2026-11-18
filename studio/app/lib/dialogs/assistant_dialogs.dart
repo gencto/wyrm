@@ -6,6 +6,7 @@ import 'package:business/redux/problems/actions/show_notice_action.dart';
 import 'package:business/redux/tasks/actions/cancel_task_action.dart';
 import 'package:business/redux/tasks/actions/reject_task_action.dart';
 import 'package:business/redux/tasks/actions/save_plan_action.dart';
+import 'package:business/wyrm/assistant_view.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
@@ -177,12 +178,12 @@ Future<void> pickContextKey(BuildContext context) async {
         switch (typedChipOf(StoreProvider.state<AppState>(context), text)) {
           null => null,
           // said, not offered: it has no key to pick
-          (:final key, reads: false) => SearchEntryVm(
+          TypedChip(:final key, reads: false) => SearchEntryVm(
             id: null,
             title: S.current.pickKeyOutside(shortKey(key)),
             icon: AppIcon.uiClose,
           ),
-          (:final key, reads: true) => SearchEntryVm(
+          TypedChip(:final key) => SearchEntryVm(
             id: key,
             title: S.current.pickKeyTyped(shortKey(key)),
             icon: AppIcon.uiChevronRight,

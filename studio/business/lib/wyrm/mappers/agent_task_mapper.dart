@@ -11,6 +11,8 @@ import 'package:models/task_suggestion.dart';
 import 'package:models/withheld_args.dart';
 import 'package:wyrm_client/wyrm_client.dart' as wc;
 
+import '../assistant_view.dart';
+
 // What is made from a decoded task (`decode/agent_task.dart`): the text of
 // a follow-up ask, the plan as a file for `wyrm-agent run`, the arguments a
 // file leaves out, how far a plan was checked.
@@ -91,10 +93,10 @@ List<String> withheld(PlanStep s) => [
 /// How far the steps of [plan] that change something were checked: how
 /// many against the live tree now, and how many only when they run
 /// (`check: at_run`: an earlier step makes their node).
-({int now, int atRun}) planChecks(Iterable<PlanStep> plan) {
+PlanChecks planChecks(Iterable<PlanStep> plan) {
   final changing = plan.where((s) => s.kind.changes);
   final atRun = changing.where((s) => s.check == StepCheck.atRun).length;
-  return (now: changing.length - atRun, atRun: atRun);
+  return PlanChecks(now: changing.length - atRun, atRun: atRun);
 }
 
 /// A value of a step as it is sent, whole: text as it is, anything else as

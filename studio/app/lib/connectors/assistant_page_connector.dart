@@ -185,7 +185,7 @@ class AssistantDrawerConnector extends StatelessWidget {
           ),
           noAgent: shown.noAgent,
           found: shown.found,
-          onTimelineWindow: (a, b) => vm.onTimelineWindow((start: a, end: b)),
+          onTimelineWindow: (a, b) => vm.onTimelineWindow(TrendWindow(a, b)),
           onTimelineReset: vm.onTimelineReset,
           composer: AssistantComposer(
             vm: shown.composer,
@@ -378,7 +378,7 @@ class _Vm extends Vm {
 
   /// A button of the task's card that starts its action at once.
   final ValueChanged<TaskButtonVm> onStart;
-  final ValueChanged<({int start, int end})> onTimelineWindow;
+  final ValueChanged<TrendWindow> onTimelineWindow;
   final VoidCallback onTimelineReset;
   final ValueChanged<String> onDraft;
   final VoidCallback onAsk;
