@@ -13,10 +13,13 @@ import '../theme/typography.dart';
 /// 46 high, radius 10, filled `ground2`, bordered `line2` — `badLine` while it
 /// is [alert] or holds an error — and the error (13, `badText`) 8 under it.
 ///
-/// Controlled: [FieldVm.value] is written back into the field whenever it
-/// changes from outside while the field is not focused (a recent-gateway chip
-/// fills the gateway field). [obscure] hides the text, spaced 0.2 em, with an
-/// eye button 36 × 36 inside on the right that shows it.
+/// Controlled: what the field shows is [FieldVm.value]. A value set from
+/// outside (a recent-gateway chip, a password the store cleared) is written
+/// into the field, also while it has the focus; while the user types, the
+/// value that comes back is the text itself and nothing is written. The
+/// error under the field is that of the text shown. [obscure] hides the
+/// text, spaced 0.2 em, with an eye button 36 × 36 inside on the right that
+/// shows it.
 class BoxedFormField extends StatefulWidget {
   const BoxedFormField({
     required this.vm,
@@ -85,6 +88,13 @@ class _BoxedFormFieldState extends State<BoxedFormField> {
   FocusNode? _ownFocus;
   var _hidden = true;
 
+  /// The validator ran on this field (the `Form` validates every field once
+  /// one was edited, and on a submit): a value from outside is judged again.
+  var _validated = false;
+
+  /// The text shown, as the view-model holds it (empty is none).
+  String? get _shown => _text.text.isEmpty ? null : _text.text;
+
   FocusNode get _focus => widget.focusNode ?? (_ownFocus ??= FocusNode());
 
   @override
@@ -101,13 +111,29 @@ class _BoxedFormFieldState extends State<BoxedFormField> {
       _focus.addListener(_onFocus);
     }
     final value = widget.vm.value ?? '';
-    if (!_focus.hasFocus && value != _text.text) {
-      // Only the controller: the validator reads the view-model's value (see
-      // `build`), so the form state needs no update here. `didChange` would
-      // mark the enclosing `Form` dirty while the tree is being built
-      // ("setState() called during build": the frame was dropped and the
-      // log-in page kept the pixels of earlier ones).
-      _text.text = value;
+    // From outside: a value that is not the text. While the field has the
+    // focus, only a value that moved is: the text typed comes back as it is,
+    // or as the store keeps it (the gateway field trims it), and rewriting
+    // that under the cursor would take the user's spaces and commas.
+    final outside =
+        value != _text.text &&
+        (!_focus.hasFocus || (old.vm.value ?? '') != value);
+    if (outside) {
+      // The controller, not the form state: `didChange` would mark the
+      // enclosing `Form` dirty while the tree is being built ("setState()
+      // called during build": the frame was dropped and the log-in page kept
+      // the pixels of earlier ones).
+      // The cursor after the text: the field may have the focus.
+      _text.value = TextEditingValue(
+        text: value,
+        selection: TextSelection.collapsed(offset: value.length),
+      );
+      // The `Form` judged this field in its own build, before the new
+      // value reached it: an error shown is judged again, on this field
+      // only (a descendant of the one being built, so allowed).
+      if (_validated) {
+        _field.currentState?.validate();
+      }
     }
   }
 
@@ -143,10 +169,17 @@ class _BoxedFormFieldState extends State<BoxedFormField> {
     return FormField<String?>(
       key: _field,
       initialValue: widget.vm.value,
-      // What the field shows is the view-model's value, also when it was set
-      // from outside: that is what is validated, not the form's own copy.
+      // What is judged is the text the field shows. The `Form` validates in
+      // its own build, before this field takes its new view-model: typed or
+      // filled by AutoFill, the text is already new there, the view-model's
+      // value is still the one before (owner, 2026-11-19: a password shown
+      // with "Required field" under it). A value from outside reaches the
+      // text in `didUpdateWidget`, which judges it again.
       validator: switch (widget.vm.validator) {
-        final v? => (_) => v(widget.vm.value),
+        final v? => (_) {
+          _validated = true;
+          return v(_shown);
+        },
         null => null,
       },
       enabled: widget.vm.enabled,
