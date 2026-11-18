@@ -95,6 +95,19 @@ StudioError notSettableOf(String key) {
   );
 }
 
+/// Studio's own refusal to start [call] on [key] because the plan of the
+/// step blocks it: nothing was sent. The app words it
+/// ([ErrorHint.stepBlocked]); the dialog names what is missing.
+StudioException stepBlockedOf(String key, String call) => StudioException(
+  StudioError(
+    kind: ErrorKind.input,
+    hint: ErrorHint.stepBlocked,
+    key: key,
+    call: call,
+    site: siteOf(key),
+  ),
+);
+
 /// The error of a refused broker call. [call] is the wire name of what was
 /// asked (`deploy`, `set`, `list`), [key] the key it was asked on, [thing]
 /// the name of its object when the key's last segment is not it. [write]

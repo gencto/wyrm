@@ -2299,5 +2299,7 @@
     "chkUnknownField": "{field} is not a field this file has",
     "@chkUnknownField": {"placeholders": {"field": {"type": "String"}}},
     "errFileNotReadBecause": "{why}. Nothing was sent.",
-    "@errFileNotReadBecause": {"placeholders": {"why": {"type": "String"}}}
+    "@errFileNotReadBecause": {"placeholders": {"why": {"type": "String"}}},
+    "errStepBlocked": "This step may not start yet, so nothing was sent. The dialog says what is missing.",
+    "rstNotChecked": "Upload and check the file first"
 }

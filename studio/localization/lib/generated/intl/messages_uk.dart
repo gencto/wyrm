@@ -2313,6 +2313,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "errSilentReach": m162,
     "errSilentStatus": m163,
     "errStatusLine": m164,
+    "errStepBlocked": MessageLookupByLibrary.simpleMessage(
+      "Цей крок ще не може початися, тому нічого не надіслано. Діалог показує, чого бракує.",
+    ),
     "errThingBroker": MessageLookupByLibrary.simpleMessage("брокер"),
     "errThingThis": MessageLookupByLibrary.simpleMessage("це"),
     "errTimeLocal": m165,
@@ -3462,6 +3465,9 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "rstNotAppliedNote": MessageLookupByLibrary.simpleMessage(
       "Брокер повернув усе назад і працює на попередньому стані. План і причина збережені на хості в data_dir/restore.failed.",
+    ),
+    "rstNotChecked": MessageLookupByLibrary.simpleMessage(
+      "Спершу завантаж і перевір файл",
     ),
     "rstNotInAdd": MessageLookupByLibrary.simpleMessage(
       "Додавання бере лише лінки й сховище.",

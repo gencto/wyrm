@@ -204,6 +204,159 @@ void main() {
     });
   });
 
+  group('whether a step may start (audit 3 of #135, 2)', () {
+    const links = IListConst([SendLink(link: 'files')]);
+    BackupFormPlan form(BackupsState b, {int passphrase = 0}) =>
+        backupFormPlanOf(b, viaUpstream: false, passphraseLength: passphrase);
+
+    test('Back up: a short passphrase, a store that cannot take it, '
+        'no connection', () {
+      expect(form(_form()).blocked, isNull);
+      expect(form(_form()).canRun, isTrue);
+      expect(form(_form(), passphrase: 5).blocked, BackupBlock.passphraseShort);
+      expect(form(_form(), passphrase: 14).blocked, isNull);
+
+      final store = _form().copyWith(where: BackupPlace.store);
+      expect(form(store).storeBlock, StoreBlock.noSendLinks);
+      expect(form(store).blocked, BackupBlock.noSendLinks);
+      final listed = store.copyWith(sendLinks: links, sendLink: 'files');
+      expect(form(listed).storeBlock, isNull);
+      expect(form(listed).blocked, BackupBlock.chooseConnection);
+      final chosen = listed.copyWith(sendConnection: 's3');
+      expect(form(chosen).canRun, isTrue);
+      // with the keys sealed in it, it is never sent
+      expect(form(chosen, passphrase: 14).storeBlock, StoreBlock.keysNeverSent);
+      expect(form(chosen, passphrase: 14).blocked, BackupBlock.keysNeverSent);
+      // the store is not where it goes: nothing of the store blocks
+      expect(form(_form().copyWith(sendLinks: links)).blocked, isNull);
+    });
+
+    test('why keys do not go in', () {
+      expect(form(_form()).keysBlock, KeysBlock.needsPassphrase);
+      expect(form(_form(), passphrase: 14).keysBlock, isNull);
+      expect(
+        form(_form(exportSecrets: false), passphrase: 14).keysBlock,
+        KeysBlock.hostForbids,
+      );
+      expect(
+        backupFormPlanOf(
+          _form(),
+          viaUpstream: true,
+          passphraseLength: 14,
+        ).keysBlock,
+        KeysBlock.viaUpstream,
+      );
+      // a link's data is sealed once a passphrase the broker takes is typed
+      expect(form(_form(link: 'modbus'), passphrase: 3).sealsData, isTrue);
+      expect(form(_form(link: 'modbus')).sealsData, isFalse);
+      expect(
+        form(
+          _form(link: 'modbus', exportSecrets: false),
+          passphrase: 14,
+        ).sealsData,
+        isFalse,
+      );
+    });
+
+    test('a kept backup: only a send can lack something', () {
+      const done = BackupJob(id: 'b1', status: BackupStatus.done);
+      final keys = done.copyWith(sections: const [BackupSection.keys].lock);
+      const store = BackupsState(where: BackupPlace.store, sendLinks: links);
+
+      final download = backupJobPlanOf(const BackupsState(), done);
+      expect(download.step, BackupJobStep.download);
+      expect((download.canRun, download.needsRights), (true, true));
+      expect(download.storeBlock, StoreBlock.noSendLinks);
+      expect(download.sendBlock, SendBlock.noSendLinks);
+
+      final send = backupJobPlanOf(store, done);
+      expect(send.step, BackupJobStep.send);
+      expect(send.blocked, SendBlock.chooseConnection);
+      expect(send.canRun, isFalse);
+      final ready = backupJobPlanOf(
+        store.copyWith(sendLink: 'files', sendConnection: 's3'),
+        done,
+      );
+      expect((ready.blocked, ready.canRun), (null, true));
+
+      final withKeys = backupJobPlanOf(
+        store.copyWith(sendLink: 'files', sendConnection: 's3'),
+        keys,
+      );
+      expect(withKeys.hasKeys, isTrue);
+      expect(withKeys.storeBlock, StoreBlock.keysNeverSent);
+      expect(withKeys.sendBlock, SendBlock.keysNeverSent);
+      // its button does not send: it is not what blocks the button
+      expect((withKeys.step, withKeys.canRun), (BackupJobStep.show, true));
+
+      // stopping a download and closing need no right
+      expect(
+        backupJobPlanOf(
+          const BackupsState(downloading: 'b1'),
+          done,
+        ).needsRights,
+        isFalse,
+      );
+      expect(
+        backupJobPlanOf(
+          const BackupsState(where: BackupPlace.broker),
+          done,
+        ).needsRights,
+        isFalse,
+      );
+    });
+
+    test('Restore: each reason, in the order it is said', () {
+      const check = RestoreCheck(sameSite: true);
+      const chosen = ISetConst({BackupSection.links, BackupSection.keys});
+      RestoreBlock? blocked(BackupsState b, {bool viaUpstream = false}) =>
+          restorePlanOf(
+            b,
+            viaUpstream: viaUpstream,
+            passphraseLength: 14,
+          ).blocked;
+      const ok = BackupsState(
+        upload: 'u1',
+        check: check,
+        chosen: chosen,
+        exportSecrets: true,
+      );
+
+      expect(blocked(ok), isNull);
+      expect(blocked(ok.copyWith(upload: null)), RestoreBlock.notChecked);
+      expect(blocked(ok.copyWith(check: null)), RestoreBlock.notChecked);
+      expect(
+        blocked(ok.copyWith(check: const RestoreCheck())),
+        RestoreBlock.otherSite,
+      );
+      final replace = ok.copyWith(mode: RestoreMode.replace);
+      expect(blocked(replace), isNull);
+      expect(
+        blocked(replace, viaUpstream: true),
+        RestoreBlock.replaceViaUpstream,
+      );
+      expect(
+        blocked(
+          replace.copyWith(
+            check: RestoreCheck(sameSite: true, problems: const ['x'].lock),
+          ),
+        ),
+        RestoreBlock.replaceProblems,
+      );
+      // an add is not locked by what locks a replace
+      expect(blocked(ok, viaUpstream: true), isNull);
+      expect(
+        blocked(ok.copyWith(chosen: const ISetConst({BackupSection.control}))),
+        RestoreBlock.nothingTicked,
+      );
+      final foreign = replace.copyWith(
+        check: const RestoreCheck(sameSite: true, keys: RestoreKeys.differ),
+      );
+      expect(blocked(foreign), RestoreBlock.confirmKeys);
+      expect(blocked(foreign.copyWith(replaceKeys: true)), isNull);
+    });
+  });
+
   group('Restore', () {
     BackupsState form({
       RestoreMode mode = RestoreMode.add,

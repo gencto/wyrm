@@ -112,7 +112,6 @@ BackupFormData _form({
       viaUpstream: viaUpstream,
       passphraseLength: passphrase,
     ),
-    passphraseTyped: passphrase > 0,
     linkIds: const ['modbus', 's7'],
     reason: reason,
   );
@@ -143,7 +142,7 @@ BackupJob _jobModel({
 );
 
 /// The dialog of a kept backup as the app builds it: what its main button
-/// does is decided by `business` (`backupJobStepOf`).
+/// does, and whether it may, is decided by `business` (`backupJobPlanOf`).
 BackupJobData _jobData({
   BackupJob? job,
   BackupPlace where = BackupPlace.computer,
@@ -168,7 +167,7 @@ BackupJobData _jobData({
     site: 'plant',
     b: b,
     job: j,
-    step: backupJobStepOf(b, j),
+    plan: backupJobPlanOf(b, j),
   );
 }
 
@@ -261,7 +260,7 @@ void main() {
   group('Back up', () {
     test('keys go in only with a passphrase the broker takes', () {
       final none = _form();
-      expect(none.withKeys, isFalse);
+      expect(none.sent.contains(BackupPart.keys), isFalse);
       expect(none.sent, _parts(const ['control', 'storage']));
       final keys = _section(backupFormSheet(none), 'keys');
       expect(keys.on, isFalse);
@@ -276,7 +275,7 @@ void main() {
       );
 
       final ok = _form(passphrase: 14);
-      expect(ok.withKeys, isTrue);
+      expect(ok.sent.contains(BackupPart.keys), isTrue);
       expect(_section(backupFormSheet(ok), 'keys').on, isTrue);
       expect(backupFormSheet(ok).primaryEnabled, isTrue);
     });
@@ -284,7 +283,7 @@ void main() {
     test('export_secrets false locks keys and the passphrase with it', () {
       final d = _form(exportSecrets: false, passphrase: 14);
       final vm = backupFormSheet(d);
-      expect(d.withKeys, isFalse);
+      expect(d.sent.contains(BackupPart.keys), isFalse);
       expect(_section(vm, 'keys').locked, isTrue);
       expect(_section(vm, 'keys').reason, contains('export_secrets'));
       final field = vm.blocks.whereType<SheetField>().single;
@@ -297,7 +296,7 @@ void main() {
     test('a session through an upstream never gets keys or a passphrase', () {
       final d = _form(viaUpstream: true, passphrase: 14);
       final vm = backupFormSheet(d);
-      expect(d.withKeys, isFalse);
+      expect(d.sent.contains(BackupPart.keys), isFalse);
       expect(_section(vm, 'keys').reason, contains('upstream'));
       expect(vm.blocks.whereType<SheetField>().single.enabled, isFalse);
     });
@@ -766,12 +765,153 @@ void main() {
     });
   });
 
+  group('why a step may not start is named, not decided, by the sheet '
+      '(audit 3 of #135, 2)', () {
+    tearDown(() => S.load(const Locale('en')));
+
+    test('every reason of the plans maps to one the sheets word', () {
+      expect(
+        [for (final b in BackupBlock.values) b.ui.name],
+        [
+          for (final b in BackupBlock.values) b.name,
+        ],
+      );
+      expect(
+        [for (final b in SendBlock.values) b.ui.name],
+        [
+          for (final b in SendBlock.values) b.name,
+        ],
+      );
+      expect(
+        [for (final b in RestoreBlock.values) b.ui.name],
+        [
+          for (final b in RestoreBlock.values) b.name,
+        ],
+      );
+      expect(
+        [for (final b in KeysBlock.values) b.ui.name],
+        [
+          for (final b in KeysBlock.values) b.name,
+        ],
+      );
+      expect(
+        [for (final b in StoreBlock.values) b.ui.name],
+        [
+          for (final b in StoreBlock.values) b.name,
+        ],
+      );
+    });
+
+    test('the button says the reason the plan gave, en and uk', () async {
+      List<String?> said() => [
+        // Back up
+        backupFormSheet(_form(passphrase: 5)).primaryReason,
+        backupFormSheet(_form(where: BackupPlace.store)).primaryReason,
+        backupFormSheet(
+          _form(
+            where: BackupPlace.store,
+            sendLinks: const [SendLink(link: 'files')],
+          ),
+        ).primaryReason,
+        // a kept backup
+        backupJobSheet(
+          _jobData(
+            where: BackupPlace.store,
+            sendLinks: const [SendLink(link: 'files')],
+          ),
+        ).primaryReason,
+        // Restore
+        restoreSheet(_restore(check: _check(sameSite: false))).primaryReason,
+        restoreSheet(
+          _restore(check: _check(), chosen: const {'control'}),
+        ).primaryReason,
+        restoreSheet(
+          _restore(
+            check: _check(problems: const ['the registry is newer']),
+            mode: RestoreMode.replace,
+          ),
+        ).primaryReason,
+        restoreSheet(
+          _restore(
+            check: _check(),
+            mode: RestoreMode.replace,
+            viaUpstream: true,
+          ),
+        ).primaryReason,
+        restoreSheet(
+          _restore(
+            check: _check(keys: 'differ'),
+            mode: RestoreMode.replace,
+            chosen: const {'control', 'keys'},
+            passphrase: 14,
+          ),
+        ).primaryReason,
+        RestoreStop.notChecked.label,
+      ];
+
+      expect(said(), [
+        S.current.bakPassphraseShort(12),
+        S.current.bakNoSendLinks,
+        S.current.bakChooseConnection,
+        S.current.bakChooseConnection,
+        S.current.rstOtherSiteNote,
+        S.current.rstNothingTicked,
+        S.current.rstReplaceProblems,
+        S.current.rstReplaceUpstream,
+        S.current.rstConfirmKeys,
+        'Upload and check the file first',
+      ]);
+      final en = said();
+      await S.load(const Locale('uk'));
+      final uk = said();
+      expect(uk.last, 'Спершу завантаж і перевір файл');
+      for (final (i, text) in uk.indexed) {
+        expect(text, isNot(en[i]), reason: '${en[i]}');
+      }
+    });
+
+    test('a blocked button is locked; a free one is not', () {
+      for (final vm in [
+        backupFormSheet(_form(passphrase: 5)),
+        backupFormSheet(_form(where: BackupPlace.store)),
+        restoreSheet(_restore(check: _check(sameSite: false))),
+        restoreSheet(_restore(check: _check(), chosen: const {'control'})),
+      ]) {
+        expect(vm.primaryEnabled, isFalse, reason: '${vm.primaryReason}');
+      }
+      expect(restoreSheet(_restore(check: _check())).primaryEnabled, isTrue);
+      expect(backupFormSheet(_form()).primaryEnabled, isTrue);
+      // Show and Cancel need no right; Download does
+      const noRight = NeedsLevel(AccessLevel.config, 'sys/backups');
+      BackupJobData job({String? savedTo, bool downloading = false}) =>
+          _jobData(savedTo: savedTo, downloading: downloading);
+      BackupJobData lacking(BackupJobData d) => BackupJobData(
+        job: d.job,
+        site: d.site,
+        primary: d.primary,
+        primaryNeedsRights: d.primaryNeedsRights,
+        stop: d.stop,
+        downloading: d.downloading,
+        savedTo: d.savedTo,
+        reason: noRight,
+      );
+      expect(backupJobSheet(lacking(job())).primaryEnabled, isFalse);
+      expect(
+        backupJobSheet(lacking(job(savedTo: '/tmp/x'))).primaryEnabled,
+        isTrue,
+      );
+      expect(
+        backupJobSheet(lacking(job(downloading: true))).primaryEnabled,
+        isTrue,
+      );
+    });
+  });
+
   group('the domain of backups as the dialogs draw it (studio-rules §3)', () {
     test('every section, place and mode maps there and back', () {
       for (final s in BackupSection.values) {
         expect(s.part.section, s);
         expect(s.part.name, s.name);
-        expect(s.part.always, s.always);
         expect(s.part.label, isNotEmpty);
         expect(s.part.note(ofLink: false), isNotEmpty);
       }
@@ -781,6 +921,11 @@ void main() {
           ...BackupPart.values,
         },
       );
+      // the sections whose checkbox is fixed are the domain's, not ui's
+      expect(_form().fixed, {
+        for (final s in BackupSection.values)
+          if (s.always) s.part,
+      });
       for (final p in BackupPlace.values) {
         expect(p.target.place, p);
       }
@@ -788,7 +933,7 @@ void main() {
         expect(m.how.mode, m);
       }
       for (final k in RestoreKeys.values) {
-        expect(k.found.foreign, k.foreign);
+        expect(k.found.name, k.name);
       }
     });
 

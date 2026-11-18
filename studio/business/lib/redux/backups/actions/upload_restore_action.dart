@@ -40,7 +40,11 @@ class UploadRestoreAction extends Action with NonReentrant, WaitingAction {
       dispatchSync(_Failed());
       rethrow;
     }
-    return state.copyWith.backups(upload: upload, uploaded: size);
+    return state.copyWith.backups(
+      upload: upload,
+      uploaded: size,
+      applySent: false,
+    );
   }
 }
 

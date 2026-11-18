@@ -45,4 +45,9 @@ enum ErrorHint {
   /// The check of a file brought for a link could not be run, or found
   /// nothing: the install does not go on.
   checkNotRun,
+
+  /// A step was started that its own plan blocks (a restore of another
+  /// site's backup, keys not confirmed, no connection chosen): nothing
+  /// was sent. The dialog names what is missing.
+  stepBlocked,
 }

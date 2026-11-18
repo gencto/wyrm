@@ -215,6 +215,49 @@ extension ReplaceLockUi on ReplaceLock {
   };
 }
 
+extension KeysBlockUi on KeysBlock {
+  KeysOut get ui => switch (this) {
+    KeysBlock.viaUpstream => KeysOut.viaUpstream,
+    KeysBlock.hostForbids => KeysOut.hostForbids,
+    KeysBlock.needsPassphrase => KeysOut.needsPassphrase,
+  };
+}
+
+extension StoreBlockUi on StoreBlock {
+  StoreOut get ui => switch (this) {
+    StoreBlock.noSendLinks => StoreOut.noSendLinks,
+    StoreBlock.keysNeverSent => StoreOut.keysNeverSent,
+  };
+}
+
+extension BackupBlockUi on BackupBlock {
+  BackupStop get ui => switch (this) {
+    BackupBlock.passphraseShort => BackupStop.passphraseShort,
+    BackupBlock.noSendLinks => BackupStop.noSendLinks,
+    BackupBlock.keysNeverSent => BackupStop.keysNeverSent,
+    BackupBlock.chooseConnection => BackupStop.chooseConnection,
+  };
+}
+
+extension SendBlockUi on SendBlock {
+  BackupStop get ui => switch (this) {
+    SendBlock.noSendLinks => BackupStop.noSendLinks,
+    SendBlock.keysNeverSent => BackupStop.keysNeverSent,
+    SendBlock.chooseConnection => BackupStop.chooseConnection,
+  };
+}
+
+extension RestoreBlockUi on RestoreBlock {
+  RestoreStop get ui => switch (this) {
+    RestoreBlock.notChecked => RestoreStop.notChecked,
+    RestoreBlock.otherSite => RestoreStop.otherSite,
+    RestoreBlock.replaceViaUpstream => RestoreStop.replaceViaUpstream,
+    RestoreBlock.replaceProblems => RestoreStop.replaceProblems,
+    RestoreBlock.nothingTicked => RestoreStop.nothingTicked,
+    RestoreBlock.confirmKeys => RestoreStop.confirmKeys,
+  };
+}
+
 extension BackupJobStepUi on BackupJobStep {
   BackupDo get ui => switch (this) {
     BackupJobStep.nothing => BackupDo.nothing,
@@ -227,13 +270,12 @@ extension BackupJobStepUi on BackupJobStep {
 }
 
 /// The *Back up* form as it is drawn: the state [b], what [plan] decided
-/// goes to the broker, and what only the screen knows ([link]: the link
-/// of a link backup when it is known, [passphraseTyped]).
+/// goes to the broker and whether it may, and [link]: the link of a link
+/// backup when it is known.
 BackupFormData backupFormDataOf({
   required String site,
   required BackupsState b,
   required BackupFormPlan plan,
-  required bool passphraseTyped,
   LinkInfo? link,
   List<String> linkIds = const [],
   Disabled? reason,
@@ -246,11 +288,15 @@ BackupFormData backupFormDataOf({
   sections: [
     for (final s in backupSectionsOf(
       b,
-      runsPackage: link?.driver.startsWith('pkg:') ?? false,
+      runsPackage: link?.runsPackage ?? false,
     ))
       s.part,
   ],
   chosen: {for (final s in b.chosen) s.part},
+  fixed: {
+    for (final s in BackupSection.values)
+      if (s.always) s.part,
+  },
   estimate: {
     for (final MapEntry(:key, :value) in b.estimate.entries) key.part: value,
   },
@@ -258,11 +304,12 @@ BackupFormData backupFormDataOf({
   linkIds: linkIds,
   offLinks: b.offLinks.unlock,
   secretsLock: plan.secretsLock?.ui,
-  passphraseTyped: passphraseTyped,
-  passphraseOk: plan.passphraseOk,
   passphraseMin: minPassphrase,
-  withKeys: plan.withKeys,
+  keysOut: plan.keysBlock?.ui,
+  storeOut: plan.storeBlock?.ui,
+  sealsData: plan.sealsData,
   sent: {for (final s in plan.sent) s.part},
+  stop: plan.blocked?.ui,
   where: b.where.target,
   sendLinks: [for (final l in b.sendLinks) l.target],
   sendLink: b.sendLink,
@@ -274,19 +321,23 @@ BackupFormData backupFormDataOf({
   busy: busy,
 );
 
-/// The dialog of the kept backup [job] as it is drawn; [step] is what
-/// its main button does.
+/// The dialog of the kept backup [job] as it is drawn; [plan] is what
+/// its main button does and whether it may.
 BackupJobData backupJobDataOf({
   required String site,
   required BackupsState b,
   required BackupJob job,
-  required BackupJobStep step,
+  required BackupJobPlan plan,
   bool sending = false,
   Disabled? reason,
 }) => BackupJobData(
   job: job.facts,
   site: site,
-  primary: step.ui,
+  primary: plan.step.ui,
+  primaryNeedsRights: plan.needsRights,
+  stop: plan.blocked?.ui,
+  hasKeys: plan.hasKeys,
+  storeOut: plan.storeBlock?.ui,
   where: b.where.target,
   sendLinks: [for (final l in b.sendLinks) l.target],
   sendLink: b.sendLink,
@@ -326,6 +377,7 @@ RestoreData restoreDataOf({
   keysLock: plan.keysLock?.ui,
   replaceLock: plan.replaceLock?.ui,
   needsReplaceKeys: plan.needsReplaceKeys,
+  stop: plan.blocked?.ui,
   replaceKeys: b.replaceKeys,
   acceptRights: b.acceptRights,
   busy: busy,

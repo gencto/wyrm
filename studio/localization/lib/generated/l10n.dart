@@ -18305,6 +18305,26 @@ class S {
       args: [why],
     );
   }
+
+  /// `This step may not start yet, so nothing was sent. The dialog says what is missing.`
+  String get errStepBlocked {
+    return Intl.message(
+      'This step may not start yet, so nothing was sent. The dialog says what is missing.',
+      name: 'errStepBlocked',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Upload and check the file first`
+  String get rstNotChecked {
+    return Intl.message(
+      'Upload and check the file first',
+      name: 'rstNotChecked',
+      desc: '',
+      args: [],
+    );
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<S> {

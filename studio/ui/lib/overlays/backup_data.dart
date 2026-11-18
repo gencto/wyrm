@@ -4,10 +4,70 @@ import 'package:localization/localization.dart';
 import '../models/disabled.dart';
 import '../models/link_run_mode.dart';
 
-// What the backup dialogs draw. Every decision of what goes to the
-// broker (which sections, whether the keys, what the main button does) is
-// made in `business` and arrives here as a value: these types hold what
-// is shown and word it.
+// What the backup dialogs draw. Every decision is made in `business`
+// (`backup_plan.dart`) and arrives here as a value: which sections go,
+// whether the keys go and why not, whether a file store may be chosen and
+// why not, what the main button does and why it may not be pressed. These
+// types hold what is shown and word it; the sheets decide nothing.
+
+/// Why the section `keys` does not go into a backup, as it is said.
+enum KeysOut {
+  viaUpstream,
+  hostForbids,
+  needsPassphrase;
+
+  String get label => switch (this) {
+    viaUpstream => S.current.bakSecretsUpstream,
+    hostForbids => S.current.bakSecretsHost,
+    needsPassphrase => S.current.bakKeysNeedPassphrase,
+  };
+}
+
+/// Why a backup cannot go to a file store, as it is said.
+enum StoreOut {
+  noSendLinks,
+  keysNeverSent;
+
+  String get label => switch (this) {
+    noSendLinks => S.current.bakNoSendLinks,
+    keysNeverSent => S.current.bakKeysNeverSent,
+  };
+}
+
+/// Why a backup may not be made or sent now, as it is said.
+enum BackupStop {
+  passphraseShort,
+  noSendLinks,
+  keysNeverSent,
+  chooseConnection;
+
+  /// In words; a short passphrase names the [min] characters it needs.
+  String said(int min) => switch (this) {
+    passphraseShort => S.current.bakPassphraseShort(min),
+    noSendLinks => S.current.bakNoSendLinks,
+    keysNeverSent => S.current.bakKeysNeverSent,
+    chooseConnection => S.current.bakChooseConnection,
+  };
+}
+
+/// Why a restore may not start now, as it is said.
+enum RestoreStop {
+  notChecked,
+  otherSite,
+  replaceViaUpstream,
+  replaceProblems,
+  nothingTicked,
+  confirmKeys;
+
+  String get label => switch (this) {
+    notChecked => S.current.rstNotChecked,
+    otherSite => S.current.rstOtherSiteNote,
+    replaceViaUpstream => S.current.rstReplaceUpstream,
+    replaceProblems => S.current.rstReplaceProblems,
+    nothingTicked => S.current.rstNothingTicked,
+    confirmKeys => S.current.rstConfirmKeys,
+  };
+}
 
 /// Why secrets cannot be sealed or restored by this session, as it is
 /// said.
@@ -105,9 +165,6 @@ enum BackupPart {
     data => S.current.bakSecDataNote,
     package => S.current.bakSecPackageNote,
   };
-
-  /// Always in a backup: its checkbox is fixed.
-  bool get always => this == control || this == settings;
 }
 
 /// Where a backup goes.
@@ -162,10 +219,7 @@ enum RestoreKeysFound {
   none,
   same,
   differ,
-  other;
-
-  /// The keys of the file are not this broker's.
-  bool get foreign => this == differ || this == other;
+  other,
 }
 
 /// A link of a backup against the broker.
@@ -219,6 +273,7 @@ final class BackupFormData extends Equatable {
     required this.site,
     required this.sections,
     required this.chosen,
+    this.fixed = const {},
     this.link,
     this.linkMode,
     this.linkDriver,
@@ -227,11 +282,12 @@ final class BackupFormData extends Equatable {
     this.linkIds = const [],
     this.offLinks = const {},
     this.secretsLock,
-    this.passphraseTyped = false,
-    this.passphraseOk = false,
     this.passphraseMin = 0,
-    this.withKeys = false,
+    this.keysOut,
+    this.storeOut,
+    this.sealsData = false,
     this.sent = const {},
+    this.stop,
     this.where = BackupTarget.computer,
     this.sendLinks = const [],
     this.sendLink,
@@ -257,6 +313,10 @@ final class BackupFormData extends Equatable {
   final List<BackupPart> sections;
   final Set<BackupPart> chosen;
 
+  /// The sections that are always in a backup: their checkboxes are
+  /// fixed.
+  final Set<BackupPart> fixed;
+
   /// Bytes by section, when the broker gave them.
   final Map<BackupPart, int> estimate;
 
@@ -268,18 +328,23 @@ final class BackupFormData extends Equatable {
   /// Why no passphrase may be given, or null.
   final SecretsLockReason? secretsLock;
 
-  /// A passphrase is typed in the dialog (the text itself stays in the
-  /// dialog's own state), and whether it is long enough ([passphraseMin]
-  /// characters).
-  final bool passphraseTyped;
-  final bool passphraseOk;
+  /// How many characters a passphrase needs.
   final int passphraseMin;
 
-  /// The section `keys` goes in: ticked, and a passphrase seals it.
-  final bool withKeys;
+  /// Why the section `keys` does not go in, or null.
+  final KeysOut? keysOut;
+
+  /// Why the backup cannot go to a file store, or null.
+  final StoreOut? storeOut;
+
+  /// A link's private data is sealed with the passphrase typed.
+  final bool sealsData;
 
   /// The sections that go to the broker.
   final Set<BackupPart> sent;
+
+  /// Why *Back up* may not start, or null.
+  final BackupStop? stop;
   final BackupTarget where;
   final List<BackupSendTarget> sendLinks;
   final String? sendLink;
@@ -298,16 +363,18 @@ final class BackupFormData extends Equatable {
     linkDriver,
     sections,
     chosen,
+    fixed,
     estimate,
     historyRange,
     linkIds,
     offLinks,
     secretsLock,
-    passphraseTyped,
-    passphraseOk,
     passphraseMin,
-    withKeys,
+    keysOut,
+    storeOut,
+    sealsData,
     sent,
+    stop,
     where,
     sendLinks,
     sendLink,
@@ -402,6 +469,10 @@ final class BackupJobData extends Equatable {
     required this.job,
     required this.site,
     required this.primary,
+    this.primaryNeedsRights = true,
+    this.stop,
+    this.hasKeys = false,
+    this.storeOut,
     this.where = BackupTarget.computer,
     this.sendLinks = const [],
     this.sendLink,
@@ -437,16 +508,30 @@ final class BackupJobData extends Equatable {
   final bool sending;
   final Disabled? reason;
 
-  bool get hasKeys => job.sections.contains(BackupPart.keys);
+  /// The backup holds the keys of the site.
+  final bool hasKeys;
+
+  /// Why it cannot go to a file store, or null.
+  final StoreOut? storeOut;
 
   /// What the primary button does.
   final BackupDo primary;
+
+  /// That step needs the right [reason] says is missing.
+  final bool primaryNeedsRights;
+
+  /// Why the primary button may not be pressed, or null.
+  final BackupStop? stop;
 
   @override
   List<Object?> get props => [
     job,
     site,
     primary,
+    primaryNeedsRights,
+    stop,
+    hasKeys,
+    storeOut,
     where,
     sendLinks,
     sendLink,
@@ -571,6 +656,7 @@ final class RestoreData extends Equatable {
     this.keysLock,
     this.replaceLock,
     this.needsReplaceKeys = false,
+    this.stop,
     this.replaceKeys = false,
     this.acceptRights = false,
     this.busy = false,
@@ -603,6 +689,9 @@ final class RestoreData extends Equatable {
 
   /// The keys of the file are not this broker's and are to be restored.
   final bool needsReplaceKeys;
+
+  /// Why *Restore* may not start, or null.
+  final RestoreStop? stop;
   final bool replaceKeys;
   final bool acceptRights;
 
@@ -633,6 +722,7 @@ final class RestoreData extends Equatable {
     keysLock,
     replaceLock,
     needsReplaceKeys,
+    stop,
     replaceKeys,
     acceptRights,
     busy,

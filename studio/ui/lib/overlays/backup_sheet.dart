@@ -91,21 +91,13 @@ TaskSheetVm backupFormSheet(
   final l = S.current;
   final isLink = d.link != null;
   final locked = d.secretsLock?.label;
-  final typed = d.passphraseTyped;
-  final short = typed && !d.passphraseOk;
   final total = d.estimate.isEmpty
       ? null
       : [
           for (final s in d.sent) d.estimate[s] ?? 0,
         ].fold<int>(0, (a, b) => a + b);
-  final keysReason =
-      locked ?? (d.passphraseOk ? null : l.bakKeysNeedPassphrase);
   final store = d.where == BackupTarget.store;
-  final storeReason = d.sendLinks.isEmpty
-      ? l.bakNoSendLinks
-      : (d.withKeys ? l.bakKeysNeverSent : null);
-  // a link's private data is sealed with the passphrase when one is given
-  final dataSealed = typed && locked == null;
+  final dataSealed = d.sealsData;
   return TaskSheetVm(
     title: isLink ? l.bakTitleLink(d.link!) : l.bakTitle(d.site),
     sub: isLink ? l.bakSubLink(d.link!) : l.bakSub,
@@ -115,13 +107,12 @@ TaskSheetVm backupFormSheet(
         SheetSection(
           name: s.label,
           detail: s.note(ofLink: isLink),
-          on:
-              s.always ||
-              (d.chosen.contains(s) &&
-                  (s != BackupPart.keys || keysReason == null)),
-          locked: s.always || (s == BackupPart.keys && keysReason != null),
-          reason: s == BackupPart.keys ? keysReason : null,
-          tag: s.always
+          on: d.fixed.contains(s) || d.sent.contains(s),
+          locked:
+              d.fixed.contains(s) ||
+              (s == BackupPart.keys && d.keysOut != null),
+          reason: s == BackupPart.keys ? d.keysOut?.label : null,
+          tag: d.fixed.contains(s)
               ? l.bakTagAlways
               : switch (s) {
                   BackupPart.keys => l.bakTagPassphrase,
@@ -178,7 +169,9 @@ TaskSheetVm backupFormSheet(
         label: isLink ? l.bakPassphraseLink : l.bakPassphrase,
         secret: true,
         enabled: locked == null,
-        error: short ? l.bakPassphraseShort(d.passphraseMin) : null,
+        error: d.stop == BackupStop.passphraseShort
+            ? d.stop?.said(d.passphraseMin)
+            : null,
         note:
             locked ?? (isLink ? l.bakPassphraseLinkNote : l.bakPassphraseNote),
         onChanged: onPassphrase,
@@ -190,7 +183,7 @@ TaskSheetVm backupFormSheet(
             SheetChoiceOption(
               label: t.label,
               selected: t == d.where,
-              reason: t == BackupTarget.store ? storeReason : null,
+              reason: t == BackupTarget.store ? d.storeOut?.label : null,
               onPick: onWhere == null ? null : () => onWhere(t),
             ),
         ],
@@ -200,7 +193,7 @@ TaskSheetVm backupFormSheet(
           BackupTarget.computer => l.bakWhereComputerNote(d.keepDays),
         },
       ),
-      if (store && storeReason == null)
+      if (store && d.storeOut == null)
         ..._storeBlocks(
           sendLinks: d.sendLinks,
           sendLink: d.sendLink,
@@ -220,15 +213,8 @@ TaskSheetVm backupFormSheet(
           ),
     secondary: l.cancel,
     primary: isLink ? l.bakDoLink(d.link!) : l.bakDo,
-    primaryEnabled:
-        d.reason == null &&
-        !short &&
-        (!store || (storeReason == null && d.sendConnection != null)),
-    primaryReason:
-        d.reason?.text ??
-        (short
-            ? l.bakPassphraseShort(d.passphraseMin)
-            : (store ? l.bakChooseConnection : null)),
+    primaryEnabled: d.reason == null && d.stop == null,
+    primaryReason: d.reason?.text ?? d.stop?.said(d.passphraseMin),
     busy: d.busy,
   );
 }
@@ -288,10 +274,8 @@ TaskSheetVm backupJobSheet(
     );
   }
   final store = d.where == BackupTarget.store;
-  final storeReason = d.sendLinks.isEmpty
-      ? l.bakNoSendLinks
-      : (d.hasKeys ? l.bakKeysNeverSent : null);
   final primary = d.primary;
+  final lacksRights = d.primaryNeedsRights ? d.reason : null;
   final percent = j.size == 0 ? 0 : (d.downloaded * 100 ~/ j.size);
   return TaskSheetVm(
     title: l.bakDoneTitle,
@@ -341,12 +325,12 @@ TaskSheetVm backupJobSheet(
               SheetChoiceOption(
                 label: t.label,
                 selected: (t == BackupTarget.store) == store,
-                reason: t == BackupTarget.store ? storeReason : null,
+                reason: t == BackupTarget.store ? d.storeOut?.label : null,
                 onPick: onWhere == null ? null : () => onWhere(t),
               ),
           ],
         ),
-        if (store && storeReason == null)
+        if (store && d.storeOut == null)
           ..._storeBlocks(
             sendLinks: d.sendLinks,
             sendLink: d.sendLink,
@@ -377,14 +361,8 @@ TaskSheetVm backupJobSheet(
       BackupDo.show || BackupDo.remove || BackupDo.nothing => l.bakShow,
     },
     primaryQuiet: primary == BackupDo.cancel,
-    primaryEnabled:
-        primary == BackupDo.cancel ||
-        primary == BackupDo.show ||
-        (d.reason == null &&
-            (primary != BackupDo.send || d.sendConnection != null)),
-    primaryReason:
-        d.reason?.text ??
-        (primary == BackupDo.send ? l.bakChooseConnection : null),
+    primaryEnabled: lacksRights == null && d.stop == null,
+    primaryReason: lacksRights?.text ?? d.stop?.said(0),
     busy: d.sending,
   );
 }
@@ -487,7 +465,6 @@ TaskSheetVm restoreSheet(
       .where((s) => s.backup != s.here)
       .map((s) => '${s.store} ${s.backup} → ${s.here}')
       .join(', ');
-  final sent = d.sent;
   final replace = d.mode == RestoreHow.replace;
   return TaskSheetVm(
     title: title,
@@ -551,7 +528,7 @@ TaskSheetVm restoreSheet(
       for (final RestorePart(:part, :bytes) in c.sections)
         SheetSection(
           name: part.label,
-          on: d.chosen.contains(part) && d.takes.contains(part),
+          on: d.sent.contains(part),
           locked: !d.takes.contains(part),
           reason: part == BackupPart.config
               ? l.rstConfigNever
@@ -598,18 +575,8 @@ TaskSheetVm restoreSheet(
     note: d.reason?.text ?? (replace ? l.rstReplaceNote : l.rstAddNote),
     secondary: l.cancel,
     primary: replace ? l.rstDoReplace : l.rstDoAdd,
-    primaryEnabled:
-        d.reason == null &&
-        c.sameSite &&
-        sent.isNotEmpty &&
-        (!d.needsReplaceKeys || d.replaceKeys),
-    primaryReason:
-        d.reason?.text ??
-        (!c.sameSite
-            ? l.rstOtherSiteNote
-            : (sent.isEmpty
-                  ? l.rstNothingTicked
-                  : (d.needsReplaceKeys ? l.rstConfirmKeys : null))),
+    primaryEnabled: d.reason == null && d.stop == null,
+    primaryReason: d.reason?.text ?? d.stop?.label,
     busy: d.busy,
   );
 }

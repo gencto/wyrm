@@ -2288,6 +2288,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "errSilentReach": m162,
     "errSilentStatus": m163,
     "errStatusLine": m164,
+    "errStepBlocked": MessageLookupByLibrary.simpleMessage(
+      "This step may not start yet, so nothing was sent. The dialog says what is missing.",
+    ),
     "errThingBroker": MessageLookupByLibrary.simpleMessage("the broker"),
     "errThingThis": MessageLookupByLibrary.simpleMessage("this"),
     "errTimeLocal": m165,
@@ -3411,6 +3414,9 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "rstNotAppliedNote": MessageLookupByLibrary.simpleMessage(
       "The broker put everything back and runs on the state it had. The plan and the reason are kept on the host in data_dir/restore.failed.",
+    ),
+    "rstNotChecked": MessageLookupByLibrary.simpleMessage(
+      "Upload and check the file first",
     ),
     "rstNotInAdd": MessageLookupByLibrary.simpleMessage(
       "Add takes links and storage only.",

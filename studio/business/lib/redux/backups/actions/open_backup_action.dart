@@ -1,8 +1,8 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
-
 import 'package:models/backup_place.dart';
 import 'package:models/backup_section.dart';
 import 'package:models/backup_stage.dart';
+import 'package:models/link_info.dart';
 import 'package:models/restore_mode.dart';
 
 import '../../app_state.dart';
@@ -43,8 +43,7 @@ class OpenBackupAction extends Action {
                   BackupSection.settings,
                   BackupSection.data,
                   // A built-in driver has no package to carry.
-                  if (links.table[link ?? '']?.driver.startsWith('pkg:') ??
-                      false)
+                  if (links.table[link ?? '']?.runsPackage ?? false)
                     BackupSection.package,
                 }.toISet()),
     historyDays: link == null && !restore ? 30 : null,
@@ -62,6 +61,7 @@ class OpenBackupAction extends Action {
     check: null,
     mode: RestoreMode.add,
     staged: const IListConst([]),
+    applySent: false,
     replaceKeys: false,
     acceptRights: false,
     result: null,

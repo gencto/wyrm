@@ -7,6 +7,7 @@ import 'package:models/backup_stage.dart';
 import '../../../wyrm/calls.dart';
 import '../../../wyrm/decode/restore.dart';
 import '../../../wyrm/decode/unreadable.dart';
+import '../../../wyrm/failures.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 import 'retrieve_backups_action.dart';
@@ -46,8 +47,11 @@ Map<String, Object?> backupArgs({
 /// the dialog then follows. An answer without an id is refused: no job is
 /// opened for it.
 ///
-/// [passphrase] comes from the dialog's own state and goes nowhere else: it
-/// is not kept in the store, and the action logger prints types only.
+/// [passphrase] is what is typed in the dialog (its own state): it is not
+/// kept in the store, and the action logger prints types only. What goes
+/// is decided here, from the plan of the form (`backupFormPlan`): `keys`
+/// only sealed, the passphrase only where the broker takes one; a plan
+/// that blocks the backup refuses it before anything is sent.
 class CreateBackupAction extends Action with NonReentrant, WaitingAction {
   CreateBackupAction({this.passphrase});
 
@@ -60,8 +64,14 @@ class CreateBackupAction extends Action with NonReentrant, WaitingAction {
       return null;
     }
     final link = backups.link;
-    final chosen = backups.chosen.unlock;
     final key = link == null ? '$root/sys/backups' : '$root/sys/links/$link';
+    final typed = passphrase ?? '';
+    final plan = backupFormPlan(passphraseLength: typed.length);
+    if (!plan.canRun) {
+      throw stepBlockedOf(key, link == null ? 'create' : 'backup');
+    }
+    final chosen = plan.sent.unlock;
+    final secret = plan.sendsPassphrase ? typed : null;
     final answer = link == null
         ? await invokeOne(
             deps.wyrm,
@@ -74,7 +84,7 @@ class CreateBackupAction extends Action with NonReentrant, WaitingAction {
                 allLinks: links.view,
                 offLinks: backups.offLinks,
                 historyDays: backups.historyDays,
-                passphrase: passphrase,
+                passphrase: secret,
               ),
             ),
           )
@@ -87,7 +97,7 @@ class CreateBackupAction extends Action with NonReentrant, WaitingAction {
                 sections: BackupSection.ofLink,
                 chosen: chosen,
                 historyDays: backups.historyDays,
-                passphrase: passphrase,
+                passphrase: secret,
               ),
             ),
             link,

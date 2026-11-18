@@ -953,8 +953,7 @@ extension LinkInstallScreen on Selectors {
 }
 
 /// The package a link runs (`pkg:<name>`), or null for a built-in driver.
-String? packageOfLink(LinkInfo l) =>
-    l.driver.startsWith('pkg:') ? l.driver.substring(4) : null;
+String? packageOfLink(LinkInfo l) => l.packageName;
 
 final _linkStates = LastResult<Map<String, LinkState>>();
 final _livePackages = LastResult<Map<String, PackageInfo>>();
@@ -1036,7 +1035,7 @@ extension LinksTables on Selectors {
   /// The links that run the package [name], by id, in list order.
   List<String> linksOfPackage(String name) => [
     for (final id in links.view)
-      if (links.table[id]?.driver == 'pkg:$name') id,
+      if (links.table[id]?.packageName == name) id,
   ];
 
   /// The restore points of [link] (`sys/links/<id>/restore_points`).
@@ -1380,9 +1379,10 @@ extension SelectBrokerHealth on Selectors {
     passphraseLength: passphraseLength,
   );
 
-  /// What the main button of the kept backup [job] does.
-  BackupJobStep backupJobStep(BackupJob job) =>
-      backupJobStepOf(state.backups, job);
+  /// What the dialog of the kept backup [job] does, and whether it may
+  /// ([backupJobPlanOf]); its live values decide (a send that runs).
+  BackupJobPlan backupJobPlan(BackupJob job) =>
+      backupJobPlanOf(state.backups, backupJob(job.id) ?? job);
 
   /// The kept backup [id] with its live values, or null.
   BackupJob? backupJob(String id) => switch (backups.table[id]) {
@@ -2741,6 +2741,9 @@ extension type SelectBackups(AppState _state) {
 
   /// Returns unread
   IList<String> get unread => _state.backups.unread;
+
+  /// Returns applySent
+  bool get applySent => _state.backups.applySent;
 }
 
 extension type SelectBrokerUpdate(AppState _state) {

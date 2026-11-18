@@ -254,6 +254,7 @@ String _hintText(ErrorHint h) => switch (h) {
   .backupNoDigest => S.current.errBackupNoDigest,
   .backupDigestMismatch => S.current.errBackupDigestMismatch,
   .checkNotRun => S.current.errCheckNotRun,
+  .stepBlocked => S.current.errStepBlocked,
 };
 
 /// The tone of a kind (errors.md §1).

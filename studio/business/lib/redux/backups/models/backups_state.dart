@@ -51,5 +51,6 @@ abstract class BackupsState with _$BackupsState {
     @Default(IListConst([])) IList<BackupSection> staged,
     @Default(BackupsRead.absent) BackupsRead availability,
     @Default(IListConst([])) IList<String> unread,
+    @Default(false) bool applySent,
   }) = _BackupsState;
 }

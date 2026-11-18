@@ -63,4 +63,31 @@ void main() {
     );
     await S.load(const Locale('en'));
   });
+
+  test(
+    'a step its plan blocks is said, en and uk (audit 3 of #135, 2)',
+    () async {
+      String said() => wordError(
+        const StudioError(
+          kind: ErrorKind.input,
+          hint: ErrorHint.stepBlocked,
+          call: 'restore_apply',
+          key: 'wy/plant/sys/backups',
+        ),
+      ).message;
+      await S.load(const Locale('en'));
+      expect(
+        said(),
+        'This step may not start yet, so nothing was sent. '
+        'The dialog says what is missing.',
+      );
+      await S.load(const Locale('uk'));
+      expect(
+        said(),
+        'Цей крок ще не може початися, тому нічого не надіслано. '
+        'Діалог показує, чого бракує.',
+      );
+      await S.load(const Locale('en'));
+    },
+  );
 }

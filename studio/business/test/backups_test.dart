@@ -17,6 +17,7 @@ import 'package:business/redux/backups/actions/estimate_backup_action.dart';
 import 'package:business/redux/backups/actions/follow_restore_action.dart';
 import 'package:business/redux/backups/actions/open_backup_action.dart';
 import 'package:business/redux/backups/actions/remove_backup_action.dart';
+import 'package:business/redux/backups/actions/restore_action.dart';
 import 'package:business/redux/backups/actions/retrieve_backups_action.dart';
 import 'package:business/redux/backups/actions/retrieve_send_connections_action.dart';
 import 'package:business/redux/backups/actions/send_backup_action.dart';
@@ -715,6 +716,83 @@ void main() {
     });
   });
 
+  group('a backup or a send its plan blocks is refused by the action '
+      'itself (audit 3 of #135, 2)', () {
+    Future<void> refused(
+      Future<ActionStatus> Function() run,
+      String call,
+    ) async {
+      final status = await run();
+      expect(status.isCompletedFailed, isTrue);
+      final e = (status.originalError! as StudioException).error;
+      expect((e.hint, e.call), (ErrorHint.stepBlocked, call));
+      expect(invokes(call), isEmpty);
+    }
+
+    test('a passphrase too short to seal anything', () async {
+      s.dispatchSync(OpenBackupAction());
+      await refused(
+        () => s.dispatchAndWait(CreateBackupAction(passphrase: 'short')),
+        'create',
+      );
+      // Back up, the dialog's action, starts nothing either
+      await s.dispatchAndWait(BackUpAction(passphrase: 'short'));
+      expect(invokes('create'), isEmpty);
+      expect(s.state.backups.stage, BackupStage.choose);
+    });
+
+    test('to a file store with no connection chosen', () async {
+      s
+        ..dispatchSync(OpenBackupAction())
+        ..dispatchSync(
+          SetBackupFormAction(where: BackupPlace.store, sendLink: 'files'),
+        );
+      await refused(() => s.dispatchAndWait(CreateBackupAction()), 'create');
+    });
+
+    test('to a file store with the keys in it', () async {
+      s
+        ..dispatchSync(OpenBackupAction())
+        ..dispatchSync(SetBackupFormAction(toggle: BackupSection.keys))
+        ..dispatchSync(
+          SetBackupFormAction(
+            where: BackupPlace.store,
+            sendLink: 'files',
+            sendConnection: 's3',
+          ),
+        );
+      await refused(
+        () => s.dispatchAndWait(CreateBackupAction(passphrase: _secret)),
+        'create',
+      );
+    });
+
+    test('a kept backup: no connection, or the keys in it', () async {
+      s
+        ..dispatchSync(OpenBackupAction(job: 'b1'))
+        ..dispatchSync(
+          SetBackupFormAction(where: BackupPlace.store, sendLink: 'files'),
+        );
+      await refused(() => s.dispatchAndWait(SendBackupAction('b1')), 'send');
+
+      // a backup with the keys is never sent, connection or not
+      api.metas['$_b/b1'] = NodeMeta(
+        attr: {
+          'kind': const VStr('full'),
+          'name': const VStr('central-2026-11-13-1540.wyrm-backup'),
+          'sections': const VArray([VStr('control'), VStr('keys')]),
+          'sealed': const VStr('passphrase'),
+          'by': const VStr('user:admin'),
+        },
+      );
+      await s.dispatchAndWait(RetrieveBackupsAction());
+      s.dispatchSync(SetBackupFormAction(sendConnection: 's3'));
+      await refused(() => s.dispatchAndWait(SendBackupAction('b1')), 'send');
+      // one that is not kept at all
+      await refused(() => s.dispatchAndWait(SendBackupAction('b9')), 'send');
+    });
+  });
+
   group("one intent, one action (the dialog's steps)", () {
     test('Back up leaves keys out when the passphrase cannot take them, '
         'then makes the backup', () async {
@@ -726,7 +804,7 @@ void main() {
         ..dispatchSync(SetBackupFormAction(toggle: BackupSection.keys));
       expect(s.state.backups.chosen.contains(BackupSection.keys), isTrue);
 
-      await s.dispatchAndWait(BackUpAction(dropKeys: true));
+      await s.dispatchAndWait(BackUpAction());
 
       final args = invokes('create').single.args!;
       expect(
@@ -1145,6 +1223,157 @@ void main() {
       await s.dispatchAndWait(CloseBackupAction());
       expect(invokes('restore_abort'), isEmpty);
       expect(s.state.backups.stage, isNull);
+    });
+
+    group('a restore its plan blocks is refused by the action itself '
+        '(audit 3 of #135, 2)', () {
+      // Whoever dispatches it: the dialog's locked button is not the guard.
+      Future<void> refused(Future<ActionStatus> Function() run) async {
+        final status = await run();
+        expect(status.isCompletedFailed, isTrue);
+        final e = (status.originalError! as StudioException).error;
+        expect((e.hint, e.call), (ErrorHint.stepBlocked, 'restore_apply'));
+        expect(invokes('restore_apply'), isEmpty);
+        expect(s.state.backups.stage, BackupStage.restore);
+        expect(s.state.backups.applySent, isFalse);
+      }
+
+      test('a file that is not checked', () async {
+        await uploaded();
+        await refused(() => s.dispatchAndWait(ApplyRestoreAction()));
+      });
+
+      test('a backup of another site', () async {
+        await uploaded();
+        api.invokes['$_b ▸ restore_check'] = [
+          VMap({
+            ...check.v,
+            'site': const VStr('plant'),
+            'same_site': const VBool(false),
+          }),
+        ];
+        await s.dispatchAndWait(CheckRestoreAction());
+        expect(s.state.backups.chosen, isNotEmpty);
+
+        await refused(() => s.dispatchAndWait(ApplyRestoreAction()));
+        // the dialog's own action is refused the same way
+        final status = await s.dispatchAndWait(RestoreAction());
+        expect(status.isCompletedOk, isTrue);
+        expect(invokes('restore_apply'), isEmpty);
+        expect(s.state.backups.stage, BackupStage.restore);
+      });
+
+      test("keys that are not this broker's, not confirmed", () async {
+        await uploaded();
+        api
+          ..invokes['$_b ▸ restore_check'] = [check]
+          ..invokes['$_b ▸ restore_apply'] = [
+            const VMap({
+              'mode': VStr('replace'),
+              'sections': VArray([VStr('control'), VStr('keys')]),
+              'restart': VBool(true),
+            }),
+          ];
+        await s.dispatchAndWait(CheckRestoreAction(passphrase: _secret));
+        s
+          ..dispatchSync(SetBackupFormAction(mode: RestoreMode.replace))
+          ..dispatchSync(SetBackupFormAction(toggle: BackupSection.keys));
+
+        await refused(
+          () => s.dispatchAndWait(ApplyRestoreAction(passphrase: _secret)),
+        );
+
+        // confirmed, the same dispatch goes
+        s.dispatchSync(SetBackupFormAction(replaceKeys: true));
+        await s.dispatchAndWait(ApplyRestoreAction(passphrase: _secret));
+        expect(
+          invokes('restore_apply').single.args!['replace_keys'],
+          const VBool(true),
+        );
+      });
+
+      test('nothing ticked that the mode takes', () async {
+        await uploaded();
+        api.invokes['$_b ▸ restore_check'] = [check];
+        await s.dispatchAndWait(CheckRestoreAction());
+        for (final t in s.state.backups.chosen) {
+          s.dispatchSync(SetBackupFormAction(toggle: t));
+        }
+        await refused(() => s.dispatchAndWait(ApplyRestoreAction()));
+      });
+
+      test('a replace the check found problems for', () async {
+        await uploaded();
+        api.invokes['$_b ▸ restore_check'] = [
+          VMap({
+            ...check.v,
+            'problems': const VArray([VStr('the registry is newer')]),
+          }),
+        ];
+        await s.dispatchAndWait(CheckRestoreAction());
+        s.dispatchSync(SetBackupFormAction(mode: RestoreMode.replace));
+        await refused(() => s.dispatchAndWait(ApplyRestoreAction()));
+      });
+    });
+
+    group('the upload once the apply was sent (audit 3 of #135, 6)', () {
+      Future<void> checked() async {
+        await uploaded();
+        api.invokes['$_b ▸ restore_check'] = [check];
+        await s.dispatchAndWait(CheckRestoreAction());
+      }
+
+      test('an answer Studio cannot read: the broker applied it, so '
+          'closing aborts nothing', () async {
+        await checked();
+        api.invokes['$_b ▸ restore_apply'] = [const VNull()];
+
+        final status = await s.dispatchAndWait(ApplyRestoreAction());
+        expect(status.isCompletedFailed, isTrue);
+        expect(s.state.backups.stage, BackupStage.restore);
+        expect(s.state.backups.applySent, isTrue);
+
+        await s.dispatchAndWait(CloseBackupAction());
+        expect(invokes('restore_abort'), isEmpty);
+        expect(s.state.backups.applySent, isFalse);
+      });
+
+      test(
+        'no answer at all: it may be applied, closing aborts nothing',
+        () async {
+          await checked();
+          api.errors['$_b ▸ restore_apply'] = WyrmException.of(
+            Status.closed,
+            'the session closed',
+          );
+
+          final status = await s.dispatchAndWait(ApplyRestoreAction());
+          expect(status.isCompletedFailed, isTrue);
+          expect(s.state.backups.applySent, isTrue);
+
+          await s.dispatchAndWait(CloseBackupAction());
+          expect(invokes('restore_abort'), isEmpty);
+        },
+      );
+
+      test('a refusal of the broker: nothing was applied, closing drops '
+          'the upload', () async {
+        await checked();
+        api.errors['$_b ▸ restore_apply'] = WyrmException.of(
+          Status.invalidParameter,
+          'the passphrase is wrong',
+        );
+
+        final status = await s.dispatchAndWait(ApplyRestoreAction());
+        expect(status.isCompletedFailed, isTrue);
+        expect(s.state.backups.applySent, isFalse);
+
+        await s.dispatchAndWait(CloseBackupAction());
+        expect(
+          invokes('restore_abort').single.args!['upload'],
+          const VStr('u9'),
+        );
+      });
     });
 
     test('closing before the restore drops the upload', () async {

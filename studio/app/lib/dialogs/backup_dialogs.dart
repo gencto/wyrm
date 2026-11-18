@@ -133,7 +133,6 @@ class _BackupDialogState extends State<_BackupDialog> {
       site: s.site.viewed ?? '',
       b: state.backups,
       plan: _formPlan(state),
-      passphraseTyped: _passphrase.isNotEmpty,
       link: link == null ? null : s.links.table[link],
       linkIds: s.links.view.unlock,
       reason: s.site
@@ -156,7 +155,7 @@ class _BackupDialogState extends State<_BackupDialog> {
             site: s.site.viewed ?? '',
             b: state.backups,
             job: j,
-            step: s.backupJobStep(j),
+            plan: s.backupJobPlan(j),
             sending: state.wait.isWaitingForType<SendBackupAction>(),
             reason: s.site
                 .lacks(Perm.config, '${s.site.root}/sys/backups')
@@ -255,10 +254,6 @@ class _BackupDialogState extends State<_BackupDialog> {
     }
   }
 
-  /// The passphrase as it may be sent: only where the broker takes one.
-  String? get _secret =>
-      _formPlan(_store.state).sendsPassphrase ? _passphrase : null;
-
   void _close() => Navigator.of(context).pop();
 
   /// The passphrase was sent: it is kept no longer than the step that
@@ -275,20 +270,16 @@ class _BackupDialogState extends State<_BackupDialog> {
     final state = _store.state;
     switch (state.backups.stage) {
       case BackupStage.choose || BackupStage.link:
-        return _store.dispatch(
-          // `keys` goes only with a passphrase the broker takes: what goes
-          // is decided in `business` (`backupFormPlanOf`).
-          BackUpAction(
-            dropKeys: _formPlan(state).dropKeys,
-            passphrase: _secret,
-          ),
-        );
+        // What goes, and whether it may, is decided by the action from
+        // its plan (`backupFormPlanOf`): the dialog hands over what was
+        // typed.
+        return _store.dispatch(BackUpAction(passphrase: _passphrase));
       case BackupStage.job:
         final job = backupJobIn(state, state.backups.job);
         if (job == null) {
           return null;
         }
-        switch (_Sel(state).backupJobStep(job)) {
+        switch (_Sel(state).backupJobPlan(job).step) {
           case BackupJobStep.download:
             return _store.dispatch(
               DownloadBackupFileAction(
@@ -316,14 +307,9 @@ class _BackupDialogState extends State<_BackupDialog> {
         if (b.check == null) {
           return _store.dispatch(CheckRestoreAction(passphrase: _passphrase));
         }
-        // Only the sections the mode and the session's rights take: which
-        // is decided in `business` (`restorePlanOf`).
-        return _store.dispatch(
-          RestoreAction(
-            drop: _restorePlan(state).drop.unlock,
-            passphrase: _passphrase,
-          ),
-        );
+        // What goes, and whether it may, is decided by the action from
+        // its plan (`restorePlanOf`).
+        return _store.dispatch(RestoreAction(passphrase: _passphrase));
       case BackupStage.lost:
         // The session is no longer the site's: log in again.
         _close();
