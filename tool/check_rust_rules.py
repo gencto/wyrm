@@ -852,17 +852,29 @@ def probe() -> list[str]:
     return bad
 
 
-CLOCK_HEX = r"(?:now\w*|\w*_now|unix_\w+|timestamp\w*|\w*hex\w*|\w*sha256\w*|\w*digest\w*)"
+CLOCK_HEX = (
+    r"(?:now(?:_(?:us|ms|s|ns|unix|secs|millis|micros|nanos))?|unix_\w+|timestamp\w*"
+    r"|\w*hex\w*|\w*sha256\w*|\w*digest\w*)"
+)
+# a method (`&self`, `&mut self`, `self`): the host's clock behind a trait, an accessor
+SELF_FIRST = re.compile(r"\s*(?:<[^>]*>)?\s*\(\s*(?:&\s*(?:'\w+\s+)?)?(?:mut\s+)?self\b")
 
 
 def c9(s: Source) -> list[int]:
-    """A clock or hex/digest helper defined outside `wyrm-core`: a `fn` or a closure
-    (`let now = || …`) named `now…`, `…_now`, `unix_…`, `timestamp…`, or holding `hex`,
-    `sha256` or `digest`."""
+    """A clock or hex/digest helper defined outside `wyrm-core`: a free `fn` or a closure
+    (`let now = || …`) named `now`, `now_us`/`_ms`/`_s`/…, `unix_…`, `timestamp…`, or
+    holding `hex`, `sha256` or `digest`. A method is not one (an implementation of
+    `Host::now_us`, an artifact's `sha256()`): C13 counts a helper's body wherever it is.
+    A name with `now` in another sense (`first_tick_now`, `now_every`) is not one."""
     if s.path.startswith("crates/wyrm-core/"):
         return []
-    pats = [rf"\bfn\s+{CLOCK_HEX}\b", rf"\blet\s+{CLOCK_HEX}\s*=\s*(?:move\s*)?\|"]
-    return s.hits("C9", [m.start() for p in pats for m in re.finditer(p, s.masked)])
+    hits = [
+        m.start()
+        for m in re.finditer(rf"\bfn\s+{CLOCK_HEX}\b", s.masked)
+        if not SELF_FIRST.match(s.masked, m.end())
+    ]
+    hits += [m.start() for m in re.finditer(rf"\blet\s+{CLOCK_HEX}\s*=\s*(?:move\s*)?\|", s.masked)]
+    return s.hits("C9", hits)
 
 
 # The bodies of the helpers rule 11 keeps in one place, whatever a copy is named.
@@ -1155,6 +1167,15 @@ PROBES = [
     ("C3", "x.rs", "/// Reads `key`. The rows have `time`, `value` and `quality`.\nfn f(key: &str) {}", 0),
     # the same item name in a file the list does not name stays in C3
     ("C3", "crates/wyrm-history/src/store.rs", "pub struct W {\n    /// `w1`, `w2`, …\n    pub id: String,\n}", 1),
+    # C9: a helper by its name, as a free function or a closure
+    ("C9", "x.rs", "fn now_us() -> u64 { 0 }\nfn hex_of(b: &[u8]) -> String { String::new() }", 2),
+    ("C9", "x.rs", "pub(crate) fn token_sha256(t: &str) -> String { String::new() }\nfn unix_secs() -> i64 { 0 }", 2),
+    ("C9", "x.rs", "fn f() { let now = || 0u64; let hex = move |b: u8| b; }", 2),
+    ("C9", "x.rs", "pub fn digest_hex(d: &[u8; 32]) -> String { String::new() }\nfn timestamp() -> u64 { 0 }", 2),
+    ("C9", "x.rs", "impl Host for H { fn now_us(&self) -> u64 { 0 } }\ntrait T { fn now_us(&mut self) -> u64; }", 0),
+    ("C9", "x.rs", "impl A { pub fn sha256(&self) -> &str { &self.sha } fn now(self) -> u64 { 0 } }", 0),
+    ("C9", "x.rs", "fn first_tick_now(&self) -> bool { true }\nfn backup_now() {}\nfn now_every() {}\nfn now_interval_ok() {}", 0),
+    ("C9", "crates/wyrm-core/src/clock.rs", "pub fn now_us() -> u64 { 0 }", 0),
     # C13: the body of a clock or hex helper, under any name
     ("C13", "x.rs", "fn t() -> u64 { SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs()) }", 2),
     ("C13", "x.rs", "fn t() -> u64 { std::time::SystemTime :: now ().elapsed().map_or(0, |d| d.as_secs()) }", 1),

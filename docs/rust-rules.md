@@ -289,17 +289,33 @@ if job.status != JobStatus::Done { … }
 variant, documented or not, that the crate fills from an enum's `name()` (`mode: def.mode.name().to_owned()`
 in a literal of the struct, `x.mode = m.name().into()`, `String::from(m.name())`):
 its set is that enum (`LinkInfo.mode` was one, now `Mode`; the gateway's
-`AuditEvent::Denied.op`, now `DeniedFor`). C3 reads doc comments, so it also
-counts a text field whose doc gives *examples* of an open value (`w1`, `w2`,
-…) and an argument that stands near a list of something else. Such a hit is
-not fixed by rewording the doc and not hidden by a marker: the checker's list
-`C3_OPEN` names it as `(file, item)` with the reason its values are open (an
-id, a key, a URL, a label, a name another crate or another repository
-chooses). Each entry is counted as A4 `open-text` (31 after the follow-up of
-2026-11-17), an entry that no longer matches a C3 hit fails the check, and a
-field whose values are a fixed list never goes there: it becomes a
-`name_enum!`. One C3 hit is left: the flow catalog's `Param.editor` (spec 02
-`editor`), which takes the type `ParamMeta.editor` gets.
+`AuditEvent::Denied.op`, now `DeniedFor`). A list counts when it lists values: backticked or quoted
+alternatives, `one of` or `either` with values after them (the words alone are
+prose: "one of this site's sections", "in either case"), and, for an argument,
+a list in the sentence that names the argument.
+
+C3 reads doc comments, so it still counts a text field whose doc gives
+*examples* of an open value (`w1`, `w2`, …). Such a hit is not fixed by
+rewording the doc and not hidden by a marker: the checker's list `C3_OPEN`
+names it as `(file, "Struct.field" | "fn name")` with the reason its values
+are open (an id, a key, a URL, a label, a name another crate or another
+repository chooses). An entry takes exactly one hit: a second field of the
+same name in another struct of the file, or a second function of the name,
+stays in C3. Each entry is counted as A4 `open-text` (21), an entry that no
+longer matches a C3 hit fails the check, and a field whose values are a fixed
+list never goes there: it becomes a `name_enum!`. One C3 hit is left: the flow
+catalog's `Param.editor` (spec 02 `editor`), which takes the type
+`ParamMeta.editor` gets.
+
+**Decided: a repository entry's `category` is open text**
+(`wyrm-link-sdk/src/package.rs`, `RepoEntry.category`; this rule named it as
+the "bad" example until 2026-11-17). The official manifest uses six
+categories, but the field is read from the index of *any* repository
+(`packages.repository`, ADR 0021; ADR 0043 gives a package row the category of
+its own index entry, never the manifest's). Another repository may name
+categories of its own, the broker shows the text in `attr.catalog` and
+branches on nothing, and an enum with `OrUnknown` would add a set the broker
+never uses. So it is an entry of `C3_OPEN`, with this reason, not an enum.
 
 **Unknown names.** `wyrm_core::named::OrUnknown<T>` is for a record this build
 did not write and must still read: a store or journal that outlives the build
@@ -425,36 +441,43 @@ without a random salt). `clippy.toml` bans the direct calls
 `password_hash::SaltString::generate` and the type `rand_core::OsRng`, which
 panic without randomness); the three functions of `wyrm_core::rand` are the only
 items that allow them, each with its own `allow`. The standard library's hash
-seed is OS randomness too: `std::hash::RandomState::new` is banned the same
-way (a store id and a restart jitter were made of it; both read
-`wyrm_core::rand` now).
+seed is OS randomness too: the type `std::hash::RandomState` is banned
+(`disallowed-types`; `RandomState::new` also as a method). Five things were
+made of it, three of them through `Default::default()`, which a ban of `new`
+does not see: the historian's store id, the portable runtime's restart jitter,
+the file store's upload id, localfs's temporary file name and the SDK's read
+shard seed. All read `wyrm_core::rand` now. A plain `HashMap`'s own seed is not
+named in code and is not a source of ours.
 
-**Libraries that draw randomness themselves.** Some library calls take no
-random source and open their own. They cannot be routed through
-`wyrm_core::rand`, so they are the named exception, and every call is counted
-(A5 `library-rng`, 8 calls):
+**The broker's certificate keys.** rcgen's own `KeyPair` opens a
+`ring::rand::SystemRandom` to make a key, to read one and for every signature.
+rcgen signs with any `SigningKey`, so the CA key, every leaf key and the
+broker keys are a `wyrm_admin::eckey::EcKey`: ring makes the P-256 key pair
+(`EcdsaKeyPair::generate_pkcs8`) and each signature (`sign`) with
+`wyrm_core::rand::secure_random()`. The algorithm
+(`PKCS_ECDSA_P256_SHA256`) and the key file (PKCS#8 in a `PRIVATE KEY` PEM
+block) are the ones rcgen wrote: a key written before reads as before, and
+rcgen reads a key written now (tests in both directions).
 
-| Library call | What it draws | Call sites |
+**Libraries that draw randomness themselves.** One call takes no random source
+and cannot be routed. It is the named exception, and A5 `library-rng` counts
+it (1):
+
+| Library call | What it draws | Call site |
 |---|---|---|
-| `rcgen::KeyPair::generate()` | an ECDSA P-256 key pair, from its own `ring::rand::SystemRandom` | `wyrm-admin/src/secret.rs`: the CA key (`Ca::open_or_create`), a leaf key (`Ca::issue_lasting`), a broker key (`new_broker_key`) |
-| `rcgen` `CertificateParams::self_signed`, `signed_by`, `serialize_request` | the nonce of the ECDSA signature, from its own `SystemRandom` | `wyrm-admin/src/secret.rs`: the CA certificate (`Ca::open_or_create`), `Ca::issue_lasting`, `Ca::sign_broker_csr`, `broker_csr` |
 | `opcua::crypto::X509::cert_and_pkey` | the RSA key of the OPC UA application certificate | `links/opcua/src/pki.rs`: `generated` |
 
-Why rcgen is not routed: making the key with ring and our `secure_random()`
-and handing rcgen the PKCS#8 would move one of its three draws. rcgen opens a
-`SystemRandom` again to read that key and again for every signature, and its
-API has no place for a source. A half-routed key would read as fixed and not
-be. All of these fail closed: each returns a `Result` and the caller refuses
-with it, and ring's `SystemRandom` is the same OS source `wyrm_core::rand`
-reads. Protocol libraries draw randomness with no call of ours that could be
-counted: rustls and quinn (handshakes), Zenoh (its ids), tungstenite (frame
-masks), async-opcua (session nonces). They are libraries' internals behind a
-`Result`, not sources of ours. A5 also counts, at zero, the calls that would
-be a second source of ours: `RandomState::new`, `SigningKey::generate`/`random`,
-`SecretKey::random`, `RsaPrivateKey::new`, `Uuid::new_v4`, `thread_rng`,
-`rand::random`, `rand::rng`, `fastrand`. A key of ours is made from
-`wyrm_core::rand::bytes` (`SigningKey::from_bytes`) or by ring with
-`secure_random()` (`EcdsaKeyPair::generate_pkcs8`). A portable link takes randomness from its host
+It fails closed (a `Result` the caller refuses with). A5 also counts, at zero,
+what would be a second source of ours: any use of rcgen's `KeyPair` (a path, an
+import, a constructor), `generate_simple_self_signed`, any mention of
+`RandomState`, `SigningKey::generate`/`random`, `SecretKey::random`,
+`RsaPrivateKey::new`, `Uuid::new_v4`, `thread_rng`, `rand::random`,
+`rand::rng`, `fastrand`. Protocol libraries draw randomness with no call of
+ours that could be counted: rustls and quinn (handshakes), Zenoh (its ids),
+tungstenite (frame masks), async-opcua (session nonces). They are libraries'
+internals behind a `Result`, not sources of ours. A value that must not be
+guessed is never made of the clock: a `ptok` `jti` and an MQTT client id are
+`wyrm_core::rand` bytes. A portable link takes randomness from its host
 (`Host::random_bytes`); the SCRAM clock nonce of `wyrm-history-sync`, for a host
 that answers `not_supported`, calls no random source.
 
@@ -513,34 +536,41 @@ its own:
 | Helper | Where |
 |---|---|
 | the wall clock: `now_us`, `now_ms`, `now_s`, `since_epoch`, `unix(SystemTime)` | `wyrm_core::clock` |
-| hex: `encode`, `encode_upper`, `encode_sep`, `decode`, `decode_array::<N>`, `is_hex`, `is_lower_hex` | `wyrm_core::hex` (over the `hex` crate, which a crate may also call) |
-| SHA-256: `sha256`, `sha256_hex`, `sha256_reader` (a file) | `wyrm_core::hex` |
+| hex: `encode`, `encode_upper`, `encode_sep`, `decode`, `decode_array::<N>`, `decode_byte`, `is_hex`, `is_lower_hex` | `wyrm_core::hex` (over the `hex` crate, which a crate may also call) |
+| SHA-256: `sha256`, `sha256_hex`, `sha256_parts` (a label and a key), `Sha256Stream` (bytes hashed as they are copied), `sha256_reader` (a file) | `wyrm_core::hex` |
 | percent-encoding: `percent_encode`, `percent_encode_keep` | `wyrm_core::weburl` |
 | a read that fills its buffer: `read_full` | `wyrm_core::files` |
 
 A portable link reads the clock of its host (`Host::now_us`): that trait is the
 clock behind a trait, and its implementations are not copies. A crate that
-exported a helper under its own name re-exports the one (`pub use
-wyrm_core::clock::now_us;`).
+exported a helper under its own name re-exports the one, among its imports at
+the top of the file and under the helper's own name (`pub use
+wyrm_core::clock::now_us;`); no alias gives the one helper another name.
 
 **Why.** **X2**: 33 clock helpers, each with its own `as u64` from `u128`; 12
 hex helpers (one named `wyrm_core_hex` in `wyrm-flow`), with three rules for
 case and length; 4 `sha256_hex`; 7 percent-encoders; 2 `read_full`.
 
-**Check.** C9 `duplicate-helper`: a `fn` or a closure (`let now = || …`)
-outside `wyrm-core` named `now…`, `…_now`, `unix_…`, `timestamp…`, or holding
-`hex`, `sha256` or `digest`. It goes by the name, so it also counts what is
-not a copy; the 43 left after 2026-11-17 are those: implementations of the
-host clock (`Host::now_us`, `Services::now_us`: 11) and readers of it (`now_of`,
-`now`: 5), names with `now` in another sense (`first_tick_now`, `backup_now`,
-`push_now`, …: 16), an artifact's `sha256()` accessors (3), the two file
-digests that give `sha256_reader`'s result their crate's error type, readers
-and writers of a hex *number* (`hex4`, three closures), `hex_text` (a SQL
-literal over `hex::encode_upper`) and the flow block `hash`'s `digest`. C13
-`helper-body` goes by what a helper does, whatever its name: a read of the
-system clock (`SystemTime::now()`, `UNIX_EPOCH`) outside `wyrm_core::clock`
-and a two-digit hex format (`{b:02x}`, `%{b:02X}`) outside `wyrm_core::hex`.
-Three are left: one byte code in an S7 error message (`0x{reason:02X}`).
+**Check.** C9 `duplicate-helper` goes by the name: a free `fn` or a closure
+(`let now = || …`) outside `wyrm-core` named `now`, `now_us`/`_ms`/`_s`/…,
+`unix_…`, `timestamp…`, or holding `hex`, `sha256` or `digest`. A method is not
+counted (an implementation of `Host::now_us`, an artifact's `sha256()`), nor a
+name with `now` in another sense (`first_tick_now`, `backup_now`). Seven are
+left, none a copy: `release::sha256_file` and `parts::file_sha256` (a file's
+digest by `sha256_reader`, with their crate's error type), the flow block
+`hash`'s `digest` (MD5, SHA-1 or SHA-256 by name), `hex4` (the four digits of
+a JSON `\uXXXX`), two closures that read or write a hex *number* (`0x{:04X}`
+of a TSAP, a hex text as an integer) and `hex_text` (a SQL literal over
+`encode_upper`).
+
+C13 `helper-body` goes by what a helper does, whatever its name: a read of the
+system clock (`SystemTime::now()`, `UNIX_EPOCH`) outside `wyrm_core::clock`; a
+two-digit hex format (`{b:02x}`, `%{b:02X}`), two hex digits read by hand
+(`to_digit(16)`, `u8::from_str_radix(.., 16)`) and a SHA-256 made by hand
+(`Sha256::new()`, `Sha256::digest(..)`) outside `wyrm_core::hex` (and
+`wyrm_core::mac`, which brings a long HMAC key to one block). It is 0. Not
+counted: a digest generic over its hash (`localize::<D>` of SNMP USM, RFC
+3414) and `Hmac<Sha256>`, which are not this helper.
 
 **URLs.** A configured URL (an HTTP target, a file store, a sync target, an
 uplink, the gateway's origins and public URL, a release channel, a
