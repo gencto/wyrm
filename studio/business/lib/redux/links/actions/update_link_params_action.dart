@@ -25,7 +25,7 @@ class UpdateLinkParamsAction extends Action with NonReentrant, WaitingAction {
   final int? rev;
 
   @override
-  Future<AppState?> reduce() async {
+  AppState? reduce() {
     // The dialog checks the text as it is typed and says what is wrong
     // under the field ([linkParamsOf]); text that does not pass is not
     // staged.

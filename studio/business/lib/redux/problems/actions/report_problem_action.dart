@@ -7,11 +7,17 @@ import 'add_problem_action.dart';
 
 final _log = Logger('problems');
 
-/// A failure reported from where no state may change at once: a widget
-/// that threw while the tree is being built, the store's own error
-/// observer while an action ends. Its reducer is asynchronous, so the
-/// failure is in Problems (as [AddProblemAction] puts it) once what was
-/// under way has ended; whoever reports it dispatches and returns.
+/// A fault no action caught (a widget that threw while it was built, a
+/// callback, a future nobody awaited), reported by the app's fault handlers
+/// (`app/lib/faults.dart`), which wait for nothing: they dispatch this and
+/// return. It goes into Problems as [AddProblemAction] puts it, and to the
+/// log (its line, without secrets).
+///
+/// A part that throws on every build would report itself on every frame,
+/// and each report changes the state the part is built from: a failure
+/// that is the same line of Problems as one taken less than [repeatWithin]
+/// before is not taken again, so nothing changes and nothing is built for
+/// it.
 ///
 /// A failure of this action is written to the log and goes no further: it
 /// must not report itself.
@@ -20,8 +26,21 @@ class ReportProblemAction extends Action {
 
   final StudioError error;
 
+  /// How soon the same fault is taken again.
+  static const repeatWithin = Duration(seconds: 2);
+
   @override
-  Future<AppState?> reduce() async => problemAdded(state, error);
+  AppState? reduce() {
+    final next = problemAdded(
+      state,
+      error.copyWith(at: error.at ?? deps.clock()),
+      repeatAfter: repeatWithin,
+    );
+    if (next != null) {
+      _log.warning('uncaught: ${error.report?.line ?? error.kind.name}');
+    }
+    return next;
+  }
 
   @override
   Object? wrapError(Object error, StackTrace stackTrace) {

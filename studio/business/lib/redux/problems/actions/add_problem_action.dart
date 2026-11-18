@@ -18,7 +18,7 @@ class AddProblemAction extends Action {
   final StudioError error;
 
   @override
-  AppState reduce() => problemAdded(state, error);
+  AppState reduce() => problemAdded(state, error)!;
 }
 
 /// How many problems are kept.
@@ -36,10 +36,21 @@ List<Object?> _same(StudioError e) => [
   e.thing,
   e.site,
   e.stream,
+  // two faults of Studio are two lines: what was thrown, and where
+  e.report?.type,
+  e.report?.line,
+  e.report?.screen,
 ];
 
-/// [state] with [error] in Problems (see [AddProblemAction]).
-AppState problemAdded(AppState state, StudioError error) {
+/// [state] with [error] in Problems (see [AddProblemAction]). With
+/// [repeatAfter] a failure that is the same line as one added less than
+/// that long before [error]'s time is not taken again: null, nothing
+/// changes.
+AppState? problemAdded(
+  AppState state,
+  StudioError error, {
+  Duration? repeatAfter,
+}) {
   final p = state.problems;
   // One that did not come through an action (a stream, a widget that
   // threw) gets its id, time and site here.
@@ -50,6 +61,11 @@ AppState problemAdded(AppState state, StudioError error) {
   );
   final same = _same(e);
   final old = p.items.where((o) => listEquals(_same(o), same)).firstOrNull;
+  if (repeatAfter != null &&
+      old?.at != null &&
+      e.at!.difference(old!.at!) < repeatAfter) {
+    return null;
+  }
   final items = [
     e,
     ...p.items.where((o) => o.id != old?.id),

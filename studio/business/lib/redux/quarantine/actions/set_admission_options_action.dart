@@ -18,7 +18,7 @@ class SetAdmissionOptionsAction extends Action with WaitingAction {
   final bool? allowAll;
 
   @override
-  Future<AppState?> reduce() async {
+  AppState? reduce() {
     final root = site.root;
     if (root == null) {
       return null;

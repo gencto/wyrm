@@ -794,6 +794,7 @@ Store<AppState> fakeStore({
   FakeDeviceKey? keys,
   BaseKeyValueStorage? settings,
   TextClipboard? clipboard,
+  DateTime Function()? clock,
 }) => Store<AppState>(
   initialState: initial ?? AppState.initial(),
   dependencies: (s) => AppDependencies(
@@ -805,6 +806,7 @@ Store<AppState> fakeStore({
     // The platform's, unless a test hands in its own: a widget test
     // answers the platform channel itself.
     clipboard: clipboard ?? const SystemClipboard(),
+    clock: clock ?? DateTime.now,
   ),
 );
 
