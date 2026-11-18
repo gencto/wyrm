@@ -7532,6 +7532,7 @@ dependencies = [
  "wat",
  "wit-component 0.243.0",
  "wyrm-admin",
+ "wyrm-bench",
  "wyrm-client",
  "wyrm-core",
  "wyrm-example-portable",
