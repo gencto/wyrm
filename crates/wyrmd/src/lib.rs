@@ -20,6 +20,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::oneshot;
+use wyrm_admin::audit::AuditOp;
 use wyrm_admin::control::{ALARM_LINK, DQL_LINK, SCHEDULER_LINK, STORAGE_LINK, UPLINK_LINK};
 use wyrm_admin::{
     Attached, ConfigLink, Control, ControlConfig, EmbeddedHost, Mode, PeerConfig, RunningLink,
@@ -1953,7 +1954,7 @@ impl UserAdmin {
     }
 
     /// An audit record for a change made here (`sub` = `local:cli`).
-    pub fn record(&self, op: &str, user: &str, detail: &str) -> Result<(), Error> {
+    pub fn record(&self, op: AuditOp, user: &str, detail: &str) -> Result<(), Error> {
         let rec = wyrm_admin::audit::AuditRecord {
             t: wyrm_link_sdk::now_us(),
             sub: "local:cli".into(),
@@ -2057,30 +2058,49 @@ impl wyrm_admin::control::RoleGrants for GatewayRoles {
     }
 }
 
+/// The audit op of a request the gateway refused: the same name, in the journal's set.
+fn denied_op(op: wyrm_gateway::DeniedFor) -> AuditOp {
+    use wyrm_gateway::DeniedFor as D;
+    match op {
+        D::Meta => AuditOp::Meta,
+        D::Children => AuditOp::Children,
+        D::List => AuditOp::List,
+        D::Subscribe => AuditOp::Subscribe,
+        D::Unsubscribe => AuditOp::Unsubscribe,
+        D::Set => AuditOp::Set,
+        D::Invoke => AuditOp::Invoke,
+        D::Check => AuditOp::Check,
+        D::History => AuditOp::History,
+        D::Doc => AuditOp::Doc,
+        D::Approve => AuditOp::Approve,
+        D::ConfirmRequired => AuditOp::ConfirmRequired,
+    }
+}
+
 /// Gateway events into the admin journal (no passwords or tokens in them).
 fn gateway_audit(ctl: &Control, e: AuditEvent) {
     use wyrm_core::Status;
     match e {
         AuditEvent::LoginOk { user, ip } => ctl.record(
             &format!("user:{user}"),
-            "login",
+            AuditOp::Login,
             "",
             Status::Ok,
             &ip.to_string(),
         ),
         AuditEvent::LoginFailed { user, ip, reason } => ctl.record(
             &format!("user:{user}"),
-            "login",
+            AuditOp::Login,
             "",
             Status::PermissionDenied,
             &format!("{ip} {reason}"),
         ),
         AuditEvent::UserChanged { by, user, change } => {
-            ctl.record(&by, "user", &user, Status::Ok, change)
+            ctl.record(&by, AuditOp::User, &user, Status::Ok, change)
         }
         AuditEvent::Denied { user, op, key } => ctl.record(
             &format!("user:{user}"),
-            op.name(),
+            denied_op(op),
             &key,
             Status::PermissionDenied,
             "gateway",
@@ -2092,7 +2112,7 @@ fn gateway_audit(ctl: &Control, e: AuditEvent) {
             config,
         } => ctl.record(
             &format!("user:{user}"),
-            "mcp_sign_in",
+            AuditOp::McpSignIn,
             &client,
             Status::Ok,
             &format!("write={write} config={config}"),
@@ -2104,7 +2124,7 @@ fn gateway_audit(ctl: &Control, e: AuditEvent) {
             skipped,
         } => ctl.record(
             &format!("user:{user}"),
-            "approve",
+            AuditOp::Approve,
             &task,
             Status::Ok,
             &format!("signed={} skipped={skipped}", steps.join(",")),
@@ -2118,14 +2138,14 @@ fn gateway_audit(ctl: &Control, e: AuditEvent) {
             ip,
         } => ctl.record(
             &format!("user:{user}"),
-            "device_added",
+            AuditOp::DeviceAdded,
             &device,
             Status::Ok,
             &format!("{ip} {platform} {name}"),
         ),
         AuditEvent::DeviceLogin { user, device, ip } => ctl.record(
             &format!("user:{user}"),
-            "device_login",
+            AuditOp::DeviceLogin,
             &device,
             Status::Ok,
             &ip.to_string(),
@@ -2137,7 +2157,7 @@ fn gateway_audit(ctl: &Control, e: AuditEvent) {
             code,
         } => ctl.record(
             &user.map_or_else(|| "gateway".to_owned(), |u| format!("user:{u}")),
-            "device_refused",
+            AuditOp::DeviceRefused,
             &device,
             Status::PermissionDenied,
             &format!("{ip} {code}"),
@@ -2148,19 +2168,19 @@ fn gateway_audit(ctl: &Control, e: AuditEvent) {
             request,
         } => ctl.record(
             &format!("user:{user}"),
-            "step_up",
+            AuditOp::StepUp,
             &request,
             Status::Ok,
             method,
         ),
         AuditEvent::DeviceRemoved { user, device, by } => ctl.record(
             &by,
-            "device_removed",
+            AuditOp::DeviceRemoved,
             &device,
             Status::Ok,
             &format!("user:{user}"),
         ),
-        e => ctl.record("gateway", "event", "", Status::Ok, &format!("{e:?}")),
+        e => ctl.record("gateway", AuditOp::Event, "", Status::Ok, &format!("{e:?}")),
     }
 }
 
@@ -2399,7 +2419,7 @@ impl Daemon {
             tracing::info!(sections = %wyrm_admin::backup::section_names(&r.sections), "restore applied");
             ctl.record(
                 &r.by,
-                "restore_applied",
+                AuditOp::RestoreApplied,
                 &r.backup,
                 wyrm_core::Status::Ok,
                 &format!(
@@ -2416,7 +2436,7 @@ impl Daemon {
             );
             ctl.record(
                 &f.by,
-                "restore_failed",
+                AuditOp::RestoreFailed,
                 &f.backup,
                 wyrm_core::Status::InternalError,
                 &format!(

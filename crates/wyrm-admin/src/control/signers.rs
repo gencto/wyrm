@@ -209,7 +209,7 @@ pub(super) async fn follow_signers(ctl: Arc<Control>, ctx: LinkCtx) {
                 config: got.config,
             }) {
                 Ok(()) => {
-                    ctl.record("system", "signers", &u, Status::Ok, "");
+                    ctl.record("system", AuditOp::Signers, &u, Status::Ok, "");
                     info!(site = %u, "upstream signing keys changed: rebuilding");
                     ctl.schedule_reload();
                 }

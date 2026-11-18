@@ -352,7 +352,7 @@ impl Sending {
                 info!(backup = %self.id, to = %self.to.shown(), "backup sent");
                 ctl.record(
                     &self.by,
-                    "backup_send",
+                    AuditOp::BackupSend,
                     &self.id,
                     Status::Ok,
                     &format!(
@@ -365,7 +365,7 @@ impl Sending {
                 warn!(backup = %self.id, to = %self.to.shown(), "backup not sent: {e}");
                 ctl.record(
                     &self.by,
-                    "backup_send",
+                    AuditOp::BackupSend,
                     &self.id,
                     Status::InternalError,
                     &format!("to {}: {e}", self.to.shown()),
@@ -425,7 +425,7 @@ pub(super) async fn send(
             ctl.backups().sending(false);
             ctl.record(
                 sub,
-                "backup_send",
+                AuditOp::BackupSend,
                 id,
                 Status::InvalidParameter,
                 &format!("to {}: {e}", to.shown()),
@@ -453,7 +453,7 @@ pub(super) async fn send(
     // subject (the upload actions take no note of the caller)
     ctl.record(
         sub,
-        "backup_send",
+        AuditOp::BackupSend,
         id,
         Status::Ok,
         &format!(
