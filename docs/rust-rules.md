@@ -11,7 +11,7 @@ Two checks run in CI job `check`:
    has `lints.workspace = true`. `cargo clippy --workspace --all-targets
    --all-features -- -D warnings` fails on one hit.
 2. **Baselined rules.** `python3 tool/check_rust_rules.py` counts the patterns
-   C1–C12, the exceptions A1–A3 and seven costly clippy lints per file against
+   C1–C12, the exceptions A1–A4 and seven costly clippy lints per file against
    `tool/rust_rules_baseline.json`. **A count may only go down. A file that is
    not in the baseline starts at zero.** The check fails on a count above its
    baseline and also on a count below it: after you remove hits, run
@@ -34,7 +34,8 @@ reason that says why the code is right: `#[allow(clippy::expect_used, reason =
 allow(C4) <why>` on its line or the line above. A reason under 12 characters
 does not count (A2), and every exception is itself counted (A1), so none is
 invisible; so is every removal whose error is only logged (A3: each call of
-`wyrm_core::files::discard`, `discard_dir`, `discard_empty_dir`). Prefer a restructure: an exception is for the place where the code
+`wyrm_core::files::discard`, `discard_dir`, `discard_empty_dir`), and every
+field of the one secret that is trimmed (A4: a `SecretLine`, rule 12). Prefer a restructure: an exception is for the place where the code
 is provably right as it is.
 
 Test code (`#[test]`, `#[cfg(test)]`) may unwrap, expect, panic and print
@@ -356,20 +357,28 @@ C12 `admin-arg-read`, in `crates/wyrm-admin/src` (baseline 0; the other crates
 follow as they move, audit T3). There `args` names an action's arguments and
 nothing else (a process's arguments are `argv`, a call built for another link
 is a `request`), and it has three uses: the parameter (`args: Value`), the
-one argument of a struct's decoder (`X::decode(args)`, `<()>::decode(args)`),
+one argument of a struct's decoder (`X::decode(args)`, `<()>::decode(args)`,
+also as rustfmt writes it over lines with a comma),
 and a whole hand-over to a dispatcher of the crate (`history::invoke(…, args,
 …)`: a lower-case module path, never a bare or a closure `invoke`). The
 decoder is that of a struct of the crate that derives `Args` (the script
-collects the names) or `<()>`: `Raw::decode(args)`, `Self::decode(args)`, a
-type of another crate and a second read (`X::decode(args.clone())`) count.
+collects the names and the files that define them) or `<()>`, by a local path:
+`X`, `super::X`, `crate::…::X`, or `<stem>::X` where `<stem>` is the file that
+defines `X` (`restore_broker::RestoreCheck`). `Raw::decode(args)`,
+`Self::decode(args)`, a type of another crate (`wyrm_storage::Create`) and a
+second read (`X::decode(args.clone())`) count.
 **Every other `args` counts**: a helper called with it, a method on it, a
 macro, a new name for it (`let a = args`, `let args: T = …`), a `match`. Also
 counted: a function that takes the arguments (`on_invoke`, `on_check`,
 `invoke`, `decode`) with any `Value` in its parameters or generics other than
 `args: Value` / `args: &Value` (`&'a Value`, `impl Into<Value>`,
-`Option<Value>`, `Arc<Value>`, a full path), or without it; `invoke` and
-`decode` as a closure or a method; a `Value` taken apart in a parameter; a
-type alias of `Value`; `let a: ActionMeta = Default::default()`; an argument
+`Option<Value>`, `Arc<Value>`, a full path), and an `on_invoke` or
+`on_check` without it (an `invoke` or a `decode` with no `Value` at all, as
+`fn invoke(&self, cmd: &Command)`, is about something else); `invoke` and
+`decode` as a closure; a trait of the crate on `Value` (`impl Take for Value`);
+a `Value` taken apart in a parameter; a type alias that is `Value` or `&Value`
+(not one that holds it, as `Result<Option<Value>>`); `let a: ActionMeta =
+Default::default()`; an argument
 reader by name
 (`arg(…)`, `…_arg(…)`, `from_args(…)`); a parameter or an action written out
 (`ParamMeta`, `.param(…)`, `ActionMeta::new()`, `ActionMeta { … }`: an action
@@ -377,8 +386,10 @@ is `X::action()`); a change of an action's declared parameters
 (`a.params.insert(…)`, `.entry`, `.retain`, `.values_mut()`, `&mut a.params`,
 `a.params = …`); a decoder written by hand (`impl Args for`, `fn decode(v:
 Value)`). A file named `decode.rs` is no decoder module inside `wyrm-admin`:
-C4 counts its reads. C4 also counts, in every crate, a map view of a value
-(`.as_map()`) and a key that is a variable or a call (`m.get(k)?.as_str()`).
+C4 counts its reads. (C4 does not count an arm `Value::Map(m) =>` nor a key
+that is a variable: measured on 2026-11-18, the arm alone would add 580 hits
+outside `wyrm-admin`, mostly codecs and flow blocks. `Value` has no `as_map`
+or `as_str`, so `v.as_map()?.get(k)?.as_str()` does not compile.)
 
 ## 8. A public error is a type, not a `String`
 
@@ -566,9 +577,14 @@ around it: a pasted line often ends with a newline, and a token holds none.
 type is counted (A4, baseline 1), and C10 refuses it for a field named as a
 passphrase, a password or a key.
 
-A field of an `Args` struct that is named `token`, `passphrase`, `password`,
-`secret` or `key` has a secret type, with or without the attribute. What is
-not a secret is called what it is (`key_sha256` with `name = "key"`). The driver derive (`#[derive(Params)]`) does not
+A field of an `Args` struct whose Rust name or wire name (`#[param(name =
+"…")]`) is `token`, `passphrase`, `password`, `secret` or `key`, alone or as
+its last word (`new_password`, `api_key`, `access_token`), has a secret type,
+with or without the attribute: exactly `Secret`, `SecretBytes` or
+`SecretLine` (a type named `SecretName` is none). A passphrase, a password or
+a key is never a `SecretLine`. What is no secret by such a name says so with
+a counted marker: `key_sha256` (wire name `key`, a fingerprint people
+compare) carries `// rust-rules: allow(C10) <why>`. The driver derive (`#[derive(Params)]`) does not
 take `Secret` yet; until then its count only goes down as links move.
 
 **Why.** Today secrets stay out of `Debug` by a comment ("No `Debug`: it holds
@@ -586,7 +602,8 @@ password: Secret,
 
 **Check.** C10 `plain-secret` (a type alias of the file is followed to its
 type): a `#[param(secret)]` field, and a field of an `Args` struct with one
-of the five names above.
+of the five names above. A4 `secret-line` counts every field typed
+`SecretLine` (baseline 1: `upstream ▸ add` `token`).
 
 ## 13. Baselined clippy lints
 

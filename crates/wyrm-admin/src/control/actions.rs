@@ -328,6 +328,7 @@ pub(super) struct Approve {
         desc = "Downstream brokers: the SHA-256 of its key you compared",
         trim
     )]
+    // rust-rules: allow(C10) the SHA-256 of a broker key that people compare, no secret
     pub key_sha256: Option<String>,
 }
 
@@ -351,6 +352,7 @@ pub(super) struct ApproveBroker {
         desc = "SHA-256 of its key: the same as its sys/upstream/<this site>/key",
         trim
     )]
+    // rust-rules: allow(C10) the SHA-256 of a broker key that people compare, no secret
     pub key_sha256: Option<String>,
     #[param(display = "Via", placeholder = "plant, cell", desc = VIA_ABOUT)]
     pub via: Option<String>,

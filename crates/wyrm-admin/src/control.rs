@@ -5286,7 +5286,7 @@ impl Admin {
         Ok(())
     }
 
-    /// `site` is an upstream added at runtime (one of `wyrmd.json5` is removed there).
+    /// The site is an upstream added at runtime; one from the config file is removed there.
     fn runtime_upstream(&self, site: &str) -> wyrm_link_sdk::Result<()> {
         if !self
             .ctl

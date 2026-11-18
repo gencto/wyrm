@@ -392,9 +392,6 @@ C4_PATTERNS = [
     r'\.(?:get|get_mut|remove|contains_key)\(\s*&?\s*(?:"[^"\n]*"(?:\.to_\w+\(\))?|[A-Z][A-Z0-9_]+)\s*\)',
     r'\[\s*"[^"\n]*"\s*\]',
     r"\bValue::as_\w+\b",
-    # a map view of a value, and a key that is a variable or a call (`m.get(k)?.as_str()`)
-    r"\.as_map\(\)",
-    r"\.(?:get|get_mut|remove)\(\s*&?\s*[a-z_][\w.]*(?:\(\))?\s*\)\s*\?\s*\.\s*as_\w+\(",
     ARG_HELPERS,
 ]
 
@@ -791,9 +788,50 @@ def c9(s: Source) -> list[int]:
 
 DERIVE = re.compile(r"#\[derive\(([^\]]*)\)\]")
 STRUCT_AFTER = re.compile(r"\s*(?:#\[[^\]]*\]\s*)*(?:pub(?:\([^)]*\))?\s+)?struct\s+(\w+)[^{;]*\{")
-SECRET_FIELD = re.compile(
-    r"(?:^|[,{\]\n])\s*(?:pub(?:\([^)]*\))?\s+)?\b(token|passphrase|password|secret|key)\s*:\s*([^,}\n]+)"
-)
+# The name of a field (or the wire name of `#[param(name = "…")]`) that says it holds a
+# secret: one of five words, alone or as the last word (`new_password`, `api_key`,
+# `access_token`). Not `export_secrets`, `replace_keys`, `key_sha256`, `secret_name`.
+SECRET_NAME = re.compile(r"^(?:\w+_)?(token|passphrase|password|secret|key)$")
+# The secret types, by their last path segment, alone or in an `Option`.
+SECRET_TYPES = {"Secret", "SecretBytes", "SecretLine"}
+# A passphrase, a password or a key is never trimmed (`SecretLine` is a pasted token).
+NOT_A_LINE = re.compile(r"(?:^|_)(passphrase|password|key)$")
+
+
+def secret_type(ty: str) -> str | None:
+    """The secret type `ty` is (`Option<…>` and a path taken off), or None."""
+    t = re.sub(r"\s+", "", ty)
+    m = re.fullmatch(r"(?:(?:std::option::|core::option::)?Option<)?((?:\w+::)*)(\w+)(>?)", t)
+    if not m or (t.startswith(("Option<", "std::option::Option<", "core::option::Option<")) != (m.group(3) == ">")):
+        return None
+    return m.group(2) if m.group(2) in SECRET_TYPES else None
+
+
+def body_fields(masked: str, code: str, at: int, end: int):
+    """`(offset of the name, name, its attributes' text, its type)` of each field of the
+    struct body between `at` (its `{`) and `end`, split at the commas of depth 0. The field
+    is read from `masked` (no text of a string can look like one); its attributes from
+    `code` (the wire name is a string)."""
+    code, attrs_of = masked, code
+    depth, start, k = 0, at + 1, at + 1
+    while k <= end:
+        ch = code[k] if k < len(code) else "}"
+        if ch in "<([{":
+            depth += 1
+        elif ch in ">)]}" and not (ch == ">" and code[k - 1] == "-"):
+            if depth == 0:
+                ch = ","
+            else:
+                depth -= 1
+        if ch == "," and depth == 0:
+            chunk = code[start:k]
+            f = re.search(r"(?:pub(?:\([^)]*\))?\s+)?\b([a-z_]\w*)\s*:\s*(.+?)\s*$", chunk, re.S)
+            if f:
+                yield start + f.start(1), f.group(1), attrs_of[start : start + f.start()], f.group(2)
+            start = k + 1
+            if k >= end - 1:
+                break
+        k += 1
 
 
 def args_structs(masked: str):
@@ -808,35 +846,53 @@ def args_structs(masked: str):
 
 
 def c10(s: Source) -> list[int]:
-    """A secret that is not kept in a `Secret` type (`Secret`, `SecretBytes`, `SecretLine`; a
-    type alias of this file is followed to its type): a `#[param(secret)]` field of a driver
-    parameter (`Params`) or of an action argument (`Args`), and any field of an `Args` struct
-    that is named `token`, `passphrase`, `password`, `secret` or `key`, with or without the
-    attribute. (A fingerprint or a name is called what it is: `key_sha256`, `secret_name`.)"""
+    """A secret that is not kept in a secret type (exactly `Secret`, `SecretBytes` or
+    `SecretLine`, alone or in an `Option`, with a path; a type alias of this file is
+    followed): a `#[param(secret)]` field of a driver parameter (`Params`) or of an action
+    argument (`Args`), and any field of an `Args` struct whose Rust name or wire name
+    (`#[param(name = "…")]`) is `token`, `passphrase`, `password`, `secret` or `key`, alone
+    or as its last word (`new_password`, `api_key`, `access_token`), with or without the
+    attribute. A passphrase, a password or a key is never a `SecretLine` (a pasted token,
+    trimmed). What is no secret by such a name (a fingerprint named `key` on the wire)
+    carries `// rust-rules: allow(C10) <why>`, so the exception is named and counted."""
     aliases = dict(re.findall(r"\btype\s+(\w+)\s*=\s*([^;]+);", s.masked))
+
+    def resolved(ty: str) -> str:
+        for _ in range(4):
+            ty = re.sub(r"\b\w+\b", lambda w: aliases.get(w.group(0), w.group(0)), ty)
+        return ty
+
     hits = []
     for m in re.finditer(r"#\[param\(([^\]]*)\)\]", s.masked):
         if not re.search(r"\bsecret\b", m.group(1)):
             continue
         f = re.compile(r"\s*(?:#\[[^\]]*\]\s*)*(?:pub(?:\([^)]*\))?\s+)?\w+\s*:\s*([^,}]+)").match(s.masked, m.end())
-        if not f:
-            continue
-        ty = f.group(1).strip()
-        for _ in range(4):
-            ty = re.sub(r"\b\w+\b", lambda w: aliases.get(w.group(0), w.group(0)), ty)
-        if "Secret" not in ty:
+        if f and secret_type(resolved(f.group(1).strip())) is None:
             hits.append(m.start())
-    # an argument whose name says what it is, with or without the attribute
     for _, body_at, body_end in args_structs(s.masked):
-        for f in SECRET_FIELD.finditer(s.masked, body_at, body_end):
-            ty = f.group(2)
-            for _ in range(4):
-                ty = re.sub(r"\b\w+\b", lambda w: aliases.get(w.group(0), w.group(0)), ty)
-            # with the attribute it is counted above, once
-            marked = re.search(r"#\[param\([^\]]*\bsecret\b[^\]]*\)\]\s*(?:pub(?:\([^)]*\))?\s+)?$", s.masked[body_at : f.start(1)])
-            if "Secret" not in ty and not marked:
-                hits.append(f.start(1))
+        for at, name, attrs, ty in body_fields(s.masked, s.code, body_at, body_end):
+            wire = re.search(r'#\[param\([^\]]*\bname\s*=\s*"([^"]*)"', attrs)
+            names = [name] + ([wire.group(1)] if wire else [])
+            if not any(SECRET_NAME.match(n) for n in names):
+                continue
+            kind = secret_type(resolved(ty))
+            # with the attribute and no secret type it is counted above, once
+            marked = re.search(r"#\[param\([^\]]*\bsecret\b", attrs)
+            if (kind is None and not marked) or (
+                kind == "SecretLine" and any(NOT_A_LINE.search(n) for n in names)
+            ):
+                hits.append(at)
     return s.hits("C10", hits)
+
+
+def a4(s: Source) -> list[int]:
+    """Every field typed `SecretLine`, the one secret that is trimmed (a token a person
+    pastes as one line; docs/rust-rules.md §12): counted like an exception, so a new one
+    shows in review. Its own module is not counted."""
+    if s.path == "crates/wyrm-core/src/secret.rs":
+        return []
+    pat = r"\b[a-z_]\w*\s*:\s*(?:(?:std::option::)?Option\s*<\s*)?(?:\w+::)*SecretLine\b"
+    return s.hits("A4", [m.start() for m in re.finditer(pat, s.masked)])
 
 
 REASON = re.compile(r'\breason\s*=\s*"((?:[^"\\]|\\.)*)"', re.S)
@@ -937,16 +993,17 @@ C12_PATTERNS = [
     r"\.\s*params\s*=(?!=)",
     # a decoder written by hand
     r"\bimpl\s+(?:[\w:]+::)?(?:Args|ArgValue|SecretArg|PastedSecretArg)\s+for\b",
-    # a dispatcher's name taken by something else: a closure, a method
-    r"\blet\s+(?:mut\s+)?(?:invoke|decode)\b",
-    r"\bfn\s+(?:invoke|decode)\s*(?:<[^(]*>)?\(\s*(?:&\s*(?:'\w+\s+)?(?:mut\s+)?|mut\s+)?self\b",
-    # a value taken apart in a parameter, and another name for the type
+    # a trait of this crate on `Value` (`impl Take for Value`): a method on the arguments
+    r"\bimpl\s*(?:<[^>]*>)?\s*[\w:]+(?:<[^>]*>)?\s+for\s+&?\s*(?:'\w+\s+)?(?:[\w:]+::)?Value\b",
+    # a dispatcher's name taken by a closure
+    r"\blet\s+(?:mut\s+)?(?:invoke|decode)\s*(?::[^=;]*)?=\s*(?:move\s*)?\|",
+    # a value taken apart in a parameter, and another name for the type itself
     r"\bValue::\w+\s*\([^()]*\)\s*:",
-    r"\btype\s+\w+\s*(?:<[^=]*>)?\s*=[^;]*\bValue\b",
+    r"\btype\s+\w+\s*=\s*&?\s*(?:'\w+\s+)?(?:[\w:]+::)?Value\s*;",
 ]
 # `args` is the name of an action's arguments in `wyrm-admin`, and of nothing else.
 ARGS_WORD = re.compile(r"(?<![.\w])args\b")
-ARGS_DECODE_BEFORE = re.compile(r"(?:\b(\w+)|<(\(\))>)::decode\(\s*$")
+ARGS_DECODE_BEFORE = re.compile(r"((?:[a-z_]\w*\s*::\s*)*)(?:\b(\w+)|<(\(\))>)\s*::\s*decode\(\s*$")
 # a parameter, a struct field or a field of a struct literal (`args: argv`)
 ARGS_FIELD_AFTER = re.compile(r"\s*:(?!:)")
 ARGS_LET_BEFORE = re.compile(r"\blet\s+(?:mut\s+)?$")
@@ -955,9 +1012,26 @@ INVOKE_PATH = re.compile(r"\b[a-z_]\w*\s*::\s*invoke$")
 # the functions that take an action's arguments
 ARGS_FN = re.compile(r"\bfn\s+(on_invoke|on_check|invoke|decode)\b")
 ARGS_PARAM = re.compile(r"(?<![.\w])(?:mut\s+)?args\s*:\s*&?\s*Value\s*(?=[,)])")
-# The names of the structs that derive `Args` in `wyrm-admin`, filled by `measure_patterns`
-# before the rules run: `X::decode(args)` is the struct's decoder only for these.
-ADMIN_ARGS: set[str] = set()
+# The structs that derive `Args` in `wyrm-admin`, each with the stems of the files that
+# define it, filled by `measure_patterns` before the rules run: `X::decode(args)` is the
+# struct's decoder only for these, by a local path (`X`, `super::X`, `crate::…::X`,
+# `<stem>::X` of the file that defines it).
+ADMIN_ARGS: dict[str, set[str]] = {}
+
+
+def stem_of(path: str) -> str:
+    p = Path(path)
+    return p.parent.name if p.name in ("mod.rs", "lib.rs") else p.stem
+
+
+def local_decoder(path: str, name: str, known: dict[str, set[str]]) -> bool:
+    """`path` + `name` (`restore_broker::` + `RestoreCheck`) is a struct of this crate."""
+    if name not in known:
+        return False
+    segs = [x.strip() for x in path.split("::") if x.strip()]
+    if not segs or segs[0] in ("super", "crate", "self"):
+        return True
+    return segs[-1] in known[name]
 
 
 def enclosing_call(text: str, at: int) -> str:
@@ -984,14 +1058,18 @@ def args_uses(s: Source) -> list[int]:
     (`X::decode(args)`, `<()>::decode(args)`), or handed whole to a dispatcher of this crate
     (`history::invoke(…, args, …)`)."""
     text, hits = s.masked, []
-    known = ADMIN_ARGS | {name for name, _, _ in args_structs(text)}
+    known = {k: set(v) for k, v in ADMIN_ARGS.items()}
+    for name, _, _ in args_structs(text):
+        known.setdefault(name, set()).add(stem_of(s.path))
     for m in ARGS_WORD.finditer(text):
         a, b = m.start(), m.end()
-        before = text[max(0, a - 120) : a]
+        before = text[max(0, a - 160) : a]
         if ARGS_FIELD_AFTER.match(text, b) and not ARGS_LET_BEFORE.search(before):
             continue
         d = ARGS_DECODE_BEFORE.search(before)
-        if d and (d.group(2) or d.group(1) in known) and re.match(r"\s*\)", text[b : b + 8]):
+        # rustfmt writes a long call over lines, with a comma after the one argument
+        closed = re.match(r"\s*,?\s*\)", text[b : b + 40])
+        if d and closed and (d.group(3) or local_decoder(d.group(1), d.group(2), known)):
             continue
         whole = re.search(r"[,(]\s*$", before) and re.match(r"\s*[,)]", text[b : b + 8])
         if whole and INVOKE_PATH.search(enclosing_call(text, a)):
@@ -1029,7 +1107,9 @@ def args_fns(s: Source) -> list[int]:
     for m in ARGS_FN.finditer(s.masked):
         sig, at = params_of(s.masked, m.end())
         rest, n = ARGS_PARAM.subn("", sig)
-        if re.search(r"\bValue\b", rest) or (m.group(1) != "decode" and n != 1):
+        # any other `Value`; and a link's dispatcher without `args: Value` (an `invoke` or a
+        # `decode` with no `Value` at all is about something else)
+        if re.search(r"\bValue\b", rest) or (m.group(1) in ("on_invoke", "on_check") and n != 1):
             hits.append(m.start())
     return hits
 
@@ -1076,6 +1156,7 @@ PATTERNS = {
     "A1-allow": a1,
     "A2-short-reason": a2,
     "A3-scratch-discard": a3,
+    "A4-secret-line": a4,
 }
 
 # ---------- probes ----------
@@ -1112,7 +1193,7 @@ PROBES = [
         "trait Take { fn invoke(self, k: &str) -> Option<String>; }\n"
         "impl Take for Value { fn invoke(self, k: &str) -> Option<String> { self.as_map()?.get(k)?.as_str().map(str::to_owned) } }\n"
         "fn f(args: Value) { let k = key(); let n = Take::invoke(args, k); }",
-        3,
+        2,
     ),
     (
         "C12",
@@ -1140,7 +1221,7 @@ PROBES = [
         ADMIN + "x.rs",
         "type V = Value;\nfn invoke(v: V, k: &str) -> Option<String> { v.as_map()?.get(k)?.as_str().map(str::to_owned) }\n"
         "fn f(args: Value) { let n = invoke(args, key()); }",
-        3,
+        2,
     ),
     (
         "C12",
@@ -1175,11 +1256,65 @@ PROBES = [
     ("C12", ADMIN + "x.rs", "impl X { fn go(args: Value) { let a = Self::decode(args); } }", 1),
     ("C12", ADMIN + "x.rs", "#[derive(Args)]\nstruct A {\n    n: u32,\n}\nfn f(args: Value) { let a = other::A2::decode(args); }", 1),
     ("C12", ADMIN + "x.rs", "async fn on_check(&mut self, path: &str) {}", 1),
-    # the map view of a value and a key that is a variable or a call (C4, every crate)
-    ("C4", "links/x/src/lib.rs", "fn f(v: &Value, k: &str) -> Option<&str> { v.as_map()?.get(k)?.as_str() }", 2),
-    ("C4", "links/x/src/lib.rs", "fn f(m: &BTreeMap<String, Value>) -> Option<&str> { m.get(key())?.as_str() }", 1),
-    ("C4", "links/x/src/lib.rs", "macro_rules! rd { ($k:expr) => { |v: &Value| v.as_map().and_then(|m| m.get($k)) } }", 1),
+    # third audit of #136: what is no argument stays out, the local path and rustfmt's comma
+    ("C12", ADMIN + "x.rs", "type Answer = wyrm_link_sdk::Result<Option<Value>>;\ntype Rows = Vec<(String, Value)>;", 0),
+    ("C12", ADMIN + "x.rs", "type V = wyrm_core::Value;\ntype R<'a> = &'a Value;", 1),
+    ("C12", ADMIN + "x.rs", "impl Runner { fn invoke(&self, cmd: &Command) -> io::Result<()> { run(cmd) } }", 0),
+    ("C12", ADMIN + "x.rs", "fn f(b: &[u8]) { let decoded = hex::decode(b); let decode = 1; let invoke = start(); }", 0),
+    ("C12", ADMIN + "x.rs", "fn f() { let decode = move |v: &[u8]| hex(v); }", 1),
+    ("C12", ADMIN + "x.rs", "impl<'a> Take for &'a wyrm_core::Value { fn take(self) {} }", 1),
+    (
+        "C12",
+        ADMIN + "x.rs",
+        "#[derive(Args)]\nstruct A {\n    n: u32,\n}\nfn f(args: Value) { let a = A::decode(\n        args,\n    )?; }",
+        0,
+    ),
+    (
+        "C12",
+        ADMIN + "control/x.rs",
+        "#[derive(Args)]\nstruct A {\n    n: u32,\n}\nfn f(args: Value) { let a = x::A::decode(args)?; let b = super::A::decode(args)?; }",
+        0,
+    ),
+    (
+        "C12",
+        ADMIN + "x.rs",
+        "#[derive(Args)]\nstruct Create {\n    n: u32,\n}\nfn f(args: Value) { let a = wyrm_storage::Create::decode(args)?; }",
+        1,
+    ),
+    # C4 has no `.as_map()` / `?.as_str()` form: `Value` has neither method (only `as_f64`),
+    # so such code does not compile; a key that is a variable is not counted (it would count
+    # every map of the workspace)
     ("C4", "links/x/src/lib.rs", "fn f(m: &HashMap<String, u8>, k: &str) -> Option<u8> { m.get(k).copied() }", 0),
+    # third audit of #136: C10 reads the last word of a name and the wire name, and the
+    # exact secret types
+    ("C10", "x.rs", "#[derive(Args)]\npub(super) struct A {\n    pub new_password: String,\n}\n", 1),
+    ("C10", "x.rs", "#[derive(Args)]\npub(super) struct A {\n    pub api_key: String,\n}\n", 1),
+    ("C10", "x.rs", "#[derive(Args)]\npub(super) struct A {\n    pub access_token: Option<String>,\n}\n", 1),
+    ("C10", "x.rs", '#[derive(Args)]\npub(super) struct A {\n    #[param(name = "password")]\n    pub pw: String,\n}\n', 1),
+    ("C10", "x.rs", "#[derive(Args)]\npub(super) struct A {\n    pub token: SecretName,\n}\n", 1),
+    ("C10", "x.rs", "#[derive(Args)]\npub(super) struct A {\n    #[param(secret)]\n    pub pin: Option<SecretName>,\n}\n", 1),
+    ("C10", "x.rs", "#[derive(Args)]\npub(super) struct A {\n    #[param(secret, trim, nonempty)]\n    pub passphrase: Option<SecretLine>,\n}\n", 1),
+    ("C10", "x.rs", "#[derive(Args)]\npub(super) struct A {\n    #[param(secret, trim)]\n    pub api_key: SecretLine,\n}\n", 1),
+    ("C10", "x.rs", "type NotSecretButNamed = String;\n#[derive(Args)]\npub(super) struct A {\n    pub password: NotSecretButNamed,\n}\n", 1),
+    (
+        "C10",
+        "x.rs",
+        "#[derive(Args)]\npub(super) struct A {\n    pub export_secrets: bool,\n    pub replace_keys: bool,\n"
+        "    pub key_sha256: Option<String>,\n    pub secret_name: String,\n    pub params: BTreeMap<String, Value>,\n"
+        "    pub access_token: Option<wyrm_link_sdk::Secret>,\n    pub value: SecretBytes,\n}\n",
+        0,
+    ),
+    (
+        "C10",
+        "x.rs",
+        '#[derive(Args)]\npub(super) struct A {\n    #[param(name = "key", trim)]\n'
+        "    // rust-rules: allow(C10) a SHA-256 people compare, no secret\n    pub key_sha256: Option<String>,\n}\n",
+        0,
+    ),
+    # A4: every field of the one secret that is trimmed
+    ("A4", "x.rs", "struct A {\n    token: Option<SecretLine>,\n    other: wyrm_core::secret::SecretLine,\n}", 2),
+    ("A4", "x.rs", "pub use wyrm_core::secret::{Secret, SecretBytes, SecretLine};\nfn f(t: &Secret) {}", 0),
+    ("A4", "crates/wyrm-core/src/secret.rs", "pub struct SecretLine(pub Secret);\nfn f(v: SecretLine) {}", 0),
     # C10: an argument named as a secret is kept in a secret type, attribute or not
     ("C10", "x.rs", "#[derive(Debug, Args)]\nstruct A {\n    pub token: Option<String>,\n    name: String,\n}", 1),
     ("C10", "x.rs", "#[derive(\n    wyrm_link_sdk::Args,\n)]\npub(super) struct A {\n    key: Vec<u8>,\n    password: String,\n}", 2),
@@ -1403,7 +1538,8 @@ def measure_patterns(show: str | None = None) -> dict[str, dict[str, int]]:
         masked = Source(path, text).masked  # code only, tests left out
         CRATE_NAME_FIELDS.setdefault(crate_of(path), set()).update(name_fields(masked))
         if path.startswith(ADMIN):
-            ADMIN_ARGS.update(name for name, _, _ in args_structs(masked))
+            for name, _, _ in args_structs(masked):
+                ADMIN_ARGS.setdefault(name, set()).add(stem_of(path))
     for path, text in files:
         s = Source(path, text)
         for name, rule in PATTERNS.items():
