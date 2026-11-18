@@ -165,12 +165,7 @@ pub struct LinkStatusParams {
     pub link: String,
 }
 
-#[derive(Deserialize, JsonSchema)]
-pub struct SpecParams {
-    /// `01`…`06`, a name (`keyspace`, `meta`, `val`, `attachment`, `methods`,
-    /// `flow-def`), `readme`, `tables` or `changelog`. Empty: the list.
-    pub section: Option<String>,
-}
+pub use crate::spec::SpecParams;
 
 /// Server options.
 pub struct Options {
@@ -933,21 +928,15 @@ impl WyrmMcp {
         description = "The normative WYRM spec: 01 keyspace, 02 meta, 03 val, 04 attachment (ptok), 05 methods, 06 flow-def, readme, tables, changelog. Without a section: the list."
     )]
     async fn spec(&self, Parameters(p): Parameters<SpecParams>) -> CallToolResult {
-        let r = match p.section.as_deref().filter(|s| !s.trim().is_empty()) {
-            None => Ok(Json::Array(
+        let Some(section) = p.section.0 else {
+            return done(Ok(Json::Array(
                 spec::FILES
                     .iter()
                     .map(|f| json!({ "section": f.file, "title": f.title, "uri": spec::uri(f) }))
                     .collect(),
-            )),
-            Some(s) => match spec::find(s) {
-                Some(f) => {
-                    return CallToolResult::success(vec![ContentBlock::text(f.text)]);
-                }
-                None => Err(format!("no spec section {s:?}")),
-            },
+            )));
         };
-        done(r)
+        CallToolResult::success(vec![ContentBlock::text(section.file().text)])
     }
 }
 

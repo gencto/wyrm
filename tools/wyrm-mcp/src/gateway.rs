@@ -300,12 +300,7 @@ pub struct PlanParams {
     pub apply: bool,
 }
 
-#[derive(Deserialize, JsonSchema)]
-pub struct SpecParams {
-    /// `01-keyspace`, `02-meta`, `03-val`, `04-attachment`, `05-methods`, `06-flow-def`,
-    /// `readme`, `tables`, `changelog`; empty for the list.
-    pub section: Option<String>,
-}
+pub use crate::spec::SpecParams;
 
 impl GatewayMcp {
     /// The Claude Desktop extension: log in with a password.
@@ -793,19 +788,15 @@ impl GatewayMcp {
         annotations(read_only_hint = true)
     )]
     async fn spec(&self, Parameters(p): Parameters<SpecParams>) -> CallToolResult {
-        let r = match p.section.as_deref().filter(|s| !s.trim().is_empty()) {
-            None => Ok(Json::Array(
+        let Some(section) = p.section.0 else {
+            return done(Ok(Json::Array(
                 spec::FILES
                     .iter()
                     .map(|f| json!({ "section": f.file, "title": f.title, "uri": spec::uri(f) }))
                     .collect(),
-            )),
-            Some(s) => match spec::find(s) {
-                Some(f) => return CallToolResult::success(vec![ContentBlock::text(f.text)]),
-                None => Err(format!("no spec section {s:?}")),
-            },
+            )));
         };
-        done(r)
+        CallToolResult::success(vec![ContentBlock::text(section.file().text)])
     }
 }
 
