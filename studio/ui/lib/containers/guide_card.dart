@@ -1,10 +1,12 @@
 import 'package:equatable/equatable.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../indicators/code_text.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
 import '../theme/typography.dart';
 
 /// What [GuideCard] says.
@@ -40,14 +42,6 @@ class GuideCard extends StatelessWidget {
   final GuideCardVm vm;
   final VoidCallback? onLink;
 
-  static const _pair = '''
-<svg viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="1.6"
-  stroke-linecap="round" stroke-linejoin="round">
-  <rect x="2" y="5" width="8" height="14" rx="2"/>
-  <rect x="14" y="5" width="8" height="14" rx="2" stroke-dasharray="3 3"/>
-  <path d="M10 12h4"/>
-</svg>''';
-
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
@@ -65,11 +59,10 @@ class GuideCard extends StatelessWidget {
               Row(
                 spacing: 12,
                 children: [
-                  SvgPicture.string(
-                    _pair,
-                    width: 28,
-                    height: 28,
-                    colorFilter: ColorFilter.mode(c.text4, BlendMode.srcIn),
+                  AppIconView(
+                    AppIcon.uiPair,
+                    size: AppSizes.guideMark,
+                    color: c.text4,
                   ),
                   Expanded(
                     child: Text(
@@ -89,7 +82,7 @@ class GuideCard extends StatelessWidget {
                   vm.body,
                   style: TextStyle(
                     fontSize: FontSizes.lg,
-                    height: 1.6,
+                    height: LineHeights.lead,
                     color: c.text2,
                   ),
                 ),
@@ -102,7 +95,7 @@ class GuideCard extends StatelessWidget {
                     vm.stepsTitle,
                     style: TextStyle(
                       fontSize: FontSizes.md,
-                      height: 1.5,
+                      height: LineHeights.body,
                       fontWeight: .w600,
                       color: c.text1,
                     ),
@@ -113,7 +106,7 @@ class GuideCard extends StatelessWidget {
                       codeColor: c.text1,
                       style: TextStyle(
                         fontSize: FontSizes.md,
-                        height: 1.5,
+                        height: LineHeights.body,
                         color: c.text3,
                       ),
                     ),

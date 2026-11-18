@@ -48,7 +48,7 @@ class TagChip extends StatelessWidget {
           vm.label,
           style: vm.monospace
               ? mono(
-                  size: 11,
+                  size: FontSizes.xs,
                   weight: .w600,
                   color: neutral ? c.text2 : toneColor(c, vm.tone),
                 )

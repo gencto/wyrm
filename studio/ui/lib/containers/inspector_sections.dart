@@ -5,6 +5,7 @@ import '../forms/param_form.dart';
 import '../inputs/switch_row.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import 'fact_grid.dart';
 
@@ -107,7 +108,7 @@ class InspectorSections extends StatelessWidget {
                 style: TextStyle(
                   fontSize: FontSizes.sm,
                   fontWeight: .w600,
-                  letterSpacing: 0.72,
+                  letterSpacing: Trackings.label,
                   color: c.text4,
                 ),
               ),
@@ -176,7 +177,7 @@ class InspectorSections extends StatelessWidget {
 
   Widget _segments(AppColors c, InspectorSectionVm s) {
     final bar = Container(
-      padding: const EdgeInsets.all(3),
+      padding: Insets.segmentTrack,
       decoration: BoxDecoration(
         color: c.ground3,
         border: .all(color: c.line1),
@@ -219,7 +220,7 @@ class InspectorSections extends StatelessWidget {
   }
 
   Widget _code(AppColors c, List<(String, String)> lines) => Container(
-    padding: const EdgeInsets.all(12),
+    padding: Insets.box,
     decoration: BoxDecoration(
       color: c.ground0,
       border: .all(color: c.line1),
@@ -238,7 +239,10 @@ class InspectorSections extends StatelessWidget {
           ],
         ],
       ),
-      style: mono(size: 12, color: c.text2).copyWith(height: 1.7),
+      style: mono(
+        size: FontSizes.sm,
+        color: c.text2,
+      ).copyWith(height: LineHeights.listing),
     ),
   );
 }

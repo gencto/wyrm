@@ -4,8 +4,10 @@ import 'package:material_ui/material_ui.dart';
 
 import '../buttons/button.dart';
 import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import 'blocked.dart';
@@ -228,7 +230,7 @@ class _AssistantComposerState extends State<AssistantComposer> {
                         children: [
                           Text(
                             '@ ${shortKey(key)}',
-                            style: mono(size: 12, color: c.text1),
+                            style: mono(size: FontSizes.sm, color: c.text1),
                           ),
                           InkWell(
                             onTap: widget.onChipRemove == null
@@ -236,9 +238,9 @@ class _AssistantComposerState extends State<AssistantComposer> {
                                 : () => widget.onChipRemove!(key),
                             child: Padding(
                               padding: const EdgeInsets.all(AppSpacing.xs),
-                              child: AppIcon(
-                                'ui_close',
-                                size: 12,
+                              child: AppIconView(
+                                AppIcon.uiClose,
+                                size: IconSizes.xs,
                                 color: c.text3,
                               ),
                             ),

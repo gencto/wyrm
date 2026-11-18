@@ -2,8 +2,10 @@ import 'package:equatable/equatable.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
@@ -20,7 +22,7 @@ final class SearchEntryVm<T> extends Equatable {
   /// type the caller names.
   final T id;
   final String title;
-  final String icon;
+  final AppIcon icon;
   final String? detail;
 
   @override
@@ -101,7 +103,11 @@ class _SearchPaletteState<T> extends State<SearchPalette<T>> {
                   hintText: widget.hint,
                   prefixIcon: Padding(
                     padding: const EdgeInsets.all(10),
-                    child: AppIcon('ui_search', size: 16, color: c.text3),
+                    child: AppIconView(
+                      AppIcon.uiSearch,
+                      size: IconSizes.md,
+                      color: c.text3,
+                    ),
                   ),
                 ),
                 onChanged: (s) => setState(() => _text = s),
@@ -134,7 +140,11 @@ class _SearchPaletteState<T> extends State<SearchPalette<T>> {
                         child: Row(
                           spacing: 12,
                           children: [
-                            AppIcon(h.icon, size: 16, color: c.text3),
+                            AppIconView(
+                              h.icon,
+                              size: IconSizes.md,
+                              color: c.text3,
+                            ),
                             Expanded(
                               child: Text(
                                 h.title,
@@ -152,7 +162,10 @@ class _SearchPaletteState<T> extends State<SearchPalette<T>> {
                                   d,
                                   maxLines: 1,
                                   overflow: .ellipsis,
-                                  style: mono(size: 12, color: c.text4),
+                                  style: mono(
+                                    size: FontSizes.sm,
+                                    color: c.text4,
+                                  ),
                                 ),
                               ),
                           ],

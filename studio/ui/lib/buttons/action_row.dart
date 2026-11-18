@@ -2,9 +2,11 @@ import 'package:equatable/equatable.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
@@ -25,7 +27,7 @@ final class ActionRowVm<T> extends Equatable {
   /// or the thing's own name.
   final T id;
   final String title;
-  final String? icon;
+  final AppIcon? icon;
   final String? description;
 
   /// `install_repo`, `deauthorize`, … in mono.
@@ -108,9 +110,9 @@ class ActionRow<T> extends StatelessWidget {
                           : (warn ? c.warnLine : c.ground4),
                       borderRadius: Radii.segment,
                     ),
-                    child: AppIcon(
+                    child: AppIconView(
                       i,
-                      size: 16,
+                      size: IconSizes.md,
                       color: !vm.enabled
                           ? c.muted
                           : (danger ? c.bad : (warn ? c.warn : c.text2)),
@@ -135,7 +137,7 @@ class ActionRow<T> extends StatelessWidget {
                           d,
                           style: TextStyle(
                             fontSize: FontSizes.sm,
-                            height: 1.4,
+                            height: LineHeights.meta,
                             color: vm.enabled ? c.text3 : c.muted,
                           ),
                         ),
@@ -143,7 +145,10 @@ class ActionRow<T> extends StatelessWidget {
                   ),
                 ),
                 if (vm.code case final code?)
-                  Text(code, style: mono(size: 10, color: c.text4)),
+                  Text(
+                    code,
+                    style: mono(size: FontSizes.xxs, color: c.text4),
+                  ),
               ],
             ),
           ),

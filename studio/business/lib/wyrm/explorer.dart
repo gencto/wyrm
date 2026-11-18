@@ -10,6 +10,7 @@ import 'package:models/link_mode.dart';
 import 'package:models/link_state.dart';
 import 'package:models/live_value.dart';
 import 'package:models/node_detail.dart';
+import 'package:models/node_glyph.dart';
 import 'package:models/node_info.dart';
 import 'package:models/node_kind.dart';
 import 'package:models/param_spec.dart';
@@ -27,6 +28,7 @@ import '../redux/nodes/actions/invoke_node_action.dart';
 import '../redux/nodes/actions/stage_point_edit_action.dart';
 import 'decode/decoded.dart';
 import 'decode/live_values.dart';
+import 'decode/node_glyph.dart';
 import 'decode/point_edit.dart';
 import 'history_steps.dart';
 import 'kinds.dart';
@@ -83,6 +85,9 @@ typedef ExplorerTreeRow = ({
   String name,
   int depth,
   NodeInfo? info,
+
+  /// What the row is drawn as.
+  NodeGlyph glyph,
   bool section,
   bool open,
 
@@ -638,6 +643,7 @@ extension type ExplorerView(AppState _state) {
         name: name,
         depth: depth,
         info: info,
+        glyph: nodeGlyphAt(key, root: root, info: info),
         section: section,
         open: open,
         count: open && kids.isNotEmpty ? kids.length : null,

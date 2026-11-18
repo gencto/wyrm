@@ -2,9 +2,11 @@ import 'package:equatable/equatable.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
@@ -32,11 +34,16 @@ class Notice extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     final (bg, line, fg, icon) = switch (vm.tone) {
-      .good => (c.goodTint, c.goodLine, const Color(0xFFC4EBE1), 'ui_check'),
-      .bad => (c.badTint, c.badLine, const Color(0xFFF0C2B5), 'ui_close'),
-      .warn => (c.warnTint, c.warnLine, c.warn, 'ui_spinner'),
-      .ember => (c.emberTint, c.emberLine, c.emberSoft, 'ui_add'),
-      .neutral => (c.ground2, c.line1, c.text2, 'ui_search'),
+      .good => (
+        c.goodTint,
+        c.goodLine,
+        const Color(0xFFC4EBE1),
+        AppIcon.uiCheck,
+      ),
+      .bad => (c.badTint, c.badLine, const Color(0xFFF0C2B5), AppIcon.uiClose),
+      .warn => (c.warnTint, c.warnLine, c.warn, AppIcon.uiSpinner),
+      .ember => (c.emberTint, c.emberLine, c.emberSoft, AppIcon.uiAdd),
+      .neutral => (c.ground2, c.line1, c.text2, AppIcon.uiSearch),
     };
     final light = Theme.of(context).brightness == .light;
     return Container(
@@ -51,8 +58,12 @@ class Notice extends StatelessWidget {
         spacing: 10,
         children: [
           Padding(
-            padding: const EdgeInsets.only(top: 1),
-            child: AppIcon(icon, size: 16, color: toneOf(c, vm.tone)),
+            padding: Insets.iconInRow,
+            child: AppIconView(
+              icon,
+              size: IconSizes.md,
+              color: toneOf(c, vm.tone),
+            ),
           ),
           Expanded(
             child: Column(
@@ -69,7 +80,10 @@ class Notice extends StatelessWidget {
                 if (vm.detail case final d?)
                   SelectableText(
                     d,
-                    style: mono(size: 12, color: light ? c.text2 : fg),
+                    style: mono(
+                      size: FontSizes.sm,
+                      color: light ? c.text2 : fg,
+                    ),
                   ),
               ],
             ),

@@ -5,6 +5,7 @@ import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/spacing.dart';
+import '../theme/typography.dart';
 import 'quality_mark.dart';
 
 /// A state as a pill: a mark and a word on the tone's tint.
@@ -48,11 +49,11 @@ class StatusPill extends StatelessWidget {
         mainAxisSize: .min,
         spacing: dense ? 6 : 8,
         children: [
-          StateMark(mark: vm.mark, color: fg, size: dense ? 6 : 8),
+          StateMark(mark: vm.mark, color: fg, size: dense ? .small : .regular),
           Text(
             vm.label,
             style: TextStyle(
-              fontSize: dense ? 12 : 13,
+              fontSize: dense ? FontSizes.sm : FontSizes.md,
               fontWeight: dense ? .w500 : .w400,
               color: fg,
             ),

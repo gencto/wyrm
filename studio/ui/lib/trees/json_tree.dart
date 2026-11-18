@@ -2,7 +2,9 @@ import 'package:equatable/equatable.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../theme/extensions/colors.dart';
+import '../theme/sizes.dart';
 import '../theme/typography.dart';
 
 /// What a [JsonNodeVm] holds; it picks the colour of its text.
@@ -67,15 +69,15 @@ class _JsonTreeState extends State<JsonTree> {
     List<Widget> out,
   ) {
     final c = context.colors;
-    final style = mono(size: 12, color: c.text1);
-    final bracket = mono(size: 12, color: c.text4);
+    final style = mono(size: FontSizes.sm, color: c.text1);
+    final bracket = mono(size: FontSizes.sm, color: c.text4);
     final indent = 16.0 * depth;
     final key = n.key;
     final label = <InlineSpan>[
       if (key != null) ...[
         TextSpan(
           text: '"$key"',
-          style: mono(size: 12, weight: .w500, color: c.text2),
+          style: mono(size: FontSizes.sm, weight: .w500, color: c.text2),
         ),
         TextSpan(text: ': ', style: bracket),
       ],
@@ -94,7 +96,7 @@ class _JsonTreeState extends State<JsonTree> {
                 ...label,
                 TextSpan(
                   text: n.text,
-                  style: mono(size: 12, color: _color(c, n.kind)),
+                  style: mono(size: FontSizes.sm, color: _color(c, n.kind)),
                 ),
               ],
             ),
@@ -129,9 +131,9 @@ class _JsonTreeState extends State<JsonTree> {
                 width: 18,
                 child: empty
                     ? null
-                    : AppIcon(
-                        open ? 'ui_chevron_down' : 'ui_chevron_right',
-                        size: 14,
+                    : AppIconView(
+                        open ? AppIcon.uiChevronDown : AppIcon.uiChevronRight,
+                        size: IconSizes.sm,
                         color: c.text4,
                       ),
               ),
@@ -147,7 +149,7 @@ class _JsonTreeState extends State<JsonTree> {
                         TextSpan(text: '…$end', style: bracket),
                         TextSpan(
                           text: '  ${n.text}',
-                          style: mono(size: 11, color: c.text4),
+                          style: mono(size: FontSizes.xs, color: c.text4),
                         ),
                       ],
                     ],

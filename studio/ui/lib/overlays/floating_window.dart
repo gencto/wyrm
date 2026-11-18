@@ -4,8 +4,10 @@ import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 
 /// A window that floats over the page without blocking it (not a modal):
@@ -149,9 +151,9 @@ class _FloatingWindowState extends State<FloatingWindow> {
                                           tooltip: widget.closeLabel,
                                           visualDensity: .compact,
                                           onPressed: widget.onClose,
-                                          icon: AppIcon(
-                                            'ui_close',
-                                            size: 16,
+                                          icon: AppIconView(
+                                            AppIcon.uiClose,
+                                            size: IconSizes.md,
                                             color: c.text3,
                                           ),
                                         ),

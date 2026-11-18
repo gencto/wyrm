@@ -3,12 +3,15 @@ import 'package:flutter/services.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../indicators/fail_chip.dart';
 import '../indicators/quality_mark.dart';
 import '../indicators/sample_mark.dart';
 import '../indicators/value_type.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
@@ -244,13 +247,13 @@ class PointsTable extends StatelessWidget {
     final style = TextStyle(
       fontSize: FontSizes.sm,
       fontWeight: .w600,
-      letterSpacing: 0.48,
+      letterSpacing: Trackings.columnHead,
       color: c.text4,
     );
     Text h(String s) => Text(s.toUpperCase(), style: style);
     return Container(
       height: 40,
-      padding: const EdgeInsets.only(right: 12),
+      padding: Insets.pointsRow,
       decoration: BoxDecoration(
         border: Border(bottom: BorderSide(color: c.line1)),
       ),
@@ -273,7 +276,7 @@ class PointsTable extends StatelessWidget {
 
   Widget _skeleton(AppColors c) => Container(
     height: rowHeight,
-    padding: const EdgeInsets.only(right: 12),
+    padding: Insets.pointsRow,
     decoration: BoxDecoration(
       border: Border(bottom: BorderSide(color: c.ground3)),
     ),
@@ -315,7 +318,7 @@ class PointsTable extends StatelessWidget {
         hoverColor: c.ground2,
         child: Container(
           constraints: BoxConstraints(minHeight: rowHeight),
-          padding: const EdgeInsets.only(right: 12),
+          padding: Insets.pointsRow,
           decoration: BoxDecoration(
             border: Border(bottom: BorderSide(color: c.ground3)),
           ),
@@ -452,8 +455,16 @@ class _Box extends StatelessWidget {
           borderRadius: const BorderRadius.all(Radius.circular(AppRadii.mark)),
         ),
         child: switch (value) {
-          true => Icon(Icons.check, size: 12, color: c.onEmber),
-          null => Icon(Icons.remove, size: 12, color: c.onEmber),
+          true => AppIconView(
+            AppIcon.materialCheck,
+            size: IconSizes.xs,
+            color: c.onEmber,
+          ),
+          null => AppIconView(
+            AppIcon.materialMixed,
+            size: IconSizes.xs,
+            color: c.onEmber,
+          ),
           false => null,
         },
       ),

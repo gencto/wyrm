@@ -1,6 +1,8 @@
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../models/value_changed.dart';
 import 'input_form_field.dart';
 
@@ -33,14 +35,16 @@ class _PasswordFormFieldState extends State<PasswordFormField> {
   Widget build(BuildContext context) => InputFormField(
     vm: widget.vm,
     labelText: widget.labelText ?? S.current.password,
-    prefixIcon: widget.prefixIcon ?? const Icon(Icons.lock_outline),
+    prefixIcon: widget.prefixIcon ?? const AppIconView(AppIcon.materialLock),
     keyboardType: TextInputType.visiblePassword,
     autofillHints: const [AutofillHints.password],
     obscureText: _obscure,
     textInputAction: widget.textInputAction,
     onFieldSubmitted: widget.onFieldSubmitted,
     suffixIcon: IconButton(
-      icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility),
+      icon: AppIconView(
+        _obscure ? AppIcon.materialHide : AppIcon.materialShow,
+      ),
       onPressed: () => setState(() => _obscure = !_obscure),
     ),
   );

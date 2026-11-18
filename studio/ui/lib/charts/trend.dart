@@ -6,10 +6,13 @@ import 'package:flutter/services.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/shades.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import 'trend_scale.dart';
@@ -455,7 +458,10 @@ class _TrendState extends State<Trend> {
           ),
           child: SizedBox(
             height: 14,
-            child: _ticks(_plotTicks(), mono(size: 11, color: c.text4)),
+            child: _ticks(
+              _plotTicks(),
+              mono(size: FontSizes.xs, color: c.text4),
+            ),
           ),
         ),
         if (vm.brush) ...[
@@ -490,7 +496,10 @@ class _TrendState extends State<Trend> {
             ),
             child: SizedBox(
               height: 14,
-              child: _ticks(_brushTicks(s), mono(size: 10, color: c.muted)),
+              child: _ticks(
+                _brushTicks(s),
+                mono(size: FontSizes.xxs, color: c.muted),
+              ),
             ),
           ),
         ],
@@ -533,7 +542,7 @@ class _TrendState extends State<Trend> {
           text: i == ticks.length - 1 && unit.isNotEmpty
               ? '${axis.label(v)} $unit'
               : axis.label(v),
-          style: mono(size: 11),
+          style: mono(size: FontSizes.xs),
         ),
         textDirection: .ltr,
       )..layout();
@@ -570,7 +579,7 @@ class _TrendState extends State<Trend> {
         Text.rich(
           TextSpan(
             text: rangeText,
-            style: mono(size: 12, color: c.text2),
+            style: mono(size: FontSizes.sm, color: c.text2),
             children: [
               TextSpan(
                 text: '  · ${vm.rollupWords}',
@@ -653,10 +662,17 @@ class _TrendState extends State<Trend> {
               spacing: 8,
               children: [
                 if (x.locked)
-                  Icon(Icons.lock_outline, size: 12, color: c.text4)
+                  AppIconView(
+                    AppIcon.materialLock,
+                    size: IconSizes.xs,
+                    color: c.text4,
+                  )
                 else
                   Container(width: 16, height: 2, color: x.color.of(c)),
-                Text(x.name, style: mono(size: 13, color: c.text1)),
+                Text(
+                  x.name,
+                  style: mono(color: c.text1),
+                ),
                 if (x.label.isNotEmpty)
                   Text(
                     x.label,
@@ -704,7 +720,7 @@ class _TrendState extends State<Trend> {
                 i == ticks.length - 1 && unit.isNotEmpty
                     ? '${axis.label(v)} $unit'
                     : axis.label(v),
-                style: mono(size: 11, color: c.text4),
+                style: mono(size: FontSizes.xs, color: c.text4),
               ),
             ),
           ),
@@ -1062,9 +1078,7 @@ class _TrendState extends State<Trend> {
                         translation: const Offset(-0.5, 0),
                         child: Container(
                           height: 20,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 6,
-                          ),
+                          padding: Insets.badge,
                           alignment: .center,
                           decoration: BoxDecoration(
                             color: c.line2,
@@ -1072,7 +1086,7 @@ class _TrendState extends State<Trend> {
                           ),
                           child: Text(
                             s.trendMarker(vm.format.clock(_dt(m!))),
-                            style: mono(size: 11, color: c.text1),
+                            style: mono(size: FontSizes.xs, color: c.text1),
                           ),
                         ),
                       ),
@@ -1175,10 +1189,7 @@ class _TrendState extends State<Trend> {
     final right = x > w * 0.6;
     final tip = Container(
       width: 232,
-      padding: const EdgeInsets.symmetric(
-        horizontal: 12,
-        vertical: 10,
-      ),
+      padding: Insets.innerBox,
       decoration: BoxDecoration(
         color: c.ground2.withValues(alpha: 0.97),
         border: .all(color: c.line2),
@@ -1201,7 +1212,10 @@ class _TrendState extends State<Trend> {
             textBaseline: .alphabetic,
             spacing: 8,
             children: [
-              Text(f.clock(d), style: mono(size: 13, color: c.text1)),
+              Text(
+                f.clock(d),
+                style: mono(color: c.text1),
+              ),
               Text(
                 f.day(d),
                 style: TextStyle(fontSize: FontSizes.xs, color: c.text4),
@@ -1288,7 +1302,10 @@ class _TrendState extends State<Trend> {
               style: TextStyle(fontSize: FontSizes.md, color: c.text3),
             ),
           ),
-          Text(value, style: mono(size: 14, color: valueColor)),
+          Text(
+            value,
+            style: mono(size: FontSizes.lg, color: valueColor),
+          ),
           ConstrainedBox(
             constraints: const BoxConstraints(minWidth: 18),
             child: Text(

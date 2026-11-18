@@ -2,6 +2,7 @@ import 'package:equatable/equatable.dart';
 import 'package:localization/localization.dart';
 
 import '../forms/param_form.dart';
+import '../indicators/app_icon.dart';
 import '../models/disabled.dart';
 import '../models/link_run_mode.dart';
 import '../models/tone.dart';
@@ -50,28 +51,28 @@ enum LinkStateWord {
 /// An action card of the Links inspector: its icon and the broker's name
 /// of what it runs ([code], in mono). Its words come from `LinksScreen`.
 enum LinkAct {
-  stop('action_stop', 'stop'),
-  start('action_play', 'start'),
-  log('action_log', 'get_log'),
-  params('action_edit', 'update'),
-  history('action_hist', 'history · rollback'),
-  secrets('action_key', 'set_secret'),
-  grant('action_grant', 'grant'),
-  updateTo('action_up', 'update'),
-  updateFromFile('action_up', 'install_zip'),
-  versions('action_hist', 'rollback'),
-  builtIn('action_lock', null),
-  backup('action_hist', 'backup'),
-  remove('action_trash', 'remove'),
-  grants('action_grant', 'grant'),
-  deauthorize('action_block', 'deauthorize'),
-  removeForGood('action_trash', 'remove'),
-  deviceRun('action_play', null),
-  deviceUpgrade('action_up', null);
+  stop(AppIcon.actionStop, 'stop'),
+  start(AppIcon.actionPlay, 'start'),
+  log(AppIcon.actionLog, 'get_log'),
+  params(AppIcon.actionEdit, 'update'),
+  history(AppIcon.actionHist, 'history · rollback'),
+  secrets(AppIcon.actionKey, 'set_secret'),
+  grant(AppIcon.actionGrant, 'grant'),
+  updateTo(AppIcon.actionUp, 'update'),
+  updateFromFile(AppIcon.actionUp, 'install_zip'),
+  versions(AppIcon.actionHist, 'rollback'),
+  builtIn(AppIcon.actionLock, null),
+  backup(AppIcon.actionHist, 'backup'),
+  remove(AppIcon.actionTrash, 'remove'),
+  grants(AppIcon.actionGrant, 'grant'),
+  deauthorize(AppIcon.actionBlock, 'deauthorize'),
+  removeForGood(AppIcon.actionTrash, 'remove'),
+  deviceRun(AppIcon.actionPlay, null),
+  deviceUpgrade(AppIcon.actionUp, null);
 
   const LinkAct(this.icon, this.code);
 
-  final String icon;
+  final AppIcon icon;
   final String? code;
 }
 

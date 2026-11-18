@@ -103,16 +103,11 @@ class AttentionPanel extends StatelessWidget {
     final label = TextStyle(
       fontSize: FontSizes.sm,
       fontWeight: .w600,
-      letterSpacing: 0.72,
+      letterSpacing: Trackings.label,
       color: c.text4,
     );
     final head = Container(
-      padding: const EdgeInsets.fromLTRB(
-        20,
-        18,
-        20,
-        14,
-      ),
+      padding: Insets.attentionHead,
       decoration: BoxDecoration(
         border: Border(bottom: BorderSide(color: c.line1)),
       ),
@@ -125,7 +120,7 @@ class AttentionPanel extends StatelessWidget {
             vm.note,
             style: TextStyle(
               fontSize: FontSizes.md,
-              height: 1.5,
+              height: LineHeights.body,
               color: c.text3,
             ),
           ),
@@ -133,7 +128,7 @@ class AttentionPanel extends StatelessWidget {
       ),
     );
     final cards = Padding(
-      padding: const EdgeInsets.all(12),
+      padding: Insets.listPanel,
       child: Column(
         crossAxisAlignment: .stretch,
         spacing: 8,
@@ -151,12 +146,7 @@ class AttentionPanel extends StatelessWidget {
       ),
     );
     final facts = Container(
-      padding: const EdgeInsets.fromLTRB(
-        20,
-        AppSpacing.md,
-        20,
-        20,
-      ),
+      padding: Insets.attentionFacts,
       decoration: BoxDecoration(
         border: Border(top: BorderSide(color: c.line1)),
       ),
@@ -175,10 +165,9 @@ class AttentionPanel extends StatelessWidget {
                 TableRow(
                   children: [
                     Padding(
-                      padding: EdgeInsets.only(
-                        top: i == AppSpacing.none ? AppSpacing.none : 6,
-                        right: 14,
-                      ),
+                      padding: i == 0
+                          ? Insets.attentionLabel
+                          : Insets.attentionLabelNext,
                       child: Text(
                         f.label,
                         style: TextStyle(
@@ -188,9 +177,7 @@ class AttentionPanel extends StatelessWidget {
                       ),
                     ),
                     Padding(
-                      padding: EdgeInsets.only(
-                        top: i == AppSpacing.none ? AppSpacing.none : 6,
-                      ),
+                      padding: i == 0 ? EdgeInsets.zero : Insets.factValueNext,
                       child: _fact(c, f),
                     ),
                   ],
@@ -235,7 +222,7 @@ class AttentionPanel extends StatelessWidget {
       onTap: () => onItem(a.id),
       hoverColor: c.text1.withValues(alpha: 0.04),
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: Insets.box,
         child: Row(
           crossAxisAlignment: .start,
           spacing: 10,
@@ -243,7 +230,7 @@ class AttentionPanel extends StatelessWidget {
             Container(
               width: 8,
               height: 8,
-              margin: const EdgeInsets.only(top: 5),
+              margin: Insets.rowDot,
               decoration: BoxDecoration(
                 color: toneColor(c, a.tone),
                 shape: .circle,
@@ -269,7 +256,7 @@ class AttentionPanel extends StatelessWidget {
                       overflow: .ellipsis,
                       style: TextStyle(
                         fontSize: FontSizes.sm,
-                        height: 1.45,
+                        height: LineHeights.row,
                         color: c.text3,
                       ),
                     ),

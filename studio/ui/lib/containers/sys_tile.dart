@@ -5,6 +5,7 @@ import '../indicators/quality_mark.dart';
 import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
@@ -198,7 +199,7 @@ class SysTile extends StatelessWidget {
             overflow: .ellipsis,
             style: TextStyle(
               fontSize: FontSizes.sm,
-              height: relaxed ? 1.5 : null,
+              height: relaxed ? LineHeights.body : null,
               color: vm.subTone == .neutral
                   ? c.text4
                   : toneColor(c, vm.subTone),
@@ -258,7 +259,7 @@ class SysTileGrid extends StatelessWidget {
   final ValueChanged<String>? onTile;
   final double minWidth;
 
-  static const double _gap = 12;
+  static const double _gap = AppSizes.sysTileGap;
 
   @override
   Widget build(BuildContext context) => LayoutBuilder(

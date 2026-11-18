@@ -1,6 +1,7 @@
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../indicators/app_icon.dart';
 import '../models/value_changed.dart';
 import 'segmented_control.dart';
 
@@ -18,10 +19,10 @@ class ThemeSwitcher extends StatelessWidget {
   Widget build(BuildContext context) => SegmentedControl<ThemeMode>(
     vm: vm,
     segments: [
-      Segment(value: .dark, icon: 'ui_moon', label: S.current.darkTheme),
+      Segment(value: .dark, icon: AppIcon.uiMoon, label: S.current.darkTheme),
       Segment(
         value: .light,
-        icon: 'ui_sun',
+        icon: AppIcon.uiSun,
         label: S.current.lightTheme,
       ),
     ],

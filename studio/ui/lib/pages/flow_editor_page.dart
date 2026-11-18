@@ -20,6 +20,7 @@ import '../flows/scope_prompt.dart';
 import '../flows/shortcut_card.dart';
 import '../forms/param_form.dart';
 import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../models/disabled.dart';
 import '../models/panels.dart';
 import '../models/query.dart';
@@ -472,8 +473,8 @@ class FlowEditorPage extends StatelessWidget {
                           ),
                         IconButton(
                           onPressed: onClose,
-                          icon: AppIcon(
-                            'ui_close',
+                          icon: AppIconView(
+                            AppIcon.uiClose,
                             size: AppSizes.flowEditorClose,
                             color: c.text2,
                           ),

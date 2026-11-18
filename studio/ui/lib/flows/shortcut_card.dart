@@ -4,6 +4,7 @@ import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/sizes.dart';
@@ -514,24 +515,23 @@ class KeyGlyph extends StatelessWidget {
   const KeyGlyph(
     this.token, {
     required this.color,
-    this.size = FontSizes.xs,
+    this.size = KeyGlyphSize.small,
     super.key,
   });
 
   final String token;
   final Color color;
 
-  /// The text size; an icon is drawn two points larger.
-  final double size;
+  final KeyGlyphSize size;
 
-  static const _icons = {
-    '⌘': 'key_cmd',
-    '⌥': 'key_alt',
-    '⇧': 'key_shift',
-    '←': 'key_left',
-    '→': 'key_right',
-    '↑': 'key_up',
-    '↓': 'key_down',
+  static const _icons = <String, AppIcon>{
+    '⌘': AppIcon.keyCmd,
+    '⌥': AppIcon.keyAlt,
+    '⇧': AppIcon.keyShift,
+    '←': AppIcon.keyLeft,
+    '→': AppIcon.keyRight,
+    '↑': AppIcon.keyUp,
+    '↓': AppIcon.keyDown,
   };
 
   /// [text] (`⌘⇧Z`, `Ctrl+C`) cut into what [KeyGlyph] draws: each glyph
@@ -559,10 +559,17 @@ class KeyGlyph extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => switch (_icons[token]) {
-    final icon? => AppIcon(icon, size: size + 2, color: color),
+    final icon? => AppIconView(
+      icon,
+      size: size.icon,
+      color: color,
+    ),
     null => Text(
       token,
-      style: mono(size: size, color: color).copyWith(height: 1.1),
+      style: mono(
+        size: size.text,
+        color: color,
+      ).copyWith(height: LineHeights.glyph),
     ),
   };
 }
@@ -684,7 +691,7 @@ class ShortcutCard extends StatelessWidget {
             style: TextStyle(
               fontSize: FontSizes.xs,
               fontWeight: .w600,
-              letterSpacing: 0.66,
+              letterSpacing: Trackings.smallLabel,
               color: c.text4,
             ),
           ),
@@ -733,8 +740,8 @@ class ShortcutCard extends StatelessWidget {
                     tooltip: s.closeLabel,
                     visualDensity: .compact,
                     onPressed: onClose,
-                    icon: AppIcon(
-                      'ui_close',
+                    icon: AppIconView(
+                      AppIcon.uiClose,
                       size: AppSizes.flowCardClose,
                       color: c.text3,
                     ),

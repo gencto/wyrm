@@ -19,13 +19,16 @@ void main() {
 
   test('en', () async {
     await S.load(const Locale('en'));
-    expect([for (final r in rights) r.line], [
-      'network 10.0.5.0/24:502',
-      'store 1 MiB',
-      'memory 64 MiB',
-      'call 200 ms',
-      'read on wy/{site}/downstream/modbus',
-    ]);
+    expect(
+      [for (final r in rights) r.line],
+      [
+        'network 10.0.5.0/24:502',
+        'store 1 MiB',
+        'memory 64 MiB',
+        'call 200 ms',
+        'read on wy/{site}/downstream/modbus',
+      ],
+    );
     const check = InstallCheckVm(
       title: 'Rights asked',
       result: CheckResult.ok,
@@ -36,13 +39,16 @@ void main() {
 
   test('uk', () async {
     await S.load(const Locale('uk'));
-    expect([for (final r in rights) r.line], [
-      'мережа 10.0.5.0/24:502',
-      'сховище 1 MiB',
-      'пам’ять 64 MiB',
-      'виклик 200 мс',
-      'читання на wy/{site}/downstream/modbus',
-    ]);
+    expect(
+      [for (final r in rights) r.line],
+      [
+        'мережа 10.0.5.0/24:502',
+        'сховище 1 MiB',
+        'пам’ять 64 MiB',
+        'виклик 200 мс',
+        'читання на wy/{site}/downstream/modbus',
+      ],
+    );
     const check = InstallCheckVm(
       title: 'Rights asked',
       result: CheckResult.ok,

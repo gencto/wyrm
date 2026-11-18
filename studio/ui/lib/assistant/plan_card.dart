@@ -6,6 +6,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../containers/section_label.dart';
 import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../indicators/level_badge.dart';
 import '../indicators/quality_mark.dart';
 import '../indicators/tag_chip.dart';
@@ -14,6 +15,7 @@ import '../models/tone.dart';
 import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import 'model_words.dart';
@@ -505,7 +507,7 @@ class _PlanCardState extends State<PlanCard> {
                 vm.note,
                 style: TextStyle(
                   fontSize: FontSizes.sm,
-                  height: 1.45,
+                  height: LineHeights.row,
                   color: c.text3,
                 ),
               ),
@@ -534,7 +536,7 @@ class _Step extends StatelessWidget {
     final c = context.colors;
     final small = TextStyle(
       fontSize: FontSizes.sm,
-      height: 1.45,
+      height: LineHeights.row,
       color: c.text3,
     );
     final can = onTick != null && vm.tickReason == null;
@@ -557,7 +559,10 @@ class _Step extends StatelessWidget {
             ),
             child: Text(
               '${vm.n}',
-              style: mono(size: 11, color: vm.changes ? c.ember : c.text3),
+              style: mono(
+                size: FontSizes.xs,
+                color: vm.changes ? c.ember : c.text3,
+              ),
             ),
           ),
           Expanded(
@@ -578,7 +583,10 @@ class _Step extends StatelessWidget {
                       ),
                     ),
                     if (vm.action case final a?)
-                      Text(a, style: mono(size: 13, color: c.text1)),
+                      Text(
+                        a,
+                        style: mono(color: c.text1),
+                      ),
                     // the badge centres its text: keep it as wide as the text
                     IntrinsicWidth(child: LevelBadge.of(vm.level)),
                   ],
@@ -586,7 +594,7 @@ class _Step extends StatelessWidget {
                 // the key and the arguments are what is approved: whole
                 SelectableText(
                   vm.target,
-                  style: mono(size: 12, color: c.text1),
+                  style: mono(size: FontSizes.sm, color: c.text1),
                 ),
                 for (final StepArgVm(:name, :text) in vm.args)
                   Row(
@@ -597,13 +605,13 @@ class _Step extends StatelessWidget {
                         width: 110,
                         child: Text(
                           name,
-                          style: mono(size: 12, color: c.text3),
+                          style: mono(size: FontSizes.sm, color: c.text3),
                         ),
                       ),
                       Expanded(
                         child: SelectableText(
                           text,
-                          style: mono(size: 12, color: c.text1),
+                          style: mono(size: FontSizes.sm, color: c.text1),
                         ),
                       ),
                     ],
@@ -619,9 +627,9 @@ class _Step extends StatelessWidget {
                     spacing: 6,
                     children: [
                       // an icon of the set: a glyph may be missing in a font
-                      AppIcon(
-                        vm.checked ? 'ui_check' : 'action_hist',
-                        size: 14,
+                      AppIconView(
+                        vm.checked ? AppIcon.uiCheck : AppIcon.actionHist,
+                        size: IconSizes.sm,
                         color: vm.checked ? c.good : c.text3,
                       ),
                       Expanded(
@@ -656,7 +664,7 @@ class _Step extends StatelessWidget {
                   SelectableText(
                     r,
                     style: mono(
-                      size: 12,
+                      size: FontSizes.sm,
                       color: vm.resultTone == .neutral
                           ? c.text3
                           : toneColor(c, vm.resultTone),

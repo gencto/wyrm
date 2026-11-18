@@ -9,7 +9,7 @@ import '../theme/typography.dart';
 class KeyText extends StatelessWidget {
   const KeyText(
     this.text, {
-    this.size = 13,
+    this.size = FontSizes.md,
     this.color,
     this.weight = FontWeight.w400,
     this.copyable = true,
@@ -17,7 +17,7 @@ class KeyText extends StatelessWidget {
   });
 
   final String text;
-  final double size;
+  final FontSize size;
   final Color? color;
   final FontWeight weight;
   final bool copyable;

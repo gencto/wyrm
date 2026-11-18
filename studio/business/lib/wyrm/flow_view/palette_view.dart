@@ -8,11 +8,13 @@ import 'package:models/flow_draft.dart';
 import 'package:models/flow_frame.dart';
 import 'package:models/live_value.dart';
 import 'package:models/node_detail.dart';
+import 'package:models/node_glyph.dart';
 import 'package:models/node_info.dart';
 import 'package:models/node_type.dart';
 import 'package:models/palette_entry.dart';
 import 'package:wyrm_client/wyrm_client.dart' show TypeCode;
 
+import '../decode/node_glyph.dart';
 import '../labels.dart';
 import '../mappers/flow_blocks.dart';
 import '../mappers/flow_fields.dart';
@@ -175,7 +177,7 @@ final class TreeNodeEntry extends TreeEntry {
     required this.opens,
     required this.open,
     required this.used,
-    this.profile,
+    required this.glyph,
     this.type,
     this.value,
     this.writable = false,
@@ -187,7 +189,9 @@ final class TreeNodeEntry extends TreeEntry {
 
   /// A block of the flow reads or writes it.
   final bool used;
-  final String? profile;
+
+  /// What the node is drawn as.
+  final NodeGlyph glyph;
 
   /// A value node's type; null for a node.
   final TypeCode? type;
@@ -209,7 +213,7 @@ final class TreeNodeEntry extends TreeEntry {
     opens,
     open,
     used,
-    profile,
+    glyph,
     type,
     value,
     writable,
@@ -414,7 +418,7 @@ IList<TreeEntry> treeOf({
         key: key,
         name: name,
         depth: depth,
-        profile: info?.profile,
+        glyph: nodeGlyphAt(key, root: root, info: info),
         opens: opens,
         open: open,
         used: used.contains(key),

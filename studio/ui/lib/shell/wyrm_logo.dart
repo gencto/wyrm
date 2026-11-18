@@ -24,14 +24,21 @@ class WyrmLogo extends StatelessWidget {
         CustomPaint(size: const Size(44, 26), painter: _Beads(c.ember)),
         Text(
           'WYRM',
-          style: wordmark(size: large ? 18 : 16, color: c.text1).copyWith(
-            letterSpacing: large ? 1.44 : 1.28,
-          ),
+          style:
+              wordmark(
+                size: large ? FontSizes.logoLarge : FontSizes.logo,
+                color: c.text1,
+              ).copyWith(
+                letterSpacing: large ? Trackings.logoLarge : Trackings.logo,
+              ),
         ),
         if (showStudio)
           Text(
             'Studio',
-            style: TextStyle(fontSize: large ? 15 : 14, color: c.text3),
+            style: TextStyle(
+              fontSize: large ? FontSizes.xl : FontSizes.lg,
+              color: c.text3,
+            ),
           ),
       ],
     );
