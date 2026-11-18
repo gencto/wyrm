@@ -111,12 +111,10 @@ String toString() {
 
 
 class AnswerFaultWrongShape implements AnswerFault {
-  const AnswerFaultWrongShape({required this.path, required this.expected, required this.got});
+  const AnswerFaultWrongShape(this.path);
   
 
  final  String path;
- final  String expected;
- final  String got;
 
 /// Create a copy of AnswerFault
 /// with the given fields replaced by the non-null parameter values.
@@ -128,18 +126,18 @@ $AnswerFaultWrongShapeCopyWith<AnswerFaultWrongShape> get copyWith => _$AnswerFa
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is AnswerFaultWrongShape&&(identical(other.path, path) || other.path == path)&&(identical(other.expected, expected) || other.expected == expected)&&(identical(other.got, got) || other.got == got));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is AnswerFaultWrongShape&&(identical(other.path, path) || other.path == path));
 }
 
 
 @override
 int get hashCode {
-    return Object.hash(runtimeType,path,expected,got);
+    return Object.hash(runtimeType,path);
 }
 
 @override
 String toString() {
-    return 'AnswerFault.wrongShape(path: $path, expected: $expected, got: $got)';
+    return 'AnswerFault.wrongShape(path: $path)';
 }
 
 
@@ -150,7 +148,7 @@ abstract mixin class $AnswerFaultWrongShapeCopyWith<$Res> implements $AnswerFaul
   factory $AnswerFaultWrongShapeCopyWith(AnswerFaultWrongShape value, $Res Function(AnswerFaultWrongShape) _then) = _$AnswerFaultWrongShapeCopyWithImpl;
 @useResult
 $Res call({
- String path, String expected, String got
+ String path
 });
 
 
@@ -167,11 +165,9 @@ class _$AnswerFaultWrongShapeCopyWithImpl<$Res>
 
 /// Create a copy of AnswerFault
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') $Res call({Object? path = null,Object? expected = null,Object? got = null,}) {
+@pragma('vm:prefer-inline') $Res call({Object? path = null,}) {
   return _then(AnswerFaultWrongShape(
-path: null == path ? _self.path : path // ignore: cast_nullable_to_non_nullable
-as String,expected: null == expected ? _self.expected : expected // ignore: cast_nullable_to_non_nullable
-as String,got: null == got ? _self.got : got // ignore: cast_nullable_to_non_nullable
+null == path ? _self.path : path // ignore: cast_nullable_to_non_nullable
 as String,
   ));
 }
@@ -373,6 +369,74 @@ class _$AnswerFaultHttpCopyWithImpl<$Res>
   return _then(AnswerFaultHttp(
 null == code ? _self.code : code // ignore: cast_nullable_to_non_nullable
 as int,
+  ));
+}
+
+
+}
+
+/// @nodoc
+
+
+class AnswerFaultFailed implements AnswerFault {
+  const AnswerFaultFailed(this.type);
+  
+
+ final  String type;
+
+/// Create a copy of AnswerFault
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$AnswerFaultFailedCopyWith<AnswerFaultFailed> get copyWith => _$AnswerFaultFailedCopyWithImpl<AnswerFaultFailed>(this, _$identity);
+
+
+
+@override
+bool operator ==(Object other) {
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is AnswerFaultFailed&&(identical(other.type, type) || other.type == type));
+}
+
+
+@override
+int get hashCode {
+    return Object.hash(runtimeType,type);
+}
+
+@override
+String toString() {
+    return 'AnswerFault.failed(type: $type)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $AnswerFaultFailedCopyWith<$Res> implements $AnswerFaultCopyWith<$Res> {
+  factory $AnswerFaultFailedCopyWith(AnswerFaultFailed value, $Res Function(AnswerFaultFailed) _then) = _$AnswerFaultFailedCopyWithImpl;
+@useResult
+$Res call({
+ String type
+});
+
+
+
+
+}
+/// @nodoc
+class _$AnswerFaultFailedCopyWithImpl<$Res>
+    implements $AnswerFaultFailedCopyWith<$Res> {
+  _$AnswerFaultFailedCopyWithImpl(this._self, this._then);
+
+  final AnswerFaultFailed _self;
+  final $Res Function(AnswerFaultFailed) _then;
+
+/// Create a copy of AnswerFault
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') $Res call({Object? type = null,}) {
+  return _then(AnswerFaultFailed(
+null == type ? _self.type : type // ignore: cast_nullable_to_non_nullable
+as String,
   ));
 }
 

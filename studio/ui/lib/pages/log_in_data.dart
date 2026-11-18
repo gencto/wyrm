@@ -416,11 +416,9 @@ enum FoundProblemKind {
 final class AnswerWhy extends Equatable {
   const AnswerWhy.timedOut() : this._(_Why.timedOut);
   const AnswerWhy.notGateway() : this._(_Why.notGateway);
-  const AnswerWhy.wrongShape({
-    required String path,
-    required String expected,
-    required String got,
-  }) : this._(_Why.wrongShape, text: path, expected: expected, got: got);
+
+  /// The field at [path] of its answer is not what belongs there.
+  const AnswerWhy.wrongShape(String path) : this._(_Why.wrongShape, text: path);
   const AnswerWhy.http(int code) : this._(_Why.http, code: code);
   const AnswerWhy.untrusted() : this._(_Why.untrusted);
 
@@ -428,27 +426,26 @@ final class AnswerWhy extends Equatable {
   const AnswerWhy.refusedAfter(int ms) : this._(_Why.refusedAfter, code: ms);
   const AnswerWhy.noRoute() : this._(_Why.noRoute);
 
+  /// Something else was thrown: the name of its type.
+  const AnswerWhy.failed(String type) : this._(_Why.failed, text: type);
+
   /// The system's own words, as they came.
   const AnswerWhy.said(String text) : this._(_Why.said, text: text);
 
   const AnswerWhy._(
     this._kind, {
     this._text = '',
-    this._expected = '',
-    this._got = '',
     this._code = 0,
   });
 
   final _Why _kind;
   final String _text;
-  final String _expected;
-  final String _got;
   final int _code;
 
   String get words => switch (_kind) {
     _Why.timedOut => S.current.answerTimedOut,
     _Why.notGateway => S.current.answerNotGateway,
-    _Why.wrongShape => S.current.answerWrongShape(_text, _expected, _got),
+    _Why.wrongShape => S.current.answerWrongShape(_text),
     _Why.http => S.current.answerHttp(_code),
     _Why.untrusted => S.current.answerUntrusted,
     // under a second in milliseconds, else in whole seconds
@@ -458,11 +455,12 @@ final class AnswerWhy extends Equatable {
           : S.current.answerSeconds(_code ~/ 1000),
     ),
     _Why.noRoute => S.current.answerNoRoute,
+    _Why.failed => S.current.answerFailed(_text),
     _Why.said => _text,
   };
 
   @override
-  List<Object?> get props => [_kind, _text, _expected, _got, _code];
+  List<Object?> get props => [_kind, _text, _code];
 }
 
 enum _Why {
@@ -473,6 +471,7 @@ enum _Why {
   untrusted,
   refusedAfter,
   noRoute,
+  failed,
   said,
 }
 

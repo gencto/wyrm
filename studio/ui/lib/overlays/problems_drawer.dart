@@ -30,7 +30,7 @@ final class ProblemVm extends Equatable {
     : id = failure.id,
       tone = failure.kind.tone,
       where = failure.where,
-      retry = failure.canRetry && !failure.write,
+      retry = failure.offersRetry,
       shown = failure.shown,
       _title = '',
       _time = '',

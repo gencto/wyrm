@@ -19,13 +19,17 @@ import 'package:business/redux/store.dart';
 import 'package:business/redux/system/actions/aim_log_action.dart';
 import 'package:business/redux/system/actions/set_around_action.dart';
 import 'package:business/wyrm/calls.dart';
+import 'package:business/wyrm/error_view.dart';
 import 'package:business/wyrm/failures.dart';
 import 'package:business/wyrm/mappers/log_line_mapper.dart';
+import 'package:business/wyrm/session.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart' hide Action, ErrorHint;
+import 'package:models/answer_fault.dart';
+import 'package:models/error_action.dart';
 import 'package:models/error_call.dart';
 import 'package:models/error_hint.dart';
 import 'package:models/error_kind.dart';
@@ -47,11 +51,18 @@ import 'package:wyrm_client/wyrm_client.dart';
 // How these tests read an error: through the app's mapper and the words
 // `ui` says of it (`ErrorSaid`), as the screens do.
 
-/// [e] with the title and what was said of it, in the language loaded.
-StudioError wordError(StudioError e) {
-  final said = e.said;
-  return e.copyWith(title: said.title, message: said.said);
+/// What the screens say of an error, in the language loaded.
+extension on StudioError {
+  /// Its title.
+  String get title => said.title;
+
+  /// What was said of it: the broker's words, else Studio's sentence.
+  String get words => said.said;
 }
+
+/// [e] as it is: an error holds no words, they are read from it
+/// (`title`, `words`).
+StudioError wordError(StudioError e) => e;
 
 /// [e] as its dialog, for who is logged in where.
 ErrorDialogVm errorDialogVm(
@@ -60,13 +71,13 @@ ErrorDialogVm errorDialogVm(
   String? role,
   String? gateway,
   bool readOnly = false,
-}) => e.said.dialog(
+}) => e.dialog(
   ErrorContext(user: user, role: role, gateway: gateway, about: studioAbout),
   readOnly: readOnly,
 );
 
 ErrorAction errorPrimary(StudioError e, {bool readOnly = false}) =>
-    e.said.primary(readOnly: readOnly);
+    e.action(readOnly: readOnly);
 
 ToastVm errorToastVm(StudioError e) => e.toast;
 
@@ -254,8 +265,8 @@ void main() {
         fault.title.toLowerCase(),
         isNot(contains('something went wrong')),
       );
-      expect(fault.message, contains('a fault in Studio'));
-      expect(fault.message, isNot(contains('Exception')));
+      expect(fault.words, contains('a fault in Studio'));
+      expect(fault.words, isNot(contains('Exception')));
     });
 
     test('a refused Run the broker said nothing of reads why; the '
@@ -267,14 +278,14 @@ void main() {
           call: const .known(.trigger),
         ).copyWith(hint: m.isEmpty ? triggerHintOf(StatusCode.of(st)) : null),
       );
-      expect(run(Status.permissionDenied, '').message, contains('needs write'));
-      expect(run(Status.notSupported, '').message, 'The flow is not running.');
-      expect(run(Status.notFound, '').message, contains('no trigger action'));
+      expect(run(Status.permissionDenied, '').words, contains('needs write'));
+      expect(run(Status.notSupported, '').words, 'The flow is not running.');
+      expect(run(Status.notFound, '').words, contains('no trigger action'));
       expect(
-        run(Status.invalidParameter, '').message,
+        run(Status.invalidParameter, '').words,
         'This block cannot be run by hand.',
       );
-      expect(run(Status.busy, 'queue full').message, 'queue full');
+      expect(run(Status.busy, 'queue full').words, 'queue full');
     });
 
     test('a value whose meta names no level is not staged; the user reads '
@@ -292,7 +303,7 @@ void main() {
       expect(en.hint, const ErrorHint.notSettable());
       expect(en.title, 't2 does not support set');
       expect(
-        en.message,
+        en.words,
         'Its meta names no level it can be set at, so nothing was staged.',
       );
 
@@ -301,7 +312,7 @@ void main() {
       final uk = wordError(await refused());
       expect(uk.title, 't2 не підтримує set');
       expect(
-        uk.message,
+        uk.words,
         'Його meta не називає рівня, на якому значення можна записати, '
         'тому нічого не підготовлено.',
       );
@@ -623,7 +634,7 @@ void main() {
 
     test('business names the case; the words keep its data', () {
       expect(
-        hinted(const ErrorHint.noAssistant()).message,
+        hinted(const ErrorHint.noAssistant()).words,
         'There is no assistant link on this site.',
       );
       expect(
@@ -631,29 +642,28 @@ void main() {
           const ErrorHint.taskRecordInvalid(
             task: 't-7',
             field: 'plan[2].key',
-            reason: 'missing',
           ),
-        ).message,
-        'The record of task t-7 is not one Studio reads: plan[2].key: '
-        'missing.',
+        ).words,
+        'The record of task t-7 is not one Studio reads. The field '
+        'plan[2].key does not read.',
       );
       expect(
         hinted(
           ErrorHint.profileUnknownKey(key: 'unit', known: ['type', 'is'].lock),
-        ).message,
+        ).words,
         'Unknown key "unit" (known: type, is).',
       );
       expect(
-        hinted(const ErrorHint.rangeTooBig()).message,
+        hinted(const ErrorHint.rangeTooBig()).words,
         S.current.rangeTooBig,
       );
     });
 
     test("in Ukrainian too, and the broker's own words win", () async {
-      final en = hinted(const ErrorHint.assistantNoTask()).message;
+      final en = hinted(const ErrorHint.assistantNoTask()).words;
       await S.load(const Locale('uk'));
       addTearDown(() => S.load(const Locale('en')));
-      final uk = hinted(const ErrorHint.assistantNoTask()).message;
+      final uk = hinted(const ErrorHint.assistantNoTask()).words;
       expect(uk, isNotEmpty);
       expect(uk, isNot(en));
       expect(
@@ -663,7 +673,7 @@ void main() {
             message: 'said by the link',
             hint: ErrorHint.notConnected(),
           ),
-        ).message,
+        ).words,
         'said by the link',
       );
     });
@@ -674,7 +684,7 @@ void main() {
         'no',
         key: 'wy/plant/x',
         call: 'ask',
-      ).copyWith(title: '', subject: s, thing: thing);
+      ).copyWith(subject: s, thing: thing);
       expect(
         wordError(of(ErrorSubject.assistant)).title,
         'You can’t run ask on assistant',
@@ -684,6 +694,34 @@ void main() {
         'You can’t run ask on device 7',
       );
     });
+  });
+
+  test('a gateway typed with user:password@: neither is in the title, the '
+      'toast, the Problems card or Copy details', () {
+    final e = StudioError(
+      kind: ErrorKind.reach,
+      id: 3,
+      call: const .known(.logIn),
+      thing: GatewayAddress(
+        Uri.parse('https://olena:gw-pass@plant.local:8445'),
+      ).text,
+      hint: const ErrorHint.noAnswer(AnswerFault.failed('HttpException')),
+      at: DateTime(2026, 11, 10, 11, 52, 4),
+    );
+    expect(e.title, 'https://plant.local:8445 did not answer');
+    final shown = [
+      e.title,
+      e.toast.title,
+      e.toast.line,
+      e.problem.title,
+      e.problem.said,
+      errorDialogVm(e).title,
+      errorDialogVm(e).said,
+      detailsText(e, const ErrorContext(), report: true),
+    ].join('\n');
+    expect(shown, isNot(contains('gw-pass')));
+    expect(shown, isNot(contains('olena')));
+    expect(e.words, 'failed (HttpException)');
   });
 
   group('Copy details (errors.md §3)', () {
@@ -952,8 +990,9 @@ void main() {
       expect(e.quiet, isTrue);
       expect(e.report!.type, 'IndexError');
       // the store keeps no words; the screen says them when it draws it
-      expect(e.title, isEmpty);
-      expect(e.said.title, 'Studio hit a fault in the background');
+      expect(e.foreign, isNull);
+      expect(e.message, isEmpty);
+      expect(e.title, 'Studio hit a fault in the background');
       expect(find.byType(ErrorDialog), findsNothing);
       expect(ErrorWidget.builder, PanelFault.builder);
       restore();

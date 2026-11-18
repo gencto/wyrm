@@ -15,12 +15,9 @@ sealed class AnswerFault with _$AnswerFault {
   const factory AnswerFault.notGateway() = AnswerFaultNotGateway;
 
   /// CBOR of another shape (ADR 0050 decision 10): the field at [path]
-  /// was [got] where [expected] belongs.
-  const factory AnswerFault.wrongShape({
-    required String path,
-    required String expected,
-    required String got,
-  }) = AnswerFaultWrongShape;
+  /// is not what belongs there. What was expected and what came is the
+  /// decoder's and goes to the log.
+  const factory AnswerFault.wrongShape(String path) = AnswerFaultWrongShape;
 
   /// The TLS certificate is not one this computer trusts.
   const factory AnswerFault.untrusted() = AnswerFaultUntrusted;
@@ -33,6 +30,11 @@ sealed class AnswerFault with _$AnswerFault {
 
   /// An HTTP status that is not 200.
   const factory AnswerFault.http(int code) = AnswerFaultHttp;
+
+  /// Anything else that was thrown, by the name of its [type] only: what
+  /// it says of itself may hold the address it was asked on, and stays in
+  /// the log.
+  const factory AnswerFault.failed(String type) = AnswerFaultFailed;
 
   /// The system's own words.
   const factory AnswerFault.said(String text) = AnswerFaultSaid;

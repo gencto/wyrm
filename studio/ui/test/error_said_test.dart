@@ -19,6 +19,7 @@ void main() {
     kind: ErrorKindTag.rights,
     icon: AppIcon.errRights,
     thing: ErrorThingVm.named('pump-control'),
+    titleKind: ErrorTitleTag.rights,
     message: 'needs config on dataflows',
     status: 'permission_denied',
     statusLine: 'permission_denied (0x21)',
@@ -52,9 +53,12 @@ void main() {
       kind: ErrorKindTag.studio,
       icon: AppIcon.errStudio,
       thing: ErrorThingVm.unnamed(),
-      givenTitle: 'The picker closed',
+      titleKind: ErrorTitleTag.foreign,
+      voice: ErrorVoiceTag.studio,
+      foreign: ErrorForeignVm('The picker closed', 'Pick it again.'),
     );
     expect(given.title, 'The picker closed');
+    expect(given.said, 'Pick it again.');
   });
 
   test('where the broker sent no words Studio says its own', () {
@@ -63,14 +67,11 @@ void main() {
       kind: ErrorKindTag.gone,
       icon: AppIcon.errGone,
       thing: ErrorThingVm.named('t2'),
+      titleKind: ErrorTitleTag.unsupported,
       hint: ErrorHintVm.tag(HintTag.notSettable),
       status: 'not_supported',
       unsupported: true,
-      call: ErrorCallVm(
-        'set',
-        verb: ErrorVerb.write,
-        tag: ErrorCallTag.set,
-      ),
+      call: ErrorCallVm('set', verb: ErrorVerb.write),
     );
     expect(silent.title, 't2 does not support set');
     expect(
@@ -86,6 +87,9 @@ void main() {
       kind: ErrorKindTag.studio,
       icon: AppIcon.errStudio,
       thing: const ErrorThingVm.unnamed(),
+      titleKind: screen == null
+          ? ErrorTitleTag.uncaughtBackground
+          : ErrorTitleTag.uncaughtPanel,
       quiet: true,
       report: ErrorReportVm(
         type: 'StateError',
@@ -105,6 +109,7 @@ void main() {
       kind: ErrorKindTag.reach,
       icon: AppIcon.errReach,
       thing: ErrorThingVm.named('edge'),
+      titleKind: ErrorTitleTag.stream,
       stream: 'edge',
       site: 'edge',
     );
@@ -122,6 +127,7 @@ void main() {
       kind: ErrorKindTag.rights,
       icon: AppIcon.errRights,
       thing: ErrorThingVm.named('pump-control'),
+      titleKind: ErrorTitleTag.rights,
     );
     expect(ToastVm.failure(denied), isNot(ToastVm.failure(other)));
   });

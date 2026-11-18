@@ -35,12 +35,11 @@ class UpdateBlockFromLibraryAction extends Action
       await askOne(deps.wyrm, '$root/dataflows', 'get_block', nameArgs(name)),
     )) {
       Valid(:final value) => value,
-      Invalid(:final field, :final reason) => throw StudioException.hinted(
+      final Invalid<Object?> bad => throw StudioException.hinted(
         ErrorKind.broker,
         ErrorHint.libraryBlockInvalid(
           name: name,
-          field: field,
-          reason: reason,
+          field: loggedField('$root/dataflows ▸ get_block $name', bad),
         ),
         key: '$root/dataflows',
         call: const .known(.getBlock),

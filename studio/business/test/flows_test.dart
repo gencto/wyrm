@@ -184,7 +184,7 @@ void main() {
         (status.originalError! as StudioException).error.hint,
         isA<ErrorHintFlowDefInvalid>()
             .having((h) => h.flow, 'flow', 'tank')
-            .having((h) => h.why, 'why', contains('nodes.a.type: missing')),
+            .having((h) => h.field, 'field', 'nodes.a.type'),
       );
       expect(s.state.flowEditor.draft, held);
       expect(s.state.flowEditor.version, 3);
@@ -231,7 +231,7 @@ void main() {
         (status.originalError! as StudioException).error.hint,
         isA<ErrorHintFlowDefInvalid>()
             .having((h) => h.flow, 'flow', 'raw')
-            .having((h) => h.why, 'why', contains('nodes.a.k: not JSON')),
+            .having((h) => h.field, 'field', 'nodes.a.k'),
       );
       expect(s.state.flowEditor.draft, isNull);
     });

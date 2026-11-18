@@ -9,6 +9,7 @@ import 'package:flutter_localizations/flutter_localizations.dart'
     show GlobalWidgetsLocalizations;
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:models/error_hint.dart' as hints;
 import 'package:models/error_kind.dart';
 import 'package:models/fault_report.dart';
 import 'package:models/studio_error.dart';
@@ -88,8 +89,7 @@ class _StartFaultAppState extends State<StartFaultApp> {
   void _copy() {
     final e = StudioError(
       kind: ErrorKind.studio,
-      title: S.current.fatalTitle,
-      message: S.current.fatalBody,
+      hint: const hints.ErrorHint.settingsUnreadable(),
       at: DateTime.now(),
       report: FaultReport(
         type: '${widget.fault.error.runtimeType}',

@@ -6,6 +6,7 @@ import 'error_hint.dart';
 import 'error_kind.dart';
 import 'error_subject.dart';
 import 'fault_report.dart';
+import 'foreign_words.dart';
 
 part 'studio_error.freezed.dart';
 
@@ -20,9 +21,9 @@ abstract class StudioError with _$StudioError {
     /// Given when the error is thrown; the Problems list finds it by this.
     @Default(0) int id,
 
-    /// What did not happen, with its object: `You can’t deploy
-    /// pump-control`. Composed from [kind], [call], [thing] and [site].
-    @Default('') String title,
+    /// The words of a failure another package raised in its own words;
+    /// null for every failure Studio words itself from its typed fields.
+    ForeignWords? foreign,
 
     /// The broker's words, as they came; empty when it sent none (a
     /// timeout). For a fault in Studio: what happened, in Studio's words.

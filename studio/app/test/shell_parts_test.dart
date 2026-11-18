@@ -48,7 +48,6 @@ void main() {
               StudioError(
                 kind: ErrorKind.reach,
                 id: 3,
-                title: 'Studio couldn’t read t1',
                 message: 'timeout',
                 key: '$plant/downstream/plc1/t1',
                 call: const .known(.history),
@@ -59,7 +58,6 @@ void main() {
               StudioError(
                 kind: ErrorKind.broker,
                 id: 5,
-                title: 'The broker refused the list of sys',
                 message: 'permission denied',
                 key: '$plant/sys',
                 call: const .known(.list),

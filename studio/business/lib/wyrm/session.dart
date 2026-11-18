@@ -96,6 +96,22 @@ abstract interface class WyrmSession {
   Future<void> close();
 }
 
+/// A gateway's address as it may be shown, logged or kept in an error:
+/// its URL without `user:password@`. A URL typed with credentials never
+/// leaves the connection as text any other way.
+final class GatewayAddress {
+  GatewayAddress(Uri gateway)
+    : text =
+          (gateway.userInfo.isEmpty ? gateway : gateway.replace(userInfo: ''))
+              .toString();
+
+  /// `https://plant.local:8445`.
+  final String text;
+
+  @override
+  String toString() => text;
+}
+
 /// What a timed `GET <gateway>/api/me` without a session found
 /// (docs/design/specs/login.md §6).
 final class GatewayProbe {
@@ -276,8 +292,14 @@ final class GatewayLogin implements WyrmLogin {
             ? const AnswerFault.noRoute()
             : AnswerFault.said(e.message),
       );
+    } on HttpException catch (e) {
+      // its `toString` holds the whole URL; its message does not
+      return GatewayProbe.noAnswer(AnswerFault.said(e.message));
     } on Object catch (e) {
-      return GatewayProbe.noAnswer(AnswerFault.said('$e'));
+      _log.warning(
+        'probe of ${GatewayAddress(gateway)}: ${e.runtimeType}',
+      );
+      return GatewayProbe.noAnswer(AnswerFault.failed('${e.runtimeType}'));
     } finally {
       http.close(force: true);
     }

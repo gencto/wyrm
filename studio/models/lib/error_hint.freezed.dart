@@ -335,12 +335,11 @@ String toString() {
 
 
 class ErrorHintTaskRecordInvalid implements ErrorHint {
-  const ErrorHintTaskRecordInvalid({required this.task, required this.field, required this.reason});
+  const ErrorHintTaskRecordInvalid({required this.task, required this.field});
   
 
  final  String task;
  final  String field;
- final  String reason;
 
 /// Create a copy of ErrorHint
 /// with the given fields replaced by the non-null parameter values.
@@ -352,18 +351,18 @@ $ErrorHintTaskRecordInvalidCopyWith<ErrorHintTaskRecordInvalid> get copyWith => 
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is ErrorHintTaskRecordInvalid&&(identical(other.task, task) || other.task == task)&&(identical(other.field, field) || other.field == field)&&(identical(other.reason, reason) || other.reason == reason));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is ErrorHintTaskRecordInvalid&&(identical(other.task, task) || other.task == task)&&(identical(other.field, field) || other.field == field));
 }
 
 
 @override
 int get hashCode {
-    return Object.hash(runtimeType,task,field,reason);
+    return Object.hash(runtimeType,task,field);
 }
 
 @override
 String toString() {
-    return 'ErrorHint.taskRecordInvalid(task: $task, field: $field, reason: $reason)';
+    return 'ErrorHint.taskRecordInvalid(task: $task, field: $field)';
 }
 
 
@@ -374,7 +373,7 @@ abstract mixin class $ErrorHintTaskRecordInvalidCopyWith<$Res> implements $Error
   factory $ErrorHintTaskRecordInvalidCopyWith(ErrorHintTaskRecordInvalid value, $Res Function(ErrorHintTaskRecordInvalid) _then) = _$ErrorHintTaskRecordInvalidCopyWithImpl;
 @useResult
 $Res call({
- String task, String field, String reason
+ String task, String field
 });
 
 
@@ -391,11 +390,10 @@ class _$ErrorHintTaskRecordInvalidCopyWithImpl<$Res>
 
 /// Create a copy of ErrorHint
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') $Res call({Object? task = null,Object? field = null,Object? reason = null,}) {
+@pragma('vm:prefer-inline') $Res call({Object? task = null,Object? field = null,}) {
   return _then(ErrorHintTaskRecordInvalid(
 task: null == task ? _self.task : task // ignore: cast_nullable_to_non_nullable
 as String,field: null == field ? _self.field : field // ignore: cast_nullable_to_non_nullable
-as String,reason: null == reason ? _self.reason : reason // ignore: cast_nullable_to_non_nullable
 as String,
   ));
 }
@@ -407,12 +405,11 @@ as String,
 
 
 class ErrorHintLibraryBlockInvalid implements ErrorHint {
-  const ErrorHintLibraryBlockInvalid({required this.name, required this.field, required this.reason});
+  const ErrorHintLibraryBlockInvalid({required this.name, required this.field});
   
 
  final  String name;
  final  String field;
- final  String reason;
 
 /// Create a copy of ErrorHint
 /// with the given fields replaced by the non-null parameter values.
@@ -424,18 +421,18 @@ $ErrorHintLibraryBlockInvalidCopyWith<ErrorHintLibraryBlockInvalid> get copyWith
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is ErrorHintLibraryBlockInvalid&&(identical(other.name, name) || other.name == name)&&(identical(other.field, field) || other.field == field)&&(identical(other.reason, reason) || other.reason == reason));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is ErrorHintLibraryBlockInvalid&&(identical(other.name, name) || other.name == name)&&(identical(other.field, field) || other.field == field));
 }
 
 
 @override
 int get hashCode {
-    return Object.hash(runtimeType,name,field,reason);
+    return Object.hash(runtimeType,name,field);
 }
 
 @override
 String toString() {
-    return 'ErrorHint.libraryBlockInvalid(name: $name, field: $field, reason: $reason)';
+    return 'ErrorHint.libraryBlockInvalid(name: $name, field: $field)';
 }
 
 
@@ -446,7 +443,7 @@ abstract mixin class $ErrorHintLibraryBlockInvalidCopyWith<$Res> implements $Err
   factory $ErrorHintLibraryBlockInvalidCopyWith(ErrorHintLibraryBlockInvalid value, $Res Function(ErrorHintLibraryBlockInvalid) _then) = _$ErrorHintLibraryBlockInvalidCopyWithImpl;
 @useResult
 $Res call({
- String name, String field, String reason
+ String name, String field
 });
 
 
@@ -463,11 +460,10 @@ class _$ErrorHintLibraryBlockInvalidCopyWithImpl<$Res>
 
 /// Create a copy of ErrorHint
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') $Res call({Object? name = null,Object? field = null,Object? reason = null,}) {
+@pragma('vm:prefer-inline') $Res call({Object? name = null,Object? field = null,}) {
   return _then(ErrorHintLibraryBlockInvalid(
 name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
 as String,field: null == field ? _self.field : field // ignore: cast_nullable_to_non_nullable
-as String,reason: null == reason ? _self.reason : reason // ignore: cast_nullable_to_non_nullable
 as String,
   ));
 }
@@ -479,11 +475,11 @@ as String,
 
 
 class ErrorHintFlowDefInvalid implements ErrorHint {
-  const ErrorHintFlowDefInvalid({required this.flow, required this.why});
+  const ErrorHintFlowDefInvalid({required this.flow, required this.field});
   
 
  final  String flow;
- final  String why;
+ final  String field;
 
 /// Create a copy of ErrorHint
 /// with the given fields replaced by the non-null parameter values.
@@ -495,18 +491,18 @@ $ErrorHintFlowDefInvalidCopyWith<ErrorHintFlowDefInvalid> get copyWith => _$Erro
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is ErrorHintFlowDefInvalid&&(identical(other.flow, flow) || other.flow == flow)&&(identical(other.why, why) || other.why == why));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is ErrorHintFlowDefInvalid&&(identical(other.flow, flow) || other.flow == flow)&&(identical(other.field, field) || other.field == field));
 }
 
 
 @override
 int get hashCode {
-    return Object.hash(runtimeType,flow,why);
+    return Object.hash(runtimeType,flow,field);
 }
 
 @override
 String toString() {
-    return 'ErrorHint.flowDefInvalid(flow: $flow, why: $why)';
+    return 'ErrorHint.flowDefInvalid(flow: $flow, field: $field)';
 }
 
 
@@ -517,7 +513,7 @@ abstract mixin class $ErrorHintFlowDefInvalidCopyWith<$Res> implements $ErrorHin
   factory $ErrorHintFlowDefInvalidCopyWith(ErrorHintFlowDefInvalid value, $Res Function(ErrorHintFlowDefInvalid) _then) = _$ErrorHintFlowDefInvalidCopyWithImpl;
 @useResult
 $Res call({
- String flow, String why
+ String flow, String field
 });
 
 
@@ -534,10 +530,10 @@ class _$ErrorHintFlowDefInvalidCopyWithImpl<$Res>
 
 /// Create a copy of ErrorHint
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') $Res call({Object? flow = null,Object? why = null,}) {
+@pragma('vm:prefer-inline') $Res call({Object? flow = null,Object? field = null,}) {
   return _then(ErrorHintFlowDefInvalid(
 flow: null == flow ? _self.flow : flow // ignore: cast_nullable_to_non_nullable
-as String,why: null == why ? _self.why : why // ignore: cast_nullable_to_non_nullable
+as String,field: null == field ? _self.field : field // ignore: cast_nullable_to_non_nullable
 as String,
   ));
 }
@@ -1083,6 +1079,38 @@ $AnswerFaultCopyWith<$Res> get why {
   });
 }
 }
+
+/// @nodoc
+
+
+class ErrorHintSettingsUnreadable implements ErrorHint {
+  const ErrorHintSettingsUnreadable();
+  
+
+
+
+
+
+
+@override
+bool operator ==(Object other) {
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is ErrorHintSettingsUnreadable);
+}
+
+
+@override
+int get hashCode => runtimeType.hashCode;
+
+@override
+String toString() {
+    return 'ErrorHint.settingsUnreadable()';
+}
+
+
+}
+
+
+
 
 /// @nodoc
 

@@ -108,7 +108,6 @@ void main() {
               StudioError(
                 kind: ErrorKind.reach,
                 id: 7,
-                title: 'Studio couldn’t read t1',
                 message: 'timeout',
                 key: '$plant/downstream/plc1/t1',
                 call: const .known(.history),

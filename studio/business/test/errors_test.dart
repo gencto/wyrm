@@ -25,10 +25,13 @@ import 'package:business/redux/problems/actions/show_notice_action.dart';
 import 'package:business/redux/store.dart';
 import 'package:business/wyrm/calls.dart';
 import 'package:business/wyrm/device_keys.dart';
+import 'package:business/wyrm/error_view.dart';
 import 'package:business/wyrm/failures.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/error_call.dart';
 import 'package:models/error_kind.dart';
+import 'package:models/error_title.dart';
+import 'package:models/foreign_words.dart';
 import 'package:models/live_value.dart';
 import 'package:models/notice_kind.dart';
 import 'package:models/studio_error.dart';
@@ -162,7 +165,7 @@ void main() {
         );
         expect(e.id, greaterThan(0));
         expect(e.at, isNotNull);
-        expect(e.title, isNotEmpty);
+        expect(e.titleKind, ErrorTitle.gone);
       },
     );
 
@@ -244,8 +247,11 @@ void main() {
         null,
       );
       expect(x.error.kind, ErrorKind.studio);
-      expect(x.error.title, 'No network');
-      expect(x.error.message, 'Check the cable.');
+      expect(
+        x.error.foreign,
+        const ForeignWords(title: 'No network', detail: 'Check the cable.'),
+      );
+      expect(x.error.titleKind, ErrorTitle.foreign);
       expect(x.error.report, isNull);
     });
 

@@ -73,7 +73,7 @@ class LogInAction extends Action with WaitingAction {
         ErrorKind.reach,
         ErrorHint.noAnswer(last.why ?? const AnswerFault.timedOut()),
         call: const .known(.logIn),
-        thing: '${gateways.first}',
+        thing: GatewayAddress(gateways.first).text,
       ).withDialog(false);
     }
 
@@ -103,17 +103,17 @@ class LogInAction extends Action with WaitingAction {
       throw StudioException.refused(
         e,
         call: const .known(.logIn),
-        thing: '${gateways.first}',
+        thing: GatewayAddress(gateways.first).text,
       ).withDialog(false);
     } on Object catch (e) {
       dispatchSync(
         SetLoginProgressAction(
           step: 1,
           failure: LoginFailure.unreachable,
-          reason: AnswerFault.said('$e'),
+          reason: AnswerFault.failed('${e.runtimeType}'),
         ),
       );
-      throw _unreachable(faultLine(e), gateways.first).withDialog(false);
+      throw _unreachable(e, gateways.first).withDialog(false);
     }
 
     // 3. Reading the role and the sites.
@@ -152,13 +152,13 @@ Future<AppState> openedSession(
       final WyrmException w => StudioException.refused(
         w,
         call: const .known(.me),
-        thing: '$gateway',
+        thing: GatewayAddress(gateway).text,
       ),
-      _ => StudioException.said(
+      _ => StudioException.hinted(
         ErrorKind.reach,
-        faultLine(e),
+        ErrorHint.noAnswer(AnswerFault.failed('${e.runtimeType}')),
         call: const .known(.me),
-        thing: '$gateway',
+        thing: GatewayAddress(gateway).text,
       ),
     };
   }
@@ -189,12 +189,14 @@ IList<String> remembered(IList<String> recent, String gateway) {
   return [g, ...recent.where((r) => r != g)].take(5).toIList();
 }
 
-/// No gateway answered: a `reach` error with what the probe said. The page
-/// shows it itself (login.md §5), so it opens no dialog.
-StudioException _unreachable(String reason, Object gateway) =>
-    StudioException.said(
+/// The log-in threw something that is no refusal of the gateway's
+/// ([thrown]): a `reach` error that names its type only (what it says of
+/// itself may hold the URL it was asked on). The page shows it itself
+/// (login.md §5), so it opens no dialog.
+StudioException _unreachable(Object thrown, Uri gateway) =>
+    StudioException.hinted(
       ErrorKind.reach,
-      reason,
+      ErrorHint.noAnswer(AnswerFault.failed('${thrown.runtimeType}')),
       call: const .known(.logIn),
-      thing: '$gateway',
+      thing: GatewayAddress(gateway).text,
     );

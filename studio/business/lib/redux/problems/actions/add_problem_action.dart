@@ -25,7 +25,8 @@ class AddProblemAction extends Action {
     e.status?.code,
     e.key,
     e.call,
-    e.title,
+    e.foreign,
+    e.hint,
     e.subject,
     e.thing,
     e.site,
@@ -36,13 +37,11 @@ class AddProblemAction extends Action {
   AppState reduce() {
     final p = state.problems;
     // One that did not come through an action (a stream, a widget that
-    // threw) gets its id, time, site and words here.
-    final e = deps.wording(
-      error.copyWith(
-        id: error.id == 0 ? nextErrorId() : error.id,
-        at: error.at ?? DateTime.now(),
-        site: error.site ?? site.viewed,
-      ),
+    // threw) gets its id, time and site here.
+    final e = error.copyWith(
+      id: error.id == 0 ? nextErrorId() : error.id,
+      at: error.at ?? DateTime.now(),
+      site: error.site ?? site.viewed,
     );
     final old = p.items
         .where((o) => listEquals(_same(o), _same(e)))

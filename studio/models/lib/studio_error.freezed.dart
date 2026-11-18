@@ -16,9 +16,9 @@ T _$identity<T>(T value) => value;
 mixin _$StudioError {
 
  ErrorKind get kind;/// Given when the error is thrown; the Problems list finds it by this.
- int get id;/// What did not happen, with its object: `You can’t deploy
-/// pump-control`. Composed from [kind], [call], [thing] and [site].
- String get title;/// The broker's words, as they came; empty when it sent none (a
+ int get id;/// The words of a failure another package raised in its own words;
+/// null for every failure Studio words itself from its typed fields.
+ ForeignWords? get foreign;/// The broker's words, as they came; empty when it sent none (a
 /// timeout). For a fault in Studio: what happened, in Studio's words.
  String get message;/// The status of the refusal; null for Studio's own faults and for a
 /// `{success: false}` answer.
@@ -60,20 +60,20 @@ $StudioErrorCopyWith<StudioError> get copyWith => _$StudioErrorCopyWithImpl<Stud
 @override
 bool operator ==(Object other) {
   final _this = this as StudioError;
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is StudioError&&(identical(other.kind, _this.kind) || other.kind == _this.kind)&&(identical(other.id, _this.id) || other.id == _this.id)&&(identical(other.title, _this.title) || other.title == _this.title)&&(identical(other.message, _this.message) || other.message == _this.message)&&(identical(other.status, _this.status) || other.status == _this.status)&&(identical(other.hint, _this.hint) || other.hint == _this.hint)&&(identical(other.key, _this.key) || other.key == _this.key)&&(identical(other.call, _this.call) || other.call == _this.call)&&(identical(other.thing, _this.thing) || other.thing == _this.thing)&&(identical(other.subject, _this.subject) || other.subject == _this.subject)&&(identical(other.site, _this.site) || other.site == _this.site)&&(identical(other.at, _this.at) || other.at == _this.at)&&(identical(other.quiet, _this.quiet) || other.quiet == _this.quiet)&&(identical(other.write, _this.write) || other.write == _this.write)&&(identical(other.retry, _this.retry) || other.retry == _this.retry)&&(identical(other.reload, _this.reload) || other.reload == _this.reload)&&(identical(other.field, _this.field) || other.field == _this.field)&&(identical(other.report, _this.report) || other.report == _this.report)&&(identical(other.shown, _this.shown) || other.shown == _this.shown)&&(identical(other.stream, _this.stream) || other.stream == _this.stream)&&(identical(other.wait, _this.wait) || other.wait == _this.wait));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is StudioError&&(identical(other.kind, _this.kind) || other.kind == _this.kind)&&(identical(other.id, _this.id) || other.id == _this.id)&&(identical(other.foreign, _this.foreign) || other.foreign == _this.foreign)&&(identical(other.message, _this.message) || other.message == _this.message)&&(identical(other.status, _this.status) || other.status == _this.status)&&(identical(other.hint, _this.hint) || other.hint == _this.hint)&&(identical(other.key, _this.key) || other.key == _this.key)&&(identical(other.call, _this.call) || other.call == _this.call)&&(identical(other.thing, _this.thing) || other.thing == _this.thing)&&(identical(other.subject, _this.subject) || other.subject == _this.subject)&&(identical(other.site, _this.site) || other.site == _this.site)&&(identical(other.at, _this.at) || other.at == _this.at)&&(identical(other.quiet, _this.quiet) || other.quiet == _this.quiet)&&(identical(other.write, _this.write) || other.write == _this.write)&&(identical(other.retry, _this.retry) || other.retry == _this.retry)&&(identical(other.reload, _this.reload) || other.reload == _this.reload)&&(identical(other.field, _this.field) || other.field == _this.field)&&(identical(other.report, _this.report) || other.report == _this.report)&&(identical(other.shown, _this.shown) || other.shown == _this.shown)&&(identical(other.stream, _this.stream) || other.stream == _this.stream)&&(identical(other.wait, _this.wait) || other.wait == _this.wait));
 }
 
 
 @override
 int get hashCode {
   final _this = this as StudioError;
-  return Object.hashAll([runtimeType,_this.kind,_this.id,_this.title,_this.message,_this.status,_this.hint,_this.key,_this.call,_this.thing,_this.subject,_this.site,_this.at,_this.quiet,_this.write,_this.retry,_this.reload,_this.field,_this.report,_this.shown,_this.stream,_this.wait]);
+  return Object.hashAll([runtimeType,_this.kind,_this.id,_this.foreign,_this.message,_this.status,_this.hint,_this.key,_this.call,_this.thing,_this.subject,_this.site,_this.at,_this.quiet,_this.write,_this.retry,_this.reload,_this.field,_this.report,_this.shown,_this.stream,_this.wait]);
 }
 
 @override
 String toString() {
   final _this = this as StudioError;
-  return 'StudioError(kind: ${_this.kind}, id: ${_this.id}, title: ${_this.title}, message: ${_this.message}, status: ${_this.status}, hint: ${_this.hint}, key: ${_this.key}, call: ${_this.call}, thing: ${_this.thing}, subject: ${_this.subject}, site: ${_this.site}, at: ${_this.at}, quiet: ${_this.quiet}, write: ${_this.write}, retry: ${_this.retry}, reload: ${_this.reload}, field: ${_this.field}, report: ${_this.report}, shown: ${_this.shown}, stream: ${_this.stream}, wait: ${_this.wait})';
+  return 'StudioError(kind: ${_this.kind}, id: ${_this.id}, foreign: ${_this.foreign}, message: ${_this.message}, status: ${_this.status}, hint: ${_this.hint}, key: ${_this.key}, call: ${_this.call}, thing: ${_this.thing}, subject: ${_this.subject}, site: ${_this.site}, at: ${_this.at}, quiet: ${_this.quiet}, write: ${_this.write}, retry: ${_this.retry}, reload: ${_this.reload}, field: ${_this.field}, report: ${_this.report}, shown: ${_this.shown}, stream: ${_this.stream}, wait: ${_this.wait})';
 }
 
 
@@ -84,11 +84,11 @@ abstract mixin class $StudioErrorCopyWith<$Res>  {
   factory $StudioErrorCopyWith(StudioError value, $Res Function(StudioError) _then) = _$StudioErrorCopyWithImpl;
 @useResult
 $Res call({
- ErrorKind kind, int id, String title, String message, StatusCode? status, ErrorHint? hint, String? key, ErrorCall? call, String? thing, ErrorSubject? subject, String? site, DateTime? at, bool quiet, bool write, Object Function()? retry, Object Function()? reload, String? field, FaultReport? report, bool shown, String? stream, int? wait
+ ErrorKind kind, int id, ForeignWords? foreign, String message, StatusCode? status, ErrorHint? hint, String? key, ErrorCall? call, String? thing, ErrorSubject? subject, String? site, DateTime? at, bool quiet, bool write, Object Function()? retry, Object Function()? reload, String? field, FaultReport? report, bool shown, String? stream, int? wait
 });
 
 
-$ErrorHintCopyWith<$Res>? get hint;$FaultReportCopyWith<$Res>? get report;
+$ForeignWordsCopyWith<$Res>? get foreign;$ErrorHintCopyWith<$Res>? get hint;$FaultReportCopyWith<$Res>? get report;
 
 }
 /// @nodoc
@@ -101,12 +101,12 @@ class _$StudioErrorCopyWithImpl<$Res>
 
 /// Create a copy of StudioError
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? kind = null,Object? id = null,Object? title = null,Object? message = null,Object? status = freezed,Object? hint = freezed,Object? key = freezed,Object? call = freezed,Object? thing = freezed,Object? subject = freezed,Object? site = freezed,Object? at = freezed,Object? quiet = null,Object? write = null,Object? retry = freezed,Object? reload = freezed,Object? field = freezed,Object? report = freezed,Object? shown = null,Object? stream = freezed,Object? wait = freezed,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? kind = null,Object? id = null,Object? foreign = freezed,Object? message = null,Object? status = freezed,Object? hint = freezed,Object? key = freezed,Object? call = freezed,Object? thing = freezed,Object? subject = freezed,Object? site = freezed,Object? at = freezed,Object? quiet = null,Object? write = null,Object? retry = freezed,Object? reload = freezed,Object? field = freezed,Object? report = freezed,Object? shown = null,Object? stream = freezed,Object? wait = freezed,}) {
   return _then(StudioError(
 kind: null == kind ? _self.kind : kind // ignore: cast_nullable_to_non_nullable
 as ErrorKind,id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
-as int,title: null == title ? _self.title : title // ignore: cast_nullable_to_non_nullable
-as String,message: null == message ? _self.message : message // ignore: cast_nullable_to_non_nullable
+as int,foreign: freezed == foreign ? _self.foreign : foreign // ignore: cast_nullable_to_non_nullable
+as ForeignWords?,message: null == message ? _self.message : message // ignore: cast_nullable_to_non_nullable
 as String,status: freezed == status ? _self.status : status // ignore: cast_nullable_to_non_nullable
 as StatusCode?,hint: freezed == hint ? _self.hint : hint // ignore: cast_nullable_to_non_nullable
 as ErrorHint?,key: freezed == key ? _self.key : key // ignore: cast_nullable_to_non_nullable
@@ -128,6 +128,18 @@ as int?,
   ));
 }
 /// Create a copy of StudioError
+/// with the given fields replaced by the non-null parameter values.
+@override
+@pragma('vm:prefer-inline')
+$ForeignWordsCopyWith<$Res>? get foreign {
+    if (_self.foreign == null) {
+    return null;
+  }
+
+  return $ForeignWordsCopyWith<$Res>(_self.foreign!, (value) {
+    return _then(_self.copyWith(foreign: value));
+  });
+}/// Create a copy of StudioError
 /// with the given fields replaced by the non-null parameter values.
 @override
 @pragma('vm:prefer-inline')
@@ -160,15 +172,15 @@ $FaultReportCopyWith<$Res>? get report {
 
 
 class _StudioError extends StudioError {
-  const _StudioError({required this.kind, this.id = 0, this.title = '', this.message = '', this.status, this.hint, this.key, this.call, this.thing, this.subject, this.site, this.at, this.quiet = false, this.write = false, this.retry, this.reload, this.field, this.report, this.shown = false, this.stream, this.wait}): super._();
+  const _StudioError({required this.kind, this.id = 0, this.foreign, this.message = '', this.status, this.hint, this.key, this.call, this.thing, this.subject, this.site, this.at, this.quiet = false, this.write = false, this.retry, this.reload, this.field, this.report, this.shown = false, this.stream, this.wait}): super._();
   
 
 @override final  ErrorKind kind;
 /// Given when the error is thrown; the Problems list finds it by this.
 @override@JsonKey() final  int id;
-/// What did not happen, with its object: `You can’t deploy
-/// pump-control`. Composed from [kind], [call], [thing] and [site].
-@override@JsonKey() final  String title;
+/// The words of a failure another package raised in its own words;
+/// null for every failure Studio words itself from its typed fields.
+@override final  ForeignWords? foreign;
 /// The broker's words, as they came; empty when it sent none (a
 /// timeout). For a fault in Studio: what happened, in Studio's words.
 @override@JsonKey() final  String message;
@@ -228,18 +240,18 @@ _$StudioErrorCopyWith<_StudioError> get copyWith => __$StudioErrorCopyWithImpl<_
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is _StudioError&&(identical(other.kind, kind) || other.kind == kind)&&(identical(other.id, id) || other.id == id)&&(identical(other.title, title) || other.title == title)&&(identical(other.message, message) || other.message == message)&&(identical(other.status, status) || other.status == status)&&(identical(other.hint, hint) || other.hint == hint)&&(identical(other.key, key) || other.key == key)&&(identical(other.call, call) || other.call == call)&&(identical(other.thing, thing) || other.thing == thing)&&(identical(other.subject, subject) || other.subject == subject)&&(identical(other.site, site) || other.site == site)&&(identical(other.at, at) || other.at == at)&&(identical(other.quiet, quiet) || other.quiet == quiet)&&(identical(other.write, write) || other.write == write)&&(identical(other.retry, retry) || other.retry == retry)&&(identical(other.reload, reload) || other.reload == reload)&&(identical(other.field, field) || other.field == field)&&(identical(other.report, report) || other.report == report)&&(identical(other.shown, shown) || other.shown == shown)&&(identical(other.stream, stream) || other.stream == stream)&&(identical(other.wait, wait) || other.wait == wait));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _StudioError&&(identical(other.kind, kind) || other.kind == kind)&&(identical(other.id, id) || other.id == id)&&(identical(other.foreign, foreign) || other.foreign == foreign)&&(identical(other.message, message) || other.message == message)&&(identical(other.status, status) || other.status == status)&&(identical(other.hint, hint) || other.hint == hint)&&(identical(other.key, key) || other.key == key)&&(identical(other.call, call) || other.call == call)&&(identical(other.thing, thing) || other.thing == thing)&&(identical(other.subject, subject) || other.subject == subject)&&(identical(other.site, site) || other.site == site)&&(identical(other.at, at) || other.at == at)&&(identical(other.quiet, quiet) || other.quiet == quiet)&&(identical(other.write, write) || other.write == write)&&(identical(other.retry, retry) || other.retry == retry)&&(identical(other.reload, reload) || other.reload == reload)&&(identical(other.field, field) || other.field == field)&&(identical(other.report, report) || other.report == report)&&(identical(other.shown, shown) || other.shown == shown)&&(identical(other.stream, stream) || other.stream == stream)&&(identical(other.wait, wait) || other.wait == wait));
 }
 
 
 @override
 int get hashCode {
-    return Object.hashAll([runtimeType,kind,id,title,message,status,hint,key,call,thing,subject,site,at,quiet,write,retry,reload,field,report,shown,stream,wait]);
+    return Object.hashAll([runtimeType,kind,id,foreign,message,status,hint,key,call,thing,subject,site,at,quiet,write,retry,reload,field,report,shown,stream,wait]);
 }
 
 @override
 String toString() {
-    return 'StudioError(kind: $kind, id: $id, title: $title, message: $message, status: $status, hint: $hint, key: $key, call: $call, thing: $thing, subject: $subject, site: $site, at: $at, quiet: $quiet, write: $write, retry: $retry, reload: $reload, field: $field, report: $report, shown: $shown, stream: $stream, wait: $wait)';
+    return 'StudioError(kind: $kind, id: $id, foreign: $foreign, message: $message, status: $status, hint: $hint, key: $key, call: $call, thing: $thing, subject: $subject, site: $site, at: $at, quiet: $quiet, write: $write, retry: $retry, reload: $reload, field: $field, report: $report, shown: $shown, stream: $stream, wait: $wait)';
 }
 
 
@@ -250,11 +262,11 @@ abstract mixin class _$StudioErrorCopyWith<$Res> implements $StudioErrorCopyWith
   factory _$StudioErrorCopyWith(_StudioError value, $Res Function(_StudioError) _then) = __$StudioErrorCopyWithImpl;
 @override @useResult
 $Res call({
- ErrorKind kind, int id, String title, String message, StatusCode? status, ErrorHint? hint, String? key, ErrorCall? call, String? thing, ErrorSubject? subject, String? site, DateTime? at, bool quiet, bool write, Object Function()? retry, Object Function()? reload, String? field, FaultReport? report, bool shown, String? stream, int? wait
+ ErrorKind kind, int id, ForeignWords? foreign, String message, StatusCode? status, ErrorHint? hint, String? key, ErrorCall? call, String? thing, ErrorSubject? subject, String? site, DateTime? at, bool quiet, bool write, Object Function()? retry, Object Function()? reload, String? field, FaultReport? report, bool shown, String? stream, int? wait
 });
 
 
-@override $ErrorHintCopyWith<$Res>? get hint;@override $FaultReportCopyWith<$Res>? get report;
+@override $ForeignWordsCopyWith<$Res>? get foreign;@override $ErrorHintCopyWith<$Res>? get hint;@override $FaultReportCopyWith<$Res>? get report;
 
 }
 /// @nodoc
@@ -267,12 +279,12 @@ class __$StudioErrorCopyWithImpl<$Res>
 
 /// Create a copy of StudioError
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? kind = null,Object? id = null,Object? title = null,Object? message = null,Object? status = freezed,Object? hint = freezed,Object? key = freezed,Object? call = freezed,Object? thing = freezed,Object? subject = freezed,Object? site = freezed,Object? at = freezed,Object? quiet = null,Object? write = null,Object? retry = freezed,Object? reload = freezed,Object? field = freezed,Object? report = freezed,Object? shown = null,Object? stream = freezed,Object? wait = freezed,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? kind = null,Object? id = null,Object? foreign = freezed,Object? message = null,Object? status = freezed,Object? hint = freezed,Object? key = freezed,Object? call = freezed,Object? thing = freezed,Object? subject = freezed,Object? site = freezed,Object? at = freezed,Object? quiet = null,Object? write = null,Object? retry = freezed,Object? reload = freezed,Object? field = freezed,Object? report = freezed,Object? shown = null,Object? stream = freezed,Object? wait = freezed,}) {
   return _then(_StudioError(
 kind: null == kind ? _self.kind : kind // ignore: cast_nullable_to_non_nullable
 as ErrorKind,id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
-as int,title: null == title ? _self.title : title // ignore: cast_nullable_to_non_nullable
-as String,message: null == message ? _self.message : message // ignore: cast_nullable_to_non_nullable
+as int,foreign: freezed == foreign ? _self.foreign : foreign // ignore: cast_nullable_to_non_nullable
+as ForeignWords?,message: null == message ? _self.message : message // ignore: cast_nullable_to_non_nullable
 as String,status: freezed == status ? _self.status : status // ignore: cast_nullable_to_non_nullable
 as StatusCode?,hint: freezed == hint ? _self.hint : hint // ignore: cast_nullable_to_non_nullable
 as ErrorHint?,key: freezed == key ? _self.key : key // ignore: cast_nullable_to_non_nullable
@@ -295,6 +307,18 @@ as int?,
 }
 
 /// Create a copy of StudioError
+/// with the given fields replaced by the non-null parameter values.
+@override
+@pragma('vm:prefer-inline')
+$ForeignWordsCopyWith<$Res>? get foreign {
+    if (_self.foreign == null) {
+    return null;
+  }
+
+  return $ForeignWordsCopyWith<$Res>(_self.foreign!, (value) {
+    return _then(_self.copyWith(foreign: value));
+  });
+}/// Create a copy of StudioError
 /// with the given fields replaced by the non-null parameter values.
 @override
 @pragma('vm:prefer-inline')

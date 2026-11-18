@@ -62,7 +62,6 @@ class AppDependencies {
     required this.prompts,
     WyrmLogin? login,
     this._deviceKey,
-    ErrorWording? wording,
     GatewayInfoReader? gatewayInfo,
     this._browser,
     this.browseDuration = browseFor,
@@ -71,7 +70,6 @@ class AppDependencies {
   }) : login =
            login ??
            GatewayLogin(trust: () => GatewayTrust(_store.state.discovery.pins)),
-       wording = wording ?? unworded,
        gatewayInfo = gatewayInfo ?? const HttpInfoReader();
 
   /// The DNS-SD side of the browse; bonsoir when null.
@@ -86,10 +84,6 @@ class AppDependencies {
   /// How a found gateway's `/api/info` is read (ADR 0050). Tests pass a
   /// fake.
   final GatewayInfoReader gatewayInfo;
-
-  /// The words of an error: its title and, for a fault in Studio, its
-  /// sentence. The app's, in the user's language; plain English in tests.
-  final ErrorWording wording;
 
   /// The system clipboard (the flow editor's copy and paste); tests pass
   /// a fake.

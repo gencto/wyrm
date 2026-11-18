@@ -27,14 +27,8 @@ void main() {
       contains('(not a WYRM gateway)'),
     );
     expect(
-      note(
-        const AnswerFault.wrongShape(
-          path: 'GatewayInfo.site',
-          expected: 'text',
-          got: 'int',
-        ),
-      ),
-      contains('not a WYRM gateway: GatewayInfo.site: expected text, got int'),
+      note(const AnswerFault.wrongShape('GatewayInfo.site')),
+      contains('not a WYRM gateway: the field GatewayInfo.site does not read'),
     );
     // the system's own words are shown as they came
     expect(

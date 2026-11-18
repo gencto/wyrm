@@ -49,9 +49,9 @@ class RetrieveTaskRecordAction extends Action with WaitingAction, Sequential {
         Valid(:final value) => value,
         // a record Studio cannot read is said, with the field: the task
         // stays as it was, never an empty one
-        Invalid(:final field, :final reason) => throw StudioException.hinted(
+        final Invalid<Object?> bad => throw StudioException.hinted(
           ErrorKind.broker,
-          ErrorHint.taskRecordInvalid(task: id, field: field, reason: reason),
+          ErrorHint.taskRecordInvalid(task: id, field: loggedField(key, bad)),
           key: key,
           call: const .known(.doc),
           thing: id,

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'dart:convert';
 
 import 'package:async_redux/async_redux.dart';
@@ -1286,7 +1288,7 @@ void main() {
       api
         ..invokesInTurn['wy/central/dataflows/line ▸ history'] = [
           (
-            const Duration(milliseconds: 60),
+            Duration.zero,
             [
               Value.from([line]),
             ],
@@ -1297,6 +1299,7 @@ void main() {
             {...line, 'id': 'other'},
           ]),
         ];
+      final firstGate = api.hold('wy/central/dataflows/line ▸ history');
       var firstDone = false;
       final first = s
           .dispatchAndWait(LoadFlowAction('line'))
@@ -1307,6 +1310,7 @@ void main() {
       // it did not wait for it
       expect(firstDone, isFalse);
       expect(s.state.flowEditor.flowId, 'other');
+      firstGate.complete();
       await first;
       // the first one's answer, come last, was dropped
       expect(s.state.flowEditor.flowId, 'other');
@@ -1315,27 +1319,28 @@ void main() {
     });
 
     group('the load started last wins, and waits for none', () {
-      const slow = Duration(milliseconds: 80);
-      const fast = Duration(milliseconds: 5);
       Value flow(String id, {int version = 2}) => Value.from([
         {...line, 'id': id, 'version': version},
       ]);
       String key(String id) => 'wy/central/dataflows/$id ▸ history';
 
+      /// The next read of flow [id] answers [rows] once its gate opens.
+      Completer<void> answer(String id, List<Value> rows) {
+        (api.invokesInTurn[key(id)] ??= []).add((Duration.zero, rows));
+        return api.hold(key(id));
+      }
+
       test('an open that answers before the one started after it is '
           'never shown', () async {
-        api
-          ..invokesInTurn[key('third')] = [
-            (fast, [flow('third')]),
-          ]
-          ..invokesInTurn[key('other')] = [
-            (slow, [flow('other')]),
-          ];
+        final thirdGate = answer('third', [flow('third')]);
+        final otherGate = answer('other', [flow('other')]);
         final first = s.dispatchAndWait(LoadFlowAction('third'));
         final last = s.dispatchAndWait(LoadFlowAction('other'));
+        thirdGate.complete();
         await first;
         // the editor still holds what it held: not the flow left
         expect(s.state.flowEditor.flowId, 'line');
+        otherGate.complete();
         await last;
         expect(s.state.flowEditor.flowId, 'other');
         expect(now().id, 'other');
@@ -1343,15 +1348,13 @@ void main() {
 
       test('a definition that does not read, answered for a flow that was '
           'left, unloads nothing and says nothing', () async {
-        api
-          ..invokesInTurn[key('broken')] = [
-            (slow, [const VStr('not a flow')]),
-          ]
-          ..invokesInTurn[key('other')] = [
-            (fast, [flow('other')]),
-          ];
+        final brokenGate = answer('broken', [const VStr('not a flow')]);
+        final otherGate = answer('other', [flow('other')]);
         final left = s.dispatchAndWait(LoadFlowAction('broken'));
-        await s.dispatchAndWait(LoadFlowAction('other'));
+        final shown = s.dispatchAndWait(LoadFlowAction('other'));
+        otherGate.complete();
+        await shown;
+        brokenGate.complete();
         final status = await left;
         expect(status.wrappedError, isNull);
         // the flow on screen was not unloaded for `broken`
@@ -1362,9 +1365,7 @@ void main() {
 
       test('the same definition, when its flow is the one on screen, is '
           'said as before', () async {
-        api.invokesInTurn[key('broken')] = [
-          (fast, [const VStr('not a flow')]),
-        ];
+        answer('broken', [const VStr('not a flow')]).complete();
         final status = await s.dispatchAndWait(LoadFlowAction('broken'));
         expect(status.wrappedError, isA<StudioException>());
         expect(s.state.flowEditor.flowId, 'broken');
@@ -1373,12 +1374,14 @@ void main() {
       });
 
       test('a refusal answered for a flow that was left is not said', () async {
-        api
-          ..delays[key('gone')] = slow
-          ..errors[key('gone')] = WyrmException.of(Status.notFound, 'gone')
-          ..invokes[key('other')] = [flow('other')];
+        api.errors[key('gone')] = WyrmException.of(Status.notFound, 'gone');
+        final goneGate = api.hold(key('gone'));
+        final otherGate = answer('other', [flow('other')]);
         final left = s.dispatchAndWait(LoadFlowAction('gone'));
-        await s.dispatchAndWait(LoadFlowAction('other'));
+        final shown = s.dispatchAndWait(LoadFlowAction('other'));
+        otherGate.complete();
+        await shown;
+        goneGate.complete();
         final status = await left;
         expect(status.originalError, isNotNull);
         expect(status.wrappedError, isNull);
@@ -1388,21 +1391,18 @@ void main() {
 
       test('the read after a redeploy does not take the place of another '
           'flow that is being opened', () async {
-        api
-          ..invokesInTurn[key('other')] = [
-            (slow, [flow('other')]),
-          ]
-          ..invokesInTurn[key('line')] = [
-            (fast, [flow('line', version: 3)]),
-          ];
+        final otherGate = answer('other', [flow('other')]);
+        final lineGate = answer('line', [flow('line', version: 3)]);
         // the editor holds `line`; `other` is opened, then `line` is heard
         // deployed again
         final open = s.dispatchAndWait(LoadFlowAction('other'));
         final reread = s.dispatchAndWait(LoadFlowAction.redeployed('line'));
+        lineGate.complete();
         await reread;
         // still `line` on screen: its new version is shown meanwhile
         expect(s.state.flowEditor.flowId, 'line');
         expect(s.state.flowEditor.version, 3);
+        otherGate.complete();
         await open;
         expect(s.state.flowEditor.flowId, 'other');
         expect(now().id, 'other');
@@ -1410,41 +1410,69 @@ void main() {
 
       test('the read after a redeploy that answers after another flow was '
           'opened is dropped', () async {
-        api
-          ..invokesInTurn[key('line')] = [
-            (slow, [flow('line', version: 3)]),
-          ]
-          ..invokesInTurn[key('other')] = [
-            (fast, [flow('other')]),
-          ];
+        final lineGate = answer('line', [flow('line', version: 3)]);
+        final otherGate = answer('other', [flow('other')]);
         final reread = s.dispatchAndWait(LoadFlowAction.redeployed('line'));
-        await s.dispatchAndWait(LoadFlowAction('other'));
+        final open = s.dispatchAndWait(LoadFlowAction('other'));
+        otherGate.complete();
+        await open;
+        lineGate.complete();
         await reread;
         expect(s.state.flowEditor.flowId, 'other');
         expect(now().id, 'other');
       });
 
       test('a flow opened again and then heard deployed again: the newer '
-          'read stays although the older open answers last', () async {
-        api.invokesInTurn[key('line')] = [
-          (slow, [flow('line')]),
-          (fast, [flow('line', version: 3)]),
-        ];
-        final open = s.dispatchAndWait(LoadFlowAction('line'));
+          'read stays although the older open answers last, and the open '
+          'is not replaced', () async {
+        final openGate = answer('line', [flow('line')]);
+        final rereadGate = answer('line', [flow('line', version: 3)]);
+        final load = LoadFlowAction('line', route: 'line');
+        final open = s.dispatchAndWait(load);
         final reread = s.dispatchAndWait(LoadFlowAction.redeployed('line'));
+        rereadGate.complete();
         await reread;
         expect(s.state.flowEditor.version, 3);
+        openGate.complete();
         await open;
         expect(s.state.flowEditor.flowId, 'line');
         expect(s.state.flowEditor.version, 3);
+        // a newer read of the same flow is no other flow: the open stands
+        expect(load.replaced, isFalse);
+        expect(s.state.flowEditor.route, 'line');
+      });
+
+      test('the editor opened on a flow that is heard deployed again '
+          'before the open answered: what follows an open still follows '
+          '(the watch, the preview, the library, the check) and its route '
+          'is kept', () async {
+        final openGate = answer('line', [flow('line')]);
+        final rereadGate = answer('line', [flow('line', version: 3)]);
+        final watch = (s.dependencies! as AppDependencies).flowWatch;
+        int calls(String action) =>
+            api.calls.where((c) => c.action == action).length;
+        final listed = calls('list_blocks');
+        final open = s.dispatchAndWait(OpenFlowEditorAction('line'));
+        await pumpEventQueue();
+        final reread = s.dispatchAndWait(LoadFlowAction.redeployed('line'));
+        await pumpEventQueue();
+        rereadGate.complete();
+        await reread;
+        openGate.complete();
+        await open;
+        expect(s.state.flowEditor.flowId, 'line');
+        expect(s.state.flowEditor.version, 3);
+        expect(s.state.flowEditor.route, 'line');
+        expect(watch.flow, 'wy/central/dataflows/line');
+        expect(calls('list_blocks'), greaterThan(listed));
+        expect(s.state.problems.items, isEmpty);
       });
 
       test('a load answered after its site was left is dropped', () async {
-        api.invokesInTurn[key('other')] = [
-          (slow, [flow('other')]),
-        ];
+        final gate = answer('other', [flow('other')]);
         final left = s.dispatchAndWait(LoadFlowAction('other'));
         s.dispatchSync(ViewSiteAction('edge'));
+        gate.complete();
         await left;
         expect(s.state.flowEditor.flowId, isNot('other'));
         expect(s.state.problems.items, isEmpty);
@@ -1453,18 +1481,17 @@ void main() {
       test('the editor opened on one flow and then on another: what '
           'follows the first open (its watch) does not land over the '
           'second', () async {
-        api
-          ..invokesInTurn[key('third')] = [
-            (slow, [flow('third')]),
-          ]
-          ..invokesInTurn[key('other')] = [
-            (fast, [flow('other')]),
-          ];
+        final thirdGate = answer('third', [flow('third')]);
+        final otherGate = answer('other', [flow('other')]);
         final watch = (s.dependencies! as AppDependencies).flowWatch;
         final first = s.dispatchAndWait(OpenFlowEditorAction('third'));
+        await pumpEventQueue();
         final last = s.dispatchAndWait(OpenFlowEditorAction('other'));
+        await pumpEventQueue();
+        otherGate.complete();
         await last;
         expect(watch.flow, 'wy/central/dataflows/other');
+        thirdGate.complete();
         await first;
         expect(watch.flow, 'wy/central/dataflows/other');
         expect(s.state.flowEditor.flowId, 'other');

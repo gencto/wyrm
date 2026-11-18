@@ -12,6 +12,8 @@ import 'package:models/found_gateway.dart';
 import 'package:models/found_problem.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
+import 'decode/decoded.dart';
+
 // Finding a gateway on the local network and trusting its CA (ADR 0050 §2,
 // decisions 10–12; docs/design/specs/unlock-discover.md §4). The rules a
 // person cannot see are here, as plain functions, so they are tested
@@ -334,14 +336,11 @@ final class HttpInfoReader implements GatewayInfoReader {
         // ADR 0050 decision 10 names the fields; a gateway that sends
         // another shape is not one Studio can use, and the reason says
         // which field.
-        throw InfoFailure(
-          InfoFault.missing,
-          AnswerFault.wrongShape(
-            path: e.path,
-            expected: e.expected,
-            got: e.got,
-          ),
+        decodeLog.warning(
+          '/api/info of ${base.host}: ${e.path}: expected ${e.expected}, '
+          'got ${e.got}',
         );
+        throw InfoFailure(InfoFault.missing, AnswerFault.wrongShape(e.path));
       }
     } on InfoFailure {
       rethrow;
@@ -364,7 +363,10 @@ final class HttpInfoReader implements GatewayInfoReader {
         AnswerFault.said(e.message),
       );
     } on Object catch (e) {
-      throw InfoFailure(InfoFault.noAnswer, AnswerFault.said('$e'));
+      throw InfoFailure(
+        InfoFault.noAnswer,
+        AnswerFault.failed('${e.runtimeType}'),
+      );
     } finally {
       http.close(force: true);
     }

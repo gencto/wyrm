@@ -4,6 +4,7 @@ import 'package:models/error_kind.dart';
 import 'package:models/flow_draft.dart';
 import 'package:models/library_off.dart';
 
+import '../../../common/latest.dart';
 import '../../../wyrm/calls.dart';
 import '../../../wyrm/decode/decoded.dart';
 import '../../../wyrm/decode/flow_def.dart';
@@ -27,16 +28,20 @@ import 'unload_flow_action.dart';
 /// A person may open one flow and then another before the first answered,
 /// and the watch of a redeployed flow reads the flow on screen again
 /// ([LoadFlowAction.redeployed]) without anyone waiting: no load waits for
-/// another, and the answer of a load that was replaced is dropped whole
-/// ([replaced]: no state, no unload, no error said).
-/// - An open is replaced by an open started after it (the flow opened last
-///   is the one that stays, whichever answers first) and by a later read
-///   of the same flow after a redeploy (that read is the newer one).
+/// another.
+/// - An open is [replaced] only by an open started after it (the flow
+///   opened last is the one that stays, whichever answers first) or when
+///   the site was left: its answer is dropped whole (no state, no unload,
+///   no error said) and who started it does nothing more for it.
 /// - A read after a redeploy is replaced by any open started after it, by
-///   a later read of the same flow, and when the editor holds another
-///   flow by the time it answers. It never replaces an open of another
-///   flow.
-/// - Both are replaced when the site was left.
+///   a later read of the same flow, when the editor holds another flow by
+///   the time it answers, or when the site was left.
+/// - A read after a redeploy never replaces an open of the same flow: both
+///   are reads of one flow, and the newer version stays. An open that
+///   answers with an older version than the editor holds for that flow
+///   keeps what is held and only takes its route; it is not replaced, so
+///   what follows an open (the watch, the preview, the library, the check)
+///   still follows.
 class LoadFlowAction extends Action {
   LoadFlowAction(this.id, {this.isNew = false, this.route})
     : redeployed = false;
@@ -64,17 +69,14 @@ class LoadFlowAction extends Action {
   /// The read of the flow on screen after a redeploy, not an open.
   final bool redeployed;
 
-  /// What this load asked and its place among the loads: the site, the
-  /// open and the redeploy read of this flow started last when it began
-  /// (one of the two is its own). Null before it asked.
-  ({String root, int open, int reread})? _asked;
+  /// What this load asked and its place among the loads; null before it
+  /// asked.
+  _Asked? _asked;
 
   /// The answer of this load was dropped: another load took its place, or
   /// the site was left. Who started it does nothing more for it.
   bool get replaced => _replaced;
   var _replaced = false;
-
-  Object get _rereads => (LoadFlowAction, id);
 
   /// Another load took this one's place, as the order stands now.
   bool get _isReplaced {
@@ -82,11 +84,9 @@ class LoadFlowAction extends Action {
     if (asked == null) {
       return false;
     }
-    final latest = deps.latest;
     return site.root != asked.root ||
-        latest.started(LoadFlowAction) != asked.open ||
-        latest.started(_rereads) != asked.reread ||
-        (redeployed && flowEditor.flowId != id);
+        deps.latest.started(asked.opens) != asked.open ||
+        (redeployed && (asked.run.replaced || flowEditor.flowId != id));
   }
 
   /// A failure of a load that was replaced is not said: the screen shows
@@ -107,17 +107,20 @@ class LoadFlowAction extends Action {
       return null;
     }
     final latest = deps.latest;
-    _asked = redeployed
-        ? (
-            root: root,
-            open: latest.started(LoadFlowAction),
-            reread: latest.start(_rereads),
-          )
-        : (
-            root: root,
-            open: latest.start(LoadFlowAction),
-            reread: latest.started(_rereads),
-          );
+    final opens = LatestKey(LatestRead.flowOpen, root);
+    final run = latest.start(
+      redeployed
+          ? LatestKey(LatestRead.flowReread, '$root/dataflows/$id')
+          : opens,
+    );
+    _asked = _Asked(
+      root: root,
+      opens: opens,
+      // its own place for an open; for a read after a redeploy the open
+      // that was the last one when it began
+      open: latest.started(opens),
+      run: run,
+    );
     final api = deps.wyrm;
     // The catalogue is read once per session and site (`flows.blockTypes`,
     // filled by the log-in preload); only a cold cache asks the broker.
@@ -140,9 +143,9 @@ class LoadFlowAction extends Action {
         // same flow keeps what it had; another flow drops the one held
         // (so it is not drawn or deployed under this id) and gets no
         // draft: never an empty one a deploy would write over the flow.
-        Invalid(:final field, :final reason) => throw _unreadable(
+        final Invalid<Object?> bad => throw _unreadable(
           key,
-          '$field: $reason',
+          loggedField(key, bad),
         ),
       };
       if (read != null) {
@@ -157,6 +160,17 @@ class LoadFlowAction extends Action {
       }
     }
     final held = flowEditor;
+    // A read of this flow started later (after a redeploy) answered first:
+    // the editor holds a newer version than this open read. What is held
+    // stays; the open only takes its route.
+    if (!isNew &&
+        !redeployed &&
+        held.flowId == id &&
+        held.version > draft.version) {
+      return route == null || route == held.route
+          ? null
+          : state.copyWith.flowEditor(route: route);
+    }
     final keep =
         !isNew &&
         held.flowId == id &&
@@ -201,16 +215,32 @@ class LoadFlowAction extends Action {
 
   /// Why flow [id] does not open; another flow held before goes first
   /// (that state is the one the screen keeps, so it is drawn).
-  StudioException _unreadable(String key, String why) {
+  StudioException _unreadable(String key, String field) {
     if (flowEditor.flowId != id) {
       dispatchSync(UnloadFlowAction(id));
     }
     return StudioException.hinted(
       ErrorKind.broker,
-      ErrorHint.flowDefInvalid(flow: id, why: why),
+      ErrorHint.flowDefInvalid(flow: id, field: field),
       key: key,
       call: const .known(.history),
       thing: id,
     );
   }
+}
+
+/// What a load asked: the site, the order of the opens with the open that
+/// was the last one when it began, and its own run.
+final class _Asked {
+  const _Asked({
+    required this.root,
+    required this.opens,
+    required this.open,
+    required this.run,
+  });
+
+  final String root;
+  final LatestKey opens;
+  final int open;
+  final LatestRun run;
 }

@@ -1,15 +1,19 @@
 import 'package:business/wyrm/device_keys.dart' show hostPlatform;
+import 'package:business/wyrm/error_view.dart';
 import 'package:business/wyrm/failures.dart';
 import 'package:business/wyrm/keys.dart';
 import 'package:models/call_verb.dart';
+import 'package:models/error_action.dart';
 import 'package:models/error_call.dart';
 import 'package:models/error_hint.dart';
 import 'package:models/error_kind.dart';
 import 'package:models/error_subject.dart';
+import 'package:models/error_title.dart';
+import 'package:models/error_voice.dart';
 import 'package:models/fault_report.dart';
-import 'package:models/known_call.dart';
 import 'package:models/studio_error.dart';
 import 'package:ui/alerts/toast_stack.dart';
+import 'package:ui/dialogs/error_dialog.dart';
 import 'package:ui/dialogs/error_hint_words.dart';
 import 'package:ui/dialogs/error_said.dart';
 import 'package:ui/overlays/problems_drawer.dart';
@@ -43,6 +47,51 @@ extension ErrorKindTagOf on ErrorKind {
   };
 }
 
+extension ErrorButtonOf on ErrorAction {
+  ErrorButton get button => switch (this) {
+    ErrorAction.ok => .ok,
+    ErrorAction.retry => .retry,
+    ErrorAction.form => .form,
+    ErrorAction.refresh => .refresh,
+    ErrorAction.log => .log,
+  };
+}
+
+extension ErrorTitleTagOf on ErrorTitle {
+  ErrorTitleTag get tag => switch (this) {
+    ErrorTitle.foreign => .foreign,
+    ErrorTitle.startFault => .startFault,
+    ErrorTitle.stream => .stream,
+    ErrorTitle.readFailed => .readFailed,
+    ErrorTitle.history => .history,
+    ErrorTitle.deviceOff => .deviceOff,
+    ErrorTitle.uncaughtBackground => .uncaughtBackground,
+    ErrorTitle.uncaughtPanel => .uncaughtPanel,
+    ErrorTitle.studioStep => .studioStep,
+    ErrorTitle.plain => .plain,
+    ErrorTitle.studioCould => .studioCould,
+    ErrorTitle.notConnected => .notConnected,
+    ErrorTitle.reachThing => .reachThing,
+    ErrorTitle.reachWho => .reachWho,
+    ErrorTitle.reachNoSite => .reachNoSite,
+    ErrorTitle.rights => .rights,
+    ErrorTitle.inputValue => .inputValue,
+    ErrorTitle.input => .input,
+    ErrorTitle.busy => .busy,
+    ErrorTitle.unsupported => .unsupported,
+    ErrorTitle.gone => .gone,
+    ErrorTitle.broker => .broker,
+  };
+}
+
+extension ErrorVoiceTagOf on ErrorVoice {
+  ErrorVoiceTag get tag => switch (this) {
+    ErrorVoice.studio => .studio,
+    ErrorVoice.noAnswer => .noAnswer,
+    ErrorVoice.broker => .broker,
+  };
+}
+
 extension CallVerbOf on CallVerb {
   ErrorVerb get vm => switch (this) {
     CallVerb.deploy => .deploy,
@@ -61,21 +110,8 @@ extension CallVerbOf on CallVerb {
 }
 
 extension ErrorCallVmOf on ErrorCall {
-  /// The call with its name, what it does, and whether its failure has a
-  /// title of its own.
-  ErrorCallVm get vm => ErrorCallVm(
-    name,
-    verb: verb.vm,
-    tag: switch (known) {
-      KnownCall.subscribe => .subscribe,
-      KnownCall.history => .history,
-      KnownCall.enableDevice => .enableDevice,
-      KnownCall.logIn => .logIn,
-      KnownCall.me => .me,
-      KnownCall.set => .set,
-      _ => null,
-    },
-  );
+  /// The call with its name and what it does.
+  ErrorCallVm get vm => ErrorCallVm(name, verb: verb.vm);
 }
 
 extension ErrorHintVmOf on ErrorHint {
@@ -89,14 +125,20 @@ extension ErrorHintVmOf on ErrorHint {
     ErrorHintNoAssistant() => const .tag(.noAssistant),
     ErrorHintAssistantNoTask() => const .tag(.assistantNoTask),
     ErrorHintAgentParamsUnread() => const .tag(.agentParamsUnread),
-    ErrorHintTaskRecordInvalid(:final task, :final field, :final reason) =>
-      .unreadable(.taskRecord, name: task, field: field, reason: reason),
-    ErrorHintLibraryBlockInvalid(:final name, :final field, :final reason) =>
-      .unreadable(.libraryBlock, name: name, field: field, reason: reason),
-    ErrorHintFlowDefInvalid(:final flow, :final why) => .unreadable(
+    ErrorHintTaskRecordInvalid(:final task, :final field) => .unreadable(
+      .taskRecord,
+      name: task,
+      field: field,
+    ),
+    ErrorHintLibraryBlockInvalid(:final name, :final field) => .unreadable(
+      .libraryBlock,
+      name: name,
+      field: field,
+    ),
+    ErrorHintFlowDefInvalid(:final flow, :final field) => .unreadable(
       .flowDef,
       name: flow,
-      field: why,
+      field: field,
     ),
     ErrorHintNoEditAction() => const .tag(.noEditAction),
     ErrorHintProfileNotJson(:final detail) => .profileNotJson(detail),
@@ -124,6 +166,7 @@ extension ErrorHintVmOf on ErrorHint {
     ErrorHintSignUnavailable() => const .tag(.signUnavailable),
     ErrorHintPackageHasNoLink(:final name) => .packageHasNoLink(name),
     ErrorHintEmptyPart() => const .tag(.emptyPart),
+    ErrorHintSettingsUnreadable() => const .tag(.settingsUnreadable),
   };
 }
 
@@ -155,13 +198,28 @@ extension ErrorSaidOf on StudioError {
     },
   };
 
+  /// Its dialog, for who is logged in where ([ctx]): the main button and
+  /// the countdown as `business` decides them. [readOnly] is the dialog
+  /// opened from Problems.
+  ErrorDialogVm dialog(ErrorContext ctx, {bool readOnly = false}) =>
+      said.dialog(
+        ctx,
+        button: action(readOnly: readOnly).button,
+        countdown: countdown(readOnly: readOnly),
+      );
+
   /// The failure as typed values `ui` words when it draws it.
   ErrorSaid get said => ErrorSaid(
     id: id,
     kind: kind.tag,
     icon: kind.icon,
     thing: _thing,
-    givenTitle: title,
+    titleKind: titleKind.tag,
+    voice: voice.tag,
+    foreign: switch (foreign) {
+      final f? => ErrorForeignVm(f.title, f.detail),
+      null => null,
+    },
     message: message,
     hint: hint?.vm,
     status: status?.name,
@@ -178,13 +236,12 @@ extension ErrorSaidOf on StudioError {
     at: at,
     quiet: quiet,
     write: write,
-    canRetry: retry != null,
-    canReload: reload != null,
+    offersRetry: offersRetry,
+    detailsOpen: detailsOpen,
     field: field,
     report: report?.vm,
     shown: shown,
     stream: stream,
-    wait: wait,
   );
 }
 

@@ -30,6 +30,17 @@ enum ErrorKindTag {
     busy || gone => Tone.neutral,
     broker || studio => Tone.bad,
   };
+
+  /// The chip of a failure that has no status: its kind, in a word.
+  String get chip => switch (this) {
+    rights => S.current.errKindRights,
+    reach => S.current.errKindReach,
+    input => S.current.errKindInput,
+    busy => S.current.errKindBusy,
+    gone => S.current.errKindGone,
+    broker => S.current.errKindBroker,
+    studio => S.current.errKindStudio,
+  };
 }
 
 /// What the failed call does, for the title's words.
@@ -48,20 +59,16 @@ enum ErrorVerb {
   run,
 }
 
-/// A call whose failure has a title of its own.
-enum ErrorCallTag { subscribe, history, enableDevice, logIn, me, set }
-
 /// The call an error is about: its [name] as it is written in *key › call*
-/// (data), what it does, and whether it is one with words of its own.
+/// (data) and what it does.
 final class ErrorCallVm extends Equatable {
-  const ErrorCallVm(this.name, {this.verb = ErrorVerb.run, this.tag});
+  const ErrorCallVm(this.name, {this.verb = ErrorVerb.run});
 
   final String name;
   final ErrorVerb verb;
-  final ErrorCallTag? tag;
 
   @override
-  List<Object?> get props => [name, verb, tag];
+  List<Object?> get props => [name, verb];
 }
 
 /// What the call was about: a thing Studio names itself, a name that came
@@ -184,11 +191,49 @@ final class ErrorContext extends Equatable {
   List<Object?> get props => [user, role, gateway, about];
 }
 
-/// What the main button of an error dialog does.
-enum ErrorAction { ok, retry, form, refresh, log }
+/// What the main button of an error dialog does (decided in `business`).
+enum ErrorButton { ok, retry, form, refresh, log }
 
-/// Seconds a `busy` dialog waits before it tries again by itself.
-const busyWait = 4;
+/// Which title a failure has (decided in `business`); the words are here.
+enum ErrorTitleTag {
+  foreign,
+  startFault,
+  stream,
+  readFailed,
+  history,
+  deviceOff,
+  uncaughtBackground,
+  uncaughtPanel,
+  studioStep,
+  plain,
+  studioCould,
+  notConnected,
+  reachThing,
+  reachWho,
+  reachNoSite,
+  rights,
+  inputValue,
+  input,
+  busy,
+  unsupported,
+  gone,
+  broker,
+}
+
+/// Who is said to have spoken (decided in `business`).
+enum ErrorVoiceTag { studio, noAnswer, broker }
+
+/// The words of a failure another package raised in its own words: shown
+/// as they came.
+final class ErrorForeignVm extends Equatable {
+  const ErrorForeignVm(this.title, [this.detail = '']);
+
+  final String title;
+  final String detail;
+
+  @override
+  List<Object?> get props => [title, detail];
+}
 
 /// One failure, as typed values: what is known of it, none of it worded.
 /// The getters word it in the language on screen.
@@ -198,7 +243,9 @@ final class ErrorSaid extends Equatable {
     required this.kind,
     required this.icon,
     required this.thing,
-    this.givenTitle = '',
+    required this.titleKind,
+    this.voice = ErrorVoiceTag.broker,
+    this.foreign,
     this.message = '',
     this.hint,
     this.status,
@@ -212,13 +259,12 @@ final class ErrorSaid extends Equatable {
     this.at,
     this.quiet = false,
     this.write = false,
-    this.canRetry = false,
-    this.canReload = false,
+    this.offersRetry = false,
+    this.detailsOpen = false,
     this.field,
     this.report,
     this.shown = false,
     this.stream,
-    this.wait,
   });
 
   final int id;
@@ -226,9 +272,14 @@ final class ErrorSaid extends Equatable {
   final AppIcon icon;
   final ErrorThingVm thing;
 
-  /// A title that came with the failure (another package's own); empty for
-  /// one Studio words.
-  final String givenTitle;
+  /// Which title it has.
+  final ErrorTitleTag titleKind;
+
+  /// Who is said to have spoken.
+  final ErrorVoiceTag voice;
+
+  /// Another package's own words; null for a failure Studio words.
+  final ErrorForeignVm? foreign;
 
   /// The broker's words, as they came; empty when it sent none.
   final String message;
@@ -263,8 +314,12 @@ final class ErrorSaid extends Equatable {
 
   /// The call changes something: a timeout may have been applied.
   final bool write;
-  final bool canRetry;
-  final bool canReload;
+
+  /// Its toast and its Problems card offer *Try again*.
+  final bool offersRetry;
+
+  /// Its dialog opens with Details shown.
+  final bool detailsOpen;
 
   /// The parameter an `invalid_parameter` names.
   final String? field;
@@ -275,9 +330,6 @@ final class ErrorSaid extends Equatable {
 
   /// A live stream of this site went down.
   final String? stream;
-
-  /// The seconds *Try again* waits for, when the broker gave a hint.
-  final int? wait;
 
   /// `wy/plant/dataflows/pump-control › deploy`, or the part there is.
   String get where => [
@@ -349,61 +401,36 @@ final class ErrorSaid extends Equatable {
     };
   }
 
-  /// Said by Studio, not by the broker: a file it cannot read, a fault.
-  bool get _own => status == null && kind != ErrorKindTag.broker;
-
   /// The title: what did not happen, with its object (errors.md §7).
   /// Never `Error` or `Something went wrong`.
   String get title {
-    if (givenTitle.isNotEmpty) {
-      return givenTitle;
-    }
     final s = S.current;
-    // What Studio did on its own reads as what the user sees stop.
-    if (stream case final site?) {
-      return s.errTitleStream(site);
-    }
-    final tag = call?.tag;
-    if (quiet && tag == ErrorCallTag.subscribe) {
-      return s.errTitleRead(thing.text);
-    }
-    if (tag == ErrorCallTag.history) {
-      return s.errTitleHistory(thing.text);
-    }
-    // The offer's `Use <name>` or the Security switch (unlock-discover.md
-    // §2): `Touch ID could not be turned on`, the reason under it.
-    if (tag == ErrorCallTag.enableDevice) {
-      return s.unlockOffToast(thing.text);
-    }
-    if (report case ErrorReportVm(uncaught: true, :final screen)) {
-      return screen == null ? s.faultUncaught : s.faultProblem(screen);
-    }
-    return switch (kind) {
-      ErrorKindTag.studio =>
-        report != null
-            ? s.errTitleStudio(s.errDoStep(call?.name ?? s.errThingThis))
-            : call == null
-            ? s.errTitlePlain
-            : s.errTitleStudio(_toDo),
-      ErrorKindTag.reach when call == null && key == null =>
-        s.errTitleNotConnected,
-      ErrorKindTag.reach
-          when tag == ErrorCallTag.logIn || tag == ErrorCallTag.me =>
-        s.errTitleReach(thing.text),
-      ErrorKindTag.reach => switch (unreached) {
-        final who? => s.errTitleReach(who),
-        null => s.errTitleReachNoSite,
-      },
-      _ when _own => s.errTitleStudio(_toDo),
-      ErrorKindTag.rights => s.errTitleRights(_toDo),
-      ErrorKindTag.input =>
-        tag == ErrorCallTag.set ? s.errTitleInputValue : s.errTitleInput,
-      ErrorKindTag.busy => s.errTitleBusy(site ?? s.errThingBroker, _noun),
-      ErrorKindTag.gone =>
-        unsupported
-            ? s.errTitleUnsupported(thing.text, call?.name ?? '')
-            : s.errTitleGone(thing.text),
-      ErrorKindTag.broker => switch (site) {
+    final t = thing.text;
+    return switch (titleKind) {
+      ErrorTitleTag.foreign => foreign?.title ?? s.errTitlePlain,
+      ErrorTitleTag.startFault => s.fatalTitle,
+      ErrorTitleTag.stream => s.errTitleStream(stream ?? t),
+      ErrorTitleTag.readFailed => s.errTitleRead(t),
+      ErrorTitleTag.history => s.errTitleHistory(t),
+      ErrorTitleTag.deviceOff => s.unlockOffToast(t),
+      ErrorTitleTag.uncaughtBackground => s.faultUncaught,
+      ErrorTitleTag.uncaughtPanel => s.faultProblem(report?.screen ?? t),
+      ErrorTitleTag.studioStep => s.errTitleStudio(
+        s.errDoStep(call?.name ?? s.errThingThis),
+      ),
+      ErrorTitleTag.plain => s.errTitlePlain,
+      ErrorTitleTag.studioCould => s.errTitleStudio(_toDo),
+      ErrorTitleTag.notConnected => s.errTitleNotConnected,
+      ErrorTitleTag.reachThing => s.errTitleReach(t),
+      ErrorTitleTag.reachWho => s.errTitleReach(unreached ?? t),
+      ErrorTitleTag.reachNoSite => s.errTitleReachNoSite,
+      ErrorTitleTag.rights => s.errTitleRights(_toDo),
+      ErrorTitleTag.inputValue => s.errTitleInputValue,
+      ErrorTitleTag.input => s.errTitleInput,
+      ErrorTitleTag.busy => s.errTitleBusy(site ?? s.errThingBroker, _noun),
+      ErrorTitleTag.unsupported => s.errTitleUnsupported(t, call?.name ?? ''),
+      ErrorTitleTag.gone => s.errTitleGone(t),
+      ErrorTitleTag.broker => switch (site) {
         final site? => s.errTitleBroker(_doing, site),
         null => s.errTitleBrokerNoSite(_doing),
       },
@@ -415,6 +442,8 @@ final class ErrorSaid extends Equatable {
   /// a broker's message would be; else nothing.
   String get said => message.isNotEmpty
       ? message
+      : (foreign?.detail ?? '').isNotEmpty
+      ? foreign!.detail
       : switch (hint) {
           final h? => h.text,
           null when kind == ErrorKindTag.studio => S.current.errFaultMessage,
@@ -438,31 +467,19 @@ final class ErrorSaid extends Equatable {
     };
   }
 
-  /// The main button of its dialog. [readOnly] is the dialog opened from
-  /// Problems: it repeats no write and counts nothing down.
-  ErrorAction primary({bool readOnly = false}) {
-    final retries = canRetry && !(readOnly && write);
-    return switch (kind) {
-      ErrorKindTag.rights || ErrorKindTag.studio => ErrorAction.ok,
-      ErrorKindTag.reach ||
-      ErrorKindTag.busy => retries ? ErrorAction.retry : ErrorAction.ok,
-      ErrorKindTag.input => ErrorAction.form,
-      ErrorKindTag.gone => canReload ? ErrorAction.refresh : ErrorAction.ok,
-      ErrorKindTag.broker =>
-        status == null && report == null && site == null
-            ? ErrorAction.ok
-            : ErrorAction.log,
-    };
-  }
-
   String _as(String user, String? role) =>
       role == null || role.isEmpty ? user : S.current.errUserRole(user, role);
 
-  /// It as the dialog draws it, for who is logged in where ([ctx]).
-  ErrorDialogVm dialog(ErrorContext ctx, {bool readOnly = false}) {
+  /// It as the dialog draws it, for who is logged in where ([ctx]), with
+  /// what its main button does ([button]) and the seconds it counts down
+  /// before it tries again by itself ([countdown]; null when it does not).
+  ErrorDialogVm dialog(
+    ErrorContext ctx, {
+    required ErrorButton button,
+    int? countdown,
+  }) {
     final s = S.current;
-    final main = primary(readOnly: readOnly);
-    final own = kind == ErrorKindTag.studio || _own;
+    final main = button;
     final words = said;
     final silent = words.isEmpty;
     final r = report;
@@ -472,11 +489,11 @@ final class ErrorSaid extends Equatable {
       icon: icon,
       title: title,
       where: where,
-      saidLabel: own
-          ? s.errSaidStudio
-          : silent && kind == ErrorKindTag.reach
-          ? s.errSaidNoAnswer
-          : s.errSaidBroker,
+      saidLabel: switch (voice) {
+        ErrorVoiceTag.studio => s.errSaidStudio,
+        ErrorVoiceTag.noAnswer => s.errSaidNoAnswer,
+        ErrorVoiceTag.broker => s.errSaidBroker,
+      },
       said: !silent
           ? words
           : kind == ErrorKindTag.reach && site != null
@@ -504,17 +521,14 @@ final class ErrorSaid extends Equatable {
           },
         ],
         ErrorKindTag.busy => [
-          if (main == ErrorAction.retry && !readOnly)
-            s.errAdviceBusyAuto
-          else
-            s.errAdviceBusy,
+          if (countdown != null) s.errAdviceBusyAuto else s.errAdviceBusy,
         ],
         ErrorKindTag.gone => [
           if (unsupported) s.errAdviceUnsupported else s.errAdviceGone,
         ],
         ErrorKindTag.broker => [
           if (status == null) s.errAdviceBrokerSaid,
-          if (at case final t? when main == ErrorAction.log)
+          if (at case final t? when main == ErrorButton.log)
             s.errAdviceBroker(Formats.clock(t)),
         ],
         ErrorKindTag.studio => [
@@ -526,7 +540,7 @@ final class ErrorSaid extends Equatable {
       detailsLabel: s.errDetails,
       chip: switch (status) {
         final st? => st,
-        null => r == null ? kind.name : s.errChipStudio(r.type),
+        null => r == null ? kind.chip : s.errChipStudio(r.type),
       },
       details: [
         if (statusLine case final st?) ErrorRowVm(s.errRowStatus, st),
@@ -552,24 +566,21 @@ final class ErrorSaid extends Equatable {
           ),
         if (r != null) ErrorRowVm(s.errRowReport, s.errReportNote),
       ],
-      detailsOpen: kind == ErrorKindTag.broker || kind == ErrorKindTag.studio,
+      detailsOpen: detailsOpen,
       copy: r != null ? s.errCopyReport : s.errCopyDetails,
       secondary: switch (main) {
-        ErrorAction.ok when kind == ErrorKindTag.rights => s.errSeeAccess,
-        ErrorAction.ok || ErrorAction.form => null,
+        ErrorButton.ok when kind == ErrorKindTag.rights => s.errSeeAccess,
+        ErrorButton.ok || ErrorButton.form => null,
         _ => s.closeLabel,
       },
       primary: switch (main) {
-        ErrorAction.ok => s.ok,
-        ErrorAction.retry => s.errTryAgain,
-        ErrorAction.form => s.errBackToForm,
-        ErrorAction.refresh => s.errRefresh,
-        ErrorAction.log => s.errOpenLog,
+        ErrorButton.ok => s.ok,
+        ErrorButton.retry => s.errTryAgain,
+        ErrorButton.form => s.errBackToForm,
+        ErrorButton.refresh => s.errRefresh,
+        ErrorButton.log => s.errOpenLog,
       },
-      countdown:
-          kind == ErrorKindTag.busy && main == ErrorAction.retry && !readOnly
-          ? (wait ?? busyWait)
-          : null,
+      countdown: countdown,
       countdownLabel: s.errTryAgainIn,
       close: s.closeLabel,
     );
@@ -642,7 +653,9 @@ final class ErrorSaid extends Equatable {
     kind,
     icon,
     thing,
-    givenTitle,
+    titleKind,
+    voice,
+    foreign,
     message,
     hint,
     status,
@@ -656,12 +669,11 @@ final class ErrorSaid extends Equatable {
     at,
     quiet,
     write,
-    canRetry,
-    canReload,
+    offersRetry,
+    detailsOpen,
     field,
     report,
     shown,
     stream,
-    wait,
   ];
 }

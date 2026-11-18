@@ -28,7 +28,8 @@ enum HintTag {
   signCancelled,
   signLockedOut,
   signKeyGone,
-  signUnavailable;
+  signUnavailable,
+  settingsUnreadable;
 
   String get text {
     final s = S.current;
@@ -55,6 +56,7 @@ enum HintTag {
       signLockedOut => s.errSignLockedOut,
       signKeyGone => s.errSignKeyGone,
       signUnavailable => s.errSignUnavailable,
+      settingsUnreadable => s.fatalBody,
     };
   }
 }
@@ -68,12 +70,12 @@ sealed class ErrorHintVm extends Equatable {
   /// A sentence without a parameter.
   const factory ErrorHintVm.tag(HintTag tag) = HintTagVm;
 
-  /// A record that is not one Studio reads: [field] of it, and [reason].
+  /// A record that is not one Studio reads: [field] of it (its wire name;
+  /// empty for the record itself).
   const factory ErrorHintVm.unreadable(
     UnreadableThing what, {
     required String name,
-    required String field,
-    String reason,
+    String field,
   }) = HintUnreadableVm;
 
   /// A file that is not JSON: what the parser said.
@@ -121,39 +123,29 @@ final class HintTagVm extends ErrorHintVm {
 enum UnreadableThing { taskRecord, libraryBlock, flowDef }
 
 final class HintUnreadableVm extends ErrorHintVm {
-  const HintUnreadableVm(
-    this.what, {
-    required this.name,
-    required this.field,
-    this.reason = '',
-  });
+  const HintUnreadableVm(this.what, {required this.name, this.field = ''});
 
   final UnreadableThing what;
 
   /// The task, the block or the flow.
   final String name;
 
-  /// The field that does not read (for a flow: all that is wrong).
+  /// The field that does not read, by its wire name; empty for the whole.
   final String field;
-  final String reason;
 
   @override
-  String get text => switch (what) {
-    UnreadableThing.taskRecord => S.current.errTaskRecordInvalid(
-      name,
-      field,
-      reason,
-    ),
-    UnreadableThing.libraryBlock => S.current.errLibraryBlockInvalid(
-      name,
-      field,
-      reason,
-    ),
-    UnreadableThing.flowDef => S.current.errFlowDefInvalid(name, field),
-  };
+  String get text {
+    final s = S.current;
+    final whole = switch (what) {
+      UnreadableThing.taskRecord => s.errTaskRecordInvalid(name),
+      UnreadableThing.libraryBlock => s.errLibraryBlockInvalid(name),
+      UnreadableThing.flowDef => s.errFlowDefInvalid(name),
+    };
+    return field.isEmpty ? whole : s.errUnreadableField(whole, field);
+  }
 
   @override
-  List<Object?> get props => [what, name, field, reason];
+  List<Object?> get props => [what, name, field];
 }
 
 final class HintProfileNotJsonVm extends ErrorHintVm {

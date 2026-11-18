@@ -41,7 +41,7 @@ final class ToastVm extends Equatable {
     : id = failure.id,
       tone = failure.kind.tone,
       details = true,
-      retry = failure.canRetry && !failure.write,
+      retry = failure.offersRetry,
       seconds = 8,
       _title = '',
       _line = '',

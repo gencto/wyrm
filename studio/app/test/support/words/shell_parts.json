@@ -1,6 +1,6 @@
 {
   "toasts": [
-    "Studio couldn’t read t1",
+    "History of t1 unavailable",
     "timeout",
     "Details",
     "Try again",
@@ -8,13 +8,13 @@
     "Copied",
     "The details are on the clipboard.",
     "hides in 3 s",
-    "The broker refused the list of sys",
+    "Listing sys failed",
     "permission denied",
     "Details",
     "hides in 8 s"
   ],
   "toasts uk": [
-    "Studio couldn’t read t1",
+    "Історія t1 недоступна",
     "timeout",
     "Подробиці",
     "Спробувати ще раз",
@@ -22,13 +22,13 @@
     "Скопійовано",
     "Подробиці в буфері обміну.",
     "зникне через 3 с",
-    "The broker refused the list of sys",
+    "Список sys: помилка",
     "permission denied",
     "Подробиці",
     "зникне через 8 с"
   ],
   "details": [
-    "The broker refused the list of sys",
+    "Listing sys failed",
     "The broker said",
     "WHAT YOU CAN DO",
     "The call reached the broker and it answered no. Check what it names above.",

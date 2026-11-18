@@ -5,6 +5,7 @@ import 'package:models/error_hint.dart';
 import 'package:models/error_kind.dart';
 import 'package:models/error_subject.dart';
 import 'package:models/fault_report.dart';
+import 'package:models/foreign_words.dart';
 import 'package:models/studio_error.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -209,15 +210,6 @@ String withoutUserInfo(String url) {
       : u.replace(userInfo: '').toString();
 }
 
-/// Fills what only the app can say: the title (from kind, call, thing and
-/// site) and, for a fault in Studio, the sentence shown as its message.
-/// The app supplies it, because `business` never names a locale.
-typedef ErrorWording = StudioError Function(StudioError error);
-
-/// No words: the error as it is, for a store nobody reads the titles of
-/// (a test of `business`). The app always gives its own [ErrorWording].
-StudioError unworded(StudioError error) => error;
-
 /// A [StudioError] on its way through the store: a [UserException], so the
 /// observer, the error queue and `onOk` / `onCancel` work as before, with
 /// the error as data instead of text (`UserException.code` is an `int` and
@@ -230,7 +222,7 @@ class StudioException extends UserException {
     this.onOk,
     this.onCancel,
   }) : super(
-         error.title.isEmpty ? null : error.title,
+         error.foreign?.title,
          reason: error.message.isEmpty ? null : error.message,
        );
 
@@ -373,7 +365,8 @@ class StudioException extends UserException {
   String toString() =>
       'StudioException(${error.kind.name}'
       '${error.status == null ? '' : ' ${error.status!.name}'}: '
-      '${error.title}${error.where.isEmpty ? '' : ' [${error.where}]'}'
+      '${error.foreign?.title ?? ''}'
+      '${error.where.isEmpty ? '' : ' [${error.where}]'}'
       '${error.message.isEmpty ? '' : ': ${redact(error.message)}'})';
 }
 
@@ -399,8 +392,10 @@ StudioException _plain(UserException e) {
   return StudioException(
     StudioError(
       kind: ErrorKind.studio,
-      title: title.isEmpty ? content : title,
-      message: title.isEmpty ? '' : content,
+      foreign: ForeignWords(
+        title: title.isEmpty ? content : title,
+        detail: title.isEmpty ? '' : content,
+      ),
     ),
     ifOpenDialog: e.ifOpenDialog,
     errorText: e.errorText,

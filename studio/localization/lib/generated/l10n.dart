@@ -10239,6 +10239,41 @@ class S {
     );
   }
 
+  /// `rights`
+  String get errKindRights {
+    return Intl.message('rights', name: 'errKindRights', desc: '', args: []);
+  }
+
+  /// `reach`
+  String get errKindReach {
+    return Intl.message('reach', name: 'errKindReach', desc: '', args: []);
+  }
+
+  /// `input`
+  String get errKindInput {
+    return Intl.message('input', name: 'errKindInput', desc: '', args: []);
+  }
+
+  /// `busy`
+  String get errKindBusy {
+    return Intl.message('busy', name: 'errKindBusy', desc: '', args: []);
+  }
+
+  /// `gone`
+  String get errKindGone {
+    return Intl.message('gone', name: 'errKindGone', desc: '', args: []);
+  }
+
+  /// `broker`
+  String get errKindBroker {
+    return Intl.message('broker', name: 'errKindBroker', desc: '', args: []);
+  }
+
+  /// `studio`
+  String get errKindStudio {
+    return Intl.message('studio', name: 'errKindStudio', desc: '', args: []);
+  }
+
   /// `studio · {type}`
   String errChipStudio(String type) {
     return Intl.message(
@@ -17694,33 +17729,43 @@ class S {
     );
   }
 
-  /// `The record of task {task} is not one Studio reads: {field}: {reason}.`
-  String errTaskRecordInvalid(String task, String field, String reason) {
+  /// `The record of task {task} is not one Studio reads.`
+  String errTaskRecordInvalid(String task) {
     return Intl.message(
-      'The record of task $task is not one Studio reads: $field: $reason.',
+      'The record of task $task is not one Studio reads.',
       name: 'errTaskRecordInvalid',
       desc: '',
-      args: [task, field, reason],
+      args: [task],
     );
   }
 
-  /// `The library block {name} is not one Studio reads: {field}: {reason}.`
-  String errLibraryBlockInvalid(String name, String field, String reason) {
+  /// `The library block {name} is not one Studio reads.`
+  String errLibraryBlockInvalid(String name) {
     return Intl.message(
-      'The library block $name is not one Studio reads: $field: $reason.',
+      'The library block $name is not one Studio reads.',
       name: 'errLibraryBlockInvalid',
       desc: '',
-      args: [name, field, reason],
+      args: [name],
     );
   }
 
-  /// `The definition of flow {flow} is not one Studio reads: {why}.`
-  String errFlowDefInvalid(String flow, String why) {
+  /// `The definition of flow {flow} is not one Studio reads.`
+  String errFlowDefInvalid(String flow) {
     return Intl.message(
-      'The definition of flow $flow is not one Studio reads: $why.',
+      'The definition of flow $flow is not one Studio reads.',
       name: 'errFlowDefInvalid',
       desc: '',
-      args: [flow, why],
+      args: [flow],
+    );
+  }
+
+  /// `{what} The field {field} does not read.`
+  String errUnreadableField(String what, String field) {
+    return Intl.message(
+      '$what The field $field does not read.',
+      name: 'errUnreadableField',
+      desc: '',
+      args: [what, field],
     );
   }
 
@@ -17914,6 +17959,16 @@ class S {
     return Intl.message('$s s', name: 'answerSeconds', desc: '', args: [s]);
   }
 
+  /// `failed ({type})`
+  String answerFailed(String type) {
+    return Intl.message(
+      'failed ($type)',
+      name: 'answerFailed',
+      desc: '',
+      args: [type],
+    );
+  }
+
   /// `timed out`
   String get answerTimedOut {
     return Intl.message(
@@ -17934,13 +17989,13 @@ class S {
     );
   }
 
-  /// `not a WYRM gateway: {path}: expected {expected}, got {got}`
-  String answerWrongShape(String path, String expected, String got) {
+  /// `not a WYRM gateway: the field {path} does not read`
+  String answerWrongShape(String path) {
     return Intl.message(
-      'not a WYRM gateway: $path: expected $expected, got $got',
+      'not a WYRM gateway: the field $path does not read',
       name: 'answerWrongShape',
       desc: '',
-      args: [path, expected, got],
+      args: [path],
     );
   }
 

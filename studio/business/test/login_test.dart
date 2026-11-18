@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:async_redux/async_redux.dart';
 import 'package:business/persistor.dart';
@@ -12,11 +13,14 @@ import 'package:business/redux/login/actions/set_gateway_action.dart';
 import 'package:business/redux/login/actions/set_password_action.dart';
 import 'package:business/redux/login/actions/set_remember_action.dart';
 import 'package:business/redux/login/actions/set_user_action.dart';
+import 'package:business/wyrm/failures.dart';
 import 'package:business/wyrm/session.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/answer_fault.dart';
+import 'package:models/error_hint.dart';
 import 'package:models/login_failure.dart';
+import 'package:models/studio_error.dart';
 import 'package:storage/storage.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -55,6 +59,43 @@ void main() {
       expect(s.state.login.failure, isNull);
       expect(s.state.login.recent, ['http://a:8445']);
       expect(s.state.login.probes['http://a:8445'], 12);
+    });
+
+    test('a gateway typed with user:password@ never puts them into an error: '
+        'unreachable, a refused login, a thrown one', () async {
+      const typed = 'https://olena:gw-pass@plant.local:8445';
+      Future<StudioError> failed(FakeLogin login) async {
+        final s = fakeStore(login: login);
+        await fill(s, gateway: typed);
+        final status = await s.dispatchAndWait(LogInAction());
+        return (status.originalError! as StudioException).error;
+      }
+
+      for (final e in [
+        await failed(
+          FakeLogin(
+            answer: const GatewayProbe.noAnswer(AnswerFault.timedOut()),
+          ),
+        ),
+        await failed(
+          FakeLogin(error: WyrmException.of(Status.permissionDenied, 'no')),
+        ),
+        // what was thrown names the URL it was asked on, as HttpException does
+        await failed(
+          FakeLogin(error: const HttpException('refused, uri = $typed')),
+        ),
+      ]) {
+        expect(e.thing, 'https://plant.local:8445');
+        expect('$e', isNot(contains('gw-pass')));
+      }
+      final thrown = await failed(
+        FakeLogin(error: const HttpException('refused, uri = $typed')),
+      );
+      expect(
+        thrown.hint,
+        const ErrorHint.noAnswer(AnswerFault.failed('HttpException')),
+      );
+      expect(thrown.message, isEmpty);
     });
 
     test(

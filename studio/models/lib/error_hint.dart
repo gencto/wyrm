@@ -44,26 +44,24 @@ sealed class ErrorHint with _$ErrorHint {
   /// The agent link's parameters did not read, so no edit was staged.
   const factory ErrorHint.agentParamsUnread() = ErrorHintAgentParamsUnread;
 
-  /// The record of task [task] is not one Studio reads: its decoder says
-  /// which [field] and what is wrong with it ([reason]).
+  /// The record of task [task] is not one Studio reads: its [field] (by
+  /// its wire name; empty for the record itself). Why the field does not
+  /// read is the decoder's and goes to the log, never to the screen.
   const factory ErrorHint.taskRecordInvalid({
     required String task,
     required String field,
-    required String reason,
   }) = ErrorHintTaskRecordInvalid;
 
-  /// The library block [name] is not one Studio reads.
+  /// The library block [name] is not one Studio reads: its [field].
   const factory ErrorHint.libraryBlockInvalid({
     required String name,
     required String field,
-    required String reason,
   }) = ErrorHintLibraryBlockInvalid;
 
-  /// The definition of flow [flow] is not one Studio reads: [why] is the
-  /// decoder's `field: reason`.
+  /// The definition of flow [flow] is not one Studio reads: its [field].
   const factory ErrorHint.flowDefInvalid({
     required String flow,
-    required String why,
+    required String field,
   }) = ErrorHintFlowDefInvalid;
 
   /// The node has no `edit` action.
@@ -106,6 +104,9 @@ sealed class ErrorHint with _$ErrorHint {
 
   /// A gateway did not answer the probe before a log-in: [why].
   const factory ErrorHint.noAnswer(AnswerFault why) = ErrorHintNoAnswer;
+
+  /// Studio's own settings did not open or did not read at its start.
+  const factory ErrorHint.settingsUnreadable() = ErrorHintSettingsUnreadable;
 
   /// This computer's platform ([host]) holds no device key.
   const factory ErrorHint.noDeviceKey(HostPlatform host) = ErrorHintNoDeviceKey;

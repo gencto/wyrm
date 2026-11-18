@@ -144,12 +144,12 @@ extension AnswerFaultView on AnswerFault {
   AnswerWhy get view => switch (this) {
     AnswerFaultTimedOut() => const AnswerWhy.timedOut(),
     AnswerFaultNotGateway() => const AnswerWhy.notGateway(),
-    AnswerFaultWrongShape(:final path, :final expected, :final got) =>
-      AnswerWhy.wrongShape(path: path, expected: expected, got: got),
+    AnswerFaultWrongShape(:final path) => AnswerWhy.wrongShape(path),
     AnswerFaultHttp(:final code) => AnswerWhy.http(code),
     AnswerFaultUntrusted() => const AnswerWhy.untrusted(),
     AnswerFaultRefusedAfter(:final ms) => AnswerWhy.refusedAfter(ms),
     AnswerFaultNoRoute() => const AnswerWhy.noRoute(),
+    AnswerFaultFailed(:final type) => AnswerWhy.failed(type),
     AnswerFaultSaid(:final text) => AnswerWhy.said(text),
   };
 }

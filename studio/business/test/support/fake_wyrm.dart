@@ -8,8 +8,6 @@ import 'package:business/redux/app_state.dart';
 import 'package:business/wyrm/device_keys.dart';
 import 'package:business/wyrm/session.dart';
 import 'package:device_key/testing.dart';
-import 'package:models/error_kind.dart';
-import 'package:models/studio_error.dart';
 import 'package:storage/storage.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -116,12 +114,15 @@ class FakeWyrmApi implements WyrmApi {
     calls.add(Call('invoke', key, action: action, args: args));
     final id = '$key ▸ $action';
     guard(id);
+    final gate = _gateOf(id);
     if (invokesInTurn[id] case [final first, ...]) {
       invokesInTurn[id]!.removeAt(0);
+      await gate;
       await Future<void>.delayed(first.$1);
       yield* Stream.fromIterable(first.$2);
       return;
     }
+    await gate;
     await _delay(id);
     if (errors[id] case final e?) {
       throw e;
@@ -175,11 +176,13 @@ class FakeWyrmApi implements WyrmApi {
   @override
   Future<List<Child>> children(String key) async {
     calls.add(Call('children', key));
+    final gate = _gateOf(key);
     if (childrenInTurn[key] case [final first, ...]) {
       childrenInTurn[key]!.removeAt(0);
-      await Future<void>.delayed(first.$1);
-      return first.$2 ?? (throw first.$3!);
+      await gate;
+      return first.list ?? (throw first.refusal!);
     }
+    await gate;
     await _delay(key);
     if (errors[key] case final e?) {
       throw e;
@@ -188,12 +191,30 @@ class FakeWyrmApi implements WyrmApi {
   }
 
   /// Answers to the next lists of a key, one per call in call order: each
-  /// is the list as it was when the call was sent (or the refusal, when
-  /// the list is null) and comes back after its own delay (a gateway that
-  /// serves every call in a task of its own, so a later call may be
-  /// answered first). Before [children_].
-  final childrenInTurn =
-      <String, List<(Duration, List<Child>?, WyrmException?)>>{};
+  /// is the list as it was when the call was sent, or its refusal. When it
+  /// comes back is the test's to say ([gates]). Before [children_].
+  final childrenInTurn = <String, List<ListAnswer>>{};
+
+  /// Gates of the next calls of a key (a list) or of `key ▸ action` (an
+  /// invoke), one per call in call order: the call is answered only once
+  /// the test opens its gate ([hold]), so the order answers come in is
+  /// exact, with no clock (a gateway that serves every call in a task of
+  /// its own may answer a later call first).
+  final gates = <String, List<Completer<void>>>{};
+
+  /// Holds the next call of [id] until the gate it returns is completed.
+  Completer<void> hold(String id) {
+    final gate = Completer<void>();
+    (gates[id] ??= []).add(gate);
+    return gate;
+  }
+
+  /// The gate of the call of [id] that is being made now, taken when the
+  /// call is made; nothing to wait for when the test holds none.
+  Future<void> _gateOf(String id) => switch (gates[id]) {
+    [final first, ...] => (gates[id]!..removeAt(0), first.future).$2,
+    _ => Future<void>.value(),
+  };
 
   /// Answers to the next calls of an action, by `key ▸ action`, one per
   /// call in call order: each comes back after its own delay (a gateway
@@ -658,6 +679,16 @@ class FakeDevices {
   }
 }
 
+/// What one call of a list answers: the list, or its refusal.
+final class ListAnswer {
+  const ListAnswer(List<Child> this.list) : refusal = null;
+
+  const ListAnswer.refused(WyrmException this.refusal) : list = null;
+
+  final List<Child>? list;
+  final WyrmException? refusal;
+}
+
 /// Opens [session], or throws [error]; records what it was asked.
 class FakeLogin implements WyrmLogin {
   FakeLogin({
@@ -746,22 +777,6 @@ class FakeLogin implements WyrmLogin {
   }
 }
 
-/// The words of a test store: plain English, where the app gives its own
-/// (`app/lib/errors.dart`). `business` itself holds none.
-StudioError plainWording(StudioError e) {
-  if (e.title.isNotEmpty) {
-    return e;
-  }
-  final thing = e.thing ?? e.key?.split('/').last;
-  final what = [?e.call?.name, ?thing].join(' ');
-  return e.copyWith(
-    title: switch (e.kind) {
-      ErrorKind.studio => 'Studio could not finish ${e.call?.name ?? 'this'}',
-      _ => what.isEmpty ? 'The call failed' : '$what failed',
-    },
-  );
-}
-
 /// A store with real [AppDependencies] over in-memory storage (or
 /// [settings]), [login] and [keys] (a fake device key that offers nothing
 /// unless a test gives one).
@@ -779,7 +794,6 @@ Store<AppState> fakeStore({
     login: login ?? FakeLogin(),
     deviceKey: keys ?? FakeDeviceKey(availability: DeviceKeyAvailability.none),
     prompts: const PlainPrompts(),
-    wording: plainWording,
     // The platform's, unless a test hands in its own: a widget test
     // answers the platform channel itself.
     clipboard: clipboard ?? const SystemClipboard(),

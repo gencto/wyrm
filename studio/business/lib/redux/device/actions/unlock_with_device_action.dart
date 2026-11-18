@@ -1,6 +1,7 @@
 import 'package:async_redux/async_redux.dart';
 import 'package:device_key/device_key.dart';
 import 'package:models/answer_fault.dart';
+import 'package:models/error_hint.dart';
 import 'package:models/error_kind.dart';
 import 'package:models/login_failure.dart';
 import 'package:models/unlock_fallback.dart';
@@ -147,14 +148,14 @@ class UnlockWithDeviceAction extends Action with NonReentrant, WaitingAction {
       dispatchSync(
         SetLoginProgressAction(
           failure: LoginFailure.unreachable,
-          reason: AnswerFault.said(faultLine(e)),
+          reason: AnswerFault.failed('${e.runtimeType}'),
         ),
       );
-      throw StudioException.said(
+      throw StudioException.hinted(
         ErrorKind.reach,
-        faultLine(e),
+        ErrorHint.noAnswer(AnswerFault.failed('${e.runtimeType}')),
         call: const .known(.logIn),
-        thing: '${account.gateway}',
+        thing: GatewayAddress(account.gateway).text,
       ).withDialog(false);
     }
   }

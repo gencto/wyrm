@@ -12,6 +12,7 @@ import 'package:business/redux/problems/actions/retry_problem_action.dart';
 import 'package:business/redux/problems/actions/show_notice_action.dart';
 import 'package:business/redux/system/actions/aim_log_action.dart';
 import 'package:business/redux/system/actions/retrieve_system_log_action.dart';
+import 'package:business/wyrm/error_view.dart';
 import 'package:business/wyrm/failures.dart';
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
@@ -135,18 +136,14 @@ Future<void> _show(
   if (!readOnly) {
     store.dispatchSync(MarkProblemShownAction(e.id));
   }
-  final said = e.said;
-  final primary = said.primary(readOnly: readOnly);
+  final primary = e.action(readOnly: readOnly);
   final _Closed closed;
   try {
     closed =
         await ErrorDialog.show<_Closed>(
           context,
           (dialog) => ErrorDialog(
-            vm: said.dialog(
-              errorContextOf(store.state),
-              readOnly: readOnly,
-            ),
+            vm: e.dialog(errorContextOf(store.state), readOnly: readOnly),
             onPrimary: () => Navigator.of(dialog).pop(_Closed.primary),
             onSecondary: () => Navigator.of(dialog).pop(_Closed.secondary),
             onClose: () => Navigator.of(dialog).pop(_Closed.dismissed),
