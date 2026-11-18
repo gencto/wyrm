@@ -1,10 +1,11 @@
 //! Link tokens, key files and the internal CA.
 
+use crate::eckey::EcKey;
 use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
 use argon2::Argon2;
 use rcgen::{
     BasicConstraints, CertificateParams, CertificateSigningRequestParams, DnType,
-    ExtendedKeyUsagePurpose, IsCa, Issuer, KeyPair, KeyUsagePurpose, PublicKeyData,
+    ExtendedKeyUsagePurpose, IsCa, Issuer, KeyUsagePurpose, PublicKeyData,
 };
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -245,7 +246,7 @@ pub struct CertFiles {
 /// Internal CA (wiki "Транспорт"): `ca.pem` public, `ca.key` 0600.
 pub struct Pki {
     dir: PathBuf,
-    issuer: Issuer<'static, KeyPair>,
+    issuer: Issuer<'static, EcKey>,
 }
 
 impl Pki {
@@ -260,18 +261,18 @@ impl Pki {
             std::fs::read_to_string(&key_p),
         ) {
             (Ok(cert), Ok(key)) => {
-                let key = KeyPair::from_pem(&key)?;
+                let key = EcKey::from_pem(&key)?;
                 Issuer::from_ca_cert_pem(&cert, key)?
             }
             _ => {
-                let key = KeyPair::generate()?;
+                let key = EcKey::generate()?;
                 let mut p = CertificateParams::new(Vec::<String>::new())?;
                 p.distinguished_name.push(DnType::CommonName, "wyrm-ca");
                 p.is_ca = IsCa::Ca(BasicConstraints::Constrained(0));
                 p.key_usages = vec![KeyUsagePurpose::KeyCertSign, KeyUsagePurpose::CrlSign];
                 p.not_after = rcgen::date_time_ymd(2046, 1, 1);
                 let cert = p.self_signed(&key)?;
-                pd.write_file("ca.key", key.serialize_pem().as_bytes(), false)?;
+                pd.write_file("ca.key", key.pem().as_bytes(), false)?;
                 pd.write_file("ca.pem", cert.pem().as_bytes(), false)?;
                 Issuer::new(p, key)
             }
@@ -321,17 +322,13 @@ impl Pki {
                 }
             }
         }
-        let key = KeyPair::generate()?;
+        let key = EcKey::generate()?;
         let p = leaf_params(cn, sans, server, days)?;
         let cert = p.signed_by(&key, &self.issuer)?;
         // `out` (`pki`, `links/<id>`, `operators`) as a private directory: never
         // through a symlink, the key written through its handle
         let pd = private_dir_of(out)?;
-        pd.write_file(
-            &format!("{name}.key"),
-            key.serialize_pem().as_bytes(),
-            false,
-        )?;
+        pd.write_file(&format!("{name}.key"), key.pem().as_bytes(), false)?;
         pd.write_file(&format!("{name}.pem"), cert.pem().as_bytes(), false)?;
         Ok(files)
     }
@@ -479,14 +476,14 @@ pub fn broker_csr_key(site: &str, csr_pem: &str) -> Result<String, Error> {
 /// A new key for this broker towards an upstream site: `(key PEM, SHA-256
 /// of its public key)`. The key stays on this site (ADR 0015).
 pub fn new_broker_key() -> Result<(Zeroizing<String>, String), Error> {
-    let key = KeyPair::generate()?;
+    let key = EcKey::generate()?;
     let sha = wyrm_core::hex::sha256_hex(key.subject_public_key_info());
-    Ok((Zeroizing::new(key.serialize_pem()), sha))
+    Ok((key.pem(), sha))
 }
 
 /// The certificate request of `broker:<site>` for the key `key_pem`.
 pub fn broker_csr(site: &str, key_pem: &str) -> Result<String, Error> {
-    let key = KeyPair::from_pem(key_pem)?;
+    let key = EcKey::from_pem(key_pem)?;
     let mut p = CertificateParams::new(Vec::<String>::new())?;
     p.distinguished_name
         .push(DnType::CommonName, format!("broker:{site}"));

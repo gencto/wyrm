@@ -264,7 +264,11 @@ ALTS = re.compile(
     r"`[\w.-]+`\s*(?:,|\||/|\bor\b)\s*`[\w.-]+`"
     r"|`[\w-]+(?:\s*\|\s*[\w-]+)+`"
     r'|"[\w.-]+"\s*(?:,|\||/|\bor\b)\s*"[\w.-]+"'
-    r"|\b(?:one of|either)\b"
+    # "one of `a`, …", "either `a` or `b`": the words with values after them. The words
+    # alone are prose ("one of this site's sections", "every one of `names`", "in either
+    # case").
+    r"|\bone of:?\s+[`\"][\w.-]+[`\"]\s*(?:,|\||/|\bor\b)"
+    r"|\beither\s+[`\"][\w.-]+[`\"]\s+or\b"
     r"|\b[a-z_]+, [a-z_]+(?:, [a-z_]+)*,? or [a-z_]+\b"
 )
 
@@ -378,80 +382,88 @@ def c3_all(s: Source) -> list[int]:
             doc = doc_above(s, i)
             sig = s.masked[s.starts[i] : s.masked.find("{", s.starts[i]) + 1 or s.starts[i] + 400]
             for arg in re.findall(rf"\b([a-z_][a-z0-9_]*)\s*:\s*{STRINGY}", sig):
-                if re.search(rf"`{arg}`[^\n]*?(?:{ALTS.pattern})", doc):
+                # the list is about the argument: in the sentence that names it
+                if re.search(rf"`{arg}`(?:(?!\.\s)[^\n]){{0,120}}?(?:{ALTS.pattern})", doc):
                     hits.append(s.starts[i])
                     break
     return hits
 
 
 def c3_item(s: Source, offset: int) -> str:
-    """The field or function a C3 hit is on."""
+    """What a C3 hit is on: `Struct.field` (the struct, or the enum variant, that holds the
+    field) or `fn name`. A second field of the same name in another struct of the file is
+    another item."""
     line = s.lines[s.line_of(offset) - 1]
     fm = FIELD.match(line)
     if fm:
-        return fm.group(1)
+        owner = ""
+        for name, open_at, end in field_bodies(s.masked):
+            if open_at < offset < end:
+                owner = name  # the innermost body is listed last for a nested one
+        return f"{owner}.{fm.group(1)}"
     fn = re.search(r"\bfn\s+(\w+)", line)
-    return fn.group(1) if fn else ""
+    return f"fn {fn.group(1)}" if fn else ""
 
 
 # Text that C3's pattern counts and that is not a closed set: `(file, item)` with the
 # reason. C3 reads a doc comment, so it also counts a field whose doc gives examples of an
 # open value (`w1`, `w2`, …), and an argument whose name stands near a list of something
 # else. Such a hit is not fixed by rewording the doc and not hidden by a marker: it is
-# named here, with why its values are open, and counted as A4 so the list cannot grow
-# unseen. An entry that no longer matches a C3 hit fails the check (the code changed:
+# named here as `(file, "Struct.field" | "fn name")`, with why its values are open, and
+# counted as A4 (one hit per entry) so the list cannot grow unseen. An entry that no longer matches a C3 hit fails the check (the code changed:
 # take the entry out). A field whose values ARE a fixed list never goes here: it becomes
 # a `name_enum!`.
 C3_OPEN: dict[tuple[str, str], str] = {
-    ("crates/wyrm-core/src/time.rs", "parse_interval"): "the interval text `<n><unit>` this function parses: it is the decoder, and the listed letters are the units of its grammar",
-    ("crates/wyrm-link-sdk/src/auth.rs", "perm_on"): "`key` is a Zenoh key; the doc speaks of a grant of level `none`, which is typed (`Perm`)",
-    ("crates/wyrm-link-sdk/src/package.rs", "category"): "a repository entry's category is the text its repository wrote (any repository, ADR 0021, 0043); the broker shows it and branches on nothing; the doc lists examples",
-    ("crates/wyrm-link-sdk/src/driver/branch.rs", "parse"): "`driver` is a driver id (any driver crate has its own); `one of top` speaks of the typed `Level` list",
-    ("crates/wyrmd/src/announce.rs", "txt"): "the arguments are a site name and a host; the doc lists the keys of the TXT record the function writes",
-    ("tools/wyr/src/pack.rs", "add_to_index"): "`url` and `sha256` are a URL and a digest; the doc names the arguments",
-    ("crates/wyrm-history/src/engine.rs", "id"): "a watch's node id, numbered by the broker (`w<n>`); the doc gives two examples",
-    ("crates/wyrm-admin/src/audit.rs", "sub"): "a subject: `user:<id>`, `link:<id>`, `claimed:<text>`; it carries an id, so its values are open",
-    ("crates/wyrm-admin/src/control.rs", "revoke_widening"): "`keys` and `probe` are key expressions; `exactly one of keys` is prose",
-    ("crates/wyrm-gateway/src/lib.rs", "revoke_widening"): "`keys` and `probe` are key expressions; `exactly one of keys` is prose",
-    ("crates/wyrm-admin/src/fetch.rs", "redirect"): "`location` is the URL of a Location header, read by `wyrm_core::weburl`",
-    ("crates/wyrm-admin/src/history.rs", "query"): "`key` is a point key; the doc lists the columns of the rows it returns",
-    ("crates/wyrm-admin/src/registry.rs", "key_sha256"): "a SHA-256 digest in hex; `the admitted one of` is prose",
-    ("crates/wyrm-admin/src/secret.rs", "still_good"): "a certificate PEM, a common name and DNS names; `every one of sans` is prose",
-    ("crates/wyrm-flow/src/blocks.rs", "range"): "`date_range`'s text: an ISO range, a named range or a relative one with a number (`last 7 days`), parsed by `date::range`",
-    ("crates/wyrm-flow/src/catalog.rs", "display"): "a label for people; the doc gives two examples",
-    ("crates/wyrm-flow/src/scope.rs", "in_sections"): "`site` and `full` are a site name and a key; `one of this site's sections` is prose",
-    ("crates/wyrm-flow/src/scope.rs", "param"): "the name of a node type's parameter as its catalog entry declares it (125 types, each with its own names); the doc gives two examples",
-    ("crates/wyrm-gateway/src/lib.rs", "downstream_site_of"): "`key` is a key; `one of downstream_sites` speaks of a configured list of site names",
-    ("tools/wyrm-mcp/src/gateway.rs", "path"): "a node key; the doc gives examples for the model that calls the tool",
-    ("links/agent/src/lib.rs", "agent_key_ref"): "the name of a secret; `raw or hex` is the form of the secret's bytes",
-    ("links/agent/src/lib.rs", "id"): "a question's id, numbered per task (`q<n>`); the doc gives two examples",
-    ("links/agent/src/tools.rs", "id"): "a suggestion's id, numbered per task (`s<n>`); the doc gives two examples",
-    ("links/wasm/src/lib.rs", "package_world"): "`name` is a package name; the doc names the worlds, which are typed (`ComponentWorld`)",
-    ("crates/wyrm-link-api/src/lib.rs", "tls_connect"): "a host name and a PEM; the doc names the other host calls",
-    ("links/prometheus/src/expo.rs", "name"): "a metric name as the endpoint exposes it; the doc gives two examples",
-    ("crates/wyrm-dql/src/engine.rs", "error"): "a message for people, made of keys and causes; the doc lists what it may speak of",
-    ("crates/wyrm-dql/src/pattern.rs", "resolve"): "`row` is a key and `target` a path relative to it (`.`, `..`, segments)",
-    ("crates/wyrm-messenger/src/api.rs", "origin"): "text for an error message, composed (`template <name>`, `<origin> → <recipient>`)",
-    ("crates/wyrm-messenger/src/api.rs", "name"): "the link's own name: each messenger link crate brings its `Platform`, and the core branches on no platform name (ADR 0039)",
-    ("crates/wyrm-messenger/src/api.rs", "identify"): "a method name of the platform's API, set by the link crate",
+    ("crates/wyrm-core/src/time.rs", "fn parse_interval"): "the interval text `<n><unit>` this function parses: it is the decoder, and the listed letters are the units of its grammar",
+    ("crates/wyrm-link-sdk/src/auth.rs", "fn perm_on"): "`key` is a Zenoh key; the doc speaks of a grant of level `none`, which is typed (`Perm`)",
+    ("crates/wyrm-link-sdk/src/package.rs", "RepoEntry.category"): "a repository entry's category is the text its repository wrote (any repository, ADR 0021, 0043); the broker shows it and branches on nothing; the doc lists examples",
+    ("crates/wyrmd/src/announce.rs", "fn txt"): "the arguments are a site name and a host; the doc lists the keys of the TXT record the function writes",
+    ("crates/wyrm-history/src/engine.rs", "WatchCfg.id"): "a watch's node id, numbered by the broker (`w<n>`); the doc gives two examples",
+    ("crates/wyrm-admin/src/audit.rs", "AuditRecord.sub"): "a subject: `user:<id>`, `link:<id>`, `claimed:<text>`; it carries an id, so its values are open",
+    ("crates/wyrm-admin/src/fetch.rs", "fn redirect"): "`location` is the URL of a Location header, read by `wyrm_core::weburl`",
+    ("crates/wyrm-admin/src/history.rs", "fn query"): "`key` is a point key; the doc lists the columns of the rows it returns",
+    ("crates/wyrm-flow/src/blocks.rs", "Block.range"): "`date_range`'s text: an ISO range, a named range or a relative one with a number (`last 7 days`), parsed by `date::range`",
+    ("crates/wyrm-flow/src/catalog.rs", "Param.display"): "a label for people; the doc gives two examples",
+    ("crates/wyrm-flow/src/scope.rs", "Read.param"): "the name of a node type's parameter as its catalog entry declares it (125 types, each with its own names); the doc gives two examples",
+    ("tools/wyrm-mcp/src/gateway.rs", "TreeParams.path"): "a node key; the doc gives examples for the model that calls the tool",
+    ("links/agent/src/lib.rs", "AgentParams.agent_key_ref"): "the name of a secret; `raw or hex` is the form of the secret's bytes",
+    ("links/agent/src/lib.rs", "Question.id"): "a question's id, numbered per task (`q<n>`); the doc gives two examples",
+    ("links/agent/src/tools.rs", "Suggestion.id"): "a suggestion's id, numbered per task (`s<n>`); the doc gives two examples",
+    ("links/wasm/src/lib.rs", "fn package_world"): "`name` is a package name; the doc names the worlds, which are typed (`ComponentWorld`)",
+    ("links/prometheus/src/expo.rs", "Series.name"): "a metric name as the endpoint exposes it; the doc gives two examples",
+    ("crates/wyrm-dql/src/engine.rs", "Progress.error"): "a message for people, made of keys and causes; the doc lists what it may speak of",
+    ("crates/wyrm-messenger/src/api.rs", "Outgoing.origin"): "text for an error message, composed (`template <name>`, `<origin> → <recipient>`)",
+    ("crates/wyrm-messenger/src/api.rs", "Platform.name"): "the link's own name: each messenger link crate brings its `Platform`, and the core branches on no platform name (ADR 0039)",
+    ("crates/wyrm-messenger/src/api.rs", "Platform.identify"): "a method name of the platform's API, set by the link crate",
 }
 # The entries a run matched (a full run must match every one).
 C3_OPEN_SEEN: set[tuple[str, str]] = set()
 
 
+def c3_split(s: Source) -> tuple[list[int], list[int]]:
+    """C3's hits as `(closed, open)`: an entry of `C3_OPEN` takes exactly one hit, the first
+    of its item; a second hit on the same item (two functions of one name) stays in C3."""
+    closed, opened, taken = [], [], set()
+    for o in sorted(set(c3_all(s))):
+        key = (s.path, c3_item(s, o))
+        if key in C3_OPEN and key not in taken:
+            taken.add(key)
+            opened.append(o)
+        else:
+            closed.append(o)
+    return closed, opened
+
+
 def c3(s: Source) -> list[int]:
-    return s.hits("C3", [o for o in c3_all(s) if (s.path, c3_item(s, o)) not in C3_OPEN])
+    return s.hits("C3", c3_split(s)[0])
 
 
 def a4(s: Source) -> list[int]:
-    """Every C3 hit that `C3_OPEN` names as open text, counted like an exception."""
-    hits = []
-    for o in c3_all(s):
-        key = (s.path, c3_item(s, o))
-        if key in C3_OPEN:
-            C3_OPEN_SEEN.add(key)
-            hits.append(o)
-    return [s.line_of(o) for o in sorted(set(hits))]
+    """Every C3 hit that `C3_OPEN` names as open text, counted like an exception: one per
+    entry, so the count is the length of the list and can only go down with it."""
+    opened = c3_split(s)[1]
+    C3_OPEN_SEEN.update((s.path, c3_item(s, o)) for o in opened)
+    return [s.line_of(o) for o in opened]
 
 
 ARG_HELPERS = r"\b(?:arg|arg_str|opt_str|req_str|get_str|get_u64|get_bool|get_f64|enum_arg|text_arg|choice|uint_arg|bool_arg)\(\s*[^;)]*?\""
@@ -896,13 +908,14 @@ def c13(s: Source) -> list[int]:
 # why, and every call is counted, so a new one shows in review. The second list is what
 # has no call today and must stay so (a hit there is a new second source).
 LIBRARY_RNG = [
-    # rcgen makes its own `ring::rand::SystemRandom` for a key pair, for every ECDSA
-    # signature (the nonce) and to read a PKCS#8 key; its API takes no random source
-    r"\bKeyPair\s*::\s*generate(?:_for|_rsa_for)?\s*\(",
+    # rcgen's own key type opens a `ring::rand::SystemRandom` to make a key pair, to read
+    # one and for every signature. The broker's keys are `wyrm_admin::eckey::EcKey` (ring
+    # with `wyrm_core::rand::secure_random()`, handed to rcgen as its `SigningKey`), so any
+    # use of the rcgen type is counted: a path, an import, a constructor.
+    r"\brcgen\s*::\s*KeyPair\b",
+    r"\brcgen\s*::\s*\{[^}]*\bKeyPair\b[^}]*\}",
+    r"(?<![\w:])KeyPair\s*::\s*(?:generate\w*|from_\w+|try_from)\s*\(",
     r"\bgenerate_simple_self_signed\s*\(",
-    r"\.\s*signed_by\s*\(",
-    r"\.\s*self_signed\s*\(",
-    r"\.\s*serialize_request(?:_with_attributes)?\s*\(",
     # async-opcua makes the RSA key of an application certificate with its own source
     r"\bX509\s*::\s*cert_and_pkey\s*\(",
 ]
@@ -1119,15 +1132,27 @@ PROBES = [
     (
         "C3",
         "crates/wyrm-history/src/engine.rs",
-        "pub struct W {\n    /// `w1`, `w2`, …\n    pub id: String,\n    /// `a`, `b` or `c`.\n    pub kind: String,\n}",
+        "pub struct WatchCfg {\n    /// `w1`, `w2`, …\n    pub id: String,\n    /// `a`, `b` or `c`.\n    pub kind: String,\n}",
         1,
     ),
     (
         "A4",
         "crates/wyrm-history/src/engine.rs",
-        "pub struct W {\n    /// `w1`, `w2`, …\n    pub id: String,\n    /// `a`, `b` or `c`.\n    pub kind: String,\n}",
+        "pub struct WatchCfg {\n    /// `w1`, `w2`, …\n    pub id: String,\n    /// `a`, `b` or `c`.\n    pub kind: String,\n}",
         1,
     ),
+    # a field of the same name in another struct of the file is another item: it stays in C3
+    ("C3", "crates/wyrm-history/src/engine.rs", "pub struct WatchCfg {\n    /// `w1`, `w2`, …\n    pub id: String,\n}\npub struct Other {\n    /// `a`, `b` or `c`.\n    pub id: String,\n}", 1),
+    ("A4", "crates/wyrm-history/src/engine.rs", "pub struct WatchCfg {\n    /// `w1`, `w2`, …\n    pub id: String,\n}\npub struct Other {\n    /// `a`, `b` or `c`.\n    pub id: String,\n}", 1),
+    # an entry takes one hit: a second item of the same key stays in C3
+    ("C3", "crates/wyrm-admin/src/fetch.rs", "/// `location`: `a`, `b` or `c`.\nfn redirect(location: &str) {}\n/// `location`: `a`, `b` or `c`.\nfn redirect(location: &str, n: u8) {}", 1),
+    ("A4", "crates/wyrm-admin/src/fetch.rs", "/// `location`: `a`, `b` or `c`.\nfn redirect(location: &str) {}\n/// `location`: `a`, `b` or `c`.\nfn redirect(location: &str, n: u8) {}", 1),
+    # "one of" and "either" count with a value after them, not as prose
+    ("C3", "x.rs", "pub struct R {\n    /// One of `a`, `b`.\n    pub kind: String,\n    /// Either `a` or `b`.\n    pub mode: String,\n}", 2),
+    ("C3", "x.rs", "pub struct R {\n    /// One of this site's sections, in either case.\n    pub key: String,\n}", 0),
+    ("C3", "x.rs", "/// Whether `key` is hex, in either case; every one of `names` is kept.\nfn f(key: &str, names: &str) {}", 0),
+    ("C3", "x.rs", "/// `mode`: `hold`, `clear` or `keep`.\nfn f(mode: &str) {}", 1),
+    ("C3", "x.rs", "/// Reads `key`. The rows have `time`, `value` and `quality`.\nfn f(key: &str) {}", 0),
     # the same item name in a file the list does not name stays in C3
     ("C3", "crates/wyrm-history/src/store.rs", "pub struct W {\n    /// `w1`, `w2`, …\n    pub id: String,\n}", 1),
     # C13: the body of a clock or hex helper, under any name
@@ -1152,9 +1177,13 @@ PROBES = [
     ("C13", "crates/wyrm-core/src/clock.rs", "pub fn now() -> SystemTime { SystemTime::now() }", 0),
     ("C13", "crates/wyrm-core/src/time.rs", "pub fn now() -> SystemTime { SystemTime::now() }", 1),
     # A5: a library that draws randomness itself
-    ("A5", "x.rs", "fn k() -> R { let key = KeyPair::generate()?; p.signed_by(&key, &ca)?; p.self_signed(&key) }", 3),
+    ("A5", "x.rs", "fn k() -> R { let key = KeyPair::generate()?; p.signed_by(&key, &ca)?; p.self_signed(&key) }", 1),
     ("A5", "x.rs", "fn k() -> R { rcgen::KeyPair::generate_for(&ALG)?; rcgen::generate_simple_self_signed(names) }", 2),
-    ("A5", "x.rs", "fn k() -> R { p.serialize_request(&key)?; X509::cert_and_pkey(&data) }", 2),
+    ("A5", "x.rs", "use rcgen::{CertificateParams, KeyPair, Issuer};\nstruct P { i: Issuer<'static, KeyPair> }", 1),
+    ("A5", "x.rs", "fn k() -> R { let k = KeyPair::from_pem(pem)?; KeyPair::try_from(der) }", 2),
+    ("A5", "x.rs", "fn k() -> R { p.serialize_request(&key)?; X509::cert_and_pkey(&data) }", 1),
+    # the broker's own key type and ring's are not rcgen's
+    ("A5", "x.rs", "fn k() -> R { let k = EcKey::generate()?; p.signed_by(&k, &ca)?; EcdsaKeyPair::generate_pkcs8(&ALG, &rng); ring::signature::KeyPair::public_key(&p) }", 0),
     ("A5", "x.rs", "fn k() { let h = RandomState::new(); let u = Uuid::new_v4(); let r = rand::random(); }", 3),
     ("A5", "x.rs", "struct S { seed: std::collections::hash_map::RandomState }\nfn n() -> S { S { seed: Default::default() } }", 1),
     ("A5", "x.rs", "fn k() -> u64 { std::hash::RandomState::default().hash_one(1) }", 1),
@@ -1162,7 +1191,7 @@ PROBES = [
     ("A5", "x.rs", "use std::hash::RandomState;", 1),
     ("A5", "x.rs", "fn k() { let m: HashMap<String, u8> = HashMap::new(); let r = MyRandomStateful; }", 0),
     ("A5", "x.rs", "fn k() { let k = SigningKey::generate(&mut r); let mut g = thread_rng(); fastrand::u8(..); }", 3),
-    ("A5", "x.rs", "fn k() -> R { KeyPair::from_pem(pem)?; wyrm_core::rand::bytes::<8>()?; SigningKey::from_bytes(&b) }", 0),
+    ("A5", "x.rs", "fn k() -> R { EcKey::from_pem(pem)?; wyrm_core::rand::bytes::<8>()?; SigningKey::from_bytes(&b) }", 0),
     ("A5", "x.rs", "#[cfg(test)]\nmod tests { fn k() { KeyPair::generate().unwrap(); } }", 0),
     ("C6", "x.rs", 'const NAMES: [&str; 2] = ["a", "b"];', 2),
     ("C6", "x.rs", "trait T { const NAMES: &'static [&'static str]; }", 0),

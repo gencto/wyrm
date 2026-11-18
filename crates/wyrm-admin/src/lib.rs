@@ -6,6 +6,7 @@ pub mod acl;
 pub mod audit;
 pub mod backup;
 pub mod control;
+pub mod eckey;
 pub mod fetch;
 pub mod git;
 pub mod history;
