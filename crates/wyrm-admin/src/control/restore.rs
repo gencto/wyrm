@@ -994,7 +994,7 @@ impl Admin {
         let sections: Vec<&str> = r.manifest.sections.iter().map(|s| s.name.name()).collect();
         ctl.record(
             sub,
-            "link_restore",
+            AuditOp::LinkRestore,
             &id,
             Status::Ok,
             &format!("from {from}; sections {}", sections.join(", ")),
@@ -1083,7 +1083,7 @@ impl Admin {
                     .map_err(|e| e.to_string())?;
                 ctl.record(
                     sub,
-                    "package_install",
+                    AuditOp::PackageInstall,
                     &def.name,
                     Status::Ok,
                     &install_detail(&def, app.as_ref()),

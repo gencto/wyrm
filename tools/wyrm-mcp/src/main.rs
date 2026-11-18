@@ -234,7 +234,7 @@ where
         Err(_) => {
             let mut raw = [0u8; 32];
             wyrm_core::rand::fill(&mut raw).map_err(|e| e.to_string())?;
-            let t: String = raw.iter().map(|b| format!("{b:02x}")).collect();
+            let t = wyrm_core::hex::encode(raw);
             eprintln!("wyrm-mcp: HTTP bearer token (send as Authorization: Bearer): {t}");
             t
         }

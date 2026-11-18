@@ -342,10 +342,9 @@ fn decode_name(s: &str) -> String {
     let mut out = Vec::with_capacity(b.len());
     let mut i = 0;
     while i < b.len() {
-        let hex = |c: u8| (c as char).to_digit(16);
         if b[i] == b'%' && i + 2 < b.len() {
-            if let (Some(h), Some(l)) = (hex(b[i + 1]), hex(b[i + 2])) {
-                out.push(u8::try_from(h * 16 + l).unwrap_or(b'_'));
+            if let Some(byte) = wyrm_core::hex::decode_byte(b[i + 1], b[i + 2]) {
+                out.push(byte);
                 i += 3;
                 continue;
             }

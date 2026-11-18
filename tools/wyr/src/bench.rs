@@ -3,8 +3,9 @@
 
 use crate::Error;
 use clap::Subcommand;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 use wyrm_client::WyrmClient;
+use wyrm_core::clock::now_us;
 use wyrm_core::Sample;
 
 #[derive(Subcommand, Debug)]
@@ -65,13 +66,6 @@ async fn list(c: &WyrmClient, node: &str, n: usize) -> Result<(), Error> {
     }
     report(&format!("list {node} ({children} children)"), "ms", ms);
     Ok(())
-}
-
-fn now_us() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_micros() as u64)
-        .unwrap_or(0)
 }
 
 async fn sub(c: &WyrmClient, pattern: &str, secs: u64) -> Result<(), Error> {

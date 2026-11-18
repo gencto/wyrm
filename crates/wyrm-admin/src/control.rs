@@ -12,7 +12,7 @@
 //! the host to rebuild the router runtime through the reload channel.
 
 use crate::acl;
-use crate::audit::{AuditLog, AuditRecord};
+use crate::audit::{AuditLog, AuditOp, AuditRecord};
 use crate::logs::LogLevel;
 use crate::packages;
 use crate::registry::{
@@ -37,6 +37,7 @@ use tokio::sync::{mpsc, Mutex as AsyncMutex};
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 use updates::UpdateOpts;
+use wyrm_core::clock::now_s;
 use wyrm_core::meta::Writable;
 use wyrm_core::meta::{is_code, ActionResult, Profile, GROUP_EDIT, GROUP_NEW};
 use wyrm_core::{ActionMeta, NodeMeta, Perm, Quality, Status, TypeCode, Value};
@@ -640,12 +641,6 @@ enum Answer {
     Refused(String),
 }
 
-/// SHA-256 (hex) of an admission token; the registry keeps only this.
-fn token_sha256(token: &str) -> String {
-    use sha2::{Digest, Sha256};
-    hex::encode(Sha256::digest(token.as_bytes()))
-}
-
 /// `via` given as a list or as `a, b` text.
 /// The site names of a `Via` field: `plant, cell`.
 fn via_names(text: &str) -> Vec<String> {
@@ -696,7 +691,6 @@ fn check_ca_pem(pem: &str) -> Result<(), String> {
 /// The certificate an upstream site sent: for `broker:<own site>` and for
 /// our key (SHA-256 of its public key).
 fn check_issued_cert(pem: &str, own: &str, key_sha256: &str) -> Result<(), String> {
-    use sha2::{Digest, Sha256};
     let (_, block) = x509_parser::pem::parse_x509_pem(pem.trim().as_bytes())
         .map_err(|e| format!("bad answer: certificate: {e}"))?;
     let cert = block
@@ -711,7 +705,7 @@ fn check_issued_cert(pem: &str, own: &str, key_sha256: &str) -> Result<(), Strin
     if cn != Some(want.as_str()) {
         return Err(format!("bad answer: certificate for {}", cn.unwrap_or("?")));
     }
-    if hex::encode(Sha256::digest(cert.public_key().raw)) != key_sha256 {
+    if wyrm_core::hex::sha256_hex(cert.public_key().raw) != key_sha256 {
         return Err("bad answer: certificate for another key".into());
     }
     Ok(())
@@ -733,10 +727,6 @@ fn cert_summary(pem: &str) -> String {
         "{cn}, valid until {}",
         cert.validity().not_after.to_datetime().date()
     )
-}
-
-fn now_s() -> u64 {
-    now_us() / 1_000_000
 }
 
 fn encode_params(v: &Value) -> Result<Vec<u8>, LinkError> {
@@ -876,7 +866,7 @@ impl Control {
         let reg = self.registry();
         let def = reg.tokens.get(id)?;
         let fresh = def.expires == 0 || now_s() < def.expires;
-        (fresh && def.sha256 == token_sha256(token)).then(|| id.to_owned())
+        (fresh && def.sha256 == wyrm_core::hex::sha256_hex(token.as_bytes())).then(|| id.to_owned())
     }
 
     /// Ask the daemon that owns this control plane to stop cleanly; its
@@ -973,7 +963,7 @@ impl Control {
             if self.secrets.remove(id, &n)? {
                 self.record(
                     sub,
-                    "secret_dropped",
+                    AuditOp::SecretDropped,
                     id,
                     Status::Ok,
                     &format!(
@@ -989,21 +979,21 @@ impl Control {
     /// Remove `path`, the files of something removed, after the state change that
     /// made them unused. What stays (its key, its certificate, its data) is logged
     /// and audited as `op` on `key`; the state change stands, so the caller goes on.
-    pub(crate) fn remove_left(&self, sub: &str, op: &str, key: &str, path: &Path) {
+    pub(crate) fn remove_left(&self, sub: &str, op: AuditOp, key: &str, path: &Path) {
         if let Err(e) = crate::nofollow::remove_any(path) {
             let what = format!("{} stays: {e}", path.display());
-            error!(key, "{op}: {what}");
+            error!(key, "{}: {what}", op.name());
             self.record(sub, op, key, Status::InternalError, &what);
         }
     }
 
     /// One record in the admin's audit journal (also for in-process
     /// components such as the user gateway). Never pass secret values.
-    pub fn record(&self, sub: &str, op: &str, key: &str, status: Status, detail: &str) {
+    pub fn record(&self, sub: &str, op: AuditOp, key: &str, status: Status, detail: &str) {
         let rec = AuditRecord {
             t: now_us(),
             sub: sub.to_owned(),
-            op: op.to_owned(),
+            op: op.into(),
             key: key.to_owned(),
             status: status.code(),
             detail: detail.to_owned(),
@@ -1512,7 +1502,7 @@ impl Control {
                     if l.mode.is_remote() {
                         self.link_cert(&l.id)?;
                     }
-                    self.record("system", "install", &l.id, Status::Ok, "wyrmd.json5");
+                    self.record("system", AuditOp::Install, &l.id, Status::Ok, "wyrmd.json5");
                 }
                 Some(d)
                     if d.origin == Origin::Config && (d.mode != l.mode || d.params != params) =>
@@ -1539,7 +1529,7 @@ impl Control {
                         mode: l.mode,
                         params,
                     })?;
-                    self.record("system", "update", &l.id, Status::Ok, "wyrmd.json5");
+                    self.record("system", AuditOp::Update, &l.id, Status::Ok, "wyrmd.json5");
                 }
                 Some(d) if d.origin == Origin::Runtime => {
                     warn!(link = %l.id, "installed at runtime; wyrmd.json5 entry ignored");
@@ -1553,11 +1543,11 @@ impl Control {
                 self.secrets.drop_link(&d.id)?;
                 self.apply(Op::Remove(d.id.clone()))?;
                 if let Ok(dir) = self.link_dir(&d.id) {
-                    self.remove_left("system", "remove", &d.id, &dir);
+                    self.remove_left("system", AuditOp::Remove, &d.id, &dir);
                 }
                 self.record(
                     "system",
-                    "remove",
+                    AuditOp::Remove,
                     &d.id,
                     Status::Ok,
                     "gone from wyrmd.json5",
@@ -1609,7 +1599,7 @@ impl Control {
                     Ok(()) => {
                         self.record(
                             "system",
-                            "watch_key",
+                            AuditOp::WatchKey,
                             &format!("{group}/{id}"),
                             Status::Ok,
                             &key,
@@ -1637,10 +1627,15 @@ impl Control {
         for site in &gone {
             match self.apply(Op::RemovePeer(site.clone())) {
                 Ok(()) => {
-                    self.remove_left("system", "peer_remove", site, &self.peer_ca_path(site));
+                    self.remove_left(
+                        "system",
+                        AuditOp::PeerRemove,
+                        site,
+                        &self.peer_ca_path(site),
+                    );
                     self.record(
                         "system",
-                        "peer_remove",
+                        AuditOp::PeerRemove,
                         site,
                         Status::Ok,
                         "now in wyrmd.json5",
@@ -1652,7 +1647,7 @@ impl Control {
                     error!(site = %site, error = %e, "peer {site} is in wyrmd.json5, but its runtime entry is not removed");
                     self.record(
                         "system",
-                        "peer_remove",
+                        AuditOp::PeerRemove,
                         site,
                         Status::InternalError,
                         &format!("now in wyrmd.json5; the runtime entry stays: {e}"),
@@ -3100,7 +3095,7 @@ async fn enroll_upstreams(ctl: Arc<Control>, ctx: LinkCtx) {
                         );
                         ctl.record(
                             "system",
-                            "peer_token_kept",
+                            AuditOp::PeerTokenKept,
                             &def.site,
                             Status::InternalError,
                             &format!("the used enrollment token stays sealed: {e}"),
@@ -3111,7 +3106,7 @@ async fn enroll_upstreams(ctl: Arc<Control>, ctx: LinkCtx) {
                     } else {
                         "renewed"
                     };
-                    ctl.record("system", "peer_cert", &def.site, Status::Ok, how);
+                    ctl.record("system", AuditOp::PeerCert, &def.site, Status::Ok, how);
                     info!(site = %def.site, "certificate from the upstream site: connecting");
                     let k = format!("upstream/{}/certificate", def.site);
                     let _ = ctx
@@ -3183,7 +3178,7 @@ async fn expire_enrollments(ctl: Arc<Control>, ctx: LinkCtx) {
                     error!(site = %site, error = %e, "an expired enrollment request is not dropped");
                     ctl.record(
                         "system",
-                        "enrollment_expire",
+                        AuditOp::EnrollmentExpire,
                         &site,
                         Status::InternalError,
                         &format!("not dropped: {e}"),
@@ -3724,7 +3719,7 @@ impl Link for Admin {
                 .map_err(rejected)?;
             self.ctl.record(
                 &sub_of(who),
-                "log_level",
+                AuditOp::LogLevel,
                 "broker",
                 Status::Ok,
                 level.name(),
@@ -3770,7 +3765,7 @@ impl Link for Admin {
             .map_err(rejected)?;
         self.ctl.record(
             &sub_of(who),
-            "set_option",
+            AuditOp::SetOption,
             path,
             Status::Ok,
             &on.to_string(),
@@ -3921,8 +3916,13 @@ impl Link for Admin {
                 // a link held after a rollback that did not restore its data
                 // starts only when the operator says so (ADR 0048 §1.6)
                 if a.force && self.ctl.release_hold(id) {
-                    self.ctl
-                        .record(&sub, "start", id, Status::Ok, "forced: the hold is lifted");
+                    self.ctl.record(
+                        &sub,
+                        AuditOp::Start,
+                        id,
+                        Status::Ok,
+                        "forced: the hold is lifted",
+                    );
                 }
                 self.start_link(id, &sub).await.map(|_| None)
             }
@@ -3936,7 +3936,7 @@ impl Link for Admin {
             }
             (["links", id], "update") => {
                 let a = UpdateParams::decode(args)?;
-                self.update_params(id, Value::Map(a.params), &sub, "update")
+                self.update_params(id, Value::Map(a.params), &sub, AuditOp::Update)
                     .await
             }
             (["links", id], "history") => {
@@ -3987,7 +3987,7 @@ impl Link for Admin {
                     .get(*id)
                     .and_then(|h| h.iter().find(|(r, _)| *r == rev).cloned())
                     .ok_or_else(|| LinkError::not_found(format!("{id} rev {rev}")))?;
-                self.update_params(id, decode_params(&old.1), &sub, "rollback")
+                self.update_params(id, decode_params(&old.1), &sub, AuditOp::Rollback)
                     .await
             }
             // the link must exist before its arguments are read
@@ -4095,7 +4095,7 @@ impl Link for Admin {
                     .map_err(LinkError::invalid_parameter)?;
                 self.ctl.record(
                     &sub,
-                    "update_permissions",
+                    AuditOp::UpdatePermissions,
                     role,
                     Status::Ok,
                     &format!("{path} {}", level.name()),
@@ -4112,7 +4112,7 @@ impl Link for Admin {
                             let mut m = BTreeMap::new();
                             m.insert("t".into(), Value::UInt(r.t));
                             m.insert("sub".into(), Value::Str(r.sub));
-                            m.insert("op".into(), Value::Str(r.op));
+                            m.insert("op".into(), Value::Str(r.op.name().to_owned()));
                             m.insert("key".into(), Value::Str(r.key));
                             m.insert("status".into(), Value::UInt(r.status.into()));
                             m.insert("detail".into(), Value::Str(r.detail));
@@ -4316,7 +4316,7 @@ impl Admin {
             .drop_link(&id)
             .map_err(|e| LinkError::internal(e.to_string()))?;
         ctl.apply(Op::Install(def.clone())).map_err(rejected)?;
-        ctl.record(sub, "install", &id, Status::Ok, mode.name());
+        ctl.record(sub, AuditOp::Install, &id, Status::Ok, mode.name());
         ctl.ensure_store_key(&id)
             .map_err(|e| LinkError::internal(e.to_string()))?;
         if def.driver == AGENT_DRIVER {
@@ -4443,7 +4443,7 @@ impl Admin {
                     .map_err(|e| e.to_string())?;
                 self.ctl.record(
                     sub,
-                    "package_install",
+                    AuditOp::PackageInstall,
                     &def.name,
                     Status::Ok,
                     &install_detail(&def, app.as_ref()),
@@ -4520,14 +4520,14 @@ impl Admin {
         for l in reg.links.values().filter(|l| l.driver == driver) {
             if swapped.contains(&l.id) {
                 self.ctl
-                    .record(sub, "hot_start", &l.id, Status::Ok, &def.version);
+                    .record(sub, AuditOp::HotStart, &l.id, Status::Ok, &def.version);
                 continue;
             }
             let _ = self.stop_link(&l.id, sub).await;
             if let Err(e) = self.start_link(&l.id, sub).await {
                 self.ctl.record(
                     sub,
-                    "start",
+                    AuditOp::Start,
                     &l.id,
                     e.status,
                     &format!("after upgrade to {}: {}", def.version, e.message),
@@ -4575,7 +4575,7 @@ impl Admin {
             .ok_or_else(|| format!("{package}: no build for this host ({host})"))?;
         let url = wyrm_link_sdk::package::resolve(&index, &a.url)?;
         let zip = crate::fetch::get(&url, packages::MAX_ZIP, FETCH_TIMEOUT).await?;
-        let got = hex::encode(<sha2::Sha256 as sha2::Digest>::digest(&zip));
+        let got = wyrm_core::hex::sha256_hex(&zip);
         if !got.eq_ignore_ascii_case(&a.sha256) {
             return Err(format!("{package}: sha256 {got} does not match the index"));
         }
@@ -4598,10 +4598,11 @@ impl Admin {
             self.ctl.packages_root().join(name),
             self.ctl.component_store().join(format!("{name}.wasm")),
         ] {
-            self.ctl.remove_left(sub, "package_remove", name, &path);
+            self.ctl
+                .remove_left(sub, AuditOp::PackageRemove, name, &path);
         }
         self.ctl
-            .record(sub, "package_remove", name, Status::Ok, &def.version);
+            .record(sub, AuditOp::PackageRemove, name, Status::Ok, &def.version);
         self.ctx.remove_node(&format!("packages/{name}")).await?;
         Ok(None)
     }
@@ -4611,7 +4612,7 @@ impl Admin {
         let Some(def) = self.ctl.link_of_token(id, token).await else {
             self.ctl.record(
                 &format!("link:{id}"),
-                "hello",
+                AuditOp::Hello,
                 id,
                 Status::PermissionDenied,
                 "",
@@ -4619,7 +4620,7 @@ impl Admin {
             return Err(LinkError::new(Status::PermissionDenied, ""));
         };
         self.ctl
-            .record(&format!("link:{id}"), "hello", id, Status::Ok, "");
+            .record(&format!("link:{id}"), AuditOp::Hello, id, Status::Ok, "");
         let mut reply = BTreeMap::new();
         reply.insert("params".into(), decode_params(&def.params));
         // Over the link's own mTLS session only (ACL: CN `<id>` alone may
@@ -4692,7 +4693,7 @@ impl Admin {
         id: &str,
         params: Value,
         sub: &str,
-        op: &str,
+        op: AuditOp,
     ) -> wyrm_link_sdk::Result<Option<Value>> {
         let def = self.def(id)?;
         if def.origin == Origin::Config {
@@ -4799,7 +4800,8 @@ impl Admin {
             .secrets
             .set(id, name, a.value.0.expose())
             .map_err(|e| LinkError::internal(e.to_string()))?;
-        self.ctl.record(sub, "set_secret", id, Status::Ok, name);
+        self.ctl
+            .record(sub, AuditOp::SetSecret, id, Status::Ok, name);
         self.reload_if_agent(id);
         Ok(Some(self.secret_names(id)))
     }
@@ -4820,7 +4822,8 @@ impl Admin {
         if !had {
             return Err(LinkError::not_found(name.to_owned()));
         }
-        self.ctl.record(sub, "delete_secret", id, Status::Ok, name);
+        self.ctl
+            .record(sub, AuditOp::DeleteSecret, id, Status::Ok, name);
         self.reload_if_agent(id);
         Ok(Some(self.secret_names(id)))
     }
@@ -4859,7 +4862,8 @@ impl Admin {
                 cbor: cbor.clone(),
             })
             .map_err(rejected)?;
-        self.ctl.record(sub, "profile_put", &name, Status::Ok, "");
+        self.ctl
+            .record(sub, AuditOp::ProfilePut, &name, Status::Ok, "");
         let key = profile_key(&self.ctl.cfg.site, &name);
         if let Err(e) = self.ctx.client().put(&key, cbor).await {
             debug!("publish {key}: {e}");
@@ -4873,7 +4877,7 @@ impl Admin {
             .apply(Op::RemoveProfile(name.clone()))
             .map_err(rejected)?;
         self.ctl
-            .record(sub, "profile_remove", &name, Status::Ok, "");
+            .record(sub, AuditOp::ProfileRemove, &name, Status::Ok, "");
         let key = profile_key(&self.ctl.cfg.site, &name);
         if let Err(e) = self.ctx.client().delete(&key).await {
             debug!("delete {key}: {e}");
@@ -4916,7 +4920,7 @@ impl Admin {
             }
             Mode::External => return Err(LinkError::not_supported("external links run elsewhere")),
         }
-        self.ctl.record(sub, "start", id, Status::Ok, "");
+        self.ctl.record(sub, AuditOp::Start, id, Status::Ok, "");
         Ok(())
     }
 
@@ -4932,7 +4936,7 @@ impl Admin {
             Mode::Process => self.ctl.supervisor.stop(id).await,
             Mode::External => return Err(LinkError::not_supported("external links run elsewhere")),
         }
-        self.ctl.record(sub, "stop", id, Status::Ok, "");
+        self.ctl.record(sub, AuditOp::Stop, id, Status::Ok, "");
         Ok(())
     }
 
@@ -5004,10 +5008,10 @@ impl Admin {
             .apply(Op::Remove(id.to_owned()))
             .map_err(rejected)?;
         if let Ok(dir) = self.ctl.link_dir(id) {
-            self.ctl.remove_left(sub, "remove", id, &dir);
+            self.ctl.remove_left(sub, AuditOp::Remove, id, &dir);
         }
         if let Some(dir) = crate::restore_point::dir_of_link(&self.ctl.restore_root(), id) {
-            self.ctl.remove_left(sub, "remove", id, &dir);
+            self.ctl.remove_left(sub, AuditOp::Remove, id, &dir);
         }
         self.ctx.remove_node(&format!("links/{id}")).await?;
         updates::publish_count(&self.ctx, &self.ctl).await;
@@ -5015,7 +5019,7 @@ impl Admin {
         if let Some(lc) = crate::logs::global() {
             let _ = lc.set_link_level(id, None);
         }
-        self.ctl.record(sub, "remove", id, Status::Ok, "");
+        self.ctl.record(sub, AuditOp::Remove, id, Status::Ok, "");
         self.revoke_link_grants(id, sub);
         Ok(
             def.mode.is_remote()
@@ -5074,7 +5078,7 @@ impl Admin {
             display,
             granted: grant.as_ref().map(|(_, role)| role.clone()),
         };
-        let token = admit(&self.ctl, &self.ctx, cn, how, sub, "approve").await?;
+        let token = admit(&self.ctl, &self.ctx, cn, how, sub, AuditOp::Approve).await?;
         let mut reply = BTreeMap::new();
         if let Some(t) = token {
             reply.insert("token".into(), Value::Str(t));
@@ -5084,7 +5088,7 @@ impl Admin {
             match roles.set_grant(&role, &key, Perm::Write) {
                 Ok(()) => self.ctl.record(
                     sub,
-                    "update_permissions",
+                    AuditOp::UpdatePermissions,
                     &role,
                     Status::Ok,
                     &format!("{key} write"),
@@ -5118,7 +5122,7 @@ impl Admin {
                 .map_err(rejected)?;
             self.ctl.record(
                 sub,
-                "deauthorize",
+                AuditOp::Deauthorize,
                 &crate::registry::broker_cn(id),
                 Status::Ok,
                 "",
@@ -5140,10 +5144,11 @@ impl Admin {
             .drop_link(id)
             .map_err(|e| LinkError::internal(e.to_string()))?;
         if let Ok(dir) = self.ctl.link_dir(id) {
-            self.ctl.remove_left(sub, "deauthorize", id, &dir);
+            self.ctl.remove_left(sub, AuditOp::Deauthorize, id, &dir);
         }
         self.ctx.remove_node(&format!("links/{id}")).await?;
-        self.ctl.record(sub, "deauthorize", id, Status::Ok, "");
+        self.ctl
+            .record(sub, AuditOp::Deauthorize, id, Status::Ok, "");
         self.revoke_link_grants(&def.id, sub);
         self.ctl.schedule_reload();
         Ok(None)
@@ -5168,7 +5173,7 @@ impl Admin {
                 for (role, key, p) in gone {
                     self.ctl.record(
                         sub,
-                        "update_permissions",
+                        AuditOp::UpdatePermissions,
                         &role,
                         Status::Ok,
                         &format!("{key} none (was {}; link {id} gone)", p.name()),
@@ -5243,7 +5248,7 @@ impl Admin {
         }
         self.ctl.record(
             sub,
-            "peer_add",
+            AuditOp::PeerAdd,
             site,
             Status::Ok,
             &format!("upstream {url}"),
@@ -5261,7 +5266,7 @@ impl Admin {
             error!(site, error = %e, "{why}, but its sealed key and token stay in the secret store");
             self.ctl.record(
                 "system",
-                "peer_secrets_kept",
+                AuditOp::PeerSecretsKept,
                 site,
                 Status::InternalError,
                 &format!("{why}; its sealed key and token stay: {e}"),
@@ -5311,11 +5316,15 @@ impl Admin {
         // the registry entry is gone already: the files go after it, and one that
         // stays (our key for that upstream) is named in the log and the audit
         for ext in ["pem", "cert.pem", "key"] {
-            self.ctl
-                .remove_left(sub, "peer_remove", site, &self.ctl.peer_file(site, ext));
+            self.ctl.remove_left(
+                sub,
+                AuditOp::PeerRemove,
+                site,
+                &self.ctl.peer_file(site, ext),
+            );
         }
         self.ctl
-            .record(sub, "peer_remove", site, Status::Ok, "upstream");
+            .record(sub, AuditOp::PeerRemove, site, Status::Ok, "upstream");
         self.ctx.remove_node(&format!("upstream/{site}")).await?;
         self.ctl.schedule_reload();
         Ok(None)
@@ -5350,7 +5359,7 @@ impl Admin {
         key_sha256: String,
         cert_pem: String,
         sub: &str,
-        how: &str,
+        how: AuditOp,
     ) -> wyrm_link_sdk::Result<()> {
         // also on Authorize: peers may have changed since it was quarantined
         self.check_new_site(site)?;
@@ -5428,7 +5437,7 @@ impl Admin {
         } else {
             e.cert_pem.clone()
         };
-        self.admit_broker(site, via, e.key_sha256, cert, sub, "approve")
+        self.admit_broker(site, via, e.key_sha256, cert, sub, AuditOp::Approve)
             .await?;
         Ok(None)
     }
@@ -5502,7 +5511,7 @@ impl Admin {
                     })
                     .map_err(rejected)?;
                 self.ctl
-                    .record(&cn, "renew", &cn, Status::Ok, &cert_summary(&cert));
+                    .record(&cn, AuditOp::Renew, &cn, Status::Ok, &cert_summary(&cert));
                 info!(site = %site, "downstream broker certificate renewed");
                 return issued(cert);
             }
@@ -5543,7 +5552,7 @@ impl Admin {
             if seen.conflicts == 1 {
                 self.ctl.record(
                     &format!("broker:{site}"),
-                    "enroll",
+                    AuditOp::Enroll,
                     &cn,
                     Status::PermissionDenied,
                     "another key waits for this name",
@@ -5573,9 +5582,9 @@ impl Admin {
                         self.ctl.apply(Op::UseToken(id.clone())).map_err(rejected)?;
                         let _ = self.ctx.remove_node(&format!("tokens/{id}")).await;
                         declare_tokens(&self.ctx, &self.ctl).await?;
-                        "enroll_token"
+                        AuditOp::EnrollToken
                     }
-                    None => "auto_install",
+                    None => AuditOp::AutoInstall,
                 };
                 self.admit_broker(
                     &site,
@@ -5604,7 +5613,7 @@ impl Admin {
             self.ctl.enroll_touch(&site, false);
             self.ctl.record(
                 &format!("broker:{site}"),
-                "quarantine",
+                AuditOp::Quarantine,
                 &cn,
                 Status::PermissionDenied,
                 "enrollment",
@@ -5636,7 +5645,7 @@ impl Admin {
         let token = zeroize::Zeroizing::new(format!("{id}.{}", secret_part.as_str()));
         let now = now_s();
         let def = TokenDef {
-            sha256: token_sha256(&token),
+            sha256: wyrm_core::hex::sha256_hex(token.as_bytes()),
             uses: count,
             expires: if valid_s == 0 { 0 } else { now + valid_s },
             created: now,
@@ -5648,7 +5657,7 @@ impl Admin {
                 def,
             })
             .map_err(rejected)?;
-        self.ctl.record(sub, "token_add", &id, Status::Ok, "");
+        self.ctl.record(sub, AuditOp::TokenAdd, &id, Status::Ok, "");
         declare_tokens(&self.ctx, &self.ctl).await?;
         Ok(Some(Value::Map(BTreeMap::from([(
             "token".to_owned(),
@@ -5660,7 +5669,8 @@ impl Admin {
         self.ctl
             .apply(Op::RemoveToken(id.to_owned()))
             .map_err(rejected)?;
-        self.ctl.record(sub, "token_remove", id, Status::Ok, "");
+        self.ctl
+            .record(sub, AuditOp::TokenRemove, id, Status::Ok, "");
         self.ctx.remove_node(&format!("tokens/{id}")).await?;
         Ok(None)
     }
@@ -5695,7 +5705,7 @@ impl Admin {
             })
             .map_err(rejected)?;
         self.ctl
-            .record(sub, "peer_enable", site, Status::Ok, &on.to_string());
+            .record(sub, AuditOp::PeerEnable, site, Status::Ok, &on.to_string());
         self.ctl.enroll_wake.notify_one();
         self.ctx
             .update(
@@ -5722,8 +5732,13 @@ impl Admin {
                     "not a runtime upstream peer; peers from wyrmd.json5 are changed there",
                 )
             })?;
-        self.ctl
-            .record(sub, "peer_allow_config", site, Status::Ok, &on.to_string());
+        self.ctl.record(
+            sub,
+            AuditOp::PeerAllowConfig,
+            site,
+            Status::Ok,
+            &on.to_string(),
+        );
         self.ctx
             .update(
                 &format!("upstream/{site}/allow_config"),
@@ -5786,7 +5801,7 @@ impl Admin {
             .map_err(|e| LinkError::internal(e.to_string()))?;
         self.ctl.record(
             sub,
-            "link_grant",
+            AuditOp::LinkGrant,
             id,
             Status::Ok,
             &format!("{path} {}", level.name()),
@@ -5865,7 +5880,8 @@ impl Admin {
             Mode::External => {}
         }
         let shown = level.map_or("default", LogLevel::name);
-        self.ctl.record(sub, "log_level", id, Status::Ok, shown);
+        self.ctl
+            .record(sub, AuditOp::LogLevel, id, Status::Ok, shown);
         let idx = link_levels().iter().position(|l| l == shown).unwrap_or(0);
         self.ctx
             .update(
@@ -5884,7 +5900,7 @@ impl Admin {
         if let Some(site) = crate::registry::broker_site(cn) {
             self.ctl.enroll_forget(site);
         }
-        self.ctl.record(sub, "reject", cn, Status::Ok, "");
+        self.ctl.record(sub, AuditOp::Reject, cn, Status::Ok, "");
         self.ctx
             .remove_node(&format!("quarantine/{}", quarantine_node(cn)))
             .await
@@ -5909,7 +5925,7 @@ async fn admit(
     cn: &str,
     how: Admission,
     sub: &str,
-    op: &str,
+    op: AuditOp,
 ) -> wyrm_link_sdk::Result<Option<String>> {
     let Admission {
         driver,
@@ -6123,7 +6139,7 @@ async fn watch_quarantine(ctl: Arc<Control>, ctx: LinkCtx) {
                 display: None,
                 granted: None,
             };
-            match admit(&ctl, &ctx, &cn, how, "system", "auto_install").await {
+            match admit(&ctl, &ctx, &cn, how, "system", AuditOp::AutoInstall).await {
                 Ok(_) => info!(cn = %cn, "unknown certificate: installed (allow_all_links)"),
                 Err(e) => warn!(cn = %cn, "allow_all_links install failed: {e}"),
             }
@@ -6147,7 +6163,7 @@ async fn watch_quarantine(ctl: Arc<Control>, ctx: LinkCtx) {
         }
         ctl.record(
             &format!("cn:{cn}"),
-            "quarantine",
+            AuditOp::Quarantine,
             &cn,
             Status::PermissionDenied,
             &ev.link().src().to_string(),
@@ -6259,7 +6275,7 @@ async fn watch_audit(ctl: Arc<Control>, ctx: LinkCtx) {
                 for (link, n) in limiter.drain() {
                     ctl.record(
                         "system",
-                        "audit_dropped",
+                        AuditOp::AuditDropped,
                         &format!("wy/{}/sys/audit/{link}", ctl.cfg.site),
                         Status::RateLimited,
                         &format!("link:{link} dropped_by_broker:{n}"),
@@ -6351,7 +6367,7 @@ async fn watch_audit(ctl: Arc<Control>, ctx: LinkCtx) {
         let rec = AuditRecord {
             t: now_us(),
             sub: format!("claimed:{}", text("sub")),
-            op: text("op"),
+            op: crate::audit::claimed_op(&text("op")),
             key,
             status,
             detail: format!(
@@ -6714,7 +6730,7 @@ async fn watch_metrics(ctl: Arc<Control>, ctx: LinkCtx) {
         if total > last {
             ctl.record(
                 "system",
-                "acl_denied",
+                AuditOp::AclDenied,
                 "router",
                 Status::PermissionDenied,
                 &format!("+{}", total - last),
@@ -6742,6 +6758,7 @@ mod tests {
     }
 
     use super::{repository_retry, Control, ControlConfig, ALARM_LINK, DQL_LINK, SCHEDULER_LINK};
+    use crate::audit::AuditOp;
     use wyrm_core::Perm;
 
     struct NoDrivers;
@@ -6976,23 +6993,25 @@ mod tests {
         let ctl = control("leftover", false, |_| {});
         let d = &ctl.cfg.data_dir;
         std::fs::write(d.join("gone.pem"), b"x").unwrap();
-        ctl.remove_left("user:a", "peer_remove", "up1", &d.join("gone.pem"));
+        ctl.remove_left("user:a", AuditOp::PeerRemove, "up1", &d.join("gone.pem"));
         assert!(!d.join("gone.pem").exists());
-        ctl.remove_left("user:a", "peer_remove", "up1", &d.join("absent.pem"));
+        ctl.remove_left("user:a", AuditOp::PeerRemove, "up1", &d.join("absent.pem"));
         assert!(
-            ctl.audit_tail(10).iter().all(|r| r.op != "peer_remove"),
+            ctl.audit_tail(10)
+                .iter()
+                .all(|r| r.op != AuditOp::PeerRemove.into()),
             "removed or absent: nothing to report"
         );
         // a path below a file cannot be removed (ENOTDIR) for any user
         std::fs::write(d.join("a-file"), b"x").unwrap();
         ctl.remove_left(
             "user:a",
-            "peer_remove",
+            AuditOp::PeerRemove,
             "up1",
             &d.join("a-file").join("key"),
         );
         let r = ctl.audit_tail(10).into_iter().last().unwrap();
-        assert_eq!((r.op.as_str(), r.key.as_str()), ("peer_remove", "up1"));
+        assert_eq!((r.op.name(), r.key.as_str()), ("peer_remove", "up1"));
         assert_eq!(r.status, wyrm_core::Status::InternalError.code());
         assert!(r.detail.contains("stays"), "{}", r.detail);
     }

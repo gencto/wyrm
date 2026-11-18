@@ -26,7 +26,7 @@
 use crate::session::{self, Amr, SessionClaims};
 use crate::users::{Device, Op};
 use crate::{AuditEvent, Gateway, Principal};
-use sha2::{Digest, Sha256};
+use sha2::Sha256;
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::Mutex;
@@ -298,7 +298,7 @@ fn without_secrets(v: &Value) -> Value {
 /// `first 16 bytes of SHA-256(DER)` in lower-case hex: the code a person compares on the
 /// Trust screen (`ca_fp`, the `fp` TXT key, `wyrmd ca fingerprint`).
 pub fn ca_fingerprint(der: &[u8]) -> String {
-    hex(&Sha256::digest(der)[..16])
+    wyrm_core::hex::encode(&wyrm_core::hex::sha256(der)[..16])
 }
 
 /// [`ca_fingerprint`] in 8 groups of 4, as people read it.
@@ -308,10 +308,6 @@ pub fn grouped(fp: &str) -> String {
         .map(|c| String::from_utf8_lossy(c).into_owned())
         .collect::<Vec<_>>()
         .join(" ")
-}
-
-pub(crate) fn hex(b: &[u8]) -> String {
-    b.iter().map(|x| format!("{x:02x}")).collect()
 }
 
 fn map<const N: usize>(fields: [(&str, Value); N]) -> Value {
@@ -816,7 +812,7 @@ impl Gateway {
         }
         let mut raw = [0u8; 16];
         crate::rng::fill(&mut raw)?;
-        let id = hex(&raw);
+        let id = wyrm_core::hex::encode(raw);
         {
             let mut store = self.store();
             let db = store.state();
@@ -997,7 +993,7 @@ impl Gateway {
         self.audit(AuditEvent::StepUp {
             user: p.name.clone(),
             method: "device",
-            request: hex(request),
+            request: wyrm_core::hex::encode(request),
         });
         Ok(())
     }
@@ -1359,7 +1355,7 @@ mod tests {
             Nonces::new().unwrap().request_hash(&req("x")),
             "keyed per gateway"
         );
-        let plain: [u8; 32] = Sha256::digest(wyrm_core::codec::to_vec(&req("x")).unwrap()).into();
+        let plain: [u8; 32] = wyrm_core::hex::sha256(wyrm_core::codec::to_vec(&req("x")).unwrap());
         assert_ne!(n.request_hash(&req("x")), plain);
         let deep = Value::Array(vec![map([("token", Value::from("t"))])]);
         assert_eq!(without_secrets(&deep), Value::Array(vec![map([])]));
@@ -1370,7 +1366,7 @@ mod tests {
         // the vector Studio's encoder is checked against (docs/broker.md, device keys)
         let m = login_message("plant", "https://gw:8443", "olena", "d1", &[7; 4]);
         assert_eq!(
-            hex(&m),
+            wyrm_core::hex::encode(&m),
             "86737779726d2d6465766963652d6c6f67696e2f3165706c616e746f68747470733a2f2f67773a3834\
              3433656f6c656e616264314407070707"
         );
@@ -1408,7 +1404,10 @@ mod tests {
     fn fingerprints() {
         let fp = ca_fingerprint(b"der");
         assert_eq!(fp.len(), 32);
-        assert_eq!(&fp, &hex(&Sha256::digest(b"der")[..16]));
+        assert_eq!(
+            &fp,
+            &wyrm_core::hex::encode(&wyrm_core::hex::sha256(b"der")[..16])
+        );
         let g = grouped(&fp);
         assert_eq!(g.split(' ').count(), 8);
         assert!(g.split(' ').all(|p| p.len() == 4));

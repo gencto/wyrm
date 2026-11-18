@@ -72,7 +72,7 @@ impl SecretArg for SecretBytes {}
 ///
 /// This is the one secret that is trimmed, and a named exception
 /// (docs/rust-rules.md §12): a field of this type compiles only with
-/// `#[param(secret, trim)]`, and the rules count every use (A4). Never for a
+/// `#[param(secret, trim)]`, and the rules count every use (A6). Never for a
 /// passphrase or a key: a passphrase is a [`Secret`], whose spaces are part of
 /// it (trimmed, a passphrase of spaces would read as "not given").
 #[derive(Clone, Debug)]

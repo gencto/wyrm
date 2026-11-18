@@ -64,7 +64,6 @@ mod tests {
             b"Test Using Larger Than Block-Size Key - Hash Key First",
         );
         let want = "60e431591ee0b67f0d8a26aacbf5b77f8e0bc6213728c5140546040f0ee37f54";
-        let hex: String = tag.iter().map(|b| format!("{b:02x}")).collect();
-        assert_eq!(hex, want);
+        assert_eq!(crate::hex::encode(tag), want);
     }
 }

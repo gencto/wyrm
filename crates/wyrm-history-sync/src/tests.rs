@@ -477,7 +477,7 @@ fn urls_parse_as_before() {
 
 #[test]
 fn urls_and_queries() {
-    use crate::http::{loopback, parse_url, query_value};
+    use crate::http::{loopback, parse_url};
     assert_eq!(
         parse_url("https://eu.influx.cloud").unwrap(),
         (true, "eu.influx.cloud".into(), 443, String::new())
@@ -495,7 +495,10 @@ fn urls_and_queries() {
     ] {
         assert!(parse_url(bad).is_err(), "{bad}");
     }
-    assert_eq!(query_value("my org/1"), "my%20org%2F1");
+    assert_eq!(
+        wyrm_core::weburl::percent_encode("my org/1"),
+        "my%20org%2F1"
+    );
     assert!(loopback("localhost") && loopback("127.0.0.1") && loopback("::1"));
     assert!(!loopback("10.0.0.1"));
 }

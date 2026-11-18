@@ -29,7 +29,6 @@ use axum::Form;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use serde::Deserialize;
-use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Mutex;
@@ -681,7 +680,7 @@ fn redirect(o: &OAuth, q: &AuthorizeQuery, params: &[(&str, &str)]) -> Response 
     all.push(("iss", o.issuer()));
     url.push_str(
         &all.iter()
-            .map(|(k, v)| format!("{k}={}", pct(v)))
+            .map(|(k, v)| format!("{k}={}", wyrm_core::weburl::percent_encode(v)))
             .collect::<Vec<_>>()
             .join("&"),
     );
@@ -692,19 +691,6 @@ fn redirect(o: &OAuth, q: &AuthorizeQuery, params: &[(&str, &str)]) -> Response 
     r.headers_mut()
         .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
     r
-}
-
-/// Percent-encode everything but the unreserved characters (RFC 3986).
-fn pct(s: &str) -> String {
-    let mut o = String::new();
-    for b in s.bytes() {
-        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~') {
-            o.push(b as char);
-        } else {
-            o.push_str(&format!("%{b:02X}"));
-        }
-    }
-    o
 }
 
 pub(crate) async fn authorize_page(
@@ -814,7 +800,7 @@ pub(crate) struct TokenForm {
 }
 
 fn s256(verifier: &str) -> String {
-    URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()))
+    URL_SAFE_NO_PAD.encode(wyrm_core::hex::sha256(verifier.as_bytes()))
 }
 
 /// Constant time on equal lengths.
@@ -1152,6 +1138,9 @@ mod tests {
             esc("<a href=\"x\">&'"),
             "&lt;a href=&quot;x&quot;&gt;&amp;&#39;"
         );
-        assert_eq!(pct("a b/c?d"), "a%20b%2Fc%3Fd");
+        assert_eq!(
+            wyrm_core::weburl::percent_encode("a b/c?d"),
+            "a%20b%2Fc%3Fd"
+        );
     }
 }

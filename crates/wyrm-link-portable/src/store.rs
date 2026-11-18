@@ -19,7 +19,6 @@ use std::collections::{BTreeMap, HashMap};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use sha2::{Digest, Sha256};
 use tracing::warn;
 use wyrm_core::Value;
 use wyrm_link_api::buffer::{store_cost, MAX_STORE_KEYS, MAX_STORE_KEY_LEN};
@@ -45,7 +44,7 @@ fn size(k: &str, v: &[u8]) -> u64 {
 }
 
 fn file_name(key: &str) -> String {
-    hex::encode(Sha256::digest(key.as_bytes()))
+    wyrm_core::hex::sha256_hex(key.as_bytes())
 }
 
 impl Store {

@@ -3,9 +3,10 @@
 //! broker, which installs packages, and for `wyr`, which builds them.
 
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashSet};
 use std::io::{Cursor, Read, Write};
+/// Lower-case hex SHA-256.
+pub use wyrm_core::hex::sha256_hex;
 use wyrm_core::named::OrUnknown;
 
 /// The manifest at the root of a package zip.
@@ -352,15 +353,6 @@ pub fn host_of_triple(triple: &str) -> Option<&'static str> {
     })
 }
 
-/// Lower-case hex SHA-256.
-pub fn sha256_hex(bytes: &[u8]) -> String {
-    hex::encode(Sha256::digest(bytes))
-}
-
-fn is_sha256(s: &str) -> bool {
-    s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit())
-}
-
 /// One package of a repository index (`packages.repository`, as DSA's
 /// `linkRepositoryUrl`). A process package has a file per host in
 /// `assets`; one that runs anywhere (WASM) has `url` and `sha256`.
@@ -469,7 +461,9 @@ pub fn parse_index(bytes: &[u8]) -> Result<Vec<RepoEntry>, String> {
             return Err(bad("version: 1-32 of [A-Za-z0-9._+-]"));
         }
         match (&e.url, &e.sha256) {
-            (Some(_), Some(s)) if !is_sha256(s) => return Err(bad("sha256 must be 64 hex digits")),
+            (Some(_), Some(s)) if !wyrm_core::hex::is_hex(s, 32) => {
+                return Err(bad("sha256 must be 64 hex digits"))
+            }
             (Some(_), Some(_)) => {}
             (None, None) if !e.assets.is_empty() => {}
             (None, None) => return Err(bad("no assets and no url")),
@@ -479,7 +473,7 @@ pub fn parse_index(bytes: &[u8]) -> Result<Vec<RepoEntry>, String> {
             if host.is_empty() || a.url.is_empty() {
                 return Err(bad("an asset needs a host and a url"));
             }
-            if !is_sha256(&a.sha256) {
+            if !wyrm_core::hex::is_hex(&a.sha256, 32) {
                 return Err(bad("sha256 must be 64 hex digits"));
             }
         }

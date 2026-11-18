@@ -20,7 +20,7 @@ pub fn json_value(v: &Value) -> Json {
             .map(Json::Number)
             .unwrap_or(Json::Null),
         Value::Str(s) => Json::String(s.clone()),
-        Value::Bytes(b) => Json::String(b.iter().map(|x| format!("{x:02x}")).collect()),
+        Value::Bytes(b) => Json::String(wyrm_core::hex::encode(b)),
         Value::Array(a) => Json::Array(a.iter().map(json_value).collect()),
         Value::Map(m) => Json::Object(m.iter().map(|(k, v)| (k.clone(), json_value(v))).collect()),
     }

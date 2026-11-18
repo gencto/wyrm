@@ -15,7 +15,7 @@ use crate::link::Link;
 use crate::runtime::{self, LinkConfig, LinkHandle};
 use ed25519_dalek::{Signer, SigningKey};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 use wyrm_core::codec::{from_slice, to_vec};
 use wyrm_core::keyspace::{self, SUFFIX_META};
 use wyrm_core::ptok::{Grant, PtokClaims, PTOK_VERSION};
@@ -123,10 +123,7 @@ impl<L: Link> TestHarness<L> {
 
     /// Valid claims (site, 5 min expiry, fresh `jti`, `max = config`).
     pub fn claims(&self, grants: &[(&str, Perm)]) -> PtokClaims {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+        let now = wyrm_core::clock::now_s();
         let mut jti = [0u8; 16];
         jti[..8].copy_from_slice(&self.jti.fetch_add(1, Ordering::Relaxed).to_be_bytes());
         PtokClaims {

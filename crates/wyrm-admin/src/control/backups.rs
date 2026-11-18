@@ -1523,8 +1523,8 @@ impl Control {
         running.id = Some(id.clone());
         self.backups.notify();
         let (op, key) = match &req.link {
-            Some(l) => ("link_backup", l.clone()),
-            None => ("backup_create", id.clone()),
+            Some(l) => (AuditOp::LinkBackup, l.clone()),
+            None => (AuditOp::BackupCreate, id.clone()),
         };
         // the request as it is audited: never the passphrase
         let has = |s: SectionName| chosen.contains(&s);
@@ -2111,7 +2111,7 @@ pub(super) async fn invoke(
             if offset == 0 {
                 ctl.record(
                     sub,
-                    "backup_download",
+                    AuditOp::BackupDownload,
                     id,
                     Status::Ok,
                     &format!("{size} bytes"),
@@ -2141,10 +2141,10 @@ pub(super) async fn invoke(
                 Some(_) => {}
             }
             match ctl.drop_backup(id) {
-                Ok(Some(j)) => ctl.record(sub, "backup_remove", id, Status::Ok, &j.file),
+                Ok(Some(j)) => ctl.record(sub, AuditOp::BackupRemove, id, Status::Ok, &j.file),
                 Ok(None) => {}
                 Err(e) => {
-                    ctl.record(sub, "backup_remove", id, Status::InternalError, &e);
+                    ctl.record(sub, AuditOp::BackupRemove, id, Status::InternalError, &e);
                     return Err(LinkError::internal(format!("backup {id} stays: {e}")));
                 }
             }

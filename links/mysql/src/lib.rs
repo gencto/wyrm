@@ -16,7 +16,7 @@
 //! password goes in with ▸ Set password.
 
 use sha1::Sha1;
-use sha2::{Digest, Sha256};
+use sha2::Digest;
 use std::collections::HashMap;
 use wyrm_core::Value;
 use wyrm_history_sync::http::loopback;
@@ -142,7 +142,7 @@ fn parse(cfg: &Map) -> Result<Cfg, String> {
 
 /// Text as a utf8mb4 hex literal: nothing in it is ever read as SQL.
 fn hex_text(s: &str) -> String {
-    let hex: String = s.bytes().map(|b| format!("{b:02X}")).collect();
+    let hex = wyrm_core::hex::encode_upper(s);
     format!("CONVERT(X'{hex}' USING utf8mb4)")
 }
 
@@ -212,12 +212,10 @@ fn native_scramble(password: &str, nonce: &[u8]) -> Vec<u8> {
 
 /// `caching_sha2_password`: SHA256(pw) XOR SHA256(SHA256(SHA256(pw)) + nonce).
 fn sha2_scramble(password: &str, nonce: &[u8]) -> Vec<u8> {
-    let p1 = Sha256::digest(password.as_bytes());
-    let p2 = Sha256::digest(p1);
-    let mut h = Sha256::new();
-    h.update(p2);
-    h.update(nonce);
-    p1.iter().zip(h.finalize()).map(|(a, b)| a ^ b).collect()
+    let p1 = wyrm_core::hex::sha256(password.as_bytes());
+    let p2 = wyrm_core::hex::sha256(p1);
+    let mix = wyrm_core::hex::sha256_parts(&[&p2, nonce]);
+    p1.iter().zip(mix).map(|(a, b)| a ^ b).collect()
 }
 
 /// The answer to an auth plugin's challenge (an empty password answers nothing).

@@ -8,6 +8,7 @@
 use crate::{Config, Daemon, Error};
 use clap::{Parser, Subcommand};
 use std::process::ExitCode;
+use wyrm_admin::audit::AuditOp;
 
 #[derive(Parser, Debug)]
 #[command(version, about = "WYRM broker")]
@@ -175,28 +176,32 @@ fn user_cmd(cfg: &Config, cmd: UserCmd) -> Result<(), Error> {
         UserCmd::Add { name, roles } => {
             let pw = read_password()?;
             gw.add_user(&name, &pw, roles.clone())?;
-            ua.record("user", &name, &format!("add roles={}", roles.join(",")))?;
+            ua.record(
+                AuditOp::User,
+                &name,
+                &format!("add roles={}", roles.join(",")),
+            )?;
         }
         UserCmd::Passwd { name } => {
             let pw = read_password()?;
             gw.set_password(&name, &pw)?;
-            ua.record("user", &name, "password")?;
+            ua.record(AuditOp::User, &name, "password")?;
         }
         UserCmd::Roles { name, roles } => {
             gw.set_roles(&name, roles.clone())?;
-            ua.record("user", &name, &format!("roles={}", roles.join(",")))?;
+            ua.record(AuditOp::User, &name, &format!("roles={}", roles.join(",")))?;
         }
         UserCmd::Disable { name } => {
             gw.set_disabled(&name, true)?;
-            ua.record("user", &name, "disabled")?;
+            ua.record(AuditOp::User, &name, "disabled")?;
         }
         UserCmd::Enable { name } => {
             gw.set_disabled(&name, false)?;
-            ua.record("user", &name, "enabled")?;
+            ua.record(AuditOp::User, &name, "enabled")?;
         }
         UserCmd::Remove { name } => {
             gw.remove_user(&name)?;
-            ua.record("user", &name, "remove")?;
+            ua.record(AuditOp::User, &name, "remove")?;
         }
     }
     println!("ok");
@@ -453,7 +458,7 @@ async fn run_with_standby(cfg: Config) -> Result<ExitCode, Error> {
         let ctl = daemon.control();
         ctl.record(
             "system",
-            "promoted",
+            AuditOp::Promoted,
             &peer,
             wyrm_core::Status::Ok,
             "the other broker was away",
@@ -468,18 +473,18 @@ async fn run_with_standby(cfg: Config) -> Result<ExitCode, Error> {
                 tokio::select! {
                     why = async { if leased { lease_lost(held2, &ctl2).await } else { std::future::pending().await } } => {
                         flag.store(true, Ordering::SeqCst);
-                        ctl2.record("system", "demoted", &peer2, wyrm_core::Status::Ok, why);
+                        ctl2.record("system", AuditOp::Demoted, &peer2, wyrm_core::Status::Ok, why);
                         tracing::warn!("standby: {why}; stepping down");
                     }
                     _ = stop_signal() => tracing::info!("stopping"),
                     _ = primary_is_back(&cfg2) => {
                         flag.store(true, Ordering::SeqCst);
-                        ctl2.record("system", "demoted", &peer2, wyrm_core::Status::Ok, "the primary broker is back");
+                        ctl2.record("system", AuditOp::Demoted, &peer2, wyrm_core::Status::Ok, "the primary broker is back");
                         tracing::warn!("standby: the primary is back; stepping down to follow it");
                     }
                     _ = isolated(&cfg2, &ctl2) => {
                         flag.store(true, Ordering::SeqCst);
-                        ctl2.record("system", "demoted", &peer2, wyrm_core::Status::Ok, "cut off: no witness and no standby");
+                        ctl2.record("system", AuditOp::Demoted, &peer2, wyrm_core::Status::Ok, "cut off: no witness and no standby");
                         tracing::warn!("standby: cut off (no witness answers, the standby is quiet); stepping down");
                     }
                 }

@@ -5,6 +5,7 @@
 //! The settings live in the registry (`Registry::historian`); the rows in
 //! `data_dir/history` ([`wyrm_history::Store`]).
 
+use crate::audit::AuditOp;
 use crate::control::{disk_free_mib, rejected, Control};
 use crate::registry::{check_watch_key, Op, Registry, WatchDef, WatchGroupDef, FLUSH_MS};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -669,7 +670,7 @@ pub(crate) async fn set(
             ctl.apply(Op::SetKeepAfterSync(days)).map_err(rejected)?;
             ctl.record(
                 sub,
-                "history_options",
+                AuditOp::HistoryOptions,
                 ROOT,
                 Status::Ok,
                 &format!("keep_after_sync_days {days:?}"),
@@ -695,7 +696,7 @@ pub(crate) async fn set(
             .map_err(rejected)?;
             ctl.record(
                 sub,
-                "history_watch",
+                AuditOp::HistoryWatch,
                 &format!("{group}/{id}"),
                 Status::Ok,
                 if on { "enabled" } else { "disabled" },
@@ -721,7 +722,7 @@ pub(crate) async fn set(
     .map_err(rejected)?;
     ctl.record(
         sub,
-        "history_options",
+        AuditOp::HistoryOptions,
         ROOT,
         Status::Ok,
         &format!("auto_purge {auto}, disk_space_remaining {keep} MiB, retention_days {days}"),
@@ -772,7 +773,7 @@ pub(crate) async fn invoke(
                     .max(*FLUSH_MS.start()),
             })
             .map_err(rejected)?;
-            ctl.record(sub, "history_group", name, Status::Ok, logging.name());
+            ctl.record(sub, AuditOp::HistoryGroup, name, Status::Ok, logging.name());
             let g = ctl.registry().historian.groups[name].clone();
             declare_group(ctx, name, &g).await?;
             apply_groups(ctl);
@@ -783,7 +784,7 @@ pub(crate) async fn invoke(
             let n = purge(ctl, None, from, to).await?;
             ctl.record(
                 sub,
-                "history_purge",
+                AuditOp::HistoryPurge,
                 ROOT,
                 Status::Ok,
                 &format!("{} {}: {n} rows", iso_us(from), iso_us(to)),
@@ -813,7 +814,13 @@ pub(crate) async fn invoke(
                     .max(*FLUSH_MS.start()),
             })
             .map_err(rejected)?;
-            ctl.record(sub, "history_group", group, Status::Ok, logging.name());
+            ctl.record(
+                sub,
+                AuditOp::HistoryGroup,
+                group,
+                Status::Ok,
+                logging.name(),
+            );
             let g = ctl.registry().historian.groups[*group].clone();
             group_values(ctx, group, &g).await?;
             apply_groups(ctl);
@@ -840,7 +847,7 @@ pub(crate) async fn invoke(
             .map_err(rejected)?;
             ctl.record(
                 sub,
-                "history_watch",
+                AuditOp::HistoryWatch,
                 group,
                 Status::Ok,
                 &format!("add {key}"),
@@ -879,7 +886,7 @@ pub(crate) async fn invoke(
             }
             ctl.record(
                 sub,
-                "history_group",
+                AuditOp::HistoryGroup,
                 group,
                 Status::Ok,
                 &format!("removed; {n} rows purged"),
@@ -906,7 +913,7 @@ pub(crate) async fn invoke(
             let n = purge(ctl, Some(&w.key), from, to).await?;
             ctl.record(
                 sub,
-                "history_purge",
+                AuditOp::HistoryPurge,
                 &w.key,
                 Status::Ok,
                 &format!("{} {}: {n} rows", iso_us(from), iso_us(to)),
@@ -931,7 +938,7 @@ pub(crate) async fn invoke(
             };
             ctl.record(
                 sub,
-                "history_watch",
+                AuditOp::HistoryWatch,
                 group,
                 Status::Ok,
                 &format!("remove {}; {n} rows purged", w.key),
@@ -1190,7 +1197,7 @@ async fn auto_purge(ctl: &Control) -> bool {
         );
         ctl.record(
             "broker",
-            "history_purge",
+            AuditOp::HistoryPurge,
             ROOT,
             Status::Ok,
             &format!(

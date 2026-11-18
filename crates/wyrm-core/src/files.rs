@@ -66,6 +66,22 @@ pub fn gone_ok(e: io::Error) -> io::Result<()> {
     }
 }
 
+/// Fill `buf` from `r`: reads until it is full or `r` ends, and returns how many bytes
+/// it holds (less than `buf.len()` only at the end of `r`). One `read` may give less
+/// than was asked for; this is the loop every caller would otherwise write.
+pub fn read_full(r: &mut impl std::io::Read, buf: &mut [u8]) -> std::io::Result<usize> {
+    let mut got = 0;
+    while let Some(rest) = buf.get_mut(got..).filter(|rest| !rest.is_empty()) {
+        match r.read(rest) {
+            Ok(0) => break,
+            Ok(n) => got = got.saturating_add(n),
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(got.min(buf.len()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -128,5 +144,31 @@ mod tests {
             .or_else(gone_ok)
             .is_err());
         std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    /// A reader that gives one byte per call.
+    struct Drip<'a>(&'a [u8]);
+    impl std::io::Read for Drip<'_> {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            match (self.0.split_first(), buf.first_mut()) {
+                (Some((b, rest)), Some(o)) => {
+                    *o = *b;
+                    self.0 = rest;
+                    Ok(1)
+                }
+                _ => Ok(0),
+            }
+        }
+    }
+
+    #[test]
+    fn read_full_fills_the_buffer_or_stops_at_the_end() {
+        let mut buf = [0u8; 4];
+        assert_eq!(read_full(&mut Drip(b"abcdef"), &mut buf).unwrap(), 4);
+        assert_eq!(&buf, b"abcd");
+        let mut buf = [0u8; 4];
+        assert_eq!(read_full(&mut Drip(b"ab"), &mut buf).unwrap(), 2);
+        assert_eq!(&buf[..2], b"ab");
+        assert_eq!(read_full(&mut Drip(b"ab"), &mut []).unwrap(), 0);
     }
 }

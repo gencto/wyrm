@@ -599,7 +599,10 @@ pub fn item_text(rc: u8) -> String {
         0x0A => "object does not exist (no such DB?)",
         _ => "unknown return code",
     };
-    format!("PLC item error 0x{rc:02X}: {text}")
+    format!(
+        "PLC item error 0x{}: {text}",
+        wyrm_core::hex::encode_upper([rc])
+    )
 }
 
 #[cfg(test)]

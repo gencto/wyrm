@@ -20,11 +20,13 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::sync::atomic::{self, AtomicU32};
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tracing::Instrument;
 use tracing::{debug, info, warn};
+use wyrm_core::audit::LinkOp;
+use wyrm_core::clock::now_s;
 use wyrm_core::codec::{from_slice, to_vec};
 use wyrm_core::keyspace::{self, SUFFIX_META, SUFFIX_SET, SUFFIX_VAL};
 use wyrm_core::meta::{is_code, ActionResult, ParamMeta, Profile, TypeCode, Writable};
@@ -373,7 +375,8 @@ pub async fn spawn<L: Link>(
         shard_limiter: cfg.read_rate_limit.map(|(r, b)| {
             crate::guard::RateLimiter::new(r * SHARD_SHARE, (b * SHARD_SHARE).max(2.0))
         }),
-        shard_seed: Default::default(),
+        shard_seed: wyrm_core::rand::bytes()
+            .map_err(|e| LinkError::internal(format!("read limiter: {e}")))?,
         audit_key: cfg
             .audit
             .then(|| format!("{}/{}/sys/audit/{}", keyspace::ROOT, cfg.site, cfg.link)),
@@ -672,8 +675,9 @@ struct Shared<C> {
     /// `pub/**` profiles of the site, followed live (spec 02 inheritance).
     profiles: Profiles,
     shard_limiter: Option<crate::guard::RateLimiter>,
-    /// Random per link: a caller cannot pick keys that share a shard.
-    shard_seed: std::collections::hash_map::RandomState,
+    /// Random per link, from the one random source: a caller cannot pick keys that
+    /// share a shard (the shard of a key is a keyed hash under it).
+    shard_seed: [u8; 16],
     audit_key: Option<String>,
     audit_suppressed: std::sync::atomic::AtomicU64,
     next_rid: AtomicU32,
@@ -754,11 +758,15 @@ fn bound_origin(claimed: Option<&str>, sub: &str) -> String {
     }
 }
 
-fn now_s() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
+/// The read shard of `target` under `seed`: the first 8 bytes of
+/// `HMAC-SHA-256(seed, target)`, modulo [`READ_SHARDS`].
+fn shard_of(seed: &[u8; 16], target: &str) -> u64 {
+    let mac = wyrm_core::mac::hmac_sha256_of(seed, target.as_bytes());
+    let mut first = [0u8; 8];
+    for (o, b) in first.iter_mut().zip(mac) {
+        *o = b;
+    }
+    u64::from_le_bytes(first) % READ_SHARDS
 }
 
 fn is_wild(key: &str) -> bool {
@@ -867,9 +875,8 @@ impl<C: Send + 'static> Shared<C> {
     }
 
     fn read_allowed(&self, target: &str) -> bool {
-        use std::hash::BuildHasher;
         let shard_ok = self.shard_limiter.as_ref().is_none_or(|l| {
-            let shard = self.shard_seed.hash_one(target) % READ_SHARDS;
+            let shard = shard_of(&self.shard_seed, target);
             l.allow(&format!("s{shard}"))
         });
         shard_ok && self.read_limiter.as_ref().is_none_or(|l| l.allow(READS))
@@ -1178,11 +1185,10 @@ impl<C: Send + 'static> Shared<C> {
     }
 
     /// Audit record of one `set`/`invoke` (args as SHA-256, never the values).
-    async fn audit(&self, q: &Query, op: &str, sub: &str, args: &[u8], r: &Result<()>) {
+    async fn audit(&self, q: &Query, op: LinkOp, sub: &str, args: &[u8], r: &Result<()>) {
         let Some(key) = &self.audit_key else {
             return;
         };
-        use sha2::Digest;
         let status = match r {
             Ok(()) => Status::Ok,
             Err(e) => e.status,
@@ -1203,14 +1209,14 @@ impl<C: Send + 'static> Shared<C> {
         }
         m.insert("t".to_owned(), Value::UInt(crate::ctx::now_us()));
         m.insert("sub".to_owned(), Value::Str(sub.to_owned()));
-        m.insert("op".to_owned(), Value::Str(op.to_owned()));
+        m.insert("op".to_owned(), Value::Str(op.name().to_owned()));
         m.insert(
             "key".to_owned(),
             Value::Str(q.key_expr().as_str().to_owned()),
         );
         m.insert(
             "args_hash".to_owned(),
-            Value::Bytes(sha2::Sha256::digest(args).to_vec()),
+            Value::Bytes(wyrm_core::hex::sha256(args).to_vec()),
         );
         m.insert("status".to_owned(), Value::UInt(status.code().into()));
         if let Ok(p) = encode(&Value::Map(m)) {
@@ -1252,7 +1258,7 @@ impl<C: Send + 'static> Shared<C> {
                 (sub, r)
             }
         };
-        self.audit(q, "set", &sub, &args, &r).await;
+        self.audit(q, LinkOp::Set, &sub, &args, &r).await;
         r
     }
 
@@ -1339,9 +1345,9 @@ impl<C: Send + 'static> Shared<C> {
             }
         };
         let op = if param(q, "check").is_some() {
-            "check"
+            LinkOp::Check
         } else {
-            "invoke"
+            LinkOp::Invoke
         };
         self.audit(q, op, &sub, &args, &r).await;
         r
@@ -1612,9 +1618,8 @@ fn validate_value(meta: &NodeMeta, v: &Value) -> Result<()> {
 /// A token bound to arguments (claim `args`, spec 04 0.2.14) is good only for the payload whose
 /// SHA-256 it names: a human approved those exact arguments (security review AI-1).
 fn bound_args(caller: &Caller, payload: &[u8]) -> Result<()> {
-    use sha2::Digest;
     match caller.claims.as_ref().and_then(|c| c.args) {
-        Some(h) if h[..] != sha2::Sha256::digest(payload)[..] => Err(LinkError::quiet(
+        Some(h) if h[..] != wyrm_core::hex::sha256(payload)[..] => Err(LinkError::quiet(
             Status::PermissionDenied,
             "the token is bound to other arguments",
         )),

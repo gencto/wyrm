@@ -9,6 +9,7 @@ use ring::signature::{RsaKeyPair, RSA_PKCS1_SHA256};
 use serde_json::Value as Json;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
+use wyrm_core::clock::now_s;
 use wyrm_filestore::http::{Http, Request};
 use wyrm_filestore::util::pct_encode;
 use wyrm_filestore::Error;
@@ -57,13 +58,6 @@ pub struct Tokens {
     pub url: String,
     pub timeout: Duration,
     cached: Mutex<Option<(zeroize::Zeroizing<String>, Instant)>>,
-}
-
-fn now_s() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
 }
 
 impl Tokens {

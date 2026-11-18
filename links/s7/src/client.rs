@@ -101,8 +101,9 @@ impl Client {
             Cotp::Cc => {}
             Cotp::Dr { reason } => {
                 return Err(DriverError::Transport(format!(
-                    "the PLC refused the connection (COTP disconnect, reason 0x{reason:02X}): \
+                    "the PLC refused the connection (COTP disconnect, reason 0x{}): \
                      check rack, slot and connection type (remote TSAP 0x{:04X})",
+                    wyrm_core::hex::encode_upper([reason]),
                     t.remote_tsap
                 )))
             }
@@ -221,7 +222,8 @@ impl Client {
                 }
                 Cotp::Dr { reason } => {
                     return Err(DriverError::Transport(format!(
-                        "the PLC closed the connection (COTP disconnect, reason 0x{reason:02X})"
+                        "the PLC closed the connection (COTP disconnect, reason 0x{})",
+                        wyrm_core::hex::encode_upper([reason])
                     )))
                 }
                 other => {

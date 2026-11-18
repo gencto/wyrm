@@ -11,7 +11,6 @@
 //! change, the bootstrap wins. Without a `data_dir` or a store key the
 //! connections live in memory only.
 
-use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::PathBuf;
@@ -46,7 +45,7 @@ impl Persist {
             );
             return None;
         };
-        let boot = Sha256::digest(wyrm_core::codec::value_to_vec(bootstrap)).to_vec();
+        let boot = wyrm_core::hex::sha256(wyrm_core::codec::value_to_vec(bootstrap)).to_vec();
         Some(Self {
             path: dir.join(FILE),
             key: zeroize::Zeroizing::new(key),

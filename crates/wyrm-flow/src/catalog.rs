@@ -12,6 +12,7 @@ use crate::modes::{
 };
 use crate::nodes::{Echo, EchoOf, PortType, Ports};
 use std::collections::BTreeMap;
+use wyrm_core::meta::Editor;
 use wyrm_core::Value;
 
 /// A parameter's default, typed (ADR 0038 §2): a number stays a number.
@@ -47,8 +48,8 @@ pub struct Param {
     pub choices: &'static [&'static str],
     pub default: Def,
     pub description: &'static str,
-    /// UI hint (spec 02 `editor`): `textarea`, `duration`, …
-    pub editor: Option<&'static str>,
+    /// UI hint (spec 02 `editor`).
+    pub editor: Option<Editor>,
     /// The parameter that holds this field's scope (ADR 0040 §1): the field names what the
     /// node reads, and a value from its port is read only inside that scope.
     pub scope: Option<&'static str>,
@@ -119,7 +120,7 @@ pub(crate) const fn pick(
     x
 }
 
-pub(crate) const fn ed(mut x: Param, editor: &'static str) -> Param {
+pub(crate) const fn ed(mut x: Param, editor: Editor) -> Param {
     x.editor = Some(editor);
     x
 }
@@ -236,7 +237,7 @@ pub const TYPES: &[NodeType] = &[
         dyn_outputs: None,
         params: &[
             req(p("inputs", ParamTy::Array, "Input names, [A-Za-z0-9_]+; each is a port in.<name> and a variable.")),
-            ed(req(p("expr", ParamTy::String, "rhai, over the input names: a + b * 2")), "textarea"),
+            ed(req(p("expr", ParamTy::String, "rhai, over the input names: a + b * 2")), Editor::Textarea),
             pick(p("trigger", ParamTy::String, "Calculate on any input, or once all have a value."), Trigger::NAMES, Trigger::Any.name()),
             pick(
                 p("quality", ParamTy::String, "Quality of the result: the worst input's, good, or set by the script."),
@@ -253,7 +254,7 @@ pub const TYPES: &[NodeType] = &[
         outputs: &["out"],
         dyn_inputs: None,
         dyn_outputs: None,
-        params: &[ed(req(p("expr", ParamTy::String, "rhai over v (value), q (quality), t (time): v > 10")), "textarea")],
+        params: &[ed(req(p("expr", ParamTy::String, "rhai over v (value), q (quality), t (time): v > 10")), Editor::Textarea)],
     },
     NodeType {
         ty: "latch",
@@ -314,7 +315,7 @@ pub const TYPES: &[NodeType] = &[
         dyn_inputs: None,
         dyn_outputs: None,
         params: &[
-            ed(req(p("size_s", ParamTy::Number, "Window length in seconds.")), "duration"),
+            ed(req(p("size_s", ParamTy::Number, "Window length in seconds.")), Editor::Duration),
             pick(p("kind", ParamTy::String, "tumbling: back to back; sliding: the last size_s at each sample."), WindowKind::NAMES, WindowKind::Tumbling.name()),
             pick(p("fn", ParamTy::String, "What the window gives."), WindowFn::NAMES, WindowFn::Avg.name()),
             di(p("max_samples", ParamTy::Number, "Most samples kept, 1..100 000 (default 10 000)."), 10_000),
@@ -332,8 +333,8 @@ pub const TYPES: &[NodeType] = &[
             p("high", ParamTy::Number, "Raised above (high or low required)."),
             p("low", ParamTy::Number, "Raised below."),
             di(p("hysteresis", ParamTy::Number, "Back inside by this much before it clears."), 0),
-            di(ed(p("delay_s", ParamTy::Number, "Seconds outside before it is raised."), "duration"), 0),
-            di(ed(p("return_delay_s", ParamTy::Number, "Seconds inside before it clears."), "duration"), 0),
+            di(ed(p("delay_s", ParamTy::Number, "Seconds outside before it is raised."), Editor::Duration), 0),
+            di(ed(p("return_delay_s", ParamTy::Number, "Seconds inside before it clears."), Editor::Duration), 0),
             pick(p("on_bad", ParamTy::String, "What a bad sample does."), OnBad::NAMES, OnBad::Hold.name()),
         ],
     },
@@ -440,7 +441,7 @@ pub const TYPES: &[NodeType] = &[
         outputs: &["out"],
         dyn_inputs: None,
         dyn_outputs: None,
-        params: &[ds(ed(p("value", ParamTy::String, "The text at start (default empty)."), "textarea"), "")],
+        params: &[ds(ed(p("value", ParamTy::String, "The text at start (default empty)."), Editor::Textarea), "")],
     },
     NodeType {
         ty: "bool",
@@ -512,7 +513,7 @@ pub const TYPES: &[NodeType] = &[
         params: &[
             pick(
                 p("op", ParamTy::String, "= all equal; != the first equals none of the others; and / or of the inputs; > < >= <= between each input and the next; contains / starts_with / ends_with: the first as text with any of the others."),
-                crate::blocks::IF_OPS,
+                crate::blocks::IfOp::NAMES,
                 "=",
             ),
             db(p("then", ParamTy::Dynamic, "Sent when it passes (default true)."), true),
@@ -540,7 +541,7 @@ pub const TYPES: &[NodeType] = &[
         dyn_outputs: None,
         params: &[
             db(p("enabled", ParamTy::Bool, "Counting (default false)."), false),
-            df(ed(p("interval", ParamTy::Number, "Seconds between two steps, at least 0.05 (default 0.5)."), "duration"), 0.5),
+            df(ed(p("interval", ParamTy::Number, "Seconds between two steps, at least 0.05 (default 0.5)."), Editor::Duration), 0.5),
             di(p("step", ParamTy::Number, "Added each interval (default 1)."), 1),
             di(p("modulo", ParamTy::Number, "Above 0: the count wraps (or stops) there (default 0)."), 0),
             db(p("loop", ParamTy::Bool, "At modulo: start again from the remainder; false: stop there (default true)."), true),
@@ -592,7 +593,7 @@ pub const TYPES: &[NodeType] = &[
         params: &[
             pick(
                 p("op", ParamTy::String, "How in is compared with each case: = != > < >= <= (as numbers), contains / starts_with / ends_with (as text; an empty case matches nothing); regexp: in as text has a match of the case as a pattern."),
-                crate::blocks::CASE_OPS,
+                crate::blocks::CaseOp::NAMES,
                 "=",
             ),
             p("else", ParamTy::Dynamic, "Sent when no case matches (default null)."),
@@ -918,7 +919,7 @@ pub fn value() -> Value {
                             m.insert("default".into(), d);
                         }
                         if let Some(e) = x.editor {
-                            m.insert("editor".into(), Value::from(e));
+                            m.insert("editor".into(), Value::from(e.name()));
                         }
                         if let Some(port) = t
                             .inputs

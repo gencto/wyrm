@@ -828,8 +828,8 @@ impl Session {
                         if *want != id {
                             return Err(DriverError::Transport(format!(
                                 "the agent's engine id is {}, not the configured engine_id {}",
-                                hex(&id),
-                                hex(want)
+                                wyrm_core::hex::encode(&id),
+                                wyrm_core::hex::encode(want)
                             )));
                         }
                     }
@@ -875,10 +875,6 @@ impl Session {
         });
         Ok(())
     }
-}
-
-fn hex(b: &[u8]) -> String {
-    b.iter().map(|x| format!("{x:02x}")).collect()
 }
 
 fn transport(what: &str) -> DriverError {

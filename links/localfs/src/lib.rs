@@ -48,11 +48,11 @@ use std::io::{ErrorKind, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, UNIX_EPOCH};
+use std::time::Duration;
 use tracing::debug;
 use wyrm_core::{TypeCode, Value};
 use wyrm_filestore::backend::{join, not_empty};
-use wyrm_filestore::util::{check_name, fnv64, guess_content_type, now_us};
+use wyrm_filestore::util::{check_name, guess_content_type};
 use wyrm_filestore::{Backend, Entry, Error, FileStore, Limits, Scan};
 use wyrm_link_sdk::driver::ParamSpec;
 use wyrm_link_sdk::{LinkError, Params};
@@ -250,11 +250,8 @@ fn io_error(e: std::io::Error, what: &str) -> Error {
 }
 
 fn modified(m: &fs::Metadata) -> Option<u64> {
-    m.modified()
-        .ok()?
-        .duration_since(UNIX_EPOCH)
-        .ok()
-        .map(|d| d.as_micros() as u64)
+    let since = wyrm_core::clock::unix(m.modified().ok()?)?;
+    u64::try_from(since.as_micros()).ok()
 }
 
 /// A change tag of a file: size and time (no content hash: that would read
@@ -442,7 +439,7 @@ impl LocalStore {
                 };
                 // a short name nobody can guess: any file name fits beside it,
                 // and `create_new` fails rather than take another's file
-                let tmp = dir.join(format!(".wyrm-{:016x}.tmp", unguessable(&name_s)));
+                let tmp = dir.join(format!(".wyrm-{:016x}.tmp", unguessable()?));
                 // `write_new` removes a temporary file it made and could not
                 // finish; one it could not make is not ours
                 write_new(&tmp, &src, fsync).map_err(|e| io_error(e, &w))?;
@@ -565,18 +562,12 @@ enum Src {
     File(PathBuf),
 }
 
-/// A value nobody outside this process can predict (std's per-process
-/// random hash keys, the time, a counter).
-fn unguessable(name: &str) -> u64 {
-    use std::hash::{BuildHasher, Hasher};
-    static N: AtomicUsize = AtomicUsize::new(0);
-    static KEYS: std::sync::LazyLock<std::collections::hash_map::RandomState> =
-        std::sync::LazyLock::new(Default::default);
-    let mut h = KEYS.build_hasher();
-    h.write(name.as_bytes());
-    h.write_u64(now_us());
-    h.write_usize(N.fetch_add(1, Ordering::Relaxed));
-    h.finish() ^ fnv64(name)
+/// A value nobody can predict: 8 bytes from the one random source. Without randomness
+/// there is none, and the write is refused.
+fn unguessable() -> Result<u64, Error> {
+    wyrm_core::rand::bytes::<8>()
+        .map(u64::from_le_bytes)
+        .map_err(|e| Error::Refused(format!("temporary file name: {e}")))
 }
 
 /// The permissions of `m` without setuid, setgid and sticky bits.

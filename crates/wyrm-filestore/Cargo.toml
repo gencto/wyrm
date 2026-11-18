@@ -15,7 +15,7 @@ sim = ["hyper/server"]
 testkit = ["sim", "wyrm-link-sdk/harness"]
 
 [dependencies]
-wyrm-core.workspace = true
+wyrm-core = { workspace = true, features = ["rand"] }
 wyrm-link-sdk.workspace = true
 tokio = { workspace = true, features = ["rt", "time", "macros", "sync", "net"] }
 tracing.workspace = true
@@ -30,7 +30,6 @@ tokio-rustls = { workspace = true, features = ["ring", "tls12"] }
 # System CA roots, then the Mozilla roots (containers without a CA bundle).
 rustls-native-certs.workspace = true
 webpki-roots.workspace = true
-sha2.workspace = true
 zeroize.workspace = true
 
 [target.'cfg(unix)'.dependencies]

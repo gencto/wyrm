@@ -3,7 +3,6 @@
 
 use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine as _;
-use sha2::{Digest, Sha256};
 
 fn hmac(key: &[u8], data: &[u8]) -> [u8; 32] {
     wyrm_core::mac::hmac_sha256_of(key, data)
@@ -66,7 +65,7 @@ pub fn client_final(
     let salt = B64.decode(s).map_err(|_| "scram: bad salt")?;
     let salted = hi(password.as_bytes(), &salt, i);
     let client_key = hmac(&salted, b"Client Key");
-    let stored_key: [u8; 32] = Sha256::digest(client_key).into();
+    let stored_key: [u8; 32] = wyrm_core::hex::sha256(client_key);
     let without_proof = format!("c=biws,r={r}");
     let auth = format!("{client_first_bare},{server_first},{without_proof}");
     let signature = hmac(&stored_key, auth.as_bytes());
@@ -130,12 +129,13 @@ pub fn nonce_from_clock(now_us: u64, conn: u32) -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
     static COUNT: AtomicU64 = AtomicU64::new(0);
     let n = COUNT.fetch_add(1, Ordering::Relaxed);
-    let mut h = Sha256::new();
-    h.update(b"wyrm-scram-nonce");
-    h.update(now_us.to_le_bytes());
-    h.update(n.to_le_bytes());
-    h.update(conn.to_le_bytes());
-    B64.encode(&h.finalize()[..18])
+    let sum = wyrm_core::hex::sha256_parts(&[
+        b"wyrm-scram-nonce",
+        &now_us.to_le_bytes(),
+        &n.to_le_bytes(),
+        &conn.to_le_bytes(),
+    ]);
+    B64.encode(&sum[..18])
 }
 
 #[cfg(test)]

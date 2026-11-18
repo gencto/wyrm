@@ -13,7 +13,7 @@ authors.workspace = true
 testkit = []
 
 [dependencies]
-wyrm-core = { workspace = true, features = ["rand"] }
+wyrm-core = { workspace = true, features = ["ring"] }
 wyrm-state.workspace = true
 wyrm-storage.workspace = true
 wyrm-history.workspace = true
@@ -42,8 +42,9 @@ hyper = { workspace = true, features = ["client", "http1"] }
 hyper-util = { workspace = true, features = ["tokio"] }
 http-body-util.workspace = true
 bytes.workspace = true
-sha2.workspace = true
 ring.workspace = true
+# `eckey`: a key as a PKCS#8 PEM block
+base64.workspace = true
 flate2.workspace = true
 ed25519-dalek.workspace = true
 zeroize.workspace = true

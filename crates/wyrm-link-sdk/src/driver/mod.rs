@@ -440,10 +440,7 @@ pub fn backoff(attempt: u32, jitter: f64) -> Duration {
 
 /// Cheap jitter in `[-1, 1]` (not for cryptography).
 pub(crate) fn jitter() -> f64 {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.subsec_nanos())
-        .unwrap_or(0);
+    let nanos = wyrm_core::clock::since_epoch().subsec_nanos();
     let mut x = u64::from(nanos) ^ 0x9E37_79B9_7F4A_7C15;
     x ^= x << 13;
     x ^= x >> 7;

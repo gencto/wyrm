@@ -6,8 +6,6 @@
 //! level and keys, the rights of the operator who invited or last edited it (ADR 0029), and the
 //! link's grants (checked by the host).
 
-use sha2::{Digest, Sha256};
-
 /// A pairing code lives this long.
 pub const CODE_TTL_US: u64 = 15 * 60 * 1_000_000;
 /// Wrong codes an account may send before it is ignored for [`LOCKOUT_US`].
@@ -54,8 +52,7 @@ pub fn normalize(code: &str) -> String {
 }
 
 pub fn hash_code(code: &str) -> String {
-    let d = Sha256::digest(normalize(code).as_bytes());
-    d.iter().map(|b| format!("{b:02x}")).collect()
+    wyrm_core::hex::sha256_hex(normalize(code).as_bytes())
 }
 
 /// Constant-time comparison of two hashes.

@@ -6,6 +6,7 @@ use crate::catalog::{
     INTERVAL_MS, ITEMS, KEY, KEY_SCOPE,
 };
 use crate::modes::ParamTy;
+use wyrm_core::meta::Editor;
 
 /// A block with the input `in`, its parameters and `out`.
 const fn unary(
@@ -331,7 +332,7 @@ pub const TYPES: &[NodeType] = &[
         params: &[
             pick(
                 p("op", ParamTy::String, "How condition is compared with each case: = != > < >= <= (as numbers), contains / starts_with / ends_with / regexp (as text)."),
-                crate::blocks::CASE_OPS,
+                crate::blocks::CaseOp::NAMES,
                 "=",
             ),
             db(p("single_output", ParamTy::Bool, "When the route changes, the output routed before goes back to null (default false: each output keeps its value)."), false),
@@ -436,7 +437,7 @@ pub const TYPES: &[NodeType] = &[
         outputs: &["out"],
         dyn_inputs: None,
         dyn_outputs: None,
-        params: &[ed(p("value", ParamTy::Map, "The table at start, {columns, rows} (default an empty table)."), "textarea")],
+        params: &[ed(p("value", ParamTy::Map, "The table at start, {columns, rows} (default an empty table)."), Editor::Textarea)],
     },
     NodeType {
         ty: "table_recorder",
@@ -449,7 +450,7 @@ pub const TYPES: &[NodeType] = &[
         params: &[
             db(p("enabled", ParamTy::Bool, "Recording (default true)."), true),
             di(p("buffer_size", ParamTy::Number, "Rows at most, 1…10 000 (default 1024)."), 1024),
-            di(ed(p("time_window_s", ParamTy::Number, "Above 0: only the rows of the last this many seconds (default 0)."), "duration"), 0),
+            di(ed(p("time_window_s", ParamTy::Number, "Above 0: only the rows of the last this many seconds (default 0)."), Editor::Duration), 0),
             db(p("ignore_null", ParamTy::Bool, "A null records no row (default false)."), false),
             INPUTS,
         ],
@@ -470,7 +471,7 @@ pub const TYPES: &[NodeType] = &[
     ]),
     table1("table_map_columns", "A table of new columns: each mapping copies a column or computes one per row.", &["in", "in.retain_columns"], &["out", "error"], &[
         db(p("retain_columns", ParamTy::Bool, "Keep the input's columns first (default false)."), false),
-        ed(p("mapping", ParamTy::Dynamic, "[{name, from}]: from is a column, or = expr (a value), + expr (a number), & expr (a bool), rhai over row and index: = row.name + \"/\" + row.zone."), "textarea"),
+        ed(p("mapping", ParamTy::Dynamic, "[{name, from}]: from is a column, or = expr (a value), + expr (a number), & expr (a bool), rhai over row and index: = row.name + \"/\" + row.zone."), Editor::Textarea),
     ]),
     table1("table_sort", "The rows sorted by one column; a cell with no value sorts last either way.", &["in", "in.column", "in.method", "in.order"], &["out"], &[
         ds(p("column", ParamTy::String, "The column to sort by (none: the table as it is)."), ""),
@@ -547,14 +548,14 @@ const fn table1(
 const ROW_EXPR: Param = ds(
     ed(
         p("expr", ParamTy::String, "rhai over row (the row as a map: row.kw) and index (from 0): row.kw > 5 && row.zone == \"A\" (default true)."),
-        "textarea",
+        Editor::Textarea,
     ),
     "true",
 );
 
 const AGGREGATES: Param = ed(
     p("aggregates", ParamTy::Dynamic, "[{column, method, as}]: method one of first, last, count, sum, average, min, max, median, mode, std_deviation, variance, concat, concat_unique; as names the result (default: column)."),
-    "textarea",
+    Editor::Textarea,
 );
 
 const TIME_ZONE: Param = ds(
