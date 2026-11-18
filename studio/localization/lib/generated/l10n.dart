@@ -17664,26 +17664,6 @@ class S {
     );
   }
 
-  /// `The broker shows no SHA-256 of this backup, so what arrives cannot be checked. Nothing was saved.`
-  String get errBackupNoDigest {
-    return Intl.message(
-      'The broker shows no SHA-256 of this backup, so what arrives cannot be checked. Nothing was saved.',
-      name: 'errBackupNoDigest',
-      desc: '',
-      args: [],
-    );
-  }
-
-  /// `The file that arrived is not the backup: SHA-256 {got}, the broker says {expected}. Nothing was saved.`
-  String errBackupDigestMismatch(String got, String expected) {
-    return Intl.message(
-      'The file that arrived is not the backup: SHA-256 $got, the broker says $expected. Nothing was saved.',
-      name: 'errBackupDigestMismatch',
-      desc: '',
-      args: [got, expected],
-    );
-  }
-
   /// `The file ended at {offset} of {size} bytes.`
   String errFileEndedEarly(int offset, int size) {
     return Intl.message(

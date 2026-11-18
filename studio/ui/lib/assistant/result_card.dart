@@ -73,7 +73,7 @@ class ResultCard extends StatelessWidget {
                   flex: 3,
                   child: SelectableText(
                     belowSection(key),
-                    style: mono(size: 12, color: c.text2),
+                    style: mono(size: FontSizes.sm, color: c.text2),
                   ),
                 ),
                 Expanded(
@@ -81,7 +81,7 @@ class ResultCard extends StatelessWidget {
                   child: Text(
                     value ?? S.current.resultNoValue,
                     textAlign: .right,
-                    style: mono(size: 13, color: c.text1),
+                    style: mono(color: c.text1),
                   ),
                 ),
               ],
@@ -90,7 +90,7 @@ class ResultCard extends StatelessWidget {
             vm.note,
             style: TextStyle(
               fontSize: FontSizes.sm,
-              height: 1.45,
+              height: LineHeights.row,
               color: c.text3,
             ),
           ),

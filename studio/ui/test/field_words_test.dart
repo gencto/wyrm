@@ -63,11 +63,14 @@ void main() {
     );
     expect(const FieldWordVm(FieldWordTag.input, 2).text, 'Input 2');
     expect(const FieldWordVm(FieldWordTag.then, 1).text, 'Then 1');
-    expect([for (final o in ChangeOpTag.values) o.label], [
-      'Edit',
-      'Add',
-      'Remove',
-    ]);
+    expect(
+      [for (final o in ChangeOpTag.values) o.label],
+      [
+        'Edit',
+        'Add',
+        'Remove',
+      ],
+    );
   });
 
   test('a word wins over the data text; data reads as it came', () async {

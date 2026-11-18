@@ -17,6 +17,7 @@ import 'package:ui/overlays/problems_drawer.dart';
 
 import 'common/studio_version.dart';
 import 'mappers/device_mappers.dart';
+import 'mappers/icon_mappers.dart';
 
 // The words of an error (docs/design/specs/errors.md §1, §3, §7). They live
 // in `app` because this is the only package that may name `S`: `business`
@@ -228,9 +229,6 @@ String _hintText(ErrorHint h) {
     ErrorHintRangeTooBig() => s.rangeTooBig,
     ErrorHintPortOutOfRange() => s.errPortOutOfRange,
     ErrorHintNoDeviceKey(:final host) => s.errNoDeviceKey(host.os.system),
-    ErrorHintBackupNoDigest() => s.errBackupNoDigest,
-    ErrorHintBackupDigestMismatch(:final got, :final expected) =>
-      s.errBackupDigestMismatch(got, expected),
     ErrorHintFileEndedEarly(:final offset, :final size) => s.errFileEndedEarly(
       offset,
       size,
@@ -250,16 +248,6 @@ Tone errorToneOf(ErrorKind kind) => switch (kind) {
   .input => .ember,
   .busy || .gone => .neutral,
   .broker || .studio => .bad,
-};
-
-String _iconOf(ErrorKind kind) => switch (kind) {
-  .rights => 'err_rights',
-  .reach => 'err_reach',
-  .input => 'err_input',
-  .busy => 'err_busy',
-  .gone => 'err_gone',
-  .broker => 'err_broker',
-  .studio => 'err_studio',
 };
 
 /// What the main button of an error dialog does.
@@ -320,7 +308,7 @@ ErrorDialogVm errorDialogVm(
       : s.errTimeLocal(Formats.dateTimeSeconds(e.at!));
   return ErrorDialogVm(
     tone: errorToneOf(e.kind),
-    icon: _iconOf(e.kind),
+    icon: e.kind.icon,
     title: e.title.isEmpty ? errorTitle(e) : e.title,
     where: e.where,
     saidLabel: own

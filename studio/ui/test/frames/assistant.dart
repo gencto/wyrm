@@ -16,6 +16,7 @@ import 'package:ui/assistant/task_badge.dart';
 import 'package:ui/assistant/task_card.dart';
 import 'package:ui/assistant/task_list.dart';
 import 'package:ui/charts/trend.dart';
+import 'package:ui/indicators/app_icon.dart';
 import 'package:ui/indicators/level_badge.dart';
 import 'package:ui/models/value_changed.dart';
 import 'package:ui/overlays/search_palette.dart';
@@ -721,19 +722,19 @@ Widget assistantKeyPicker() => Builder(
           SearchEntryVm(
             id: 'wy/plant/downstream/modbus/tcp-boiler/plc1/valve',
             title: 'valve',
-            icon: 'node_point',
+            icon: AppIcon.nodePoint,
             detail: 'selected in Explorer',
           ),
           SearchEntryVm(
             id: 'wy/plant/downstream/modbus/tcp-boiler',
             title: 'tcp-boiler',
-            icon: 'node_device',
+            icon: AppIcon.nodeDevice,
             detail: 'modbus/tcp-boiler',
           ),
           SearchEntryVm(
             id: 'wy/plant/downstream/modbus/tcp-boiler/plc1',
             title: 'Boiler PLC',
-            icon: 'node_device',
+            icon: AppIcon.nodeDevice,
             detail: 'modbus/tcp-boiler/plc1',
           ),
         ],

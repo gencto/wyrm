@@ -19,6 +19,7 @@ import '../buttons/button.dart';
 import '../buttons/segmented_tabs.dart';
 import '../containers/fact_grid.dart';
 import '../containers/section_label.dart';
+import '../indicators/app_icon.dart';
 import '../indicators/status_pill.dart';
 import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
@@ -240,13 +241,13 @@ class AssistantPage extends StatelessWidget {
                 textAlign: .center,
                 style: TextStyle(
                   fontSize: FontSizes.lg,
-                  height: 1.5,
+                  height: LineHeights.body,
                   color: c.text2,
                 ),
               ),
               Button.primary(
                 label: S.current.addAgent,
-                icon: 'ui_add',
+                icon: AppIcon.uiAdd,
                 onPressed: onAddAgent,
               ),
             ],
@@ -271,7 +272,7 @@ class AssistantPage extends StatelessWidget {
                     title ?? '',
                     overflow: .ellipsis,
                     style: TextStyle(
-                      fontSize: 17,
+                      fontSize: FontSizes.conversationTitle,
                       fontWeight: .w600,
                       color: c.text1,
                     ),
@@ -283,7 +284,10 @@ class AssistantPage extends StatelessWidget {
                     dense: true,
                   ),
                 if (taskId case final id?)
-                  Text('tasks/$id', style: mono(size: 12, color: c.text3)),
+                  Text(
+                    'tasks/$id',
+                    style: mono(size: FontSizes.sm, color: c.text3),
+                  ),
               ],
             ),
           ),
@@ -360,7 +364,7 @@ class AssistantPage extends StatelessWidget {
           ),
           Expanded(
             child: ListView(
-              padding: const EdgeInsets.all(18),
+              padding: Insets.sectionCard,
               children: [
                 if (rights case final r?)
                   RightsPanel(
@@ -382,11 +386,14 @@ class AssistantPage extends StatelessWidget {
                         crossAxisAlignment: .start,
                         spacing: 8,
                         children: [
-                          Text(tool, style: mono(size: 12, color: c.good)),
+                          Text(
+                            tool,
+                            style: mono(size: FontSizes.sm, color: c.good),
+                          ),
                           Expanded(
                             child: Text(
                               times > 1 ? '× $times' : '',
-                              style: mono(size: 12, color: c.text2),
+                              style: mono(size: FontSizes.sm, color: c.text2),
                             ),
                           ),
                         ],
@@ -399,7 +406,7 @@ class AssistantPage extends StatelessWidget {
                     S.current.readsNote,
                     style: TextStyle(
                       fontSize: FontSizes.sm,
-                      height: 1.5,
+                      height: LineHeights.body,
                       color: c.text3,
                     ),
                   ),

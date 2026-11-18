@@ -195,7 +195,7 @@ class _StepUpDialogState extends State<StepUpDialog> {
                         vm.lead,
                         style: TextStyle(
                           fontSize: FontSizes.lg,
-                          height: 1.5,
+                          height: LineHeights.body,
                           color: c.text3,
                         ),
                       ),
@@ -274,7 +274,7 @@ class _StepUpDialogState extends State<StepUpDialog> {
                               vm.error ?? vm.device,
                               style: TextStyle(
                                 fontSize: FontSizes.md,
-                                height: 1.45,
+                                height: LineHeights.row,
                                 color: vm.error == null ? c.text2 : c.badText,
                               ),
                             ),

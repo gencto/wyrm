@@ -3,6 +3,7 @@ import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../indicators/lines_text.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/motion.dart';
@@ -473,7 +474,7 @@ class FlowBlockView extends StatelessWidget {
                         size: FontSizes.flowTag,
                         weight: .w600,
                         color: ink,
-                      ).copyWith(height: 1.2),
+                      ).copyWith(height: LineHeights.pageTitle),
                     ),
                   ),
                   ConstrainedBox(
@@ -499,7 +500,7 @@ class FlowBlockView extends StatelessWidget {
                         style: mono(
                           size: FontSizes.flowTag,
                           color: c.emberSoft,
-                        ).copyWith(height: 1.2),
+                        ).copyWith(height: LineHeights.pageTitle),
                       ),
                     ),
                   Expanded(
@@ -556,8 +557,8 @@ class FlowBlockView extends StatelessWidget {
                                 ),
                               ),
                             ),
-                            AppIcon(
-                              'ui_chevron_right',
+                            AppIconView(
+                              AppIcon.uiChevronRight,
                               size: AppSizes.flowLinkChevron,
                               color: c.emberSoft,
                             ),
@@ -708,8 +709,8 @@ class _FieldRow extends StatelessWidget {
                         mainAxisSize: .min,
                         spacing: AppSpacing.xs,
                         children: [
-                          AppIcon(
-                            'action_play',
+                          AppIconView(
+                            AppIcon.actionPlay,
                             size: AppSizes.flowCommandIcon,
                             color: c.text3,
                           ),
@@ -772,8 +773,8 @@ class _FieldRow extends StatelessWidget {
                         onTap: onAction == null ? null : () => onAction!(at),
                         child: Padding(
                           padding: Insets.flowBlockRowAction,
-                          child: AppIcon(
-                            'action_edit',
+                          child: AppIconView(
+                            AppIcon.actionEdit,
                             size: AppSizes.flowRowActionIcon,
                             color: c.text3,
                           ),

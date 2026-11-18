@@ -3,9 +3,11 @@ import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../models/link_run_mode.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import 'catalog_words.dart';
@@ -123,7 +125,7 @@ class CatalogCard extends StatelessWidget {
         onTap: onTap == null ? null : () => onTap!(vm.id),
         borderRadius: Radii.card,
         child: Padding(
-          padding: Insets.catalogCard,
+          padding: Insets.cardBody,
           child: Column(
             crossAxisAlignment: .start,
             spacing: 8,
@@ -139,7 +141,11 @@ class CatalogCard extends StatelessWidget {
                     ),
                     child: Text(
                       vm.tag,
-                      style: mono(size: 10, weight: .w600, color: c.text2),
+                      style: mono(
+                        size: FontSizes.xxs,
+                        weight: .w600,
+                        color: c.text2,
+                      ),
                     ),
                   ),
                   Expanded(
@@ -162,10 +168,10 @@ class CatalogCard extends StatelessWidget {
                 ],
               ),
               SizedBox(
-                // Two lines of 12 × 1.4 at the reader's text scale.
+                // Two lines of meta text at the reader's text scale.
                 height:
-                    MediaQuery.textScalerOf(context).scale(12) *
-                    1.4 *
+                    MediaQuery.textScalerOf(context).scale(FontSizes.sm) *
+                    LineHeights.meta *
                     descriptionLines,
                 child: Text(
                   vm.summary,
@@ -173,7 +179,7 @@ class CatalogCard extends StatelessWidget {
                   overflow: .ellipsis,
                   style: TextStyle(
                     fontSize: FontSizes.sm,
-                    height: 1.4,
+                    height: LineHeights.meta,
                     color: c.text3,
                   ),
                 ),
@@ -206,7 +212,11 @@ class CatalogCard extends StatelessWidget {
                         mainAxisSize: .min,
                         spacing: 3,
                         children: [
-                          AppIcon('ui_check', size: 12, color: c.ember),
+                          AppIconView(
+                            AppIcon.uiCheck,
+                            size: IconSizes.xs,
+                            color: c.ember,
+                          ),
                           Text(
                             S.current.officialMark,
                             style: TextStyle(
@@ -222,14 +232,14 @@ class CatalogCard extends StatelessWidget {
                       vm.modeCodes,
                       maxLines: 1,
                       overflow: .ellipsis,
-                      style: mono(size: 11, color: c.text4),
+                      style: mono(size: FontSizes.xs, color: c.text4),
                     ),
                   ),
                   if (vm.version case final v?)
                     Text(
                       v,
                       maxLines: 1,
-                      style: mono(size: 11, color: c.text3),
+                      style: mono(size: FontSizes.xs, color: c.text3),
                     ),
                 ],
               ),

@@ -613,12 +613,6 @@ void main() {
         'Unknown key "unit" (known: type, is).',
       );
       expect(
-        hinted(
-          const ErrorHint.backupDigestMismatch(got: 'aa', expected: 'bb'),
-        ).message,
-        contains('SHA-256 aa, the broker says bb'),
-      );
-      expect(
         hinted(const ErrorHint.rangeTooBig()).message,
         S.current.rangeTooBig,
       );

@@ -3,6 +3,7 @@ import 'package:material_ui/material_ui.dart';
 import '../indicators/code_text.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// A titled card of a settings-like page: a heading, a sentence that says
@@ -60,7 +61,7 @@ class SectionCard extends StatelessWidget {
               description,
               style: TextStyle(
                 fontSize: FontSizes.md,
-                height: 1.5,
+                height: LineHeights.body,
                 color: c.text3,
               ),
             ),
@@ -71,7 +72,7 @@ class SectionCard extends StatelessWidget {
       container: true,
       label: title,
       child: Container(
-        padding: const EdgeInsets.all(18),
+        padding: Insets.sectionCard,
         decoration: BoxDecoration(
           color: c.ground1,
           border: .all(color: c.line1),

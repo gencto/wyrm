@@ -1,6 +1,5 @@
 import 'package:async_redux/async_redux.dart';
 import 'package:crypto/crypto.dart' as crypto;
-import 'package:models/error_hint.dart';
 import 'package:models/error_kind.dart';
 import 'package:models/studio_error.dart';
 
@@ -51,10 +50,10 @@ class DownloadBackupAction extends Action with NonReentrant, WaitingAction {
   /// must not throw.
   final Future<void> Function()? onDiscard;
 
-  StudioException _wrong(String key, ErrorHint hint) => StudioException(
+  StudioException _wrong(String key, String message) => StudioException(
     StudioError(
       kind: ErrorKind.broker,
-      hint: hint,
+      message: message,
       key: key,
       call: const .known(.downloadPart),
       site: siteOf(key),
@@ -73,7 +72,11 @@ class DownloadBackupAction extends Action with NonReentrant, WaitingAction {
           ? sha256
           : str(await readValue(deps.wyrm, '$key/sha256')) ?? '';
       if (expected.isEmpty) {
-        throw _wrong(key, const ErrorHint.backupNoDigest());
+        throw _wrong(
+          key,
+          'The broker shows no SHA-256 of this backup, so what arrives '
+          'cannot be checked. Nothing was saved.',
+        );
       }
       await downloadParts(
         deps.wyrm,
@@ -90,10 +93,8 @@ class DownloadBackupAction extends Action with NonReentrant, WaitingAction {
       if (digest.value != expected) {
         throw _wrong(
           key,
-          ErrorHint.backupDigestMismatch(
-            got: digest.value,
-            expected: expected,
-          ),
+          'The file that arrived is not the backup: SHA-256 '
+          '${digest.value}, the broker says $expected. Nothing was saved.',
         );
       }
       await onDone?.call();

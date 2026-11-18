@@ -157,7 +157,6 @@ void main() {
           id: 'n$i',
           name: 'node$i',
           depth: 0,
-          icon: 'node_folder',
           selected: 'n$i' == selected,
         ),
     ];

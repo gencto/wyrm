@@ -27,18 +27,18 @@ import 'workspace_rail.dart';
 
 /// A workspace of the rail, in its order, with its icon and its name.
 enum WorkspaceTab {
-  explorer('ws_explorer'),
-  links('ws_links'),
-  flows('ws_flows'),
-  history('ws_history'),
-  access('ws_access'),
-  sites('ws_sites'),
-  assistant('ws_assistant'),
-  system('ws_system');
+  explorer(AppIcon.wsExplorer),
+  links(AppIcon.wsLinks),
+  flows(AppIcon.wsFlows),
+  history(AppIcon.wsHistory),
+  access(AppIcon.wsAccess),
+  sites(AppIcon.wsSites),
+  assistant(AppIcon.wsAssistant),
+  system(AppIcon.wsSystem);
 
   const WorkspaceTab(this.icon);
 
-  final String icon;
+  final AppIcon icon;
 
   String get label => switch (this) {
     explorer => S.current.wsExplorer,
@@ -132,17 +132,17 @@ final class SearchNodeVm extends Equatable {
   const SearchNodeVm({
     required this.key,
     required this.title,
-    this.profile,
-    this.value = false,
+    required this.icon,
   });
 
   final String key;
   final String title;
-  final String? profile;
-  final bool value;
+
+  /// The glyph of the node's kind, as the tree draws it.
+  final AppIcon icon;
 
   @override
-  List<Object?> get props => [key, title, profile, value];
+  List<Object?> get props => [key, title, icon];
 }
 
 /// What the search palette picked.
@@ -393,26 +393,21 @@ class StudioFrame extends StatelessWidget {
       SearchEntryVm(
         id: PickSite(c.site),
         title: c.site,
-        icon: 'node_site',
+        icon: AppIcon.nodeSite,
         detail: c.tie.word,
       ),
     for (final l in vm.links)
       SearchEntryVm(
         id: PickKey('${vm.root}/downstream/${l.id}'),
         title: l.id,
-        icon: 'node_link',
+        icon: AppIcon.nodeLink,
         detail: l.driver,
       ),
     for (final n in vm.nodes)
       SearchEntryVm(
         id: PickKey(n.key),
         title: n.title,
-        icon: AppIcon.nodeName(
-          key: n.key,
-          root: vm.root,
-          profile: n.profile,
-          value: n.value,
-        ),
+        icon: n.icon,
         detail: _relative(n.key),
       ),
   ];
@@ -426,7 +421,7 @@ class StudioFrame extends StatelessWidget {
     return SearchEntryVm(
       id: PickKey(key),
       title: S.current.goTo(_relative(key)),
-      icon: 'ui_chevron_right',
+      icon: AppIcon.uiChevronRight,
     );
   }
 

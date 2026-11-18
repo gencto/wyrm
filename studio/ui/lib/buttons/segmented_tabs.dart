@@ -112,7 +112,7 @@ class SegmentedTabs<T> extends StatelessWidget {
                 maxLines: 1,
                 overflow: .ellipsis,
                 style: TextStyle(
-                  fontSize: equal ? 13 : 14,
+                  fontSize: equal ? FontSizes.md : FontSizes.lg,
                   fontWeight: t.id == selected ? .w500 : .w400,
                   color: t.disabledReason != null
                       ? c.muted
@@ -129,7 +129,7 @@ class SegmentedTabs<T> extends StatelessWidget {
               Container(
                 constraints: const BoxConstraints(minWidth: 22),
                 height: 22,
-                padding: const EdgeInsets.symmetric(horizontal: 6),
+                padding: Insets.badge,
                 decoration: BoxDecoration(
                   color: t.countTone == .neutral
                       ? c.ground4

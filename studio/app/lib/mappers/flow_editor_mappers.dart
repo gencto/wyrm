@@ -31,11 +31,11 @@ import 'package:ui/flows/flow_menu.dart';
 import 'package:ui/flows/flow_status.dart';
 import 'package:ui/flows/scope_prompt.dart';
 import 'package:ui/flows/shortcut_card.dart';
-import 'package:ui/indicators/app_icon.dart';
 import 'package:ui/models/disabled.dart';
 
 import 'explorer_mappers.dart' show TypeCodeValueType;
 import 'field_label_mappers.dart';
+import 'icon_mappers.dart';
 import 'rights_mappers.dart';
 
 // The flow editor's business view (business/lib/wyrm/flow_view/) as `ui`
@@ -294,12 +294,7 @@ extension TreeEntryVm on TreeEntry {
       key: key,
       name: name,
       depth: depth,
-      icon: AppIcon.nodeName(
-        key: key,
-        root: root,
-        profile: n.profile,
-        value: type != null,
-      ),
+      icon: n.glyph.icon,
       opens: n.opens,
       open: n.open,
       used: n.used,

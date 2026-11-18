@@ -3,6 +3,7 @@ import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/sizes.dart';
@@ -141,8 +142,8 @@ class _RowsEditorState extends State<RowsEditor> {
               isExpanded: true,
               isDense: true,
               dropdownColor: c.ground3,
-              icon: AppIcon(
-                'ui_chevron_down',
+              icon: AppIconView(
+                AppIcon.uiChevronDown,
                 size: AppSizes.flowDropChevron,
                 color: c.text4,
               ),
@@ -228,8 +229,8 @@ class _RowsEditorState extends State<RowsEditor> {
                       ),
                       onTap: () => _remove(r),
                       child: Center(
-                        child: AppIcon(
-                          'ui_close',
+                        child: AppIconView(
+                          AppIcon.uiClose,
                           size: AppSizes.flowRowsRemoveIcon,
                           color: c.text4,
                         ),

@@ -136,16 +136,20 @@ class StartFault extends StatelessWidget {
                         child: Text(
                           vm.title,
                           style: boardText(
-                            size: 28,
+                            size: FontSizes.headline,
                             weight: .w600,
-                            tracking: -0.28,
+                            tracking: Trackings.faultTitle,
                             color: c.text1,
                           ),
                         ),
                       ),
                       Text(
                         vm.body,
-                        style: boardText(size: 15, height: 1.6, color: c.text2),
+                        style: boardText(
+                          size: FontSizes.lead,
+                          height: LineHeights.lead,
+                          color: c.text2,
+                        ),
                       ),
                     ],
                   ),
@@ -167,27 +171,25 @@ class StartFault extends StatelessWidget {
                           TableRow(
                             children: [
                               Padding(
-                                padding: EdgeInsets.only(
-                                  right: AppSpacing.md,
-                                  top: i == AppSpacing.none
-                                      ? AppSpacing.none
-                                      : 6,
-                                ),
+                                padding: i == 0
+                                    ? Insets.factLabel
+                                    : Insets.factLabelNext,
                                 child: Text(
                                   r.label,
-                                  style: boardText(size: 12, color: c.text4),
+                                  style: boardText(
+                                    size: FontSizes.sm,
+                                    color: c.text4,
+                                  ),
                                 ),
                               ),
                               Padding(
-                                padding: EdgeInsets.only(
-                                  top: i == AppSpacing.none
-                                      ? AppSpacing.none
-                                      : 6,
-                                ),
+                                padding: i == 0
+                                    ? EdgeInsets.zero
+                                    : Insets.factValueNext,
                                 child: SelectableText(
                                   r.value,
                                   style: boardText(
-                                    size: 12,
+                                    size: FontSizes.sm,
                                     color: c.text2,
                                     code: true,
                                   ),
@@ -242,7 +244,11 @@ class StartFault extends StatelessWidget {
                   if (vm.failed case final f?)
                     Text(
                       f,
-                      style: boardText(size: 12, height: 1.5, color: c.badText),
+                      style: boardText(
+                        size: FontSizes.sm,
+                        height: LineHeights.body,
+                        color: c.badText,
+                      ),
                     ),
                   Text.rich(
                     TextSpan(
@@ -252,8 +258,8 @@ class StartFault extends StatelessWidget {
                           TextSpan(
                             text: vm.noteCode,
                             style: boardText(
-                              size: 12,
-                              height: 1.5,
+                              size: FontSizes.sm,
+                              height: LineHeights.body,
                               color: c.text4,
                               code: true,
                             ),
@@ -262,7 +268,11 @@ class StartFault extends StatelessWidget {
                         ],
                       ],
                     ),
-                    style: boardText(size: 12, height: 1.5, color: c.text4),
+                    style: boardText(
+                      size: FontSizes.sm,
+                      height: LineHeights.body,
+                      color: c.text4,
+                    ),
                   ),
                 ],
               ),

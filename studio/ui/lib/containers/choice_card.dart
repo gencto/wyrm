@@ -105,7 +105,7 @@ class ChoiceCard<T> extends StatelessWidget {
                       StateMark(
                         mark: vm.selected ? Mark.dot : Mark.ring,
                         color: vm.selected ? c.ember : c.text4,
-                        size: 12,
+                        size: .large,
                       ),
                     if (vm.dot)
                       StateMark(mark: Mark.dot, color: off ? c.muted : c.good),
@@ -113,7 +113,11 @@ class ChoiceCard<T> extends StatelessWidget {
                       child: Text(
                         vm.title,
                         style: vm.monoTitle
-                            ? mono(size: 15, weight: .w600, color: c.text1)
+                            ? mono(
+                                size: FontSizes.lead,
+                                weight: .w600,
+                                color: c.text1,
+                              )
                             : TextStyle(
                                 fontSize: FontSizes.sectionTitle,
                                 fontWeight: .w600,
@@ -135,10 +139,10 @@ class ChoiceCard<T> extends StatelessWidget {
                   Text(
                     d,
                     style: vm.monoTitle
-                        ? mono(size: 12, color: c.text4)
+                        ? mono(size: FontSizes.sm, color: c.text4)
                         : TextStyle(
                             fontSize: FontSizes.md,
-                            height: 1.45,
+                            height: LineHeights.row,
                             color: c.text3,
                           ),
                   ),

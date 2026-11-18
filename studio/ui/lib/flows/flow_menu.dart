@@ -3,6 +3,7 @@ import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../models/disabled.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
@@ -224,7 +225,7 @@ class _FlowMenuState extends State<FlowMenu> {
       child: SizedBox(
         width: FlowMenu.width,
         child: SingleChildScrollView(
-          padding: Insets.flowMenu,
+          padding: Insets.menu,
           child: Column(
             crossAxisAlignment: .stretch,
             mainAxisSize: .min,
@@ -256,7 +257,7 @@ class _FlowMenuState extends State<FlowMenu> {
         child: Container(
           height: AppSizes.flowMenuItem,
           color: isFields && _fields ? c.ground4 : null,
-          padding: Insets.flowMenuItem,
+          padding: Insets.menuItem,
           child: Row(
             spacing: AppSpacing.sm,
             children: [
@@ -276,8 +277,8 @@ class _FlowMenuState extends State<FlowMenu> {
                 ),
               ),
               if (isFields)
-                AppIcon(
-                  'ui_chevron_right',
+                AppIconView(
+                  AppIcon.uiChevronRight,
                   size: AppSizes.flowMenuChevron,
                   color: c.text3,
                 )
@@ -287,7 +288,7 @@ class _FlowMenuState extends State<FlowMenu> {
                   spacing: AppSpacing.flowKeyGlyphs,
                   children: [
                     for (final t in KeyGlyph.tokens(hint))
-                      KeyGlyph(t, color: c.text4, size: FontSizes.sm),
+                      KeyGlyph(t, color: c.text4, size: .regular),
                   ],
                 ),
             ],
@@ -334,8 +335,8 @@ class _FlowMenuState extends State<FlowMenu> {
                   ),
                 ),
                 child: on
-                    ? AppIcon(
-                        'ui_check',
+                    ? AppIconView(
+                        AppIcon.uiCheck,
                         size: AppSizes.flowMenuTickIcon,
                         color: locked ? c.text4 : c.emberSoft,
                       )
@@ -409,7 +410,7 @@ class _FlowMenuState extends State<FlowMenu> {
                   style: TextStyle(
                     fontSize: FontSizes.xs,
                     fontWeight: .w600,
-                    letterSpacing: 0.66,
+                    letterSpacing: Trackings.smallLabel,
                     color: c.text4,
                   ),
                 ),

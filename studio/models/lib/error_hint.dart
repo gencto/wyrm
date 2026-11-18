@@ -106,17 +106,6 @@ sealed class ErrorHint with _$ErrorHint {
   /// This computer's platform ([host]) holds no device key.
   const factory ErrorHint.noDeviceKey(HostPlatform host) = ErrorHintNoDeviceKey;
 
-  /// The broker shows no SHA-256 of a backup: a download cannot be
-  /// checked, and nothing was saved.
-  const factory ErrorHint.backupNoDigest() = ErrorHintBackupNoDigest;
-
-  /// The file that arrived is not the backup: its SHA-256 is [got], the
-  /// broker says [expected]. Nothing was saved.
-  const factory ErrorHint.backupDigestMismatch({
-    required String got,
-    required String expected,
-  }) = ErrorHintBackupDigestMismatch;
-
   /// A file sent in parts ended at [offset] of [size] bytes.
   const factory ErrorHint.fileEndedEarly({
     required int offset,

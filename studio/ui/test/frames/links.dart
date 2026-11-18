@@ -6,6 +6,7 @@ import 'package:ui/buttons/segmented_tabs.dart';
 import 'package:ui/containers/detail_inspector.dart';
 import 'package:ui/containers/fact_grid.dart';
 import 'package:ui/forms/param_form.dart';
+import 'package:ui/indicators/app_icon.dart';
 import 'package:ui/indicators/status_pill.dart';
 import 'package:ui/models/tone.dart';
 import 'package:ui/models/value_changed.dart';
@@ -126,7 +127,7 @@ LinksPage linksLocal() => LinksPage(
         actions: [
           ActionRowVm(
             id: LinkAct.stop,
-            icon: 'action_stop',
+            icon: AppIcon.actionStop,
             title: 'Stop',
             description:
                 'Stays installed; its points go bad until you start it.',
@@ -134,7 +135,7 @@ LinksPage linksLocal() => LinksPage(
           ),
           ActionRowVm(
             id: LinkAct.log,
-            icon: 'action_log',
+            icon: AppIcon.actionLog,
             title: 'View log',
             description: 'Its last lines and its own log level.',
             code: 'get_log',
@@ -146,7 +147,7 @@ LinksPage linksLocal() => LinksPage(
         actions: [
           ActionRowVm(
             id: LinkAct.builtIn,
-            icon: 'action_lock',
+            icon: AppIcon.actionLock,
             title: 'Comes with wyrmd',
             disabledReason: 'A built-in driver updates with the broker.',
           ),
@@ -157,7 +158,7 @@ LinksPage linksLocal() => LinksPage(
         actions: [
           ActionRowVm(
             id: LinkAct.remove,
-            icon: 'action_trash',
+            icon: AppIcon.actionTrash,
             title: 'Remove link',
             description: 'Stops it and deletes its tree.',
             code: 'remove',

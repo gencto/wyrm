@@ -2,10 +2,12 @@ import 'package:equatable/equatable.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/shades.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
@@ -124,10 +126,7 @@ class ProblemsDrawer extends StatelessWidget {
             crossAxisAlignment: .stretch,
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 20,
-                  vertical: AppSpacing.md,
-                ),
+                padding: Insets.problemsHead,
                 decoration: BoxDecoration(
                   border: Border(bottom: BorderSide(color: c.line1)),
                 ),
@@ -140,7 +139,7 @@ class ProblemsDrawer extends StatelessWidget {
                         maxLines: 1,
                         overflow: .ellipsis,
                         style: boardText(
-                          size: 16,
+                          size: FontSizes.sectionTitle,
                           weight: .w600,
                           color: c.text1,
                         ),
@@ -163,7 +162,7 @@ class ProblemsDrawer extends StatelessWidget {
                         child: Text(
                           labels.clear,
                           style: boardText(
-                            size: 12,
+                            size: FontSizes.sm,
                             color: problems.isEmpty ? c.muted : c.text3,
                           ),
                         ),
@@ -177,11 +176,11 @@ class ProblemsDrawer extends StatelessWidget {
                         onTap: onClose,
                         borderRadius: Radii.segment,
                         child: SizedBox.square(
-                          dimension: 30,
+                          dimension: AppSizes.problemsClose,
                           child: Center(
-                            child: AppIcon(
-                              'err_close',
-                              size: 14,
+                            child: AppIconView(
+                              AppIcon.errClose,
+                              size: IconSizes.sm,
                               color: c.text4,
                             ),
                           ),
@@ -192,31 +191,27 @@ class ProblemsDrawer extends StatelessWidget {
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  20,
-                  12,
-                  20,
-                  AppSpacing.xs,
-                ),
+                padding: Insets.problemsLabel,
                 child: Text(
                   labels.note,
-                  style: boardText(size: 12, height: 1.5, color: c.text4),
+                  style: boardText(
+                    size: FontSizes.sm,
+                    height: LineHeights.body,
+                    color: c.text4,
+                  ),
                 ),
               ),
               Expanded(
                 child: problems.isEmpty
                     ? Padding(
-                        padding: const EdgeInsets.all(20),
+                        padding: Insets.emptyNote,
                         child: Text(
                           labels.empty,
-                          style: boardText(size: 13, color: c.text3),
+                          style: boardText(size: FontSizes.md, color: c.text3),
                         ),
                       )
                     : ListView.separated(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: AppSpacing.sm,
-                        ),
+                        padding: Insets.problemsList,
                         itemCount: problems.length,
                         separatorBuilder: (_, _) => Gaps.sm,
                         itemBuilder: (context, i) => _card(c, problems[i]),
@@ -242,7 +237,7 @@ class ProblemsDrawer extends StatelessWidget {
       onTap: onTap,
       child: Text(
         label,
-        style: boardText(size: 12, color: c.emberSoft).copyWith(
+        style: boardText(size: FontSizes.sm, color: c.emberSoft).copyWith(
           decoration: .underline,
           decorationColor: c.emberSoft,
         ),
@@ -253,7 +248,7 @@ class ProblemsDrawer extends StatelessWidget {
       opacity: p.shown || p.tone == .neutral ? 0.72 : 1,
       child: Container(
         key: ValueKey('problem-${p.id}'),
-        padding: const EdgeInsets.all(12),
+        padding: Insets.box,
         decoration: BoxDecoration(
           color: c.ground2,
           border: .all(color: c.line1),
@@ -265,10 +260,7 @@ class ProblemsDrawer extends StatelessWidget {
             Container(
               width: 8,
               height: 8,
-              margin: const EdgeInsets.only(
-                top: 6,
-                right: 10,
-              ),
+              margin: Insets.problemDot,
               decoration: BoxDecoration(color: dot, shape: .circle),
             ),
             Expanded(
@@ -285,7 +277,7 @@ class ProblemsDrawer extends StatelessWidget {
                         child: Text(
                           p.title,
                           style: boardText(
-                            size: 13,
+                            size: FontSizes.md,
                             weight: .w600,
                             color: c.text1,
                           ),
@@ -293,24 +285,32 @@ class ProblemsDrawer extends StatelessWidget {
                       ),
                       Text(
                         p.time,
-                        style: boardText(size: 11, color: c.text4),
+                        style: boardText(size: FontSizes.xs, color: c.text4),
                       ),
                     ],
                   ),
                   if (p.where.isNotEmpty)
                     Text(
                       p.where,
-                      style: boardText(size: 11, color: c.text4, code: true),
+                      style: boardText(
+                        size: FontSizes.xs,
+                        color: c.text4,
+                        code: true,
+                      ),
                     ),
                   if (p.said.isNotEmpty)
                     Text(
                       p.said,
                       maxLines: 4,
                       overflow: .ellipsis,
-                      style: boardText(size: 12, height: 1.45, color: c.text3),
+                      style: boardText(
+                        size: FontSizes.sm,
+                        height: LineHeights.row,
+                        color: c.text3,
+                      ),
                     ),
                   Padding(
-                    padding: const EdgeInsets.only(top: 2),
+                    padding: Insets.messageLinks,
                     child: Wrap(
                       spacing: 14,
                       children: [
@@ -328,7 +328,10 @@ class ProblemsDrawer extends StatelessWidget {
                         if (p.shown)
                           Text(
                             labels.shown,
-                            style: boardText(size: 12, color: c.muted),
+                            style: boardText(
+                              size: FontSizes.sm,
+                              color: c.muted,
+                            ),
                           ),
                       ],
                     ),

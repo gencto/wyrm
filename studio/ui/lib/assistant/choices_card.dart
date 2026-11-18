@@ -138,7 +138,7 @@ class ChoicesCard extends StatelessWidget {
     final c = context.colors;
     final small = TextStyle(
       fontSize: FontSizes.sm,
-      height: 1.45,
+      height: LineHeights.row,
       color: c.text3,
     );
     return Container(
@@ -159,7 +159,7 @@ class ChoicesCard extends StatelessWidget {
               q.text,
               style: TextStyle(
                 fontSize: FontSizes.lg,
-                height: 1.4,
+                height: LineHeights.meta,
                 color: c.text1,
               ),
             ),
@@ -224,7 +224,7 @@ class _Option extends StatelessWidget {
             Container(
               width: 14,
               height: 14,
-              margin: const EdgeInsets.only(top: 3),
+              margin: Insets.radioMark,
               decoration: BoxDecoration(
                 shape: multiple ? .rectangle : .circle,
                 borderRadius: multiple
@@ -252,7 +252,7 @@ class _Option extends StatelessWidget {
                       vm.detail,
                       style: TextStyle(
                         fontSize: FontSizes.sm,
-                        height: 1.4,
+                        height: LineHeights.meta,
                         color: c.text3,
                       ),
                     ),

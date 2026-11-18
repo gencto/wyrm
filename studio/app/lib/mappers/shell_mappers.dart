@@ -6,6 +6,7 @@ import 'package:models/workspace.dart';
 import 'package:ui/overlays/review_panel.dart';
 import 'package:ui/shell/studio_frame.dart';
 
+import 'icon_mappers.dart';
 import 'rights_mappers.dart';
 
 /// A workspace as the rail draws it.
@@ -71,6 +72,5 @@ extension ReviewCardDataOf on ReviewCard {
 }
 
 extension SearchNodeVmOf on SearchNode {
-  SearchNodeVm get vm =>
-      SearchNodeVm(key: key, title: title, profile: profile, value: value);
+  SearchNodeVm get vm => SearchNodeVm(key: key, title: title, icon: glyph.icon);
 }

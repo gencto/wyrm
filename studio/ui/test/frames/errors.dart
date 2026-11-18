@@ -8,6 +8,7 @@ import 'package:ui/alerts/start_fault.dart';
 import 'package:ui/alerts/toast_stack.dart';
 import 'package:ui/buttons/problems_pill.dart';
 import 'package:ui/dialogs/error_dialog.dart';
+import 'package:ui/indicators/app_icon.dart';
 import 'package:ui/indicators/fail_chip.dart';
 import 'package:ui/models/tone.dart';
 import 'package:ui/overlays/problems_drawer.dart';
@@ -38,7 +39,7 @@ List<ErrorRowVm> _brokerRows(String code, String hex, String where) {
 ErrorDialogVm errorDialogVm(String kind, {bool details = false}) {
   ErrorDialogVm broker({
     required Tone tone,
-    required String icon,
+    required AppIcon icon,
     required String title,
     required String where,
     required String said,
@@ -70,7 +71,7 @@ ErrorDialogVm errorDialogVm(String kind, {bool details = false}) {
   return switch (kind) {
     'reach' => broker(
       tone: .warn,
-      icon: 'err_reach',
+      icon: AppIcon.errReach,
       title: 'edge did not answer',
       where: 'wy/edge/downstream/modbus/plc1/t2 › set',
       saidLabel: 'Studio waited 10 s',
@@ -91,7 +92,7 @@ ErrorDialogVm errorDialogVm(String kind, {bool details = false}) {
     ),
     'input' => broker(
       tone: .ember,
-      icon: 'err_input',
+      icon: AppIcon.errInput,
       title: 'The broker refused these parameters',
       where: 'wy/plant/downstream/modbus/plc1 › edit',
       said: 'poll_rate: 0 is below the minimum of 100 ms.',
@@ -104,7 +105,7 @@ ErrorDialogVm errorDialogVm(String kind, {bool details = false}) {
     ),
     'busy' => broker(
       tone: .neutral,
-      icon: 'err_busy',
+      icon: AppIcon.errBusy,
       title: 'plant is busy, the install did not start',
       where: 'wy/plant/sys/links › install_repo',
       said:
@@ -121,7 +122,7 @@ ErrorDialogVm errorDialogVm(String kind, {bool details = false}) {
     ),
     'gone' => broker(
       tone: .neutral,
-      icon: 'err_gone',
+      icon: AppIcon.errGone,
       title: 'pump-control is not there anymore',
       where: 'wy/plant/dataflows/pump-control › get_def',
       said: 'No node at dataflows/pump-control.',
@@ -136,7 +137,7 @@ ErrorDialogVm errorDialogVm(String kind, {bool details = false}) {
     ),
     'broker' => broker(
       tone: .bad,
-      icon: 'err_broker',
+      icon: AppIcon.errBroker,
       title: 'Installing modbus 0.4.2 failed on plant',
       where: 'wy/plant/sys/links › install_repo',
       said:
@@ -153,7 +154,7 @@ ErrorDialogVm errorDialogVm(String kind, {bool details = false}) {
     ),
     'studio' => ErrorDialogVm(
       tone: .bad,
-      icon: 'err_studio',
+      icon: AppIcon.errStudio,
       title: 'Studio could not open this flow',
       where: 'Flow editor › open pump-control',
       saidLabel: 'What happened',
@@ -183,7 +184,7 @@ ErrorDialogVm errorDialogVm(String kind, {bool details = false}) {
     ),
     _ => broker(
       tone: .warn,
-      icon: 'err_rights',
+      icon: AppIcon.errRights,
       title: 'You can’t deploy pump-control',
       where: 'wy/plant/dataflows/pump-control › deploy',
       said:
@@ -302,11 +303,12 @@ class ErrorBackdrop extends StatelessWidget {
                       children: [
                         Text(
                           title,
+                          // a page title of the mock screen behind the
+                          // error surface, in the size its board draws
                           style: boardText(
-                            size: 24,
                             weight: .w600,
                             color: c.text1,
-                          ),
+                          ).copyWith(fontSize: 24),
                         ),
                         SizedBox(height: page == null ? 16 : 14),
                         if (page case final p?)
@@ -470,7 +472,7 @@ class _Rows extends StatelessWidget {
                           Text(
                             name,
                             style: boardText(
-                              size: 13,
+                              size: FontSizes.md,
                               color: c.text1,
                               code: true,
                             ),
@@ -493,7 +495,7 @@ class _Rows extends StatelessWidget {
                     child: Text(
                       value,
                       style: boardText(
-                        size: 13,
+                        size: FontSizes.md,
                         color: failed && name == 't2' ? c.muted : c.text1,
                         code: true,
                       ),
@@ -504,7 +506,7 @@ class _Rows extends StatelessWidget {
                       width: 120,
                       child: Text(
                         time,
-                        style: boardText(size: 12, color: c.text4),
+                        style: boardText(size: FontSizes.sm, color: c.text4),
                       ),
                     ),
                 ],

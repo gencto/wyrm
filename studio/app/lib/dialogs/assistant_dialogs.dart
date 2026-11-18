@@ -12,6 +12,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:ui/assistant/suggestion_tile.dart';
 import 'package:ui/assistant/task_badge.dart';
 import 'package:ui/assistant/task_card.dart';
+import 'package:ui/indicators/app_icon.dart';
 import 'package:ui/overlays/confirm_dialog.dart';
 import 'package:ui/overlays/reason_dialog.dart';
 import 'package:ui/overlays/search_palette.dart';
@@ -179,12 +180,12 @@ Future<void> pickContextKey(BuildContext context) async {
           (:final key, reads: false) => SearchEntryVm(
             id: null,
             title: S.current.pickKeyOutside(shortKey(key)),
-            icon: 'ui_close',
+            icon: AppIcon.uiClose,
           ),
           (:final key, reads: true) => SearchEntryVm(
             id: key,
             title: S.current.pickKeyTyped(shortKey(key)),
-            icon: 'ui_chevron_right',
+            icon: AppIcon.uiChevronRight,
           ),
         },
   );

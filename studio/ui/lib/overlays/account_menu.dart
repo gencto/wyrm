@@ -120,7 +120,7 @@ class _AccountMenuState extends State<AccountMenu> {
       style: TextStyle(
         fontSize: FontSizes.xs,
         fontWeight: .w600,
-        letterSpacing: 0.66,
+        letterSpacing: Trackings.smallLabel,
         color: c.text4,
       ),
     );
@@ -136,18 +136,13 @@ class _AccountMenuState extends State<AccountMenu> {
       child: SizedBox(
         width: AppSizes.menu,
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 6),
+          padding: Insets.menu,
           child: Column(
             crossAxisAlignment: .stretch,
             mainAxisSize: .min,
             children: [
               Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  14,
-                  AppSpacing.sm,
-                  14,
-                  10,
-                ),
+                padding: Insets.menuHead,
                 child: Column(
                   crossAxisAlignment: .start,
                   spacing: 2,
@@ -172,12 +167,7 @@ class _AccountMenuState extends State<AccountMenu> {
               ),
               Divider(height: 1, color: c.line1),
               Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  14,
-                  12,
-                  14,
-                  AppSpacing.xs,
-                ),
+                padding: Insets.accountMenuLines,
                 child: Column(
                   crossAxisAlignment: .stretch,
                   spacing: 8,
@@ -212,9 +202,7 @@ class _AccountMenuState extends State<AccountMenu> {
                   onTap: security,
                   child: Container(
                     height: 38,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                    ),
+                    padding: Insets.menuItem,
                     alignment: .centerLeft,
                     child: Text(
                       s.securityMenu,
@@ -229,9 +217,7 @@ class _AccountMenuState extends State<AccountMenu> {
                 onTap: widget.onLogOut,
                 child: Container(
                   height: 38,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                  ),
+                  padding: Insets.menuItem,
                   alignment: .centerLeft,
                   child: Text(
                     s.logOut,

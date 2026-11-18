@@ -1,5 +1,4 @@
 import 'package:equatable/equatable.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../alerts/warn_banner.dart';
@@ -13,6 +12,8 @@ import '../containers/section_card.dart';
 import '../containers/standby_pair.dart';
 import '../containers/sys_tile.dart';
 import '../forms/log_toolbar.dart';
+import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../indicators/code_text.dart';
 import '../indicators/quality_mark.dart';
 import '../indicators/status_pill.dart';
@@ -23,6 +24,7 @@ import '../tables/row_list.dart';
 import '../tables/term_table.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
@@ -413,12 +415,6 @@ class SystemPage extends StatelessWidget {
   /// The button of the card *Broker version*.
   final VoidCallback? onBrokerUpdate;
 
-  static const _shield = '''
-<svg viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2"
-  stroke-linecap="round" stroke-linejoin="round">
-  <path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/>
-</svg>''';
-
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, box) {
@@ -481,7 +477,7 @@ class SystemPage extends StatelessWidget {
         );
       }
       return DefaultTextStyle.merge(
-        style: const TextStyle(height: 1.3),
+        style: const TextStyle(height: LineHeights.title),
         child: page,
       );
     },
@@ -510,7 +506,7 @@ class SystemPage extends StatelessWidget {
                   style: TextStyle(
                     fontSize: FontSizes.pageTitle,
                     fontWeight: .w600,
-                    letterSpacing: -0.26,
+                    letterSpacing: Trackings.pageTitle,
                     color: c.text1,
                   ),
                 ),
@@ -574,7 +570,7 @@ class SystemPage extends StatelessWidget {
     style: TextStyle(
       fontSize: FontSizes.sm,
       fontWeight: .w600,
-      letterSpacing: 0.72,
+      letterSpacing: Trackings.label,
       color: c.text4,
     ),
   );
@@ -718,7 +714,7 @@ class SystemPage extends StatelessWidget {
                   l.levelNote,
                   style: TextStyle(
                     fontSize: FontSizes.sm,
-                    height: 1.5,
+                    height: LineHeights.body,
                     color: c.text4,
                   ),
                 ),
@@ -903,18 +899,17 @@ class SystemPage extends StatelessWidget {
             crossAxisAlignment: .start,
             spacing: 10,
             children: [
-              SvgPicture.string(
-                _shield,
-                width: 16,
-                height: 16,
-                colorFilter: ColorFilter.mode(c.warn, BlendMode.srcIn),
+              AppIconView(
+                AppIcon.uiShield,
+                size: IconSizes.md,
+                color: c.warn,
               ),
               Expanded(
                 child: Text(
                   m.backupWarning,
                   style: TextStyle(
                     fontSize: FontSizes.sm,
-                    height: 1.5,
+                    height: LineHeights.body,
                     color: c.warn,
                   ),
                 ),

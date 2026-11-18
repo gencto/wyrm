@@ -15,6 +15,5 @@ sealed class FieldLabel with _$FieldLabel {
   const factory FieldLabel.word(FieldWord word) = FieldLabelWord;
 
   /// [word] with its number, counted from 1.
-  const factory FieldLabel.numbered(FieldWord word, int n) =
-      FieldLabelNumbered;
+  const factory FieldLabel.numbered(FieldWord word, int n) = FieldLabelNumbered;
 }

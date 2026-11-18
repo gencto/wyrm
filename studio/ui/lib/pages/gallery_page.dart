@@ -7,9 +7,9 @@ import '../buttons/segmented_tabs.dart';
 import '../containers/fact_grid.dart';
 import '../containers/section_label.dart';
 import '../forms/param_form.dart';
-import '../generated/assets.gen.dart';
 import '../indicators/access_meter.dart';
 import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../indicators/check_list.dart';
 import '../indicators/level_badge.dart';
 import '../indicators/progress_list.dart';
@@ -97,7 +97,10 @@ class GallerySection extends StatelessWidget {
       Text(number, style: mono(color: context.colors.text4)),
       Text(
         title,
-        style: const TextStyle(fontSize: 28, fontWeight: .w600),
+        style: const TextStyle(
+          fontSize: FontSizes.headline,
+          fontWeight: .w600,
+        ),
       ),
       const SizedBox(height: 14),
       child,
@@ -231,7 +234,10 @@ class _Swatch extends StatelessWidget {
                   name,
                   style: TextStyle(fontSize: FontSizes.sm, color: c.text1),
                 ),
-                Text(hex, style: mono(size: 12, color: c.text4)),
+                Text(
+                  hex,
+                  style: mono(size: FontSizes.sm, color: c.text4),
+                ),
                 Text(
                   use,
                   style: TextStyle(fontSize: FontSizes.sm, color: c.text3),
@@ -256,7 +262,7 @@ class TypeScale extends StatelessWidget {
     final rows = <(String, Widget, String)>[
       (
         'display',
-        Text('WYRM Studio', style: wordmark(size: 32)),
+        Text('WYRM Studio', style: wordmark(size: FontSizes.display)),
         'Unbounded 700 · 32',
       ),
       (
@@ -289,7 +295,7 @@ class TypeScale extends StatelessWidget {
       ),
       (
         'mono/value',
-        Text('64.1 °C', style: mono(size: 22)),
+        Text('64.1 °C', style: mono(size: FontSizes.figure)),
         'Plex Mono 400 · 22 · inspector value',
       ),
     ];
@@ -498,7 +504,11 @@ class ComponentKit extends StatelessWidget {
                 Button.secondary(label: 'Secondary', onPressed: () {}),
                 Button.quiet(label: 'Quiet', onPressed: () {}),
                 Button.danger(label: 'Remove', onPressed: () {}),
-                Button.secondary(label: '', icon: 'ui_add', onPressed: () {}),
+                Button.secondary(
+                  label: '',
+                  icon: AppIcon.uiAdd,
+                  onPressed: () {},
+                ),
                 const Button.secondary(
                   label: 'Stop',
                   onPressed: null,
@@ -607,7 +617,7 @@ class ComponentKit extends StatelessWidget {
                     id: 'a',
                     name: 'modbus',
                     depth: 0,
-                    icon: 'node_link',
+                    icon: AppIcon.nodeLink,
                     hasChildren: true,
                     expanded: true,
                     mode: .process,
@@ -619,7 +629,7 @@ class ComponentKit extends StatelessWidget {
                     id: 'b',
                     name: 'plc1',
                     depth: 1,
-                    icon: 'node_device',
+                    icon: AppIcon.nodeDevice,
                     hasChildren: true,
                     selected: true,
                     count: 9,
@@ -630,7 +640,7 @@ class ComponentKit extends StatelessWidget {
                     id: 'c',
                     name: 'plc2',
                     depth: 1,
-                    icon: 'node_device',
+                    icon: AppIcon.nodeDevice,
                     hasChildren: true,
                     staged: true,
                     count: 14,
@@ -641,7 +651,7 @@ class ComponentKit extends StatelessWidget {
                     id: 'd',
                     name: 'boiler-guard',
                     depth: 0,
-                    icon: 'node_flow',
+                    icon: AppIcon.nodeFlow,
                     draft: true,
                   ),
                   onTap: none,
@@ -669,7 +679,7 @@ class ComponentKit extends StatelessWidget {
                   vm: const ActionRowVm(
                     id: _DemoAct.start,
                     title: 'Start',
-                    icon: 'action_play',
+                    icon: AppIcon.actionPlay,
                     description: 'Run the link again',
                     code: 'start',
                   ),
@@ -679,7 +689,7 @@ class ComponentKit extends StatelessWidget {
                   vm: const ActionRowVm(
                     id: _DemoAct.remove,
                     title: 'Remove',
-                    icon: 'action_trash',
+                    icon: AppIcon.actionTrash,
                     description: 'Its id is retired',
                     code: 'remove',
                     tone: .bad,
@@ -690,7 +700,7 @@ class ComponentKit extends StatelessWidget {
                   vm: const ActionRowVm(
                     id: _DemoAct.upgrade,
                     title: 'Upgrade',
-                    icon: 'action_up',
+                    icon: AppIcon.actionUp,
                     code: 'install_repo',
                     disabledReason: 'needs config on sys',
                   ),
@@ -780,15 +790,11 @@ class IconGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final names = [
-      for (final i in Assets.svg.icons.values)
-        i.path.split('/').last.replaceAll('.svg', ''),
-    ];
     return Wrap(
       spacing: 10,
       runSpacing: 10,
       children: [
-        for (final n in names)
+        for (final n in AppIcon.canvas)
           Container(
             width: 132,
             height: 84,
@@ -801,8 +807,11 @@ class IconGrid extends StatelessWidget {
               mainAxisAlignment: .center,
               spacing: 10,
               children: [
-                AppIcon(n, size: 24, color: c.text1),
-                Text(n, style: mono(size: 11, color: c.text3)),
+                AppIconView(n, size: IconSizes.xxl, color: c.text1),
+                Text(
+                  n.asset ?? '',
+                  style: mono(size: FontSizes.xs, color: c.text3),
+                ),
               ],
             ),
           ),

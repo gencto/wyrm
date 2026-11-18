@@ -1,6 +1,7 @@
 import 'package:business/redux/app_state.dart';
 import 'package:business/wyrm/approval.dart';
 import 'package:business/wyrm/assistant_view.dart';
+import 'package:business/wyrm/decode/node_glyph.dart';
 import 'package:business/wyrm/holds.dart';
 import 'package:business/wyrm/mappers/agent_task_mapper.dart';
 import 'package:business/wyrm/task_facts.dart';
@@ -37,6 +38,7 @@ import 'package:ui/assistant/task_list.dart';
 import 'package:ui/indicators/app_icon.dart';
 import 'package:ui/pages/assistant_page.dart';
 
+import 'icon_mappers.dart';
 import 'rights_mappers.dart';
 
 // The agent task's domain as the Assistant draws it (studio-rules §3): one
@@ -393,7 +395,7 @@ final class ChipChoice {
 
   /// Its display name, else its name.
   final String title;
-  final String icon;
+  final AppIcon icon;
 
   /// It is Explorer's selection or point: offered first.
   final bool selected;
@@ -426,12 +428,9 @@ ChipChoices? chipChoicesOf(AppState s) {
           display,
         final n => n?.name ?? shortKey(k),
       },
-      icon: AppIcon.nodeName(
-        key: k,
-        root: root,
-        profile: info?.profile,
-        value: info?.type != null,
-      ),
+      // a key the tree has not listed (typed, or kept from a task) has no
+      // decoded node: its place says what it is
+      icon: nodeGlyphAt(k, root: root, info: info).icon,
       selected: selected,
     );
   }

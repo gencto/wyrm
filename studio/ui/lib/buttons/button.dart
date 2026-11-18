@@ -1,8 +1,10 @@
 import 'package:material_ui/material_ui.dart';
 
 import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
@@ -23,7 +25,7 @@ class Button extends StatelessWidget {
     this.expand = false,
     this.disabledReason,
     this.size = ButtonSize.toolbar,
-    this.fontSize = 14,
+    this.fontSize = FontSizes.lg,
     this.fontWeight,
     this.autofocus = false,
     this.inset = 16,
@@ -38,7 +40,7 @@ class Button extends StatelessWidget {
     this.expand = false,
     this.disabledReason,
     this.size = ButtonSize.toolbar,
-    this.fontSize = 14,
+    this.fontSize = FontSizes.lg,
     this.fontWeight,
     this.autofocus = false,
     this.inset = 16,
@@ -53,7 +55,7 @@ class Button extends StatelessWidget {
     this.expand = false,
     this.disabledReason,
     this.size = ButtonSize.toolbar,
-    this.fontSize = 14,
+    this.fontSize = FontSizes.lg,
     this.fontWeight,
     this.autofocus = false,
     this.inset = 16,
@@ -68,7 +70,7 @@ class Button extends StatelessWidget {
     this.expand = false,
     this.disabledReason,
     this.size = ButtonSize.toolbar,
-    this.fontSize = 14,
+    this.fontSize = FontSizes.lg,
     this.fontWeight,
     this.autofocus = false,
     this.inset = 16,
@@ -81,8 +83,8 @@ class Button extends StatelessWidget {
   /// Null disables the button.
   final VoidCallback? onPressed;
 
-  /// An icon of `ui/assets/svg/icons` (`ui_add`, `action_play`, …).
-  final String? icon;
+  /// The icon before the label (`AppIcon.uiAdd`, `AppIcon.actionPlay`, …).
+  final AppIcon? icon;
 
   /// Stretch to the available width instead of hugging.
   final bool expand;
@@ -93,7 +95,7 @@ class Button extends StatelessWidget {
   final ButtonSize size;
 
   /// The label's size; 14 everywhere but in a dense toolbar.
-  final double fontSize;
+  final FontSize fontSize;
 
   /// The label's weight; the variant's own when null (600 primary, 500
   /// the others).
@@ -127,7 +129,8 @@ class Button extends StatelessWidget {
       mainAxisAlignment: .center,
       spacing: 8,
       children: [
-        if (icon case final name?) AppIcon(name, size: 16, color: fg),
+        if (icon case final name?)
+          AppIconView(name, size: IconSizes.md, color: fg),
         if (label.isNotEmpty)
           Text(
             label,
