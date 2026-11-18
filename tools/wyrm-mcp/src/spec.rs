@@ -72,11 +72,12 @@ impl Section {
             .trim()
             .trim_start_matches(URI_PREFIX)
             .to_ascii_lowercase();
-        Self::ALL.iter().copied().find(|s| {
-            t == s.name()
-                || s.file().file.eq_ignore_ascii_case(&t)
-                || s.short_forms()
-                    .is_some_and(|(number, word)| t == number || t == word)
+        Self::from_name(&t).or_else(|| {
+            Self::ALL.iter().copied().find(|s| {
+                s.file().file.eq_ignore_ascii_case(&t)
+                    || s.short_forms()
+                        .is_some_and(|(number, word)| t == number || t == word)
+            })
         })
     }
 

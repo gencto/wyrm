@@ -471,37 +471,13 @@
   },
   "C8-dropped-result": {},
   "C9-duplicate-helper": {
-    "crates/wyrm-admin/src/control/backups.rs": 1,
-    "crates/wyrm-admin/src/control/broker_update.rs": 1,
-    "crates/wyrm-admin/src/control/updates.rs": 1,
     "crates/wyrm-admin/src/release.rs": 1,
-    "crates/wyrm-filestore/src/parts.rs": 2,
-    "crates/wyrm-filestore/src/store.rs": 1,
-    "crates/wyrm-flow/src/blocks.rs": 3,
+    "crates/wyrm-filestore/src/parts.rs": 1,
     "crates/wyrm-flow/src/blocks/math.rs": 1,
     "crates/wyrm-flow/src/blocks/text.rs": 1,
-    "crates/wyrm-flow/src/commands.rs": 1,
-    "crates/wyrm-flow/src/nodes.rs": 1,
-    "crates/wyrm-flow/src/readers.rs": 1,
-    "crates/wyrm-flow/src/runtime.rs": 2,
-    "crates/wyrm-history-sync/src/testkit.rs": 1,
-    "crates/wyrm-link-api/src/buffer.rs": 2,
-    "crates/wyrm-link-api/src/lib.rs": 1,
-    "crates/wyrm-link-guest/src/lib.rs": 1,
-    "crates/wyrm-link-portable/src/runtime.rs": 1,
-    "crates/wyrm-link-portable/src/services.rs": 1,
-    "crates/wyrm-messenger/src/testkit.rs": 2,
-    "crates/wyrm-wasm-host/src/lib.rs": 5,
-    "links/alarm/src/lib.rs": 1,
-    "links/alarm/src/limits.rs": 1,
-    "links/dql/src/lib.rs": 1,
     "links/http/src/lib.rs": 1,
-    "links/modbus/src/dsa.rs": 1,
     "links/mysql/src/lib.rs": 1,
-    "links/s7/src/lib.rs": 1,
-    "links/scheduler/src/lib.rs": 3,
-    "links/scheduler/src/limits.rs": 1,
-    "links/snmp/src/client.rs": 1
+    "links/s7/src/lib.rs": 1
   },
   "C10-plain-secret": {
     "links/gdrive/src/lib.rs": 3,
@@ -515,10 +491,7 @@
   "C11-url-split": {
     "crates/wyrm-admin/src/secrets.rs": 1
   },
-  "C13-helper-body": {
-    "links/s7/src/client.rs": 2,
-    "links/s7/src/proto.rs": 1
-  },
+  "C13-helper-body": {},
   "A1-allow": {
     "crates/wyrm-admin/src/official.rs": 1,
     "crates/wyrm-admin/src/release.rs": 1,
@@ -579,22 +552,15 @@
   },
   "A4-open-text": {
     "crates/wyrm-admin/src/audit.rs": 1,
-    "crates/wyrm-admin/src/control.rs": 1,
     "crates/wyrm-admin/src/fetch.rs": 1,
     "crates/wyrm-admin/src/history.rs": 1,
-    "crates/wyrm-admin/src/registry.rs": 1,
-    "crates/wyrm-admin/src/secret.rs": 1,
     "crates/wyrm-core/src/time.rs": 1,
     "crates/wyrm-dql/src/engine.rs": 1,
-    "crates/wyrm-dql/src/pattern.rs": 1,
     "crates/wyrm-flow/src/blocks.rs": 1,
     "crates/wyrm-flow/src/catalog.rs": 1,
-    "crates/wyrm-flow/src/scope.rs": 2,
-    "crates/wyrm-gateway/src/lib.rs": 2,
+    "crates/wyrm-flow/src/scope.rs": 1,
     "crates/wyrm-history/src/engine.rs": 1,
-    "crates/wyrm-link-api/src/lib.rs": 1,
     "crates/wyrm-link-sdk/src/auth.rs": 1,
-    "crates/wyrm-link-sdk/src/driver/branch.rs": 1,
     "crates/wyrm-link-sdk/src/package.rs": 1,
     "crates/wyrm-messenger/src/api.rs": 3,
     "crates/wyrmd/src/announce.rs": 1,
@@ -602,11 +568,9 @@
     "links/agent/src/tools.rs": 1,
     "links/prometheus/src/expo.rs": 1,
     "links/wasm/src/lib.rs": 1,
-    "tools/wyr/src/pack.rs": 1,
     "tools/wyrm-mcp/src/gateway.rs": 1
   },
   "A5-library-rng": {
-    "crates/wyrm-admin/src/secret.rs": 7,
     "links/opcua/src/pki.rs": 1
   },
   "clippy::cast_possible_truncation": {
@@ -663,7 +627,6 @@
     "links/modbus/src/sim.rs": 2,
     "links/mongodb/src/bson.rs": 3,
     "links/mongodb/src/lib.rs": 3,
-    "links/mqtt/src/lib.rs": 1,
     "links/mqtt/src/sparkplug.rs": 9,
     "links/mysql/src/lib.rs": 2,
     "links/opcua/src/conv.rs": 2,

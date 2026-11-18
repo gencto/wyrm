@@ -2310,9 +2310,9 @@ impl Node for Block {
         let name = name.to_owned();
         // `op` takes only an operator the block knows: another text is ignored (spec 06 0.2.20)
         if name == "op" && Ops::has(self.kind) {
-            let Value::Str(o) = &m.v else { return };
-            if self.ops.set(self.kind, o).is_err() {
-                return;
+            match &m.v {
+                Value::Str(o) if self.ops.set(self.kind, o).is_ok() => {}
+                _ => return,
             }
         }
         // a number that is not finite never becomes a parameter: the last good value stays
