@@ -569,6 +569,9 @@ enum SysAttention {
   linkFailed,
   quarantine,
   brokerWaiting,
+
+  /// What waits in quarantine was not read by Studio.
+  waitingNotRead,
   aclGrown,
   noStandby;
 
@@ -576,7 +579,7 @@ enum SysAttention {
   String get go => switch (this) {
     standbyBehind || noStandby => S.current.sysAttnOpenAvail,
     linkFailed => S.current.sysAttnOpenLinks,
-    quarantine => S.current.sysAttnOpenQuarantine,
+    quarantine || waitingNotRead => S.current.sysAttnOpenQuarantine,
     brokerWaiting => S.current.sysAttnOpenSites,
     aclGrown => S.current.sysAttnOpenAudit,
   };
@@ -584,7 +587,11 @@ enum SysAttention {
   Tone get tone => switch (this) {
     linkFailed => Tone.bad,
     noStandby => Tone.neutral,
-    standbyBehind || quarantine || brokerWaiting || aclGrown => Tone.warn,
+    standbyBehind ||
+    quarantine ||
+    brokerWaiting ||
+    waitingNotRead ||
+    aclGrown => Tone.warn,
   };
 }
 

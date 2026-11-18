@@ -176,33 +176,31 @@ Decoded<UpdateReport?> updateReportOf(Object? v, {required String where}) {
 
 /// `sys/links/<id>/restore_points` (a list as plain Dart): its rows, in
 /// the broker's order; none when no value arrived; [Invalid] when it is no
-/// list. A row that is not one is left out **and logged** with [where];
-/// the others stay.
-Decoded<List<RestorePoint>> restorePointsOf(
-  Object? v, {
-  required String where,
-}) {
+/// list. A row that is not one is left out, the others stay.
+///
+/// With [where] each row left out is recorded with it: the place the
+/// value arrives at passes it (`warnUnreadLive`, a one-shot read). A
+/// selector reads the same value on every rebuild and passes none: it
+/// records nothing.
+Decoded<List<RestorePoint>> restorePointsOf(Object? v, {String? where}) {
   if (v == null) {
     return const Valid([]);
   }
   if (v is! List<Object?>) {
     return const Invalid(_points, '', 'not a list');
   }
+  T? take<T>(Decoded<T> d) => where == null ? d.orNull : d.orWarn(where);
   final points = <RestorePoint>[];
   for (final e in v) {
     if (e is! Map<Object?, Object?>) {
-      const Invalid<RestorePoint>(
-        _points,
-        '',
-        'a row is not a map',
-      ).orWarn(where);
+      take(const Invalid<RestorePoint>(_points, '', 'a row is not a map'));
       continue;
     }
-    final at = liveInt(e['at'], _points, 'at').orWarn(where);
-    final size = liveInt(e['size'], _points, 'size').orWarn(where);
+    final at = take(liveInt(e['at'], _points, 'at'));
+    final size = take(liveInt(e['size'], _points, 'size'));
     final version = liveText(e['version'], _points, 'version');
     if (at == null || size == null || version is Invalid) {
-      version.orWarn(where);
+      take(version);
       continue;
     }
     points.add(

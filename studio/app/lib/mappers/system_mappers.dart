@@ -149,6 +149,7 @@ extension AttentionKindSys on AttentionKind {
     AttentionKind.linkFailed => SysAttention.linkFailed,
     AttentionKind.quarantine => SysAttention.quarantine,
     AttentionKind.brokerWaiting => SysAttention.brokerWaiting,
+    AttentionKind.waitingNotRead => SysAttention.waitingNotRead,
     AttentionKind.aclGrown => SysAttention.aclGrown,
     AttentionKind.noStandby => SysAttention.noStandby,
   };

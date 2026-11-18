@@ -2290,5 +2290,7 @@
     "chkFetchedIt": "it is fetched by the broker",
     "chkAfterDownload": "checked by the broker after the download",
     "errBackupNoDigest": "The broker shows no SHA-256 of this backup, so what arrives cannot be checked. Nothing was saved.",
-    "errBackupDigestMismatch": "The file that arrived is not the backup: its SHA-256 is not the one the broker shows. Nothing was saved. Both are in the log."
+    "errBackupDigestMismatch": "The file that arrived is not the backup: its SHA-256 is not the one the broker shows. Nothing was saved. Both are in the log.",
+    "sysAttnNotRead": "{name} waits in quarantine, not read by this Studio",
+    "@sysAttnNotRead": {"placeholders": {"name": {"type": "String"}}}
 }

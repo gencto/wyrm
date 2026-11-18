@@ -1,10 +1,14 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/backup_job.dart';
 import 'package:models/flow_summary.dart';
 import 'package:models/live_value.dart';
 import 'package:models/watch_group.dart';
 
+import '../decode/backup_job.dart';
 import '../decode/flow_val.dart';
 import '../decode/live_fields.dart' show liveNumber;
+import '../decode/live_values.dart';
+import '../decode/package_info.dart';
 import '../decode/sys_answers.dart';
 
 /// A live value as the historian's text: a number without a trailing `.0`,
@@ -80,12 +84,15 @@ FlowSummary liveFlow(FlowSummary f, LiveValue? v) =>
 
 /// Records each value of [changed] (one batch of the live values, under
 /// the site [root]) that the screens read and that is not of its shape: a
-/// flow's `~val` and the settings of a watch group. Called once per batch
+/// flow's `~val`, the settings of a watch group, and a link's `state` and
+/// `restore_points`. Called once per batch
 /// where the values arrive, so a value is recorded once per change and
 /// the selectors that read it record nothing.
 void warnUnreadLive(Map<String, LiveValue?> changed, String root) {
   final flows = '$root/dataflows/';
   final history = '$root/sys/history/';
+  final links = '$root/sys/links/';
+  final backups = '$root/sys/backups/';
   for (final MapEntry(:key, :value) in changed.entries) {
     if (value == null) {
       continue;
@@ -94,6 +101,29 @@ void warnUnreadLive(Map<String, LiveValue?> changed, String root) {
       final id = key.substring(flows.length);
       if (!id.contains('/')) {
         flowValOf(value.value).record(key);
+      }
+    } else if (key.startsWith(links)) {
+      final parts = key.substring(links.length).split('/');
+      if (parts.length != 2) {
+        continue;
+      }
+      final where = 'sys/links/${parts.first}/${parts.last}';
+      switch (parts.last) {
+        case _stateLeaf:
+          linkStateSampleOf(value.value).record(where);
+        case _pointsLeaf:
+          restorePointsOf(value.value, where: where).record(where);
+      }
+    } else if (key.startsWith(backups)) {
+      final parts = key.substring(backups.length).split('/');
+      if (parts.length == 2 && backupLeaves.contains(parts.last)) {
+        // the one leaf that changed, laid over an empty job: only its
+        // own fault is recorded
+        backupLiveOf(
+          BackupJob(id: parts.first),
+          (leaf) => leaf == parts.last ? value.value : null,
+          '$backups${parts.first}',
+        );
       }
     } else if (key.startsWith(history)) {
       final parts = key.substring(history.length).split('/');
@@ -111,6 +141,8 @@ void warnUnreadLive(Map<String, LiveValue?> changed, String root) {
   }
 }
 
+const _stateLeaf = 'state';
+const _pointsLeaf = 'restore_points';
 const _loggingLeaf = 'logging_type';
 const _intervalLeaf = 'interval';
 const _flushLeaf = 'buffer_flush_time';

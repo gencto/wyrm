@@ -382,7 +382,8 @@ class SitesPage extends StatelessWidget {
         name: n.name,
         kind: n.ref.kind,
         sub: _sub(n),
-        tag: _tag(n.ref.kind),
+        // a small node draws no line under its name: the tag says it
+        tag: n.notRead ? S.current.whyNotRead : _tag(n.ref.kind),
         parent: n.parent,
         offline: n.offline,
         selected: n.selected,

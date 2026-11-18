@@ -94,14 +94,18 @@ const backupLeaves = [
 /// `progress`, `step`, `size`, `sha256`, `created`, `expires`, `error`,
 /// `sent_to`, `send_status`, `send_progress`, `send_error`. [value] gives
 /// a leaf's live value as plain Dart, null when none arrived (the field
-/// keeps what [j] holds). A value of another shape keeps it too **and is
-/// logged** with its field and [where].
+/// keeps what [j] holds). A value of another shape keeps it too.
+///
+/// With [where] such a value is recorded with its field: the place the
+/// values arrive at passes it (`warnUnreadLive`). A selector reads them
+/// on every rebuild and passes none: it records nothing.
 BackupJob backupLiveOf(
   BackupJob j,
-  Object? Function(String leaf) value,
-  String where,
-) {
-  T keep<T>(Decoded<T?> d, T old) => d.orWarn(where) ?? old;
+  Object? Function(String leaf) value, [
+  String? where,
+]) {
+  T keep<T>(Decoded<T?> d, T old) =>
+      (where == null ? d.orNull : d.orWarn(where)) ?? old;
   Decoded<String?> text(String leaf) => liveText(value(leaf), _shape, leaf);
   Decoded<int?> whole(String leaf) => liveInt(value(leaf), _shape, leaf);
   return j.copyWith(

@@ -629,14 +629,15 @@ extension AssistantScreen on Selectors {
 extension StagedParams on Selectors {
   /// The update staged for the agent link [key]: the params it sends and
   /// those it was made from; null when none is staged. Studio writes both
-  /// itself (`agentParamsJson`); one that does not read back is logged
-  /// and is no base for a new edit.
+  /// itself (`agentParamsJson`); one that does not read back is no base
+  /// for a new edit. Nothing is recorded here (a selector runs on every
+  /// rebuild): the action that stages the change records it once.
   ({StagedChange change, AgentParams params, AgentParams base})?
   stagedAgentParamsOf(String key) {
     for (final c in changes.table.values) {
       if (c.key == key && c.action == 'update') {
-        final params = agentParamsOf(c.args['params']).orWarn(key);
-        final base = agentParamsOf(c.value).orWarn(key);
+        final params = agentParamsOf(c.args['params']).orNull;
+        final base = agentParamsOf(c.value).orNull;
         return params == null || base == null
             ? null
             : (change: c, params: params, base: base);
@@ -989,7 +990,8 @@ extension LinksTables on Selectors {
     () => {
       for (final id in links.view)
         if (_live('links/$id/state') case final v?)
-          id: ?linkStateSampleOf(v).orWarn('sys/links/$id/state'),
+          // recorded where the value arrived (`warnUnreadLive`)
+          id: ?linkStateSampleOf(v).orNull,
     },
   );
 
@@ -1049,10 +1051,8 @@ extension LinksTables on Selectors {
         () => {
           for (final id in links.view)
             id:
-                restorePointsOf(
-                  _live('links/$id/restore_points'),
-                  where: 'sys/links/$id/restore_points',
-                ).orWarn('sys/links/$id/restore_points') ??
+                // recorded where the value arrived (`warnUnreadLive`)
+                restorePointsOf(_live('links/$id/restore_points')).orNull ??
                 const [],
         },
       )[link] ??
@@ -1308,6 +1308,15 @@ extension SelectBrokerHealth on Selectors {
             name: q.cn,
             count: q.via.length,
           ),
+      // a connection that awaits a decision and that Studio could not
+      // read is seen here too
+      for (final q in waiting)
+        if (q.kind == QuarantineKind.notRead)
+          AttentionItem(
+            kind: AttentionKind.waitingNotRead,
+            subject: q.node,
+            name: q.cn,
+          ),
       if (acl != null && seen != null && acl > seen)
         AttentionItem(
           kind: AttentionKind.aclGrown,
@@ -1377,10 +1386,10 @@ extension SelectBrokerHealth on Selectors {
 
   /// The kept backup [id] with its live values, or null.
   BackupJob? backupJob(String id) => switch (backups.table[id]) {
+    // recorded where the values arrive (`warnUnreadLive`)
     final j? => backupLiveOf(
       j,
       (leaf) => live.values['$_sysKey/backups/$id/$leaf']?.value,
-      '$_sysKey/backups/$id',
     ),
     null => null,
   };

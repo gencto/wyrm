@@ -18255,6 +18255,16 @@ class S {
       args: [],
     );
   }
+
+  /// `{name} waits in quarantine, not read by this Studio`
+  String sysAttnNotRead(String name) {
+    return Intl.message(
+      '$name waits in quarantine, not read by this Studio',
+      name: 'sysAttnNotRead',
+      desc: '',
+      args: [name],
+    );
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<S> {

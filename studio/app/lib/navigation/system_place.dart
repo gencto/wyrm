@@ -98,7 +98,8 @@ class OpenAttentionAction extends ReduxAction<AppState> {
             : LinksTab.local,
         selectedLink: what,
       ),
-      AttentionKind.quarantine => state.copyWith(
+      AttentionKind.quarantine ||
+      AttentionKind.waitingNotRead => state.copyWith(
         links: state.links.copyWith(tab: LinksTab.quarantine),
         quarantine: state.quarantine.copyWith(selectedEntry: what),
       ),
@@ -115,7 +116,9 @@ class OpenAttentionAction extends ReduxAction<AppState> {
     switch (item.kind) {
       case AttentionKind.standbyBehind || AttentionKind.noStandby:
         break;
-      case AttentionKind.linkFailed || AttentionKind.quarantine:
+      case AttentionKind.linkFailed ||
+          AttentionKind.quarantine ||
+          AttentionKind.waitingNotRead:
         _go(const LinksRoute());
       case AttentionKind.brokerWaiting:
         _go(const SitesRoute());

@@ -924,6 +924,9 @@ class SystemScreen extends StatelessWidget {
             SysAttention.brokerWaiting => S.current.sysAttnBroker(
               _name(a.name),
             ),
+            SysAttention.waitingNotRead => S.current.sysAttnNotRead(
+              _name(a.name),
+            ),
             SysAttention.aclGrown => S.current.sysAttnAcl(_count(a.count)),
             SysAttention.noStandby => S.current.sysAttnNoStandby,
           },
@@ -944,6 +947,7 @@ class SystemScreen extends StatelessWidget {
               a.count == 0
                   ? S.current.sysAttnBrokerPlain
                   : S.current.sysAttnBrokerRelays(a.count),
+            SysAttention.waitingNotRead => S.current.waitNotReadNote,
             SysAttention.aclGrown => S.current.sysAttnAclDetail(
               _count(a.more),
             ),
