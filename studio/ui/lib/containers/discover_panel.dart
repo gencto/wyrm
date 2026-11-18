@@ -140,7 +140,7 @@ class DiscoverPanel extends StatelessWidget {
                     S.current.lookAgain,
                     onTap: onLookAgain,
                     color: c.text4,
-                    size: 12,
+                    size: FontSizes.sm,
                   ),
                 ],
               ),
@@ -162,7 +162,7 @@ class DiscoverPanel extends StatelessWidget {
     final c = context.colors;
     final text = TextStyle(
       fontSize: FontSizes.md,
-      height: 1.45,
+      height: LineHeights.row,
       leadingDistribution: .even,
       color: c.text2,
     );
@@ -215,7 +215,7 @@ class DiscoverPanel extends StatelessWidget {
                                   s,
                                   onTap: onOpenSettings!,
                                   color: c.emberSoft,
-                                  size: 13,
+                                  size: FontSizes.md,
                                 ),
                               ),
                             ],
@@ -257,7 +257,7 @@ class _Link extends StatelessWidget {
   final String label;
   final VoidCallback onTap;
   final Color color;
-  final double size;
+  final FontSize size;
 
   @override
   Widget build(BuildContext context) => Semantics(

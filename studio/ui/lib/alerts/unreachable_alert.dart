@@ -100,7 +100,7 @@ class UnreachableAlert extends StatelessWidget {
               ),
               style: TextStyle(
                 fontSize: FontSizes.md,
-                height: 1.5,
+                height: LineHeights.body,
                 leadingDistribution: .even,
                 color: c.text3,
               ),

@@ -6,10 +6,12 @@ import 'package:material_ui/material_ui.dart';
 
 import '../buttons/button.dart';
 import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../inputs/check_row.dart';
 import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
@@ -352,9 +354,9 @@ class _LogToolbarState extends State<LogToolbar> {
                                 height: 28,
                               ),
                               onPressed: _clearAround,
-                              icon: AppIcon(
-                                'err_close',
-                                size: 12,
+                              icon: AppIconView(
+                                AppIcon.errClose,
+                                size: IconSizes.xs,
                                 color: c.text3,
                               ),
                             ),
@@ -492,7 +494,11 @@ class _LogToolbarState extends State<LogToolbar> {
                 ),
               ),
             ),
-            AppIcon('ui_chevron_down', size: 14, color: c.text3),
+            AppIconView(
+              AppIcon.uiChevronDown,
+              size: IconSizes.sm,
+              color: c.text3,
+            ),
           ],
         ),
       ),

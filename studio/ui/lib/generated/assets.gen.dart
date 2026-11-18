@@ -210,6 +210,10 @@ class $AssetsSvgIconsGen {
   /// File path: assets/svg/icons/ui_bind.svg
   SvgGenImage get uiBind => const SvgGenImage('assets/svg/icons/ui_bind.svg');
 
+  /// File path: assets/svg/icons/ui_caution.svg
+  SvgGenImage get uiCaution =>
+      const SvgGenImage('assets/svg/icons/ui_caution.svg');
+
   /// File path: assets/svg/icons/ui_check.svg
   SvgGenImage get uiCheck => const SvgGenImage('assets/svg/icons/ui_check.svg');
 
@@ -248,6 +252,9 @@ class $AssetsSvgIconsGen {
   /// File path: assets/svg/icons/ui_more.svg
   SvgGenImage get uiMore => const SvgGenImage('assets/svg/icons/ui_more.svg');
 
+  /// File path: assets/svg/icons/ui_pair.svg
+  SvgGenImage get uiPair => const SvgGenImage('assets/svg/icons/ui_pair.svg');
+
   /// File path: assets/svg/icons/ui_pin.svg
   SvgGenImage get uiPin => const SvgGenImage('assets/svg/icons/ui_pin.svg');
 
@@ -265,6 +272,10 @@ class $AssetsSvgIconsGen {
 
   /// File path: assets/svg/icons/ui_send.svg
   SvgGenImage get uiSend => const SvgGenImage('assets/svg/icons/ui_send.svg');
+
+  /// File path: assets/svg/icons/ui_shield.svg
+  SvgGenImage get uiShield =>
+      const SvgGenImage('assets/svg/icons/ui_shield.svg');
 
   /// File path: assets/svg/icons/ui_spinner.svg
   SvgGenImage get uiSpinner =>
@@ -360,6 +371,7 @@ class $AssetsSvgIconsGen {
     nodeWatch,
     uiAdd,
     uiBind,
+    uiCaution,
     uiCheck,
     uiChevronDown,
     uiChevronRight,
@@ -371,11 +383,13 @@ class $AssetsSvgIconsGen {
     uiMinimize,
     uiMoon,
     uiMore,
+    uiPair,
     uiPin,
     uiProfile,
     uiRestore,
     uiSearch,
     uiSend,
+    uiShield,
     uiSpinner,
     uiSun,
     uiUpload,

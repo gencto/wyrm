@@ -217,7 +217,7 @@ class _Card extends StatelessWidget {
                       vm.name,
                       overflow: .ellipsis,
                       style: mono(
-                        size: vm.small ? 12 : 14,
+                        size: vm.small ? FontSizes.sm : FontSizes.lg,
                         weight: .w600,
                         color: c.text1,
                       ),
@@ -236,7 +236,7 @@ class _Card extends StatelessWidget {
                       child: Text(
                         t,
                         style: mono(
-                          size: 10,
+                          size: FontSizes.xxs,
                           weight: .w600,
                           color: self ? c.emberSoft : c.text2,
                         ),

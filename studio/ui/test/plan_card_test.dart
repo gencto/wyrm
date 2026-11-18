@@ -3,6 +3,7 @@ import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:ui/assistant/plan_card.dart';
 import 'package:ui/indicators/app_icon.dart';
+import 'package:ui/indicators/app_icon_view.dart';
 import 'package:ui/indicators/level_badge.dart';
 import 'package:ui/theme/common.dart';
 
@@ -49,10 +50,12 @@ void main() {
 
     expect(
       [
-        for (final i in tester.widgetList<AppIcon>(find.byType(AppIcon)))
-          i.name,
+        for (final i in tester.widgetList<AppIconView>(
+          find.byType(AppIconView),
+        ))
+          i.icon,
       ],
-      ['ui_check', 'action_hist'],
+      [AppIcon.uiCheck, AppIcon.actionHist],
     );
     // the words alone, no mark typed into the text
     expect(find.text('checked against the live tree'), findsOneWidget);

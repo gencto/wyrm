@@ -1,8 +1,10 @@
 import 'package:material_ui/material_ui.dart';
 
 import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
@@ -36,7 +38,7 @@ class PanelDialog extends StatelessWidget {
       child: ConstrainedBox(
         constraints: BoxConstraints(maxWidth: width),
         child: Padding(
-          padding: const EdgeInsets.all(22),
+          padding: Insets.dialog,
           child: Column(
             mainAxisSize: .min,
             crossAxisAlignment: .stretch,
@@ -52,7 +54,11 @@ class PanelDialog extends StatelessWidget {
                   ),
                   IconButton(
                     onPressed: () => Navigator.of(context).pop(),
-                    icon: AppIcon('ui_close', size: 18, color: c.text3),
+                    icon: AppIconView(
+                      AppIcon.uiClose,
+                      size: IconSizes.lg,
+                      color: c.text3,
+                    ),
                   ),
                 ],
               ),

@@ -179,7 +179,7 @@ class RunCard extends StatelessWidget {
               vm.note,
               style: TextStyle(
                 fontSize: FontSizes.sm,
-                height: 1.45,
+                height: LineHeights.row,
                 color: vm.noteTone == .neutral
                     ? c.text3
                     : toneColor(c, vm.noteTone),
@@ -222,14 +222,17 @@ class _Row extends StatelessWidget {
         children: [
           SizedBox(
             width: 22,
-            child: Text('${vm.n}', style: mono(size: 12, color: c.text3)),
+            child: Text(
+              '${vm.n}',
+              style: mono(size: FontSizes.sm, color: c.text3),
+            ),
           ),
           Expanded(
             flex: 3,
             child: Text(
               vm.step,
               style: mono(
-                size: 12,
+                size: FontSizes.sm,
                 color: vm.status == .waiting || vm.status == .skipped
                     ? c.text3
                     : c.text1,
@@ -241,7 +244,7 @@ class _Row extends StatelessWidget {
             child: SelectableText(
               vm.text,
               textAlign: .right,
-              style: mono(size: 12, color: color),
+              style: mono(size: FontSizes.sm, color: color),
             ),
           ),
         ],

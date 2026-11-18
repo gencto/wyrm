@@ -6,10 +6,13 @@ import 'package:material_ui/material_ui.dart';
 
 import '../dialogs/error_dialog.dart' show errorTone;
 import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/shades.dart';
+import '../theme/sizes.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import 'system_toast.dart';
 
@@ -248,7 +251,7 @@ class _ToastState extends State<_Toast> {
       onTap: onTap,
       child: Text(
         label,
-        style: boardText(size: 12, color: c.emberSoft).copyWith(
+        style: boardText(size: FontSizes.sm, color: c.emberSoft).copyWith(
           decoration: .underline,
           decorationColor: c.emberSoft,
         ),
@@ -259,7 +262,7 @@ class _ToastState extends State<_Toast> {
       child: Material(
         type: .transparency,
         child: Container(
-          padding: const EdgeInsets.all(14),
+          padding: Insets.cardBody,
           decoration: BoxDecoration(
             color: c.ground3,
             border: .all(color: vm.stays == null ? c.line2 : line),
@@ -283,13 +286,13 @@ class _ToastState extends State<_Toast> {
                   borderRadius: Radii.button,
                 ),
                 alignment: .center,
-                child: AppIcon(
-                  vm.tone == .good ? 'err_ok' : 'err_mark',
-                  size: 14,
+                child: AppIconView(
+                  vm.tone == .good ? AppIcon.errOk : AppIcon.errMark,
+                  size: IconSizes.sm,
                   color: fg,
                 ),
               ),
-              const SizedBox(width: 12),
+              Gaps.hToastParts,
               Expanded(
                 child: Column(
                   crossAxisAlignment: .start,
@@ -298,7 +301,7 @@ class _ToastState extends State<_Toast> {
                     Text(
                       vm.title,
                       style: boardText(
-                        size: 13,
+                        size: FontSizes.md,
                         weight: .w600,
                         color: c.text1,
                       ),
@@ -309,13 +312,13 @@ class _ToastState extends State<_Toast> {
                         maxLines: 3,
                         overflow: .ellipsis,
                         style: boardText(
-                          size: 12,
-                          height: 1.45,
+                          size: FontSizes.sm,
+                          height: LineHeights.row,
                           color: c.text3,
                         ),
                       ),
                     Padding(
-                      padding: const EdgeInsets.only(top: 2),
+                      padding: Insets.messageLinks,
                       child: Row(
                         spacing: 14,
                         children: [
@@ -337,7 +340,10 @@ class _ToastState extends State<_Toast> {
                               textAlign: .end,
                               maxLines: 1,
                               overflow: .ellipsis,
-                              style: boardText(size: 12, color: c.muted),
+                              style: boardText(
+                                size: FontSizes.sm,
+                                color: c.muted,
+                              ),
                             ),
                           ),
                         ],
@@ -346,7 +352,7 @@ class _ToastState extends State<_Toast> {
                   ],
                 ),
               ),
-              const SizedBox(width: 12),
+              Gaps.hToastParts,
               Transform.translate(
                 offset: const Offset(4, -4),
                 child: Semantics(
@@ -357,9 +363,13 @@ class _ToastState extends State<_Toast> {
                     onTap: widget.onDismiss,
                     borderRadius: Radii.segment,
                     child: SizedBox.square(
-                      dimension: 26,
+                      dimension: AppSizes.toastClose,
                       child: Center(
-                        child: AppIcon('err_close', size: 12, color: c.text4),
+                        child: AppIconView(
+                          AppIcon.errClose,
+                          size: IconSizes.xs,
+                          color: c.text4,
+                        ),
                       ),
                     ),
                   ),

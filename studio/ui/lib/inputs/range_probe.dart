@@ -107,7 +107,7 @@ class RangeProbe extends StatelessWidget {
           S.current.probeNote,
           style: TextStyle(
             fontSize: FontSizes.sm,
-            height: 1.5,
+            height: LineHeights.body,
             leadingDistribution: .even,
             color: c.text4,
           ),
@@ -165,7 +165,7 @@ class _SmallState extends State<_Small> {
       textField: true,
       child: Container(
         height: AppSizes.probeRow,
-        padding: Insets.smallField,
+        padding: Insets.field,
         decoration: BoxDecoration(
           color: c.ground2,
           borderRadius: const BorderRadius.all(
@@ -185,7 +185,7 @@ class _SmallState extends State<_Small> {
           style: TextStyle(
             fontFamily: AppFonts.mono,
             fontSize: FontSizes.md,
-            height: 1.3,
+            height: LineHeights.title,
             color: c.text1,
           ),
           cursorColor: c.ember,

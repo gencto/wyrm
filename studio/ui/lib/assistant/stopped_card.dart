@@ -102,7 +102,7 @@ class StoppedCard extends StatelessWidget {
     final c = context.colors;
     final small = TextStyle(
       fontSize: FontSizes.sm,
-      height: 1.45,
+      height: LineHeights.row,
       color: c.text3,
     );
     return Container(
@@ -130,7 +130,7 @@ class StoppedCard extends StatelessWidget {
             vm.text,
             style: TextStyle(
               fontSize: FontSizes.lg,
-              height: 1.5,
+              height: LineHeights.body,
               color: c.text1,
             ),
           ),

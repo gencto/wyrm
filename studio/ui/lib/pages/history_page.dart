@@ -7,11 +7,14 @@ import '../charts/trend.dart';
 import '../containers/detail_inspector.dart';
 import '../containers/section_label.dart';
 import '../containers/side_panels.dart';
+import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../models/panels.dart';
 import '../models/value_changed.dart';
 import '../tables/row_table.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
@@ -150,7 +153,11 @@ class HistoryPage<R, A> extends StatelessWidget {
                   message: addReason ?? '',
                   child: IconButton(
                     onPressed: addReason == null ? onAddGroup : null,
-                    icon: Icon(Icons.add, size: 18, color: c.text3),
+                    icon: AppIconView(
+                      AppIcon.materialAdd,
+                      size: IconSizes.lg,
+                      color: c.text3,
+                    ),
                   ),
                 ),
               ],
@@ -207,7 +214,7 @@ class HistoryPage<R, A> extends StatelessWidget {
                 f,
                 style: TextStyle(
                   fontSize: FontSizes.sm,
-                  height: 1.5,
+                  height: LineHeights.body,
                   color: c.text3,
                 ),
               ),
@@ -284,7 +291,7 @@ class HistoryPage<R, A> extends StatelessWidget {
                   style: TextStyle(fontSize: FontSizes.sm, color: c.text4),
                 ),
               ],
-              const SizedBox(height: 10),
+              Gaps.sectionTitle,
               RowTable(
                 columns: columns,
                 rows: points,

@@ -94,7 +94,7 @@ class MoreRowsCard extends StatelessWidget {
     final c = context.colors;
     final small = TextStyle(
       fontSize: FontSizes.sm,
-      height: 1.45,
+      height: LineHeights.row,
       color: c.text3,
     );
     return Container(
@@ -153,7 +153,7 @@ class MoreRowsCard extends StatelessWidget {
                         ),
                         SelectableText(
                           r.key,
-                          style: mono(size: 11, color: c.text3),
+                          style: mono(size: FontSizes.xs, color: c.text3),
                         ),
                       ],
                     ),

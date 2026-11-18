@@ -4,9 +4,11 @@ import 'package:material_ui/material_ui.dart';
 
 import '../charts/trend.dart';
 import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import 'task_badge.dart';
@@ -253,14 +255,18 @@ class FoundCard extends StatelessWidget {
               child: Row(
                 spacing: 6,
                 children: [
-                  AppIcon('ws_assistant', size: 12, color: c.ember),
+                  AppIconView(
+                    AppIcon.wsAssistant,
+                    size: IconSizes.xs,
+                    color: c.ember,
+                  ),
                   Expanded(
                     child: Text(
                       vm.title.toUpperCase(),
                       style: TextStyle(
                         fontSize: FontSizes.xs,
                         fontWeight: .w600,
-                        letterSpacing: 0.66,
+                        letterSpacing: Trackings.smallLabel,
                         color: c.text3,
                       ),
                     ),
@@ -364,13 +370,13 @@ class FoundCard extends StatelessWidget {
                         Text(
                           // as the timeline says its times
                           t.format.clock(a.time),
-                          style: mono(size: 12, color: c.text2),
+                          style: mono(size: FontSizes.sm, color: c.text2),
                         ),
                         Expanded(
                           child: Text(
                             a.text,
                             style: mono(
-                              size: 12,
+                              size: FontSizes.sm,
                               color: a.bad ? c.badText : c.text2,
                             ),
                           ),
@@ -406,8 +412,16 @@ class FoundCard extends StatelessWidget {
               height: 18,
               child: Center(
                 child: switch (r.mark) {
-                  .good => AppIcon('ui_check', size: 12, color: color),
-                  .bad => AppIcon('ui_close', size: 11, color: color),
+                  .good => AppIconView(
+                    AppIcon.uiCheck,
+                    size: IconSizes.xs,
+                    color: color,
+                  ),
+                  .bad => AppIconView(
+                    AppIcon.uiClose,
+                    size: IconSizes.inline,
+                    color: color,
+                  ),
                   .uncertain || .none => Container(
                     width: 4,
                     height: 4,
@@ -443,7 +457,10 @@ class FoundCard extends StatelessWidget {
                   ],
                 ),
               ),
-              Text(shortKey(r.node), style: mono(size: 11, color: c.text4)),
+              Text(
+                shortKey(r.node),
+                style: mono(size: FontSizes.xs, color: c.text4),
+              ),
             ],
           ),
         ),

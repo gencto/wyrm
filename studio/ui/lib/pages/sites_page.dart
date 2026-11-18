@@ -10,6 +10,7 @@ import '../containers/fact_grid.dart';
 import '../containers/page_header.dart';
 import '../forms/action_form.dart';
 import '../forms/param_form.dart';
+import '../indicators/app_icon.dart';
 import '../indicators/status_pill.dart';
 import '../models/disabled.dart';
 import '../models/tone.dart';
@@ -372,7 +373,7 @@ class SitesPage extends StatelessWidget {
 
   ActionRowVm<SiteAct> _row(
     SiteAct id,
-    String icon,
+    AppIcon icon,
     String title,
     String note,
     String code, {
@@ -417,7 +418,7 @@ class SitesPage extends StatelessWidget {
             actions: [
               _row(
                 SiteAct.token,
-                'action_key',
+                AppIcon.actionKey,
                 s.tokenForBelow,
                 s.tokenNote,
                 'sys/tokens add',
@@ -426,7 +427,7 @@ class SitesPage extends StatelessWidget {
               ),
               _row(
                 SiteAct.admission,
-                'action_lock',
+                AppIcon.actionLock,
                 s.quarantineAndAdmission,
                 s.quarantineAndAdmissionNote,
                 'enable_quarantine',
@@ -438,7 +439,7 @@ class SitesPage extends StatelessWidget {
             actions: [
               _row(
                 SiteAct.connect,
-                'action_up',
+                AppIcon.actionUp,
                 s.connectUpstream,
                 s.connectNote(name),
                 'sys/upstream add',
@@ -479,14 +480,14 @@ class SitesPage extends StatelessWidget {
             actions: [
               _row(
                 SiteAct.open,
-                'ws_explorer',
+                AppIcon.wsExplorer,
                 s.openItsTree,
                 s.openItsTreeNote(name),
                 'wy/$name',
               ),
               _row(
                 SiteAct.deauthorize,
-                'action_block',
+                AppIcon.actionBlock,
                 s.actDeauthorize,
                 s.deauthorizeBrokerNote,
                 'deauthorize',
@@ -534,7 +535,7 @@ class SitesPage extends StatelessWidget {
                   actions: [
                     _row(
                       SiteAct.decideInLinks,
-                      'ws_links',
+                      AppIcon.wsLinks,
                       s.decideInLinks,
                       s.decideInLinksNote,
                       'sys/quarantine',
@@ -559,7 +560,7 @@ class SitesPage extends StatelessWidget {
             actions: [
               _row(
                 SiteAct.openInLinks,
-                'ws_links',
+                AppIcon.wsLinks,
                 s.openInLinks,
                 s.openInLinksNote,
                 'sys/links',
@@ -579,7 +580,7 @@ class SitesPage extends StatelessWidget {
             actions: [
               _row(
                 SiteAct.open,
-                'ws_explorer',
+                AppIcon.wsExplorer,
                 s.openItsTree,
                 s.openItsTreeNote(name),
                 'wy/$name',
@@ -602,7 +603,7 @@ class SitesPage extends StatelessWidget {
             actions: [
               _row(
                 SiteAct.platform,
-                'ws_explorer',
+                AppIcon.wsExplorer,
                 s.openInExplorer,
                 s.platformNote,
                 'downstream/uplink',
@@ -626,7 +627,7 @@ class SitesPage extends StatelessWidget {
           subtitle: S.current.sitesSubtitle(vm.site),
           trailing: Button.secondary(
             label: S.current.connectUpstream,
-            icon: 'action_up',
+            icon: AppIcon.actionUp,
             disabledReason: reason,
             onPressed: reason == null ? onConnect : null,
           ),
@@ -636,7 +637,7 @@ class SitesPage extends StatelessWidget {
           alignment: .centerLeft,
           child: Button.secondary(
             label: S.current.tokenForBelow,
-            icon: 'action_key',
+            icon: AppIcon.actionKey,
             disabledReason: reason,
             onPressed: reason == null ? onToken : null,
           ),

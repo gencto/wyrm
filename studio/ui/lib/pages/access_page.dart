@@ -8,6 +8,7 @@ import '../buttons/segmented_tabs.dart';
 import '../containers/detail_inspector.dart';
 import '../containers/fact_grid.dart';
 import '../containers/page_header.dart';
+import '../indicators/app_icon.dart';
 import '../indicators/device_os.dart';
 import '../indicators/level_badge.dart';
 import '../indicators/status_pill.dart';
@@ -388,21 +389,21 @@ class AccessPage extends StatelessWidget {
           actions: [
             ActionRowVm(
               id: const ChangeUser(UserChange.roles),
-              icon: 'action_grant',
+              icon: AppIcon.actionGrant,
               title: S.current.setRoles,
               description: S.current.setRolesNote,
               code: 'roles',
             ),
             ActionRowVm(
               id: const ChangeUser(UserChange.password),
-              icon: 'action_key',
+              icon: AppIcon.actionKey,
               title: S.current.setPassword,
               description: S.current.setPasswordNote,
               code: 'password',
             ),
             ActionRowVm(
               id: const ChangeUser(UserChange.disabled),
-              icon: 'action_block',
+              icon: AppIcon.actionBlock,
               title: u.disabled ? S.current.enableUser : S.current.disableUser,
               description: S.current.disableUserNote,
               code: 'disabled',
@@ -418,7 +419,7 @@ class AccessPage extends StatelessWidget {
             for (final d in p.devices)
               ActionRowVm(
                 id: DropDevice(d.id),
-                icon: 'action_trash',
+                icon: AppIcon.actionTrash,
                 title: d.removed
                     ? [
                         d.name,
@@ -438,7 +439,7 @@ class AccessPage extends StatelessWidget {
           actions: [
             ActionRowVm(
               id: const ChangeUser(UserChange.remove),
-              icon: 'action_trash',
+              icon: AppIcon.actionTrash,
               title: S.current.removeUser,
               description: S.current.removeUserNote,
               code: 'DELETE',
@@ -466,7 +467,7 @@ class AccessPage extends StatelessWidget {
               ? null
               : Button.primary(
                   label: grants ? S.current.addGrant : S.current.addUser,
-                  icon: 'ui_add',
+                  icon: AppIcon.uiAdd,
                   disabledReason: reason,
                   onPressed: reason != null
                       ? null

@@ -206,7 +206,7 @@ class _UnlockPanelState extends State<UnlockPanel> {
                 style: TextStyle(
                   fontSize: FontSizes.pageTitle,
                   fontWeight: .w600,
-                  letterSpacing: -.26,
+                  letterSpacing: Trackings.pageTitle,
                   color: c.text1,
                 ),
               ),

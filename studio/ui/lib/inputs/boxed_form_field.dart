@@ -5,6 +5,7 @@ import 'package:material_ui/material_ui.dart';
 import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
 import '../theme/typography.dart';
 
 /// A labelled text field in a box, as the log-in board draws its fields
@@ -155,17 +156,17 @@ class _BoxedFormFieldState extends State<BoxedFormField> {
             ? TextStyle(
                 fontFamily: AppFonts.mono,
                 fontSize: FontSizes.md,
-                height: 1.3,
-                letterSpacing: 0,
+                height: LineHeights.title,
+                letterSpacing: Trackings.none,
                 color: c.text1,
               )
             : TextStyle(
                 fontFamily: AppFonts.sans,
-                fontSize: 15,
-                height: 1.3,
+                fontSize: FontSizes.xl,
+                height: LineHeights.title,
                 color: c.text1,
                 // 0.2 em while hidden; none of the theme's spacing otherwise.
-                letterSpacing: hidden ? 3 : 0,
+                letterSpacing: hidden ? Trackings.hiddenSecret : Trackings.none,
               );
         return Column(
           crossAxisAlignment: .stretch,
@@ -246,7 +247,7 @@ class _BoxedFormFieldState extends State<BoxedFormField> {
                     ?widget.trailing,
                     if (widget.obscure)
                       SizedBox.square(
-                        dimension: 36,
+                        dimension: AppSizes.fieldEye,
                         child: IconButton(
                           padding: .zero,
                           tooltip: _hidden

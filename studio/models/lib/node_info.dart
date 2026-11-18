@@ -2,6 +2,8 @@ import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 import 'package:wyrm_core/wyrm_core.dart' show Perm, TypeCode;
 
+import 'node_glyph.dart';
+
 part 'node_info.freezed.dart';
 
 @freezed
@@ -32,6 +34,11 @@ abstract class NodeInfo with _$NodeInfo {
 
     /// Profile (`is`), e.g. `wy:node` or `<vendor>:<model>`.
     String? profile,
+
+    /// What the node is drawn as, decoded with the rest of its meta from
+    /// its place and its profile (`nodeGlyphOf`). A node made without its
+    /// meta (a test's, a section's) is a folder.
+    @Default(NodeGlyph.section) NodeGlyph glyph,
 
     /// Enum choices of the value, if any.
     @Default(IListConst([])) IList<String> choices,

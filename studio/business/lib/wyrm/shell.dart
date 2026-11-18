@@ -1,4 +1,5 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/node_glyph.dart';
 import 'package:models/node_info.dart';
 import 'package:models/staged_change.dart';
 import 'package:models/studio_error.dart';
@@ -7,6 +8,7 @@ import 'package:models/workspace.dart';
 import 'package:wyrm_client/wyrm_client.dart' show Perm;
 
 import '../redux/app_state.dart';
+import 'decode/node_glyph.dart';
 import 'keys.dart';
 
 /// A staged change as the review panel shows it: whether the user's grants
@@ -38,21 +40,17 @@ final class ProblemsCount {
 }
 
 /// A node the search palette finds: its key, the name it shows (its
-/// display name when it has one), and what its icon is drawn from.
+/// display name when it has one), and what it is drawn as.
 final class SearchNode {
   const SearchNode({
     required this.key,
     required this.title,
-    this.profile,
-    this.value = false,
+    required this.glyph,
   });
 
   final String key;
   final String title;
-  final String? profile;
-
-  /// The node holds a value.
-  final bool value;
+  final NodeGlyph glyph;
 }
 
 /// A toast of the stack: a quiet failure or a notice.
@@ -157,8 +155,11 @@ final class _Shell with Selectors {
             display,
           final n => n?.name ?? k,
         },
-        profile: nodes.table[k]?.profile,
-        value: nodes.table[k]?.type != null,
+        glyph: nodeGlyphAt(
+          k,
+          root: site.root ?? '',
+          info: nodes.table[k],
+        ),
       ),
   ];
 

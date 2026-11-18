@@ -279,7 +279,7 @@ class _SecurityDialogState extends State<SecurityDialog> {
         text.toUpperCase(),
         style: TextStyle(
           fontSize: FontSizes.sm,
-          letterSpacing: 0.72,
+          letterSpacing: Trackings.label,
           color: c.text4,
         ),
       ),
@@ -310,10 +310,7 @@ class _SecurityDialogState extends State<SecurityDialog> {
               crossAxisAlignment: .stretch,
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppSpacing.lg,
-                    vertical: 20,
-                  ),
+                  padding: Insets.securityHead,
                   decoration: BoxDecoration(
                     border: Border(bottom: BorderSide(color: c.ground3)),
                   ),
@@ -338,7 +335,7 @@ class _SecurityDialogState extends State<SecurityDialog> {
                         child: Text(
                           '×',
                           style: TextStyle(
-                            fontSize: 18,
+                            fontSize: FontSizes.closeGlyph,
                             color: c.text4,
                           ),
                         ),
@@ -348,10 +345,7 @@ class _SecurityDialogState extends State<SecurityDialog> {
                 ),
                 Flexible(
                   child: SingleChildScrollView(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: AppSpacing.lg,
-                      vertical: 18,
-                    ),
+                    padding: Insets.securityBody,
                     child: Column(
                       crossAxisAlignment: .stretch,
                       spacing: 14,
@@ -425,9 +419,7 @@ class _SecurityDialogState extends State<SecurityDialog> {
                             ],
                             child: Container(
                               height: AppSizes.smallButton,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                              ),
+                              padding: Insets.field,
                               decoration: BoxDecoration(
                                 borderRadius: Radii.control,
                                 border: Border.all(color: c.line2),
@@ -477,7 +469,7 @@ class _SecurityDialogState extends State<SecurityDialog> {
                             children: [
                               if (vm.devices.isEmpty)
                                 Padding(
-                                  padding: const EdgeInsets.all(14),
+                                  padding: Insets.tableNote,
                                   child: Text(
                                     s.securityNoDevices,
                                     style: TextStyle(
@@ -511,7 +503,7 @@ class _SecurityDialogState extends State<SecurityDialog> {
                                 ),
                                 style: TextStyle(
                                   fontSize: FontSizes.sm,
-                                  height: 1.5,
+                                  height: LineHeights.body,
                                   color: c.text4,
                                 ),
                               ),
@@ -591,7 +583,7 @@ class _Option extends StatelessWidget {
                       text,
                       style: TextStyle(
                         fontSize: FontSizes.sm,
-                        height: 1.45,
+                        height: LineHeights.row,
                         color: c.text4,
                       ),
                     ),
@@ -774,7 +766,7 @@ class _SmallButton extends StatelessWidget {
       onTap: onPressed,
       child: Container(
         height: height,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
+        padding: Insets.field,
         alignment: .center,
         child: Text(
           label,

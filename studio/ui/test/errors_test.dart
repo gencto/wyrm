@@ -14,6 +14,7 @@ import 'package:ui/dialogs/error_dialog.dart';
 import 'package:ui/forms/action_form.dart';
 import 'package:ui/forms/log_toolbar.dart';
 import 'package:ui/forms/param_form.dart';
+import 'package:ui/indicators/app_icon.dart';
 import 'package:ui/indicators/fail_chip.dart';
 import 'package:ui/models/value_changed.dart';
 import 'package:ui/overlays/problems_drawer.dart';
@@ -212,7 +213,7 @@ void main() {
           ErrorDialog(
             vm: ErrorDialogVm(
               tone: .bad,
-              icon: 'err_broker',
+              icon: AppIcon.errBroker,
               title: 'Installing ${'a-very-long-package-name' * 3} failed',
               where: 'wy/plant/${'downstream/segment' * 8} › install_repo',
               saidLabel: 'The broker said',

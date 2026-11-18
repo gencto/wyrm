@@ -3,7 +3,9 @@ import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../indicators/app_icon.dart';
+import '../indicators/app_icon_view.dart';
 import '../theme/extensions/colors.dart';
+import '../theme/sizes.dart';
 
 /// What [WindowControls] draws.
 final class WindowControlsVm extends Equatable {
@@ -50,13 +52,13 @@ class WindowControls extends StatelessWidget {
       mainAxisSize: .min,
       children: [
         _Cell(
-          icon: 'ui_minimize',
+          icon: AppIcon.uiMinimize,
           label: S.current.windowMinimize,
           hover: c.ground4,
           onTap: onMinimize,
         ),
         _Cell(
-          icon: vm.maximized ? 'ui_restore' : 'ui_maximize',
+          icon: vm.maximized ? AppIcon.uiRestore : AppIcon.uiMaximize,
           label: vm.maximized
               ? S.current.windowRestore
               : S.current.windowMaximize,
@@ -64,7 +66,7 @@ class WindowControls extends StatelessWidget {
           onTap: onMaximize,
         ),
         _Cell(
-          icon: 'ui_close',
+          icon: AppIcon.uiClose,
           label: S.current.windowClose,
           hover: c.bad,
           hoverInk: c.ground0,
@@ -85,7 +87,7 @@ class _Cell extends StatelessWidget {
     this.hoverInk,
   });
 
-  final String icon;
+  final AppIcon icon;
   final String label;
   final Color hover;
 
@@ -113,7 +115,7 @@ class _Cell extends StatelessWidget {
             height: WindowControls.height,
             child: Center(
               child: hoverInk == null
-                  ? AppIcon(icon, size: 16, color: c.text2)
+                  ? AppIconView(icon, size: IconSizes.md, color: c.text2)
                   : _HoverIcon(icon: icon, rest: c.text2, over: hoverInk!),
             ),
           ),
@@ -131,7 +133,7 @@ class _HoverIcon extends StatefulWidget {
     required this.over,
   });
 
-  final String icon;
+  final AppIcon icon;
   final Color rest;
   final Color over;
 
@@ -149,9 +151,9 @@ class _HoverIconState extends State<_HoverIcon> {
     onExit: (_) => setState(() => _over = false),
     child: SizedBox.expand(
       child: Center(
-        child: AppIcon(
+        child: AppIconView(
           widget.icon,
-          size: 16,
+          size: IconSizes.md,
           color: _over ? widget.over : widget.rest,
         ),
       ),
