@@ -1,9 +1,11 @@
 import 'package:async_redux/async_redux.dart';
 import 'package:crypto/crypto.dart' as crypto;
+import 'package:models/error_hint.dart';
 import 'package:models/error_kind.dart';
 import 'package:models/studio_error.dart';
 
 import '../../../wyrm/calls.dart';
+import '../../../wyrm/decode/decoded.dart';
 import '../../../wyrm/decode/transfer.dart';
 import '../../../wyrm/failures.dart';
 import '../../../wyrm/transfer.dart';
@@ -50,10 +52,12 @@ class DownloadBackupAction extends Action with NonReentrant, WaitingAction {
   /// must not throw.
   final Future<void> Function()? onDiscard;
 
-  StudioException _wrong(String key, String message) => StudioException(
+  /// A refusal of Studio's own, with no words here: the app says the
+  /// [hint].
+  StudioException _wrong(String key, ErrorHint hint) => StudioException(
     StudioError(
       kind: ErrorKind.broker,
-      message: message,
+      hint: hint,
       key: key,
       call: 'download_part',
       site: siteOf(key),
@@ -75,11 +79,7 @@ class DownloadBackupAction extends Action with NonReentrant, WaitingAction {
                 ).orWarn(key) ??
                 '';
       if (expected.isEmpty) {
-        throw _wrong(
-          key,
-          'The broker shows no SHA-256 of this backup, so what arrives '
-          'cannot be checked. Nothing was saved.',
-        );
+        throw _wrong(key, ErrorHint.backupNoDigest);
       }
       await downloadParts(
         deps.wyrm,
@@ -94,11 +94,11 @@ class DownloadBackupAction extends Action with NonReentrant, WaitingAction {
       );
       hash.close();
       if (digest.value != expected) {
-        throw _wrong(
-          key,
-          'The file that arrived is not the backup: SHA-256 '
-          '${digest.value}, the broker says $expected. Nothing was saved.',
+        // both digests go to the log, by the names of what they are
+        decodeLog.warning(
+          '$key: sha256 of the file ${digest.value}, of the broker $expected',
         );
+        throw _wrong(key, ErrorHint.backupDigestMismatch);
       }
       await onDone?.call();
       saved = true;

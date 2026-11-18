@@ -45,6 +45,7 @@ import 'package:business/wyrm/failures.dart';
 import 'package:business/wyrm/package_check.dart';
 import 'package:business/wyrm/transfer.dart';
 import 'package:crypto/crypto.dart';
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/backup_job.dart';
 import 'package:models/backup_link_facts.dart';
@@ -60,7 +61,9 @@ import 'package:models/install_source.dart';
 import 'package:models/link_mode.dart';
 import 'package:models/manifest_fault.dart';
 import 'package:models/manifest_problem.dart';
+import 'package:models/package_check.dart';
 import 'package:models/package_check_result.dart';
+import 'package:models/package_finding.dart';
 import 'package:models/restore_keys.dart';
 import 'package:models/restore_link_state.dart';
 import 'package:models/restore_mode.dart';
@@ -1309,9 +1312,31 @@ void main() {
       );
       expect(r.name, 'modbus');
       expect(r.kind, LinkMode.process);
+      // sealed for its site: whether it opens is known on the broker
       expect(
-        r.checks.firstWhere((c) => c.title == 'Secrets').detail,
-        contains('opens only on a broker'),
+        r.checks.firstWhere((c) => c.finding is FindingSecrets),
+        const PackageCheck(
+          PackageFinding.secrets(BackupSealed.broker, 'plant'),
+          result: PackageCheckResult.skipped,
+        ),
+      );
+      expect(
+        r.checks.map((c) => c.finding),
+        containsAll([
+          const PackageFinding.packageOfLink(
+            name: 'modbus',
+            version: '0.5.0',
+            inFile: true,
+          ),
+          PackageFinding.sections(
+            const [
+              BackupSection.settings,
+              BackupSection.data,
+              BackupSection.package,
+            ].lock,
+          ),
+          const PackageFinding.checkedAsNewLink(),
+        ]),
       );
       expect(r.manifest, contains('"kind": "link"'));
     });
@@ -1319,9 +1344,9 @@ void main() {
     test('what the check shows is typed: the link, and what is wrong with '
         'a manifest', () {
       final ok = checkBackup(_linkBackup());
-      final link = ok.checks.firstWhere((c) => c.title == 'Link');
+      final link = ok.checks.firstWhere((c) => c.finding is FindingLink);
       expect(
-        link.link,
+        (link.finding as FindingLink).link,
         BackupLinkFacts(
           id: 'modbus',
           mode: LinkMode.process,
@@ -1331,33 +1356,33 @@ void main() {
           created: DateTime.utc(2026, 11, 13, 15, 40),
         ),
       );
-      // business words neither: ui says them
-      expect(link.detail, isEmpty);
 
       // a seal Studio does not know is not "none in the file"
       final odd = checkBackup(_linkBackup(how: 'hsm'));
       final bad = odd.checks.last;
       expect(bad.result, PackageCheckResult.failed);
       expect(
-        (bad.problem, bad.file, bad.detail),
-        (
-          const ManifestProblem(
+        bad.finding,
+        const PackageFinding.manifestProblem(
+          ManifestProblem(
             fault: ManifestFault.unknownName,
             field: 'sealed.how',
             found: 'hsm',
           ),
           'manifest.json',
-          '',
         ),
       );
-      expect(odd.checks.where((c) => c.title == 'Secrets'), isEmpty);
+      expect(odd.checks.where((c) => c.finding is FindingSecrets), isEmpty);
       expect(odd.name, isNull);
     });
 
     test('a broker backup and a file that is no zip fail the check', () {
       expect(
-        checkBackup(_linkBackup(kind: 'full')).checks.last.result,
-        PackageCheckResult.failed,
+        checkBackup(_linkBackup(kind: 'full')).checks.last,
+        const PackageCheck(
+          PackageFinding.otherKind('full'),
+          result: PackageCheckResult.failed,
+        ),
       );
       expect(
         checkBackup(Uint8List.fromList([1, 2, 3])).checks.single.result,

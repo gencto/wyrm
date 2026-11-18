@@ -1,16 +1,13 @@
-// The check messages read better as one string each.
-// ignore_for_file: lines_longer_than_80_chars, cascade_invocations
-
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/backup_manifest.dart';
-import 'package:models/backup_sealed.dart';
 import 'package:models/backup_section.dart';
 import 'package:models/link_mode.dart';
 import 'package:models/package_check.dart';
 import 'package:models/package_check_result.dart';
+import 'package:models/package_finding.dart';
 import 'package:models/package_kind.dart';
 import 'package:models/package_manifest.dart';
 import 'package:models/package_manifest_read.dart';
@@ -18,49 +15,77 @@ import 'package:models/package_report.dart';
 
 import 'decode/package_manifest.dart';
 
+// The checks of docs/links.md §4, run here before the broker runs them
+// again. Each check is a typed finding ([PackageFinding]) with its
+// result: nothing in this file is worded for a person; `ui` names the
+// check and says what it found.
+
 /// The link protocol of this Studio's brokers (`LINK_PROTOCOL`).
 const linkProtocol = 1;
 
-PackageCheck _ok(String t, [String d = '']) =>
-    PackageCheck(title: t, detail: d);
-PackageCheck _bad(String t, String d) =>
-    PackageCheck(title: t, detail: d, result: PackageCheckResult.failed);
-PackageCheck _skip(String t, String d) =>
-    PackageCheck(title: t, detail: d, result: PackageCheckResult.skipped);
+/// The limits of a package (docs/links.md §4).
+const _maxZipMib = 64;
+const _maxFiles = 1000;
+const _maxUnpackedMib = 256;
 
-/// The checks of docs/links.md §4 on a package zip, run here before the
-/// broker runs them again. [host] is the target broker's `os-arch`, when
-/// known.
+/// The manifests by their names in the archive.
+const _packageManifest = 'wyrm-link.json';
+const _backupManifest = 'manifest.json';
+
+PackageCheck _ok(PackageFinding f) => PackageCheck(f);
+PackageCheck _bad(PackageFinding f) =>
+    PackageCheck(f, result: PackageCheckResult.failed);
+PackageCheck _skip(PackageFinding f) =>
+    PackageCheck(f, result: PackageCheckResult.skipped);
+
+bool _isZip(Uint8List bytes) =>
+    bytes.length >= 4 && bytes[0] == 0x50 && bytes[1] == 0x4b;
+
+/// The checks on a package zip. [host] is the target broker's `os-arch`,
+/// when known.
 PackageReport checkZip(Uint8List bytes, {String? host}) {
   final checks = <PackageCheck>[];
-  if (bytes.length > 64 << 20) {
+  PackageReport stop() => PackageReport(checks: checks.lock);
+  if (bytes.length > _maxZipMib << 20) {
     checks.add(
-      _bad('Size', '${bytes.length >> 20} MiB zipped; at most 64 MiB'),
+      _bad(
+        PackageFinding.tooLarge(
+          mib: bytes.length >> 20,
+          limitMib: _maxZipMib,
+          zipped: true,
+        ),
+      ),
     );
-    return PackageReport(checks: checks.lock);
+    return stop();
   }
-  if (bytes.length < 4 || bytes[0] != 0x50 || bytes[1] != 0x4b) {
-    checks.add(_bad('Archive', 'not a zip'));
-    return PackageReport(checks: checks.lock);
+  if (!_isZip(bytes)) {
+    checks.add(_bad(const PackageFinding.notZip()));
+    return stop();
   }
   final Archive zip;
   try {
     zip = ZipDecoder().decodeBytes(bytes);
   } on Object catch (e) {
-    checks.add(_bad('Archive', 'not a zip: $e'));
-    return PackageReport(checks: checks.lock);
+    checks.add(_bad(PackageFinding.notZip(error: '$e')));
+    return stop();
   }
   final files = zip.files.where((f) => f.isFile).toList();
   final unpacked = files.fold<int>(0, (n, f) => n + f.size);
   checks.add(
-    files.length > 1000 || unpacked > 256 << 20
+    files.length > _maxFiles || unpacked > _maxUnpackedMib << 20
         ? _bad(
-            'Size and files',
-            '${files.length} files, ${unpacked >> 20} MiB unpacked; at most 1000 and 256 MiB',
+            PackageFinding.tooManyFiles(
+              files: files.length,
+              mib: unpacked >> 20,
+              maxFiles: _maxFiles,
+              maxMib: _maxUnpackedMib,
+            ),
           )
         : _ok(
-            'Size and files',
-            '${(bytes.length / 1024).ceil()} KiB, ${files.length} files',
+            PackageFinding.sizeAndFiles(
+              kib: (bytes.length / 1024).ceil(),
+              files: files.length,
+            ),
           ),
   );
   final badPath = zip.files
@@ -75,66 +100,70 @@ PackageReport checkZip(Uint8List bytes, {String? host}) {
   final link = zip.files.where((f) => f.isSymbolicLink).firstOrNull;
   checks.add(
     badPath != null
-        ? _bad('Paths', 'not relative: $badPath')
+        ? _bad(PackageFinding.pathNotRelative(badPath))
         : (link != null
-              ? _bad('Paths', 'symbolic link: ${link.name}')
-              : _ok('Paths', 'relative, no links')),
+              ? _bad(PackageFinding.symbolicLink(link.name))
+              : _ok(const PackageFinding.pathsOk())),
   );
-  final mf = zip.findFile('wyrm-link.json');
+  final mf = zip.findFile(_packageManifest);
   if (mf == null) {
-    checks.add(_bad('Manifest', 'no wyrm-link.json at the zip root'));
-    return PackageReport(checks: checks.lock);
+    checks.add(_bad(const PackageFinding.noManifest(_packageManifest)));
+    return stop();
   }
   final PackageManifest m;
   switch (packageManifestOf(mf.content)) {
     case PackageManifestWasRead(:final manifest):
       m = manifest;
-    // what is wrong with the file is a typed problem: ui says it
     case PackageManifestUnreadable(:final problem):
       checks.add(
-        PackageCheck(
-          title: 'Manifest',
-          result: PackageCheckResult.failed,
-          problem: problem,
-          file: 'wyrm-link.json',
-        ),
+        _bad(PackageFinding.manifestProblem(problem, _packageManifest)),
       );
-      return PackageReport(checks: checks.lock);
+      return stop();
   }
   final name = m.name.orNull;
   final version = m.version.orNull;
   final kind = m.kind.orNull;
+  // the fields by their names in the file
   final missing = [
     if (name == null) 'name',
     if (version == null) 'version',
     if (m.protocol.orNull == null) 'wyrm_link',
     if (kind == null) 'kind',
   ];
-  checks.add(
-    m.unknown.isNotEmpty
-        ? _bad('Manifest', 'unknown fields: ${m.unknown.join(', ')}')
-        : (missing.isNotEmpty
-              ? _bad('Manifest', 'missing or wrong: ${missing.join(', ')}')
-              : _ok('Manifest', 'wyrm-link.json')),
-  );
-  checks.add(
-    m.protocol.orNull == linkProtocol
-        ? _ok('Protocol', 'wyrm_link $linkProtocol')
-        : _bad(
-            'Protocol',
-            'wyrm_link ${m.protocol.written ?? '(none)'}; the brokers speak $linkProtocol',
-          ),
-  );
+  checks
+    ..add(
+      m.unknown.isNotEmpty
+          ? _bad(PackageFinding.unknownFields(m.unknown))
+          : (missing.isNotEmpty
+                ? _bad(PackageFinding.missingFields(missing.lock))
+                : _ok(const PackageFinding.manifestOk(_packageManifest))),
+    )
+    ..add(
+      PackageCheck(
+        PackageFinding.protocol(
+          found: m.protocol.written,
+          speak: linkProtocol,
+          matches: m.protocol.orNull == linkProtocol,
+        ),
+        result: m.protocol.orNull == linkProtocol
+            ? PackageCheckResult.ok
+            : PackageCheckResult.failed,
+      ),
+    );
   if (name != null) {
+    final ok =
+        RegExp(r'^[A-Za-z0-9._-]{1,64}$').hasMatch(name) &&
+        version != null &&
+        RegExp(r'^[A-Za-z0-9_+-][A-Za-z0-9._+-]{0,31}$').hasMatch(version);
     checks.add(
-      RegExp(r'^[A-Za-z0-9._-]{1,64}$').hasMatch(name) &&
-              version != null &&
-              RegExp(r'^[A-Za-z0-9_+-][A-Za-z0-9._+-]{0,31}$').hasMatch(version)
-          ? _ok('Name and version', '$name $version')
-          : _bad(
-              'Name and version',
-              '$name ${m.version.written ?? '(none)'}: name a key segment, version 1–32 of A–Z a–z 0–9 . _ - +',
-            ),
+      PackageCheck(
+        PackageFinding.nameVersion(
+          name: name,
+          version: m.version.written,
+          ok: ok,
+        ),
+        result: ok ? PackageCheckResult.ok : PackageCheckResult.failed,
+      ),
     );
   }
   switch (kind) {
@@ -147,48 +176,48 @@ PackageReport checkZip(Uint8List bytes, {String? host}) {
         ];
         checks.add(
           absent.isNotEmpty
-              ? _bad('Binaries', 'entry file missing for ${absent.join(', ')}')
-              : _ok('Binaries', entries.keys.join(', ')),
+              ? _bad(PackageFinding.entryMissing(absent.lock))
+              : _ok(PackageFinding.hosts(entries.keys.toIList())),
         );
         if (host != null) {
+          final present = entries.containsKey(host);
           checks.add(
-            entries.containsKey(host)
-                ? _ok('This host', host)
-                : _bad('This host', 'no entry for $host'),
+            PackageCheck(
+              PackageFinding.host(host, present: present),
+              result: present
+                  ? PackageCheckResult.ok
+                  : PackageCheckResult.failed,
+            ),
           );
         }
       } else {
-        checks.add(
-          _bad('Binaries', 'a process package needs entries per host'),
-        );
+        checks.add(_bad(const PackageFinding.needsEntries()));
       }
     case PackageKind.wasm:
       final entry = m.entry.orNull;
       final f = entry == null ? null : zip.findFile(entry);
-      checks.add(
-        f == null || entry == null
-            ? _bad(
-                'Component',
-                'entry ${m.entry.written ?? '(none)'} not in the zip',
-              )
-            : (_isWasm(f.content)
-                  ? _ok('Component', entry)
-                  : _bad('Component', '$entry is not WebAssembly')),
-      );
-      checks.add(_skip('World', 'read from the component by the broker'));
+      final wasm = f != null && _isWasm(f.content);
+      checks
+        ..add(
+          PackageCheck(
+            PackageFinding.component(
+              entry: f == null ? m.entry.written : entry,
+              found: f != null,
+              wasm: wasm,
+            ),
+            result: wasm ? PackageCheckResult.ok : PackageCheckResult.failed,
+          ),
+        )
+        ..add(_skip(const PackageFinding.worldByBroker()));
     case null:
       break;
   }
   final rights = m.rights;
   checks.add(
     switch (m.rightsProblem) {
-      // the rights themselves: ui says them in the language on screen
-      null => PackageCheck(title: 'Rights asked', rights: rights),
-      final problem => PackageCheck(
-        title: 'Rights asked',
-        result: PackageCheckResult.failed,
-        problem: problem,
-        file: 'wyrm-link.json',
+      null => _ok(PackageFinding.rights(rights)),
+      final problem => _bad(
+        PackageFinding.rightsProblem(problem, _packageManifest),
       ),
     },
   );
@@ -206,20 +235,29 @@ PackageReport checkZip(Uint8List bytes, {String? host}) {
 }
 
 /// The checks of one component file.
-PackageReport checkWasm(Uint8List bytes) => PackageReport(
-  checks: [
-    if (bytes.length > 64 << 20)
-      _bad('Size', '${bytes.length >> 20} MiB; at most 64 MiB')
-    else
-      _ok('Size', '${(bytes.length / 1024).ceil()} KiB'),
-    if (_isWasm(bytes))
-      _ok('Component', 'WebAssembly')
-    else
-      _bad('Component', 'not WebAssembly'),
-    _skip('World', 'read from the component by the broker'),
-  ].lock,
-  kind: LinkMode.wasm,
-);
+PackageReport checkWasm(Uint8List bytes) {
+  final wasm = _isWasm(bytes);
+  return PackageReport(
+    checks: [
+      if (bytes.length > _maxZipMib << 20)
+        _bad(
+          PackageFinding.tooLarge(
+            mib: bytes.length >> 20,
+            limitMib: _maxZipMib,
+            zipped: false,
+          ),
+        )
+      else
+        _ok(PackageFinding.size(kib: (bytes.length / 1024).ceil())),
+      PackageCheck(
+        PackageFinding.component(entry: null, found: true, wasm: wasm),
+        result: wasm ? PackageCheckResult.ok : PackageCheckResult.failed,
+      ),
+      _skip(const PackageFinding.worldByBroker()),
+    ].lock,
+    kind: LinkMode.wasm,
+  );
+}
 
 /// What Studio reads of a link backup (`.wyrm-link`, ADR 0048 §3.1)
 /// before the broker checks all of it: the zip, its `manifest.json`, that
@@ -230,81 +268,68 @@ PackageReport checkWasm(Uint8List bytes) => PackageReport(
 PackageReport checkBackup(Uint8List bytes) {
   PackageReport stop(List<PackageCheck> checks) =>
       PackageReport(checks: checks.lock);
-  if (bytes.length < 4 || bytes[0] != 0x50 || bytes[1] != 0x4b) {
-    return stop([_bad('Archive', 'not a zip')]);
+  if (!_isZip(bytes)) {
+    return stop([_bad(const PackageFinding.notZip())]);
   }
   final Archive archive;
   try {
     archive = ZipDecoder().decodeBytes(bytes);
   } on Object catch (e) {
-    return stop([_bad('Archive', '$e')]);
+    return stop([_bad(PackageFinding.notZip(error: '$e'))]);
   }
   final checks = <PackageCheck>[
-    _ok('Archive', '${archive.files.length} entries'),
+    _ok(PackageFinding.archiveEntries(archive.files.length)),
   ];
-  final entry = archive.findFile('manifest.json');
+  final entry = archive.findFile(_backupManifest);
   if (entry == null) {
-    return stop([...checks, _bad('Manifest', 'no manifest.json')]);
+    return stop([
+      ...checks,
+      _bad(const PackageFinding.noManifest(_backupManifest)),
+    ]);
   }
   final LinkBackupManifest m;
   switch (backupManifestOf(entry.content)) {
     case final LinkBackupManifest link:
       m = link;
     case OtherBackupManifest(:final kind):
-      checks.add(
-        _bad(
-          'Kind',
-          'a backup of kind $kind: Add a link takes a link backup '
-              '(.wyrm-link); a broker backup is restored in System',
-        ),
-      );
-      return stop(checks);
-    // a manifest Studio cannot read fails the check with a typed problem
-    // (ui says it): a seal, a mode or a section it does not know is never
-    // taken as one it knows
+      return stop([...checks, _bad(PackageFinding.otherKind(kind))]);
+    // a manifest Studio cannot read fails the check with a typed problem:
+    // a seal, a mode or a section it does not know is never taken as one
+    // it knows
     case UnreadableBackupManifest(:final problem):
       return stop([
         ...checks,
-        PackageCheck(
-          title: 'Manifest',
-          result: PackageCheckResult.failed,
-          problem: problem,
-          file: 'manifest.json',
-        ),
+        _bad(PackageFinding.manifestProblem(problem, _backupManifest)),
       ]);
   }
-  // the link, how it runs and where the backup was made: ui words it
-  checks.add(PackageCheck(title: 'Link', link: m.link));
+  checks.add(_ok(PackageFinding.link(m.link)));
   if (m.package.isNotEmpty) {
+    final inFile = m.sections.contains(BackupSection.package);
     checks.add(
-      m.sections.contains(BackupSection.package)
-          ? _ok('Package', '${m.package} ${m.version}, in the file')
-          : _skip(
-              'Package',
-              '${m.package} ${m.version} is not in the file: the broker '
-                  'must have it installed',
-            ),
+      PackageCheck(
+        PackageFinding.packageOfLink(
+          name: m.package,
+          version: m.version,
+          inFile: inFile,
+        ),
+        // not in the file: the broker must have it installed
+        result: inFile ? PackageCheckResult.ok : PackageCheckResult.skipped,
+      ),
     );
   }
   checks
     ..add(
-      switch (m.sealed) {
-        BackupSealed.passphrase => _ok('Secrets', 'sealed with a passphrase'),
-        BackupSealed.broker => _skip(
-          'Secrets',
-          'sealed for ${m.link.site}: the file opens only on a broker with '
-              'the keys of that site',
-        ),
-        BackupSealed.none => _ok('Secrets', 'none in the file'),
-      },
-    )
-    ..add(_ok('Sections', [for (final s in m.sections) s.wire].join(', ')))
-    ..add(
-      _skip(
-        'Definition, grants, package files',
-        'checked by the broker as a new link',
+      PackageCheck(
+        PackageFinding.secrets(m.sealed, m.link.site),
+        // sealed for its site: whether it opens is known on the broker
+        result: switch (m.sealed) {
+          .broker => PackageCheckResult.skipped,
+          .passphrase || .none => PackageCheckResult.ok,
+        },
       ),
-    );
+    )
+    ..add(_ok(PackageFinding.sections(m.sections)))
+    ..add(_skip(const PackageFinding.checkedAsNewLink()));
   return PackageReport(
     checks: checks.lock,
     manifest: m.pretty,
@@ -315,23 +340,15 @@ PackageReport checkBackup(Uint8List bytes) {
 
 /// A link backup too large to read here: the broker alone checks it.
 PackageReport checkLargeBackup(int size) => PackageReport(
-  checks: [
-    _skip(
-      'Archive, manifest, link',
-      '${size >> 20} MiB: not read by Studio; checked by the broker after '
-          'the upload. Give the link its name on the next step',
-    ),
-  ].lock,
+  checks: [_skip(PackageFinding.notReadHere(mib: size >> 20))].lock,
 );
 
-/// A URL or a Git repository: fetched and checked by the broker only.
-PackageReport checkRemote(String what) => PackageReport(
+/// A URL or a Git repository ([what]: its address, null when the source
+/// names none): fetched and checked by the broker only.
+PackageReport checkRemote(String? what) => PackageReport(
   checks: [
-    _skip('Download', '$what is fetched by the broker'),
-    _skip(
-      'Archive, manifest, binaries',
-      'checked by the broker after the download',
-    ),
+    _skip(PackageFinding.fetchedByBroker(what)),
+    _skip(const PackageFinding.checkedAfterDownload()),
   ].lock,
 );
 

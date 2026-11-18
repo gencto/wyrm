@@ -8,15 +8,19 @@ import 'package:models/install_phase.dart';
 import 'package:models/install_step.dart';
 import 'package:models/link_mode.dart';
 import 'package:models/manifest_fault.dart';
+import 'package:models/manifest_problem.dart';
 import 'package:models/package_check.dart';
 import 'package:models/package_check_result.dart';
+import 'package:models/package_finding.dart';
 import 'package:models/package_method.dart';
 import 'package:models/requested_right.dart';
 import 'package:ui/containers/catalog_card.dart';
 import 'package:ui/indicators/check_list.dart';
 import 'package:ui/models/link_run_mode.dart';
+import 'package:ui/pages/install_checks.dart';
 import 'package:ui/pages/link_install_data.dart';
 
+import 'backup_mappers.dart';
 import 'rights_mappers.dart';
 
 // Add a link: one exhaustive map per domain enum to the `ui` enum that
@@ -132,38 +136,112 @@ extension InstallBlockUi on InstallBlock {
 
 extension PackageCheckUi on PackageCheck {
   InstallCheckVm get row => InstallCheckVm(
-    title: title,
-    detail: detail,
+    finding: finding.ui,
     result: switch (result) {
       PackageCheckResult.ok => CheckResult.ok,
       PackageCheckResult.failed => CheckResult.failed,
       PackageCheckResult.skipped => CheckResult.skipped,
     },
-    rights: switch (rights) {
-      final r? => [for (final x in r) x.ui],
-      null => null,
-    },
-    problem: switch (problem) {
-      final p? => ManifestProblemVm(
-        kind: p.fault.ui,
-        file: file ?? '',
-        field: p.field,
-        found: p.found,
-      ),
-      null => null,
-    },
-    link: switch (link) {
-      final l? => BackupLinkVm(
-        id: l.id,
-        mode: l.mode.ui,
-        driver: l.driver,
-        site: l.site,
-        broker: l.broker,
-        created: l.created,
-      ),
-      null => null,
-    },
   );
+}
+
+extension ManifestProblemUi on ManifestProblem {
+  /// The problem of the manifest [file] as `ui` says it.
+  ManifestProblemVm ui(String file) => ManifestProblemVm(
+    kind: fault.ui,
+    file: file,
+    field: field,
+    found: found,
+  );
+}
+
+extension PackageFindingUi on PackageFinding {
+  /// The finding as `ui` names and says it.
+  CheckFinding get ui => switch (this) {
+    FindingTooLarge(:final mib, :final limitMib, :final zipped) =>
+      TooLargeFinding(mib: mib, limitMib: limitMib, zipped: zipped),
+    FindingNotZip(:final error) => NotZipFinding(error: error),
+    FindingTooManyFiles(
+      :final files,
+      :final mib,
+      :final maxFiles,
+      :final maxMib,
+    ) =>
+      TooManyFilesFinding(
+        files: files,
+        mib: mib,
+        maxFiles: maxFiles,
+        maxMib: maxMib,
+      ),
+    FindingSizeAndFiles(:final kib, :final files) => SizeAndFilesFinding(
+      kib: kib,
+      files: files,
+    ),
+    FindingSize(:final kib) => SizeFinding(kib: kib),
+    FindingArchiveEntries(:final count) => ArchiveEntriesFinding(count),
+    FindingPathNotRelative(:final path) => PathsFinding(notRelative: path),
+    FindingSymbolicLink(:final name) => PathsFinding(symbolicLink: name),
+    FindingPathsOk() => const PathsFinding(),
+    FindingNoManifest(:final file) => NoManifestFinding(file),
+    FindingManifestProblem(:final problem, :final file) =>
+      ManifestProblemFinding(problem.ui(file)),
+    FindingUnknownFields(:final fields) => ManifestFieldsFinding(
+      fields.unlock,
+      unknown: true,
+    ),
+    FindingMissingFields(:final fields) => ManifestFieldsFinding(
+      fields.unlock,
+      unknown: false,
+    ),
+    FindingManifestOk(:final file) => ManifestOkFinding(file),
+    FindingProtocol(:final found, :final speak, :final matches) =>
+      ProtocolFinding(found: found, speak: speak, matches: matches),
+    FindingNameVersion(:final name, :final version, :final ok) =>
+      NameVersionFinding(name: name, version: version, ok: ok),
+    FindingEntryMissing(:final hosts) => BinariesFinding(
+      missing: hosts.unlock,
+    ),
+    FindingHosts(:final hosts) => BinariesFinding(hosts: hosts.unlock),
+    FindingNeedsEntries() => const BinariesFinding(),
+    FindingHost(:final host, :final present) => HostFinding(
+      host,
+      present: present,
+    ),
+    FindingComponent(:final entry, :final found, :final wasm) =>
+      ComponentFinding(entry: entry, found: found, wasm: wasm),
+    FindingWorldByBroker() => const WorldByBrokerFinding(),
+    FindingRights(:final rights) => RightsFinding([
+      for (final x in rights) x.ui,
+    ]),
+    FindingRightsProblem(:final problem, :final file) => ManifestProblemFinding(
+      problem.ui(file),
+      ofRights: true,
+    ),
+    FindingOtherKind(:final kind) => OtherKindFinding(kind),
+    FindingLink(:final link) => LinkFinding(
+      BackupLinkVm(
+        id: link.id,
+        mode: link.mode.ui,
+        driver: link.driver,
+        site: link.site,
+        broker: link.broker,
+        created: link.created,
+      ),
+    ),
+    FindingPackageOfLink(:final name, :final version, :final inFile) =>
+      PackageOfLinkFinding(name: name, version: version, inFile: inFile),
+    FindingSecrets(:final sealed, :final site) => SecretsFinding(
+      sealed.seal,
+      site,
+    ),
+    FindingSections(:final sections) => SectionsFinding([
+      for (final s in sections) s.part,
+    ]),
+    FindingCheckedAsNewLink() => const CheckedAsNewLinkFinding(),
+    FindingNotReadHere(:final mib) => NotReadHereFinding(mib: mib),
+    FindingFetchedByBroker(:final what) => FetchedByBrokerFinding(what),
+    FindingCheckedAfterDownload() => const CheckedAfterDownloadFinding(),
+  };
 }
 
 extension ManifestFaultUi on ManifestFault {

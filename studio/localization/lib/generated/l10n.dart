@@ -17755,6 +17755,506 @@ class S {
       args: [],
     );
   }
+
+  /// `Size`
+  String get chkSize {
+    return Intl.message('Size', name: 'chkSize', desc: '', args: []);
+  }
+
+  /// `Archive`
+  String get chkArchive {
+    return Intl.message('Archive', name: 'chkArchive', desc: '', args: []);
+  }
+
+  /// `Size and files`
+  String get chkSizeAndFiles {
+    return Intl.message(
+      'Size and files',
+      name: 'chkSizeAndFiles',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Paths`
+  String get chkPaths {
+    return Intl.message('Paths', name: 'chkPaths', desc: '', args: []);
+  }
+
+  /// `Manifest`
+  String get chkManifest {
+    return Intl.message('Manifest', name: 'chkManifest', desc: '', args: []);
+  }
+
+  /// `Protocol`
+  String get chkProtocol {
+    return Intl.message('Protocol', name: 'chkProtocol', desc: '', args: []);
+  }
+
+  /// `Name and version`
+  String get chkNameVersion {
+    return Intl.message(
+      'Name and version',
+      name: 'chkNameVersion',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Binaries`
+  String get chkBinaries {
+    return Intl.message('Binaries', name: 'chkBinaries', desc: '', args: []);
+  }
+
+  /// `This host`
+  String get chkThisHost {
+    return Intl.message('This host', name: 'chkThisHost', desc: '', args: []);
+  }
+
+  /// `Component`
+  String get chkComponent {
+    return Intl.message('Component', name: 'chkComponent', desc: '', args: []);
+  }
+
+  /// `World`
+  String get chkWorld {
+    return Intl.message('World', name: 'chkWorld', desc: '', args: []);
+  }
+
+  /// `Rights asked`
+  String get chkRightsAsked {
+    return Intl.message(
+      'Rights asked',
+      name: 'chkRightsAsked',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Kind`
+  String get chkKind {
+    return Intl.message('Kind', name: 'chkKind', desc: '', args: []);
+  }
+
+  /// `Link`
+  String get chkLink {
+    return Intl.message('Link', name: 'chkLink', desc: '', args: []);
+  }
+
+  /// `Package`
+  String get chkPackage {
+    return Intl.message('Package', name: 'chkPackage', desc: '', args: []);
+  }
+
+  /// `Secrets`
+  String get chkSecrets {
+    return Intl.message('Secrets', name: 'chkSecrets', desc: '', args: []);
+  }
+
+  /// `Sections`
+  String get chkSections {
+    return Intl.message('Sections', name: 'chkSections', desc: '', args: []);
+  }
+
+  /// `Definition, grants, package files`
+  String get chkLinkParts {
+    return Intl.message(
+      'Definition, grants, package files',
+      name: 'chkLinkParts',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Archive, manifest, link`
+  String get chkBackupParts {
+    return Intl.message(
+      'Archive, manifest, link',
+      name: 'chkBackupParts',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Download`
+  String get chkDownload {
+    return Intl.message('Download', name: 'chkDownload', desc: '', args: []);
+  }
+
+  /// `Archive, manifest, binaries`
+  String get chkRemoteParts {
+    return Intl.message(
+      'Archive, manifest, binaries',
+      name: 'chkRemoteParts',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `(none)`
+  String get chkNone {
+    return Intl.message('(none)', name: 'chkNone', desc: '', args: []);
+  }
+
+  /// `{mib} MiB zipped; at most {limit} MiB`
+  String chkTooLargeZipped(int mib, int limit) {
+    return Intl.message(
+      '$mib MiB zipped; at most $limit MiB',
+      name: 'chkTooLargeZipped',
+      desc: '',
+      args: [mib, limit],
+    );
+  }
+
+  /// `{mib} MiB; at most {limit} MiB`
+  String chkTooLarge(int mib, int limit) {
+    return Intl.message(
+      '$mib MiB; at most $limit MiB',
+      name: 'chkTooLarge',
+      desc: '',
+      args: [mib, limit],
+    );
+  }
+
+  /// `not a zip`
+  String get chkNotZip {
+    return Intl.message('not a zip', name: 'chkNotZip', desc: '', args: []);
+  }
+
+  /// `not a zip: {error}`
+  String chkNotZipBecause(String error) {
+    return Intl.message(
+      'not a zip: $error',
+      name: 'chkNotZipBecause',
+      desc: '',
+      args: [error],
+    );
+  }
+
+  /// `{files} files, {mib} MiB unpacked; at most {maxFiles} and {maxMib} MiB`
+  String chkTooManyFiles(int files, int mib, int maxFiles, int maxMib) {
+    return Intl.message(
+      '$files files, $mib MiB unpacked; at most $maxFiles and $maxMib MiB',
+      name: 'chkTooManyFiles',
+      desc: '',
+      args: [files, mib, maxFiles, maxMib],
+    );
+  }
+
+  /// `{kib} KiB, {files} files`
+  String chkKibAndFiles(int kib, int files) {
+    return Intl.message(
+      '$kib KiB, $files files',
+      name: 'chkKibAndFiles',
+      desc: '',
+      args: [kib, files],
+    );
+  }
+
+  /// `{kib} KiB`
+  String chkKib(int kib) {
+    return Intl.message('$kib KiB', name: 'chkKib', desc: '', args: [kib]);
+  }
+
+  /// `{n} entries`
+  String chkEntries(int n) {
+    return Intl.message('$n entries', name: 'chkEntries', desc: '', args: [n]);
+  }
+
+  /// `not relative: {path}`
+  String chkPathNotRelative(String path) {
+    return Intl.message(
+      'not relative: $path',
+      name: 'chkPathNotRelative',
+      desc: '',
+      args: [path],
+    );
+  }
+
+  /// `symbolic link: {name}`
+  String chkSymbolicLink(String name) {
+    return Intl.message(
+      'symbolic link: $name',
+      name: 'chkSymbolicLink',
+      desc: '',
+      args: [name],
+    );
+  }
+
+  /// `relative, no links`
+  String get chkPathsOk {
+    return Intl.message(
+      'relative, no links',
+      name: 'chkPathsOk',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `no {file} at the root of the archive`
+  String chkNoManifest(String file) {
+    return Intl.message(
+      'no $file at the root of the archive',
+      name: 'chkNoManifest',
+      desc: '',
+      args: [file],
+    );
+  }
+
+  /// `unknown fields: {fields}`
+  String chkUnknownFields(String fields) {
+    return Intl.message(
+      'unknown fields: $fields',
+      name: 'chkUnknownFields',
+      desc: '',
+      args: [fields],
+    );
+  }
+
+  /// `missing or wrong: {fields}`
+  String chkMissingFields(String fields) {
+    return Intl.message(
+      'missing or wrong: $fields',
+      name: 'chkMissingFields',
+      desc: '',
+      args: [fields],
+    );
+  }
+
+  /// `wyrm_link {n}`
+  String chkProtocolOk(int n) {
+    return Intl.message(
+      'wyrm_link $n',
+      name: 'chkProtocolOk',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `wyrm_link {found}; the brokers speak {speak}`
+  String chkProtocolOther(String found, int speak) {
+    return Intl.message(
+      'wyrm_link $found; the brokers speak $speak',
+      name: 'chkProtocolOther',
+      desc: '',
+      args: [found, speak],
+    );
+  }
+
+  /// `{name} {version}: name a key segment, version 1–32 of A–Z a–z 0–9 . _ - +`
+  String chkNameVersionBad(String name, String version) {
+    return Intl.message(
+      '$name $version: name a key segment, version 1–32 of A–Z a–z 0–9 . _ - +',
+      name: 'chkNameVersionBad',
+      desc: '',
+      args: [name, version],
+    );
+  }
+
+  /// `entry file missing for {hosts}`
+  String chkEntryMissing(String hosts) {
+    return Intl.message(
+      'entry file missing for $hosts',
+      name: 'chkEntryMissing',
+      desc: '',
+      args: [hosts],
+    );
+  }
+
+  /// `a process package needs entries per host`
+  String get chkNeedsEntries {
+    return Intl.message(
+      'a process package needs entries per host',
+      name: 'chkNeedsEntries',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `no entry for {host}`
+  String chkNoEntryFor(String host) {
+    return Intl.message(
+      'no entry for $host',
+      name: 'chkNoEntryFor',
+      desc: '',
+      args: [host],
+    );
+  }
+
+  /// `entry {entry} not in the zip`
+  String chkComponentMissing(String entry) {
+    return Intl.message(
+      'entry $entry not in the zip',
+      name: 'chkComponentMissing',
+      desc: '',
+      args: [entry],
+    );
+  }
+
+  /// `WebAssembly`
+  String get chkWasm {
+    return Intl.message('WebAssembly', name: 'chkWasm', desc: '', args: []);
+  }
+
+  /// `not WebAssembly`
+  String get chkNotWasm {
+    return Intl.message(
+      'not WebAssembly',
+      name: 'chkNotWasm',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{entry} is not WebAssembly`
+  String chkNotWasmFile(String entry) {
+    return Intl.message(
+      '$entry is not WebAssembly',
+      name: 'chkNotWasmFile',
+      desc: '',
+      args: [entry],
+    );
+  }
+
+  /// `read from the component by the broker`
+  String get chkWorldByBroker {
+    return Intl.message(
+      'read from the component by the broker',
+      name: 'chkWorldByBroker',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `a backup of kind {kind}: Add a link takes a link backup (.wyrm-link); a broker backup is restored in System`
+  String chkOtherKind(String kind) {
+    return Intl.message(
+      'a backup of kind $kind: Add a link takes a link backup (.wyrm-link); a broker backup is restored in System',
+      name: 'chkOtherKind',
+      desc: '',
+      args: [kind],
+    );
+  }
+
+  /// `{name} {version}, in the file`
+  String chkPackageInFile(String name, String version) {
+    return Intl.message(
+      '$name $version, in the file',
+      name: 'chkPackageInFile',
+      desc: '',
+      args: [name, version],
+    );
+  }
+
+  /// `{name} {version} is not in the file: the broker must have it installed`
+  String chkPackageNotInFile(String name, String version) {
+    return Intl.message(
+      '$name $version is not in the file: the broker must have it installed',
+      name: 'chkPackageNotInFile',
+      desc: '',
+      args: [name, version],
+    );
+  }
+
+  /// `sealed with a passphrase`
+  String get chkSealedPassphrase {
+    return Intl.message(
+      'sealed with a passphrase',
+      name: 'chkSealedPassphrase',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `sealed for {site}: the file opens only on a broker with the keys of that site`
+  String chkSealedForSite(String site) {
+    return Intl.message(
+      'sealed for $site: the file opens only on a broker with the keys of that site',
+      name: 'chkSealedForSite',
+      desc: '',
+      args: [site],
+    );
+  }
+
+  /// `none in the file`
+  String get chkNoSecrets {
+    return Intl.message(
+      'none in the file',
+      name: 'chkNoSecrets',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `checked by the broker as a new link`
+  String get chkAsNewLink {
+    return Intl.message(
+      'checked by the broker as a new link',
+      name: 'chkAsNewLink',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{mib} MiB: not read by Studio; checked by the broker after the upload. Give the link its name on the next step`
+  String chkNotReadHere(int mib) {
+    return Intl.message(
+      '$mib MiB: not read by Studio; checked by the broker after the upload. Give the link its name on the next step',
+      name: 'chkNotReadHere',
+      desc: '',
+      args: [mib],
+    );
+  }
+
+  /// `{what} is fetched by the broker`
+  String chkFetched(String what) {
+    return Intl.message(
+      '$what is fetched by the broker',
+      name: 'chkFetched',
+      desc: '',
+      args: [what],
+    );
+  }
+
+  /// `it is fetched by the broker`
+  String get chkFetchedIt {
+    return Intl.message(
+      'it is fetched by the broker',
+      name: 'chkFetchedIt',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `checked by the broker after the download`
+  String get chkAfterDownload {
+    return Intl.message(
+      'checked by the broker after the download',
+      name: 'chkAfterDownload',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The broker shows no SHA-256 of this backup, so what arrives cannot be checked. Nothing was saved.`
+  String get errBackupNoDigest {
+    return Intl.message(
+      'The broker shows no SHA-256 of this backup, so what arrives cannot be checked. Nothing was saved.',
+      name: 'errBackupNoDigest',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The file that arrived is not the backup: its SHA-256 is not the one the broker shows. Nothing was saved. Both are in the log.`
+  String get errBackupDigestMismatch {
+    return Intl.message(
+      'The file that arrived is not the backup: its SHA-256 is not the one the broker shows. Nothing was saved. Both are in the log.',
+      name: 'errBackupDigestMismatch',
+      desc: '',
+      args: [],
+    );
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<S> {

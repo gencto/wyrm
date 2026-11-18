@@ -7,6 +7,7 @@ import '../indicators/level_badge.dart';
 import '../models/disabled.dart';
 import '../models/link_run_mode.dart';
 import '../shell/window_bar.dart';
+import 'install_checks.dart';
 
 /// Where a new link comes from, as drawn: a card of Choose, the rail's
 /// label and the answer *From*.
@@ -239,111 +240,20 @@ final class GrantRightVm extends InstallRightVm {
   List<Object?> get props => [level, path];
 }
 
-/// The kinds of fault of a manifest a person brought.
-enum ManifestFaultKind { notJson, notObject, missing, wrongForm, unknownName }
-
-/// What is wrong with a manifest: the kind, the [file] it is of, the
-/// field at fault (empty: the file itself) and what the file holds there.
-final class ManifestProblemVm extends Equatable {
-  const ManifestProblemVm({
-    required this.kind,
-    required this.file,
-    this.field = '',
-    this.found,
-  });
-
-  final ManifestFaultKind kind;
-  final String file;
-  final String field;
-  final String? found;
-
-  /// The sentence of the check.
-  String get line => switch (kind) {
-    ManifestFaultKind.notJson => S.current.chkNotJson(file),
-    ManifestFaultKind.notObject =>
-      field.isEmpty
-          ? S.current.chkNotObject(file)
-          : S.current.chkWrongForm(field),
-    ManifestFaultKind.missing => S.current.chkMissing(field),
-    ManifestFaultKind.wrongForm => S.current.chkWrongForm(field),
-    ManifestFaultKind.unknownName => S.current.chkUnknownName(
-      field,
-      found ?? '',
-    ),
-  };
-
-  @override
-  List<Object?> get props => [kind, file, field, found];
-}
-
-/// The link of a link backup, and where and when the backup was made.
-final class BackupLinkVm extends Equatable {
-  const BackupLinkVm({
-    required this.id,
-    required this.mode,
-    required this.driver,
-    required this.site,
-    required this.broker,
-    required this.created,
-  });
-
-  final String id;
-  final LinkRunMode mode;
-  final String driver;
-  final String site;
-  final String broker;
-  final DateTime created;
-
-  /// The sentence of the check.
-  String get line => S.current.chkLinkFrom(
-    id,
-    mode.label,
-    driver,
-    site,
-    broker,
-    Formats.dateTime(created),
-  );
-
-  @override
-  List<Object?> get props => [id, mode, driver, site, broker, created];
-}
-
-/// One check of a package or a backup; [rights] when the check lists the
-/// rights it asks for (its [detail] is then said from them).
+/// One check of a package or a backup: what it found and whether that
+/// passes. The finding names the check and says what it saw.
 final class InstallCheckVm extends Equatable {
-  const InstallCheckVm({
-    required this.title,
-    required this.result,
-    this.detail = '',
-    this.rights,
-    this.problem,
-    this.link,
-  });
+  const InstallCheckVm({required this.finding, required this.result});
 
-  final String title;
+  final CheckFinding finding;
   final CheckResult result;
-  final String detail;
-  final List<InstallRightVm>? rights;
-
-  /// What is wrong with the manifest, said here.
-  final ManifestProblemVm? problem;
-
-  /// The link of a link backup, said here.
-  final BackupLinkVm? link;
 
   /// Its row of the check list.
-  CheckRowVm get row => CheckRowVm(
-    title: title,
-    result: result,
-    detail: switch (rights) {
-      null => problem?.line ?? link?.line ?? detail,
-      final r when r.isEmpty => S.current.rightsNone,
-      final r => [for (final x in r) x.line].join('; '),
-    },
-  );
+  CheckRowVm get row =>
+      CheckRowVm(title: finding.title, result: result, detail: finding.line);
 
   @override
-  List<Object?> get props => [title, result, detail, rights, problem, link];
+  List<Object?> get props => [finding, result];
 }
 
 /// A broker a link can go to: the site, its host when known, and why it

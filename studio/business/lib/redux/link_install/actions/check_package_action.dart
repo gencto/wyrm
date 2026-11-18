@@ -40,7 +40,7 @@ class CheckPackageAction extends Action {
       },
       InstallSourceUrl(:final url) => checkRemote(url),
       InstallSourceGit(:final url) => checkRemote(url),
-      _ => checkRemote('it'),
+      _ => checkRemote(null),
     };
     final fileName = switch (source) {
       // A backup names its link; its file name says nothing.

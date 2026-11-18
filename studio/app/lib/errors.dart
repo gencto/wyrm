@@ -246,6 +246,8 @@ String _hintText(ErrorHint h) => switch (h) {
   .unreadableAnswer => S.current.errUnreadableAnswer,
   .unreadableRows => S.current.errUnreadableRows,
   .fileNotRead => S.current.errFileNotRead,
+  .backupNoDigest => S.current.errBackupNoDigest,
+  .backupDigestMismatch => S.current.errBackupDigestMismatch,
 };
 
 /// The tone of a kind (errors.md §1).

@@ -4,10 +4,13 @@ import 'dart:typed_data';
 import 'package:archive/archive.dart';
 import 'package:business/wyrm/catalog.dart';
 import 'package:business/wyrm/package_check.dart';
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/link_mode.dart';
 import 'package:models/manifest_fault.dart';
+import 'package:models/package_check.dart';
 import 'package:models/package_check_result.dart';
+import 'package:models/package_finding.dart';
 import 'package:models/requested_right.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -33,10 +36,10 @@ void main() {
         final r = checkZip(Uint8List.fromList(ZipEncoder().encode(a)));
         final c = r.checks.last;
         expect(c.result, PackageCheckResult.failed, reason: text);
-        expect(c.problem?.fault, fault, reason: text);
-        expect(c.file, 'wyrm-link.json');
-        // nothing is said in words here
-        expect(c.detail, isEmpty);
+        // a typed finding: nothing is said in words here
+        final f = c.finding as FindingManifestProblem;
+        expect(f.problem.fault, fault, reason: text);
+        expect(f.file, 'wyrm-link.json');
       }
     });
 
@@ -89,13 +92,21 @@ void main() {
         host: 'linux-x86_64',
       );
 
-      final failed = {
+      final failed = [
         for (final c in r.checks.where(
           (c) => c.result == PackageCheckResult.failed,
         ))
-          c.title,
-      };
-      expect(failed, containsAll(['Manifest', 'Protocol', 'This host']));
+          c.finding,
+      ];
+      // the manifest, the protocol and this host, each with its facts
+      expect(
+        failed,
+        containsAll([
+          PackageFinding.unknownFields(const ['colour'].lock),
+          const PackageFinding.protocol(found: '2', speak: 1, matches: false),
+          const PackageFinding.host('linux-x86_64', present: false),
+        ]),
+      );
     });
 
     test('a path out of the archive fails', () {
@@ -106,23 +117,32 @@ void main() {
         }),
       );
       expect(
-        r.checks.firstWhere((c) => c.title == 'Paths').result,
-        PackageCheckResult.failed,
+        r.checks.firstWhere((c) => c.finding is FindingPathNotRelative),
+        const PackageCheck(
+          PackageFinding.pathNotRelative('../evil'),
+          result: PackageCheckResult.failed,
+        ),
       );
     });
 
     test('not a zip, or no manifest, stops early', () {
       expect(
-        checkZip(Uint8List.fromList([1, 2, 3])).checks.single.result,
-        PackageCheckResult.failed,
+        checkZip(Uint8List.fromList([1, 2, 3])).checks.single,
+        const PackageCheck(
+          PackageFinding.notZip(),
+          result: PackageCheckResult.failed,
+        ),
       );
       expect(
         checkZip(
           zipOf({
             'readme': [0],
           }),
-        ).checks.last.detail,
-        contains('no wyrm-link.json'),
+        ).checks.last,
+        const PackageCheck(
+          PackageFinding.noManifest('wyrm-link.json'),
+          result: PackageCheckResult.failed,
+        ),
       );
     });
 
@@ -145,13 +165,126 @@ void main() {
       );
 
       expect(
-        r.checks.firstWhere((c) => c.title == 'Component').result,
-        PackageCheckResult.ok,
+        r.checks.firstWhere((c) => c.finding is FindingComponent),
+        const PackageCheck(
+          PackageFinding.component(entry: 'reg.wasm', found: true, wasm: true),
+        ),
+      );
+      // the rights are a finding too, said by ui
+      expect(
+        r.checks.last.finding,
+        PackageFinding.rights(
+          const [
+            RequestedRight.network(['10.0.5.0/24:502']),
+            RequestedRight.store(1),
+          ].lock,
+        ),
       );
       expect(r.rights, const [
         RequestedRight.network(['10.0.5.0/24:502']),
         RequestedRight.store(1),
       ]);
+    });
+  });
+
+  group('the other checks, as facts', () {
+    test('a file too large, a component that is none, a missing one', () {
+      expect(
+        checkWasm(Uint8List.fromList([1, 2, 3])).checks,
+        const [
+          PackageCheck(PackageFinding.size(kib: 1)),
+          PackageCheck(
+            PackageFinding.component(entry: null, found: true, wasm: false),
+            result: PackageCheckResult.failed,
+          ),
+          PackageCheck(
+            PackageFinding.worldByBroker(),
+            result: PackageCheckResult.skipped,
+          ),
+        ],
+      );
+      final noEntry = checkZip(
+        zipOf({
+          'wyrm-link.json': json({
+            'name': 'reg',
+            'version': '1.0.0',
+            'wyrm_link': 1,
+            'kind': 'wasm',
+            'entry': 'reg.wasm',
+          }),
+        }),
+      );
+      expect(
+        noEntry.checks.firstWhere((c) => c.finding is FindingComponent),
+        const PackageCheck(
+          PackageFinding.component(
+            entry: 'reg.wasm',
+            found: false,
+            wasm: false,
+          ),
+          result: PackageCheckResult.failed,
+        ),
+      );
+    });
+
+    test('missing fields, a name of another form, binaries not there', () {
+      final r = checkZip(
+        zipOf({
+          'wyrm-link.json': json({
+            'name': 'bad name',
+            'kind': 'process',
+            'entries': {'linux-aarch64': 'bin/none'},
+          }),
+        }),
+      );
+      expect(
+        [for (final c in r.checks) c.finding],
+        containsAll([
+          PackageFinding.missingFields(const ['version', 'wyrm_link'].lock),
+          const PackageFinding.protocol(found: null, speak: 1, matches: false),
+          const PackageFinding.nameVersion(
+            name: 'bad name',
+            version: null,
+            ok: false,
+          ),
+          PackageFinding.entryMissing(const ['linux-aarch64'].lock),
+        ]),
+      );
+      expect(
+        checkZip(
+          zipOf({
+            'wyrm-link.json': json({
+              'name': 'x',
+              'version': '1',
+              'wyrm_link': 1,
+              'kind': 'process',
+            }),
+          }),
+        ).checks.map((c) => c.finding),
+        contains(const PackageFinding.needsEntries()),
+      );
+    });
+
+    test('what the broker alone checks', () {
+      expect(
+        checkRemote('https://example.org/x.zip').checks.map((c) => c.finding),
+        const [
+          PackageFinding.fetchedByBroker('https://example.org/x.zip'),
+          PackageFinding.checkedAfterDownload(),
+        ],
+      );
+      // a source that names no address says so by a value, not a word
+      expect(
+        checkRemote(null).checks.first.finding,
+        const PackageFinding.fetchedByBroker(null),
+      );
+      expect(
+        checkLargeBackup(80 << 20).checks.single,
+        const PackageCheck(
+          PackageFinding.notReadHere(mib: 80),
+          result: PackageCheckResult.skipped,
+        ),
+      );
     });
   });
 

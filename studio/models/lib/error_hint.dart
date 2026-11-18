@@ -33,4 +33,12 @@ enum ErrorHint {
   /// that is no profile): nothing of it was sent. The field at fault is
   /// in the error and in the log.
   fileNotRead,
+
+  /// The broker shows no SHA-256 of a backup: what arrives cannot be
+  /// checked, so nothing was downloaded.
+  backupNoDigest,
+
+  /// The file that arrived is not the backup: its SHA-256 is not the one
+  /// the broker shows (both are in the log). Nothing was saved.
+  backupDigestMismatch,
 }
