@@ -2162,6 +2162,9 @@ extension type SelectLinkInstall(AppState _state) {
 
   /// Returns refusedSaid
   String? get refusedSaid => _state.linkInstall.refusedSaid;
+
+  /// Returns refusedStatus
+  String? get refusedStatus => _state.linkInstall.refusedStatus;
 }
 
 extension type SelectPeers(AppState _state) {

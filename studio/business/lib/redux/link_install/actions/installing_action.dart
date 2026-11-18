@@ -12,6 +12,7 @@ class InstallingAction extends Action {
     step: InstallStep.result,
     phase: InstallPhase.installing,
     message: null,
+    refusedStatus: null,
     refusedField: null,
     refusedSaid: null,
   );

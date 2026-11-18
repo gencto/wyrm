@@ -151,7 +151,9 @@ fallback case.
 boundary excepted, rule 8), and `string-id`: an id written as text
 (`id: 'git'`) and a record of strings, positional (`(String, String)`) or
 with named fields (`({String key, String scope})`) — a closed set or a typed
-pair carried as text (owner, 2026-11-15). `icon-id` in `app/lib`,
+pair carried as text (owner, 2026-11-15). `record-type`: a record with named
+fields used as a type (`({String key, bool reads})`, a `typedef X = ({…})`):
+an ad-hoc model with no name; make it a class (audit of #137). `icon-id` in `app/lib`,
 `business/lib`, `ui/lib`, `models/lib`: a file name of the icon set written
 as text, a `String` field named for an icon, `Icons.…`, `IconData`, an
 `Icon(…)`, an `SvgPicture` of its own (a glyph belongs to the set; the one

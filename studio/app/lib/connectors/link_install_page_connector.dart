@@ -133,7 +133,7 @@ class _Factory extends VmFactory<AppState, LinkInstallPageConnector, _Vm>
         replaces: installReplaces,
         rights: [...?li.rights?.map((r) => r.ui)],
         result: li.phase?.ui,
-        message: li.message,
+        message: brokerSaid(li.refusedStatus, li.message),
         hold: installBlock?.ui,
         configReason: installConfigReason?.disabled,
         canPickStep: !last,

@@ -74,6 +74,18 @@ final _rules = <Rule>[
           ),
         );
   }, except: ['business/lib/wyrm/decode/']),
+  // 2, 7. a record with named fields used as a type (`({String key, bool
+  // reads})`, a `typedef X = ({…})`): an ad-hoc model with no name, no
+  // constructor and no place for its rule (audit of #137). Not a named
+  // parameter list: that one follows a name (`f({int a})`).
+  Rule(
+    'record-type',
+    ['app/lib/', 'business/lib/', 'ui/lib/'],
+    (t) => _matches(
+      _code(t),
+      RegExp(r'(?<![\w>?\]])\(\{\s*(?:[A-Za-z_][\w<>?, ]*\s+\w+\s*,?\s*)+\}\)'),
+    ),
+  ),
   // 3. connectors map, they do not compute: their size
   Rule('connector-lines', [
     'app/lib/connectors/',
@@ -467,6 +479,19 @@ int _vmEquality(String text) {
 /// ([good]): a change to a pattern that stops seeing what it is for fails
 /// here, not in review.
 const _probes = <String, ({String bad, String good})>{
+  'record-type': (
+    bad: '''
+  ({String key, bool reads})? typedChip(String text) => null;
+typedef ReadFail = ({ReadFailure what, String reason});
+  final List<({int start, int end})> spans;
+''',
+    good: '''
+  TypedChip? typedChip(String text) => null;
+  void onTick(int n, {required bool on}) {}
+  const TaskRow({required this.key, this.label = ''});
+  Future<void> open(Uri gateway, {String? user, String? device}) async {}
+''',
+  ),
   'vm-equality': (
     bad: '''
 class _Vm extends Vm {

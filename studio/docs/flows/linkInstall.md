@@ -82,7 +82,7 @@ sequenceDiagram
     User->>UI: onItem
     UI->>VM: onItem()
     VM->>A1: dispatch
-    A1->>ST: copyWith(linkInstall.item, linkInstall.mode, linkInstall.name, linkInstall.acceptRights, linkInstall.message, linkInstall.rights)
+    A1->>ST: copyWith(linkInstall.item, linkInstall.mode, linkInstall.name, linkInstall.acceptRights, linkInstall.message, linkInstall.refusedStatus, linkInstall.rights)
 ```
 
 ## onMethod
@@ -298,7 +298,7 @@ _Not drawn — these files dispatch outside any interaction:_
 | `onFrom` | `StartInstallOverAction` | — |
 | `onCategory` | `SetCategoryAction` | `linkInstall.category` |
 | `onQuery` | `SetQueryAction` | `linkInstall.query` |
-| `onItem` | `SetItemAction` | `linkInstall.item, linkInstall.mode, linkInstall.name, linkInstall.acceptRights, linkInstall.message, linkInstall.rights` |
+| `onItem` | `SetItemAction` | `linkInstall.item, linkInstall.mode, linkInstall.name, linkInstall.acceptRights, linkInstall.message, linkInstall.refusedStatus, linkInstall.rights` |
 | `onMethod` | `SetMethodAction` | `linkInstall.method, linkInstall.source, linkInstall.acceptRights, linkInstall.refusedField, linkInstall.refusedSaid` |
 | `onPickFile` | `PickLinkBackupAction`, `PickPackageFileAction` | — |
 | `onUrl` | `SetPackageUrlAction` | — |

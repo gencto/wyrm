@@ -283,3 +283,10 @@ List<CatalogCardVm> catalogCards(
         when catalogHit(item, query, [card.name, card.summary]))
       card,
 ];
+
+/// What the broker said of the install: its [message], after the [status]
+/// of its refusal when it refused; null when it said nothing.
+BrokerSaidVm? brokerSaid(String? status, String? message) =>
+    status == null && message == null
+    ? null
+    : BrokerSaidVm(status: status, message: message);

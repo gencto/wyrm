@@ -558,7 +558,7 @@ class _Center extends StatelessWidget {
       for (final r in vm.rights)
         FactVm(label: r.kind, value: r.detail, mono: true),
       if (vm.rights.isEmpty && vm.result == InstallResult.failed)
-        if (vm.message case final m?)
+        if (vm.said case final m?)
           FactVm(label: S.current.brokerSays, value: m),
     ];
     return [
@@ -736,7 +736,7 @@ class _Center extends StatelessWidget {
                 ? S.current.installedOn(vm.name ?? '', vm.broker)
                 : S.current.notInstalled,
             // A refusal with no words of the broker still says so.
-            detail: vm.message ?? (done ? null : S.current.installNoWords),
+            detail: vm.said ?? (done ? null : S.current.installNoWords),
           ),
         ),
         Gaps.md,

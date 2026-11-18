@@ -42,5 +42,6 @@ abstract class LinkInstallState with _$LinkInstallState {
     @Default(PackageMethod.zip) PackageMethod method,
     InstallField? refusedField,
     String? refusedSaid,
+    String? refusedStatus,
   }) = _LinkInstallState;
 }

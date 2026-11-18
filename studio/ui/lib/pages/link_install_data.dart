@@ -399,7 +399,10 @@ final class LinkInstallVm extends Equatable {
 
   /// The last step: where the install is, and the broker's words.
   final InstallResult? result;
-  final String? message;
+  final BrokerSaidVm? message;
+
+  /// What the broker said of the install, as it is written.
+  String? get said => message?.text;
 
   /// Why the step offers no *Continue*, and why the user may not install
   /// on the broker ([InstallHold.needsConfig]).
@@ -449,4 +452,24 @@ final class LinkInstallVm extends Equatable {
     configReason,
     canPickStep,
   ];
+}
+
+/// What a broker said of a call: its own words ([message]), after the
+/// status of its refusal by its wire name ([status]) when it refused
+/// instead of answering.
+final class BrokerSaidVm extends Equatable {
+  const BrokerSaidVm({this.status, this.message});
+
+  final String? status;
+  final String? message;
+
+  /// `timeout: the device did not answer`, the status alone, or the words.
+  String get text => switch ((status, message)) {
+    (final st?, final m?) when m.isNotEmpty => S.current.errStatusLine(st, m),
+    (final st?, _) => st,
+    (null, final m) => m ?? '',
+  };
+
+  @override
+  List<Object?> get props => [status, message];
 }

@@ -24,6 +24,7 @@ class SetItemAction extends Action {
       name: name.isEmpty ? null : name,
       acceptRights: false,
       message: null,
+      refusedStatus: null,
       rights: null,
     );
   }
