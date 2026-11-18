@@ -28,6 +28,7 @@ import 'package:wyrm_client/wyrm_client.dart';
 import 'support/block_types.dart';
 import 'support/catalog_0221.dart';
 import 'support/fake_wyrm.dart';
+import 'support/field_words.dart';
 
 // Operand constants (ADR 0038 §7, spec 06 0.2.19), the `case` block and the
 // new parameter ports (§5b, §8, spec 06 0.2.21) against the broker's own
@@ -44,7 +45,7 @@ FlowBlock block(
   Map<String, Object?> cfg = const {},
 ]) => FlowBlock(id: id, type: bt(type), cfg: cfg.lock);
 
-List<String> labels(List<FlowField> f) => [for (final x in f) x.label];
+List<String> labels(List<FlowField> f) => [for (final x in f) x.label.en];
 
 List<String> names(List<FlowField> f) => [for (final x in f) x.name];
 

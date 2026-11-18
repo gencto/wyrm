@@ -406,7 +406,6 @@ FlowDraft withBlockDefs(FlowDraft d, Map<String, BlockDef> defs) =>
 /// its outputs fields with a right port.
 NodeType customTypeOf(String name, BlockDef def) => NodeType(
   type: CustomType(name),
-  category: 'My blocks',
   description: def.description ?? '',
   inputs: [for (final p in def.inputs) p.name].lock,
   outputs: [for (final p in def.outputs) p.name].lock,

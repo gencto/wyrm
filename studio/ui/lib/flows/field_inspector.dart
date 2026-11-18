@@ -17,6 +17,7 @@ import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import 'field_drop_zone.dart';
+import 'field_word.dart';
 import 'flow_block_view.dart';
 import 'flow_intents.dart';
 import 'rows_editor.dart';
@@ -173,12 +174,30 @@ final class InspectorHeadVm extends Equatable {
   List<Object?> get props => [kind, id, boundary, note, description];
 }
 
+/// An input an output feeds: its block and what the input reads
+/// (`plc1.fan`, `show.Value`).
+final class RowTargetVm extends Equatable {
+  const RowTargetVm(this.block, this.field, {this.word});
+
+  final String block;
+
+  /// The input's label when it is data; [word] when it is Studio's word.
+  final String field;
+  final FieldWordVm? word;
+
+  String get text => '$block.${word?.text ?? field}';
+
+  @override
+  List<Object?> get props => [block, field, word];
+}
+
 /// One field of the selected block.
 final class InspectorRowVm extends Equatable {
   const InspectorRowVm({
     required this.id,
     required this.name,
     required this.editor,
+    this.word,
     this.engine = '',
     this.value = '',
     this.on = false,
@@ -246,7 +265,10 @@ final class InspectorRowVm extends Equatable {
   final bool writes;
 
   /// The inputs an output feeds (`plc1.fan`); none: not bound.
-  final List<String> targets;
+  final List<RowTargetVm> targets;
+
+  /// The row's name when it is Studio's own word; else [name] says it.
+  final FieldWordVm? word;
 
   /// The engine input a drop on this row binds; null: it takes none.
   final String? inPort;
@@ -265,7 +287,8 @@ final class InspectorRowVm extends Equatable {
   String get text => value ?? S.current.eventNone;
 
   /// What the row reads: [name], or `Form` for the Form row.
-  String get label => editor == FieldEditorVm.form ? S.current.blockForm : name;
+  String get label =>
+      editor == FieldEditorVm.form ? S.current.blockForm : (word?.text ?? name);
 
   /// The same row with its pin: on the block or not, and whether a wire
   /// holds it there.
@@ -279,6 +302,7 @@ final class InspectorRowVm extends Equatable {
       InspectorRowVm(
         id: id,
         name: name,
+        word: word,
         editor: editor,
         engine: engine,
         value: value,
@@ -306,6 +330,7 @@ final class InspectorRowVm extends Equatable {
     pinLocked,
     id,
     name,
+    word,
     engine,
     editor,
     value,
@@ -1188,7 +1213,7 @@ class _Row extends StatelessWidget {
                 Text(
                   vm.targets.isEmpty
                       ? S.current.notBound
-                      : '→ ${vm.targets.join(', ')}',
+                      : '→ ${[for (final t in vm.targets) t.text].join(', ')}',
                   maxLines: 1,
                   overflow: .ellipsis,
                   style: mono(size: FontSizes.flowDetail, color: c.text4),
@@ -1211,7 +1236,7 @@ class _Row extends StatelessWidget {
             children: [
               Button.secondary(
                 key: ValueKey('run-${vm.id}'),
-                label: command ? vm.name : S.current.runBlock,
+                label: command ? vm.label : S.current.runBlock,
                 icon: 'action_play',
                 size: ButtonSize.small,
                 disabledReason: why,

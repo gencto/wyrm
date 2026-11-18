@@ -18429,6 +18429,341 @@ class S {
     return Intl.message('Remove', name: 'changeOpRemove', desc: '', args: []);
   }
 
+  /// `Input`
+  String get fieldWordInput {
+    return Intl.message('Input', name: 'fieldWordInput', desc: '', args: []);
+  }
+
+  /// `Output`
+  String get fieldWordOutput {
+    return Intl.message('Output', name: 'fieldWordOutput', desc: '', args: []);
+  }
+
+  /// `Trigger`
+  String get fieldWordTrigger {
+    return Intl.message(
+      'Trigger',
+      name: 'fieldWordTrigger',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Input out of range`
+  String get fieldWordInputOutOfRange {
+    return Intl.message(
+      'Input out of range',
+      name: 'fieldWordInputOutOfRange',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Factor`
+  String get fieldWordFactor {
+    return Intl.message('Factor', name: 'fieldWordFactor', desc: '', args: []);
+  }
+
+  /// `Offset`
+  String get fieldWordOffset {
+    return Intl.message('Offset', name: 'fieldWordOffset', desc: '', args: []);
+  }
+
+  /// `Absolute change`
+  String get fieldWordAbsoluteChange {
+    return Intl.message(
+      'Absolute change',
+      name: 'fieldWordAbsoluteChange',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Percent change`
+  String get fieldWordPercentChange {
+    return Intl.message(
+      'Percent change',
+      name: 'fieldWordPercentChange',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Function`
+  String get fieldWordFunction {
+    return Intl.message(
+      'Function',
+      name: 'fieldWordFunction',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Operation`
+  String get fieldWordOperation {
+    return Intl.message(
+      'Operation',
+      name: 'fieldWordOperation',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Expression`
+  String get fieldWordExpression {
+    return Intl.message(
+      'Expression',
+      name: 'fieldWordExpression',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Message`
+  String get fieldWordMessage {
+    return Intl.message(
+      'Message',
+      name: 'fieldWordMessage',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Delay (ms)`
+  String get fieldWordDelayMs {
+    return Intl.message(
+      'Delay (ms)',
+      name: 'fieldWordDelayMs',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Point`
+  String get fieldWordPoint {
+    return Intl.message('Point', name: 'fieldWordPoint', desc: '', args: []);
+  }
+
+  /// `Value name`
+  String get fieldWordValueName {
+    return Intl.message(
+      'Value name',
+      name: 'fieldWordValueName',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Meta`
+  String get fieldWordMeta {
+    return Intl.message('Meta', name: 'fieldWordMeta', desc: '', args: []);
+  }
+
+  /// `Allow bad quality`
+  String get fieldWordAllowBadQuality {
+    return Intl.message(
+      'Allow bad quality',
+      name: 'fieldWordAllowBadQuality',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `On bad quality`
+  String get fieldWordOnBadQuality {
+    return Intl.message(
+      'On bad quality',
+      name: 'fieldWordOnBadQuality',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Max samples`
+  String get fieldWordMaxSamples {
+    return Intl.message(
+      'Max samples',
+      name: 'fieldWordMaxSamples',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Memory (MB)`
+  String get fieldWordMemoryMb {
+    return Intl.message(
+      'Memory (MB)',
+      name: 'fieldWordMemoryMb',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Every`
+  String get fieldWordEvery {
+    return Intl.message('Every', name: 'fieldWordEvery', desc: '', args: []);
+  }
+
+  /// `Auto run`
+  String get fieldWordAutoRun {
+    return Intl.message(
+      'Auto run',
+      name: 'fieldWordAutoRun',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Run on start`
+  String get fieldWordRunOnStart {
+    return Intl.message(
+      'Run on start',
+      name: 'fieldWordRunOnStart',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Scope`
+  String get fieldWordScope {
+    return Intl.message('Scope', name: 'fieldWordScope', desc: '', args: []);
+  }
+
+  /// `Reset mode`
+  String get fieldWordResetMode {
+    return Intl.message(
+      'Reset mode',
+      name: 'fieldWordResetMode',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Node`
+  String get fieldWordNode {
+    return Intl.message('Node', name: 'fieldWordNode', desc: '', args: []);
+  }
+
+  /// `Write on`
+  String get fieldWordWriteOn {
+    return Intl.message(
+      'Write on',
+      name: 'fieldWordWriteOn',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Run on`
+  String get fieldWordRunOn {
+    return Intl.message('Run on', name: 'fieldWordRunOn', desc: '', args: []);
+  }
+
+  /// `Interval (s)`
+  String get fieldWordIntervalS {
+    return Intl.message(
+      'Interval (s)',
+      name: 'fieldWordIntervalS',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Period (ms)`
+  String get fieldWordPeriodMs {
+    return Intl.message(
+      'Period (ms)',
+      name: 'fieldWordPeriodMs',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Quiet time (ms)`
+  String get fieldWordQuietTimeMs {
+    return Intl.message(
+      'Quiet time (ms)',
+      name: 'fieldWordQuietTimeMs',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Delimiter`
+  String get fieldWordDelimiter {
+    return Intl.message(
+      'Delimiter',
+      name: 'fieldWordDelimiter',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Alive`
+  String get fieldWordAlive {
+    return Intl.message('Alive', name: 'fieldWordAlive', desc: '', args: []);
+  }
+
+  /// `Result`
+  String get fieldWordResult {
+    return Intl.message('Result', name: 'fieldWordResult', desc: '', args: []);
+  }
+
+  /// `Average`
+  String get fieldWordAverage {
+    return Intl.message(
+      'Average',
+      name: 'fieldWordAverage',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Active`
+  String get fieldWordActive {
+    return Intl.message('Active', name: 'fieldWordActive', desc: '', args: []);
+  }
+
+  /// `Count`
+  String get fieldWordCount {
+    return Intl.message('Count', name: 'fieldWordCount', desc: '', args: []);
+  }
+
+  /// `Value`
+  String get fieldWordValue {
+    return Intl.message('Value', name: 'fieldWordValue', desc: '', args: []);
+  }
+
+  /// `Run when`
+  String get fieldWordRunWhen {
+    return Intl.message(
+      'Run when',
+      name: 'fieldWordRunWhen',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Case`
+  String get fieldWordCaseOf {
+    return Intl.message('Case', name: 'fieldWordCaseOf', desc: '', args: []);
+  }
+
+  /// `Then`
+  String get fieldWordThen {
+    return Intl.message('Then', name: 'fieldWordThen', desc: '', args: []);
+  }
+
+  /// `{word} {n}`
+  String fieldNumbered(String word, int n) {
+    return Intl.message(
+      '$word $n',
+      name: 'fieldNumbered',
+      desc: '',
+      args: [word, n],
+    );
+  }
+
   /// `k × in + b`
   String get formLinear {
     return Intl.message('k × in + b', name: 'formLinear', desc: '', args: []);

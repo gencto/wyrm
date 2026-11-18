@@ -9,6 +9,7 @@ import '../theme/radii.dart';
 import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
+import 'field_word.dart';
 import 'shortcut_card.dart';
 
 /// One command of a [FlowMenu].
@@ -38,11 +39,17 @@ final class FlowPinVm extends Equatable {
   const FlowPinVm({
     required this.label,
     required this.pinned,
+    this.word,
     this.locked = false,
     this.onPin,
   });
 
+  /// The field's label when it is data; [word] when it is Studio's word.
   final String label;
+  final FieldWordVm? word;
+
+  /// What the item reads, in the language on screen.
+  String get reads => word?.text ?? label;
 
   /// Whether it is a row of the block now.
   final bool pinned;
@@ -57,7 +64,7 @@ final class FlowPinVm extends Equatable {
   String? get lockedReason => locked ? S.current.fmBound : null;
 
   @override
-  List<Object?> get props => [label, pinned, locked, onPin != null];
+  List<Object?> get props => [label, word, pinned, locked, onPin != null];
 }
 
 /// What a [FlowMenu] shows: the block, the selection or the canvas it was
@@ -257,7 +264,7 @@ class _FlowMenuState extends State<FlowMenu> {
                 child: Text(
                   unpin == null
                       ? flowCommandLabel(i.command)
-                      : S.current.fmUnpinField(unpin.label),
+                      : S.current.fmUnpinField(unpin.reads),
                   maxLines: 1,
                   overflow: .ellipsis,
                   style: TextStyle(
@@ -336,7 +343,7 @@ class _FlowMenuState extends State<FlowMenu> {
               ),
               Expanded(
                 child: Text(
-                  f.label,
+                  f.reads,
                   maxLines: 1,
                   overflow: .ellipsis,
                   style: TextStyle(

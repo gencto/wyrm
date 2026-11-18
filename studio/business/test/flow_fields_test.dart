@@ -20,6 +20,8 @@ import 'package:business/wyrm/mappers/values.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/field_id.dart';
+import 'package:models/field_label.dart';
+import 'package:models/field_word.dart';
 import 'package:models/flow_block.dart';
 import 'package:models/flow_draft.dart';
 import 'package:models/flow_edge.dart';
@@ -33,6 +35,7 @@ import 'package:wyrm_client/wyrm_client.dart';
 
 import 'support/block_types.dart';
 import 'support/fake_wyrm.dart';
+import 'support/field_words.dart';
 
 // The catalog as `dataflows` ▸ `node_types` answers today
 // (crates/wyrm-flow/src/catalog.rs), trimmed to what the tests read.
@@ -163,7 +166,7 @@ FlowBlock block(
   Map<String, Object?> cfg = const {},
 ]) => FlowBlock(id: id, type: bt(type), cfg: cfg.lock);
 
-List<String> labels(List<FlowField> f) => [for (final x in f) x.label];
+List<String> labels(List<FlowField> f) => [for (final x in f) x.label.en];
 
 List<String> names(List<FlowField> f) => [for (final x in f) x.name];
 
@@ -243,7 +246,7 @@ void main() {
       expect(param.outPort, isNull, reason: 'the input took the name');
       expect(input.outPort, 'reset', reason: 'catalog.rs echoes: inputs first');
       expect(param.inPort, isNull, reason: 'no in.reset');
-      expect((input.label, param.label), ('Reset', 'Reset mode'));
+      expect((input.label.en, param.label.en), ('Reset', 'Reset mode'));
     });
 
     test('if: op, the variable inputs by number, then, else, out', () {
@@ -318,7 +321,7 @@ void main() {
           bt('scale'),
           'k',
           spec: const ParamSpec(name: 'k', key: BlockCfgKey.k),
-        ),
+        ).en,
         'Factor',
       );
       expect(
@@ -326,7 +329,7 @@ void main() {
           bt('subscribe'),
           'key',
           spec: const ParamSpec(name: 'key', key: BlockCfgKey.key),
-        ),
+        ).en,
         'Point',
       );
       expect(
@@ -334,7 +337,7 @@ void main() {
           bt('liveliness'),
           'key',
           spec: const ParamSpec(name: 'key', key: BlockCfgKey.key),
-        ),
+        ).en,
         'Node',
       );
       expect(
@@ -342,26 +345,26 @@ void main() {
           bt('scale'),
           'b',
           spec: const ParamSpec(name: 'b', key: BlockCfgKey.b),
-        ),
+        ).en,
         'Offset',
       );
-      expect(fieldLabel(bt('scale'), 'in', port: EnginePort.in_), 'Input');
-      expect(fieldLabel(bt('scale'), 'out', port: EnginePort.out), 'Output');
+      expect(fieldLabel(bt('scale'), 'in', port: EnginePort.in_).en, 'Input');
+      expect(fieldLabel(bt('scale'), 'out', port: EnginePort.out).en, 'Output');
       expect(
         fieldLabel(
           bt('latch'),
           'reset',
           spec: const ParamSpec(name: 'reset', key: BlockCfgKey.reset),
-        ),
+        ).en,
         'Reset mode',
       );
-      expect(fieldLabel(bt('stopwatch'), 'reset'), 'Reset');
+      expect(fieldLabel(bt('stopwatch'), 'reset').en, 'Reset');
       expect(
         fieldLabel(
           bt('set'),
           'on',
           spec: const ParamSpec(name: 'on', key: BlockCfgKey.on),
-        ),
+        ).en,
         'Write on',
       );
       expect(
@@ -369,14 +372,14 @@ void main() {
           bt('invoke'),
           'on',
           spec: const ParamSpec(name: 'on', key: BlockCfgKey.on),
-        ),
+        ).en,
         'Run on',
       );
-      expect(fieldLabel(bt('round'), 'in.precision'), 'Precision');
-      expect(fieldLabel(bt('add'), 'in.0', variable: true), 'Input 1');
-      expect(fieldLabel(bt('add'), 'in.1', variable: true), 'Input 2');
+      expect(fieldLabel(bt('round'), 'in.precision').en, 'Precision');
+      expect(fieldLabel(bt('add'), 'in.0', variable: true).en, 'Input 1');
+      expect(fieldLabel(bt('add'), 'in.1', variable: true).en, 'Input 2');
       expect(
-        fieldLabel(bt('expression'), 'in.temp', variable: true),
+        fieldLabel(bt('expression'), 'in.temp', variable: true).en,
         'temp',
         reason: 'a variable keeps the name the user gave it',
       );
@@ -388,7 +391,7 @@ void main() {
           bt('window'),
           'size_s',
           spec: const ParamSpec(name: 'size_s', display: 'Window'),
-        ),
+        ).en,
         'Window',
       );
     });
@@ -505,7 +508,7 @@ void main() {
       const dl = FlowField(
         id: FieldId.input('in'),
         name: 'in',
-        label: 'Input',
+        label: FieldLabel.word(FieldWord.input),
         kind: FieldKind.input,
         inPort: 'in',
       );

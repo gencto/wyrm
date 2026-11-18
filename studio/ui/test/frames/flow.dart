@@ -613,7 +613,7 @@ List<InspectorRowVm> _caseRows(int cases) => [
     engine: 'output',
     editor: FieldEditorVm.output,
     value: '100',
-    targets: ['plc1.fan'],
+    targets: [RowTargetVm('plc1', 'fan')],
   ),
 ];
 
@@ -1038,7 +1038,7 @@ FlowEditorPage flowScale({required bool range}) {
         engine: 'out',
         editor: FieldEditorVm.output,
         value: '92.6',
-        targets: ['show.Value'],
+        targets: [RowTargetVm('show', 'Value')],
       ),
       if (range)
         const InspectorRowVm(
@@ -1260,7 +1260,7 @@ FlowEditorPage flowBoundValue() => _bind(
       engine: 'out',
       editor: FieldEditorVm.output,
       value: 'Hello, tank 3',
-      targets: ['show.Value'],
+      targets: [RowTargetVm('show', 'Value')],
     ),
   ],
 );
@@ -1426,7 +1426,7 @@ FlowEditorPage flowCase() => _bind(
       engine: 'out',
       editor: FieldEditorVm.output,
       value: 'high',
-      targets: ['show.Value'],
+      targets: [RowTargetVm('show', 'Value')],
     ),
   ],
 );
@@ -1527,7 +1527,7 @@ FlowEditorPage flowOperand() => _bind(
       engine: 'out',
       editor: FieldEditorVm.output,
       value: 'AHU-2',
-      targets: ['show.Value'],
+      targets: [RowTargetVm('show', 'Value')],
     ),
   ],
 );
@@ -1582,7 +1582,7 @@ FlowEditorPage flowLongOutput({ValueViewerVm? viewer}) => _bind(
       engine: 'out',
       editor: FieldEditorVm.output,
       value: _long,
-      targets: ['show.Value'],
+      targets: [RowTargetVm('show', 'Value')],
     ),
   ],
 );
@@ -1905,7 +1905,7 @@ FlowEditorPage flowKeyScope({bool asking = false}) => _wave2(
       engine: 'out',
       editor: FieldEditorVm.output,
       value: '41.5 %',
-      targets: ['publish.Value'],
+      targets: [RowTargetVm('publish', 'Value')],
       pinned: true,
       pinLocked: true,
     ),
@@ -2129,7 +2129,7 @@ FlowEditorPage flowActionBlock({
       engine: 'error',
       editor: FieldEditorVm.output,
       value: '13:58:02 · busy: queue full',
-      targets: ['publish.Value'],
+      targets: [RowTargetVm('publish', 'Value')],
       group: .events,
       pinned: true,
       pinLocked: true,
@@ -2445,7 +2445,7 @@ FlowEditorPage flowCustomInstance() => _wave2(
       name: 'out',
       editor: FieldEditorVm.output,
       value: '42.5',
-      targets: ['publish.Value'],
+      targets: [RowTargetVm('publish', 'Value')],
       pinned: true,
       pinLocked: true,
     ),

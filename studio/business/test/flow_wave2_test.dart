@@ -64,6 +64,7 @@ import 'support/block_types.dart';
 import 'support/catalog_0221.dart';
 import 'support/catalog_0226.dart';
 import 'support/fake_wyrm.dart';
+import 'support/field_words.dart';
 
 // Wave 2 of the flow editor (flow-editor.md §17–§20, ADR 0040, owner
 // requirements 2026-11-09): a key bound inside a scope, the tree's points
@@ -256,7 +257,7 @@ void main() {
         d.blocks['level']!,
       ).firstWhere((f) => f.id.key == 'p:key');
       expect(key.inPort, 'in.key');
-      expect(key.label, 'Point');
+      expect(key.label.en, 'Point');
       expect(
         bindRefusal(
           byType(types),
@@ -289,7 +290,7 @@ void main() {
         d.blocks['level']!,
         edges: d.edges,
       ).firstWhere((f) => f.id.key == 'p:key_scope');
-      expect(scope.label, 'Scope');
+      expect(scope.label.en, 'Scope');
       expect(scope.inPort, isNull);
       expect(scope.outPort, isNull, reason: 'read on the block, feeds nothing');
     });
@@ -467,7 +468,8 @@ void main() {
           'state:last_run',
         ],
       );
-      String label(String id) => fields.firstWhere((f) => f.id.key == id).label;
+      String label(String id) =>
+          fields.firstWhere((f) => f.id.key == id).label.en;
       expect(label('in:trigger'), 'Trigger');
       expect(label('p:interval_ms'), 'Every');
       expect(label('p:auto_run'), 'Auto run');
@@ -530,7 +532,7 @@ void main() {
         types['list_children'],
         list,
       ).firstWhere((f) => f.id.key == 'p:path');
-      expect(path.label, 'Node');
+      expect(path.label.en, 'Node');
       expect(
         scopedKeyOf(types['list_children']),
         const ScopedKey(key: 'path', scope: 'path_scope', port: 'in.path'),
@@ -583,14 +585,14 @@ void main() {
       String out(String type, String port) => fieldsOf(
         types[type],
         FlowBlock(id: 'x', type: bt(type)),
-      ).firstWhere((f) => f.id.key == 'out:$port').label;
+      ).firstWhere((f) => f.id.key == 'out:$port').label.en;
       expect(out('rising_edge', 'on_edge'), 'On edge');
       expect(out('stats', 'avg'), 'Average');
       expect(
         fieldsOf(
           types['debounce'],
           FlowBlock(id: 'x', type: bt('debounce')),
-        ).firstWhere((f) => f.id.key == 'p:ms').label,
+        ).firstWhere((f) => f.id.key == 'p:ms').label.en,
         'Quiet time (ms)',
       );
       // Named inputs keep the names the user gave them.
@@ -600,7 +602,7 @@ void main() {
             types['make_object'],
             FlowBlock(id: 'x', type: bt('make_object')),
           ))
-            f.label,
+            f.label.en,
         ],
         ['a', 'b', 'Output'],
       );
@@ -669,7 +671,7 @@ void main() {
       final t = customTypeOf('mean2', blockDefsOf(next)['mean2']!);
       final first = fieldsOf(t, next.blocks[id]!).first;
       expect(
-        (first.label, first.inPort, first.outPort, first.operand),
+        (first.label.en, first.inPort, first.outPort, first.operand),
         (
           'first',
           'first',

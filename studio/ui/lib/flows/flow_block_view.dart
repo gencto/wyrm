@@ -12,6 +12,7 @@ import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import 'block_palette.dart';
+import 'field_word.dart';
 import 'flow_intents.dart';
 
 /// What a block is (spec §3 header chip): a point of the tree, logic, a
@@ -111,6 +112,7 @@ final class FieldRowVm extends Equatable {
   const FieldRowVm({
     required this.id,
     required this.label,
+    this.word,
     this.name = '',
     this.value = '',
     this.tone = ValueTone.plain,
@@ -140,8 +142,15 @@ final class FieldRowVm extends Equatable {
   /// app's typed field id written out); never read back.
   final String id;
 
-  /// What the row reads: `Input min`, `Input 1`, a point's name; no colon.
+  /// The row's label when it is data: the engine's name made readable
+  /// (`Input min`), a point's name; no colon. Empty when [word] says it.
   final String label;
+
+  /// The row's label when it is Studio's own word (`Input 1`, `Output`).
+  final FieldWordVm? word;
+
+  /// What the row reads, in the language on screen.
+  String get reads => word?.text ?? label;
 
   /// What the engine calls it (`input_min`, `in.0`): the row's tooltip.
   final String name;
@@ -175,6 +184,7 @@ final class FieldRowVm extends Equatable {
   List<Object?> get props => [
     id,
     label,
+    word,
     name,
     value,
     tone,
@@ -705,7 +715,7 @@ class _FieldRow extends StatelessWidget {
                           ),
                           Flexible(
                             child: Text(
-                              vm.label,
+                              vm.reads,
                               maxLines: 1,
                               overflow: .ellipsis,
                               style: TextStyle(
@@ -723,7 +733,7 @@ class _FieldRow extends StatelessWidget {
                         maxWidth: AppSizes.flowRowLabelMaxWidth,
                       ),
                       child: Text(
-                        vm.label,
+                        vm.reads,
                         maxLines: 1,
                         overflow: .ellipsis,
                         style: TextStyle(
@@ -798,7 +808,7 @@ class _FieldRow extends StatelessWidget {
             : row(RowLight.none, point: true),
       );
     }
-    final tip = vm.name.isEmpty || vm.name == vm.label ? '' : vm.name;
+    final tip = vm.name.isEmpty || vm.name == vm.reads ? '' : vm.name;
     return MouseRegion(
       cursor:
           vm.outPort != null ||

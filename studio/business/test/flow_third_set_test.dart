@@ -27,6 +27,7 @@ import 'support/block_types.dart';
 import 'support/catalog_0226.dart';
 import 'support/catalog_0229.dart';
 import 'support/fake_wyrm.dart';
+import 'support/field_words.dart';
 
 // The flow editor and the third set of blocks (ADR 0044, spec 06 0.2.29,
 // docs/flow-blocks.md "How the editor shows each block"), on the catalog a
@@ -42,7 +43,7 @@ FlowBlock block(String type, [Map<String, Object?> cfg = const {}]) =>
 
 /// The labels of the rows a new block of [type] draws, in order.
 List<String> rows(String type, [Map<String, Object?> cfg = const {}]) => [
-  for (final f in rowsOf(types[type], block(type, cfg))) f.label,
+  for (final f in rowsOf(types[type], block(type, cfg))) f.label.en,
 ];
 
 FlowField field(
@@ -63,7 +64,7 @@ void main() {
       types['atan']!.params.firstWhere((p) => p.name == 'x').display,
       'X',
     );
-    expect(field('atan', 'p:x').label, 'X');
+    expect(field('atan', 'p:x').label.en, 'X');
   });
 
   test('the palette lists the new sections in order, a new one last', () {
@@ -541,7 +542,7 @@ void main() {
     expect(old['router'], isNull);
     expect(old['load_value']!.params.first.display, isNull);
     expect(
-      fieldsOf(old['load_value'], block('load_value')).first.label,
+      fieldsOf(old['load_value'], block('load_value')).first.label.en,
       'Point',
     );
   });
