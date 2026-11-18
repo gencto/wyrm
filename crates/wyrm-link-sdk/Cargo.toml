@@ -45,6 +45,16 @@ nix = { workspace = true, features = ["resource", "process"] }
 [dev-dependencies]
 wyrm-link-sdk = { path = ".", features = ["harness", "advanced", "process"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
+# benches/verify.rs, benches/tree.rs: the counting allocator and the PERF lines
+wyrm-bench.workspace = true
+
+[[bench]]
+name = "verify"
+harness = false
+
+[[bench]]
+name = "tree"
+harness = false
 
 [lints]
 workspace = true

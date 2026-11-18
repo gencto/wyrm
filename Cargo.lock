@@ -7299,6 +7299,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "wyrm-bench",
  "wyrm-core",
  "wyrm-link-sdk",
  "wyrm-link-sdk-derive",
