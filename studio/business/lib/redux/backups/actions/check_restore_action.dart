@@ -2,9 +2,11 @@ import 'package:async_redux/async_redux.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/backup_section.dart';
 
+import '../../../wyrm/backup_plan.dart';
 import '../../../wyrm/calls.dart';
 import '../../../wyrm/decode/restore.dart';
 import '../../../wyrm/decode/unreadable.dart';
+import '../../../wyrm/failures.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 
@@ -14,6 +16,10 @@ import '../../common/action.dart';
 /// (which change the site's identity: the user ticks them on purpose). An
 /// answer this client cannot read is refused: no check is shown, so
 /// nothing can be restored on it.
+///
+/// Whether the check may start is decided here from the file step
+/// (`restoreFilePlan`), whoever dispatched this: with no file on the
+/// broker, or one still going up, it is refused before anything is sent.
 class CheckRestoreAction extends Action with NonReentrant, WaitingAction {
   CheckRestoreAction({this.passphrase});
 
@@ -21,11 +27,11 @@ class CheckRestoreAction extends Action with NonReentrant, WaitingAction {
 
   @override
   Future<AppState?> reduce() async {
-    final upload = backups.upload;
-    if (upload == null) {
-      return null;
-    }
     final key = '${site.root}/sys/backups';
+    final upload = backups.upload;
+    if (upload == null || restoreFilePlan.step != RestoreFileStep.check) {
+      throw stepBlockedOf(key, 'restore_check');
+    }
     final answer = await askOne(
       deps.wyrm,
       key,

@@ -297,6 +297,56 @@ BackupJobStep backupJobStepOf(BackupsState b, BackupJob job) {
   return BackupJobStep.show;
 }
 
+/// Where the restore dialog is with its file: what its main button does.
+enum RestoreFileStep {
+  /// No file: the button picks one and sends it.
+  choose,
+
+  /// The file goes to the broker.
+  uploading,
+
+  /// The broker has the file: the button asks it to check the file.
+  check,
+
+  /// The file is checked: the button restores ([RestorePlan]).
+  restore,
+}
+
+/// Why the button of the file step may not be pressed.
+enum RestoreFileBlock {
+  /// The file is still going to the broker.
+  uploading,
+}
+
+/// The file step of the restore dialog, and whether its button may be
+/// pressed.
+final class RestoreFilePlan {
+  const RestoreFilePlan(this.step);
+
+  final RestoreFileStep step;
+
+  /// Why the button may not be pressed, or null.
+  RestoreFileBlock? get blocked => switch (step) {
+    RestoreFileStep.uploading => RestoreFileBlock.uploading,
+    RestoreFileStep.choose ||
+    RestoreFileStep.check ||
+    RestoreFileStep.restore => null,
+  };
+
+  bool get canRun => blocked == null;
+}
+
+/// The file step of the restore form of [b].
+RestoreFilePlan restoreFilePlanOf(BackupsState b) => RestoreFilePlan(
+  b.uploadName == null
+      ? RestoreFileStep.choose
+      : (b.upload == null
+            ? RestoreFileStep.uploading
+            : (b.check == null
+                  ? RestoreFileStep.check
+                  : RestoreFileStep.restore)),
+);
+
 /// What *Restore* sends, for the form as it is now, and whether it may
 /// start.
 final class RestorePlan {

@@ -18350,6 +18350,16 @@ class S {
   String get bakReadAgain {
     return Intl.message('Read again', name: 'bakReadAgain', desc: '', args: []);
   }
+
+  /// `The file is still going to the broker`
+  String get rstStillUploading {
+    return Intl.message(
+      'The file is still going to the broker',
+      name: 'rstStillUploading',
+      desc: '',
+      args: [],
+    );
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<S> {

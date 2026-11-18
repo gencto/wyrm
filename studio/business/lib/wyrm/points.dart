@@ -1,4 +1,5 @@
 import 'package:models/node_info.dart';
+import 'package:wyrm_client/wyrm_client.dart';
 
 /// The values the driver framework publishes on every connection and device
 /// (ADR 0004): they describe the node, they are not its points
@@ -41,12 +42,29 @@ String pollText(Object? seconds) {
   return s == s.roundToDouble() ? '${s.round()} s' : '$s s';
 }
 
+/// A parameter of a point's `edit` that Studio shows in its own way; a
+/// driver's other parameters are shown as they are named and written.
+enum StagedParam implements WireName {
+  poll(pollParam);
+
+  const StagedParam(this.wire);
+
+  @override
+  final String wire;
+
+  static StagedParam? fromWire(String wire) =>
+      values.where((p) => p.wire == wire).firstOrNull;
+}
+
 /// The name a staged edit shows for an `edit` parameter.
-String editFieldName(String param) => param == pollParam ? 'poll' : param;
+String editFieldName(String param) => switch (StagedParam.fromWire(param)) {
+  StagedParam.poll => StagedParam.poll.name,
+  null => param,
+};
 
 /// The value a staged edit shows for an `edit` parameter.
-String editFieldText(String param, Object? value) => switch (param) {
-  pollParam => pollText(value),
-  _ when value == null || value == '' => '—',
-  _ => '$value',
-};
+String editFieldText(String param, Object? value) =>
+    switch (StagedParam.fromWire(param)) {
+      StagedParam.poll => pollText(value),
+      null => value == null || value == '' ? '—' : '$value',
+    };

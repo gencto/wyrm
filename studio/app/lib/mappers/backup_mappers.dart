@@ -247,6 +247,21 @@ extension SendBlockUi on SendBlock {
   };
 }
 
+extension RestoreFileStepUi on RestoreFileStep {
+  RestoreFileView get ui => switch (this) {
+    RestoreFileStep.choose => RestoreFileView.choose,
+    RestoreFileStep.uploading => RestoreFileView.uploading,
+    RestoreFileStep.check => RestoreFileView.check,
+    RestoreFileStep.restore => RestoreFileView.restore,
+  };
+}
+
+extension RestoreFileBlockUi on RestoreFileBlock {
+  RestoreFileStop get ui => switch (this) {
+    RestoreFileBlock.uploading => RestoreFileStop.uploading,
+  };
+}
+
 extension RestoreBlockUi on RestoreBlock {
   RestoreStop get ui => switch (this) {
     RestoreBlock.notChecked => RestoreStop.notChecked,
@@ -358,6 +373,7 @@ RestoreData restoreDataOf({
   required String site,
   required BackupsState b,
   required RestorePlan plan,
+  required RestoreFilePlan file,
   required RestoreView view,
   bool uploading = false,
   bool busy = false,
@@ -368,7 +384,8 @@ RestoreData restoreDataOf({
   size: b.uploadSize,
   uploaded: b.uploaded,
   uploading: uploading,
-  hasUpload: b.upload != null,
+  file: file.step.ui,
+  fileStop: file.blocked?.ui,
   check: b.check?.data,
   chosen: {for (final s in b.chosen) s.part},
   mode: b.mode.how,

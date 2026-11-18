@@ -2304,5 +2304,6 @@
     "rstNotChecked": "Upload and check the file first",
     "bakReadFailed": "The backups of this broker could not be read, so none is offered here. The error is in Problems.",
     "bakNotReadYet": "The backups of this broker are not read yet.",
-    "bakReadAgain": "Read again"
+    "bakReadAgain": "Read again",
+    "rstStillUploading": "The file is still going to the broker"
 }

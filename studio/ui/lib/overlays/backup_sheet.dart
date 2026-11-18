@@ -425,18 +425,18 @@ TaskSheetVm restoreSheet(
       sub: d.fileName == null
           ? l.rstPick
           : '${d.fileName} · ${Formats.bytes(d.size)}',
-      blocks: [
-        if (d.fileName == null)
-          SheetText(l.rstPickNote)
-        else if (!d.hasUpload)
+      blocks: switch (d.file) {
+        RestoreFileView.choose => [SheetText(l.rstPickNote)],
+        RestoreFileView.uploading => [
           SheetBar(
             percent: percent,
             text: l.rstUploading(
               Formats.bytes(d.uploaded),
               Formats.bytes(d.size),
             ),
-          )
-        else ...[
+          ),
+        ],
+        RestoreFileView.check || RestoreFileView.restore => [
           SheetCard(title: l.rstUploaded, detail: l.rstUploadedNote),
           SheetField(
             slot: SheetSlot.backupPassphrase,
@@ -446,14 +446,16 @@ TaskSheetVm restoreSheet(
             onChanged: onPassphrase,
           ),
         ],
-      ],
+      },
       note: d.reason?.text ?? l.bakNeedsConfig,
       secondary: l.cancel,
-      primary: d.fileName == null
-          ? l.rstChoose
-          : (d.hasUpload ? l.rstCheck : l.rstUploadingButton),
-      primaryEnabled: d.reason == null && (d.fileName == null || d.hasUpload),
-      primaryReason: d.reason?.text,
+      primary: switch (d.file) {
+        RestoreFileView.choose => l.rstChoose,
+        RestoreFileView.uploading => l.rstUploadingButton,
+        RestoreFileView.check || RestoreFileView.restore => l.rstCheck,
+      },
+      primaryEnabled: d.reason == null && d.fileStop == null,
+      primaryReason: d.reason?.text ?? d.fileStop?.label,
       busy: d.busy || d.uploading,
     );
   }

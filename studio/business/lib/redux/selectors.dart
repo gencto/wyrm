@@ -1377,6 +1377,9 @@ extension SelectBrokerHealth on Selectors {
         passphraseLength: passphraseLength,
       );
 
+  /// The file step of the restore dialog ([restoreFilePlanOf]).
+  RestoreFilePlan get restoreFilePlan => restoreFilePlanOf(state.backups);
+
   /// What *Restore* sends for the form as it is ([restorePlanOf]).
   RestorePlan restorePlan({required int passphraseLength}) => restorePlanOf(
     state.backups,

@@ -3476,6 +3476,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "rstSchemas": MessageLookupByLibrary.simpleMessage(
       "Store formats differ (backup → here)",
     ),
+    "rstStillUploading": MessageLookupByLibrary.simpleMessage(
+      "The file is still going to the broker",
+    ),
     "rstTick": MessageLookupByLibrary.simpleMessage("tick what to bring back"),
     "rstTitle": m308,
     "rstUnknown": MessageLookupByLibrary.simpleMessage("The broker is back"),

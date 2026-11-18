@@ -167,6 +167,7 @@ class _BackupDialogState extends State<_BackupDialog> {
       site: s.site.viewed ?? '',
       b: state.backups,
       plan: _restorePlan(state),
+      file: s.restoreFilePlan,
       view: view,
       uploading: state.wait.isWaitingForType<UploadRestoreAction>(),
       busy:
@@ -298,16 +299,19 @@ class _BackupDialogState extends State<_BackupDialog> {
             return null;
         }
       case BackupStage.restore:
-        final b = state.backups;
-        if (b.uploadName == null) {
-          return _store.dispatch(UploadRestoreFileAction());
-        }
-        if (b.check == null) {
-          return _store.dispatch(CheckRestoreAction(passphrase: _passphrase));
-        }
-        // What goes, and whether it may, is decided by the action from
-        // its plan (`restorePlanOf`).
-        return _store.dispatch(RestoreAction(passphrase: _passphrase));
+        // Which step the button is at is decided in `business`
+        // (`restoreFilePlanOf`); what goes, and whether it may, by each
+        // action from its plan.
+        return switch (_Sel(state).restoreFilePlan.step) {
+          RestoreFileStep.choose => _store.dispatch(UploadRestoreFileAction()),
+          RestoreFileStep.uploading => null,
+          RestoreFileStep.check => _store.dispatch(
+            CheckRestoreAction(passphrase: _passphrase),
+          ),
+          RestoreFileStep.restore => _store.dispatch(
+            RestoreAction(passphrase: _passphrase),
+          ),
+        };
       case BackupStage.lost:
         // The session is no longer the site's: log in again.
         _close();

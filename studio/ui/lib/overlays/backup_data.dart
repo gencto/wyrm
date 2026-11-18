@@ -50,6 +50,18 @@ enum BackupStop {
   };
 }
 
+/// Where the restore dialog is with its file.
+enum RestoreFileView { choose, uploading, check, restore }
+
+/// Why the button of the file step may not be pressed, as it is said.
+enum RestoreFileStop {
+  uploading;
+
+  String get label => switch (this) {
+    uploading => S.current.rstStillUploading,
+  };
+}
+
 /// Why a restore may not start now, as it is said.
 enum RestoreStop {
   notChecked,
@@ -647,7 +659,8 @@ final class RestoreData extends Equatable {
     this.size = 0,
     this.uploaded = 0,
     this.uploading = false,
-    this.hasUpload = false,
+    this.file = RestoreFileView.choose,
+    this.fileStop,
     this.check,
     this.chosen = const {},
     this.mode = RestoreHow.add,
@@ -671,7 +684,11 @@ final class RestoreData extends Equatable {
   final int size;
   final int uploaded;
   final bool uploading;
-  final bool hasUpload;
+
+  /// Where the dialog is with its file, and why its button may not be
+  /// pressed there (or null).
+  final RestoreFileView file;
+  final RestoreFileStop? fileStop;
   final RestoreCheckData? check;
   final Set<BackupPart> chosen;
   final RestoreHow mode;
@@ -713,7 +730,8 @@ final class RestoreData extends Equatable {
     size,
     uploaded,
     uploading,
-    hasUpload,
+    file,
+    fileStop,
     check,
     chosen,
     mode,

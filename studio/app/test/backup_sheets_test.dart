@@ -227,6 +227,7 @@ RestoreData _restore({
       viaUpstream: viaUpstream,
       passphraseLength: passphrase,
     ),
+    file: restoreFilePlanOf(b),
     view: RestoreView.form,
   );
 }
@@ -474,10 +475,42 @@ void main() {
         size: 200,
         uploaded: 50,
         uploading: true,
+        file: RestoreFileView.uploading,
+        fileStop: RestoreFileStop.uploading,
       );
       final vm = restoreSheet(uploading);
       expect(vm.blocks.whereType<SheetBar>().single.percent, 25);
       expect(vm.primaryEnabled, isFalse);
+      // the reason is the plan's, named here
+      expect(vm.primaryReason, 'The file is still going to the broker');
+
+      // as the app builds it: the step and its lock come from `business`
+      RestoreData at(BackupsState b) => restoreDataOf(
+        site: 'plant',
+        b: b,
+        plan: restorePlanOf(b, viaUpstream: false, passphraseLength: 0),
+        file: restoreFilePlanOf(b),
+        view: RestoreView.form,
+      );
+      final none = restoreSheet(at(const BackupsState()));
+      expect((none.primary, none.primaryEnabled), ('Choose the file…', true));
+      final going = at(
+        const BackupsState(uploadName: 'p.wyrm-backup', uploadSize: 200),
+      );
+      expect(
+        (going.file, going.fileStop),
+        (
+          RestoreFileView.uploading,
+          RestoreFileStop.uploading,
+        ),
+      );
+      expect(restoreSheet(going).primaryEnabled, isFalse);
+      for (final b in RestoreFileStep.values) {
+        expect(b.ui.name, b.name);
+      }
+      for (final b in RestoreFileBlock.values) {
+        expect(b.ui.name, b.name);
+      }
 
       expect(restoreSheet(_restore()).primary, 'Check the file');
     });

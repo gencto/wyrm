@@ -3527,6 +3527,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "rstSchemas": MessageLookupByLibrary.simpleMessage(
       "Формати сховищ відрізняються (копія → тут)",
     ),
+    "rstStillUploading": MessageLookupByLibrary.simpleMessage(
+      "Файл ще надсилається на брокер",
+    ),
     "rstTick": MessageLookupByLibrary.simpleMessage("позначте, що повернути"),
     "rstTitle": m308,
     "rstUnknown": MessageLookupByLibrary.simpleMessage("Брокер повернувся"),

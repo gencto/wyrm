@@ -1,13 +1,16 @@
 import 'package:async_redux/async_redux.dart';
 import 'package:models/backup_stage.dart';
 
+import '../../../wyrm/backup_plan.dart';
+import '../../../wyrm/failures.dart';
 import '../../../wyrm/transfer.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 
 /// Sends the `.wyrm-backup` the user picked to the broker in parts
 /// (`sys/backups` ▸ `restore_begin`, `restore_part`); `backups.uploaded`
-/// follows. Closing the dialog stops it and drops the upload.
+/// follows. Closing the dialog stops it and drops the upload. With a file
+/// already there (`restoreFilePlan`) it is refused: nothing is sent.
 class UploadRestoreAction extends Action with NonReentrant, WaitingAction {
   UploadRestoreAction({
     required this.name,
@@ -21,6 +24,9 @@ class UploadRestoreAction extends Action with NonReentrant, WaitingAction {
 
   @override
   Future<AppState?> reduce() async {
+    if (restoreFilePlan.step != RestoreFileStep.choose) {
+      throw stepBlockedOf('${site.root}/sys/backups', 'restore_begin');
+    }
     dispatchSync(_Progress(name, size, 0));
     final String upload;
     try {

@@ -27,6 +27,7 @@ import '../theme/radii.dart';
 import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
+import 'system_data.dart';
 
 /// A labelled group of tiles on the Overview.
 final class TileGroupVm extends Equatable {
@@ -362,10 +363,6 @@ class SystemPage extends StatelessWidget {
   });
 
   /// The tab ids, in the order of the bar.
-  static const overviewTab = 'overview';
-  static const availabilityTab = 'availability';
-  static const logTab = 'log';
-  static const maintenanceTab = 'maintenance';
 
   final String title;
   final StatusPillVm? pill;
@@ -374,8 +371,8 @@ class SystemPage extends StatelessWidget {
   final String meta;
   final List<PillTabVm> tabs;
   final String? tabsLabel;
-  final String tab;
-  final ValueChanged<String> onTab;
+  final SysTab tab;
+  final ValueChanged<SysTab> onTab;
 
   /// The broker does not answer: the values are the last known, greyed.
   final bool stale;
@@ -432,10 +429,10 @@ class SystemPage extends StatelessWidget {
     builder: (context, box) {
       final wide = box.maxWidth >= 1100;
       final body = switch (tab) {
-        availabilityTab => _availability(context),
-        logTab => _log(context),
-        maintenanceTab => _maintenance(context),
-        _ => _overview(context),
+        SysTab.overview => _overview(context),
+        SysTab.availability => _availability(context),
+        SysTab.log => _log(context),
+        SysTab.maintenance => _maintenance(context),
       };
       final main = Padding(
         padding: Insets.systemColumn,
@@ -533,8 +530,12 @@ class SystemPage extends StatelessWidget {
         ),
         PillTabs(
           tabs: tabs,
-          selected: tab,
-          onSelect: onTab,
+          selected: tab.name,
+          onSelect: (id) {
+            if (SysTab.values.asNameMap()[id] case final t?) {
+              onTab(t);
+            }
+          },
           label: tabsLabel,
         ),
       ],

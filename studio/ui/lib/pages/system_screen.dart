@@ -141,17 +141,13 @@ class SystemScreen extends StatelessWidget {
     tabs: [
       for (final t in SysTab.values)
         PillTabVm(
-          id: _tabId(t),
+          id: t.name,
           label: t.label,
           dot: t == SysTab.availability ? vm.standby?.dot : null,
         ),
     ],
-    tab: _tabId(vm.tab),
-    onTab: (id) {
-      if (_tabOf[id] case final t?) {
-        onTab(t);
-      }
-    },
+    tab: vm.tab,
+    onTab: onTab,
     overview: _overview(),
     availability: _availability(),
     log: _log(),
@@ -210,19 +206,6 @@ class SystemScreen extends StatelessWidget {
       }
     },
   );
-
-  /// The [SysTab] of a tab id of [SystemPage].
-  static final Map<String, SysTab> _tabOf = {
-    for (final t in SysTab.values) _tabId(t): t,
-  };
-
-  /// The tab ids of [SystemPage], one per [SysTab].
-  static String _tabId(SysTab t) => switch (t) {
-    SysTab.overview => SystemPage.overviewTab,
-    SysTab.availability => SystemPage.availabilityTab,
-    SysTab.log => SystemPage.logTab,
-    SysTab.maintenance => SystemPage.maintenanceTab,
-  };
 
   // ---- words ---------------------------------------------------------------
 

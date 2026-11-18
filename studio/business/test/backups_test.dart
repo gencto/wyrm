@@ -43,6 +43,7 @@ import 'package:business/redux/site/actions/reload_shown_action.dart';
 import 'package:business/redux/site/actions/set_connected_action.dart';
 import 'package:business/redux/site/actions/view_site_action.dart';
 import 'package:business/redux/updates/actions/open_update_action.dart';
+import 'package:business/wyrm/backup_plan.dart';
 import 'package:business/wyrm/decode/backup_job.dart';
 import 'package:business/wyrm/failures.dart';
 import 'package:business/wyrm/package_check.dart';
@@ -1296,6 +1297,77 @@ void main() {
         expect(s.state.backups.stage, BackupStage.restore);
         expect(s.state.backups.applySent, isFalse);
       }
+
+      test('the file step: no check without a file on the broker, no '
+          'second file over one (leftover b of #135)', () async {
+        s.dispatchSync(OpenBackupAction(restore: true));
+        expect(restoreFilePlanOf(s.state.backups).step, RestoreFileStep.choose);
+        // no file at all: a check dispatched directly is refused
+        var status = await s.dispatchAndWait(CheckRestoreAction());
+        expect(status.isCompletedFailed, isTrue);
+        var e = (status.originalError! as StudioException).error;
+        expect((e.hint, e.call), (ErrorHint.stepBlocked, 'restore_check'));
+        expect(invokes('restore_check'), isEmpty);
+
+        // a file still going up: the same
+        api
+          ..invokes['$_b ▸ restore_begin'] = [
+            const VMap({
+              'upload': VStr('u9'),
+              'part_size': VInt(64),
+              'max_part': VInt(16 << 20),
+            }),
+          ]
+          ..invokes['$_b ▸ restore_part'] = [const VMap({})]
+          ..delays['$_b ▸ restore_part'] = const Duration(milliseconds: 40);
+        final data = _bytes(100);
+        final up = s.dispatchAndWait(
+          UploadRestoreAction(
+            name: 'plant.wyrm-backup',
+            size: 100,
+            read: (o, n) async => data.sublist(o, o + n),
+          ),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        final going = restoreFilePlanOf(s.state.backups);
+        expect(
+          (going.step, going.blocked, going.canRun),
+          (
+            RestoreFileStep.uploading,
+            RestoreFileBlock.uploading,
+            false,
+          ),
+        );
+        status = await s.dispatchAndWait(CheckRestoreAction());
+        expect(status.isCompletedFailed, isTrue);
+        expect(invokes('restore_check'), isEmpty);
+        await up;
+
+        // the broker has it: the step is the check, and a second file is
+        // refused before anything is sent
+        final has = restoreFilePlanOf(s.state.backups);
+        expect((has.step, has.canRun), (RestoreFileStep.check, true));
+        final begun = invokes('restore_begin').length;
+        status = await s.dispatchAndWait(
+          UploadRestoreAction(
+            name: 'other.wyrm-backup',
+            size: 100,
+            read: (o, n) async => data.sublist(o, o + n),
+          ),
+        );
+        expect(status.isCompletedFailed, isTrue);
+        e = (status.originalError! as StudioException).error;
+        expect((e.hint, e.call), (ErrorHint.stepBlocked, 'restore_begin'));
+        expect(invokes('restore_begin'), hasLength(begun));
+        expect(s.state.backups.uploadName, 'plant.wyrm-backup');
+
+        api.invokes['$_b ▸ restore_check'] = [check];
+        await s.dispatchAndWait(CheckRestoreAction());
+        expect(
+          restoreFilePlanOf(s.state.backups).step,
+          RestoreFileStep.restore,
+        );
+      });
 
       test('a file that is not checked', () async {
         await uploaded();
