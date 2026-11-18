@@ -54,6 +54,9 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 use wasmtime::component::{Component, Linker};
 use wasmtime::{Config, Engine, ResourceLimiter, Store, Trap};
+/// Lowercase hex SHA-256 of `bytes`: the artifact id (an id is 64 lowercase hex
+/// characters, `wyrm_core::hex::is_lower_hex(id, 32)`).
+pub use wyrm_core::hex::sha256_hex;
 use wyrm_link_api::buffer::{BufferHost, Counts, Services};
 use wyrm_link_api::{AppError, ConnId};
 
@@ -200,10 +203,6 @@ pub enum Error {
     #[error("{0}")]
     Guest(String),
 }
-
-/// Lowercase hex SHA-256 of `bytes`: the artifact id (an id is 64 lowercase hex
-/// characters, `wyrm_core::hex::is_lower_hex(id, 32)`).
-pub use wyrm_core::hex::sha256_hex;
 
 // ---------- store data and limiter ----------
 

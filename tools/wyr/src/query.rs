@@ -4,6 +4,7 @@
 
 use std::collections::HashMap;
 use std::time::Duration;
+use wyrm_core::clock::now_us;
 
 use tokio::sync::mpsc;
 use tokio::task::AbortHandle;
@@ -20,8 +21,6 @@ enum Msg {
     Value(String, Sample),
     Reply(u64, bool),
 }
-
-use wyrm_core::clock::now_us;
 
 fn change_of(ev: ListEvent) -> Option<ListChange> {
     Some(match ev {

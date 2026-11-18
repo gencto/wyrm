@@ -30,6 +30,7 @@ use std::time::Duration;
 use tokio::sync::{mpsc, Mutex as AsyncMutex};
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
+use wyrm_core::clock::now_s;
 use wyrm_core::meta::Writable;
 use wyrm_core::meta::{
     is_code, ActionResult, ParamMeta, Profile, EDITOR_FILE, EDITOR_PASSWORD, EDITOR_TEXTAREA,
@@ -634,7 +635,6 @@ enum Answer {
     Refused(String),
 }
 
-/// SHA-256 (hex) of an admission token; the registry keeps only this.
 /// `via` given as a list or as `a, b` text.
 fn via_list(v: Option<&Value>) -> Vec<String> {
     let mut out: Vec<String> = match v {
@@ -729,8 +729,6 @@ fn cert_summary(pem: &str) -> String {
         cert.validity().not_after.to_datetime().date()
     )
 }
-
-use wyrm_core::clock::now_s;
 
 fn encode_params(v: &Value) -> Result<Vec<u8>, LinkError> {
     wyrm_core::codec::to_vec(v).map_err(|e| LinkError::internal(e.to_string()))

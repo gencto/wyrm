@@ -42,6 +42,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 use tokio::task::JoinHandle;
 use tracing::debug;
+use wyrm_core::clock::now_ms;
 use wyrm_core::meta::Writable;
 use wyrm_core::{NodeMeta, TypeCode, Value};
 use wyrm_link_sdk::driver::params::{field, ParamSpec};
@@ -559,8 +560,6 @@ struct Shared {
 fn lock(s: &Mutex<Shared>) -> MutexGuard<'_, Shared> {
     s.lock().unwrap_or_else(|p| p.into_inner())
 }
-
-use wyrm_core::clock::now_ms;
 
 pub struct Transport {
     client: AsyncClient,

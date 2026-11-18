@@ -228,9 +228,6 @@ pub fn parse_url(url: &str) -> Result<(bool, String, u16, String), String> {
     Ok((u.tls, u.url.host.text(), u.port, base.to_owned()))
 }
 
-/// Percent-encode a query value.
-pub use wyrm_core::weburl::percent_encode as query_value;
-
 /// A loopback host, where a secret may go without TLS.
 pub fn loopback(host: &str) -> bool {
     host == "localhost"

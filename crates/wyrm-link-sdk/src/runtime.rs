@@ -26,6 +26,7 @@ use tokio::task::JoinHandle;
 use tracing::Instrument;
 use tracing::{debug, info, warn};
 use wyrm_core::audit::LinkOp;
+use wyrm_core::clock::now_s;
 use wyrm_core::codec::{from_slice, to_vec};
 use wyrm_core::keyspace::{self, SUFFIX_META, SUFFIX_SET, SUFFIX_VAL};
 use wyrm_core::meta::{is_code, ActionResult, ParamMeta, Profile, TypeCode, Writable};
@@ -756,8 +757,6 @@ fn bound_origin(claimed: Option<&str>, sub: &str) -> String {
         _ => sub.to_owned(),
     }
 }
-
-use wyrm_core::clock::now_s;
 
 /// The read shard of `target` under `seed`: the first 8 bytes of
 /// `HMAC-SHA-256(seed, target)`, modulo [`READ_SHARDS`].

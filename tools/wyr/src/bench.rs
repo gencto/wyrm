@@ -5,6 +5,7 @@ use crate::Error;
 use clap::Subcommand;
 use std::time::{Duration, Instant};
 use wyrm_client::WyrmClient;
+use wyrm_core::clock::now_us;
 use wyrm_core::Sample;
 
 #[derive(Subcommand, Debug)]
@@ -66,8 +67,6 @@ async fn list(c: &WyrmClient, node: &str, n: usize) -> Result<(), Error> {
     report(&format!("list {node} ({children} children)"), "ms", ms);
     Ok(())
 }
-
-use wyrm_core::clock::now_us;
 
 async fn sub(c: &WyrmClient, pattern: &str, secs: u64) -> Result<(), Error> {
     // Raw subscriber: measures the live path only (no storage snapshot).

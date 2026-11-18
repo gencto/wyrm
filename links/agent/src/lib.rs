@@ -60,6 +60,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tracing::{debug, warn};
 use wyrm_client::{SigningTokens, TokenSource, WyrmClient};
+use wyrm_core::clock::now_s;
 use wyrm_core::meta::{ActionResult, ParamMeta};
 use wyrm_core::ptok::Grant;
 use wyrm_core::{ActionMeta, NodeMeta, Perm, Quality, Status, TypeCode, Value};
@@ -410,8 +411,6 @@ impl Question {
 /// An answer on its way to the planner: the answers by question id (already in the task's
 /// record) and the stream of the `answer` call, which carries the progress from here on.
 type Answered = ReplySink;
-
-use wyrm_core::clock::now_s;
 
 struct Task {
     /// Subject of the `ask` caller; only they (or a `config` caller) may

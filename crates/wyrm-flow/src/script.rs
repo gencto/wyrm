@@ -11,6 +11,7 @@ use rhai::{Dynamic, Engine, Scope, AST};
 use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::time::Duration;
+use wyrm_core::clock::now_ms_signed;
 use wyrm_core::Value;
 
 const TIMEOUT: Duration = Duration::from_millis(10);
@@ -18,8 +19,6 @@ const TIMEOUT: Duration = Duration::from_millis(10);
 thread_local! {
     static STARTED: Cell<Option<Budget>> = const { Cell::new(None) };
 }
-
-use wyrm_core::clock::now_ms_signed;
 
 /// A locked-down engine.
 pub fn engine() -> Engine {

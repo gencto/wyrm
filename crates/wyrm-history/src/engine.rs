@@ -15,6 +15,7 @@ use tokio::sync::{mpsc, watch};
 use tokio::task::{JoinHandle, JoinSet};
 use tracing::{debug, warn};
 use wyrm_client::{ValEvent, WyrmClient};
+pub use wyrm_core::clock::now_us;
 use wyrm_core::{Quality, Sample};
 use zenoh::Session;
 
@@ -133,8 +134,6 @@ pub struct Historian {
     pub(crate) reads: tokio::sync::Semaphore,
     sinks: Mutex<HashMap<String, SinkStats>>,
 }
-
-pub use wyrm_core::clock::now_us;
 
 impl Historian {
     pub fn open(dir: &Path) -> crate::store::Result<Arc<Self>> {

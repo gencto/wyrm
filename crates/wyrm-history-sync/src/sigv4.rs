@@ -1,11 +1,11 @@
 //! AWS Signature Version 4 for one request (DynamoDB and other AWS JSON APIs): the canonical
 //! request, the string to sign, the signing key chain, the `Authorization` header.
 
+pub use wyrm_core::hex::sha256_hex;
+
 fn hmac(key: &[u8], data: &[u8]) -> [u8; 32] {
     wyrm_core::mac::hmac_sha256_of(key, data)
 }
-
-pub use wyrm_core::hex::sha256_hex;
 
 /// `YYYYMMDDTHHMMSSZ` of a UTC time in µs.
 pub fn amz_date(now_us: u64) -> String {

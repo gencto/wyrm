@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
+pub use wyrm_core::clock::now_us;
 use wyrm_core::keyspace::{self, SUFFIX_META, SUFFIX_VAL};
 use wyrm_core::meta::ActionMeta;
 use wyrm_core::{Attachment, NodeMeta, Quality, Sample, Value};
@@ -18,8 +19,6 @@ use zenoh::Session;
 
 /// The root attribute that says the responder answers `~act/<a>?check` (spec 05 0.2.33).
 pub const CHECK_ATTR: &str = "check";
-
-pub use wyrm_core::clock::now_us;
 
 pub(crate) struct Inner {
     pub session: Session,

@@ -23,6 +23,8 @@ use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
+pub use wyrm_core::clock::now_s;
+use wyrm_core::files::read_full;
 
 /// Version of the release and index documents.
 pub const FORMAT: u32 = 1;
@@ -728,8 +730,6 @@ fn octal(field: &[u8]) -> Option<u64> {
     }
     Some(n)
 }
-
-use wyrm_core::files::read_full;
 
 /// Unpack the tar stream `src` into the new, empty directory `dir`: plain
 /// files only, by plain name, the binary [`BIN`] among them. Nothing of a
@@ -1493,8 +1493,6 @@ impl UpdateFile {
         self.expired_starts >= 2 || past_s >= 3600
     }
 }
-
-pub use wyrm_core::clock::now_s;
 
 /// Note that the guard ran (`data_dir/update.guard`): a broker in
 /// `updates.mode: "self"` updates only when the guard ran before it started.

@@ -31,6 +31,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
+use wyrm_core::clock::now_s;
 use wyrm_core::{NodeMeta, Perm};
 use wyrm_gateway_client::{Conn, Endpoint, Gateway, Me};
 use zeroize::Zeroizing;
@@ -158,8 +159,6 @@ fn done(r: Out) -> CallToolResult {
         Err(e) => CallToolResult::error(vec![ContentBlock::text(e)]),
     }
 }
-
-use wyrm_core::clock::now_s;
 
 fn yes() -> bool {
     true

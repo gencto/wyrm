@@ -32,7 +32,7 @@ use wyrm_history_sync::http::Client as HttpClient;
 use wyrm_history_sync::{sigv4, TargetError};
 use wyrm_link_api::{App, AppError, ConnId, Host, Level, ReqId, Rights, SubId, TimerId, Who};
 
-use platform::{azure_sas, device_and_metric, json_sample, json_value, url_encode, Map, Payload};
+use platform::{azure_sas, device_and_metric, json_sample, json_value, Map, Payload};
 pub use platform::{Def, Kind};
 use sparkplug::{DataType, Metric};
 
@@ -1076,7 +1076,10 @@ impl Up {
         };
         let date = sigv4::amz_date(now);
         let host_header = http.host_header();
-        let path = format!("/topics/{}", url_encode(self.def.str("topic")));
+        let path = format!(
+            "/topics/{}",
+            wyrm_core::weburl::percent_encode(self.def.str("topic"))
+        );
         let payload_hash = sigv4::sha256_hex(body);
         let signed = [
             ("host", host_header.as_str()),

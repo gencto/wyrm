@@ -9,6 +9,7 @@ use rcgen::{
 };
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use wyrm_core::clock::now_s_signed;
 use zeroize::Zeroizing;
 
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
@@ -347,8 +348,6 @@ impl Pki {
 const LEAF_DAYS: i64 = 365;
 /// A certificate with less than this left is issued again (and an enrolled broker asks again).
 pub const RENEW_BEFORE_S: i64 = 30 * 86_400;
-
-use wyrm_core::clock::now_s_signed;
 
 /// `not_after` (Unix seconds) of a PEM certificate; `None` if it does not parse.
 pub fn cert_not_after(pem: &str) -> Option<i64> {

@@ -2,6 +2,8 @@
 //! date formats of the stores (RFC 3339, HTTP dates, SigV4 stamps), and
 //! file and folder names people enter.
 
+pub use wyrm_core::clock::now_us;
+
 /// Percent-encode everything but the unreserved characters (and `/` when
 /// `keep_slash`), as SigV4 and most REST paths want it.
 pub fn pct_encode(s: &str, keep_slash: bool) -> String {
@@ -25,8 +27,6 @@ pub fn pct_decode(s: &str) -> Option<String> {
     }
     String::from_utf8(out).ok()
 }
-
-pub use wyrm_core::clock::now_us;
 
 /// Days since 1970-01-01 of a proleptic Gregorian date (H. Hinnant).
 fn days_from_civil(y: i64, m: u32, d: u32) -> i64 {

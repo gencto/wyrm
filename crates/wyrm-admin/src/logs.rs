@@ -23,6 +23,7 @@ use tracing::{Event, Level, Subscriber};
 use tracing_subscriber::layer::Context;
 use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::Layer;
+pub use wyrm_core::clock::now_ms;
 
 wyrm_core::name_enum! {
     /// A level a log may be set to, lowest first (`sys/log_level`, a link's
@@ -169,8 +170,6 @@ impl Ring {
         out
     }
 }
-
-pub use wyrm_core::clock::now_ms;
 
 /// The `id` of a `link` span, kept in the span's extensions.
 struct LinkId(String);

@@ -680,7 +680,7 @@ fn redirect(o: &OAuth, q: &AuthorizeQuery, params: &[(&str, &str)]) -> Response 
     all.push(("iss", o.issuer()));
     url.push_str(
         &all.iter()
-            .map(|(k, v)| format!("{k}={}", pct(v)))
+            .map(|(k, v)| format!("{k}={}", wyrm_core::weburl::percent_encode(v)))
             .collect::<Vec<_>>()
             .join("&"),
     );
@@ -692,8 +692,6 @@ fn redirect(o: &OAuth, q: &AuthorizeQuery, params: &[(&str, &str)]) -> Response 
         .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
     r
 }
-
-use wyrm_core::weburl::percent_encode as pct;
 
 pub(crate) async fn authorize_page(
     State(st): State<AppState>,
@@ -1140,6 +1138,9 @@ mod tests {
             esc("<a href=\"x\">&'"),
             "&lt;a href=&quot;x&quot;&gt;&amp;&#39;"
         );
-        assert_eq!(pct("a b/c?d"), "a%20b%2Fc%3Fd");
+        assert_eq!(
+            wyrm_core::weburl::percent_encode("a b/c?d"),
+            "a%20b%2Fc%3Fd"
+        );
     }
 }

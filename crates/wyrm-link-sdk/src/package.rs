@@ -5,6 +5,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
 use std::io::{Cursor, Read, Write};
+/// Lower-case hex SHA-256.
+pub use wyrm_core::hex::sha256_hex;
 use wyrm_core::named::OrUnknown;
 
 /// The manifest at the root of a package zip.
@@ -350,9 +352,6 @@ pub fn host_of_triple(triple: &str) -> Option<&'static str> {
         _ => "linux-aarch64",
     })
 }
-
-/// Lower-case hex SHA-256.
-pub use wyrm_core::hex::sha256_hex;
 
 /// One package of a repository index (`packages.repository`, as DSA's
 /// `linkRepositoryUrl`). A process package has a file per host in

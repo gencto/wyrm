@@ -7,6 +7,7 @@ use base64::Engine;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use std::collections::BTreeMap;
+pub use wyrm_core::clock::now_s;
 use wyrm_core::Value;
 use zeroize::Zeroizing;
 
@@ -71,8 +72,6 @@ impl Amr {
         }
     }
 }
-
-pub use wyrm_core::clock::now_s;
 
 pub struct SessionKey(Zeroizing<Vec<u8>>);
 

@@ -36,6 +36,7 @@ use std::time::Duration;
 use tokio::time::Instant;
 use wyrm_admin::control::replication::{self, STORES};
 use wyrm_admin::secret::{self, CertFiles, Pki};
+use wyrm_core::clock::now_ms;
 use wyrm_core::Value;
 use wyrm_state::replicate::Follower;
 use zenoh::Session;
@@ -417,8 +418,6 @@ struct Files {
     local_at_start: Option<Vec<String>>,
     too_large: std::collections::BTreeSet<String>,
 }
-
-use wyrm_core::clock::now_ms;
 
 /// One set of records moved aside after a healed split, to report to the
 /// active (`sys/replication/forked/<t_ms>/<what>/<count>/<n>`).
