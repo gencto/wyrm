@@ -74,6 +74,28 @@ void main() {
       expect(s.state.site.gateway, isNull);
     });
 
+    test('a clean main gateway with a standby typed with user:password@ is '
+        'refused: nothing is probed, recent keeps no credentials (final '
+        'audit of #137, 2)', () async {
+      final login = FakeLogin();
+      final s = fakeStore(login: login);
+      await fill(s, gateway: 'http://a:8445, https://olena:gw-pass@b:8445');
+      final status = await s.dispatchAndWait(LogInAction());
+      expect(status.isCompletedOk, isTrue);
+      expect(login.probed, isEmpty);
+      expect(login.gateways, isNull);
+      expect(s.state.session.token, isNull);
+      expect(s.state.login.recent, isEmpty);
+
+      // the same standby without them logs in, and is remembered as typed
+      await s.dispatchAndWait(
+        SetGatewayAction('http://a:8445, https://b:8445'),
+      );
+      expect((await s.dispatchAndWait(LogInAction())).isCompletedOk, isTrue);
+      expect(s.state.login.recent, ['http://a:8445, https://b:8445']);
+      expect(s.state.login.recent.join(), isNot(contains('gw-pass')));
+    });
+
     test('what a login throws names its type only, never the URL it was '
         'asked on', () async {
       final login = FakeLogin(

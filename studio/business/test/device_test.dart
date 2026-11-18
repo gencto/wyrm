@@ -303,6 +303,28 @@ void main() {
       expect(c.login.password, isNot('x'), reason: 'no password sent');
     });
 
+    test('a standby typed with user:password@ unlocks nothing: no prompt, '
+        'no log-in, nothing in recent (final audit of #137, 2)', () async {
+      final c = _Computer();
+      await c.enrolled();
+      final s = await c.started();
+      final prompts = c.keys.reasons.length;
+      final before = s.state.login.recent;
+      await s.dispatchAndWait(
+        SetGatewayAction('$_gateway, https://olena:gw-pass@b:8445'),
+      );
+
+      final status = await s.dispatchAndWait(
+        UnlockWithDeviceAction(reason: _reason),
+      );
+
+      expect(status.isCompletedOk, isTrue);
+      expect(s.state.session.token, isNull);
+      expect(c.keys.reasons, hasLength(prompts), reason: 'no OS prompt');
+      expect(s.state.login.recent, before);
+      expect(s.state.login.recent.join(), isNot(contains('gw-pass')));
+    });
+
     test('the prompt opens by itself once, never after a cancel', () async {
       final c = _Computer();
       await c.enrolled();

@@ -1,4 +1,5 @@
 import 'package:business/redux/app_state.dart';
+import 'package:business/redux/login/models/login_state.dart';
 import 'package:business/wyrm/discovery.dart' show FoundTag, RangeFault;
 import 'package:business/wyrm/log_in_page.dart';
 import 'package:models/answer_fault.dart';
@@ -37,6 +38,22 @@ extension GatewayReachLogIn on GatewayReach {
     GatewayReach.answered => .answered,
     GatewayReach.down => .down,
   };
+}
+
+extension LoginUnreachable on LoginState {
+  /// The page's *could not reach* card: the gateway as its address says
+  /// it (as typed while it is none), why, and the standby; null unless
+  /// the log-in could not reach the gateway.
+  UnreachableData? get unreachable {
+    final field = GatewayField.of(gateway);
+    return failure == .unreachable
+        ? UnreachableData(
+            gateway: field.mainAddress?.text ?? field.main,
+            reason: reason?.view,
+            standby: field.standbyHost,
+          )
+        : null;
+  }
 }
 
 extension FieldStateTone on FieldState {

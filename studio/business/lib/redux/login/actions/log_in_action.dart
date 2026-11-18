@@ -44,8 +44,13 @@ class LogInAction extends Action with WaitingAction {
     // An empty or malformed field is the form's to say, under the field
     // (docs/design/specs/errors.md §2: validation is inline, never a
     // dialog). The page validates before it dispatches; a dispatch that
-    // comes without that changes nothing.
-    if (gateways.isEmpty || user.isEmpty || password.isEmpty) {
+    // comes without that changes nothing. A field with any part that is no
+    // address, or that holds `user:password@`, is not logged in with: its
+    // text would go to the recent gateways as it was typed.
+    if (gateways.isEmpty ||
+        gatewayProblemOf(login.gateway) != null ||
+        user.isEmpty ||
+        password.isEmpty) {
       return state;
     }
 

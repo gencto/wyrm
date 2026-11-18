@@ -65,7 +65,14 @@ class UnlockWithDeviceAction extends Action with NonReentrant, WaitingAction {
     final id = d.deviceId;
     final site = d.keySite;
     final account = accountOf(login.gateway, login.user);
-    if (alias == null || id == null || site == null || account == null) {
+    // A field with any part that is no address, or that holds
+    // `user:password@`, is not unlocked with: its text would go to the
+    // recent gateways as it was typed.
+    if (alias == null ||
+        id == null ||
+        site == null ||
+        account == null ||
+        gatewayProblemOf(login.gateway) != null) {
       return state.copyWith.device(autoPrompted: true);
     }
     dispatchSync(_Stage(UnlockStage.unlock, autoPrompted: true));

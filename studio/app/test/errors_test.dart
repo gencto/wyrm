@@ -745,15 +745,19 @@ void main() {
       'Enter the user and the password in their own fields, not in the '
       'address.',
     );
+    // the standby field says the same; empty, it says nothing
+    expect(standbyGatewayValidator(typed), gatewayValidator(typed));
+    expect(standbyGatewayValidator(''), isNull);
+    expect(standbyGatewayValidator('https://b:8445'), isNull);
     final status = await store.dispatchAndWait(LogInAction());
-    // with Remember on, what the field holds is kept, without them
+    // with Remember on, a field with them is not written at all
     final settings = InMemoryKeyValueStorage();
     await AppPersistor(settings).persistDifference(newState: store.state);
     expect(status.isCompletedOk, isTrue);
     expect(store.state.problems.items, isEmpty);
     expect(store.state.site.gateway, isNull);
     expect(store.state.login.recent, isEmpty);
-    expect(await settings.get<String>('gateway'), 'https://plant.local:8445');
+    expect(await settings.get<String>('gateway'), isNull);
   });
 
   group('Copy details (errors.md §3)', () {

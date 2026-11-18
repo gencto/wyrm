@@ -14,3 +14,8 @@ RequiredValidator get requiredValidator =>
 /// none with `user:password@` (the user and the password have their own
 /// fields).
 String? gatewayValidator(String? value) => gatewayProblemOf(value)?.ui.label;
+
+/// The standby gateway: empty, or one address as [gatewayValidator] takes
+/// it (never with `user:password@`).
+String? standbyGatewayValidator(String? value) =>
+    (value ?? '').trim().isEmpty ? null : gatewayValidator(value);

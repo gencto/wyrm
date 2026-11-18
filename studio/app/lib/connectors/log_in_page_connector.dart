@@ -111,6 +111,7 @@ class _Factory extends VmFactory<AppState, LogInPageConnector, _Vm>
         ),
         standby: FieldVm(
           value: field.standby,
+          validator: standbyGatewayValidator,
           onChanged: (v) => dispatchSync(SetStandbyGatewayAction(v)),
           enabled: !busy,
         ),
@@ -147,13 +148,7 @@ class _Factory extends VmFactory<AppState, LogInPageConnector, _Vm>
         fieldLabel: login.fieldLabel,
         step: login.step,
         wrong: login.failure == .wrong,
-        unreachable: login.failure == .unreachable
-            ? UnreachableData(
-                gateway: field.mainAddress?.text ?? field.main,
-                reason: login.reason?.view,
-                standby: field.standbyHost,
-              )
-            : null,
+        unreachable: state.login.unreachable,
         tls: login.tlsLine?.note,
         standbyHost: field.standbyHost,
         welcome: session.isAvailable && device.stage != .offer
