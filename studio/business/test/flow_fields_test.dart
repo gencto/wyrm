@@ -35,7 +35,7 @@ import 'package:wyrm_client/wyrm_client.dart';
 
 import 'support/block_types.dart';
 import 'support/fake_wyrm.dart';
-import 'support/field_words.dart';
+import 'support/field_tags.dart';
 
 // The catalog as `dataflows` ▸ `node_types` answers today
 // (crates/wyrm-flow/src/catalog.rs), trimmed to what the tests read.
@@ -166,7 +166,7 @@ FlowBlock block(
   Map<String, Object?> cfg = const {},
 ]) => FlowBlock(id: id, type: bt(type), cfg: cfg.lock);
 
-List<String> labels(List<FlowField> f) => [for (final x in f) x.label.en];
+List<String> labels(List<FlowField> f) => [for (final x in f) x.label.tag];
 
 List<String> names(List<FlowField> f) => [for (final x in f) x.name];
 
@@ -178,7 +178,7 @@ void main() {
       final b = block('scale1', 'scale');
       final rows = rowsOf(types['scale'], b);
       expect(names(rows), ['in', 'k', 'b', 'out']);
-      expect(labels(rows), ['Input', 'Factor', 'Offset', 'Output']);
+      expect(labels(rows), ['#input', '#factor', '#offset', '#output']);
       final all = fieldsOf(types['scale'], b);
       expect(names(all), isNot(contains('input_min')));
       expect(names(all), isNot(contains('input_out_of_range')));
@@ -204,13 +204,13 @@ void main() {
         'input_out_of_range',
       ]);
       expect(labels(rows), [
-        'Input',
+        '#input',
         'Input min',
         'Input max',
         'Output min',
         'Output max',
-        'Output',
-        'Input out of range',
+        '#output',
+        '#inputOutOfRange',
       ]);
       final min = rows.firstWhere((f) => f.name == 'input_min');
       expect((min.inPort, min.outPort), ('in.input_min', 'input_min'));
@@ -236,7 +236,7 @@ void main() {
     test('modulo reads Input · Modulo · Quotient · Remainder', () {
       final rows = rowsOf(types['modulo'], block('m', 'modulo'));
       expect(names(rows), ['in', 'modulo', 'quotient', 'remainder']);
-      expect(labels(rows), ['Input', 'Modulo', 'Quotient', 'Remainder']);
+      expect(labels(rows), ['#input', 'Modulo', 'Quotient', 'Remainder']);
     });
 
     test('latch: the input reset echoes, the parameter reset does not', () {
@@ -246,7 +246,7 @@ void main() {
       expect(param.outPort, isNull, reason: 'the input took the name');
       expect(input.outPort, 'reset', reason: 'catalog.rs echoes: inputs first');
       expect(param.inPort, isNull, reason: 'no in.reset');
-      expect((input.label.en, param.label.en), ('Reset', 'Reset mode'));
+      expect((input.label.tag, param.label.tag), ('Reset', '#resetMode'));
     });
 
     test('if: op, the variable inputs by number, then, else, out', () {
@@ -255,12 +255,12 @@ void main() {
       final rows = rowsOf(types['if'], b);
       expect(names(rows), ['op', 'in.0', 'in.1', 'then', 'else', 'out']);
       expect(labels(rows), [
-        'Operation',
-        'Input 1',
-        'Input 2',
+        '#operation',
+        '#input 1',
+        '#input 2',
         'Then',
         'Else',
-        'Output',
+        '#output',
       ]);
       final zero = rows.firstWhere((f) => f.name == 'in.0');
       expect((zero.inPort, zero.outPort), ('in.0', 'in.0'));
@@ -281,7 +281,7 @@ void main() {
         types['publish'],
         block('p', 'publish', {'node': 'x'}),
       );
-      expect(labels(pub), ['Value name', 'Value']);
+      expect(labels(pub), ['#valueName', '#value']);
       expect(pub.every((f) => f.outPort == null), isTrue);
       expect(pub.first.inPort, isNull, reason: 'the engine has no in.node');
 
@@ -321,65 +321,68 @@ void main() {
           bt('scale'),
           'k',
           spec: const ParamSpec(name: 'k', key: BlockCfgKey.k),
-        ).en,
-        'Factor',
+        ).tag,
+        '#factor',
       );
       expect(
         fieldLabel(
           bt('subscribe'),
           'key',
           spec: const ParamSpec(name: 'key', key: BlockCfgKey.key),
-        ).en,
-        'Point',
+        ).tag,
+        '#point',
       );
       expect(
         fieldLabel(
           bt('liveliness'),
           'key',
           spec: const ParamSpec(name: 'key', key: BlockCfgKey.key),
-        ).en,
-        'Node',
+        ).tag,
+        '#node',
       );
       expect(
         fieldLabel(
           bt('scale'),
           'b',
           spec: const ParamSpec(name: 'b', key: BlockCfgKey.b),
-        ).en,
-        'Offset',
+        ).tag,
+        '#offset',
       );
-      expect(fieldLabel(bt('scale'), 'in', port: EnginePort.in_).en, 'Input');
-      expect(fieldLabel(bt('scale'), 'out', port: EnginePort.out).en, 'Output');
+      expect(fieldLabel(bt('scale'), 'in', port: EnginePort.in_).tag, '#input');
+      expect(
+        fieldLabel(bt('scale'), 'out', port: EnginePort.out).tag,
+        '#output',
+      );
       expect(
         fieldLabel(
           bt('latch'),
           'reset',
           spec: const ParamSpec(name: 'reset', key: BlockCfgKey.reset),
-        ).en,
-        'Reset mode',
+        ).tag,
+        '#resetMode',
       );
-      expect(fieldLabel(bt('stopwatch'), 'reset').en, 'Reset');
+      expect(fieldLabel(bt('stopwatch'), 'reset').tag, 'Reset');
       expect(
         fieldLabel(
           bt('set'),
           'on',
           spec: const ParamSpec(name: 'on', key: BlockCfgKey.on),
-        ).en,
-        'Write on',
+        ).tag,
+        '#writeOn',
       );
       expect(
         fieldLabel(
           bt('invoke'),
           'on',
           spec: const ParamSpec(name: 'on', key: BlockCfgKey.on),
-        ).en,
-        'Run on',
+        ).tag,
+        '#runOn',
       );
-      expect(fieldLabel(bt('round'), 'in.precision').en, 'Precision');
-      expect(fieldLabel(bt('add'), 'in.0', variable: true).en, 'Input 1');
-      expect(fieldLabel(bt('add'), 'in.1', variable: true).en, 'Input 2');
+      expect(fieldLabel(bt('round'), 'in.precision').tag, 'Precision');
+      expect(fieldLabel(bt('add'), 'in.0', variable: true).tag, '#input 1');
+      expect(fieldLabel(bt('add'), 'in.1', variable: true).tag, '#input 2');
       expect(
-        fieldLabel(bt('expression'), 'in.temp', variable: true).en,
+        fieldLabel(bt('expression'), 'in.temp', variable: true).tag,
         'temp',
         reason: 'a variable keeps the name the user gave it',
       );
@@ -391,7 +394,7 @@ void main() {
           bt('window'),
           'size_s',
           spec: const ParamSpec(name: 'size_s', display: 'Window'),
-        ).en,
+        ).tag,
         'Window',
       );
     });

@@ -36,7 +36,7 @@ import 'package:models/port_end.dart';
 import 'package:wyrm_client/wyrm_client.dart' show Perm, TypeCode, Value;
 
 import 'support/block_types.dart';
-import 'support/field_words.dart';
+import 'support/field_tags.dart';
 
 /// The flow the agent deployed on the demo's `central` (62 blocks, 74
 /// wires), and its catalogue, as the editor reads them.
@@ -243,7 +243,7 @@ void main() {
         const OffFor(RunOffReason.notDeployed),
       );
       final args = i.rows.whereType<ArgRowView>().toList();
-      expect([for (final a in args) a.name.en], containsAll(['text', 'to']));
+      expect([for (final a in args) a.name.tag], containsAll(['text', 'to']));
       expect(args.first.group, FieldGroup.arguments);
       // Bound, the trigger shows what comes in.
       final bound = viewOf(

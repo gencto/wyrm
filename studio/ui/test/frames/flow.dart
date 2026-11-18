@@ -8,6 +8,7 @@ import 'package:ui/flows/bind_refusal.dart';
 import 'package:ui/flows/block_palette.dart';
 import 'package:ui/flows/custom_block_dialog.dart';
 import 'package:ui/flows/field_inspector.dart';
+import 'package:ui/flows/field_word.dart';
 import 'package:ui/flows/flow_block_view.dart';
 import 'package:ui/flows/flow_canvas.dart';
 import 'package:ui/flows/flow_intents.dart';
@@ -2705,6 +2706,20 @@ FlowEditorPage flowCsvLines() => _bind(
   ],
 );
 
+/// A row's label of `flow_large.json` as the editor words it: `business`
+/// writes a word Studio says itself by its name (`#point`, `#input 2`) and
+/// the engine's own name as it came.
+String _labelOf(String tag) {
+  if (!tag.startsWith('#')) {
+    return tag;
+  }
+  final parts = tag.substring(1).split(' ');
+  return FieldWordVm(
+    FieldWordTag.values.byName(parts.first),
+    parts.length > 1 ? int.parse(parts[1]) : null,
+  ).text;
+}
+
 /// The flow the agent deployed on the demo's `central` (62 blocks, no
 /// saved layout) as the editor lays it out (flow-editor.md §25): the
 /// places come from `business`'s layout (`flow_large.json`, written by
@@ -2770,7 +2785,7 @@ FlowEditorPage flowLarge() {
               })
                 FieldRowVm(
                   id: rid,
-                  label: label,
+                  label: _labelOf(label),
                   name: rid,
                   inPort: inPort,
                   outPort: outPort,

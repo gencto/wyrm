@@ -15,7 +15,7 @@ import 'package:models/node_type.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import 'support/block_types.dart';
-import 'support/field_words.dart';
+import 'support/field_tags.dart';
 
 // The automatic layout (flow-editor.md §25) on a real flow: the one the
 // agent deployed on the demo's `central` (62 blocks, 74 wires, no saved
@@ -299,7 +299,7 @@ void main() {
                 for (final f in rowsOf(types[b.type.wire], b, edges: d.edges))
                   {
                     'id': f.id.key,
-                    'label': f.label.en,
+                    'label': f.label.tag,
                     'in': f.inPort,
                     'out': f.outPort,
                   },
