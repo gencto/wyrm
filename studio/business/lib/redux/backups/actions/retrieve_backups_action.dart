@@ -24,6 +24,11 @@ import '../../problems/actions/add_problem_action.dart';
 /// [BackupsRead.absent]; one whose attributes this client cannot read as
 /// [BackupsRead.unreadable]. Either way no backup is offered, and the
 /// screens say which it is.
+///
+/// A read that fails for another reason (no answer, a refusal) says
+/// nothing of the broker: it leaves [BackupsRead.failed], never `absent`,
+/// and the screens offer to read again (`ReloadShownAction` does too).
+/// What an earlier read brought stays as it was.
 class RetrieveBackupsAction extends Action with WaitingAction {
   RetrieveBackupsAction({super.quiet});
 
@@ -44,6 +49,17 @@ class RetrieveBackupsAction extends Action with WaitingAction {
     if (root == null) {
       return null;
     }
+    try {
+      return await _read(root);
+    } on Exception {
+      if (backups.availability != BackupsRead.read) {
+        dispatchSync(_ReadFailed());
+      }
+      rethrow;
+    }
+  }
+
+  Future<AppState?> _read(String root) async {
     final api = deps.wyrm;
     final base = '$root/sys/backups';
     final NodeMeta meta;
@@ -110,4 +126,10 @@ class RetrieveBackupsAction extends Action with WaitingAction {
       keepDays: attrs.keepDays,
     );
   }
+}
+
+/// The read of `sys/backups` failed before anything of it was known.
+class _ReadFailed extends Action {
+  @override
+  AppState reduce() => state.copyWith.backups(availability: BackupsRead.failed);
 }

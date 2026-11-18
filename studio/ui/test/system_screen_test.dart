@@ -35,6 +35,7 @@ void main() {
             maintenance: SysMaintData(version: v, reason: reason),
           ),
           onTab: (_) {},
+          onReadBackups: () {},
           onTile: (_) {},
           onAttention: (_) {},
           onMeasure: (_) {},

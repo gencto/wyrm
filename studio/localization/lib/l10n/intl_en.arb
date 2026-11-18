@@ -2301,5 +2301,8 @@
     "errFileNotReadBecause": "{why}. Nothing was sent.",
     "@errFileNotReadBecause": {"placeholders": {"why": {"type": "String"}}},
     "errStepBlocked": "This step may not start yet, so nothing was sent. The dialog says what is missing.",
-    "rstNotChecked": "Upload and check the file first"
+    "rstNotChecked": "Upload and check the file first",
+    "bakReadFailed": "The backups of this broker could not be read, so none is offered here. The error is in Problems.",
+    "bakNotReadYet": "The backups of this broker are not read yet.",
+    "bakReadAgain": "Read again"
 }

@@ -187,5 +187,7 @@ extension BackupsReadOff on BackupsRead {
     BackupsRead.read => null,
     BackupsRead.absent => BackupsOff.absent,
     BackupsRead.unreadable => BackupsOff.unreadable,
+    BackupsRead.unknown => BackupsOff.notReadYet,
+    BackupsRead.failed => BackupsOff.readFailed,
   };
 }

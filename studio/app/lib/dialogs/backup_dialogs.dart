@@ -24,7 +24,6 @@ import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:models/backup_job.dart';
 import 'package:models/backup_stage.dart';
-import 'package:models/backups_read.dart';
 import 'package:ui/overlays/backup_data.dart';
 import 'package:ui/overlays/backup_sheet.dart';
 import 'package:ui/overlays/confirm_dialog.dart';
@@ -64,11 +63,10 @@ Future<void> showBackupDialog(
   final store = AppStore.of(context);
   // The attributes of sys/backups decide what the dialog offers.
   await store.dispatchAndWait(RetrieveBackupsAction());
-  if (!context.mounted ||
-      store.state.backups.availability != BackupsRead.read) {
-    // A broker without `sys/backups`, or with one Studio does not read:
-    // the callers lock their buttons with the reason, so this is only a
-    // broker whose answer changed meanwhile.
+  if (!context.mounted || !_Sel(store.state).backupsOffered) {
+    // A broker without `sys/backups`, with one Studio does not read, or
+    // with one that lists no section: the callers lock their buttons with
+    // the reason, so this is only a broker whose answer changed meanwhile.
     return;
   }
   store.dispatchSync(OpenBackupAction(link: link, job: job, restore: restore));

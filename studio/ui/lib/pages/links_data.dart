@@ -350,11 +350,19 @@ enum BackupsOff {
   absent,
 
   /// It has one, in a form this Studio does not read.
-  unreadable;
+  unreadable,
+
+  /// Whether it has one was not read yet.
+  notReadYet,
+
+  /// The read failed: whether it has one is not known.
+  readFailed;
 
   String get label => switch (this) {
     absent => S.current.bakNoBackups,
     unreadable => S.current.bakNotRead,
+    notReadYet => S.current.bakNotReadYet,
+    readFailed => S.current.bakReadFailed,
   };
 }
 

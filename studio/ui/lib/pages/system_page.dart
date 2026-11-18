@@ -182,14 +182,21 @@ final class BackupsCardVm extends Equatable {
     required this.backUpLabel,
     required this.restoreLabel,
     this.reason,
+    this.readAgainLabel,
   });
 
   final String title;
   final String note;
 
   /// One row a backup; its action opens it (download, send, remove).
-  final List<RowItemVm> rows;
+  /// Null when the backups were not read: no list is drawn, so the card
+  /// does not say that none is kept.
+  final List<RowItemVm>? rows;
   final String empty;
+
+  /// The label of the button that reads the backups again, when the read
+  /// failed; null otherwise.
+  final String? readAgainLabel;
   final String backUpLabel;
   final String restoreLabel;
 
@@ -205,6 +212,7 @@ final class BackupsCardVm extends Equatable {
     backUpLabel,
     restoreLabel,
     reason,
+    readAgainLabel,
   ];
 }
 
@@ -344,6 +352,7 @@ class SystemPage extends StatelessWidget {
     this.onBackUp,
     this.onRestore,
     this.onOpenBackup,
+    this.onReadBackups,
     this.onBrokerUpdate,
     this.onGuide,
     this.onTrafficWindow,
@@ -411,6 +420,9 @@ class SystemPage extends StatelessWidget {
   final VoidCallback? onBackUp;
   final VoidCallback? onRestore;
   final ValueChanged<String>? onOpenBackup;
+
+  /// Reads the broker's backups again (the read failed).
+  final VoidCallback? onReadBackups;
 
   /// The button of the card *Broker version*.
   final VoidCallback? onBrokerUpdate;
@@ -834,6 +846,14 @@ class SystemPage extends StatelessWidget {
           mainAxisSize: .min,
           spacing: 8,
           children: [
+            if (b.readAgainLabel case final label?)
+              Button.secondary(
+                label: label,
+                onPressed: onReadBackups,
+                size: ButtonSize.compact,
+                fontSize: FontSizes.md,
+                fontWeight: .w400,
+              ),
             Button.secondary(
               label: b.restoreLabel,
               onPressed: b.reason == null ? onRestore : null,
@@ -851,7 +871,14 @@ class SystemPage extends StatelessWidget {
             ),
           ],
         ),
-        child: RowList(rows: b.rows, empty: b.empty, onAction: onOpenBackup),
+        child: switch (b.rows) {
+          final rows? => RowList(
+            rows: rows,
+            empty: b.empty,
+            onAction: onOpenBackup,
+          ),
+          null => null,
+        },
       ),
     };
     final backup = SectionCard(

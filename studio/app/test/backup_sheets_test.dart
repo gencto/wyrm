@@ -1007,6 +1007,13 @@ void main() {
       expect(BackupsRead.read.off, isNull);
       expect(BackupsRead.absent.off, BackupsOff.absent);
       expect(BackupsRead.unreadable.off, BackupsOff.unreadable);
+      // not read yet, or the read failed: neither is "a wyrmd before…"
+      expect(BackupsRead.unknown.off, BackupsOff.notReadYet);
+      expect(BackupsRead.failed.off, BackupsOff.readFailed);
+      for (final off in const [BackupsOff.notReadYet, BackupsOff.readFailed]) {
+        expect(off.label, isNot(contains('ADR 0048')));
+        expect(off.label, isNot(BackupsOff.unreadable.label));
+      }
       // two reasons, two sentences: the second is not "a wyrmd before…"
       expect(BackupsOff.absent.label, contains('ADR 0048'));
       expect(BackupsOff.unreadable.label, contains('does not read'));
@@ -1018,12 +1025,17 @@ void main() {
         unread: const ['b2'].lock,
       );
       expect(card(BackupsRead.absent), isNull);
+      expect(card(BackupsRead.unknown), isNull);
       expect(
         card(BackupsRead.unreadable),
-        const SysBackupsData(unreadable: true),
+        const SysBackupsData(state: SysBackupsState.unreadable),
+      );
+      expect(
+        card(BackupsRead.failed),
+        const SysBackupsData(state: SysBackupsState.failed),
       );
       final read = card(BackupsRead.read)!;
-      expect(read.unreadable, isFalse);
+      expect(read.state, SysBackupsState.read);
       expect(read.rows.map((r) => r.id), ['b1']);
       // a backup that was not read is still a row
       expect(read.unread, ['b2']);

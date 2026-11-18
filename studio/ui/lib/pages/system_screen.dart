@@ -57,6 +57,7 @@ class SystemScreen extends StatelessWidget {
     required this.onBackUp,
     required this.onRestore,
     required this.onOpenBackup,
+    required this.onReadBackups,
     required this.onElsewhere,
     super.key,
   });
@@ -122,6 +123,7 @@ class SystemScreen extends StatelessWidget {
   final VoidCallback onBackUp;
   final VoidCallback onRestore;
   final ValueChanged<String> onOpenBackup;
+  final VoidCallback onReadBackups;
   final ValueChanged<SysElsewhere> onElsewhere;
 
   @override
@@ -201,6 +203,7 @@ class SystemScreen extends StatelessWidget {
     onBackUp: onBackUp,
     onRestore: onRestore,
     onOpenBackup: onOpenBackup,
+    onReadBackups: onReadBackups,
     onElsewhere: (id) {
       if (SysElsewhere.values.asNameMap()[id] case final e?) {
         onElsewhere(e);
@@ -767,37 +770,43 @@ class SystemScreen extends StatelessWidget {
     null => null,
     final b => BackupsCardVm(
       title: S.current.bakCard,
-      note: b.unreadable
-          ? S.current.bakNotRead
-          : S.current.bakCardNote(b.keepDays),
+      note: b.state.said ?? S.current.bakCardNote(b.keepDays),
       empty: S.current.bakCardEmpty,
       backUpLabel: S.current.bakBackUp,
       restoreLabel: S.current.bakRestore,
-      reason: b.unreadable ? S.current.bakNotRead : reason,
-      rows: [
-        // a backup Studio could not read is there, and says so
-        for (final id in b.unread)
-          RowItemVm(id: id, title: id, subtitle: S.current.bakRowNotRead),
-        for (final j in b.rows)
-          RowItemVm(
-            id: j.id,
-            title: j.name,
-            subtitle: [
-              j.kind.label(j.link),
-              [for (final s in j.sections) s.label].join(', '),
-              if (j.created case final t?) Formats.dateTime(t),
-            ].join(' · '),
-            trailing: switch (j.state) {
-              SysBackupState.running => S.current.bakRowRunning(j.progress),
-              SysBackupState.failed => S.current.bakRowFailed,
-              _ when j.sending => S.current.bakRowSending(j.sendProgress),
-              SysBackupState.pending ||
-              SysBackupState.done => Formats.bytes(j.size),
-            },
-            action: S.current.bakOpen,
-            actionHint: '${S.current.bakOpen} ${j.name}',
-          ),
-      ],
+      reason: b.state.said ?? reason,
+      readAgainLabel: b.state == SysBackupsState.failed
+          ? S.current.bakReadAgain
+          : null,
+      // not read: no list, so the card does not say "none is kept"
+      rows: b.state != SysBackupsState.read
+          ? null
+          : [
+              // a backup Studio could not read is there, and says so
+              for (final id in b.unread)
+                RowItemVm(id: id, title: id, subtitle: S.current.bakRowNotRead),
+              for (final j in b.rows)
+                RowItemVm(
+                  id: j.id,
+                  title: j.name,
+                  subtitle: [
+                    j.kind.label(j.link),
+                    [for (final s in j.sections) s.label].join(', '),
+                    if (j.created case final t?) Formats.dateTime(t),
+                  ].join(' · '),
+                  trailing: switch (j.state) {
+                    SysBackupState.running => S.current.bakRowRunning(
+                      j.progress,
+                    ),
+                    SysBackupState.failed => S.current.bakRowFailed,
+                    _ when j.sending => S.current.bakRowSending(j.sendProgress),
+                    SysBackupState.pending ||
+                    SysBackupState.done => Formats.bytes(j.size),
+                  },
+                  action: S.current.bakOpen,
+                  actionHint: '${S.current.bakOpen} ${j.name}',
+                ),
+            ],
     ),
   };
 

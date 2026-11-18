@@ -1530,6 +1530,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "bakNotRead": MessageLookupByLibrary.simpleMessage(
       "Брокер описав свої резервні копії у формі, яку ця Studio не читає, тому тут їх не запропоновано. Поле вказано в журналі; дивись Проблеми.",
     ),
+    "bakNotReadYet": MessageLookupByLibrary.simpleMessage(
+      "Резервні копії цього брокера ще не прочитано.",
+    ),
     "bakOffline": MessageLookupByLibrary.simpleMessage(
       "Коли брокер не запускається",
     ),
@@ -1554,6 +1557,10 @@ class MessageLookup extends MessageLookupByLibrary {
       "Можна закрити; брокер завершить і збереже її в резервних копіях.",
     ),
     "bakProgressTitle": m30,
+    "bakReadAgain": MessageLookupByLibrary.simpleMessage("Прочитати знову"),
+    "bakReadFailed": MessageLookupByLibrary.simpleMessage(
+      "Не вдалося прочитати резервні копії цього брокера, тому тут їх не запропоновано. Помилка є в Проблемах.",
+    ),
     "bakRemoveNote": MessageLookupByLibrary.simpleMessage(
       "Файл видаляється з брокера. Завантажена чи надіслана копія залишається.",
     ),

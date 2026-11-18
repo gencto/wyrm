@@ -1519,6 +1519,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "bakNotRead": MessageLookupByLibrary.simpleMessage(
       "The broker described its backups in a form this Studio does not read, so none is offered here. The field is in the log; see Problems.",
     ),
+    "bakNotReadYet": MessageLookupByLibrary.simpleMessage(
+      "The backups of this broker are not read yet.",
+    ),
     "bakOffline": MessageLookupByLibrary.simpleMessage(
       "When the broker does not start",
     ),
@@ -1543,6 +1546,10 @@ class MessageLookup extends MessageLookupByLibrary {
       "You can close this; the broker finishes it and keeps it under Backups.",
     ),
     "bakProgressTitle": m30,
+    "bakReadAgain": MessageLookupByLibrary.simpleMessage("Read again"),
+    "bakReadFailed": MessageLookupByLibrary.simpleMessage(
+      "The backups of this broker could not be read, so none is offered here. The error is in Problems.",
+    ),
     "bakRemoveNote": MessageLookupByLibrary.simpleMessage(
       "The file is deleted from the broker. A copy you downloaded or sent stays.",
     ),

@@ -18325,6 +18325,31 @@ class S {
       args: [],
     );
   }
+
+  /// `The backups of this broker could not be read, so none is offered here. The error is in Problems.`
+  String get bakReadFailed {
+    return Intl.message(
+      'The backups of this broker could not be read, so none is offered here. The error is in Problems.',
+      name: 'bakReadFailed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The backups of this broker are not read yet.`
+  String get bakNotReadYet {
+    return Intl.message(
+      'The backups of this broker are not read yet.',
+      name: 'bakNotReadYet',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Read again`
+  String get bakReadAgain {
+    return Intl.message('Read again', name: 'bakReadAgain', desc: '', args: []);
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<S> {

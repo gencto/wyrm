@@ -441,13 +441,34 @@ final class SysBackupRow extends Equatable {
   ];
 }
 
+/// What is known of the broker's backups, as the card *Backups* says it.
+enum SysBackupsState {
+  /// Read: the kept backups are listed.
+  read,
+
+  /// The attributes of `sys/backups` came in a form this Studio does not
+  /// read: no backup is offered, no list is drawn, and the card says why.
+  unreadable,
+
+  /// The read failed: nothing is known, no list is drawn, and the card
+  /// offers to read again.
+  failed;
+
+  /// Why no backup is offered, or null when the backups were read.
+  String? get said => switch (this) {
+    read => null,
+    unreadable => S.current.bakNotRead,
+    failed => S.current.bakReadFailed,
+  };
+}
+
 /// The card *Backups*: the days a backup is kept, the kept ones.
 final class SysBackupsData extends Equatable {
   const SysBackupsData({
     this.keepDays = 7,
     this.rows = const [],
     this.unread = const [],
-    this.unreadable = false,
+    this.state = SysBackupsState.read,
   });
 
   final int keepDays;
@@ -457,12 +478,11 @@ final class SysBackupsData extends Equatable {
   /// is a row that says so.
   final List<String> unread;
 
-  /// The attributes of `sys/backups` were not read: no backup is offered,
-  /// and the card says why.
-  final bool unreadable;
+  /// Whether the backups were read; else why not.
+  final SysBackupsState state;
 
   @override
-  List<Object?> get props => [keepDays, rows, unread, unreadable];
+  List<Object?> get props => [keepDays, rows, unread, state];
 }
 
 /// Where the broker's update of itself is, as the card *Broker version*

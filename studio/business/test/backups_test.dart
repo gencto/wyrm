@@ -39,6 +39,7 @@ import 'package:business/redux/login/actions/set_gateway_action.dart';
 import 'package:business/redux/login/actions/set_password_action.dart';
 import 'package:business/redux/login/actions/set_user_action.dart';
 import 'package:business/redux/session/actions/log_out_action.dart';
+import 'package:business/redux/site/actions/reload_shown_action.dart';
 import 'package:business/redux/site/actions/set_connected_action.dart';
 import 'package:business/redux/site/actions/view_site_action.dart';
 import 'package:business/redux/updates/actions/open_update_action.dart';
@@ -56,6 +57,7 @@ import 'package:models/backup_sealed.dart';
 import 'package:models/backup_section.dart';
 import 'package:models/backup_stage.dart';
 import 'package:models/backup_status.dart';
+import 'package:models/backups_read.dart';
 import 'package:models/error_hint.dart';
 import 'package:models/install_path.dart';
 import 'package:models/install_phase.dart';
@@ -124,6 +126,14 @@ Uint8List _linkBackup({String how = 'broker', String kind = 'link'}) {
       ),
     );
   return Uint8List.fromList(ZipEncoder().encode(a));
+}
+
+/// The selectors over a state.
+class _Sel with Selectors {
+  _Sel(this.state);
+
+  @override
+  final AppState state;
 }
 
 /// ADR 0048 §3: backups, the transfer in parts, restore, and Add a link ▸
@@ -343,6 +353,55 @@ void main() {
         expect(s.state.backups.view, isEmpty);
       },
     );
+
+    test('a read that fails is not "no sys/backups", and is read again '
+        '(audit 3 of #135, 8)', () async {
+      // before any read nothing is known of the broker
+      final fresh = fakeStore(login: FakeLogin());
+      expect(fresh.state.backups.availability, BackupsRead.unknown);
+
+      // a site whose first read fails
+      await s.dispatchAndWait(ViewSiteAction('plant'));
+      expect(s.state.backups.availability, BackupsRead.unknown);
+      const plant = 'wy/plant/sys/backups';
+      api.errors[plant] = WyrmException.of(Status.timeout, 'no answer');
+      final failed = await s.dispatchAndWait(RetrieveBackupsAction());
+      expect(failed.isCompletedFailed, isTrue);
+      expect(s.state.backups.availability, BackupsRead.failed);
+      expect(_Sel(s.state).backupsOffered, isFalse);
+
+      // the next read of what is shown asks again, and may be answered
+      api
+        ..errors.remove(plant)
+        ..metas[plant] = api.metas[_b]!
+        ..children_[plant] = [];
+      await s.dispatchAndWait(ReloadShownAction());
+      expect(s.state.backups.availability, BackupsRead.read);
+      expect(_Sel(s.state).backupsOffered, isTrue);
+
+      // a later read that fails keeps what was read
+      api.errors[plant] = WyrmException.of(Status.timeout, 'no answer');
+      await s.dispatchAndWait(RetrieveBackupsAction(quiet: true));
+      expect(s.state.backups.availability, BackupsRead.read);
+      expect(s.state.backups.sections, hasLength(8));
+
+      // and the broker that says it has none is the only "absent"
+      api.errors[plant] = WyrmException.of(Status.notFound, 'no such node');
+      await s.dispatchAndWait(RetrieveBackupsAction());
+      expect(s.state.backups.availability, BackupsRead.absent);
+    });
+
+    test('the dialogs open only for backups that were read and list a '
+        'section (audit 3 of #135, 7)', () async {
+      expect(_Sel(s.state).backupsOffered, isTrue);
+      api.metas[_b] = NodeMeta(
+        attr: {'keep_days': const VInt(7), 'sections': const VArray([])},
+      );
+      await s.dispatchAndWait(RetrieveBackupsAction());
+      expect(s.state.backups.availability, BackupsRead.read);
+      expect(s.state.backups.sections, isEmpty);
+      expect(_Sel(s.state).backupsOffered, isFalse);
+    });
 
     test('the values of a backup overlay its meta; times are ISO texts', () {
       final j = backupLiveOf(

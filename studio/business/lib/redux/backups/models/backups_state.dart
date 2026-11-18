@@ -49,7 +49,7 @@ abstract class BackupsState with _$BackupsState {
     String? result,
     @Default(IMapConst({})) IMap<String, String> saved,
     @Default(IListConst([])) IList<BackupSection> staged,
-    @Default(BackupsRead.absent) BackupsRead availability,
+    @Default(BackupsRead.unknown) BackupsRead availability,
     @Default(IListConst([])) IList<String> unread,
     @Default(false) bool applySent,
   }) = _BackupsState;

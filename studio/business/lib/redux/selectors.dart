@@ -1363,6 +1363,11 @@ extension SelectBrokerHealth on Selectors {
   /// replaces.
   bool get viaUpstream => site.viewed != site.name;
 
+  /// The broker's backups were read and it makes some: the backup
+  /// dialogs may open.
+  bool get backupsOffered =>
+      backups.availability == BackupsRead.read && backups.sections.isNotEmpty;
+
   /// What *Back up* sends for the form as it is ([backupFormPlanOf]);
   /// [passphraseLength] is the one thing only the dialog knows.
   BackupFormPlan backupFormPlan({required int passphraseLength}) =>
