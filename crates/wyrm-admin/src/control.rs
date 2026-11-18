@@ -3814,20 +3814,24 @@ impl Link for Admin {
             ([""], "enroll") => self.enroll(Enroll::decode(args)?).await,
             (["tokens"], "add") => self.add_token(AddToken::decode(args)?, &sub).await,
             (["tokens", id], "remove") => {
+                // the token first, as `main` answered (`no token …`)
+                if !self.ctl.registry().tokens.contains_key(*id) {
+                    return Err(LinkError::invalid_parameter(format!("no token {id}")));
+                }
                 <()>::decode(args)?;
                 self.remove_token(id, &sub).await
             }
             (["links"], "install_zip") => {
-                let a = InstallZip::decode(args)?;
                 let _busy = self.ctl.busy()?;
+                let a = InstallZip::decode(args)?;
                 let r = self
                     .install_package(&a.link.name, a.zip, "zip".into(), &sub, a.opts)
                     .await;
                 Ok(Some(outcome(r)))
             }
             (["links"], "install_wasm") => {
-                let a = InstallWasm::decode(args)?;
                 let _busy = self.ctl.busy()?;
+                let a = InstallWasm::decode(args)?;
                 let r = match packages::wrap_component(&a.link.name, &a.wasm) {
                     Ok(zip) => {
                         self.install_package(&a.link.name, zip, "wasm".into(), &sub, a.opts)
@@ -3838,8 +3842,8 @@ impl Link for Admin {
                 Ok(Some(outcome(r)))
             }
             (["links"], "install_url") => {
-                let a = InstallUrl::decode(args)?;
                 let _busy = self.ctl.busy()?;
+                let a = InstallUrl::decode(args)?;
                 let r = match crate::fetch::get(&a.url, packages::MAX_ZIP, FETCH_TIMEOUT).await {
                     Ok(zip) => {
                         let source = format!("url {}", a.url);
@@ -3851,8 +3855,8 @@ impl Link for Admin {
                 Ok(Some(outcome(r)))
             }
             (["links"], "install_git") => {
-                let a = InstallGit::decode(args)?;
                 let _busy = self.ctl.busy()?;
+                let a = InstallGit::decode(args)?;
                 let (url, git_ref) = (&a.url, &a.git_ref);
                 let root = self.ctl.packages_root();
                 // file:// only in the dev profile (tests, a local checkout)
@@ -3867,12 +3871,16 @@ impl Link for Admin {
                 Ok(Some(outcome(r)))
             }
             (["links"], "install_repo") => {
-                let a = InstallRepo::decode(args)?;
                 let _busy = self.ctl.busy()?;
+                let a = InstallRepo::decode(args)?;
                 Ok(Some(outcome(
                     self.install_from_repo(&a.link.name, &a.package, &sub, a.opts)
                         .await,
                 )))
+            }
+            // a package's actions: the package first, whatever the arguments are
+            (["packages", name], _) if self.package(name).is_err() => {
+                Err(LinkError::not_found((*name).to_owned()))
             }
             (["packages", name], "remove") => {
                 <()>::decode(args)?;
@@ -3893,6 +3901,11 @@ impl Link for Admin {
                     .await
             }
             (["links", id], "hello") => self.hello(id, Hello::decode(args)?).await,
+            // a link's actions: the link first, whatever the arguments are
+            // (`hello` answers for itself: an unknown id is a refused handshake)
+            (["links", id], _) if self.def(id).is_err() => {
+                Err(LinkError::not_found((*id).to_owned()))
+            }
             // a link that an operation holds (an update of its package with
             // its check, a rollback, a restore of the link) is that
             // operation's to stop and start (ADR 0048 §1.9): `busy` until it ends
@@ -3978,17 +3991,12 @@ impl Link for Admin {
                     .await
             }
             // the link must exist before its arguments are read
-            (["links", id], "set_secret") => {
-                self.def(id)?;
-                self.set_secret(id, SetSecret::decode(args)?, &sub)
-            }
+            (["links", id], "set_secret") => self.set_secret(id, SetSecret::decode(args)?, &sub),
             (["links", id], "delete_secret") => {
-                self.def(id)?;
                 self.delete_secret(id, DeleteSecret::decode(args)?, &sub)
             }
             (["links", id], "secrets") => {
                 <()>::decode(args)?;
-                self.def(id)?;
                 Ok(Some(self.secret_names(id)))
             }
             (["quarantine", node], "approve") => {
@@ -4014,8 +4022,14 @@ impl Link for Admin {
                 self.deauthorize(&a.link, &sub).await
             }
             (["quarantine", node], "reject") => {
-                <()>::decode(args)?;
                 let cn = self.quarantine_key(node);
+                // in quarantine first, as `main` answered
+                if !self.ctl.registry().quarantine.contains_key(&cn) {
+                    return Err(LinkError::invalid_parameter(format!(
+                        "{cn} is not in quarantine"
+                    )));
+                }
+                <()>::decode(args)?;
                 self.reject(&cn, &sub).await.map(|_| None)
             }
             (["profiles"], "put") => self
@@ -4047,6 +4061,7 @@ impl Link for Admin {
             }
             (["upstream"], "add") => self.add_upstream(AddUpstream::decode(args)?, &sub).await,
             (["upstream", site], "remove") => {
+                self.runtime_upstream(site)?;
                 <()>::decode(args)?;
                 self.remove_upstream(site, &sub).await
             }
@@ -4124,6 +4139,10 @@ impl Link for Admin {
             }
             (["backups", id], "send") => {
                 let _busy = self.ctl.busy()?;
+                // the backup first, whatever the arguments are
+                if self.ctl.backups().get(id).is_none() {
+                    return Err(LinkError::not_found(format!("backup {id}")));
+                }
                 let a = send::SendBackup::decode(args)?;
                 send::send(&self.ctl, &self.ctx, id, a, &sub).await
             }
@@ -4210,15 +4229,15 @@ impl Admin {
         let compiled = ctl.host.drivers().contains(&driver.as_str());
         // `pkg:<name>`: an installed package (ADR 0011); process packages
         // run as process links, never embedded.
-        let package =
-            match driver.strip_prefix(packages::DRIVER_PREFIX) {
-                Some(name) => {
-                    Some(ctl.registry().packages.get(name).cloned().ok_or_else(|| {
-                        LinkError::invalid_parameter(format!("no package {name}"))
-                    })?)
-                }
-                None => None,
-            };
+        let package = match driver.strip_prefix(packages::DRIVER_PREFIX) {
+            Some(name) => Some(ctl.registry().packages.get(name).cloned().ok_or_else(|| {
+                LinkError::invalid_parameter(format!(
+                    "no package {}",
+                    wyrm_core::named::shown(name)
+                ))
+            })?),
+            None => None,
+        };
         // process packages run as process links; wasm packages in the
         // broker's space (ADR 0011)
         let package_mode = |p: &PackageDef| match p.kind {
@@ -4256,7 +4275,8 @@ impl Admin {
         if mode != Mode::External && package.is_none() {
             if !compiled {
                 return Err(LinkError::invalid_parameter(format!(
-                    "driver {driver} is not compiled in"
+                    "driver {} is not compiled in",
+                    wyrm_core::named::shown(&driver)
                 )));
             }
             ctl.host.validate(&driver, &params)?;
@@ -5041,7 +5061,8 @@ impl Admin {
                     .ok_or_else(|| LinkError::not_supported("group: no user gateway"))?;
                 if !role_names(&self.ctl).iter().any(|r| r == role) {
                     return Err(LinkError::invalid_parameter(format!(
-                        "group: no role {role}"
+                        "group: no role {}",
+                        wyrm_core::named::shown(role)
                     )));
                 }
                 Some((roles, role.to_owned()))
@@ -5265,7 +5286,8 @@ impl Admin {
         Ok(())
     }
 
-    async fn remove_upstream(&self, site: &str, sub: &str) -> wyrm_link_sdk::Result<Option<Value>> {
+    /// `site` is an upstream added at runtime (one of `wyrmd.json5` is removed there).
+    fn runtime_upstream(&self, site: &str) -> wyrm_link_sdk::Result<()> {
         if !self
             .ctl
             .registry()
@@ -5277,6 +5299,11 @@ impl Admin {
                 "not a runtime upstream peer; peers from wyrmd.json5 are removed there",
             ));
         }
+        Ok(())
+    }
+
+    async fn remove_upstream(&self, site: &str, sub: &str) -> wyrm_link_sdk::Result<Option<Value>> {
+        self.runtime_upstream(site)?;
         self.ctl
             .apply(Op::RemovePeer(site.to_owned()))
             .map_err(rejected)?;

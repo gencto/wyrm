@@ -820,6 +820,10 @@ pub(crate) async fn invoke(
             Ok(None)
         }
         ([group], "add_watch_path") => {
+            // the group first, whatever the arguments are
+            if !ctl.registry().historian.groups.contains_key(*group) {
+                return Err(LinkError::not_found(format!("watch group {group}")));
+            }
             let a = AddWatchPath::decode(args)?;
             let key = watch_key(ctl, &a.path)?;
             let before: Vec<String> = ctl
@@ -911,8 +915,8 @@ pub(crate) async fn invoke(
             Ok(Some(deleted(n)))
         }
         ([group, id], "unsubscribe" | "unsubscribe_purge") => {
-            <()>::decode(args)?;
             let w = watch_def(ctl, group, id)?;
+            <()>::decode(args)?;
             ctl.apply(Op::RemoveWatch {
                 group: (*group).to_owned(),
                 id: (*id).to_owned(),

@@ -2095,10 +2095,12 @@ pub(super) async fn invoke(
             ]))))
         }
         ([id], "download_part") => {
-            // who may have the bytes first, whatever the arguments are
-            if let Some(job) = ctl.backups.get(id) {
-                may_download(&job, remote)?;
-            }
+            // the backup and who may have its bytes first, whatever the arguments are
+            let job = ctl
+                .backups
+                .get(id)
+                .ok_or_else(|| LinkError::not_found(format!("backup {id}")))?;
+            may_download(&job, remote)?;
             let a = DownloadPart::decode(args)?;
             let (offset, len) = (a.offset, a.len.unwrap_or(DEFAULT_PART));
             let (ctl2, id2) = (ctl.clone(), (*id).to_owned());
@@ -2124,6 +2126,9 @@ pub(super) async fn invoke(
             ]))))
         }
         ([id], "remove") => {
+            if ctl.backups.get(id).is_none() {
+                return Err(LinkError::not_found(format!("backup {id}")));
+            }
             <()>::decode(args)?;
             match ctl.backups.get(id) {
                 None => return Err(LinkError::not_found(format!("backup {id}"))),

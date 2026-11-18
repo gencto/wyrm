@@ -499,16 +499,18 @@ async fn an_upstream_callers_rollback_is_denied_before_its_arguments_are_read() 
     h.stop().await;
 }
 
-/// Second audit of #136: a state check that came before the arguments on `main`
-/// comes before them again. Each call names something that does not exist and
-/// carries an argument only the action's struct refuses (a fraction, a name of
-/// no set, a text of white space): the answer is `not_found`.
+/// Second and third audits of #136: every action on a node says what is wrong
+/// with the node before it reads the arguments. Each action of the snapshot whose
+/// path names a node (a link, a package, a token, an upstream, a quarantined CN,
+/// a backup, a watch group or watch, a sink) is called on a node that does not
+/// exist, once with no arguments and once with an argument that is no parameter.
+/// Both answers are the same refusal (the node's), and neither is about the
+/// argument.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn what_does_not_exist_is_said_before_the_arguments_are_read() {
     let ctl = control_tweaked("order-state", |_| {});
     state(&ctl);
     let h = harness(ctl.clone()).await;
-    // the nodes are declared for what exists; the handler is asked about what does not
     let mut admin = Admin {
         ctx: h.ctx().clone(),
         ctl,
@@ -521,73 +523,56 @@ async fn what_does_not_exist_is_said_before_the_arguments_are_read() {
         claims: None,
         signer: None,
     };
-    let frac = Value::Float(0.5);
-    for (path, action, bad) in [
-        (
-            "links/gone",
-            "backup",
-            args(&[("history_days", frac.clone())]),
-        ),
-        ("links/gone", "set_secret", args(&[("nope", frac.clone())])),
-        (
-            "links/gone",
-            "delete_secret",
-            args(&[("nope", frac.clone())]),
-        ),
-        (
-            "packages/gone",
-            "update",
-            args(&[("auto_rollback_s", frac.clone())]),
-        ),
-        ("packages/gone", "rollback", args(&[("nope", frac.clone())])),
-        (
-            "quarantine/gone",
-            "approve",
-            args(&[("nope", frac.clone())]),
-        ),
-        (
-            "history/gone",
-            "edit",
-            args(&[("logging_type", "Never".into())]),
-        ),
-        ("history/gone", "remove", args(&[("nope", frac.clone())])),
-        (
-            "history/g/gone",
-            "get_history",
-            args(&[("limit", frac.clone())]),
-        ),
-        (
-            "history/g/gone",
-            "purge",
-            args(&[("timerange", "  ".into())]),
-        ),
-        (
-            "history/sinks/gone",
-            "edit",
-            args(&[("nope", frac.clone())]),
-        ),
-        (
-            "history/sinks/gone",
-            "reset_cursor",
-            args(&[("to", "later".into())]),
-        ),
-    ] {
-        let e = admin
-            .on_invoke(
-                path,
-                action,
-                bad,
-                &who,
-                wyrm_link_sdk::harness::unread_sink(),
-            )
-            .await
-            .unwrap_err();
-        assert_eq!(
-            e.status,
-            Status::NotFound,
-            "{path} ▸ {action}: {}",
-            e.message
-        );
+    // the node of each path of the full broker, as a node that does not exist
+    let gone = |path: &str| -> Option<String> {
+        let segs: Vec<&str> = path.split('/').collect();
+        Some(match segs.as_slice() {
+            ["links", _] => "links/gone".into(),
+            ["packages", _] => "packages/gone".into(),
+            ["tokens", _] => "tokens/gone".into(),
+            ["upstream", _] => "upstream/gone".into(),
+            ["quarantine", _] => "quarantine/gone".into(),
+            ["backups", "<id>"] => "backups/gone".into(),
+            ["history", "sinks"] => return None,
+            ["history", "sinks", _] => "history/sinks/gone".into(),
+            ["history", g, _] => format!("history/{g}/gone"),
+            ["history", _] => "history/gone".into(),
+            _ => return None,
+        })
+    };
+    let snapshot = std::fs::read_to_string(SNAPSHOT).unwrap();
+    let mut calls = std::collections::BTreeSet::new();
+    for line in snapshot.lines().filter_map(|l| l.strip_prefix("[full] ")) {
+        let Some((path, rest)) = line.split_once(" ▸ ") else {
+            continue;
+        };
+        let action = rest.split(' ').next().unwrap_or_default();
+        if action == "hello" {
+            // a handshake answers for itself: an unknown id is a refused token
+            continue;
+        }
+        if let Some(p) = gone(path) {
+            calls.insert((p, action.to_owned()));
+        }
+    }
+    // every node action of the snapshot but `hello`: a new one is one more call
+    assert_eq!(calls.len(), 33, "{calls:?}");
+    for (path, action) in &calls {
+        let mut answers = Vec::new();
+        for a in [args(&[]), args(&[("zz", Value::UInt(1))])] {
+            let e = admin
+                .on_invoke(path, action, a, &who, wyrm_link_sdk::harness::unread_sink())
+                .await
+                .map(|_| ())
+                .unwrap_err();
+            assert!(
+                !e.message.contains("zz"),
+                "{path} ▸ {action}: {}",
+                e.message
+            );
+            answers.push((e.status, e.message));
+        }
+        assert_eq!(answers[0], answers[1], "{path} ▸ {action}");
     }
     h.stop().await;
 }

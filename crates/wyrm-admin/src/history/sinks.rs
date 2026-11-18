@@ -399,8 +399,8 @@ pub(super) async fn invoke(
             Ok(None)
         }
         ([name], "remove") => {
-            <()>::decode(args)?;
             sink_def(ctl, name)?;
+            <()>::decode(args)?;
             ctl.apply(Op::RemoveSink((*name).to_owned()))
                 .map_err(rejected)?;
             set_cursor(&st, name, None).await?;
