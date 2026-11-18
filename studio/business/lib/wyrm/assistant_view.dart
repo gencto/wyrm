@@ -180,6 +180,90 @@ final class PlanChecks extends Equatable {
   List<Object?> get props => [now, atRun];
 }
 
+/// One tool the model called for a task, and how often.
+final class ToolReads extends Equatable {
+  const ToolReads(this.tool, this.times);
+
+  final String tool;
+  final int times;
+
+  @override
+  List<Object?> get props => [tool, times];
+}
+
+/// The line under a plan's title: where the plan stands.
+sealed class PlanLine {
+  const PlanLine();
+}
+
+/// Another task ([by]) took its place.
+final class PlanLineReplaced extends PlanLine {
+  const PlanLineReplaced(this.by);
+
+  final String by;
+}
+
+/// It waits: how far its steps were checked.
+final class PlanLineChecked extends PlanLine {
+  const PlanLineChecked(this.checks);
+
+  final PlanChecks checks;
+}
+
+/// It was approved: the record's own line ([by]).
+final class PlanLineApproved extends PlanLine {
+  const PlanLineApproved(this.by);
+
+  final String by;
+}
+
+/// Neither: the task's state says it.
+final class PlanLineState extends PlanLine {
+  const PlanLineState();
+}
+
+/// What the ask box invites to.
+enum ComposerCue {
+  ask,
+  answer,
+  planning,
+  awaiting,
+  running,
+  done,
+  failed,
+  drawer,
+}
+
+/// The ask box for the task on screen (spec `assistant.md` §4).
+final class ComposerState {
+  const ComposerState({
+    required this.cue,
+    required this.answering,
+    required this.node,
+    required this.replaces,
+  });
+
+  final ComposerCue cue;
+
+  /// The box answers the assistant's question.
+  final bool answering;
+
+  /// The node of the step a run stopped at; empty with none.
+  final String node;
+
+  /// Sending replaces the plan that waits.
+  final bool replaces;
+}
+
+/// Why the drawer's timeline shows no audit records.
+enum AuditGap {
+  /// The user may not read the site's audit.
+  needsConfig,
+
+  /// It was read, and there are none.
+  none,
+}
+
 /// A ticked row of *Same for more units?*: the suggestion it belongs to
 /// and the node's key.
 final class RowPick extends Equatable {

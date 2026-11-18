@@ -3,7 +3,6 @@ import 'package:business/redux/app_state.dart';
 import 'package:business/wyrm/approval.dart';
 import 'package:business/wyrm/assistant_view.dart';
 import 'package:business/wyrm/explorer.dart' show ExplorerTrend;
-import 'package:business/wyrm/mappers/agent_task_mapper.dart';
 import 'package:business/wyrm/mappers/value_text.dart';
 import 'package:business/wyrm/task_facts.dart';
 import 'package:equatable/equatable.dart';
@@ -28,6 +27,7 @@ import 'package:ui/assistant/task_card.dart';
 import 'package:ui/assistant/task_list.dart';
 import 'package:ui/charts/trend.dart';
 import 'package:ui/pages/assistant_page.dart';
+import 'package:ui/theme/sizes.dart';
 
 import '../common/trend.dart';
 import 'assistant_mappers.dart';
@@ -237,7 +237,7 @@ AssistantShown _shownOf(_Read r, {required bool drawer}) {
             owner: t.owner,
             events: r.sessionOf(t).length,
           ),
-    reads: rights || t == null ? const IListConst([]) : r.readsOf(t).lock,
+    reads: [for (final x in r.shownReads) ReadRow(x.tool, x.times)].lock,
     rights: rights ? _rights(r) : null,
   );
 }
@@ -265,18 +265,14 @@ IList<TaskSectionVm> _sections(_Read r) {
 PlanCardVm _plan(_Read r, AgentTask t, List<StepChoice>? choices) {
   final waits = t.waitsForApproval;
   return PlanCardVm(
-    line: switch (t.replacedBy) {
-      final next? => PlanReplaced(next),
-      null when t.state == .awaitingApproval => switch (planChecks(t.plan)) {
-        PlanChecks(:final now, :final atRun) => PlanChecked(
-          now: now,
-          atRun: atRun,
-        ),
-      },
-      null => switch (t.approvedBy) {
-        final line? => PlanApproved(line),
-        null => PlanState(t.state.badge),
-      },
+    line: switch (r.planLineOf(t)) {
+      PlanLineReplaced(:final by) => PlanReplaced(by),
+      PlanLineChecked(:final checks) => PlanChecked(
+        now: checks.now,
+        atRun: checks.atRun,
+      ),
+      PlanLineApproved(:final by) => PlanApproved(by),
+      PlanLineState() => PlanState(t.state.badge),
     },
     badge: t.state.badge,
     // a plan that waits is read whole; after that its run tells the story
@@ -307,12 +303,12 @@ PlanCardVm _plan(_Read r, AgentTask t, List<StepChoice>? choices) {
 /// What the assistant asked: an answered question as one line, an open
 /// one with its options and the picks made so far.
 ChoicesCardVm _choices(_Read r, AgentTask t) {
-  final open = t.state == .awaitingAnswer;
+  final open = r.answersOpen(t);
   return ChoicesCardVm(
     questions: [
       for (final q in t.questions) q.view(r.picksOf(t.id, q.id), open: open),
     ],
-    confirm: open && t.asksStill,
+    confirm: r.confirmsAnswer(t),
     blocked: r.answerHold(t)?.blocked,
   );
 }
@@ -336,27 +332,25 @@ ResultCardVm? _result(_Read r, AgentTask t) {
 
 /// *Same for more units?* of a task that is done: the suggestions with
 /// rows, each row tickable, none ticked at first.
-IList<MoreRowsCardVm> _more(_Read r, AgentTask t) => t.state != .done
-    ? const IListConst([])
-    : [
-        for (final s in t.withRows)
-          MoreRowsCardVm(
-            id: s.id,
-            title: s.label,
-            detail: s.detail,
-            rows: [
-              for (final row in s.rows)
-                MoreRowVm(
-                  key: row.key,
-                  label: row.label,
-                  detail: row.detail,
-                  ticked: r.rowPicksOf(t.id, s.id).contains(row.key),
-                ),
-            ],
-            blocked: r.moreHold(t, s)?.blocked,
-            unattended: r.unattendedVm,
+IList<MoreRowsCardVm> _more(_Read r, AgentTask t) => [
+  for (final s in r.moreOf(t))
+    MoreRowsCardVm(
+      id: s.id,
+      title: s.label,
+      detail: s.detail,
+      rows: [
+        for (final row in s.rows)
+          MoreRowVm(
+            key: row.key,
+            label: row.label,
+            detail: row.detail,
+            ticked: r.rowPicksOf(t.id, s.id).contains(row.key),
           ),
-      ].lock;
+      ],
+      blocked: r.moreHold(t, s)?.blocked,
+      unattended: r.unattendedVm,
+    ),
+].lock;
 
 /// Where a run stopped, what the model read about it, and its ways out.
 StoppedCardVm? _stopped(_Read r, AgentTask t) => switch (t.stoppedAt) {
@@ -376,18 +370,16 @@ StoppedCardVm? _stopped(_Read r, AgentTask t) => switch (t.stoppedAt) {
 
 /// The ask box for the task on screen (spec `assistant.md` §4).
 ComposerVm _composer(_Read r, AgentTask? t, {required bool drawer}) {
-  final answering = t?.state == .awaitingAnswer;
+  final c = r.composerOf(t, drawer: drawer);
   return ComposerVm(
     draft: r.assistant.draft ?? '',
-    hint: drawer && !answering
-        ? .drawer
-        : (t?.hint(follows: r.askParent(t) != null) ?? .ask),
-    node: t?.failedStep?.key ?? '',
-    answering: answering,
+    hint: c.cue.hint,
+    node: c.node,
+    answering: c.answering,
     blocked: r.askHold?.blocked,
     chips: r.assistant.chips.toList(),
     chipBlocked: r.chipHold?.blocked,
-    replaces: !drawer && t != null && r.replacesPlan(t),
+    replaces: c.replaces,
     dense: drawer,
   );
 }
@@ -442,11 +434,11 @@ FoundCardVm? _found(_Read r, AgentTask? t) {
     range: r.nodes.historyRange.code,
     timeline: timeline?.timelineVm,
     audit: [for (final a in audit ?? const IListConst<AuditEntry>([])) a.line],
-    auditNote: !r.site.readsAudit
-        ? .needsConfig
-        : audit != null && audit.isEmpty
-        ? .none
-        : null,
+    auditNote: switch (r.timelineAuditGap) {
+      AuditGap.needsConfig => .needsConfig,
+      AuditGap.none => .none,
+      null => null,
+    },
   );
 }
 
@@ -479,7 +471,7 @@ extension on ExplorerTrend {
     legend: false,
     hint: false,
     brush: false,
-    plotHeight: 64,
+    plotHeight: AppSizes.timelinePlot,
     format: trendFormat(),
   );
 }

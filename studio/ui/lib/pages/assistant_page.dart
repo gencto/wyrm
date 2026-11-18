@@ -29,7 +29,15 @@ import '../theme/typography.dart';
 export '../assistant/task_card.dart' show TaskButton, TaskButtonVm, TaskCardVm;
 
 /// One tool of WHAT IT READ and how many times the model called it.
-typedef ReadRow = (String tool, int times);
+final class ReadRow extends Equatable {
+  const ReadRow(this.tool, this.times);
+
+  final String tool;
+  final int times;
+
+  @override
+  List<Object?> get props => [tool, times];
+}
 
 /// A row of *Same for more units?*: the suggestion it belongs to and the
 /// node's key.
@@ -379,7 +387,7 @@ class AssistantPage extends StatelessWidget {
                   const SizedBox(height: 20),
                   SectionLabel(S.current.whatItRead),
                   Gaps.sm,
-                  for (final (tool, times) in reads)
+                  for (final ReadRow(:tool, :times) in reads)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 6),
                       child: Row(

@@ -118,10 +118,7 @@ class _Factory extends VmFactory<AppState, LinkInstallPageConnector, _Vm>
         categories: [for (final c in installCategories) c.ui],
         category: li.category?.ui,
         query: li.query,
-        cards: [
-          for (final c in installShownCatalog)
-            c.card(selected: c.id == li.item),
-        ],
+        cards: catalogCards(installShownCatalog, li.query, li.item),
         method: li.method.ui,
         file: installFileName,
         url: installUrl,

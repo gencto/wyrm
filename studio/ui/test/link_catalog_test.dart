@@ -206,14 +206,10 @@ void main() {
       expect(known.name, 'Alarms (process)');
       expect(known.summary, 'Alarm classes, records and acknowledgement');
       expect(category.label, 'History sync');
-      expect(known.matches('acknowledge'), isTrue);
-      expect(known.matches('alarm'), isTrue);
-      expect(known.matches('modbus'), isFalse);
       await S.load(const Locale('uk'));
       addTearDown(() => S.load(const Locale('en')));
       expect(known.name, 'Тривоги (процес)');
       expect(category.label, 'Синхронізація історії');
-      expect(known.matches('підтвердж'), isTrue);
       // what a broker says is shown as it came
       const said = CatalogCardVm(
         id: 'driver:modbus',
@@ -229,7 +225,7 @@ void main() {
     },
   );
 
-  testWidgets('the words searched for leave the cards that read them', (
+  testWidgets('the page draws the cards it is given: it filters none', (
     tester,
   ) async {
     const vm = LinkInstallVm(
@@ -239,6 +235,7 @@ void main() {
       step: InstallStepKey.choose,
       broker: 'plant',
       mode: LinkRunMode.embedded,
+      // the words are shown in the box; what they leave was decided before
       query: 'siemens',
       cards: [
         CatalogCardVm(
@@ -260,10 +257,9 @@ void main() {
         ),
       ],
     );
-    expect([for (final c in vm.shownCards) c.id], ['driver:s7']);
     await tester.pumpWidget(frame(LinkInstallPage(vm: vm, onClose: () {})));
     await tester.pump();
     expect(find.byKey(const ValueKey('card:driver:s7')), findsOneWidget);
-    expect(find.byKey(const ValueKey('card:driver:mqtt')), findsNothing);
+    expect(find.byKey(const ValueKey('card:driver:mqtt')), findsOneWidget);
   });
 }

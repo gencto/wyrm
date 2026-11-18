@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:async_redux/async_redux.dart';
 import 'package:business/redux/app_state.dart';
-import 'package:business/redux/problems/actions/add_problem_action.dart';
+import 'package:business/redux/problems/actions/report_problem_action.dart';
 import 'package:business/redux/problems/actions/show_notice_action.dart';
 import 'package:business/wyrm/failures.dart';
 import 'package:flutter/foundation.dart';
@@ -79,27 +79,30 @@ void installFaultHooks(Store<AppState> store, {bool cardInDebug = false}) {
   String? last;
   var lastAt = DateTime.fromMillisecondsSinceEpoch(0);
 
-  void report(Object error, StackTrace? stack, {String? library}) {
+  /// Whether [error] is taken now: not the fault taken less than two
+  /// seconds ago.
+  bool fresh(Object error) {
     final line = faultLine(error);
     final now = DateTime.now();
     if (line == last && now.difference(lastAt) < const Duration(seconds: 2)) {
-      return;
+      return false;
     }
     last = line;
     lastAt = now;
-    debugPrint('uncaught: ${faultLine(error)}');
-    // After the frame: a fault raised while building must not dispatch
-    // into a tree that is being built.
-    scheduleMicrotask(() {
-      try {
-        store.dispatchSync(
-          AddProblemAction(uncaughtFault(error, stack, library: library)),
-        );
-      } on Object catch (e) {
-        debugPrint('the fault could not be added to Problems: $e');
-      }
-    });
+    debugPrint('uncaught: $line');
+    return true;
   }
+
+  // A fault raised while building must not change the state of a tree that
+  // is being built: the report's reducer is asynchronous (and says in the
+  // log when it cannot add the fault). A fault handler waits for nothing:
+  // it dispatches and returns.
+  void report(Object error, StackTrace? stack, {String? library}) =>
+      fresh(error)
+      ? store.dispatch(
+          ReportProblemAction(uncaughtFault(error, stack, library: library)),
+        )
+      : null;
 
   final presentError = FlutterError.onError;
   FlutterError.onError = (details) {

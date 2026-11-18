@@ -23,6 +23,7 @@ import 'package:models/plan_step.dart';
 import 'package:models/step_kind.dart';
 import 'package:models/step_result.dart';
 import 'package:models/step_status.dart';
+import 'package:models/task_row.dart';
 import 'package:models/task_state.dart';
 import 'package:models/task_suggestion.dart';
 import 'package:wyrm_client/wyrm_client.dart' show Perm;
@@ -159,6 +160,80 @@ void main() {
       read().secondOf(const AgentTask(id: 't', state: TaskState.done)),
       isNull,
     );
+  });
+
+  test('the line under a plan: replaced, checked while it waits, approved, '
+      'else its state', () {
+    final waits = AgentTask(
+      id: 't',
+      state: TaskState.awaitingApproval,
+      plan: [step(1)].lock,
+    );
+    expect(
+      (read().planLineOf(waits) as PlanLineChecked).checks,
+      const PlanChecks(now: 1, atRun: 0),
+    );
+    expect(
+      (read().planLineOf(
+        waits.copyWith(replacedBy: 't-2'),
+      ) as PlanLineReplaced).by,
+      't-2',
+    );
+    const done = AgentTask(id: 't', state: TaskState.done);
+    expect(
+      (read().planLineOf(
+        done.copyWith(approvedBy: 'by olena'),
+      ) as PlanLineApproved).by,
+      'by olena',
+    );
+    expect(read().planLineOf(done), isA<PlanLineState>());
+  });
+
+  test('the ask box: what it invites to, for the tab and for the drawer', () {
+    ComposerCue cue(TaskState state, {bool drawer = false}) => read()
+        .composerOf(
+          AgentTask(id: 't', state: state),
+          drawer: drawer,
+        )
+        .cue;
+    expect(read().composerOf(null, drawer: false).cue, ComposerCue.ask);
+    expect(cue(TaskState.planning), ComposerCue.planning);
+    expect(cue(TaskState.running), ComposerCue.running);
+    expect(cue(TaskState.done), ComposerCue.done);
+    expect(cue(TaskState.failed), ComposerCue.failed);
+    expect(cue(TaskState.awaitingAnswer), ComposerCue.answer);
+    // the drawer has its own invitation, but a question is answered there
+    expect(cue(TaskState.done, drawer: true), ComposerCue.drawer);
+    expect(cue(TaskState.awaitingAnswer, drawer: true), ComposerCue.answer);
+    const asked = AgentTask(id: 't', state: TaskState.awaitingAnswer);
+    expect(read().composerOf(asked, drawer: false).answering, isTrue);
+    expect(read().answersOpen(asked), isTrue);
+    // nothing asked: nothing to confirm
+    expect(read().confirmsAnswer(asked), isFalse);
+    final stopped = AgentTask(
+      id: 't',
+      state: TaskState.failed,
+      plan: [step(1, status: StepStatus.failed)].lock,
+    );
+    expect(read().composerOf(stopped, drawer: false).node, sp);
+    expect(
+      read().composerOf(stopped.copyWith(replacedBy: 'x'), drawer: false).cue,
+      ComposerCue.done,
+    );
+  });
+
+  test('more units are offered once the task is done', () {
+    final rows = [
+      TaskSuggestion(
+        id: 's',
+        label: 'Same for',
+        rows: [const TaskRow(key: 'k', label: 'ahu3')].lock,
+      ),
+    ].lock;
+    AgentTask task(TaskState state) =>
+        AgentTask(id: 't', state: state, suggestions: rows);
+    expect(read().moreOf(task(TaskState.done)), hasLength(1));
+    expect(read().moreOf(task(TaskState.running)), isEmpty);
   });
 
   group('what a view of the Assistant is made of', () {

@@ -438,7 +438,7 @@ class _Center extends StatelessWidget {
           spacing: 12,
           runSpacing: 12,
           children: [
-            for (final card in vm.shownCards)
+            for (final card in vm.cards)
               SizedBox(
                 width: w,
                 child: CatalogCard(

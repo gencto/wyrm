@@ -102,6 +102,12 @@ abstract final class AppSizes {
   /// The plot of System's *Router traffic* (board `System`).
   static const double trafficPlot = 120;
 
+  /// The plot of a point's trend in Explorer's History tab.
+  static const double pointPlot = 180;
+
+  /// The plot of the Assistant drawer's mini timeline.
+  static const double timelinePlot = 64;
+
   // The flow editor (studio/docs/design/specs/flow-editor.md).
 
   /// The flow editor's top bar, at its least.

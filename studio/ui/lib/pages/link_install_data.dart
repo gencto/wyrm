@@ -371,17 +371,10 @@ final class LinkInstallVm extends Equatable {
   final List<CatalogCategoryVm> categories;
   final CatalogCategoryVm? category;
   final String? query;
-  final List<CatalogCardVm> cards;
 
-  /// The cards the words searched for leave: matched against what each
-  /// card reads, in the language on screen.
-  List<CatalogCardVm> get shownCards => switch (query) {
-    final q? when q.isNotEmpty => [
-      for (final c in cards)
-        if (c.matches(q)) c,
-    ],
-    _ => cards,
-  };
+  /// The cards of the category on screen that the words searched for
+  /// leave (filtered before they come here).
+  final List<CatalogCardVm> cards;
 
   /// Bring: the method, the picked file's name, the URL and ref, the field
   /// the broker refused and its words.

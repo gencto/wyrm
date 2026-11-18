@@ -328,14 +328,16 @@ extension AssistantScreen on Selectors {
   }
 
   /// What the model read in this session, by tool, with how often.
-  List<(String, int)> readsOf(AgentTask t) {
+  List<ToolReads> readsOf(AgentTask t) {
     final reads = <String, int>{};
     for (final e in sessionOf(t)) {
       if (e.kind == TaskEventKind.tool) {
         reads[e.text] = (reads[e.text] ?? 0) + 1;
       }
     }
-    return [for (final MapEntry(:key, :value) in reads.entries) (key, value)];
+    return [
+      for (final MapEntry(:key, :value) in reads.entries) ToolReads(key, value),
+    ];
   }
 
   /// The ticks of the plan of [t]: only for a plan that waits, that no
@@ -669,6 +671,69 @@ extension AssistantView on Selectors {
     }
   }
 
+  /// The line under the plan of [t]: replaced, checked while it waits,
+  /// approved, else its state.
+  PlanLine planLineOf(AgentTask t) => switch (t.replacedBy) {
+    final next? => PlanLineReplaced(next),
+    null when t.state == TaskState.awaitingApproval => PlanLineChecked(
+      planChecks(t.plan),
+    ),
+    null => switch (t.approvedBy) {
+      final by? => PlanLineApproved(by),
+      null => const PlanLineState(),
+    },
+  };
+
+  /// The questions of [t] are open: the assistant waits for the answer.
+  bool answersOpen(AgentTask t) => t.state == TaskState.awaitingAnswer;
+
+  /// *Write the plan* is offered for [t]: its questions are open and one
+  /// of them is not answered yet.
+  bool confirmsAnswer(AgentTask t) => answersOpen(t) && t.asksStill;
+
+  /// The suggestions of [t] with rows (*Same for more units?*): offered
+  /// once the task is done.
+  List<TaskSuggestion> moreOf(AgentTask t) =>
+      t.state == TaskState.done ? t.withRows : const [];
+
+  /// The ask box for the task [t] on screen, as the tab or the [drawer].
+  ComposerState composerOf(AgentTask? t, {required bool drawer}) {
+    final answering = t != null && answersOpen(t);
+    return ComposerState(
+      cue: drawer && !answering
+          ? ComposerCue.drawer
+          : switch (t?.state) {
+              null => ComposerCue.ask,
+              TaskState.awaitingAnswer => ComposerCue.answer,
+              TaskState.planning => ComposerCue.planning,
+              TaskState.awaitingApproval =>
+                askParent(t) != null ? ComposerCue.awaiting : ComposerCue.ask,
+              TaskState.running => ComposerCue.running,
+              TaskState.done => ComposerCue.done,
+              TaskState.failed =>
+                t?.replacedBy == null ? ComposerCue.failed : ComposerCue.done,
+            },
+      answering: answering,
+      node: t?.failedStep?.key ?? '',
+      replaces: !drawer && t != null && replacesPlan(t),
+    );
+  }
+
+  /// What the model read for the task on screen, shown on *This task*;
+  /// nothing on *What it may do* or with no task.
+  List<ToolReads> get shownReads => switch (shownTask) {
+    final t? when assistant.panel != AssistantPanel.rights => readsOf(t),
+    _ => const [],
+  };
+
+  /// Why the drawer's timeline shows no audit records; null when it shows
+  /// them, or while they are not read yet.
+  AuditGap? get timelineAuditGap => !site.readsAudit
+      ? AuditGap.needsConfig
+      : (timelineAuditRead?.isEmpty ?? false)
+      ? AuditGap.none
+      : null;
+
   /// The drawer's second button for [t]: while its plan waits a draft,
   /// after a done task a follow-up; null otherwise, and when another task
   /// replaced it or the model offered none.
@@ -946,8 +1011,10 @@ extension LinkInstallScreen on Selectors {
       'wy/$installBroker/downstream/${linkInstall.name ?? ''}';
 
   /// The official list of the category on screen. The words searched for
-  /// are matched by the page against the titles and lines it draws (a
-  /// known driver's are `ui`'s words, in the language on screen).
+  /// are matched by `catalogHit` (`wyrm/search.dart`) against what the
+  /// broker says of an item and what its card reads on screen; the app's
+  /// mapper hands in what the card reads (a known driver's title and line
+  /// are `ui`'s words, in the language on screen).
   List<CatalogItem> get installShownCatalog {
     final category = linkInstall.category;
     return [

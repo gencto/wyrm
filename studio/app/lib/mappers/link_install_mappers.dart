@@ -1,4 +1,5 @@
 import 'package:business/wyrm/catalog.dart';
+import 'package:business/wyrm/search.dart';
 import 'package:models/catalog_category.dart';
 import 'package:models/catalog_item.dart';
 import 'package:models/install_block.dart';
@@ -266,3 +267,19 @@ extension InstallBrokerUi on InstallBroker {
     refused: refused?.disabled,
   );
 }
+
+/// The cards of [items] that the words searched for ([query]) leave; the
+/// one picked ([picked]) is marked. A card is matched by what the broker
+/// says of its item and by what it reads on screen (its title and line as
+/// `ui` words them, in the language shown): the rule is `business`'s
+/// ([catalogHit]), the words are the card's.
+List<CatalogCardVm> catalogCards(
+  Iterable<CatalogItem> items,
+  String? query,
+  String? picked,
+) => [
+  for (final item in items)
+    if (item.card(selected: item.id == picked) case final card
+        when catalogHit(item, query, [card.name, card.summary]))
+      card,
+];

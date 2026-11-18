@@ -31,7 +31,6 @@ import 'package:business/redux/nodes/actions/toggle_node_action.dart';
 import 'package:business/redux/nodes/actions/zoom_history_action.dart';
 import 'package:business/redux/panels/actions/set_panel_width_action.dart';
 import 'package:business/wyrm/explorer.dart' show explorerPolls;
-import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:ui/models/panels.dart';
 import 'package:ui/models/submit.dart';
@@ -64,7 +63,7 @@ class ExplorerPageConnector extends StatelessWidget {
     // The keys on screen changed (another node, a viewer): watched again,
     // in one action that does nothing while the tab is hidden.
     onWillChange: (_, store, before, now) {
-      if (!_sameKeys(before.shown.watch, now.shown.watch)) {
+      if (before.shown.watch != now.shown.watch) {
         store.dispatchSync(RewatchExplorerAction());
       }
     },
@@ -153,9 +152,6 @@ class ExplorerPageConnector extends StatelessWidget {
       ),
     ),
   );
-
-  static bool _sameKeys(IList<String> a, IList<String> b) =>
-      a.length == b.length && a.every(b.contains);
 }
 
 /// Factory that creates a view-model for the StoreConnector.

@@ -33,7 +33,7 @@ final class CatalogCardVm extends Equatable {
   final String id;
   final String tag;
 
-  /// The driver or package name the broker knows; the search matches it.
+  /// The driver or package name the broker knows.
   final String code;
 
   /// Its title: the broker's, or Studio's words for a driver it knows.
@@ -51,10 +51,6 @@ final class CatalogCardVm extends Equatable {
   /// The one line as the card reads.
   String get summary =>
       description.isNotEmpty ? description : (described?.summary ?? '');
-
-  /// The words searched for are in what the card reads or in its code.
-  bool matches(String query) =>
-      '$name $code $summary'.toLowerCase().contains(query.toLowerCase());
 
   /// Built into wyrmd; else a package of the repository.
   final bool builtIn;

@@ -362,10 +362,10 @@ void main() {
     });
 
     test('at most 200 are kept', () {
-      for (var i = 0; i < AddProblemAction.limit + 20; i++) {
+      for (var i = 0; i < problemLimit + 20; i++) {
         s.dispatchSync(AddProblemAction(err('wy/central/k$i')));
       }
-      expect(s.state.problems.items.length, AddProblemAction.limit);
+      expect(s.state.problems.items.length, problemLimit);
       expect(s.state.problems.items.first.key, 'wy/central/k219');
     });
 

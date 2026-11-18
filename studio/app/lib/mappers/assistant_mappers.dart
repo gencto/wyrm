@@ -47,6 +47,19 @@ import 'rights_mappers.dart';
 // parts. What is computed from state is a selector in `business`
 // (`AssistantScreen`); what is computed from one task is `TaskFacts`.
 
+extension ComposerCueHint on ComposerCue {
+  ComposerHint get hint => switch (this) {
+    ComposerCue.ask => .ask,
+    ComposerCue.answer => .answer,
+    ComposerCue.planning => .planning,
+    ComposerCue.awaiting => .awaiting,
+    ComposerCue.running => .running,
+    ComposerCue.done => .done,
+    ComposerCue.failed => .failed,
+    ComposerCue.drawer => .drawer,
+  };
+}
+
 extension TaskStateBadge on TaskState {
   TaskBadge get badge => switch (this) {
     TaskState.planning => .planning,
@@ -271,18 +284,6 @@ extension AgentTaskItem on AgentTask {
     noChanges: recorded && state == TaskState.done && plan.isEmpty,
     selected: selected,
   );
-
-  /// The composer's hint for this task; [follows]: a message follows it.
-  ComposerHint hint({required bool follows}) => switch (state) {
-    TaskState.awaitingAnswer => .answer,
-    TaskState.planning => .planning,
-    TaskState.awaitingApproval when follows => .awaiting,
-    TaskState.awaitingApproval => .ask,
-    TaskState.running => .running,
-    TaskState.done => .done,
-    TaskState.failed when replacedBy == null => .failed,
-    TaskState.failed => .done,
-  };
 
   /// The run of the plan: one row per step with what the record says of
   /// it; null before a run (a plan that waits, a rejected one).
