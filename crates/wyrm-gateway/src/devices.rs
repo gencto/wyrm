@@ -812,7 +812,7 @@ impl Gateway {
         }
         let mut raw = [0u8; 16];
         crate::rng::fill(&mut raw)?;
-        let id = wyrm_core::hex::encode(&raw);
+        let id = wyrm_core::hex::encode(raw);
         {
             let mut store = self.store();
             let db = store.state();

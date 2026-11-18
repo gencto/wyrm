@@ -181,8 +181,6 @@ pub fn decode_token(b64: &str) -> Result<Vec<u8>, String> {
         .map_err(|_| "approval is not base64".to_owned())
 }
 
-/// SHA-256 (hex) of a request payload: what an approval binds (claim `args`, spec 04 0.2.14).
-
 /// Readable pre-check of a human approval for exactly `key` at `need`:
 /// every grant is exactly `key`, the site matches, it has not expired, the
 /// effective level reaches `need`, the subject is not an AI (`ai:*`), and,

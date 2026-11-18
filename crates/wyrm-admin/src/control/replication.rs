@@ -246,8 +246,6 @@ pub fn is_file_name(name: &str) -> bool {
     }
 }
 
-/// SHA-256 of `bytes`.
-
 /// A page of one WAL as a value: `{chain, last, records: [[lsn, mac, op], …]}`.
 pub fn page_value(page: &wyrm_state::replicate::Page) -> Value {
     Value::Map(BTreeMap::from([
@@ -702,7 +700,7 @@ impl Control {
             f.0 += 1;
         }
         warn!(set = what, "{detail}");
-        self.record("system", "standby_forked", what, Status::Ok, detail);
+        self.record("system", AuditOp::StandbyForked, what, Status::Ok, detail);
     }
 
     /// Ask the standby to wait for `d` (the router is about to be rebuilt).

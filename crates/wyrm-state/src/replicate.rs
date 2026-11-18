@@ -290,7 +290,7 @@ impl Follower {
         };
         let tmp = path.with_extension("tmp");
         let mut f = File::create(&tmp)?;
-        f.write_all(format!("{} {}\n", self.lsn, wyrm_core::hex::encode(&self.chain)).as_bytes())?;
+        f.write_all(format!("{} {}\n", self.lsn, wyrm_core::hex::encode(self.chain)).as_bytes())?;
         f.sync_all()?;
         fs::rename(&tmp, path)?;
         if let Some(dir) = path.parent() {
