@@ -370,7 +370,7 @@ sequenceDiagram
     User->>UI: onSaveLog
     UI->>VM: onSaveLog()
     VM->>A1: dispatch
-    Note over A1: Selectors · async
+    Note over A1: async
     A1->>ST: dispatchAndWait(ShowNoticeAction.system)
     A1->>ST: dispatchAndWait(ShowNoticeAction.system)
 ```

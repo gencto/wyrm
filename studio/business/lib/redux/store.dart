@@ -11,7 +11,6 @@ import '../persistor.dart';
 import '../wyrm/device_keys.dart';
 import '../wyrm/failures.dart';
 import 'app_state.dart';
-import 'problems/actions/add_problem_action.dart';
 
 late Store<AppState>? _store;
 
@@ -134,11 +133,12 @@ void _waitReducer(
 
 /// Logs every failure and makes sure it leaves as a [StudioException].
 ///
-/// An action of this app wraps its own failure in `Action.wrapError` (and
-/// adds it to Problems in `after`), so what arrives here is finished. An
-/// action that is not one of ours (async_redux's own) is wrapped here, and
-/// its problem added in a microtask: an observer must not dispatch while it
-/// observes.
+/// Every action of Studio, in `business` and in `app`, extends `Action`: it
+/// wraps its own failure in `Action.wrapError` and adds it to Problems in
+/// its own `after`, so what arrives here is finished and only logged. The
+/// observer dispatches nothing. (async_redux's own `WaitAction` is the one
+/// action of the store that is not ours; it changes a flag and has nothing
+/// that fails.)
 class _MyErrorObserver extends GlobalErrorObserver<AppState> {
   final _logger = Logger('Redux');
 
@@ -149,19 +149,18 @@ class _MyErrorObserver extends GlobalErrorObserver<AppState> {
       _logger.shout('${action.runtimeType} failed: $e');
       return e;
     }
+    // Every action of Studio extends `Action`
+    // (`redux/common/action.dart`): it wraps its own failure into a
+    // [StudioException] and adds it to Problems in its `after()`. What
+    // reaches here unwrapped is not one of them; it is logged and wrapped
+    // for whoever awaits it, and nothing is dispatched from an observer.
     final thrown = studioExceptionOf(
       e,
       stackTrace,
       step: '${action.runtimeType}',
     );
-    final filled = thrown.error.copyWith(
-      id: nextErrorId(),
-      at: DateTime.now(),
-    );
-    _logger.shout('${action.runtimeType} failed: ${thrown.withError(filled)}');
-    final s = store;
-    scheduleMicrotask(() => s.dispatchSync(AddProblemAction(filled)));
-    return thrown.withError(filled);
+    _logger.shout('${action.runtimeType} failed: $thrown');
+    return thrown;
   }
 }
 

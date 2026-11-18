@@ -7,6 +7,8 @@ import 'package:app/dialogs/error_dialogs.dart';
 import 'package:app/dialogs/exception_dialog.dart';
 import 'package:app/faults.dart';
 import 'package:app/mappers/error_mappers.dart';
+import 'package:app/navigation/app_router.dart';
+import 'package:app/navigation/go_action.dart';
 import 'package:app/run_env.dart' show devicePrompts;
 import 'package:app/start_fault_app.dart';
 import 'package:async_redux/async_redux.dart';
@@ -694,6 +696,22 @@ void main() {
         'You can’t run ask on device 7',
       );
     });
+  });
+
+  test('an action of app that fails reports itself: a GoAction with no '
+      'router to go on is one line in Problems, wrapped once', () async {
+    final store = _store();
+    // no page is mounted: the tabs of the Studio page are not there
+    final status = await store.dispatchAndWait(
+      GoAction.replace(const ExplorerRoute()),
+    );
+    await pumpEventQueue();
+    expect(status.isCompletedFailed, isTrue);
+    expect(status.wrappedError, isA<StudioException>());
+    final e = store.state.problems.items.single;
+    expect(e.kind, ErrorKind.studio);
+    expect(e.id, (status.wrappedError! as StudioException).error.id);
+    expect(e.report, isNotNull);
   });
 
   test('a gateway typed with user:password@: neither is in the title, the '

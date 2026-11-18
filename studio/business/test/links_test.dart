@@ -14,6 +14,7 @@ import 'package:business/redux/quarantine/actions/approve_quarantine_action.dart
 import 'package:business/redux/quarantine/actions/retrieve_quarantine_action.dart';
 import 'package:business/redux/quarantine/actions/set_admission_options_action.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:models/call_refusal.dart';
 import 'package:models/change_side.dart';
 import 'package:models/link_mode.dart';
 import 'package:wyrm_client/wyrm_client.dart';
@@ -119,7 +120,13 @@ void main() {
     await s.dispatchAndWait(ApplyChangesAction());
 
     expect(s.state.changes.view, hasLength(2), reason: 'nothing after it ran');
-    expect(s.state.changes.message, contains('permission_denied: no'));
+    expect(
+      s.state.changes.message,
+      isA<CallRefusal>()
+          .having((r) => r.status, 'status', 'permission_denied')
+          .having((r) => r.message, 'message', contains('no'))
+          .having((r) => r.key, 'key', isNotNull),
+    );
     expect(api.calls.where((c) => c.op == 'set'), hasLength(1));
   });
 

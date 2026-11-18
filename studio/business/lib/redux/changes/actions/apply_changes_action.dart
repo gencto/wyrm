@@ -1,3 +1,4 @@
+import 'package:models/call_refusal.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../app_state.dart';
@@ -20,7 +21,7 @@ class ApplyChangesAction extends Action with WaitingAction {
     final api = deps.wyrm;
     final done = <String>{};
     final touched = <String>{};
-    String? message;
+    CallRefusal? refusal;
     for (final id in changes.view) {
       final c = changes.table[id];
       // a change the user's grants do not reach is not sent (none is,
@@ -39,13 +40,17 @@ class ApplyChangesAction extends Action with WaitingAction {
         done.add(id);
         touched.add(c.key);
       } on WyrmException catch (e) {
-        message = '${c.key}: ${e.status.name}: ${e.message}';
+        refusal = CallRefusal(
+          status: e.status.name,
+          message: e.message,
+          key: c.key,
+        );
         break;
       }
     }
     // What was applied leaves the list at once, shown; then the keys it
     // touched are read again, and this action ends with that read.
-    dispatchSync(_Applied(done, message));
+    dispatchSync(_Applied(done, refusal));
     if (touched.isNotEmpty) {
       await dispatchAndWait(
         RetrieveDetailsAction(touched.toList(), force: true),
@@ -61,7 +66,7 @@ class _Applied extends Action {
   _Applied(this.done, this.message);
 
   final Set<String> done;
-  final String? message;
+  final CallRefusal? message;
 
   @override
   AppState reduce() {

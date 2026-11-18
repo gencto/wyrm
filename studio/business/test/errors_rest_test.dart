@@ -237,7 +237,10 @@ void main() {
       );
       await s.dispatchAndWait(InstallLinkAction());
       expect(s.state.linkInstall.refusedField, isNull);
-      expect(s.state.linkInstall.message, 'invalid_parameter: driver: unknown');
+      expect(
+        (s.state.linkInstall.refusedStatus, s.state.linkInstall.message),
+        ('invalid_parameter', 'driver: unknown'),
+      );
 
       api.errors['$links ▸ install'] = WyrmException.of(
         Status.internalError,

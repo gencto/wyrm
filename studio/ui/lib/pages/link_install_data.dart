@@ -5,6 +5,7 @@ import '../containers/catalog_card.dart';
 import '../containers/catalog_words.dart';
 import '../indicators/check_list.dart';
 import '../indicators/level_badge.dart';
+import '../models/broker_said.dart';
 import '../models/disabled.dart';
 import '../models/link_run_mode.dart';
 import '../shell/window_bar.dart';
@@ -452,24 +453,4 @@ final class LinkInstallVm extends Equatable {
     configReason,
     canPickStep,
   ];
-}
-
-/// What a broker said of a call: its own words ([message]), after the
-/// status of its refusal by its wire name ([status]) when it refused
-/// instead of answering.
-final class BrokerSaidVm extends Equatable {
-  const BrokerSaidVm({this.status, this.message});
-
-  final String? status;
-  final String? message;
-
-  /// `timeout: the device did not answer`, the status alone, or the words.
-  String get text => switch ((status, message)) {
-    (final st?, final m?) when m.isNotEmpty => S.current.errStatusLine(st, m),
-    (final st?, _) => st,
-    (null, final m) => m ?? '',
-  };
-
-  @override
-  List<Object?> get props => [status, message];
 }

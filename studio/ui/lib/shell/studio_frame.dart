@@ -11,6 +11,7 @@ import '../containers/fault_boundary.dart';
 import '../containers/refresh_frame.dart';
 import '../indicators/app_icon.dart';
 import '../indicators/level_badge.dart';
+import '../models/broker_said.dart';
 import '../models/change_words.dart';
 import '../overlays/problems_drawer.dart';
 import '../overlays/review_panel.dart';
@@ -238,7 +239,7 @@ final class StudioFrameVm extends Equatable {
   final List<ProblemVm> problems;
   final int quarantined;
   final bool reviewOpen;
-  final String? reviewError;
+  final BrokerSaidVm? reviewError;
   final bool applying;
   final List<ReviewCardData> cards;
 
@@ -531,7 +532,7 @@ class StudioFrame extends StatelessWidget {
           ? null
           : ReviewPanel(
               cards: _cards,
-              error: vm.reviewError,
+              error: vm.reviewError?.text,
               applying: vm.applying,
               labels: ReviewLabels(
                 title: s.stagedChanges(vm.cards.length),

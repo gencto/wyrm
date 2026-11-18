@@ -16,6 +16,7 @@ import 'package:models/backup_job.dart';
 import 'package:models/block_info.dart';
 import 'package:models/broker_self_update.dart';
 import 'package:models/ca_pin.dart';
+import 'package:models/call_refusal.dart';
 import 'package:models/catalog_category.dart';
 import 'package:models/catalog_item.dart';
 import 'package:models/change_side.dart';
@@ -2489,7 +2490,7 @@ extension type SelectChanges(AppState _state) {
   bool get open => _state.changes.open;
 
   /// Returns message
-  String? get message => _state.changes.message;
+  CallRefusal? get message => _state.changes.message;
 
   /// Returns isWaiting
   bool get isWaiting => _state.wait.isWaitingForType<ApplyChangesAction>();
@@ -2681,7 +2682,7 @@ extension type SelectSystem(AppState _state) {
   IList<ProfileInfo> get profiles => _state.system.profiles;
 
   /// Returns profilesNote
-  String? get profilesNote => _state.system.profilesNote;
+  CallRefusal? get profilesNote => _state.system.profilesNote;
 
   /// Returns aclSeen
   int? get aclSeen => _state.system.aclSeen;

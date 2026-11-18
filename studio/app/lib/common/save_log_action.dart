@@ -1,7 +1,7 @@
 import 'dart:convert';
 
-import 'package:async_redux/async_redux.dart';
 import 'package:business/redux/app_state.dart';
+import 'package:business/redux/common/action.dart';
 import 'package:business/redux/problems/actions/show_notice_action.dart';
 import 'package:business/wyrm/mappers/log_line_mapper.dart';
 import 'package:file_picker/file_picker.dart';
@@ -13,7 +13,7 @@ import 'package:models/system_notice.dart';
 /// shows no line, or the user leaves the picker.
 ///
 /// In `app`: the file picker is a plugin of the app, not of `business`.
-class SaveLogAction extends ReduxAction<AppState> with Selectors {
+class SaveLogAction extends Action {
   @override
   Future<AppState?> reduce() async {
     final lines = shownLog;

@@ -18,6 +18,7 @@ import 'package:models/requested_right.dart';
 import 'package:ui/containers/catalog_card.dart';
 import 'package:ui/containers/catalog_words.dart';
 import 'package:ui/indicators/check_list.dart';
+import 'package:ui/models/broker_said.dart';
 import 'package:ui/models/link_run_mode.dart';
 import 'package:ui/pages/link_install_data.dart';
 

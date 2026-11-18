@@ -358,7 +358,7 @@ void main() {
 
       expect(status.isCompletedOk, isTrue);
       expect(s.state.system.profiles, isEmpty);
-      expect(s.state.system.profilesNote, contains('not_found'));
+      expect(s.state.system.profilesNote?.status, 'not_found');
     });
 
     test('put sends a .cbor file as it is', () async {

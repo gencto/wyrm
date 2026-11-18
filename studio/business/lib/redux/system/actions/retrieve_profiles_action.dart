@@ -1,4 +1,5 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/call_refusal.dart';
 import 'package:models/profile_info.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -25,9 +26,7 @@ class RetrieveProfilesAction extends Action with WaitingAction {
     } on WyrmException catch (e) {
       return state.copyWith.system(
         profiles: const IListConst([]),
-        profilesNote: e.message.isEmpty
-            ? e.status.name
-            : '${e.status.name}: ${e.message}',
+        profilesNote: CallRefusal(status: e.status.name, message: e.message),
       );
     }
     final profiles = await Future.wait([
