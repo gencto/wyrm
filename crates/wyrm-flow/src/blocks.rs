@@ -969,13 +969,14 @@ fn check(k: Kind, cfg: &Map) -> Result<Ports, String> {
         constants(k, &sh, cfg)?;
     }
     if let Some(ops) = ops_of(k) {
-        let op = match cfg.get("op") {
-            None => "=",
-            Some(Value::Str(o)) => o.as_str(),
+        match cfg.get("op") {
+            None => {}
+            Some(Value::Str(o)) => {
+                if !is_op_of(k, o) {
+                    return Err(format!("op: one of {ops:?}"));
+                }
+            }
             Some(_) => return Err("op: expected a string".into()),
-        };
-        if !ops.contains(&op) {
-            return Err(format!("op: one of {ops:?}"));
         }
     }
     let mut inputs: Vec<(String, PortType)> = sh
@@ -1012,69 +1013,105 @@ fn check(k: Kind, cfg: &Map) -> Result<Ports, String> {
     })
 }
 
-/// `if`'s operators (spec 06 0.2.21 adds `!=`, `contains`, `starts_with`, `ends_with`).
-pub const IF_OPS: &[&str] = &[
-    "=",
-    "!=",
-    "and",
-    "or",
-    ">",
-    "<",
-    ">=",
-    "<=",
-    "contains",
-    "starts_with",
-    "ends_with",
-];
+wyrm_core::name_enum! {
+    /// `if`'s operators (spec 06 0.2.21 adds `!=`, `contains`, `starts_with`, `ends_with`).
+    /// The config's `op` and a sample on `in.op` become one of these where they are read;
+    /// a config is checked at compile, so the name is in `~def` as written.
+    #[derive(Default)]
+    pub enum IfOp as "if operator" without codec {
+        #[default]
+        Eq => "=",
+        Ne => "!=",
+        And => "and",
+        Or => "or",
+        Gt => ">",
+        Lt => "<",
+        Ge => ">=",
+        Le => "<=",
+        Contains => "contains",
+        StartsWith => "starts_with",
+        EndsWith => "ends_with",
+    }
+}
 
-/// `case`'s operators: each compares `in` with a pair's case value.
-pub const CASE_OPS: &[&str] = &[
-    "=",
-    "!=",
-    ">",
-    "<",
-    ">=",
-    "<=",
-    "contains",
-    "starts_with",
-    "ends_with",
-    // ADR 0044 §6: `in` as text contains a match of the case as a bounded pattern
-    "regexp",
-];
+wyrm_core::name_enum! {
+    /// `case`'s and `router`'s operators: each compares `in` with a pair's case value.
+    #[derive(Default)]
+    pub enum CaseOp as "case operator" without codec {
+        #[default]
+        Eq => "=",
+        Ne => "!=",
+        Gt => ">",
+        Lt => "<",
+        Ge => ">=",
+        Le => "<=",
+        Contains => "contains",
+        StartsWith => "starts_with",
+        EndsWith => "ends_with",
+        /// ADR 0044 §6: `in` as text contains a match of the case as a bounded pattern.
+        Regexp => "regexp",
+    }
+}
 
-/// The operators of a block with `op`.
+/// A comparison of two numbers.
+#[derive(Clone, Copy)]
+enum NumCmp {
+    Gt,
+    Lt,
+    Ge,
+    Le,
+}
+
+/// A test of one text against another.
+#[derive(Clone, Copy)]
+enum TextCmp {
+    Contains,
+    StartsWith,
+    EndsWith,
+}
+
+/// The operators of a block with `op`, for errors and the catalog.
 fn ops_of(k: Kind) -> Option<&'static [&'static str]> {
     match k {
-        Kind::If => Some(IF_OPS),
-        Kind::Case | Kind::Router => Some(CASE_OPS),
+        Kind::If => Some(IfOp::NAMES),
+        Kind::Case | Kind::Router => Some(CaseOp::NAMES),
         _ => None,
+    }
+}
+
+/// Whether `name` is an operator of a block of kind `k` (`false` for a kind without `op`).
+fn is_op_of(k: Kind, name: &str) -> bool {
+    match k {
+        Kind::If => IfOp::from_name(name).is_some(),
+        Kind::Case | Kind::Router => CaseOp::from_name(name).is_some(),
+        _ => false,
     }
 }
 
 /// `x op p` for the text operators, both as text; a `null` never matches. (`case` skips an
 /// empty case text first: it matches nothing; in `if` an empty text is contained in every text.)
-fn text_op(op: &str, x: &Value, p: &Value) -> bool {
+fn text_op(op: TextCmp, x: &Value, p: &Value) -> bool {
     if *x == Value::Null || *p == Value::Null {
         return false;
     }
     let (x, p) = (text(x), text(p));
     match op {
-        "contains" => x.contains(&p),
-        "starts_with" => x.starts_with(&p),
-        _ => x.ends_with(&p),
+        TextCmp::Contains => x.contains(&p),
+        TextCmp::StartsWith => x.starts_with(&p),
+        TextCmp::EndsWith => x.ends_with(&p),
     }
 }
 
 /// `x op p` for the comparisons: as numbers (one that is not a number never matches).
-fn num_op(op: &str, x: &Value, p: &Value) -> bool {
+fn num_op(op: NumCmp, x: &Value, p: &Value) -> bool {
     match (num(x), num(p)) {
         (Some(a), Some(b)) => {
             let (a, b) = (a.f(), b.f());
             match op {
-                ">" => a > b,
-                "<" => a < b,
-                ">=" => a >= b,
-                _ => a <= b,
+                NumCmp::Gt => a > b,
+                NumCmp::Lt => a < b,
+                NumCmp::Ge => a >= b,
+                NumCmp::Le => a <= b,
             }
         }
         _ => false,
@@ -1083,22 +1120,28 @@ fn num_op(op: &str, x: &Value, p: &Value) -> bool {
 
 /// Whether `x` matches the case value `p` by `op` (`case`, `router`).
 fn case_match(
-    op: &str,
+    op: CaseOp,
     x: &Value,
     p: &Value,
     cache: &mut Option<(String, Option<regex::Regex>)>,
 ) -> bool {
+    // an empty case text matches nothing
+    let as_text = |t: TextCmp| !text(p).is_empty() && text_op(t, x, p);
     match op {
-        "regexp" => {
+        CaseOp::Regexp => {
             *x != Value::Null
                 && !text(p).is_empty()
                 && cached(cache, &text(p)).is_some_and(|re| re.is_match(&text(x)))
         }
-        "=" => same(x, p),
-        "!=" => !same(x, p),
-        ">" | "<" | ">=" | "<=" => num_op(op, x, p),
-        // an empty case text matches nothing
-        _ => !text(p).is_empty() && text_op(op, x, p),
+        CaseOp::Eq => same(x, p),
+        CaseOp::Ne => !same(x, p),
+        CaseOp::Gt => num_op(NumCmp::Gt, x, p),
+        CaseOp::Lt => num_op(NumCmp::Lt, x, p),
+        CaseOp::Ge => num_op(NumCmp::Ge, x, p),
+        CaseOp::Le => num_op(NumCmp::Le, x, p),
+        CaseOp::Contains => as_text(TextCmp::Contains),
+        CaseOp::StartsWith => as_text(TextCmp::StartsWith),
+        CaseOp::EndsWith => as_text(TextCmp::EndsWith),
     }
 }
 
@@ -1254,6 +1297,16 @@ struct Block {
 impl Block {
     fn param(&self, name: &str) -> &Value {
         self.params.get(name).unwrap_or(&Value::Null)
+    }
+
+    /// The block's operator: parameter `op` as the typed set `T`. The compile check and
+    /// the port filter let only a name of the set become the parameter, so the default
+    /// (`=`) is what a block without `op` runs with.
+    fn op<T: wyrm_core::named::Named + Default>(&self) -> T {
+        match self.param("op") {
+            Value::Str(o) => T::from_name(o).unwrap_or_default(),
+            _ => T::default(),
+        }
     }
 
     fn item_values(&self) -> Vec<Value> {
@@ -1422,43 +1475,41 @@ impl Block {
             }
             Kind::If => {
                 let vs = self.item_values();
-                let op = match self.param("op") {
-                    Value::Str(o) => o.clone(),
-                    _ => "=".into(),
+                let op: IfOp = self.op();
+                // each input against the next, as numbers
+                let chain = |c: NumCmp| {
+                    vs.len() > 1
+                        && vs.windows(2).all(|w| match w {
+                            [a, b] => num_op(c, a, b),
+                            _ => false,
+                        })
                 };
-                let yes = match op.as_str() {
-                    "and" => vs.iter().all(|v| truth(v, false)),
-                    "or" => vs.iter().any(|v| truth(v, false)),
-                    ">" | "<" | ">=" | "<=" => {
-                        vs.len() > 1
-                            && vs.windows(2).all(|w| match (num(&w[0]), num(&w[1])) {
-                                (Some(a), Some(b)) => {
-                                    let (a, b) = (a.f(), b.f());
-                                    match op.as_str() {
-                                        ">" => a > b,
-                                        "<" => a < b,
-                                        ">=" => a >= b,
-                                        _ => a <= b,
-                                    }
-                                }
-                                _ => false,
-                            })
-                    }
-                    // the first input against the others: none equal, or any as text
-                    "!=" => vs
+                // the first input as text against any of the others
+                let any_text = |c: TextCmp| {
+                    vs.split_first().is_some_and(|(x, rest)| {
+                        let x = if *x == Value::Null {
+                            Value::Str(String::new())
+                        } else {
+                            x.clone()
+                        };
+                        rest.iter().any(|p| text_op(c, &x, p))
+                    })
+                };
+                let yes = match op {
+                    IfOp::And => vs.iter().all(|v| truth(v, false)),
+                    IfOp::Or => vs.iter().any(|v| truth(v, false)),
+                    IfOp::Gt => chain(NumCmp::Gt),
+                    IfOp::Lt => chain(NumCmp::Lt),
+                    IfOp::Ge => chain(NumCmp::Ge),
+                    IfOp::Le => chain(NumCmp::Le),
+                    // the first input against the others: none equal
+                    IfOp::Ne => vs
                         .split_first()
                         .is_none_or(|(x, rest)| !rest.iter().any(|v| same(x, v))),
-                    "contains" | "starts_with" | "ends_with" => {
-                        vs.split_first().is_some_and(|(x, rest)| {
-                            let x = if *x == Value::Null {
-                                Value::Str(String::new())
-                            } else {
-                                x.clone()
-                            };
-                            rest.iter().any(|p| text_op(&op, &x, p))
-                        })
-                    }
-                    _ => vs
+                    IfOp::Contains => any_text(TextCmp::Contains),
+                    IfOp::StartsWith => any_text(TextCmp::StartsWith),
+                    IfOp::EndsWith => any_text(TextCmp::EndsWith),
+                    IfOp::Eq => vs
                         .first()
                         .is_none_or(|first| vs.iter().all(|v| same(v, first))),
                 };
@@ -1467,17 +1518,14 @@ impl Block {
             }
             Kind::Case => {
                 let x = self.in_value().clone();
-                let op = match self.param("op") {
-                    Value::Str(o) => o.clone(),
-                    _ => "=".into(),
-                };
+                let op: CaseOp = self.op();
                 let vs = self.item_values();
                 let mut cache = self.re.take();
                 let hit = vs
                     .as_chunks::<2>()
                     .0
                     .iter()
-                    .find(|[p, _]| case_match(&op, &x, p, &mut cache));
+                    .find(|[p, _]| case_match(op, &x, p, &mut cache));
                 let v = match hit {
                     Some(pair) => pair[1].clone(),
                     None => self.param("else").clone(),
@@ -1822,15 +1870,12 @@ impl Block {
             }
             Kind::Router => {
                 let x = self.values.get("condition").cloned().unwrap_or(Value::Null);
-                let op = match self.param("op") {
-                    Value::Str(o) => o.clone(),
-                    _ => "=".into(),
-                };
+                let op: CaseOp = self.op();
                 let mut cache = self.re.take();
                 let names = self.items.clone();
                 let hit = names.iter().find(|name| {
                     let p = self.values.get(*name).cloned().unwrap_or(Value::Null);
-                    case_match(&op, &x, &p, &mut cache)
+                    case_match(op, &x, &p, &mut cache)
                 });
                 self.re = cache;
                 let port = hit.map_or_else(|| "else".to_owned(), |n| format!("out.{n}"));
@@ -2247,10 +2292,11 @@ impl Node for Block {
         };
         let name = name.to_owned();
         // `op` takes only an operator the block knows: another text is ignored (spec 06 0.2.20)
-        if let Some(ops) = ops_of(self.kind).filter(|_| name == "op") {
-            if !matches!(&m.v, Value::Str(o) if ops.contains(&o.as_str())) {
-                return;
-            }
+        if name == "op"
+            && ops_of(self.kind).is_some()
+            && !matches!(&m.v, Value::Str(o) if is_op_of(self.kind, o))
+        {
+            return;
         }
         // a number that is not finite never becomes a parameter: the last good value stays
         let is_param = port.starts_with("in.") && self.param_ports.contains(&name.as_str());
