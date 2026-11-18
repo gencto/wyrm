@@ -7,6 +7,7 @@ import 'package:models/watch_group.dart';
 import '../decode/backup_job.dart';
 import '../decode/flow_val.dart';
 import '../decode/live_fields.dart' show liveNumber;
+import '../decode/live_leaves.dart';
 import '../decode/live_values.dart';
 import '../decode/package_info.dart';
 import '../decode/sys_answers.dart';
@@ -59,19 +60,15 @@ IList<WatchGroup> liveGroups(
 ) => [
   for (final g in groups)
     () {
-      Object? v(String k) => values['$base/${g.name}/$k']?.value;
+      Object? v(GroupLiveLeaf leaf) =>
+          values['$base/${g.name}/${leaf.wire}']?.value;
+      num? liveNum(GroupLiveLeaf leaf) =>
+          liveNumber(v(leaf), 'watch group', leaf.wire).orNull;
       return g.copyWith(
-        logging: liveLoggingOf(v('logging_type')).orNull ?? g.logging,
-        interval:
-            liveNumber(v('interval'), 'watch group', 'interval').orNull ??
-            g.interval,
-        flush:
-            liveNumber(
-              v('buffer_flush_time'),
-              'watch group',
-              'buffer_flush_time',
-            ).orNull ??
-            g.flush,
+        logging:
+            liveLoggingOf(v(GroupLiveLeaf.loggingType)).orNull ?? g.logging,
+        interval: liveNum(GroupLiveLeaf.interval) ?? g.interval,
+        flush: liveNum(GroupLiveLeaf.flush) ?? g.flush,
       );
     }(),
 ].lock;
@@ -108,11 +105,14 @@ void warnUnreadLive(Map<String, LiveValue?> changed, String root) {
         continue;
       }
       final where = 'sys/links/${parts.first}/${parts.last}';
-      switch (parts.last) {
-        case _stateLeaf:
+      switch (LinkLiveLeaf.fromWire(parts.last)) {
+        case LinkLiveLeaf.state:
           linkStateSampleOf(value.value).record(where);
-        case _pointsLeaf:
+        case LinkLiveLeaf.restorePoints:
           restorePointsOf(value.value, where: where).record(where);
+        // a leaf the screens do not decode
+        case null:
+          break;
       }
     } else if (key.startsWith(backups)) {
       final parts = key.substring(backups.length).split('/');
@@ -131,18 +131,16 @@ void warnUnreadLive(Map<String, LiveValue?> changed, String root) {
         continue;
       }
       final where = '$history${parts.first}';
-      switch (parts.last) {
-        case _loggingLeaf:
+      switch (GroupLiveLeaf.fromWire(parts.last)) {
+        case GroupLiveLeaf.loggingType:
           liveLoggingOf(value.value).record(where);
-        case _intervalLeaf || _flushLeaf:
-          liveNumber(value.value, 'watch group', parts.last).record(where);
+        case final GroupLiveLeaf leaf &&
+            (GroupLiveLeaf.interval || GroupLiveLeaf.flush):
+          liveNumber(value.value, 'watch group', leaf.wire).record(where);
+        // a leaf the screens do not decode
+        case null:
+          break;
       }
     }
   }
 }
-
-const _stateLeaf = 'state';
-const _pointsLeaf = 'restore_points';
-const _loggingLeaf = 'logging_type';
-const _intervalLeaf = 'interval';
-const _flushLeaf = 'buffer_flush_time';

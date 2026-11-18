@@ -119,69 +119,33 @@ as bool,
 
 
 class FindingNotZip implements PackageFinding {
-  const FindingNotZip({this.error});
+  const FindingNotZip();
   
 
- final  String? error;
 
-/// Create a copy of PackageFinding
-/// with the given fields replaced by the non-null parameter values.
-@JsonKey(includeFromJson: false, includeToJson: false)
-@pragma('vm:prefer-inline')
-$FindingNotZipCopyWith<FindingNotZip> get copyWith => _$FindingNotZipCopyWithImpl<FindingNotZip>(this, _$identity);
+
 
 
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is FindingNotZip&&(identical(other.error, error) || other.error == error));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is FindingNotZip);
 }
 
 
 @override
-int get hashCode {
-    return Object.hash(runtimeType,error);
-}
+int get hashCode => runtimeType.hashCode;
 
 @override
 String toString() {
-    return 'PackageFinding.notZip(error: $error)';
+    return 'PackageFinding.notZip()';
 }
 
 
 }
 
-/// @nodoc
-abstract mixin class $FindingNotZipCopyWith<$Res> implements $PackageFindingCopyWith<$Res> {
-  factory $FindingNotZipCopyWith(FindingNotZip value, $Res Function(FindingNotZip) _then) = _$FindingNotZipCopyWithImpl;
-@useResult
-$Res call({
- String? error
-});
 
 
-
-
-}
-/// @nodoc
-class _$FindingNotZipCopyWithImpl<$Res>
-    implements $FindingNotZipCopyWith<$Res> {
-  _$FindingNotZipCopyWithImpl(this._self, this._then);
-
-  final FindingNotZip _self;
-  final $Res Function(FindingNotZip) _then;
-
-/// Create a copy of PackageFinding
-/// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') $Res call({Object? error = freezed,}) {
-  return _then(FindingNotZip(
-error: freezed == error ? _self.error : error // ignore: cast_nullable_to_non_nullable
-as String?,
-  ));
-}
-
-
-}
 
 /// @nodoc
 

@@ -152,6 +152,7 @@ extension ManifestProblemUi on ManifestProblem {
     file: file,
     field: field,
     found: found,
+    offset: offset,
   );
 }
 
@@ -160,7 +161,7 @@ extension PackageFindingUi on PackageFinding {
   CheckFinding get ui => switch (this) {
     FindingTooLarge(:final mib, :final limitMib, :final zipped) =>
       TooLargeFinding(mib: mib, limitMib: limitMib, zipped: zipped),
-    FindingNotZip(:final error) => NotZipFinding(error: error),
+    FindingNotZip() => const NotZipFinding(),
     FindingTooManyFiles(
       :final files,
       :final mib,
@@ -247,7 +248,9 @@ extension PackageFindingUi on PackageFinding {
 extension ManifestFaultUi on ManifestFault {
   ManifestFaultKind get ui => switch (this) {
     ManifestFault.notJson => ManifestFaultKind.notJson,
+    ManifestFault.tooDeep => ManifestFaultKind.tooDeep,
     ManifestFault.notObject => ManifestFaultKind.notObject,
+    ManifestFault.unknownField => ManifestFaultKind.unknownField,
     ManifestFault.missing => ManifestFaultKind.missing,
     ManifestFault.wrongForm => ManifestFaultKind.wrongForm,
     ManifestFault.unknownName => ManifestFaultKind.unknownName,

@@ -2208,7 +2208,6 @@
     "chkTooLargeZipped": "{mib} MiB у zip; не більше ніж {limit} MiB",
     "chkTooLarge": "{mib} MiB; не більше ніж {limit} MiB",
     "chkNotZip": "це не zip",
-    "chkNotZipBecause": "це не zip: {error}",
     "chkTooManyFiles": "файлів: {files}, розпаковано {mib} MiB; не більше ніж {maxFiles} і {maxMib} MiB",
     "chkKibAndFiles": "{kib} KiB, файлів: {files}",
     "chkKib": "{kib} KiB",
@@ -2243,5 +2242,10 @@
     "chkAfterDownload": "брокер перевіряє після завантаження",
     "errBackupNoDigest": "Брокер не показує SHA-256 цієї копії, тому перевірити отримане неможливо. Нічого не збережено.",
     "errBackupDigestMismatch": "Отриманий файл — не ця копія: його SHA-256 не той, що показує брокер. Нічого не збережено. Обидва значення є в журналі.",
-    "sysAttnNotRead": "{name} чекає в карантині, ця Studio не прочитала запис"
+    "sysAttnNotRead": "{name} чекає в карантині, ця Studio не прочитала запис",
+    "chkTooDeep": "{file} має глибшу вкладеність, ніж дозволено маніфесту",
+    "errCheckNotRun": "Файл не вдалося перевірити, тому встановлення не продовжується. Візьми інший файл.",
+    "chkNotJsonAt": "{file} — не JSON (на знаку {at})",
+    "chkUnknownField": "{field} — поле, якого цей файл не має",
+    "errFileNotReadBecause": "{why}. Нічого не надіслано."
 }

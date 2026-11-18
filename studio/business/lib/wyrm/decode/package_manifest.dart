@@ -43,12 +43,21 @@ const _fields = {
   'capabilities',
 };
 
-/// The JSON of [bytes]; bytes that are not JSON throw a [_Bad].
+/// The JSON of [bytes]; bytes that are not JSON, or that nest deeper than
+/// a manifest may, throw a [_Bad]. The parser's own words go to the log
+/// only: what is shown is the typed fault.
 JsonValue _jsonOf(List<int> bytes) {
+  final Object? parsed;
   try {
-    return JsonValue.of(jsonDecode(utf8.decode(bytes)));
+    parsed = jsonDecode(utf8.decode(bytes));
   } on FormatException catch (e) {
-    throw _Bad(ManifestFault.notJson, '', e.message);
+    decodeLog.fine('manifest: not JSON: ${e.message}');
+    throw _Bad(ManifestFault.notJson, '', offset: e.offset);
+  }
+  try {
+    return JsonValue.of(parsed);
+  } on JsonTooDeep {
+    throw const _Bad(ManifestFault.tooDeep, '');
   }
 }
 
@@ -60,7 +69,7 @@ PackageManifestRead packageManifestOf(List<int> bytes) {
     json = _jsonOf(bytes);
   } on _Bad catch (b) {
     return PackageManifestRead.unreadable(
-      ManifestProblem(fault: b.fault, field: b.field, found: b.found),
+      b.problem,
     );
   }
   if (json is! JsonMap) {
@@ -115,11 +124,23 @@ PackageManifestRead packageManifestOf(List<int> bytes) {
 
 /// A field of a backup's manifest that is not of its form.
 final class _Bad implements Exception {
-  const _Bad(this.fault, this.field, [this.found]);
+  const _Bad(this.fault, this.field, {this.found, this.offset});
 
   final ManifestFault fault;
   final String field;
+
+  /// The name the file holds, when it is one Studio does not know.
   final String? found;
+
+  /// Where the bytes stop being JSON.
+  final int? offset;
+
+  ManifestProblem get problem => ManifestProblem(
+    fault: fault,
+    field: field,
+    found: found,
+    offset: offset,
+  );
 }
 
 /// The fields of one JSON object of a manifest, read strictly: the typed
@@ -158,11 +179,15 @@ extension type const _Json._(({IMap<String, JsonValue> fields, String at}) _) {
   /// An RFC 3339 time.
   DateTime moment(String field) =>
       DateTime.tryParse(text(field)) ??
-      (throw _Bad(ManifestFault.wrongForm, _path(field), text(field)));
+      (throw _Bad(ManifestFault.wrongForm, _path(field)));
 
   E name<E>(String field, E? Function(String wire) fromWire) =>
       fromWire(text(field)) ??
-      (throw _Bad(ManifestFault.unknownName, _path(field), text(field)));
+      (throw _Bad(
+        ManifestFault.unknownName,
+        _path(field),
+        found: text(field),
+      ));
 }
 
 /// The [BackupManifest] of the bytes of a backup's `manifest.json`. A link
@@ -215,7 +240,7 @@ BackupManifest backupManifestOf(List<int> bytes) {
     );
   } on _Bad catch (b) {
     return BackupManifest.unreadable(
-      ManifestProblem(fault: b.fault, field: b.field, found: b.found),
+      b.problem,
     );
   }
 }

@@ -21,8 +21,8 @@ sealed class PackageFinding with _$PackageFinding {
     required bool zipped,
   }) = FindingTooLarge;
 
-  /// The file is no zip; [error] is the reader's own word of it, if any.
-  const factory PackageFinding.notZip({String? error}) = FindingNotZip;
+  /// The file is no zip (its reader's own words go to the log only).
+  const factory PackageFinding.notZip() = FindingNotZip;
 
   /// More files or more bytes unpacked than a package may have.
   const factory PackageFinding.tooManyFiles({

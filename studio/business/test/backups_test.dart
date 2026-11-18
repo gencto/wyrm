@@ -25,6 +25,7 @@ import 'package:business/redux/backups/actions/upload_restore_action.dart';
 import 'package:business/redux/broker_update/actions/open_broker_update_action.dart';
 import 'package:business/redux/link_install/actions/check_package_action.dart';
 import 'package:business/redux/link_install/actions/choose_install_source_action.dart';
+import 'package:business/redux/link_install/actions/continue_install_action.dart';
 import 'package:business/redux/link_install/actions/install_backup_action.dart';
 import 'package:business/redux/link_install/actions/set_accept_rights_action.dart';
 import 'package:business/redux/link_install/actions/set_name_action.dart';
@@ -58,6 +59,7 @@ import 'package:models/error_hint.dart';
 import 'package:models/install_path.dart';
 import 'package:models/install_phase.dart';
 import 'package:models/install_source.dart';
+import 'package:models/install_step.dart';
 import 'package:models/link_mode.dart';
 import 'package:models/manifest_fault.dart';
 import 'package:models/manifest_problem.dart';
@@ -1407,6 +1409,61 @@ void main() {
         );
       await s.dispatchAndWait(CheckPackageAction(backup: file));
     }
+
+    test('Continue does not go on when the check found nothing', () async {
+      // no source: the check has nothing to say
+      s.dispatchSync(ChooseInstallSourceAction(InstallPath.custom));
+      final status = await s.dispatchAndWait(ContinueInstallAction());
+
+      expect(status.isCompletedFailed, isTrue);
+      expect(
+        (status.originalError! as StudioException).error.hint,
+        ErrorHint.checkNotRun,
+      );
+      // not on Check with an empty list, which would read as "all fine"
+      expect(s.state.linkInstall.step, InstallStep.choose);
+      expect(s.state.linkInstall.checks, isEmpty);
+    });
+
+    test('a backup whose manifest nests without end: Check shows the '
+        'failed check', () async {
+      final deep = Archive()
+        ..addFile(
+          ArchiveFile.string(
+            'manifest.json',
+            '${'[' * 5000}${']' * 5000}',
+          ),
+        );
+      final bytes = Uint8List.fromList(ZipEncoder().encode(deep));
+      s
+        ..dispatchSync(ChooseInstallSourceAction(InstallPath.backup))
+        ..dispatchSync(
+          SetSourceAction(
+            InstallSource.backup(fileName: 'x.wyrm-link', size: bytes.length),
+          ),
+        );
+      final status = await s.dispatchAndWait(
+        ContinueInstallAction(
+          file: HeldFile(
+            read: (o, n) async => bytes.sublist(o, o + n),
+            size: bytes.length,
+          ),
+        ),
+      );
+
+      expect(status.isCompletedOk, isTrue);
+      expect(s.state.linkInstall.step, InstallStep.check);
+      expect(
+        s.state.linkInstall.checks.last,
+        const PackageCheck(
+          PackageFinding.manifestProblem(
+            ManifestProblem(fault: ManifestFault.tooDeep),
+            'manifest.json',
+          ),
+          result: PackageCheckResult.failed,
+        ),
+      );
+    });
 
     test('the bytes of the file are in no state', () async {
       // Review point 7.

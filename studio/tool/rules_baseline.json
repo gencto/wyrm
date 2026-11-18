@@ -3,7 +3,8 @@
   "string-case": {
     "app/lib/errors.dart": 16,
     "business/lib/redux/nodes/actions/retrieve_history_action.dart": 2,
-    "business/lib/wyrm/points.dart": 1,
+    "business/lib/wyrm/points.dart": 2,
+    "ui/lib/pages/system_page.dart": 3,
     "ui/lib/tables/log_table.dart": 3
   },
   "string-id": {

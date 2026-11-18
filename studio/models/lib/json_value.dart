@@ -21,38 +21,61 @@ sealed class JsonValue {
 
   /// [v] decoded. A map's keys are texts in JSON; a key that is not is
   /// written as its text. A value that is not JSON (no definition holds
-  /// one) throws an [ArgumentError] naming its type.
-  factory JsonValue.of(Object? v) => switch (v) {
-    // Bytes are a list of numbers to Dart, not JSON.
-    TypedData() => throw ArgumentError.value(v, 'v', 'not JSON: bytes'),
-    null => const JsonNull(),
-    final bool b => JsonBool(b),
-    final num n => JsonNumber(n),
-    final String s => JsonText(s),
-    final Map<Object?, Object?> m => _maps[m] ??= JsonMap._of(m),
-    final List<Object?> l => _lists[l] ??= JsonList._of(l),
-    final IMap<Object?, Object?> m => JsonValue.of(m.unlock),
-    final IList<Object?> l => JsonValue.of(l.unlock),
-    _ => throw ArgumentError.value(v, 'v', 'not JSON: ${v.runtimeType}'),
-  };
+  /// one) throws an [ArgumentError] naming its type; one nested deeper
+  /// than [maxDepth] throws a [JsonTooDeep].
+  factory JsonValue.of(Object? v) => JsonValue._at(v, 0);
+
+  factory JsonValue._at(Object? v, int depth) {
+    if (depth > maxDepth) {
+      throw const JsonTooDeep();
+    }
+    return switch (v) {
+      // Bytes are a list of numbers to Dart, not JSON.
+      TypedData() => throw ArgumentError.value(v, 'v', 'not JSON: bytes'),
+      null => const JsonNull(),
+      final bool b => JsonBool(b),
+      final num n => JsonNumber(n),
+      final String s => JsonText(s),
+      final Map<Object?, Object?> m => _maps[m] ??= JsonMap._of(m, depth),
+      final List<Object?> l => _lists[l] ??= JsonList._of(l, depth),
+      final IMap<Object?, Object?> m => JsonValue._at(m.unlock, depth),
+      final IList<Object?> l => JsonValue._at(l.unlock, depth),
+      _ => throw ArgumentError.value(v, 'v', 'not JSON: ${v.runtimeType}'),
+    };
+  }
+
+  /// The deepest a value may nest (a list in a list in …). A file a
+  /// person brings can nest without end; decoding walks the value, so a
+  /// deeper one is refused ([JsonTooDeep]) instead of exhausting the
+  /// stack. No definition or manifest comes near it.
+  static const maxDepth = 64;
 
   /// [v] decoded when it is JSON through and through; null when it is
-  /// not (a live value of the wire may hold bytes): a reader of live values
-  /// that only takes JSON, such as a time in microseconds or a short mark
-  /// for a map, reads none there. A definition never holds one: its
-  /// decoder refuses it.
+  /// not (a live value of the wire may hold bytes) or nests deeper than
+  /// [maxDepth]: a reader of live values that only takes JSON, such as a
+  /// time in microseconds or a short mark for a map, reads none there. A
+  /// definition never holds one: its decoder refuses it.
   static JsonValue? tryOf(Object? v) => isJson(v) ? JsonValue.of(v) : null;
 
-  /// Whether [v] is JSON through and through (no bytes inside).
-  static bool isJson(Object? v) => switch (v) {
-    TypedData() => false,
-    null || bool() || num() || String() => true,
-    final Map<Object?, Object?> m => m.values.every(isJson),
-    final List<Object?> l => l.every(isJson),
-    final IMap<Object?, Object?> m => m.values.every(isJson),
-    final IList<Object?> l => l.every(isJson),
-    _ => false,
-  };
+  /// Whether [v] is JSON through and through (no bytes inside, and not
+  /// nested deeper than [maxDepth]).
+  static bool isJson(Object? v) => _isJson(v, 0);
+
+  static bool _isJson(Object? v, int depth) =>
+      depth <= maxDepth &&
+      switch (v) {
+        TypedData() => false,
+        null || bool() || num() || String() => true,
+        final Map<Object?, Object?> m => m.values.every(
+          (x) => _isJson(x, depth + 1),
+        ),
+        final List<Object?> l => l.every((x) => _isJson(x, depth + 1)),
+        final IMap<Object?, Object?> m => m.values.every(
+          (x) => _isJson(x, depth + 1),
+        ),
+        final IList<Object?> l => l.every((x) => _isJson(x, depth + 1)),
+        _ => false,
+      };
 
   static final _maps = Expando<JsonMap>('json map');
   static final _lists = Expando<JsonList>('json list');
@@ -125,9 +148,9 @@ final class JsonText extends JsonValue {
 
 /// An array.
 final class JsonList extends JsonValue {
-  JsonList._of(List<Object?> list)
+  JsonList._of(List<Object?> list, int depth)
     : raw = list,
-      items = [for (final x in list) JsonValue.of(x)].lock;
+      items = [for (final x in list) JsonValue._at(x, depth + 1)].lock;
 
   @override
   final List<Object?> raw;
@@ -150,11 +173,11 @@ final class JsonList extends JsonValue {
 
 /// An object.
 final class JsonMap extends JsonValue {
-  JsonMap._of(Map<Object?, Object?> map)
+  JsonMap._of(Map<Object?, Object?> map, int depth)
     : raw = map,
       fields = {
         for (final MapEntry(:key, :value) in map.entries)
-          '$key': JsonValue.of(value),
+          '$key': JsonValue._at(value, depth + 1),
       }.lock;
 
   @override
@@ -173,4 +196,12 @@ final class JsonMap extends JsonValue {
   Map<String, Object?> get entries => {
     for (final MapEntry(:key, :value) in fields.entries) key: value.raw,
   };
+}
+
+/// A value nests deeper than [JsonValue.maxDepth]: it is not decoded.
+final class JsonTooDeep implements Exception {
+  const JsonTooDeep();
+
+  @override
+  String toString() => 'JSON nested deeper than ${JsonValue.maxDepth}';
 }

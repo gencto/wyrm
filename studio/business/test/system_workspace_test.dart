@@ -27,7 +27,6 @@ import 'package:business/redux/system/actions/set_shown_action.dart';
 import 'package:business/redux/system/actions/set_source_action.dart';
 import 'package:business/redux/system/actions/set_tab_action.dart';
 import 'package:business/redux/system/actions/zoom_traffic_action.dart';
-import 'package:business/wyrm/decode/decoded.dart';
 import 'package:business/wyrm/decode/profile_draft.dart';
 import 'package:business/wyrm/failures.dart';
 import 'package:business/wyrm/mappers/log_line_mapper.dart';
@@ -47,7 +46,10 @@ import 'package:models/live_value.dart';
 import 'package:models/log_level.dart';
 import 'package:models/log_line.dart';
 import 'package:models/log_read_error.dart';
+import 'package:models/manifest_fault.dart';
+import 'package:models/manifest_problem.dart';
 import 'package:models/profile_draft.dart';
+import 'package:models/profile_read.dart';
 import 'package:models/quarantine_entry.dart';
 import 'package:models/quarantine_kind.dart';
 import 'package:models/standby_state.dart';
@@ -412,7 +414,8 @@ void main() {
       expect(utf8.decode(sent, allowMalformed: true), contains('wy:number'));
     });
 
-    test('a JSON file that is not a profile is refused before the call', () {
+    test('a JSON file that is not a profile is refused before the call, '
+        'with its cause', () {
       StudioError refused(String json) {
         try {
           profileBytes('x.json', Uint8List.fromList(utf8.encode(json)));
@@ -422,30 +425,67 @@ void main() {
         fail('$json must not pass');
       }
 
-      for (final (json, field) in [
-        ('[1]', null),
-        ('{', null),
-        ('{"points": 3}', 'points'),
-        ('{"type": "colour"}', 'type'),
+      for (final (json, problem) in [
+        ('[1]', const ManifestProblem(fault: ManifestFault.notObject)),
+        // which key, which type: the cause main named is still named
+        (
+          '{"points": 3}',
+          const ManifestProblem(
+            fault: ManifestFault.unknownField,
+            field: 'points',
+          ),
+        ),
+        (
+          '{"type": "colour"}',
+          const ManifestProblem(
+            fault: ManifestFault.unknownName,
+            field: 'type',
+            found: 'colour',
+          ),
+        ),
         // a field of another form is not dropped, it refuses the file
-        ('{"unit": 5}', 'unit'),
-        ('{"enum": "a,b"}', 'enum'),
-        ('{"enum": [1, 2]}', 'enum'),
-        ('{"cfg": []}', 'cfg'),
-        ('{"extends": 7}', 'extends'),
+        (
+          '{"unit": 5}',
+          const ManifestProblem(fault: ManifestFault.wrongForm, field: 'unit'),
+        ),
+        (
+          '{"enum": "a,b"}',
+          const ManifestProblem(fault: ManifestFault.wrongForm, field: 'enum'),
+        ),
+        (
+          '{"enum": [1, 2]}',
+          const ManifestProblem(fault: ManifestFault.wrongForm, field: 'enum'),
+        ),
+        (
+          '{"cfg": []}',
+          const ManifestProblem(fault: ManifestFault.wrongForm, field: 'cfg'),
+        ),
+        (
+          '{"extends": 7}',
+          const ManifestProblem(
+            fault: ManifestFault.wrongForm,
+            field: 'extends',
+          ),
+        ),
       ]) {
         final e = refused(json);
         expect(
-          (e.kind, e.hint, e.field, e.thing, e.call),
-          (ErrorKind.input, ErrorHint.fileNotRead, field, 'x.json', 'read'),
+          (e.kind, e.hint, e.fileProblem, e.thing, e.call),
+          (ErrorKind.input, ErrorHint.fileNotRead, problem, 'x.json', 'read'),
           reason: json,
         );
         // said by the app, not here
         expect(e.message, isEmpty, reason: json);
       }
+      final notJson = refused('{').fileProblem!;
+      expect((notJson.fault, notJson.offset), (ManifestFault.notJson, 1));
+      expect(
+        refused('${'[' * 5000}${']' * 5000}').fileProblem,
+        const ManifestProblem(fault: ManifestFault.tooDeep),
+      );
     });
 
-    test('the profile decoder: each field typed, the fault with its field', () {
+    test('the profile decoder: each field typed', () {
       expect(
         profileDraftOfJson({
           'extends': 'wy:number',
@@ -457,7 +497,7 @@ void main() {
           'cfg': {'min': -40},
           'attr': {'k': 'v'},
         }),
-        Valid(
+        ProfileRead.read(
           ProfileDraft(
             parent: 'wy:number',
             type: TypeCode.number,
@@ -472,40 +512,34 @@ void main() {
       );
       expect(
         profileDraftOfJson(const <String, Object?>{}),
-        const Valid(ProfileDraft()),
+        const ProfileRead.read(ProfileDraft()),
       );
-      for (final (json, field, reason) in <(Object?, String, String)>[
-        ([1], '', 'not a JSON object'),
-        ('profile', '', 'not a JSON object'),
-        ({'points': 3}, 'points', 'not a field of a profile'),
-        ({'type': 'colour'}, 'type', 'not a known type'),
-        ({'type': 3}, 'type', 'not a text'),
+      for (final (json, problem) in <(Object?, ManifestProblem)>[
+        ('profile', const ManifestProblem(fault: ManifestFault.notObject)),
+        (
+          {'type': 3},
+          const ManifestProblem(fault: ManifestFault.wrongForm, field: 'type'),
+        ),
         (
           {
             'children': {'a': 1},
           },
-          'children',
-          'not a list',
+          const ManifestProblem(
+            fault: ManifestFault.wrongForm,
+            field: 'children',
+          ),
         ),
         (
-          {
-            'enum': ['a', 2],
-          },
-          'enum',
-          'not texts',
+          {'attr': 'x'},
+          const ManifestProblem(fault: ManifestFault.wrongForm, field: 'attr'),
         ),
-        ({'attr': 'x'}, 'attr', 'not a map'),
       ]) {
         expect(
           profileDraftOfJson(json),
-          Invalid<ProfileDraft>('profile', field, reason),
+          ProfileRead.unreadable(problem),
           reason: '$json',
         );
       }
-      expect(
-        profileDraftOf(utf8.encode('{')),
-        const Invalid<ProfileDraft>('profile', '', 'not JSON'),
-      );
     });
 
     test('remove names the profile', () async {

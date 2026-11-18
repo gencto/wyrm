@@ -2233,8 +2233,6 @@
     "chkTooLarge": "{mib} MiB; at most {limit} MiB",
     "@chkTooLarge": {"placeholders": {"mib": {"type": "int"}, "limit": {"type": "int"}}},
     "chkNotZip": "not a zip",
-    "chkNotZipBecause": "not a zip: {error}",
-    "@chkNotZipBecause": {"placeholders": {"error": {"type": "String"}}},
     "chkTooManyFiles": "{files} files, {mib} MiB unpacked; at most {maxFiles} and {maxMib} MiB",
     "@chkTooManyFiles": {"placeholders": {"files": {"type": "int"}, "mib": {"type": "int"}, "maxFiles": {"type": "int"}, "maxMib": {"type": "int"}}},
     "chkKibAndFiles": "{kib} KiB, {files} files",
@@ -2292,5 +2290,14 @@
     "errBackupNoDigest": "The broker shows no SHA-256 of this backup, so what arrives cannot be checked. Nothing was saved.",
     "errBackupDigestMismatch": "The file that arrived is not the backup: its SHA-256 is not the one the broker shows. Nothing was saved. Both are in the log.",
     "sysAttnNotRead": "{name} waits in quarantine, not read by this Studio",
-    "@sysAttnNotRead": {"placeholders": {"name": {"type": "String"}}}
+    "@sysAttnNotRead": {"placeholders": {"name": {"type": "String"}}},
+    "chkTooDeep": "{file} nests deeper than a manifest may",
+    "@chkTooDeep": {"placeholders": {"file": {"type": "String"}}},
+    "errCheckNotRun": "The file could not be checked, so the install does not go on. Bring another file.",
+    "chkNotJsonAt": "{file} is not JSON (at character {at})",
+    "@chkNotJsonAt": {"placeholders": {"file": {"type": "String"}, "at": {"type": "int"}}},
+    "chkUnknownField": "{field} is not a field this file has",
+    "@chkUnknownField": {"placeholders": {"field": {"type": "String"}}},
+    "errFileNotReadBecause": "{why}. Nothing was sent.",
+    "@errFileNotReadBecause": {"placeholders": {"why": {"type": "String"}}}
 }

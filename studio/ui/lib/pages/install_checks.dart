@@ -11,7 +11,15 @@ import 'link_install_data.dart';
 // typed values. Nothing arrives here as a sentence.
 
 /// The kinds of fault of a manifest a person brought.
-enum ManifestFaultKind { notJson, notObject, missing, wrongForm, unknownName }
+enum ManifestFaultKind {
+  notJson,
+  tooDeep,
+  notObject,
+  unknownField,
+  missing,
+  wrongForm,
+  unknownName,
+}
 
 /// What is wrong with a manifest: the kind, the [file] it is of, the
 /// field at fault (empty: the file itself) and what the file holds there.
@@ -21,20 +29,31 @@ final class ManifestProblemVm extends Equatable {
     required this.file,
     this.field = '',
     this.found,
+    this.offset,
   });
 
   final ManifestFaultKind kind;
   final String file;
   final String field;
+
+  /// The name the file holds that Studio does not know.
   final String? found;
+
+  /// Where the file stops being JSON, in characters.
+  final int? offset;
 
   /// The sentence of the check.
   String get line => switch (kind) {
-    ManifestFaultKind.notJson => S.current.chkNotJson(file),
+    ManifestFaultKind.notJson => switch (offset) {
+      final at? => S.current.chkNotJsonAt(file, at),
+      null => S.current.chkNotJson(file),
+    },
+    ManifestFaultKind.tooDeep => S.current.chkTooDeep(file),
     ManifestFaultKind.notObject =>
       field.isEmpty
           ? S.current.chkNotObject(file)
           : S.current.chkWrongForm(field),
+    ManifestFaultKind.unknownField => S.current.chkUnknownField(field),
     ManifestFaultKind.missing => S.current.chkMissing(field),
     ManifestFaultKind.wrongForm => S.current.chkWrongForm(field),
     ManifestFaultKind.unknownName => S.current.chkUnknownName(
@@ -44,7 +63,7 @@ final class ManifestProblemVm extends Equatable {
   };
 
   @override
-  List<Object?> get props => [kind, file, field, found];
+  List<Object?> get props => [kind, file, field, found, offset];
 }
 
 /// The link of a link backup, and where and when the backup was made.
@@ -114,21 +133,16 @@ final class TooLargeFinding extends CheckFinding {
 }
 
 final class NotZipFinding extends CheckFinding {
-  const NotZipFinding({this.error});
-
-  final String? error;
+  const NotZipFinding();
 
   @override
   String get title => S.current.chkArchive;
 
   @override
-  String get line => switch (error) {
-    final e? => S.current.chkNotZipBecause(e),
-    null => S.current.chkNotZip,
-  };
+  String get line => S.current.chkNotZip;
 
   @override
-  List<Object?> get props => [error];
+  List<Object?> get props => [];
 }
 
 final class TooManyFilesFinding extends CheckFinding {

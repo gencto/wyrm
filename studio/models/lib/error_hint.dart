@@ -41,4 +41,8 @@ enum ErrorHint {
   /// The file that arrived is not the backup: its SHA-256 is not the one
   /// the broker shows (both are in the log). Nothing was saved.
   backupDigestMismatch,
+
+  /// The check of a file brought for a link could not be run, or found
+  /// nothing: the install does not go on.
+  checkNotRun,
 }

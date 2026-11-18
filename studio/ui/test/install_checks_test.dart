@@ -35,6 +35,18 @@ void main() {
       [
         problem(ManifestFaultKind.notJson).row.detail,
         problem(ManifestFaultKind.notObject).row.detail,
+        const InstallCheckVm(
+          finding: ManifestProblemFinding(
+            ManifestProblemVm(
+              kind: ManifestFaultKind.notJson,
+              file: 'manifest.json',
+              offset: 17,
+            ),
+          ),
+          result: CheckResult.failed,
+        ).row.detail,
+        problem(ManifestFaultKind.tooDeep).row.detail,
+        problem(ManifestFaultKind.unknownField, field: 'colour').row.detail,
         problem(ManifestFaultKind.missing, field: 'link.id').row.detail,
         problem(ManifestFaultKind.wrongForm, field: 'sections').row.detail,
         problem(
@@ -46,6 +58,10 @@ void main() {
       [
         'manifest.json is not JSON',
         'manifest.json is not a JSON object',
+        // the cause is said: where the JSON stops, which field is not one
+        'manifest.json is not JSON (at character 17)',
+        'manifest.json nests deeper than a manifest may',
+        'colour is not a field this file has',
         'link.id is missing',
         'sections is not of the form it has in a manifest',
         'sealed.how: hsm is a name this Studio does not know',
@@ -60,7 +76,9 @@ void main() {
       ],
       [
         'manifest.json — не JSON',
+        'manifest.json має глибшу вкладеність, ніж дозволено маніфесту',
         'link.mode має не ту форму, яку має в маніфесті',
+        'link.mode — поле, якого цей файл не має',
         'немає link.mode',
         'link.mode має не ту форму, яку має в маніфесті',
         'link.mode: container — назва, якої ця Studio не знає',
@@ -98,7 +116,6 @@ void main() {
       TooLargeFinding(mib: 80, limitMib: 64, zipped: true),
       TooLargeFinding(mib: 80, limitMib: 64, zipped: false),
       NotZipFinding(),
-      NotZipFinding(error: 'bad header'),
       TooManyFilesFinding(files: 1200, mib: 300, maxFiles: 1000, maxMib: 256),
       SizeAndFilesFinding(kib: 12, files: 3),
       SizeFinding(kib: 12),
@@ -146,7 +163,6 @@ void main() {
       'Size: 80 MiB zipped; at most 64 MiB',
       'Size: 80 MiB; at most 64 MiB',
       'Archive: not a zip',
-      'Archive: not a zip: bad header',
       'Size and files: 1200 files, 300 MiB unpacked; at most 1000 and 256 MiB',
       'Size and files: 12 KiB, 3 files',
       'Size: 12 KiB',
@@ -205,6 +221,6 @@ void main() {
     }
     expect(uk.first, 'Розмір: 80 MiB у zip; не більше ніж 64 MiB');
     expect(uk[2], 'Архів: це не zip');
-    expect(uk[35], 'Секрети: запечатано паролем');
+    expect(uk[34], 'Секрети: запечатано паролем');
   });
 }

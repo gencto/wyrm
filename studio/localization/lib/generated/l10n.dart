@@ -17921,16 +17921,6 @@ class S {
     return Intl.message('not a zip', name: 'chkNotZip', desc: '', args: []);
   }
 
-  /// `not a zip: {error}`
-  String chkNotZipBecause(String error) {
-    return Intl.message(
-      'not a zip: $error',
-      name: 'chkNotZipBecause',
-      desc: '',
-      args: [error],
-    );
-  }
-
   /// `{files} files, {mib} MiB unpacked; at most {maxFiles} and {maxMib} MiB`
   String chkTooManyFiles(int files, int mib, int maxFiles, int maxMib) {
     return Intl.message(
@@ -18263,6 +18253,56 @@ class S {
       name: 'sysAttnNotRead',
       desc: '',
       args: [name],
+    );
+  }
+
+  /// `{file} nests deeper than a manifest may`
+  String chkTooDeep(String file) {
+    return Intl.message(
+      '$file nests deeper than a manifest may',
+      name: 'chkTooDeep',
+      desc: '',
+      args: [file],
+    );
+  }
+
+  /// `The file could not be checked, so the install does not go on. Bring another file.`
+  String get errCheckNotRun {
+    return Intl.message(
+      'The file could not be checked, so the install does not go on. Bring another file.',
+      name: 'errCheckNotRun',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{file} is not JSON (at character {at})`
+  String chkNotJsonAt(String file, int at) {
+    return Intl.message(
+      '$file is not JSON (at character $at)',
+      name: 'chkNotJsonAt',
+      desc: '',
+      args: [file, at],
+    );
+  }
+
+  /// `{field} is not a field this file has`
+  String chkUnknownField(String field) {
+    return Intl.message(
+      '$field is not a field this file has',
+      name: 'chkUnknownField',
+      desc: '',
+      args: [field],
+    );
+  }
+
+  /// `{why}. Nothing was sent.`
+  String errFileNotReadBecause(String why) {
+    return Intl.message(
+      '$why. Nothing was sent.',
+      name: 'errFileNotReadBecause',
+      desc: '',
+      args: [why],
     );
   }
 }

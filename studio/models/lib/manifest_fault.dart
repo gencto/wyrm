@@ -5,8 +5,14 @@ enum ManifestFault {
   /// The file is not JSON.
   notJson,
 
+  /// The file nests deeper than a manifest may.
+  tooDeep,
+
   /// The file is JSON, and not an object.
   notObject,
+
+  /// The file has a field the format does not have.
+  unknownField,
 
   /// A field the format needs is not there.
   missing,

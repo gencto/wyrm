@@ -53,4 +53,29 @@ void main() {
     expect(of('a').hashCode, of('a').hashCode);
     expect(of([1, 2]).hashCode, of([1, 2]).hashCode);
   });
+
+  test('a value nested deeper than the bound is refused, not walked', () {
+    Object? nest(int depth) {
+      Object? v = 1;
+      for (var i = 0; i < depth; i++) {
+        v = [v];
+      }
+      return v;
+    }
+
+    expect(JsonValue.of(nest(JsonValue.maxDepth)), isA<JsonList>());
+    expect(
+      () => JsonValue.of(nest(JsonValue.maxDepth + 1)),
+      throwsA(isA<JsonTooDeep>()),
+    );
+    // far past any stack: refused at the bound
+    expect(() => JsonValue.of(nest(200000)), throwsA(isA<JsonTooDeep>()));
+    expect(JsonValue.isJson(nest(200000)), isFalse);
+    expect(JsonValue.tryOf(nest(200000)), isNull);
+    Object? maps = 1;
+    for (var i = 0; i < 100; i++) {
+      maps = {'a': maps};
+    }
+    expect(() => JsonValue.of(maps), throwsA(isA<JsonTooDeep>()));
+  });
 }

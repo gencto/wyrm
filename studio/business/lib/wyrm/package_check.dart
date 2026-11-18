@@ -13,6 +13,7 @@ import 'package:models/package_manifest.dart';
 import 'package:models/package_manifest_read.dart';
 import 'package:models/package_report.dart';
 
+import 'decode/decoded.dart';
 import 'decode/package_manifest.dart';
 
 // The checks of docs/links.md §4, run here before the broker runs them
@@ -66,7 +67,8 @@ PackageReport checkZip(Uint8List bytes, {String? host}) {
   try {
     zip = ZipDecoder().decodeBytes(bytes);
   } on Object catch (e) {
-    checks.add(_bad(PackageFinding.notZip(error: '$e')));
+    decodeLog.fine('package: not a zip: $e');
+    checks.add(_bad(const PackageFinding.notZip()));
     return stop();
   }
   final files = zip.files.where((f) => f.isFile).toList();
@@ -275,7 +277,8 @@ PackageReport checkBackup(Uint8List bytes) {
   try {
     archive = ZipDecoder().decodeBytes(bytes);
   } on Object catch (e) {
-    return stop([_bad(PackageFinding.notZip(error: '$e'))]);
+    decodeLog.fine('backup: not a zip: $e');
+    return stop([_bad(const PackageFinding.notZip())]);
   }
   final checks = <PackageCheck>[
     _ok(PackageFinding.archiveEntries(archive.files.length)),

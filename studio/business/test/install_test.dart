@@ -8,6 +8,7 @@ import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/link_mode.dart';
 import 'package:models/manifest_fault.dart';
+import 'package:models/manifest_problem.dart';
 import 'package:models/package_check.dart';
 import 'package:models/package_check_result.dart';
 import 'package:models/package_finding.dart';
@@ -41,6 +42,52 @@ void main() {
         expect(f.problem.fault, fault, reason: text);
         expect(f.file, 'wyrm-link.json');
       }
+    });
+
+    test('a manifest nested without end is a finding, not a crash', () {
+      final deep = '${'[' * 5000}${']' * 5000}';
+      final zip = Archive()
+        ..addFile(ArchiveFile.string('wyrm-link.json', deep));
+      final r = checkZip(Uint8List.fromList(ZipEncoder().encode(zip)));
+      expect(
+        r.checks.last,
+        const PackageCheck(
+          PackageFinding.manifestProblem(
+            ManifestProblem(fault: ManifestFault.tooDeep),
+            'wyrm-link.json',
+          ),
+          result: PackageCheckResult.failed,
+        ),
+      );
+
+      final backup = Archive()
+        ..addFile(ArchiveFile.string('manifest.json', deep));
+      final b = checkBackup(Uint8List.fromList(ZipEncoder().encode(backup)));
+      expect(
+        b.checks.last,
+        const PackageCheck(
+          PackageFinding.manifestProblem(
+            ManifestProblem(fault: ManifestFault.tooDeep),
+            'manifest.json',
+          ),
+          result: PackageCheckResult.failed,
+        ),
+      );
+      // nested in a field, too
+      final inField = Archive()
+        ..addFile(
+          ArchiveFile.string('wyrm-link.json', '{"args": $deep}'),
+        );
+      expect(
+        (checkZip(Uint8List.fromList(ZipEncoder().encode(inField)))
+                    .checks
+                    .last
+                    .finding
+                as FindingManifestProblem)
+            .problem
+            .fault,
+        ManifestFault.tooDeep,
+      );
     });
 
     test('a process package for this host passes and reports its rights', () {
