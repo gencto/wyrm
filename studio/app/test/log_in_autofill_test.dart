@@ -118,6 +118,27 @@ void main() {
     await app.leave(t);
   }, variant: mac);
 
+  testWidgets('the main gateway emptied: the standby stays the standby', (
+    t,
+  ) async {
+    final app = LogInApp()
+      ..put(
+        (a) => a.copyWith.login(gateway: '$gw, $standbyGw', user: user),
+      );
+    await app.pumpLogIn(t);
+    await t.tap(find.text(S.current.standbyIs('edge.local:8446')));
+    await app.settle(t);
+    expect(shown(t, 'Standby gateway'), standbyGw);
+
+    await t.enterText(input('Gateway'), '');
+    await app.settle(t);
+
+    expect(shown(t, 'Gateway'), isEmpty);
+    expect(shown(t, 'Standby gateway'), standbyGw);
+    expect(required('Gateway'), findsOneWidget);
+    await app.leave(t);
+  }, variant: mac);
+
   testWidgets('Log in after AutoFill sends the password shown', (t) async {
     final app = LogInApp(
       login: FakeLogin(

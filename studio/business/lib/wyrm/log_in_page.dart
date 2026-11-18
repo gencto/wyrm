@@ -55,10 +55,18 @@ final class GatewayField {
   bool get https => mainUri?.isScheme('https') ?? false;
 
   /// The field with [main] in place of the main gateway.
-  String withMain(String? main) => _join(main, standby);
+  String withMain(String? main) => _pair(main, standby);
 
   /// The field with [standby] in place of the standby gateway.
-  String withStandby(String? standby) => _join(main, standby);
+  String withStandby(String? standby) => _pair(main, standby);
+
+  /// [main] and [standby] in their places: an empty main beside a standby
+  /// keeps its slot (`, edge`), so the standby does not become the main
+  /// while the user empties the main field to type another.
+  static String _pair(String? main, String? standby) =>
+      standby == null || standby.isEmpty
+      ? main ?? ''
+      : '${main ?? ''}, $standby';
 
   /// The standby first: *Use the standby*.
   String get swapped => _join(standby, main);
