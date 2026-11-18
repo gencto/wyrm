@@ -126,6 +126,7 @@ extension QuarantineEntryUi on QuarantineEntry {
         node: node,
         cn: cn,
         broker: kind == QuarantineKind.broker,
+        notRead: kind == QuarantineKind.notRead,
         from: from,
         via: via.unlock,
         deauthorized: deauthorized,

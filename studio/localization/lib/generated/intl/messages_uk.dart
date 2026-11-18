@@ -4556,6 +4556,12 @@ class MessageLookup extends MessageLookupByLibrary {
     "viewerTabTable": MessageLookupByLibrary.simpleMessage("Як таблиця"),
     "viewerTabText": MessageLookupByLibrary.simpleMessage("Текст"),
     "viewerTableHint": m487,
+    "waitNotRead": MessageLookupByLibrary.simpleMessage(
+      "ця Studio не прочитала",
+    ),
+    "waitNotReadNote": MessageLookupByLibrary.simpleMessage(
+      "Відповідь у формі, якої ця Studio не читає; вирішуй на брокері. Дивись Проблеми.",
+    ),
     "waitingInQuarantine": MessageLookupByLibrary.simpleMessage(
       "Чекає в карантині",
     ),
@@ -4601,6 +4607,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Multicast не проходить через цю мережу: гостьовий Wi-Fi, VPN або VLAN без відбивача mDNS.",
     ),
     "whyNew": MessageLookupByLibrary.simpleMessage("Новий"),
+    "whyNotRead": MessageLookupByLibrary.simpleMessage("не прочитано"),
     "whyPermission": MessageLookupByLibrary.simpleMessage(
       "Studio, можливо, не має дозволу бачити локальну мережу.",
     ),

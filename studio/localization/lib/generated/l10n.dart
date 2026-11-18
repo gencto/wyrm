@@ -17720,6 +17720,31 @@ class S {
       args: [],
     );
   }
+
+  /// `not read by this Studio`
+  String get waitNotRead {
+    return Intl.message(
+      'not read by this Studio',
+      name: 'waitNotRead',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `not read`
+  String get whyNotRead {
+    return Intl.message('not read', name: 'whyNotRead', desc: '', args: []);
+  }
+
+  /// `Answered in a form this Studio does not read; decide on the broker. See Problems.`
+  String get waitNotReadNote {
+    return Intl.message(
+      'Answered in a form this Studio does not read; decide on the broker. See Problems.',
+      name: 'waitNotReadNote',
+      desc: '',
+      args: [],
+    );
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<S> {

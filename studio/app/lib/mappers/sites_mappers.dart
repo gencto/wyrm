@@ -44,6 +44,7 @@ extension SiteMapNodeData on SiteMapNode {
     status: status,
     detail: detail,
     count: count,
+    notRead: notRead,
     selected: selected,
   );
 }
@@ -79,6 +80,7 @@ extension SiteDetailVmOf on SiteDetail {
         key,
         cn: entry.cn,
         broker: entry.kind == QuarantineKind.broker,
+        notRead: entry.kind == QuarantineKind.notRead,
         from: entry.from,
         via: entry.via.unlock,
         hash: entry.key,

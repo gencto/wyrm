@@ -86,6 +86,7 @@ final class SiteNodeData extends Equatable {
     this.status,
     this.detail,
     this.count = 0,
+    this.notRead = false,
     this.selected = false,
   });
 
@@ -97,6 +98,9 @@ final class SiteNodeData extends Equatable {
   final String? status;
   final String? detail;
   final int count;
+
+  /// The node was answered in a form Studio does not read.
+  final bool notRead;
 
   /// The node picked.
   final bool selected;
@@ -111,6 +115,7 @@ final class SiteNodeData extends Equatable {
     status,
     detail,
     count,
+    notRead,
     selected,
   ];
 }
@@ -192,6 +197,7 @@ final class WaitingSiteVm extends SiteDetailVm {
     super.key, {
     required this.cn,
     this.broker = false,
+    this.notRead = false,
     this.from,
     this.via = const [],
     this.hash,
@@ -200,6 +206,9 @@ final class WaitingSiteVm extends SiteDetailVm {
 
   final String cn;
   final bool broker;
+
+  /// What waits was answered in a form Studio does not read.
+  final bool notRead;
   final String? from;
   final List<String> via;
 
@@ -208,7 +217,17 @@ final class WaitingSiteVm extends SiteDetailVm {
   final List<ParamFieldVm>? fields;
 
   @override
-  List<Object?> get props => [name, key, cn, broker, from, via, hash, fields];
+  List<Object?> get props => [
+    name,
+    key,
+    cn,
+    broker,
+    notRead,
+    from,
+    via,
+    hash,
+    fields,
+  ];
 }
 
 /// A device of an external link.
@@ -327,6 +346,9 @@ class SitesPage extends StatelessWidget {
 
   String _sub(SiteNodeData n) {
     final s = S.current;
+    if (n.notRead) {
+      return s.waitNotRead;
+    }
     return switch (n.ref.kind) {
       SiteNodeKind.upstream =>
         n.connected ? s.yourUpstream : (n.status ?? s.stateOffline),
@@ -499,7 +521,9 @@ class SitesPage extends StatelessWidget {
         ],
       ),
       WaitingSiteVm(:final key) && final d => DetailInspectorVm(
-        eyebrow: d.broker ? s.brokerWaiting : s.waitingInQuarantine,
+        eyebrow: d.notRead
+            ? s.waitNotRead
+            : (d.broker ? s.brokerWaiting : s.waitingInQuarantine),
         title: d.cn,
         pill: StatusPillVm(
           label: s.stateWaiting,

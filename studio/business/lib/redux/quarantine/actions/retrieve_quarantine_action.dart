@@ -1,6 +1,7 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/param_spec.dart';
 import 'package:models/quarantine_entry.dart';
+import 'package:models/quarantine_kind.dart';
 
 import '../../../wyrm/calls.dart';
 import '../../../wyrm/decode/param_spec.dart';
@@ -32,14 +33,23 @@ class RetrieveQuarantineAction extends Action with WaitingAction {
     final forms = <String, IList<ParamSpec>>{};
     for (final c in nodes) {
       final m = await metaOf(api, '$base/${c.name}');
-      // an entry this client cannot read is never shown as a kind it may
-      // not be: it is left out of the table, and the user is told of it
+      // An entry this client cannot read is never shown as a kind it may
+      // not be, and a connection that awaits a decision does not vanish:
+      // it stays in the table as one that was not read (no Authorize is
+      // offered for it), and the user is told of it.
       final entry = unread.take(
         quarantineEntryOf(c.name, m),
         name: c.name,
         where: '$base/${c.name}',
       );
       if (entry == null) {
+        entries.add(
+          QuarantineEntry(
+            cn: m.displayName ?? c.name,
+            node: c.name,
+            kind: QuarantineKind.notRead,
+          ),
+        );
         continue;
       }
       entries.add(entry);

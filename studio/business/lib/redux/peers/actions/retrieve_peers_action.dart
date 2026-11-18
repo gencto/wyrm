@@ -19,8 +19,8 @@ import '../../problems/actions/add_problem_action.dart';
 /// devices of its external links, and its platform upstreams (the
 /// `uplink` link's entries). Quarantine entries come from
 /// `RetrieveQuarantineAction`. A broker node this client cannot read is
-/// left off the map; the user is told which (a toast and a line in
-/// Problems).
+/// on the map by its name as one that was not read; the user is told
+/// which (a toast and a line in Problems).
 class RetrievePeersAction extends Action with WaitingAction {
   @override
   Future<AppState?> reduce() async {
@@ -56,23 +56,35 @@ class RetrievePeersAction extends Action with WaitingAction {
           name: 'sys/upstream/${u.name}',
           where: '$root/sys/upstream/${u.name}',
         );
-        if (peer != null) {
-          peers.add(peer);
-        }
+        // not read: on the map by its name, as one that was not read
+        peers.add(
+          peer ??
+              Peer(
+                site: u.name,
+                kind: PeerKind.upstream,
+                parent: viewed,
+                unreadable: true,
+              ),
+        );
       }
     }
 
     final below = await _children(api, '$root/downstream');
     for (final c in below) {
       if (downstreamPeerOf(viewed, c) case final read?) {
-        if (unread.take(
-              read,
-              name: 'downstream/${c.name}',
-              where: '$root/downstream/${c.name}',
-            )
-            case final p?) {
-          peers.add(p);
-        }
+        peers.add(
+          unread.take(
+                read,
+                name: 'downstream/${c.name}',
+                where: '$root/downstream/${c.name}',
+              ) ??
+              Peer(
+                site: c.name,
+                kind: PeerKind.downstream,
+                parent: viewed,
+                unreadable: true,
+              ),
+        );
       } else if (c.name == 'uplink') {
         for (final pl in await _children(api, '$root/downstream/uplink')) {
           if (pl.name == 'stats') {

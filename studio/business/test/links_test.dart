@@ -15,6 +15,7 @@ import 'package:business/redux/quarantine/actions/retrieve_quarantine_action.dar
 import 'package:business/redux/quarantine/actions/set_admission_options_action.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/link_mode.dart';
+import 'package:models/quarantine_kind.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import 'support/fake_wyrm.dart';
@@ -170,9 +171,24 @@ void main() {
 
     await s.dispatchAndWait(RetrieveQuarantineAction());
 
-    expect(s.state.quarantine.view, ['plc-gw-7']);
-    expect(s.state.quarantine.table.keys, ['plc-gw-7']);
-    // no Authorize form is offered for what is not shown
+    // it does not vanish: it waits in the table as one that was not read
+    expect(s.state.quarantine.view, ['plc-gw-7', 'gw-9', 'old']);
+    final table = s.state.quarantine.table;
+    expect(table['plc-gw-7']!.kind, QuarantineKind.link);
+    expect(table['gw-9']!.kind, QuarantineKind.notRead);
+    expect(table['old']!.kind, QuarantineKind.notRead);
+    // and no Authorize form is offered for what was not read
     expect(s.state.quarantine.forms.keys, isEmpty);
+    // it is neither a link that waits nor a broker that asks to join
+    expect(_Sel(s.state).oldestWaitingLink?.node, 'plc-gw-7');
+    // the wire never names this kind
+    expect(QuarantineKind.fromWire(''), isNull);
   });
+}
+
+class _Sel with Selectors {
+  _Sel(this.state);
+
+  @override
+  final AppState state;
 }

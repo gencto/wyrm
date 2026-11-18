@@ -2178,5 +2178,8 @@
     "chkLinkFrom": "{id} · {mode} · {driver} · із {site} (wyrmd {broker}, {created})",
     "logTypeOther": "{name} (спосіб, якого ця Studio не знає)",
     "bakNotRead": "Брокер описав свої резервні копії у формі, яку ця Studio не читає, тому тут їх не запропоновано. Поле вказано в журналі; дивись Проблеми.",
-    "bakRowNotRead": "не прочитано: у формі, якої ця Studio не знає"
+    "bakRowNotRead": "не прочитано: у формі, якої ця Studio не знає",
+    "waitNotRead": "ця Studio не прочитала",
+    "whyNotRead": "не прочитано",
+    "waitNotReadNote": "Відповідь у формі, якої ця Studio не читає; вирішуй на брокері. Дивись Проблеми."
 }

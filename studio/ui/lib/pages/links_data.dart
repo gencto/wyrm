@@ -215,6 +215,7 @@ final class QuarantineData extends Equatable {
     required this.node,
     required this.cn,
     required this.broker,
+    this.notRead = false,
     this.from,
     this.via = const [],
     this.deauthorized = false,
@@ -229,6 +230,10 @@ final class QuarantineData extends Equatable {
 
   /// A downstream broker asking for Authorize; else a link.
   final bool broker;
+
+  /// The entry was answered in a form Studio does not read: what waits is
+  /// not known, and the row says so.
+  final bool notRead;
   final String? from;
   final List<String> via;
   final bool deauthorized;
@@ -243,6 +248,7 @@ final class QuarantineData extends Equatable {
 
   @override
   List<Object?> get props => [
+    notRead,
     node,
     cn,
     broker,

@@ -2201,5 +2201,8 @@
     "logTypeOther": "{name} (a way this Studio does not know)",
     "@logTypeOther": {"placeholders": {"name": {"type": "String"}}},
     "bakNotRead": "The broker described its backups in a form this Studio does not read, so none is offered here. The field is in the log; see Problems.",
-    "bakRowNotRead": "not read: in a form this Studio does not know"
+    "bakRowNotRead": "not read: in a form this Studio does not know",
+    "waitNotRead": "not read by this Studio",
+    "whyNotRead": "not read",
+    "waitNotReadNote": "Answered in a form this Studio does not read; decide on the broker. See Problems."
 }

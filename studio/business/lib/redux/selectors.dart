@@ -1228,7 +1228,7 @@ extension SelectBrokerHealth on Selectors {
   QuarantineEntry? get oldestWaitingLink =>
       ([
             for (final q in _waiting)
-              if (q.kind != QuarantineKind.broker) q,
+              if (q.kind == QuarantineKind.link) q,
           ]..sort(
             (a, b) => (a.firstSeen ?? DateTime(0)).compareTo(
               b.firstSeen ?? DateTime(0),
@@ -1292,7 +1292,7 @@ extension SelectBrokerHealth on Selectors {
       for (final l in failedLinks)
         AttentionItem(kind: AttentionKind.linkFailed, subject: l.id),
       for (final q in waiting)
-        if (q.kind != QuarantineKind.broker)
+        if (q.kind == QuarantineKind.link)
           AttentionItem(
             kind: AttentionKind.quarantine,
             subject: q.node,

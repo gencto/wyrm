@@ -17,6 +17,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:models/backups_read.dart';
 import 'package:models/error_hint.dart';
 import 'package:models/error_kind.dart';
+import 'package:models/quarantine_kind.dart';
 import 'package:models/studio_error.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -97,7 +98,15 @@ void main() {
 
     await s.dispatchAndWait(RetrieveQuarantineAction());
 
-    expect(s.state.quarantine.view, ['plc-gw-7']);
+    // the entries stay, as ones that were not read
+    expect(s.state.quarantine.view, ['plc-gw-7', 'gw-9', 'old']);
+    expect(
+      [
+        for (final id in s.state.quarantine.view)
+          s.state.quarantine.table[id]!.kind,
+      ],
+      [QuarantineKind.link, QuarantineKind.notRead, QuarantineKind.notRead],
+    );
     final p = unread().single;
     expect(p.key, '$_root/sys/quarantine');
     expect(p.thing, 'gw-9, old');
@@ -114,6 +123,7 @@ void main() {
     final before = s.state.problems.items.length;
     await s.dispatchAndWait(RetrieveQuarantineAction());
     expect(s.state.quarantine.view, ['plc-gw-7', 'gw-9', 'old']);
+    expect(s.state.quarantine.table['gw-9']!.kind, QuarantineKind.broker);
     expect(s.state.problems.items, hasLength(before));
   });
 
@@ -140,8 +150,22 @@ void main() {
 
     await s.dispatchAndWait(RetrievePeersAction());
 
-    expect(s.state.peers.view, ['upstream:hq', 'downstream:plant']);
-    expect(s.state.peers.table['upstream:hq']!.connected, isTrue);
+    // each is on the map by its name; the two not read say so
+    expect(s.state.peers.view, [
+      'upstream:hq',
+      'upstream:lab',
+      'downstream:plant',
+      'downstream:odd',
+    ]);
+    final peers = s.state.peers.table;
+    expect(peers['upstream:hq']!.connected, isTrue);
+    expect(peers['upstream:hq']!.unreadable, isFalse);
+    expect(
+      (peers['upstream:lab']!.unreadable, peers['upstream:lab']!.connected),
+      (true, false),
+    );
+    expect(peers['downstream:odd']!.unreadable, isTrue);
+    expect(peers['downstream:plant']!.unreadable, isFalse);
     final p = unread().single;
     expect(p.key, _root);
     expect(p.thing, 'sys/upstream/lab, downstream/odd');

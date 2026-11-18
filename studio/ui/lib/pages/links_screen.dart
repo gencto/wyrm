@@ -309,8 +309,9 @@ class LinksScreen extends StatelessWidget {
     );
   }
 
-  String _kind(QuarantineData q) =>
-      q.broker ? S.current.downstreamBrokerQuic : S.current.linkOverTls;
+  String _kind(QuarantineData q) => q.notRead
+      ? S.current.waitNotRead
+      : (q.broker ? S.current.downstreamBrokerQuic : S.current.linkOverTls);
 
   String _seen(DateTime t) => S.current.firstSeen(Formats.ago(t));
 
@@ -326,16 +327,22 @@ class LinksScreen extends StatelessWidget {
             : S.current.asksToRelay(q.via.join(', ')),
       ),
       CellVm(
-        chip: q.broker
-            ? S.current.whyBroker
-            : (q.deauthorized ? S.current.whyDeauthorized : S.current.whyNew),
+        chip: q.notRead
+            ? S.current.whyNotRead
+            : (q.broker
+                  ? S.current.whyBroker
+                  : (q.deauthorized
+                        ? S.current.whyDeauthorized
+                        : S.current.whyNew)),
       ),
       CellVm(
         title: S.current.stateWaiting,
         tone: Tone.warn,
-        subtitle: q.broker
-            ? S.current.decideInSites
-            : (q.firstSeen == null ? null : _seen(q.firstSeen!)),
+        subtitle: q.notRead
+            ? S.current.waitNotReadNote
+            : (q.broker
+                  ? S.current.decideInSites
+                  : (q.firstSeen == null ? null : _seen(q.firstSeen!))),
       ),
     ],
   );

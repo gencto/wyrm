@@ -4491,6 +4491,12 @@ class MessageLookup extends MessageLookupByLibrary {
     "viewerTabTable": MessageLookupByLibrary.simpleMessage("As table"),
     "viewerTabText": MessageLookupByLibrary.simpleMessage("Text"),
     "viewerTableHint": m487,
+    "waitNotRead": MessageLookupByLibrary.simpleMessage(
+      "not read by this Studio",
+    ),
+    "waitNotReadNote": MessageLookupByLibrary.simpleMessage(
+      "Answered in a form this Studio does not read; decide on the broker. See Problems.",
+    ),
     "waitingInQuarantine": MessageLookupByLibrary.simpleMessage(
       "Waiting in quarantine",
     ),
@@ -4536,6 +4542,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Multicast does not cross this network: guest Wi-Fi, a VPN, or a VLAN without an mDNS reflector.",
     ),
     "whyNew": MessageLookupByLibrary.simpleMessage("New"),
+    "whyNotRead": MessageLookupByLibrary.simpleMessage("not read"),
     "whyPermission": MessageLookupByLibrary.simpleMessage(
       "Studio may not be allowed to see the local network.",
     ),
