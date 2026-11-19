@@ -24,6 +24,8 @@ thiserror.workspace = true
 # `files::discard` logs a scratch file it could not remove
 tracing.workspace = true
 # `mac`: HMAC-SHA-256 with an infallible constructor (pure Rust, builds for wasm32)
+# `args::Reader`: an argument that no field took is cleared when the call is refused
+zeroize.workspace = true
 hmac.workspace = true
 sha2.workspace = true
 # `hex`: the one hex helper of the workspace (docs/rust-rules.md §11)

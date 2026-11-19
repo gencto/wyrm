@@ -21,6 +21,12 @@ use crate::registry::{
 };
 use crate::secret::{self, CertFiles, Error, Pki};
 use crate::supervisor::{ProcSpec, ProcState, Supervisor};
+use actions::{
+    AddToken, AddUpstream, Approve, ApproveBroker, AuditTail, Authorize, Deauthorize, DeleteSecret,
+    Enroll, GetBrokerLog, GetLog, Grant, Hello, Install, InstallGit, InstallRepo, InstallUrl,
+    InstallWasm, InstallZip, PutProfile, RemoveProfile, Rollback, SetSecret, Start, UpdateParams,
+    UpdatePermissions,
+};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -30,19 +36,19 @@ use std::time::Duration;
 use tokio::sync::{mpsc, Mutex as AsyncMutex};
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
+use updates::UpdateOpts;
 use wyrm_core::clock::now_s;
 use wyrm_core::meta::Writable;
-use wyrm_core::meta::{
-    is_code, ActionResult, ParamMeta, Profile, EDITOR_FILE, EDITOR_PASSWORD, EDITOR_TEXTAREA,
-    GROUP_EDIT, GROUP_NEW,
-};
+use wyrm_core::meta::{is_code, ActionResult, Profile, GROUP_EDIT, GROUP_NEW};
 use wyrm_core::{ActionMeta, NodeMeta, Perm, Quality, Status, TypeCode, Value};
 use wyrm_link_sdk::{
     now_us, Caller, Link, LinkConfig, LinkCtx, LinkError, LinkHandle, ReplySink, VerifyingKey,
 };
+use wyrm_link_sdk::{Args, Secret};
 use wyrm_state::{StateError, Store};
 use zenoh::Session;
 
+mod actions;
 pub mod backups;
 pub mod broker_update;
 pub mod replication;
@@ -636,20 +642,13 @@ enum Answer {
 }
 
 /// `via` given as a list or as `a, b` text.
-fn via_list(v: Option<&Value>) -> Vec<String> {
-    let mut out: Vec<String> = match v {
-        Some(Value::Array(a)) => a
-            .iter()
-            .filter_map(|x| match x {
-                Value::Str(s) => Some(s.trim().to_owned()),
-                _ => None,
-            })
-            .collect(),
-        Some(Value::Str(s)) => s.split([',', ' ']).map(|x| x.trim().to_owned()).collect(),
-        _ => Vec::new(),
-    };
-    out.retain(|s| !s.is_empty());
-    out
+/// The site names of a `Via` field: `plant, cell`.
+fn via_names(text: &str) -> Vec<String> {
+    text.split([',', ' '])
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
+        .collect()
 }
 
 /// The host of `quic/<host>:<port>` (`[v6]` kept).
@@ -1910,7 +1909,7 @@ impl Control {
         let cert = self.link_cert(&def.id).ok()?;
         // A package link runs the package's entry with its args (ADR 0011);
         // a built-in driver runs as `<wyrmd> link <driver>`.
-        let (exe, args) = match def.driver.strip_prefix(packages::DRIVER_PREFIX) {
+        let (exe, argv) = match def.driver.strip_prefix(packages::DRIVER_PREFIX) {
             Some(name) => {
                 let p = self.registry().packages.get(name).cloned()?;
                 let dir = packages::dir(&self.packages_root(), &p);
@@ -1924,7 +1923,7 @@ impl Control {
         Some(ProcSpec {
             id: def.id.clone(),
             exe,
-            args,
+            args: argv,
             env: vec![
                 ("WYRM_SITE".into(), self.cfg.site.clone()),
                 // see wyrm_link_sdk::process::PARENT_PID_ENV
@@ -2243,10 +2242,6 @@ pub struct Admin {
     _broker: Option<zenoh::liveliness::LivelinessToken>,
 }
 
-fn str_param() -> ParamMeta {
-    ParamMeta::of(TypeCode::String)
-}
-
 fn link_node(def: &LinkDef) -> NodeMeta {
     let mut node = match &def.display {
         Some(d) => NodeMeta::folder().display(d.as_str()),
@@ -2298,17 +2293,16 @@ fn link_reach(mut node: NodeMeta, def: &LinkDef) -> NodeMeta {
     node
 }
 
-fn secret_name(args: &Value) -> Result<&str, LinkError> {
-    match arg_str(args, "name") {
-        Some(n)
-            if !n.is_empty()
-                && n.len() <= 64
-                && n.bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-') =>
-        {
-            Ok(n)
-        }
-        _ => Err(LinkError::invalid_parameter("name: [A-Za-z0-9_-]{1,64}")),
+/// The name of a link secret: `[A-Za-z0-9_-]{1,64}`.
+fn secret_name(n: &str) -> Result<&str, LinkError> {
+    if !n.is_empty()
+        && n.len() <= 64
+        && n.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    {
+        Ok(n)
+    } else {
+        Err(LinkError::invalid_parameter("name: [A-Za-z0-9_-]{1,64}"))
     }
 }
 
@@ -2326,29 +2320,23 @@ async fn declare_link(ctx: &LinkCtx, def: &LinkDef) -> Result<(), LinkError> {
         ("stop", "Stop", None),
         ("remove", "Remove", Some(GROUP_EDIT)),
     ] {
-        let mut m = ActionMeta::new().level(Perm::Config).display(d);
-        if a == "start" {
-            m = m.param(
-                "force",
-                ParamMeta::of(TypeCode::Bool)
-                    .display("Start a held link")
-                    .description(
-                        "A link is held when a rollback over a change of the store format \
-                         did not restore its data: true starts it as it is",
-                    ),
-            );
+        let mut m = if a == "start" {
+            Start::action()
+        } else {
+            <()>::action()
         }
+        .level(Perm::Config)
+        .display(d);
         m.group = g.map(str::to_owned);
         ctx.declare_action(&p, a, m).await?;
     }
     ctx.declare_action(
         &p,
         "update",
-        ActionMeta::new()
+        UpdateParams::action()
             .level(Perm::Config)
             .display("Update params")
             .group(GROUP_EDIT)
-            .param("params", ParamMeta::of(TypeCode::Map).required(true))
             .result(ActionResult::Type(TypeCode::Number)),
     )
     .await?;
@@ -2357,7 +2345,7 @@ async fn declare_link(ctx: &LinkCtx, def: &LinkDef) -> Result<(), LinkError> {
     ctx.declare_action(
         &p,
         "history",
-        ActionMeta::new()
+        <()>::action()
             // params are control-plane config: same level as update/rollback
             .level(Perm::Config)
             .display("History")
@@ -2367,55 +2355,30 @@ async fn declare_link(ctx: &LinkCtx, def: &LinkDef) -> Result<(), LinkError> {
     ctx.declare_action(
         &p,
         "rollback",
-        ActionMeta::new()
+        Rollback::action()
             .level(Perm::Config)
             .display("Rollback")
             .group(GROUP_EDIT)
-            .param(
-                "rev",
-                ParamMeta::of(TypeCode::Number)
-                    .required(true)
-                    .display("Revision"),
-            )
             .result(ActionResult::Type(TypeCode::Number)),
     )
     .await?;
     ctx.declare_action(
         &p,
         "set_secret",
-        ActionMeta::new()
+        SetSecret::action()
             .level(Perm::Config)
             .display("Set secret")
             .group("secrets")
-            .param(
-                "name",
-                ParamMeta::of(TypeCode::String)
-                    .required(true)
-                    .display("Name"),
-            )
-            .param(
-                "value",
-                ParamMeta::of(TypeCode::Binary)
-                    .required(true)
-                    .display("Value")
-                    .editor(EDITOR_PASSWORD),
-            )
             .result(ActionResult::Type(TypeCode::Array)),
     )
     .await?;
     ctx.declare_action(
         &p,
         "delete_secret",
-        ActionMeta::new()
+        DeleteSecret::action()
             .level(Perm::Config)
             .display("Delete secret")
             .group("secrets")
-            .param(
-                "name",
-                ParamMeta::of(TypeCode::String)
-                    .required(true)
-                    .display("Name"),
-            )
             .result(ActionResult::Type(TypeCode::Array)),
     )
     .await?;
@@ -2425,7 +2388,7 @@ async fn declare_link(ctx: &LinkCtx, def: &LinkDef) -> Result<(), LinkError> {
         // The names of the link's secrets, never a value (ADR 0049 §10): a screen can say
         // "set" or "not set" for a secret a parameter names (`api_key_ref`). An action, not
         // a value: a `~val` is read at `read`, the names are for `config`.
-        ActionMeta::new()
+        <()>::action()
             .level(Perm::Config)
             .display("Secret names")
             .group("secrets")
@@ -2437,34 +2400,17 @@ async fn declare_link(ctx: &LinkCtx, def: &LinkDef) -> Result<(), LinkError> {
         "hello",
         // Link handshake (an open action, see `open_actions`): level none
         // marks it as not for people, and UIs hide it.
-        ActionMeta::new()
+        Hello::action()
             .level(Perm::None)
-            .param("token", ParamMeta::of(TypeCode::Binary).required(true))
             .result(ActionResult::Type(TypeCode::Map)),
     )
     .await?;
     ctx.declare_action(
         &p,
         "grant",
-        ActionMeta::new()
+        Grant::action()
             .display("Grant access")
             .group("access")
-            .param(
-                "path",
-                str_param()
-                    .required(true)
-                    .display("Path")
-                    .placeholder("wy/{site}/downstream/<link>")
-                    .description("A node of another link (its subtree), or wy/{site}/dataflows"),
-            )
-            .param(
-                "level",
-                str_param()
-                    .required(true)
-                    .enum_values(["none", "list", "read", "write"])
-                    .display("Level")
-                    .description("none removes the grant"),
-            )
             .level(Perm::Config),
     )
     .await?;
@@ -2504,37 +2450,14 @@ fn link_levels() -> Vec<String> {
 
 /// `get_log {lines, level, filter[, link]}` → a table of log lines.
 fn log_action(broker: bool) -> ActionMeta {
-    let mut a = ActionMeta::new()
-        .display("Get log")
-        .param(
-            "lines",
-            ParamMeta::of(TypeCode::Number)
-                .display("Lines")
-                .placeholder("200 (at most 2000)"),
-        )
-        .param(
-            "level",
-            str_param()
-                .enum_values(LogLevel::NAMES.iter().rev().map(|l| l.to_string()))
-                .display("Level")
-                .description("This level and more severe"),
-        )
-        .param(
-            "filter",
-            str_param()
-                .display("Filter")
-                .placeholder("text in the target or message"),
-        );
     if broker {
-        a = a.param(
-            "link",
-            str_param()
-                .display("Link")
-                .placeholder("lines of one embedded link"),
-        );
+        GetBrokerLog::action()
+    } else {
+        GetLog::action()
     }
-    a.result(ActionResult::Type(TypeCode::Array))
-        .level(Perm::Config)
+    .display("Get log")
+    .result(ActionResult::Type(TypeCode::Array))
+    .level(Perm::Config)
 }
 
 /// Log lines as table rows.
@@ -2560,20 +2483,6 @@ fn log_rows(lines: Vec<crate::logs::LogLine>) -> Value {
     )
 }
 
-/// `(lines, min level, filter)` of a `get_log` call.
-fn log_args(args: &Value) -> Result<(usize, tracing::Level, String), LinkError> {
-    let n = int_arg::<usize>(args, "lines")?
-        .unwrap_or(200)
-        .clamp(1, 2000);
-    let level = match arg_str(args, "level").filter(|l| !l.is_empty()) {
-        Some(l) => crate::logs::parse_level(l)
-            .ok_or_else(|| LinkError::invalid_parameter(format!("level: {l}?")))?,
-        None => tracing::Level::TRACE,
-    };
-    let filter = arg_str(args, "filter").unwrap_or_default().to_owned();
-    Ok((n, level, filter))
-}
-
 /// "No role" in the Authorize `group` list (not a valid role name).
 const NO_ROLE: &str = "-";
 
@@ -2589,33 +2498,21 @@ fn role_names(ctl: &Control) -> Vec<String> {
 
 /// DSA Authorize: `dsid` (folder action only), `group` (a gateway role that
 /// gets `write` on the link), `name` (display name), driver and params.
-fn authorize_meta(dsid: Option<ParamMeta>, roles: &[String]) -> ActionMeta {
-    let mut a = ActionMeta::new().display("Authorize");
-    if let Some(p) = dsid {
-        a = a.param("dsid", p);
-    }
-    let group = if roles.is_empty() {
-        str_param().display("Group").placeholder("no user gateway")
-    } else {
-        str_param()
-            .enum_values(std::iter::once(NO_ROLE.to_owned()).chain(roles.iter().cloned()))
-            .display("Group")
-            .description("Gateway role that gets write on the new link")
+fn authorize_meta(folder: Option<Vec<String>>, roles: &[String]) -> ActionMeta {
+    let a = match folder {
+        // always a list, also an empty one (the UI shows `none` in it)
+        Some(cns) => Authorize::action().shown("dsid", |p| p.choices(cns)),
+        None => Approve::action(),
     };
-    a.param("group", group)
-        .param(
-            "name",
-            str_param().display("Name").placeholder("display name"),
-        )
-        .param("driver", str_param().display("Driver"))
-        .param("params", ParamMeta::of(TypeCode::Map).display("Params"))
-        .param("via", via_param())
-        .param(
-            "key",
-            str_param()
-                .display("Key")
-                .description("Downstream brokers: the SHA-256 of its key you compared"),
-        )
+    a.display("Authorize")
+        .shown("group", |p| {
+            if roles.is_empty() {
+                p.placeholder("no user gateway")
+            } else {
+                p.choices(std::iter::once(NO_ROLE.to_owned()).chain(roles.iter().cloned()))
+                    .description("Gateway role that gets write on the new link")
+            }
+        })
         .result(ActionResult::Type(TypeCode::Map))
         .level(Perm::Config)
 }
@@ -2626,21 +2523,9 @@ fn authorize_meta(dsid: Option<ParamMeta>, roles: &[String]) -> ActionMeta {
 async fn refresh_quarantine(ctx: &LinkCtx, ctl: &Control) -> Result<(), LinkError> {
     let reg = ctl.registry();
     let roles = role_names(ctl);
-    // Always a list, also an empty one (the UI shows `none` in it).
-    let pick = |vals: Vec<String>, display: &str, none: &str| {
-        str_param()
-            .required(true)
-            .display(display)
-            .placeholder(none)
-            .enum_values(vals)
-    };
     let cns: Vec<String> = reg.quarantine.keys().cloned().collect();
-    ctx.declare_action(
-        "quarantine",
-        "authorize",
-        authorize_meta(Some(pick(cns, "DsId", "nothing in quarantine")), &roles),
-    )
-    .await?;
+    ctx.declare_action("quarantine", "authorize", authorize_meta(Some(cns), &roles))
+        .await?;
     // everything connected downstream that can go back: runtime external
     // links and runtime downstream brokers (as DSA's Deauthorize)
     let mut links: Vec<String> = reg
@@ -2659,9 +2544,10 @@ async fn refresh_quarantine(ctx: &LinkCtx, ctl: &Control) -> Result<(), LinkErro
     ctx.declare_action(
         "quarantine",
         "deauthorize",
-        ActionMeta::new()
+        Deauthorize::action()
             .display("Deauthorize")
-            .param("link", pick(links, "Link", "nothing connected downstream"))
+            // always a list, also an empty one (the UI shows `none` in it)
+            .shown("link", |p| p.choices(links))
             .level(Perm::Config),
     )
     .await?;
@@ -2719,19 +2605,15 @@ async fn declare_quarantined(
     // a downstream broker needs only the sites it relays, and the key it
     // was reviewed with (one choice: a changed request needs a new look)
     let approve = if kind == "broker" {
-        let mut key = str_param()
-            .display("Key")
-            .description("SHA-256 of its key: the same as its sys/upstream/<this site>/key");
-        if let Some(k) = asked
+        let key = asked
             .map(|a| a.key_sha256.as_str())
-            .filter(|k| !k.is_empty())
-        {
-            key = key.required(true).enum_values([k.to_owned()]);
-        }
-        ActionMeta::new()
+            .filter(|k| !k.is_empty());
+        ApproveBroker::action()
             .display("Authorize")
-            .param("key", key)
-            .param("via", via_param())
+            .shown("key", |p| match key {
+                Some(k) => p.required().choices([k]),
+                None => p,
+            })
             .level(Perm::Config)
     } else {
         authorize_meta(None, roles)
@@ -2740,36 +2622,9 @@ async fn declare_quarantined(
     ctx.declare_action(
         &p,
         "reject",
-        ActionMeta::new().level(Perm::Config).display("Reject"),
+        <()>::action().level(Perm::Config).display("Reject"),
     )
     .await
-}
-
-fn arg<'a>(args: &'a Value, name: &str) -> Option<&'a Value> {
-    match args {
-        Value::Map(m) => m.get(name),
-        _ => None,
-    }
-}
-
-fn arg_str<'a>(args: &'a Value, name: &str) -> Option<&'a str> {
-    match arg(args, name) {
-        Some(Value::Str(s)) => Some(s),
-        _ => None,
-    }
-}
-
-/// An argument that is a whole number of type `T` (`Value::to_int`): absent or
-/// null is `None`; a fraction, NaN, a negative number for an unsigned `T`, a
-/// number out of range or text is refused, never truncated or saturated.
-pub(crate) fn int_arg<T: TryFrom<i128>>(args: &Value, name: &str) -> Result<Option<T>, LinkError> {
-    match arg(args, name) {
-        None | Some(Value::Null) => Ok(None),
-        Some(v) => v
-            .to_int()
-            .map(Some)
-            .map_err(|e| LinkError::invalid_parameter(format!("{name}: {e}, a whole number"))),
-    }
 }
 
 /// The DSA-style values of `sys`: broker info, traffic rates, options.
@@ -2845,7 +2700,7 @@ async fn declare_sys_actions(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Res
     ctx.declare_action(
         "",
         "clear_conns",
-        ActionMeta::new()
+        <()>::action()
             .display("Clear connections")
             .level(Perm::Config),
     )
@@ -2853,7 +2708,7 @@ async fn declare_sys_actions(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Res
     ctx.declare_action(
         "",
         "get_permissions",
-        ActionMeta::new()
+        <()>::action()
             .display("Get permissions")
             .result(ActionResult::Type(TypeCode::Array))
             .level(Perm::Config),
@@ -2863,53 +2718,13 @@ async fn declare_sys_actions(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Res
         ctx.declare_action(
             "",
             "update_permissions",
-            ActionMeta::new()
+            UpdatePermissions::action()
                 .display("Update permissions")
-                .param("role", str_param().required(true).display("Role"))
-                .param(
-                    "path",
-                    str_param()
-                        .required(true)
-                        .display("Path")
-                        .placeholder("wy/{site}/downstream/**"),
-                )
-                .param(
-                    "level",
-                    str_param()
-                        .required(true)
-                        .enum_values(Perm::ALL.iter().map(|p| p.name()))
-                        .display("Level"),
-                )
                 .level(Perm::Config),
         )
         .await?;
     }
     Ok(())
-}
-
-fn via_param() -> ParamMeta {
-    str_param()
-        .display("Via")
-        .placeholder("plant, cell")
-        .description(
-            "Downstream brokers: sites that broker relays from further down (a chain); \
-             it may serve their keys, and our upstream may read them.",
-        )
-}
-
-fn site_param() -> ParamMeta {
-    str_param()
-        .required(true)
-        .display("Name")
-        .description("Site name of that broker")
-}
-
-fn ca_param() -> ParamMeta {
-    str_param()
-        .required(true)
-        .display("CA certificate")
-        .editor(EDITOR_TEXTAREA)
-        .description("PEM of that site's CA (its data_dir/pki/ca.pem)")
 }
 
 /// `sys/upstream`: the brokers this one connects to, as DSA's
@@ -2921,28 +2736,9 @@ async fn declare_peers(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Result<()
     ctx.declare_action(
         "upstream",
         "add",
-        ActionMeta::new()
+        AddUpstream::action()
             .display("Add upstream connection")
             .group(GROUP_NEW)
-            .param("name", site_param())
-            .param(
-                "url",
-                str_param()
-                    .required(true)
-                    .display("URL")
-                    .placeholder("quic/central.example:7450")
-                    .description("Its enrollment endpoint (peers.enroll there)"),
-            )
-            .param("ca", ca_param())
-            .param(
-                "token",
-                str_param()
-                    .display("Token")
-                    .editor(EDITOR_PASSWORD)
-                    .description("From its sys/tokens, if it gave one: admitted at once"),
-            )
-            .param("enabled", ParamMeta::of(TypeCode::Bool).display("Enabled"))
-            .param("allow_config", allow_config_param())
             .level(Perm::Config),
     )
     .await?;
@@ -2985,15 +2781,6 @@ struct Upstream<'a> {
     key_sha256: &'a str,
     enabled: bool,
     allow_config: bool,
-}
-
-/// `allow_config` of an upstream site (ADR 0018).
-fn allow_config_param() -> ParamMeta {
-    ParamMeta::of(TypeCode::Bool)
-        .display("Allow config")
-        .description(
-            "Its users may run config actions here (sys and links), as far as their own grants go",
-        )
 }
 
 impl<'a> Upstream<'a> {
@@ -3203,23 +2990,9 @@ async fn declare_tokens(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Result<(
     ctx.declare_action(
         "tokens",
         "add",
-        ActionMeta::new()
+        AddToken::action()
             .display("Add token")
             .group(GROUP_NEW)
-            .param(
-                "count",
-                ParamMeta::of(TypeCode::Number)
-                    .display("Count")
-                    .placeholder("1")
-                    .description("Admissions it allows; 0: no limit"),
-            )
-            .param(
-                "hours",
-                ParamMeta::of(TypeCode::Number)
-                    .display("Hours")
-                    .placeholder("24")
-                    .description("Valid for this long; 0: never expires"),
-            )
             .result(ActionResult::Type(TypeCode::Map))
             .level(Perm::Config),
     )
@@ -3464,7 +3237,7 @@ async fn ask_certificate(ctl: &Control, def: &PeerDef) -> Result<Answer, String>
     let session = zenoh::open(zc)
         .await
         .map_err(|e| format!("unreachable: {}: {e}", def.enroll))?;
-    let mut args = BTreeMap::from([
+    let mut request = BTreeMap::from([
         ("site".to_owned(), Value::Str(ctl.cfg.site.clone())),
         ("csr".to_owned(), Value::Str(csr)),
         (
@@ -3482,11 +3255,15 @@ async fn ask_certificate(ctl: &Control, def: &PeerDef) -> Result<Answer, String>
         .get(PEER_TOKEN)
         .and_then(|t| std::str::from_utf8(t).ok())
     {
-        args.insert("token".to_owned(), Value::Str(t.to_owned()));
+        request.insert("token".to_owned(), Value::Str(t.to_owned()));
     }
     let client = wyrm_client::WyrmClient::new(session.clone()).with_timeout(Duration::from_secs(5));
     let answer = client
-        .invoke_one(&format!("wy/{}/sys", def.site), "enroll", Value::Map(args))
+        .invoke_one(
+            &format!("wy/{}/sys", def.site),
+            "enroll",
+            Value::Map(request),
+        )
         .await;
     let _ = session.close().await;
     let m = match answer {
@@ -3521,7 +3298,7 @@ async fn declare_remove(ctx: &LinkCtx, path: &str) -> wyrm_link_sdk::Result<()> 
     ctx.declare_action(
         path,
         "remove",
-        ActionMeta::new()
+        <()>::action()
             .display("Remove")
             .group(GROUP_EDIT)
             .level(Perm::Config),
@@ -3585,29 +3362,13 @@ const FETCH_TIMEOUT: Duration = Duration::from_secs(90);
 
 /// An "Install Link ▸" action: config level, `{success, message}`, time
 /// for a fetch and unpack.
-fn install_meta(display: &str) -> ActionMeta {
-    ActionMeta::new()
+fn install_meta<A: Args>(display: &str) -> ActionMeta {
+    A::action()
         .display(display)
         .group(INSTALL_GROUP)
         .result(ActionResult::Type(TypeCode::Map))
         .timeout_ms(INSTALL_TIMEOUT_MS)
         .level(Perm::Config)
-        .param(
-            "accept",
-            ParamMeta::of(TypeCode::Bool)
-                .display("Accept requested rights")
-                .description(
-                    "The package's network allowlist and grants: an install without this \
-                     shows them and installs nothing",
-                ),
-        )
-        .param("restore_point", updates::restore_point_param())
-        .param("auto_rollback_s", updates::auto_rollback_param())
-}
-
-/// `accept: true` in an install's arguments (review WASM-1).
-fn accepted(args: &Value) -> bool {
-    matches!(arg(args, "accept"), Some(Value::Bool(true)))
 }
 
 /// "from Repository" (always in the menu, as in DSA): `package` lists the
@@ -3615,51 +3376,27 @@ fn accepted(args: &Value) -> bool {
 /// `packages.repository`, the field says why.
 async fn declare_repo_action(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Result<()> {
     let state = ctl.repo.lock().unwrap_or_else(|p| p.into_inner()).clone();
-    let package = match state {
-        _ if ctl.cfg.repository.is_none() => str_param()
-            .required(true)
-            .display("Package")
-            .placeholder("set packages.repository in wyrmd.json5"),
-        // only what this host can install (a build for it, ADR 0021)
-        Some(Ok(list))
-            if list
-                .iter()
-                .any(|e| e.asset(&packages::platform()).is_some()) =>
-        {
-            str_param().required(true).display("Package").enum_values(
-                list.iter()
-                    .filter(|e| e.asset(&packages::platform()).is_some())
-                    .map(|e| e.name.clone()),
-            )
-        }
-        Some(Ok(list)) if !list.is_empty() => str_param()
-            .required(true)
-            .display("Package")
-            .placeholder(format!(
-                "no package built for this host ({})",
-                packages::platform()
-            )),
-        Some(Ok(_)) => str_param()
-            .required(true)
-            .display("Package")
-            .placeholder("the repository is empty"),
-        Some(Err(e)) => str_param()
-            .required(true)
-            .display("Package")
-            .placeholder(format!("repository unreachable: {e}")),
-        None => str_param()
-            .required(true)
-            .display("Package")
-            .placeholder("loading the repository index"),
+    let hosts = |list: &[packages::RepoEntry]| -> Vec<String> {
+        list.iter()
+            .filter(|e| e.asset(&packages::platform()).is_some())
+            .map(|e| e.name.clone())
+            .collect()
     };
-    ctx.declare_action(
-        "links",
-        "install_repo",
-        install_meta("From repository")
-            .param("name", link_name_param())
-            .param("package", package),
-    )
-    .await
+    let meta = install_meta::<InstallRepo>("From repository").shown("package", |p| match state {
+        _ if ctl.cfg.repository.is_none() => {
+            p.placeholder("set packages.repository in wyrmd.json5")
+        }
+        // only what this host can install (a build for it, ADR 0021)
+        Some(Ok(list)) if !hosts(&list).is_empty() => p.choices(hosts(&list)),
+        Some(Ok(list)) if !list.is_empty() => p.placeholder(format!(
+            "no package built for this host ({})",
+            packages::platform()
+        )),
+        Some(Ok(_)) => p.placeholder("the repository is empty"),
+        Some(Err(e)) => p.placeholder(format!("repository unreachable: {e}")),
+        None => p.placeholder("loading the repository index"),
+    });
+    ctx.declare_action("links", "install_repo", meta).await
 }
 
 /// `sys/links` with `attr.catalog` (ADR 0043): the built-in drivers and,
@@ -3755,13 +3492,6 @@ async fn load_repository(ctl: Arc<Control>, ctx: LinkCtx) {
     }
 }
 
-fn link_name_param() -> ParamMeta {
-    str_param()
-        .required(true)
-        .display("Name")
-        .description("Id of the new link")
-}
-
 /// DSA-style install result: two output rows.
 fn outcome(r: Result<String, String>) -> Value {
     let (ok, message) = match r {
@@ -3806,15 +3536,7 @@ async fn declare_package(
         node = node.attr("description", p.description.as_str());
     }
     ctx.declare_node(&path, node).await?;
-    ctx.declare_action(
-        &path,
-        "remove",
-        ActionMeta::new()
-            .display("Remove")
-            .group(GROUP_EDIT)
-            .level(Perm::Config),
-    )
-    .await?;
+    declare_remove(ctx, &path).await?;
     updates::declare_values(ctx, ctl, p).await
 }
 
@@ -3864,26 +3586,12 @@ impl Link for Admin {
         ctx.declare_action(
             "links",
             "install",
-            ActionMeta::new()
+            Install::action()
                 .display("From driver")
                 .group(INSTALL_GROUP)
-                .param("id", str_param().required(true).display("Link ID"))
                 // The drivers this broker hosts, so a UI can list them
                 // (WYRM Studio's Add a link, docs/studio.md §7.3).
-                .param(
-                    "driver",
-                    str_param()
-                        .required(true)
-                        .display("Driver")
-                        .enum_values(cfg.ctl.host.drivers().into_iter().map(str::to_owned)),
-                )
-                .param(
-                    "mode",
-                    str_param()
-                        .enum_values(<Mode as wyrm_core::named::Named>::NAMES.iter().copied())
-                        .display("Mode"),
-                )
-                .param("params", ParamMeta::of(TypeCode::Map).display("Params"))
+                .shown("driver", |p| p.choices(cfg.ctl.host.drivers()))
                 .result(ActionResult::Type(TypeCode::Map))
                 .level(Perm::Config),
         )
@@ -3891,63 +3599,25 @@ impl Link for Admin {
         ctx.declare_action(
             "links",
             "install_zip",
-            install_meta("From ZIP")
-                .param("name", link_name_param())
-                .param(
-                    "zip",
-                    ParamMeta::of(TypeCode::Binary)
-                        .required(true)
-                        .display("ZIP file")
-                        .editor(EDITOR_FILE)
-                        .description("Link package: a zip with wyrm-link.json"),
-                ),
+            install_meta::<InstallZip>("From ZIP"),
         )
         .await?;
         ctx.declare_action(
             "links",
             "install_url",
-            install_meta("From URL")
-                .param("name", link_name_param())
-                .param(
-                    "url",
-                    str_param()
-                        .required(true)
-                        .display("URL")
-                        .placeholder("https://example.com/link.zip"),
-                ),
+            install_meta::<InstallUrl>("From URL"),
         )
         .await?;
         ctx.declare_action(
             "links",
             "install_git",
-            install_meta("From Git")
-                .param("name", link_name_param())
-                .param(
-                    "url",
-                    str_param()
-                        .required(true)
-                        .display("URL")
-                        .placeholder("https://git.example.com/link.git"),
-                )
-                .param(
-                    "ref",
-                    str_param().display("Ref").placeholder("branch or tag"),
-                ),
+            install_meta::<InstallGit>("From Git"),
         )
         .await?;
         ctx.declare_action(
             "links",
             "install_wasm",
-            install_meta("From WASM")
-                .param("name", link_name_param())
-                .param(
-                    "wasm",
-                    ParamMeta::of(TypeCode::Binary)
-                        .required(true)
-                        .display("Component")
-                        .editor(EDITOR_FILE)
-                        .description("A wyrm:link/driver component (.wasm)"),
-                ),
+            install_meta::<InstallWasm>("From WASM"),
         )
         .await?;
         declare_repo_action(&ctx, &cfg.ctl).await?;
@@ -3963,12 +3633,8 @@ impl Link for Admin {
                 "",
                 "enroll",
                 // open (see `open_actions`); level none hides it from people
-                ActionMeta::new()
+                Enroll::action()
                     .level(Perm::None)
-                    .param("site", str_param().required(true))
-                    .param("csr", str_param().required(true))
-                    .param("token", str_param())
-                    .param("via", ParamMeta::of(TypeCode::Array))
                     .result(ActionResult::Type(TypeCode::Map)),
             )
             .await?;
@@ -3982,28 +3648,18 @@ impl Link for Admin {
         ctx.declare_action(
             "profiles",
             "put",
-            ActionMeta::new()
+            PutProfile::action()
                 .display("Put profile")
                 .group(GROUP_NEW)
-                .param("name", str_param().required(true).display("Name"))
-                .param(
-                    "profile",
-                    // a picked file, larger than a frame for big models
-                    ParamMeta::of(TypeCode::Binary)
-                        .required(true)
-                        .display("Profile")
-                        .editor(EDITOR_FILE),
-                )
                 .level(Perm::Config),
         )
         .await?;
         ctx.declare_action(
             "profiles",
             "remove",
-            ActionMeta::new()
+            RemoveProfile::action()
                 .display("Remove profile")
                 .group(GROUP_EDIT)
-                .param("name", str_param().required(true).display("Name"))
                 .level(Perm::Config),
         )
         .await?;
@@ -4014,9 +3670,8 @@ impl Link for Admin {
         ctx.declare_action(
             "audit",
             "tail",
-            ActionMeta::new()
+            AuditTail::action()
                 .display("Tail")
-                .param("n", ParamMeta::of(TypeCode::Number).display("Records"))
                 .result(ActionResult::Type(TypeCode::Array))
                 .level(Perm::Config),
         )
@@ -4141,11 +3796,14 @@ impl Link for Admin {
         &mut self,
         path: &str,
         action: &str,
-        args: &Value,
+        args: Value,
         who: &Caller,
     ) -> wyrm_link_sdk::Result<()> {
         match (path, action) {
-            ("", "update") => broker_update::check(&self.ctl, args, &sub_of(who)).await,
+            ("", "update") => {
+                let a = broker_update::Update::decode(args)?;
+                broker_update::check(&self.ctl, &a, &sub_of(who)).await
+            }
             _ => Ok(()),
         }
     }
@@ -4161,86 +3819,60 @@ impl Link for Admin {
         let sub = sub_of(who);
         let segs: Vec<&str> = path.split('/').collect();
         let result = match (segs.as_slice(), action) {
-            (["links"], "install") => self.install(&args, &sub).await,
-            ([""], "enroll") => self.enroll(&args).await,
-            (["tokens"], "add") => self.add_token(&args, &sub).await,
-            (["tokens", id], "remove") => self.remove_token(id, &sub).await,
+            (["links"], "install") => self.install(Install::decode(args)?, &sub).await,
+            ([""], "enroll") => self.enroll(Enroll::decode(args)?).await,
+            (["tokens"], "add") => self.add_token(AddToken::decode(args)?, &sub).await,
+            (["tokens", id], "remove") => {
+                // the token first, as `main` answered (`no token …`)
+                if !self.ctl.registry().tokens.contains_key(*id) {
+                    return Err(LinkError::invalid_parameter(format!("no token {id}")));
+                }
+                <()>::decode(args)?;
+                self.remove_token(id, &sub).await
+            }
             (["links"], "install_zip") => {
-                let opts = updates::UpdateOpts::from_args(&args)?;
                 let _busy = self.ctl.busy()?;
-                let name = arg_str(&args, "name").unwrap_or_default().trim().to_owned();
-                let r = match arg(&args, "zip") {
-                    Some(Value::Bytes(zip)) => {
-                        self.install_package(
-                            &name,
-                            zip.clone(),
-                            "zip".into(),
-                            &sub,
-                            accepted(&args),
-                            opts,
-                        )
-                        .await
-                    }
-                    _ => Err("zip: required".into()),
-                };
+                let a = InstallZip::decode(args)?;
+                let r = self
+                    .install_package(&a.link.name, a.zip, "zip".into(), &sub, a.opts)
+                    .await;
                 Ok(Some(outcome(r)))
             }
             (["links"], "install_wasm") => {
-                let opts = updates::UpdateOpts::from_args(&args)?;
                 let _busy = self.ctl.busy()?;
-                let name = arg_str(&args, "name").unwrap_or_default().trim().to_owned();
-                let r = match arg(&args, "wasm") {
-                    Some(Value::Bytes(wasm)) => match packages::wrap_component(&name, wasm) {
-                        Ok(zip) => {
-                            self.install_package(
-                                &name,
-                                zip,
-                                "wasm".into(),
-                                &sub,
-                                accepted(&args),
-                                opts,
-                            )
+                let a = InstallWasm::decode(args)?;
+                let r = match packages::wrap_component(&a.link.name, &a.wasm) {
+                    Ok(zip) => {
+                        self.install_package(&a.link.name, zip, "wasm".into(), &sub, a.opts)
                             .await
-                        }
-                        Err(e) => Err(e),
-                    },
-                    _ => Err("wasm: required".into()),
+                    }
+                    Err(e) => Err(e),
                 };
                 Ok(Some(outcome(r)))
             }
             (["links"], "install_url") => {
-                let opts = updates::UpdateOpts::from_args(&args)?;
                 let _busy = self.ctl.busy()?;
-                let name = arg_str(&args, "name").unwrap_or_default().trim().to_owned();
-                let url = arg_str(&args, "url").unwrap_or_default().trim().to_owned();
-                let r = match crate::fetch::get(&url, packages::MAX_ZIP, FETCH_TIMEOUT).await {
+                let a = InstallUrl::decode(args)?;
+                let r = match crate::fetch::get(&a.url, packages::MAX_ZIP, FETCH_TIMEOUT).await {
                     Ok(zip) => {
-                        self.install_package(
-                            &name,
-                            zip,
-                            format!("url {url}"),
-                            &sub,
-                            accepted(&args),
-                            opts,
-                        )
-                        .await
+                        let source = format!("url {}", a.url);
+                        self.install_package(&a.link.name, zip, source, &sub, a.opts)
+                            .await
                     }
                     Err(e) => Err(e),
                 };
                 Ok(Some(outcome(r)))
             }
             (["links"], "install_git") => {
-                let opts = updates::UpdateOpts::from_args(&args)?;
                 let _busy = self.ctl.busy()?;
-                let name = arg_str(&args, "name").unwrap_or_default().trim().to_owned();
-                let url = arg_str(&args, "url").unwrap_or_default().trim().to_owned();
-                let git_ref = arg_str(&args, "ref").unwrap_or_default().trim().to_owned();
+                let a = InstallGit::decode(args)?;
+                let (url, git_ref) = (&a.url, &a.git_ref);
                 let root = self.ctl.packages_root();
                 // file:// only in the dev profile (tests, a local checkout)
-                let r = match crate::git::clone_zip(&url, &git_ref, self.ctl.cfg.dev, &root).await {
+                let r = match crate::git::clone_zip(url, git_ref, self.ctl.cfg.dev, &root).await {
                     Ok((zip, commit)) => {
                         let source = format!("git {url} {git_ref} {commit}");
-                        self.install_package(&name, zip, source, &sub, accepted(&args), opts)
+                        self.install_package(&a.link.name, zip, source, &sub, a.opts)
                             .await
                     }
                     Err(e) => Err(e),
@@ -4248,22 +3880,41 @@ impl Link for Admin {
                 Ok(Some(outcome(r)))
             }
             (["links"], "install_repo") => {
-                let opts = updates::UpdateOpts::from_args(&args)?;
                 let _busy = self.ctl.busy()?;
-                let name = arg_str(&args, "name").unwrap_or_default().trim().to_owned();
-                let package = arg_str(&args, "package").unwrap_or_default().to_owned();
+                let a = InstallRepo::decode(args)?;
                 Ok(Some(outcome(
-                    self.install_from_repo(&name, &package, &sub, accepted(&args), opts)
+                    self.install_from_repo(&a.link.name, &a.package, &sub, a.opts)
                         .await,
                 )))
             }
-            (["packages", name], "remove") => match self.ctl.claim_package(name) {
-                Ok(_claim) => self.remove_package(name, &sub).await,
-                Err(e) => Err(e),
-            },
-            (["packages", name], "update") => self.update_action(name, &args, &sub).await,
-            (["packages", name], "rollback") => self.rollback_action(name, &args, &sub).await,
-            (["links", id], "hello") => self.hello(id, &args).await,
+            // a package's actions: the package first, whatever the arguments are
+            (["packages", name], _) if self.package(name).is_err() => {
+                Err(LinkError::not_found((*name).to_owned()))
+            }
+            (["packages", name], "remove") => {
+                <()>::decode(args)?;
+                match self.ctl.claim_package(name) {
+                    Ok(_claim) => self.remove_package(name, &sub).await,
+                    Err(e) => Err(e),
+                }
+            }
+            // the package must exist before its arguments are read
+            (["packages", name], "update") => {
+                self.package(name)?;
+                self.update_action(name, updates::UpdatePackage::decode(args)?, &sub)
+                    .await
+            }
+            (["packages", name], "rollback") => {
+                self.package(name)?;
+                self.rollback_action(name, updates::RollbackPackage::decode(args)?, &sub)
+                    .await
+            }
+            (["links", id], "hello") => self.hello(id, Hello::decode(args)?).await,
+            // a link's actions: the link first, whatever the arguments are
+            // (`hello` answers for itself: an unknown id is a refused handshake)
+            (["links", id], _) if self.def(id).is_err() => {
+                Err(LinkError::not_found((*id).to_owned()))
+            }
             // a link that an operation holds (an update of its package with
             // its check, a rollback, a restore of the link) is that
             // operation's to stop and start (ADR 0048 §1.9): `busy` until it ends
@@ -4275,11 +3926,10 @@ impl Link for Admin {
                 }))
             }
             (["links", id], "start") => {
+                let a = Start::decode(args)?;
                 // a link held after a rollback that did not restore its data
                 // starts only when the operator says so (ADR 0048 §1.6)
-                if matches!(arg(&args, "force"), Some(Value::Bool(true)))
-                    && self.ctl.release_hold(id)
-                {
+                if a.force && self.ctl.release_hold(id) {
                     self.ctl.record(
                         &sub,
                         AuditOp::Start,
@@ -4290,24 +3940,32 @@ impl Link for Admin {
                 }
                 self.start_link(id, &sub).await.map(|_| None)
             }
-            (["links", id], "stop") => self.stop_link(id, &sub).await.map(|_| None),
-            (["links", id], "remove") => self.remove(id, &sub).await.map(|_| None),
-            (["links", id], "update") => {
-                let params = arg(&args, "params")
-                    .cloned()
-                    .ok_or_else(|| LinkError::invalid_parameter("params: required"))?;
-                self.update_params(id, params, &sub, AuditOp::Update).await
+            (["links", id], "stop") => {
+                <()>::decode(args)?;
+                self.stop_link(id, &sub).await.map(|_| None)
             }
-            (["links", id], "history") => self.params_history(id),
+            (["links", id], "remove") => {
+                <()>::decode(args)?;
+                self.remove(id, &sub).await.map(|_| None)
+            }
+            (["links", id], "update") => {
+                let a = UpdateParams::decode(args)?;
+                self.update_params(id, Value::Map(a.params), &sub, AuditOp::Update)
+                    .await
+            }
+            (["links", id], "history") => {
+                <()>::decode(args)?;
+                self.params_history(id)
+            }
             (["links", id], "grant") => {
-                let path = arg_str(&args, "path").unwrap_or_default().trim().to_owned();
-                let level = arg_str(&args, "level").unwrap_or_default();
-                let level = Perm::from_name(level)
-                    .ok_or_else(|| LinkError::invalid_parameter(format!("level: {level}?")))?;
-                self.grant(id, &path, level, &sub).await.map(|_| None)
+                let a = Grant::decode(args)?;
+                self.grant(id, &a.path, a.level.perm(), &sub)
+                    .await
+                    .map(|_| None)
             }
             (["links", id], "get_log") => {
-                let (n, level, filter) = log_args(&args)?;
+                let a = GetLog::decode(args)?;
+                let (n, level, filter) = (a.lines(), a.level(), a.filter);
                 let def = self.def(id)?;
                 let lines = match def.mode {
                     Mode::Process => self.ctl.supervisor.log_tail(id, n, level, &filter),
@@ -4323,15 +3981,19 @@ impl Link for Admin {
                 Ok(Some(log_rows(lines)))
             }
             ([""], "get_log") => {
-                let (n, level, filter) = log_args(&args)?;
+                let a = GetBrokerLog::decode(args)?;
                 let lc = crate::logs::global()
                     .ok_or_else(|| LinkError::not_supported("no log control"))?;
-                let link = arg_str(&args, "link").filter(|l| !l.is_empty());
-                Ok(Some(log_rows(lc.tail(n, level, &filter, link))))
+                let lines = lc.tail(
+                    a.log.lines(),
+                    a.log.level(),
+                    &a.log.filter,
+                    a.link.as_deref(),
+                );
+                Ok(Some(log_rows(lines)))
             }
             (["links", id], "rollback") => {
-                let rev: u32 = int_arg(&args, "rev")?
-                    .ok_or_else(|| LinkError::invalid_parameter("rev: required"))?;
+                let rev = Rollback::decode(args)?.rev;
                 let old = self
                     .ctl
                     .registry()
@@ -4342,39 +4004,83 @@ impl Link for Admin {
                 self.update_params(id, decode_params(&old.1), &sub, AuditOp::Rollback)
                     .await
             }
-            (["links", id], "set_secret") => self.set_secret(id, &args, &sub),
-            (["links", id], "delete_secret") => self.delete_secret(id, &args, &sub),
+            // the link must exist before its arguments are read
+            (["links", id], "set_secret") => self.set_secret(id, SetSecret::decode(args)?, &sub),
+            (["links", id], "delete_secret") => {
+                self.delete_secret(id, DeleteSecret::decode(args)?, &sub)
+            }
             (["links", id], "secrets") => {
-                self.def(id)?;
+                <()>::decode(args)?;
                 Ok(Some(self.secret_names(id)))
             }
             (["quarantine", node], "approve") => {
                 let cn = self.quarantine_key(node);
-                self.approve(&cn, &args, &sub).await
+                // it must be in quarantine before its arguments are read
+                if !self.ctl.registry().quarantine.contains_key(&cn) {
+                    return Err(LinkError::not_found(cn));
+                }
+                // a downstream broker declares only its key and the sites it relays
+                let how = if crate::registry::broker_site(&cn).is_some() {
+                    ApproveBroker::decode(args)?.into()
+                } else {
+                    Approve::decode(args)?
+                };
+                self.approve(&cn, how, &sub).await
             }
-            (["quarantine"], "authorize") => match arg_str(&args, "dsid") {
-                Some(cn) => self.approve(cn, &args, &sub).await,
-                None => Err(LinkError::invalid_parameter("dsid: required")),
-            },
-            (["quarantine"], "deauthorize") => match arg_str(&args, "link") {
-                Some(id) => self.deauthorize(id, &sub).await,
-                None => Err(LinkError::invalid_parameter("link: required")),
-            },
+            (["quarantine"], "authorize") => {
+                let a = Authorize::decode(args)?;
+                self.approve(&a.dsid, a.how, &sub).await
+            }
+            (["quarantine"], "deauthorize") => {
+                let a = Deauthorize::decode(args)?;
+                self.deauthorize(&a.link, &sub).await
+            }
             (["quarantine", node], "reject") => {
                 let cn = self.quarantine_key(node);
+                // in quarantine first, as `main` answered
+                if !self.ctl.registry().quarantine.contains_key(&cn) {
+                    return Err(LinkError::invalid_parameter(format!(
+                        "{cn} is not in quarantine"
+                    )));
+                }
+                <()>::decode(args)?;
                 self.reject(&cn, &sub).await.map(|_| None)
             }
-            (["profiles"], "put") => self.put_profile(&args, &sub).await.map(|_| None),
-            (["profiles"], "remove") => self.remove_profile(&args, &sub).await.map(|_| None),
-            ([""], "clear_conns") => self.clear_conns(&sub).await,
-            ([""], "update") => broker_update::update(&self.ctl, &self.ctx, &args, &sub).await,
-            ([""], "rollback_update") => {
-                broker_update::rollback(&self.ctl, &args, &sub, who.signer.is_some()).await
+            (["profiles"], "put") => self
+                .put_profile(PutProfile::decode(args)?, &sub)
+                .await
+                .map(|_| None),
+            (["profiles"], "remove") => self
+                .remove_profile(RemoveProfile::decode(args)?, &sub)
+                .await
+                .map(|_| None),
+            ([""], "clear_conns") => {
+                <()>::decode(args)?;
+                self.clear_conns(&sub).await
             }
-            ([""], "check_updates") => broker_update::check_updates(&self.ctl).await,
-            (["upstream"], "add") => self.add_upstream(&args, &sub).await,
-            (["upstream", site], "remove") => self.remove_upstream(site, &sub).await,
+            ([""], "update") => {
+                let a = broker_update::Update::decode(args)?;
+                broker_update::update(&self.ctl, &self.ctx, a, &sub).await
+            }
+            ([""], "rollback_update") => {
+                // who may do it first: a caller from an upstream is told so,
+                // whatever its arguments are
+                broker_update::rollback_is_local(who.signer.is_some())?;
+                let a = broker_update::RollbackUpdate::decode(args)?;
+                broker_update::rollback(&self.ctl, a, &sub).await
+            }
+            ([""], "check_updates") => {
+                <()>::decode(args)?;
+                broker_update::check_updates(&self.ctl).await
+            }
+            (["upstream"], "add") => self.add_upstream(AddUpstream::decode(args)?, &sub).await,
+            (["upstream", site], "remove") => {
+                self.runtime_upstream(site)?;
+                <()>::decode(args)?;
+                self.remove_upstream(site, &sub).await
+            }
             ([""], "get_permissions") => {
+                <()>::decode(args)?;
                 let mut rows: Vec<Value> = self
                     .ctl
                     .role_grants()
@@ -4396,15 +4102,8 @@ impl Link for Admin {
                     .ctl
                     .role_grants()
                     .ok_or_else(|| LinkError::not_supported("no user gateway"))?;
-                let need = |k: &str| {
-                    arg_str(&args, k)
-                        .filter(|v| !v.is_empty())
-                        .ok_or_else(|| LinkError::invalid_parameter(format!("{k}: required")))
-                };
-                let (role, path) = (need("role")?, need("path")?);
-                let level = need("level")?;
-                let level = Perm::from_name(level)
-                    .ok_or_else(|| LinkError::invalid_parameter(format!("level: {level}?")))?;
+                let a = UpdatePermissions::decode(args)?;
+                let (role, path, level) = (a.role.as_str(), a.path.as_str(), a.level);
                 roles
                     .set_grant(role, path, level)
                     .map_err(LinkError::invalid_parameter)?;
@@ -4418,7 +4117,7 @@ impl Link for Admin {
                 Ok(None)
             }
             (["audit"], "tail") => {
-                let n: usize = int_arg(&args, "n")?.unwrap_or(50);
+                let n = AuditTail::decode(args)?.n.unwrap_or(50);
                 Ok(Some(Value::Array(
                     self.ctl
                         .audit_tail(n.min(1000))
@@ -4436,30 +4135,48 @@ impl Link for Admin {
                         .collect(),
                 )))
             }
-            (["backups"], "restore_check" | "restore_apply") => {
-                self.restore_broker(action, &args, &sub, who.signer.is_some())
+            // A check reads the whole file and `add` installs links: a rebuild
+            // of the router waits for both, as for `replace` and any install,
+            // and neither starts on a broker that is closing for one. `busy`
+            // comes before the arguments, as for every install.
+            (["backups"], "restore_check") => {
+                let _busy = self.ctl.busy()?;
+                let file = restore_broker::RestoreCheck::decode(args)?;
+                self.restore_broker(file, None, &sub, who.signer.is_some())
+                    .await
+            }
+            (["backups"], "restore_apply") => {
+                let _busy = self.ctl.busy()?;
+                let a = restore_broker::RestoreApply::decode(args)?;
+                self.restore_broker(a.file, Some(a.how), &sub, who.signer.is_some())
                     .await
             }
             (["backups", id], "send") => {
                 let _busy = self.ctl.busy()?;
-                send::send(&self.ctl, &self.ctx, id, &args, &sub).await
+                // the backup first, whatever the arguments are
+                if self.ctl.backups().get(id).is_none() {
+                    return Err(LinkError::not_found(format!("backup {id}")));
+                }
+                let a = send::SendBackup::decode(args)?;
+                send::send(&self.ctl, &self.ctx, id, a, &sub).await
             }
             (["backups", rest @ ..], _) => {
                 // a limited key signed it: an upstream site with allow_config
                 let remote = who.signer.is_some();
-                backups::invoke(&self.ctl, &self.ctx, rest, action, &args, &sub, remote).await
+                backups::invoke(&self.ctl, &self.ctx, rest, action, args, &sub, remote).await
             }
             (["links"], "install_backup") => {
                 let _busy = self.ctl.busy()?;
-                Ok(Some(outcome(self.install_backup(&args, &sub).await)))
+                let a = restore::InstallBackup::decode(args)?;
+                Ok(Some(outcome(self.install_backup(a, &sub).await)))
             }
             (["links", id], "backup") => {
                 // the link must exist before anything is said about it
                 self.def(id)?;
-                let job = self.ctl.backup_start(
-                    backups::request_of(&args, Some(id), who.signer.is_some())?,
-                    &sub,
-                )?;
+                let a = backups::BackupLink::decode(args)?;
+                let job = self
+                    .ctl
+                    .backup_start(backups::link_request(a, id, who.signer.is_some()), &sub)?;
                 backups::show_job(&self.ctx, &self.ctl, &job).await;
                 Ok(Some(Value::Map(BTreeMap::from([(
                     "id".to_owned(),
@@ -4468,7 +4185,7 @@ impl Link for Admin {
             }
             (["history", rest @ ..], _) => {
                 let r =
-                    crate::history::invoke(&self.ctl, &self.ctx, rest, action, &args, &sub).await;
+                    crate::history::invoke(&self.ctl, &self.ctx, rest, action, args, &sub).await;
                 if r.is_ok()
                     && rest.first() == Some(&"sinks")
                     && matches!(action, "add_sink" | "edit" | "remove")
@@ -4507,30 +4224,42 @@ impl Link for Admin {
 }
 
 impl Admin {
-    async fn install(&self, args: &Value, sub: &str) -> wyrm_link_sdk::Result<Option<Value>> {
+    /// `links ▸ install`.
+    async fn install(&self, a: Install, sub: &str) -> wyrm_link_sdk::Result<Option<Value>> {
+        let params = Value::Map(a.params.unwrap_or_default());
+        self.install_link(a.id, a.driver, a.mode, params, sub).await
+    }
+
+    /// A new link `id` on `driver`; `mode` left out: what the driver runs as.
+    async fn install_link(
+        &self,
+        id: String,
+        driver: String,
+        mode: Option<Mode>,
+        params: Value,
+        sub: &str,
+    ) -> wyrm_link_sdk::Result<Option<Value>> {
         let ctl = &self.ctl;
-        let id = arg_str(args, "id").unwrap_or_default().to_owned();
-        let driver = arg_str(args, "driver").unwrap_or_default().to_owned();
         let compiled = ctl.host.drivers().contains(&driver.as_str());
         // `pkg:<name>`: an installed package (ADR 0011); process packages
         // run as process links, never embedded.
-        let package =
-            match driver.strip_prefix(packages::DRIVER_PREFIX) {
-                Some(name) => {
-                    Some(ctl.registry().packages.get(name).cloned().ok_or_else(|| {
-                        LinkError::invalid_parameter(format!("no package {name}"))
-                    })?)
-                }
-                None => None,
-            };
+        let package = match driver.strip_prefix(packages::DRIVER_PREFIX) {
+            Some(name) => Some(ctl.registry().packages.get(name).cloned().ok_or_else(|| {
+                LinkError::invalid_parameter(format!(
+                    "no package {}",
+                    wyrm_core::named::shown(name)
+                ))
+            })?),
+            None => None,
+        };
         // process packages run as process links; wasm packages in the
         // broker's space (ADR 0011)
         let package_mode = |p: &PackageDef| match p.kind {
             PackageKind::Process => Mode::Process,
             PackageKind::Wasm => Mode::Embedded,
         };
-        let mode = match arg_str(args, "mode") {
-            Some(m) => Mode::from_name(m).ok_or_else(|| LinkError::invalid_parameter("mode"))?,
+        let mode = match mode {
+            Some(m) => m,
             None => match &package {
                 Some(p) => package_mode(p),
                 None if compiled => Mode::Embedded,
@@ -4546,9 +4275,6 @@ impl Admin {
                 )));
             }
         }
-        let params = arg(args, "params")
-            .cloned()
-            .unwrap_or(Value::Map(Default::default()));
         crate::registry::validate_new_link_id(&id).map_err(LinkError::invalid_parameter)?;
         if ctl.peers().downstream.contains(&id) {
             return Err(LinkError::invalid_parameter(format!(
@@ -4563,7 +4289,8 @@ impl Admin {
         if mode != Mode::External && package.is_none() {
             if !compiled {
                 return Err(LinkError::invalid_parameter(format!(
-                    "driver {driver} is not compiled in"
+                    "driver {} is not compiled in",
+                    wyrm_core::named::shown(&driver)
                 )));
             }
             ctl.host.validate(&driver, &params)?;
@@ -4649,9 +4376,9 @@ impl Admin {
         zip: Vec<u8>,
         source: String,
         sub: &str,
-        accept: bool,
         opts: updates::UpdateOpts,
     ) -> Result<String, String> {
+        let accept = opts.accept;
         crate::registry::validate_link_id(link)?;
         let root = self.ctl.packages_root();
         let now = now_s();
@@ -4712,7 +4439,6 @@ impl Admin {
             }
             // another version is installed: an update (ADR 0048)
             Some(old) => {
-                let opts = updates::UpdateOpts { accept, ..opts };
                 self.update_package(old, unpacked, app.as_ref(), opts, sub, claim)
                     .await?
             }
@@ -4743,36 +4469,22 @@ impl Admin {
             }
         };
         if !reg.links.contains_key(link) {
-            let mut args = BTreeMap::from([
-                ("id".to_owned(), Value::Str(link.to_owned())),
-                ("driver".to_owned(), Value::Str(driver)),
-            ]);
-            match def.kind {
-                PackageKind::Process => {
-                    args.insert("mode".into(), Value::from(Mode::Process.name()));
-                    // a portable app as a process: its capabilities as params, as
-                    // for its WASM twin (ADR 0023)
-                    if app.is_some() {
-                        args.insert(
-                            "params".into(),
-                            packages::link_params(&def.name, def.kind, app.as_ref()),
-                        );
-                    }
-                }
-                PackageKind::Wasm => {
-                    // Embedded: an app component (ADR 0023) runs as driver
-                    // `app` with its capabilities as params; a driver or
-                    // point component gets one connection on it, devices and
-                    // points come from its own Add actions (ADR 0012).
-                    args.insert("mode".into(), Value::from(Mode::Embedded.name()));
-                    args.insert(
-                        "params".into(),
-                        packages::link_params(&def.name, def.kind, app.as_ref()),
-                    );
-                }
-            }
-            let args = Value::Map(args);
-            self.install(&args, sub).await.map_err(|e| e.to_string())?;
+            let params = packages::link_params(&def.name, def.kind, app.as_ref());
+            let no_params = || Value::Map(Default::default());
+            let (mode, params) = match def.kind {
+                // a portable app as a process: its capabilities as params, as
+                // for its WASM twin (ADR 0023)
+                PackageKind::Process if app.is_some() => (Mode::Process, params),
+                PackageKind::Process => (Mode::Process, no_params()),
+                // Embedded: an app component (ADR 0023) runs as driver
+                // `app` with its capabilities as params; a driver or
+                // point component gets one connection on it, devices and
+                // points come from its own Add actions (ADR 0012).
+                PackageKind::Wasm => (Mode::Embedded, params),
+            };
+            self.install_link(link.to_owned(), driver, Some(mode), params, sub)
+                .await
+                .map_err(|e| e.to_string())?;
             message.push_str(&format!("; link {link} installed"));
             // what the app link may use, shown (ADR 0023)
             if let Some(c) = &app {
@@ -4847,7 +4559,6 @@ impl Admin {
         link: &str,
         package: &str,
         sub: &str,
-        accept: bool,
         opts: updates::UpdateOpts,
     ) -> Result<String, String> {
         let index = self
@@ -4882,7 +4593,7 @@ impl Admin {
         if !got.eq_ignore_ascii_case(&a.sha256) {
             return Err(format!("{package}: sha256 {got} does not match the index"));
         }
-        self.install_package(link, zip, format!("repository {index}"), sub, accept, opts)
+        self.install_package(link, zip, format!("repository {index}"), sub, opts)
             .await
     }
 
@@ -4910,11 +4621,8 @@ impl Admin {
         Ok(None)
     }
 
-    async fn hello(&self, id: &str, args: &Value) -> wyrm_link_sdk::Result<Option<Value>> {
-        let token = match arg(args, "token") {
-            Some(Value::Bytes(b)) => b.as_slice(),
-            _ => &[][..],
-        };
+    async fn hello(&self, id: &str, a: Hello) -> wyrm_link_sdk::Result<Option<Value>> {
+        let token = a.token.0.expose();
         let Some(def) = self.ctl.link_of_token(id, token).await else {
             self.ctl.record(
                 &format!("link:{id}"),
@@ -5097,19 +4805,14 @@ impl Admin {
     fn set_secret(
         &self,
         id: &str,
-        args: &Value,
+        a: SetSecret,
         sub: &str,
     ) -> wyrm_link_sdk::Result<Option<Value>> {
         self.def(id)?;
-        let name = secret_name(args)?;
-        let value = match arg(args, "value") {
-            Some(Value::Bytes(b)) => b.clone(),
-            Some(Value::Str(s)) => s.as_bytes().to_vec(),
-            _ => return Err(LinkError::invalid_parameter("value")),
-        };
+        let name = secret_name(&a.name)?;
         self.ctl
             .secrets
-            .set(id, name, &value)
+            .set(id, name, a.value.0.expose())
             .map_err(|e| LinkError::internal(e.to_string()))?;
         self.ctl
             .record(sub, AuditOp::SetSecret, id, Status::Ok, name);
@@ -5120,11 +4823,11 @@ impl Admin {
     fn delete_secret(
         &self,
         id: &str,
-        args: &Value,
+        a: DeleteSecret,
         sub: &str,
     ) -> wyrm_link_sdk::Result<Option<Value>> {
         self.def(id)?;
-        let name = secret_name(args)?;
+        let name = secret_name(&a.name)?;
         let had = self
             .ctl
             .secrets
@@ -5165,11 +4868,8 @@ impl Admin {
 
     /// `profiles/~act/put {name, profile: CBOR ProfileDef}`; publishes the
     /// new profile on `pub/<name>/~meta` for subscribers.
-    async fn put_profile(&self, args: &Value, sub: &str) -> wyrm_link_sdk::Result<()> {
-        let name = arg_str(args, "name").unwrap_or_default().to_owned();
-        let Some(Value::Bytes(cbor)) = arg(args, "profile") else {
-            return Err(LinkError::invalid_parameter("profile: CBOR bytes required"));
-        };
+    async fn put_profile(&self, a: PutProfile, sub: &str) -> wyrm_link_sdk::Result<()> {
+        let (name, cbor) = (a.name, a.profile);
         self.ctl
             .apply(Op::PutProfile {
                 name: name.clone(),
@@ -5179,14 +4879,14 @@ impl Admin {
         self.ctl
             .record(sub, AuditOp::ProfilePut, &name, Status::Ok, "");
         let key = profile_key(&self.ctl.cfg.site, &name);
-        if let Err(e) = self.ctx.client().put(&key, cbor.clone()).await {
+        if let Err(e) = self.ctx.client().put(&key, cbor).await {
             debug!("publish {key}: {e}");
         }
         Ok(())
     }
 
-    async fn remove_profile(&self, args: &Value, sub: &str) -> wyrm_link_sdk::Result<()> {
-        let name = arg_str(args, "name").unwrap_or_default().to_owned();
+    async fn remove_profile(&self, a: RemoveProfile, sub: &str) -> wyrm_link_sdk::Result<()> {
+        let name = a.name;
         self.ctl
             .apply(Op::RemoveProfile(name.clone()))
             .map_err(rejected)?;
@@ -5197,6 +4897,16 @@ impl Admin {
             debug!("delete {key}: {e}");
         }
         Ok(())
+    }
+
+    /// The installed package `name`, or `not_found`.
+    pub(super) fn package(&self, name: &str) -> wyrm_link_sdk::Result<PackageDef> {
+        self.ctl
+            .registry()
+            .packages
+            .get(name)
+            .cloned()
+            .ok_or_else(|| LinkError::not_found(name.to_owned()))
     }
 
     fn def(&self, id: &str) -> wyrm_link_sdk::Result<LinkDef> {
@@ -5335,36 +5045,32 @@ impl Admin {
     async fn approve(
         &self,
         cn: &str,
-        args: &Value,
+        a: Approve,
         sub: &str,
     ) -> wyrm_link_sdk::Result<Option<Value>> {
         if !self.ctl.registry().quarantine.contains_key(cn) {
             return Err(LinkError::not_found(cn.to_owned()));
         }
         if let Some(site) = crate::registry::broker_site(cn) {
-            return self.authorize_broker(site, args, sub).await;
+            return self
+                .authorize_broker(site, a.key_sha256.as_deref(), a.via.as_deref(), sub)
+                .await;
         }
-        let driver = arg_str(args, "driver").unwrap_or("unknown").to_owned();
+        let driver = a.driver.unwrap_or_else(|| "unknown".to_owned());
         if driver == AGENT_DRIVER {
             return Err(LinkError::invalid_parameter(
                 "an approved certificate is an external link; agent links cannot be external",
             ));
         }
-        let params = arg(args, "params")
-            .cloned()
-            .unwrap_or(Value::Map(Default::default()));
-        let text = |k: &str| {
-            arg_str(args, k)
-                .map(str::trim)
-                .filter(|v| !v.is_empty() && *v != NO_ROLE)
-        };
-        let display = text("name").map(str::to_owned);
+        let params = Value::Map(a.params.unwrap_or_default());
+        // the list's "no role" and "no name" entries are no value
+        let display = a.name.filter(|v| v != NO_ROLE);
         if display.as_ref().is_some_and(|d| d.chars().count() > 64) {
             return Err(LinkError::invalid_parameter("name: at most 64 characters"));
         }
         // Group = a gateway role that gets write on the link (owner
         // decision 2026-10-22); checked before anything is installed.
-        let grant = match text("group") {
+        let grant = match a.group.as_deref().filter(|v| *v != NO_ROLE) {
             None => None,
             Some(role) => {
                 let roles = self
@@ -5373,7 +5079,8 @@ impl Admin {
                     .ok_or_else(|| LinkError::not_supported("group: no user gateway"))?;
                 if !role_names(&self.ctl).iter().any(|r| r == role) {
                     return Err(LinkError::invalid_parameter(format!(
-                        "group: no role {role}"
+                        "group: no role {}",
+                        wyrm_core::named::shown(role)
                     )));
                 }
                 Some((roles, role.to_owned()))
@@ -5495,15 +5202,12 @@ impl Admin {
     /// site's enrollment endpoint, its CA and an optional token. This broker
     /// makes its own key (sealed, it never leaves the site) and asks for its
     /// certificate in the background ([`enroll_upstreams`]).
-    async fn add_upstream(&self, args: &Value, sub: &str) -> wyrm_link_sdk::Result<Option<Value>> {
-        let need = |k: &str| {
-            arg_str(args, k)
-                .map(str::trim)
-                .filter(|v| !v.is_empty())
-                .ok_or_else(|| LinkError::invalid_parameter(format!("{k}: required")))
-        };
-        let site = need("name")?;
-        let ca_pem = need("ca")?;
+    async fn add_upstream(
+        &self,
+        a: AddUpstream,
+        sub: &str,
+    ) -> wyrm_link_sdk::Result<Option<Value>> {
+        let (site, ca_pem) = (a.name.as_str(), a.ca.as_str());
         wyrm_core::keyspace::validate_segment(site)
             .map_err(|e| LinkError::invalid_parameter(format!("name: {e}")))?;
         self.check_new_site(site)?;
@@ -5513,17 +5217,17 @@ impl Admin {
             )));
         }
         check_ca_pem(ca_pem).map_err(LinkError::invalid_parameter)?;
-        let url = need("url")?;
+        let url = a.url.as_str();
         if !url.starts_with("quic/") || url.contains(['#', '?', ';']) || url.len() > 256 {
             return Err(LinkError::invalid_parameter(format!(
-                "url {url}: expected quic/<host>:<port> (its peers.enroll)"
+                "url {}: expected quic/<host>:<port> (its peers.enroll)",
+                wyrm_core::named::shown(url)
             )));
         }
-        let token = arg_str(args, "token")
-            .map(str::trim)
-            .filter(|t| !t.is_empty());
-        let enabled = !matches!(arg(args, "enabled"), Some(Value::Bool(false)));
-        let allow_config = matches!(arg(args, "allow_config"), Some(Value::Bool(true)));
+        // a pasted token: its type cut the white space, and one of white space
+        // only is no token (`SecretLine`)
+        let token = a.token.as_ref().and_then(|t| t.0.expose_str());
+        let (enabled, allow_config) = (a.enabled, a.allow_config);
         let (key, key_sha256) =
             secret::new_broker_key().map_err(|e| LinkError::internal(e.to_string()))?;
         let store = peer_secret(site);
@@ -5601,7 +5305,8 @@ impl Admin {
         Ok(())
     }
 
-    async fn remove_upstream(&self, site: &str, sub: &str) -> wyrm_link_sdk::Result<Option<Value>> {
+    /// The site is an upstream added at runtime; one from the config file is removed there.
+    fn runtime_upstream(&self, site: &str) -> wyrm_link_sdk::Result<()> {
         if !self
             .ctl
             .registry()
@@ -5613,6 +5318,11 @@ impl Admin {
                 "not a runtime upstream peer; peers from wyrmd.json5 are removed there",
             ));
         }
+        Ok(())
+    }
+
+    async fn remove_upstream(&self, site: &str, sub: &str) -> wyrm_link_sdk::Result<Option<Value>> {
+        self.runtime_upstream(site)?;
         self.ctl
             .apply(Op::RemovePeer(site.to_owned()))
             .map_err(rejected)?;
@@ -5702,14 +5412,15 @@ impl Admin {
     async fn authorize_broker(
         &self,
         site: &str,
-        args: &Value,
+        key: Option<&str>,
+        via: Option<&str>,
         sub: &str,
     ) -> wyrm_link_sdk::Result<Option<Value>> {
         let reg = self.ctl.registry();
         // Bound to the request the administrator looked at: its key's
         // SHA-256 must come with Authorize (the request may have expired
         // and come back with another key in between).
-        let given = arg_str(args, "key").map(str::trim).unwrap_or_default();
+        let given = key.unwrap_or_default();
         let e = match reg.enrollments.get(site) {
             Some(e) if e.key_sha256.is_empty() || e.key_sha256 == given => e.clone(),
             Some(_) => {
@@ -5728,8 +5439,8 @@ impl Admin {
             None => return Err(LinkError::not_found(format!("no request of {site}"))),
         };
         // the Via field, else what the broker asked for
-        let via = match arg(args, "via") {
-            Some(v) if !via_list(Some(v)).is_empty() => via_list(Some(v)),
+        let via = match via.map(via_names) {
+            Some(v) if !v.is_empty() => v,
             _ => e.via.clone(),
         };
         let cert = if !e.csr_pem.is_empty() {
@@ -5749,10 +5460,15 @@ impl Admin {
     /// unverified-caller rate limit): a downstream broker asks for its
     /// certificate with `{site, csr, token, via}`. Answers `{status: issued,
     /// certificate, port}` or `{status: pending}`; a refusal is an error.
-    async fn enroll(&self, args: &Value) -> wyrm_link_sdk::Result<Option<Value>> {
-        let site = arg_str(args, "site").unwrap_or_default().trim().to_owned();
-        let csr = arg_str(args, "csr").unwrap_or_default().to_owned();
-        let via = via_list(arg(args, "via"));
+    async fn enroll(&self, a: Enroll) -> wyrm_link_sdk::Result<Option<Value>> {
+        let (site, csr) = (a.site, a.csr);
+        let via: Vec<String> = a
+            .via
+            .unwrap_or_default()
+            .iter()
+            .map(|v| v.trim().to_owned())
+            .filter(|v| !v.is_empty())
+            .collect();
         wyrm_core::keyspace::validate_segment(&site)
             .map_err(|e| LinkError::invalid_parameter(format!("site: {e}")))?;
         // the request is anonymous: bounded before anything is kept (review ADM-2)
@@ -5864,7 +5580,11 @@ impl Admin {
         // relays: with `via`, it waits for Authorize, where an administrator sees the names
         // (review ADM-2: a token was enough to publish a fake `wy/<any site>/**`).
         if !reg.held.contains(&cn) && via.is_empty() {
-            let token = arg_str(args, "token").and_then(|t| self.ctl.token_id(t));
+            let token = a
+                .token
+                .as_ref()
+                .and_then(|t| t.expose_str())
+                .and_then(|t| self.ctl.token_id(t));
             if token.is_some() || opts.allow_all_links {
                 let cert = self
                     .ctl
@@ -5923,19 +5643,11 @@ impl Admin {
     /// `sys/tokens ▸ Add Token {count, hours}` (as DSA's `/sys/tokens`): a
     /// token that admits a downstream broker at once; returned once, kept
     /// as its SHA-256.
-    async fn add_token(&self, args: &Value, sub: &str) -> wyrm_link_sdk::Result<Option<Value>> {
+    async fn add_token(&self, a: AddToken, sub: &str) -> wyrm_link_sdk::Result<Option<Value>> {
         const LIMITS: &str = "count 0..1000000 (0: no limit), hours 0..87600 (0: never)";
-        // `count` is a whole number: 0 means no limit, so `0.5` must not become 0
-        let count: u32 = int_arg(args, "count")?.unwrap_or(1);
-        let hours = match arg(args, "hours") {
-            None | Some(Value::Null) => 24.0,
-            Some(v) => v
-                .as_f64()
-                .ok_or_else(|| LinkError::invalid_parameter(LIMITS))?,
-        };
-        if count > 1_000_000 || !(0.0..=87_600.0).contains(&hours) {
-            return Err(LinkError::invalid_parameter(LIMITS));
-        }
+        // `count` is a whole number (0 means no limit, so `0.5` is refused, never 0);
+        // the struct bounds both
+        let (count, hours) = (a.count.unwrap_or(1), a.hours.unwrap_or(24.0));
         // whole seconds, rounded up: a positive time is never "never"
         let valid_s = wyrm_core::value::whole((hours * 3600.0).ceil())
             .ok()
@@ -7051,6 +6763,9 @@ async fn watch_metrics(ctl: Arc<Control>, ctx: LinkCtx) {
         }
     }
 }
+
+#[cfg(test)]
+mod schema_snapshot;
 
 #[cfg(test)]
 mod tests {

@@ -84,23 +84,21 @@
     "links/slack/src/lib.rs": 1,
     "tools/wyr/src/main.rs": 1
   },
-  "C3-string-closed-set": {
-    "crates/wyrm-flow/src/catalog.rs": 1
-  },
+  "C3-string-closed-set": {},
   "C4-value-field-read": {
     "crates/wyrm-admin/src/acl.rs": 71,
-    "crates/wyrm-admin/src/control.rs": 141,
-    "crates/wyrm-admin/src/control/backups.rs": 12,
-    "crates/wyrm-admin/src/control/broker_update.rs": 16,
+    "crates/wyrm-admin/src/control.rs": 83,
+    "crates/wyrm-admin/src/control/backups.rs": 5,
+    "crates/wyrm-admin/src/control/broker_update.rs": 3,
     "crates/wyrm-admin/src/control/replication.rs": 72,
-    "crates/wyrm-admin/src/control/restore.rs": 29,
-    "crates/wyrm-admin/src/control/restore_broker.rs": 8,
-    "crates/wyrm-admin/src/control/send.rs": 6,
+    "crates/wyrm-admin/src/control/restore.rs": 21,
+    "crates/wyrm-admin/src/control/restore_broker.rs": 4,
+    "crates/wyrm-admin/src/control/send.rs": 3,
     "crates/wyrm-admin/src/control/signers.rs": 5,
-    "crates/wyrm-admin/src/control/updates.rs": 15,
+    "crates/wyrm-admin/src/control/updates.rs": 5,
     "crates/wyrm-admin/src/git.rs": 2,
-    "crates/wyrm-admin/src/history.rs": 21,
-    "crates/wyrm-admin/src/history/sinks.rs": 8,
+    "crates/wyrm-admin/src/history.rs": 5,
+    "crates/wyrm-admin/src/history/sinks.rs": 1,
     "crates/wyrm-admin/src/keys.rs": 3,
     "crates/wyrm-admin/src/release.rs": 1,
     "crates/wyrm-admin/src/secrets.rs": 4,
@@ -341,7 +339,7 @@
   "C6-string-set": {
     "crates/wyrm-admin/src/acl.rs": 37,
     "crates/wyrm-admin/src/backup.rs": 1,
-    "crates/wyrm-admin/src/control.rs": 11,
+    "crates/wyrm-admin/src/control.rs": 10,
     "crates/wyrm-admin/src/control/backups.rs": 4,
     "crates/wyrm-admin/src/control/broker_update.rs": 4,
     "crates/wyrm-admin/src/control/replication.rs": 3,
@@ -351,7 +349,7 @@
     "crates/wyrm-admin/src/fetch.rs": 1,
     "crates/wyrm-admin/src/git.rs": 4,
     "crates/wyrm-admin/src/history.rs": 6,
-    "crates/wyrm-admin/src/history/sinks.rs": 3,
+    "crates/wyrm-admin/src/history/sinks.rs": 1,
     "crates/wyrm-admin/src/keys.rs": 3,
     "crates/wyrm-admin/src/logs.rs": 2,
     "crates/wyrm-admin/src/packages.rs": 1,
@@ -491,8 +489,10 @@
   "C11-url-split": {
     "crates/wyrm-admin/src/secrets.rs": 1
   },
+  "C12-admin-arg-read": {},
   "C13-helper-body": {},
   "A1-allow": {
+    "crates/wyrm-admin/src/control/actions.rs": 2,
     "crates/wyrm-admin/src/official.rs": 1,
     "crates/wyrm-admin/src/release.rs": 1,
     "crates/wyrm-bench/src/alloc.rs": 1,
@@ -574,6 +574,9 @@
   "A5-library-rng": {
     "links/opcua/src/pki.rs": 1
   },
+  "A6-secret-line": {
+    "crates/wyrm-admin/src/control/actions.rs": 1
+  },
   "clippy::cast_possible_truncation": {
     "crates/wyrm-admin/src/backup.rs": 3,
     "crates/wyrm-admin/src/control.rs": 3,
@@ -582,7 +585,6 @@
     "crates/wyrm-admin/src/control/replication.rs": 1,
     "crates/wyrm-admin/src/control/send.rs": 1,
     "crates/wyrm-admin/src/control/updates.rs": 3,
-    "crates/wyrm-admin/src/history.rs": 2,
     "crates/wyrm-admin/src/release.rs": 1,
     "crates/wyrm-admin/src/secret.rs": 5,
     "crates/wyrm-core/src/codec.rs": 1,
@@ -820,7 +822,6 @@
   "clippy::map_err_ignore": {
     "crates/wyrm-admin/src/backup.rs": 6,
     "crates/wyrm-admin/src/control.rs": 1,
-    "crates/wyrm-admin/src/control/backups.rs": 1,
     "crates/wyrm-admin/src/control/restore_broker.rs": 7,
     "crates/wyrm-admin/src/fetch.rs": 3,
     "crates/wyrm-admin/src/git.rs": 1,
@@ -921,7 +922,7 @@
     "tools/wyrm-mcp/src/server.rs": 1
   },
   "clippy::too_many_lines": {
-    "crates/wyrm-admin/src/control.rs": 4,
+    "crates/wyrm-admin/src/control.rs": 2,
     "crates/wyrm-admin/src/control/backups.rs": 2,
     "crates/wyrm-admin/src/control/broker_update.rs": 1,
     "crates/wyrm-admin/src/control/restore.rs": 1,

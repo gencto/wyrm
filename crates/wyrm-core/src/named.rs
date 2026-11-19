@@ -69,15 +69,22 @@ pub struct UnknownValue {
     pub known: &'static [&'static str],
 }
 
+/// The part of a name from outside that an error repeats: at most 64 bytes,
+/// cut on a character boundary. A caller's text never sets the size of an
+/// answer or of a log line.
+pub fn shown(name: &str) -> &str {
+    let mut end = name.len().min(SHOWN);
+    while !name.is_char_boundary(end) {
+        end -= 1;
+    }
+    name.get(..end).unwrap_or_default()
+}
+
 impl UnknownValue {
     pub fn new(set: &'static str, known: &'static [&'static str], name: &str) -> Self {
-        let mut end = name.len().min(SHOWN);
-        while !name.is_char_boundary(end) {
-            end -= 1;
-        }
         Self {
             set,
-            name: name.get(..end).unwrap_or_default().to_owned(),
+            name: shown(name).to_owned(),
             known,
         }
     }

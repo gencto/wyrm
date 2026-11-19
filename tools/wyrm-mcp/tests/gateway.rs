@@ -19,7 +19,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::oneshot;
-use wyrm_core::meta::{ActionResult, ParamMeta, Writable, EDITOR_FILE};
+use wyrm_core::meta::{ActionResult, Editor, ParamMeta, Writable};
 use wyrm_core::{ActionMeta, NodeMeta, Perm, Quality, TypeCode, Value};
 use wyrm_gateway::{Gateway, GatewayConfig};
 use wyrm_gateway_client::Endpoint;
@@ -51,7 +51,7 @@ impl Link for Plant {
                 .param(
                     "data",
                     ParamMeta::of(TypeCode::Binary)
-                        .editor(EDITOR_FILE)
+                        .editor(Editor::File)
                         .required(true),
                 )
                 .result(ActionResult::Type(TypeCode::Number))

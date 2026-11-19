@@ -16,9 +16,7 @@
 //!                         new_code, enable, disable, edit, remove (config)
 //! ```
 
-use wyrm_core::meta::{
-    ActionResult, ParamMeta, Writable, EDITOR_PASSWORD, EDITOR_TEXTAREA, GROUP_EDIT, GROUP_NEW,
-};
+use wyrm_core::meta::{ActionResult, Editor, ParamMeta, Writable, GROUP_EDIT, GROUP_NEW};
 use wyrm_core::{ActionMeta, NodeMeta, Perm, TypeCode, Value};
 
 use crate::model::{Format, Kind, MsgKind, Recipient, Template, User};
@@ -135,7 +133,7 @@ fn bot_form(kind: Kind, add: bool) -> ActionMeta {
         .param(
             "ca_pem",
             text("CA (PEM)", "Trust only this CA for the API (else the system roots).")
-                .editor(EDITOR_TEXTAREA),
+                .editor(Editor::Textarea),
         )
         .param("timeout_ms", number("Timeout (ms)", "Per request, 500…8000 (3000)."))
         .param(
@@ -227,7 +225,7 @@ fn template_form(kind: Kind, add: bool) -> ActionMeta {
                 "Text",
                 "{{name}} from the send, {{alias}} of a value ({{alias:.1}}, {{alias.q}}, {{alias.t}}), {{site}}, {{bot}}, {{now}}; values are escaped for the format.",
             )
-            .editor(EDITOR_TEXTAREA),
+            .editor(Editor::Textarea),
         )
         .param("media", text("Media", "Photo or document: an https:// URL (or the platform's file id)."))
         .param("lat", text("Latitude", "Location: a number or a placeholder."))
@@ -238,12 +236,12 @@ fn template_form(kind: Kind, add: bool) -> ActionMeta {
                 "Buttons",
                 "One row per line, buttons split by ;; — Label | https://… (Label | /command where the platform takes commands)",
             )
-            .editor(EDITOR_TEXTAREA),
+            .editor(Editor::Textarea),
         )
         .param(
             "values",
             text("Values", "One per line: alias = wy/<site>/… (live values the text may name).")
-                .editor(EDITOR_TEXTAREA),
+                .editor(Editor::Textarea),
         )
         .param("to", text("To", "Recipients when a send names none, comma separated."))
         .param("silent", flag("Silent", "Deliver without a sound."))
@@ -256,7 +254,7 @@ fn template_form(kind: Kind, add: bool) -> ActionMeta {
                 "Blocks",
                 "Block Kit JSON (an array); placeholders inside JSON strings.",
             )
-            .editor(EDITOR_TEXTAREA),
+            .editor(Editor::Textarea),
         );
     }
     a
@@ -284,7 +282,7 @@ fn user_form(add: bool) -> ActionMeta {
             "Keys",
             "Full keys its commands may name, one per line (wy/<site>/downstream)",
         )
-        .editor(EDITOR_TEXTAREA),
+        .editor(Editor::Textarea),
     )
 }
 
@@ -303,7 +301,7 @@ fn ad_hoc_send(kind: Kind) -> ActionMeta {
                 "Text",
                 "The message; {{site}}, {{bot}}, {{now}} are filled in.",
             )
-            .editor(EDITOR_TEXTAREA),
+            .editor(Editor::Textarea),
         )
         .param(
             "kind",
@@ -346,7 +344,7 @@ pub fn bot_actions(kind: Kind) -> Vec<(&'static str, ActionMeta)> {
                 .param(
                     "params",
                     text("Parameters", "JSON object; the chat must be a recipient's.")
-                        .editor(EDITOR_TEXTAREA),
+                        .editor(Editor::Textarea),
                 )
                 .result(ActionResult::Type(TypeCode::Map)),
         ),
@@ -372,7 +370,7 @@ pub fn bot_actions(kind: Kind) -> Vec<(&'static str, ActionMeta)> {
                     "token",
                     ParamMeta::of(TypeCode::String)
                         .display("Token")
-                        .editor(EDITOR_PASSWORD)
+                        .editor(Editor::Password)
                         .description(kind.secret_about()),
                 ),
         ),
@@ -447,7 +445,7 @@ pub fn recipient_actions(kind: Kind) -> Vec<(&'static str, ActionMeta)> {
                     "text",
                     text("Text", "The message.")
                         .required(true)
-                        .editor(EDITOR_TEXTAREA),
+                        .editor(Editor::Textarea),
                 )
                 .param(
                     "format",

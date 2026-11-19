@@ -76,7 +76,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 use tracing::Instrument;
 use tracing::{debug, error, warn};
-use wyrm_core::meta::{ActionResult, ParamMeta, Writable, EDITOR_TEXTAREA, GROUP_EDIT, GROUP_NEW};
+use wyrm_core::meta::{ActionResult, Editor, ParamMeta, Writable, GROUP_EDIT, GROUP_NEW};
 use wyrm_core::{ActionMeta, NodeMeta, Perm, Quality, Sample, Status, TypeCode, Value};
 
 /// A new run token: a device gets one when it is added, edited, started or
@@ -1043,7 +1043,7 @@ fn import_form() -> ActionMeta {
             ParamMeta::of(TypeCode::String)
                 .required(true)
                 .display("JSON")
-                .editor(EDITOR_TEXTAREA)
+                .editor(Editor::Textarea)
                 .description("A branch from Export (secrets are entered again with Edit)"),
         )
         .param(

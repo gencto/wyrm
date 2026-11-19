@@ -12,6 +12,10 @@ pub mod net;
 mod rights;
 
 pub use rights::Rights;
+/// Typed action arguments: one struct declares the parameters and decodes
+/// them (`wyrm_core::args`, typing audit 2026-11-15 T3).
+pub use wyrm_core::args::Args;
+pub use wyrm_link_sdk_derive::Args;
 
 use minicbor::{Decoder, Encoder};
 use wyrm_core::ptok::Grant;

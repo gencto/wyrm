@@ -51,7 +51,7 @@ use crate::codec::DType;
 use crate::{serial_path_ok, Conn, Device, ModbusDriver, Point};
 use serde_json::{Map as JsonMap, Value as Json};
 use std::collections::{BTreeMap, BTreeSet};
-use wyrm_core::meta::{ActionResult, ParamMeta, EDITOR_TEXTAREA};
+use wyrm_core::meta::{ActionResult, Editor, ParamMeta};
 use wyrm_core::{ActionMeta, Perm, TypeCode, Value};
 use wyrm_link_sdk::driver::branch::{self, Level, Node};
 use wyrm_link_sdk::driver::framework::{reserved_names, MAX_FOLDER_DEPTH};
@@ -180,7 +180,7 @@ pub fn form() -> ActionMeta {
             ParamMeta::of(TypeCode::String)
                 .required(true)
                 .display("JSON")
-                .editor(EDITOR_TEXTAREA)
+                .editor(Editor::Textarea)
                 .description("nodes.json of dslink-java-modbus, or the export of one connection"),
         )
         .param(

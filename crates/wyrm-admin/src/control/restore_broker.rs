@@ -21,8 +21,7 @@
 //! only where its section defines a place ([`place_of`]).
 
 use super::backups::{
-    broker_made_secret, io_err, key_files, make_private_dir, passphrase_arg, wal_stores,
-    BackupRequest, SealWith,
+    broker_made_secret, io_err, key_files, make_private_dir, wal_stores, BackupRequest, SealWith,
 };
 use super::restore::{LinkLayout, MAX_UPLOAD};
 use super::*;
@@ -1223,35 +1222,75 @@ impl Control {
     }
 }
 
-fn sections_arg(args: &Value) -> Result<Vec<SectionName>, LinkError> {
-    super::backups::section_list_arg(args, "sections")?
-        .ok_or_else(|| LinkError::invalid_parameter("sections: required"))
+/// `sys/backups ▸ restore_check`: the uploaded backup and what opens it.
+#[derive(Args)]
+pub(super) struct RestoreCheck {
+    #[param(display = "Upload", desc = "The id restore_begin gave", nonempty)]
+    pub upload: String,
+    #[param(
+        display = "Passphrase",
+        secret,
+        nonempty,
+        desc = "Of a backup sealed with one"
+    )]
+    pub passphrase: Option<Secret>,
+}
+
+/// How `restore_apply` restores.
+#[derive(Args)]
+pub(super) struct ApplyHow {
+    #[param(choice, display = "Sections")]
+    pub sections: Vec<SectionName>,
+    #[param(
+        choice,
+        display = "Mode",
+        desc = "add: what does not exist yet, live. replace: the broker stops and \
+                applies it at the next start"
+    )]
+    pub mode: RestoreMode,
+    #[param(
+        display = "Accept requested rights",
+        desc = "Of the links mode add installs and of the packages mode replace \
+                brings",
+        absent = false
+    )]
+    pub accept: bool,
+    #[param(
+        display = "Replace the site's keys",
+        desc = "Keys that differ from this broker's (restore_check lists them). \
+                Another CA: links, operators and peer brokers enrol again",
+        absent = false
+    )]
+    pub replace_keys: bool,
+}
+
+/// `sys/backups ▸ restore_apply`.
+#[derive(Args)]
+pub(super) struct RestoreApply {
+    #[param(flatten)]
+    pub file: RestoreCheck,
+    #[param(flatten)]
+    pub how: ApplyHow,
 }
 
 impl Admin {
-    /// `sys/backups/~act/restore_check` and `restore_apply`.
+    /// `sys/backups/~act/restore_check` and `restore_apply`. The caller holds
+    /// `Control::busy` (taken before the arguments are read).
     pub(super) async fn restore_broker(
         &self,
-        action: &str,
-        args: &Value,
+        file: RestoreCheck,
+        apply: Option<ApplyHow>,
         sub: &str,
         remote: bool,
     ) -> wyrm_link_sdk::Result<Option<Value>> {
         let ctl = &self.ctl;
-        // A check reads the whole file and `add` installs links: a rebuild
-        // of the router waits for both, as for `replace` and any install,
-        // and neither starts on a broker that is closing for one.
-        let _busy = ctl.busy()?;
-        let upload = arg_str(args, "upload")
-            .filter(|u| !u.is_empty())
-            .ok_or_else(|| LinkError::invalid_parameter("upload: required"))?
-            .to_owned();
-        let passphrase = passphrase_arg(args)?;
+        let upload = file.upload;
+        let passphrase = super::backups::passphrase_bytes(file.passphrase);
         let path = ctl.upload_take(&upload)?;
-        let r = match action {
-            "restore_check" => self.restore_check(&path, passphrase).await,
-            _ => {
-                self.restore_apply(&path, args, passphrase, sub, remote)
+        let r = match apply {
+            None => self.restore_check(&path, passphrase).await,
+            Some(how) => {
+                self.restore_apply(&path, how, passphrase, sub, remote)
                     .await
             }
         };
@@ -1288,16 +1327,13 @@ impl Admin {
     async fn restore_apply(
         &self,
         path: &Path,
-        args: &Value,
+        how: ApplyHow,
         passphrase: Option<Zeroizing<Vec<u8>>>,
         sub: &str,
         remote: bool,
     ) -> Result<(Value, bool), String> {
         let ctl = &self.ctl;
-        let chosen = sections_arg(args).map_err(|e| e.message)?;
-        let mode = arg_str(args, "mode")
-            .and_then(RestoreMode::from_name)
-            .ok_or_else(|| format!("mode: {}", RestoreMode::NAMES.join(" or ")))?;
+        let (chosen, mode) = (how.sections, how.mode);
         let allowed = mode.sections();
         if let Some(s) = chosen.iter().find(|s| !allowed.contains(s)) {
             return Err(format!(
@@ -1310,12 +1346,11 @@ impl Admin {
         }
         if mode == RestoreMode::Add {
             return self
-                .restore_add(path, &chosen, passphrase, accepted(args), sub)
+                .restore_add(path, &chosen, passphrase, how.accept, sub)
                 .await
                 .map(|v| (v, false));
         }
-        let replace_keys = matches!(arg(args, "replace_keys"), Some(Value::Bool(true)));
-        let accept = accepted(args);
+        let (replace_keys, accept) = (how.replace_keys, how.accept);
         // a caller from above is refused before the file is opened
         if remote {
             replace_gates(&Gates {
@@ -1559,68 +1594,24 @@ impl Admin {
 
 /// `restore_check` and `restore_apply` of `sys/backups`.
 pub(super) async fn declare(ctx: &LinkCtx) -> wyrm_link_sdk::Result<()> {
-    let base = |display: &str| {
-        ActionMeta::new()
-            .display(display)
-            .param(
-                "upload",
-                str_param()
-                    .required(true)
-                    .display("Upload")
-                    .description("The id restore_begin gave"),
-            )
-            .param(
-                "passphrase",
-                str_param()
-                    .display("Passphrase")
-                    .editor(EDITOR_PASSWORD)
-                    .description("Of a backup sealed with one"),
-            )
+    ctx.declare_action(
+        "backups",
+        "restore_check",
+        RestoreCheck::action()
+            .display("Check a backup")
             .result(ActionResult::Type(TypeCode::Map))
             .timeout_ms(INSTALL_TIMEOUT_MS)
-            .level(Perm::Config)
-    };
-    ctx.declare_action("backups", "restore_check", base("Check a backup"))
-        .await?;
+            .level(Perm::Config),
+    )
+    .await?;
     ctx.declare_action(
         "backups",
         "restore_apply",
-        base("Restore")
-            .param(
-                "sections",
-                ParamMeta::of(TypeCode::Array)
-                    .required(true)
-                    .display("Sections"),
-            )
-            .param(
-                "mode",
-                str_param()
-                    .required(true)
-                    .display("Mode")
-                    .enum_values(RestoreMode::NAMES.iter().copied())
-                    .description(
-                        "add: what does not exist yet, live. replace: the broker stops and \
-                         applies it at the next start",
-                    ),
-            )
-            .param(
-                "accept",
-                ParamMeta::of(TypeCode::Bool)
-                    .display("Accept requested rights")
-                    .description(
-                        "Of the links mode add installs and of the packages mode replace \
-                         brings",
-                    ),
-            )
-            .param(
-                "replace_keys",
-                ParamMeta::of(TypeCode::Bool)
-                    .display("Replace the site's keys")
-                    .description(
-                        "Keys that differ from this broker's (restore_check lists them). \
-                         Another CA: links, operators and peer brokers enrol again",
-                    ),
-            ),
+        RestoreApply::action()
+            .display("Restore")
+            .result(ActionResult::Type(TypeCode::Map))
+            .timeout_ms(INSTALL_TIMEOUT_MS)
+            .level(Perm::Config),
     )
     .await
 }
@@ -1628,6 +1619,72 @@ pub(super) async fn declare(ctx: &LinkCtx) -> wyrm_link_sdk::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Audit of #136: what `restore_apply` takes. A wrong `mode` or `sections` is
+    /// refused when the arguments are decoded, before the upload is taken: the
+    /// uploaded file stays as it is for the next call (it was taken, refused and
+    /// given back before; the caller sees `invalid_parameter` in both cases).
+    #[test]
+    fn restore_apply_arguments() {
+        let args = |kv: &[(&str, Value)]| {
+            Value::Map(
+                kv.iter()
+                    .map(|(k, v)| ((*k).to_owned(), v.clone()))
+                    .collect::<BTreeMap<_, _>>(),
+            )
+        };
+        let sections = Value::Array(vec!["storage".into()]);
+        let a = RestoreApply::decode(args(&[
+            ("upload", "u1".into()),
+            ("passphrase", "   ".into()),
+            ("sections", sections.clone()),
+            ("mode", "add".into()),
+        ]))
+        .unwrap();
+        assert_eq!(a.file.upload, "u1");
+        // a passphrase is never trimmed
+        assert_eq!(
+            a.file.passphrase.map(|p| p.expose().to_vec()),
+            Some(b"   ".to_vec())
+        );
+        assert!(a.how.mode == RestoreMode::Add && !a.how.accept && !a.how.replace_keys);
+        assert_eq!(a.how.sections, [SectionName::Storage]);
+        let field = |kv: &[(&str, Value)]| {
+            RestoreApply::decode(args(kv))
+                .map(|_| ())
+                .unwrap_err()
+                .field
+        };
+        let up = ("upload", Value::from("u1"));
+        assert_eq!(
+            field(&[
+                up.clone(),
+                ("sections", sections.clone()),
+                ("mode", "merge".into())
+            ]),
+            "mode"
+        );
+        assert_eq!(field(&[up.clone(), ("sections", sections.clone())]), "mode");
+        assert_eq!(field(&[up.clone(), ("mode", "add".into())]), "sections");
+        assert_eq!(
+            field(&[
+                up.clone(),
+                ("sections", Value::Array(vec!["nope".into()])),
+                ("mode", "add".into())
+            ]),
+            "sections"
+        );
+        assert_eq!(
+            field(&[
+                ("upload", "".into()),
+                ("sections", sections),
+                ("mode", "add".into())
+            ]),
+            "upload"
+        );
+        let c = RestoreCheck::decode(args(&[up, ("passphrase", "".into())])).unwrap();
+        assert!(c.passphrase.is_none(), "an empty passphrase is none");
+    }
 
     fn dir(name: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("wyrm-pending-{name}-{}", std::process::id()));

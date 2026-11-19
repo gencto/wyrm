@@ -182,13 +182,13 @@ fn import() -> ActionMeta {
         .param(
             "data",
             ParamMeta::of(TypeCode::String)
-                .editor(wyrm_core::meta::EDITOR_TEXTAREA)
+                .editor(wyrm_core::meta::Editor::Textarea)
                 .description("JSON from Export"),
         )
         .param(
             "file",
             ParamMeta::of(TypeCode::Binary)
-                .editor(wyrm_core::meta::EDITOR_FILE)
+                .editor(wyrm_core::meta::Editor::File)
                 .description("A JSON file from Export, instead of data"),
         )
 }
@@ -605,9 +605,10 @@ impl Link for Storage {
         &mut self,
         path: &str,
         action: &str,
-        args: &Value,
+        args: Value,
         who: &Caller,
     ) -> Result<()> {
+        let args = &args;
         match (path, action) {
             (_, "add_node" | "add_value") => {
                 self.new_child(path, text_arg(args, "name")?, 1)?;

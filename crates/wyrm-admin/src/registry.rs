@@ -1179,7 +1179,7 @@ impl wyrm_state::State for Registry {
                     h.remove(0);
                 }
                 def.mode = *mode;
-                def.params = params.clone();
+                def.params.clone_from(params);
                 def.rev += 1;
             }
             Op::SetTokenHash { id, hash } => {

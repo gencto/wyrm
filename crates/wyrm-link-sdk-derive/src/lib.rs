@@ -20,6 +20,40 @@
 //!
 //! Variant attribute for `ParamEnum`: `#[param(name = "...")]`; the default
 //! wire name is the snake_case variant name.
+//!
+//! `#[derive(Args)]` (`wyrm_core::args`): one struct with named fields is an
+//! action's declared parameters and the decoder of its arguments. Its output
+//! names `wyrm_core` only, so a portable link (wasm32) uses it too. A field of
+//! type `T` is required, `Option<T>` optional. Field attributes:
+//! `#[param(name = "...", display = <text>, desc = <text>, placeholder = <text>,
+//! editor = "...", secret, choice, enum, reversed, suggest = <names>,
+//! min = <n>, max = <n>, trim, nonempty, flatten, absent = <value>,
+//! default = <value>)]`:
+//!
+//! * `choice`: a `Named` type read by its name (a text parameter that lists
+//!   the names; on a `Vec<T>` a list of names); `enum`: read by its index (an
+//!   `enum` parameter); `reversed` lists the names last first;
+//! * `suggest`: names a free text offers (any other text is still taken);
+//! * `trim`: text without the white space around it (also the name of a
+//!   `choice`); `nonempty`: the empty text `""` is not there (required:
+//!   refused; optional: `None`), and with `trim` a text of white space too;
+//! * `absent`: the value of a field that is not given, not published;
+//!   `default`: the same, published as the parameter's `default`;
+//! * `secret`: the password editor. The field's type must keep a secret
+//!   (`wyrm_core::args::SecretArg`: `Secret`, `SecretBytes`); a `String` does
+//!   not compile. A secret is never trimmed, but for a token a person pastes
+//!   as one line: `secret, trim` compiles only on `SecretLine`
+//!   (`wyrm_core::args::PastedSecretArg`);
+//! * `flatten`: the fields of another `Args` struct are parameters of this
+//!   action too. It stands alone: any other attribute beside it does not
+//!   compile.
+//!
+//! A parameter name is one field. Two fields of one struct with the same name
+//! do not compile, and neither does a name that comes a second time through
+//! `flatten`: the derive writes the names as `Args::NAMES` and asserts in a
+//! `const` that none repeats (`wyrm_core::args::Names`).
+
+mod args;
 
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as Tokens;
@@ -80,7 +114,7 @@ struct FieldAttrs {
     desc: Option<String>,
     display: Option<String>,
     placeholder: Option<String>,
-    editor: Option<String>,
+    editor: Option<Tokens>,
     name: Option<String>,
     is_enum: bool,
 }
@@ -102,7 +136,7 @@ fn field_attrs(attrs: &[syn::Attribute]) -> syn::Result<FieldAttrs> {
                 Some("placeholder") => {
                     a.placeholder = Some(m.value()?.parse::<syn::LitStr>()?.value())
                 }
-                Some("editor") => a.editor = Some(m.value()?.parse::<syn::LitStr>()?.value()),
+                Some("editor") => a.editor = Some(editor(&m.value()?.parse::<syn::LitStr>()?)?),
                 Some("name") => a.name = Some(m.value()?.parse::<syn::LitStr>()?.value()),
                 _ => {
                     return Err(m.error(
@@ -115,6 +149,25 @@ fn field_attrs(attrs: &[syn::Attribute]) -> syn::Result<FieldAttrs> {
         })?;
     }
     Ok(a)
+}
+
+/// `editor = "textarea"`: the `wyrm_core::meta::Editor` of that wire name. A
+/// name that is not in the set does not compile.
+fn editor(name: &syn::LitStr) -> syn::Result<Tokens> {
+    let variant =
+        match name.value().as_str() {
+            "password" => quote!(Password),
+            "textarea" => quote!(Textarea),
+            "file" => quote!(File),
+            "daterange" => quote!(Daterange),
+            "date" => quote!(Date),
+            "duration" => quote!(Duration),
+            _ => return Err(syn::Error::new_spanned(
+                name,
+                "unknown editor; expected password, textarea, file, daterange, date or duration",
+            )),
+        };
+    Ok(quote!(::wyrm_core::meta::Editor::#variant))
 }
 
 /// A numeric literal (optionally negated) as text, plus whether it is an integer.
@@ -183,6 +236,15 @@ fn default_value(e: &Expr, kind: Kind) -> syn::Result<Tokens> {
             }
         }
     }
+}
+
+/// `#[derive(Args)]` on a struct with named fields (`wyrm_core::args::Args`).
+#[proc_macro_derive(Args, attributes(param))]
+pub fn derive_args(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    args::expand(&input)
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
 }
 
 /// `#[derive(Params)]` on a struct with named fields.

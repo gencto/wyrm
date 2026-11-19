@@ -19,9 +19,7 @@
 
 use std::collections::BTreeMap;
 
-use wyrm_core::meta::{
-    ActionResult, ParamMeta, Writable, EDITOR_DATERANGE, EDITOR_TEXTAREA, GROUP_EDIT, GROUP_NEW,
-};
+use wyrm_core::meta::{ActionResult, Editor, ParamMeta, Writable, GROUP_EDIT, GROUP_NEW};
 use wyrm_core::{ActionMeta, NodeMeta, Perm, TypeCode, Value};
 use wyrm_schedule::{format_local, Event, Micros, Schedule, Source, State};
 
@@ -166,7 +164,7 @@ pub fn root_actions() -> [(&'static str, ActionMeta); 2] {
                     "json",
                     text_param("JSON")
                         .required(true)
-                        .editor(EDITOR_TEXTAREA)
+                        .editor(Editor::Textarea)
                         .description("This link's export, or a DSA localschedule export."),
                 )
                 .param(
@@ -208,7 +206,7 @@ fn schedule_actions() -> BTreeMap<String, ActionMeta> {
                 text_param("Timerange")
                     .required(true)
                     .placeholder("2026-11-02T00:00:00Z/2026-11-09T00:00:00Z")
-                    .editor(EDITOR_DATERANGE)
+                    .editor(Editor::Daterange)
                     .description("From/to in RFC 3339 (a date is its midnight UTC)."),
             )
             .param(

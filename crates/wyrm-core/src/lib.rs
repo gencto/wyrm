@@ -5,6 +5,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod args;
 pub mod attachment;
 pub mod audit;
 pub mod clock;
@@ -21,6 +22,7 @@ pub mod profile;
 pub mod ptok;
 #[cfg(feature = "rand")]
 pub mod rand;
+pub mod secret;
 pub mod status;
 pub mod time;
 pub mod value;

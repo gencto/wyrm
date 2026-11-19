@@ -361,19 +361,29 @@ async fn counters_are_published_at_a_bounded_rate_and_only_when_they_moved() {
     let env = Env::start("rate", every).await;
     let busy = env.vals("busy").await;
     let quiet = env.vals("idle").await;
+    let from = tokio::time::Instant::now();
     env.deploy(ticking("busy", 10)).await;
     env.deploy(idle()).await;
+    let deployed = tokio::time::Instant::now();
     tokio::time::sleep(Duration::from_millis(2000)).await;
 
-    // a clock of 100 samples/s: one `~val` at deploy, then at most one per period
+    // a clock of 100 samples/s: one `~val` at deploy, then at most one per period. The
+    // bound counts the periods in the time it really took: the two deploys add to the 2 s
+    // sleep, and on a loaded host they take more than one period (CI: 9 `~val`s).
     let seen = busy.lock().unwrap().clone();
+    let span = from.elapsed();
     assert!(seen.len() >= 3, "counters were published: {}", seen.len());
+    let periods = usize::try_from(span.as_millis() / every.as_millis()).unwrap();
     assert!(
-        seen.len() <= 2000 / 300 + 2,
-        "rate bounded: {} `~val`s in 2 s",
+        seen.len() <= periods + 2,
+        "rate bounded: {} `~val`s in {span:?}",
         seen.len()
     );
-    for w in seen.windows(2).skip(1) {
+    // A deploy holds the engine, so the period's `~val` that waited for it goes out late
+    // and the next one on time: the spacing is measured after both deploys, from the
+    // second `~val` on.
+    let settled: Vec<_> = seen.iter().filter(|(t, _)| *t > deployed).collect();
+    for w in settled.windows(2).skip(1) {
         assert!(
             w[1].0 - w[0].0 >= every.mul_f64(0.6),
             "at most one per period: {:?}",

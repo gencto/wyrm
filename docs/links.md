@@ -60,6 +60,34 @@ give it a `binary` `editor: file` parameter beside the text one (as storage
 `import {data | file}`). Studio and the Rust client (`wyrm-agent`, the MCP
 connector) take the route on their own (ADR 0028 amendment 2).
 
+### An action's arguments are one struct
+
+An action declares its parameters and reads its arguments from one struct
+with `#[derive(Args)]` (`wyrm_link_sdk::Args`, `wyrm_link_api::Args` for a
+portable link; `docs/rust-rules.md` §7): `X::action()` is what `~meta`
+publishes, `X::decode(args)?` is what the handler gets. A wrong type, a
+fraction for a whole number, a number out of its bounds, a name that is not
+in the set and an unknown argument are refused with `invalid_parameter` and
+the argument's name.
+
+**SDK API change (2026-11-17, typing audit T3).** A link built on the Rust
+SDK changes three things when it moves to this version; nothing changes on
+the wire:
+
+- `wyrm_core::meta::EDITOR_PASSWORD`, `EDITOR_TEXTAREA`, `EDITOR_FILE`,
+  `EDITOR_DATERANGE`, `EDITOR_DATE` and `EDITOR_DURATION` are gone. Use
+  `wyrm_core::meta::Editor::{Password, Textarea, File, Daterange, Date,
+  Duration}`.
+- `ParamMeta::editor` takes an `Editor` (it took text), and the field
+  `ParamMeta.editor` is an `Option<OrUnknown<Editor>>`; ask with
+  `ParamMeta::has_editor(Editor::File)`.
+- `Link::on_check` takes its arguments by value (`args: Value`, it was
+  `&Value`), like `on_invoke`. `App::on_check` of a portable link is as it
+  was.
+- `ParamSpec.editor` is an `Option<Editor>` and `ParamSpec::editor` takes an
+  `Editor`. `#[param(editor = "textarea")]` of the driver derive is as it
+  was; a name that is no editor does not compile any more.
+
 ### Names people read
 
 Keys are wire names: a node key is a path segment, an action key or a

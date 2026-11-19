@@ -13,7 +13,7 @@
 
 use std::collections::BTreeMap;
 
-use wyrm_core::meta::{ActionResult, ParamMeta, Writable, EDITOR_TEXTAREA, GROUP_EDIT, GROUP_NEW};
+use wyrm_core::meta::{ActionResult, Editor, ParamMeta, Writable, GROUP_EDIT, GROUP_NEW};
 use wyrm_core::{ActionMeta, NodeMeta, Perm, TypeCode, Value};
 
 pub const STATS: &str = "stats";
@@ -52,7 +52,7 @@ fn query_params(a: ActionMeta, required: bool) -> ActionMeta {
             "text",
             text("Query")
                 .required(required)
-                .editor(EDITOR_TEXTAREA)
+                .editor(Editor::Textarea)
                 .placeholder(
                     "list wy/site/downstream/plc/** | where type == \"number\" | subscribe",
                 )
@@ -98,7 +98,7 @@ pub fn root_actions() -> [(&'static str, ActionMeta); 5] {
                     "text",
                     text("Query")
                         .required(true)
-                        .editor(EDITOR_TEXTAREA)
+                        .editor(Editor::Textarea)
                         .description(TEXT_ABOUT),
                 )
                 .param(
@@ -121,7 +121,10 @@ pub fn root_actions() -> [(&'static str, ActionMeta); 5] {
                 .level(Perm::Read)
                 .display("Explain query")
                 .result(ActionResult::Type(TypeCode::Map))
-                .param("text", text("Query").required(true).editor(EDITOR_TEXTAREA)),
+                .param(
+                    "text",
+                    text("Query").required(true).editor(Editor::Textarea),
+                ),
         ),
         (
             "import",
@@ -135,7 +138,7 @@ pub fn root_actions() -> [(&'static str, ActionMeta); 5] {
                     "json",
                     text("JSON")
                         .required(true)
-                        .editor(EDITOR_TEXTAREA)
+                        .editor(Editor::Textarea)
                         .description("This link's export (wyrm-dql/1)."),
                 )
                 .param(
@@ -157,7 +160,7 @@ pub fn root_actions() -> [(&'static str, ActionMeta); 5] {
                 .result(ActionResult::Type(TypeCode::Map))
                 .param(
                     "text",
-                    text("DSA query").required(true).editor(EDITOR_TEXTAREA),
+                    text("DSA query").required(true).editor(Editor::Textarea),
                 )
                 .param(
                     "site",

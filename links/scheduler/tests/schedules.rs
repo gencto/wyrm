@@ -267,12 +267,8 @@ fn get_events_lists_occurrences() {
         assert!(msg.starts_with("timerange"), "{bad}: {msg}");
     }
     assert_eq!(h.action("lobby", "get_events").level, Some(Perm::Read));
-    assert_eq!(
-        h.action("lobby", "get_events").params["timerange"]
-            .editor
-            .as_deref(),
-        Some("daterange")
-    );
+    assert!(h.action("lobby", "get_events").params["timerange"]
+        .has_editor(wyrm_core::meta::Editor::Daterange));
 }
 
 /// The DSA localschedule 2.0.4 export of the `wyrm-schedule` fixture.

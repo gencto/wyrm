@@ -212,9 +212,8 @@ fn ui_fields_in_the_form() {
     assert_eq!(port.display.as_deref(), Some("Serial port"));
     assert_eq!(port.placeholder.as_deref(), Some("/dev/ttyUSB0"));
     let pin = s[2].param_meta(Some(&"x".into()));
-    assert_eq!(
-        pin.editor.as_deref(),
-        Some("password"),
+    assert!(
+        pin.has_editor(wyrm_core::meta::Editor::Password),
         "a secret is a password field"
     );
     assert_eq!(pin.default, None, "a secret is never pre-filled");

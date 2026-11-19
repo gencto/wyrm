@@ -10,9 +10,7 @@
 //!   edit, set_password, test_connection, remove (config)
 //! ```
 
-use wyrm_core::meta::{
-    ActionResult, ParamMeta, Writable, EDITOR_PASSWORD, EDITOR_TEXTAREA, GROUP_EDIT, GROUP_NEW,
-};
+use wyrm_core::meta::{ActionResult, Editor, ParamMeta, Writable, GROUP_EDIT, GROUP_NEW};
 use wyrm_core::{ActionMeta, NodeMeta, Perm, TypeCode};
 
 use crate::platform::{fields, Field, Kind, COMMON};
@@ -53,7 +51,7 @@ fn param(f: &Field, required: bool) -> ParamMeta {
         p = p.placeholder(f.placeholder);
     }
     if f.name == "ca_pem" || f.name == "select" {
-        p = p.editor(EDITOR_TEXTAREA);
+        p = p.editor(Editor::Textarea);
     }
     p
 }
@@ -96,7 +94,7 @@ pub fn upstream_actions(kind: Kind, from_config: bool) -> Vec<(&'static str, Act
                     "password",
                     ParamMeta::of(TypeCode::String)
                         .display("Secret")
-                        .editor(EDITOR_PASSWORD)
+                        .editor(Editor::Password)
                         .description(kind.secret_about()),
                 ),
         ),

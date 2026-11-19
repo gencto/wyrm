@@ -1300,7 +1300,7 @@ async fn params_bounds_forms_and_no_secrets() {
     assert!(add
         .params
         .values()
-        .all(|p| p.editor.as_deref() != Some("password")));
+        .all(|p| !p.has_editor(wyrm_core::meta::Editor::Password)));
     assert!(add.params.contains_key("bbmd"));
     h.stop().await;
 }

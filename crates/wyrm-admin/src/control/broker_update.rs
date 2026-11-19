@@ -103,17 +103,63 @@ impl Default for UpdateConfig {
     }
 }
 
-/// `update.target`: which broker of a pair to update (left out or empty: the active).
-fn target_of(args: &Value) -> Result<release::UpdateRole, LinkError> {
-    match arg_str(args, "target").filter(|t| !t.is_empty()) {
-        None => Ok(release::UpdateRole::Active),
-        Some(t) => release::UpdateRole::from_name(t).ok_or_else(|| {
-            LinkError::invalid_parameter(format!(
-                "target: one of {}",
-                release::UpdateRole::NAMES.join(", ")
-            ))
-        }),
+/// `sys ▸ update`.
+#[derive(Args)]
+pub(super) struct Update {
+    #[param(
+        display = "Version",
+        desc = "Of the releases index; empty: the latest",
+        trim,
+        absent = String::new()
+    )]
+    pub version: String,
+    #[param(display = "Site name", desc = "Type the name of this site to confirm")]
+    pub confirm_site: String,
+    #[param(
+        display = "Upload",
+        desc = "Without updates.channel: the id of the archive uploaded in parts \
+                (sys/backups restore_begin, restore_part)",
+        absent = String::new()
+    )]
+    pub upload: String,
+    #[param(
+        display = "Release",
+        desc = "With upload: the release document of the archive (JSON)"
+    )]
+    pub release: Option<String>,
+    #[param(
+        display = "Signature",
+        desc = "With upload: the Ed25519 signature of the release (hex)",
+        absent = String::new()
+    )]
+    pub signature: String,
+    /// Which broker of a pair to update (left out or empty: the active).
+    #[param(
+        choice,
+        nonempty,
+        display = "Target",
+        desc = "A standby pair: the standby is updated first"
+    )]
+    pub target: Option<release::UpdateRole>,
+    #[param(
+        display = "Without the standby",
+        desc = "A standby pair whose standby is down: update this broker alone",
+        absent = false
+    )]
+    pub without_standby: bool,
+}
+
+impl Update {
+    fn target(&self) -> release::UpdateRole {
+        self.target.unwrap_or(release::UpdateRole::Active)
     }
+}
+
+/// `sys ▸ rollback_update`.
+#[derive(Args)]
+pub(super) struct RollbackUpdate {
+    #[param(display = "Site name", desc = "Type the name of this site to confirm")]
+    pub confirm_site: String,
 }
 
 /// The standby's word for "no update of its own" (`sys/replication/update/<v>/none/-`).
@@ -441,14 +487,14 @@ pub async fn stage(
         tokio::task::spawn_blocking(move || state_copy(&d, &c))
             .await
             .map_err(|e| e.to_string())??;
-        let args: Vec<std::ffi::OsString> = vec![
+        let argv: Vec<std::ffi::OsString> = vec![
             "-c".into(),
             config.into_os_string(),
             "check".into(),
             "--state".into(),
             copy.0.clone().into_os_string(),
         ];
-        release::run_binary(&bin, &args, BINARY_TIMEOUT)
+        release::run_binary(&bin, &argv, BINARY_TIMEOUT)
             .await
             .map_err(|e| {
                 format!("the new version refuses this broker's configuration or state: {e}")
@@ -917,22 +963,18 @@ impl Control {
 /// (a dry run answers within the admin's own time limit).
 async fn plan_of(
     ctl: &Arc<Control>,
-    args: &Value,
+    a: &Update,
     sub: &str,
     fresh: bool,
 ) -> Result<Plan, LinkError> {
     let u = &ctl.cfg.updates;
-    let for_standby = target_of(args)? == release::UpdateRole::Standby;
+    let for_standby = a.target() == release::UpdateRole::Standby;
     if for_standby && !u.standby {
         return Err(LinkError::invalid_parameter(
             "target: this broker has no standby (no standby section in wyrmd.json5)",
         ));
     }
-    let version = arg_str(args, "version")
-        .unwrap_or_default()
-        .trim()
-        .to_owned();
-    let upload = arg_str(args, "upload").unwrap_or_default().to_owned();
+    let (version, upload) = (a.version.clone(), a.upload.clone());
     let (release, release_bytes, signature, source) = if upload.is_empty() {
         let channel = u.channel.clone().ok_or_else(|| {
             LinkError::invalid_parameter(
@@ -982,16 +1024,16 @@ async fn plan_of(
             Source::Url(url),
         )
     } else {
-        let text = match arg(args, "release") {
-            Some(Value::Str(s)) => s.clone().into_bytes(),
-            Some(Value::Bytes(b)) => b.clone(),
-            _ => {
-                return Err(LinkError::invalid_parameter(
+        let text = a
+            .release
+            .clone()
+            .ok_or_else(|| {
+                LinkError::invalid_parameter(
                     "release: the release document that came with the archive",
-                ))
-            }
-        };
-        let signature = arg_str(args, "signature").unwrap_or_default().to_owned();
+                )
+            })?
+            .into_bytes();
+        let signature = a.signature.clone();
         let r = release::read_release(&text, &signature, &u.keys)
             .map_err(LinkError::invalid_parameter)?;
         if !version.is_empty() && version != r.version {
@@ -1027,11 +1069,11 @@ async fn plan_of(
 }
 
 /// The gates of `update` that do not need the release.
-fn gate_now(ctl: &Control, args: &Value) -> Result<(), LinkError> {
+fn gate_now(ctl: &Control, confirm: &str) -> Result<(), LinkError> {
     gates(&Gate {
         mode: ctl.cfg.updates.mode,
         site: &ctl.cfg.site,
-        confirm: arg_str(args, "confirm_site").unwrap_or_default(),
+        confirm,
         other_job: ctl.other_job(),
         layout: ctl.layout().map(|_| ()),
         guard_ran: ctl.guard_ran(),
@@ -1041,12 +1083,11 @@ fn gate_now(ctl: &Control, args: &Value) -> Result<(), LinkError> {
 
 /// `sys/~act/update?check` (spec 05 0.2.33): everything `update` refuses
 /// before it fetches the archive.
-pub(super) async fn check(ctl: &Arc<Control>, args: &Value, sub: &str) -> Result<(), LinkError> {
-    gate_now(ctl, args)?;
-    let plan = plan_of(ctl, args, sub, false).await?;
+pub(super) async fn check(ctl: &Arc<Control>, a: &Update, sub: &str) -> Result<(), LinkError> {
+    gate_now(ctl, &a.confirm_site)?;
+    let plan = plan_of(ctl, a, sub, false).await?;
     if !plan.for_standby {
-        let without = matches!(arg(args, "without_standby"), Some(Value::Bool(true)));
-        ctl.standby_first(&plan.release, without)?;
+        ctl.standby_first(&plan.release, a.without_standby)?;
     }
     Ok(())
 }
@@ -1055,12 +1096,12 @@ pub(super) async fn check(ctl: &Arc<Control>, args: &Value, sub: &str) -> Result
 pub(super) async fn update(
     ctl: &Arc<Control>,
     ctx: &LinkCtx,
-    args: &Value,
+    a: Update,
     sub: &str,
 ) -> wyrm_link_sdk::Result<Option<Value>> {
-    gate_now(ctl, args)?;
-    let plan = plan_of(ctl, args, sub, true).await?;
-    let without = matches!(arg(args, "without_standby"), Some(Value::Bool(true)));
+    gate_now(ctl, &a.confirm_site)?;
+    let plan = plan_of(ctl, &a, sub, true).await?;
+    let without = a.without_standby;
     if !plan.for_standby {
         ctl.standby_first(&plan.release, without)?;
     }
@@ -1406,14 +1447,10 @@ async fn stage_for_standby(ctl: &Arc<Control>, plan: &Plan, archive: &Path) -> R
     Ok(())
 }
 
-/// `sys/~act/rollback_update`: go back to the version before a confirmed
-/// update, on purpose. The guard does it at the next start.
-pub(super) async fn rollback(
-    ctl: &Arc<Control>,
-    args: &Value,
-    sub: &str,
-    remote: bool,
-) -> wyrm_link_sdk::Result<Option<Value>> {
+/// `rollback_update` is done on the broker's own gateway: a caller whose
+/// authority comes from an upstream (`remote`) is refused, before its
+/// arguments are read.
+pub(super) fn rollback_is_local(remote: bool) -> Result<(), LinkError> {
     if remote {
         return Err(LinkError::new(
             Status::PermissionDenied,
@@ -1421,6 +1458,17 @@ pub(super) async fn rollback(
              done on the broker's own gateway, not through its upstream",
         ));
     }
+    Ok(())
+}
+
+/// `sys/~act/rollback_update`: go back to the version before a confirmed
+/// update, on purpose. The guard does it at the next start. The caller is
+/// checked first ([`rollback_is_local`]).
+pub(super) async fn rollback(
+    ctl: &Arc<Control>,
+    a: RollbackUpdate,
+    sub: &str,
+) -> wyrm_link_sdk::Result<Option<Value>> {
     let d = &ctl.cfg.data_dir;
     let me = &release::identity().version;
     let mut u = UpdateFile::load(d)
@@ -1429,7 +1477,7 @@ pub(super) async fn rollback(
     gates(&Gate {
         mode: ctl.cfg.updates.mode,
         site: &ctl.cfg.site,
-        confirm: arg_str(args, "confirm_site").unwrap_or_default(),
+        confirm: &a.confirm_site,
         other_job: ctl.other_job(),
         layout: ctl.layout().map(|_| ()),
         guard_ran: ctl.guard_ran(),
@@ -1557,13 +1605,6 @@ const STANDBY_VALUES: [(&str, &str); 2] = [
     ),
 ];
 
-fn site_param() -> ParamMeta {
-    str_param()
-        .required(true)
-        .display("Site name")
-        .description("Type the name of this site to confirm")
-}
-
 /// The values and actions of `sys` for the broker's update.
 pub(super) async fn declare(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Result<()> {
     for (key, ty, about) in VALUES {
@@ -1582,47 +1623,8 @@ pub(super) async fn declare(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Resu
     ctx.declare_action(
         "",
         "update",
-        ActionMeta::new()
+        Update::action()
             .display("Update broker")
-            .param(
-                "version",
-                str_param()
-                    .display("Version")
-                    .description("Of the releases index; empty: the latest"),
-            )
-            .param("confirm_site", site_param())
-            .param(
-                "upload",
-                str_param().display("Upload").description(
-                    "Without updates.channel: the id of the archive uploaded in parts \
-                     (sys/backups restore_begin, restore_part)",
-                ),
-            )
-            .param(
-                "release",
-                str_param()
-                    .display("Release")
-                    .description("With upload: the release document of the archive (JSON)"),
-            )
-            .param(
-                "signature",
-                str_param()
-                    .display("Signature")
-                    .description("With upload: the Ed25519 signature of the release (hex)"),
-            )
-            .param(
-                "target",
-                str_param()
-                    .display("Target")
-                    .enum_values(release::UpdateRole::NAMES.iter().copied())
-                    .description("A standby pair: the standby is updated first"),
-            )
-            .param(
-                "without_standby",
-                ParamMeta::of(TypeCode::Bool)
-                    .display("Without the standby")
-                    .description("A standby pair whose standby is down: update this broker alone"),
-            )
             .result(ActionResult::Type(TypeCode::Map))
             // the releases index is read before the answer
             .timeout_ms(150_000)
@@ -1632,9 +1634,8 @@ pub(super) async fn declare(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Resu
     ctx.declare_action(
         "",
         "rollback_update",
-        ActionMeta::new()
+        RollbackUpdate::action()
             .display("Roll back the broker update")
-            .param("confirm_site", site_param())
             .result(ActionResult::Type(TypeCode::Map))
             .level(Perm::Config),
     )
@@ -1642,7 +1643,7 @@ pub(super) async fn declare(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Resu
     ctx.declare_action(
         "",
         "check_updates",
-        ActionMeta::new()
+        <()>::action()
             .display("Check for updates")
             .result(ActionResult::Type(TypeCode::Map))
             .timeout_ms(150_000)
@@ -1909,22 +1910,39 @@ mod tests {
     #[test]
     fn the_target_is_a_role() {
         use release::UpdateRole;
-        let args = |t: Option<&str>| match t {
-            Some(t) => Value::Map(BTreeMap::from([("target".to_owned(), Value::from(t))])),
-            None => Value::Map(BTreeMap::new()),
+        let target = |t: Option<&str>| {
+            let mut m = BTreeMap::from([("confirm_site".to_owned(), Value::from("plant"))]);
+            if let Some(t) = t {
+                m.insert("target".to_owned(), Value::from(t));
+            }
+            Update::decode(Value::Map(m)).map(|a| a.target())
         };
-        assert_eq!(target_of(&args(None)).unwrap(), UpdateRole::Active);
-        assert_eq!(target_of(&args(Some(""))).unwrap(), UpdateRole::Active);
+        assert_eq!(target(None), Ok(UpdateRole::Active));
+        assert_eq!(target(Some("")), Ok(UpdateRole::Active));
+        assert_eq!(target(Some("active")), Ok(UpdateRole::Active));
+        assert_eq!(target(Some("standby")), Ok(UpdateRole::Standby));
+        let e = target(Some("Standby")).unwrap_err();
+        assert_eq!(e.field, "target");
+        assert!(e.to_string().contains("active, standby"), "{e}");
+        // `release` is declared as text; the reader took bytes too
+        let e = Update::decode(Value::Map(BTreeMap::from([
+            ("confirm_site".to_owned(), Value::from("plant")),
+            ("release".to_owned(), Value::Bytes(vec![b'{'])),
+        ])))
+        .map(|_| ())
+        .unwrap_err();
+        assert_eq!(e.field, "release");
+        // audit of #136: who may roll back is decided before the arguments are read
+        assert!(rollback_is_local(false).is_ok());
         assert_eq!(
-            target_of(&args(Some("active"))).unwrap(),
-            UpdateRole::Active
+            rollback_is_local(true).unwrap_err().status,
+            Status::PermissionDenied
         );
-        assert_eq!(
-            target_of(&args(Some("standby"))).unwrap(),
-            UpdateRole::Standby
-        );
-        let e = target_of(&args(Some("Standby"))).unwrap_err();
-        assert!(e.message.contains("active, standby"), "{e}");
+        // the confirmation is required
+        let e = Update::decode(Value::Map(BTreeMap::new()))
+            .map(|_| ())
+            .unwrap_err();
+        assert_eq!(e.field, "confirm_site");
     }
 
     fn gate<'a>() -> Gate<'a> {
