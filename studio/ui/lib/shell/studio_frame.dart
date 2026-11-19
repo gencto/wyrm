@@ -11,6 +11,8 @@ import '../containers/fault_boundary.dart';
 import '../containers/refresh_frame.dart';
 import '../indicators/app_icon.dart';
 import '../indicators/level_badge.dart';
+import '../models/broker_said.dart';
+import '../models/change_words.dart';
 import '../overlays/problems_drawer.dart';
 import '../overlays/review_panel.dart';
 import '../overlays/search_palette.dart';
@@ -93,11 +95,11 @@ final class ReviewCardData extends Equatable {
   });
 
   final String id;
-  final String op;
+  final ChangeOpTag op;
   final String key;
   final String field;
-  final String from;
-  final String to;
+  final ChangeSideVm from;
+  final ChangeSideVm to;
   final AccessLevel level;
   final AccessLevel have;
   final bool allowed;
@@ -237,7 +239,7 @@ final class StudioFrameVm extends Equatable {
   final List<ProblemVm> problems;
   final int quarantined;
   final bool reviewOpen;
-  final String? reviewError;
+  final BrokerSaidVm? reviewError;
   final bool applying;
   final List<ReviewCardData> cards;
 
@@ -444,9 +446,16 @@ class StudioFrame extends StatelessWidget {
         op: c.op,
         // a link's params: the whole key, so the site is never hidden
         key_: c.key.contains('/sys/links/') ? c.key : _short(c.key),
-        field: c.field,
-        from: c.from,
-        to: c.to,
+        // a link's params: which of them change
+        field: switch (c.to) {
+          ChangeSideParamsVm(:final names) => S.current.changeFieldOf(
+            c.field,
+            names,
+          ),
+          _ => c.field,
+        },
+        from: c.from.text,
+        to: c.to.text,
         allowed: c.allowed,
         levelText: c.allowed
             ? S.current.needsLevelYouHaveIt(c.level.label)
@@ -523,7 +532,7 @@ class StudioFrame extends StatelessWidget {
           ? null
           : ReviewPanel(
               cards: _cards,
-              error: vm.reviewError,
+              error: vm.reviewError?.text,
               applying: vm.applying,
               labels: ReviewLabels(
                 title: s.stagedChanges(vm.cards.length),

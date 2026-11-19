@@ -56,7 +56,7 @@ class SaveUserAction extends Action with WaitingAction {
     } on WyrmException catch (e) {
       throw StudioException.refused(
         e,
-        call: 'save_user',
+        call: const .known(.saveUser),
         thing: name,
         write: true,
       );

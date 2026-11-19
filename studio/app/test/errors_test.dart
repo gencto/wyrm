@@ -3,40 +3,96 @@ import 'dart:io';
 import 'package:app/common/app_store.dart';
 import 'package:app/common/forms.dart';
 import 'package:app/common/studio_version.dart';
+import 'package:app/common/validators.dart';
 import 'package:app/dialogs/error_dialogs.dart';
 import 'package:app/dialogs/exception_dialog.dart';
-import 'package:app/errors.dart';
 import 'package:app/faults.dart';
+import 'package:app/mappers/error_mappers.dart';
+import 'package:app/navigation/app_router.dart';
+import 'package:app/navigation/go_action.dart';
 import 'package:app/run_env.dart' show devicePrompts;
 import 'package:app/start_fault_app.dart';
 import 'package:async_redux/async_redux.dart';
 import 'package:business/dependencies.dart';
+import 'package:business/persistor.dart';
 import 'package:business/redux/app_state.dart';
 import 'package:business/redux/common/action.dart';
 import 'package:business/redux/flow_editor/actions/trigger_block_action.dart';
+import 'package:business/redux/login/actions/log_in_action.dart';
+import 'package:business/redux/login/actions/set_gateway_action.dart';
+import 'package:business/redux/login/actions/set_password_action.dart';
+import 'package:business/redux/login/actions/set_user_action.dart';
 import 'package:business/redux/nodes/actions/stage_value_action.dart';
 import 'package:business/redux/store.dart';
 import 'package:business/redux/system/actions/aim_log_action.dart';
 import 'package:business/redux/system/actions/set_around_action.dart';
 import 'package:business/wyrm/calls.dart';
+import 'package:business/wyrm/error_view.dart';
 import 'package:business/wyrm/failures.dart';
 import 'package:business/wyrm/mappers/log_line_mapper.dart';
+import 'package:business/wyrm/session.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart' hide Action, ErrorHint;
+import 'package:models/error_action.dart';
+import 'package:models/error_call.dart';
 import 'package:models/error_hint.dart';
 import 'package:models/error_kind.dart';
+import 'package:models/error_subject.dart';
+import 'package:models/manifest_fault.dart';
+import 'package:models/manifest_problem.dart';
+import 'package:models/notice_kind.dart';
 import 'package:models/studio_error.dart';
 import 'package:models/system_tab.dart';
+import 'package:models/unreadable_part.dart';
 import 'package:storage/storage.dart';
 import 'package:ui/alerts/panel_fault.dart';
+import 'package:ui/alerts/toast_stack.dart';
 import 'package:ui/dialogs/error_dialog.dart';
+import 'package:ui/dialogs/error_said.dart';
 import 'package:ui/forms/action_form.dart';
 import 'package:ui/forms/param_form.dart';
 import 'package:ui/overlays/panel_dialog.dart';
 import 'package:ui/theme/common.dart';
 import 'package:wyrm_client/wyrm_client.dart';
+
+// How these tests read an error: through the app's mapper and the words
+// `ui` says of it (`ErrorSaid`), as the screens do.
+
+/// What the screens say of an error, in the language loaded.
+extension on StudioError {
+  /// Its title.
+  String get title => said.title;
+
+  /// What was said of it: the broker's words, else Studio's sentence.
+  String get words => said.said;
+}
+
+/// [e] as it is: an error holds no words, they are read from it
+/// (`title`, `words`).
+StudioError wordError(StudioError e) => e;
+
+/// [e] as its dialog, for who is logged in where.
+ErrorDialogVm errorDialogVm(
+  StudioError e, {
+  String? user,
+  String? role,
+  String? gateway,
+  bool readOnly = false,
+}) => e.dialog(
+  ErrorContext(user: user, role: role, gateway: gateway, about: studioAbout),
+  readOnly: readOnly,
+);
+
+ErrorAction errorPrimary(StudioError e, {bool readOnly = false}) =>
+    e.action(readOnly: readOnly);
+
+ToastVm errorToastVm(StudioError e) => e.toast;
+
+/// The text of *Copy details* of [e] for [ctx], redacted as the app does.
+String detailsText(StudioError e, ErrorContext ctx, {bool report = false}) =>
+    e.said.details(ctx, redact: redact, report: report);
 
 StudioError _refused(
   Status status,
@@ -49,7 +105,8 @@ StudioError _refused(
   refusalOf(
     WyrmException.of(status, message),
     key: key,
-    call: call,
+    // the wire name, read as an action's is
+    call: ErrorCall.ofWire(call),
     thing: thing,
     write: write,
   ).copyWith(id: 1, at: DateTime(2026, 11, 10, 11, 52, 4)),
@@ -68,7 +125,7 @@ class _Refused extends Action {
 
   @override
   Future<AppState?> reduce() => call(
-    name,
+    ErrorCall.ofWire(name),
     'wy/plant/dataflows/$name-it',
     () async => throw WyrmException.of(code, message),
     write: true,
@@ -80,7 +137,6 @@ Store<AppState> _store() => Store<AppState>(
   dependencies: (s) => AppDependencies(
     s,
     InMemoryKeyValueStorage(),
-    wording: wordError,
     prompts: devicePrompts,
   ),
 );
@@ -162,7 +218,13 @@ void main() {
         'Installing modbus 0.4.2 failed on plant',
       );
       expect(
-        wordError(faultOf(StateError('x'), null, step: 'load flow')).title,
+        wordError(
+          faultOf(
+            StateError('x'),
+            null,
+            step: const .named('load flow'),
+          ),
+        ).title,
         'Studio could not finish “load flow”',
       );
     });
@@ -212,8 +274,8 @@ void main() {
         fault.title.toLowerCase(),
         isNot(contains('something went wrong')),
       );
-      expect(fault.message, contains('a fault in Studio'));
-      expect(fault.message, isNot(contains('Exception')));
+      expect(fault.words, contains('a fault in Studio'));
+      expect(fault.words, isNot(contains('Exception')));
     });
 
     test('a refused Run the broker said nothing of reads why; the '
@@ -222,17 +284,17 @@ void main() {
         refusalOf(
           WyrmException.of(st, m),
           key: 'wy/plant/dataflows/line',
-          call: 'trigger',
+          call: const .known(.trigger),
         ).copyWith(hint: m.isEmpty ? triggerHintOf(StatusCode.of(st)) : null),
       );
-      expect(run(Status.permissionDenied, '').message, contains('needs write'));
-      expect(run(Status.notSupported, '').message, 'The flow is not running.');
-      expect(run(Status.notFound, '').message, contains('no trigger action'));
+      expect(run(Status.permissionDenied, '').words, contains('needs write'));
+      expect(run(Status.notSupported, '').words, 'The flow is not running.');
+      expect(run(Status.notFound, '').words, contains('no trigger action'));
       expect(
-        run(Status.invalidParameter, '').message,
+        run(Status.invalidParameter, '').words,
         'This block cannot be run by hand.',
       );
-      expect(run(Status.busy, 'queue full').message, 'queue full');
+      expect(run(Status.busy, 'queue full').words, 'queue full');
     });
 
     test('a value whose meta names no level is not staged; the user reads '
@@ -246,20 +308,20 @@ void main() {
         return store.state.problems.items.single;
       }
 
-      final en = await refused();
-      expect(en.hint, ErrorHint.notSettable);
+      final en = wordError(await refused());
+      expect(en.hint, const ErrorHint.notSettable());
       expect(en.title, 't2 does not support set');
       expect(
-        en.message,
+        en.words,
         'Its meta names no level it can be set at, so nothing was staged.',
       );
 
       await S.load(const Locale('uk'));
       addTearDown(() => S.load(const Locale('en')));
-      final uk = await refused();
+      final uk = wordError(await refused());
       expect(uk.title, 't2 не підтримує set');
       expect(
-        uk.message,
+        uk.words,
         'Його meta не називає рівня, на якому значення можна записати, '
         'тому нічого не підготовлено.',
       );
@@ -269,7 +331,7 @@ void main() {
       final sub = refusalOf(
         WyrmException.of(Status.timeout, ''),
         key: 'wy/plant/downstream/modbus/plc1/t2',
-        call: 'subscribe',
+        call: const .known(.subscribe),
       ).copyWith(quiet: true);
       expect(wordError(sub).title, 'Reading t2 failed');
       expect(
@@ -277,7 +339,7 @@ void main() {
         'Live values from edge stopped',
       );
       expect(
-        wordError(sub.copyWith(call: 'history')).title,
+        wordError(sub.copyWith(call: const .known(.history))).title,
         'History of t2 unavailable',
       );
     });
@@ -424,7 +486,7 @@ void main() {
         faultOf(
           const FormatException('Unexpected character', 'secret', 3),
           stack,
-          step: 'load flow',
+          step: const .named('load flow'),
         ).copyWith(at: DateTime(2026, 11, 10, 11, 52, 4)),
       );
       final vm = errorDialogVm(e);
@@ -452,7 +514,7 @@ void main() {
       final vm = errorDialogVm(e);
       expect(vm.title, 'No network');
       expect(vm.said, 'Check the cable.');
-      expect(vm.tone, errorToneOf(ErrorKind.studio));
+      expect(vm.tone, ErrorKind.studio.tag.tone);
       expect(vm.primary, 'OK');
       expect(vm.copy, 'Copy details');
     });
@@ -566,9 +628,231 @@ void main() {
       expect(copied, contains('invalid_parameter (0x23)'));
       expect(copied, contains('wy/plant/dataflows/set-it › set'));
       expect(copied, isNot(contains('hunter2')));
-      expect(store.state.problems.notices.single.title, 'Copied');
+      expect(
+        store.state.problems.notices.single.kind,
+        NoticeKind.detailsCopied,
+      );
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pumpAndSettle();
+    });
+  });
+
+  group('what Studio itself found wrong is said by the app', () {
+    StudioError hinted(ErrorHint h) =>
+        wordError(StudioError(kind: ErrorKind.studio, hint: h));
+
+    test('business names the case; the words keep its data', () {
+      expect(
+        hinted(const ErrorHint.noAssistant()).words,
+        'There is no assistant link on this site.',
+      );
+      expect(
+        hinted(
+          const ErrorHint.unreadable(
+            UnreadablePart.taskRecord,
+            name: 't-7',
+            field: 'plan[2].key',
+          ),
+        ).words,
+        'The record of task t-7 is not one Studio reads. The field '
+        'plan[2].key does not read.',
+      );
+      expect(
+        hinted(
+          const ErrorHint.fileNotRead(
+            ManifestProblem(fault: ManifestFault.unknownField, field: 'unit'),
+          ),
+        ).copyWith(thing: 'temp.json').words,
+        'unit is not a field this file has. Nothing was sent.',
+      );
+      expect(
+        hinted(
+          const ErrorHint.fileNotRead(
+            ManifestProblem(fault: ManifestFault.notObject),
+          ),
+        ).words,
+        'this is not a JSON object. Nothing was sent.',
+      );
+      expect(
+        hinted(const ErrorHint.rangeTooBig()).words,
+        S.current.rangeTooBig,
+      );
+    });
+
+    test("in Ukrainian too, and the broker's own words win", () async {
+      final en = hinted(const ErrorHint.assistantNoTask()).words;
+      await S.load(const Locale('uk'));
+      addTearDown(() => S.load(const Locale('en')));
+      final uk = hinted(const ErrorHint.assistantNoTask()).words;
+      expect(uk, isNotEmpty);
+      expect(uk, isNot(en));
+      expect(
+        wordError(
+          const StudioError(
+            kind: ErrorKind.broker,
+            message: 'said by the link',
+            hint: ErrorHint.notConnected(),
+          ),
+        ).words,
+        'said by the link',
+      );
+    });
+
+    test('a subject Studio names is worded; a name from the broker is not', () {
+      StudioError of(ErrorSubject s, {String? thing}) => _refused(
+        Status.permissionDenied,
+        'no',
+        key: 'wy/plant/x',
+        call: 'ask',
+      ).copyWith(subject: s, thing: thing);
+      expect(
+        wordError(of(ErrorSubject.assistant)).title,
+        'You can’t run ask on assistant',
+      );
+      expect(
+        wordError(of(ErrorSubject.device, thing: '7')).title,
+        'You can’t run ask on device 7',
+      );
+    });
+  });
+
+  test('an action of app that fails reports itself: a GoAction with no '
+      'router to go on is one line in Problems, wrapped once', () async {
+    final store = _store();
+    // no page is mounted: the tabs of the Studio page are not there
+    final status = await store.dispatchAndWait(
+      GoAction.replace(const ExplorerRoute()),
+    );
+    await pumpEventQueue();
+    expect(status.isCompletedFailed, isTrue);
+    expect(status.wrappedError, isA<StudioException>());
+    final e = store.state.problems.items.single;
+    expect(e.kind, ErrorKind.studio);
+    expect(e.id, (status.wrappedError! as StudioException).error.id);
+    expect(e.report, isNotNull);
+  });
+
+  test('a gateway typed with user:password@ is refused by its field and '
+      'reaches no state, no error and no disk', () async {
+    const typed = 'https://olena:gw-pass@plant.local:8445';
+    final store = _store()
+      ..dispatchSync(SetGatewayAction(typed))
+      ..dispatchSync(SetUserAction('olena'))
+      ..dispatchSync(SetPasswordAction('pw'));
+    // the field says why, in its own words
+    expect(
+      gatewayValidator(typed),
+      'Enter the user and the password in their own fields, not in the '
+      'address.',
+    );
+    // the standby field says the same; empty, it says nothing
+    expect(standbyGatewayValidator(typed), gatewayValidator(typed));
+    expect(standbyGatewayValidator(''), isNull);
+    expect(standbyGatewayValidator('https://b:8445'), isNull);
+    final status = await store.dispatchAndWait(LogInAction());
+    // with Remember on, a field with them is not written at all
+    final settings = InMemoryKeyValueStorage();
+    await AppPersistor(settings).persistDifference(newState: store.state);
+    expect(status.isCompletedOk, isTrue);
+    expect(store.state.problems.items, isEmpty);
+    expect(store.state.site.gateway, isNull);
+    expect(store.state.login.recent, isEmpty);
+    expect(await settings.get<String>('gateway'), isNull);
+  });
+
+  group('Copy details (errors.md §3)', () {
+    // who is logged in where, as the app reads it from the state; Studio's
+    // own line is
+    // fixed, so the text is the same on every machine
+    final a = AppState.initial();
+    final from = errorContextOf(
+      a.copyWith(
+        site: a.site.copyWith(
+          user: 'olena',
+          role: 'operator',
+          gateway: parseGateways('https://plant.local:8445').single,
+        ),
+      ),
+    );
+    final ctx = ErrorContext(
+      user: from.user,
+      role: from.role,
+      gateway: from.gateway,
+      about: const StudioAbout(version: '1.0', os: .mac, osVersion: '15.1'),
+    );
+
+    test('holds the title, key › call, status with code, message, site, '
+        'user, gateway, time and Studio', () {
+      const key = 'wy/central/sys/links/modbus';
+      final e = _refused(
+        Status.permissionDenied,
+        'needs config on sys/links',
+        key: key,
+        call: 'start',
+      );
+
+      final text = detailsText(e, ctx);
+
+      expect(text, contains(e.title));
+      expect(text, contains('$key › start'));
+      expect(text, contains('Status: permission_denied (0x21)'));
+      expect(text, contains('Message: needs config on sys/links'));
+      expect(text, contains('Site: central'));
+      expect(text, contains('As: olena (operator)'));
+      expect(text, contains('Gateway: https://plant.local:8445'));
+      expect(text, contains('Time: 2026-11-10 11:52:04 (local)'));
+      expect(text, contains('Studio: 1.0 (macOS 15.1)'));
+    });
+
+    test('never a value, an argument, a token or a password: a set of a '
+        'secret field', () {
+      const key = 'wy/central/downstream/mqtt/broker/password';
+      const secret = 's3cr3t-Passw0rd';
+      // The broker echoes what it was sent, as some drivers do.
+      final e = _refused(
+        Status.invalidParameter,
+        'password: $secret is too short; token=eyJhbGciOiJIUzI1NiJ9.abc.def '
+        'Bearer abcdefghijklmnop',
+        key: key,
+        call: 'set',
+      );
+      final text = detailsText(e, ctx, report: true);
+
+      expect(e.kind, ErrorKind.input);
+      expect(text, isNot(contains(secret)));
+      expect(text, isNot(contains('eyJhbGciOiJIUzI1NiJ9')));
+      expect(text, isNot(contains('abcdefghijklmnop')));
+      expect(text, isNot(contains('gw-pass')));
+      expect(text, contains('password: •••'));
+    });
+
+    test('Copy report adds the type, the first line and the stack', () {
+      final e = wordError(
+        faultOf(
+          const FormatException('Unexpected character', 'pw=hunter2', 4),
+          StackTrace.current,
+          step: const .named('buggy'),
+        ),
+      );
+
+      final short = detailsText(e, ctx);
+      final full = detailsText(e, ctx, report: true);
+
+      expect(short, contains('Error: FormatException: Unexpected character'));
+      expect(short, isNot(contains('#0')));
+      expect(full, contains('#0'));
+      expect(full, isNot(contains('hunter2')));
+    });
+
+    test('in Ukrainian the labels are the Details rows', () async {
+      await S.load(const Locale('uk'));
+      addTearDown(() => S.load(const Locale('en')));
+      final text = detailsText(
+        _refused(Status.timeout, '', key: 'wy/central/sys', call: 'list'),
+        ctx,
+      );
+      expect(text, contains('${S.current.errRowSite}: central'));
+      expect(text, isNot(contains('Site: ')));
     });
   });
 
@@ -741,6 +1025,9 @@ void main() {
       expect(e.kind, ErrorKind.studio);
       expect(e.quiet, isTrue);
       expect(e.report!.type, 'IndexError');
+      // the store keeps no words; the screen says them when it draws it
+      expect(e.foreign, isNull);
+      expect(e.message, isEmpty);
       expect(e.title, 'Studio hit a fault in the background');
       expect(find.byType(ErrorDialog), findsNothing);
       expect(ErrorWidget.builder, PanelFault.builder);

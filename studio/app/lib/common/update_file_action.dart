@@ -1,5 +1,5 @@
-import 'package:async_redux/async_redux.dart';
 import 'package:business/redux/app_state.dart';
+import 'package:business/redux/common/action.dart';
 import 'package:business/redux/updates/actions/update_package_action.dart';
 
 import 'files.dart';
@@ -8,7 +8,7 @@ import 'files.dart';
 /// its package updated from it, one intent (studio-rules §1, §9). In
 /// `app`: the file picker is the app's. Nothing when the user leaves the
 /// dialog.
-class UpdateFromFileAction extends ReduxAction<AppState> {
+class UpdateFromFileAction extends Action {
   @override
   Future<AppState?> reduce() async {
     final f = await pickFile(extensions: const ['zip']);

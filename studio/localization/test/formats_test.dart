@@ -42,6 +42,10 @@ void main() {
     expect(Formats.clock(t), '09:05');
     expect(Formats.clockSeconds(t), '09:05:07');
     expect(Formats.dateTime(t), '2026-11-03 09:05');
+    expect(
+      Formats.dateTimeSeconds(DateTime(2026, 11, 3, 9, 5, 7)),
+      '2026-11-03 09:05:07',
+    );
   });
 
   test('a UTC moment is written in local time', () {

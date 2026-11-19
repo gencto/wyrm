@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'dart:convert';
 
 import 'package:async_redux/async_redux.dart';
+import 'package:business/dependencies.dart';
 import 'package:business/redux/app_state.dart';
 import 'package:business/redux/flow_editor/actions/add_block_action.dart';
 import 'package:business/redux/flow_editor/actions/connect_ports_action.dart';
@@ -10,6 +13,7 @@ import 'package:business/redux/flow_editor/actions/disconnect_edge_action.dart';
 import 'package:business/redux/flow_editor/actions/enter_block_action.dart';
 import 'package:business/redux/flow_editor/actions/leave_block_action.dart';
 import 'package:business/redux/flow_editor/actions/load_flow_action.dart';
+import 'package:business/redux/flow_editor/actions/open_flow_editor_action.dart';
 import 'package:business/redux/flow_editor/actions/paste_blocks_action.dart';
 import 'package:business/redux/flow_editor/actions/place_library_block_action.dart';
 import 'package:business/redux/flow_editor/actions/remove_blocks_action.dart';
@@ -30,6 +34,7 @@ import 'package:business/redux/login/actions/log_in_action.dart';
 import 'package:business/redux/login/actions/set_gateway_action.dart';
 import 'package:business/redux/login/actions/set_password_action.dart';
 import 'package:business/redux/login/actions/set_user_action.dart';
+import 'package:business/redux/site/actions/view_site_action.dart';
 import 'package:business/wyrm/decode/block_def.dart';
 import 'package:business/wyrm/decode/decoded.dart';
 import 'package:business/wyrm/decode/flow_def.dart';
@@ -48,6 +53,7 @@ import 'package:models/field_id.dart';
 import 'package:models/flow_block.dart';
 import 'package:models/flow_draft.dart';
 import 'package:models/flow_edge.dart';
+import 'package:models/json_value.dart';
 import 'package:models/library_off.dart';
 import 'package:models/live_value.dart';
 import 'package:models/node_type.dart';
@@ -61,6 +67,7 @@ import 'support/block_types.dart';
 import 'support/catalog_0221.dart';
 import 'support/catalog_0226.dart';
 import 'support/fake_wyrm.dart';
+import 'support/field_tags.dart';
 
 // Wave 2 of the flow editor (flow-editor.md §17–§20, ADR 0040, owner
 // requirements 2026-11-09): a key bound inside a scope, the tree's points
@@ -253,7 +260,7 @@ void main() {
         d.blocks['level']!,
       ).firstWhere((f) => f.id.key == 'p:key');
       expect(key.inPort, 'in.key');
-      expect(key.label, 'Point');
+      expect(key.label.tag, '#point');
       expect(
         bindRefusal(
           byType(types),
@@ -286,7 +293,7 @@ void main() {
         d.blocks['level']!,
         edges: d.edges,
       ).firstWhere((f) => f.id.key == 'p:key_scope');
-      expect(scope.label, 'Scope');
+      expect(scope.label.tag, '#scope');
       expect(scope.inPort, isNull);
       expect(scope.outPort, isNull, reason: 'read on the block, feeds nothing');
     });
@@ -334,7 +341,7 @@ void main() {
         const ParamSpec(
           name: 'ramp_s',
           type: TypeCode.number,
-          defaultValue: 30,
+          defaultValue: JsonNumber(30),
         ),
         const ParamSpec(
           name: 'mode',
@@ -464,14 +471,15 @@ void main() {
           'state:last_run',
         ],
       );
-      String label(String id) => fields.firstWhere((f) => f.id.key == id).label;
-      expect(label('in:trigger'), 'Trigger');
-      expect(label('p:interval_ms'), 'Every');
-      expect(label('p:auto_run'), 'Auto run');
-      expect(label('p:run_on_start'), 'Run on start');
+      String label(String id) =>
+          fields.firstWhere((f) => f.id.key == id).label.tag;
+      expect(label('in:trigger'), '#trigger');
+      expect(label('p:interval_ms'), '#every');
+      expect(label('p:auto_run'), '#autoRun');
+      expect(label('p:run_on_start'), '#runOnStart');
       expect(label('out:last_run'), 'Last run');
       expect(label('out:result'), 'Result');
-      expect(label('out:out'), 'Output');
+      expect(label('out:out'), '#output');
       // `run_on_start` has no port; its warning is the catalog's.
       final ros = fields.firstWhere((f) => f.id.key == 'p:run_on_start');
       expect(ros.inPort, isNull);
@@ -527,7 +535,7 @@ void main() {
         types['list_children'],
         list,
       ).firstWhere((f) => f.id.key == 'p:path');
-      expect(path.label, 'Node');
+      expect(path.label.tag, '#node');
       expect(
         scopedKeyOf(types['list_children']),
         const ScopedKey(key: 'path', scope: 'path_scope', port: 'in.path'),
@@ -580,15 +588,15 @@ void main() {
       String out(String type, String port) => fieldsOf(
         types[type],
         FlowBlock(id: 'x', type: bt(type)),
-      ).firstWhere((f) => f.id.key == 'out:$port').label;
+      ).firstWhere((f) => f.id.key == 'out:$port').label.tag;
       expect(out('rising_edge', 'on_edge'), 'On edge');
-      expect(out('stats', 'avg'), 'Average');
+      expect(out('stats', 'avg'), '#average');
       expect(
         fieldsOf(
           types['debounce'],
           FlowBlock(id: 'x', type: bt('debounce')),
-        ).firstWhere((f) => f.id.key == 'p:ms').label,
-        'Quiet time (ms)',
+        ).firstWhere((f) => f.id.key == 'p:ms').label.tag,
+        '#quietTimeMs',
       );
       // Named inputs keep the names the user gave them.
       expect(
@@ -597,9 +605,9 @@ void main() {
             types['make_object'],
             FlowBlock(id: 'x', type: bt('make_object')),
           ))
-            f.label,
+            f.label.tag,
         ],
-        ['a', 'b', 'Output'],
+        ['a', 'b', '#output'],
       );
     });
   });
@@ -666,7 +674,7 @@ void main() {
       final t = customTypeOf('mean2', blockDefsOf(next)['mean2']!);
       final first = fieldsOf(t, next.blocks[id]!).first;
       expect(
-        (first.label, first.inPort, first.outPort, first.operand),
+        (first.label.tag, first.inPort, first.outPort, first.operand),
         (
           'first',
           'first',
@@ -988,7 +996,7 @@ void main() {
             const ParamSpec(
               name: 'ramp_s',
               type: TypeCode.number,
-              defaultValue: 30,
+              defaultValue: JsonNumber(30),
             ),
           ].lock,
         ),
@@ -1072,12 +1080,18 @@ void main() {
 
       // No words from the broker: Studio names why (the app says it).
       final denied = await refused(Status.permissionDenied);
-      expect((denied?.message, denied?.hint), ('', ErrorHint.runDenied));
+      expect(
+        (denied?.message, denied?.hint),
+        ('', const ErrorHint.runDenied()),
+      );
       expect(
         (await refused(Status.notSupported))?.hint,
-        ErrorHint.runNotRunning,
+        const ErrorHint.runNotRunning(),
       );
-      expect((await refused(Status.notFound))?.hint, ErrorHint.runNoTrigger);
+      expect(
+        (await refused(Status.notFound))?.hint,
+        const ErrorHint.runNoTrigger(),
+      );
       // The broker's words as they came, and no hint of Studio's.
       final own = await refused(
         Status.invalidParameter,
@@ -1275,7 +1289,7 @@ void main() {
       api
         ..invokesInTurn['wy/central/dataflows/line ▸ history'] = [
           (
-            const Duration(milliseconds: 60),
+            Duration.zero,
             [
               Value.from([line]),
             ],
@@ -1286,12 +1300,204 @@ void main() {
             {...line, 'id': 'other'},
           ]),
         ];
-      await Future.wait([
-        s.dispatchAndWait(LoadFlowAction('line')),
-        s.dispatchAndWait(LoadFlowAction('other')),
-      ]);
+      final firstGate = api.hold('wy/central/dataflows/line ▸ history');
+      var firstDone = false;
+      final first = s
+          .dispatchAndWait(LoadFlowAction('line'))
+          .whenComplete(() => firstDone = true);
+      final last = s.dispatchAndWait(LoadFlowAction('other'));
+      await last;
+      // the flow opened last is on screen while the first is still out:
+      // it did not wait for it
+      expect(firstDone, isFalse);
+      expect(s.state.flowEditor.flowId, 'other');
+      firstGate.complete();
+      await first;
+      // the first one's answer, come last, was dropped
       expect(s.state.flowEditor.flowId, 'other');
       expect(now().id, 'other');
+      expect(s.state.problems.items, isEmpty);
+    });
+
+    group('the load started last wins, and waits for none', () {
+      Value flow(String id, {int version = 2}) => Value.from([
+        {...line, 'id': id, 'version': version},
+      ]);
+      String key(String id) => 'wy/central/dataflows/$id ▸ history';
+
+      /// The next read of flow [id] answers [rows] once its gate opens.
+      Completer<void> answer(String id, List<Value> rows) {
+        (api.invokesInTurn[key(id)] ??= []).add((Duration.zero, rows));
+        return api.hold(key(id));
+      }
+
+      test('an open that answers before the one started after it is '
+          'never shown', () async {
+        final thirdGate = answer('third', [flow('third')]);
+        final otherGate = answer('other', [flow('other')]);
+        final first = s.dispatchAndWait(LoadFlowAction('third'));
+        final last = s.dispatchAndWait(LoadFlowAction('other'));
+        thirdGate.complete();
+        await first;
+        // the editor still holds what it held: not the flow left
+        expect(s.state.flowEditor.flowId, 'line');
+        otherGate.complete();
+        await last;
+        expect(s.state.flowEditor.flowId, 'other');
+        expect(now().id, 'other');
+      });
+
+      test('a definition that does not read, answered for a flow that was '
+          'left, unloads nothing and says nothing', () async {
+        final brokenGate = answer('broken', [const VStr('not a flow')]);
+        final otherGate = answer('other', [flow('other')]);
+        final left = s.dispatchAndWait(LoadFlowAction('broken'));
+        final shown = s.dispatchAndWait(LoadFlowAction('other'));
+        otherGate.complete();
+        await shown;
+        brokenGate.complete();
+        final status = await left;
+        expect(status.wrappedError, isNull);
+        // the flow on screen was not unloaded for `broken`
+        expect(s.state.flowEditor.flowId, 'other');
+        expect(s.state.flowEditor.draft, isNotNull);
+        expect(s.state.problems.items, isEmpty);
+      });
+
+      test('the same definition, when its flow is the one on screen, is '
+          'said as before', () async {
+        answer('broken', [const VStr('not a flow')]).complete();
+        final status = await s.dispatchAndWait(LoadFlowAction('broken'));
+        expect(status.wrappedError, isA<StudioException>());
+        expect(s.state.flowEditor.flowId, 'broken');
+        expect(s.state.flowEditor.draft, isNull);
+        expect(s.state.problems.items, hasLength(1));
+      });
+
+      test('a refusal answered for a flow that was left is not said', () async {
+        api.errors[key('gone')] = WyrmException.of(Status.notFound, 'gone');
+        final goneGate = api.hold(key('gone'));
+        final otherGate = answer('other', [flow('other')]);
+        final left = s.dispatchAndWait(LoadFlowAction('gone'));
+        final shown = s.dispatchAndWait(LoadFlowAction('other'));
+        otherGate.complete();
+        await shown;
+        goneGate.complete();
+        final status = await left;
+        expect(status.originalError, isNotNull);
+        expect(status.wrappedError, isNull);
+        expect(s.state.problems.items, isEmpty);
+        expect(s.state.flowEditor.flowId, 'other');
+      });
+
+      test('the read after a redeploy does not take the place of another '
+          'flow that is being opened', () async {
+        final otherGate = answer('other', [flow('other')]);
+        final lineGate = answer('line', [flow('line', version: 3)]);
+        // the editor holds `line`; `other` is opened, then `line` is heard
+        // deployed again
+        final open = s.dispatchAndWait(LoadFlowAction('other'));
+        final reread = s.dispatchAndWait(LoadFlowAction.redeployed('line'));
+        lineGate.complete();
+        await reread;
+        // still `line` on screen: its new version is shown meanwhile
+        expect(s.state.flowEditor.flowId, 'line');
+        expect(s.state.flowEditor.version, 3);
+        otherGate.complete();
+        await open;
+        expect(s.state.flowEditor.flowId, 'other');
+        expect(now().id, 'other');
+      });
+
+      test('the read after a redeploy that answers after another flow was '
+          'opened is dropped', () async {
+        final lineGate = answer('line', [flow('line', version: 3)]);
+        final otherGate = answer('other', [flow('other')]);
+        final reread = s.dispatchAndWait(LoadFlowAction.redeployed('line'));
+        final open = s.dispatchAndWait(LoadFlowAction('other'));
+        otherGate.complete();
+        await open;
+        lineGate.complete();
+        await reread;
+        expect(s.state.flowEditor.flowId, 'other');
+        expect(now().id, 'other');
+      });
+
+      test('a flow opened again and then heard deployed again: the newer '
+          'read stays although the older open answers last, and the open '
+          'is not replaced', () async {
+        final openGate = answer('line', [flow('line')]);
+        final rereadGate = answer('line', [flow('line', version: 3)]);
+        final load = LoadFlowAction('line', route: 'line');
+        final open = s.dispatchAndWait(load);
+        final reread = s.dispatchAndWait(LoadFlowAction.redeployed('line'));
+        rereadGate.complete();
+        await reread;
+        expect(s.state.flowEditor.version, 3);
+        openGate.complete();
+        await open;
+        expect(s.state.flowEditor.flowId, 'line');
+        expect(s.state.flowEditor.version, 3);
+        // a newer read of the same flow is no other flow: the open stands
+        expect(load.replaced, isFalse);
+        expect(s.state.flowEditor.route, 'line');
+      });
+
+      test('the editor opened on a flow that is heard deployed again '
+          'before the open answered: what follows an open still follows '
+          '(the watch, the preview, the library, the check) and its route '
+          'is kept', () async {
+        final openGate = answer('line', [flow('line')]);
+        final rereadGate = answer('line', [flow('line', version: 3)]);
+        final watch = (s.dependencies! as AppDependencies).flowWatch;
+        int calls(String action) =>
+            api.calls.where((c) => c.action == action).length;
+        final listed = calls('list_blocks');
+        final open = s.dispatchAndWait(OpenFlowEditorAction('line'));
+        await pumpEventQueue();
+        final reread = s.dispatchAndWait(LoadFlowAction.redeployed('line'));
+        await pumpEventQueue();
+        rereadGate.complete();
+        await reread;
+        openGate.complete();
+        await open;
+        expect(s.state.flowEditor.flowId, 'line');
+        expect(s.state.flowEditor.version, 3);
+        expect(s.state.flowEditor.route, 'line');
+        expect(watch.flow, 'wy/central/dataflows/line');
+        expect(calls('list_blocks'), greaterThan(listed));
+        expect(s.state.problems.items, isEmpty);
+      });
+
+      test('a load answered after its site was left is dropped', () async {
+        final gate = answer('other', [flow('other')]);
+        final left = s.dispatchAndWait(LoadFlowAction('other'));
+        s.dispatchSync(ViewSiteAction('edge'));
+        gate.complete();
+        await left;
+        expect(s.state.flowEditor.flowId, isNot('other'));
+        expect(s.state.problems.items, isEmpty);
+      });
+
+      test('the editor opened on one flow and then on another: what '
+          'follows the first open (its watch) does not land over the '
+          'second', () async {
+        final thirdGate = answer('third', [flow('third')]);
+        final otherGate = answer('other', [flow('other')]);
+        final watch = (s.dependencies! as AppDependencies).flowWatch;
+        final first = s.dispatchAndWait(OpenFlowEditorAction('third'));
+        await pumpEventQueue();
+        final last = s.dispatchAndWait(OpenFlowEditorAction('other'));
+        await pumpEventQueue();
+        otherGate.complete();
+        await last;
+        expect(watch.flow, 'wy/central/dataflows/other');
+        thirdGate.complete();
+        await first;
+        expect(watch.flow, 'wy/central/dataflows/other');
+        expect(s.state.flowEditor.flowId, 'other');
+        expect(s.state.flowEditor.route, 'other');
+      });
     });
 
     test('a check answered after the flow changed is dropped: the newer '

@@ -16,8 +16,10 @@ T _$identity<T>(T value) => value;
 mixin _$QuarantineEntry {
 
  String get cn;/// The node under `sys/quarantine` (the CN made a key segment).
- String get node;/// `link` or `broker`.
- QuarantineKind get kind; String? get from; DateTime? get firstSeen; IList<String> get via;/// The broker key hash to compare (kind broker).
+ String get node;/// `link` or `broker`. Null: the entry was answered in a form this
+/// Studio does not read, so what waits is not known. It is listed so
+/// that it does not vanish, and is never taken for a link or a broker.
+ QuarantineKind? get kind; String? get from; DateTime? get firstSeen; IList<String> get via;/// The broker key hash to compare (kind broker).
  String? get key; bool get deauthorized;
 /// Create a copy of QuarantineEntry
 /// with the given fields replaced by the non-null parameter values.
@@ -54,7 +56,7 @@ abstract mixin class $QuarantineEntryCopyWith<$Res>  {
   factory $QuarantineEntryCopyWith(QuarantineEntry value, $Res Function(QuarantineEntry) _then) = _$QuarantineEntryCopyWithImpl;
 @useResult
 $Res call({
- String cn, String node, QuarantineKind kind, String? from, DateTime? firstSeen, IList<String> via, String? key, bool deauthorized
+ String cn, String node, QuarantineKind? kind, String? from, DateTime? firstSeen, IList<String> via, String? key, bool deauthorized
 });
 
 
@@ -71,12 +73,12 @@ class _$QuarantineEntryCopyWithImpl<$Res>
 
 /// Create a copy of QuarantineEntry
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? cn = null,Object? node = null,Object? kind = null,Object? from = freezed,Object? firstSeen = freezed,Object? via = null,Object? key = freezed,Object? deauthorized = null,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? cn = null,Object? node = null,Object? kind = freezed,Object? from = freezed,Object? firstSeen = freezed,Object? via = null,Object? key = freezed,Object? deauthorized = null,}) {
   return _then(QuarantineEntry(
 cn: null == cn ? _self.cn : cn // ignore: cast_nullable_to_non_nullable
 as String,node: null == node ? _self.node : node // ignore: cast_nullable_to_non_nullable
-as String,kind: null == kind ? _self.kind : kind // ignore: cast_nullable_to_non_nullable
-as QuarantineKind,from: freezed == from ? _self.from : from // ignore: cast_nullable_to_non_nullable
+as String,kind: freezed == kind ? _self.kind : kind // ignore: cast_nullable_to_non_nullable
+as QuarantineKind?,from: freezed == from ? _self.from : from // ignore: cast_nullable_to_non_nullable
 as String?,firstSeen: freezed == firstSeen ? _self.firstSeen : firstSeen // ignore: cast_nullable_to_non_nullable
 as DateTime?,via: null == via ? _self.via : via // ignore: cast_nullable_to_non_nullable
 as IList<String>,key: freezed == key ? _self.key : key // ignore: cast_nullable_to_non_nullable
@@ -99,8 +101,10 @@ class _QuarantineEntry implements QuarantineEntry {
 @override final  String cn;
 /// The node under `sys/quarantine` (the CN made a key segment).
 @override final  String node;
-/// `link` or `broker`.
-@override@JsonKey() final  QuarantineKind kind;
+/// `link` or `broker`. Null: the entry was answered in a form this
+/// Studio does not read, so what waits is not known. It is listed so
+/// that it does not vanish, and is never taken for a link or a broker.
+@override@JsonKey() final  QuarantineKind? kind;
 @override final  String? from;
 @override final  DateTime? firstSeen;
 @override@JsonKey() final  IList<String> via;
@@ -140,7 +144,7 @@ abstract mixin class _$QuarantineEntryCopyWith<$Res> implements $QuarantineEntry
   factory _$QuarantineEntryCopyWith(_QuarantineEntry value, $Res Function(_QuarantineEntry) _then) = __$QuarantineEntryCopyWithImpl;
 @override @useResult
 $Res call({
- String cn, String node, QuarantineKind kind, String? from, DateTime? firstSeen, IList<String> via, String? key, bool deauthorized
+ String cn, String node, QuarantineKind? kind, String? from, DateTime? firstSeen, IList<String> via, String? key, bool deauthorized
 });
 
 
@@ -157,12 +161,12 @@ class __$QuarantineEntryCopyWithImpl<$Res>
 
 /// Create a copy of QuarantineEntry
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? cn = null,Object? node = null,Object? kind = null,Object? from = freezed,Object? firstSeen = freezed,Object? via = null,Object? key = freezed,Object? deauthorized = null,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? cn = null,Object? node = null,Object? kind = freezed,Object? from = freezed,Object? firstSeen = freezed,Object? via = null,Object? key = freezed,Object? deauthorized = null,}) {
   return _then(_QuarantineEntry(
 cn: null == cn ? _self.cn : cn // ignore: cast_nullable_to_non_nullable
 as String,node: null == node ? _self.node : node // ignore: cast_nullable_to_non_nullable
-as String,kind: null == kind ? _self.kind : kind // ignore: cast_nullable_to_non_nullable
-as QuarantineKind,from: freezed == from ? _self.from : from // ignore: cast_nullable_to_non_nullable
+as String,kind: freezed == kind ? _self.kind : kind // ignore: cast_nullable_to_non_nullable
+as QuarantineKind?,from: freezed == from ? _self.from : from // ignore: cast_nullable_to_non_nullable
 as String?,firstSeen: freezed == firstSeen ? _self.firstSeen : firstSeen // ignore: cast_nullable_to_non_nullable
 as DateTime?,via: null == via ? _self.via : via // ignore: cast_nullable_to_non_nullable
 as IList<String>,key: freezed == key ? _self.key : key // ignore: cast_nullable_to_non_nullable

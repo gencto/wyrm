@@ -1,6 +1,7 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 import 'package:models/agent_config.dart';
+import 'package:models/approval_refusal.dart';
 import 'package:models/assistant_panel.dart';
 import 'package:models/audit_entry.dart';
 
@@ -23,7 +24,7 @@ abstract class AssistantState with _$AssistantState {
     @Default(false) bool configInvalid,
     @Default(true) bool docs,
     @Default(IMapConst({})) IMap<String, ISet<int>> unticked,
-    @Default(IMapConst({})) IMap<String, String> refusals,
+    @Default(IMapConst({})) IMap<String, ApprovalRefusal> refusals,
     @Default(IMapConst({})) IMap<String, ISet<String>> picks,
     @Default(false) bool shown,
     @Default(IListConst([])) IList<String> watched,

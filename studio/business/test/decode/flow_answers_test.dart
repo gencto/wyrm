@@ -215,18 +215,20 @@ void main() {
     });
 
     test('a value as its editor and its row show it', () {
-      expect(jsonEditText(null), '');
-      expect(jsonEditText('a'), 'a');
-      expect(jsonEditText(2), '2');
-      expect(jsonEditText({'a': 1}), '{\n  "a": 1\n}');
+      expect(jsonEditText(const JsonNull()), '');
+      expect(jsonEditText(JsonValue.of('a')), 'a');
+      expect(jsonEditText(JsonValue.of(2)), '2');
+      expect(jsonEditText(JsonValue.of(const {'a': 1})), '{\n  "a": 1\n}');
       expect(jsonShortText({'a': 1}), '{…}');
       expect(jsonShortText([1]), '[…]');
       expect(jsonShortText(const <Object?>[]), isNull);
       expect(
-        listRowsIn([
-          {'name': 'a', 'from': 1},
-          3,
-        ]),
+        listRowsIn(
+          JsonValue.of(const [
+            {'name': 'a', 'from': 1},
+            3,
+          ]),
+        ),
         [
           {'name': 'a', 'from': '1'},
         ],

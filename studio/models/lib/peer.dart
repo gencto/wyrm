@@ -21,6 +21,10 @@ abstract class Peer with _$Peer {
     num? valHz,
     @Default(IListConst([])) IList<String> via,
 
+    /// Its node was answered in a form this Studio does not read: it is
+    /// on the map by its name, and nothing else of it is known.
+    @Default(false) bool unreadable,
+
     /// Platform upstreams: mqtt, sparkplug, thingsboard, azure, aws.
     String? platform,
   }) = _Peer;

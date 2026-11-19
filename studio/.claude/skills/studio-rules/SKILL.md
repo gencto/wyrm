@@ -89,10 +89,16 @@ listener is wrapped by one async intent the listener dispatches
 (`FollowListAction`, `ApplyLiveValuesAction`); what follows an edit of the
 flow is started where the page follows it (`FollowFlowEditorAction`). An action started that way has nobody waiting
 for its answer, so it guards its own order: `Sequential` (one queue, in
-dispatch order: the clipboard, the block library, the flows, a flow's load),
-and a check after each `await` that what it answered for is still on
+dispatch order: the clipboard, the block library, the flows) where each
+step must see the one before it, or, for a read a person may start again
+before it answered (the links of a site, a flow's load), "the newest
+request wins" — it takes a token from `deps.latest` when it starts, never
+waits for an older one, and drops its own answer and its own failure when
+a newer one took its place (`RetrieveLinksAction`, `LoadFlowAction`); and
+in both a check after its `await`s that what it answered for is still on
 screen (the flow, the site, the draft it validated). Each guard has a test
-whose fake answers the older call last (`invokesInTurn`, `writeDelays`).
+whose fake answers the older call last (`invokesInTurn`, `childrenInTurn`,
+`writeDelays`).
 
 **Check.** `unawaited-dispatch` in `app/lib`, `business/lib`, `ui/lib`: also
 `dispatchAll([x])` of one action (a `dispatch` whose Future
@@ -145,7 +151,9 @@ fallback case.
 boundary excepted, rule 8), and `string-id`: an id written as text
 (`id: 'git'`) and a record of strings, positional (`(String, String)`) or
 with named fields (`({String key, String scope})`) — a closed set or a typed
-pair carried as text (owner, 2026-11-15). `icon-id` in `app/lib`,
+pair carried as text (owner, 2026-11-15). `record-type`: a record with named
+fields used as a type (`({String key, bool reads})`, a `typedef X = ({…})`):
+an ad-hoc model with no name; make it a class (audit of #137). `icon-id` in `app/lib`,
 `business/lib`, `ui/lib`, `models/lib`: a file name of the icon set written
 as text, a `String` field named for an icon, `Icons.…`, `IconData`, an
 `Icon(…)`, an `SvgPicture` of its own (a glyph belongs to the set; the one

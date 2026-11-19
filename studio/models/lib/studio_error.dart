@@ -1,9 +1,12 @@
 import 'package:freezed_annotation/freezed_annotation.dart';
 import 'package:wyrm_core/wyrm_core.dart' show StatusCode;
 
+import 'error_call.dart';
 import 'error_hint.dart';
 import 'error_kind.dart';
+import 'error_subject.dart';
 import 'fault_report.dart';
+import 'foreign_words.dart';
 
 part 'studio_error.freezed.dart';
 
@@ -18,9 +21,9 @@ abstract class StudioError with _$StudioError {
     /// Given when the error is thrown; the Problems list finds it by this.
     @Default(0) int id,
 
-    /// What did not happen, with its object: `You can’t deploy
-    /// pump-control`. Composed from [kind], [call], [thing] and [site].
-    @Default('') String title,
+    /// The words of a failure another package raised in its own words;
+    /// null for every failure Studio words itself from its typed fields.
+    ForeignWords? foreign,
 
     /// The broker's words, as they came; empty when it sent none (a
     /// timeout). For a fault in Studio: what happened, in Studio's words.
@@ -30,19 +33,24 @@ abstract class StudioError with _$StudioError {
     /// `{success: false}` answer.
     StatusCode? status,
 
-    /// Why Studio thinks it was refused, for the app to say when [message]
-    /// is empty (the broker sent no words).
+    /// What Studio itself knows of why, for the app to say when [message]
+    /// is empty (the broker sent no words, or it is Studio's own refusal).
     ErrorHint? hint,
 
     /// The full key the call was made on.
     String? key,
 
-    /// The call: `deploy`, `set`, `subscribe`, `history`, `list`, …
-    String? call,
+    /// The call: `deploy`, `set`, `subscribe`, `history`, `list`, … or any
+    /// action by its name.
+    ErrorCall? call,
 
     /// The name of what the call was about (`pump-control`, `modbus
     /// 0.4.2`), for the title; the last segment of [key] when null.
     String? thing,
+
+    /// What the call was about, when Studio names it itself (*the
+    /// assistant*, *the profile*); [thing] then holds only an id, if any.
+    ErrorSubject? subject,
 
     /// The site the call went to.
     String? site,
@@ -89,6 +97,6 @@ abstract class StudioError with _$StudioError {
   /// `wy/plant/dataflows/pump-control › deploy`, or the part there is.
   String get where => [
     if (key case final k? when k.isNotEmpty) k,
-    if (call case final c? when c.isNotEmpty) c,
+    if (call?.name case final c? when c.isNotEmpty) c,
   ].join(' › ');
 }

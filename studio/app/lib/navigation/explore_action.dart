@@ -1,5 +1,5 @@
-import 'package:async_redux/async_redux.dart';
 import 'package:business/redux/app_state.dart';
+import 'package:business/redux/common/action.dart';
 import 'package:business/redux/nodes/actions/select_node_action.dart';
 import 'package:models/workspace.dart';
 
@@ -8,7 +8,7 @@ import 'go_action.dart';
 /// Shows [key] in Explorer, one intent: the rail on Explorer, then the node
 /// selected (it shows at once) and read; this action ends when the reads
 /// have answered.
-class ExploreAction extends ReduxAction<AppState> {
+class ExploreAction extends Action {
   ExploreAction(this.key);
 
   final String key;

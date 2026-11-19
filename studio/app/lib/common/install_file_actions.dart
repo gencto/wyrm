@@ -1,5 +1,5 @@
-import 'package:async_redux/async_redux.dart';
 import 'package:business/redux/app_state.dart';
+import 'package:business/redux/common/action.dart';
 import 'package:business/redux/link_install/actions/back_install_step_action.dart';
 import 'package:business/redux/link_install/actions/choose_install_source_action.dart';
 import 'package:business/redux/link_install/actions/continue_install_action.dart';
@@ -58,7 +58,7 @@ final class HeldBackup {
 
 /// Add a link starts over on [path] (a source card, *Add another*): the
 /// backup held and its passphrase are forgotten first, then every answer.
-class StartInstallOverAction extends ReduxAction<AppState> {
+class StartInstallOverAction extends Action {
   StartInstallOverAction(this.held, this.path);
 
   final HeldBackup held;
@@ -76,7 +76,7 @@ class StartInstallOverAction extends ReduxAction<AppState> {
 /// passphrase typed on the step left is forgotten (its field comes back
 /// empty), then the wizard goes back: to [to], else one step, else (on its
 /// first step) off the screen. One intent, one dispatch.
-class InstallBackAction extends ReduxAction<AppState> with Selectors {
+class InstallBackAction extends Action {
   InstallBackAction(this.held, {this.to});
 
   final HeldBackup held;
@@ -97,7 +97,7 @@ class InstallBackAction extends ReduxAction<AppState> with Selectors {
 /// *Choose a package .zip* / *Choose a .wasm*: the file of the package's
 /// [method] is picked and read whole (the broker takes it in one call).
 /// Nothing when the user leaves the dialog.
-class PickPackageFileAction extends ReduxAction<AppState> {
+class PickPackageFileAction extends Action {
   PickPackageFileAction(this.method);
 
   final PackageMethod method;
@@ -128,7 +128,7 @@ class PickPackageFileAction extends ReduxAction<AppState> {
 /// *Choose a link backup*: a `.wyrm-link` is picked and held open in
 /// [held]; only its name and size go to the store. Nothing when the user
 /// leaves the dialog.
-class PickLinkBackupAction extends ReduxAction<AppState> {
+class PickLinkBackupAction extends Action {
   PickLinkBackupAction(this.held);
 
   final HeldBackup held;

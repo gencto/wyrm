@@ -23,6 +23,8 @@ import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/block_info.dart';
 import 'package:models/field_id.dart';
+import 'package:models/field_label.dart';
+import 'package:models/field_word.dart';
 import 'package:models/flow_draft.dart';
 import 'package:models/grant.dart';
 import 'package:models/live_value.dart';
@@ -34,6 +36,7 @@ import 'package:models/port_end.dart';
 import 'package:wyrm_client/wyrm_client.dart' show Perm, TypeCode, Value;
 
 import 'support/block_types.dart';
+import 'support/field_tags.dart';
 
 /// The flow the agent deployed on the demo's `central` (62 blocks, 74
 /// wires), and its catalogue, as the editor reads them.
@@ -240,7 +243,7 @@ void main() {
         const OffFor(RunOffReason.notDeployed),
       );
       final args = i.rows.whereType<ArgRowView>().toList();
-      expect([for (final a in args) a.name], containsAll(['text', 'to']));
+      expect([for (final a in args) a.name.tag], containsAll(['text', 'to']));
       expect(args.first.group, FieldGroup.arguments);
       // Bound, the trigger shows what comes in.
       final bound = viewOf(
@@ -475,7 +478,7 @@ void main() {
       ),
     )!;
     expect(r.refused.reason, BindRefusal.self);
-    expect(r.label, isNotEmpty);
+    expect(r.label, const FieldLabel.word(FieldWord.point));
   });
 
   test('the viewer of a field and what its text must be', () {

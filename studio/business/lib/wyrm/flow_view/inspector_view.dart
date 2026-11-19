@@ -4,6 +4,7 @@ import 'package:equatable/equatable.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/block_type.dart';
 import 'package:models/field_id.dart';
+import 'package:models/field_label.dart';
 import 'package:models/flow_block.dart';
 import 'package:models/flow_draft.dart';
 import 'package:models/live_value.dart';
@@ -109,7 +110,7 @@ sealed class InspectorRow extends Equatable {
   final RowId id;
 
   /// What the row reads ([FlowField.label]).
-  final String name;
+  final FieldLabel name;
 
   /// What the engine calls it, when it reads otherwise; else ''.
   final String engine;
@@ -140,7 +141,7 @@ sealed class InspectorRow extends Equatable {
 /// The form of a block of several (`scale`).
 final class FormRowView extends InspectorRow {
   const FormRowView({required this.form, required this.forms})
-    : super(id: const FormRow(), name: '');
+    : super(id: const FormRow(), name: const FieldLabel.text(''));
 
   final BlockFormId form;
   final IList<BlockFormId> forms;
@@ -329,6 +330,17 @@ final class OperandRowView extends InspectorRow {
   List<Object?> get props => [..._common, value, range];
 }
 
+/// An input an output feeds: its block and what the input reads.
+final class RowTarget extends Equatable {
+  const RowTarget(this.block, this.field);
+
+  final String block;
+  final FieldLabel field;
+
+  @override
+  List<Object?> get props => [block, field];
+}
+
 /// An output: its value and where it goes.
 final class OutputRowView extends InspectorRow {
   const OutputRowView({
@@ -345,8 +357,8 @@ final class OutputRowView extends InspectorRow {
   /// Its value; null: an event that has not fired (or a run not made).
   final String? value;
 
-  /// `<block>.<field label>` of every input it feeds; empty: not bound.
-  final IList<String> targets;
+  /// Every input it feeds; empty: not bound.
+  final IList<RowTarget> targets;
 
   @override
   List<Object?> get props => [..._common, value, targets];
@@ -459,8 +471,9 @@ InspectorView inspectorViewOf(
   final boundary = Boundary.of(b.id);
   final role = roleOf(b.type);
   final keyed = scopedKeyOf(t);
-  String inLabelOf(String block, String port) =>
-      fields[block]?.where((f) => f.inPort == port).firstOrNull?.label ?? port;
+  FieldLabel inLabelOf(String block, String port) =>
+      fields[block]?.where((f) => f.inPort == port).firstOrNull?.label ??
+      FieldLabel.text(port);
   return InspectorView(
     id: b.id,
     boundary: boundary,
@@ -513,7 +526,7 @@ InspectorRow _row(
   FlowField f,
   FlowDraft d,
   LiveValue? Function(String) live,
-  String Function(String block, String port) inLabelOf,
+  FieldLabel Function(String block, String port) inLabelOf,
   NodeType? t, {
   required ScopedKey? keyed,
   required Off<RunOffReason>? runOff,
@@ -523,7 +536,7 @@ InspectorRow _row(
   required bool locked,
 }) {
   final behaves = behavesOf(t);
-  final engine = f.name == f.label ? '' : f.name;
+  final engine = f.label == FieldLabel.text(f.name) ? '' : f.name;
   final into = f.inPort == null
       ? null
       : d.edges.where((e) => e.to == b.id && e.toPort == f.inPort).firstOrNull;
@@ -585,7 +598,7 @@ InspectorRow _row(
   }
   final p = f.spec;
   if (p != null) {
-    final v = b.paramOr(p.name, p.defaultValue);
+    final v = b.paramOr(p.name, p.defaultValue?.raw);
     final scoped = p.name == keyed?.scope;
     final keyBound =
         keyed != null &&
@@ -611,7 +624,7 @@ InspectorRow _row(
                     choices: c.choices.lock,
                   ),
               ].lock,
-              rows: [for (final r in listRowsOf(v.raw)) r.lock].lock,
+              rows: [for (final r in listRowsOf(v)) r.lock].lock,
             ),
       // A scope that the engine would refuse says why, once it matters.
       scopeError: !scoped
@@ -642,7 +655,7 @@ InspectorRow _row(
         _ => false,
       },
       value: switch (v) {
-        JsonMap() || JsonList() => jsonEditText(v.raw),
+        JsonMap() || JsonList() => jsonEditText(v),
         JsonNull() => '',
         JsonText(:final text) => text,
         JsonNumber(:final value) => '$value',
@@ -722,7 +735,7 @@ InspectorRow _row(
         if (f.outPort != null)
           for (final e in d.edges)
             if (e.from == b.id && f.sends(e.fromPort))
-              '${e.to}.${inLabelOf(e.to, e.toPort)}',
+              RowTarget(e.to, inLabelOf(e.to, e.toPort)),
       ].lock,
       group: group,
       pinned: pinned,

@@ -16,7 +16,8 @@ T _$identity<T>(T value) => value;
 mixin _$StepUpLine {
 
 /// The level the change needs: its badge (`config` coral, else grey).
- Perm get level; String get text; String get key;
+ Perm get level;/// What it does.
+ StepUpDeed get deed; String get key;
 /// Create a copy of StepUpLine
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -28,20 +29,20 @@ $StepUpLineCopyWith<StepUpLine> get copyWith => _$StepUpLineCopyWithImpl<StepUpL
 @override
 bool operator ==(Object other) {
   final _this = this as StepUpLine;
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is StepUpLine&&(identical(other.level, _this.level) || other.level == _this.level)&&(identical(other.text, _this.text) || other.text == _this.text)&&(identical(other.key, _this.key) || other.key == _this.key));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is StepUpLine&&(identical(other.level, _this.level) || other.level == _this.level)&&(identical(other.deed, _this.deed) || other.deed == _this.deed)&&(identical(other.key, _this.key) || other.key == _this.key));
 }
 
 
 @override
 int get hashCode {
   final _this = this as StepUpLine;
-  return Object.hash(runtimeType,_this.level,_this.text,_this.key);
+  return Object.hash(runtimeType,_this.level,_this.deed,_this.key);
 }
 
 @override
 String toString() {
   final _this = this as StepUpLine;
-  return 'StepUpLine(level: ${_this.level}, text: ${_this.text}, key: ${_this.key})';
+  return 'StepUpLine(level: ${_this.level}, deed: ${_this.deed}, key: ${_this.key})';
 }
 
 
@@ -52,11 +53,11 @@ abstract mixin class $StepUpLineCopyWith<$Res>  {
   factory $StepUpLineCopyWith(StepUpLine value, $Res Function(StepUpLine) _then) = _$StepUpLineCopyWithImpl;
 @useResult
 $Res call({
- Perm level, String text, String key
+ Perm level, StepUpDeed deed, String key
 });
 
 
-
+$StepUpDeedCopyWith<$Res> get deed;
 
 }
 /// @nodoc
@@ -69,15 +70,24 @@ class _$StepUpLineCopyWithImpl<$Res>
 
 /// Create a copy of StepUpLine
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? level = null,Object? text = null,Object? key = null,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? level = null,Object? deed = null,Object? key = null,}) {
   return _then(StepUpLine(
 level: null == level ? _self.level : level // ignore: cast_nullable_to_non_nullable
-as Perm,text: null == text ? _self.text : text // ignore: cast_nullable_to_non_nullable
-as String,key: null == key ? _self.key : key // ignore: cast_nullable_to_non_nullable
+as Perm,deed: null == deed ? _self.deed : deed // ignore: cast_nullable_to_non_nullable
+as StepUpDeed,key: null == key ? _self.key : key // ignore: cast_nullable_to_non_nullable
 as String,
   ));
 }
-
+/// Create a copy of StepUpLine
+/// with the given fields replaced by the non-null parameter values.
+@override
+@pragma('vm:prefer-inline')
+$StepUpDeedCopyWith<$Res> get deed {
+  
+  return $StepUpDeedCopyWith<$Res>(_self.deed, (value) {
+    return _then(_self.copyWith(deed: value));
+  });
+}
 }
 
 
@@ -86,12 +96,13 @@ as String,
 
 
 class _StepUpLine implements StepUpLine {
-  const _StepUpLine({required this.level, required this.text, this.key = ''});
+  const _StepUpLine({required this.level, required this.deed, this.key = ''});
   
 
 /// The level the change needs: its badge (`config` coral, else grey).
 @override final  Perm level;
-@override final  String text;
+/// What it does.
+@override final  StepUpDeed deed;
 @override@JsonKey() final  String key;
 
 /// Create a copy of StepUpLine
@@ -104,18 +115,18 @@ _$StepUpLineCopyWith<_StepUpLine> get copyWith => __$StepUpLineCopyWithImpl<_Ste
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is _StepUpLine&&(identical(other.level, level) || other.level == level)&&(identical(other.text, text) || other.text == text)&&(identical(other.key, key) || other.key == key));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _StepUpLine&&(identical(other.level, level) || other.level == level)&&(identical(other.deed, deed) || other.deed == deed)&&(identical(other.key, key) || other.key == key));
 }
 
 
 @override
 int get hashCode {
-    return Object.hash(runtimeType,level,text,key);
+    return Object.hash(runtimeType,level,deed,key);
 }
 
 @override
 String toString() {
-    return 'StepUpLine(level: $level, text: $text, key: $key)';
+    return 'StepUpLine(level: $level, deed: $deed, key: $key)';
 }
 
 
@@ -126,11 +137,11 @@ abstract mixin class _$StepUpLineCopyWith<$Res> implements $StepUpLineCopyWith<$
   factory _$StepUpLineCopyWith(_StepUpLine value, $Res Function(_StepUpLine) _then) = __$StepUpLineCopyWithImpl;
 @override @useResult
 $Res call({
- Perm level, String text, String key
+ Perm level, StepUpDeed deed, String key
 });
 
 
-
+@override $StepUpDeedCopyWith<$Res> get deed;
 
 }
 /// @nodoc
@@ -143,16 +154,25 @@ class __$StepUpLineCopyWithImpl<$Res>
 
 /// Create a copy of StepUpLine
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? level = null,Object? text = null,Object? key = null,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? level = null,Object? deed = null,Object? key = null,}) {
   return _then(_StepUpLine(
 level: null == level ? _self.level : level // ignore: cast_nullable_to_non_nullable
-as Perm,text: null == text ? _self.text : text // ignore: cast_nullable_to_non_nullable
-as String,key: null == key ? _self.key : key // ignore: cast_nullable_to_non_nullable
+as Perm,deed: null == deed ? _self.deed : deed // ignore: cast_nullable_to_non_nullable
+as StepUpDeed,key: null == key ? _self.key : key // ignore: cast_nullable_to_non_nullable
 as String,
   ));
 }
 
-
+/// Create a copy of StepUpLine
+/// with the given fields replaced by the non-null parameter values.
+@override
+@pragma('vm:prefer-inline')
+$StepUpDeedCopyWith<$Res> get deed {
+  
+  return $StepUpDeedCopyWith<$Res>(_self.deed, (value) {
+    return _then(_self.copyWith(deed: value));
+  });
+}
 }
 
 // dart format on

@@ -165,4 +165,26 @@ void main() {
     expect(vm.primary, 'Make the backup');
     expect(vm.blocks.whereType<SheetField>(), isEmpty);
   });
+
+  test('the confirmation reports what is typed through its own callback', () {
+    final typed = <String>[];
+    final field = brokerUpdateSheet(
+      _data(),
+      onConfirm: typed.add,
+    ).blocks.whereType<SheetField>().single;
+
+    field.onChanged!('pla');
+
+    expect(typed, ['pla']);
+    // the field is known by its slot, not by a text id or its label
+    expect(field.slot, SheetSlot.brokerUpdateConfirm);
+    // nobody listening: the field reports to nobody
+    expect(
+      brokerUpdateSheet(_data()).blocks
+          .whereType<SheetField>()
+          .single
+          .onChanged,
+      isNull,
+    );
+  });
 }

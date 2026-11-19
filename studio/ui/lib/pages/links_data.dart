@@ -6,6 +6,7 @@ import '../indicators/app_icon.dart';
 import '../models/disabled.dart';
 import '../models/link_run_mode.dart';
 import '../models/tone.dart';
+import '../models/waiting_kind.dart';
 
 /// A tab of Links, as drawn.
 enum LinksTabKey {
@@ -214,7 +215,7 @@ final class QuarantineData extends Equatable {
   const QuarantineData({
     required this.node,
     required this.cn,
-    required this.broker,
+    required this.kind,
     this.from,
     this.via = const [],
     this.deauthorized = false,
@@ -227,8 +228,9 @@ final class QuarantineData extends Equatable {
   final String node;
   final String cn;
 
-  /// A downstream broker asking for Authorize; else a link.
-  final bool broker;
+  /// What waits: a link, a downstream broker, or an entry Studio could
+  /// not read (the row says so).
+  final WaitingKind kind;
   final String? from;
   final List<String> via;
   final bool deauthorized;
@@ -245,7 +247,7 @@ final class QuarantineData extends Equatable {
   List<Object?> get props => [
     node,
     cn,
-    broker,
+    kind,
     from,
     via,
     deauthorized,
@@ -336,6 +338,28 @@ final class LinkPointData extends Equatable {
 
   @override
   List<Object?> get props => [link, version, at, size];
+}
+
+/// Why a broker offers no backup.
+enum BackupsOff {
+  /// It has no `sys/backups` (a wyrmd before ADR 0048).
+  absent,
+
+  /// It has one, in a form this Studio does not read.
+  unreadable,
+
+  /// Whether it has one was not read yet.
+  notReadYet,
+
+  /// The read failed: whether it has one is not known.
+  readFailed;
+
+  String get label => switch (this) {
+    absent => S.current.bakNoBackups,
+    unreadable => S.current.bakNotRead,
+    notReadYet => S.current.bakNotReadYet,
+    readFailed => S.current.bakReadFailed,
+  };
 }
 
 /// The update sheet of one package, as typed values.
@@ -460,7 +484,7 @@ final class LinksScreenVm extends Equatable {
     this.holdUnknown = false,
     this.allowAll = false,
     this.admissionReason,
-    this.hasBackups = true,
+    this.backupsOff,
     this.busy = false,
     this.sheet,
   });
@@ -499,7 +523,8 @@ final class LinksScreenVm extends Equatable {
   final Disabled? admissionReason;
 
   /// The broker has `sys/backups` (ADR 0048).
-  final bool hasBackups;
+  /// Why the link cannot be backed up from here; null: it can.
+  final BackupsOff? backupsOff;
   final bool busy;
   final LinkUpdateData? sheet;
 
@@ -523,7 +548,7 @@ final class LinksScreenVm extends Equatable {
     holdUnknown,
     allowAll,
     admissionReason,
-    hasBackups,
+    backupsOff,
     busy,
     sheet,
   ];

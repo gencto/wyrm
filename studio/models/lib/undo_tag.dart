@@ -11,6 +11,7 @@ part 'undo_tag.freezed.dart';
 abstract class UndoTag with _$UndoTag {
   const factory UndoTag(
     UndoKind kind, {
+
     /// The block the edit changed; empty for a nudge.
     @Default('') String block,
 

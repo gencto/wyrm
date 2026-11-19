@@ -14,6 +14,7 @@ import 'package:ui/overlays/value_viewer.dart';
 import 'package:ui/tables/table_edits.dart';
 
 import '../common/value_viewer.dart';
+import 'field_label_mappers.dart';
 import 'flow_editor_mappers.dart';
 import 'rights_mappers.dart';
 
@@ -150,7 +151,7 @@ extension InspectorRowOf on InspectorRow {
       List<String> choices = const [],
       String? source,
       bool writes = false,
-      List<String> targets = const [],
+      List<RowTargetVm> targets = const [],
       Disabled? off,
       String? confirm,
       RowsEditorVm? rows,
@@ -159,7 +160,8 @@ extension InspectorRowOf on InspectorRow {
       String? hint,
     }) => InspectorRowVm(
       id: id,
-      name: name,
+      name: name.data,
+      word: name.word,
       editor: editor,
       engine: engine,
       value: value,
@@ -228,7 +230,10 @@ extension InspectorRowOf on InspectorRow {
       OutputRowView(:final value, :final targets) => row(
         FieldEditorVm.output,
         value: value,
-        targets: targets.unlock,
+        targets: [
+          for (final t in targets)
+            RowTargetVm(t.block, t.field.data, word: t.field.word),
+        ],
       ),
       SampleRowView(:final value) => row(FieldEditorVm.sample, value: value),
     };

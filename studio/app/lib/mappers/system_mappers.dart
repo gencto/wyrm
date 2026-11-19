@@ -1,4 +1,5 @@
 import 'package:business/redux/app_state.dart' show TrafficTrendView;
+import 'package:business/redux/backups/models/backups_state.dart';
 import 'package:business/redux/last_result.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/attention_item.dart';
@@ -6,7 +7,9 @@ import 'package:models/attention_kind.dart';
 import 'package:models/backup_job.dart';
 import 'package:models/backup_kind.dart';
 import 'package:models/backup_status.dart';
+import 'package:models/backups_read.dart';
 import 'package:models/broker_self_update.dart';
+import 'package:models/link_info.dart';
 import 'package:models/log_level.dart';
 import 'package:models/log_line.dart';
 import 'package:models/log_read_error.dart';
@@ -22,6 +25,7 @@ import 'package:ui/alerts/system_toast.dart';
 import 'package:ui/pages/system_data.dart';
 
 import '../navigation/system_place.dart';
+import 'backup_mappers.dart';
 
 // System's domain as `ui` draws it (studio-rules §3): one exhaustive
 // switch per enum, both ways where a control reports a `ui` value back. A
@@ -147,6 +151,7 @@ extension AttentionKindSys on AttentionKind {
     AttentionKind.linkFailed => SysAttention.linkFailed,
     AttentionKind.quarantine => SysAttention.quarantine,
     AttentionKind.brokerWaiting => SysAttention.brokerWaiting,
+    AttentionKind.waitingNotRead => SysAttention.waitingNotRead,
     AttentionKind.aclGrown => SysAttention.aclGrown,
     AttentionKind.noStandby => SysAttention.noStandby,
   };
@@ -223,13 +228,48 @@ extension BackupSendStatusSys on BackupSendStatus {
   };
 }
 
+extension BackupsReadCard on BackupsRead {
+  /// The card *Backups* of System: none for a broker without
+  /// `sys/backups` (or before the first read), a card that says it was
+  /// not read or that the read failed, or the kept backups ([rows]) with
+  /// those that could not be read ([unread]).
+  SysBackupsData? card({
+    required int keepDays,
+    required List<BackupJob> rows,
+    required IList<String> unread,
+  }) => switch (this) {
+    BackupsRead.absent || BackupsRead.unknown => null,
+    BackupsRead.unreadable => const SysBackupsData(
+      state: SysBackupsState.unreadable,
+    ),
+    BackupsRead.failed => const SysBackupsData(state: SysBackupsState.failed),
+    BackupsRead.read => SysBackupsData(
+      keepDays: keepDays,
+      rows: [for (final j in rows) j.row],
+      unread: unread.unlock,
+    ),
+  };
+}
+
+extension BackupsCard on BackupsState {
+  /// The card *Backups* of System from what is known of `sys/backups`,
+  /// with the kept backups [rows].
+  SysBackupsData? card(List<BackupJob> rows) =>
+      availability.card(keepDays: keepDays, rows: rows, unread: unread);
+}
+
+extension StaleLink on LinkInfo {
+  /// The link as *Clear connections* lists it.
+  SysStaleLink get stale => SysStaleLink(id, cn: certificateCn);
+}
+
 extension BackupJobRow on BackupJob {
   SysBackupRow get row => SysBackupRow(
     id: id,
     name: name,
     kind: kind.sys,
     link: link,
-    sections: sections.toList(),
+    sections: [for (final s in sections) s.part],
     created: created,
     state: status.sys,
     progress: progress,

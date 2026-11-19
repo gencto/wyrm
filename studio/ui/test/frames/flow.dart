@@ -8,6 +8,7 @@ import 'package:ui/flows/bind_refusal.dart';
 import 'package:ui/flows/block_palette.dart';
 import 'package:ui/flows/custom_block_dialog.dart';
 import 'package:ui/flows/field_inspector.dart';
+import 'package:ui/flows/field_word.dart';
 import 'package:ui/flows/flow_block_view.dart';
 import 'package:ui/flows/flow_canvas.dart';
 import 'package:ui/flows/flow_intents.dart';
@@ -614,7 +615,7 @@ List<InspectorRowVm> _caseRows(int cases) => [
     engine: 'output',
     editor: FieldEditorVm.output,
     value: '100',
-    targets: ['plc1.fan'],
+    targets: [RowTargetVm('plc1', 'fan')],
   ),
 ];
 
@@ -1039,7 +1040,7 @@ FlowEditorPage flowScale({required bool range}) {
         engine: 'out',
         editor: FieldEditorVm.output,
         value: '92.6',
-        targets: ['show.Value'],
+        targets: [RowTargetVm('show', 'Value')],
       ),
       if (range)
         const InspectorRowVm(
@@ -1261,7 +1262,7 @@ FlowEditorPage flowBoundValue() => _bind(
       engine: 'out',
       editor: FieldEditorVm.output,
       value: 'Hello, tank 3',
-      targets: ['show.Value'],
+      targets: [RowTargetVm('show', 'Value')],
     ),
   ],
 );
@@ -1427,7 +1428,7 @@ FlowEditorPage flowCase() => _bind(
       engine: 'out',
       editor: FieldEditorVm.output,
       value: 'high',
-      targets: ['show.Value'],
+      targets: [RowTargetVm('show', 'Value')],
     ),
   ],
 );
@@ -1528,7 +1529,7 @@ FlowEditorPage flowOperand() => _bind(
       engine: 'out',
       editor: FieldEditorVm.output,
       value: 'AHU-2',
-      targets: ['show.Value'],
+      targets: [RowTargetVm('show', 'Value')],
     ),
   ],
 );
@@ -1583,7 +1584,7 @@ FlowEditorPage flowLongOutput({ValueViewerVm? viewer}) => _bind(
       engine: 'out',
       editor: FieldEditorVm.output,
       value: _long,
-      targets: ['show.Value'],
+      targets: [RowTargetVm('show', 'Value')],
     ),
   ],
 );
@@ -1906,7 +1907,7 @@ FlowEditorPage flowKeyScope({bool asking = false}) => _wave2(
       engine: 'out',
       editor: FieldEditorVm.output,
       value: '41.5 %',
-      targets: ['publish.Value'],
+      targets: [RowTargetVm('publish', 'Value')],
       pinned: true,
       pinLocked: true,
     ),
@@ -2130,7 +2131,7 @@ FlowEditorPage flowActionBlock({
       engine: 'error',
       editor: FieldEditorVm.output,
       value: '13:58:02 · busy: queue full',
-      targets: ['publish.Value'],
+      targets: [RowTargetVm('publish', 'Value')],
       group: .events,
       pinned: true,
       pinLocked: true,
@@ -2446,7 +2447,7 @@ FlowEditorPage flowCustomInstance() => _wave2(
       name: 'out',
       editor: FieldEditorVm.output,
       value: '42.5',
-      targets: ['publish.Value'],
+      targets: [RowTargetVm('publish', 'Value')],
       pinned: true,
       pinLocked: true,
     ),
@@ -2705,6 +2706,20 @@ FlowEditorPage flowCsvLines() => _bind(
   ],
 );
 
+/// A row's label of `flow_large.json` as the editor words it: `business`
+/// writes a word Studio says itself by its name (`#point`, `#input 2`) and
+/// the engine's own name as it came.
+String _labelOf(String tag) {
+  if (!tag.startsWith('#')) {
+    return tag;
+  }
+  final parts = tag.substring(1).split(' ');
+  return FieldWordVm(
+    FieldWordTag.values.byName(parts.first),
+    parts.length > 1 ? int.parse(parts[1]) : null,
+  ).text;
+}
+
 /// The flow the agent deployed on the demo's `central` (62 blocks, no
 /// saved layout) as the editor lays it out (flow-editor.md §25): the
 /// places come from `business`'s layout (`flow_large.json`, written by
@@ -2770,7 +2785,7 @@ FlowEditorPage flowLarge() {
               })
                 FieldRowVm(
                   id: rid,
-                  label: label,
+                  label: _labelOf(label),
                   name: rid,
                   inPort: inPort,
                   outPort: outPort,

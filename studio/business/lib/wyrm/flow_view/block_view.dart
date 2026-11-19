@@ -2,6 +2,7 @@ import 'package:equatable/equatable.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/block_type.dart';
 import 'package:models/field_id.dart';
+import 'package:models/field_label.dart';
 import 'package:models/flow_block.dart';
 import 'package:models/flow_draft.dart';
 import 'package:models/flow_frame.dart';
@@ -85,7 +86,7 @@ final class RowView extends Equatable {
   });
 
   final FieldId id;
-  final String label;
+  final FieldLabel label;
   final String name;
 
   /// What it shows: its value as text ('' for none), or — on the row a

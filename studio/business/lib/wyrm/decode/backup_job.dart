@@ -2,7 +2,10 @@ import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/backup_job.dart';
 import 'package:models/backup_kind.dart';
 import 'package:models/backup_sealed.dart';
+import 'package:models/backup_section.dart';
 import 'package:models/backup_status.dart';
+import 'package:models/backup_step.dart';
+import 'package:models/backups_attrs.dart';
 import 'package:models/send_link.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -36,15 +39,14 @@ Decoded<BackupJob> backupJobOf(String id, NodeMeta m) {
         BackupSealed.fromWire(s) ?? (throw const _Bad('sealed', 'not a seal')),
     };
     final sections = switch (attr['sections']) {
-      null || VNull() => const <String>[],
+      null || VNull() => const <BackupSection>[],
       VArray(:final v) => [
         for (final e in v)
           switch (e) {
-            VStr(:final v) => v,
-            _ => throw const _Bad(
-              'sections',
-              'not texts',
-            ),
+            VStr(:final v) =>
+              BackupSection.fromWire(v) ??
+                  (throw const _Bad('sections', 'not a known section')),
+            _ => throw const _Bad('sections', 'not texts'),
           },
       ],
       _ => throw const _Bad('sections', 'not an array'),
@@ -93,14 +95,18 @@ const backupLeaves = [
 /// `progress`, `step`, `size`, `sha256`, `created`, `expires`, `error`,
 /// `sent_to`, `send_status`, `send_progress`, `send_error`. [value] gives
 /// a leaf's live value as plain Dart, null when none arrived (the field
-/// keeps what [j] holds). A value of another shape keeps it too **and is
-/// logged** with its field and [where].
+/// keeps what [j] holds). A value of another shape keeps it too.
+///
+/// With [where] such a value is recorded with its field: the place the
+/// values arrive at passes it (`warnUnreadLive`). A selector reads them
+/// on every rebuild and passes none: it records nothing.
 BackupJob backupLiveOf(
   BackupJob j,
-  Object? Function(String leaf) value,
-  String where,
-) {
-  T keep<T>(Decoded<T?> d, T old) => d.orWarn(where) ?? old;
+  Object? Function(String leaf) value, [
+  String? where,
+]) {
+  T keep<T>(Decoded<T?> d, T old) =>
+      (where == null ? d.orNull : d.orWarn(where)) ?? old;
   Decoded<String?> text(String leaf) => liveText(value(leaf), _shape, leaf);
   Decoded<int?> whole(String leaf) => liveInt(value(leaf), _shape, leaf);
   return j.copyWith(
@@ -109,7 +115,7 @@ BackupJob backupLiveOf(
       j.status,
     ),
     progress: keep(whole('progress'), j.progress),
-    step: keep(text('step'), j.step),
+    step: keep(_liveStep(value('step')), j.step),
     size: keep(whole('size'), j.size),
     sha256: keep(text('sha256'), j.sha256),
     created: keep(liveTime(value('created'), _shape, 'created'), j.created),
@@ -129,6 +135,19 @@ BackupJob backupLiveOf(
     sendError: keep(text('send_error'), j.sendError),
   );
 }
+
+/// The live `step` of a backup: empty (none), a section's name, or
+/// `writing`; any other text is [Invalid].
+Decoded<BackupStep?> _liveStep(Object? v) => switch (v) {
+  null => const Valid(null),
+  '' => const Valid(BackupStep.none()),
+  'writing' => const Valid(BackupStep.writing()),
+  final String s => switch (BackupSection.fromWire(s)) {
+    final section? => Valid(BackupStep.section(section)),
+    null => const Invalid(_shape, 'step', 'not a known step'),
+  },
+  _ => const Invalid(_shape, 'step', 'not a text'),
+};
 
 /// The attribute `send_links` of `sys/backups`: `[{link, folder}]`, the
 /// folder `backups` when it names none. Absent: none.
@@ -160,14 +179,6 @@ Decoded<IList<SendLink>> _sendLinks(List<Value> rows) {
   return Valid(out.lock);
 }
 
-/// The attributes of `sys/backups` (ADR 0048 §3.4).
-typedef BackupsAttrs = ({
-  bool exportSecrets,
-  IList<SendLink> sendLinks,
-  IList<String> sections,
-  int keepDays,
-});
-
 /// The [BackupsAttrs] of the meta of `sys/backups`: `export_secrets`
 /// (default false), `send_links`, `sections` (the sections a backup may
 /// hold), `keep_days` (default 7). An attribute of another shape is
@@ -192,23 +203,28 @@ Decoded<BackupsAttrs> backupsAttrsOf(NodeMeta m) {
     return const Invalid('backups', 'keep_days', 'not a whole number');
   }
   final sections = switch (attr['sections']) {
-    null || VNull() => const <String>[],
-    VArray(:final v) when v.every((e) => e is VStr) => [
+    null || VNull() => const <BackupSection?>[],
+    VArray(:final v) => [
       for (final e in v)
-        if (e case VStr(:final v)) v,
+        switch (e) {
+          VStr(:final v) => BackupSection.fromWire(v),
+          _ => null,
+        },
     ],
-    _ => null,
+    _ => const <BackupSection?>[null],
   };
-  if (sections == null) {
-    return const Invalid('backups', 'sections', 'not texts');
+  if (sections.contains(null)) {
+    return const Invalid('backups', 'sections', 'not known sections');
   }
   return switch (sendLinksOf(attr['send_links'])) {
-    Valid(value: final sendLinks) => Valid((
-      exportSecrets: exportSecrets,
-      sendLinks: sendLinks,
-      sections: sections.lock,
-      keepDays: keepDays,
-    )),
+    Valid(value: final sendLinks) => Valid(
+      BackupsAttrs(
+        exportSecrets: exportSecrets,
+        sendLinks: sendLinks,
+        sections: sections.nonNulls.toIList(),
+        keepDays: keepDays,
+      ),
+    ),
     final Invalid<IList<SendLink>> i => Invalid(i.shape, i.field, i.reason),
   };
 }

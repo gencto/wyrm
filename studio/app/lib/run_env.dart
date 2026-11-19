@@ -16,7 +16,6 @@ import 'package:ui/models/unlock_prompts.dart';
 import 'app.dart';
 import 'common/app_store.dart';
 import 'common/window.dart';
-import 'errors.dart';
 import 'faults.dart';
 import 'navigation/app_router.dart';
 import 'start_fault_app.dart';
@@ -64,7 +63,6 @@ Future<void> runEnv(Environment env) async {
   try {
     store = await createStore(
       env,
-      wording: wordError,
       prompts: devicePrompts,
     );
   } on StorageFault catch (fault) {

@@ -2,11 +2,14 @@ import 'package:equatable/equatable.dart';
 import 'package:localization/localization.dart';
 
 import '../containers/catalog_card.dart';
+import '../containers/catalog_words.dart';
 import '../indicators/check_list.dart';
 import '../indicators/level_badge.dart';
+import '../models/broker_said.dart';
 import '../models/disabled.dart';
 import '../models/link_run_mode.dart';
 import '../shell/window_bar.dart';
+import 'install_checks.dart';
 
 /// Where a new link comes from, as drawn: a card of Choose, the rail's
 /// label and the answer *From*.
@@ -239,34 +242,20 @@ final class GrantRightVm extends InstallRightVm {
   List<Object?> get props => [level, path];
 }
 
-/// One check of a package or a backup; [rights] when the check lists the
-/// rights it asks for (its [detail] is then said from them).
+/// One check of a package or a backup: what it found and whether that
+/// passes. The finding names the check and says what it saw.
 final class InstallCheckVm extends Equatable {
-  const InstallCheckVm({
-    required this.title,
-    required this.result,
-    this.detail = '',
-    this.rights,
-  });
+  const InstallCheckVm({required this.finding, required this.result});
 
-  final String title;
+  final CheckFinding finding;
   final CheckResult result;
-  final String detail;
-  final List<InstallRightVm>? rights;
 
   /// Its row of the check list.
-  CheckRowVm get row => CheckRowVm(
-    title: title,
-    result: result,
-    detail: switch (rights) {
-      null => detail,
-      final r when r.isEmpty => S.current.rightsNone,
-      final r => [for (final x in r) x.line].join('; '),
-    },
-  );
+  CheckRowVm get row =>
+      CheckRowVm(title: finding.title, result: result, detail: finding.line);
 
   @override
-  List<Object?> get props => [title, result, detail, rights];
+  List<Object?> get props => [finding, result];
 }
 
 /// A broker a link can go to: the site, its host when known, and why it
@@ -301,7 +290,7 @@ final class LinkInstallVm extends Equatable {
     required this.broker,
     required this.mode,
     this.window = const WindowBarVm(),
-    this.itemName,
+    this.item,
     this.itemBuiltIn = true,
     this.sourceName,
     this.name,
@@ -342,9 +331,12 @@ final class LinkInstallVm extends Equatable {
   final List<InstallStepKey> steps;
   final InstallStepKey step;
 
-  /// The item of the official list picked: its name, and whether it is
+  /// The item of the official list picked: its title, and whether it is
   /// built into wyrmd.
-  final String? itemName;
+  final CatalogTitleVm? item;
+
+  /// The picked item's title as it reads.
+  String? get itemName => item?.text;
   final bool itemBuiltIn;
 
   /// What was brought: a file's name, a URL.
@@ -364,9 +356,12 @@ final class LinkInstallVm extends Equatable {
 
   /// Choose: the categories (null [category]: all), the words searched
   /// for and the cards shown.
-  final List<String> categories;
-  final String? category;
+  final List<CatalogCategoryVm> categories;
+  final CatalogCategoryVm? category;
   final String? query;
+
+  /// The cards of the category on screen that the words searched for
+  /// leave (filtered before they come here).
   final List<CatalogCardVm> cards;
 
   /// Bring: the method, the picked file's name, the URL and ref, the field
@@ -392,7 +387,10 @@ final class LinkInstallVm extends Equatable {
 
   /// The last step: where the install is, and the broker's words.
   final InstallResult? result;
-  final String? message;
+  final BrokerSaidVm? message;
+
+  /// What the broker said of the install, as it is written.
+  String? get said => message?.text;
 
   /// Why the step offers no *Continue*, and why the user may not install
   /// on the broker ([InstallHold.needsConfig]).
@@ -409,7 +407,7 @@ final class LinkInstallVm extends Equatable {
     from,
     steps,
     step,
-    itemName,
+    item,
     itemBuiltIn,
     sourceName,
     broker,

@@ -16,7 +16,7 @@ T _$identity<T>(T value) => value;
 mixin _$SystemState {
 
  IList<LogLine> get log;/// The Log toolbar's level (`get_log` `level`); none: the broker's.
- LogLevel? get logLevel; String? get filter; SystemTab get tab; TrafficMeasure get measure; String? get source; int get lines; bool get auto; bool get shown; LogReadError? get logError; IList<TrafficSample> get samples; String? get trafficRoot; IList<ProfileInfo> get profiles; String? get profilesNote; int? get aclSeen; IMap<String, String> get about; IMap<String, String> get units; String? get around; HistWindow? get trafficWindow;
+ LogLevel? get logLevel; String? get filter; SystemTab get tab; TrafficMeasure get measure; String? get source; int get lines; bool get auto; bool get shown; LogReadError? get logError; IList<TrafficSample> get samples; String? get trafficRoot; IList<ProfileInfo> get profiles; CallRefusal? get profilesNote; int? get aclSeen; IMap<String, String> get about; IMap<String, String> get units; String? get around; HistWindow? get trafficWindow;
 /// Create a copy of SystemState
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -52,11 +52,11 @@ abstract mixin class $SystemStateCopyWith<$Res>  {
   factory $SystemStateCopyWith(SystemState value, $Res Function(SystemState) _then) = _$SystemStateCopyWithImpl;
 @useResult
 $Res call({
- IList<LogLine> log, LogLevel? logLevel, String? filter, SystemTab tab, TrafficMeasure measure, String? source, int lines, bool auto, bool shown, LogReadError? logError, IList<TrafficSample> samples, String? trafficRoot, IList<ProfileInfo> profiles, String? profilesNote, int? aclSeen, IMap<String, String> about, IMap<String, String> units, String? around, HistWindow? trafficWindow
+ IList<LogLine> log, LogLevel? logLevel, String? filter, SystemTab tab, TrafficMeasure measure, String? source, int lines, bool auto, bool shown, LogReadError? logError, IList<TrafficSample> samples, String? trafficRoot, IList<ProfileInfo> profiles, CallRefusal? profilesNote, int? aclSeen, IMap<String, String> about, IMap<String, String> units, String? around, HistWindow? trafficWindow
 });
 
 
-$LogReadErrorCopyWith<$Res>? get logError;$HistWindowCopyWith<$Res>? get trafficWindow;
+$LogReadErrorCopyWith<$Res>? get logError;$CallRefusalCopyWith<$Res>? get profilesNote;$HistWindowCopyWith<$Res>? get trafficWindow;
 
 }
 /// @nodoc
@@ -85,7 +85,7 @@ as LogReadError?,samples: null == samples ? _self.samples : samples // ignore: c
 as IList<TrafficSample>,trafficRoot: freezed == trafficRoot ? _self.trafficRoot : trafficRoot // ignore: cast_nullable_to_non_nullable
 as String?,profiles: null == profiles ? _self.profiles : profiles // ignore: cast_nullable_to_non_nullable
 as IList<ProfileInfo>,profilesNote: freezed == profilesNote ? _self.profilesNote : profilesNote // ignore: cast_nullable_to_non_nullable
-as String?,aclSeen: freezed == aclSeen ? _self.aclSeen : aclSeen // ignore: cast_nullable_to_non_nullable
+as CallRefusal?,aclSeen: freezed == aclSeen ? _self.aclSeen : aclSeen // ignore: cast_nullable_to_non_nullable
 as int?,about: null == about ? _self.about : about // ignore: cast_nullable_to_non_nullable
 as IMap<String, String>,units: null == units ? _self.units : units // ignore: cast_nullable_to_non_nullable
 as IMap<String, String>,around: freezed == around ? _self.around : around // ignore: cast_nullable_to_non_nullable
@@ -104,6 +104,18 @@ $LogReadErrorCopyWith<$Res>? get logError {
 
   return $LogReadErrorCopyWith<$Res>(_self.logError!, (value) {
     return _then(_self.copyWith(logError: value));
+  });
+}/// Create a copy of SystemState
+/// with the given fields replaced by the non-null parameter values.
+@override
+@pragma('vm:prefer-inline')
+$CallRefusalCopyWith<$Res>? get profilesNote {
+    if (_self.profilesNote == null) {
+    return null;
+  }
+
+  return $CallRefusalCopyWith<$Res>(_self.profilesNote!, (value) {
+    return _then(_self.copyWith(profilesNote: value));
   });
 }/// Create a copy of SystemState
 /// with the given fields replaced by the non-null parameter values.
@@ -143,7 +155,7 @@ class _SystemState implements SystemState {
 @override@JsonKey() final  IList<TrafficSample> samples;
 @override final  String? trafficRoot;
 @override@JsonKey() final  IList<ProfileInfo> profiles;
-@override final  String? profilesNote;
+@override final  CallRefusal? profilesNote;
 @override final  int? aclSeen;
 @override@JsonKey() final  IMap<String, String> about;
 @override@JsonKey() final  IMap<String, String> units;
@@ -182,11 +194,11 @@ abstract mixin class _$SystemStateCopyWith<$Res> implements $SystemStateCopyWith
   factory _$SystemStateCopyWith(_SystemState value, $Res Function(_SystemState) _then) = __$SystemStateCopyWithImpl;
 @override @useResult
 $Res call({
- IList<LogLine> log, LogLevel? logLevel, String? filter, SystemTab tab, TrafficMeasure measure, String? source, int lines, bool auto, bool shown, LogReadError? logError, IList<TrafficSample> samples, String? trafficRoot, IList<ProfileInfo> profiles, String? profilesNote, int? aclSeen, IMap<String, String> about, IMap<String, String> units, String? around, HistWindow? trafficWindow
+ IList<LogLine> log, LogLevel? logLevel, String? filter, SystemTab tab, TrafficMeasure measure, String? source, int lines, bool auto, bool shown, LogReadError? logError, IList<TrafficSample> samples, String? trafficRoot, IList<ProfileInfo> profiles, CallRefusal? profilesNote, int? aclSeen, IMap<String, String> about, IMap<String, String> units, String? around, HistWindow? trafficWindow
 });
 
 
-@override $LogReadErrorCopyWith<$Res>? get logError;@override $HistWindowCopyWith<$Res>? get trafficWindow;
+@override $LogReadErrorCopyWith<$Res>? get logError;@override $CallRefusalCopyWith<$Res>? get profilesNote;@override $HistWindowCopyWith<$Res>? get trafficWindow;
 
 }
 /// @nodoc
@@ -215,7 +227,7 @@ as LogReadError?,samples: null == samples ? _self.samples : samples // ignore: c
 as IList<TrafficSample>,trafficRoot: freezed == trafficRoot ? _self.trafficRoot : trafficRoot // ignore: cast_nullable_to_non_nullable
 as String?,profiles: null == profiles ? _self.profiles : profiles // ignore: cast_nullable_to_non_nullable
 as IList<ProfileInfo>,profilesNote: freezed == profilesNote ? _self.profilesNote : profilesNote // ignore: cast_nullable_to_non_nullable
-as String?,aclSeen: freezed == aclSeen ? _self.aclSeen : aclSeen // ignore: cast_nullable_to_non_nullable
+as CallRefusal?,aclSeen: freezed == aclSeen ? _self.aclSeen : aclSeen // ignore: cast_nullable_to_non_nullable
 as int?,about: null == about ? _self.about : about // ignore: cast_nullable_to_non_nullable
 as IMap<String, String>,units: null == units ? _self.units : units // ignore: cast_nullable_to_non_nullable
 as IMap<String, String>,around: freezed == around ? _self.around : around // ignore: cast_nullable_to_non_nullable
@@ -235,6 +247,18 @@ $LogReadErrorCopyWith<$Res>? get logError {
 
   return $LogReadErrorCopyWith<$Res>(_self.logError!, (value) {
     return _then(_self.copyWith(logError: value));
+  });
+}/// Create a copy of SystemState
+/// with the given fields replaced by the non-null parameter values.
+@override
+@pragma('vm:prefer-inline')
+$CallRefusalCopyWith<$Res>? get profilesNote {
+    if (_self.profilesNote == null) {
+    return null;
+  }
+
+  return $CallRefusalCopyWith<$Res>(_self.profilesNote!, (value) {
+    return _then(_self.copyWith(profilesNote: value));
   });
 }/// Create a copy of SystemState
 /// with the given fields replaced by the non-null parameter values.

@@ -56,7 +56,8 @@ String gatewayLabel(Uri gateway, Iterable<Uri> among) {
 /// among all of them by [gatewayLabel].
 IMap<String, String> labelGateways(Iterable<String> recent, String field) {
   final all = [
-    for (final r in [...recent, field]) ...parseGateways(r).take(1),
+    for (final r in [...recent, field])
+      for (final g in parseGateways(r).take(1)) g.uri,
   ];
   return {for (final g in all) g.origin: gatewayLabel(g, all)}.lock;
 }

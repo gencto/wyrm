@@ -2,6 +2,7 @@ import 'package:equatable/equatable.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/block_type.dart';
 import 'package:models/field_id.dart';
+import 'package:models/field_label.dart';
 import 'package:models/flow_block.dart';
 import 'package:models/flow_draft.dart';
 import 'package:models/node_type.dart';
@@ -192,7 +193,7 @@ final class WireRefusal extends Equatable {
   const WireRefusal(this.refused, this.label);
 
   final Refused refused;
-  final String label;
+  final FieldLabel label;
 
   @override
   List<Object?> get props => [refused, label];

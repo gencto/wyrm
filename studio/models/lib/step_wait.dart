@@ -1,0 +1,4 @@
+enum StepWait {
+  running,
+  waiting,
+}

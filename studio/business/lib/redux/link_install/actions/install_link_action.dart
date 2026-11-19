@@ -64,7 +64,8 @@ class InstallLinkAction extends Action with NonReentrant, WaitingAction {
     } on WyrmException catch (e) {
       answer = SysVerdict(
         success: false,
-        message: '${e.status.name}: ${e.message}',
+        message: e.message,
+        status: e.status.name,
       );
       // The parameter the broker named, as the field of the wizard that
       // holds it: *Change answers* goes back to it with the broker's words
@@ -86,6 +87,7 @@ class InstallLinkAction extends Action with NonReentrant, WaitingAction {
     return state.copyWith.linkInstall(
       phase: answer.success ? InstallPhase.done : InstallPhase.failed,
       message: answer.message,
+      refusedStatus: answer.status,
       refusedField: refusedField,
       refusedSaid: refusedSaid,
       step: InstallStep.result,

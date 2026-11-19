@@ -18,6 +18,7 @@ import 'package:business/wyrm/discovery.dart';
 import 'package:business/wyrm/session.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:models/answer_fault.dart';
 import 'package:models/broker_role.dart';
 import 'package:models/ca_pin.dart';
 import 'package:models/found_gateway.dart';
@@ -635,14 +636,22 @@ void main() {
         throwsA(
           isA<InfoFailure>()
               .having((f) => f.fault, 'fault', InfoFault.missing)
-              .having((f) => f.reason, 'reason', contains('GatewayInfo.')),
+              .having(
+                (f) => f.why,
+                'why',
+                isA<AnswerFaultWrongShape>().having(
+                  (w) => w.path,
+                  'path',
+                  contains('GatewayInfo.'),
+                ),
+              ),
         ),
       );
     });
 
     test('gives the log-in page no policy', () async {
       final info = await const GatewayLogin().info(
-        Uri.parse('http://127.0.0.1:${server.port}'),
+        addressOf(Uri.parse('http://127.0.0.1:${server.port}')),
       );
       expect(info, isNull);
     });
@@ -780,11 +789,11 @@ void main() {
         trust: () => const GatewayTrust().plus([pin(byAddress)]),
       );
 
-      final refused = await none.probe(byAddress);
-      final answered = await pinned.probe(byAddress);
+      final refused = await none.probe(addressOf(byAddress));
+      final answered = await pinned.probe(addressOf(byAddress));
 
       expect(refused.answered, isFalse);
-      expect(refused.reason, 'certificate is not trusted');
+      expect(refused.why, const AnswerFault.untrusted());
       expect(answered.answered, isTrue);
     });
 
@@ -796,14 +805,14 @@ void main() {
       Future<Uint8List> sign(Uint8List _) async => Uint8List(0);
 
       // `/api/info` for the log-in page's policy.
-      expect(await none.info(byAddress), isNull);
-      expect((await pinned.info(byAddress))?.site, 'lab');
+      expect(await none.info(addressOf(byAddress)), isNull);
+      expect((await pinned.info(addressOf(byAddress)))?.site, 'lab');
 
       // The device login: without the pin the handshake fails; with it the
       // gateway answers (this one refuses the challenge with a 401).
       await expectLater(
         none.openWithDevice(
-          byAddress,
+          addressOf(byAddress),
           site: 'lab',
           user: 'olena',
           device: 'd1',
@@ -813,7 +822,7 @@ void main() {
       );
       await expectLater(
         pinned.openWithDevice(
-          byAddress,
+          addressOf(byAddress),
           site: 'lab',
           user: 'olena',
           device: 'd1',

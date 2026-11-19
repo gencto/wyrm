@@ -226,7 +226,7 @@ class LogInScreen extends StatelessWidget {
       wrong: vm.wrong,
       unreachable: switch (vm.unreachable) {
         final u? => UnreachableAlertVm(
-          detail: [u.gateway, ?u.reason].join(' · '),
+          detail: [u.gateway, ?u.reason?.words].join(' · '),
           advice: s.unreachableAdvice,
           standby: u.standby,
         ),
@@ -556,7 +556,7 @@ class LogInScreen extends StatelessWidget {
         null => r.host,
       },
       note: switch (problem) {
-        final p? => p.text(r.detail),
+        final p? => p.text(r.detail, why: r.why),
         null => [
           if (r.version case final v?) s.noteWyrmd(v),
           r.ca.text,

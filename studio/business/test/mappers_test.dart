@@ -4,10 +4,9 @@ import 'package:business/wyrm/decode/link_info.dart';
 import 'package:business/wyrm/decode/live_values.dart';
 import 'package:business/wyrm/decode/package_info.dart';
 import 'package:business/wyrm/decode/param_spec.dart';
+import 'package:business/wyrm/decode/peers.dart';
 import 'package:business/wyrm/mappers/live_value_mapper.dart';
 import 'package:business/wyrm/mappers/node_info_mapper.dart';
-import 'package:business/wyrm/mappers/peer_mapper.dart';
-import 'package:business/wyrm/mappers/quarantine_entry_mapper.dart';
 import 'package:business/wyrm/mappers/value_text.dart';
 import 'package:business/wyrm/mappers/values.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -17,8 +16,10 @@ import 'package:models/link_mode.dart';
 import 'package:models/link_origin.dart';
 import 'package:models/link_state.dart';
 import 'package:models/package_kind.dart';
+import 'package:models/peer.dart';
 import 'package:models/peer_kind.dart';
 import 'package:models/quality.dart' as m;
+import 'package:models/quarantine_entry.dart';
 import 'package:models/quarantine_kind.dart';
 import 'package:models/task_state.dart';
 import 'package:wyrm_client/wyrm_client.dart';
@@ -170,7 +171,7 @@ void main() {
   });
 
   test('quarantineEntryOf: a broker that waits, its relays and key', () {
-    final q = quarantineEntryOf(
+    final read = quarantineEntryOf(
       'broker_plant',
       wire(
         NodeMeta(
@@ -186,6 +187,7 @@ void main() {
       ),
     );
 
+    final q = (read as Valid<QuarantineEntry>).value;
     expect(q.cn, 'broker:plant');
     expect(q.node, 'broker_plant');
     expect(q.kind, QuarantineKind.broker);
@@ -230,7 +232,7 @@ void main() {
     );
     final link = Child('modbus', wire(NodeMeta(is_: const TText('wy:link'))));
 
-    final p = downstreamPeerOf('edge', broker)!;
+    final p = (downstreamPeerOf('edge', broker)! as Valid<Peer>).value;
     expect(p.site, 'plant');
     expect(p.kind, PeerKind.downstream);
     expect(p.parent, 'edge');

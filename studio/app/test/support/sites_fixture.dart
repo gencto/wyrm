@@ -90,7 +90,11 @@ void sitesBroker(FakeWyrmApi api) {
     )
     ..metas['$_sys/quarantine/field-x'] = NodeMeta(
       display: 'link:field-x',
-      attr: {'from': const VStr('10.0.0.12:40001')},
+      // `kind` is always there (control.rs `declare_quarantine`)
+      attr: {
+        'kind': const VStr('link'),
+        'from': const VStr('10.0.0.12:40001'),
+      },
     )
     // the action forms and answers
     ..metas['$_sys/upstream'] = NodeMeta(
@@ -105,7 +109,10 @@ void sitesBroker(FakeWyrmApi api) {
       },
     )
     ..invokes['$_sys/upstream ▸ add'] = const [VNull()]
-    ..invokes['$_sys/tokens ▸ add'] = const [VStr('wyt_1a2b3c')]
+    // the answer of `add_token`: `{token}`
+    ..invokes['$_sys/tokens ▸ add'] = const [
+      VMap({'token': VStr('wyt_1a2b3c')}),
+    ]
     ..invokes['$_sys/quarantine ▸ deauthorize'] = const [VNull()]
     ..invokes['$_sys/quarantine/field-x ▸ reject'] = const [VNull()]
     ..invokes['$_sys/quarantine/line2 ▸ reject'] = const [VNull()]

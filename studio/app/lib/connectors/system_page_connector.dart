@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:async_redux/async_redux.dart';
 import 'package:auto_route/auto_route.dart';
 import 'package:business/redux/app_state.dart';
+import 'package:business/redux/backups/actions/retrieve_backups_action.dart';
 import 'package:business/redux/system/actions/change_log_query_action.dart';
 import 'package:business/redux/system/actions/clear_conns_action.dart';
 import 'package:business/redux/system/actions/copy_log_action.dart';
@@ -95,6 +96,7 @@ class SystemPageConnector extends StatelessWidget {
           onBackUp: () => unawaited(showBackupDialog(context)),
           onRestore: () => unawaited(showBackupDialog(context, restore: true)),
           onOpenBackup: (id) => unawaited(showBackupDialog(context, job: id)),
+          onReadBackups: vm.onReadBackups,
           onElsewhere: vm.onElsewhere,
         ),
       ),
@@ -162,20 +164,12 @@ class _Factory extends VmFactory<AppState, SystemPageConnector, _Vm>
       maintenance: SysMaintData(
         reason: sysConfigReason?.disabled,
         busy: system.isActing,
-        stale: [
-          for (final l in clearableLinks)
-            SysStaleLink(l.id, cn: l.certificateCn),
-        ],
+        stale: [for (final l in clearableLinks) l.stale],
         profiles: [
           for (final p in system.profiles) SysProfile(p.name, points: p.points),
         ],
-        profilesUnlisted: system.profilesNote,
-        backups: backups.sections.isEmpty
-            ? null
-            : SysBackupsData(
-                keepDays: backups.keepDays,
-                rows: [for (final j in backupRows) j.row],
-              ),
+        profilesUnlisted: system.profilesNote?.said,
+        backups: state.backups.card(backupRows),
         version: offeredSelfUpdate?.card,
         dataSize: status[SysValue.dataSize],
       ),
@@ -216,6 +210,7 @@ class _Factory extends VmFactory<AppState, SystemPageConnector, _Vm>
     onCopyCommand: (code) =>
         dispatch(CopyTextAction(code, const SystemNotice.commandCopied())),
     onElsewhere: (e) => dispatch(GoSystemPlaceAction(e.place)),
+    onReadBackups: () => dispatch(RetrieveBackupsAction()),
   );
 }
 
@@ -229,6 +224,7 @@ class _Vm extends Vm {
     required this.onShow,
     required this.onHide,
     required this.onPoll,
+    required this.onReadBackups,
     required this.onTab,
     required this.onTile,
     required this.onAttention,
@@ -289,4 +285,5 @@ class _Vm extends Vm {
   final ValueChanged<String> onRemoveProfile;
   final ValueChanged<String> onCopyCommand;
   final ValueChanged<SysElsewhere> onElsewhere;
+  final VoidCallback onReadBackups;
 }

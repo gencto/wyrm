@@ -8,11 +8,11 @@ import 'package:models/json_value.dart';
 /// A config value (JSON) as the text its editor starts with: nothing for
 /// none, a text as itself, a map or a list as indented JSON, anything else
 /// as JSON.
-String jsonEditText(Object? v) => switch (JsonValue.of(v)) {
+String jsonEditText(JsonValue v) => switch (v) {
   JsonNull() => '',
   JsonText(:final text) => text,
-  JsonMap() || JsonList() => const JsonEncoder.withIndent('  ').convert(v),
-  JsonBool() || JsonNumber() => jsonEncode(v),
+  JsonMap() || JsonList() => const JsonEncoder.withIndent('  ').convert(v.raw),
+  JsonBool() || JsonNumber() => jsonEncode(v.raw),
 };
 
 /// What a field shows for a map or a list it holds, in short (`{…}`,
@@ -27,8 +27,8 @@ String? jsonShortText(Object? v) => switch (JsonValue.tryOf(v)) {
 /// The items of a list parameter as rows of texts by key: a text as it
 /// is, another value as JSON. A value that is no list of maps gives no
 /// rows.
-List<Map<String, String>> listRowsIn(Object? v) => [
-  if (JsonValue.of(v) case JsonList(:final items))
+List<Map<String, String>> listRowsIn(JsonValue v) => [
+  if (v case JsonList(:final items))
     for (final item in items)
       if (item case JsonMap(:final fields))
         {

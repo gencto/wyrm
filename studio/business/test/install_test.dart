@@ -4,9 +4,17 @@ import 'dart:typed_data';
 import 'package:archive/archive.dart';
 import 'package:business/wyrm/catalog.dart';
 import 'package:business/wyrm/package_check.dart';
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:models/catalog_category.dart';
+import 'package:models/known_link.dart';
+import 'package:models/link_category.dart';
 import 'package:models/link_mode.dart';
+import 'package:models/manifest_fault.dart';
+import 'package:models/manifest_problem.dart';
+import 'package:models/package_check.dart';
 import 'package:models/package_check_result.dart';
+import 'package:models/package_finding.dart';
 import 'package:models/requested_right.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -22,6 +30,69 @@ List<int> json(Object o) => utf8.encode(jsonEncode(o));
 
 void main() {
   group('checkZip', () {
+    test('a manifest that is no JSON object is a typed problem', () {
+      for (final (text, fault) in [
+        ('{', ManifestFault.notJson),
+        ('[1, 2]', ManifestFault.notObject),
+      ]) {
+        final a = Archive()
+          ..addFile(ArchiveFile.string('wyrm-link.json', text));
+        final r = checkZip(Uint8List.fromList(ZipEncoder().encode(a)));
+        final c = r.checks.last;
+        expect(c.result, PackageCheckResult.failed, reason: text);
+        // a typed finding: nothing is said in words here
+        final f = c.finding as FindingManifestProblem;
+        expect(f.problem.fault, fault, reason: text);
+        expect(f.file, 'wyrm-link.json');
+      }
+    });
+
+    test('a manifest nested without end is a finding, not a crash', () {
+      final deep = '${'[' * 5000}${']' * 5000}';
+      final zip = Archive()
+        ..addFile(ArchiveFile.string('wyrm-link.json', deep));
+      final r = checkZip(Uint8List.fromList(ZipEncoder().encode(zip)));
+      expect(
+        r.checks.last,
+        const PackageCheck(
+          PackageFinding.manifestProblem(
+            ManifestProblem(fault: ManifestFault.tooDeep),
+            'wyrm-link.json',
+          ),
+          result: PackageCheckResult.failed,
+        ),
+      );
+
+      final backup = Archive()
+        ..addFile(ArchiveFile.string('manifest.json', deep));
+      final b = checkBackup(Uint8List.fromList(ZipEncoder().encode(backup)));
+      expect(
+        b.checks.last,
+        const PackageCheck(
+          PackageFinding.manifestProblem(
+            ManifestProblem(fault: ManifestFault.tooDeep),
+            'manifest.json',
+          ),
+          result: PackageCheckResult.failed,
+        ),
+      );
+      // nested in a field, too
+      final inField = Archive()
+        ..addFile(
+          ArchiveFile.string('wyrm-link.json', '{"args": $deep}'),
+        );
+      expect(
+        (checkZip(Uint8List.fromList(ZipEncoder().encode(inField)))
+                    .checks
+                    .last
+                    .finding
+                as FindingManifestProblem)
+            .problem
+            .fault,
+        ManifestFault.tooDeep,
+      );
+    });
+
     test('a process package for this host passes and reports its rights', () {
       final r = checkZip(
         zipOf({
@@ -71,13 +142,21 @@ void main() {
         host: 'linux-x86_64',
       );
 
-      final failed = {
+      final failed = [
         for (final c in r.checks.where(
           (c) => c.result == PackageCheckResult.failed,
         ))
-          c.title,
-      };
-      expect(failed, containsAll(['Manifest', 'Protocol', 'This host']));
+          c.finding,
+      ];
+      // the manifest, the protocol and this host, each with its facts
+      expect(
+        failed,
+        containsAll([
+          PackageFinding.unknownFields(const ['colour'].lock),
+          const PackageFinding.protocol(found: '2', speak: 1, matches: false),
+          const PackageFinding.host('linux-x86_64', present: false),
+        ]),
+      );
     });
 
     test('a path out of the archive fails', () {
@@ -88,23 +167,32 @@ void main() {
         }),
       );
       expect(
-        r.checks.firstWhere((c) => c.title == 'Paths').result,
-        PackageCheckResult.failed,
+        r.checks.firstWhere((c) => c.finding is FindingPathNotRelative),
+        const PackageCheck(
+          PackageFinding.pathNotRelative('../evil'),
+          result: PackageCheckResult.failed,
+        ),
       );
     });
 
     test('not a zip, or no manifest, stops early', () {
       expect(
-        checkZip(Uint8List.fromList([1, 2, 3])).checks.single.result,
-        PackageCheckResult.failed,
+        checkZip(Uint8List.fromList([1, 2, 3])).checks.single,
+        const PackageCheck(
+          PackageFinding.notZip(),
+          result: PackageCheckResult.failed,
+        ),
       );
       expect(
         checkZip(
           zipOf({
             'readme': [0],
           }),
-        ).checks.last.detail,
-        contains('no wyrm-link.json'),
+        ).checks.last,
+        const PackageCheck(
+          PackageFinding.noManifest('wyrm-link.json'),
+          result: PackageCheckResult.failed,
+        ),
       );
     });
 
@@ -127,13 +215,126 @@ void main() {
       );
 
       expect(
-        r.checks.firstWhere((c) => c.title == 'Component').result,
-        PackageCheckResult.ok,
+        r.checks.firstWhere((c) => c.finding is FindingComponent),
+        const PackageCheck(
+          PackageFinding.component(entry: 'reg.wasm', found: true, wasm: true),
+        ),
+      );
+      // the rights are a finding too, said by ui
+      expect(
+        r.checks.last.finding,
+        PackageFinding.rights(
+          const [
+            RequestedRight.network(['10.0.5.0/24:502']),
+            RequestedRight.store(1),
+          ].lock,
+        ),
       );
       expect(r.rights, const [
         RequestedRight.network(['10.0.5.0/24:502']),
         RequestedRight.store(1),
       ]);
+    });
+  });
+
+  group('the other checks, as facts', () {
+    test('a file too large, a component that is none, a missing one', () {
+      expect(
+        checkWasm(Uint8List.fromList([1, 2, 3])).checks,
+        const [
+          PackageCheck(PackageFinding.size(kib: 1)),
+          PackageCheck(
+            PackageFinding.component(entry: null, found: true, wasm: false),
+            result: PackageCheckResult.failed,
+          ),
+          PackageCheck(
+            PackageFinding.worldByBroker(),
+            result: PackageCheckResult.skipped,
+          ),
+        ],
+      );
+      final noEntry = checkZip(
+        zipOf({
+          'wyrm-link.json': json({
+            'name': 'reg',
+            'version': '1.0.0',
+            'wyrm_link': 1,
+            'kind': 'wasm',
+            'entry': 'reg.wasm',
+          }),
+        }),
+      );
+      expect(
+        noEntry.checks.firstWhere((c) => c.finding is FindingComponent),
+        const PackageCheck(
+          PackageFinding.component(
+            entry: 'reg.wasm',
+            found: false,
+            wasm: false,
+          ),
+          result: PackageCheckResult.failed,
+        ),
+      );
+    });
+
+    test('missing fields, a name of another form, binaries not there', () {
+      final r = checkZip(
+        zipOf({
+          'wyrm-link.json': json({
+            'name': 'bad name',
+            'kind': 'process',
+            'entries': {'linux-aarch64': 'bin/none'},
+          }),
+        }),
+      );
+      expect(
+        [for (final c in r.checks) c.finding],
+        containsAll([
+          PackageFinding.missingFields(const ['version', 'wyrm_link'].lock),
+          const PackageFinding.protocol(found: null, speak: 1, matches: false),
+          const PackageFinding.nameVersion(
+            name: 'bad name',
+            version: null,
+            ok: false,
+          ),
+          PackageFinding.entryMissing(const ['linux-aarch64'].lock),
+        ]),
+      );
+      expect(
+        checkZip(
+          zipOf({
+            'wyrm-link.json': json({
+              'name': 'x',
+              'version': '1',
+              'wyrm_link': 1,
+              'kind': 'process',
+            }),
+          }),
+        ).checks.map((c) => c.finding),
+        contains(const PackageFinding.needsEntries()),
+      );
+    });
+
+    test('what the broker alone checks', () {
+      expect(
+        checkRemote('https://example.org/x.zip').checks.map((c) => c.finding),
+        const [
+          PackageFinding.fetchedByBroker('https://example.org/x.zip'),
+          PackageFinding.checkedAfterDownload(),
+        ],
+      );
+      // a source that names no address says so by a value, not a word
+      expect(
+        checkRemote(null).checks.first.finding,
+        const PackageFinding.fetchedByBroker(null),
+      );
+      expect(
+        checkLargeBackup(80 << 20).checks.single,
+        const PackageCheck(
+          PackageFinding.notReadHere(mib: 80),
+          result: PackageCheckResult.skipped,
+        ),
+      );
     });
   });
 
@@ -164,7 +365,23 @@ void main() {
     expect(c[2].modes, [LinkMode.wasm]);
     expect(c[2].existing, 1);
     expect(c[3].modes, [LinkMode.process]);
-    expect(c[3].name, 'Scheduler (process)');
+    // Studio's words for a driver it knows: `ui` says them, and that the
+    // process form is one.
+    expect(
+      (c[3].name, c[3].titled, c[3].processForm),
+      (
+        '',
+        KnownLink.scheduler,
+        true,
+      ),
+    );
+    expect(c[3].described, KnownLink.scheduler);
+    expect((c[0].titled, c[0].processForm), (KnownLink.modbus, false));
+    expect(c[0].category, const CatalogCategory.known(LinkCategory.equipment));
+    expect(
+      c[2].category,
+      const CatalogCategory.known(LinkCategory.historySync),
+    );
     expect(c.map((i) => i.version), everyElement(isNull));
   });
 
@@ -208,7 +425,12 @@ void main() {
         packages: ['alarm'],
         rows: catalogRowsOf({}),
       );
-      expect(old[1].name, 'Alarms', reason: 'Studio keeps its own names');
+      expect(
+        (old[1].name, old[1].titled, old[1].described),
+        ('', KnownLink.alarm, KnownLink.alarm),
+        reason: 'Studio keeps its own names',
+      );
+      expect(old[1].category, const CatalogCategory.known(LinkCategory.apps));
       expect(old.map((i) => i.official), everyElement(isFalse));
     });
 
@@ -244,16 +466,31 @@ void main() {
       );
       final modbus = c[0];
       expect(modbus.name, 'Modbus');
+      expect(modbus.titled, isNull, reason: "the broker's title is shown");
       expect(modbus.description, 'TCP and RTU');
-      expect(modbus.category, 'Protocols');
+      expect(modbus.described, isNull);
+      expect(modbus.category, const CatalogCategory.named('Protocols'));
       expect(modbus.version, 'wyrmd 0.2.0', reason: "the row's version wins");
       expect(modbus.official, isTrue);
       // A driver with no row keeps Studio's text and the broker version.
-      expect(c[1].name, 'Mock');
+      expect((c[1].name, c[1].titled), ('', KnownLink.mock));
+      expect(c[1].category, const CatalogCategory.known(LinkCategory.test));
       expect(c[1].version, 'wyrmd 0.1.0');
       expect(c[1].official, isFalse);
       final alarm = c[2];
-      expect(alarm.name, 'Alarms (process)');
+      expect(
+        (alarm.name, alarm.titled, alarm.processForm),
+        (
+          'Alarms',
+          null,
+          true,
+        ),
+      );
+      expect(
+        alarm.category,
+        const CatalogCategory.known(LinkCategory.apps),
+        reason: "a category of the manifest is one of Studio's",
+      );
       expect(alarm.modes, [LinkMode.process]);
       expect(alarm.version, '0.1.3');
       expect(alarm.official, isTrue);
@@ -261,7 +498,12 @@ void main() {
       final tg = c[3];
       expect(tg.name, 'telegram');
       expect(tg.description, '');
-      expect(tg.category, 'Packages', reason: 'no empty category chip');
+      expect((tg.titled, tg.described, tg.processForm), (null, null, false));
+      expect(
+        tg.category,
+        const CatalogCategory.known(LinkCategory.packages),
+        reason: 'no empty category chip',
+      );
       expect(tg.version, '1.0.0');
       expect(tg.modes, [LinkMode.wasm]);
       expect(tg.official, isFalse);
@@ -279,11 +521,15 @@ void main() {
       );
       expect(c[0].name, 'My Modbus');
       expect(c[0].description, '', reason: 'not the built-in driver text');
+      expect((c[0].titled, c[0].described), (null, null));
       expect(c[0].tag, 'MODB', reason: 'its own tag, not the official one');
       expect(c[0].official, isFalse);
       // No row for it: its name only, the choices still list it.
-      expect(c[1].name, 'alarm');
-      expect(c[1].category, 'Packages');
+      expect((c[1].name, c[1].titled, c[1].described), ('alarm', null, null));
+      expect(
+        c[1].category,
+        const CatalogCategory.known(LinkCategory.packages),
+      );
     });
 
     test('rows only describe: the choices decide what is listed', () {

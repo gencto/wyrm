@@ -3,6 +3,8 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:logging/logging.dart';
+import 'package:models/answer_fault.dart';
+import 'package:models/gateway_field_problem.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import 'discovery.dart';
@@ -19,7 +21,7 @@ abstract interface class WyrmSession {
   Stream<bool> get connection;
 
   /// The gateway in use.
-  Uri get base;
+  GatewayAddress get base;
 
   /// Who the user is on this gateway (`GET /api/me`).
   Future<GatewayIdentity> identity();
@@ -95,19 +97,44 @@ abstract interface class WyrmSession {
   Future<void> close();
 }
 
+/// A gateway's address: its URL, which never holds `user:password@`. It is
+/// made only by [parseGateways], which refuses a URL with credentials, so a
+/// gateway that travels as one (the login, the session, the site on
+/// screen, an error's object, the log) never has them.
+final class GatewayAddress {
+  const GatewayAddress._(this.uri);
+
+  /// The URL: scheme, host, port and path, no user info.
+  final Uri uri;
+
+  /// `https://plant.local:8445`.
+  String get text => uri.toString();
+
+  /// `https://plant.local:8445`, without the path.
+  String get origin => uri.origin;
+
+  @override
+  bool operator ==(Object other) => other is GatewayAddress && other.uri == uri;
+
+  @override
+  int get hashCode => uri.hashCode;
+
+  @override
+  String toString() => text;
+}
+
 /// What a timed `GET <gateway>/api/me` without a session found
 /// (docs/design/specs/login.md §6).
 final class GatewayProbe {
-  const GatewayProbe.answered(int this.ms) : reason = null;
+  const GatewayProbe.answered(int this.ms) : why = null;
 
-  const GatewayProbe.noAnswer(String this.reason) : ms = null;
+  const GatewayProbe.noAnswer(AnswerFault this.why) : ms = null;
 
   /// How long the gateway took to answer; null when it did not.
   final int? ms;
 
-  /// Why there is no answer: `connection refused`, `timed out`,
-  /// `certificate is not trusted`, …
-  final String? reason;
+  /// Why there is no answer; the screen says it.
+  final AnswerFault? why;
 
   bool get answered => ms != null;
 }
@@ -117,7 +144,7 @@ abstract interface class WyrmLogin {
   /// A password login. [device] names this computer's device key, so the
   /// gateway notes that it saw the password (`password_due` clears).
   Future<WyrmSession> open(
-    List<Uri> gateways, {
+    List<GatewayAddress> gateways, {
     required String user,
     required String password,
     String? device,
@@ -127,7 +154,7 @@ abstract interface class WyrmLogin {
   /// [sign] gives for it (the OS prompt), the session. A refusal throws a
   /// [WyrmException] with its `code`.
   Future<WyrmSession> openWithDevice(
-    Uri gateway, {
+    GatewayAddress gateway, {
     required String site,
     required String user,
     required String device,
@@ -138,12 +165,12 @@ abstract interface class WyrmLogin {
   /// not answer it (no gateway there, or one older than ADR 0050) or
   /// answers something that is not one (logged with the field). Never
   /// throws.
-  Future<GatewayInfo?> info(Uri gateway, {Duration timeout});
+  Future<GatewayInfo?> info(GatewayAddress gateway, {Duration timeout});
 
   /// Asks [gateway] for `/api/me` without a session and times the answer. A
   /// 401 means a gateway is there; anything else within [timeout] is no
   /// answer. Never throws.
-  Future<GatewayProbe> probe(Uri gateway, {Duration timeout});
+  Future<GatewayProbe> probe(GatewayAddress gateway, {Duration timeout});
 }
 
 /// The real login: `WyrmGateway.loginAny` and a reconnecting client.
@@ -165,24 +192,24 @@ final class GatewayLogin implements WyrmLogin {
 
   @override
   Future<WyrmSession> open(
-    List<Uri> gateways, {
+    List<GatewayAddress> gateways, {
     required String user,
     required String password,
     String? device,
   }) async {
     final gw = await WyrmGateway.loginAny(
-      gateways,
+      [for (final g in gateways) g.uri],
       user: user,
       password: password,
       device: device,
       http: _client(),
     );
-    return _session(gw);
+    return _session(gw, gateways);
   }
 
   @override
   Future<WyrmSession> openWithDevice(
-    Uri gateway, {
+    GatewayAddress gateway, {
     required String site,
     required String user,
     required String device,
@@ -192,7 +219,7 @@ final class GatewayLogin implements WyrmLogin {
     final WyrmGateway gw;
     try {
       gw = await WyrmGateway.loginWithDevice(
-        gateway,
+        gateway.uri,
         site: site,
         user: user,
         device: device,
@@ -203,13 +230,18 @@ final class GatewayLogin implements WyrmLogin {
       http.close(force: true);
       rethrow;
     }
-    return _session(gw);
+    return _session(gw, [gateway]);
   }
 
-  Future<WyrmSession> _session(WyrmGateway gw) async {
+  /// The session on [gw], whose base is the one of [asked] it opened on.
+  Future<WyrmSession> _session(
+    WyrmGateway gw,
+    List<GatewayAddress> asked,
+  ) async {
     try {
       final client = await gw.client();
-      return _GatewaySession(gw, client);
+      final base = asked.where((g) => g.origin == gw.base.origin).firstOrNull;
+      return _GatewaySession(gw, client, base ?? asked.first);
     } catch (_) {
       gw.dispose();
       rethrow;
@@ -218,13 +250,13 @@ final class GatewayLogin implements WyrmLogin {
 
   @override
   Future<GatewayInfo?> info(
-    Uri gateway, {
+    GatewayAddress gateway, {
     Duration timeout = const Duration(seconds: 5),
   }) async {
     final http = _client(timeout: timeout);
     try {
       return await WyrmGateway.gatewayInfo(
-        gateway,
+        gateway.uri,
         http: http,
       ).timeout(timeout);
     } on WyrmException catch (e) {
@@ -243,14 +275,14 @@ final class GatewayLogin implements WyrmLogin {
 
   @override
   Future<GatewayProbe> probe(
-    Uri gateway, {
+    GatewayAddress gateway, {
     Duration timeout = const Duration(seconds: 5),
   }) async {
     final http = _client(timeout: timeout);
     final watch = Stopwatch()..start();
     try {
       final req = await http
-          .getUrl(gateway.resolve('/api/me'))
+          .getUrl(gateway.uri.resolve('/api/me'))
           .timeout(timeout);
       final res = await req.close().timeout(timeout - watch.elapsed);
       await res.drain<void>();
@@ -260,49 +292,52 @@ final class GatewayLogin implements WyrmLogin {
       return res.statusCode == HttpStatus.unauthorized ||
               res.statusCode == HttpStatus.ok
           ? GatewayProbe.answered(ms)
-          : GatewayProbe.noAnswer('answered HTTP ${res.statusCode}');
+          : GatewayProbe.noAnswer(AnswerFault.http(res.statusCode));
     } on TimeoutException {
-      return const GatewayProbe.noAnswer('timed out');
+      return const GatewayProbe.noAnswer(AnswerFault.timedOut());
     } on HandshakeException {
-      return const GatewayProbe.noAnswer('certificate is not trusted');
+      return const GatewayProbe.noAnswer(AnswerFault.untrusted());
     } on TlsException {
-      return const GatewayProbe.noAnswer('certificate is not trusted');
+      return const GatewayProbe.noAnswer(AnswerFault.untrusted());
     } on SocketException catch (e) {
       final refused = e.osError?.errorCode == 61 || e.osError?.errorCode == 111;
       return GatewayProbe.noAnswer(
         refused
-            ? 'connection refused after ${_seconds(watch.elapsed)}'
+            ? AnswerFault.refusedAfter(watch.elapsedMilliseconds)
             : e.message.isEmpty
-            ? 'no network route'
-            : e.message,
+            ? const AnswerFault.noRoute()
+            : AnswerFault.said(e.message),
       );
+    } on HttpException catch (e) {
+      // its `toString` holds the whole URL; its message does not
+      return GatewayProbe.noAnswer(AnswerFault.said(e.message));
     } on Object catch (e) {
-      return GatewayProbe.noAnswer('$e');
+      _log.warning(
+        'probe of $gateway: ${e.runtimeType}',
+      );
+      return GatewayProbe.noAnswer(AnswerFault.failed('${e.runtimeType}'));
     } finally {
       http.close(force: true);
     }
   }
 
   static final _log = Logger('wyrm.login');
-
-  static String _seconds(Duration d) =>
-      d.inMilliseconds < 1000 ? '${d.inMilliseconds} ms' : '${d.inSeconds} s';
 }
 
 final class _GatewaySession implements WyrmSession {
-  _GatewaySession(this._gw, this._client);
+  _GatewaySession(this._gw, this._client, this.base);
 
   final WyrmGateway _gw;
   final ReconnectingClient _client;
+
+  @override
+  final GatewayAddress base;
 
   @override
   WyrmApi get api => _client;
 
   @override
   Stream<bool> get connection => _client.connection;
-
-  @override
-  Uri get base => _gw.base;
 
   @override
   Future<GatewayIdentity> identity() => _gw.identity();
@@ -394,13 +429,59 @@ final class _GatewaySession implements WyrmSession {
   }
 }
 
-/// Splits the gateway field into URLs: one, or several separated by commas
-/// for a site with a standby broker (ADR 0036). A URL without a scheme gets
-/// `http://`. Returns an empty list when nothing usable was typed.
-List<Uri> parseGateways(String text) => [
-  for (final part in text.split(','))
-    if (part.trim() case final s when s.isNotEmpty)
-      if (Uri.tryParse(s.contains('://') ? s : 'http://$s') case final u?
-          when u.host.isNotEmpty && (u.isScheme('http') || u.isScheme('https')))
-        u,
+/// One part of the gateway field as a URL: a URL without a scheme gets
+/// `http://`; null when it is no `http`/`https` URL with a host.
+Uri? _urlOf(String part) => switch (Uri.tryParse(
+  part.contains('://') ? part : 'http://$part',
+)) {
+  final u?
+      when u.host.isNotEmpty && (u.isScheme('http') || u.isScheme('https')) =>
+    u,
+  _ => null,
+};
+
+/// The parts of the gateway field, trimmed, none empty.
+Iterable<String> _partsOf(String text) =>
+    text.split(',').map((p) => p.trim()).where((p) => p.isNotEmpty);
+
+/// Splits the gateway field into addresses: one, or several separated by
+/// commas for a site with a standby broker (ADR 0036). A URL without a
+/// scheme gets `http://`. A part that is no URL, or that holds
+/// `user:password@` ([gatewayProblemOf] says so), gives no address.
+List<GatewayAddress> parseGateways(String text) => [
+  for (final part in _partsOf(text))
+    if (_urlOf(part) case final u? when u.userInfo.isEmpty) GatewayAddress._(u),
 ];
+
+/// What is wrong with the gateway field [text]; null when every part is an
+/// address.
+GatewayFieldProblem? gatewayProblemOf(String? text) {
+  final parts = _partsOf(text ?? '').toList();
+  if (parts.isEmpty) {
+    return GatewayFieldProblem.empty;
+  }
+  final urls = [for (final p in parts) _urlOf(p)];
+  if (urls.any((u) => u?.userInfo.isNotEmpty ?? false)) {
+    return GatewayFieldProblem.credentials;
+  }
+  return urls.contains(null) ? GatewayFieldProblem.invalid : null;
+}
+
+/// `user:password@` (or `user@`) of one part of the gateway field, with or
+/// without its scheme: as `Uri` reads it, up to the last `@` before the
+/// path, the query or the fragment (a password may hold `@` and spaces).
+final _fieldUserInfo = RegExp(
+  r'^(\s*(?:[A-Za-z][A-Za-z0-9+.-]*://)?)[^/?#]*@',
+);
+
+/// The gateway field [text] without the `user:password@` of any part: an
+/// older file is read with this. Every part keeps its place; a part
+/// without credentials stays as it was typed. A field typed now is kept
+/// only when it holds no credentials at all ([gatewayProblemOf]).
+String gatewayFieldWithoutCredentials(String text) => [
+  for (final part in text.split(','))
+    part.replaceFirstMapped(
+      _fieldUserInfo,
+      (m) => m.group(1)!,
+    ),
+].join(',');

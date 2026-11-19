@@ -5,11 +5,14 @@ import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/answer_fault.dart';
 import 'package:models/broker_role.dart';
 import 'package:models/ca_pin.dart';
 import 'package:models/found_gateway.dart';
 import 'package:models/found_problem.dart';
 import 'package:wyrm_client/wyrm_client.dart';
+
+import 'decode/decoded.dart';
 
 // Finding a gateway on the local network and trusting its CA (ADR 0050 §2,
 // decisions 10–12; docs/design/specs/unlock-discover.md §4). The rules a
@@ -89,13 +92,15 @@ enum InfoFault {
 }
 
 final class InfoFailure implements Exception {
-  const InfoFailure(this.fault, [this.reason = '']);
+  const InfoFailure(this.fault, this.why);
 
   final InfoFault fault;
-  final String reason;
+
+  /// What exactly went wrong, for the row's note.
+  final AnswerFault why;
 
   @override
-  String toString() => 'InfoFailure(${fault.name}: $reason)';
+  String toString() => 'InfoFailure(${fault.name}: $why)';
 }
 
 /// The CA pins in force: every `https` connection to a pinned origin
@@ -316,14 +321,14 @@ final class HttpInfoReader implements GatewayInfoReader {
           res.statusCode == HttpStatus.notFound
               ? InfoFault.missing
               : InfoFault.noAnswer,
-          'HTTP ${res.statusCode}',
+          AnswerFault.http(res.statusCode),
         );
       }
       final Value body;
       try {
         body = Value.fromCbor(bytes.takeBytes());
       } on Object {
-        throw const InfoFailure(InfoFault.missing, 'not a WYRM gateway');
+        throw const InfoFailure(InfoFault.missing, AnswerFault.notGateway());
       }
       try {
         return GatewayInfo.fromValue(body);
@@ -331,11 +336,11 @@ final class HttpInfoReader implements GatewayInfoReader {
         // ADR 0050 decision 10 names the fields; a gateway that sends
         // another shape is not one Studio can use, and the reason says
         // which field.
-        throw InfoFailure(
-          InfoFault.missing,
-          'not a WYRM gateway: ${e.path}: expected ${e.expected}, '
+        decodeLog.warning(
+          '/api/info of ${base.host}: ${e.path}: expected ${e.expected}, '
           'got ${e.got}',
         );
+        throw InfoFailure(InfoFault.missing, AnswerFault.wrongShape(e.path));
       }
     } on InfoFailure {
       rethrow;
@@ -345,20 +350,23 @@ final class HttpInfoReader implements GatewayInfoReader {
         s.contains('WRONG_VERSION_NUMBER') || s.contains('PACKET_LENGTH')
             ? InfoFault.notTls
             : InfoFault.untrusted,
-        e.message,
+        AnswerFault.said(e.message),
       );
     } on TimeoutException {
-      throw const InfoFailure(InfoFault.noAnswer, 'timed out');
+      throw const InfoFailure(InfoFault.noAnswer, AnswerFault.timedOut());
     } on SocketException catch (e) {
-      throw InfoFailure(InfoFault.noAnswer, e.message);
+      throw InfoFailure(InfoFault.noAnswer, AnswerFault.said(e.message));
     } on HttpException catch (e) {
       // A TLS client on a plain port, or the reverse, often ends here.
       throw InfoFailure(
         base.scheme == 'https' ? InfoFault.notTls : InfoFault.missing,
-        e.message,
+        AnswerFault.said(e.message),
       );
     } on Object catch (e) {
-      throw InfoFailure(InfoFault.noAnswer, '$e');
+      throw InfoFailure(
+        InfoFault.noAnswer,
+        AnswerFault.failed('${e.runtimeType}'),
+      );
     } finally {
       http.close(force: true);
     }
@@ -632,7 +640,7 @@ FoundGateway _failed(FoundGateway row, InfoFailure e) => row.copyWith(
   problem: e.fault == InfoFault.missing
       ? FoundProblem.noInfo
       : FoundProblem.noAnswer,
-  detail: e.reason,
+  why: e.why,
 );
 
 IList<String> _upOf(String? up) => [
@@ -682,8 +690,9 @@ IMap<String, FoundGateway> mergeFound(
 /// What is wrong with a range, for the line under its field.
 enum RangeFault { badText, badPart, badPrefix, tooBig }
 
+/// A range that cannot be probed: [fault] names why (the app says it).
 final class RangeFormatException extends FormatException {
-  const RangeFormatException(this.fault, String message) : super(message);
+  const RangeFormatException(this.fault);
 
   final RangeFault fault;
 }
@@ -696,31 +705,19 @@ List<String> rangeAddresses(String text) {
     r'^\s*(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})(?:/(\d{1,2}))?\s*$',
   ).firstMatch(text);
   if (m == null) {
-    throw const RangeFormatException(
-      RangeFault.badText,
-      'Write an IPv4 range, as 10.0.7.0/24.',
-    );
+    throw const RangeFormatException(RangeFault.badText);
   }
   final octets = [for (var i = 1; i <= 4; i++) int.parse(m.group(i)!)];
   if (octets.any((o) => o > 255)) {
-    throw const RangeFormatException(
-      RangeFault.badPart,
-      'Each part of an address is 0 to 255.',
-    );
+    throw const RangeFormatException(RangeFault.badPart);
   }
   final prefix = int.parse(m.group(5) ?? '32');
   if (prefix > 32) {
-    throw const RangeFormatException(
-      RangeFault.badPrefix,
-      'The prefix is 0 to 32.',
-    );
+    throw const RangeFormatException(RangeFault.badPrefix);
   }
   final size = 1 << (32 - prefix);
   if (size > rangeLimit) {
-    throw const RangeFormatException(
-      RangeFault.tooBig,
-      'At most $rangeLimit addresses: a /22 or smaller.',
-    );
+    throw const RangeFormatException(RangeFault.tooBig);
   }
   final ip = octets.fold<int>(0, (v, o) => (v << 8) | o);
   final base = ip & ~(size - 1) & 0xFFFFFFFF;

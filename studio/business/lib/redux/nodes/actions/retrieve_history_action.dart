@@ -46,7 +46,7 @@ class RetrieveHistoryAction extends Action with WaitingAction {
       failed = e.status.name;
       dispatchSync(
         AddProblemAction(
-          refusalOf(e, key: key, call: 'history').copyWith(
+          refusalOf(e, key: key, call: const .known(.history)).copyWith(
             quiet: true,
             retry: () => RetrieveHistoryAction(key, limit: limit),
           ),

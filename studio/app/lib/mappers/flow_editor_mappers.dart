@@ -34,6 +34,7 @@ import 'package:ui/flows/shortcut_card.dart';
 import 'package:ui/models/disabled.dart';
 
 import 'explorer_mappers.dart' show TypeCodeValueType;
+import 'field_label_mappers.dart';
 import 'icon_mappers.dart';
 import 'rights_mappers.dart';
 
@@ -347,8 +348,13 @@ extension FlowMenuViewVm on FlowMenuView {
 }
 
 extension MenuPinViewVm on MenuPinView {
-  FlowPinVm vm(ValueChanged<bool> onPin) =>
-      FlowPinVm(label: label, pinned: pinned, locked: locked, onPin: onPin);
+  FlowPinVm vm(ValueChanged<bool> onPin) => FlowPinVm(
+    label: label.data,
+    word: label.word,
+    pinned: pinned,
+    locked: locked,
+    onPin: onPin,
+  );
 }
 
 /// What `Create custom block…` proposes.
@@ -445,7 +451,8 @@ extension VariadicViewVm on VariadicView {
 extension RowViewVm on RowView {
   FieldRowVm get vm => FieldRowVm(
     id: id.key,
-    label: label,
+    label: label.data,
+    word: label.word,
     name: name,
     value: value,
     ghost: ghost?.vm,
@@ -501,14 +508,17 @@ extension WireViewVm on WireView {
 extension WireRefusalVm on WireRefusal {
   BindRefusalVm get vm => switch (refused.reason) {
     BindRefusal.output => const RefuseOutput(),
-    BindRefusal.noInput => RefuseNoInput(label),
+    BindRefusal.noInput => RefuseNoInput(label.data, word: label.word),
     BindRefusal.self => const RefuseSelf(),
     BindRefusal.type => RefuseType(
       refused.from?.wire ?? '',
       refused.to?.wire ?? '',
     ),
     BindRefusal.loop => const RefuseLoop(),
-    BindRefusal.needsBroker => RefuseNeedsBroker(label),
+    BindRefusal.needsBroker => RefuseNeedsBroker(
+      label.data,
+      word: label.word,
+    ),
   };
 }
 

@@ -28,6 +28,7 @@ import 'package:wyrm_client/wyrm_client.dart';
 import 'support/block_types.dart';
 import 'support/catalog_0221.dart';
 import 'support/fake_wyrm.dart';
+import 'support/field_tags.dart';
 
 // Operand constants (ADR 0038 §7, spec 06 0.2.19), the `case` block and the
 // new parameter ports (§5b, §8, spec 06 0.2.21) against the broker's own
@@ -44,7 +45,7 @@ FlowBlock block(
   Map<String, Object?> cfg = const {},
 ]) => FlowBlock(id: id, type: bt(type), cfg: cfg.lock);
 
-List<String> labels(List<FlowField> f) => [for (final x in f) x.label];
+List<String> labels(List<FlowField> f) => [for (final x in f) x.label.tag];
 
 List<String> names(List<FlowField> f) => [for (final x in f) x.name];
 
@@ -225,12 +226,12 @@ void main() {
       final k = block('k', 'case');
       final rows = rowsOf(types['case'], k);
       expect(labels(rows), [
-        'Input',
-        'Operation',
-        'Case 1',
-        'Then 1',
+        '#input',
+        '#operation',
+        '#caseOf 1',
+        '#then 1',
         'Else',
-        'Output',
+        '#output',
       ]);
       expect(names(rows), ['in', 'op', 'in.0', 'in.1', 'else', 'out']);
       final v = variadicOf(types['case'], k)!;
@@ -241,14 +242,14 @@ void main() {
         'inputs': ['0', '1', '2', '3'],
       });
       expect(labels(rowsOf(types['case'], more)), [
-        'Input',
-        'Operation',
-        'Case 1',
-        'Then 1',
-        'Case 2',
-        'Then 2',
+        '#input',
+        '#operation',
+        '#caseOf 1',
+        '#then 1',
+        '#caseOf 2',
+        '#then 2',
         'Else',
-        'Output',
+        '#output',
       ]);
       expect(variadicOf(types['case'], more)!.removes, ['2', '3']);
     });
@@ -264,10 +265,10 @@ void main() {
     test('round: Min precision bindable, a Text output', () {
       final rows = rowsOf(types['round'], block('r', 'round'));
       expect(labels(rows), [
-        'Input',
+        '#input',
         'Precision',
         'Min precision',
-        'Output',
+        '#output',
         'Text',
       ]);
       final min = rows.firstWhere((f) => f.name == 'min_precision');

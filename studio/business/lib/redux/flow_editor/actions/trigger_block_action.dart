@@ -43,7 +43,7 @@ class TriggerBlockAction extends Action with NonReentrant {
         refusalOf(
           e,
           key: '$root/dataflows/$id',
-          call: 'trigger',
+          call: const .known(.trigger),
           thing: node,
           write: true,
         ).copyWith(hint: e.message.isEmpty ? triggerHintOf(e.status) : null),
@@ -56,9 +56,9 @@ class TriggerBlockAction extends Action with NonReentrant {
 /// Why the broker did not run a block, when it sent no words: the case of
 /// its status Studio can name (docs/design/specs/errors.md), else null.
 ErrorHint? triggerHintOf(StatusCode status) => switch (status.known) {
-  Status.permissionDenied => ErrorHint.runDenied,
-  Status.notSupported => ErrorHint.runNotRunning,
-  Status.notFound => ErrorHint.runNoTrigger,
-  Status.invalidParameter => ErrorHint.runNotByHand,
+  Status.permissionDenied => const ErrorHint.runDenied(),
+  Status.notSupported => const ErrorHint.runNotRunning(),
+  Status.notFound => const ErrorHint.runNoTrigger(),
+  Status.invalidParameter => const ErrorHint.runNotByHand(),
   _ => null,
 };

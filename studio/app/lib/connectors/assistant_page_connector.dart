@@ -26,52 +26,29 @@ import 'package:business/redux/tasks/actions/approve_task_action.dart';
 import 'package:business/redux/tasks/actions/new_task_action.dart';
 import 'package:business/redux/tasks/actions/open_task_action.dart';
 import 'package:business/redux/tasks/actions/set_selected_task_action.dart';
-import 'package:business/wyrm/approval.dart';
-import 'package:business/wyrm/history_steps.dart';
-import 'package:business/wyrm/mappers/agent_task_mapper.dart';
-import 'package:business/wyrm/mappers/value_text.dart';
-import 'package:business/wyrm/task_facts.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:models/agent_task.dart';
-import 'package:models/approval_mode.dart';
-import 'package:models/assistant_panel.dart';
-import 'package:models/audit_entry.dart';
-import 'package:models/hist_point.dart';
-import 'package:models/task_state.dart';
 import 'package:ui/assistant/assistant_composer.dart';
 import 'package:ui/assistant/assistant_drawer.dart';
 import 'package:ui/assistant/choices_card.dart';
-import 'package:ui/assistant/conversation.dart';
-import 'package:ui/assistant/found_card.dart';
-import 'package:ui/assistant/more_rows_card.dart';
-import 'package:ui/assistant/plan_card.dart';
-import 'package:ui/assistant/result_card.dart';
-import 'package:ui/assistant/rights_panel.dart';
-import 'package:ui/assistant/run_card.dart';
-import 'package:ui/assistant/stopped_card.dart';
-import 'package:ui/assistant/suggestion_tile.dart';
 import 'package:ui/assistant/task_badge.dart';
-import 'package:ui/assistant/task_card.dart';
-import 'package:ui/assistant/task_list.dart';
-import 'package:ui/charts/trend.dart';
 import 'package:ui/models/value_changed.dart';
 import 'package:ui/pages/assistant_page.dart';
 
 import '../common/tab_visibility.dart';
-import '../common/trend.dart';
 import '../dialogs/assistant_dialogs.dart';
 import '../mappers/assistant_mappers.dart';
+import '../mappers/assistant_shown.dart';
 import '../navigation/app_router.dart';
 import '../navigation/go_action.dart';
 import '../navigation/go_after_action.dart';
 
 /// The Assistant tab (spec `assistant.md`): the agent's tasks, the selected
 /// task's conversation and cards, the ask box, *This task* and *What it may
-/// do*. It reads selectors (`AssistantScreen`, `TaskFacts`), maps the
-/// domain through `app/lib/mappers/assistant_mappers.dart`, passes typed
-/// values (the widgets word them) and starts one action per intent; a
-/// control that asks first opens its dialog from `assistant_dialogs.dart`.
+/// do*. It reads what is drawn from `app/lib/mappers/assistant_shown.dart`
+/// (decided in `business`, mapped there, the widgets word it) and starts
+/// one action per intent; a control that asks first opens its dialog from
+/// `assistant_dialogs.dart` (studio-rules §3, §4, §5, §9).
 @RoutePage()
 class AssistantPageConnector extends StatelessWidget {
   const AssistantPageConnector({super.key});
@@ -80,62 +57,71 @@ class AssistantPageConnector extends StatelessWidget {
   Widget build(BuildContext context) => StoreConnector<AppState, _Vm>(
     debug: this,
     vm: () => _Factory(this),
-    // the keys the Result card shows, watched while the tab is shown
+    // the keys the Result card shows changed: watched again, in one action
+    // that keeps none while the tab is hidden
     onWillChange: (context, store, before, now) {
-      if (store.state.assistant.shown && !_same(before.watch, now.watch)) {
-        store.dispatchSync(SetWatchedAction(now.watch));
+      if (!_same(before.shown.watch, now.shown.watch)) {
+        store.dispatchSync(SetWatchedAction.shown());
       }
     },
-    builder: (context, vm) => TabVisibility(
-      onShow: vm.onShow,
-      onHide: vm.onHide,
-      child: AssistantPage(
-        sections: vm.sections.unlockView,
-        onNew: vm.onNew,
-        onTask: vm.onTask,
-        agent: vm.agent,
-        noAgent: vm.noAgent,
-        title: vm.title,
-        badge: vm.badge,
-        taskId: vm.taskId,
-        events: vm.events.unlockView,
-        plan: vm.plan,
-        onTick: vm.ticks?.onToggle,
-        onFix: vm.onPickSuggestion,
-        onReveal: vm.onReveal,
-        run: vm.run,
-        result: vm.result,
-        more: vm.more.unlockView,
-        onRow: vm.rows?.onToggle,
-        onMore: vm.onPickSuggestion,
-        stopped: vm.stopped,
-        onWay: vm.onPickSuggestion,
-        choices: vm.choices,
-        onPick: switch (vm.onPick) {
-          final pick? => (q, o) => pick((question: q, option: o)),
-          null => null,
-        },
-        onAnswer: vm.onAnswer,
-        card: vm.card,
-        // a control that asks first opens its dialog; the others start
-        // their action at once
-        onButton: (b) => pressTaskButton(context, b, vm.buttons),
-        composer: vm.composer,
-        onDraft: vm.onDraft,
-        onAsk: vm.onAsk,
-        onChipRemove: vm.onChipRemove,
-        onAddChip: () => pickContextKey(context),
-        panel: vm.panel,
-        onPanel: vm.onPanel,
-        facts: vm.facts,
-        reads: vm.reads.unlockView,
-        rights: vm.rights,
-        onMode: vm.onMode,
-        onRemovePrefix: vm.onRemovePrefix,
-        onAddPrefix: () => addPrefix(context),
-        onAddAgent: vm.onAddAgent,
-      ),
-    ),
+    builder: (context, vm) {
+      final shown = vm.shown;
+      return TabVisibility(
+        onShow: vm.onShow,
+        onHide: vm.onHide,
+        child: AssistantPage(
+          sections: shown.sections.unlockView,
+          onNew: vm.onNew,
+          onTask: vm.onTask,
+          agent: shown.agent,
+          noAgent: shown.noAgent,
+          title: shown.title,
+          badge: shown.badge,
+          taskId: shown.taskId,
+          events: shown.events.unlockView,
+          plan: shown.plan,
+          onTick: vm.ticks?.onToggle,
+          onFix: vm.onPickSuggestion,
+          onReveal: vm.onReveal,
+          run: shown.run,
+          result: shown.result,
+          more: shown.more.unlockView,
+          onRow: vm.rows?.onToggle,
+          onMore: vm.onPickSuggestion,
+          stopped: shown.stopped,
+          onWay: vm.onPickSuggestion,
+          choices: shown.choices,
+          onPick: switch (vm.onPick) {
+            final pick? => (q, o) => pick(OptionPick(q, o)),
+            null => null,
+          },
+          onAnswer: vm.onAnswer,
+          card: shown.card,
+          // a control that asks first opens its dialog; the others start
+          // their action at once
+          onButton: (b) => pressTaskButton(
+            context,
+            b,
+            task: shown.taskId,
+            onStart: vm.onStart,
+          ),
+          composer: shown.composer,
+          onDraft: vm.onDraft,
+          onAsk: vm.onAsk,
+          onChipRemove: vm.onChipRemove,
+          onAddChip: () => pickContextKey(context),
+          panel: shown.panel,
+          onPanel: vm.onPanel,
+          facts: shown.facts,
+          reads: shown.reads.unlockView,
+          rights: shown.rights,
+          onMode: vm.onMode,
+          onRemovePrefix: vm.onRemovePrefix,
+          onAddPrefix: () => addPrefix(context, root: shown.root),
+          onAddAgent: vm.onAddAgent,
+        ),
+      );
+    },
   );
 }
 
@@ -143,7 +129,7 @@ bool _same(IList<String> a, IList<String> b) =>
     a.length == b.length && a.every(b.contains);
 
 /// The Assistant as a drawer over Explorer (⌘J, spec `assistant.md` §5):
-/// the same task and cards as the tab, from the same view-model.
+/// the same task and cards as the tab, from the same mapping.
 class AssistantDrawerConnector extends StatelessWidget {
   const AssistantDrawerConnector({super.key});
 
@@ -157,51 +143,60 @@ class AssistantDrawerConnector extends StatelessWidget {
     // the finding nodes, watched while the drawer is shown, and the
     // timeline of Explorer's point
     onWillChange: (context, store, before, now) =>
-        !_same(before.findingKeys, now.findingKeys) ||
-            before.timelinePoint != now.timelinePoint
+        !_same(before.shown.findingKeys, now.shown.findingKeys) ||
+            before.shown.timelinePoint != now.shown.timelinePoint
         ? store.dispatch(FollowDrawerAction())
         : null,
     // the drawer is in Explorer's page: shown while Explorer's tab is the
     // active one and the drawer is open (ADR 0037 rule 5)
-    builder: (context, vm) => TabVisibility(
-      onShow: vm.onShow,
-      onHide: vm.onHide,
-      child: AssistantDrawer(
-        taskId: vm.taskId,
-        onOpenFull: vm.onOpenFull,
-        onClose: vm.onCloseDrawer,
-        events: vm.events.unlockView,
-        choices: vm.choices,
-        onPick: switch (vm.onPick) {
-          final pick? => (q, o) => pick((question: q, option: o)),
-          null => null,
-        },
-        onAnswer: vm.onAnswer,
-        plan: vm.plan,
-        onTick: vm.ticks?.onToggle,
-        onFix: vm.onPickSuggestion,
-        onReveal: vm.onReveal,
-        run: vm.run,
-        stopped: vm.stopped,
-        onWay: vm.onPickSuggestion,
-        card: vm.card,
-        second: vm.second,
-        onSecond: () => pressSecond(context, vm.second, vm.onPickSuggestion),
-        onNewTask: vm.onNewTask,
-        onButton: (b) => pressTaskButton(context, b, vm.buttons),
-        noAgent: vm.noAgent,
-        found: vm.found,
-        onTimelineWindow: (a, b) => vm.onTimelineWindow((start: a, end: b)),
-        onTimelineReset: vm.onTimelineReset,
-        composer: AssistantComposer(
-          vm: vm.composer,
-          onDraft: vm.onDraft,
-          onAsk: vm.onAsk,
-          onChipRemove: vm.onChipRemove,
-          onAddChip: () => pickContextKey(context),
+    builder: (context, vm) {
+      final shown = vm.shown;
+      return TabVisibility(
+        onShow: vm.onShow,
+        onHide: vm.onHide,
+        child: AssistantDrawer(
+          taskId: shown.taskId,
+          onOpenFull: vm.onOpenFull,
+          onClose: vm.onCloseDrawer,
+          events: shown.events.unlockView,
+          choices: shown.choices,
+          onPick: switch (vm.onPick) {
+            final pick? => (q, o) => pick(OptionPick(q, o)),
+            null => null,
+          },
+          onAnswer: vm.onAnswer,
+          plan: shown.plan,
+          onTick: vm.ticks?.onToggle,
+          onFix: vm.onPickSuggestion,
+          onReveal: vm.onReveal,
+          run: shown.run,
+          stopped: shown.stopped,
+          onWay: vm.onPickSuggestion,
+          card: shown.card,
+          second: shown.second,
+          onSecond: () =>
+              pressSecond(context, shown.second, vm.onPickSuggestion),
+          onNewTask: vm.onNewTask,
+          onButton: (b) => pressTaskButton(
+            context,
+            b,
+            task: shown.taskId,
+            onStart: vm.onStart,
+          ),
+          noAgent: shown.noAgent,
+          found: shown.found,
+          onTimelineWindow: (a, b) => vm.onTimelineWindow(TrendWindow(a, b)),
+          onTimelineReset: vm.onTimelineReset,
+          composer: AssistantComposer(
+            vm: shown.composer,
+            onDraft: vm.onDraft,
+            onAsk: vm.onAsk,
+            onChipRemove: vm.onChipRemove,
+            onAddChip: () => pickContextKey(context),
+          ),
         ),
-      ),
-    ),
+      );
+    },
   );
 }
 
@@ -213,115 +208,82 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
 
   final bool drawer;
 
+  /// What is drawn comes from [assistantShownOf], the same object while
+  /// nothing it shows changed. A callback names what was done, with only
+  /// what [AssistantShown] holds (so a view-model kept as equal keeps
+  /// callbacks that are still right); an action reads the rest when it
+  /// runs.
   @override
   _Vm fromStore() {
-    final agent = assistant.agent;
-    final t = shownTask;
-    final id = t?.id;
-    final choices = t == null ? null : choicesShown(t);
-    final rights = assistant.panel == AssistantPanel.rights;
+    final shown = assistantShownOf(state, drawer: drawer);
+    final id = shown.taskId;
+    final ticked = shown.tickedSteps;
+    final picked = shown.pickedRows;
     return _Vm(
-      agent: agent,
-      noAgent: agent == null && !assistant.isWaiting && !links.isWaiting,
-      sections: _sections(),
-      title: t?.title,
-      badge: t?.state.badge,
-      taskId: id,
-      events: t == null
-          ? [if (agent != null) const ConversationEventVm(kind: .noTasks)].lock
-          : [for (final e in conversationOf(t)) e.line].lock,
-      plan: t == null || t.plan.isEmpty ? null : _plan(t, choices),
-      ticks: id == null || choices == null
+      shown: shown,
+      ticks: id == null || ticked == null
           ? null
           : ToggleVm(
-              selected: choices.tickedSteps.toISet(),
+              selected: ticked.toISet(),
               onToggle: (n, {required on}) =>
                   dispatchSync(SetStepTickAction(id, n, ticked: on)),
             ),
-      choices: t == null || t.questions.isEmpty ? null : _choices(t),
+      rows: id == null || picked == null
+          ? null
+          : ToggleVm(
+              selected: picked,
+              onToggle: (row, {required on}) => dispatchSync(
+                SetRowPickAction(id, row.suggestion, row.key, on: on),
+              ),
+            ),
       onPick: id == null
           ? null
           : (p) => dispatchSync(
               SetOptionPickAction.of(id, p.question, p.option),
             ),
       onAnswer: id == null ? null : () => dispatch(AnswerTaskAction(id)),
-      run: t?.run,
-      result: t == null ? null : _result(t),
-      more: t == null ? const IListConst([]) : _more(t),
-      stopped: t == null ? null : _stopped(t),
-      card: t == null ? null : _card(t, choices),
-      second: t == null ? null : _second(t),
       onPickSuggestion: id == null
           ? null
           : (s) => dispatch(PickSuggestionAction(id, s)),
-      rows: t == null
-          ? null
-          : ToggleVm(
-              selected: pickedRowsOf(t),
-              onToggle: (row, {required on}) => dispatchSync(
-                SetRowPickAction(t.id, row.suggestion, row.key, on: on),
-              ),
-            ),
       onReveal: id == null
           ? null
           : (n) => dispatchSync(SetStepRevealAction.toggle(id, n)),
-      buttons: TaskButtonActions(
-        task: id,
+      // a button of the card that starts its action at once: what it names
+      // (a task, a node, a point) is on the button
+      onStart: (b) => switch (b.button) {
         // what is on screen now: the plan and the ticks as shown
-        approve: t == null
-            ? null
-            : () => dispatch(
-                ApproveTaskAction(
-                  t.id,
-                  plan: t.planHash,
-                  steps: (choices ?? const <StepChoice>[]).tickedSteps,
-                ),
-              ),
-        replacement: switch (t?.replacedBy) {
-          final next? => () => dispatch(OpenTaskAction(next)),
-          null => null,
-        },
-        explorer: switch (t?.changedNode) {
-          final node? => () => dispatch(
-            GoAfterAction(const ExplorerRoute(), [SelectNodeAction(node)]),
+        TaskButton.approve => switch (id) {
+          final id? => dispatch(
+            ApproveTaskAction(
+              id,
+              plan: shown.planHash,
+              steps: (ticked ?? const IListConst([])).unlockView,
+            ),
           ),
           null => null,
         },
-        trend: switch (t?.touched.lastOrNull) {
-          final key? => () => dispatch(
-            GoAfterAction(const ExplorerRoute(), [
-              SetDrawerAction(open: false),
-              OpenTrendAction(key),
-            ]),
-          ),
-          null => null,
-        },
-        followUp: id == null
-            ? null
-            : (text) => dispatch(AskAgentAction(text: text, parent: id)),
-      ),
-      watch: assistantWatch.lock,
-      findingKeys: drawerFindingKeys.lock,
-      found: assistant.drawer ? _found(t) : null,
-      timelinePoint: assistant.drawer ? timelinePoint : null,
+        TaskButton.followUp => dispatch(
+          AskAgentAction(text: b.says, parent: b.name),
+        ),
+        TaskButton.replacement => dispatch(OpenTaskAction(b.name)),
+        TaskButton.explorer => dispatch(
+          GoAfterAction(const ExplorerRoute(), [SelectNodeAction(b.name)]),
+        ),
+        TaskButton.trend => dispatch(
+          GoAfterAction(const ExplorerRoute(), [
+            SetDrawerAction(open: false),
+            OpenTrendAction(b.name),
+          ]),
+        ),
+        // these ask first: their dialogs start them
+        TaskButton.reject || TaskButton.cancel || TaskButton.save => null,
+      },
       onTimelineWindow: (w) => dispatchSync(ZoomHistoryAction(w.start, w.end)),
       onTimelineReset: () => dispatchSync(SetHistoryWindowAction(null)),
-      composer: _composer(t),
       onDraft: (text) => dispatchSync(SetDraftAction(text)),
       onAsk: () => dispatch(SendAskAction(drawer: drawer)),
       onChipRemove: (k) => dispatchSync(SetChipAction(k, on: false)),
-      panel: assistant.panel.tab,
       onPanel: (p) => dispatch(SetPanelAction(p.panel)),
-      facts: t == null
-          ? null
-          : TaskFactsVm(
-              taskId: t.id,
-              badge: t.state.badge,
-              owner: t.owner,
-              events: sessionOf(t).length,
-            ),
-      reads: rights || t == null ? const IListConst([]) : readsOf(t).lock,
-      rights: rights ? _rights() : null,
       onMode: (m) => switch (m.domain) {
         final mode? => dispatch(StageAgentParamAction.mode(mode)),
         null => null,
@@ -353,408 +315,26 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
       onCloseDrawer: () => dispatchSync(SetDrawerAction(open: false)),
     );
   }
-
-  IList<TaskSectionVm> _sections() {
-    final (:now, :earlier) = taskGroups;
-    TaskItemVm item(AgentTask t) =>
-        t.item(selected: t.id == tasks.selectedTask, own: askedByUser(t));
-    return [
-      if (now.isNotEmpty)
-        TaskSectionVm(section: .now, tasks: [for (final t in now) item(t)]),
-      if (earlier.isNotEmpty)
-        TaskSectionVm(
-          section: .earlier,
-          tasks: [for (final t in earlier) item(t)],
-        ),
-    ].lock;
-  }
-
-  /// The task's plan as it is approved: every step with its full key and
-  /// every argument (docs/agent.md: never only the model's reason).
-  PlanCardVm _plan(AgentTask t, List<StepChoice>? choices) {
-    final waits = t.state == TaskState.awaitingApproval && t.replacedBy == null;
-    return PlanCardVm(
-      line: switch (t.replacedBy) {
-        final next? => PlanReplaced(next),
-        null when t.state == TaskState.awaitingApproval => switch (planChecks(
-          t.plan,
-        )) {
-          (:final now, :final atRun) => PlanChecked(now: now, atRun: atRun),
-        },
-        null => switch (t.approvedBy) {
-          final line? => PlanApproved(line),
-          null => PlanState(t.state.badge),
-        },
-      },
-      badge: t.state.badge,
-      // a plan that waits is read whole; after that its run tells the story
-      open: waits,
-      steps: [
-        for (final (i, s) in t.plan.indexed)
-          planStepVm(
-            s,
-            args: argsOf(t, s),
-            choice: choices?.elementAt(i),
-            revealed: revealedOf(t.id, s.n),
-            // the fixes the model offers for this step, while it waits
-            fixes: waits
-                ? [
-                    for (final f in t.fixesOf(s.n))
-                      f.tile(
-                        note: .fix,
-                        unattended: _unattended,
-                        hold: followHold(t),
-                      ),
-                  ]
-                : const [],
-          ),
-      ],
-    );
-  }
-
-  /// What the assistant asked: an answered question as one line, an open
-  /// one with its options and the picks made so far.
-  ChoicesCardVm _choices(AgentTask t) {
-    final open = t.state == TaskState.awaitingAnswer;
-    return ChoicesCardVm(
-      questions: [
-        for (final q in t.questions) q.view(picksOf(t.id, q.id), open: open),
-      ],
-      confirm: open && t.asksStill,
-      blocked: answerHold(t)?.blocked,
-    );
-  }
-
-  /// What a finished plan left behind: the keys it touched with their
-  /// values now.
-  ResultCardVm? _result(AgentTask t) {
-    final keys = t.touched;
-    return keys.isEmpty
-        ? null
-        : ResultCardVm(
-            facts: [
-              for (final k in keys) (key: k, value: _valueOf(k)),
-            ],
-          );
-  }
-
-  String? _valueOf(String key) => switch (live.values[key]) {
-    final v? => valueText(v.value),
-    null => null,
-  };
-
-  /// *Same for more units?* of a task that is done: the suggestions with
-  /// rows, each row tickable, none ticked at first.
-  IList<MoreRowsCardVm> _more(AgentTask t) => t.state != TaskState.done
-      ? const IListConst([])
-      : [
-          for (final s in t.withRows)
-            MoreRowsCardVm(
-              id: s.id,
-              title: s.label,
-              detail: s.detail,
-              rows: [
-                for (final r in s.rows)
-                  MoreRowVm(
-                    key: r.key,
-                    label: r.label,
-                    detail: r.detail,
-                    ticked: rowPicksOf(t.id, s.id).contains(r.key),
-                  ),
-              ],
-              blocked: moreHold(t, s)?.blocked,
-              unattended: _unattended,
-            ),
-        ].lock;
-
-  /// Where a run stopped, what the model read about it, and its ways out.
-  StoppedCardVm? _stopped(AgentTask t) {
-    final at = t.failedStep;
-    if (t.state != TaskState.failed || t.replacedBy != null || at == null) {
-      return null;
-    }
-    return StoppedCardVm(
-      step: at.n,
-      code: t.stopCode,
-      message: t.stopMessage,
-      reviewing: t.reviewing,
-      review: t.review,
-      // a suggestion with rows needs its ticks: the Result card has them
-      ways: [for (final s in t.waysOut) s.tile(hold: followHold(t))],
-      offered: t.suggestions.isNotEmpty,
-      unattended: _unattended,
-    );
-  }
-
-  /// The card under the task: what it waits for and its buttons.
-  TaskCardVm? _card(AgentTask t, List<StepChoice>? choices) {
-    final badge = t.state.badge;
-    final cancel = TaskButtonVm(.cancel, blocked: writeHold?.blocked);
-    // a plan another task took the place of: never approved, and the way
-    // to the task that replaced it (its `~val` may still say it waits)
-    if (t.replacedBy case final next?) {
-      return TaskCardVm(
-        badge: badge,
-        note: TaskNoteReplaced(next),
-        buttons: [TaskButtonVm(.replacement, name: next)],
-      );
-    }
-    return switch (t.state) {
-      TaskState.awaitingApproval => _approval(t, choices ?? const []),
-      TaskState.awaitingAnswer => TaskCardVm(
-        badge: badge,
-        note: const TaskNoteAnswer(),
-        buttons: [cancel],
-      ),
-      TaskState.planning || TaskState.running => TaskCardVm(
-        badge: badge,
-        note: const TaskNoteWorking(),
-        buttons: [cancel],
-      ),
-      TaskState.done => TaskCardVm(
-        badge: badge,
-        note: TaskNoteDone(t.leftOut),
-        buttons: [
-          if (t.changedNode case final node?)
-            TaskButtonVm(.explorer, name: node),
-          if (t.touched.lastOrNull case final key?)
-            TaskButtonVm(.trend, name: key),
-          if (t.plan.isNotEmpty) const TaskButtonVm(.save),
-          if (t.leftOut case final left when left.isNotEmpty)
-            TaskButtonVm(
-              .followUp,
-              name: t.id,
-              steps: left,
-              blocked: followUpHold?.blocked,
-            ),
-        ],
-      ),
-      // stopped in its run: the Stopped card says where and what next;
-      // while the model reviews the run it can be cancelled
-      TaskState.failed => switch (t.failedStep) {
-        _? when t.reviewing => TaskCardVm(
-          badge: badge,
-          note: const TaskNoteWorking(),
-          buttons: [cancel],
-        ),
-        _? => null,
-        null => TaskCardVm(badge: badge, note: TaskNoteFailed(t.error)),
-      },
-    };
-  }
-
-  /// The card of a plan that waits: what Approve signs, Reject, Approve.
-  TaskCardVm _approval(AgentTask t, List<StepChoice> choices) => TaskCardVm(
-    badge: t.state.badge,
-    note: approvalNote(t, choices).note,
-    buttons: [
-      TaskButtonVm(.reject, blocked: writeHold?.blocked),
-      TaskButtonVm(
-        .approve,
-        count: choices.tickedCount == 0 ? 0 : choices.runCount,
-        blocked: approveHold(t, choices)?.blocked,
-      ),
-    ],
-  );
-
-  /// The mode under which a pick's plan may write without a person.
-  AgentModeVm? get _unattended =>
-      unattendedView(unattended, unknown: assistant.modeUnknown);
-
-  /// The drawer's second button as the model's tile (spec §5): while the
-  /// plan waits a draft to copy (an ask would replace a plan the person
-  /// may still approve); after a done task a follow-up ask.
-  SuggestionTileVm? _second(AgentTask t) {
-    final s = t.second;
-    final waits = t.state == TaskState.awaitingApproval;
-    if (s == null ||
-        t.replacedBy != null ||
-        (!waits && t.state != TaskState.done)) {
-      return null;
-    }
-    return waits
-        ? s.tile(note: .draft)
-        : s.tile(
-            note: .followUp,
-            unattended: _unattended,
-            hold: followHold(t),
-          );
-  }
-
-  /// The ask box for the task on screen (spec `assistant.md` §4).
-  ComposerVm _composer(AgentTask? t) {
-    final answering = t?.state == TaskState.awaitingAnswer;
-    return ComposerVm(
-      draft: assistant.draft ?? '',
-      hint: drawer && !answering
-          ? .drawer
-          : (t?.hint(follows: askParent(t) != null) ?? .ask),
-      node: t?.failedStep?.key ?? '',
-      answering: answering,
-      blocked: askHold?.blocked,
-      chips: assistant.chips.toList(),
-      chipBlocked: chipHold?.blocked,
-      replaces: !drawer && t != null && replacesPlan(t),
-      dense: drawer,
-    );
-  }
-
-  /// *What it may do* (board *AssistantRights*): the modes and prefixes as
-  /// they will be once a staged update is applied, the model, today's
-  /// budget, whether the API key is set and where it goes.
-  RightsPanelVm _rights() {
-    final config = assistant.config;
-    final params = agentParams;
-    return RightsPanelVm(
-      modes: [
-        for (final m in ApprovalMode.values)
-          ModeVm(m.view, selected: m == params.mode),
-      ],
-      prefixes: params.prefixes,
-      agent: assistant.agentId,
-      model: config?.model,
-      used: budgetUsed,
-      budget: config?.budgetTokensDay,
-      apiKeyRef: config?.apiKeyRef,
-      apiKey: apiKeySet.apiKey,
-      sentTo: config?.sentTo,
-      blocked: editHold?.blocked,
-      staged: params.staged,
-      modeUnknown: params.mode == null,
-    );
-  }
-
-  /// *What I found* (the task's findings, each marked from its node's live
-  /// value) and the mini timeline of the drawer's point with the audit
-  /// records on it (spec assistant.md §5).
-  FoundCardVm? _found(AgentTask? t) {
-    final rows = [
-      if (t != null)
-        for (final f in findingsShown(t)) f.row(live.values[f.key]?.quality),
-    ];
-    final missing = [
-      if (t != null)
-        for (final MapEntry(:key, :value) in t.findingsRefused.entries)
-          FoundMissingVm(key.view, value),
-    ];
-    final point = timelinePoint;
-    if (rows.isEmpty && missing.isEmpty && point == null) {
-      return null;
-    }
-    final read = assistant.timelineKey == point;
-    final audit = read
-        ? assistant.timelineAudit
-        : const IListConst<AuditEntry>([]);
-    return FoundCardVm(
-      rows: rows,
-      missing: missing,
-      point: point == null
-          ? null
-          : (nodes.table[point]?.display ?? lastSegment(point)),
-      range: nodes.historyRange.code,
-      timeline: point == null ? null : _timeline(point),
-      audit: [for (final a in audit) a.line],
-      auditNote: !site.readsAudit
-          ? .needsConfig
-          : read && audit.isEmpty
-          ? .none
-          : null,
-    );
-  }
-
-  /// The range of the history read for [key] in µs (as Explorer's).
-  (int, int) _historyRange(String? key) {
-    final span = nodes.historyRange.span;
-    final rows = nodes.historyKey == key && key != null
-        ? nodes.history
-        : const IListConst<HistPoint>([]);
-    final e = trendRangeEnd(nodes.historyAt, [rows.lastOrNull?.time]);
-    return (e - span.inMicroseconds, e);
-  }
-
-  /// The point's compact trend: the rows Explorer reads for it, no brush;
-  /// the card adds the audit records as marks.
-  TrendVm _timeline(String point) {
-    final (rs, re) = _historyRange(point);
-    final w = nodes.historyWindow;
-    final we = w?.end?.microsecondsSinceEpoch ?? re;
-    final ws = w == null ? rs : we - w.span.inMicroseconds;
-    final span = nodes.historyRange.span;
-    final read = nodes.historyKey == point;
-    final rows = read ? nodes.history : const IListConst<HistPoint>([]);
-    final info = nodes.table[point];
-    return TrendVm(
-      title: info?.display ?? lastSegment(point),
-      series: [
-        TrendSeriesVm(
-          id: point,
-          name: lastSegment(point),
-          label: info?.display ?? '',
-          color: TrendColor.byIndex(0),
-          unit: info?.unit ?? '',
-          decimals: trendDecimals(rows),
-          samples: trendSamples(rows),
-          overview: trendSamples(rows),
-        ),
-      ],
-      rangeStart: rs,
-      rangeEnd: re,
-      windowStart: ws.clamp(rs, re),
-      windowEnd: we.clamp(rs, re),
-      minWindow: 12 * stepDuration(stepFor(span, raw: false))!.inMicroseconds,
-      endsNow: true,
-      following: w?.end == null,
-      loading: !read || (rows.isEmpty && nodes.historyLoading),
-      card: false,
-      legend: false,
-      hint: false,
-      brush: false,
-      plotHeight: 64,
-      format: trendFormat(),
-    );
-  }
 }
 
-/// The view-model holds the part of the Store state the dumb-widget needs.
+/// What the Assistant draws ([shown], compared, with the ticks made of it)
+/// and what it starts (not compared, but for whether it is there).
 class _Vm extends Vm {
   _Vm({
-    required this.agent,
-    required this.noAgent,
-    required this.sections,
-    required this.title,
-    required this.badge,
-    required this.taskId,
-    required this.events,
-    required this.plan,
+    required this.shown,
     required this.ticks,
-    required this.choices,
+    required this.rows,
     required this.onPick,
     required this.onAnswer,
-    required this.run,
-    required this.result,
-    required this.more,
-    required this.stopped,
-    required this.card,
-    required this.second,
     required this.onPickSuggestion,
-    required this.rows,
     required this.onReveal,
-    required this.buttons,
-    required this.watch,
-    required this.findingKeys,
-    required this.found,
-    required this.timelinePoint,
+    required this.onStart,
     required this.onTimelineWindow,
     required this.onTimelineReset,
-    required this.composer,
     required this.onDraft,
     required this.onAsk,
     required this.onChipRemove,
-    required this.panel,
     required this.onPanel,
-    required this.facts,
-    required this.reads,
-    required this.rights,
     required this.onMode,
     required this.onRemovePrefix,
     required this.onAddAgent,
@@ -767,33 +347,9 @@ class _Vm extends Vm {
     required this.onCloseDrawer,
   }) : super(
          equals: [
-           agent,
-           noAgent,
-           sections,
-           title,
-           badge,
-           taskId,
-           events,
-           plan,
+           shown,
            ticks,
-           choices,
-           run,
-           result,
-           more,
            rows,
-           stopped,
-           card,
-           buttons,
-           second,
-           watch,
-           findingKeys,
-           found,
-           timelinePoint,
-           composer,
-           panel,
-           facts,
-           reads,
-           rights,
            onNewTask != null,
            onOpenFull != null,
            onPick != null,
@@ -803,63 +359,31 @@ class _Vm extends Vm {
          ],
        );
 
-  final String? agent;
-  final bool noAgent;
-  final IList<TaskSectionVm> sections;
-  final String? title;
-  final TaskBadge? badge;
-  final String? taskId;
-  final IList<ConversationEventVm> events;
-  final PlanCardVm? plan;
+  /// Everything drawn, as `ui` render models.
+  final AssistantShown shown;
 
   /// The ticks of the plan; null: the plan is only shown.
   final ToggleVm<int>? ticks;
-  final ChoicesCardVm? choices;
-
-  /// An option of a question was picked.
-  final ValueChanged<({String question, String option})>? onPick;
-  final VoidCallback? onAnswer;
-  final RunCardVm? run;
-  final ResultCardVm? result;
-  final IList<MoreRowsCardVm> more;
-  final StoppedCardVm? stopped;
-  final TaskCardVm? card;
-
-  /// The drawer's second button: the model's tile.
-  final SuggestionTileVm? second;
-
-  /// A suggestion (a fix, a way out, more units) of the task was picked.
-  final ValueChanged<String>? onPickSuggestion;
 
   /// The ticked rows of *Same for more units?*.
   final ToggleVm<MoreRowRef>? rows;
+
+  /// An option of a question was picked.
+  final ValueChanged<OptionPick>? onPick;
+  final VoidCallback? onAnswer;
+
+  /// A suggestion (a fix, a way out, more units) of the task was picked.
+  final ValueChanged<String>? onPickSuggestion;
   final ValueChanged<int>? onReveal;
 
-  /// What the card's buttons that start their action at once do.
-  final TaskButtonActions buttons;
-
-  /// The keys whose values the Result card shows.
-  final IList<String> watch;
-
-  /// The nodes of the findings, watched by the drawer for their marks.
-  final IList<String> findingKeys;
-
-  /// The drawer's *What I found* and mini timeline; null when closed.
-  final FoundCardVm? found;
-
-  /// The point the drawer's timeline shows (the Explorer point).
-  final String? timelinePoint;
-  final ValueChanged<({int start, int end})> onTimelineWindow;
+  /// A button of the task's card that starts its action at once.
+  final ValueChanged<TaskButtonVm> onStart;
+  final ValueChanged<TrendWindow> onTimelineWindow;
   final VoidCallback onTimelineReset;
-  final ComposerVm composer;
   final ValueChanged<String> onDraft;
   final VoidCallback onAsk;
   final ValueChanged<String> onChipRemove;
-  final AssistantTab panel;
   final ValueChanged<AssistantTab> onPanel;
-  final TaskFactsVm? facts;
-  final IList<ReadRow> reads;
-  final RightsPanelVm? rights;
   final ValueChanged<AgentModeVm> onMode;
   final ValueChanged<String> onRemovePrefix;
   final VoidCallback onAddAgent;

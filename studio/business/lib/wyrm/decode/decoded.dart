@@ -18,6 +18,21 @@ sealed class Decoded<T> {
     final Invalid<T> i => _warn<T>(where, i),
   };
 
+  /// Records an [Invalid] value (as [orWarn] writes it) and nothing for a
+  /// [Valid] one: for the place a value arrives at, which records what
+  /// could not be read once and hands the reading on.
+  void record(String where) => orWarn(where);
+
+  /// The value, or null for an [Invalid] one, with **no** record: only
+  /// for a reader that runs on every rebuild (a selector, a view), whose
+  /// value was recorded where it arrived ([record]) and whose result shows
+  /// the fault itself or keeps the last value read. Never a way to drop
+  /// what could not be read.
+  T? get orNull => switch (this) {
+    Valid(:final value) => value,
+    Invalid() => null,
+  };
+
   static R? _warn<R>(String where, Invalid<R> i) {
     decodeLog.warning('$where: ${i.shape}.${i.field}: ${i.reason}');
     return null;
@@ -68,4 +83,12 @@ final class Invalid<T> extends Decoded<T> {
 
   @override
   String toString() => 'Invalid($shape.$field: $reason)';
+}
+
+/// The field of [bad] a screen may name (its wire name); why it does not
+/// read is written to the log with [where], never shown: a decoder's
+/// reason is a developer's word, not the user's.
+String loggedField(String where, Invalid<Object?> bad) {
+  decodeLog.warning('$where: ${bad.shape}.${bad.field}: ${bad.reason}');
+  return bad.field;
 }

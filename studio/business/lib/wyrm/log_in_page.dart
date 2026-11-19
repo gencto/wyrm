@@ -1,4 +1,5 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/answer_fault.dart';
 import 'package:models/ca_pin.dart';
 import 'package:models/found_gateway.dart';
 import 'package:models/found_problem.dart';
@@ -32,12 +33,15 @@ final class GatewayField {
   /// The standby gateway as typed; null when none is set.
   final String? standby;
 
+  /// The main gateway's address; null while what is typed is not one.
+  GatewayAddress? get mainAddress => parseGateways(main).firstOrNull;
+
   /// The main gateway's URL; null while what is typed is not one.
-  Uri? get mainUri => parseGateways(main).firstOrNull;
+  Uri? get mainUri => mainAddress?.uri;
 
   /// The standby's URL; null without one.
   Uri? get standbyUri =>
-      standby == null ? null : parseGateways(standby!).firstOrNull;
+      standby == null ? null : parseGateways(standby!).firstOrNull?.uri;
 
   /// `host:port` of the main gateway; what is typed while it is not a URL.
   String get mainHost => switch (mainUri) {
@@ -177,7 +181,7 @@ List<RecentGateway> recentGatewaysOf(
     if (parseGateways(r).firstOrNull case final u?)
       RecentGateway(
         text: r,
-        label: labels[u.origin] ?? shortHost(u),
+        label: labels[u.origin] ?? shortHost(u.uri),
         reach: reachOf(probes[u.origin]),
         current: r == field.trim(),
       ),
@@ -249,6 +253,7 @@ final class FoundRow {
     required this.known,
     required this.problem,
     required this.detail,
+    required this.why,
     required this.up,
     required this.seen,
     required this.selected,
@@ -271,6 +276,9 @@ final class FoundRow {
   /// Why it cannot be picked, with its [detail]; null when it can.
   final FoundProblem? problem;
   final String detail;
+
+  /// Why `/api/info` gave nothing, when that is the problem.
+  final AnswerFault? why;
 
   /// The sites it is a downstream of.
   final List<String> up;
@@ -336,6 +344,7 @@ FoundRow _rowOf(
     },
     problem: r.problem,
     detail: r.detail ?? '',
+    why: r.why,
     up: r.up.toList(),
     seen: Duration(seconds: seen < 0 ? 0 : seen ~/ 1000),
     selected: picked == r.site,
@@ -346,7 +355,7 @@ FoundRow _rowOf(
 /// The port *Probe a range* uses until one is typed: the port of the
 /// gateway in the [field], else the gateway's default.
 int defaultProbePortOf(String? field) =>
-    parseGateways(field ?? '').firstOrNull?.port ?? defaultGatewayPort;
+    parseGateways(field ?? '').firstOrNull?.uri.port ?? defaultGatewayPort;
 
 /// The port a WYRM gateway listens on by default.
 const defaultGatewayPort = 8446;

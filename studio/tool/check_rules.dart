@@ -57,7 +57,8 @@ final _rules = <Rule>[
   Rule('string-case', ['app/lib/', 'business/lib/', 'ui/lib/'], (t) {
     final c = _code(t);
     return _matches(c, RegExp(r"'[^'\n]*'(?:\s*\|\|\s*'[^'\n]*')*\s*=>")) +
-        _matches(c, RegExp(r"^\s*case\s+'[^'\n]*'", multiLine: true));
+        _matches(c, RegExp(r"^\s*case\s+'[^'\n]*'", multiLine: true)) +
+        _constStringCases(c);
   }, except: ['business/lib/wyrm/decode/']),
   // 2. a closed set carried as text: string ids and records of strings
   // (owner, 2026-11-15: `id: 'git'`, `List<(String, String)>`)
@@ -74,6 +75,18 @@ final _rules = <Rule>[
           ),
         );
   }, except: ['business/lib/wyrm/decode/']),
+  // 2, 7. a record with named fields used as a type (`({String key, bool
+  // reads})`, a `typedef X = ({…})`): an ad-hoc model with no name, no
+  // constructor and no place for its rule (audit of #137). Not a named
+  // parameter list: that one follows a name (`f({int a})`).
+  Rule(
+    'record-type',
+    ['app/lib/', 'business/lib/', 'ui/lib/'],
+    (t) => _matches(
+      _code(t),
+      RegExp(r'(?<![\w>?\]])\(\{\s*(?:[A-Za-z_][\w<>?, ]*\s+\w+\s*,?\s*)+\}\)'),
+    ),
+  ),
   // 3. connectors map, they do not compute: their size
   Rule('connector-lines', [
     'app/lib/connectors/',
@@ -136,6 +149,15 @@ final _rules = <Rule>[
           // a cast written as a pattern (`case final Map<String, Object?> m`)
           // is the same untyped read (audit of #117)
           _matches(c, RegExp(r'\bcase\s+final\s+(?:Map|List)<')) +
+          // and so is a scalar pattern (`case final String s`): the value
+          // it tests is still untyped (audit of #135)
+          _matches(
+            c,
+            RegExp(r'\bcase\s+final\s+(?:String|int|double|bool|num)\b'),
+          ) +
+          // a value read through `JsonValue` outside a decoder is the same
+          // untyped read in another spelling (re-audit of #135)
+          _matches(c, RegExp(r'\bJsonValue\.(?:of|tryOf)\(')) +
           _matches(c, RegExp(r'\btoDart\(')) +
           // the loose readers of values.dart, outside a decoder
           _matches(
@@ -377,6 +399,28 @@ int _iconId(String text) {
   return n;
 }
 
+/// A string switch written through names: each `case` label and each
+/// switch-expression arm that is a constant this file declares as a text
+/// (`const _stateLeaf = 'state';` … `case _stateLeaf:`). It is the same
+/// closed set carried as text (audit of #135).
+int _constStringCases(String c) {
+  final names = {
+    for (final m in RegExp(
+      r"\bconst\s+(?:String\s+)?(\w+)\s*=\s*'",
+    ).allMatches(c))
+      m.group(1)!,
+  };
+  if (names.isEmpty) {
+    return 0;
+  }
+  final any = names.map(RegExp.escape).join('|');
+  return _matches(c, RegExp('^\\s*case\\s+(?:$any)\\b', multiLine: true)) +
+      _matches(
+        c,
+        RegExp('^\\s*(?:$any)(?:\\s*\\|\\|\\s*\\w+)*\\s*=>', multiLine: true),
+      );
+}
+
 /// Each method whose whole body is a dispatch, but a service listener's
 /// own callback.
 int _dispatchWrapper(String text) {
@@ -390,6 +434,18 @@ int _dispatchWrapper(String text) {
     RegExp('$head=>\\s*$call', multiLine: true),
     // the same with a body of one statement: `void f() { dispatch(x); }`
     RegExp('$head\\{\\s*$call[^;]*;\\s*\\}', multiLine: true),
+    // a dispatch behind a condition is the whole body all the same:
+    // `=> cond ? dispatch(x) : null` and `{ if (cond) dispatch(x); }`
+    // (the condition at the body's own level: its parentheses close
+    // before the `?`, so a ternary inside an argument is not this)
+    RegExp(
+      '$head=>[^;{}()]*(?:\\([^()]*\\)[^;{}()]*)*\\?\\s*$call',
+      multiLine: true,
+    ),
+    RegExp(
+      '$head\\{\\s*if\\s*\\([^{};]*\\)\\s*\\{?\\s*$call[^;]*;\\s*\\}?\\s*\\}',
+      multiLine: true,
+    ),
   ]) {
     for (final m in re.allMatches(c)) {
       final before = c.substring(0, m.start).trimRight();
@@ -467,6 +523,52 @@ int _vmEquality(String text) {
 /// ([good]): a change to a pattern that stops seeing what it is for fails
 /// here, not in review.
 const _probes = <String, ({String bad, String good})>{
+  'record-type': (
+    bad: '''
+  ({String key, bool reads})? typedChip(String text) => null;
+typedef ReadFail = ({ReadFailure what, String reason});
+  final List<({int start, int end})> spans;
+''',
+    good: '''
+  TypedChip? typedChip(String text) => null;
+  void onTick(int n, {required bool on}) {}
+  const TaskRow({required this.key, this.label = ''});
+  Future<void> open(Uri gateway, {String? user, String? device}) async {}
+''',
+  ),
+  'string-case': (
+    bad: '''
+const _stateLeaf = 'state';
+void f(String leaf) {
+  switch (leaf) {
+    case _stateLeaf:
+      break;
+  }
+}
+''',
+    good: '''
+const _limit = 12;
+void f(Leaf leaf, int n) {
+  switch (leaf) {
+    case Leaf.state:
+      break;
+  }
+  switch (n) {
+    case _limit:
+      break;
+  }
+}
+''',
+  ),
+  'untyped-wire': (
+    bad: '''
+    if (p.defaultValue case final String prefilled when prefilled.isNotEmpty)
+    if (JsonValue.tryOf(json['type']) case JsonText(text: final t)) {}
+''',
+    good: '''
+    if (p.defaultValue case JsonText(text: final prefilled))
+''',
+  ),
   'vm-equality': (
     bad: '''
 class _Vm extends Vm {
@@ -502,6 +604,15 @@ class _Vm extends Vm {
       _store.dispatchAndWait(LoadAction(id));
   void _read(String id) {
     _store.dispatch(ReadAction(id));
+  }
+  void report(Object e) =>
+      fresh(e)
+      ? store.dispatch(ReportAction(e))
+      : null;
+  void _maybe(String id) {
+    if (id.isNotEmpty) {
+      _store.dispatch(ReadAction(id));
+    }
   }
 class D implements TasksServiceListener {
   void _load(String id) => _store.dispatch(LoadAction(id));

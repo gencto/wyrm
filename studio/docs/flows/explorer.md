@@ -639,6 +639,23 @@ sequenceDiagram
     A1->>ST: copyWith(assistant.unticked, assistant.refusals)
 ```
 
+## AssistantDrawer ▸ rows.onToggle
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as ExplorerPage
+    participant R1 as AssistantDrawerConnector
+    participant A1 as SetRowPickAction
+    participant ST as AppState
+
+    User->>UI: AssistantDrawer ▸ rows.onToggle
+    UI->>R1: rows()
+    R1->>A1: dispatchSync
+    A1->>ST: copyWith(assistant.rowPicks)
+```
+
 ## AssistantDrawer ▸ onPick
 
 ```mermaid
@@ -697,23 +714,6 @@ sequenceDiagram
     A1->>ST: dispatchAndWait(AskAgentAction)
 ```
 
-## AssistantDrawer ▸ rows.onToggle
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User
-    participant UI as ExplorerPage
-    participant R1 as AssistantDrawerConnector
-    participant A1 as SetRowPickAction
-    participant ST as AppState
-
-    User->>UI: AssistantDrawer ▸ rows.onToggle
-    UI->>R1: rows()
-    R1->>A1: dispatchSync
-    A1->>ST: copyWith(assistant.rowPicks)
-```
-
 ## AssistantDrawer ▸ onReveal
 
 ```mermaid
@@ -731,7 +731,7 @@ sequenceDiagram
     A1->>ST: copyWith(assistant.revealed, assistant.refusals)
 ```
 
-## AssistantDrawer ▸ buttons
+## AssistantDrawer ▸ onStart
 
 ```mermaid
 sequenceDiagram
@@ -740,13 +740,13 @@ sequenceDiagram
     participant UI as ExplorerPage
     participant R1 as AssistantDrawerConnector
     participant A1 as ApproveTaskAction
-    participant A2 as OpenTaskAction
-    participant A3 as GoAfterAction
-    participant A4 as AskAgentAction
+    participant A2 as AskAgentAction
+    participant A3 as OpenTaskAction
+    participant A4 as GoAfterAction
     participant ST as AppState
 
-    User->>UI: AssistantDrawer ▸ buttons
-    UI->>R1: buttons()
+    User->>UI: AssistantDrawer ▸ onStart
+    UI->>R1: onStart()
     R1->>A1: dispatch
     Note over A1: NonReentrant · WaitingAction · async
     A1->>ST: copyWith(assistant.refusals)
@@ -754,24 +754,24 @@ sequenceDiagram
     A1->>ST: dispatchAndWait(RetrieveTaskRecordAction)
     A1->>ST: dispatchAndWait(RetrieveTaskRecordAction)
     R1->>A2: dispatch
-    Note over A2: async
-    A2->>ST: dispatchSync(SetSelectedTaskAction)
+    Note over A2: TaskRows · NonReentrant · WaitingAction · async
+    A2->>ST: dispatchSync(AddTasksAction)
+    A2->>ST: dispatchSync(AddTaskEventAction)
+    A2->>ST: dispatchSync(_Taken)
+    A2->>ST: dispatchSync(AddTaskEventAction)
     A2->>ST: dispatchAndWait(RetrieveTaskRecordAction)
     R1->>A3: dispatch
     Note over A3: async
-    A3->>ST: dispatchAndWait(a)
-    A3->>ST: dispatchSync(GoAction.navigate)
-    R1->>A3: dispatch
-    Note over A3: async
-    A3->>ST: dispatchAndWait(a)
-    A3->>ST: dispatchSync(GoAction.navigate)
+    A3->>ST: dispatchSync(SetSelectedTaskAction)
+    A3->>ST: dispatchAndWait(RetrieveTaskRecordAction)
     R1->>A4: dispatch
-    Note over A4: TaskRows · NonReentrant · WaitingAction · async
-    A4->>ST: dispatchSync(AddTasksAction)
-    A4->>ST: dispatchSync(AddTaskEventAction)
-    A4->>ST: dispatchSync(_Taken)
-    A4->>ST: dispatchSync(AddTaskEventAction)
-    A4->>ST: dispatchAndWait(RetrieveTaskRecordAction)
+    Note over A4: async
+    A4->>ST: dispatchAndWait(a)
+    A4->>ST: dispatchSync(GoAction.navigate)
+    R1->>A4: dispatch
+    Note over A4: async
+    A4->>ST: dispatchAndWait(a)
+    A4->>ST: dispatchSync(GoAction.navigate)
 ```
 
 ## AssistantDrawer ▸ onTimelineWindow
@@ -1096,12 +1096,12 @@ _Not drawn — these files dispatch outside any interaction:_
 | `onViewPoint` | `SetViewedPointAction` | `nodes.viewedPoint` |
 | `onCloseViewer` | `SetViewedPointAction` | `nodes.viewedPoint` |
 | `AssistantDrawer ▸ ticks.onToggle` | `SetStepTickAction` | `assistant.unticked, assistant.refusals` |
+| `AssistantDrawer ▸ rows.onToggle` | `SetRowPickAction` | `assistant.rowPicks` |
 | `AssistantDrawer ▸ onPick` | `SetOptionPickAction.of` | `assistant.picks` |
 | `AssistantDrawer ▸ onAnswer` | `AnswerTaskAction` | `assistant.picks, assistant.draft` |
 | `AssistantDrawer ▸ onPickSuggestion` | `PickSuggestionAction` | `assistant.rowPicks` |
-| `AssistantDrawer ▸ rows.onToggle` | `SetRowPickAction` | `assistant.rowPicks` |
 | `AssistantDrawer ▸ onReveal` | `SetStepRevealAction.toggle` | `assistant.revealed, assistant.refusals` |
-| `AssistantDrawer ▸ buttons` | `ApproveTaskAction`, `OpenTaskAction`, `GoAfterAction`, `GoAfterAction`, `AskAgentAction` | `assistant.refusals` |
+| `AssistantDrawer ▸ onStart` | `ApproveTaskAction`, `AskAgentAction`, `OpenTaskAction`, `GoAfterAction`, `GoAfterAction` | `assistant.refusals` |
 | `AssistantDrawer ▸ onTimelineWindow` | `ZoomHistoryAction` | — |
 | `AssistantDrawer ▸ onTimelineReset` | `SetHistoryWindowAction` | `nodes.historyWindow` |
 | `AssistantDrawer ▸ onDraft` | `SetDraftAction` | `assistant.draft` |

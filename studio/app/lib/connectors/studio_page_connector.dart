@@ -23,7 +23,7 @@ import 'package:ui/shell/studio_frame.dart';
 import '../common/window.dart';
 import '../dialogs/error_dialogs.dart';
 import '../dialogs/security_dialogs.dart';
-import '../errors.dart';
+import '../mappers/error_mappers.dart';
 import '../mappers/rights_mappers.dart';
 import '../mappers/shell_mappers.dart';
 import '../navigation/go_action.dart';
@@ -100,10 +100,10 @@ class _Factory extends VmFactory<AppState, StudioPageConnector, _Vm>
         problemsCount: pill?.count,
         problemsBad: pill?.bad ?? false,
         problemsOpen: problems.open,
-        problems: [for (final e in problems.items) problemVm(e)],
+        problems: [for (final e in problems.items) e.problem],
         quarantined: quarantine.view.length,
         reviewOpen: changes.open,
-        reviewError: changes.message,
+        reviewError: changes.message?.said,
         applying: changes.isWaiting,
         cards: [for (final c in changes.reviewCards) c.data],
         level: site.downstreamLevel.access,

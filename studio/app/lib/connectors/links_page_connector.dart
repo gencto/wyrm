@@ -177,7 +177,7 @@ class _Factory extends VmFactory<AppState, LinksPageConnector, _Vm>
         holdUnknown: holdsUnknown,
         allowAll: allowsAllLinks,
         admissionReason: admissionReason?.disabled,
-        hasBackups: backups.sections.isNotEmpty,
+        backupsOff: backups.availability.off,
         busy: links.isActing || quarantine.isWaiting,
         sheet: linkUpdate?.ui,
       ),

@@ -1,4 +1,6 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/answer_fault.dart';
+import 'package:models/error_hint.dart';
 import 'package:models/error_kind.dart';
 import 'package:models/grant.dart';
 import 'package:models/login_failure.dart';
@@ -42,8 +44,13 @@ class LogInAction extends Action with WaitingAction {
     // An empty or malformed field is the form's to say, under the field
     // (docs/design/specs/errors.md §2: validation is inline, never a
     // dialog). The page validates before it dispatches; a dispatch that
-    // comes without that changes nothing.
-    if (gateways.isEmpty || user.isEmpty || password.isEmpty) {
+    // comes without that changes nothing. A field with any part that is no
+    // address, or that holds `user:password@`, is not logged in with: its
+    // text would go to the recent gateways as it was typed.
+    if (gateways.isEmpty ||
+        gatewayProblemOf(login.gateway) != null ||
+        user.isEmpty ||
+        password.isEmpty) {
       return state;
     }
 
@@ -63,11 +70,16 @@ class LogInAction extends Action with WaitingAction {
       dispatchSync(
         SetLoginProgressAction(
           failure: LoginFailure.unreachable,
-          reason: last.reason,
+          reason: last.why,
           probes: probes,
         ),
       );
-      throw _unreachable(last.reason ?? '', gateways.first).withDialog(false);
+      throw StudioException.hinted(
+        ErrorKind.reach,
+        ErrorHint.noAnswer(last.why ?? const AnswerFault.timedOut()),
+        call: const .known(.logIn),
+        thing: gateways.first.text,
+      ).withDialog(false);
     }
 
     // 2. Checking the user and the password. A device key of this user here
@@ -89,24 +101,24 @@ class LogInAction extends Action with WaitingAction {
         SetLoginProgressAction(
           step: 1,
           failure: wrong ? LoginFailure.wrong : LoginFailure.unreachable,
-          reason: e.message,
+          reason: AnswerFault.said(e.message),
         ),
       );
       // The page shows both inline (spec §5), so no dialog.
       throw StudioException.refused(
         e,
-        call: 'log_in',
-        thing: '${gateways.first}',
+        call: const .known(.logIn),
+        thing: gateways.first.text,
       ).withDialog(false);
     } on Object catch (e) {
       dispatchSync(
         SetLoginProgressAction(
           step: 1,
           failure: LoginFailure.unreachable,
-          reason: '$e',
+          reason: AnswerFault.failed('${e.runtimeType}'),
         ),
       );
-      throw _unreachable(faultLine(e), gateways.first).withDialog(false);
+      throw _unreachable(e, gateways.first).withDialog(false);
     }
 
     // 3. Reading the role and the sites.
@@ -134,7 +146,7 @@ Future<AppState> openedSession(
   Action a,
   WyrmSession session,
   String user,
-  Uri gateway,
+  GatewayAddress gateway,
 ) async {
   final GatewayIdentity me;
   try {
@@ -144,14 +156,14 @@ Future<AppState> openedSession(
     throw switch (e) {
       final WyrmException w => StudioException.refused(
         w,
-        call: 'me',
-        thing: '$gateway',
+        call: const .known(.me),
+        thing: gateway.text,
       ),
-      _ => StudioException.said(
+      _ => StudioException.hinted(
         ErrorKind.reach,
-        faultLine(e),
-        call: 'me',
-        thing: '$gateway',
+        ErrorHint.noAnswer(AnswerFault.failed('${e.runtimeType}')),
+        call: const .known(.me),
+        thing: gateway.text,
       ),
     };
   }
@@ -162,7 +174,7 @@ Future<AppState> openedSession(
   return a.state.copyWith(
     session: SessionState(token: subject),
     site: SiteState(
-      gateway: session.base.toString(),
+      gateway: session.base,
       user: subject,
       name: me.site,
       role: me.roles.isEmpty ? me.max.wire : me.roles.join(', '),
@@ -182,12 +194,14 @@ IList<String> remembered(IList<String> recent, String gateway) {
   return [g, ...recent.where((r) => r != g)].take(5).toIList();
 }
 
-/// No gateway answered: a `reach` error with what the probe said. The page
-/// shows it itself (login.md §5), so it opens no dialog.
-StudioException _unreachable(String reason, Object gateway) =>
-    StudioException.said(
+/// The log-in threw something that is no refusal of the gateway's
+/// ([thrown]): a `reach` error that names its type only (what it says of
+/// itself may hold the URL it was asked on). The page shows it itself
+/// (login.md §5), so it opens no dialog.
+StudioException _unreachable(Object thrown, GatewayAddress gateway) =>
+    StudioException.hinted(
       ErrorKind.reach,
-      reason,
-      call: 'log_in',
-      thing: '$gateway',
+      ErrorHint.noAnswer(AnswerFault.failed('${thrown.runtimeType}')),
+      call: const .known(.logIn),
+      thing: gateway.text,
     );

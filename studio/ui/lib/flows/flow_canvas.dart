@@ -968,7 +968,7 @@ class _FlowCanvasState extends State<FlowCanvas> {
     if (r.outPort case final out?) {
       _press = _Wire(
         e.position,
-        FieldRefVm(b.id, out, label: '${b.id}.${r.label}'),
+        FieldRefVm(b.id, out, label: '${b.id}.${r.reads}'),
       )..pointer = p;
       return;
     }

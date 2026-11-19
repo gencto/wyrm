@@ -28,6 +28,7 @@ import 'package:ui/models/tone.dart';
 import 'package:ui/overlays/value_viewer.dart';
 import 'package:ui/pages/explorer_page.dart';
 import 'package:ui/tables/points_table.dart';
+import 'package:ui/theme/sizes.dart';
 import 'package:wyrm_client/wyrm_client.dart' show TypeCode;
 
 import '../common/forms.dart';
@@ -489,7 +490,7 @@ extension ExplorerTrendVm on ExplorerTrend {
     loading: loading,
     card: false,
     hint: false,
-    plotHeight: 180,
+    plotHeight: AppSizes.pointPlot,
     format: trendFormat(),
   );
 }

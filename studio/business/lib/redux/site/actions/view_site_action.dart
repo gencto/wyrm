@@ -49,7 +49,8 @@ class ViewSiteAction extends Action {
     return state.copyWith(
       site: state.site.copyWith(current: target == site.name ? null : target),
       nodes: const NodesState(),
-      links: LinksState(tab: state.links.tab),
+      // whether Links is on screen is the screen's, not the site's
+      links: LinksState(tab: state.links.tab, shown: state.links.shown),
       quarantine: state.quarantine.copyWith(
         table: const IMapConst({}),
         view: const IListConst([]),

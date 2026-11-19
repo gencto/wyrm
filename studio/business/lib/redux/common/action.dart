@@ -65,15 +65,13 @@ abstract class Action extends ReduxAction<AppState> with Selectors {
     }
     final thrown = studioExceptionOf(wrapped, stackTrace, step: stepName);
     final e = thrown.error;
-    final filled = deps.wording(
-      e.copyWith(
-        id: e.id == 0 ? nextErrorId() : e.id,
-        at: e.at ?? DateTime.now(),
-        site: e.site ?? site.viewed,
-        quiet: e.quiet || quiet,
-        retry: e.retry ?? (again() == null ? null : () => again()!),
-        reload: e.reload ?? (reload() == null ? null : () => reload()!),
-      ),
+    final filled = e.copyWith(
+      id: e.id == 0 ? nextErrorId() : e.id,
+      at: e.at ?? DateTime.now(),
+      site: e.site ?? site.viewed,
+      quiet: e.quiet || quiet,
+      retry: e.retry ?? (again() == null ? null : () => again()!),
+      reload: e.reload ?? (reload() == null ? null : () => reload()!),
     );
     _failed = filled;
     return thrown.withError(

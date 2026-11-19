@@ -32,6 +32,18 @@ enum DeviceOs {
     linux || web || unknown => S.current.unlockNameBiometric,
   };
 
+  /// The system's name: `macOS`, `Windows`, `Linux`, `web` (Studio's own
+  /// version line, an error's Details).
+  String get system => switch (this) {
+    mac => S.current.osMac,
+    windows => S.current.osWindows,
+    iphone => S.current.osIos,
+    android => S.current.osAndroid,
+    linux => S.current.osLinux,
+    web => S.current.osWeb,
+    unknown => S.current.osUnknown,
+  };
+
   /// Where the key lives: `this Mac’s Secure Enclave`, `this PC’s TPM`, …;
   /// empty where Studio keeps no key.
   String get store => switch (this) {
