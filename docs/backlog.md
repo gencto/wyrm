@@ -523,6 +523,9 @@ tool/perf.sh sdk flow broker # one or more groups
 tool/perf.sh --existing      # also the older benches (their own output)
 ```
 
+`perf_d_historian` ends today by its watchdog after about 6 min (the stall
+below), so a full run takes that much longer.
+
 Every figure prints one line `PERF name=… n=… p50_us=… p95_us=… p99_us=…
 per_s=… cpu_pct=… rss_mib=… allocs_op=… bytes_op=… <extra>` (`-` where a
 column does not apply). The kit is the dev-only crate `wyrm-bench`: a
@@ -551,44 +554,46 @@ machine ran other agents' builds at the same time (load average 7–27): the
 figures are **M4 Max, loaded, rough**; the clean baseline is recorded later,
 and the reference board (4-core ARM64, 2 GB) is not measured yet.
 
-| Machine, build | Figure | Value |
-|---|---|---|
-| M4 Max, loaded, rough | `verify`, admin key (1 verify), any n | p50 22.8 µs, 7 allocs |
-| M4 Max, loaded, rough | `verify`, last of 4 / 10 / 30 limited keys | p50 111 / 243 / 684 µs (p99 1.27 ms at 30), 14 / 20 / 40 allocs |
-| M4 Max, loaded, rough | one Ed25519 `verify_strict` | p50 21.6 µs |
-| M4 Max, loaded, rough | declare 1k / 5k / 10k points (`LinkCtx`) | 85 ms / 2.1 s / 8.9 s; `~meta` 2.3 / 67 / 276 MiB in 2 puts per point; 2.6k / 12.6k / 25k allocs per point |
-| M4 Max, loaded, rough | wildcard `get` hitting 1 node of 10k vs. the plain `get` | p50 1.98 ms vs. 10.9 µs; 20 070 vs. 50 allocs |
-| M4 Max, loaded, rough | `view=list` of 1000 children, plain vs. `is: "wy:number"` | p50 195 µs vs. 795 µs; 3.1k vs. 29k allocs; 0.58 vs. 6.6 MB allocated |
-| M4 Max, loaded, rough | flow chain, 3 hops, one key, 2000/s | 7 % of samples thinned (the source keeps the latest sample per key) |
-| M4 Max, loaded, rough | flow chain, 3 hops, 1000 keys, inbox 64 / 65 536 | lossless up to 5 000/s / 20 000/s (the next step lost 85 / 103 samples); noisy under the load: an earlier run on the same machine kept 100 000/s lossless with inbox 64 |
-| M4 Max, loaded, rough | flow chain, 9 hops, 1000 keys, inbox 65 536 | lossless at 50 000/s, p99 2.2 ms, 309 % CPU |
-| M4 Max, loaded, rough | flow allocations per sample and hop | 6.0 allocs, 425 B |
-| M4 Max, loaded, rough | 10 000-row table, `table_sort` ×1 / ×3 | lossless at 50 / 20 tables/s; p50 10 / 23 ms; per sort hop 140k allocs, 40.6 MB |
-| M4 Max, loaded, rough | 10 000-row table, `table_filter` (rhai) + `table_aggregate` | 4 of 8 tables lost at 2/s, 2 of them by the filter's 100 ms script budget |
-| M4 Max, loaded, rough | broker base, 1000 points at 10 / 20 / 50 Hz | 10k / 20k / 50k samples/s, no loss beyond one tick at the window edge; p99 2.4–2.5 ms; 5 / 10.5 / 24.5 % CPU; RSS 36–48 MiB |
-| M4 Max, loaded, rough | broker at 20k/s + `downstream/**` subscribe loop | rate kept; CPU 10.5 → 121 %; each subscribe to all 1000 points p50 3.9 ms, p99 6.4 ms |
-| M4 Max, loaded, rough | `subscribe("wy/**")` | no event in 15 s (not diagnosed yet) |
-| M4 Max, loaded, rough | broker at 20k/s, mock link at `trace` | rate kept; CPU 10.5 → 26 %; p99 2.4 → 4.0 ms |
-| M4 Max, loaded, rough | wyrmd open + mock with 10 000 points ready | 3.1–3.9 s |
-| M4 Max, loaded, rough | `add_watch_path`, watches 1–50 / 251–300 | p50 8.0 / 12.0 ms |
-| M4 Max, loaded, rough | historian, 10 000 points at 2 Hz | not measured: the broker deadlocks when the group starts (below) |
-| M4 Max, loaded, rough | 1000 invokes, audit | invoke p50 4.0 ms, p99 7.1 ms, 312/s; 233 audit records/s; derived 700 fsync/s |
-| M4 Max, loaded, rough | gateway, 10 WS clients × 1000 points × 10 Hz | 100k frames/s, p50 4.0 ms, p99 8.1 ms, 84 % CPU, RSS 85 MiB |
+| Machine | Build | Figure | Value | Date |
+|---|---|---|---|---|
+| M4 Max, loaded, rough | release | `verify`, admin key (1 verify), any n | p50 22.8 µs, 7 allocs | 2026-11-19 |
+| M4 Max, loaded, rough | release | `verify`, last of 4 / 10 / 30 limited keys | p50 111 / 243 / 684 µs (p99 1.27 ms at 30), 14 / 20 / 40 allocs | 2026-11-19 |
+| M4 Max, loaded, rough | release | one Ed25519 `verify_strict` | p50 21.6 µs | 2026-11-19 |
+| M4 Max, loaded, rough | release | declare 1k / 5k / 10k points (`LinkCtx`) | 85 ms / 2.1 s / 8.9 s; `~meta` 2.3 / 67 / 276 MiB in 2 puts per point; 2.6k / 12.6k / 25k allocs per point | 2026-11-19 |
+| M4 Max, loaded, rough | release | wildcard `get` hitting 1 node of 10k vs. the plain `get` | p50 1.98 ms vs. 10.9 µs; 20 070 vs. 50 allocs | 2026-11-19 |
+| M4 Max, loaded, rough | release | `view=list` of 1000 children, plain vs. `is: "wy:number"` | p50 195 µs vs. 795 µs; 3.1k vs. 29k allocs; 0.58 vs. 6.6 MB allocated | 2026-11-19 |
+| M4 Max, loaded, rough | release | flow chain, 3 hops, one key, 2000/s | 7 % of samples thinned (the source keeps the latest sample per key) | 2026-11-19 |
+| M4 Max, loaded, rough | release | flow chain, 3 hops, 1000 keys, inbox 64 / 65 536 | lossless up to 5 000/s / 20 000/s (the next step lost 85 / 103 samples); noisy under the load: an earlier run on the same machine kept 100 000/s lossless with inbox 64 | 2026-11-19 |
+| M4 Max, loaded, rough | release | flow chain, 9 hops, 1000 keys, inbox 65 536 | lossless at 50 000/s, p99 2.2 ms, 309 % CPU | 2026-11-19 |
+| M4 Max, loaded, rough | release | flow allocations per sample and hop | 6.0 allocs, 425 B | 2026-11-19 |
+| M4 Max, loaded, rough | release | 10 000-row table, `table_sort` ×1 / ×3 | lossless at 50 / 20 tables/s; p50 10 / 23 ms; per sort hop 140k allocs, 40.6 MB | 2026-11-19 |
+| M4 Max, loaded, rough | release | 10 000-row table, `table_filter` (rhai) + `table_aggregate` | 4 of 8 tables lost at 2/s, 2 of them by the filter's 100 ms script budget | 2026-11-19 |
+| M4 Max, loaded, rough | release | broker base, 1000 points at 10 / 20 / 50 Hz | 10k / 20k / 50k samples/s, no loss beyond one tick at the window edge; p99 2.4–2.5 ms; 5 / 10.5 / 24.5 % CPU; RSS 36–48 MiB | 2026-11-19 |
+| M4 Max, loaded, rough | release | broker at 20k/s + `downstream/**` subscribe loop | rate kept; CPU 10.5 → 121 %; each subscribe to all 1000 points p50 3.9 ms, p99 6.4 ms | 2026-11-19 |
+| M4 Max, loaded, rough | release | `subscribe("wy/**")` | no event in 15 s (not diagnosed yet) | 2026-11-19 |
+| M4 Max, loaded, rough | release | broker at 20k/s, mock link at `trace` | rate kept; CPU 10.5 → 26 %; p99 2.4 → 4.0 ms | 2026-11-19 |
+| M4 Max, loaded, rough | release | wyrmd open + mock with 10 000 points ready | 3.1–3.9 s | 2026-11-19 |
+| M4 Max, loaded, rough | release | `add_watch_path`, watches 1–50 / 251–300 | p50 8.0 / 12.0 ms | 2026-11-19 |
+| M4 Max, loaded, rough | release | historian, 10 000 points at 2 Hz | not measured: the broker stalls when the group starts (below) | 2026-11-19 |
+| M4 Max, loaded, rough | release | 1000 invokes, audit | invoke p50 4.0 ms, p99 7.1 ms, 312/s; 233 audit records/s; derived 700 fsync/s | 2026-11-19 |
+| M4 Max, loaded, rough | release | gateway, 10 WS clients × 1000 points × 10 Hz | 100k frames/s, p50 4.0 ms, p99 8.1 ms, 84 % CPU, RSS 85 MiB | 2026-11-19 |
 
-**Found: the historian's group start deadlocks the broker** (twice, 0 %
-CPU for 9 min; a symbolized `sample` of the second run). A group of 10 000
-new watches first makes each series with one durable redb commit (on the
-blocking pool, under the store's series lock), then starts one `follow`
-task per point, and each runs `WyrmClient::subscribe`, a `get` of the
-point's `~val`. On the in-process session Zenoh hands a query to a local
-queryable on the caller's thread, and the queryable's default handler is a
-bounded FIFO (256) whose send blocks when full. All four runtime workers
-stood in that send (`wyrm_history::engine::follow` → `Session::query` →
-`handle_query` → `FifoChannel` callback, waiting on a semaphore), so the
-task that drains the FIFO had no worker left. The test runs on 4 workers,
-as `wyrmd` does on the 4-core reference board. Not fixed here (P0 changes
-no product code); a fix bounds the follows in flight or answers local
-queries without a blocking handler.
+**Found: the historian's group start stalls the broker** (called a
+deadlock here: 0 % CPU and no progress for 9 min, twice; a symbolized
+`sample` of the second run). A group of 10 000 new watches first makes each
+series with one durable redb commit (on the blocking pool, under the store's
+series lock), then starts one `follow` task per point, and each runs
+`WyrmClient::subscribe`, a `get` of the point's `~val`. On the in-process
+session Zenoh hands a query to a local queryable on the caller's thread, and
+the default handler of a queryable is a bounded FIFO (256) whose send blocks
+when it is full. What the sample shows: four runtime threads stood in that
+send (`wyrm_history::engine::follow` → `Session::query` → `handle_query` →
+`FifoChannel` callback, waiting on a semaphore); two other runtime threads
+were idle (one on a condvar, one in the time/IO driver); the test thread was
+parked in `block_on`, and its own 300 s deadline never printed. Not known
+yet: which local queryable's FIFO filled, and why its consumer did not drain
+it. Not fixed here (P0 changes no product code). The perf test aborts by a
+watchdog after 360 s with `started=false`.
 
 Not covered yet:
 
@@ -596,7 +601,7 @@ Not covered yet:
   machine;
 - `fsync` counts (no OS counts them; the audit's are derived);
 - the historian under 10 000 watches and its flush cost per row (the group
-  start deadlocks first, above);
+  start stalls first, above);
 - musl and its system allocator (audit item 6): the container images are
   not measured;
 - the storage manager's own lock (item 2) apart from the subscribe that

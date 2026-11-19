@@ -13,7 +13,7 @@
 //!   Data, flush 1 s, item 13). The watches go to the historian directly
 //!   (`Control::historian`, feature `testkit`); the cost of the action that adds one watch
 //!   is measured beside it for the first 300, and the time the group takes to start. Today
-//!   the start deadlocks the broker (docs/backlog.md §14); a watchdog thread then aborts the
+//!   the start stalls the broker (docs/backlog.md §14); a watchdog thread then aborts the
 //!   test after 360 s with `started=false`.
 //! * `perf_e_audit`: 1000 `invoke`s of the mock's `reset`, one after another, from 50
 //!   subjects in turn (the link's own rate limit is per subject): latency, and audit records
@@ -480,8 +480,8 @@ async fn perf_d_historian() {
             })
             .collect(),
     }]);
-    // The group start can stop every runtime worker (docs/backlog.md §14: the follows' gets
-    // block in a local queryable's full FIFO), and then no timer of this test fires: a
+    // The group start can stall the broker (docs/backlog.md §14: the follows' gets
+    // block in a local queryable's full FIFO), and then this test makes no progress: a
     // thread of its own ends the process with a figure that says so.
     let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let done2 = done.clone();
@@ -493,7 +493,7 @@ async fn perf_d_historian() {
                 Perf::new("broker/historian/group_start")
                     .n(10_000)
                     .field("started", false)
-                    .note("no progress in 360 s: every runtime worker blocked (deadlock)")
+                    .note("no progress in 360 s: the group start stalled (docs/backlog.md 14)")
             );
             std::process::abort();
         }
