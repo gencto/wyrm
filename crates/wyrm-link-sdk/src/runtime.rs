@@ -622,7 +622,7 @@ async fn run_driver<L: Link>(ctx: LinkCtx, mut link: L, mut rx: mpsc::Receiver<C
             } => {
                 let r = guarded(tokio::time::timeout(
                     timeout,
-                    link.on_check(&path, &action, &args, &caller),
+                    link.on_check(&path, &action, args, &caller),
                 ))
                 .await;
                 let Ok(r) = r else {
@@ -1531,7 +1531,13 @@ fn validate_args(
     for (name, v) in given {
         let p = params
             .get(name)
-            .ok_or_else(|| LinkError::invalid_parameter(format!("unknown param {name}")))?;
+            // the caller's text: at most 64 bytes of it go into the answer
+            .ok_or_else(|| {
+                LinkError::invalid_parameter(format!(
+                    "unknown param {}",
+                    wyrm_core::named::shown(name)
+                ))
+            })?;
         let as_meta = NodeMeta {
             ty: p.ty,
             enum_values: p.enum_values.clone(),
@@ -1682,6 +1688,14 @@ mod tests {
                 .collect()
         };
         assert!(validate_args(&params, &args(&[("mode", Value::UInt(1))])).is_ok());
+        // an unknown name is the caller's text: the refusal repeats 64 bytes of it at most
+        let long = "k".repeat(50_000);
+        let e = validate_args(
+            &params,
+            &args(&[("mode", Value::UInt(1)), (long.as_str(), Value::UInt(1))]),
+        )
+        .unwrap_err();
+        assert_eq!(e.message, format!("unknown param {}", "k".repeat(64)));
         let err = |kv: &[(&str, Value)]| validate_args(&params, &args(kv)).unwrap_err().status;
         assert_eq!(err(&[]), Status::InvalidParameter); // missing required
         assert_eq!(err(&[("mode", Value::UInt(2))]), Status::OutOfRange);

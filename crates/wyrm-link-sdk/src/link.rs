@@ -65,7 +65,7 @@ pub trait Link: Send + Sized + 'static {
         &mut self,
         _path: &str,
         _action: &str,
-        _args: &Value,
+        _args: Value,
         _who: &Caller,
     ) -> impl Future<Output = Result<()>> + Send {
         async { Ok(()) }

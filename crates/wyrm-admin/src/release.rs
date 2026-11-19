@@ -1916,16 +1916,16 @@ pub fn restore_control(
     Ok(())
 }
 
-/// Run `bin` with `args` and nothing of this process's environment, and
+/// Run `bin` with `argv` and nothing of this process's environment, and
 /// wait at most `timeout`: its standard output when it exits with 0, else
 /// the end of what it wrote. No shell is involved.
 pub async fn run_binary(
     bin: &Path,
-    args: &[std::ffi::OsString],
+    argv: &[std::ffi::OsString],
     timeout: std::time::Duration,
 ) -> Result<String, String> {
     let mut cmd = tokio::process::Command::new(bin);
-    cmd.args(args)
+    cmd.args(argv)
         .env_clear()
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())

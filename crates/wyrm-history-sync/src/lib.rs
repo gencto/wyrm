@@ -518,7 +518,7 @@ impl<T: Target> App for SyncApp<T> {
                     "password",
                     ParamMeta::of(TypeCode::String)
                         .display("Password")
-                        .editor("password")
+                        .editor(wyrm_core::meta::Editor::Password)
                         .description(
                             "The database's password or token, kept in the link's sealed store; \
                              empty removes it.",

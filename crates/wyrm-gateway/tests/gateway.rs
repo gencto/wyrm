@@ -848,7 +848,7 @@ impl wyrm_link_sdk::Link for Upload {
     type Config = ();
 
     async fn start(_: (), ctx: wyrm_link_sdk::LinkCtx) -> wyrm_link_sdk::Result<Self> {
-        use wyrm_core::meta::{ActionResult, ParamMeta, EDITOR_FILE};
+        use wyrm_core::meta::{ActionResult, Editor, ParamMeta};
         use wyrm_core::{ActionMeta, TypeCode};
         ctx.declare_action(
             "",
@@ -857,7 +857,7 @@ impl wyrm_link_sdk::Link for Upload {
                 .param(
                     "data",
                     ParamMeta::of(TypeCode::Binary)
-                        .editor(EDITOR_FILE)
+                        .editor(Editor::File)
                         .required(true),
                 )
                 .result(ActionResult::Type(TypeCode::Number))

@@ -11,6 +11,8 @@ authors.workspace = true
 [dependencies]
 wyrm-core.workspace = true
 minicbor.workspace = true
+# `#[derive(Args)]`: its output names `wyrm_core` only (builds for wasm32)
+wyrm-link-sdk-derive = { path = "../wyrm-link-sdk-derive" }
 
 [lints]
 workspace = true

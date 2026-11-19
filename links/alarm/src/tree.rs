@@ -18,9 +18,7 @@
 
 use std::collections::BTreeMap;
 
-use wyrm_core::meta::{
-    ActionResult, ParamMeta, EDITOR_DATERANGE, EDITOR_TEXTAREA, GROUP_EDIT, GROUP_NEW,
-};
+use wyrm_core::meta::{ActionResult, Editor, ParamMeta, GROUP_EDIT, GROUP_NEW};
 use wyrm_core::{ActionMeta, NodeMeta, Perm, TypeCode, Value};
 
 use crate::algo::Algorithm;
@@ -221,7 +219,7 @@ pub fn root_actions() -> Vec<(&'static str, ActionMeta)> {
             "add_note",
             write("Add note").param("id", id_param()).param(
                 "note",
-                text_param("Note").required(true).editor(EDITOR_TEXTAREA),
+                text_param("Note").required(true).editor(Editor::Textarea),
             ),
         ),
         (
@@ -251,7 +249,7 @@ pub fn root_actions() -> Vec<(&'static str, ActionMeta)> {
                     "timerange",
                     text_param("Timerange")
                         .placeholder("2026-11-01T00:00:00Z/2026-11-08T00:00:00Z")
-                        .editor(EDITOR_DATERANGE)
+                        .editor(Editor::Daterange)
                         .description(
                             "From/to in RFC 3339 on the creation time (a date is its midnight \
                              UTC); empty: any time.",
@@ -288,7 +286,7 @@ pub fn root_actions() -> Vec<(&'static str, ActionMeta)> {
                     "json",
                     text_param("JSON")
                         .required(true)
-                        .editor(EDITOR_TEXTAREA)
+                        .editor(Editor::Textarea)
                         .description("A class's export."),
                 )
                 .param(

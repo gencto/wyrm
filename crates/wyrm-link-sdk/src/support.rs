@@ -1,33 +1,10 @@
 //! Secrets and metrics handed to the driver through `LinkCtx`.
 
 use std::collections::HashMap;
-use std::fmt;
 use std::sync::atomic::{AtomicU64, Ordering};
-use zeroize::Zeroizing;
 
-/// A secret value. Zeroed on drop; `Debug` prints `***`.
-#[derive(Clone)]
-pub struct Secret(Zeroizing<Vec<u8>>);
-
-impl Secret {
-    pub fn new(bytes: impl Into<Vec<u8>>) -> Self {
-        Self(Zeroizing::new(bytes.into()))
-    }
-
-    pub fn expose(&self) -> &[u8] {
-        &self.0
-    }
-
-    pub fn expose_str(&self) -> Option<&str> {
-        std::str::from_utf8(&self.0).ok()
-    }
-}
-
-impl fmt::Debug for Secret {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("***")
-    }
-}
+/// The secret types (`wyrm_core::secret`): zeroed on drop, `Debug` prints `***`.
+pub use wyrm_core::secret::{Secret, SecretBytes, SecretLine};
 
 /// Secrets of one link (device passwords, keys). Never from `~def`, never in
 /// the tree. Filled by the host at start.

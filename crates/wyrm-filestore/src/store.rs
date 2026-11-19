@@ -322,13 +322,13 @@ fn folder_actions(root: bool) -> BTreeMap<String, ActionMeta> {
             .param(
                 "file",
                 ParamMeta::of(TypeCode::Binary)
-                    .editor(wyrm_core::meta::EDITOR_FILE)
+                    .editor(wyrm_core::meta::Editor::File)
                     .display("File"),
             )
             .param(
                 "text",
                 ParamMeta::of(TypeCode::String)
-                    .editor(wyrm_core::meta::EDITOR_TEXTAREA)
+                    .editor(wyrm_core::meta::Editor::Textarea)
                     .display("Text")
                     .description("the content as text, instead of file"),
             )
@@ -414,7 +414,7 @@ fn upload_actions(m: &mut BTreeMap<String, ActionMeta>) {
                 "data",
                 ParamMeta::of(TypeCode::Binary)
                     .required(true)
-                    .editor(wyrm_core::meta::EDITOR_FILE)
+                    .editor(wyrm_core::meta::Editor::File)
                     .display("Data"),
             )
             .result(ActionResult::Type(TypeCode::Map)),

@@ -6,8 +6,7 @@ zero. A count that went down must be written down at once (`--lower`): the
 check fails on a count above and on a count below its baseline, so a fixed
 hit cannot be spent again by the next change. Two kinds of rules:
 
-* patterns C1..C11 and C13 (C12 is taken by another change) and the counted
-  exceptions A1..A5, read from the source
+* patterns C1..C13 and the counted exceptions A1..A6, read from the source
   (non-test code: `tests/`, `benches/`, `examples/` and `#[cfg(test)]` items
   are left out);
 * clippy lints that are too costly to deny at once, counted from one
@@ -467,6 +466,8 @@ def a4(s: Source) -> list[int]:
 
 
 ARG_HELPERS = r"\b(?:arg|arg_str|opt_str|req_str|get_str|get_u64|get_bool|get_f64|enum_arg|text_arg|choice|uint_arg|bool_arg)\(\s*[^;)]*?\""
+# The codec of `Value` and the decoder behind `#[derive(Args)]`.
+DECODERS = ("crates/wyrm-core/src/value.rs", "crates/wyrm-core/src/args.rs")
 C4_PATTERNS = [
     r"\bSome\(\s*&?\s*Value::(?:Str|UInt|Int|Bool|Float|Map|Array|Bytes|Null)\b",
     r"\bif\s+let\s+(?:Some\(\s*)?&?Value::(?:Str|UInt|Int|Bool|Float|Map|Array|Bytes)\(",
@@ -482,7 +483,10 @@ def c4(s: Source) -> list[int]:
     """A field of a `Value` map read by hand outside a decoder: `Some(Value::…`, `if let
     Value::…(`, `let Value::…(..) =`, `.get/get_mut/remove/contains_key("x" | CONST)`,
     `m["x"]`, `Value::as_*`, and the argument helpers (`arg_str(&args, "x")`, …)."""
-    if s.path.endswith("/decode.rs") or "/decode/" in s.path or s.path == "crates/wyrm-core/src/value.rs":
+    # a `decode.rs` is a decoder module; not in `wyrm-admin`, where an action's struct is the
+    # decoder and C12 counts every other read of its arguments
+    decoder = s.path.endswith("/decode.rs") or "/decode/" in s.path
+    if (decoder and not s.path.startswith("crates/wyrm-admin/src/")) or s.path in DECODERS:
         return []
     hits = [m.start() for p in C4_PATTERNS for m in re.finditer(p, s.code)]
     return s.hits("C4", hits)
@@ -952,23 +956,113 @@ def a5(s: Source) -> list[int]:
     return [s.line_of(m.start()) for m in LIBRARY_RNG_RE.finditer(s.masked)]
 
 
+DERIVE = re.compile(r"#\[derive\(([^\]]*)\)\]")
+STRUCT_AFTER = re.compile(r"\s*(?:#\[[^\]]*\]\s*)*(?:pub(?:\([^)]*\))?\s+)?struct\s+(\w+)[^{;]*\{")
+# The name of a field (or the wire name of `#[param(name = "…")]`) that says it holds a
+# secret: one of five words, alone or as the last word (`new_password`, `api_key`,
+# `access_token`). Not `export_secrets`, `replace_keys`, `key_sha256`, `secret_name`.
+SECRET_NAME = re.compile(r"^(?:\w+_)?(token|passphrase|password|secret|key)$")
+# The secret types, by their last path segment, alone or in an `Option`.
+SECRET_TYPES = {"Secret", "SecretBytes", "SecretLine"}
+# A passphrase, a password or a key is never trimmed (`SecretLine` is a pasted token).
+NOT_A_LINE = re.compile(r"(?:^|_)(passphrase|password|key)$")
+
+
+def secret_type(ty: str) -> str | None:
+    """The secret type `ty` is (`Option<…>` and a path taken off), or None."""
+    t = re.sub(r"\s+", "", ty)
+    m = re.fullmatch(r"(?:(?:std::option::|core::option::)?Option<)?((?:\w+::)*)(\w+)(>?)", t)
+    if not m or (t.startswith(("Option<", "std::option::Option<", "core::option::Option<")) != (m.group(3) == ">")):
+        return None
+    return m.group(2) if m.group(2) in SECRET_TYPES else None
+
+
+def body_fields(masked: str, code: str, at: int, end: int):
+    """`(offset of the name, name, its attributes' text, its type)` of each field of the
+    struct body between `at` (its `{`) and `end`, split at the commas of depth 0. The field
+    is read from `masked` (no text of a string can look like one); its attributes from
+    `code` (the wire name is a string)."""
+    code, attrs_of = masked, code
+    depth, start, k = 0, at + 1, at + 1
+    while k <= end:
+        ch = code[k] if k < len(code) else "}"
+        if ch in "<([{":
+            depth += 1
+        elif ch in ">)]}" and not (ch == ">" and code[k - 1] == "-"):
+            if depth == 0:
+                ch = ","
+            else:
+                depth -= 1
+        if ch == "," and depth == 0:
+            chunk = code[start:k]
+            f = re.search(r"(?:pub(?:\([^)]*\))?\s+)?\b([a-z_]\w*)\s*:\s*(.+?)\s*$", chunk, re.S)
+            if f:
+                yield start + f.start(1), f.group(1), attrs_of[start : start + f.start()], f.group(2)
+            start = k + 1
+            if k >= end - 1:
+                break
+        k += 1
+
+
+def args_structs(masked: str):
+    """`(name, body start, body end)` of every struct that derives `Args`, however the derive
+    is written (`#[derive(Debug, Args)]`, `#[derive(wyrm_link_sdk::Args)]`, on several lines)."""
+    for m in DERIVE.finditer(masked):
+        if not re.search(r"(?:^|[\s,:])Args\s*(?:,|$)", m.group(1).strip()):
+            continue
+        st = STRUCT_AFTER.match(masked, m.end())
+        if st:
+            yield st.group(1), st.end() - 1, block_end(masked, st.end() - 1)
+
+
 def c10(s: Source) -> list[int]:
-    """A `#[param(secret)]` field whose type is not a `Secret` (a type alias of this file is
-    followed to its type)."""
+    """A secret that is not kept in a secret type (exactly `Secret`, `SecretBytes` or
+    `SecretLine`, alone or in an `Option`, with a path; a type alias of this file is
+    followed): a `#[param(secret)]` field of a driver parameter (`Params`) or of an action
+    argument (`Args`), and any field of an `Args` struct whose Rust name or wire name
+    (`#[param(name = "…")]`) is `token`, `passphrase`, `password`, `secret` or `key`, alone
+    or as its last word (`new_password`, `api_key`, `access_token`), with or without the
+    attribute. A passphrase, a password or a key is never a `SecretLine` (a pasted token,
+    trimmed). What is no secret by such a name (a fingerprint named `key` on the wire)
+    carries `// rust-rules: allow(C10) <why>`, so the exception is named and counted."""
     aliases = dict(re.findall(r"\btype\s+(\w+)\s*=\s*([^;]+);", s.masked))
+
+    def resolved(ty: str) -> str:
+        for _ in range(4):
+            ty = re.sub(r"\b\w+\b", lambda w: aliases.get(w.group(0), w.group(0)), ty)
+        return ty
+
     hits = []
     for m in re.finditer(r"#\[param\(([^\]]*)\)\]", s.masked):
         if not re.search(r"\bsecret\b", m.group(1)):
             continue
         f = re.compile(r"\s*(?:#\[[^\]]*\]\s*)*(?:pub(?:\([^)]*\))?\s+)?\w+\s*:\s*([^,}]+)").match(s.masked, m.end())
-        if not f:
-            continue
-        ty = f.group(1).strip()
-        for _ in range(4):
-            ty = re.sub(r"\b\w+\b", lambda w: aliases.get(w.group(0), w.group(0)), ty)
-        if "Secret" not in ty:
+        if f and secret_type(resolved(f.group(1).strip())) is None:
             hits.append(m.start())
+    for _, body_at, body_end in args_structs(s.masked):
+        for at, name, attrs, ty in body_fields(s.masked, s.code, body_at, body_end):
+            wire = re.search(r'#\[param\([^\]]*\bname\s*=\s*"([^"]*)"', attrs)
+            names = [name] + ([wire.group(1)] if wire else [])
+            if not any(SECRET_NAME.match(n) for n in names):
+                continue
+            kind = secret_type(resolved(ty))
+            # with the attribute and no secret type it is counted above, once
+            marked = re.search(r"#\[param\([^\]]*\bsecret\b", attrs)
+            if (kind is None and not marked) or (
+                kind == "SecretLine" and any(NOT_A_LINE.search(n) for n in names)
+            ):
+                hits.append(at)
     return s.hits("C10", hits)
+
+
+def a6(s: Source) -> list[int]:
+    """Every field typed `SecretLine`, the one secret that is trimmed (a token a person
+    pastes as one line; docs/rust-rules.md §12): counted like an exception, so a new one
+    shows in review. Its own module is not counted."""
+    if s.path == "crates/wyrm-core/src/secret.rs":
+        return []
+    pat = r"\b[a-z_]\w*\s*:\s*(?:(?:std::option::)?Option\s*<\s*)?(?:\w+::)*SecretLine\b"
+    return s.hits("A6", [m.start() for m in re.finditer(pat, s.masked)])
 
 
 REASON = re.compile(r'\breason\s*=\s*"((?:[^"\\]|\\.)*)"', re.S)
@@ -1050,6 +1144,172 @@ def c11(s: Source) -> list[int]:
     return s.hits("C11", [m.start() for m in URL_SPLIT.finditer(s.code)])
 
 
+ADMIN = "crates/wyrm-admin/src/"
+C12_PATTERNS = [
+    # an argument reader, defined or called (not a method: `cmd.arg(…)` of a process)
+    r"(?<!\.)\b(?:arg|arg_str|arg_num|arg_ms|arg_bool|arg_bytes|opt_str|req_str|get_str|get_u64|"
+    r"get_bool|\w+_arg|\w+_args|from_args|accepted)\s*(?:(?:::)?<[^>()]*>)?\(",
+    # a parameter declared by hand, or an action made without a struct
+    r"\bParamMeta\b",
+    r"\.\s*param\(",
+    r"\bActionMeta\s*::\s*(?:new|default)\s*\(",
+    r"(?<!-> )\bActionMeta\s*\{",
+    r":\s*ActionMeta\s*=",
+    r"<\s*ActionMeta(?:\s+as\s+\w+)?\s*>\s*::",
+    # the declared parameters of an action changed after the struct made them
+    r"\.\s*params\s*\.\s*(?:entry|insert|retain|values_mut|get_mut|iter_mut|remove|append|extend|clear|"
+    r"pop_first|pop_last|first_entry|last_entry|split_off|extract_if|drain\w*)\b",
+    r"&mut\s+[\w.]*\bparams\b(?!\s*:)",
+    r"\.\s*params\s*=(?!=)",
+    # a decoder written by hand
+    r"\bimpl\s+(?:[\w:]+::)?(?:Args|ArgValue|SecretArg|PastedSecretArg)\s+for\b",
+    # a trait of this crate on `Value` (`impl Take for Value`): a method on the arguments
+    r"\bimpl\s*(?:<[^>]*>)?\s*[\w:]+(?:<[^>]*>)?\s+for\s+&?\s*(?:'\w+\s+)?(?:[\w:]+::)?Value\b",
+    # a dispatcher's name taken by a closure
+    r"\blet\s+(?:mut\s+)?(?:invoke|decode)\s*(?::[^=;]*)?=\s*(?:move\s*)?\|",
+    # a value taken apart in a parameter, and another name for the type itself
+    r"\bValue::\w+\s*\([^()]*\)\s*:",
+    r"\btype\s+\w+\s*=\s*&?\s*(?:'\w+\s+)?(?:[\w:]+::)?Value\s*;",
+]
+# `args` is the name of an action's arguments in `wyrm-admin`, and of nothing else.
+ARGS_WORD = re.compile(r"(?<![.\w])args\b")
+ARGS_DECODE_BEFORE = re.compile(r"((?:[a-z_]\w*\s*::\s*)*)(?:\b(\w+)|<(\(\))>)\s*::\s*decode\(\s*$")
+# a parameter, a struct field or a field of a struct literal (`args: argv`)
+ARGS_FIELD_AFTER = re.compile(r"\s*:(?!:)")
+ARGS_LET_BEFORE = re.compile(r"\blet\s+(?:mut\s+)?$")
+# the hand-over: a function `invoke` of a module of this crate (`history::invoke(`)
+INVOKE_PATH = re.compile(r"\b[a-z_]\w*\s*::\s*invoke$")
+# the functions that take an action's arguments
+ARGS_FN = re.compile(r"\bfn\s+(on_invoke|on_check|invoke|decode)\b")
+ARGS_PARAM = re.compile(r"(?<![.\w])(?:mut\s+)?args\s*:\s*&?\s*Value\s*(?=[,)])")
+# The structs that derive `Args` in `wyrm-admin`, each with the stems of the files that
+# define it, filled by `measure_patterns` before the rules run: `X::decode(args)` is the
+# struct's decoder only for these, by a local path (`X`, `super::X`, `crate::…::X`,
+# `<stem>::X` of the file that defines it).
+ADMIN_ARGS: dict[str, set[str]] = {}
+
+
+def stem_of(path: str) -> str:
+    p = Path(path)
+    return p.parent.name if p.name in ("mod.rs", "lib.rs") else p.stem
+
+
+def local_decoder(path: str, name: str, known: dict[str, set[str]]) -> bool:
+    """`path` + `name` (`restore_broker::` + `RestoreCheck`) is a struct of this crate."""
+    if name not in known:
+        return False
+    segs = [x.strip() for x in path.split("::") if x.strip()]
+    if not segs or segs[0] in ("super", "crate", "self"):
+        return True
+    return segs[-1] in known[name]
+
+
+def enclosing_call(text: str, at: int) -> str:
+    """The text before the `(` of the call whose argument list holds offset `at` (`…
+    history::invoke` for `history::invoke(a, args)`), or "" when `at` is in no call."""
+    depth, k = 0, at - 1
+    while k >= 0:
+        ch = text[k]
+        if ch in ")]}":
+            depth += 1
+        elif ch in "([{":
+            if depth == 0:
+                return text[max(0, k - 80) : k].rstrip() if ch == "(" else ""
+            depth -= 1
+        elif ch == ";" and depth == 0:
+            return ""
+        k -= 1
+    return ""
+
+
+def args_uses(s: Source) -> list[int]:
+    """Every `args` that is not: a parameter or a field (`args: Value`; never `let args:`),
+    the one argument of the decoder of a struct of this crate that derives `Args`
+    (`X::decode(args)`, `<()>::decode(args)`), or handed whole to a dispatcher of this crate
+    (`history::invoke(…, args, …)`)."""
+    text, hits = s.masked, []
+    known = {k: set(v) for k, v in ADMIN_ARGS.items()}
+    for name, _, _ in args_structs(text):
+        known.setdefault(name, set()).add(stem_of(s.path))
+    for m in ARGS_WORD.finditer(text):
+        a, b = m.start(), m.end()
+        before = text[max(0, a - 160) : a]
+        if ARGS_FIELD_AFTER.match(text, b) and not ARGS_LET_BEFORE.search(before):
+            continue
+        d = ARGS_DECODE_BEFORE.search(before)
+        # rustfmt writes a long call over lines, with a comma after the one argument
+        closed = re.match(r"\s*,?\s*\)", text[b : b + 40])
+        if d and closed and (d.group(3) or local_decoder(d.group(1), d.group(2), known)):
+            continue
+        whole = re.search(r"[,(]\s*$", before) and re.match(r"\s*[,)]", text[b : b + 8])
+        if whole and INVOKE_PATH.search(enclosing_call(text, a)):
+            continue
+        hits.append(a)
+    return hits
+
+
+def params_of(text: str, at: int) -> tuple[str, int]:
+    """The generics and the parameter list of the `fn` whose name ends at `at`, and the
+    offset where the list starts."""
+    k = text.find("(", at)
+    if k < 0:
+        return "", at
+    depth, j = 0, k
+    while j < len(text):
+        if text[j] == "(":
+            depth += 1
+        elif text[j] == ")":
+            depth -= 1
+            if depth == 0:
+                break
+        j += 1
+    return text[at : j + 1], at
+
+
+def args_fns(s: Source) -> list[int]:
+    """A function that takes an action's arguments (`on_invoke`, `on_check`, `invoke`,
+    `decode`) under another name or another type than `args: Value` / `args: &Value`: any
+    other `Value` in its generics or parameters (`v: &'a Value`, `impl Into<Value>`,
+    `Option<Value>`, `Arc<Value>`, `wyrm_core::value::Value`), and an `on_invoke`,
+    `on_check` or `invoke` without `args: Value` at all. (A `decode` of another form, as
+    `decode(b: &[u8])`, is no decoder of arguments.)"""
+    hits = []
+    for m in ARGS_FN.finditer(s.masked):
+        sig, at = params_of(s.masked, m.end())
+        rest, n = ARGS_PARAM.subn("", sig)
+        # any other `Value`; and a link's dispatcher without `args: Value` (an `invoke` or a
+        # `decode` with no `Value` at all is about something else)
+        if re.search(r"\bValue\b", rest) or (m.group(1) in ("on_invoke", "on_check") and n != 1):
+            hits.append(m.start())
+    return hits
+
+
+def c12(s: Source) -> list[int]:
+    """In `wyrm-admin`, an action's arguments read or declared outside its struct.
+    `args` names an action's arguments and nothing else, and it has three uses: the
+    parameter (`args: Value`), the decoder of a struct of this crate that derives `Args`
+    (`X::decode(args)`; `<()>` for no parameters), and a whole hand-over to a dispatcher
+    of this crate (`history::invoke(…, args, …)`). Every other `args` counts: a helper
+    called with it (`text(&args, "x")`), a method on it (`args.get(…)`), a macro
+    (`take!(args, "x")`), a new name for it (`let a = args`, `let args: T = …`), a second
+    read (`X::decode(args.clone())`), the `decode` of anything else (`Raw::decode(args)`,
+    `Self::decode(args)`, a type of another crate), a bare or closure `invoke(args)`.
+    A function that takes the arguments (`on_invoke`, `on_check`, `invoke`, `decode`) has
+    them as `args: Value` and holds no other `Value` in its parameters or generics; the
+    names `invoke` and `decode` are no closure and no method. Also counted: an argument
+    reader (`arg(…)`, `…_arg(…)`, `from_args(…)`), a parameter or an action written out
+    (`ParamMeta`, `.param(…)`, `ActionMeta::new()`, `ActionMeta { … }`, `let a: ActionMeta =
+    Default::default()`), a change of an action's declared parameters (`a.params.insert(…)`,
+    `.entry`, `.retain`, `.values_mut()`, `&mut a.params`, `a.params = …`), a decoder
+    written by hand (`impl Args for`), a `Value` taken apart in a parameter
+    (`Value::Map(m): Value`) and a type alias of `Value`. An action's struct with
+    `#[derive(Args)]` is the one declaration and the one decoder (docs/rust-rules.md §7)."""
+    if not s.path.startswith(ADMIN):
+        return []
+    hits = [m.start() for p in C12_PATTERNS for m in re.finditer(p, s.masked)]
+    return s.hits("C12", hits + args_uses(s) + args_fns(s))
+
+
 PATTERNS = {
     "C1-int-cast": c1,
     "C2-name-lookup": c2,
@@ -1062,12 +1322,14 @@ PATTERNS = {
     "C9-duplicate-helper": c9,
     "C10-plain-secret": c10,
     "C11-url-split": c11,
+    "C12-admin-arg-read": c12,
     "C13-helper-body": c13,
     "A1-allow": a1,
     "A2-short-reason": a2,
     "A3-scratch-discard": a3,
     "A4-open-text": a4,
     "A5-library-rng": a5,
+    "A6-secret-line": a6,
 }
 
 # ---------- probes ----------
@@ -1075,6 +1337,247 @@ PATTERNS = {
 # Samples each rule must count (`hit`) or leave (`miss`), checked before every run so a
 # change to a pattern cannot silently stop counting what it was written for.
 PROBES = [
+    # C12: wyrm-admin reads and declares an action's arguments only through its struct
+    ("C12", ADMIN + "x.rs", 'fn f(args: &Value) { let n = arg_str(args, "name"); }', 2),
+    ("C12", ADMIN + "x.rs", 'fn f(args: &Value) { let n = int_arg::<u32>(args, "n")?; }', 2),
+    ("C12", ADMIN + "x.rs", "fn arg<'a>(args: &'a Value, name: &str) -> Option<&'a Value> { None }", 1),
+    ("C12", ADMIN + "x.rs", 'fn f(args: &Value) { let p = passphrase_arg(args)?; }', 2),
+    ("C12", ADMIN + "x.rs", "fn f(args: &Value) { let o = UpdateOpts::from_args(args)?; }", 2),
+    ("C12", ADMIN + "x.rs", "fn f(args: &Value) -> bool { accepted(args) }", 2),
+    ("C12", ADMIN + "x.rs", 'fn f(args: &BTreeMap<String, Value>) { let n = args.get("name"); }', 1),
+    ("C12", ADMIN + "x.rs", "fn f(args: &Value) { match args { Value::Map(m) => go(m), _ => {} } }", 1),
+    ("C12", ADMIN + "x.rs", "fn f(args: &Value) { let Value::Map(m) = args else { return }; }", 1),
+    ("C12", ADMIN + "x.rs", "fn f(args: &Value) { if let Value::Map(m) = &args { go(m) } }", 1),
+    ("C12", ADMIN + "x.rs", 'fn f(args: &Value) { let n = &args["name"]; }', 1),
+    ("C12", ADMIN + "x.rs", "fn f() -> ParamMeta { ParamMeta::of(TypeCode::String) }", 2),
+    ("C12", ADMIN + "x.rs", 'fn f() -> ActionMeta { ActionMeta::new().param("n", p()) }', 2),
+    # the second audit of #136: the ways around the second C12, which trusted three names
+    # (`invoke`, `decode`, `Value`). Each sample must count; the number is how many places.
+    (
+        "C12",
+        ADMIN + "x.rs",
+        'fn f(args: Value) { let invoke = |v: Value| { let m = v.as_map(); let k = "name".to_owned(); '
+        "m.and_then(|m| m.get(&k)).and_then(|x| x.as_str()).map(str::to_owned) }; let n = invoke(args); }",
+        2,
+    ),
+    (
+        "C12",
+        ADMIN + "x.rs",
+        "trait Take { fn invoke(self, k: &str) -> Option<String>; }\n"
+        "impl Take for Value { fn invoke(self, k: &str) -> Option<String> { self.as_map()?.get(k)?.as_str().map(str::to_owned) } }\n"
+        "fn f(args: Value) { let k = key(); let n = Take::invoke(args, k); }",
+        2,
+    ),
+    (
+        "C12",
+        ADMIN + "x.rs",
+        "fn invoke<'a>(v: &'a Value, k: &str) -> Option<&'a str> { v.as_map()?.get(k)?.as_str() }\n"
+        "fn f(args: &Value) { let n = invoke(args, NAME_KEY); }",
+        2,
+    ),
+    (
+        "C12",
+        ADMIN + "x.rs",
+        "fn invoke(v: impl Into<Value>, k: &str) -> Option<String> { let v: Value = v.into(); v.as_map()?.get(k)?.as_str().map(str::to_owned) }\n"
+        "fn f(args: Value) { let n = invoke(args, key()); }",
+        2,
+    ),
+    (
+        "C12",
+        ADMIN + "x.rs",
+        "fn invoke(v: wyrm_core::value::Value, k: &str) -> Option<String> { v.as_map()?.get(k)?.as_str().map(str::to_owned) }\n"
+        "fn f(args: Value) { let n = invoke(args, key()); }",
+        2,
+    ),
+    (
+        "C12",
+        ADMIN + "x.rs",
+        "type V = Value;\nfn invoke(v: V, k: &str) -> Option<String> { v.as_map()?.get(k)?.as_str().map(str::to_owned) }\n"
+        "fn f(args: Value) { let n = invoke(args, key()); }",
+        2,
+    ),
+    (
+        "C12",
+        ADMIN + "x.rs",
+        "struct Raw(String);\nimpl Raw { fn decode<'a>(v: &'a Value) -> Option<Self> { Some(Raw(v.as_map()?.get(key())?.as_str()?.to_owned())) } }\n"
+        "fn f(args: &Value) { let n = Raw::decode(args); }",
+        2,
+    ),
+    (
+        "C12",
+        ADMIN + "x.rs",
+        "struct Raw(String);\nimpl Raw { fn decode(v: wyrm_core::value::Value) -> Option<Self> { Some(Raw(v.as_map()?.get(key())?.as_str()?.to_owned())) } }\n"
+        "fn f(args: Value) { let n = Raw::decode(args); }",
+        2,
+    ),
+    (
+        "C12",
+        ADMIN + "x.rs",
+        "struct Raw(String);\nimpl Raw { fn decode<T: Into<Value>>(v: T) -> Option<Self> { let v = v.into(); Some(Raw(v.as_map()?.get(key())?.as_str()?.to_owned())) } }\n"
+        "fn f(args: Value) { let n = Raw::decode(args); }",
+        2,
+    ),
+    ("C12", ADMIN + "x.rs", "fn f(args: &Value) { let a = A::decode(args.clone())?; let b = B::decode(args.clone())?; }", 2),
+    ("C12", ADMIN + "x.rs", "fn f(args: Value) { let n = wyrm_state::Peek::decode(args); }", 1),
+    ("C12", ADMIN + "x.rs", "fn f(args: Value) { let args: BTreeMap<String, Value> = todo(); }", 1),
+    ("C12", ADMIN + "x.rs", "fn f(Value::Map(m): Value) {}", 1),
+    ("C12", ADMIN + "x.rs", "async fn on_invoke(&mut self, path: &str, input: Arc<Value>) { read(input) }", 1),
+    ("C12", ADMIN + "x.rs", "async fn on_invoke(&mut self, path: &str, input: Option<Value>) { read(input) }", 1),
+    ("C12", ADMIN + "x.rs", "fn f() -> ActionMeta { let mut a: ActionMeta = Default::default(); a.display = Some(x()); a }", 1),
+    ("C12", ADMIN + "x.rs", "fn f() -> ActionMeta { <ActionMeta as Default>::default() }", 1),
+    ("C12", ADMIN + "x.rs", "fn f(args: Value) { let m: BTreeMap<String, Value> = BTreeMap::try_from(invoke(args))?; }", 1),
+    ("C12", ADMIN + "x.rs", "impl X { fn go(args: Value) { let a = Self::decode(args); } }", 1),
+    ("C12", ADMIN + "x.rs", "#[derive(Args)]\nstruct A {\n    n: u32,\n}\nfn f(args: Value) { let a = other::A2::decode(args); }", 1),
+    ("C12", ADMIN + "x.rs", "async fn on_check(&mut self, path: &str) {}", 1),
+    # third audit of #136: what is no argument stays out, the local path and rustfmt's comma
+    ("C12", ADMIN + "x.rs", "type Answer = wyrm_link_sdk::Result<Option<Value>>;\ntype Rows = Vec<(String, Value)>;", 0),
+    ("C12", ADMIN + "x.rs", "type V = wyrm_core::Value;\ntype R<'a> = &'a Value;", 1),
+    ("C12", ADMIN + "x.rs", "impl Runner { fn invoke(&self, cmd: &Command) -> io::Result<()> { run(cmd) } }", 0),
+    ("C12", ADMIN + "x.rs", "fn f(b: &[u8]) { let decoded = hex::decode(b); let decode = 1; let invoke = start(); }", 0),
+    ("C12", ADMIN + "x.rs", "fn f() { let decode = move |v: &[u8]| hex(v); }", 1),
+    ("C12", ADMIN + "x.rs", "impl<'a> Take for &'a wyrm_core::Value { fn take(self) {} }", 1),
+    (
+        "C12",
+        ADMIN + "x.rs",
+        "#[derive(Args)]\nstruct A {\n    n: u32,\n}\nfn f(args: Value) { let a = A::decode(\n        args,\n    )?; }",
+        0,
+    ),
+    (
+        "C12",
+        ADMIN + "control/x.rs",
+        "#[derive(Args)]\nstruct A {\n    n: u32,\n}\nfn f(args: Value) { let a = x::A::decode(args)?; let b = super::A::decode(args)?; }",
+        0,
+    ),
+    (
+        "C12",
+        ADMIN + "x.rs",
+        "#[derive(Args)]\nstruct Create {\n    n: u32,\n}\nfn f(args: Value) { let a = wyrm_storage::Create::decode(args)?; }",
+        1,
+    ),
+    # C4 has no `.as_map()` / `?.as_str()` form: `Value` has neither method (only `as_f64`),
+    # so such code does not compile; a key that is a variable is not counted (it would count
+    # every map of the workspace)
+    ("C4", "links/x/src/lib.rs", "fn f(m: &HashMap<String, u8>, k: &str) -> Option<u8> { m.get(k).copied() }", 0),
+    # third audit of #136: C10 reads the last word of a name and the wire name, and the
+    # exact secret types
+    ("C10", "x.rs", "#[derive(Args)]\npub(super) struct A {\n    pub new_password: String,\n}\n", 1),
+    ("C10", "x.rs", "#[derive(Args)]\npub(super) struct A {\n    pub api_key: String,\n}\n", 1),
+    ("C10", "x.rs", "#[derive(Args)]\npub(super) struct A {\n    pub access_token: Option<String>,\n}\n", 1),
+    ("C10", "x.rs", '#[derive(Args)]\npub(super) struct A {\n    #[param(name = "password")]\n    pub pw: String,\n}\n', 1),
+    ("C10", "x.rs", "#[derive(Args)]\npub(super) struct A {\n    pub token: SecretName,\n}\n", 1),
+    ("C10", "x.rs", "#[derive(Args)]\npub(super) struct A {\n    #[param(secret)]\n    pub pin: Option<SecretName>,\n}\n", 1),
+    ("C10", "x.rs", "#[derive(Args)]\npub(super) struct A {\n    #[param(secret, trim, nonempty)]\n    pub passphrase: Option<SecretLine>,\n}\n", 1),
+    ("C10", "x.rs", "#[derive(Args)]\npub(super) struct A {\n    #[param(secret, trim)]\n    pub api_key: SecretLine,\n}\n", 1),
+    ("C10", "x.rs", "type NotSecretButNamed = String;\n#[derive(Args)]\npub(super) struct A {\n    pub password: NotSecretButNamed,\n}\n", 1),
+    (
+        "C10",
+        "x.rs",
+        "#[derive(Args)]\npub(super) struct A {\n    pub export_secrets: bool,\n    pub replace_keys: bool,\n"
+        "    pub key_sha256: Option<String>,\n    pub secret_name: String,\n    pub params: BTreeMap<String, Value>,\n"
+        "    pub access_token: Option<wyrm_link_sdk::Secret>,\n    pub value: SecretBytes,\n}\n",
+        0,
+    ),
+    (
+        "C10",
+        "x.rs",
+        '#[derive(Args)]\npub(super) struct A {\n    #[param(name = "key", trim)]\n'
+        "    // rust-rules: allow(C10) a SHA-256 people compare, no secret\n    pub key_sha256: Option<String>,\n}\n",
+        0,
+    ),
+    # A6: every field of the one secret that is trimmed
+    ("A6", "x.rs", "struct A {\n    token: Option<SecretLine>,\n    other: wyrm_core::secret::SecretLine,\n}", 2),
+    ("A6", "x.rs", "pub use wyrm_core::secret::{Secret, SecretBytes, SecretLine};\nfn f(t: &Secret) {}", 0),
+    ("A6", "crates/wyrm-core/src/secret.rs", "pub struct SecretLine(pub Secret);\nfn f(v: SecretLine) {}", 0),
+    # C10: an argument named as a secret is kept in a secret type, attribute or not
+    ("C10", "x.rs", "#[derive(Debug, Args)]\nstruct A {\n    pub token: Option<String>,\n    name: String,\n}", 1),
+    ("C10", "x.rs", "#[derive(\n    wyrm_link_sdk::Args,\n)]\npub(super) struct A {\n    key: Vec<u8>,\n    password: String,\n}", 2),
+    (
+        "C10",
+        "x.rs",
+        "#[derive(Args)]\nstruct A {\n    token: Option<SecretLine>,\n    passphrase: Option<Secret>,\n"
+        "    key: SecretBytes,\n    key_sha256: Option<String>,\n    secret_name: String,\n}\nstruct B {\n    token: String,\n}",
+        0,
+    ),
+    # the audit of #136: every way around the first C12 (it counted names, not uses)
+    (
+        "C12",
+        ADMIN + "x.rs",
+        "fn text<'a>(m: &'a Value, k: &str) -> Option<&'a str> { m.as_map()?.get(k)?.as_str() }\n"
+        'fn f(args: &Value) { let n = text(&args, "name"); }',
+        1,
+    ),
+    ("C12", ADMIN + "x.rs", 'fn f(args: &Value) { let n = decode::text(&args, "name"); let b = decode::flag(&args, "force"); }', 2),
+    ("C12", ADMIN + "x.rs", 'fn f(args: &Value) { let n = args.text("name"); }', 1),
+    ("C12", ADMIN + "x.rs", 'fn f(args: &Value) { let a = args; if let Value::Map(m) = a { let n = m.get("name"); } }', 1),
+    ("C12", ADMIN + "x.rs", "fn f(args: &Value) { let a = args; let m = a.as_map().unwrap_or(&EMPTY); let n = m.get(NAME); }", 1),
+    (
+        "C12",
+        ADMIN + "x.rs",
+        "macro_rules! take { ($m:expr, $k:literal) => { $m.as_map().and_then(|m| m.get($k)) } }\n"
+        'fn f(args: &Value) { let n = take!(args, "name"); }',
+        1,
+    ),
+    ("C12", ADMIN + "x.rs", "fn f(args: &Value) { let raw: Raw = wyrm_core::codec::from_slice(&wyrm_core::codec::to_vec(args)?)?; }", 1),
+    ("C12", ADMIN + "x.rs", "fn f(args: Value) { helper(args) }", 1),
+    ("C12", ADMIN + "x.rs", "fn f(args: Value) { my::decode(args) }", 1),
+    ("C12", ADMIN + "x.rs", "fn f(args: Value) { X::decode(strip(args)) }", 1),
+    ("C12", ADMIN + "x.rs", "fn f(args: Value) { history::invoke(ctl, peek(&args), sub) }", 1),
+    ("C12", ADMIN + "x.rs", 'async fn on_invoke(&mut self, path: &str, input: Value, who: &Caller) { read(input) }', 1),
+    ("C12", ADMIN + "x.rs", 'pub(crate) async fn invoke(ctl: &Control, rest: &[&str], a: &Value) { read(a) }', 1),
+    ("C12", ADMIN + "x.rs", 'fn f() -> ActionMeta { let mut a = X::action(); a.params.entry("extra".to_owned()).or_default().ty = Some(TypeCode::String); a }', 1),
+    ("C12", ADMIN + "x.rs", 'fn f() -> ActionMeta { let mut a = X::action(); a.params.insert("extra".to_owned(), Default::default()); a }', 1),
+    ("C12", ADMIN + "x.rs", 'fn f() -> ActionMeta { let mut a = X::action(); a.params.retain(|k, _| k != "secret"); a }', 1),
+    ("C12", ADMIN + "x.rs", "fn f() -> ActionMeta { let mut a = X::action(); for p in a.params.values_mut() { p.ty = Some(TypeCode::Dynamic); } a }", 1),
+    ("C12", ADMIN + "x.rs", "fn f() -> ActionMeta { let mut a = X::action(); let m = &mut a.params; m.clear(); a }", 1),
+    ("C12", ADMIN + "x.rs", "fn f() -> ActionMeta { let mut a = X::action(); a.params = other(); a }", 1),
+    ("C12", ADMIN + "x.rs", "fn f() -> ActionMeta { ActionMeta::new().display(\"X\") }", 1),
+    ("C12", ADMIN + "x.rs", "fn f() -> ActionMeta { ActionMeta { params: p(), ..Default::default() } }", 1),
+    ("C12", ADMIN + "x.rs", "impl Args for X { fn params() -> Vec<P> { vec![] } }", 1),
+    ("C12", ADMIN + "x.rs", "impl X { fn decode(v: Value) -> Self { hand(v) } }", 1),
+    # a codec of another form is no decoder of arguments
+    ("C12", ADMIN + "x.rs", "fn decode(b: &[u8]) -> Result<Db, Error> { parse(b) }", 0),
+    # a `decode.rs` in the admin is no decoder module: its reads count (C4)
+    (
+        "C4",
+        ADMIN + "control/decode.rs",
+        "pub fn text<'a>(m: &'a Value, k: &str) -> Option<&'a str> { match m { Value::Map(m) => match m.get(k) { Some(Value::Str(s)) => Some(s), _ => None }, _ => None } }",
+        1,
+    ),
+    ("C4", "links/x/src/decode.rs", "pub fn text(m: &Value) -> Option<&str> { match m { Some(Value::Str(s)) => Some(s), _ => None } }", 0),
+    # what stays: the parameter, the struct's decoder, a whole hand-over to a dispatcher,
+    # a link's own `params`, a process's `args` field, a request built under another name
+    (
+        "C12",
+        ADMIN + "x.rs",
+        "async fn on_invoke(&mut self, path: &str, action: &str, args: Value, who: &Caller) {\n"
+        "    match action {\n"
+        '        "a" => self.a(A::decode(args)?).await,\n'
+        '        "b" => { <()>::decode(args)?; self.b().await }\n'
+        "        _ => crate::history::invoke(&self.ctl, &self.ctx, rest, action, args, &sub).await,\n"
+        "    }\n}\n"
+        "async fn on_check(&mut self, args: Value) { let a = A::decode(args)?; }\n"
+        "#[derive(Debug, wyrm_link_sdk::Args)]\nstruct A {\n    n: u32,\n}\n"
+        "pub(super) async fn invoke(ctl: &Control, args: Value) { sinks::invoke(ctl, args).await }\n"
+        "fn g(d: &LinkDef, p: &PackageDef) { let v = decode_params(&d.params); let argv = p.args.clone(); "
+        "let spec = ProcSpec { exe, args: argv }; cmd.args(argv); if d.params != other { } }\n"
+        "fn h(a: UpdateParams) -> Value { Value::Map(a.params) }",
+        0,
+    ),
+    # the typed way, a dispatcher that hands the map on, and a call built for another link
+    (
+        "C12",
+        ADMIN + "x.rs",
+        "#[derive(Args)]\nstruct A {\n    #[param(display = \"N\", min = 1)]\n    n: u32,\n}\n"
+        "fn f(args: &Value) -> Result<A, ArgError> { A::decode(args) }\n"
+        "fn g(args: &Value) { sinks::invoke(args); let mut request = BTreeMap::new(); request.insert(k, v); }\n"
+        "fn h() -> ActionMeta { A::action().shown(\"n\", |p| p.placeholder(\"1\")) }",
+        0,
+    ),
+    ("C12", "links/x/src/lib.rs", 'fn f(args: &Value) { let n = arg_str(args, "name"); }', 0),
+    ("C12", ADMIN + "x.rs", '#[cfg(test)]\nmod tests { fn f(args: &Value) { arg_str(args, "n"); } }', 0),
+    # C10: a secret argument is a secret type too
+    ("C10", "x.rs", "#[derive(Args)]\nstruct A {\n    #[param(secret, nonempty)]\n    passphrase: Option<String>,\n}", 1),
+    ("C10", "x.rs", "#[derive(Args)]\nstruct A {\n    #[param(secret, nonempty)]\n    passphrase: Option<Secret>,\n}", 0),
     ("C11", "x.rs", 'fn f(u: &str) { let (s, r) = u.split_once("://").unwrap(); }', 1),
     ("C11", "x.rs", 'fn f(u: &str) -> bool { u.strip_prefix("https://").is_some() }', 1),
     ("C11", "x.rs", 'fn f(u: &str) -> bool { u.starts_with("http") }', 1),
@@ -1278,10 +1781,14 @@ def measure_patterns(show: str | None = None) -> dict[str, dict[str, int]]:
     files = list(sources())
     CRATE_TEXT_ERRORS.clear()
     CRATE_NAME_FIELDS.clear()
+    ADMIN_ARGS.clear()
     for path, text in files:
         CRATE_TEXT_ERRORS.setdefault(crate_of(path), set()).update(text_error_aliases(path, text))
         masked = Source(path, text).masked  # code only, tests left out
         CRATE_NAME_FIELDS.setdefault(crate_of(path), set()).update(name_fields(masked))
+        if path.startswith(ADMIN):
+            for name, _, _ in args_structs(masked):
+                ADMIN_ARGS.setdefault(name, set()).add(stem_of(path))
     for path, text in files:
         s = Source(path, text)
         for name, rule in PATTERNS.items():

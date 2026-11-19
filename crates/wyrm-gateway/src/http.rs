@@ -715,7 +715,7 @@ async fn check_invoke(
     if !am
         .params
         .values()
-        .any(|p| p.editor.as_deref() == Some(wyrm_core::meta::EDITOR_FILE))
+        .any(|p| p.has_editor(wyrm_core::meta::Editor::File))
     {
         // a `string` or `map` argument stays within a frame (ADR 0028 amendment)
         return Err(ApiError::bad(format!(

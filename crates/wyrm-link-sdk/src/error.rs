@@ -59,6 +59,16 @@ impl LinkError {
     }
 }
 
+/// A refused action argument (`wyrm_core::args`): `invalid_parameter` with
+/// the field's name and why. One status for every refusal of an argument, as
+/// the hand readers gave (a number above its bound was `invalid_parameter`
+/// too); [`wyrm_core::args::Fault`] says which kind it is.
+impl From<wyrm_core::args::ArgError> for LinkError {
+    fn from(e: wyrm_core::args::ArgError) -> Self {
+        Self::invalid_parameter(e.to_string())
+    }
+}
+
 impl From<wyrm_core::keyspace::KeyError> for LinkError {
     fn from(e: wyrm_core::keyspace::KeyError) -> Self {
         Self::invalid_parameter(e.to_string())

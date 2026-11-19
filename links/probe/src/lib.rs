@@ -15,7 +15,7 @@ pub mod runner;
 pub mod scenario;
 
 use std::collections::BTreeMap;
-use wyrm_core::meta::{ActionResult, ParamMeta, EDITOR_TEXTAREA};
+use wyrm_core::meta::{ActionResult, Editor, ParamMeta};
 use wyrm_core::{ActionMeta, NodeMeta, Perm, Quality, TypeCode, Value};
 use wyrm_link_sdk::params::Fields;
 use wyrm_link_sdk::{now_us, Caller, FromParams, Link, LinkCtx, LinkError, ReplySink, Result};
@@ -155,7 +155,7 @@ impl Link for Probe {
                     "scenario",
                     ParamMeta::of(TypeCode::String)
                         .required(true)
-                        .editor(EDITOR_TEXTAREA)
+                        .editor(Editor::Textarea)
                         .display("Scenario")
                         .description(
                             "JSON: {\"name\", \"steps\": [...]} (links/probe/src/scenario.rs)",

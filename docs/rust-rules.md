@@ -11,7 +11,7 @@ Two checks run in CI job `check`:
    has `lints.workspace = true`. `cargo clippy --workspace --all-targets
    --all-features -- -D warnings` fails on one hit.
 2. **Baselined rules.** `python3 tool/check_rust_rules.py` counts the patterns
-   C1–C11 and C13, the exceptions A1–A5 and seven costly clippy lints per file against
+   C1–C13, the exceptions A1–A6 and seven costly clippy lints per file against
    `tool/rust_rules_baseline.json`. **A count may only go down. A file that is
    not in the baseline starts at zero.** The check fails on a count above its
    baseline and also on a count below it: after you remove hits, run
@@ -36,8 +36,9 @@ does not count (A2), and every exception is itself counted (A1), so none is
 invisible; so is every removal whose error is only logged (A3: each call of
 `wyrm_core::files::discard`, `discard_dir`, `discard_empty_dir`), every text
 field that rule 6's pattern counts and that is open on purpose (A4: the list
-`C3_OPEN` in the checker, one reason per entry) and every call of a library
-that draws randomness by itself (A5, rule 10). Prefer a restructure: an
+`C3_OPEN` in the checker, one reason per entry), every call of a library
+that draws randomness by itself (A5, rule 10) and every field of the one
+secret that is trimmed (A6: a `SecretLine`, rule 12). Prefer a restructure: an
 exception is for the place where the code is provably right as it is.
 
 Test code (`#[test]`, `#[cfg(test)]`) may unwrap, expect, panic and print
@@ -334,10 +335,39 @@ exempt from C6: their `NAMES` is the one declaration of a set.
 ## 7. One typed decoder per `Value` shape
 
 **Rule.** Action arguments, stored records and reply maps are decoded once,
-into a struct, by one decoder (`#[derive(Params)]`, a `FromValue`-style
-function in a `decode.rs`). Handlers use the struct. They do not take
+into a struct, by one decoder (`#[derive(Args)]` for an action's arguments,
+`#[derive(Params)]` for a driver node, a `FromValue`-style function in a
+`decode.rs`). Handlers use the struct. They do not take
 `Some(Value::Bool(..))` or `.get("field")` apart by hand, each with its own
 default.
+
+An action's arguments are one struct with `#[derive(Args)]`
+(`wyrm_core::args`, re-exported by `wyrm-link-sdk` and `wyrm-link-api`): the
+struct is what `~meta` declares (`X::action()`) and what the handler gets
+(`X::decode(args)?`; the arguments are taken, so a large binary argument moves
+into the struct and is never copied). A field `T` is required, `Option<T>`
+optional; whole numbers go through `Value::to_int`; a closed set is a
+`name_enum!` type with `#[param(choice)]` (by name) or `#[param(enum)]` (by
+index); a name that is no field is refused; every refusal names its field. A
+name is one field: two fields of one struct with one name do not compile, and
+neither does a name that comes again through `flatten` (the derive asserts it
+in a `const` over `Args::NAMES`, in every crate, with no list to keep).
+`flatten` stands alone: another attribute beside it does not compile.
+`#[param(nonempty)]` is the empty text only; a text of white space is empty
+only with `trim`. A refused call zeroes the text and bytes the decoder still
+holds: what no field took, a value its field refused (a passphrase sent as
+bytes), arguments that are no map. Not cleared by the decoder: a value a field
+took (a secret type clears itself; plain text and bytes are the handler's),
+and the Zenoh payload bytes the SDK decoded the arguments from (the SDK moves
+the decoded value on, so there is no second copy). The caller
+is checked before its arguments are decoded (a stranger is told
+`permission_denied`, never that its arguments were wrong), and so is the state
+the action is about: what does not exist is `not_found`, and a broker that is
+closing is `busy`, whatever the arguments are. What a form shows from the
+state of the moment (the choices of a list, the value in force) is set with
+`ActionMeta::shown`, which cannot change a type or add a parameter. In
+`wyrm-admin` this is the only way (C12): no argument reader, no `ParamMeta`
+written out.
 
 **Why.** **T3**: ≈508 `Some(Value::…(` matches and ≈343 `.get("literal")`
 reads; the schema is declared twice (`ParamMeta`, which the SDK validates, and
@@ -348,17 +378,60 @@ first, so a wrong type silently reads as the default.
 // bad — crates/wyrm-admin/src/control.rs: anything but `false` is "true"
 let enabled = !matches!(arg(args, "enabled"), Some(Value::Bool(false)));
 
-// good (the target design, audit T3) — one struct is both the declaration and the decoder
-#[derive(Params)]
-struct EnableArgs { #[param(default = true)] enabled: bool }
-let a = EnableArgs::from_value(&args)?;
+// good — crates/wyrm-admin/src/control/actions.rs: one struct is the declaration and the decoder
+#[derive(Args)]
+struct AddUpstream {
+    #[param(display = "Enabled", absent = true)]
+    enabled: bool,
+    // …
+}
+let a = AddUpstream::decode(args)?; // `enabled: "no"` is refused, with the field's name
 ```
 
 **Check.** C4 `value-field-read`: `Some(Value::…`, `if let Value::…(`,
 `let Value::…(..) =`, `.get`/`.get_mut`/`.remove`/`.contains_key` with a
 literal or a `CONST` key, `m["x"]`, `Value::as_*`, and the argument helpers
 (`arg_str(&args, "x")`, `opt_str`, `get_u64`, …). Files named `decode.rs`,
-`decode/` and the codec in `wyrm-core/src/value.rs` are exempt.
+`decode/`, the codec in `wyrm-core/src/value.rs` and the decoder behind
+`#[derive(Args)]` (`wyrm-core/src/args.rs`) are exempt.
+
+C12 `admin-arg-read`, in `crates/wyrm-admin/src` (baseline 0; the other crates
+follow as they move, audit T3). There `args` names an action's arguments and
+nothing else (a process's arguments are `argv`, a call built for another link
+is a `request`), and it has three uses: the parameter (`args: Value`), the
+one argument of a struct's decoder (`X::decode(args)`, `<()>::decode(args)`,
+also as rustfmt writes it over lines with a comma),
+and a whole hand-over to a dispatcher of the crate (`history::invoke(…, args,
+…)`: a lower-case module path, never a bare or a closure `invoke`). The
+decoder is that of a struct of the crate that derives `Args` (the script
+collects the names and the files that define them) or `<()>`, by a local path:
+`X`, `super::X`, `crate::…::X`, or `<stem>::X` where `<stem>` is the file that
+defines `X` (`restore_broker::RestoreCheck`). `Raw::decode(args)`,
+`Self::decode(args)`, a type of another crate (`wyrm_storage::Create`) and a
+second read (`X::decode(args.clone())`) count.
+**Every other `args` counts**: a helper called with it, a method on it, a
+macro, a new name for it (`let a = args`, `let args: T = …`), a `match`. Also
+counted: a function that takes the arguments (`on_invoke`, `on_check`,
+`invoke`, `decode`) with any `Value` in its parameters or generics other than
+`args: Value` / `args: &Value` (`&'a Value`, `impl Into<Value>`,
+`Option<Value>`, `Arc<Value>`, a full path), and an `on_invoke` or
+`on_check` without it (an `invoke` or a `decode` with no `Value` at all, as
+`fn invoke(&self, cmd: &Command)`, is about something else); `invoke` and
+`decode` as a closure; a trait of the crate on `Value` (`impl Take for Value`);
+a `Value` taken apart in a parameter; a type alias that is `Value` or `&Value`
+(not one that holds it, as `Result<Option<Value>>`); `let a: ActionMeta =
+Default::default()`; an argument
+reader by name
+(`arg(…)`, `…_arg(…)`, `from_args(…)`); a parameter or an action written out
+(`ParamMeta`, `.param(…)`, `ActionMeta::new()`, `ActionMeta { … }`: an action
+is `X::action()`); a change of an action's declared parameters
+(`a.params.insert(…)`, `.entry`, `.retain`, `.values_mut()`, `&mut a.params`,
+`a.params = …`); a decoder written by hand (`impl Args for`, `fn decode(v:
+Value)`). A file named `decode.rs` is no decoder module inside `wyrm-admin`:
+C4 counts its reads. (C4 does not count an arm `Value::Map(m) =>` nor a key
+that is a variable: measured on 2026-11-18, the arm alone would add 580 hits
+outside `wyrm-admin`, mostly codecs and flow blocks. `Value` has no `as_map`
+or `as_str`, so `v.as_map()?.get(k)?.as_str()` does not compile.)
 
 ## 8. A public error is a type, not a `String`
 
@@ -598,8 +671,29 @@ before every run.
 `wyrm_link_sdk::support::Secret` (redacted `Debug`, zeroized on drop), not
 `String`.
 
-The derive does not take `Secret` as a parameter type yet (audit T3 extends
-it); until then the count only goes down as links move.
+An action argument (`#[derive(Args)]`) takes `Secret` (a text parameter) and
+`SecretBytes` (a binary one), and nothing else: `#[param(secret)]` on a
+`String` or a `Vec<u8>` does not compile (`wyrm_core::args::SecretArg`), and a
+secret is never trimmed (`nonempty` drops only the empty text, so a passphrase
+of spaces is a passphrase). The secret types (`wyrm_core::secret`: `Secret`,
+`SecretBytes`, `SecretLine`) are the only ones: the traits are sealed.
+**One named exception:** a token a person pastes as one line (an enrolment
+token of `upstream ▸ add`) is a `SecretLine`, whose type cuts the white space
+around it: a pasted line often ends with a newline, and a token holds none.
+`SecretLine` is no `ArgValue`: a field of it compiles only with
+`#[param(secret, trim)]`, and `secret, trim` only on it. Every field of that
+type is counted (A6, baseline 1), and C10 refuses it for a field named as a
+passphrase, a password or a key.
+
+A field of an `Args` struct whose Rust name or wire name (`#[param(name =
+"…")]`) is `token`, `passphrase`, `password`, `secret` or `key`, alone or as
+its last word (`new_password`, `api_key`, `access_token`), has a secret type,
+with or without the attribute: exactly `Secret`, `SecretBytes` or
+`SecretLine` (a type named `SecretName` is none). A passphrase, a password or
+a key is never a `SecretLine`. What is no secret by such a name says so with
+a counted marker: `key_sha256` (wire name `key`, a fingerprint people
+compare) carries `// rust-rules: allow(C10) <why>`. The driver derive (`#[derive(Params)]`) does not
+take `Secret` yet; until then its count only goes down as links move.
 
 **Why.** Today secrets stay out of `Debug` by a comment ("No `Debug`: it holds
 secrets"); a type makes the convention a rule the compiler keeps.
@@ -615,7 +709,9 @@ password: Secret,
 ```
 
 **Check.** C10 `plain-secret` (a type alias of the file is followed to its
-type).
+type): a `#[param(secret)]` field, and a field of an `Args` struct with one
+of the five names above. A6 `secret-line` counts every field typed
+`SecretLine` (baseline 1: `upstream ▸ add` `token`).
 
 ## 13. Baselined clippy lints
 

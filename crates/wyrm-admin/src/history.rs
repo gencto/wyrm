@@ -13,11 +13,11 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::{info, warn};
-use wyrm_core::meta::{ActionResult, ParamMeta, Writable, GROUP_EDIT, GROUP_NEW};
+use wyrm_core::meta::{ActionResult, Writable, GROUP_EDIT, GROUP_NEW};
 use wyrm_core::{ActionMeta, NodeMeta, Perm, Quality, Status, TypeCode, Value};
 use wyrm_history::time::{iso_us, parse_interval, parse_range, US_PER_DAY};
 use wyrm_history::{GroupCfg, HistoryRead, Logging, Rollup, WatchCfg};
-use wyrm_link_sdk::{now_us, LinkCtx, LinkError};
+use wyrm_link_sdk::{now_us, Args, LinkCtx, LinkError};
 
 mod sinks;
 pub use sinks::sink_key;
@@ -124,108 +124,164 @@ pub fn groups(reg: &Registry) -> Vec<GroupCfg> {
         .collect()
 }
 
-fn arg<'a>(args: &'a Value, name: &str) -> Option<&'a Value> {
-    match args {
-        Value::Map(m) => m.get(name),
-        _ => None,
-    }
-}
-
-fn arg_str<'a>(args: &'a Value, name: &str) -> Option<&'a str> {
-    match arg(args, name) {
-        Some(Value::Str(s)) => Some(s.trim()).filter(|s| !s.is_empty()),
-        _ => None,
-    }
-}
-
-fn arg_num(args: &Value, name: &str) -> Option<f64> {
-    arg(args, name).and_then(Value::as_f64)
-}
-
-/// A count of rows: a whole number (`int_arg`), at least 1 (0 or absent is
-/// `default`), at most `max`.
-fn rows_arg(args: &Value, name: &str, default: usize, max: usize) -> Result<usize> {
-    Ok(match crate::control::int_arg::<u64>(args, name)? {
-        None | Some(0) => default,
-        Some(n) => usize::try_from(n).map_or(max, |n| n.min(max)),
-    })
-}
-
-/// A logging type from its name (`All Data`, as the parameter lists it) or its index.
-fn arg_logging(args: &Value) -> Result<Option<Logging>> {
-    match arg(args, "logging_type") {
-        None | Some(Value::Null) => Ok(None),
-        Some(Value::UInt(i)) => Logging::ALL
-            .get(*i as usize)
-            .copied()
-            .map(Some)
-            .ok_or_else(|| LinkError::invalid_parameter("logging_type?")),
-        Some(Value::Str(s)) if s.trim().is_empty() => Ok(None),
-        Some(Value::Str(s)) => Logging::from_name(s.trim())
-            .map(Some)
-            .ok_or_else(|| LinkError::invalid_parameter(format!("logging type {s:?}?"))),
-        Some(_) => Err(LinkError::invalid_parameter("logging_type: a name")),
-    }
-}
-
-/// Seconds → ms; `None` keeps `current`.
-fn arg_ms(args: &Value, name: &str, current: u64) -> Result<u64> {
-    match arg_num(args, name) {
-        None => Ok(current),
-        Some(s) if s >= 0.0 => wyrm_core::value::whole((s * 1000.0).round())
-            .ok()
-            .and_then(|ms| u64::try_from(ms).ok())
-            .ok_or_else(|| LinkError::invalid_parameter(format!("{name}: seconds"))),
-        Some(_) => Err(LinkError::invalid_parameter(format!("{name}: seconds"))),
-    }
-}
-
-fn str_param() -> ParamMeta {
-    ParamMeta::of(TypeCode::String)
-}
-
-fn logging_param(current: Option<Logging>) -> ParamMeta {
-    let mut p = str_param()
-        .enum_values(Logging::ALL.iter().map(|l| l.name()))
-        .display("Logging type")
-        .description(
-            "None: record nothing. Interval: the last value every Interval. \
-             All Data: every update. Point Change: updates whose value or quality changed.",
-        );
-    if let Some(l) = current {
-        p = p.placeholder(l.name());
-    }
-    p
-}
-
-fn seconds_param(display: &str, about: &str, current: Option<u64>) -> ParamMeta {
-    let mut p = ParamMeta::of(TypeCode::Number)
-        .display(display)
-        .description(about)
-        .editor(wyrm_core::meta::EDITOR_DURATION);
-    if let Some(ms) = current {
-        p = p.placeholder(format!("{}", ms as f64 / 1000.0));
-    }
-    p
-}
-
 /// Choices of Get History's interval (any `<n>s|m|h|d|w` is accepted).
 const GET_HISTORY_INTERVALS: [&str; 19] = [
     "none", "1s", "5s", "10s", "15s", "30s", "1m", "5m", "10m", "15m", "30m", "1h", "2h", "3h",
     "4h", "6h", "12h", "1d", "1w",
 ];
 
+const LOGGING_ABOUT: &str = "None: record nothing. Interval: the last value every Interval. \
+     All Data: every update. Point Change: updates whose value or quality changed.";
 const INTERVAL_ABOUT: &str = "Seconds between two rows of Interval logging (0.1 s to 1 day).";
 const FLUSH_ABOUT: &str = "Seconds between writes to disk (0 = 0.1 s, at most 10 min); \
      rows wait in memory until then.";
 
-fn timerange_param() -> ParamMeta {
-    str_param()
-        .required(true)
-        .display("Timerange")
-        .placeholder("2026-10-22T00:00:00Z/2026-10-23T00:00:00Z")
-        .editor(wyrm_core::meta::EDITOR_DATERANGE)
-        .description("From/to in RFC 3339 (a date is its midnight UTC); an empty end is now.")
+/// How a watch group records: `add_watch_group` and a group's `edit`.
+#[derive(Args, Debug)]
+struct GroupSettings {
+    /// By the name the parameter lists (`All Data`).
+    #[param(choice, trim, nonempty, display = "Logging type", desc = LOGGING_ABOUT)]
+    logging_type: Option<Logging>,
+    #[param(
+        display = "Interval",
+        desc = INTERVAL_ABOUT,
+        editor = "duration",
+        min = 0.0
+    )]
+    interval: Option<f64>,
+    #[param(
+        display = "Buffer flush time",
+        desc = FLUSH_ABOUT,
+        editor = "duration",
+        min = 0.0
+    )]
+    buffer_flush_time: Option<f64>,
+}
+
+/// `history ▸ add_watch_group`.
+#[derive(Args)]
+struct AddWatchGroup {
+    #[param(display = "Name", trim, nonempty)]
+    name: String,
+    #[param(flatten)]
+    settings: GroupSettings,
+}
+
+/// A span of time: `purge`, and `get_history` with what it returns.
+#[derive(Args, Debug)]
+struct TimeRange {
+    #[param(
+        display = "Timerange",
+        placeholder = "2026-10-22T00:00:00Z/2026-10-23T00:00:00Z",
+        editor = "daterange",
+        desc = "From/to in RFC 3339 (a date is its midnight UTC); an empty end is now.",
+        trim,
+        nonempty
+    )]
+    timerange: String,
+}
+
+impl TimeRange {
+    /// `(from, to)` in µs.
+    fn us(&self) -> Result<(u64, u64)> {
+        let r = self.timerange.as_str();
+        parse_range(r, now_us()).ok_or_else(|| {
+            LinkError::invalid_parameter(format!(
+                "timerange {:?}: <from>/<to> in RFC 3339, from before to",
+                wyrm_core::named::shown(r)
+            ))
+        })
+    }
+}
+
+/// `history/<group> ▸ add_watch_path`.
+#[derive(Args)]
+struct AddWatchPath {
+    #[param(
+        display = "Path",
+        placeholder = "downstream/<link>/<point>",
+        desc = "A point of this site (downstream/…, dataflows/… or storage/…, or the full wy/<site>/… key) \
+                or of a site below (wy/<site>/…, or its path in the tree as Copy Path gives it).",
+        trim,
+        nonempty
+    )]
+    path: String,
+}
+
+/// `history/<group> ▸ remove`.
+#[derive(Args)]
+struct RemoveGroup {
+    #[param(
+        display = "Purge",
+        desc = "Also delete the recorded rows of its watches.",
+        absent = false
+    )]
+    purge: bool,
+}
+
+/// `history/<group>/<watch> ▸ get_history`.
+#[derive(Args, Debug)]
+struct GetHistory {
+    #[param(flatten)]
+    range: TimeRange,
+    /// The intervals a DSA client offers, in this API's units; any
+    /// `<n>s|m|h|d|w` is taken.
+    #[param(
+        suggest = GET_HISTORY_INTERVALS,
+        display = "Interval",
+        desc = "none: every row; else one row per interval.",
+        trim,
+        nonempty
+    )]
+    interval: Option<String>,
+    #[param(
+        choice,
+        trim,
+        nonempty,
+        display = "Rollup",
+        desc = "How the samples of one interval become one value (none: the first)."
+    )]
+    rollup: Option<Rollup>,
+    #[param(
+        display = "Rows",
+        placeholder = format!("{DEFAULT_ROWS} (at most {MAX_ROWS})")
+    )]
+    limit: Option<u64>,
+}
+
+impl GetHistory {
+    /// Rows asked for: at least 1 (0 or absent is the default), at most [`MAX_ROWS`].
+    fn rows(&self) -> usize {
+        match self.limit {
+            None | Some(0) => DEFAULT_ROWS,
+            Some(n) => usize::try_from(n).map_or(MAX_ROWS, |n| n.min(MAX_ROWS)),
+        }
+    }
+}
+
+/// Seconds → ms; `None` keeps `current`.
+fn ms_of(name: &str, seconds: Option<f64>, current: u64) -> Result<u64> {
+    match seconds {
+        None => Ok(current),
+        Some(s) => wyrm_core::value::whole((s * 1000.0).round())
+            .ok()
+            .and_then(|ms| u64::try_from(ms).ok())
+            .ok_or_else(|| LinkError::invalid_parameter(format!("{name}: seconds"))),
+    }
+}
+
+/// The settings form of a group: `current` shows what is in force.
+fn group_settings(a: ActionMeta, current: Option<(Logging, u64, u64)>) -> ActionMeta {
+    let seconds = |ms: u64| format!("{}", ms as f64 / 1000.0);
+    match current {
+        None => a
+            .shown("interval", |p| p.placeholder("60"))
+            .shown("buffer_flush_time", |p| p.placeholder("5")),
+        Some((logging, interval_ms, flush_ms)) => a
+            .shown("logging_type", |p| p.placeholder(logging.name()))
+            .shown("interval", |p| p.placeholder(seconds(interval_ms)))
+            .shown("buffer_flush_time", |p| p.placeholder(seconds(flush_ms))),
+    }
 }
 
 /// `sys/history` and everything under it.
@@ -291,29 +347,18 @@ pub(crate) async fn declare(ctx: &LinkCtx, ctl: &Control) -> Result<()> {
     ctx.declare_action(
         ROOT,
         "add_watch_group",
-        ActionMeta::new()
+        group_settings(AddWatchGroup::action(), None)
             .display("Add watch group")
             .group(GROUP_NEW)
-            .param("name", str_param().required(true).display("Name"))
-            .param("logging_type", logging_param(None))
-            .param(
-                "interval",
-                seconds_param("Interval", INTERVAL_ABOUT, None).placeholder("60"),
-            )
-            .param(
-                "buffer_flush_time",
-                seconds_param("Buffer flush time", FLUSH_ABOUT, None).placeholder("5"),
-            )
             .level(Perm::Config),
     )
     .await?;
     ctx.declare_action(
         ROOT,
         "purge",
-        ActionMeta::new()
+        TimeRange::action()
             .display("Purge")
             .group(GROUP_EDIT)
-            .param("timerange", timerange_param())
             .result(ActionResult::Type(TypeCode::Map))
             .level(Perm::Config),
     )
@@ -331,35 +376,18 @@ async fn declare_group(ctx: &LinkCtx, name: &str, g: &WatchGroupDef) -> Result<(
     ctx.declare_action(
         &p,
         "add_watch_path",
-        ActionMeta::new()
+        AddWatchPath::action()
             .display("Add watch path")
             .group(GROUP_NEW)
-            .param(
-                "path",
-                str_param()
-                    .required(true)
-                    .display("Path")
-                    .placeholder("downstream/<link>/<point>")
-                    .description(
-                        "A point of this site (downstream/…, dataflows/… or storage/…, or the full wy/<site>/… key) \
-                         or of a site below (wy/<site>/…, or its path in the tree as Copy Path gives it).",
-                    ),
-            )
             .level(Perm::Config),
     )
     .await?;
     ctx.declare_action(
         &p,
         "remove",
-        ActionMeta::new()
+        RemoveGroup::action()
             .display("Delete")
             .group(GROUP_EDIT)
-            .param(
-                "purge",
-                ParamMeta::of(TypeCode::Bool)
-                    .display("Purge")
-                    .description("Also delete the recorded rows of its watches."),
-            )
             .level(Perm::Config),
     )
     .await?;
@@ -398,19 +426,13 @@ async fn group_values(ctx: &LinkCtx, name: &str, g: &WatchGroupDef) -> Result<()
     ctx.declare_action(
         &p,
         "edit",
-        ActionMeta::new()
-            .display("Edit")
-            .group(GROUP_EDIT)
-            .param("logging_type", logging_param(Some(logging)))
-            .param(
-                "interval",
-                seconds_param("Interval", INTERVAL_ABOUT, Some(g.interval_ms)),
-            )
-            .param(
-                "buffer_flush_time",
-                seconds_param("Buffer flush time", FLUSH_ABOUT, Some(g.flush_ms)),
-            )
-            .level(Perm::Config),
+        group_settings(
+            GroupSettings::action(),
+            Some((logging, g.interval_ms, g.flush_ms)),
+        )
+        .display("Edit")
+        .group(GROUP_EDIT)
+        .level(Perm::Config),
     )
     .await
 }
@@ -445,32 +467,8 @@ async fn declare_watch(ctx: &LinkCtx, group: &str, id: &str, w: &WatchDef) -> Re
     ctx.declare_action(
         &p,
         "get_history",
-        ActionMeta::new()
+        GetHistory::action()
             .display("Get history")
-            .param("timerange", timerange_param())
-            .param(
-                "interval",
-                // the intervals a DSA client offers, in this API's units
-                str_param()
-                    .enum_values(GET_HISTORY_INTERVALS)
-                    .display("Interval")
-                    .description("none: every row; else one row per interval."),
-            )
-            .param(
-                "rollup",
-                str_param()
-                    .enum_values(Rollup::ALL.iter().map(|r| r.name()))
-                    .display("Rollup")
-                    .description(
-                        "How the samples of one interval become one value (none: the first).",
-                    ),
-            )
-            .param(
-                "limit",
-                ParamMeta::of(TypeCode::Number)
-                    .display("Rows")
-                    .placeholder(format!("{DEFAULT_ROWS} (at most {MAX_ROWS})")),
-            )
             .result(ActionResult::Type(TypeCode::Array))
             // Config, as all of sys/history: the rows are point values, and
             // a role with read on sys has no read on the points (ADR 0014).
@@ -480,10 +478,9 @@ async fn declare_watch(ctx: &LinkCtx, group: &str, id: &str, w: &WatchDef) -> Re
     ctx.declare_action(
         &p,
         "purge",
-        ActionMeta::new()
+        TimeRange::action()
             .display("Purge")
             .group(GROUP_EDIT)
-            .param("timerange", timerange_param())
             .result(ActionResult::Type(TypeCode::Map))
             .level(Perm::Config),
     )
@@ -491,7 +488,7 @@ async fn declare_watch(ctx: &LinkCtx, group: &str, id: &str, w: &WatchDef) -> Re
     ctx.declare_action(
         &p,
         "unsubscribe",
-        ActionMeta::new()
+        <()>::action()
             .display("Unsubscribe")
             .group(GROUP_EDIT)
             .level(Perm::Config),
@@ -500,7 +497,7 @@ async fn declare_watch(ctx: &LinkCtx, group: &str, id: &str, w: &WatchDef) -> Re
     ctx.declare_action(
         &p,
         "unsubscribe_purge",
-        ActionMeta::new()
+        <()>::action()
             .display("Unsubscribe and purge")
             .group(GROUP_EDIT)
             .result(ActionResult::Type(TypeCode::Map))
@@ -628,15 +625,6 @@ fn deleted(n: u64) -> Value {
     Value::Map(BTreeMap::from([("deleted".to_owned(), Value::UInt(n))]))
 }
 
-fn range_arg(args: &Value) -> Result<(u64, u64)> {
-    let r = arg_str(args, "timerange").ok_or_else(|| LinkError::invalid_parameter("timerange"))?;
-    parse_range(r, now_us()).ok_or_else(|| {
-        LinkError::invalid_parameter(format!(
-            "timerange {r:?}: <from>/<to> in RFC 3339, from before to"
-        ))
-    })
-}
-
 /// `history/**` writes: the purge settings and a watch's `enabled`.
 pub(crate) async fn set(
     ctl: &Control,
@@ -757,13 +745,14 @@ pub(crate) async fn invoke(
     ctx: &LinkCtx,
     rest: &[&str],
     action: &str,
-    args: &Value,
+    args: Value,
     sub: &str,
 ) -> Result<Option<Value>> {
     match (rest, action) {
         ([SINKS, rest @ ..], _) => sinks::invoke(ctl, ctx, rest, action, args, sub).await,
         ([], "add_watch_group") => {
-            let name = arg_str(args, "name").ok_or_else(|| LinkError::invalid_parameter("name"))?;
+            let a = AddWatchGroup::decode(args)?;
+            let (name, set) = (a.name.as_str(), a.settings);
             if reserved(name) {
                 return Err(LinkError::invalid_parameter(format!(
                     "{name}: a value of history has that name"
@@ -774,13 +763,14 @@ pub(crate) async fn invoke(
                     "watch group {name} exists; use its Edit"
                 )));
             }
-            let logging = arg_logging(args)?.unwrap_or(Logging::AllData);
+            let logging = set.logging_type.unwrap_or(Logging::AllData);
             ctl.apply(Op::PutWatchGroup {
                 name: name.to_owned(),
                 logging: logging.code(),
-                interval_ms: arg_ms(args, "interval", 60_000)?,
+                interval_ms: ms_of("interval", set.interval, 60_000)?,
                 // 0 = as soon as possible (DSA): the shortest flush
-                flush_ms: arg_ms(args, "buffer_flush_time", 5_000)?.max(*FLUSH_MS.start()),
+                flush_ms: ms_of("buffer_flush_time", set.buffer_flush_time, 5_000)?
+                    .max(*FLUSH_MS.start()),
             })
             .map_err(rejected)?;
             ctl.record(sub, AuditOp::HistoryGroup, name, Status::Ok, logging.name());
@@ -790,7 +780,7 @@ pub(crate) async fn invoke(
             Ok(None)
         }
         ([], "purge") => {
-            let (from, to) = range_arg(args)?;
+            let (from, to) = TimeRange::decode(args)?.us()?;
             let n = purge(ctl, None, from, to).await?;
             ctl.record(
                 sub,
@@ -803,6 +793,7 @@ pub(crate) async fn invoke(
             Ok(Some(deleted(n)))
         }
         ([group], "edit") => {
+            // the group must exist before its arguments are read
             let g = ctl
                 .registry()
                 .historian
@@ -810,14 +801,17 @@ pub(crate) async fn invoke(
                 .get(*group)
                 .cloned()
                 .ok_or_else(|| LinkError::not_found(format!("watch group {group}")))?;
-            let logging = arg_logging(args)?
+            let set = GroupSettings::decode(args)?;
+            let logging = set
+                .logging_type
                 .or(Logging::try_from(g.logging).ok())
                 .unwrap_or(Logging::None);
             ctl.apply(Op::PutWatchGroup {
                 name: (*group).to_owned(),
                 logging: logging.code(),
-                interval_ms: arg_ms(args, "interval", g.interval_ms)?,
-                flush_ms: arg_ms(args, "buffer_flush_time", g.flush_ms)?.max(*FLUSH_MS.start()),
+                interval_ms: ms_of("interval", set.interval, g.interval_ms)?,
+                flush_ms: ms_of("buffer_flush_time", set.buffer_flush_time, g.flush_ms)?
+                    .max(*FLUSH_MS.start()),
             })
             .map_err(rejected)?;
             ctl.record(
@@ -833,8 +827,12 @@ pub(crate) async fn invoke(
             Ok(None)
         }
         ([group], "add_watch_path") => {
-            let path = arg_str(args, "path").ok_or_else(|| LinkError::invalid_parameter("path"))?;
-            let key = watch_key(ctl, path)?;
+            // the group first, whatever the arguments are
+            if !ctl.registry().historian.groups.contains_key(*group) {
+                return Err(LinkError::not_found(format!("watch group {group}")));
+            }
+            let a = AddWatchPath::decode(args)?;
+            let key = watch_key(ctl, &a.path)?;
             let before: Vec<String> = ctl
                 .registry()
                 .historian
@@ -875,12 +873,13 @@ pub(crate) async fn invoke(
                 .get(*group)
                 .cloned()
                 .ok_or_else(|| LinkError::not_found(format!("watch group {group}")))?;
+            let a = RemoveGroup::decode(args)?;
             ctl.apply(Op::RemoveWatchGroup((*group).to_owned()))
                 .map_err(rejected)?;
             apply_groups(ctl);
             crate::control::publish_overlays(ctx, ctl).await?;
             let mut n = 0;
-            if matches!(arg(args, "purge"), Some(Value::Bool(true))) {
+            if a.purge {
                 for w in g.watches.values() {
                     n += purge(ctl, Some(&w.key), 0, u64::MAX).await?;
                 }
@@ -896,22 +895,21 @@ pub(crate) async fn invoke(
             Ok(None)
         }
         ([group, id], "get_history") => {
+            // the watch must exist before its arguments are read
             let w = watch_def(ctl, group, id)?;
-            let (from, to) = range_arg(args)?;
-            let interval = parse_interval(arg_str(args, "interval").unwrap_or("none"))
+            let a = GetHistory::decode(args)?;
+            let (from, to) = a.range.us()?;
+            let interval = parse_interval(a.interval.as_deref().unwrap_or("none"))
                 .map_err(LinkError::invalid_parameter)?;
-            let rollup = match arg(args, "rollup") {
-                Some(Value::UInt(i)) => Rollup::ALL.get(*i as usize).copied(),
-                _ => Rollup::parse(arg_str(args, "rollup").unwrap_or("none")),
-            }
-            .ok_or_else(|| LinkError::invalid_parameter("rollup?"))?;
-            let limit = rows_arg(args, "limit", DEFAULT_ROWS, MAX_ROWS)?;
+            let rollup = a.rollup.unwrap_or(Rollup::None);
+            let limit = a.rows();
             let rows = query(ctl, &w.key, from, to, interval, rollup, limit).await?;
             Ok(Some(Value::Array(rows)))
         }
         ([group, id], "purge") => {
             let w = watch_def(ctl, group, id)?;
-            let (from, to) = range_arg(args)?;
+            let range = TimeRange::decode(args)?;
+            let (from, to) = range.us()?;
             let n = purge(ctl, Some(&w.key), from, to).await?;
             ctl.record(
                 sub,
@@ -925,6 +923,7 @@ pub(crate) async fn invoke(
         }
         ([group, id], "unsubscribe" | "unsubscribe_purge") => {
             let w = watch_def(ctl, group, id)?;
+            <()>::decode(args)?;
             ctl.apply(Op::RemoveWatch {
                 group: (*group).to_owned(),
                 id: (*id).to_owned(),
@@ -1221,32 +1220,139 @@ async fn auto_purge(ctl: &Control) -> bool {
 mod tests {
     use super::*;
 
-    /// Typing audit T6: the logging type was taken by its internal name or its display
-    /// name. Only the name the parameter lists (`All Data`) and its index are taken now.
+    /// Typing audit T6 and T3: the logging type was taken by its internal name, its
+    /// display name or its index. The parameter is a text that lists the names
+    /// (`All Data`): that name is the one form taken.
     #[test]
     fn a_logging_type_is_taken_by_the_one_name_it_lists() {
-        let arg = |v: Value| Value::Map(BTreeMap::from([("logging_type".to_owned(), v)]));
+        let logging = |v: Value| {
+            GroupSettings::decode(Value::Map(BTreeMap::from([("logging_type".to_owned(), v)])))
+                .map(|s| s.logging_type)
+        };
         for l in Logging::ALL {
-            assert_eq!(
-                arg_logging(&arg(Value::from(l.name()))).ok(),
-                Some(Some(*l))
-            );
+            assert_eq!(logging(Value::from(l.name())), Ok(Some(*l)));
         }
+        assert_eq!(logging(Value::from("")), Ok(None), "an empty field");
         assert_eq!(
-            arg_logging(&arg(Value::UInt(2))).ok(),
-            Some(Some(Logging::AllData))
+            logging(Value::from(" All Data ")),
+            Ok(Some(Logging::AllData)),
+            "white space around the name is cut, as before"
         );
         assert_eq!(
-            logging_param(None)
+            GroupSettings::action().params["logging_type"]
                 .enum_values
                 .as_deref()
                 .map(<[String]>::len),
             Some(4)
         );
         for other in ["all_data", "point_change", "none", "ALL DATA", "Every"] {
-            assert!(arg_logging(&arg(Value::from(other))).is_err(), "{other}");
+            let e = logging(Value::from(other)).unwrap_err();
+            assert_eq!(e.field, "logging_type", "{other}");
         }
-        assert!(arg_logging(&arg(Value::UInt(4))).is_err());
+        // the declared type is text: an index is not a name
+        assert_eq!(logging(Value::UInt(2)).unwrap_err().field, "logging_type");
+    }
+
+    fn args(kv: &[(&str, Value)]) -> Value {
+        Value::Map(
+            kv.iter()
+                .map(|(k, v)| ((*k).to_owned(), v.clone()))
+                .collect(),
+        )
+    }
+
+    /// Typing audit T3: a group's times are numbers of seconds. A text was read as
+    /// "not given" (the value in force stayed, silently), and a negative one refused
+    /// only after the group's name was checked.
+    #[test]
+    fn group_times_are_seconds_or_refused() {
+        let set = |kv: &[(&str, Value)]| GroupSettings::decode(args(kv));
+        let s = set(&[
+            ("interval", Value::Float(0.5)),
+            ("buffer_flush_time", Value::UInt(2)),
+        ])
+        .unwrap();
+        assert_eq!(ms_of("interval", s.interval, 60_000), Ok(500));
+        assert_eq!(
+            ms_of("buffer_flush_time", s.buffer_flush_time, 5_000),
+            Ok(2_000)
+        );
+        assert_eq!(ms_of("interval", None, 60_000), Ok(60_000));
+        for (field, bad) in [
+            ("interval", Value::from("60")),
+            ("interval", Value::Float(-1.0)),
+            ("interval", Value::Float(f64::NAN)),
+            ("buffer_flush_time", Value::Bool(true)),
+            ("flush", Value::UInt(1)),
+        ] {
+            assert_eq!(
+                set(&[(field, bad.clone())]).unwrap_err().field,
+                field,
+                "{bad:?}"
+            );
+        }
+    }
+
+    /// Typing audit T3: `get_history` reads what it declares. A rollup is a name of
+    /// the list (an index was taken too, a form the declared text type never had).
+    #[test]
+    fn get_history_reads_what_it_declares() {
+        let range = ("timerange", Value::from("2026-10-22/2026-10-23"));
+        let get = |kv: &[(&str, Value)]| {
+            let mut all = vec![range.clone()];
+            all.extend(kv.iter().cloned());
+            GetHistory::decode(args(&all))
+        };
+        let a = get(&[]).unwrap();
+        assert_eq!((a.rollup, a.rows()), (None, DEFAULT_ROWS));
+        assert!(a.range.us().is_ok());
+        let a = get(&[
+            ("rollup", Value::from("avg")),
+            ("interval", Value::from(" 7m ")),
+            ("limit", Value::UInt(u64::MAX)),
+        ])
+        .unwrap();
+        assert_eq!(a.rollup, Some(Rollup::Avg));
+        assert_eq!(
+            a.interval.as_deref(),
+            Some("7m"),
+            "any interval, not only the listed"
+        );
+        assert_eq!(a.rows(), MAX_ROWS);
+        assert_eq!(
+            get(&[("limit", Value::UInt(0))]).unwrap().rows(),
+            DEFAULT_ROWS
+        );
+        assert_eq!(get(&[("rollup", Value::from(""))]).unwrap().rollup, None);
+        // white space around a name is cut, as before (audit of #136)
+        assert_eq!(
+            get(&[("rollup", Value::from(" max "))]).unwrap().rollup,
+            Some(Rollup::Max)
+        );
+        assert_eq!(get(&[("rollup", Value::from("  "))]).unwrap().rollup, None);
+        for (field, bad) in [
+            ("rollup", Value::UInt(3)),
+            ("rollup", Value::from("mean")),
+            ("limit", Value::Float(1.5)),
+            ("limit", Value::Int(-1)),
+            ("interval", Value::UInt(60)),
+        ] {
+            assert_eq!(
+                get(&[(field, bad.clone())]).unwrap_err().field,
+                field,
+                "{bad:?}"
+            );
+        }
+        assert_eq!(
+            GetHistory::decode(args(&[])).unwrap_err().field,
+            "timerange"
+        );
+        assert_eq!(
+            TimeRange::decode(args(&[("timerange", Value::from("  "))]))
+                .unwrap_err()
+                .field,
+            "timerange"
+        );
     }
 
     #[test]

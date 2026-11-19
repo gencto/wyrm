@@ -1,6 +1,7 @@
 //! `~meta` — node metadata. Spec: 02-meta.
 
 use crate::codec::canonical_str_order;
+use crate::named::OrUnknown;
 use crate::value::{encode_str_map, Value};
 use minicbor::data::Type;
 use minicbor::{decode, encode, Decode, Decoder, Encode, Encoder};
@@ -72,8 +73,9 @@ pub struct ParamMeta {
     pub description: Option<String>,
     /// Example value shown in an empty field.
     pub placeholder: Option<String>,
-    /// `"password"` (hidden, never echoed) or `"textarea"`; UIs ignore others.
-    pub editor: Option<String>,
+    /// How a form edits the value ([`Editor`]). A name this build does not
+    /// know is kept as written and encoded back unchanged; UIs ignore it.
+    pub editor: Option<OrUnknown<Editor>>,
 }
 
 /// Action result kind.
@@ -201,7 +203,7 @@ impl<C> Encode<C> for ParamMeta {
         // text keys after int keys, by length then bytes: "editor"(6)
         // "default" "display"(7) "required"(8) "description" "placeholder"(11)
         if let Some(x) = &self.editor {
-            e.str("editor")?.str(x)?;
+            e.str("editor")?.str(x.name())?;
         }
         if let Some(d) = &self.default {
             e.str("default")?;
@@ -443,7 +445,7 @@ impl<'b, C> Decode<'b, C> for ParamMeta {
                     "display" => p.display = Some(d.str()?.to_owned()),
                     "description" => p.description = Some(d.str()?.to_owned()),
                     "placeholder" => p.placeholder = Some(d.str()?.to_owned()),
-                    "editor" => p.editor = Some(d.str()?.to_owned()),
+                    "editor" => p.editor = Some(OrUnknown::of(d.str()?)),
                     _ => d.skip()?,
                 },
                 _ => match d.u32()? {
@@ -710,20 +712,27 @@ impl ActionMeta {
 pub const GROUP_NEW: &str = "new";
 /// `group` of actions that change or remove the node itself.
 pub const GROUP_EDIT: &str = "edit";
-/// `editor` of a secret parameter.
-pub const EDITOR_PASSWORD: &str = "password";
-/// `editor` of a multi-line text parameter.
-pub const EDITOR_TEXTAREA: &str = "textarea";
-/// `editor` of a binary parameter read from a local file (spec 02 0.1.7).
-pub const EDITOR_FILE: &str = "file";
-/// `editor` of a text range `<from>/<to>` in RFC 3339 (spec 02 0.2.4): UIs
-/// offer ranges (Today, Last 7 Days, …) and date-time pickers.
-pub const EDITOR_DATERANGE: &str = "daterange";
-/// `editor` of one RFC 3339 instant (spec 02 0.2.4): a date-time picker.
-pub const EDITOR_DATE: &str = "date";
-/// `editor` of a number of seconds (spec 02 0.2.4): typed in a unit (s,
-/// min, h, d) chosen beside it, sent in seconds.
-pub const EDITOR_DURATION: &str = "duration";
+crate::name_enum! {
+    /// `editor` of a parameter (spec 02): how a form edits the value. The wire
+    /// form is the name; the set has no code.
+    pub enum Editor as "editor" without codec {
+        /// A secret: hidden, never echoed.
+        Password => "password",
+        /// Multi-line text.
+        Textarea => "textarea",
+        /// A binary parameter read from a local file (spec 02 0.1.7). A
+        /// gateway takes such an argument outside a WebSocket frame.
+        File => "file",
+        /// A text range `<from>/<to>` in RFC 3339 (spec 02 0.2.4): UIs offer
+        /// ranges (Today, Last 7 Days, …) and date-time pickers.
+        Daterange => "daterange",
+        /// One RFC 3339 instant (spec 02 0.2.4): a date-time picker.
+        Date => "date",
+        /// A number of seconds (spec 02 0.2.4): typed in a unit (s, min, h,
+        /// d) chosen beside it, sent in seconds.
+        Duration => "duration",
+    }
+}
 
 impl ParamMeta {
     pub fn of(ty: TypeCode) -> Self {
@@ -758,8 +767,46 @@ impl ParamMeta {
         self
     }
 
-    pub fn editor(mut self, e: impl Into<String>) -> Self {
-        self.editor = Some(e.into());
+    pub fn editor(mut self, e: Editor) -> Self {
+        self.editor = Some(OrUnknown::Known(e));
         self
+    }
+
+    /// Is `e` the declared editor?
+    pub fn has_editor(&self, e: Editor) -> bool {
+        self.editor.as_ref().and_then(OrUnknown::known) == Some(e)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::codec::{from_slice, to_vec};
+
+    /// The editor is its name on the wire, as the text field it was; a name
+    /// this build does not know stays as written (spec 02: UIs ignore it).
+    #[test]
+    fn editor_is_its_name_and_an_unknown_one_is_kept() {
+        let p = ParamMeta::of(TypeCode::Binary).editor(Editor::File);
+        let bytes = to_vec(&p).unwrap();
+        // {1: <binary>, "editor": "file"}
+        let mut want = vec![0xa2, 0x01, TypeCode::Binary.code(), 0x66];
+        want.extend_from_slice(b"editor");
+        want.push(0x64);
+        want.extend_from_slice(b"file");
+        assert_eq!(bytes, want);
+        let back: ParamMeta = from_slice(&bytes).unwrap();
+        assert!(back.has_editor(Editor::File));
+        assert!(!back.has_editor(Editor::Password));
+
+        // a newer peer's editor: {"editor": "colour"}
+        let mut newer = vec![0xa1, 0x66];
+        newer.extend_from_slice(b"editor");
+        newer.push(0x66);
+        newer.extend_from_slice(b"colour");
+        let p: ParamMeta = from_slice(&newer).unwrap();
+        assert_eq!(p.editor, Some(OrUnknown::Unknown("colour".into())));
+        assert!(Editor::ALL.iter().all(|e| !p.has_editor(*e)));
+        assert_eq!(to_vec(&p).unwrap(), newer);
     }
 }
