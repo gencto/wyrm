@@ -625,14 +625,12 @@ async fn perf_f_gateway() {
     )
     .await;
     let gw = env.gateway.clone().expect("gateway");
-    // a user has 8 sockets at most (SOCKETS_PER_USER): one user per client
+    // a user has 8 sockets at most (SOCKETS_PER_USER): one user per client, with a password
+    // made for this run
+    let password = wyrm_core::hex::encode(wyrm_core::rand::bytes::<16>().unwrap());
     for k in 0..clients {
-        gw.add_user(
-            &format!("perf{k}"),
-            "perf-password-1",
-            vec!["viewer".into()],
-        )
-        .unwrap();
+        gw.add_user(&format!("perf{k}"), &password, vec!["viewer".into()])
+            .unwrap();
     }
     let s = env.session().await;
     let c = Counter::on(&s).await;
@@ -645,7 +643,7 @@ async fn perf_f_gateway() {
         let g = wyrm_gateway_client::Gateway::login(
             &format!("http://127.0.0.1:{gw_port}"),
             &format!("perf{k}"),
-            "perf-password-1",
+            &password,
         )
         .await
         .unwrap();
