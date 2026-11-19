@@ -10,6 +10,8 @@
     reason = "test code: a failed step fails the test"
 )]
 
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 use wyrm_core::{codec, HistRow, Quality, Sample, Value};
 use wyrm_history::{GroupCfg, Historian, Logging, WatchCfg};
@@ -225,4 +227,87 @@ async fn logging_types_and_rebuilds() {
         0
     );
     let _ = std::fs::remove_dir_all(dir);
+}
+
+/// Run `body` on a runtime of `workers` threads (the body itself on the
+/// calling thread, as `block_on` does) and fail when `progress` stays still
+/// for `stall`: a stalled runtime fires no timer of its own, so the watch is
+/// a thread outside it. A slow machine is not a stall: only no progress is.
+fn without_stall<F>(
+    workers: usize,
+    stall: Duration,
+    progress: Arc<AtomicUsize>,
+    body: impl FnOnce() -> F + Send + 'static,
+) where
+    F: std::future::Future<Output = ()>,
+{
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(workers)
+            .enable_all()
+            .build()
+            .unwrap();
+        rt.block_on(body());
+        let _ = tx.send(());
+    });
+    let (mut seen, mut since) = (usize::MAX, std::time::Instant::now());
+    loop {
+        match rx.recv_timeout(Duration::from_millis(200)) {
+            Ok(()) => return,
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => panic!("the body failed"),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+        }
+        let now = progress.load(Ordering::Relaxed);
+        if now != seen {
+            (seen, since) = (now, std::time::Instant::now());
+        } else if since.elapsed() > stall {
+            panic!("no progress in {stall:?} at {now}: the runtime stalled");
+        }
+    }
+}
+
+/// docs/backlog.md §14: a group of many new watches opens one `get ~val` per
+/// point, and the historian's own `~val?history=` queryable matches every
+/// one. Its handler was a FIFO of 256 drained by a task of the same runtime:
+/// a follow that found it full blocked its worker in the send, and once
+/// every worker did, the task that drains it never ran again. Before the
+/// fix this stalled 5 runs of 5 (4 workers, 3000 watches, every worker in
+/// `flume::Sender<Query>::send`); after it the group starts in seconds.
+#[test]
+fn many_new_watches_do_not_stall_the_runtime() {
+    let n = 3000;
+    let recorded = Arc::new(AtomicUsize::new(0));
+    let seen = recorded.clone();
+    without_stall(4, Duration::from_secs(30), recorded, move || async move {
+        let dir = temp("many");
+        let h = Historian::open(&dir).unwrap();
+        let s = session().await;
+        let keys: Vec<String> = (0..n).map(|i| format!("wy/s/downstream/m/p{i}")).collect();
+        let refs: Vec<&str> = keys.iter().map(String::as_str).collect();
+        h.attach(
+            s.clone(),
+            vec![group("many", Logging::AllData, &refs)],
+            vec!["wy/s/downstream/**/~val".into()],
+            Some("wy/s/sys/history".into()),
+        );
+        // every point followed: a put on each is recorded
+        let started = std::time::Instant::now();
+        let mut t = wyrm_history::engine::now_us();
+        loop {
+            t += 1;
+            for k in &keys {
+                put(&s, k, 1.0, t).await;
+            }
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            let count = keys.iter().filter(|k| !values(&h, k).is_empty()).count();
+            seen.store(count, Ordering::Relaxed);
+            if count == n {
+                break;
+            }
+        }
+        println!("{n} watches recorded in {:?}", started.elapsed());
+        h.detach().await;
+        let _ = std::fs::remove_dir_all(dir);
+    });
 }

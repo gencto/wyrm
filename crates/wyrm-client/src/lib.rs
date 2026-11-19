@@ -18,6 +18,7 @@
 
 pub mod endpoint;
 mod intake;
+pub mod queryable;
 mod streams;
 pub mod tokens;
 
@@ -133,6 +134,9 @@ pub struct WyrmClient {
     tokens: Option<Arc<dyn TokenSource>>,
     timeout: Duration,
     origin: Option<String>,
+    /// Stored-value reads of [`subscribe`](Self::subscribe) in flight at
+    /// once, shared by every clone; `None` = no bound.
+    stored_reads: Option<Arc<tokio::sync::Semaphore>>,
 }
 
 /// `wy/<site>/downstream/<link>` that owns `key`, if any.
@@ -190,7 +194,20 @@ impl WyrmClient {
             tokens: None,
             timeout: DEFAULT_TIMEOUT,
             origin: None,
+            stored_reads: None,
         }
+    }
+
+    /// The stored-value reads of [`subscribe`](Self::subscribe) take a
+    /// permit of `reads` each (share one semaphore between clients to bound
+    /// them all): a subscribe waits for its permit before it declares its
+    /// subscriber, and gives it back when its read has every reply. With
+    /// fewer permits than a responder's queue holds (the `~val` storage's
+    /// holds 256) that queue never fills from these clients, however many
+    /// points they follow at once.
+    pub fn with_stored_reads(mut self, reads: Arc<tokio::sync::Semaphore>) -> Self {
+        self.stored_reads = Some(reads);
+        self
     }
 
     /// `attachment.origin` on requests that carry a token. Responders keep
@@ -1008,6 +1025,42 @@ mod tests {
             c.insert_json5(k, v).unwrap();
         }
         c
+    }
+
+    /// `with_stored_reads(2)`: of five subscribes at once only two stored
+    /// reads reach the storage; a third goes out when one of them ends.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn stored_reads_are_bounded() {
+        let session = zenoh::open(isolated()).await.unwrap();
+        let (_q, mut rx) = queryable::bounded("wy/t/downstream/m/**", 16)
+            .declare(&session)
+            .await
+            .unwrap();
+        let c = WyrmClient::new(session.clone())
+            .with_stored_reads(Arc::new(tokio::sync::Semaphore::new(2)));
+        let mut subs = Vec::new();
+        for i in 0..5 {
+            let c = c.clone();
+            subs.push(tokio::spawn(async move {
+                c.subscribe(&format!("wy/t/downstream/m/p{i}")).await
+            }));
+        }
+        let first = tokio::time::timeout(Duration::from_secs(5), rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        let _second = tokio::time::timeout(Duration::from_secs(5), rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert!(rx.try_recv().is_err(), "a third read while two are open");
+        drop(first); // its read ends: the next subscribe reads
+        let _third = tokio::time::timeout(Duration::from_secs(5), rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(rx.try_recv().is_err());
     }
 
     /// Security review: a stream `invoke` whose reader is gone must not

@@ -795,13 +795,24 @@ fn live_feed(intake: &Arc<Intake<Vals>>) -> crate::intake::Feed<Vals, ZSample> {
 }
 
 fn stored_feed(intake: &Arc<Intake<Vals>>) -> crate::intake::Feed<Vals, Reply> {
+    stored_feed_with(intake, None)
+}
+
+/// The feed of a stored-value read that holds `turn` until Zenoh drops it.
+fn stored_feed_with(
+    intake: &Arc<Intake<Vals>>,
+    turn: Option<tokio::sync::OwnedSemaphorePermit>,
+) -> crate::intake::Feed<Vals, Reply> {
     intake.feed(
         |st: &mut Vals, reply: Reply| {
             if let Some(ev) = reply.result().ok().and_then(to_val) {
                 st.push(ev);
             }
         },
-        |st| st.gets = st.gets.saturating_sub(1),
+        move |st| {
+            drop(turn);
+            st.gets = st.gets.saturating_sub(1);
+        },
     )
 }
 
@@ -819,12 +830,20 @@ pub(crate) async fn subscribe(
         order: VecDeque::new(),
     };
     let intake = Intake::new(Vals::new(latest, keep, 1, dropped.clone()));
+    // A bounded client waits for its turn; the turn goes with the read's
+    // feed, which Zenoh drops after the last reply (or the timeout).
+    let turn = match &client.stored_reads {
+        Some(reads) => Some(reads.clone().acquire_owned().await.map_err(|e| {
+            ClientError::new(wyrm_core::Status::Closed, format!("stored reads: {e}"))
+        })?),
+        None => None,
+    };
     // Live first, stored second (no lost update); both into one buffer,
     // newer `t` wins per key and nothing older than what was handed out.
     let sub = s.declare_subscriber(&ke).with(live_feed(&intake)).await?;
     s.get(&ke)
         .timeout(client.timeout)
-        .with(stored_feed(&intake))
+        .with(stored_feed_with(&intake, turn))
         .await?;
     let stored = Stored {
         session: s.clone(),

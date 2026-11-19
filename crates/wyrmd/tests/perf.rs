@@ -12,9 +12,10 @@
 //! * `perf_d_historian`: 10 000 points at 2 Hz, the historian recording all of them (All
 //!   Data, flush 1 s, item 13). The watches go to the historian directly
 //!   (`Control::historian`, feature `testkit`); the cost of the action that adds one watch
-//!   is measured beside it for the first 300, and the time the group takes to start. Today
-//!   the start stalls the broker (docs/backlog.md §14); a watchdog thread then aborts the
-//!   test after 360 s with `started=false`.
+//!   is measured beside it for the first 300, and the time the group takes to start (first
+//!   row, and a row of every point). The start stalled the broker before the fix of
+//!   docs/backlog.md §14; a watchdog thread still aborts the test after 360 s with
+//!   `started=false` should it stall again.
 //! * `perf_e_audit`: 1000 `invoke`s of the mock's `reset`, one after another, from 50
 //!   subjects in turn (the link's own rate limit is per subject): latency, and audit records
 //!   per second (`Control::audit_lsn`, feature `testkit`, item 1).
@@ -480,9 +481,10 @@ async fn perf_d_historian() {
             })
             .collect(),
     }]);
-    // The group start can stall the broker (docs/backlog.md §14: the follows' gets
-    // block in a local queryable's full FIFO), and then this test makes no progress: a
-    // thread of its own ends the process with a figure that says so.
+    // The group start stalled the broker before the fix (docs/backlog.md §14: the
+    // follows' gets blocked in the historian's own queryable's full FIFO). Should it stall
+    // again, this test makes no progress: a thread of its own ends the process with a
+    // figure that says so.
     let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let done2 = done.clone();
     std::thread::spawn(move || {
@@ -505,13 +507,29 @@ async fn perf_d_historian() {
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
     let started = h.counters().rows_written.load(Ordering::Relaxed) > 0;
+    let first_ms = t_group.elapsed().as_secs_f64() * 1e3;
+    // every point followed: a row of each written
+    let keys: Vec<String> = paths
+        .iter()
+        .map(|p| format!("wy/{SITE}/downstream/mock/{p}"))
+        .collect();
+    let mut recorded = 0;
+    while Instant::now() < deadline {
+        recorded = keys.iter().filter(|k| h.last_written(k).is_some()).count();
+        if recorded == points {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
     println!(
         "{}",
         Perf::new("broker/historian/group_start")
             .n(points as u64)
-            .num("total_ms", t_group.elapsed().as_secs_f64() * 1e3)
+            .num("total_ms", first_ms)
+            .num("all_ms", t_group.elapsed().as_secs_f64() * 1e3)
             .field("started", started)
-            .note("configure 10000 new watches to the first row written (300 s at most)")
+            .field("recorded", recorded)
+            .note("configure 10000 new watches to the first row (total) and a row of every point (all), 300 s at most")
     );
     tokio::time::sleep(Duration::from_secs(2)).await;
     let rows0 = h.counters().rows_written.load(Ordering::Relaxed);

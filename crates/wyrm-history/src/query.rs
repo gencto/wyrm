@@ -23,6 +23,9 @@ pub const MAX_QUERIES: usize = 4;
 pub const QUEUE_WAIT: Duration = Duration::from_secs(5);
 /// Rows per reply of `~val?history=`: several replies, each an array.
 pub const CHUNK: usize = 5_000;
+/// History queries waiting for their task, per queryable; one more is
+/// answered `busy`. Each waits only until the drain spawns its task.
+pub const QUERY_QUEUE: usize = 256;
 
 /// One history read with its range resolved: what a `~val?history=`
 /// selector ([`HistoryQuery`]) asks at the time it came, or a Get History of
@@ -142,9 +145,31 @@ pub(crate) async fn serve(
         format!("{w}/")
     });
     let mut set = tokio::task::JoinSet::new();
+    let rt = tokio::runtime::Handle::current();
     for ke in key_exprs {
-        let qa = match session.declare_queryable(&ke).await {
-            Ok(qa) => qa,
+        // The key expressions match every plain `~val` read too (each
+        // `subscribe` reads the storage): those are dropped in the handler
+        // and never take room in the queue. The handler runs on the
+        // querier's thread and never blocks it (docs/backlog.md §14).
+        let rt = rt.clone();
+        let declared = wyrm_client::queryable::bounded(&ke, QUERY_QUEUE)
+            .keep(|q| !matches!(HistoryQuery::parse(q.parameters().as_str()), Ok(None)))
+            .on_full(move |q| {
+                rt.spawn(async move {
+                    let err = status_att(Status::Busy, Some(QueryError::Busy.to_string()));
+                    if let Err(e) = q
+                        .reply(q.key_expr(), Vec::<u8>::new())
+                        .attachment(err)
+                        .await
+                    {
+                        debug!("history busy reply: {e}");
+                    }
+                });
+            })
+            .declare(&session)
+            .await;
+        let (qa, mut rx) = match declared {
+            Ok(d) => d,
             Err(e) => {
                 tracing::warn!(%ke, "history queryable: {e}");
                 continue;
@@ -153,7 +178,8 @@ pub(crate) async fn serve(
         let h = h.clone();
         let watches = watches.clone();
         set.spawn(async move {
-            while let Ok(q) = qa.recv_async().await {
+            let _qa = qa;
+            while let Some(q) = rx.recv().await {
                 tokio::spawn(answer(h.clone(), q, watches.clone()));
             }
         });

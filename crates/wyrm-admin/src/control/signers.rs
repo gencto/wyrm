@@ -137,14 +137,18 @@ fn keys_value(ctl: &Control) -> Value {
 /// router's `~val` storage and the admin's `sys/**` do not cross).
 pub(super) async fn serve_signing_keys(ctl: Arc<Control>, session: Session) {
     let key = acl::signing_keys_key(&ctl.cfg.site);
-    let q = match session.declare_queryable(&key).complete(true).await {
-        Ok(q) => q,
+    let declared = wyrm_client::queryable::bounded(&key, super::ADMIN_QUERY_QUEUE)
+        .complete(true)
+        .declare(&session)
+        .await;
+    let (_q, mut rx) = match declared {
+        Ok(d) => d,
         Err(e) => {
             warn!("signing keys queryable: {e}");
             return;
         }
     };
-    while let Ok(query) = q.recv_async().await {
+    while let Some(query) = rx.recv().await {
         let sample = wyrm_core::Sample {
             v: keys_value(&ctl),
             q: Quality::Good,

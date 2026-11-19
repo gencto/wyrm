@@ -56,6 +56,9 @@ pub struct WatchCfg {
     pub enabled: bool,
 }
 
+/// Stored-value reads of the follows of all groups in flight at once.
+pub const FOLLOW_READS: usize = 64;
+
 /// Shortest flush and logging intervals.
 pub const MIN_FLUSH_MS: u64 = 100;
 pub const MIN_INTERVAL_MS: u64 = 100;
@@ -132,6 +135,8 @@ pub struct Historian {
     run: Mutex<Run>,
     /// Reads at the same time ([`crate::query::MAX_QUERIES`]).
     pub(crate) reads: tokio::sync::Semaphore,
+    /// Stored-value reads of every group's follows ([`FOLLOW_READS`]).
+    follow_reads: Arc<tokio::sync::Semaphore>,
     sinks: Mutex<HashMap<String, SinkStats>>,
 }
 
@@ -143,6 +148,7 @@ impl Historian {
             last: Arc::default(),
             run: Mutex::default(),
             reads: tokio::sync::Semaphore::new(crate::query::MAX_QUERIES),
+            follow_reads: Arc::new(tokio::sync::Semaphore::new(FOLLOW_READS)),
             sinks: Mutex::default(),
         }))
     }
@@ -267,6 +273,7 @@ impl Historian {
             }
             let (tx, rx) = watch::channel(false);
             let task = tokio::spawn(run_group(
+                self.follow_reads.clone(),
                 self.store.clone(),
                 self.counters.clone(),
                 self.last.clone(),
@@ -310,6 +317,7 @@ struct Point {
 }
 
 async fn run_group(
+    follow_reads: Arc<tokio::sync::Semaphore>,
     store: Arc<Store>,
     counters: Arc<Counters>,
     last: Arc<Mutex<HashMap<String, Row>>>,
@@ -328,9 +336,10 @@ async fn run_group(
         .collect();
     let st = store.clone();
     let points = tokio::task::spawn_blocking(move || {
+        let ids = st.series_ids(&keys)?;
         keys.into_iter()
-            .map(|key| {
-                let series = st.series_id(&key, true)?.unwrap_or_default();
+            .zip(ids)
+            .map(|(key, series)| {
                 let stored = st.edge(series, true)?;
                 Ok(Point {
                     key,
@@ -352,7 +361,11 @@ async fn run_group(
     };
     let (tx, mut rx) = mpsc::channel::<(usize, Sample)>(4096);
     let mut subs = JoinSet::new();
-    let client = WyrmClient::new(session);
+    // A group of 10 000 new watches is 10 000 `subscribe`s, each a stored
+    // read of the `~val` storage, whose queue holds 256: one window for all
+    // groups, well below that, keeps the historian from ever filling it
+    // (docs/backlog.md §14) and paces the subscriber declarations with it.
+    let client = WyrmClient::new(session).with_stored_reads(follow_reads);
     for (i, p) in points.iter().enumerate() {
         let (client, key, tx) = (client.clone(), p.key.clone(), tx.clone());
         subs.spawn(follow(client, key, i, tx));
