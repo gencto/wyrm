@@ -571,17 +571,32 @@ and the reference board (4-core ARM64, 2 GB) is not measured yet.
 | M4 Max, loaded, rough | broker at 20k/s, mock link at `trace` | rate kept; CPU 10.5 → 26 %; p99 2.4 → 4.0 ms |
 | M4 Max, loaded, rough | wyrmd open + mock with 10 000 points ready | 3.1–3.9 s |
 | M4 Max, loaded, rough | `add_watch_path`, watches 1–50 / 251–300 | p50 8.0 / 12.0 ms |
-| M4 Max, loaded, rough | historian, 10 000 points at 2 Hz | not measured: after `configure` of 10 000 new watches the test stood still (0 % CPU) for 9 min; see below |
+| M4 Max, loaded, rough | historian, 10 000 points at 2 Hz | not measured: the broker deadlocks when the group starts (below) |
 | M4 Max, loaded, rough | 1000 invokes, audit | invoke p50 4.0 ms, p99 7.1 ms, 312/s; 233 audit records/s; derived 700 fsync/s |
 | M4 Max, loaded, rough | gateway, 10 WS clients × 1000 points × 10 Hz | 100k frames/s, p50 4.0 ms, p99 8.1 ms, 84 % CPU, RSS 85 MiB |
+
+**Found: the historian's group start deadlocks the broker** (twice, 0 %
+CPU for 9 min; a symbolized `sample` of the second run). A group of 10 000
+new watches first makes each series with one durable redb commit (on the
+blocking pool, under the store's series lock), then starts one `follow`
+task per point, and each runs `WyrmClient::subscribe`, a `get` of the
+point's `~val`. On the in-process session Zenoh hands a query to a local
+queryable on the caller's thread, and the queryable's default handler is a
+bounded FIFO (256) whose send blocks when full. All four runtime workers
+stood in that send (`wyrm_history::engine::follow` → `Session::query` →
+`handle_query` → `FifoChannel` callback, waiting on a semaphore), so the
+task that drains the FIFO had no worker left. The test runs on 4 workers,
+as `wyrmd` does on the 4-core reference board. Not fixed here (P0 changes
+no product code); a fix bounds the follows in flight or answers local
+queries without a blocking handler.
 
 Not covered yet:
 
 - the reference board, a LAN between broker and clients, and a quiet
   machine;
 - `fsync` counts (no OS counts them; the audit's are derived);
-- the historian under 10 000 watches (the group start stood still; it needs a
-  look with symbols) and its flush cost per row;
+- the historian under 10 000 watches and its flush cost per row (the group
+  start deadlocks first, above);
 - musl and its system allocator (audit item 6): the container images are
   not measured;
 - the storage manager's own lock (item 2) apart from the subscribe that

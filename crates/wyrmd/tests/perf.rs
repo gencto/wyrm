@@ -12,7 +12,9 @@
 //! * `perf_d_historian`: 10 000 points at 2 Hz, the historian recording all of them (All
 //!   Data, flush 1 s, item 13). The watches go to the historian directly
 //!   (`Control::historian`, feature `testkit`); the cost of the action that adds one watch
-//!   is measured beside it for the first 300, and the time the group takes to start.
+//!   is measured beside it for the first 300, and the time the group takes to start. Today
+//!   the start deadlocks the broker (docs/backlog.md §14); a watchdog thread then aborts the
+//!   test after 360 s with `started=false`.
 //! * `perf_e_audit`: 1000 `invoke`s of the mock's `reset`, one after another, from 50
 //!   subjects in turn (the link's own rate limit is per subject): latency, and audit records
 //!   per second (`Control::audit_lsn`, feature `testkit`, item 1).
@@ -478,6 +480,24 @@ async fn perf_d_historian() {
             })
             .collect(),
     }]);
+    // The group start can stop every runtime worker (docs/backlog.md §14: the follows' gets
+    // block in a local queryable's full FIFO), and then no timer of this test fires: a
+    // thread of its own ends the process with a figure that says so.
+    let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let done2 = done.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_secs(360));
+        if !done2.load(Ordering::Relaxed) {
+            println!(
+                "{}",
+                Perf::new("broker/historian/group_start")
+                    .n(10_000)
+                    .field("started", false)
+                    .note("no progress in 360 s: every runtime worker blocked (deadlock)")
+            );
+            std::process::abort();
+        }
+    });
     // the group starts when every series is in the store and every point is followed
     let t_group = Instant::now();
     let deadline = t_group + Duration::from_secs(300);
@@ -516,6 +536,7 @@ async fn perf_d_historian() {
         )
         .field("fsync", "not_counted_redb_commit");
     println!("{p}");
+    done.store(true, Ordering::Relaxed);
     drop(c);
     env.stop().await;
 }
