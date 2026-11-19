@@ -44,7 +44,7 @@ class EstimateBackupAction extends Action with WaitingAction {
     return state.copyWith.backups(
       estimate: backupEstimateOf(
         answer,
-      ).orRefuse(key: '$root/sys/backups', call: 'estimate'),
+      ).orRefuse(key: '$root/sys/backups', call: const .named('estimate')),
     );
   }
 }

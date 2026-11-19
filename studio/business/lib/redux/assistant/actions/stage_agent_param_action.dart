@@ -3,11 +3,16 @@ import 'dart:convert';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/agent_params.dart';
 import 'package:models/approval_mode.dart';
+import 'package:models/change_op.dart';
+import 'package:models/change_side.dart';
+import 'package:models/error_hint.dart';
 import 'package:models/error_kind.dart';
+import 'package:models/param_side.dart';
 import 'package:models/staged_change.dart';
 import 'package:models/staged_change_kind.dart';
 import 'package:wyrm_client/wyrm_client.dart' show Perm;
 
+import '../../../wyrm/assistant_view.dart';
 import '../../../wyrm/decode/agent_params.dart';
 import '../../../wyrm/failures.dart';
 import '../../app_state.dart';
@@ -68,10 +73,13 @@ class StageAgentParamAction extends Action with WaitingAction {
     }
     final staged = stagedAgentParamsOf(key);
     AgentParams revision;
-    String rev;
-    if (staged case (:final change, :final base, params: _)) {
+    int rev;
+    if (staged case StagedAgentParams(:final change, :final base)) {
       revision = base;
-      rev = change.from.split(':').first;
+      rev = switch (change.from) {
+        ChangeSideParams(:final rev?) => rev,
+        _ => 0,
+      };
     } else {
       // `links.revisions` is one list for every link: only a read of this
       // link's history that just succeeded is its base. Without it nothing
@@ -83,33 +91,27 @@ class StageAgentParamAction extends Action with WaitingAction {
           ? null
           : agentParamsOf(jsonDecode(newest.params)).orWarn(key);
       if (params == null) {
-        throw StudioException.said(
+        throw StudioException.hinted(
           ErrorKind.broker,
-          'The parameters of the agent link could not be read, so nothing '
-          'was staged.',
+          const ErrorHint.agentParamsUnread(),
           key: key,
-          call: 'history',
+          call: const .known(.history),
           thing: id,
         );
       }
       revision = params;
-      rev = 'rev ${newest!.rev}';
+      rev = newest!.rev;
     }
     final next = _edit(staged?.params ?? revision);
-    final changed = [
-      if (next.requireApproval != revision.requireApproval)
-        (
-          name: 'require_approval',
-          was: revision.requireApproval?.wire,
-          now: next.requireApproval?.wire,
-        ),
-      if (next.allowedPrefixes != revision.allowedPrefixes)
-        (
-          name: 'allowed_prefixes',
-          was: _listed(revision.allowedPrefixes),
-          now: _listed(next.allowedPrefixes),
-        ),
-    ];
+    final modeChanged = next.requireApproval != revision.requireApproval;
+    final prefixesChanged = next.allowedPrefixes != revision.allowedPrefixes;
+    // each changed param as it was, and as it will be
+    IList<ParamSide> side(AgentParams p) => [
+      if (modeChanged)
+        ParamSide(name: 'require_approval', text: p.requireApproval?.wire),
+      if (prefixesChanged)
+        ParamSide(name: 'allowed_prefixes', list: p.allowedPrefixes),
+    ].lock;
     final cid = StagedChangeKind.params.idOf(key);
     final old = staged?.change.id;
     var table = changes.table;
@@ -118,7 +120,7 @@ class StageAgentParamAction extends Action with WaitingAction {
       table = table.remove(old);
       view = view.remove(old);
     }
-    if (changed.isEmpty) {
+    if (!modeChanged && !prefixesChanged) {
       return state.copyWith.changes(
         table: table.remove(cid),
         view: view.remove(cid),
@@ -126,14 +128,11 @@ class StageAgentParamAction extends Action with WaitingAction {
     }
     final change = StagedChange(
       id: cid,
-      op: 'Edit',
+      op: ChangeOp.edit,
       key: key,
-      field: 'params · ${[for (final c in changed) c.name].join(', ')}',
-      from:
-          '$rev: ${[for (final c in changed) '${c.name} ${c.was ?? '—'}'].join(
-            '; ',
-          )}',
-      to: [for (final c in changed) '${c.name} ${c.now ?? '—'}'].join('; '),
+      field: 'params',
+      from: ChangeSide.params(side(revision), rev: rev),
+      to: ChangeSide.params(side(next)),
       level: Perm.config,
       action: 'update',
       args: {'params': agentParamsJson(next)}.lock,
@@ -146,12 +145,4 @@ class StageAgentParamAction extends Action with WaitingAction {
       message: null,
     );
   }
-
-  /// A prefix list as the review card says it: `A, B`, `[]`; null when
-  /// the params do not set it.
-  static String? _listed(IList<String>? l) => switch (l) {
-    null => null,
-    final l when l.isEmpty => '[]',
-    final l => l.join(', '),
-  };
 }

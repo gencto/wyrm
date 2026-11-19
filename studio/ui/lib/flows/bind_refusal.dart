@@ -1,6 +1,8 @@
 import 'package:equatable/equatable.dart';
 import 'package:localization/localization.dart';
 
+import 'field_word.dart';
+
 /// Why a row does not take a wire dragged over it (spec §4), said on the
 /// canvas beside the pointer.
 sealed class BindRefusalVm extends Equatable {
@@ -22,15 +24,17 @@ final class RefuseOutput extends BindRefusalVm {
 
 /// The field [field] has no input: its value is typed.
 final class RefuseNoInput extends BindRefusalVm {
-  const RefuseNoInput(this.field);
+  const RefuseNoInput(this.field, {this.word});
 
+  /// The field's label when it is data; [word] when it is Studio's word.
   final String field;
+  final FieldWordVm? word;
 
   @override
-  String get label => S.current.refuseNoInput(field);
+  String get label => S.current.refuseNoInput(word?.text ?? field);
 
   @override
-  List<Object?> get props => [field];
+  List<Object?> get props => [field, word];
 }
 
 /// A block cannot feed itself.
@@ -66,13 +70,15 @@ final class RefuseLoop extends BindRefusalVm {
 
 /// This broker cannot bind [field] (its engine is older).
 final class RefuseNeedsBroker extends BindRefusalVm {
-  const RefuseNeedsBroker(this.field);
+  const RefuseNeedsBroker(this.field, {this.word});
 
+  /// The field's label when it is data; [word] when it is Studio's word.
   final String field;
+  final FieldWordVm? word;
 
   @override
-  String get label => S.current.refuseNeedsBroker(field);
+  String get label => S.current.refuseNeedsBroker(word?.text ?? field);
 
   @override
-  List<Object?> get props => [field];
+  List<Object?> get props => [field, word];
 }

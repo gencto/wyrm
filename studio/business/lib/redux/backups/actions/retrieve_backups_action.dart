@@ -5,6 +5,7 @@ import 'package:models/backups_read.dart';
 import 'package:models/error_hint.dart';
 import 'package:models/error_kind.dart';
 import 'package:models/studio_error.dart';
+import 'package:models/unreadable_part.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../../wyrm/calls.dart';
@@ -84,9 +85,9 @@ class RetrieveBackupsAction extends Action with WaitingAction {
           AddProblemAction(
             StudioError(
               kind: ErrorKind.broker,
-              hint: ErrorHint.unreadableAnswer,
+              hint: const ErrorHint.unreadable(UnreadablePart.answer),
               key: base,
-              call: 'meta',
+              call: const .known(.meta),
               site: siteOf(base),
               quiet: true,
             ),
@@ -110,7 +111,7 @@ class RetrieveBackupsAction extends Action with WaitingAction {
           where: '$base/${c.name}',
         ),
     ];
-    if (unread.problem(key: base, call: 'list') case final p?) {
+    if (unread.problem(key: base, call: const .known(.list)) case final p?) {
       dispatchSync(AddProblemAction(p));
     }
     return state.copyWith.backups(

@@ -1,6 +1,9 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 
+import 'catalog_category.dart';
+import 'known_link.dart';
+import 'link_category.dart';
 import 'link_mode.dart';
 
 part 'catalog_item.freezed.dart';
@@ -15,14 +18,31 @@ abstract class CatalogItem with _$CatalogItem {
 
     /// The driver or package name the broker knows.
     required String code,
-    required String name,
+
+    /// The broker's title of it (`attr.catalog` row `title`), else its
+    /// code; empty when Studio words it ([titled]).
+    @Default('') String name,
+
+    /// The broker's one line of it (row `summary`); empty when it gave
+    /// none ([described] may then word it).
     @Default('') String description,
+
+    /// The driver Studio words the title of: the broker gave none.
+    KnownLink? titled,
+
+    /// The driver Studio words the one line of: the broker gave none.
+    KnownLink? described,
+
+    /// A process package whose title does not say so: the card adds it
+    /// (both forms of one link may carry one title).
+    @Default(false) bool processForm,
 
     /// A short tag (`MB`, `PG`).
     @Default('') String tag,
 
-    /// `Equipment`, `History sync`, `File stores`, `Apps`.
-    @Default('Equipment') String category,
+    /// One of the manifest's categories, or the broker's own text.
+    @Default(CatalogCategory.known(LinkCategory.equipment))
+    CatalogCategory category,
 
     /// Built into wyrmd (`install`), else a repository package
     /// (`install_repo`).

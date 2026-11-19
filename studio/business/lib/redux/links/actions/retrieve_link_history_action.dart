@@ -29,7 +29,7 @@ class RetrieveLinkHistoryAction extends Action with WaitingAction {
     );
     final revs = linkRevisionsOf(rows).orRefuse(
       key: '${site.root}/sys/links/$id',
-      call: 'history',
+      call: const .known(.history),
       thing: id,
     );
     return state.copyWith.links(revisions: revs.lock);

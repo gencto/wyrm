@@ -9,6 +9,7 @@ import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:models/answer_fault.dart';
 import 'package:models/login_failure.dart';
 import 'package:models/unlock_refusal.dart';
 import 'package:models/unlock_stage.dart';
@@ -134,14 +135,15 @@ void main() {
     testWidgets('no answer: the alert; Use the standby tries it first', (
       t,
     ) async {
-      final app = LogInApp(answer: const GatewayProbe.noAnswer('timed out'))
-        ..put(
-          (a) => a.copyWith.login(
-            gateway: '$gw, $standbyGw',
-            user: user,
-            password: password,
-          ),
-        );
+      final app =
+          LogInApp(answer: const GatewayProbe.noAnswer(AnswerFault.timedOut()))
+            ..put(
+              (a) => a.copyWith.login(
+                gateway: '$gw, $standbyGw',
+                user: user,
+                password: password,
+              ),
+            );
       await app.pumpLogIn(t);
       app.login.probed.clear();
 

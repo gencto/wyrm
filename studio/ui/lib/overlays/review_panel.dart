@@ -6,6 +6,7 @@ import '../buttons/button.dart';
 import '../indicators/app_icon.dart';
 import '../indicators/app_icon_view.dart';
 import '../indicators/quality_mark.dart';
+import '../models/change_words.dart';
 import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
@@ -30,7 +31,7 @@ final class ChangeCardVm extends Equatable {
   final String id;
 
   /// `Edit`, `Add`, `Remove`.
-  final String op;
+  final ChangeOpTag op;
 
   /// The key, shortened (`…/plc1/t2`).
   final String key_;
@@ -90,7 +91,7 @@ class ChangeCard extends StatelessWidget {
                   borderRadius: Radii.chip,
                 ),
                 child: Text(
-                  vm.op.toUpperCase(),
+                  vm.op.label.toUpperCase(),
                   style: TextStyle(
                     fontSize: FontSizes.xs,
                     fontWeight: .w600,

@@ -1,8 +1,10 @@
 import 'package:async_redux/async_redux.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/error_hint.dart';
 import 'package:models/error_kind.dart';
 import 'package:models/plan_step.dart';
 import 'package:models/step_kind.dart';
+import 'package:models/unreadable_part.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../../wyrm/decode/agent_task.dart';
@@ -48,11 +50,15 @@ class RetrieveTaskRecordAction extends Action with WaitingAction, Sequential {
         Valid(:final value) => value,
         // a record Studio cannot read is said, with the field: the task
         // stays as it was, never an empty one
-        Invalid(:final field, :final reason) => throw StudioException.said(
+        final Invalid<Object?> bad => throw StudioException.hinted(
           ErrorKind.broker,
-          'The record of task $id is not one Studio reads: $field: $reason.',
+          ErrorHint.unreadable(
+            UnreadablePart.taskRecord,
+            name: id,
+            field: loggedField(key, bad),
+          ),
           key: key,
-          call: 'doc',
+          call: const .known(.doc),
           thing: id,
         ),
       };

@@ -1,6 +1,7 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 
+import 'answer_fault.dart';
 import 'broker_role.dart';
 import 'found_problem.dart';
 
@@ -59,9 +60,12 @@ abstract class FoundGateway with _$FoundGateway {
     /// Why the row cannot be used; null when it can.
     FoundProblem? problem,
 
-    /// The detail of [problem]: the Studio version a gateway needs, the
-    /// reason there was no answer.
+    /// The detail of [problem]: the Studio version a gateway needs.
     String? detail,
+
+    /// Why `/api/info` gave nothing ([FoundProblem.noAnswer],
+    /// [FoundProblem.noInfo]).
+    AnswerFault? why,
 
     /// Found by a range probe, not announced.
     @Default(false) bool probed,

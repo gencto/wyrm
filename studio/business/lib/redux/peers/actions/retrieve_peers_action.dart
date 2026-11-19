@@ -130,7 +130,7 @@ class RetrievePeersAction extends Action with WaitingAction {
         );
       }
     }
-    if (unread.problem(key: root, call: 'list') case final p?) {
+    if (unread.problem(key: root, call: const .known(.list)) case final p?) {
       dispatchSync(AddProblemAction(p));
     }
     return state.copyWith.peers(

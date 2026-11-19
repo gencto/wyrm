@@ -76,7 +76,7 @@ class RetrieveHistorianAction extends Action with WaitingAction {
           where: base,
         ),
     };
-    if (unread.problem(key: base, call: 'list') case final p?) {
+    if (unread.problem(key: base, call: const .known(.list)) case final p?) {
       dispatchSync(AddProblemAction(p));
     }
     final selected = historian.selected ?? groups.firstOrNull?.name;

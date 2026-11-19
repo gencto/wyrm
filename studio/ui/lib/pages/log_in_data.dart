@@ -87,12 +87,12 @@ final class TlsCertificateNote extends TlsNote {
 final class UnreachableData extends Equatable {
   const UnreachableData({required this.gateway, this.reason, this.standby});
 
-  /// The main gateway as typed.
+  /// The main gateway's address (never with `user:password@`: the field
+  /// refuses one).
   final String gateway;
 
-  /// What the last probe said (`connection refused after 3 ms`), the
-  /// system's words.
-  final String? reason;
+  /// What the last probe said (`connection refused after 3 ms`).
+  final AnswerWhy? reason;
 
   /// The standby's `host:port`, when one is set.
   final String? standby;
@@ -400,16 +400,80 @@ enum FoundProblemKind {
   noAnswer,
   noCa;
 
-  /// Its words, with the [detail] it came with (a version, a reason).
-  String text(String detail) => switch (this) {
+  /// Its words, with the [detail] it came with (a version) and [why]
+  /// there was no answer.
+  String text(String detail, {AnswerWhy? why}) => switch (this) {
     plainHttp => S.current.problemPlainHttp,
     noInfo => S.current.problemNoInfo,
     studioTooOld => S.current.problemStudioTooOld(detail),
     codeMismatch => S.current.problemCodeMismatch,
     noName => S.current.problemNoName,
-    noAnswer => S.current.problemNoAnswer(detail),
+    noAnswer => S.current.problemNoAnswer(why?.words ?? detail),
     noCa => S.current.problemNoCa,
   };
+}
+
+/// Why a gateway's `/api/info` gave nothing, said in the row's note.
+final class AnswerWhy extends Equatable {
+  const AnswerWhy.timedOut() : this._(_Why.timedOut);
+  const AnswerWhy.notGateway() : this._(_Why.notGateway);
+
+  /// The field at [path] of its answer is not what belongs there.
+  const AnswerWhy.wrongShape(String path) : this._(_Why.wrongShape, text: path);
+  const AnswerWhy.http(int code) : this._(_Why.http, code: code);
+  const AnswerWhy.untrusted() : this._(_Why.untrusted);
+
+  /// The connection was refused [ms] milliseconds after it was tried.
+  const AnswerWhy.refusedAfter(int ms) : this._(_Why.refusedAfter, code: ms);
+  const AnswerWhy.noRoute() : this._(_Why.noRoute);
+
+  /// Something else was thrown: the name of its type.
+  const AnswerWhy.failed(String type) : this._(_Why.failed, text: type);
+
+  /// The system's own words, as they came.
+  const AnswerWhy.said(String text) : this._(_Why.said, text: text);
+
+  const AnswerWhy._(
+    this._kind, {
+    this._text = '',
+    this._code = 0,
+  });
+
+  final _Why _kind;
+  final String _text;
+  final int _code;
+
+  String get words => switch (_kind) {
+    _Why.timedOut => S.current.answerTimedOut,
+    _Why.notGateway => S.current.answerNotGateway,
+    _Why.wrongShape => S.current.answerWrongShape(_text),
+    _Why.http => S.current.answerHttp(_code),
+    _Why.untrusted => S.current.answerUntrusted,
+    // under a second in milliseconds, else in whole seconds
+    _Why.refusedAfter => S.current.answerRefusedAfter(
+      _code < 1000
+          ? S.current.answerMs(_code)
+          : S.current.answerSeconds(_code ~/ 1000),
+    ),
+    _Why.noRoute => S.current.answerNoRoute,
+    _Why.failed => S.current.answerFailed(_text),
+    _Why.said => _text,
+  };
+
+  @override
+  List<Object?> get props => [_kind, _text, _code];
+}
+
+enum _Why {
+  timedOut,
+  notGateway,
+  wrongShape,
+  http,
+  untrusted,
+  refusedAfter,
+  noRoute,
+  failed,
+  said,
 }
 
 /// A found gateway's row.
@@ -425,6 +489,7 @@ final class FoundRowData extends Equatable {
     this.version,
     this.problem,
     this.detail = '',
+    this.why,
     this.selected = false,
     this.enabled = true,
   });
@@ -440,6 +505,9 @@ final class FoundRowData extends Equatable {
   final FoundCa ca;
   final FoundProblemKind? problem;
   final String detail;
+
+  /// Why there was no answer, when that is the [problem].
+  final AnswerWhy? why;
 
   /// How long ago it was last seen, in whole seconds.
   final Duration seen;
@@ -460,6 +528,7 @@ final class FoundRowData extends Equatable {
     ca,
     problem,
     detail,
+    why,
     seen,
     selected,
     enabled,
@@ -579,4 +648,19 @@ final class TrustData extends Equatable {
 
   @override
   List<Object?> get props => [site, code, host, refused, busy];
+}
+
+/// What is wrong with the gateway field, as the field says it.
+enum GatewayFieldError {
+  empty,
+  invalid,
+
+  /// `user:password@` in the address: they have their own fields.
+  credentials;
+
+  String get label => switch (this) {
+    empty => S.current.requiredField,
+    invalid => S.current.invalidGatewayUrl,
+    credentials => S.current.gatewayHasCredentials,
+  };
 }

@@ -1,6 +1,7 @@
 import 'package:equatable/equatable.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/field_id.dart';
+import 'package:models/field_label.dart';
 import 'package:models/flow_draft.dart';
 import 'package:models/flow_edge.dart';
 
@@ -81,7 +82,7 @@ final class MenuPinView extends Equatable {
   });
 
   final FieldId id;
-  final String label;
+  final FieldLabel label;
   final bool pinned;
 
   /// Bound: it stays on the block.

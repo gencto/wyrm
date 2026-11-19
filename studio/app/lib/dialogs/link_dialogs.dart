@@ -111,7 +111,7 @@ Future<void> showLinkParams(BuildContext context, String id) async {
                         UpdateLinkParamsAction(
                           id,
                           text,
-                          from: 'rev ${newest?.rev ?? 0}',
+                          rev: newest?.rev ?? 0,
                         ),
                         closed: () => _close(dialog),
                       ),

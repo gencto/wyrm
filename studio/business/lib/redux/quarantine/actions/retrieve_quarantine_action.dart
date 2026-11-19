@@ -57,7 +57,7 @@ class RetrieveQuarantineAction extends Action with WaitingAction {
         forms[c.name] = paramSpecsOf(a).lock;
       }
     }
-    if (unread.problem(key: base, call: 'list') case final p?) {
+    if (unread.problem(key: base, call: const .known(.list)) case final p?) {
       dispatchSync(AddProblemAction(p));
     }
     return state.copyWith.quarantine(

@@ -1,11 +1,17 @@
 import 'package:models/agent_task.dart';
 import 'package:models/plan_step.dart';
+import 'package:models/step_args_note.dart';
+import 'package:models/step_kind.dart';
 import 'package:models/step_status.dart';
+import 'package:models/step_wait.dart';
 import 'package:models/task_question.dart';
 import 'package:models/task_state.dart';
 import 'package:models/task_suggestion.dart';
 
+import 'approval.dart';
+import 'assistant_view.dart';
 import 'decode/agent_task.dart' show refusalCode;
+import 'mappers/agent_task_mapper.dart' show withheld;
 
 /// What the Assistant reads off one task: computed here once, not in a
 /// connector (studio-rules §3).
@@ -52,6 +58,15 @@ extension TaskFacts on AgentTask {
       .map((s) => s.key)
       .lastOrNull;
 
+  /// The plan waits to be approved and no task took its place.
+  bool get waitsForApproval =>
+      state == TaskState.awaitingApproval && replacedBy == null;
+
+  /// The step a run stopped at, while nothing replaced the task: the
+  /// Stopped card says where and what next.
+  PlanStep? get stoppedAt =>
+      state == TaskState.failed && replacedBy == null ? failedStep : null;
+
   /// A question of the task still waits for its answer.
   bool get asksStill => questions.any((q) => !q.answered);
 
@@ -97,6 +112,80 @@ extension TaskFacts on AgentTask {
   /// step and without rows.
   TaskSuggestion? get second =>
       suggestions.where((s) => s.step == null && s.rows.isEmpty).firstOrNull;
+
+  /// The plan card is shown: the task has a plan.
+  bool get showsPlan => plan.isNotEmpty;
+
+  /// The choices card is shown: the assistant asked something.
+  bool get showsChoices => questions.isNotEmpty;
+
+  /// The Result card is shown: a finished plan touched keys with a value.
+  bool get showsResult => touched.isNotEmpty;
+
+  /// The run card is shown: the plan runs or ran; not before a run (a
+  /// plan that waits, a rejected one).
+  bool get showsRun => plan.isNotEmpty && (state == TaskState.running || ran);
+
+  /// The run is over: no row of it changes any more.
+  bool get runEnded => state != TaskState.running;
+
+  /// Where step [s] stands while it has no result: it runs now, or the
+  /// run has not reached it.
+  StepWait waitOf(PlanStep s) => state == TaskState.running && s.n == step
+      ? StepWait.running
+      : StepWait.waiting;
+
+  /// The fixes the plan card shows for step [n]: only while the plan
+  /// waits.
+  List<TaskSuggestion> fixesShownOf(int n) =>
+      waitsForApproval ? fixesOf(n) : const [];
+
+  /// Who asked, on the task's row: a recorded or replaced task someone
+  /// else asked ([own]: the user asked it); null else.
+  String? byOf({required bool own}) =>
+      (recorded || replacedBy != null) && owner.isNotEmpty && !own
+      ? ownerName
+      : null;
+
+  /// The step a recorded or replaced task failed at, on its row.
+  int? get failedAt => recorded || replacedBy != null ? failedStep?.n : null;
+
+  /// A recorded task that ended with nothing to do: no plan.
+  bool get noChanges => recorded && state == TaskState.done && plan.isEmpty;
+}
+
+/// What the plan card reads off one step: computed here once, not in a
+/// connector (studio-rules §3).
+extension StepFacts on PlanStep {
+  /// How long a `sleep` step waits, in seconds; null for any other step.
+  double? get sleepSeconds => kind == StepKind.sleep ? (seconds ?? 0) : null;
+
+  /// Its timeout as an argument of its own: every step with one but a
+  /// `sleep` (whose seconds are its length).
+  double? get timeoutArg => kind == StepKind.sleep ? null : seconds;
+
+  /// Its arguments are masked because their schema is not known: the
+  /// person may look at them.
+  bool get argsGuessed => !argsKnown && withheld(this).isNotEmpty;
+
+  /// The note under its arguments: all masked, or a secret not shown.
+  StepArgsNote? get argsNote => argsGuessed
+      ? StepArgsNote.masked
+      : secret.isEmpty
+      ? null
+      : StepArgsNote.secret;
+
+  /// The note under the step, for the person's [choice]: the step it
+  /// needs is left out, it is left out, it runs with the agent's key, or
+  /// the steps it runs after; null with nothing to say.
+  StepNote? noteWith(StepChoice? choice) => switch (choice) {
+    StepChoice(:final needs?) => StepNoteNeeds(needs),
+    StepChoice(ticked: false) => const StepNoteLeftOut(),
+    // no tick, and it runs: the person cannot leave it out
+    StepChoice(byAgent: true) => const StepNoteByAgent(),
+    _ when after.isNotEmpty => StepNoteAfter(after.toList()),
+    _ => null,
+  };
 }
 
 /// What the Assistant reads off one question.

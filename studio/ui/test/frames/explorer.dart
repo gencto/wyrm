@@ -11,6 +11,7 @@ import 'package:ui/indicators/quality_mark.dart';
 import 'package:ui/indicators/sample_mark.dart';
 import 'package:ui/indicators/status_pill.dart';
 import 'package:ui/indicators/value_type.dart';
+import 'package:ui/models/change_words.dart';
 import 'package:ui/models/disabled.dart';
 import 'package:ui/overlays/review_panel.dart';
 import 'package:ui/overlays/value_viewer.dart';
@@ -536,7 +537,7 @@ Widget explorerReview() => _shell(
     cards: const [
       ChangeCardVm(
         id: '1',
-        op: 'Edit',
+        op: ChangeOpTag.edit,
         key_: '…/tcp-boiler/plc1/t2',
         field: 'poll',
         from: '1 s',
@@ -546,7 +547,7 @@ Widget explorerReview() => _shell(
       ),
       ChangeCardVm(
         id: '2',
-        op: 'Add',
+        op: ChangeOpTag.add,
         key_: '…/tcp-boiler/plc1',
         field: 'add_point',
         from: '—',
@@ -556,7 +557,7 @@ Widget explorerReview() => _shell(
       ),
       ChangeCardVm(
         id: '3',
-        op: 'Edit',
+        op: ChangeOpTag.edit,
         key_: '…/tcp-boiler/plc1/fan',
         field: 'writable',
         from: 'false',

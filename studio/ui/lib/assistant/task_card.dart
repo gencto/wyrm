@@ -140,10 +140,27 @@ final class TaskNoteOtherSite extends TaskNoteVm {
 
 /// The approval was refused; the task still waits.
 final class TaskNoteRefused extends TaskNoteVm {
-  const TaskNoteRefused(this.why);
+  /// The gateway or the link refused, in its own words ([said]).
+  const TaskNoteRefused(String this.said) : changed = false, unseen = null;
 
-  /// What the gateway or the link said.
-  final String why;
+  /// Nothing was sent: the plan or its ticks changed after they were
+  /// shown.
+  const TaskNoteRefused.changed() : said = null, changed = true, unseen = null;
+
+  /// Nothing was sent: the masked arguments of step [unseen] were not
+  /// looked at.
+  const TaskNoteRefused.unseen(int this.unseen) : said = null, changed = false;
+
+  final String? said;
+  final bool changed;
+  final int? unseen;
+
+  /// Why, as the card says it after `The approval was refused`.
+  String get why => switch ((said, unseen)) {
+    (final said?, _) => said,
+    (null, final step?) => S.current.approveRefusedUnseen(step),
+    (null, null) => S.current.approveRefusedChanged,
+  };
 
   @override
   String get text =>
@@ -153,7 +170,7 @@ final class TaskNoteRefused extends TaskNoteVm {
   bool get caution => true;
 
   @override
-  List<Object?> get props => [why];
+  List<Object?> get props => [said, changed, unseen];
 }
 
 /// The plan waits; its record is not read yet.

@@ -38,4 +38,11 @@ void main() {
       isEmpty,
     );
   });
+
+  test('lastNameOf: the node a key names, never a pattern', () {
+    expect(lastNameOf('wy/plant/downstream/plc1/t1'), 't1');
+    expect(lastNameOf('wy/edge/**'), isNull);
+    expect(lastNameOf('wy/edge/'), isNull);
+    expect(lastNameOf(null), isNull);
+  });
 }

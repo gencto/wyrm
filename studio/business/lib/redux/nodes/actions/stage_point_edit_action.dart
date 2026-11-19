@@ -1,4 +1,7 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/change_op.dart';
+import 'package:models/change_side.dart';
+import 'package:models/error_hint.dart';
 import 'package:models/error_kind.dart';
 import 'package:models/staged_change.dart';
 
@@ -42,11 +45,11 @@ class StagePointEditAction extends Action {
         .where((a) => a.name == 'edit')
         .firstOrNull;
     if (edit == null) {
-      throw StudioException.said(
+      throw StudioException.hinted(
         ErrorKind.gone,
-        'This node has no edit action.',
+        const ErrorHint.noEditAction(),
         key: key,
-        call: 'edit',
+        call: const .known(.edit),
       );
     }
     final changes = s.changes;
@@ -68,11 +71,15 @@ class StagePointEditAction extends Action {
     }
     final change = StagedChange(
       id: id,
-      op: 'Edit',
+      op: ChangeOp.edit,
       key: key,
       field: changed.map(editFieldName).join(', '),
-      from: [for (final p in changed) editFieldText(p, current[p])].join(', '),
-      to: [for (final p in changed) editFieldText(p, args[p])].join(', '),
+      from: ChangeSide.text(
+        [for (final p in changed) editFieldText(p, current[p])].join(', '),
+      ),
+      to: ChangeSide.text(
+        [for (final p in changed) editFieldText(p, args[p])].join(', '),
+      ),
       level: edit.level,
       action: 'edit',
       args: {

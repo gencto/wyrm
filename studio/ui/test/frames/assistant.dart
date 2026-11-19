@@ -110,7 +110,7 @@ Widget assistantDone() => _assistant(
       _row(2, .ok, answer: '21.5'),
     ],
   ),
-  result: const ResultCardVm(facts: [(key: _sp, value: '21.5 °C')]),
+  result: const ResultCardVm(facts: [ResultFactVm(_sp, '21.5 °C')]),
   card: const TaskCardVm(
     badge: .done,
     note: TaskNoteDone(),
@@ -237,7 +237,7 @@ Widget assistantFix() {
 Widget assistantMore() => _assistant(
   badge: .done,
   plan: _folded(.done),
-  result: const ResultCardVm(facts: [(key: _sp, value: '21.5 °C')]),
+  result: const ResultCardVm(facts: [ResultFactVm(_sp, '21.5 °C')]),
   more: const [
     MoreRowsCardVm(
       id: 's1',
@@ -440,7 +440,7 @@ Widget _assistant({
     owner: 'olena',
     events: 9,
   ),
-  reads: const [('tree', 1), ('meta', 2), ('get', 1)],
+  reads: const [ReadRow('tree', 1), ReadRow('meta', 2), ReadRow('get', 1)],
 );
 
 /// The plan of [assistantPlan]: a config step, a step checked when it runs

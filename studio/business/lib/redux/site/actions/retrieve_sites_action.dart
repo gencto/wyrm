@@ -77,7 +77,7 @@ class RetrieveSitesAction extends Action with WaitingAction {
     } on WyrmException {
       // No rights on sys: no upstream entries.
     }
-    if (unread.problem(key: 'wy/$home/downstream', call: 'list')
+    if (unread.problem(key: 'wy/$home/downstream', call: const .known(.list))
         case final p?) {
       dispatchSync(AddProblemAction(p));
     }

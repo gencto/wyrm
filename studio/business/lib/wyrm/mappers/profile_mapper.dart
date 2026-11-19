@@ -38,11 +38,10 @@ StudioException _notRead(String fileName, ManifestProblem problem) =>
     StudioException(
       StudioError(
         kind: ErrorKind.input,
-        hint: ErrorHint.fileNotRead,
-        call: 'read',
+        hint: ErrorHint.fileNotRead(problem),
+        call: const .known(.read),
         thing: fileName,
         field: problem.field.isEmpty ? null : problem.field,
-        fileProblem: problem,
       ),
     );
 

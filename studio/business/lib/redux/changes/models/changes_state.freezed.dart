@@ -15,7 +15,7 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$ChangesState {
 
- IMap<String, StagedChange> get table; IList<String> get view; bool get open; String? get message;
+ IMap<String, StagedChange> get table; IList<String> get view; bool get open; CallRefusal? get message;
 /// Create a copy of ChangesState
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -51,11 +51,11 @@ abstract mixin class $ChangesStateCopyWith<$Res>  {
   factory $ChangesStateCopyWith(ChangesState value, $Res Function(ChangesState) _then) = _$ChangesStateCopyWithImpl;
 @useResult
 $Res call({
- IMap<String, StagedChange> table, IList<String> view, bool open, String? message
+ IMap<String, StagedChange> table, IList<String> view, bool open, CallRefusal? message
 });
 
 
-
+$CallRefusalCopyWith<$Res>? get message;
 
 }
 /// @nodoc
@@ -74,10 +74,22 @@ table: null == table ? _self.table : table // ignore: cast_nullable_to_non_nulla
 as IMap<String, StagedChange>,view: null == view ? _self.view : view // ignore: cast_nullable_to_non_nullable
 as IList<String>,open: null == open ? _self.open : open // ignore: cast_nullable_to_non_nullable
 as bool,message: freezed == message ? _self.message : message // ignore: cast_nullable_to_non_nullable
-as String?,
+as CallRefusal?,
   ));
 }
+/// Create a copy of ChangesState
+/// with the given fields replaced by the non-null parameter values.
+@override
+@pragma('vm:prefer-inline')
+$CallRefusalCopyWith<$Res>? get message {
+    if (_self.message == null) {
+    return null;
+  }
 
+  return $CallRefusalCopyWith<$Res>(_self.message!, (value) {
+    return _then(_self.copyWith(message: value));
+  });
+}
 }
 
 
@@ -92,7 +104,7 @@ class _ChangesState implements ChangesState {
 @override@JsonKey() final  IMap<String, StagedChange> table;
 @override@JsonKey() final  IList<String> view;
 @override@JsonKey() final  bool open;
-@override final  String? message;
+@override final  CallRefusal? message;
 
 /// Create a copy of ChangesState
 /// with the given fields replaced by the non-null parameter values.
@@ -126,11 +138,11 @@ abstract mixin class _$ChangesStateCopyWith<$Res> implements $ChangesStateCopyWi
   factory _$ChangesStateCopyWith(_ChangesState value, $Res Function(_ChangesState) _then) = __$ChangesStateCopyWithImpl;
 @override @useResult
 $Res call({
- IMap<String, StagedChange> table, IList<String> view, bool open, String? message
+ IMap<String, StagedChange> table, IList<String> view, bool open, CallRefusal? message
 });
 
 
-
+@override $CallRefusalCopyWith<$Res>? get message;
 
 }
 /// @nodoc
@@ -149,11 +161,23 @@ table: null == table ? _self.table : table // ignore: cast_nullable_to_non_nulla
 as IMap<String, StagedChange>,view: null == view ? _self.view : view // ignore: cast_nullable_to_non_nullable
 as IList<String>,open: null == open ? _self.open : open // ignore: cast_nullable_to_non_nullable
 as bool,message: freezed == message ? _self.message : message // ignore: cast_nullable_to_non_nullable
-as String?,
+as CallRefusal?,
   ));
 }
 
+/// Create a copy of ChangesState
+/// with the given fields replaced by the non-null parameter values.
+@override
+@pragma('vm:prefer-inline')
+$CallRefusalCopyWith<$Res>? get message {
+    if (_self.message == null) {
+    return null;
+  }
 
+  return $CallRefusalCopyWith<$Res>(_self.message!, (value) {
+    return _then(_self.copyWith(message: value));
+  });
+}
 }
 
 // dart format on

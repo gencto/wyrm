@@ -1,5 +1,7 @@
 import 'package:async_redux/async_redux.dart';
 import 'package:device_key/device_key.dart';
+import 'package:models/answer_fault.dart';
+import 'package:models/error_hint.dart';
 import 'package:models/error_kind.dart';
 import 'package:models/login_failure.dart';
 import 'package:models/unlock_fallback.dart';
@@ -63,7 +65,14 @@ class UnlockWithDeviceAction extends Action with NonReentrant, WaitingAction {
     final id = d.deviceId;
     final site = d.keySite;
     final account = accountOf(login.gateway, login.user);
-    if (alias == null || id == null || site == null || account == null) {
+    // A field with any part that is no address, or that holds
+    // `user:password@`, is not unlocked with: its text would go to the
+    // recent gateways as it was typed.
+    if (alias == null ||
+        id == null ||
+        site == null ||
+        account == null ||
+        gatewayProblemOf(login.gateway) != null) {
       return state.copyWith.device(autoPrompted: true);
     }
     dispatchSync(_Stage(UnlockStage.unlock, autoPrompted: true));
@@ -146,21 +155,21 @@ class UnlockWithDeviceAction extends Action with NonReentrant, WaitingAction {
       dispatchSync(
         SetLoginProgressAction(
           failure: LoginFailure.unreachable,
-          reason: faultLine(e),
+          reason: AnswerFault.failed('${e.runtimeType}'),
         ),
       );
-      throw StudioException.said(
+      throw StudioException.hinted(
         ErrorKind.reach,
-        faultLine(e),
-        call: 'log_in',
-        thing: '${account.gateway}',
+        ErrorHint.noAnswer(AnswerFault.failed('${e.runtimeType}')),
+        call: const .known(.logIn),
+        thing: account.gateway.text,
       ).withDialog(false);
     }
   }
 
   /// The first gateway of the field that answers a probe; none → the
   /// unreachable state, without a prompt.
-  Future<Uri> _reachable(Uri first) async {
+  Future<GatewayAddress> _reachable(GatewayAddress first) async {
     final gateways = parseGateways(login.gateway ?? '');
     final probes = <String, int>{};
     GatewayProbe? last;
@@ -175,7 +184,7 @@ class UnlockWithDeviceAction extends Action with NonReentrant, WaitingAction {
     dispatchSync(
       SetLoginProgressAction(
         failure: LoginFailure.unreachable,
-        reason: last?.reason,
+        reason: last?.why,
         probes: probes,
       ),
     );

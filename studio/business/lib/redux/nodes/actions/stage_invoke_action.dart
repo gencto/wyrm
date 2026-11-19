@@ -1,4 +1,6 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/change_op.dart';
+import 'package:models/change_side.dart';
 import 'package:models/staged_change.dart';
 import 'package:wyrm_client/wyrm_client.dart' show Perm;
 
@@ -40,11 +42,11 @@ class StageInvokeAction extends Action {
           StagedChange(
             id: 'invoke:$key ▸ $action:$at',
             op: action.startsWith('remove')
-                ? 'Remove'
-                : (action.startsWith('add') ? 'Add' : 'Edit'),
+                ? ChangeOp.remove
+                : (action.startsWith('add') ? ChangeOp.add : ChangeOp.edit),
             key: key,
             field: display ?? action,
-            to: shown.isEmpty ? action : shown,
+            to: ChangeSide.text(shown.isEmpty ? action : shown),
             level: Perm.config,
             action: action,
             args: sent.lock,

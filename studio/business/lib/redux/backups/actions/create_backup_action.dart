@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:async_redux/async_redux.dart';
 import 'package:models/backup_section.dart';
 import 'package:models/backup_stage.dart';
+import 'package:models/error_call.dart';
 
 import '../../../wyrm/calls.dart';
 import '../../../wyrm/decode/restore.dart';
@@ -65,10 +66,13 @@ class CreateBackupAction extends Action with NonReentrant, WaitingAction {
     }
     final link = backups.link;
     final key = link == null ? '$root/sys/backups' : '$root/sys/links/$link';
+    final call = link == null
+        ? const ErrorCall.named('create')
+        : const ErrorCall.named('backup');
     final typed = passphrase ?? '';
     final plan = backupFormPlan(passphraseLength: typed.length);
     if (!plan.canRun) {
-      throw stepBlockedOf(key, link == null ? 'create' : 'backup');
+      throw stepBlockedOf(key, call);
     }
     final chosen = plan.sent.unlock;
     final secret = plan.sendsPassphrase ? typed : null;
@@ -104,7 +108,7 @@ class CreateBackupAction extends Action with NonReentrant, WaitingAction {
           );
     final id = backupIdOf(answer).orRefuse(
       key: key,
-      call: link == null ? 'create' : 'backup',
+      call: call,
       thing: link,
     );
     await dispatchAndWait(RetrieveBackupsAction(quiet: true));

@@ -1,4 +1,5 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/answer_fault.dart';
 import 'package:models/login_failure.dart';
 
 import '../../app_state.dart';
@@ -19,7 +20,7 @@ class SetLoginProgressAction extends Action {
   final LoginFailure? failure;
 
   /// What the gateway or the network said, for the unreachable alert.
-  final String? reason;
+  final AnswerFault? reason;
 
   /// Probe results to add to `login.probes` (milliseconds, -1 no answer).
   final Map<String, int> probes;

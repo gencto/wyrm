@@ -15,10 +15,13 @@ import 'package:business/wyrm/decode/decoded.dart';
 import 'package:business/wyrm/decode/unreadable.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/backups_read.dart';
+import 'package:models/error_call.dart';
 import 'package:models/error_hint.dart';
 import 'package:models/error_kind.dart';
+import 'package:models/known_call.dart';
 import 'package:models/quarantine_kind.dart';
 import 'package:models/studio_error.dart';
+import 'package:models/unreadable_part.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import 'support/fake_wyrm.dart';
@@ -45,7 +48,7 @@ void main() {
   /// The problems of entries not read, newest first.
   List<StudioError> unread() => [
     for (final e in s.state.problems.items)
-      if (e.hint == ErrorHint.unreadableRows) e,
+      if (e.hint == const ErrorHint.unreadable(UnreadablePart.rows)) e,
   ];
 
   NodeMeta broker([Map<String, Value> attr = const {}]) =>
@@ -55,7 +58,7 @@ void main() {
     final u = Unread();
     expect(u.take(const Valid(1), name: 'a', where: 'w'), 1);
     expect(u.any, isFalse);
-    expect(u.problem(key: '$_root/sys/x', call: 'list'), isNull);
+    expect(u.problem(key: '$_root/sys/x', call: const .known(.list)), isNull);
     expect(
       u.take(const Invalid<int>('s', 'f', 'r'), name: 'b', where: 'w'),
       isNull,
@@ -65,14 +68,14 @@ void main() {
       isNull,
     );
     expect(u.names, ['b', 'c']);
-    final p = u.problem(key: '$_root/sys/x', call: 'list')!;
+    final p = u.problem(key: '$_root/sys/x', call: const .known(.list))!;
     expect(
       (p.kind, p.hint, p.key, p.call, p.thing, p.site, p.quiet),
       (
         ErrorKind.broker,
-        ErrorHint.unreadableRows,
+        const ErrorHint.unreadable(UnreadablePart.rows),
         '$_root/sys/x',
-        'list',
+        const ErrorCall.known(KnownCall.list),
         'b, c',
         'central',
         true,
@@ -269,7 +272,12 @@ void main() {
       final said = s.state.problems.items.first;
       expect(
         (said.hint, said.key, said.call, said.quiet),
-        (ErrorHint.unreadableAnswer, b, 'meta', true),
+        (
+          const ErrorHint.unreadable(UnreadablePart.answer),
+          b,
+          const ErrorCall.known(KnownCall.meta),
+          true,
+        ),
       );
 
       // read again once the broker answers in a form Studio reads
@@ -316,7 +324,7 @@ void main() {
     expect(status.isCompletedFailed, isTrue);
     expect(s.state.backups.estimate, isEmpty);
     final said = s.state.problems.items.first;
-    expect(said.hint, ErrorHint.unreadableAnswer);
-    expect((said.key, said.call), (b, 'estimate'));
+    expect(said.hint, const ErrorHint.unreadable(UnreadablePart.answer));
+    expect((said.key, said.call), (b, const ErrorCall.named('estimate')));
   });
 }

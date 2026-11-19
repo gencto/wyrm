@@ -1,17 +1,15 @@
 import 'package:async_redux/async_redux.dart';
 import 'package:business/redux/app_state.dart';
-import 'package:business/redux/assistant/actions/set_chip_action.dart';
+import 'package:business/redux/assistant/actions/pick_chip_action.dart';
 import 'package:business/redux/assistant/actions/stage_agent_param_action.dart';
 import 'package:business/redux/problems/actions/show_notice_action.dart';
 import 'package:business/redux/tasks/actions/cancel_task_action.dart';
 import 'package:business/redux/tasks/actions/reject_task_action.dart';
 import 'package:business/redux/tasks/actions/save_plan_action.dart';
-import 'package:business/wyrm/decode/node_glyph.dart';
-import 'package:equatable/equatable.dart';
+import 'package:business/wyrm/assistant_view.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:models/node_info.dart';
 import 'package:ui/assistant/suggestion_tile.dart';
 import 'package:ui/assistant/task_badge.dart';
 import 'package:ui/assistant/task_card.dart';
@@ -21,20 +19,11 @@ import 'package:ui/overlays/reason_dialog.dart';
 import 'package:ui/overlays/search_palette.dart';
 
 import '../common/files.dart';
-import '../mappers/icon_mappers.dart';
+import '../mappers/assistant_mappers.dart';
 
 // The dialogs the Assistant opens over [BuildContext] (studio-rules §4: a
 // connector takes no context): each asks the person, then starts one
 // action through the store above it. The words are the dialogs' own.
-
-/// The store's state seen through the selectors, at the moment a dialog
-/// opens.
-final class _Read with Selectors {
-  _Read(this.state);
-
-  @override
-  final AppState state;
-}
 
 /// Reject asks for a reason, then rejects task [id] with it.
 Future<void> rejectTask(BuildContext context, String id) async {
@@ -71,9 +60,9 @@ Future<void> cancelTask(BuildContext context, String id) async {
   }
 }
 
-/// *+ prefix*: asks for a key prefix, then stages it.
-Future<void> addPrefix(BuildContext context) async {
-  final root = _Read(StoreProvider.state<AppState>(context)).site.root;
+/// *+ prefix*: asks for a key prefix, then stages it. [root] is the site
+/// on screen (`wy/<site>`), for the example the dialog shows.
+Future<void> addPrefix(BuildContext context, {required String? root}) async {
   final p = await ReasonDialog.ask(
     context,
     title: S.current.addPrefixTitle,
@@ -134,7 +123,7 @@ Future<void> copyDraft(
   if (context.mounted) {
     await StoreProvider.dispatchAndWait<AppState>(
       context,
-      ShowNoticeAction(S.current.draftCopied),
+      ShowNoticeAction(.draftCopied),
     );
   }
 }
@@ -158,139 +147,81 @@ Future<void> savePlan(BuildContext context, String id) async {
       write: file.write,
       onDone: file.commit,
       onDiscard: file.discard,
-      saved: (left) => (
-        title: S.current.planSaved(file.path),
-        detail: left.isEmpty
-            ? null
-            : S.current.planSavedSecrets(left.join('; ')),
-      ),
+      path: file.path,
     ),
   );
 }
 
 /// *+ from Explorer*: a key picker over the nodes Explorer has read on the
 /// site on screen (the selection first), or a key typed in full or below
-/// the site; the pick is an `@` chip. Only the keys the selectors offer
-/// (plain node keys of this site the agent reads) can be picked.
+/// the site; the pick is an `@` chip. What is offered is read when the
+/// picker opens and again as the person types ([chipChoicesOf],
+/// [typedChipOf]); [PickChipAction] takes the pick only if it still holds.
 Future<void> pickContextKey(BuildContext context) async {
-  final read = _Read(StoreProvider.state<AppState>(context));
-  final root = read.site.root;
-  if (root == null || read.chipHold != null) {
+  final choices = chipChoicesOf(StoreProvider.state<AppState>(context));
+  if (choices == null) {
     return;
   }
-  final (:first, :rest) = read.chipChoices;
-  SearchEntryVm<String> entry(String k, {String? detail}) {
-    final info = read.nodes.table[k];
-    return SearchEntryVm(
-      id: k,
-      title: switch (info) {
-        NodeInfo(:final display?, :final name)
-            when display.trim().isNotEmpty && display != name =>
-          display,
-        final n => n?.name ?? shortKey(k),
-      },
-      // a key the tree has not listed (typed, or kept from a task) has no
-      // decoded node: its place says what it is
-      icon: nodeGlyphAt(k, root: root, info: info).icon,
-      detail: detail ?? shortKey(k),
-    );
-  }
-
-  final picked = await SearchPalette.show(
+  final picked = await SearchPalette.show<String?>(
     context,
-    hint: S.current.pickKeyHint(root.split('/').last),
+    hint: S.current.pickKeyHint(choices.site),
     entries: [
-      for (final k in first) entry(k, detail: S.current.pickKeySelected),
-      for (final k in rest) entry(k),
+      for (final c in choices.entries)
+        SearchEntryVm(
+          id: c.key,
+          title: c.title,
+          icon: c.icon,
+          detail: c.selected ? S.current.pickKeySelected : shortKey(c.key),
+        ),
     ],
-    goTo: (text) => switch (read.typedChip(text)) {
-      null => null,
-      // said, not offered: picking it does nothing
-      (:final key, reads: false) => SearchEntryVm(
-        id: '',
-        title: S.current.pickKeyOutside(shortKey(key)),
-        icon: AppIcon.uiClose,
-      ),
-      (:final key, reads: true) => SearchEntryVm(
-        id: key,
-        title: S.current.pickKeyTyped(shortKey(key)),
-        icon: AppIcon.uiChevronRight,
-      ),
-    },
+    goTo: (text) =>
+        switch (typedChipOf(StoreProvider.state<AppState>(context), text)) {
+          null => null,
+          // said, not offered: it has no key to pick
+          TypedChip(:final key, reads: false) => SearchEntryVm(
+            id: null,
+            title: S.current.pickKeyOutside(shortKey(key)),
+            icon: AppIcon.uiClose,
+          ),
+          TypedChip(:final key) => SearchEntryVm(
+            id: key,
+            title: S.current.pickKeyTyped(shortKey(key)),
+            icon: AppIcon.uiChevronRight,
+          ),
+        },
   );
-  if (picked == null || picked.isEmpty || !context.mounted) {
-    return;
-  }
-  final now = _Read(StoreProvider.state<AppState>(context));
-  if (now.typedChip(picked)?.reads ?? false) {
+  if (picked != null && context.mounted) {
     await StoreProvider.dispatchAndWait<AppState>(
       context,
-      SetChipAction(picked),
+      PickChipAction(picked),
     );
   }
 }
 
-/// What the buttons of a task's card that start their action at once do,
-/// for the task [task] on screen. Compared on the task and on which of
-/// them react: the callbacks are behaviour.
-final class TaskButtonActions extends Equatable {
-  const TaskButtonActions({
-    this.task,
-    this.approve,
-    this.replacement,
-    this.explorer,
-    this.trend,
-    this.followUp,
-  });
-
-  final String? task;
-  final VoidCallback? approve;
-  final VoidCallback? replacement;
-  final VoidCallback? explorer;
-  final VoidCallback? trend;
-
-  /// Asks for the steps a run left out, in the words the button says.
-  final ValueChanged<String>? followUp;
-
-  @override
-  List<Object?> get props => [
-    task,
-    approve != null,
-    replacement != null,
-    explorer != null,
-    trend != null,
-    followUp != null,
-  ];
-}
-
-/// A button of a task's card was pressed: one that asks first opens its
-/// dialog (Reject, Cancel, Save as a plan); the others start their action
-/// at once through [actions].
+/// A button of the card of task [task] was pressed: one that asks first
+/// opens its dialog (Reject, Cancel, Save as a plan); any other starts its
+/// action at once through [onStart].
 Future<void> pressTaskButton(
   BuildContext context,
-  TaskButtonVm b,
-  TaskButtonActions actions,
-) async {
-  final id = actions.task;
-  if (id == null) {
+  TaskButtonVm b, {
+  required String? task,
+  required ValueChanged<TaskButtonVm> onStart,
+}) async {
+  if (task == null) {
     return;
   }
   switch (b.button) {
     case TaskButton.reject:
-      await rejectTask(context, id);
+      await rejectTask(context, task);
     case TaskButton.cancel:
-      await cancelTask(context, id);
+      await cancelTask(context, task);
     case TaskButton.save:
-      await savePlan(context, id);
-    case TaskButton.followUp:
-      actions.followUp?.call(b.says);
-    case TaskButton.approve:
-      actions.approve?.call();
-    case TaskButton.replacement:
-      actions.replacement?.call();
-    case TaskButton.explorer:
-      actions.explorer?.call();
-    case TaskButton.trend:
-      actions.trend?.call();
+      await savePlan(context, task);
+    case TaskButton.followUp ||
+        TaskButton.approve ||
+        TaskButton.replacement ||
+        TaskButton.explorer ||
+        TaskButton.trend:
+      onStart(b);
   }
 }

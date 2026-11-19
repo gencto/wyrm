@@ -1,5 +1,7 @@
 import 'package:device_key/device_key.dart';
+import 'package:models/error_hint.dart';
 import 'package:models/error_kind.dart';
+import 'package:models/error_subject.dart';
 import 'package:models/unlock_stage.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -41,18 +43,22 @@ class EnableDeviceAction extends Action with WaitingAction {
     }
     final keys = deps.deviceKey;
     final alias = keyAlias(account.origin, account.user);
-    final name = device.name ?? 'biometrics';
+    // What is turned on: the method as the system names it, else
+    // *biometrics* (the app's word).
+    final name = device.name;
+    final subject = name == null ? ErrorSubject.biometrics : null;
     // The gateway takes a device key only from a platform of its set: on
     // linux and the web Studio refuses here, and sends nothing.
     final host = hostPlatform();
     final platform = host.device;
     if (platform == null) {
       dispatchSync(_Left());
-      throw StudioException.said(
+      throw StudioException.hinted(
         ErrorKind.studio,
-        'no device key on ${host.name}',
-        call: 'enable_device',
+        ErrorHint.noDeviceKey(host),
+        call: const .known(.enableDevice),
         thing: name,
+        subject: subject,
       );
     }
     try {
@@ -129,25 +135,38 @@ class EnableDeviceAction extends Action with WaitingAction {
       throw StudioException.said(
         ErrorKind.reach,
         e.message,
-        call: 'enable_device',
+        call: const .known(.enableDevice),
         thing: name,
+        subject: subject,
       );
     } on DeviceKeyException catch (e) {
       dispatchSync(_Left());
       throw StudioException.said(
         ErrorKind.studio,
         e.message.isEmpty ? e.code.name : e.message,
-        call: 'enable_device',
+        call: const .known(.enableDevice),
         thing: name,
+        subject: subject,
       );
     } on SignStopped catch (e) {
       dispatchSync(_Left());
-      throw StudioException.said(
-        ErrorKind.studio,
-        '$e',
-        call: 'enable_device',
-        thing: name,
-      );
+      throw switch (signHintOf(e.result)) {
+        final hint? => StudioException.hinted(
+          ErrorKind.studio,
+          hint,
+          call: const .known(.enableDevice),
+          thing: name,
+          subject: subject,
+        ),
+        // the system's own words
+        null => StudioException.said(
+          ErrorKind.studio,
+          '$e',
+          call: const .known(.enableDevice),
+          thing: name,
+          subject: subject,
+        ),
+      };
     }
   }
 }

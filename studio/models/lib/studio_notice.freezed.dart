@@ -17,12 +17,11 @@ mixin _$StudioNotice {
 
 /// From the same counter as `StudioError.id`, so the toasts keep the
 /// order they came in.
- int get id;/// The words, when the one who said it has them; empty for a [kind]
-/// or a [system] notice, whose words `ui` says.
- String get title;/// What was copied, when `ui` words it (with [count]).
- NoticeKind? get kind; int get count;/// One line under the title.
- String? get detail;/// A notice of System, worded by `ui` (then [title] and [detail] are
-/// not used).
+ int get id;/// What it says, when it is not a [system] notice; `ui` words it.
+ NoticeKind? get kind;/// How many keys were copied ([NoticeKind.keysCopied]).
+ int get count;/// Where a file went ([NoticeKind.planSaved]).
+ String? get path;/// The arguments a saved plan left out ([NoticeKind.planSaved]).
+ IList<WithheldArgs> get leftOut;/// A notice of System, worded by `ui`.
  SystemNotice? get system;
 /// Create a copy of StudioNotice
 /// with the given fields replaced by the non-null parameter values.
@@ -35,20 +34,20 @@ $StudioNoticeCopyWith<StudioNotice> get copyWith => _$StudioNoticeCopyWithImpl<S
 @override
 bool operator ==(Object other) {
   final _this = this as StudioNotice;
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is StudioNotice&&(identical(other.id, _this.id) || other.id == _this.id)&&(identical(other.title, _this.title) || other.title == _this.title)&&(identical(other.kind, _this.kind) || other.kind == _this.kind)&&(identical(other.count, _this.count) || other.count == _this.count)&&(identical(other.detail, _this.detail) || other.detail == _this.detail)&&(identical(other.system, _this.system) || other.system == _this.system));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is StudioNotice&&(identical(other.id, _this.id) || other.id == _this.id)&&(identical(other.kind, _this.kind) || other.kind == _this.kind)&&(identical(other.count, _this.count) || other.count == _this.count)&&(identical(other.path, _this.path) || other.path == _this.path)&&const DeepCollectionEquality().equals(other.leftOut, _this.leftOut)&&(identical(other.system, _this.system) || other.system == _this.system));
 }
 
 
 @override
 int get hashCode {
   final _this = this as StudioNotice;
-  return Object.hash(runtimeType,_this.id,_this.title,_this.kind,_this.count,_this.detail,_this.system);
+  return Object.hash(runtimeType,_this.id,_this.kind,_this.count,_this.path,const DeepCollectionEquality().hash(_this.leftOut),_this.system);
 }
 
 @override
 String toString() {
   final _this = this as StudioNotice;
-  return 'StudioNotice(id: ${_this.id}, title: ${_this.title}, kind: ${_this.kind}, count: ${_this.count}, detail: ${_this.detail}, system: ${_this.system})';
+  return 'StudioNotice(id: ${_this.id}, kind: ${_this.kind}, count: ${_this.count}, path: ${_this.path}, leftOut: ${_this.leftOut}, system: ${_this.system})';
 }
 
 
@@ -59,7 +58,7 @@ abstract mixin class $StudioNoticeCopyWith<$Res>  {
   factory $StudioNoticeCopyWith(StudioNotice value, $Res Function(StudioNotice) _then) = _$StudioNoticeCopyWithImpl;
 @useResult
 $Res call({
- int id, String title, NoticeKind? kind, int count, String? detail, SystemNotice? system
+ int id, NoticeKind? kind, int count, String? path, IList<WithheldArgs> leftOut, SystemNotice? system
 });
 
 
@@ -76,14 +75,14 @@ class _$StudioNoticeCopyWithImpl<$Res>
 
 /// Create a copy of StudioNotice
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? title = null,Object? kind = freezed,Object? count = null,Object? detail = freezed,Object? system = freezed,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? kind = freezed,Object? count = null,Object? path = freezed,Object? leftOut = null,Object? system = freezed,}) {
   return _then(StudioNotice(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
-as int,title: null == title ? _self.title : title // ignore: cast_nullable_to_non_nullable
-as String,kind: freezed == kind ? _self.kind : kind // ignore: cast_nullable_to_non_nullable
+as int,kind: freezed == kind ? _self.kind : kind // ignore: cast_nullable_to_non_nullable
 as NoticeKind?,count: null == count ? _self.count : count // ignore: cast_nullable_to_non_nullable
-as int,detail: freezed == detail ? _self.detail : detail // ignore: cast_nullable_to_non_nullable
-as String?,system: freezed == system ? _self.system : system // ignore: cast_nullable_to_non_nullable
+as int,path: freezed == path ? _self.path : path // ignore: cast_nullable_to_non_nullable
+as String?,leftOut: null == leftOut ? _self.leftOut : leftOut // ignore: cast_nullable_to_non_nullable
+as IList<WithheldArgs>,system: freezed == system ? _self.system : system // ignore: cast_nullable_to_non_nullable
 as SystemNotice?,
   ));
 }
@@ -108,22 +107,21 @@ $SystemNoticeCopyWith<$Res>? get system {
 
 
 class _StudioNotice implements StudioNotice {
-  const _StudioNotice({required this.id, this.title = '', this.kind, this.count = 0, this.detail, this.system});
+  const _StudioNotice({required this.id, this.kind, this.count = 0, this.path, this.leftOut = const IListConst([]), this.system});
   
 
 /// From the same counter as `StudioError.id`, so the toasts keep the
 /// order they came in.
 @override final  int id;
-/// The words, when the one who said it has them; empty for a [kind]
-/// or a [system] notice, whose words `ui` says.
-@override@JsonKey() final  String title;
-/// What was copied, when `ui` words it (with [count]).
+/// What it says, when it is not a [system] notice; `ui` words it.
 @override final  NoticeKind? kind;
+/// How many keys were copied ([NoticeKind.keysCopied]).
 @override@JsonKey() final  int count;
-/// One line under the title.
-@override final  String? detail;
-/// A notice of System, worded by `ui` (then [title] and [detail] are
-/// not used).
+/// Where a file went ([NoticeKind.planSaved]).
+@override final  String? path;
+/// The arguments a saved plan left out ([NoticeKind.planSaved]).
+@override@JsonKey() final  IList<WithheldArgs> leftOut;
+/// A notice of System, worded by `ui`.
 @override final  SystemNotice? system;
 
 /// Create a copy of StudioNotice
@@ -136,18 +134,18 @@ _$StudioNoticeCopyWith<_StudioNotice> get copyWith => __$StudioNoticeCopyWithImp
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is _StudioNotice&&(identical(other.id, id) || other.id == id)&&(identical(other.title, title) || other.title == title)&&(identical(other.kind, kind) || other.kind == kind)&&(identical(other.count, count) || other.count == count)&&(identical(other.detail, detail) || other.detail == detail)&&(identical(other.system, system) || other.system == system));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _StudioNotice&&(identical(other.id, id) || other.id == id)&&(identical(other.kind, kind) || other.kind == kind)&&(identical(other.count, count) || other.count == count)&&(identical(other.path, path) || other.path == path)&&const DeepCollectionEquality().equals(other.leftOut, leftOut)&&(identical(other.system, system) || other.system == system));
 }
 
 
 @override
 int get hashCode {
-    return Object.hash(runtimeType,id,title,kind,count,detail,system);
+    return Object.hash(runtimeType,id,kind,count,path,const DeepCollectionEquality().hash(leftOut),system);
 }
 
 @override
 String toString() {
-    return 'StudioNotice(id: $id, title: $title, kind: $kind, count: $count, detail: $detail, system: $system)';
+    return 'StudioNotice(id: $id, kind: $kind, count: $count, path: $path, leftOut: $leftOut, system: $system)';
 }
 
 
@@ -158,7 +156,7 @@ abstract mixin class _$StudioNoticeCopyWith<$Res> implements $StudioNoticeCopyWi
   factory _$StudioNoticeCopyWith(_StudioNotice value, $Res Function(_StudioNotice) _then) = __$StudioNoticeCopyWithImpl;
 @override @useResult
 $Res call({
- int id, String title, NoticeKind? kind, int count, String? detail, SystemNotice? system
+ int id, NoticeKind? kind, int count, String? path, IList<WithheldArgs> leftOut, SystemNotice? system
 });
 
 
@@ -175,14 +173,14 @@ class __$StudioNoticeCopyWithImpl<$Res>
 
 /// Create a copy of StudioNotice
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? title = null,Object? kind = freezed,Object? count = null,Object? detail = freezed,Object? system = freezed,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? kind = freezed,Object? count = null,Object? path = freezed,Object? leftOut = null,Object? system = freezed,}) {
   return _then(_StudioNotice(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
-as int,title: null == title ? _self.title : title // ignore: cast_nullable_to_non_nullable
-as String,kind: freezed == kind ? _self.kind : kind // ignore: cast_nullable_to_non_nullable
+as int,kind: freezed == kind ? _self.kind : kind // ignore: cast_nullable_to_non_nullable
 as NoticeKind?,count: null == count ? _self.count : count // ignore: cast_nullable_to_non_nullable
-as int,detail: freezed == detail ? _self.detail : detail // ignore: cast_nullable_to_non_nullable
-as String?,system: freezed == system ? _self.system : system // ignore: cast_nullable_to_non_nullable
+as int,path: freezed == path ? _self.path : path // ignore: cast_nullable_to_non_nullable
+as String?,leftOut: null == leftOut ? _self.leftOut : leftOut // ignore: cast_nullable_to_non_nullable
+as IList<WithheldArgs>,system: freezed == system ? _self.system : system // ignore: cast_nullable_to_non_nullable
 as SystemNotice?,
   ));
 }

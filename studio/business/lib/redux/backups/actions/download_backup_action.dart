@@ -59,7 +59,7 @@ class DownloadBackupAction extends Action with NonReentrant, WaitingAction {
       kind: ErrorKind.broker,
       hint: hint,
       key: key,
-      call: 'download_part',
+      call: const .known(.downloadPart),
       site: siteOf(key),
     ),
   );
@@ -79,7 +79,7 @@ class DownloadBackupAction extends Action with NonReentrant, WaitingAction {
                 ).orWarn(key) ??
                 '';
       if (expected.isEmpty) {
-        throw _wrong(key, ErrorHint.backupNoDigest);
+        throw _wrong(key, const ErrorHint.backupNoDigest());
       }
       await downloadParts(
         deps.wyrm,
@@ -98,7 +98,7 @@ class DownloadBackupAction extends Action with NonReentrant, WaitingAction {
         decodeLog.warning(
           '$key: sha256 of the file ${digest.value}, of the broker $expected',
         );
-        throw _wrong(key, ErrorHint.backupDigestMismatch);
+        throw _wrong(key, const ErrorHint.backupDigestMismatch());
       }
       await onDone?.call();
       saved = true;

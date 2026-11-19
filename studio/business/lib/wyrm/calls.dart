@@ -1,3 +1,4 @@
+import 'package:models/error_call.dart';
 import 'package:models/error_kind.dart';
 import 'package:models/json_value.dart';
 import 'package:models/param_spec.dart';
@@ -10,11 +11,12 @@ import 'failures.dart';
 /// Runs one broker call; a refusal becomes a [StudioException] that keeps
 /// the status as data and the broker's own message (docs/studio.md §2
 /// rule 7, docs/design/specs/errors.md §1). [name] is the call (`list`,
-/// `meta`, `set`, an action), [key] the key it is made on, [thing] the name
+/// `meta`, `set`, or an action, whose wire name is read once by
+/// [ErrorCall.ofWire]), [key] the key it is made on, [thing] the name
 /// of its object for the title when the key's last segment is not it;
 /// [write] says it changes something on the broker.
 Future<T> call<T>(
-  String name,
+  ErrorCall name,
   String key,
   Future<T> Function() f, {
   String? thing,
@@ -35,11 +37,11 @@ Future<T> call<T>(
 
 /// The children of [key]; a refusal as in [call].
 Future<List<Child>> listOf(WyrmApi api, String key, {String? thing}) =>
-    call('list', key, () => api.children(key), thing: thing);
+    call(const .known(.list), key, () => api.children(key), thing: thing);
 
 /// The full meta of [key]; a refusal as in [call].
 Future<NodeMeta> metaOf(WyrmApi api, String key, {String? thing}) =>
-    call('meta', key, () => api.meta(key), thing: thing);
+    call(const .known(.meta), key, () => api.meta(key), thing: thing);
 
 /// The rows of one `invoke` that changes something, collected; a refusal
 /// as in [call]. A timeout of it may have been applied, and the dialog
@@ -51,7 +53,7 @@ Future<List<Value>> invokeAll(
   Value? args,
   String? thing,
 ]) => call(
-  action,
+  ErrorCall.ofWire(action),
   key,
   () => api.invoke(key, action, args).toList(),
   thing: thing,
@@ -79,7 +81,7 @@ Future<List<Value>> askAll(
   Value? args,
   String? thing,
 ]) => call(
-  action,
+  ErrorCall.ofWire(action),
   key,
   () => api.invoke(key, action, args).toList(),
   thing: thing,
@@ -114,7 +116,7 @@ void requireSuccess(
         kind: ErrorKind.broker,
         message: verdict.message ?? '',
         key: key,
-        call: action,
+        call: ErrorCall.ofWire(action),
         thing: thing,
         site: siteOf(key),
         write: true,

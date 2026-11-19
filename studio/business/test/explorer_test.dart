@@ -15,6 +15,8 @@ import 'package:business/redux/nodes/actions/toggle_node_action.dart';
 import 'package:business/wyrm/calls.dart';
 import 'package:business/wyrm/failures.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:models/change_op.dart';
+import 'package:models/change_side.dart';
 import 'package:models/error_kind.dart';
 import 'package:models/json_value.dart';
 import 'package:models/param_spec.dart';
@@ -165,7 +167,10 @@ void main() {
     s.dispatchSync(StageValueAction(key, 1, from: 'auto'));
 
     final c = s.state.changes.table.values.single;
-    expect((c.value, c.from, c.to), (1, 'auto', 'manual'));
+    expect(
+      (c.value, c.from, c.to),
+      (1, const ChangeSide.text('auto'), const ChangeSide.text('manual')),
+    );
   });
 
   test('closing a node closes the lists under it', () {
@@ -191,7 +196,13 @@ void main() {
       final c = s.state.changes.table.values.single;
       expect(
         (c.key, c.value, c.from, c.to, c.level),
-        ('wy/central/downstream/m/sp', 21.5, '20', '21.5', Perm.write),
+        (
+          'wy/central/downstream/m/sp',
+          21.5,
+          const ChangeSide.text('20'),
+          const ChangeSide.text('21.5'),
+          Perm.write,
+        ),
       );
 
       await s.dispatchAndWait(ApplyChangesAction());
@@ -213,7 +224,7 @@ void main() {
       );
 
       final c = s.state.changes.table.values.single;
-      expect(c.op, 'Add');
+      expect(c.op, ChangeOp.add);
       expect(c.action, 'add_point');
       expect(c.args.unlock, {'name': 't3', 'addr': 7});
     },
@@ -227,9 +238,9 @@ void main() {
         StageInvokeAction(dev, 'edit', {'display': 'Boiler room'}),
       );
       final c = s.state.changes.table.values.single;
-      expect(c.op, 'Edit');
+      expect(c.op, ChangeOp.edit);
       expect(c.args.unlock, {'display': 'Boiler room'});
-      expect(c.to, 'display: Boiler room');
+      expect(c.to, const ChangeSide.text('display: Boiler room'));
 
       await s.dispatchAndWait(ApplyChangesAction());
       final sent = api.calls.lastWhere((x) => x.op == 'invoke');
@@ -254,7 +265,7 @@ void main() {
       );
       final c = s.state.changes.table.values.single;
       expect(c.args.unlock, {'display': '', 'port': 502});
-      expect(c.to, 'display: "", port: 502');
+      expect(c.to, const ChangeSide.text('display: "", port: 502'));
     });
 
     test('an empty name that was never there stays out (an Add form, an '

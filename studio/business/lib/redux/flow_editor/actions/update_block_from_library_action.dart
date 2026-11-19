@@ -2,7 +2,9 @@ import 'dart:async';
 
 import 'package:async_redux/async_redux.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/error_hint.dart';
 import 'package:models/error_kind.dart';
+import 'package:models/unreadable_part.dart';
 
 import '../../../wyrm/calls.dart';
 import '../../../wyrm/decode/block_library.dart';
@@ -34,11 +36,15 @@ class UpdateBlockFromLibraryAction extends Action
       await askOne(deps.wyrm, '$root/dataflows', 'get_block', nameArgs(name)),
     )) {
       Valid(:final value) => value,
-      Invalid(:final field, :final reason) => throw StudioException.said(
+      final Invalid<Object?> bad => throw StudioException.hinted(
         ErrorKind.broker,
-        'The library block $name is not one Studio reads: $field: $reason.',
+        ErrorHint.unreadable(
+          UnreadablePart.libraryBlock,
+          name: name,
+          field: loggedField('$root/dataflows ▸ get_block $name', bad),
+        ),
         key: '$root/dataflows',
-        call: 'get_block',
+        call: const .known(.getBlock),
         thing: name,
       ),
     };

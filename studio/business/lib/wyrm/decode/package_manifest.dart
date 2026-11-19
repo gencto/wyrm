@@ -145,9 +145,11 @@ final class _Bad implements Exception {
 
 /// The fields of one JSON object of a manifest, read strictly: the typed
 /// value or a [_Bad] with the field's path.
-extension type const _Json._(({IMap<String, JsonValue> fields, String at}) _) {
+final class _Json {
+  const _Json._(this._fields, this._at);
+
   factory _Json.of(JsonValue? v, String at) => switch (v) {
-    JsonMap(:final fields) => _Json._((fields: fields, at: at)),
+    JsonMap(:final fields) => _Json._(fields, at),
     null || JsonNull() => throw _Bad(ManifestFault.missing, at),
     _ => throw _Bad(
       at.isEmpty ? ManifestFault.notObject : ManifestFault.wrongForm,
@@ -155,22 +157,27 @@ extension type const _Json._(({IMap<String, JsonValue> fields, String at}) _) {
     ),
   };
 
-  String _path(String field) => _.at.isEmpty ? field : '${_.at}.$field';
+  final IMap<String, JsonValue> _fields;
 
-  JsonValue? operator [](String field) => _.fields[field];
+  /// The path of this object in the file; empty for the file itself.
+  final String _at;
 
-  String text(String field) => switch (_.fields[field]) {
+  String _path(String field) => _at.isEmpty ? field : '$_at.$field';
+
+  JsonValue? operator [](String field) => _fields[field];
+
+  String text(String field) => switch (_fields[field]) {
     JsonText(:final text) => text,
     null || JsonNull() => throw _Bad(ManifestFault.missing, _path(field)),
     _ => throw _Bad(ManifestFault.wrongForm, _path(field)),
   };
 
-  String textOr(String field, String absent) => switch (_.fields[field]) {
+  String textOr(String field, String absent) => switch (_fields[field]) {
     null || JsonNull() => absent,
     _ => text(field),
   };
 
-  int whole(String field) => switch (_.fields[field]) {
+  int whole(String field) => switch (_fields[field]) {
     JsonNumber(value: final int n) => n,
     null || JsonNull() => throw _Bad(ManifestFault.missing, _path(field)),
     _ => throw _Bad(ManifestFault.wrongForm, _path(field)),

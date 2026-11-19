@@ -1,4 +1,4 @@
-import 'package:app/errors.dart';
+import 'package:app/mappers/error_mappers.dart';
 import 'package:flutter/widgets.dart' show Locale;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
@@ -11,15 +11,12 @@ import 'package:models/studio_error.dart';
 /// A file that is no profile is refused with its cause said: which key,
 /// which type, where the JSON stops (re-audit of #135, 5), en and uk.
 void main() {
-  String said(ManifestProblem problem) => wordError(
-    StudioError(
-      kind: ErrorKind.input,
-      hint: ErrorHint.fileNotRead,
-      call: 'read',
-      thing: 'temp.json',
-      fileProblem: problem,
-    ),
-  ).message;
+  String said(ManifestProblem problem) => StudioError(
+    kind: ErrorKind.input,
+    hint: ErrorHint.fileNotRead(problem),
+    call: const .known(.read),
+    thing: 'temp.json',
+  ).said.said;
 
   const problems = [
     ManifestProblem(fault: ManifestFault.unknownField, field: 'points'),
@@ -67,14 +64,12 @@ void main() {
   test(
     'a step its plan blocks is said, en and uk (audit 3 of #135, 2)',
     () async {
-      String said() => wordError(
-        const StudioError(
-          kind: ErrorKind.input,
-          hint: ErrorHint.stepBlocked,
-          call: 'restore_apply',
-          key: 'wy/plant/sys/backups',
-        ),
-      ).message;
+      String said() => const StudioError(
+        kind: ErrorKind.input,
+        hint: ErrorHint.stepBlocked(),
+        call: .named('restore_apply'),
+        key: 'wy/plant/sys/backups',
+      ).said.said;
       await S.load(const Locale('en'));
       expect(
         said(),

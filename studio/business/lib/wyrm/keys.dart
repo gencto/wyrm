@@ -42,6 +42,13 @@ Set<String> parentLinksOf(String? key, {required Iterable<String> sections}) {
   };
 }
 
+/// The last segment of [key] when it names a node: null for no key, an
+/// empty segment, or the `**` of a pattern (a stream of a whole site).
+String? lastNameOf(String? key) {
+  final last = key?.split('/').last;
+  return last == null || last.isEmpty || last == '**' ? null : last;
+}
+
 /// The link a key of a site's `downstream` is under (spec 01:
 /// `wy/<site>/downstream/<link>/…`); null for any other key.
 String? linkOf(String key) => switch (key.split('/')) {

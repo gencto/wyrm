@@ -28,6 +28,7 @@ import 'support/block_types.dart';
 import 'support/catalog_0226.dart';
 import 'support/catalog_0229.dart';
 import 'support/fake_wyrm.dart';
+import 'support/field_tags.dart';
 
 // The flow editor and the third set of blocks (ADR 0044, spec 06 0.2.29,
 // docs/flow-blocks.md "How the editor shows each block"), on the catalog a
@@ -43,7 +44,7 @@ FlowBlock block(String type, [Map<String, Object?> cfg = const {}]) =>
 
 /// The labels of the rows a new block of [type] draws, in order.
 List<String> rows(String type, [Map<String, Object?> cfg = const {}]) => [
-  for (final f in rowsOf(types[type], block(type, cfg))) f.label,
+  for (final f in rowsOf(types[type], block(type, cfg))) f.label.tag,
 ];
 
 FlowField field(
@@ -64,7 +65,7 @@ void main() {
       types['atan']!.params.firstWhere((p) => p.name == 'x').display,
       'X',
     );
-    expect(field('atan', 'p:x').label, 'X');
+    expect(field('atan', 'p:x').label.tag, 'X');
   });
 
   test('the palette lists the new sections in order, a new one last', () {
@@ -103,11 +104,11 @@ void main() {
   group('router: a case and its output are one field', () {
     test('Case 1 ⇄ is in.0 on the left and out.0 on the right', () {
       expect(rows('router'), [
-        'Input',
+        '#input',
         'Condition',
-        'Operation',
-        'Case 1',
-        'Case 2',
+        '#operation',
+        '#caseOf 1',
+        '#caseOf 2',
         'Single output',
         'Else',
       ]);
@@ -153,15 +154,15 @@ void main() {
     );
     expect(pointOf(block('get_node', {'key': 'downstream/m'})), 'downstream/m');
     expect(rows('load_history'), [
-      'Point',
+      '#point',
       'Time range',
       'Rollup',
       'Window',
-      'Trigger',
+      '#trigger',
       'Error',
-      'Output',
+      '#output',
     ]);
-    expect(rows('get_node').first, 'Node');
+    expect(rows('get_node').first, '#node');
     // Every reader runs on `~act/trigger` (the Run button).
     for (final r in [
       'load_value',
@@ -194,20 +195,20 @@ void main() {
   test('order and labels as the editor table says', () {
     expect(rows('table_recorder'), [
       'Reset',
-      'Input 1',
-      'Input 2',
+      '#input 1',
+      '#input 2',
       'Enabled',
       'Buffer size',
       'Time window (s)',
       'Ignore null',
-      'Output',
+      '#output',
     ]);
     expect(rows('date_range'), [
-      'Input',
+      '#input',
       'Next',
       'Previous',
       'Format',
-      'Delimiter',
+      '#delimiter',
       'Keep special',
       'Week start',
       'Time zone',
@@ -219,19 +220,19 @@ void main() {
       'Formatted',
       'Duration',
     ]);
-    expect(rows('constant'), ['Name', 'Value']);
-    expect(rows('table_filter'), ['Input', 'Output', 'Error']);
+    expect(rows('constant'), ['Name', '#value']);
+    expect(rows('table_filter'), ['#input', '#output', 'Error']);
     expect(rows('table_map_columns'), [
-      'Input',
+      '#input',
       'Retain columns',
-      'Output',
+      '#output',
       'Error',
     ]);
     expect(rows('event_gate'), [
       'Reset',
       'Log order',
-      'Input 1',
-      'Input 2',
+      '#input 1',
+      '#input 2',
       'On finish',
       'Order',
     ]);
@@ -531,7 +532,7 @@ void main() {
       // No words from the broker: Studio names why (the app says it).
       expect(
         triggerHintOf(StatusCode.of(Status.permissionDenied)),
-        ErrorHint.runDenied,
+        const ErrorHint.runDenied(),
       );
     });
   });
@@ -544,22 +545,22 @@ void main() {
     expect(old['router'], isNull);
     expect(old['load_value']!.params.first.display, isNull);
     expect(
-      fieldsOf(old['load_value'], block('load_value')).first.label,
-      'Point',
+      fieldsOf(old['load_value'], block('load_value')).first.label.tag,
+      '#point',
     );
   });
 
   // The owner's screenshots of 2026-11-11 (spec 06 0.2.30).
   test('liveliness reads Node and Alive; subscribe its point', () {
-    expect(rows('liveliness'), ['Node', 'Alive']);
+    expect(rows('liveliness'), ['#node', '#alive']);
     expect(
       rows('liveliness', {'key': 'downstream/modbus'}),
-      ['Node', 'Alive'],
+      ['#node', '#alive'],
       reason: 'a presence, not a value named after the node',
     );
-    expect(rows('subscribe'), ['Point', 'Output']);
+    expect(rows('subscribe'), ['#point', '#output']);
     expect(rows('subscribe', {'key': 'downstream/modbus/t1'}), [
-      'Point',
+      '#point',
       't1',
     ]);
   });

@@ -30,7 +30,7 @@ class CheckRestoreAction extends Action with NonReentrant, WaitingAction {
     final key = '${site.root}/sys/backups';
     final upload = backups.upload;
     if (upload == null || restoreFilePlan.step != RestoreFileStep.check) {
-      throw stepBlockedOf(key, 'restore_check');
+      throw stepBlockedOf(key, const .named('restore_check'));
     }
     final answer = await askOne(
       deps.wyrm,
@@ -43,7 +43,7 @@ class CheckRestoreAction extends Action with NonReentrant, WaitingAction {
     );
     final check = restoreCheckOf(
       answer,
-    ).orRefuse(key: key, call: 'restore_check');
+    ).orRefuse(key: key, call: const .named('restore_check'));
     return state.copyWith.backups(
       check: check,
       chosen: check.sections.keys

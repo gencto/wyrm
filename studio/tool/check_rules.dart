@@ -75,6 +75,18 @@ final _rules = <Rule>[
           ),
         );
   }, except: ['business/lib/wyrm/decode/']),
+  // 2, 7. a record with named fields used as a type (`({String key, bool
+  // reads})`, a `typedef X = ({…})`): an ad-hoc model with no name, no
+  // constructor and no place for its rule (audit of #137). Not a named
+  // parameter list: that one follows a name (`f({int a})`).
+  Rule(
+    'record-type',
+    ['app/lib/', 'business/lib/', 'ui/lib/'],
+    (t) => _matches(
+      _code(t),
+      RegExp(r'(?<![\w>?\]])\(\{\s*(?:[A-Za-z_][\w<>?, ]*\s+\w+\s*,?\s*)+\}\)'),
+    ),
+  ),
   // 3. connectors map, they do not compute: their size
   Rule('connector-lines', [
     'app/lib/connectors/',
@@ -422,6 +434,18 @@ int _dispatchWrapper(String text) {
     RegExp('$head=>\\s*$call', multiLine: true),
     // the same with a body of one statement: `void f() { dispatch(x); }`
     RegExp('$head\\{\\s*$call[^;]*;\\s*\\}', multiLine: true),
+    // a dispatch behind a condition is the whole body all the same:
+    // `=> cond ? dispatch(x) : null` and `{ if (cond) dispatch(x); }`
+    // (the condition at the body's own level: its parentheses close
+    // before the `?`, so a ternary inside an argument is not this)
+    RegExp(
+      '$head=>[^;{}()]*(?:\\([^()]*\\)[^;{}()]*)*\\?\\s*$call',
+      multiLine: true,
+    ),
+    RegExp(
+      '$head\\{\\s*if\\s*\\([^{};]*\\)\\s*\\{?\\s*$call[^;]*;\\s*\\}?\\s*\\}',
+      multiLine: true,
+    ),
   ]) {
     for (final m in re.allMatches(c)) {
       final before = c.substring(0, m.start).trimRight();
@@ -499,6 +523,19 @@ int _vmEquality(String text) {
 /// ([good]): a change to a pattern that stops seeing what it is for fails
 /// here, not in review.
 const _probes = <String, ({String bad, String good})>{
+  'record-type': (
+    bad: '''
+  ({String key, bool reads})? typedChip(String text) => null;
+typedef ReadFail = ({ReadFailure what, String reason});
+  final List<({int start, int end})> spans;
+''',
+    good: '''
+  TypedChip? typedChip(String text) => null;
+  void onTick(int n, {required bool on}) {}
+  const TaskRow({required this.key, this.label = ''});
+  Future<void> open(Uri gateway, {String? user, String? device}) async {}
+''',
+  ),
   'string-case': (
     bad: '''
 const _stateLeaf = 'state';
@@ -567,6 +604,15 @@ class _Vm extends Vm {
       _store.dispatchAndWait(LoadAction(id));
   void _read(String id) {
     _store.dispatch(ReadAction(id));
+  }
+  void report(Object e) =>
+      fresh(e)
+      ? store.dispatch(ReportAction(e))
+      : null;
+  void _maybe(String id) {
+    if (id.isNotEmpty) {
+      _store.dispatch(ReadAction(id));
+    }
   }
 class D implements TasksServiceListener {
   void _load(String id) => _store.dispatch(LoadAction(id));

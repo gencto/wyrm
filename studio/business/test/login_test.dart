@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:async_redux/async_redux.dart';
 import 'package:business/persistor.dart';
@@ -12,9 +13,12 @@ import 'package:business/redux/login/actions/set_gateway_action.dart';
 import 'package:business/redux/login/actions/set_password_action.dart';
 import 'package:business/redux/login/actions/set_remember_action.dart';
 import 'package:business/redux/login/actions/set_user_action.dart';
+import 'package:business/wyrm/failures.dart';
 import 'package:business/wyrm/session.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:models/answer_fault.dart';
+import 'package:models/error_hint.dart';
 import 'package:models/login_failure.dart';
 import 'package:storage/storage.dart';
 import 'package:wyrm_client/wyrm_client.dart';
@@ -56,11 +60,67 @@ void main() {
       expect(s.state.login.probes['http://a:8445'], 12);
     });
 
+    test('a gateway typed with user:password@ is refused: nothing is probed '
+        'or opened, and no error holds them', () async {
+      const typed = 'https://olena:gw-pass@plant.local:8445';
+      final login = FakeLogin();
+      final s = fakeStore(login: login);
+      await fill(s, gateway: typed);
+      final status = await s.dispatchAndWait(LogInAction());
+      expect(status.isCompletedOk, isTrue);
+      expect(login.probed, isEmpty);
+      expect(login.gateways, isNull);
+      expect(s.state.problems.items, isEmpty);
+      expect(s.state.site.gateway, isNull);
+    });
+
+    test('a clean main gateway with a standby typed with user:password@ is '
+        'refused: nothing is probed, recent keeps no credentials (final '
+        'audit of #137, 2)', () async {
+      final login = FakeLogin();
+      final s = fakeStore(login: login);
+      await fill(s, gateway: 'http://a:8445, https://olena:gw-pass@b:8445');
+      final status = await s.dispatchAndWait(LogInAction());
+      expect(status.isCompletedOk, isTrue);
+      expect(login.probed, isEmpty);
+      expect(login.gateways, isNull);
+      expect(s.state.session.token, isNull);
+      expect(s.state.login.recent, isEmpty);
+
+      // the same standby without them logs in, and is remembered as typed
+      await s.dispatchAndWait(
+        SetGatewayAction('http://a:8445, https://b:8445'),
+      );
+      expect((await s.dispatchAndWait(LogInAction())).isCompletedOk, isTrue);
+      expect(s.state.login.recent, ['http://a:8445, https://b:8445']);
+      expect(s.state.login.recent.join(), isNot(contains('gw-pass')));
+    });
+
+    test('what a login throws names its type only, never the URL it was '
+        'asked on', () async {
+      final login = FakeLogin(
+        error: const HttpException(
+          'refused, uri = https://olena:gw-pass@plant.local:8445',
+        ),
+      );
+      final s = fakeStore(login: login);
+      await fill(s, gateway: 'https://plant.local:8445');
+      final status = await s.dispatchAndWait(LogInAction());
+      final e = (status.originalError! as StudioException).error;
+      expect(e.thing, 'https://plant.local:8445');
+      expect(
+        e.hint,
+        const ErrorHint.noAnswer(AnswerFault.failed('HttpException')),
+      );
+      expect(e.message, isEmpty);
+      expect('$e', isNot(contains('gw-pass')));
+    });
+
     test(
       'no answer from any gateway is unreachable, before any login',
       () async {
         final login = FakeLogin(
-          answer: const GatewayProbe.noAnswer('connection refused after 5 s'),
+          answer: const GatewayProbe.noAnswer(AnswerFault.refusedAfter(5000)),
         );
         final s = fakeStore(login: login);
         await fill(s, gateway: 'http://a:8445, http://b:8445');
@@ -72,7 +132,7 @@ void main() {
         expect(login.gateways, isNull, reason: 'no login was tried');
         expect(login.probed, hasLength(2), reason: 'the standby is tried too');
         expect(s.state.login.failure, LoginFailure.unreachable);
-        expect(s.state.login.reason, 'connection refused after 5 s');
+        expect(s.state.login.reason, const AnswerFault.refusedAfter(5000));
         expect(s.state.login.probes['http://b:8445'], -1);
       },
     );
@@ -126,7 +186,9 @@ void main() {
       });
 
       final down = fakeStore(
-        login: FakeLogin(answer: const GatewayProbe.noAnswer('timed out')),
+        login: FakeLogin(
+          answer: const GatewayProbe.noAnswer(AnswerFault.timedOut()),
+        ),
       );
       await down.dispatchAndWait(ProbeGatewayAction('http://a:8445'));
 

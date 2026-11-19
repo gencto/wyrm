@@ -1,7 +1,9 @@
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 
 import 'notice_kind.dart';
 import 'system_notice.dart';
+import 'withheld_args.dart';
 
 part 'studio_notice.freezed.dart';
 
@@ -14,19 +16,19 @@ abstract class StudioNotice with _$StudioNotice {
     /// order they came in.
     required int id,
 
-    /// The words, when the one who said it has them; empty for a [kind]
-    /// or a [system] notice, whose words `ui` says.
-    @Default('') String title,
-
-    /// What was copied, when `ui` words it (with [count]).
+    /// What it says, when it is not a [system] notice; `ui` words it.
     NoticeKind? kind,
+
+    /// How many keys were copied ([NoticeKind.keysCopied]).
     @Default(0) int count,
 
-    /// One line under the title.
-    String? detail,
+    /// Where a file went ([NoticeKind.planSaved]).
+    String? path,
 
-    /// A notice of System, worded by `ui` (then [title] and [detail] are
-    /// not used).
+    /// The arguments a saved plan left out ([NoticeKind.planSaved]).
+    @Default(IListConst([])) IList<WithheldArgs> leftOut,
+
+    /// A notice of System, worded by `ui`.
     SystemNotice? system,
   }) = _StudioNotice;
 }

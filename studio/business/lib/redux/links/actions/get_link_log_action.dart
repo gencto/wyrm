@@ -42,7 +42,7 @@ class GetLinkLogAction extends Action with WaitingAction {
       log: [
         for (final l in logLinesOf(rows).orRefuse(
           key: key,
-          call: 'get_log',
+          call: const .known(.getLog),
           thing: id,
         ))
           [

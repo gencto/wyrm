@@ -1,5 +1,6 @@
 import 'package:async_redux/async_redux.dart';
 import 'package:business/redux/app_state.dart';
+import 'package:business/redux/common/action.dart';
 
 import 'app_router.dart';
 import 'go_action.dart';
@@ -11,7 +12,7 @@ import 'go_action.dart';
 ///
 /// It changes no state itself (`null`): [inner] notifies for what it
 /// changed, and the route change is the router's.
-class LeaveOnLogOutAction extends ReduxAction<AppState> {
+class LeaveOnLogOutAction extends Action {
   LeaveOnLogOutAction(this.inner, {ReduxAction<AppState> Function()? leave})
     : leave = leave ?? (() => GoAction.replace(const LogInRoute()));
 

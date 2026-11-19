@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:models/step_up_deed.dart';
 import 'package:models/step_up_line.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -55,7 +56,13 @@ final class StepUpApi implements WyrmApi {
   @override
   Future<void> set(String key, Value value) => withStepUp(
     _gate,
-    () => [StepUpLine(level: Perm.config, text: 'set ${_last(key)}', key: key)],
+    () => [
+      StepUpLine(
+        level: Perm.config,
+        deed: StepUpDeed.set(_last(key)),
+        key: key,
+      ),
+    ],
     () => _inner.set(key, value),
   );
 
@@ -76,7 +83,11 @@ final class StepUpApi implements WyrmApi {
             !isConfirmRequired(e) ||
             round >= _rounds ||
             !await _gate(e, [
-              StepUpLine(level: Perm.config, text: action, key: key),
+              StepUpLine(
+                level: Perm.config,
+                deed: StepUpDeed.action(action),
+                key: key,
+              ),
             ])) {
           rethrow;
         }
@@ -136,18 +147,21 @@ final class StepUpSession implements WyrmSession {
   @override
   final WyrmApi api;
 
-  Future<T> _guard<T>(String text, String key, Future<T> Function() call) =>
-      withStepUp(
-        _gate,
-        () => [StepUpLine(level: Perm.config, text: text, key: key)],
-        call,
-      );
+  Future<T> _guard<T>(
+    StepUpDeed deed,
+    String key,
+    Future<T> Function() call,
+  ) => withStepUp(
+    _gate,
+    () => [StepUpLine(level: Perm.config, deed: deed, key: key)],
+    call,
+  );
 
   @override
   Stream<bool> get connection => inner.connection;
 
   @override
-  Uri get base => inner.base;
+  GatewayAddress get base => inner.base;
 
   @override
   Future<GatewayIdentity> identity() => inner.identity();
@@ -158,32 +172,35 @@ final class StepUpSession implements WyrmSession {
   @override
   Future<void> addUser(String name, String password, List<String> roles) =>
       _guard(
-        'add user $name',
+        StepUpDeed.addUser(name),
         'user:$name',
         () => inner.addUser(name, password, roles),
       );
 
   @override
-  Future<void> removeUser(String name) =>
-      _guard('remove user $name', 'user:$name', () => inner.removeUser(name));
+  Future<void> removeUser(String name) => _guard(
+    StepUpDeed.removeUser(name),
+    'user:$name',
+    () => inner.removeUser(name),
+  );
 
   @override
   Future<void> setUserRoles(String name, List<String> roles) => _guard(
-    'set roles of $name',
+    StepUpDeed.setRoles(name),
     'user:$name',
     () => inner.setUserRoles(name, roles),
   );
 
   @override
   Future<void> setUserPassword(String name, String password) => _guard(
-    'set password of $name',
+    StepUpDeed.setPassword(name),
     'user:$name',
     () => inner.setUserPassword(name, password),
   );
 
   @override
   Future<void> setUserDisabled(String name, {required bool disabled}) => _guard(
-    '${disabled ? 'disable' : 'enable'} user $name',
+    disabled ? StepUpDeed.disableUser(name) : StepUpDeed.enableUser(name),
     'user:$name',
     () => inner.setUserDisabled(name, disabled: disabled),
   );
@@ -242,8 +259,11 @@ final class StepUpSession implements WyrmSession {
       inner.userDevices(name);
 
   @override
-  Future<void> removeDevice(String id) =>
-      _guard('remove device', 'device:$id', () => inner.removeDevice(id));
+  Future<void> removeDevice(String id) => _guard(
+    const StepUpDeed.removeDevice(),
+    'device:$id',
+    () => inner.removeDevice(id),
+  );
 
   @override
   Future<void> signOutEverywhere() => inner.signOutEverywhere();

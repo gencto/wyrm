@@ -84,3 +84,11 @@ final class Invalid<T> extends Decoded<T> {
   @override
   String toString() => 'Invalid($shape.$field: $reason)';
 }
+
+/// The field of [bad] a screen may name (its wire name); why it does not
+/// read is written to the log with [where], never shown: a decoder's
+/// reason is a developer's word, not the user's.
+String loggedField(String where, Invalid<Object?> bad) {
+  decodeLog.warning('$where: ${bad.shape}.${bad.field}: ${bad.reason}');
+  return bad.field;
+}

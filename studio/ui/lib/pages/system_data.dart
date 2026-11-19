@@ -2,6 +2,7 @@ import 'package:equatable/equatable.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:localization/localization.dart';
 
+import '../models/broker_said.dart';
 import '../models/disabled.dart';
 import '../models/tone.dart';
 import '../overlays/backup_data.dart';
@@ -540,7 +541,7 @@ final class SysMaintData extends Equatable {
   final List<SysProfile> profiles;
 
   /// The broker does not list its profiles: its answer.
-  final String? profilesUnlisted;
+  final BrokerSaidVm? profilesUnlisted;
 
   /// The kept backups; null for a broker without `sys/backups`.
   final SysBackupsData? backups;

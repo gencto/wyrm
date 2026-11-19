@@ -30,4 +30,4 @@ class ProbeGatewayAction extends Action with WaitingAction {
 }
 
 /// The key of a gateway in `login.probes`: its origin, `scheme://host:port`.
-String gatewayKey(Uri gateway) => gateway.origin;
+String gatewayKey(GatewayAddress gateway) => gateway.origin;

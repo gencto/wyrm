@@ -112,12 +112,18 @@ void main() {
 
   group('parseGateways', () {
     test('adds http:// and drops what is not a URL', () {
-      expect(parseGateways('127.0.0.1:8445'), [
-        Uri.parse('http://127.0.0.1:8445'),
-      ]);
-      expect(parseGateways('https://g.example:8445'), [
-        Uri.parse('https://g.example:8445'),
-      ]);
+      expect(
+        [for (final g in parseGateways('127.0.0.1:8445')) g.uri],
+        [
+          Uri.parse('http://127.0.0.1:8445'),
+        ],
+      );
+      expect(
+        [for (final g in parseGateways('https://g.example:8445')) g.uri],
+        [
+          Uri.parse('https://g.example:8445'),
+        ],
+      );
       expect(parseGateways('ftp://x, '), isEmpty);
       expect(parseGateways(''), isEmpty);
     });

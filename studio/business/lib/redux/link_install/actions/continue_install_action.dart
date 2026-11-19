@@ -87,8 +87,8 @@ class ContinueInstallAction extends Action with NonReentrant {
     throw StudioException(
       const StudioError(
         kind: ErrorKind.studio,
-        hint: ErrorHint.checkNotRun,
-        call: 'check',
+        hint: ErrorHint.checkNotRun(),
+        call: .named('check'),
       ),
     );
   }

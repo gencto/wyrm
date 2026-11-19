@@ -63,6 +63,7 @@ import 'package:models/backup_section.dart';
 import 'package:models/backup_stage.dart';
 import 'package:models/backup_status.dart';
 import 'package:models/backups_read.dart';
+import 'package:models/error_call.dart';
 import 'package:models/error_hint.dart';
 import 'package:models/install_path.dart';
 import 'package:models/install_phase.dart';
@@ -78,6 +79,7 @@ import 'package:models/restore_keys.dart';
 import 'package:models/restore_link_state.dart';
 import 'package:models/restore_mode.dart';
 import 'package:models/schema_pair.dart';
+import 'package:models/unreadable_part.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import 'support/fake_wyrm.dart';
@@ -832,7 +834,7 @@ void main() {
       final status = await run();
       expect(status.isCompletedFailed, isTrue);
       final e = (status.originalError! as StudioException).error;
-      expect((e.hint, e.call), (ErrorHint.stepBlocked, call));
+      expect((e.hint, e.call?.name), (const ErrorHint.stepBlocked(), call));
       expect(invokes(call), isEmpty);
     }
 
@@ -1087,8 +1089,12 @@ void main() {
 
           expect(status.isCompletedFailed, isTrue, reason: '$over');
           final e = status.originalError! as StudioException;
-          expect(e.error.hint, ErrorHint.unreadableAnswer, reason: '$over');
-          expect(e.error.call, 'restore_check');
+          expect(
+            e.error.hint,
+            const ErrorHint.unreadable(UnreadablePart.answer),
+            reason: '$over',
+          );
+          expect(e.error.call, const ErrorCall.named('restore_check'));
           // nothing to restore on: no check, nothing ticked
           expect(s.state.backups.check, isNull, reason: '$over');
           expect(s.state.backups.chosen, isEmpty, reason: '$over');
@@ -1120,7 +1126,7 @@ void main() {
           expect(status.isCompletedFailed, isTrue, reason: '$answer');
           expect(
             (status.originalError! as StudioException).error.hint,
-            ErrorHint.unreadableAnswer,
+            const ErrorHint.unreadable(UnreadablePart.answer),
           );
           expect(s.state.backups.stage, BackupStage.restore);
           expect(s.state.backups.result, isNull);
@@ -1339,7 +1345,13 @@ void main() {
         final status = await run();
         expect(status.isCompletedFailed, isTrue);
         final e = (status.originalError! as StudioException).error;
-        expect((e.hint, e.call), (ErrorHint.stepBlocked, 'restore_apply'));
+        expect(
+          (e.hint, e.call),
+          (
+            const ErrorHint.stepBlocked(),
+            const ErrorCall.named('restore_apply'),
+          ),
+        );
         expect(invokes('restore_apply'), isEmpty);
         expect(s.state.backups.stage, BackupStage.restore);
         expect(s.state.backups.applySent, isFalse);
@@ -1353,7 +1365,13 @@ void main() {
         var status = await s.dispatchAndWait(CheckRestoreAction());
         expect(status.isCompletedFailed, isTrue);
         var e = (status.originalError! as StudioException).error;
-        expect((e.hint, e.call), (ErrorHint.stepBlocked, 'restore_check'));
+        expect(
+          (e.hint, e.call),
+          (
+            const ErrorHint.stepBlocked(),
+            const ErrorCall.named('restore_check'),
+          ),
+        );
         expect(invokes('restore_check'), isEmpty);
 
         // a file still going up: the same
@@ -1404,7 +1422,13 @@ void main() {
         );
         expect(status.isCompletedFailed, isTrue);
         e = (status.originalError! as StudioException).error;
-        expect((e.hint, e.call), (ErrorHint.stepBlocked, 'restore_begin'));
+        expect(
+          (e.hint, e.call),
+          (
+            const ErrorHint.stepBlocked(),
+            const ErrorCall.named('restore_begin'),
+          ),
+        );
         expect(invokes('restore_begin'), hasLength(begun));
         expect(s.state.backups.uploadName, 'plant.wyrm-backup');
 
@@ -1628,7 +1652,7 @@ void main() {
       expect(status.isCompletedFailed, isTrue);
       expect(
         (status.originalError! as StudioException).error.hint,
-        ErrorHint.unreadableAnswer,
+        const ErrorHint.unreadable(UnreadablePart.answer),
       );
       expect(s.state.backups.stage, BackupStage.choose);
       expect(s.state.backups.job, isNull);
@@ -1681,7 +1705,7 @@ void main() {
             isA<StudioException>().having(
               (e) => e.error.hint,
               'hint',
-              ErrorHint.unreadableAnswer,
+              const ErrorHint.unreadable(UnreadablePart.answer),
             ),
           ),
           reason: '$part',
@@ -1825,7 +1849,7 @@ void main() {
       expect(status.isCompletedFailed, isTrue);
       expect(
         (status.originalError! as StudioException).error.hint,
-        ErrorHint.checkNotRun,
+        const ErrorHint.checkNotRun(),
       );
       // not on Check with an empty list, which would read as "all fine"
       expect(s.state.linkInstall.step, InstallStep.choose);

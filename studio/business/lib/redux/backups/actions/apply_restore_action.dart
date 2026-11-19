@@ -37,7 +37,7 @@ class ApplyRestoreAction extends Action with NonReentrant, WaitingAction {
     final upload = backups.upload;
     final plan = restorePlan(passphraseLength: passphrase?.length ?? 0);
     if (upload == null || !plan.canRun) {
-      throw stepBlockedOf(key, 'restore_apply');
+      throw stepBlockedOf(key, const .named('restore_apply'));
     }
     final mode = backups.mode;
     final Value answer;
@@ -68,7 +68,7 @@ class ApplyRestoreAction extends Action with NonReentrant, WaitingAction {
     dispatchSync(_ApplySent(), notify: false);
     final applied = restoreAnswerOf(
       answer,
-    ).orRefuse(key: key, call: 'restore_apply');
+    ).orRefuse(key: key, call: const .named('restore_apply'));
     return state.copyWith.backups(
       stage: applied.restart ? BackupStage.restarting : BackupStage.restored,
       staged: applied.sections,

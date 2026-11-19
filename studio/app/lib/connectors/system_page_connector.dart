@@ -168,7 +168,7 @@ class _Factory extends VmFactory<AppState, SystemPageConnector, _Vm>
         profiles: [
           for (final p in system.profiles) SysProfile(p.name, points: p.points),
         ],
-        profilesUnlisted: system.profilesNote,
+        profilesUnlisted: system.profilesNote?.said,
         backups: state.backups.card(backupRows),
         version: offeredSelfUpdate?.card,
         dataSize: status[SysValue.dataSize],

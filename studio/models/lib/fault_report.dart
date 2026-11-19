@@ -23,5 +23,9 @@ abstract class FaultReport with _$FaultReport {
 
     /// The stack trace; in the copied report only, never on screen.
     @Default('') String stack,
+
+    /// It came from outside any action (a widget that threw while
+    /// building, a callback, a future nobody awaited).
+    @Default(false) bool uncaught,
   }) = _FaultReport;
 }

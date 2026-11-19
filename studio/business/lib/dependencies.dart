@@ -2,12 +2,15 @@ import 'dart:async';
 
 import 'package:async_redux/async_redux.dart';
 import 'package:device_key/device_key.dart';
+import 'package:models/error_hint.dart';
 import 'package:models/error_kind.dart';
+import 'package:models/step_up_deed.dart';
 import 'package:models/step_up_line.dart';
 import 'package:models/studio_error.dart';
 import 'package:storage/storage.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
+import 'common/latest.dart';
 import 'common/text_clipboard.dart';
 import 'redux/app_state.dart';
 import 'redux/changes/actions/apply_changes_action.dart';
@@ -59,7 +62,6 @@ class AppDependencies {
     required this.prompts,
     WyrmLogin? login,
     this._deviceKey,
-    ErrorWording? wording,
     GatewayInfoReader? gatewayInfo,
     this._browser,
     this.browseDuration = browseFor,
@@ -68,7 +70,6 @@ class AppDependencies {
   }) : login =
            login ??
            GatewayLogin(trust: () => GatewayTrust(_store.state.discovery.pins)),
-       wording = wording ?? plainWording,
        gatewayInfo = gatewayInfo ?? const HttpInfoReader();
 
   /// The DNS-SD side of the browse; bonsoir when null.
@@ -84,10 +85,6 @@ class AppDependencies {
   /// fake.
   final GatewayInfoReader gatewayInfo;
 
-  /// The words of an error: its title and, for a fault in Studio, its
-  /// sentence. The app's, in the user's language; plain English in tests.
-  final ErrorWording wording;
-
   /// The system clipboard (the flow editor's copy and paste); tests pass
   /// a fake.
   final TextClipboard clipboard;
@@ -95,6 +92,10 @@ class AppDependencies {
   /// The time now: when a history is read and from when (a test sets its
   /// own, so a range drawn from it is the same on every machine).
   final Clock clock;
+
+  /// The order of the reads that may be started again before they answered
+  /// (the links of a site, a flow's load): the newest one's answer stays.
+  final latest = Latest();
 
   final Store<AppState> _store;
 
@@ -136,7 +137,7 @@ class AppDependencies {
       (throw StudioException(
         const StudioError(
           kind: ErrorKind.reach,
-          message: 'Studio is not connected to a gateway.',
+          hint: ErrorHint.notConnected(),
         ),
       ));
 
@@ -218,7 +219,14 @@ class AppDependencies {
           if (site.can(c.level, c.key))
             StepUpLine(
               level: c.level,
-              text: c.action ?? '${c.op.toLowerCase()} ${c.field} = ${c.to}',
+              deed: switch (c.action) {
+                final a? => StepUpDeed.action(a),
+                null => StepUpDeed.change(
+                  op: c.op,
+                  field: c.field,
+                  to: c.to,
+                ),
+              },
               key: c.key,
             ),
     ];

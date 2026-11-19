@@ -19,6 +19,7 @@ import 'package:models/backup_sealed.dart';
 import 'package:models/backup_section.dart';
 import 'package:models/backup_stage.dart';
 import 'package:models/backup_step.dart';
+import 'package:models/error_call.dart';
 import 'package:models/error_hint.dart';
 import 'package:models/error_kind.dart';
 import 'package:models/file_part.dart';
@@ -37,6 +38,7 @@ import 'package:models/restore_mode.dart';
 import 'package:models/restore_record.dart';
 import 'package:models/schema_pair.dart';
 import 'package:models/stated.dart';
+import 'package:models/unreadable_part.dart';
 import 'package:models/upload_begun.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -912,19 +914,25 @@ void main() {
       addTearDown(sub.cancel);
 
       expect(
-        const Valid(3).orRefuse(key: 'wy/plant/sys/backups', call: 'create'),
+        const Valid(3).orRefuse(
+          key: 'wy/plant/sys/backups',
+          call: const .named('create'),
+        ),
         3,
       );
       expect(warned, isEmpty);
       try {
         restoreCheckOf(
           _check({'keys': const VStr('rotated')}),
-        ).orRefuse(key: 'wy/plant/sys/backups', call: 'restore_check');
+        ).orRefuse(
+          key: 'wy/plant/sys/backups',
+          call: const .named('restore_check'),
+        );
         fail('an unreadable answer must not pass');
       } on StudioException catch (e) {
         expect(e.error.kind, ErrorKind.broker);
-        expect(e.error.hint, ErrorHint.unreadableAnswer);
-        expect(e.error.call, 'restore_check');
+        expect(e.error.hint, const ErrorHint.unreadable(UnreadablePart.answer));
+        expect(e.error.call, const ErrorCall.named('restore_check'));
         expect(e.error.key, 'wy/plant/sys/backups');
         expect(e.error.site, 'plant');
         // business says nothing in words of its own

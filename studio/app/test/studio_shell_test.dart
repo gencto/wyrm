@@ -8,6 +8,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:models/change_op.dart';
+import 'package:models/change_side.dart';
 import 'package:models/error_kind.dart';
 import 'package:models/link_info.dart';
 import 'package:models/node_info.dart';
@@ -83,19 +85,19 @@ void main() {
             table: IMap(const {
               'c1': StagedChange(
                 id: 'c1',
-                op: 'Edit',
+                op: ChangeOp.edit,
                 key: '$plant/downstream/plc1/sp',
                 field: 'value',
-                from: '20',
-                to: '21.5',
+                from: ChangeSide.text('20'),
+                to: ChangeSide.text('21.5'),
                 level: Perm.write,
               ),
               'c2': StagedChange(
                 id: 'c2',
-                op: 'Edit',
+                op: ChangeOp.edit,
                 key: '$plant/sys/links/modbus',
                 field: 'params',
-                to: 'poll_s 5',
+                to: ChangeSide.text('poll_s 5'),
                 level: Perm.config,
               ),
             }),
@@ -106,10 +108,9 @@ void main() {
               StudioError(
                 kind: ErrorKind.reach,
                 id: 7,
-                title: 'Studio couldn’t read t1',
                 message: 'timeout',
                 key: '$plant/downstream/plc1/t1',
-                call: 'history',
+                call: const .known(.history),
                 at: DateTime(2026, 11, 12, 2, 1),
                 quiet: true,
               ),

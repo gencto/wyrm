@@ -29,7 +29,7 @@ class SendBackupAction extends Action with NonReentrant, WaitingAction {
         link == null ||
         connection == null ||
         backupJobPlan(job).sendBlock != null) {
-      throw stepBlockedOf(key, 'send');
+      throw stepBlockedOf(key, const .named('send'));
     }
     final path = backups.sendPath?.trim() ?? '';
     await invokeOne(

@@ -1,18 +1,23 @@
+import 'package:business/redux/app_state.dart';
 import 'package:business/wyrm/approval.dart';
+import 'package:business/wyrm/assistant_view.dart';
+import 'package:business/wyrm/decode/node_glyph.dart';
 import 'package:business/wyrm/holds.dart';
-import 'package:business/wyrm/mappers/agent_task_mapper.dart';
 import 'package:business/wyrm/task_facts.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/agent_task.dart';
 import 'package:models/approval_mode.dart';
+import 'package:models/approval_refusal.dart';
 import 'package:models/assistant_panel.dart';
 import 'package:models/audit_entry.dart';
 import 'package:models/finding_refusal.dart';
 import 'package:models/plan_step.dart';
 import 'package:models/quality.dart';
+import 'package:models/step_args_note.dart';
 import 'package:models/step_check.dart';
 import 'package:models/step_kind.dart';
 import 'package:models/step_status.dart';
+import 'package:models/step_wait.dart';
 import 'package:models/task_event.dart';
 import 'package:models/task_event_kind.dart';
 import 'package:models/task_finding.dart';
@@ -31,14 +36,29 @@ import 'package:ui/assistant/suggestion_tile.dart';
 import 'package:ui/assistant/task_badge.dart';
 import 'package:ui/assistant/task_card.dart';
 import 'package:ui/assistant/task_list.dart';
+import 'package:ui/indicators/app_icon.dart';
 import 'package:ui/pages/assistant_page.dart';
 
+import 'icon_mappers.dart';
 import 'rights_mappers.dart';
 
 // The agent task's domain as the Assistant draws it (studio-rules §3): one
 // exhaustive switch per domain enum, and the rows built from a task's
 // parts. What is computed from state is a selector in `business`
 // (`AssistantScreen`); what is computed from one task is `TaskFacts`.
+
+extension ComposerCueHint on ComposerCue {
+  ComposerHint get hint => switch (this) {
+    ComposerCue.ask => .ask,
+    ComposerCue.answer => .answer,
+    ComposerCue.planning => .planning,
+    ComposerCue.awaiting => .awaiting,
+    ComposerCue.running => .running,
+    ComposerCue.done => .done,
+    ComposerCue.failed => .failed,
+    ComposerCue.drawer => .drawer,
+  };
+}
 
 extension TaskStateBadge on TaskState {
   TaskBadge get badge => switch (this) {
@@ -115,6 +135,29 @@ extension StepStatusOutcome on StepStatus {
   };
 }
 
+extension StepWaitRun on StepWait {
+  RunStatus get run => switch (this) {
+    StepWait.running => .running,
+    StepWait.waiting => .waiting,
+  };
+}
+
+extension StepArgsNoteVm on StepArgsNote {
+  ArgsNote get vm => switch (this) {
+    StepArgsNote.masked => .masked,
+    StepArgsNote.secret => .secret,
+  };
+}
+
+extension StepNoteView on StepNote {
+  StepNoteVm get vm => switch (this) {
+    StepNoteNeeds(:final step) => StepNeeds(step),
+    StepNoteLeftOut() => const StepLeftOut(),
+    StepNoteByAgent() => const StepByAgent(),
+    StepNoteAfter(:final steps) => StepAfter(steps),
+  };
+}
+
 extension StepCheckView on StepCheck {
   StepCheckVm get view => switch (this) {
     StepCheck.now => .now,
@@ -164,7 +207,11 @@ extension ApprovalNoteView on ApprovalNote {
   TaskNoteVm get note => switch (this) {
     ApprovalNoRecord() => const TaskNoteNoRecord(),
     ApprovalOtherSite(:final site) => TaskNoteOtherSite(site),
-    ApprovalRefused(:final why) => TaskNoteRefused(why),
+    ApprovalRefused(:final why) => switch (why) {
+      ApprovalRefusalChanged() => const TaskNoteRefused.changed(),
+      ApprovalRefusalUnseen(:final step) => TaskNoteRefused.unseen(step),
+      ApprovalRefusalSaid(:final message) => TaskNoteRefused(message),
+    },
     ApprovalWaiting() => const TaskNoteWaiting(),
     ApprovalSigns(:final role, :final byAgent) => TaskNoteSigns(
       role: role,
@@ -252,31 +299,17 @@ extension AgentTaskItem on AgentTask {
     id: id,
     title: title,
     badge: state.badge,
-    by: (recorded || replacedBy != null) && owner.isNotEmpty && !own
-        ? ownerName
-        : null,
+    by: byOf(own: own),
     replacedBy: replacedBy,
-    failedAt: recorded || replacedBy != null ? failedStep?.n : null,
-    noChanges: recorded && state == TaskState.done && plan.isEmpty,
+    failedAt: failedAt,
+    noChanges: noChanges,
     selected: selected,
   );
-
-  /// The composer's hint for this task; [follows]: a message follows it.
-  ComposerHint hint({required bool follows}) => switch (state) {
-    TaskState.awaitingAnswer => .answer,
-    TaskState.planning => .planning,
-    TaskState.awaitingApproval when follows => .awaiting,
-    TaskState.awaitingApproval => .ask,
-    TaskState.running => .running,
-    TaskState.done => .done,
-    TaskState.failed when replacedBy == null => .failed,
-    TaskState.failed => .done,
-  };
 
   /// The run of the plan: one row per step with what the record says of
   /// it; null before a run (a plan that waits, a rejected one).
   RunCardVm? get run {
-    if (plan.isEmpty || (state != TaskState.running && !ran)) {
+    if (!showsRun) {
       return null;
     }
     return RunCardVm(
@@ -292,14 +325,13 @@ extension AgentTaskItem on AgentTask {
             verb: s.kind.verb,
             action: s.action,
             node: s.key,
-            sleep: s.kind == StepKind.sleep ? (s.seconds ?? 0) : null,
+            sleep: s.sleepSeconds,
             status: switch (s.result?.status) {
               final st? => st.run,
-              null when state == TaskState.running && s.n == step => .running,
-              null => .waiting,
+              null => waitOf(s).run,
             },
             answer: s.result?.message ?? '',
-            ended: state != TaskState.running,
+            ended: runEnded,
           ),
       ],
     );
@@ -308,55 +340,42 @@ extension AgentTaskItem on AgentTask {
 
 /// One plan step as the plan card shows it: [args] are the step's
 /// arguments, masked where `business` masks them; [choice] its tick;
-/// [revealed] whether masked arguments are shown now; [fixes] its tiles.
+/// [revealed] whether masked arguments are shown now (null: nothing to
+/// reveal); [fixes] its tiles.
 PlanStepVm planStepVm(
   PlanStep s, {
-  required List<({String name, String? text})> args,
+  required List<ShownArg> args,
   required StepChoice? choice,
-  required bool revealed,
+  required bool? revealed,
   required List<SuggestionTileVm> fixes,
-}) {
-  // masked because the schema is not known: the person may look
-  final guessed = !s.argsKnown && withheld(s).isNotEmpty;
-  return PlanStepVm(
-    n: s.n,
-    verb: s.kind.verb,
-    action: s.action,
-    node: s.key,
-    sleep: s.kind == StepKind.sleep ? (s.seconds ?? 0) : null,
-    level: s.level.access,
-    args: [
-      for (final a in args)
-        switch (a.text) {
-          final t? => StepArgVm.shown(a.name, t),
-          null => StepArgVm.masked(a.name),
-        },
-      if (s.kind != StepKind.sleep)
-        if (s.seconds case final sec?) StepArgVm.timeout(sec),
-    ],
-    check: s.kind.changes ? s.check.view : null,
-    argsNote: guessed
-        ? ArgsNote.masked
-        : (s.secret.isEmpty ? null : ArgsNote.secret),
-    revealed: guessed ? revealed : null,
-    warn: s.warn,
-    modelWarn: s.modelWarn,
-    fixes: fixes,
-    why: s.reason,
-    ticked: choice?.ticked,
-    lacks: choice?.locked?.disabled,
-    note: switch (choice) {
-      StepChoice(:final needs?) => StepNeeds(needs),
-      StepChoice(ticked: false) => const StepLeftOut(),
-      // no tick, and it runs: the person cannot leave it out
-      StepChoice(byAgent: true) => const StepByAgent(),
-      _ when s.after.isNotEmpty => StepAfter(s.after.toList()),
-      _ => null,
-    },
-    outcome: s.result?.status.outcome,
-    message: s.result?.message ?? '',
-  );
-}
+}) => PlanStepVm(
+  n: s.n,
+  verb: s.kind.verb,
+  action: s.action,
+  node: s.key,
+  sleep: s.sleepSeconds,
+  level: s.level.access,
+  args: [
+    for (final a in args)
+      switch (a.text) {
+        final t? => StepArgVm.shown(a.name, t),
+        null => StepArgVm.masked(a.name),
+      },
+    if (s.timeoutArg case final sec?) StepArgVm.timeout(sec),
+  ],
+  check: s.kind.changes ? s.check.view : null,
+  argsNote: s.argsNote?.vm,
+  revealed: revealed,
+  warn: s.warn,
+  modelWarn: s.modelWarn,
+  fixes: fixes,
+  why: s.reason,
+  ticked: choice?.ticked,
+  lacks: choice?.locked?.disabled,
+  note: s.noteWith(choice)?.vm,
+  outcome: s.result?.status.outcome,
+  message: s.result?.message ?? '',
+);
 
 extension ApiKeySetState on bool? {
   /// Whether the agent's API key is set, as the rights panel draws it;
@@ -367,3 +386,70 @@ extension ApiKeySetState on bool? {
     null => ApiKeyState.unknown,
   };
 }
+
+/// The state read through its selectors.
+final class _Read with Selectors {
+  _Read(this.state);
+
+  @override
+  final AppState state;
+}
+
+/// One node *+ from Explorer* offers as an `@` chip.
+final class ChipChoice {
+  const ChipChoice({
+    required this.key,
+    required this.title,
+    required this.icon,
+    required this.selected,
+  });
+
+  final String key;
+
+  /// Its display name, else its name.
+  final String title;
+  final AppIcon icon;
+
+  /// It is Explorer's selection or point: offered first.
+  final bool selected;
+}
+
+/// What *+ from Explorer* offers on the site [site].
+final class ChipChoices {
+  const ChipChoices({required this.site, required this.entries});
+
+  final String site;
+  final List<ChipChoice> entries;
+}
+
+/// The nodes *+ from Explorer* offers in [s] (`chipChoices`: the selection
+/// first, then what Explorer read), each with its name and icon; null when
+/// no chip can be added now (no site, or the chips are full).
+ChipChoices? chipChoicesOf(AppState s) {
+  final r = _Read(s);
+  final offer = r.chipChoices;
+  if (offer == null) {
+    return null;
+  }
+  final ChipOffer(:root, :first, :rest) = offer;
+  ChipChoice choice(String k, {required bool selected}) => ChipChoice(
+    key: k,
+    title: r.chipNameOf(k) ?? shortKey(k),
+    // a key the tree has not listed (typed, or kept from a task) has no
+    // decoded node: its place says what it is
+    icon: nodeGlyphAt(k, root: root, info: r.nodes.table[k]).icon,
+    selected: selected,
+  );
+
+  return ChipChoices(
+    site: root.split('/').last,
+    entries: [
+      for (final k in first) choice(k, selected: true),
+      for (final k in rest) choice(k, selected: false),
+    ],
+  );
+}
+
+/// The key [text] names when typed in the picker, and whether the agent
+/// reads it (`typedChip`); null when it names none or is a chip already.
+TypedChip? typedChipOf(AppState s, String text) => _Read(s).typedChip(text);

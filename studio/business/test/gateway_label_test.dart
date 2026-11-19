@@ -4,6 +4,8 @@ import 'package:business/wyrm/gateway_label.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/fake_wyrm.dart';
+
 /// The gateway labels of the log-in page (docs/design/specs/login.md §3.2
 /// "Gateway labels").
 void main() {
@@ -94,7 +96,10 @@ void main() {
         'https://plant.local': 'plant',
       }.lock,
     );
-    expect(got[gatewayKey(Uri.parse('https://plant.local'))], 'plant');
+    expect(
+      got[gatewayKey(addressOf(Uri.parse('https://plant.local')))],
+      'plant',
+    );
   });
 
   test('without a gateway written, the default is labelled', () {

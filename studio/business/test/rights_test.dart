@@ -5,6 +5,8 @@ import 'package:business/wyrm/mappers/node_detail_mapper.dart';
 import 'package:business/wyrm/rights.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:models/change_op.dart';
+import 'package:models/change_side.dart';
 import 'package:models/grant.dart';
 import 'package:models/grant_level.dart';
 import 'package:models/role_grant.dart';
@@ -235,10 +237,10 @@ void main() {
       // `level` is required: a change with none does not compile
       const c = StagedChange(
         id: '1',
-        op: 'Edit',
+        op: ChangeOp.edit,
         key: 'wy/central/sys/x',
         field: 'value',
-        to: '1',
+        to: ChangeSide.text('1'),
         level: Perm.config,
       );
       final writer = _session(const [

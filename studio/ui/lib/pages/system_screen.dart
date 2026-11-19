@@ -842,7 +842,7 @@ class SystemScreen extends StatelessWidget {
       ],
       profilesEmpty: unlisted == null
           ? S.current.sysNoProfiles
-          : S.current.sysProfilesUnlisted(unlisted),
+          : S.current.sysProfilesUnlisted(unlisted.text),
       profilesUnlisted: unlisted != null,
       profilesFooter: S.current.sysProfilesFooter,
       backups: _backups(reason),

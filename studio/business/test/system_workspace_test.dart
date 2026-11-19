@@ -34,10 +34,12 @@ import 'package:business/wyrm/mappers/profile_mapper.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/attention_kind.dart';
+import 'package:models/error_call.dart';
 import 'package:models/error_hint.dart';
 import 'package:models/error_kind.dart';
 import 'package:models/hist_window.dart';
 import 'package:models/json_value.dart';
+import 'package:models/known_call.dart';
 import 'package:models/link_info.dart';
 import 'package:models/link_mode.dart';
 import 'package:models/link_origin.dart';
@@ -368,7 +370,7 @@ void main() {
 
       expect(status.isCompletedOk, isTrue);
       expect(s.state.system.profiles, isEmpty);
-      expect(s.state.system.profilesNote, contains('not_found'));
+      expect(s.state.system.profilesNote?.status, 'not_found');
     });
 
     test('put sends a .cbor file as it is', () async {
@@ -470,18 +472,25 @@ void main() {
       ]) {
         final e = refused(json);
         expect(
-          (e.kind, e.hint, e.fileProblem, e.thing, e.call),
-          (ErrorKind.input, ErrorHint.fileNotRead, problem, 'x.json', 'read'),
+          (e.kind, e.hint, e.thing, e.call),
+          (
+            ErrorKind.input,
+            ErrorHint.fileNotRead(problem),
+            'x.json',
+            const ErrorCall.known(KnownCall.read),
+          ),
           reason: json,
         );
         // said by the app, not here
         expect(e.message, isEmpty, reason: json);
       }
-      final notJson = refused('{').fileProblem!;
+      final notJson = (refused('{').hint! as ErrorHintFileNotRead).problem;
       expect((notJson.fault, notJson.offset), (ManifestFault.notJson, 1));
       expect(
-        refused('${'[' * 5000}${']' * 5000}').fileProblem,
-        const ManifestProblem(fault: ManifestFault.tooDeep),
+        refused('${'[' * 5000}${']' * 5000}').hint,
+        const ErrorHint.fileNotRead(
+          ManifestProblem(fault: ManifestFault.tooDeep),
+        ),
       );
     });
 

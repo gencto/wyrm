@@ -15,7 +15,7 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$LoginState {
 
- String? get password; String? get gateway; String? get user; int get step; IList<String> get recent; IMap<String, int> get probes; bool get remember; LoginFailure? get failure; String? get reason; int get preload; IList<int> get preloadLate;
+ String? get password; String? get gateway; String? get user; int get step; IList<String> get recent; IMap<String, int> get probes; bool get remember; LoginFailure? get failure; AnswerFault? get reason; int get preload; IList<int> get preloadLate;
 /// Create a copy of LoginState
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -51,11 +51,11 @@ abstract mixin class $LoginStateCopyWith<$Res>  {
   factory $LoginStateCopyWith(LoginState value, $Res Function(LoginState) _then) = _$LoginStateCopyWithImpl;
 @useResult
 $Res call({
- String? password, String? gateway, String? user, int step, IList<String> recent, IMap<String, int> probes, bool remember, LoginFailure? failure, String? reason, int preload, IList<int> preloadLate
+ String? password, String? gateway, String? user, int step, IList<String> recent, IMap<String, int> probes, bool remember, LoginFailure? failure, AnswerFault? reason, int preload, IList<int> preloadLate
 });
 
 
-
+$AnswerFaultCopyWith<$Res>? get reason;
 
 }
 /// @nodoc
@@ -79,12 +79,24 @@ as IList<String>,probes: null == probes ? _self.probes : probes // ignore: cast_
 as IMap<String, int>,remember: null == remember ? _self.remember : remember // ignore: cast_nullable_to_non_nullable
 as bool,failure: freezed == failure ? _self.failure : failure // ignore: cast_nullable_to_non_nullable
 as LoginFailure?,reason: freezed == reason ? _self.reason : reason // ignore: cast_nullable_to_non_nullable
-as String?,preload: null == preload ? _self.preload : preload // ignore: cast_nullable_to_non_nullable
+as AnswerFault?,preload: null == preload ? _self.preload : preload // ignore: cast_nullable_to_non_nullable
 as int,preloadLate: null == preloadLate ? _self.preloadLate : preloadLate // ignore: cast_nullable_to_non_nullable
 as IList<int>,
   ));
 }
+/// Create a copy of LoginState
+/// with the given fields replaced by the non-null parameter values.
+@override
+@pragma('vm:prefer-inline')
+$AnswerFaultCopyWith<$Res>? get reason {
+    if (_self.reason == null) {
+    return null;
+  }
 
+  return $AnswerFaultCopyWith<$Res>(_self.reason!, (value) {
+    return _then(_self.copyWith(reason: value));
+  });
+}
 }
 
 
@@ -104,7 +116,7 @@ class _LoginState implements LoginState {
 @override@JsonKey() final  IMap<String, int> probes;
 @override@JsonKey() final  bool remember;
 @override final  LoginFailure? failure;
-@override final  String? reason;
+@override final  AnswerFault? reason;
 @override@JsonKey() final  int preload;
 @override@JsonKey() final  IList<int> preloadLate;
 
@@ -140,11 +152,11 @@ abstract mixin class _$LoginStateCopyWith<$Res> implements $LoginStateCopyWith<$
   factory _$LoginStateCopyWith(_LoginState value, $Res Function(_LoginState) _then) = __$LoginStateCopyWithImpl;
 @override @useResult
 $Res call({
- String? password, String? gateway, String? user, int step, IList<String> recent, IMap<String, int> probes, bool remember, LoginFailure? failure, String? reason, int preload, IList<int> preloadLate
+ String? password, String? gateway, String? user, int step, IList<String> recent, IMap<String, int> probes, bool remember, LoginFailure? failure, AnswerFault? reason, int preload, IList<int> preloadLate
 });
 
 
-
+@override $AnswerFaultCopyWith<$Res>? get reason;
 
 }
 /// @nodoc
@@ -168,13 +180,25 @@ as IList<String>,probes: null == probes ? _self.probes : probes // ignore: cast_
 as IMap<String, int>,remember: null == remember ? _self.remember : remember // ignore: cast_nullable_to_non_nullable
 as bool,failure: freezed == failure ? _self.failure : failure // ignore: cast_nullable_to_non_nullable
 as LoginFailure?,reason: freezed == reason ? _self.reason : reason // ignore: cast_nullable_to_non_nullable
-as String?,preload: null == preload ? _self.preload : preload // ignore: cast_nullable_to_non_nullable
+as AnswerFault?,preload: null == preload ? _self.preload : preload // ignore: cast_nullable_to_non_nullable
 as int,preloadLate: null == preloadLate ? _self.preloadLate : preloadLate // ignore: cast_nullable_to_non_nullable
 as IList<int>,
   ));
 }
 
+/// Create a copy of LoginState
+/// with the given fields replaced by the non-null parameter values.
+@override
+@pragma('vm:prefer-inline')
+$AnswerFaultCopyWith<$Res>? get reason {
+    if (_self.reason == null) {
+    return null;
+  }
 
+  return $AnswerFaultCopyWith<$Res>(_self.reason!, (value) {
+    return _then(_self.copyWith(reason: value));
+  });
+}
 }
 
 // dart format on

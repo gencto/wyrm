@@ -25,7 +25,10 @@ class UploadRestoreAction extends Action with NonReentrant, WaitingAction {
   @override
   Future<AppState?> reduce() async {
     if (restoreFilePlan.step != RestoreFileStep.choose) {
-      throw stepBlockedOf('${site.root}/sys/backups', 'restore_begin');
+      throw stepBlockedOf(
+        '${site.root}/sys/backups',
+        const .named('restore_begin'),
+      );
     }
     dispatchSync(_Progress(name, size, 0));
     final String upload;

@@ -31,7 +31,7 @@ class IssueSiteTokenAction extends Action with WaitingAction {
     return state.copyWith.nodes(
       results: state.nodes.results.add(
         InvokeNodeAction.resultId(key, 'add'),
-        issuedTokensOf(rows).orRefuse(key: key, call: 'add').lock,
+        issuedTokensOf(rows).orRefuse(key: key, call: const .known(.add)).lock,
       ),
     );
   }
