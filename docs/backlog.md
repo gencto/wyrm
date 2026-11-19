@@ -577,6 +577,7 @@ and the reference board (4-core ARM64, 2 GB) is not measured yet.
 | M4 Max, loaded, rough | release | historian, 10 000 points at 2 Hz | not measured: the broker stalls when the group starts (below) | 2026-11-19 |
 | M4 Max, loaded (load 14–19), rough | release | historian group start, 10 000 new watches, after the fix | first row 0.6 / 1.6 s, a row of every point 8.6 / 9.5 s (two runs; before: stalled, `started=false` after 360 s) | 2026-11-19 |
 | M4 Max, loaded (load 14–19), rough | release | historian, 10 000 points at 2 Hz, All Data, after the fix | 20k samples/s kept (lost 125 / 157 of 200k), p99 3.0–3.5 ms, 67–74 % CPU, RSS 165–168 MiB; 18 000 rows/s, 0 dropped, flush 139–149 ms | 2026-11-19 |
+| M4 Max, load 7–12, rough | release | the same two after the merge of main and the bounded query tasks (two runs) | group start: first row 0.2 / 1.2 s, a row of every point 4.2 / 4.2 s; 20k samples/s kept (lost 67 / 75 of 200k), p99 2.4–2.5 ms, 37–39 % CPU, RSS 166–167 MiB; 20 000 rows/s, 0 dropped, flush 52–53 ms | 2026-11-20 |
 | M4 Max, loaded, rough | release | 1000 invokes, audit | invoke p50 4.0 ms, p99 7.1 ms, 312/s; 233 audit records/s; derived 700 fsync/s | 2026-11-19 |
 | M4 Max, loaded, rough | release | gateway, 10 WS clients × 1000 points × 10 Hz | 100k frames/s, p50 4.0 ms, p99 8.1 ms, 84 % CPU, RSS 85 MiB | 2026-11-19 |
 
@@ -618,9 +619,10 @@ The fix, by rule (CLAUDE.md, Zenoh facts):
   `wyrm_client::queryable::bounded` filters and `try_send`s into a bounded
   queue; a query it does not keep is dropped (Zenoh ends it at once). The
   historian keeps only selectors with `history`/`since` (a plain read never
-  takes room) and answers a full queue `busy` from a task; the admin's
-  profiles, signing keys and replication queryables use it too (queue 64,
-  full = dropped). The link SDK's queryable already did this;
+  takes room) and answers a full queue `busy` from one task with a queue
+  of its own (256, then dropped); at most 256 history queries have a task
+  at once. The admin's profiles, signing keys and replication queryables
+  use it too (queue 256, as the FIFO held; full = dropped). The link SDK's queryable already did this;
 - a client that follows many points bounds its stored reads:
   `WyrmClient::with_stored_reads` takes a permit per `subscribe` before it
   declares its subscriber and gives it back with the read's last reply;
@@ -643,9 +645,11 @@ watches must start faster. Regression test
 fails after 30 s without progress): 5 runs of 5 stalled before, about 7 s
 (debug build) after.
 
-Seen beside it, not diagnosed: with All Data on 10 000 points at 2 Hz the
-historian writes 18 000 rows/s of the 20 000 samples/s, with 0 counted as
-dropped.
+Seen beside it on 2026-11-19 (load 14–19): with All Data on 10 000 points
+at 2 Hz the historian wrote 18 000 rows/s of the 20 000 samples/s, with 0
+counted as dropped. On 2026-11-20 (load 7–12) it wrote 20 000 rows/s in
+both runs; the cause of the lower figure under the heavier load is not
+diagnosed.
 
 Not covered yet:
 

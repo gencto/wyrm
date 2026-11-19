@@ -311,3 +311,59 @@ fn many_new_watches_do_not_stall_the_runtime() {
         let _ = std::fs::remove_dir_all(dir);
     });
 }
+
+/// Many more history queries at once than the historian takes
+/// (`QUERY_QUEUE` waiting, `MAX_ANSWERS` with a task, `MAX_QUERIES`
+/// reading): every one ends with rows, with a refusal or with nothing, none
+/// holds a worker, and the historian answers the next one as before.
+#[test]
+fn a_flood_of_history_queries_ends() {
+    let n = 3000;
+    let ended = Arc::new(AtomicUsize::new(0));
+    let seen = ended.clone();
+    without_stall(2, Duration::from_secs(30), ended, move || async move {
+        let dir = temp("flood");
+        let h = Historian::open(&dir).unwrap();
+        let s = session().await;
+        h.attach(
+            s.clone(),
+            vec![group("all", Logging::AllData, &[P])],
+            vec!["wy/s/downstream/**/~val".into()],
+            Some("wy/s/sys/history".into()),
+        );
+        let mut t = wyrm_history::engine::now_us();
+        while values(&h, P).is_empty() {
+            t += 1;
+            put(&s, P, 1.0, t).await;
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        let selector = format!("{P}/~val?history=2020-01-01..");
+        let mut gets = tokio::task::JoinSet::new();
+        for _ in 0..n {
+            let (s, selector, seen) = (s.clone(), selector.clone(), seen.clone());
+            gets.spawn(async move {
+                let rows = history(&s, &selector).await;
+                seen.fetch_add(1, Ordering::Relaxed);
+                !rows.is_empty()
+            });
+        }
+        let mut answered = 0;
+        while let Some(r) = gets.join_next().await {
+            answered += usize::from(r.unwrap());
+        }
+        println!("{answered} of {n} history queries answered with rows");
+        assert!(answered > 0, "no query of the flood got rows");
+        // the flood left nothing behind: one more read is answered
+        let mut rows = Vec::new();
+        for _ in 0..50 {
+            rows = history(&s, &selector).await;
+            if !rows.is_empty() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+        assert!(!rows.is_empty(), "no answer after the flood");
+        h.detach().await;
+        let _ = std::fs::remove_dir_all(dir);
+    });
+}

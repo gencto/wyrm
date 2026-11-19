@@ -6401,9 +6401,10 @@ async fn watch_audit(ctl: Arc<Control>, ctx: LinkCtx) {
 }
 
 /// Queries waiting per admin queryable (profiles, signing keys,
-/// replication); one more finds the queue full and is dropped, so a Zenoh
-/// thread never waits for the admin (docs/backlog.md §14).
-pub(crate) const ADMIN_QUERY_QUEUE: usize = 64;
+/// replication): as many as Zenoh's default FIFO held. One more blocked the
+/// querier's thread there; here it finds the queue full and is dropped, so
+/// a Zenoh thread never waits for the admin (docs/backlog.md §14).
+pub(crate) const ADMIN_QUERY_QUEUE: usize = 256;
 
 fn profile_key(site: &str, name: &str) -> String {
     format!("wy/{site}/pub/{name}/~meta")
