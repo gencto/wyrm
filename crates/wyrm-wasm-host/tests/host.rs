@@ -151,6 +151,64 @@ fn no_filesystem_or_network_imports() {
     }
 }
 
+/// A trap that is no limit is `Error::Trap` with the engine's reason, and the next call runs
+/// on a fresh instance.
+#[test]
+fn a_trap_is_reported_and_the_instance_recovers() {
+    let host = Host::new().unwrap();
+    let mut n = node(&host, &guests::trap(), Limits::default());
+    for _ in 0..2 {
+        match n.process("in", &sample(1), &[]) {
+            Err(Error::Trap(m)) => assert!(m.contains("unreachable"), "{m}"),
+            other => panic!("{other:?}"),
+        }
+    }
+    n.slot()
+        .swap(host.load::<NodeWorld>(&guests::add(2)).unwrap());
+    assert_eq!(
+        n.process("in", &sample(1), &[]).unwrap(),
+        (emits(3), vec![1])
+    );
+}
+
+/// The host is built without the engine's `gc` and `threads` features and turns no proposal
+/// on by hand: garbage-collected types, exceptions (they live on the GC heap) and shared
+/// memory are refused when a component is loaded. So no guest reaches the code of
+/// RUSTSEC-2026-0567 (atomics in a build without `threads`) or RUSTSEC-2026-0573 (GC heap).
+#[test]
+fn proposals_outside_the_build_are_refused_at_load() {
+    let host = Host::new().unwrap();
+    // the plain node loads: the refusals below are about the added declaration
+    host.load::<NodeWorld>(&guests::with_core("")).unwrap();
+    for (what, decls) in [
+        ("gc", "(type $s (struct (field i32)))"),
+        ("exceptions", "(tag $e (param i32))"),
+        ("threads", "(memory $shared 1 1 shared)"),
+    ] {
+        match host.load::<NodeWorld>(&guests::with_core(decls)) {
+            Err(Error::Invalid(_)) => {}
+            Err(e) => panic!("{what}: {e}"),
+            Ok(_) => panic!("{what}: loaded"),
+        }
+    }
+}
+
+/// An import is told by its own name. `(implements "…")` names an interface for an import
+/// called something else. The engine has that proposal off (`Invalid`); were it on, the host
+/// defines no import of that name (`Denied`). Either way the component does not load.
+#[test]
+fn an_import_that_only_implements_a_known_interface_is_refused() {
+    let host = Host::new().unwrap();
+    let bytes = guests::importing_as(r#""backdoor" (implements "wyrm:link/tcp@0.1.0")"#);
+    match host.load::<DriverWorld>(&bytes) {
+        Err(Error::Invalid(_)) => {}
+        Err(Error::Denied(name)) => assert_eq!(name, "backdoor"),
+        Err(e) => panic!("{e}"),
+        Ok(_) => panic!("loaded"),
+    }
+    assert!(host.load::<NodeWorld>(&bytes).is_err());
+}
+
 #[test]
 fn rejects_non_components_and_wrong_worlds() {
     let host = Host::new().unwrap();

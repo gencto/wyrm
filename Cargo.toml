@@ -6,7 +6,7 @@ exclude = ["crates/wyrm-link-guest/tests/fixture", "links/wasm/tests/app_fixture
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.89"
+rust-version = "1.97"
 license = "Apache-2.0"
 repository = "https://github.com/gencto/wyrm"
 authors = ["Mykhailo <info@gencto.uk>"]
@@ -126,12 +126,15 @@ async-opcua = { version = "0.19", default-features = false }
 # The URL parser async-opcua connects with (links/opcua checks endpoints with the same one).
 url = "2.5"
 wyrm-link-agent = { path = "links/agent" }
-# WASM host: no defaults (no cache, wasi, async, gc, profiling). 36.x is the LTS line with
-# every security fix (RUSTSEC-2026-0096/0379/0380/0424 …) and `rust-version` 1.86 (ADR 0031).
-wasmtime = { version = "=36.0.20", default-features = false, features = ["runtime", "cranelift", "component-model", "std"] }
+# WASM host: no defaults (no cache, wasi, async, gc, threads, profiling). The newest release
+# line, pinned exactly; it sets the workspace `rust-version` (1.97). Was 36.x (LTS) until
+# 2026-11-20 (ADR 0010, ADR 0031 DEP-1). Without `gc` and `threads` the engine refuses GC
+# types, exceptions and shared memory at load; never turn them on with `Config::wasm_features`.
+wasmtime = { version = "=50.0.3", default-features = false, features = ["runtime", "cranelift", "component-model", "std"] }
 wat = "1"
-wasmparser = { version = "0.243", default-features = false, features = ["std"] }
-wit-component = { version = "=0.243.0", default-features = false }
+# The `wasm-tools` crates of the version this wasmtime is built on: one copy in the binary.
+wasmparser = { version = "0.261", default-features = false, features = ["std"] }
+wit-component = { version = "=0.261.0", default-features = false }
 wyrm-wasm-host = { path = "crates/wyrm-wasm-host" }
 wyrm-link-wasm = { path = "links/wasm" }
 wyrm-example-portable = { path = "examples/links/portable" }

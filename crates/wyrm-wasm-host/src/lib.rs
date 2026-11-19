@@ -1537,12 +1537,12 @@ fn top_level(bytes: &[u8]) -> Result<(HashSet<String>, HashSet<String>), Error> 
             Payload::End(_) => depth = depth.saturating_sub(1),
             Payload::ComponentExportSection(r) if depth == 1 => {
                 for e in r {
-                    exports.insert(e.map_err(bad)?.name.0.to_owned());
+                    exports.insert(e.map_err(bad)?.name.full_name().into_owned());
                 }
             }
             Payload::ComponentImportSection(r) if depth == 1 => {
                 for i in r {
-                    imports.insert(i.map_err(bad)?.name.0.to_owned());
+                    imports.insert(i.map_err(bad)?.name.full_name().into_owned());
                 }
             }
             _ => {}

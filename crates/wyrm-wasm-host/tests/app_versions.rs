@@ -32,6 +32,8 @@ fn dummy_at(dir: &Path) -> Vec<u8> {
         &resolve,
         world,
         wit_component::StringEncoding::UTF8,
+        // the names every released guest toolchain writes (no `cm_canon_names`)
+        false,
     )
     .expect("metadata");
     wit_component::ComponentEncoder::default()
