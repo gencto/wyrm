@@ -523,8 +523,8 @@ tool/perf.sh sdk flow broker # one or more groups
 tool/perf.sh --existing      # also the older benches (their own output)
 ```
 
-`perf_d_historian` ends today by its watchdog after about 6 min (the stall
-below), so a full run takes that much longer.
+`perf_d_historian` ended by its watchdog after about 6 min before the fix of
+the stall below; it now takes about 30 s.
 
 Every figure prints one line `PERF name=… n=… p50_us=… p95_us=… p99_us=…
 per_s=… cpu_pct=… rss_mib=… allocs_op=… bytes_op=… <extra>` (`-` where a
@@ -575,6 +575,8 @@ and the reference board (4-core ARM64, 2 GB) is not measured yet.
 | M4 Max, loaded, rough | release | wyrmd open + mock with 10 000 points ready | 3.1–3.9 s | 2026-11-19 |
 | M4 Max, loaded, rough | release | `add_watch_path`, watches 1–50 / 251–300 | p50 8.0 / 12.0 ms | 2026-11-19 |
 | M4 Max, loaded, rough | release | historian, 10 000 points at 2 Hz | not measured: the broker stalls when the group starts (below) | 2026-11-19 |
+| M4 Max, loaded (load 14–19), rough | release | historian group start, 10 000 new watches, after the fix | first row 0.6 / 1.6 s, a row of every point 8.6 / 9.5 s (two runs; before: stalled, `started=false` after 360 s) | 2026-11-19 |
+| M4 Max, loaded (load 14–19), rough | release | historian, 10 000 points at 2 Hz, All Data, after the fix | 20k samples/s kept (lost 125 / 157 of 200k), p99 3.0–3.5 ms, 67–74 % CPU, RSS 165–168 MiB; 18 000 rows/s, 0 dropped, flush 139–149 ms | 2026-11-19 |
 | M4 Max, loaded, rough | release | 1000 invokes, audit | invoke p50 4.0 ms, p99 7.1 ms, 312/s; 233 audit records/s; derived 700 fsync/s | 2026-11-19 |
 | M4 Max, loaded, rough | release | gateway, 10 WS clients × 1000 points × 10 Hz | 100k frames/s, p50 4.0 ms, p99 8.1 ms, 84 % CPU, RSS 85 MiB | 2026-11-19 |
 
@@ -595,13 +597,63 @@ yet: which local queryable's FIFO filled, and why its consumer did not drain
 it. Not fixed here (P0 changes no product code). The perf test aborts by a
 watchdog after 360 s with `started=false`.
 
+**Fixed (2026-11-19, `fix/historian-stall`).** The FIFO was the
+historian's own: `query::serve` declares `~val` queryables on
+`wy/<site>/{downstream,dataflows,storage}/**/~val` to answer
+`?history=`, so every plain `get ~val` of a follow matched it too, was
+queued and then dropped by `answer`. The cycle: a `follow` on a broker
+worker calls `Session::get` → Zenoh's `handle_query` runs the local
+queryable's handler on that worker → the FIFO send blocks while the queue
+is full → the task that drains it (`recv_async` in `serve`) needs a worker
+of the same runtime → every worker stands in the send, nobody drains. A
+sample of the regression test before the fix shows all four workers 100 %
+in `flume::Sender<Query>::send` → `send_sync`, monomorphized in
+`wyrm_history`, with no storage in that test at all. The `~val` storage
+drains its own FIFO on the storage manager's runtime (2 workers): it
+slows a caller but cannot close this cycle.
+
+The fix, by rule (CLAUDE.md, Zenoh facts):
+
+- no in-process queryable handler blocks the querier's thread:
+  `wyrm_client::queryable::bounded` filters and `try_send`s into a bounded
+  queue; a query it does not keep is dropped (Zenoh ends it at once). The
+  historian keeps only selectors with `history`/`since` (a plain read never
+  takes room) and answers a full queue `busy` from a task; the admin's
+  profiles, signing keys and replication queryables use it too (queue 64,
+  full = dropped). The link SDK's queryable already did this;
+- a client that follows many points bounds its stored reads:
+  `WyrmClient::with_stored_reads` takes a permit per `subscribe` before it
+  declares its subscriber and gives it back with the read's last reply;
+  the historian shares one window of 64 (below the storage's 256) over all
+  its groups;
+- a group's new series go into the index in one commit
+  (`Store::series_ids`), not one durable commit per key.
+
+Chosen by measurement: with the bounded reads the whole group of 10 000 is
+followed in about 9 s and the steady state is unchanged (one subscriber per
+point, as ADR 0014 records it). Most of those 9 s are Zenoh's own:
+each `declare_subscriber` of a new key registers a resource and walks the
+existing ones (`declare_nonwild_prefix` → `Resource::get_matches`), so the
+cost grows with the square of the points. One subscription per link
+(`<link>/**`, filtered to the watched keys) would remove that, but every
+sample of an unwatched sibling would then pass through the historian's
+handler for as long as the group runs; not done, a candidate if 10 000
+watches must start faster. Regression test
+`many_new_watches_do_not_stall_the_runtime` (4 workers, 3000 watches, it
+fails after 30 s without progress): 5 runs of 5 stalled before, about 7 s
+(debug build) after.
+
+Seen beside it, not diagnosed: with All Data on 10 000 points at 2 Hz the
+historian writes 18 000 rows/s of the 20 000 samples/s, with 0 counted as
+dropped.
+
 Not covered yet:
 
 - the reference board, a LAN between broker and clients, and a quiet
   machine;
 - `fsync` counts (no OS counts them; the audit's are derived);
-- the historian under 10 000 watches and its flush cost per row (the group
-  start stalls first, above);
+- the historian's flush cost per row (its start and rate under 10 000
+  watches are above);
 - musl and its system allocator (audit item 6): the container images are
   not measured;
 - the storage manager's own lock (item 2) apart from the subscribe that
