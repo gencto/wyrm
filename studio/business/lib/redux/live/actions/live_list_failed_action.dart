@@ -25,8 +25,16 @@ class LiveListFailedAction extends Action {
       WyrmException(:final status)
           when status.known == Status.permissionDenied =>
         null,
-      final WyrmException w => refusalOf(w, key: parent, call: 'list'),
-      _ => faultOf(error, null, step: 'list').copyWith(key: parent),
+      final WyrmException w => refusalOf(
+        w,
+        key: parent,
+        call: const .known(.list),
+      ),
+      _ => faultOf(
+        error,
+        null,
+        step: const .known(.list),
+      ).copyWith(key: parent),
     };
     if (e?.kind != ErrorKind.reach) {
       await dispatchAndWait(FollowListAction(parent, const ListChange.all([])));

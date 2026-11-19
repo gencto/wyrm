@@ -12,16 +12,17 @@ import 'package:business/redux/problems/actions/retry_problem_action.dart';
 import 'package:business/redux/problems/actions/show_notice_action.dart';
 import 'package:business/redux/system/actions/aim_log_action.dart';
 import 'package:business/redux/system/actions/retrieve_system_log_action.dart';
+import 'package:business/wyrm/error_view.dart';
 import 'package:business/wyrm/failures.dart';
 import 'package:flutter/services.dart';
-import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:models/access_tab.dart';
 import 'package:models/studio_error.dart';
 import 'package:ui/dialogs/error_dialog.dart';
+import 'package:ui/dialogs/error_said.dart';
 
 import '../common/app_store.dart';
-import '../errors.dart';
+import '../mappers/error_mappers.dart';
 import '../navigation/app_router.dart';
 import '../navigation/go_after_action.dart';
 
@@ -36,11 +37,11 @@ var _open = false;
 bool get errorDialogOpen => _open;
 
 /// Who is logged in where, for Details and *Copy details*.
-DetailsContext detailsContextOf(AppState state) => DetailsContext(
+ErrorContext errorContextOf(AppState state) => ErrorContext(
   user: state.site.user,
   role: state.site.role,
-  gateway: state.site.gateway,
-  studio: studioAbout,
+  gateway: state.site.gateway?.text,
+  about: studioAbout,
 );
 
 /// Puts the details of [e] (its report, for a fault in Studio) on the
@@ -51,15 +52,16 @@ void copyErrorDetails(Store<AppState> store, StudioError e) {
   unawaited(
     Clipboard.setData(
       ClipboardData(
-        text: detailsText(e, detailsContextOf(store.state), report: report),
+        text: e.said.details(
+          errorContextOf(store.state),
+          redact: redact,
+          report: report,
+        ),
       ),
     ),
   );
   store.dispatchSync(
-    ShowNoticeAction(
-      S.current.errCopied,
-      detail: report ? S.current.errReportCopied : S.current.errDetailsCopied,
-    ),
+    ShowNoticeAction(report ? .reportCopied : .detailsCopied),
   );
 }
 
@@ -80,7 +82,7 @@ void showUserException({
   var e = thrown.error;
   if (userException is! StudioException) {
     // It did not come through an action of ours: it is not in Problems yet.
-    e = wordError(e.copyWith(id: nextErrorId(), at: DateTime.now()));
+    e = e.copyWith(id: nextErrorId(), at: DateTime.now());
     store.dispatchSync(AddProblemAction(e));
   }
   if (_open) {
@@ -131,20 +133,15 @@ Future<void> _show(
   if (!readOnly) {
     store.dispatchSync(MarkProblemShownAction(e.id));
   }
-  final primary = errorPrimary(e, readOnly: readOnly);
+  final primary = e.action(readOnly: readOnly);
+  final secondary = e.secondary(readOnly: readOnly);
   final _Closed closed;
   try {
     closed =
         await ErrorDialog.show<_Closed>(
           context,
           (dialog) => ErrorDialog(
-            vm: errorDialogVm(
-              e,
-              user: store.state.site.user,
-              role: store.state.site.role,
-              gateway: store.state.site.gateway,
-              readOnly: readOnly,
-            ),
+            vm: e.dialog(errorContextOf(store.state), readOnly: readOnly),
             onPrimary: () => Navigator.of(dialog).pop(_Closed.primary),
             onSecondary: () => Navigator.of(dialog).pop(_Closed.secondary),
             onClose: () => Navigator.of(dialog).pop(_Closed.dismissed),
@@ -189,7 +186,7 @@ Future<void> _show(
           break;
       }
     case _Closed.secondary:
-      if (e.kind == .rights) {
+      if (secondary == .seeAccess) {
         // Access, on the user's own line: one action, the tab and the
         // user in one state, then the route.
         await store.dispatchAndWait(

@@ -1,3 +1,5 @@
+import 'package:models/approval_refusal.dart';
+
 import 'rights.dart';
 
 /// Why a control of the Assistant cannot be used now, as `business`
@@ -98,7 +100,7 @@ final class ApprovalOtherSite extends ApprovalNote {
 final class ApprovalRefused extends ApprovalNote {
   const ApprovalRefused(this.why);
 
-  final String why;
+  final ApprovalRefusal why;
 }
 
 /// The task waits; its record is not read yet.

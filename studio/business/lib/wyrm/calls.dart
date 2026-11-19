@@ -1,18 +1,22 @@
+import 'package:models/error_call.dart';
 import 'package:models/error_kind.dart';
+import 'package:models/json_value.dart';
 import 'package:models/param_spec.dart';
 import 'package:models/studio_error.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
+import 'decode/sys_verdict.dart';
 import 'failures.dart';
 
 /// Runs one broker call; a refusal becomes a [StudioException] that keeps
 /// the status as data and the broker's own message (docs/studio.md §2
 /// rule 7, docs/design/specs/errors.md §1). [name] is the call (`list`,
-/// `meta`, `set`, an action), [key] the key it is made on, [thing] the name
+/// `meta`, `set`, or an action, whose wire name is read once by
+/// [ErrorCall.ofWire]), [key] the key it is made on, [thing] the name
 /// of its object for the title when the key's last segment is not it;
 /// [write] says it changes something on the broker.
 Future<T> call<T>(
-  String name,
+  ErrorCall name,
   String key,
   Future<T> Function() f, {
   String? thing,
@@ -33,11 +37,11 @@ Future<T> call<T>(
 
 /// The children of [key]; a refusal as in [call].
 Future<List<Child>> listOf(WyrmApi api, String key, {String? thing}) =>
-    call('list', key, () => api.children(key), thing: thing);
+    call(const .known(.list), key, () => api.children(key), thing: thing);
 
 /// The full meta of [key]; a refusal as in [call].
 Future<NodeMeta> metaOf(WyrmApi api, String key, {String? thing}) =>
-    call('meta', key, () => api.meta(key), thing: thing);
+    call(const .known(.meta), key, () => api.meta(key), thing: thing);
 
 /// The rows of one `invoke` that changes something, collected; a refusal
 /// as in [call]. A timeout of it may have been applied, and the dialog
@@ -49,7 +53,7 @@ Future<List<Value>> invokeAll(
   Value? args,
   String? thing,
 ]) => call(
-  action,
+  ErrorCall.ofWire(action),
   key,
   () => api.invoke(key, action, args).toList(),
   thing: thing,
@@ -77,7 +81,7 @@ Future<List<Value>> askAll(
   Value? args,
   String? thing,
 ]) => call(
-  action,
+  ErrorCall.ofWire(action),
   key,
   () => api.invoke(key, action, args).toList(),
   thing: thing,
@@ -95,25 +99,24 @@ Future<Value> askOne(
   return rows.isEmpty ? const VNull() : rows.first;
 }
 
-/// `{success, message}` of an install-style answer: throws a `broker`
-/// error with the message when success is false. [action] on [key] is the
-/// call that answered.
+/// `{success, message}` of an install-style answer ([sysRunOf]): throws a
+/// `broker` error with the message when the answer does not say it
+/// succeeded. A `success` that is no bool is a failure, never a success.
+/// [action] on [key] is the call that answered.
 void requireSuccess(
   Value answer,
   String key,
   String action, {
   String? thing,
 }) {
-  if (answer['success'] case VBool(v: false)) {
+  final verdict = sysRunOf(answer, where: '$action on $key');
+  if (!verdict.success) {
     throw StudioException(
       StudioError(
         kind: ErrorKind.broker,
-        message: switch (answer['message']) {
-          VStr(:final v) => v,
-          _ => '',
-        },
+        message: verdict.message ?? '',
         key: key,
-        call: action,
+        call: ErrorCall.ofWire(action),
         thing: thing,
         site: siteOf(key),
         write: true,
@@ -190,8 +193,7 @@ Map<String, Object?> argsToSend(
 /// field out (the action's own default stands).
 Set<String> clearedNames(Iterable<ParamSpec> params) => {
   for (final p in params)
-    if (p.name == 'display' &&
-        p.defaultValue is String &&
-        (p.defaultValue! as String).trim().isNotEmpty)
+    if (p.defaultValue case JsonText(text: final prefilled)
+        when p.name == 'display' && prefilled.trim().isNotEmpty)
       p.name,
 };

@@ -14,7 +14,10 @@ import 'package:business/redux/quarantine/actions/approve_quarantine_action.dart
 import 'package:business/redux/quarantine/actions/retrieve_quarantine_action.dart';
 import 'package:business/redux/quarantine/actions/set_admission_options_action.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:models/call_refusal.dart';
+import 'package:models/change_side.dart';
 import 'package:models/link_mode.dart';
+import 'package:models/quarantine_kind.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import 'support/fake_wyrm.dart';
@@ -90,11 +93,14 @@ void main() {
 
   test('Edit params stages an update, Apply runs it', () async {
     await s.dispatchAndWait(
-      UpdateLinkParamsAction('modbus', '{"connections": {}}', from: 'rev 1'),
+      UpdateLinkParamsAction('modbus', '{"connections": {}}', rev: 1),
     );
     expect(s.state.changes.view, hasLength(1));
     final c = s.state.changes.table.values.single;
-    expect((c.action, c.level, c.from), ('update', Perm.config, 'rev 1'));
+    expect(
+      (c.action, c.level, c.from),
+      ('update', Perm.config, const ChangeSide.rev(1)),
+    );
 
     api.invokes['wy/central/sys/links/modbus ▸ update'] = [const VInt(2)];
     await s.dispatchAndWait(ApplyChangesAction());
@@ -115,7 +121,13 @@ void main() {
     await s.dispatchAndWait(ApplyChangesAction());
 
     expect(s.state.changes.view, hasLength(2), reason: 'nothing after it ran');
-    expect(s.state.changes.message, contains('permission_denied: no'));
+    expect(
+      s.state.changes.message,
+      isA<CallRefusal>()
+          .having((r) => r.status, 'status', 'permission_denied')
+          .having((r) => r.message, 'message', contains('no'))
+          .having((r) => r.key, 'key', isNotNull),
+    );
     expect(api.calls.where((c) => c.op == 'set'), hasLength(1));
   });
 
@@ -150,4 +162,44 @@ void main() {
       expect(s.state.quarantine.view, isEmpty);
     },
   );
+
+  test('a quarantine entry of a kind Studio does not know is not shown as a '
+      'link', () async {
+    api.children_['wy/central/sys/quarantine'] = [
+      Child('plc-gw-7', NodeMeta()),
+      Child('gw-9', NodeMeta()),
+      Child('old', NodeMeta()),
+    ];
+    api.metas['wy/central/sys/quarantine/plc-gw-7'] = NodeMeta(
+      attr: {'kind': const VStr('link')},
+    );
+    api.metas['wy/central/sys/quarantine/gw-9'] = NodeMeta(
+      attr: {'kind': const VStr('gateway')},
+      actions: {'approve': ActionMeta()},
+    );
+    // no `kind` at all: not a link by default
+    api.metas['wy/central/sys/quarantine/old'] = NodeMeta();
+
+    await s.dispatchAndWait(RetrieveQuarantineAction());
+
+    // it does not vanish: it waits in the table as one that was not read
+    expect(s.state.quarantine.view, ['plc-gw-7', 'gw-9', 'old']);
+    final table = s.state.quarantine.table;
+    expect(table['plc-gw-7']!.kind, QuarantineKind.link);
+    expect(table['gw-9']!.kind, isNull);
+    expect(table['old']!.kind, isNull);
+    // and no Authorize form is offered for what was not read
+    expect(s.state.quarantine.forms.keys, isEmpty);
+    // it is neither a link that waits nor a broker that asks to join
+    expect(_Sel(s.state).oldestWaitingLink?.node, 'plc-gw-7');
+    // the wire never names this kind
+    expect(QuarantineKind.fromWire(''), isNull);
+  });
+}
+
+class _Sel with Selectors {
+  _Sel(this.state);
+
+  @override
+  final AppState state;
 }

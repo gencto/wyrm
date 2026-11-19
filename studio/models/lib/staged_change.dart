@@ -2,6 +2,9 @@ import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 import 'package:wyrm_core/wyrm_core.dart' show Perm;
 
+import 'change_op.dart';
+import 'change_side.dart';
+
 part 'staged_change.freezed.dart';
 
 /// One edit staged in this session and applied with the others (design
@@ -15,8 +18,8 @@ abstract class StagedChange with _$StagedChange {
     /// Unique within the session.
     required String id,
 
-    /// `Edit`, `Add` or `Remove`, as the review card says it.
-    required String op,
+    /// What it does, as the review card says it.
+    required ChangeOp op,
 
     /// The node or value the change is on.
     required String key,
@@ -25,14 +28,14 @@ abstract class StagedChange with _$StagedChange {
     required String field,
 
     /// Shown in ember/new.
-    required String to,
+    required ChangeSide to,
 
     /// The level applying it needs; every stager states it, none is
     /// assumed.
     required Perm level,
 
     /// Shown struck through.
-    @Default('—') String from,
+    @Default(ChangeSide.none()) ChangeSide from,
 
     /// For a set: the value written to `key`.
     Object? value,

@@ -41,6 +41,8 @@ wyrm-link-sdk = { workspace = true, features = ["harness"] }
 wyrm-link-mock.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "test-util"] }
 wat.workspace = true
+# the counting allocator of tests/preview_cost.rs and tests/throughput.rs
+wyrm-bench.workspace = true
 
 [lints]
 workspace = true

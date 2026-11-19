@@ -508,3 +508,105 @@ before 1.0. Estimates in person-days, tests included.
   the former active's own rows that never reached the other host; the
   arbiter is not in the Docker compose files.
 - Option 4 (10–15 on top of 3) stays here until reader scaling is asked for.
+
+## 14. Performance baseline (slice P0, 2026-11-19)
+
+The measurements of the performance work. Every later optimization runs
+them before and after and puts both figures here. They are benches or
+ignored tests: CI does not run them.
+
+How to run (release builds; the first build takes long):
+
+```sh
+tool/perf.sh                 # all groups; the table goes to target/perf/table.txt
+tool/perf.sh sdk flow broker # one or more groups
+tool/perf.sh --existing      # also the older benches (their own output)
+```
+
+`perf_d_historian` ends today by its watchdog after about 6 min (the stall
+below), so a full run takes that much longer.
+
+Every figure prints one line `PERF name=… n=… p50_us=… p95_us=… p99_us=…
+per_s=… cpu_pct=… rss_mib=… allocs_op=… bytes_op=… <extra>` (`-` where a
+column does not apply). The kit is the dev-only crate `wyrm-bench`: a
+counting allocator (calls, frees, bytes; a bench or test installs it as its
+`#[global_allocator]`), nearest-rank percentiles, process CPU time and
+resident memory. CPU is the whole process (broker, links, the measuring
+client) in % of one core. No OS counts `fsync` calls: the audit figure gives
+them as derived from `wyrm-state` (3 per record: `sync_data` of the WAL,
+`sync_all` of the anchor, `sync_all` of the directory); on Linux
+`/proc/self/io` adds write calls and bytes; on macOS nothing more is
+measured.
+
+| Group | Measurement | Audit item | What it covers |
+|---|---|---|---|
+| sdk | `cargo bench -p wyrm-link-sdk --bench verify` | 3 | one `ptok` check with 1 admin + 4/10/30 limited keys: best case (admin key) and worst case (the last limited key, 1 + n Ed25519 verifies) |
+| sdk | `cargo bench -p wyrm-link-sdk --bench tree` | 4, 5, 17 | declare 1k/5k/10k points (time, `~meta` puts and bytes; pure `NodeTree` and through `LinkCtx` over Zenoh); a wildcard `get` that hits one node of 10k; `view=list` of 1000 children with and without a profile name |
+| flow | `cargo test --release -p wyrm-flow --test throughput -- --ignored --nocapture` | 7–10 | `subscribe → (scale, add) × n → publish`, a paced rate ladder on one key and on 1000 keys, default and deep inbox; allocations per hop (9 hops minus 3); 10 000-row tables through `table_sort` ×1/×3 and `table_filter` + `table_aggregate` |
+| broker | `cargo test --release -p wyrmd --test perf -- --ignored --nocapture --exact <test>` | 1, 2, 12, 13, gateway | an in-process broker with the embedded mock: (a) base rate, (b) a client that subscribes `wy/<site>/downstream/**` in a loop and one `wy/**`, (c) the mock at `trace`, (d) the historian on 10 000 points, (e) 1000 invokes and the audit records/s, (f) 10 gateway WebSocket clients × 1000 points × 10 Hz |
+
+Test hooks: `wyrm-admin`'s `testkit` feature (dev only) gives the perf tests
+`Control::audit_lsn` and `Control::historian`. No product code changed.
+
+First figures. Machine: Apple M4 Max (14 cores, 36 GB), macOS, release
+build, commit `9b95c288`/`c938a6b4` (the measurements only), 2026-11-19. The
+machine ran other agents' builds at the same time (load average 7–27): the
+figures are **M4 Max, loaded, rough**; the clean baseline is recorded later,
+and the reference board (4-core ARM64, 2 GB) is not measured yet.
+
+| Machine | Build | Figure | Value | Date |
+|---|---|---|---|---|
+| M4 Max, loaded, rough | release | `verify`, admin key (1 verify), any n | p50 22.8 µs, 7 allocs | 2026-11-19 |
+| M4 Max, loaded, rough | release | `verify`, last of 4 / 10 / 30 limited keys | p50 111 / 243 / 684 µs (p99 1.27 ms at 30), 14 / 20 / 40 allocs | 2026-11-19 |
+| M4 Max, loaded, rough | release | one Ed25519 `verify_strict` | p50 21.6 µs | 2026-11-19 |
+| M4 Max, loaded, rough | release | declare 1k / 5k / 10k points (`LinkCtx`) | 85 ms / 2.1 s / 8.9 s; `~meta` 2.3 / 67 / 276 MiB in 2 puts per point; 2.6k / 12.6k / 25k allocs per point | 2026-11-19 |
+| M4 Max, loaded, rough | release | wildcard `get` hitting 1 node of 10k vs. the plain `get` | p50 1.98 ms vs. 10.9 µs; 20 070 vs. 50 allocs | 2026-11-19 |
+| M4 Max, loaded, rough | release | `view=list` of 1000 children, plain vs. `is: "wy:number"` | p50 195 µs vs. 795 µs; 3.1k vs. 29k allocs; 0.58 vs. 6.6 MB allocated | 2026-11-19 |
+| M4 Max, loaded, rough | release | flow chain, 3 hops, one key, 2000/s | 7 % of samples thinned (the source keeps the latest sample per key) | 2026-11-19 |
+| M4 Max, loaded, rough | release | flow chain, 3 hops, 1000 keys, inbox 64 / 65 536 | lossless up to 5 000/s / 20 000/s (the next step lost 85 / 103 samples); noisy under the load: an earlier run on the same machine kept 100 000/s lossless with inbox 64 | 2026-11-19 |
+| M4 Max, loaded, rough | release | flow chain, 9 hops, 1000 keys, inbox 65 536 | lossless at 50 000/s, p99 2.2 ms, 309 % CPU | 2026-11-19 |
+| M4 Max, loaded, rough | release | flow allocations per sample and hop | 6.0 allocs, 425 B | 2026-11-19 |
+| M4 Max, loaded, rough | release | 10 000-row table, `table_sort` ×1 / ×3 | lossless at 50 / 20 tables/s; p50 10 / 23 ms; per sort hop 140k allocs, 40.6 MB | 2026-11-19 |
+| M4 Max, loaded, rough | release | 10 000-row table, `table_filter` (rhai) + `table_aggregate` | 4 of 8 tables lost at 2/s, 2 of them by the filter's 100 ms script budget | 2026-11-19 |
+| M4 Max, loaded, rough | release | broker base, 1000 points at 10 / 20 / 50 Hz | 10k / 20k / 50k samples/s, no loss beyond one tick at the window edge; p99 2.4–2.5 ms; 5 / 10.5 / 24.5 % CPU; RSS 36–48 MiB | 2026-11-19 |
+| M4 Max, loaded, rough | release | broker at 20k/s + `downstream/**` subscribe loop | rate kept; CPU 10.5 → 121 %; each subscribe to all 1000 points p50 3.9 ms, p99 6.4 ms | 2026-11-19 |
+| M4 Max, loaded, rough | release | `subscribe("wy/**")` | no event in 15 s (not diagnosed yet) | 2026-11-19 |
+| M4 Max, loaded, rough | release | broker at 20k/s, mock link at `trace` | rate kept; CPU 10.5 → 26 %; p99 2.4 → 4.0 ms | 2026-11-19 |
+| M4 Max, loaded, rough | release | wyrmd open + mock with 10 000 points ready | 3.1–3.9 s | 2026-11-19 |
+| M4 Max, loaded, rough | release | `add_watch_path`, watches 1–50 / 251–300 | p50 8.0 / 12.0 ms | 2026-11-19 |
+| M4 Max, loaded, rough | release | historian, 10 000 points at 2 Hz | not measured: the broker stalls when the group starts (below) | 2026-11-19 |
+| M4 Max, loaded, rough | release | 1000 invokes, audit | invoke p50 4.0 ms, p99 7.1 ms, 312/s; 233 audit records/s; derived 700 fsync/s | 2026-11-19 |
+| M4 Max, loaded, rough | release | gateway, 10 WS clients × 1000 points × 10 Hz | 100k frames/s, p50 4.0 ms, p99 8.1 ms, 84 % CPU, RSS 85 MiB | 2026-11-19 |
+
+**Found: the historian's group start stalls the broker** (called a
+deadlock here: 0 % CPU and no progress for 9 min, twice; a symbolized
+`sample` of the second run). A group of 10 000 new watches first makes each
+series with one durable redb commit (on the blocking pool, under the store's
+series lock), then starts one `follow` task per point, and each runs
+`WyrmClient::subscribe`, a `get` of the point's `~val`. On the in-process
+session Zenoh hands a query to a local queryable on the caller's thread, and
+the default handler of a queryable is a bounded FIFO (256) whose send blocks
+when it is full. What the sample shows: four runtime threads stood in that
+send (`wyrm_history::engine::follow` → `Session::query` → `handle_query` →
+`FifoChannel` callback, waiting on a semaphore); two other runtime threads
+were idle (one on a condvar, one in the time/IO driver); the test thread was
+parked in `block_on`, and its own 300 s deadline never printed. Not known
+yet: which local queryable's FIFO filled, and why its consumer did not drain
+it. Not fixed here (P0 changes no product code). The perf test aborts by a
+watchdog after 360 s with `started=false`.
+
+Not covered yet:
+
+- the reference board, a LAN between broker and clients, and a quiet
+  machine;
+- `fsync` counts (no OS counts them; the audit's are derived);
+- the historian under 10 000 watches and its flush cost per row (the group
+  start stalls first, above);
+- musl and its system allocator (audit item 6): the container images are
+  not measured;
+- the storage manager's own lock (item 2) apart from the subscribe that
+  reads it, and process links (only embedded links are measured);
+- the SDK value path and the log filter per event apart (items 11, 12 are
+  seen only through the broker's CPU);
+- the framework's five `~meta` puts per point (item 4 is measured on the raw
+  layer only).

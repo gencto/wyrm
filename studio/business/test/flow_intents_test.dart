@@ -200,6 +200,50 @@ void main() {
   });
 
   group('fields', () {
+    test('a typed operand nested to the bound saves; one deeper stays a '
+        'text, and the inspector builds either way (audit 4 of #135, 1)', () {
+      s.dispatchSync(PickPaletteEntryAction(EnginePick(bt('add'))));
+      final add = now().blocks.values.last.id;
+      String nested(int depth) => '${'[' * depth}1${']' * depth}';
+      int depthOf(JsonValue v) =>
+          v is JsonList ? 1 + depthOf(v.items.first) : 0;
+
+      // the value sits one level inside `values`: 63 levels fit the bound
+      s.dispatchSync(TypeFieldAction(add, rowOf(add, 'in.1'), nested(63)));
+      expect(depthOf(now().blocks[add]!.cfgValues['in.1']!), 63);
+      s.dispatchSync(SelectBlocksAction([add]));
+      expect(flowViewOf(s.state, 'tank').inspector, isNotNull);
+
+      // one level more is no JSON for the field: it is kept as the text
+      s.dispatchSync(TypeFieldAction(add, rowOf(add, 'in.1'), nested(64)));
+      expect(now().blocks[add]!.cfgValues['in.1'], JsonValue.of(nested(64)));
+      expect(flowViewOf(s.state, 'tank').inspector, isNotNull);
+    });
+
+    test('a live value past the bound is not kept on unbind; the '
+        'inspector builds (audit 4 of #135, 1)', () {
+      final step = rowOf('count', 'in.step');
+      Object? deep = 1;
+      for (var i = 0; i < 65; i++) {
+        deep = [deep];
+      }
+      s
+        ..dispatchSync(BindFieldAction('count', step, PortEnd('level', 'out')))
+        ..dispatchSync(
+          SetFlowPortsAction({
+            portKey(PortSide.input, 'count', 'in.step'): LiveValue(
+              time: DateTime.utc(2026),
+              value: deep,
+            ),
+          }),
+        )
+        ..dispatchSync(UnbindFieldAction('count', step))
+        ..dispatchSync(SelectBlocksAction(const ['count']));
+      expect(now().edges.where((e) => e.toPort == 'in.step'), isEmpty);
+      expect(now().blocks['count']!.cfg.containsKey('step'), isFalse);
+      expect(flowViewOf(s.state, 'tank').inspector, isNotNull);
+    });
+
     test('a typed number goes into the parameter', () {
       s.dispatchSync(TypeFieldAction('count', rowOf('count', 'in.step'), '5'));
       expect(now().blocks['count']!.cfg['step'], 5);

@@ -1,7 +1,11 @@
 import 'package:business/wyrm/shell.dart';
+import 'package:models/change_op.dart';
+import 'package:models/change_side.dart';
 import 'package:models/site_choice.dart';
 import 'package:models/site_relation.dart';
+import 'package:models/step_up_deed.dart';
 import 'package:models/workspace.dart';
+import 'package:ui/models/change_words.dart';
 import 'package:ui/shell/studio_frame.dart';
 
 import 'icon_mappers.dart';
@@ -47,14 +51,55 @@ extension SiteChoiceVmOf on SiteChoice {
   );
 }
 
+extension ChangeOpTagOf on ChangeOp {
+  ChangeOpTag get tag => switch (this) {
+    ChangeOp.edit => .edit,
+    ChangeOp.add => .add,
+    ChangeOp.remove => .remove,
+  };
+}
+
+extension ChangeSideVmOf on ChangeSide {
+  ChangeSideVm get vm => switch (this) {
+    ChangeSideText(:final text) => .text(text),
+    ChangeSideNone() => const .none(),
+    ChangeSideRev(:final rev) => .rev(rev),
+    ChangeSideParams(:final values, :final rev) => .params([
+      for (final v in values)
+        ParamSideVm(v.name, value: v.text, list: v.list?.unlockView),
+    ], rev: rev),
+    ChangeSideFlag(:final on) => .flag(on: on),
+    ChangeSideKeys(:final count) => .keys(count),
+  };
+}
+
+extension StepUpDeedVmOf on StepUpDeed {
+  StepUpDeedVm get vm => switch (this) {
+    StepUpDeedSet(:final name) => .set(name),
+    StepUpDeedAction(:final name) => .action(name),
+    StepUpDeedChange(:final op, :final field, :final to) => .change(
+      op: op.tag,
+      field: field,
+      to: to.vm,
+    ),
+    StepUpDeedAddUser(:final name) => .account(.addUser, name),
+    StepUpDeedRemoveUser(:final name) => .account(.removeUser, name),
+    StepUpDeedSetRoles(:final name) => .account(.setRoles, name),
+    StepUpDeedSetPassword(:final name) => .account(.setPassword, name),
+    StepUpDeedDisableUser(:final name) => .account(.disableUser, name),
+    StepUpDeedEnableUser(:final name) => .account(.enableUser, name),
+    StepUpDeedRemoveDevice() => const .account(.removeDevice),
+  };
+}
+
 extension ReviewCardDataOf on ReviewCard {
   ReviewCardData get data => ReviewCardData(
     id: change.id,
-    op: change.op,
+    op: change.op.tag,
     key: change.key,
     field: change.field,
-    from: change.from,
-    to: change.to,
+    from: change.from.vm,
+    to: change.to.vm,
     level: change.level.access,
     have: have.access,
     allowed: allowed,

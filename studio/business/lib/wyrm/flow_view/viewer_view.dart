@@ -244,7 +244,7 @@ CsvRules _csvRules(
     final shown = fieldValue(b, f, d, live);
     wired = wired || shown.bound;
     return switch (JsonValue.tryOf(shown.raw)) {
-      null || JsonNull() => b.paramOr(key.wire, f.spec?.defaultValue),
+      null || JsonNull() => b.paramOr(key.wire, f.spec?.defaultValue?.raw),
       final v => v,
     };
   }

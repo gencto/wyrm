@@ -1,5 +1,6 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
+import 'package:models/answer_fault.dart';
 import 'package:models/login_failure.dart';
 
 part 'login_state.freezed.dart';
@@ -15,7 +16,7 @@ abstract class LoginState with _$LoginState {
     @Default(IMapConst({})) IMap<String, int> probes,
     @Default(true) bool remember,
     LoginFailure? failure,
-    String? reason,
+    AnswerFault? reason,
     @Default(0) int preload,
     @Default(IListConst([])) IList<int> preloadLate,
   }) = _LoginState;

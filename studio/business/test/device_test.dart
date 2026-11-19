@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:async_redux/async_redux.dart';
 import 'package:business/redux/app_state.dart';
 import 'package:business/redux/changes/actions/add_changes_action.dart';
@@ -26,15 +28,21 @@ import 'package:business/redux/login/actions/set_user_action.dart';
 import 'package:business/redux/services/idle_lock/idle_lock.dart';
 import 'package:business/redux/session/actions/log_out_action.dart';
 import 'package:business/wyrm/device_keys.dart';
+import 'package:business/wyrm/failures.dart';
 import 'package:business/wyrm/session.dart';
 import 'package:device_key/testing.dart';
 import 'package:fake_async/fake_async.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart' hide ErrorHint;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:models/answer_fault.dart';
+import 'package:models/change_op.dart';
+import 'package:models/change_side.dart';
+import 'package:models/error_hint.dart';
 import 'package:models/lock_error.dart';
 import 'package:models/login_failure.dart';
 import 'package:models/staged_change.dart';
+import 'package:models/step_up_deed.dart';
 import 'package:models/step_up_error.dart';
 import 'package:models/unlock_refusal.dart';
 import 'package:models/unlock_stage.dart';
@@ -295,6 +303,28 @@ void main() {
       expect(c.login.password, isNot('x'), reason: 'no password sent');
     });
 
+    test('a standby typed with user:password@ unlocks nothing: no prompt, '
+        'no log-in, nothing in recent (final audit of #137, 2)', () async {
+      final c = _Computer();
+      await c.enrolled();
+      final s = await c.started();
+      final prompts = c.keys.reasons.length;
+      final before = s.state.login.recent;
+      await s.dispatchAndWait(
+        SetGatewayAction('$_gateway, https://olena:gw-pass@b:8445'),
+      );
+
+      final status = await s.dispatchAndWait(
+        UnlockWithDeviceAction(reason: _reason),
+      );
+
+      expect(status.isCompletedOk, isTrue);
+      expect(s.state.session.token, isNull);
+      expect(c.keys.reasons, hasLength(prompts), reason: 'no OS prompt');
+      expect(s.state.login.recent, before);
+      expect(s.state.login.recent.join(), isNot(contains('gw-pass')));
+    });
+
     test('the prompt opens by itself once, never after a cancel', () async {
       final c = _Computer();
       await c.enrolled();
@@ -440,7 +470,7 @@ void main() {
         keys: c.keys,
         login: FakeLogin(
           session: c.login.session,
-          answer: const GatewayProbe.noAnswer('timed out'),
+          answer: const GatewayProbe.noAnswer(AnswerFault.timedOut()),
         ),
       );
       final s = fakeStore(
@@ -562,19 +592,19 @@ void main() {
             IList(const [
               StagedChange(
                 id: 'c1',
-                op: 'Edit',
+                op: ChangeOp.edit,
                 key: 'wy/central/sys/x',
                 field: 'value',
-                to: '1',
+                to: ChangeSide.text('1'),
                 level: Perm.config,
                 value: 1,
               ),
               StagedChange(
                 id: 'c2',
-                op: 'Edit',
+                op: ChangeOp.edit,
                 key: 'wy/central/sys/z',
                 field: 'value',
-                to: '2',
+                to: ChangeSide.text('2'),
                 level: Perm.write,
                 value: 2,
               ),
@@ -602,7 +632,10 @@ void main() {
 
       final add = depsOf(s).session!.addUser('ivan', 'pw', ['operator']);
       await pumpEventQueue();
-      expect(s.state.device.stepUp!.lines.single.text, 'add user ivan');
+      expect(
+        s.state.device.stepUp!.lines.single.deed,
+        const StepUpDeed.addUser('ivan'),
+      );
       await s.dispatchAndWait(ConfirmStepUpAction(reason: 'c'));
       await add;
 
@@ -625,10 +658,10 @@ void main() {
             IList(const [
               StagedChange(
                 id: 'c1',
-                op: 'Edit',
+                op: ChangeOp.edit,
                 key: 'k',
                 field: 'value',
-                to: '1',
+                to: ChangeSide.text('1'),
                 level: Perm.write,
               ),
             ]),
@@ -745,6 +778,26 @@ void main() {
   });
 
   group('Account › Security and Access › Users', () {
+    test('a list of devices that throws names the type only, never the '
+        'URL it was asked on', () async {
+      final c = _Computer();
+      await c.enrolled();
+      final s = await c.started();
+      await s.dispatchAndWait(UnlockWithDeviceAction(reason: _reason));
+      c.gateway.listFails = HttpException(
+        'Connection closed',
+        uri: Uri.parse('https://olena:gw-pass@plant.local:8445/api/devices'),
+      );
+      final status = await s.dispatchAndWait(RetrieveDevicesAction());
+      final e = (status.wrappedError! as StudioException).error;
+      expect(
+        e.hint,
+        const ErrorHint.noAnswer(AnswerFault.failed('HttpException')),
+      );
+      expect(e.message, isEmpty);
+      expect('$e', isNot(contains('gw-pass')));
+    });
+
     test(
       'lists the devices; Turn off removes the key and the record',
       () async {

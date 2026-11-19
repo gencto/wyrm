@@ -97,9 +97,17 @@ Decoded<NodeType> nodeTypeOf(Value m) {
               choices: texts(p['choices']).lock,
               // A default JSON has no form for (bytes) is none, with a
               // warning: a config holds JSON only.
-              defaultValue: switch (toDart(p['default'])) {
-                final d when JsonValue.isJson(d) => d,
-                _ => _lenient(type, 'params[$i].default', 'not JSON', null),
+              defaultValue: switch (p['default']) {
+                null || VNull() => null,
+                final d => switch (JsonValue.tryOf(toDart(d))) {
+                  final j? => j,
+                  null => _lenient(
+                    type,
+                    'params[$i].default',
+                    'not JSON',
+                    null,
+                  ),
+                },
               },
               editor: switch (str(p['editor'])) {
                 final e? => ParamEditor.fromWire(e),

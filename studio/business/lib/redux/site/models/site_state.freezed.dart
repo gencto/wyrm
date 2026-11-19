@@ -15,7 +15,7 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$SiteState {
 
- String? get gateway; String? get user; String? get name; String? get role; bool get connected; String? get current; IList<Grant> get grants; IList<SiteChoice> get choices;/// The highest level the session may use (`/api/me` `max`), set with
+ GatewayAddress? get gateway; String? get user; String? get name; String? get role; bool get connected; String? get current; IList<Grant> get grants; IList<SiteChoice> get choices;/// The highest level the session may use (`/api/me` `max`), set with
 /// [grants] at log-in; null while `/api/me` is not read, and then no
 /// grant gives any right (the cap is closed).
  Perm? get max;
@@ -54,7 +54,7 @@ abstract mixin class $SiteStateCopyWith<$Res>  {
   factory $SiteStateCopyWith(SiteState value, $Res Function(SiteState) _then) = _$SiteStateCopyWithImpl;
 @useResult
 $Res call({
- String? gateway, String? user, String? name, String? role, bool connected, String? current, IList<Grant> grants, IList<SiteChoice> choices, Perm? max
+ GatewayAddress? gateway, String? user, String? name, String? role, bool connected, String? current, IList<Grant> grants, IList<SiteChoice> choices, Perm? max
 });
 
 
@@ -74,7 +74,7 @@ class _$SiteStateCopyWithImpl<$Res>
 @pragma('vm:prefer-inline') @override $Res call({Object? gateway = freezed,Object? user = freezed,Object? name = freezed,Object? role = freezed,Object? connected = null,Object? current = freezed,Object? grants = null,Object? choices = null,Object? max = freezed,}) {
   return _then(SiteState(
 gateway: freezed == gateway ? _self.gateway : gateway // ignore: cast_nullable_to_non_nullable
-as String?,user: freezed == user ? _self.user : user // ignore: cast_nullable_to_non_nullable
+as GatewayAddress?,user: freezed == user ? _self.user : user // ignore: cast_nullable_to_non_nullable
 as String?,name: freezed == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
 as String?,role: freezed == role ? _self.role : role // ignore: cast_nullable_to_non_nullable
 as String?,connected: null == connected ? _self.connected : connected // ignore: cast_nullable_to_non_nullable
@@ -97,7 +97,7 @@ class _SiteState implements SiteState {
   const _SiteState({this.gateway, this.user, this.name, this.role, this.connected = false, this.current, this.grants = const IListConst([]), this.choices = const IListConst([]), this.max});
   
 
-@override final  String? gateway;
+@override final  GatewayAddress? gateway;
 @override final  String? user;
 @override final  String? name;
 @override final  String? role;
@@ -142,7 +142,7 @@ abstract mixin class _$SiteStateCopyWith<$Res> implements $SiteStateCopyWith<$Re
   factory _$SiteStateCopyWith(_SiteState value, $Res Function(_SiteState) _then) = __$SiteStateCopyWithImpl;
 @override @useResult
 $Res call({
- String? gateway, String? user, String? name, String? role, bool connected, String? current, IList<Grant> grants, IList<SiteChoice> choices, Perm? max
+ GatewayAddress? gateway, String? user, String? name, String? role, bool connected, String? current, IList<Grant> grants, IList<SiteChoice> choices, Perm? max
 });
 
 
@@ -162,7 +162,7 @@ class __$SiteStateCopyWithImpl<$Res>
 @override @pragma('vm:prefer-inline') $Res call({Object? gateway = freezed,Object? user = freezed,Object? name = freezed,Object? role = freezed,Object? connected = null,Object? current = freezed,Object? grants = null,Object? choices = null,Object? max = freezed,}) {
   return _then(_SiteState(
 gateway: freezed == gateway ? _self.gateway : gateway // ignore: cast_nullable_to_non_nullable
-as String?,user: freezed == user ? _self.user : user // ignore: cast_nullable_to_non_nullable
+as GatewayAddress?,user: freezed == user ? _self.user : user // ignore: cast_nullable_to_non_nullable
 as String?,name: freezed == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
 as String?,role: freezed == role ? _self.role : role // ignore: cast_nullable_to_non_nullable
 as String?,connected: null == connected ? _self.connected : connected // ignore: cast_nullable_to_non_nullable

@@ -10,6 +10,7 @@ import 'package:models/backup_kind.dart';
 import 'package:models/backup_status.dart';
 import 'package:models/broker_self_update.dart';
 import 'package:models/log_level.dart';
+import 'package:models/notice_kind.dart';
 import 'package:models/self_update_state.dart';
 import 'package:models/standby_state.dart';
 import 'package:models/studio_notice.dart';
@@ -17,6 +18,7 @@ import 'package:models/sys_value.dart';
 import 'package:models/system_notice.dart';
 import 'package:models/system_tab.dart';
 import 'package:models/traffic_measure.dart';
+import 'package:models/withheld_args.dart';
 import 'package:ui/pages/system_data.dart';
 
 void main() {
@@ -125,8 +127,32 @@ void main() {
       words(const SystemNotice.cleared(IListConst([]))),
       S.current.sysClearedNone,
     );
-    // a notice of another screen keeps its own words
-    final plain = const StudioNotice(id: 2, title: 'Saved', detail: 'x').toast;
-    expect([plain.title, plain.line], ['Saved', 'x']);
+    // a notice of another screen is worded by its kind
+    final copied = const StudioNotice(
+      id: 2,
+      kind: NoticeKind.reportCopied,
+    ).toast;
+    expect(
+      [copied.title, copied.line],
+      [S.current.errCopied, S.current.errReportCopied],
+    );
+    final saved = StudioNotice(
+      id: 3,
+      kind: NoticeKind.planSaved,
+      path: '/tmp/task-7.plan.json',
+      leftOut: [
+        WithheldArgs(step: 1, names: ['unit'].lock),
+        WithheldArgs(step: 3, names: ['user', 'password'].lock),
+      ].lock,
+    ).toast;
+    expect(
+      saved.title,
+      'Saved /tmp/task-7.plan.json. Run it with wyrm-agent run.',
+    );
+    expect(
+      saved.line,
+      'Secret arguments are not in the file: step 1: unit; '
+      'step 3: user, password. Add them before you run it.',
+    );
   });
 }

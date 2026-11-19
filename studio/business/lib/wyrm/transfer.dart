@@ -1,10 +1,14 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:models/error_hint.dart';
+import 'package:models/error_kind.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import 'calls.dart';
-import 'mappers/values.dart';
+import 'decode/transfer.dart';
+import 'decode/unreadable.dart';
+import 'failures.dart';
 
 /// Reads `length` bytes of a local file from `offset`.
 typedef PartReader = Future<Uint8List> Function(int offset, int length);
@@ -33,7 +37,8 @@ const int downloadPart = 4 << 20;
 ///
 /// [onProgress] gets the bytes sent so far. When [cancelled] says so, or a
 /// part fails, the upload is dropped on the broker (`restore_abort`) and
-/// the error leaves. Returns the upload's id.
+/// the error leaves. An answer of `restore_begin` this client cannot read
+/// is refused before a byte is sent. Returns the upload's id.
 Future<String> uploadParts(
   WyrmApi api,
   String key, {
@@ -42,18 +47,11 @@ Future<String> uploadParts(
   void Function(int sent)? onProgress,
   bool Function()? cancelled,
 }) async {
-  final begun = await invokeOne(
-    api,
-    key,
-    'restore_begin',
-    valueOf({'size': size}),
-  );
-  final upload = str(begun['upload']) ?? '';
-  final max = integer(begun['max_part']) ?? (16 << 20);
-  final part = math.max(
-    1,
-    math.min(integer(begun['part_size']) ?? downloadPart, max),
-  );
+  final begun = uploadBegunOf(
+    await invokeOne(api, key, 'restore_begin', valueOf({'size': size})),
+  ).orRefuse(key: key, call: const .named('restore_begin'));
+  final upload = begun.upload;
+  final part = begun.partSize;
   var offset = 0;
   try {
     while (offset < size) {
@@ -62,7 +60,11 @@ Future<String> uploadParts(
       }
       final data = await read(offset, math.min(part, size - offset));
       if (data.isEmpty) {
-        throw StateError('the file ended at $offset of $size bytes');
+        throw StudioException.hinted(
+          ErrorKind.studio,
+          ErrorHint.fileEndedEarly(offset: offset, size: size),
+          key: key,
+        );
       }
       await invokeOne(
         api,
@@ -95,7 +97,9 @@ Future<void> abortUpload(WyrmApi api, String key, String upload) async {
 /// Reads a file of the broker in parts: `[key]` ▸ `download_part {offset,
 /// len}` → `{data, offset, size, eof}` from offset 0 until `eof`. Each part
 /// goes to [write] before the next is asked for. [onProgress] gets the
-/// bytes so far and the size. Returns the bytes read.
+/// bytes so far and the size. A part this client cannot read (no bytes,
+/// no size, no `eof`, another offset) is refused: nothing of it is
+/// written. Returns the bytes read.
 Future<int> downloadParts(
   WyrmApi api,
   String key, {
@@ -109,24 +113,29 @@ Future<int> downloadParts(
     if (cancelled?.call() ?? false) {
       throw const TransferCancelled();
     }
-    final answer = await askOne(
-      api,
-      key,
-      'download_part',
-      valueOf({'offset': offset, 'len': part}),
-    );
-    final data = switch (answer['data']) {
-      VBytes(:final v) => Uint8List.fromList(v),
-      _ => Uint8List(0),
-    };
+    final got = filePartOf(
+      await askOne(
+        api,
+        key,
+        'download_part',
+        valueOf({'offset': offset, 'len': part}),
+      ),
+      offset,
+    ).orRefuse(key: key, call: const .known(.downloadPart));
+    final data = got.data;
     await write(data);
     offset += data.length;
-    onProgress?.call(offset, integer(answer['size']) ?? offset);
-    if (boolean(answer['eof']) ?? data.isEmpty) {
+    onProgress?.call(offset, got.size);
+    if (got.eof) {
       return offset;
     }
     if (data.isEmpty) {
-      throw StateError('the broker sent an empty part before the end');
+      throw StudioException.hinted(
+        ErrorKind.broker,
+        const ErrorHint.emptyPart(),
+        key: key,
+        call: const .known(.downloadPart),
+      );
     }
   }
 }

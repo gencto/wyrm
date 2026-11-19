@@ -1,5 +1,7 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/answer_fault.dart';
 import 'package:models/audit_line.dart';
+import 'package:models/error_hint.dart';
 import 'package:models/error_kind.dart';
 import 'package:models/role_grant.dart';
 import 'package:models/user_info.dart';
@@ -45,10 +47,11 @@ Future<AppState?> readAccess(Action a) async {
   } on WyrmException {
     // Not an administrator of the gateway.
   } on Object catch (e) {
-    throw StudioException.said(
+    throw StudioException.hinted(
       ErrorKind.reach,
-      faultLine(e),
-      call: 'users',
+      // what was thrown says the URL it was asked on: its type only
+      ErrorHint.noAnswer(AnswerFault.failed('${e.runtimeType}')),
+      call: const .known(.users),
     );
   }
   final grants = <RoleGrant>[];

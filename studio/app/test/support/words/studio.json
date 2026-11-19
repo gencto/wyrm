@@ -33,7 +33,7 @@
     "Problems · this session",
     "Clear all",
     "Failures of things Studio did on its own (reads, refreshes, live values) and every dialog you closed. Kept until Studio quits; newest first.",
-    "Studio couldn’t read t1",
+    "History of t1 unavailable",
     "02:01:00",
     "wy/plant/downstream/plc1/t1 › history",
     "timeout",

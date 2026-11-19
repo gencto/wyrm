@@ -5,6 +5,7 @@ import 'package:models/block_def.dart';
 import 'package:models/flow_block.dart';
 import 'package:models/flow_draft.dart';
 import 'package:models/flow_edge.dart';
+import 'package:models/json_value.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import 'decoded.dart';
@@ -136,7 +137,12 @@ List<BlockPort> _ports(Object? v, String field, String endsKey) {
                 _ => throw _Bad('$field[$i].$endsKey', 'not <node>.<port>'),
               },
           ],
-          defaultValue: m['default'],
+          // read as JSON while the editor builds: none past the bound
+          // where it is shown, one level down in the boundary block's
+          // `defaults`
+          defaultValue: JsonValue.isJson(m['default'], nestedIn: 1)
+              ? m['default']
+              : throw _Bad('$field[$i].default', 'nested too deep'),
           hasDefault: m.containsKey('default'),
           description: switch (m['description']) {
             null => null,
@@ -155,7 +161,10 @@ List<BlockPort> _ports(Object? v, String field, String endsKey) {
 
 /// Throws, naming its field ([at]), when [v] holds a value JSON has no
 /// form for (bytes) at any depth.
-void _jsonOnly(Object? v, String at) {
+void _jsonOnly(Object? v, String at, [int depth = 0]) {
+  if (depth > _deepest) {
+    throw _Bad(at, 'nested too deep');
+  }
   switch (v) {
     case null || bool() || num() || String():
       break;
@@ -164,16 +173,20 @@ void _jsonOnly(Object? v, String at) {
       throw _Bad(at, 'not JSON');
     case final Map<Object?, Object?> m:
       for (final MapEntry(:key, :value) in m.entries) {
-        _jsonOnly(value, at.isEmpty ? '$key' : '$at.$key');
+        _jsonOnly(value, at.isEmpty ? '$key' : '$at.$key', depth + 1);
       }
     case final List<Object?> l:
       for (final (i, x) in l.indexed) {
-        _jsonOnly(x, '$at[$i]');
+        _jsonOnly(x, '$at[$i]', depth + 1);
       }
     default:
       throw _Bad(at, 'not JSON');
   }
 }
+
+/// The deepest [_jsonOnly] walks a block's definition: as a flow's, a
+/// value of the bound with a few levels around it.
+const int _deepest = JsonValue.maxDepth + 8;
 
 final class _Bad implements Exception {
   const _Bad(this.field, this.reason);

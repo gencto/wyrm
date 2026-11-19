@@ -34,9 +34,10 @@ mixin _$FoundGateway {
  bool get known;/// The site whose pinned CA signed this gateway's certificate, when it
 /// is another origin's pin (the person checked that CA before).
  String? get knownAs;/// Why the row cannot be used; null when it can.
- FoundProblem? get problem;/// The detail of [problem]: the Studio version a gateway needs, the
-/// reason there was no answer.
- String? get detail;/// Found by a range probe, not announced.
+ FoundProblem? get problem;/// The detail of [problem]: the Studio version a gateway needs.
+ String? get detail;/// Why `/api/info` gave nothing ([FoundProblem.noAnswer],
+/// [FoundProblem.noInfo]).
+ AnswerFault? get why;/// Found by a range probe, not announced.
  bool get probed;/// When it was last seen, milliseconds since the epoch.
  int get seen;
 /// Create a copy of FoundGateway
@@ -50,20 +51,20 @@ $FoundGatewayCopyWith<FoundGateway> get copyWith => _$FoundGatewayCopyWithImpl<F
 @override
 bool operator ==(Object other) {
   final _this = this as FoundGateway;
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is FoundGateway&&(identical(other.site, _this.site) || other.site == _this.site)&&const DeepCollectionEquality().equals(other.hosts, _this.hosts)&&(identical(other.url, _this.url) || other.url == _this.url)&&(identical(other.standby, _this.standby) || other.standby == _this.standby)&&(identical(other.connectTo, _this.connectTo) || other.connectTo == _this.connectTo)&&(identical(other.version, _this.version) || other.version == _this.version)&&(identical(other.tls, _this.tls) || other.tls == _this.tls)&&(identical(other.role, _this.role) || other.role == _this.role)&&const DeepCollectionEquality().equals(other.up, _this.up)&&(identical(other.code, _this.code) || other.code == _this.code)&&(identical(other.ca, _this.ca) || other.ca == _this.ca)&&(identical(other.known, _this.known) || other.known == _this.known)&&(identical(other.knownAs, _this.knownAs) || other.knownAs == _this.knownAs)&&(identical(other.problem, _this.problem) || other.problem == _this.problem)&&(identical(other.detail, _this.detail) || other.detail == _this.detail)&&(identical(other.probed, _this.probed) || other.probed == _this.probed)&&(identical(other.seen, _this.seen) || other.seen == _this.seen));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is FoundGateway&&(identical(other.site, _this.site) || other.site == _this.site)&&const DeepCollectionEquality().equals(other.hosts, _this.hosts)&&(identical(other.url, _this.url) || other.url == _this.url)&&(identical(other.standby, _this.standby) || other.standby == _this.standby)&&(identical(other.connectTo, _this.connectTo) || other.connectTo == _this.connectTo)&&(identical(other.version, _this.version) || other.version == _this.version)&&(identical(other.tls, _this.tls) || other.tls == _this.tls)&&(identical(other.role, _this.role) || other.role == _this.role)&&const DeepCollectionEquality().equals(other.up, _this.up)&&(identical(other.code, _this.code) || other.code == _this.code)&&(identical(other.ca, _this.ca) || other.ca == _this.ca)&&(identical(other.known, _this.known) || other.known == _this.known)&&(identical(other.knownAs, _this.knownAs) || other.knownAs == _this.knownAs)&&(identical(other.problem, _this.problem) || other.problem == _this.problem)&&(identical(other.detail, _this.detail) || other.detail == _this.detail)&&(identical(other.why, _this.why) || other.why == _this.why)&&(identical(other.probed, _this.probed) || other.probed == _this.probed)&&(identical(other.seen, _this.seen) || other.seen == _this.seen));
 }
 
 
 @override
 int get hashCode {
   final _this = this as FoundGateway;
-  return Object.hash(runtimeType,_this.site,const DeepCollectionEquality().hash(_this.hosts),_this.url,_this.standby,_this.connectTo,_this.version,_this.tls,_this.role,const DeepCollectionEquality().hash(_this.up),_this.code,_this.ca,_this.known,_this.knownAs,_this.problem,_this.detail,_this.probed,_this.seen);
+  return Object.hash(runtimeType,_this.site,const DeepCollectionEquality().hash(_this.hosts),_this.url,_this.standby,_this.connectTo,_this.version,_this.tls,_this.role,const DeepCollectionEquality().hash(_this.up),_this.code,_this.ca,_this.known,_this.knownAs,_this.problem,_this.detail,_this.why,_this.probed,_this.seen);
 }
 
 @override
 String toString() {
   final _this = this as FoundGateway;
-  return 'FoundGateway(site: ${_this.site}, hosts: ${_this.hosts}, url: ${_this.url}, standby: ${_this.standby}, connectTo: ${_this.connectTo}, version: ${_this.version}, tls: ${_this.tls}, role: ${_this.role}, up: ${_this.up}, code: ${_this.code}, ca: ${_this.ca}, known: ${_this.known}, knownAs: ${_this.knownAs}, problem: ${_this.problem}, detail: ${_this.detail}, probed: ${_this.probed}, seen: ${_this.seen})';
+  return 'FoundGateway(site: ${_this.site}, hosts: ${_this.hosts}, url: ${_this.url}, standby: ${_this.standby}, connectTo: ${_this.connectTo}, version: ${_this.version}, tls: ${_this.tls}, role: ${_this.role}, up: ${_this.up}, code: ${_this.code}, ca: ${_this.ca}, known: ${_this.known}, knownAs: ${_this.knownAs}, problem: ${_this.problem}, detail: ${_this.detail}, why: ${_this.why}, probed: ${_this.probed}, seen: ${_this.seen})';
 }
 
 
@@ -74,11 +75,11 @@ abstract mixin class $FoundGatewayCopyWith<$Res>  {
   factory $FoundGatewayCopyWith(FoundGateway value, $Res Function(FoundGateway) _then) = _$FoundGatewayCopyWithImpl;
 @useResult
 $Res call({
- String site, IList<String> hosts, String? url, String? standby, String? connectTo, String? version, bool tls, BrokerRole role, IList<String> up, String? code, String? ca, bool known, String? knownAs, FoundProblem? problem, String? detail, bool probed, int seen
+ String site, IList<String> hosts, String? url, String? standby, String? connectTo, String? version, bool tls, BrokerRole role, IList<String> up, String? code, String? ca, bool known, String? knownAs, FoundProblem? problem, String? detail, AnswerFault? why, bool probed, int seen
 });
 
 
-
+$AnswerFaultCopyWith<$Res>? get why;
 
 }
 /// @nodoc
@@ -91,7 +92,7 @@ class _$FoundGatewayCopyWithImpl<$Res>
 
 /// Create a copy of FoundGateway
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? site = null,Object? hosts = null,Object? url = freezed,Object? standby = freezed,Object? connectTo = freezed,Object? version = freezed,Object? tls = null,Object? role = null,Object? up = null,Object? code = freezed,Object? ca = freezed,Object? known = null,Object? knownAs = freezed,Object? problem = freezed,Object? detail = freezed,Object? probed = null,Object? seen = null,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? site = null,Object? hosts = null,Object? url = freezed,Object? standby = freezed,Object? connectTo = freezed,Object? version = freezed,Object? tls = null,Object? role = null,Object? up = null,Object? code = freezed,Object? ca = freezed,Object? known = null,Object? knownAs = freezed,Object? problem = freezed,Object? detail = freezed,Object? why = freezed,Object? probed = null,Object? seen = null,}) {
   return _then(FoundGateway(
 site: null == site ? _self.site : site // ignore: cast_nullable_to_non_nullable
 as String,hosts: null == hosts ? _self.hosts : hosts // ignore: cast_nullable_to_non_nullable
@@ -108,12 +109,25 @@ as String?,known: null == known ? _self.known : known // ignore: cast_nullable_t
 as bool,knownAs: freezed == knownAs ? _self.knownAs : knownAs // ignore: cast_nullable_to_non_nullable
 as String?,problem: freezed == problem ? _self.problem : problem // ignore: cast_nullable_to_non_nullable
 as FoundProblem?,detail: freezed == detail ? _self.detail : detail // ignore: cast_nullable_to_non_nullable
-as String?,probed: null == probed ? _self.probed : probed // ignore: cast_nullable_to_non_nullable
+as String?,why: freezed == why ? _self.why : why // ignore: cast_nullable_to_non_nullable
+as AnswerFault?,probed: null == probed ? _self.probed : probed // ignore: cast_nullable_to_non_nullable
 as bool,seen: null == seen ? _self.seen : seen // ignore: cast_nullable_to_non_nullable
 as int,
   ));
 }
+/// Create a copy of FoundGateway
+/// with the given fields replaced by the non-null parameter values.
+@override
+@pragma('vm:prefer-inline')
+$AnswerFaultCopyWith<$Res>? get why {
+    if (_self.why == null) {
+    return null;
+  }
 
+  return $AnswerFaultCopyWith<$Res>(_self.why!, (value) {
+    return _then(_self.copyWith(why: value));
+  });
+}
 }
 
 
@@ -122,7 +136,7 @@ as int,
 
 
 class _FoundGateway implements FoundGateway {
-  const _FoundGateway({required this.site, this.hosts = const IListConst([]), this.url, this.standby, this.connectTo, this.version, this.tls = true, this.role = BrokerRole.active, this.up = const IListConst([]), this.code, this.ca, this.known = false, this.knownAs, this.problem, this.detail, this.probed = false, this.seen = 0});
+  const _FoundGateway({required this.site, this.hosts = const IListConst([]), this.url, this.standby, this.connectTo, this.version, this.tls = true, this.role = BrokerRole.active, this.up = const IListConst([]), this.code, this.ca, this.known = false, this.knownAs, this.problem, this.detail, this.why, this.probed = false, this.seen = 0});
   
 
 /// The site (`/api/info` `site`, else the TXT `site`).
@@ -158,9 +172,11 @@ class _FoundGateway implements FoundGateway {
 @override final  String? knownAs;
 /// Why the row cannot be used; null when it can.
 @override final  FoundProblem? problem;
-/// The detail of [problem]: the Studio version a gateway needs, the
-/// reason there was no answer.
+/// The detail of [problem]: the Studio version a gateway needs.
 @override final  String? detail;
+/// Why `/api/info` gave nothing ([FoundProblem.noAnswer],
+/// [FoundProblem.noInfo]).
+@override final  AnswerFault? why;
 /// Found by a range probe, not announced.
 @override@JsonKey() final  bool probed;
 /// When it was last seen, milliseconds since the epoch.
@@ -176,18 +192,18 @@ _$FoundGatewayCopyWith<_FoundGateway> get copyWith => __$FoundGatewayCopyWithImp
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is _FoundGateway&&(identical(other.site, site) || other.site == site)&&const DeepCollectionEquality().equals(other.hosts, hosts)&&(identical(other.url, url) || other.url == url)&&(identical(other.standby, standby) || other.standby == standby)&&(identical(other.connectTo, connectTo) || other.connectTo == connectTo)&&(identical(other.version, version) || other.version == version)&&(identical(other.tls, tls) || other.tls == tls)&&(identical(other.role, role) || other.role == role)&&const DeepCollectionEquality().equals(other.up, up)&&(identical(other.code, code) || other.code == code)&&(identical(other.ca, ca) || other.ca == ca)&&(identical(other.known, known) || other.known == known)&&(identical(other.knownAs, knownAs) || other.knownAs == knownAs)&&(identical(other.problem, problem) || other.problem == problem)&&(identical(other.detail, detail) || other.detail == detail)&&(identical(other.probed, probed) || other.probed == probed)&&(identical(other.seen, seen) || other.seen == seen));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _FoundGateway&&(identical(other.site, site) || other.site == site)&&const DeepCollectionEquality().equals(other.hosts, hosts)&&(identical(other.url, url) || other.url == url)&&(identical(other.standby, standby) || other.standby == standby)&&(identical(other.connectTo, connectTo) || other.connectTo == connectTo)&&(identical(other.version, version) || other.version == version)&&(identical(other.tls, tls) || other.tls == tls)&&(identical(other.role, role) || other.role == role)&&const DeepCollectionEquality().equals(other.up, up)&&(identical(other.code, code) || other.code == code)&&(identical(other.ca, ca) || other.ca == ca)&&(identical(other.known, known) || other.known == known)&&(identical(other.knownAs, knownAs) || other.knownAs == knownAs)&&(identical(other.problem, problem) || other.problem == problem)&&(identical(other.detail, detail) || other.detail == detail)&&(identical(other.why, why) || other.why == why)&&(identical(other.probed, probed) || other.probed == probed)&&(identical(other.seen, seen) || other.seen == seen));
 }
 
 
 @override
 int get hashCode {
-    return Object.hash(runtimeType,site,const DeepCollectionEquality().hash(hosts),url,standby,connectTo,version,tls,role,const DeepCollectionEquality().hash(up),code,ca,known,knownAs,problem,detail,probed,seen);
+    return Object.hash(runtimeType,site,const DeepCollectionEquality().hash(hosts),url,standby,connectTo,version,tls,role,const DeepCollectionEquality().hash(up),code,ca,known,knownAs,problem,detail,why,probed,seen);
 }
 
 @override
 String toString() {
-    return 'FoundGateway(site: $site, hosts: $hosts, url: $url, standby: $standby, connectTo: $connectTo, version: $version, tls: $tls, role: $role, up: $up, code: $code, ca: $ca, known: $known, knownAs: $knownAs, problem: $problem, detail: $detail, probed: $probed, seen: $seen)';
+    return 'FoundGateway(site: $site, hosts: $hosts, url: $url, standby: $standby, connectTo: $connectTo, version: $version, tls: $tls, role: $role, up: $up, code: $code, ca: $ca, known: $known, knownAs: $knownAs, problem: $problem, detail: $detail, why: $why, probed: $probed, seen: $seen)';
 }
 
 
@@ -198,11 +214,11 @@ abstract mixin class _$FoundGatewayCopyWith<$Res> implements $FoundGatewayCopyWi
   factory _$FoundGatewayCopyWith(_FoundGateway value, $Res Function(_FoundGateway) _then) = __$FoundGatewayCopyWithImpl;
 @override @useResult
 $Res call({
- String site, IList<String> hosts, String? url, String? standby, String? connectTo, String? version, bool tls, BrokerRole role, IList<String> up, String? code, String? ca, bool known, String? knownAs, FoundProblem? problem, String? detail, bool probed, int seen
+ String site, IList<String> hosts, String? url, String? standby, String? connectTo, String? version, bool tls, BrokerRole role, IList<String> up, String? code, String? ca, bool known, String? knownAs, FoundProblem? problem, String? detail, AnswerFault? why, bool probed, int seen
 });
 
 
-
+@override $AnswerFaultCopyWith<$Res>? get why;
 
 }
 /// @nodoc
@@ -215,7 +231,7 @@ class __$FoundGatewayCopyWithImpl<$Res>
 
 /// Create a copy of FoundGateway
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? site = null,Object? hosts = null,Object? url = freezed,Object? standby = freezed,Object? connectTo = freezed,Object? version = freezed,Object? tls = null,Object? role = null,Object? up = null,Object? code = freezed,Object? ca = freezed,Object? known = null,Object? knownAs = freezed,Object? problem = freezed,Object? detail = freezed,Object? probed = null,Object? seen = null,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? site = null,Object? hosts = null,Object? url = freezed,Object? standby = freezed,Object? connectTo = freezed,Object? version = freezed,Object? tls = null,Object? role = null,Object? up = null,Object? code = freezed,Object? ca = freezed,Object? known = null,Object? knownAs = freezed,Object? problem = freezed,Object? detail = freezed,Object? why = freezed,Object? probed = null,Object? seen = null,}) {
   return _then(_FoundGateway(
 site: null == site ? _self.site : site // ignore: cast_nullable_to_non_nullable
 as String,hosts: null == hosts ? _self.hosts : hosts // ignore: cast_nullable_to_non_nullable
@@ -232,13 +248,26 @@ as String?,known: null == known ? _self.known : known // ignore: cast_nullable_t
 as bool,knownAs: freezed == knownAs ? _self.knownAs : knownAs // ignore: cast_nullable_to_non_nullable
 as String?,problem: freezed == problem ? _self.problem : problem // ignore: cast_nullable_to_non_nullable
 as FoundProblem?,detail: freezed == detail ? _self.detail : detail // ignore: cast_nullable_to_non_nullable
-as String?,probed: null == probed ? _self.probed : probed // ignore: cast_nullable_to_non_nullable
+as String?,why: freezed == why ? _self.why : why // ignore: cast_nullable_to_non_nullable
+as AnswerFault?,probed: null == probed ? _self.probed : probed // ignore: cast_nullable_to_non_nullable
 as bool,seen: null == seen ? _self.seen : seen // ignore: cast_nullable_to_non_nullable
 as int,
   ));
 }
 
+/// Create a copy of FoundGateway
+/// with the given fields replaced by the non-null parameter values.
+@override
+@pragma('vm:prefer-inline')
+$AnswerFaultCopyWith<$Res>? get why {
+    if (_self.why == null) {
+    return null;
+  }
 
+  return $AnswerFaultCopyWith<$Res>(_self.why!, (value) {
+    return _then(_self.copyWith(why: value));
+  });
+}
 }
 
 // dart format on

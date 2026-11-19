@@ -89,7 +89,8 @@ FlowSummaryView summaryViewOf(
   required FlowProblem? previewError,
   required IList<FlowProblem> problems,
 }) {
-  final val = flowValOf(own?.value).orWarn('flow $id');
+  // recorded where the value arrived; a view records nothing
+  final val = flowValOf(own?.value).orNull;
   final by = val?.deployedBy ?? known?.deployedBy;
   final keys = d == null ? null : flowKeysOf(d);
   return FlowSummaryView(

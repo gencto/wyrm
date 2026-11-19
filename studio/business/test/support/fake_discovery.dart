@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:business/redux/services/gateway_browser/gateway_browser.dart';
 import 'package:business/wyrm/discovery.dart';
+import 'package:models/answer_fault.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 // The local network of a test (ADR 0050 §2): a DNS-SD browse that finds
@@ -56,7 +57,7 @@ final class FakeInfo implements GatewayInfoReader {
   }
 
   void fail(String origin, InfoFault fault) =>
-      _failures[origin] = InfoFailure(fault, fault.name);
+      _failures[origin] = InfoFailure(fault, AnswerFault.said(fault.name));
 
   Future<GatewayInfo> _answer(Uri base) async {
     _now++;
@@ -69,7 +70,10 @@ final class FakeInfo implements GatewayInfoReader {
         throw f;
       }
       return _infos[base.origin] ??
-          (throw const InfoFailure(InfoFault.noAnswer, 'timed out'));
+          (throw const InfoFailure(
+            InfoFault.noAnswer,
+            AnswerFault.timedOut(),
+          ));
     } finally {
       _now--;
     }
@@ -89,7 +93,10 @@ final class FakeInfo implements GatewayInfoReader {
     if (pin != null ? pin.code == chain : trusted.contains(base.origin)) {
       return info;
     }
-    throw const InfoFailure(InfoFault.untrusted, 'CERTIFICATE_VERIFY_FAILED');
+    throw const InfoFailure(
+      InfoFault.untrusted,
+      AnswerFault.said('CERTIFICATE_VERIFY_FAILED'),
+    );
   }
 
   @override

@@ -14,6 +14,7 @@ import '../indicators/app_icon.dart';
 import '../indicators/status_pill.dart';
 import '../models/disabled.dart';
 import '../models/tone.dart';
+import '../models/waiting_kind.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/spacing.dart';
@@ -86,6 +87,7 @@ final class SiteNodeData extends Equatable {
     this.status,
     this.detail,
     this.count = 0,
+    this.notRead = false,
     this.selected = false,
   });
 
@@ -97,6 +99,9 @@ final class SiteNodeData extends Equatable {
   final String? status;
   final String? detail;
   final int count;
+
+  /// The node was answered in a form Studio does not read.
+  final bool notRead;
 
   /// The node picked.
   final bool selected;
@@ -111,6 +116,7 @@ final class SiteNodeData extends Equatable {
     status,
     detail,
     count,
+    notRead,
     selected,
   ];
 }
@@ -191,7 +197,7 @@ final class WaitingSiteVm extends SiteDetailVm {
     super.name,
     super.key, {
     required this.cn,
-    this.broker = false,
+    this.kind = WaitingKind.link,
     this.from,
     this.via = const [],
     this.hash,
@@ -199,7 +205,10 @@ final class WaitingSiteVm extends SiteDetailVm {
   });
 
   final String cn;
-  final bool broker;
+
+  /// What waits: a link, a downstream broker, or an entry Studio could
+  /// not read.
+  final WaitingKind kind;
   final String? from;
   final List<String> via;
 
@@ -208,7 +217,16 @@ final class WaitingSiteVm extends SiteDetailVm {
   final List<ParamFieldVm>? fields;
 
   @override
-  List<Object?> get props => [name, key, cn, broker, from, via, hash, fields];
+  List<Object?> get props => [
+    name,
+    key,
+    cn,
+    kind,
+    from,
+    via,
+    hash,
+    fields,
+  ];
 }
 
 /// A device of an external link.
@@ -327,6 +345,9 @@ class SitesPage extends StatelessWidget {
 
   String _sub(SiteNodeData n) {
     final s = S.current;
+    if (n.notRead) {
+      return s.waitNotRead;
+    }
     return switch (n.ref.kind) {
       SiteNodeKind.upstream =>
         n.connected ? s.yourUpstream : (n.status ?? s.stateOffline),
@@ -360,7 +381,8 @@ class SitesPage extends StatelessWidget {
         name: n.name,
         kind: n.ref.kind,
         sub: _sub(n),
-        tag: _tag(n.ref.kind),
+        // a small node draws no line under its name: the tag says it
+        tag: n.notRead ? S.current.whyNotRead : _tag(n.ref.kind),
         parent: n.parent,
         offline: n.offline,
         selected: n.selected,
@@ -499,7 +521,11 @@ class SitesPage extends StatelessWidget {
         ],
       ),
       WaitingSiteVm(:final key) && final d => DetailInspectorVm(
-        eyebrow: d.broker ? s.brokerWaiting : s.waitingInQuarantine,
+        eyebrow: switch (d.kind) {
+          WaitingKind.notRead => s.waitNotRead,
+          WaitingKind.broker => s.brokerWaiting,
+          WaitingKind.link => s.waitingInQuarantine,
+        },
         title: d.cn,
         pill: StatusPillVm(
           label: s.stateWaiting,
@@ -516,7 +542,7 @@ class SitesPage extends StatelessWidget {
             FactVm(label: s.factKey, value: k, mono: true),
         ],
         form: switch (d.fields) {
-          final fields? when d.broker => InspectorFormVm(
+          final fields? when d.kind == WaitingKind.broker => InspectorFormVm(
             id: d.name,
             label: s.letTheBrokerIn,
             fields: fields,
@@ -527,7 +553,7 @@ class SitesPage extends StatelessWidget {
           ),
           _ => null,
         },
-        groups: d.broker
+        groups: d.kind == WaitingKind.broker
             ? const []
             : [
                 ActionGroupVm(

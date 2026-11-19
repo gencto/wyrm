@@ -24,6 +24,7 @@ import 'package:wyrm_client/wyrm_client.dart';
 
 import 'support/block_types.dart';
 import 'support/fake_wyrm.dart';
+import 'support/field_tags.dart';
 
 // The catalog as the demo's broker answers `dataflows` ▸ `node_types`
 // (2026-11-08, ADR 0038 §2), the entries these tests read.
@@ -171,7 +172,7 @@ void main() {
         expect(f, hasLength(1), reason: type);
         final v = f.single;
         expect(
-          (v.label, v.name, v.kind, v.inPort, v.outPort, v.variable),
+          (v.label.tag, v.name, v.kind, v.inPort, v.outPort, v.variable),
           ('Value', 'value', FieldKind.param, 'in', 'out', true),
           reason: type,
         );
@@ -183,14 +184,14 @@ void main() {
 
     test('const is one field Value with no input', () {
       final v = fieldsOf(types['const'], block('c', 'const')).single;
-      expect((v.label, v.inPort, v.outPort), ('Value', null, 'out'));
+      expect((v.label.tag, v.inPort, v.outPort), ('Value', null, 'out'));
     });
 
     test('concat: Input 1, Input 2, then Strict, then Output', () {
       final rows = rowsOf(types['concat'], block('c', 'concat'));
       expect(
-        [for (final r in rows) r.label],
-        ['Input 1', 'Input 2', 'Strict', 'Output'],
+        [for (final r in rows) r.label.tag],
+        ['#input 1', '#input 2', 'Strict', '#output'],
       );
       final in0 = rows.first;
       expect((in0.inPort, in0.outPort), ('in.0', 'in.0'));

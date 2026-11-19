@@ -1,3 +1,5 @@
+import 'package:models/answer_fault.dart';
+import 'package:models/error_hint.dart';
 import 'package:models/error_kind.dart';
 import 'package:models/unlock_stage.dart';
 import 'package:wyrm_client/wyrm_client.dart';
@@ -33,14 +35,21 @@ class RemoveDeviceAction extends Action with WaitingAction {
     } on WyrmException catch (e) {
       // Gone already: what the list showed is out of date, nothing else.
       if (e.status != StatusCode.of(Status.notFound)) {
-        throw StudioException.refused(e, call: 'remove', thing: 'device $id');
+        throw StudioException.refused(
+          e,
+          call: const .known(.remove),
+          thing: id,
+          subject: .device,
+        );
       }
     } on Object catch (e) {
-      throw StudioException.said(
+      throw StudioException.hinted(
         ErrorKind.reach,
-        faultLine(e),
-        call: 'remove',
-        thing: 'device $id',
+        // what was thrown says the URL it was asked on: its type only
+        ErrorHint.noAnswer(AnswerFault.failed('${e.runtimeType}')),
+        call: const .known(.remove),
+        thing: id,
+        subject: .device,
       );
     }
     // The list read again first; what this returns is made of the state

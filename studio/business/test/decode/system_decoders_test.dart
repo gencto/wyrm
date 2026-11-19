@@ -13,7 +13,9 @@ import 'package:logging/logging.dart';
 import 'package:models/backup_job.dart';
 import 'package:models/backup_kind.dart';
 import 'package:models/backup_sealed.dart';
+import 'package:models/backup_section.dart';
 import 'package:models/backup_status.dart';
+import 'package:models/backups_attrs.dart';
 import 'package:models/broker_self_update.dart';
 import 'package:models/live_value.dart';
 import 'package:models/log_level.dart';
@@ -178,7 +180,7 @@ void main() {
             id: 'b2',
             kind: BackupKind.preUpdate,
             name: 'plant-b2.wyrm-backup',
-            sections: ['control', 'keys'].lock,
+            sections: [BackupSection.control, BackupSection.keys].lock,
             sealed: BackupSealed.passphrase,
             link: 'modbus',
             by: 'user:olena',
@@ -285,7 +287,7 @@ void main() {
       final v = (a as Valid<BackupsAttrs>).value;
       expect(v.exportSecrets, isTrue);
       expect(v.keepDays, 14);
-      expect(v.sections, ['control', 'history']);
+      expect(v.sections, [BackupSection.control, BackupSection.history]);
       expect(v.sendLinks, [const SendLink(link: 's3')]);
       expect(
         backupsAttrsOf(NodeMeta(attr: {'keep_days': const VStr('7')})),

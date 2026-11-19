@@ -200,6 +200,16 @@ class S {
     return Intl.message('User', name: 'user', desc: '', args: []);
   }
 
+  /// `Enter the user and the password in their own fields, not in the address.`
+  String get gatewayHasCredentials {
+    return Intl.message(
+      'Enter the user and the password in their own fields, not in the address.',
+      name: 'gatewayHasCredentials',
+      desc: '',
+      args: [],
+    );
+  }
+
   /// `Not a gateway URL (http:// or https:// and a host)`
   String get invalidGatewayUrl {
     return Intl.message(
@@ -10239,6 +10249,41 @@ class S {
     );
   }
 
+  /// `rights`
+  String get errKindRights {
+    return Intl.message('rights', name: 'errKindRights', desc: '', args: []);
+  }
+
+  /// `reach`
+  String get errKindReach {
+    return Intl.message('reach', name: 'errKindReach', desc: '', args: []);
+  }
+
+  /// `input`
+  String get errKindInput {
+    return Intl.message('input', name: 'errKindInput', desc: '', args: []);
+  }
+
+  /// `busy`
+  String get errKindBusy {
+    return Intl.message('busy', name: 'errKindBusy', desc: '', args: []);
+  }
+
+  /// `gone`
+  String get errKindGone {
+    return Intl.message('gone', name: 'errKindGone', desc: '', args: []);
+  }
+
+  /// `broker`
+  String get errKindBroker {
+    return Intl.message('broker', name: 'errKindBroker', desc: '', args: []);
+  }
+
+  /// `studio`
+  String get errKindStudio {
+    return Intl.message('studio', name: 'errKindStudio', desc: '', args: []);
+  }
+
   /// `studio · {type}`
   String errChipStudio(String type) {
     return Intl.message(
@@ -14250,6 +14295,26 @@ class S {
     );
   }
 
+  /// `the plan or its ticks changed after they were shown. Read the plan again and approve what it says now.`
+  String get approveRefusedChanged {
+    return Intl.message(
+      'the plan or its ticks changed after they were shown. Read the plan again and approve what it says now.',
+      name: 'approveRefusedChanged',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `the arguments of step {step} are masked: its schema is not known. Show them, then approve.`
+  String approveRefusedUnseen(int step) {
+    return Intl.message(
+      'the arguments of step $step are masked: its schema is not known. Show them, then approve.',
+      name: 'approveRefusedUnseen',
+      desc: '',
+      args: [step],
+    );
+  }
+
   /// `Untick the step it names and approve the rest. When the plan is done, ask for the steps left out as a follow-up: they are approved then.`
   String get approveRefusedHint {
     return Intl.message(
@@ -15974,6 +16039,136 @@ class S {
     );
   }
 
+  /// `rev {rev}`
+  String changeRev(int rev) {
+    return Intl.message('rev $rev', name: 'changeRev', desc: '', args: [rev]);
+  }
+
+  /// `rev {rev}: {detail}`
+  String changeRevOf(int rev, String detail) {
+    return Intl.message(
+      'rev $rev: $detail',
+      name: 'changeRevOf',
+      desc: '',
+      args: [rev, detail],
+    );
+  }
+
+  /// `{field} · {names}`
+  String changeFieldOf(String field, String names) {
+    return Intl.message(
+      '$field · $names',
+      name: 'changeFieldOf',
+      desc: '',
+      args: [field, names],
+    );
+  }
+
+  /// `on`
+  String get changeOn {
+    return Intl.message('on', name: 'changeOn', desc: '', args: []);
+  }
+
+  /// `off`
+  String get changeOff {
+    return Intl.message('off', name: 'changeOff', desc: '', args: []);
+  }
+
+  /// `{count} top-level keys`
+  String changeKeys(int count) {
+    return Intl.message(
+      '$count top-level keys',
+      name: 'changeKeys',
+      desc: '',
+      args: [count],
+    );
+  }
+
+  /// `set {name}`
+  String stepUpSet(String name) {
+    return Intl.message('set $name', name: 'stepUpSet', desc: '', args: [name]);
+  }
+
+  /// `{op} {field} = {to}`
+  String stepUpChange(String op, String field, String to) {
+    return Intl.message(
+      '$op $field = $to',
+      name: 'stepUpChange',
+      desc: '',
+      args: [op, field, to],
+    );
+  }
+
+  /// `add user {name}`
+  String stepUpAddUser(String name) {
+    return Intl.message(
+      'add user $name',
+      name: 'stepUpAddUser',
+      desc: '',
+      args: [name],
+    );
+  }
+
+  /// `remove user {name}`
+  String stepUpRemoveUser(String name) {
+    return Intl.message(
+      'remove user $name',
+      name: 'stepUpRemoveUser',
+      desc: '',
+      args: [name],
+    );
+  }
+
+  /// `set roles of {name}`
+  String stepUpSetRoles(String name) {
+    return Intl.message(
+      'set roles of $name',
+      name: 'stepUpSetRoles',
+      desc: '',
+      args: [name],
+    );
+  }
+
+  /// `set password of {name}`
+  String stepUpSetPassword(String name) {
+    return Intl.message(
+      'set password of $name',
+      name: 'stepUpSetPassword',
+      desc: '',
+      args: [name],
+    );
+  }
+
+  /// `disable user {name}`
+  String stepUpDisableUser(String name) {
+    return Intl.message(
+      'disable user $name',
+      name: 'stepUpDisableUser',
+      desc: '',
+      args: [name],
+    );
+  }
+
+  /// `enable user {name}`
+  String stepUpEnableUser(String name) {
+    return Intl.message(
+      'enable user $name',
+      name: 'stepUpEnableUser',
+      desc: '',
+      args: [name],
+    );
+  }
+
+  /// `remove device`
+  String get stepUpRemoveDevice {
+    return Intl.message(
+      'remove device',
+      name: 'stepUpRemoveDevice',
+      desc: '',
+      args: [],
+    );
+  }
+
   /// `Confirm it is you`
   String get stepUpTitle {
     return Intl.message(
@@ -17514,6 +17709,1246 @@ class S {
     );
   }
 
+  /// `Studio is not connected to a gateway.`
+  String get errNotConnected {
+    return Intl.message(
+      'Studio is not connected to a gateway.',
+      name: 'errNotConnected',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `There is no assistant link on this site.`
+  String get errNoAssistant {
+    return Intl.message(
+      'There is no assistant link on this site.',
+      name: 'errNoAssistant',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The assistant started no task. Check that its API key is set.`
+  String get errAssistantNoTask {
+    return Intl.message(
+      'The assistant started no task. Check that its API key is set.',
+      name: 'errAssistantNoTask',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The parameters of the agent link could not be read, so nothing was staged.`
+  String get errAgentParamsUnread {
+    return Intl.message(
+      'The parameters of the agent link could not be read, so nothing was staged.',
+      name: 'errAgentParamsUnread',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The record of task {task} is not one Studio reads.`
+  String errTaskRecordInvalid(String task) {
+    return Intl.message(
+      'The record of task $task is not one Studio reads.',
+      name: 'errTaskRecordInvalid',
+      desc: '',
+      args: [task],
+    );
+  }
+
+  /// `The library block {name} is not one Studio reads.`
+  String errLibraryBlockInvalid(String name) {
+    return Intl.message(
+      'The library block $name is not one Studio reads.',
+      name: 'errLibraryBlockInvalid',
+      desc: '',
+      args: [name],
+    );
+  }
+
+  /// `The definition of flow {flow} is not one Studio reads.`
+  String errFlowDefInvalid(String flow) {
+    return Intl.message(
+      'The definition of flow $flow is not one Studio reads.',
+      name: 'errFlowDefInvalid',
+      desc: '',
+      args: [flow],
+    );
+  }
+
+  /// `{what} The field {field} does not read.`
+  String errUnreadableField(String what, String field) {
+    return Intl.message(
+      '$what The field $field does not read.',
+      name: 'errUnreadableField',
+      desc: '',
+      args: [what, field],
+    );
+  }
+
+  /// `This node has no edit action.`
+  String get errNoEditAction {
+    return Intl.message(
+      'This node has no edit action.',
+      name: 'errNoEditAction',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The port is 1 to 65535.`
+  String get errPortOutOfRange {
+    return Intl.message(
+      'The port is 1 to 65535.',
+      name: 'errPortOutOfRange',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `No device key on {platform}.`
+  String errNoDeviceKey(String platform) {
+    return Intl.message(
+      'No device key on $platform.',
+      name: 'errNoDeviceKey',
+      desc: '',
+      args: [platform],
+    );
+  }
+
+  /// `The file ended at {offset} of {size} bytes.`
+  String errFileEndedEarly(int offset, int size) {
+    return Intl.message(
+      'The file ended at $offset of $size bytes.',
+      name: 'errFileEndedEarly',
+      desc: '',
+      args: [offset, size],
+    );
+  }
+
+  /// `The broker sent an empty part before the end.`
+  String get errEmptyPart {
+    return Intl.message(
+      'The broker sent an empty part before the end.',
+      name: 'errEmptyPart',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The prompt was cancelled.`
+  String get errSignCancelled {
+    return Intl.message(
+      'The prompt was cancelled.',
+      name: 'errSignCancelled',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The system locked the key after too many tries.`
+  String get errSignLockedOut {
+    return Intl.message(
+      'The system locked the key after too many tries.',
+      name: 'errSignLockedOut',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The key no longer opens.`
+  String get errSignKeyGone {
+    return Intl.message(
+      'The key no longer opens.',
+      name: 'errSignKeyGone',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Biometrics are not available on this computer.`
+  String get errSignUnavailable {
+    return Intl.message(
+      'Biometrics are not available on this computer.',
+      name: 'errSignUnavailable',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `No link runs the package {name}.`
+  String errPackageHasNoLink(String name) {
+    return Intl.message(
+      'No link runs the package $name.',
+      name: 'errPackageHasNoLink',
+      desc: '',
+      args: [name],
+    );
+  }
+
+  /// `certificate is not trusted`
+  String get answerUntrusted {
+    return Intl.message(
+      'certificate is not trusted',
+      name: 'answerUntrusted',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `connection refused after {after}`
+  String answerRefusedAfter(String after) {
+    return Intl.message(
+      'connection refused after $after',
+      name: 'answerRefusedAfter',
+      desc: '',
+      args: [after],
+    );
+  }
+
+  /// `no network route`
+  String get answerNoRoute {
+    return Intl.message(
+      'no network route',
+      name: 'answerNoRoute',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{ms} ms`
+  String answerMs(int ms) {
+    return Intl.message('$ms ms', name: 'answerMs', desc: '', args: [ms]);
+  }
+
+  /// `{s} s`
+  String answerSeconds(int s) {
+    return Intl.message('$s s', name: 'answerSeconds', desc: '', args: [s]);
+  }
+
+  /// `failed ({type})`
+  String answerFailed(String type) {
+    return Intl.message(
+      'failed ($type)',
+      name: 'answerFailed',
+      desc: '',
+      args: [type],
+    );
+  }
+
+  /// `timed out`
+  String get answerTimedOut {
+    return Intl.message(
+      'timed out',
+      name: 'answerTimedOut',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `not a WYRM gateway`
+  String get answerNotGateway {
+    return Intl.message(
+      'not a WYRM gateway',
+      name: 'answerNotGateway',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `not a WYRM gateway: the field {path} does not read`
+  String answerWrongShape(String path) {
+    return Intl.message(
+      'not a WYRM gateway: the field $path does not read',
+      name: 'answerWrongShape',
+      desc: '',
+      args: [path],
+    );
+  }
+
+  /// `HTTP {code}`
+  String answerHttp(int code) {
+    return Intl.message(
+      'HTTP $code',
+      name: 'answerHttp',
+      desc: '',
+      args: [code],
+    );
+  }
+
+  /// `assistant`
+  String get errThingAssistant {
+    return Intl.message(
+      'assistant',
+      name: 'errThingAssistant',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `profile`
+  String get errThingProfile {
+    return Intl.message('profile', name: 'errThingProfile', desc: '', args: []);
+  }
+
+  /// `device {id}`
+  String errThingDevice(String id) {
+    return Intl.message(
+      'device $id',
+      name: 'errThingDevice',
+      desc: '',
+      args: [id],
+    );
+  }
+
+  /// `{label}: {value}`
+  String errCopyLine(String label, String value) {
+    return Intl.message(
+      '$label: $value',
+      name: 'errCopyLine',
+      desc: '',
+      args: [label, value],
+    );
+  }
+
+  /// `Message`
+  String get errRowMessage {
+    return Intl.message('Message', name: 'errRowMessage', desc: '', args: []);
+  }
+
+  /// `step {n}: {names}`
+  String planSavedStep(int n, String names) {
+    return Intl.message(
+      'step $n: $names',
+      name: 'planSavedStep',
+      desc: '',
+      args: [n, names],
+    );
+  }
+
+  /// `macOS`
+  String get osMac {
+    return Intl.message('macOS', name: 'osMac', desc: '', args: []);
+  }
+
+  /// `Windows`
+  String get osWindows {
+    return Intl.message('Windows', name: 'osWindows', desc: '', args: []);
+  }
+
+  /// `iOS`
+  String get osIos {
+    return Intl.message('iOS', name: 'osIos', desc: '', args: []);
+  }
+
+  /// `Android`
+  String get osAndroid {
+    return Intl.message('Android', name: 'osAndroid', desc: '', args: []);
+  }
+
+  /// `Linux`
+  String get osLinux {
+    return Intl.message('Linux', name: 'osLinux', desc: '', args: []);
+  }
+
+  /// `web`
+  String get osWeb {
+    return Intl.message('web', name: 'osWeb', desc: '', args: []);
+  }
+
+  /// `unknown`
+  String get osUnknown {
+    return Intl.message('unknown', name: 'osUnknown', desc: '', args: []);
+  }
+
+  /// `Modbus`
+  String get linkTitleModbus {
+    return Intl.message('Modbus', name: 'linkTitleModbus', desc: '', args: []);
+  }
+
+  /// `TCP, RTU over TCP, serial RTU · master and slave`
+  String get linkSummaryModbus {
+    return Intl.message(
+      'TCP, RTU over TCP, serial RTU · master and slave',
+      name: 'linkSummaryModbus',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `OPC UA client`
+  String get linkTitleOpcua {
+    return Intl.message(
+      'OPC UA client',
+      name: 'linkTitleOpcua',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Nodes of OPC UA servers as points`
+  String get linkSummaryOpcua {
+    return Intl.message(
+      'Nodes of OPC UA servers as points',
+      name: 'linkSummaryOpcua',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `BACnet/IP`
+  String get linkTitleBacnet {
+    return Intl.message(
+      'BACnet/IP',
+      name: 'linkTitleBacnet',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Who-Is/I-Am, RPM, BBMD, routed devices`
+  String get linkSummaryBacnet {
+    return Intl.message(
+      'Who-Is/I-Am, RPM, BBMD, routed devices',
+      name: 'linkSummaryBacnet',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Siemens S7`
+  String get linkTitleS7 {
+    return Intl.message('Siemens S7', name: 'linkTitleS7', desc: '', args: []);
+  }
+
+  /// `S7-300/400/1200/1500 over ISO-on-TCP`
+  String get linkSummaryS7 {
+    return Intl.message(
+      'S7-300/400/1200/1500 over ISO-on-TCP',
+      name: 'linkSummaryS7',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `SNMP`
+  String get linkTitleSnmp {
+    return Intl.message('SNMP', name: 'linkTitleSnmp', desc: '', args: []);
+  }
+
+  /// `v2c and v3 agents`
+  String get linkSummarySnmp {
+    return Intl.message(
+      'v2c and v3 agents',
+      name: 'linkSummarySnmp',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `MQTT`
+  String get linkTitleMqtt {
+    return Intl.message('MQTT', name: 'linkTitleMqtt', desc: '', args: []);
+  }
+
+  /// `Topics as points`
+  String get linkSummaryMqtt {
+    return Intl.message(
+      'Topics as points',
+      name: 'linkSummaryMqtt',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `HTTP / REST`
+  String get linkTitleHttp {
+    return Intl.message(
+      'HTTP / REST',
+      name: 'linkTitleHttp',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `JSON APIs polled on a schedule`
+  String get linkSummaryHttp {
+    return Intl.message(
+      'JSON APIs polled on a schedule',
+      name: 'linkSummaryHttp',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Prometheus`
+  String get linkTitlePrometheus {
+    return Intl.message(
+      'Prometheus',
+      name: 'linkTitlePrometheus',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Scrapes exporters into points`
+  String get linkSummaryPrometheus {
+    return Intl.message(
+      'Scrapes exporters into points',
+      name: 'linkSummaryPrometheus',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `DLMS/COSEM`
+  String get linkTitleDlms {
+    return Intl.message(
+      'DLMS/COSEM',
+      name: 'linkTitleDlms',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Electricity meters`
+  String get linkSummaryDlms {
+    return Intl.message(
+      'Electricity meters',
+      name: 'linkSummaryDlms',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Mock`
+  String get linkTitleMock {
+    return Intl.message('Mock', name: 'linkTitleMock', desc: '', args: []);
+  }
+
+  /// `Generated points for tests and benchmarks`
+  String get linkSummaryMock {
+    return Intl.message(
+      'Generated points for tests and benchmarks',
+      name: 'linkSummaryMock',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Mock device`
+  String get linkTitleMockdev {
+    return Intl.message(
+      'Mock device',
+      name: 'linkTitleMockdev',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `A simulated device on the driver framework`
+  String get linkSummaryMockdev {
+    return Intl.message(
+      'A simulated device on the driver framework',
+      name: 'linkSummaryMockdev',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `S3 and compatibles`
+  String get linkTitleS3 {
+    return Intl.message(
+      'S3 and compatibles',
+      name: 'linkTitleS3',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `A bucket as a tree of folders and files`
+  String get linkSummaryS3 {
+    return Intl.message(
+      'A bucket as a tree of folders and files',
+      name: 'linkSummaryS3',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Google Drive`
+  String get linkTitleGdrive {
+    return Intl.message(
+      'Google Drive',
+      name: 'linkTitleGdrive',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `A folder or a shared drive`
+  String get linkSummaryGdrive {
+    return Intl.message(
+      'A folder or a shared drive',
+      name: 'linkSummaryGdrive',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `WebDAV`
+  String get linkTitleWebdav {
+    return Intl.message('WebDAV', name: 'linkTitleWebdav', desc: '', args: []);
+  }
+
+  /// `Nextcloud, ownCloud and other WebDAV servers`
+  String get linkSummaryWebdav {
+    return Intl.message(
+      'Nextcloud, ownCloud and other WebDAV servers',
+      name: 'linkSummaryWebdav',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Local folder`
+  String get linkTitleLocalfs {
+    return Intl.message(
+      'Local folder',
+      name: 'linkTitleLocalfs',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `A directory of the host, USB/SD or a mount`
+  String get linkSummaryLocalfs {
+    return Intl.message(
+      'A directory of the host, USB/SD or a mount',
+      name: 'linkSummaryLocalfs',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Assistant agent`
+  String get linkTitleAgent {
+    return Intl.message(
+      'Assistant agent',
+      name: 'linkTitleAgent',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Plans changes for a person to approve`
+  String get linkSummaryAgent {
+    return Intl.message(
+      'Plans changes for a person to approve',
+      name: 'linkSummaryAgent',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `PostgreSQL / TimescaleDB`
+  String get linkTitlePostgres {
+    return Intl.message(
+      'PostgreSQL / TimescaleDB',
+      name: 'linkTitlePostgres',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Sends the historian’s journal to a database`
+  String get linkSummaryPostgres {
+    return Intl.message(
+      'Sends the historian’s journal to a database',
+      name: 'linkSummaryPostgres',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `InfluxDB 2.x / 3.x`
+  String get linkTitleInfluxdb {
+    return Intl.message(
+      'InfluxDB 2.x / 3.x',
+      name: 'linkTitleInfluxdb',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Line protocol, tags site and key`
+  String get linkSummaryInfluxdb {
+    return Intl.message(
+      'Line protocol, tags site and key',
+      name: 'linkSummaryInfluxdb',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `MongoDB`
+  String get linkTitleMongodb {
+    return Intl.message(
+      'MongoDB',
+      name: 'linkTitleMongodb',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `History rows as documents`
+  String get linkSummaryMongodb {
+    return Intl.message(
+      'History rows as documents',
+      name: 'linkSummaryMongodb',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `MySQL / MariaDB`
+  String get linkTitleMysql {
+    return Intl.message(
+      'MySQL / MariaDB',
+      name: 'linkTitleMysql',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `History rows as an upsert per batch`
+  String get linkSummaryMysql {
+    return Intl.message(
+      'History rows as an upsert per batch',
+      name: 'linkSummaryMysql',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `DynamoDB`
+  String get linkTitleDynamodb {
+    return Intl.message(
+      'DynamoDB',
+      name: 'linkTitleDynamodb',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `History rows with a TTL`
+  String get linkSummaryDynamodb {
+    return Intl.message(
+      'History rows with a TTL',
+      name: 'linkSummaryDynamodb',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Scheduler`
+  String get linkTitleScheduler {
+    return Intl.message(
+      'Scheduler',
+      name: 'linkTitleScheduler',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Weekly schedules and special days`
+  String get linkSummaryScheduler {
+    return Intl.message(
+      'Weekly schedules and special days',
+      name: 'linkSummaryScheduler',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Alarms`
+  String get linkTitleAlarm {
+    return Intl.message('Alarms', name: 'linkTitleAlarm', desc: '', args: []);
+  }
+
+  /// `Alarm classes, records and acknowledgement`
+  String get linkSummaryAlarm {
+    return Intl.message(
+      'Alarm classes, records and acknowledgement',
+      name: 'linkSummaryAlarm',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `DQL queries`
+  String get linkTitleDql {
+    return Intl.message(
+      'DQL queries',
+      name: 'linkTitleDql',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Tables from the tree, as DSA queries`
+  String get linkSummaryDql {
+    return Intl.message(
+      'Tables from the tree, as DSA queries',
+      name: 'linkSummaryDql',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Platform upstreams`
+  String get linkTitleUplink {
+    return Intl.message(
+      'Platform upstreams',
+      name: 'linkTitleUplink',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `MQTT, Sparkplug, ThingsBoard, Azure, AWS`
+  String get linkSummaryUplink {
+    return Intl.message(
+      'MQTT, Sparkplug, ThingsBoard, Azure, AWS',
+      name: 'linkSummaryUplink',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Equipment`
+  String get linkCategoryEquipment {
+    return Intl.message(
+      'Equipment',
+      name: 'linkCategoryEquipment',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Apps`
+  String get linkCategoryApps {
+    return Intl.message('Apps', name: 'linkCategoryApps', desc: '', args: []);
+  }
+
+  /// `File stores`
+  String get linkCategoryFileStores {
+    return Intl.message(
+      'File stores',
+      name: 'linkCategoryFileStores',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `History sync`
+  String get linkCategoryHistorySync {
+    return Intl.message(
+      'History sync',
+      name: 'linkCategoryHistorySync',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Messaging`
+  String get linkCategoryMessaging {
+    return Intl.message(
+      'Messaging',
+      name: 'linkCategoryMessaging',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Test`
+  String get linkCategoryTest {
+    return Intl.message('Test', name: 'linkCategoryTest', desc: '', args: []);
+  }
+
+  /// `Packages`
+  String get linkCategoryPackages {
+    return Intl.message(
+      'Packages',
+      name: 'linkCategoryPackages',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{title} (process)`
+  String catalogProcessForm(String title) {
+    return Intl.message(
+      '$title (process)',
+      name: 'catalogProcessForm',
+      desc: '',
+      args: [title],
+    );
+  }
+
+  /// `Edit`
+  String get changeOpEdit {
+    return Intl.message('Edit', name: 'changeOpEdit', desc: '', args: []);
+  }
+
+  /// `Add`
+  String get changeOpAdd {
+    return Intl.message('Add', name: 'changeOpAdd', desc: '', args: []);
+  }
+
+  /// `Remove`
+  String get changeOpRemove {
+    return Intl.message('Remove', name: 'changeOpRemove', desc: '', args: []);
+  }
+
+  /// `Input`
+  String get fieldWordInput {
+    return Intl.message('Input', name: 'fieldWordInput', desc: '', args: []);
+  }
+
+  /// `Output`
+  String get fieldWordOutput {
+    return Intl.message('Output', name: 'fieldWordOutput', desc: '', args: []);
+  }
+
+  /// `Trigger`
+  String get fieldWordTrigger {
+    return Intl.message(
+      'Trigger',
+      name: 'fieldWordTrigger',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Input out of range`
+  String get fieldWordInputOutOfRange {
+    return Intl.message(
+      'Input out of range',
+      name: 'fieldWordInputOutOfRange',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Factor`
+  String get fieldWordFactor {
+    return Intl.message('Factor', name: 'fieldWordFactor', desc: '', args: []);
+  }
+
+  /// `Offset`
+  String get fieldWordOffset {
+    return Intl.message('Offset', name: 'fieldWordOffset', desc: '', args: []);
+  }
+
+  /// `Absolute change`
+  String get fieldWordAbsoluteChange {
+    return Intl.message(
+      'Absolute change',
+      name: 'fieldWordAbsoluteChange',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Percent change`
+  String get fieldWordPercentChange {
+    return Intl.message(
+      'Percent change',
+      name: 'fieldWordPercentChange',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Function`
+  String get fieldWordFunction {
+    return Intl.message(
+      'Function',
+      name: 'fieldWordFunction',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Operation`
+  String get fieldWordOperation {
+    return Intl.message(
+      'Operation',
+      name: 'fieldWordOperation',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Expression`
+  String get fieldWordExpression {
+    return Intl.message(
+      'Expression',
+      name: 'fieldWordExpression',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Message`
+  String get fieldWordMessage {
+    return Intl.message(
+      'Message',
+      name: 'fieldWordMessage',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Delay (ms)`
+  String get fieldWordDelayMs {
+    return Intl.message(
+      'Delay (ms)',
+      name: 'fieldWordDelayMs',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Point`
+  String get fieldWordPoint {
+    return Intl.message('Point', name: 'fieldWordPoint', desc: '', args: []);
+  }
+
+  /// `Value name`
+  String get fieldWordValueName {
+    return Intl.message(
+      'Value name',
+      name: 'fieldWordValueName',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Meta`
+  String get fieldWordMeta {
+    return Intl.message('Meta', name: 'fieldWordMeta', desc: '', args: []);
+  }
+
+  /// `Allow bad quality`
+  String get fieldWordAllowBadQuality {
+    return Intl.message(
+      'Allow bad quality',
+      name: 'fieldWordAllowBadQuality',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `On bad quality`
+  String get fieldWordOnBadQuality {
+    return Intl.message(
+      'On bad quality',
+      name: 'fieldWordOnBadQuality',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Max samples`
+  String get fieldWordMaxSamples {
+    return Intl.message(
+      'Max samples',
+      name: 'fieldWordMaxSamples',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Memory (MB)`
+  String get fieldWordMemoryMb {
+    return Intl.message(
+      'Memory (MB)',
+      name: 'fieldWordMemoryMb',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Every`
+  String get fieldWordEvery {
+    return Intl.message('Every', name: 'fieldWordEvery', desc: '', args: []);
+  }
+
+  /// `Auto run`
+  String get fieldWordAutoRun {
+    return Intl.message(
+      'Auto run',
+      name: 'fieldWordAutoRun',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Run on start`
+  String get fieldWordRunOnStart {
+    return Intl.message(
+      'Run on start',
+      name: 'fieldWordRunOnStart',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Scope`
+  String get fieldWordScope {
+    return Intl.message('Scope', name: 'fieldWordScope', desc: '', args: []);
+  }
+
+  /// `Reset mode`
+  String get fieldWordResetMode {
+    return Intl.message(
+      'Reset mode',
+      name: 'fieldWordResetMode',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Node`
+  String get fieldWordNode {
+    return Intl.message('Node', name: 'fieldWordNode', desc: '', args: []);
+  }
+
+  /// `Write on`
+  String get fieldWordWriteOn {
+    return Intl.message(
+      'Write on',
+      name: 'fieldWordWriteOn',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Run on`
+  String get fieldWordRunOn {
+    return Intl.message('Run on', name: 'fieldWordRunOn', desc: '', args: []);
+  }
+
+  /// `Interval (s)`
+  String get fieldWordIntervalS {
+    return Intl.message(
+      'Interval (s)',
+      name: 'fieldWordIntervalS',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Period (ms)`
+  String get fieldWordPeriodMs {
+    return Intl.message(
+      'Period (ms)',
+      name: 'fieldWordPeriodMs',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Quiet time (ms)`
+  String get fieldWordQuietTimeMs {
+    return Intl.message(
+      'Quiet time (ms)',
+      name: 'fieldWordQuietTimeMs',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Delimiter`
+  String get fieldWordDelimiter {
+    return Intl.message(
+      'Delimiter',
+      name: 'fieldWordDelimiter',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Alive`
+  String get fieldWordAlive {
+    return Intl.message('Alive', name: 'fieldWordAlive', desc: '', args: []);
+  }
+
+  /// `Result`
+  String get fieldWordResult {
+    return Intl.message('Result', name: 'fieldWordResult', desc: '', args: []);
+  }
+
+  /// `Average`
+  String get fieldWordAverage {
+    return Intl.message(
+      'Average',
+      name: 'fieldWordAverage',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Active`
+  String get fieldWordActive {
+    return Intl.message('Active', name: 'fieldWordActive', desc: '', args: []);
+  }
+
+  /// `Count`
+  String get fieldWordCount {
+    return Intl.message('Count', name: 'fieldWordCount', desc: '', args: []);
+  }
+
+  /// `Value`
+  String get fieldWordValue {
+    return Intl.message('Value', name: 'fieldWordValue', desc: '', args: []);
+  }
+
+  /// `Run when`
+  String get fieldWordRunWhen {
+    return Intl.message(
+      'Run when',
+      name: 'fieldWordRunWhen',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Case`
+  String get fieldWordCaseOf {
+    return Intl.message('Case', name: 'fieldWordCaseOf', desc: '', args: []);
+  }
+
+  /// `Then`
+  String get fieldWordThen {
+    return Intl.message('Then', name: 'fieldWordThen', desc: '', args: []);
+  }
+
+  /// `{word} {n}`
+  String fieldNumbered(String word, int n) {
+    return Intl.message(
+      '$word $n',
+      name: 'fieldNumbered',
+      desc: '',
+      args: [word, n],
+    );
+  }
+
   /// `k × in + b`
   String get formLinear {
     return Intl.message('k × in + b', name: 'formLinear', desc: '', args: []);
@@ -17537,6 +18972,828 @@ class S {
   /// `invalid`
   String get problemInvalid {
     return Intl.message('invalid', name: 'problemInvalid', desc: '', args: []);
+  }
+
+  /// `The broker answered in a form this Studio does not read, so nothing was changed here. The field is in the log.`
+  String get errUnreadableAnswer {
+    return Intl.message(
+      'The broker answered in a form this Studio does not read, so nothing was changed here. The field is in the log.',
+      name: 'errUnreadableAnswer',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Writing the file`
+  String get bakStepWriting {
+    return Intl.message(
+      'Writing the file',
+      name: 'bakStepWriting',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `new`
+  String get rstLinkNew {
+    return Intl.message('new', name: 'rstLinkNew', desc: '', args: []);
+  }
+
+  /// `exists here`
+  String get rstLinkExists {
+    return Intl.message(
+      'exists here',
+      name: 'rstLinkExists',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `state not read`
+  String get flowStateUnread {
+    return Intl.message(
+      'state not read',
+      name: 'flowStateUnread',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The broker answered these entries in a form this Studio does not read, so they are not shown. The rest is. The fields are in the log.`
+  String get errUnreadableRows {
+    return Intl.message(
+      'The broker answered these entries in a form this Studio does not read, so they are not shown. The rest is. The fields are in the log.',
+      name: 'errUnreadableRows',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `None`
+  String get logTypeNone {
+    return Intl.message('None', name: 'logTypeNone', desc: '', args: []);
+  }
+
+  /// `Interval`
+  String get logTypeInterval {
+    return Intl.message(
+      'Interval',
+      name: 'logTypeInterval',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `All Data`
+  String get logTypeAllData {
+    return Intl.message('All Data', name: 'logTypeAllData', desc: '', args: []);
+  }
+
+  /// `Point Change`
+  String get logTypePointChange {
+    return Intl.message(
+      'Point Change',
+      name: 'logTypePointChange',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{file} is not JSON`
+  String chkNotJson(String file) {
+    return Intl.message(
+      '$file is not JSON',
+      name: 'chkNotJson',
+      desc: '',
+      args: [file],
+    );
+  }
+
+  /// `{file} is not a JSON object`
+  String chkNotObject(String file) {
+    return Intl.message(
+      '$file is not a JSON object',
+      name: 'chkNotObject',
+      desc: '',
+      args: [file],
+    );
+  }
+
+  /// `{field} is missing`
+  String chkMissing(String field) {
+    return Intl.message(
+      '$field is missing',
+      name: 'chkMissing',
+      desc: '',
+      args: [field],
+    );
+  }
+
+  /// `{field} is not of the form it has in a manifest`
+  String chkWrongForm(String field) {
+    return Intl.message(
+      '$field is not of the form it has in a manifest',
+      name: 'chkWrongForm',
+      desc: '',
+      args: [field],
+    );
+  }
+
+  /// `{field}: {found} is a name this Studio does not know`
+  String chkUnknownName(String field, String found) {
+    return Intl.message(
+      '$field: $found is a name this Studio does not know',
+      name: 'chkUnknownName',
+      desc: '',
+      args: [field, found],
+    );
+  }
+
+  /// `{id} · {mode} · {driver} · from {site} (wyrmd {broker}, {created})`
+  String chkLinkFrom(
+    String id,
+    String mode,
+    String driver,
+    String site,
+    String broker,
+    String created,
+  ) {
+    return Intl.message(
+      '$id · $mode · $driver · from $site (wyrmd $broker, $created)',
+      name: 'chkLinkFrom',
+      desc: '',
+      args: [id, mode, driver, site, broker, created],
+    );
+  }
+
+  /// `{name} (a way this Studio does not know)`
+  String logTypeOther(String name) {
+    return Intl.message(
+      '$name (a way this Studio does not know)',
+      name: 'logTypeOther',
+      desc: '',
+      args: [name],
+    );
+  }
+
+  /// `The broker described its backups in a form this Studio does not read, so none is offered here. The field is in the log; see Problems.`
+  String get bakNotRead {
+    return Intl.message(
+      'The broker described its backups in a form this Studio does not read, so none is offered here. The field is in the log; see Problems.',
+      name: 'bakNotRead',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `not read: in a form this Studio does not know`
+  String get bakRowNotRead {
+    return Intl.message(
+      'not read: in a form this Studio does not know',
+      name: 'bakRowNotRead',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `not read by this Studio`
+  String get waitNotRead {
+    return Intl.message(
+      'not read by this Studio',
+      name: 'waitNotRead',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `not read`
+  String get whyNotRead {
+    return Intl.message('not read', name: 'whyNotRead', desc: '', args: []);
+  }
+
+  /// `Answered in a form this Studio does not read; decide on the broker. See Problems.`
+  String get waitNotReadNote {
+    return Intl.message(
+      'Answered in a form this Studio does not read; decide on the broker. See Problems.',
+      name: 'waitNotReadNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `This file is not in a form Studio reads, so nothing was sent. The field at fault is in the log.`
+  String get errFileNotRead {
+    return Intl.message(
+      'This file is not in a form Studio reads, so nothing was sent. The field at fault is in the log.',
+      name: 'errFileNotRead',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Size`
+  String get chkSize {
+    return Intl.message('Size', name: 'chkSize', desc: '', args: []);
+  }
+
+  /// `Archive`
+  String get chkArchive {
+    return Intl.message('Archive', name: 'chkArchive', desc: '', args: []);
+  }
+
+  /// `Size and files`
+  String get chkSizeAndFiles {
+    return Intl.message(
+      'Size and files',
+      name: 'chkSizeAndFiles',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Paths`
+  String get chkPaths {
+    return Intl.message('Paths', name: 'chkPaths', desc: '', args: []);
+  }
+
+  /// `Manifest`
+  String get chkManifest {
+    return Intl.message('Manifest', name: 'chkManifest', desc: '', args: []);
+  }
+
+  /// `Protocol`
+  String get chkProtocol {
+    return Intl.message('Protocol', name: 'chkProtocol', desc: '', args: []);
+  }
+
+  /// `Name and version`
+  String get chkNameVersion {
+    return Intl.message(
+      'Name and version',
+      name: 'chkNameVersion',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Binaries`
+  String get chkBinaries {
+    return Intl.message('Binaries', name: 'chkBinaries', desc: '', args: []);
+  }
+
+  /// `This host`
+  String get chkThisHost {
+    return Intl.message('This host', name: 'chkThisHost', desc: '', args: []);
+  }
+
+  /// `Component`
+  String get chkComponent {
+    return Intl.message('Component', name: 'chkComponent', desc: '', args: []);
+  }
+
+  /// `World`
+  String get chkWorld {
+    return Intl.message('World', name: 'chkWorld', desc: '', args: []);
+  }
+
+  /// `Rights asked`
+  String get chkRightsAsked {
+    return Intl.message(
+      'Rights asked',
+      name: 'chkRightsAsked',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Kind`
+  String get chkKind {
+    return Intl.message('Kind', name: 'chkKind', desc: '', args: []);
+  }
+
+  /// `Link`
+  String get chkLink {
+    return Intl.message('Link', name: 'chkLink', desc: '', args: []);
+  }
+
+  /// `Package`
+  String get chkPackage {
+    return Intl.message('Package', name: 'chkPackage', desc: '', args: []);
+  }
+
+  /// `Secrets`
+  String get chkSecrets {
+    return Intl.message('Secrets', name: 'chkSecrets', desc: '', args: []);
+  }
+
+  /// `Sections`
+  String get chkSections {
+    return Intl.message('Sections', name: 'chkSections', desc: '', args: []);
+  }
+
+  /// `Definition, grants, package files`
+  String get chkLinkParts {
+    return Intl.message(
+      'Definition, grants, package files',
+      name: 'chkLinkParts',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Archive, manifest, link`
+  String get chkBackupParts {
+    return Intl.message(
+      'Archive, manifest, link',
+      name: 'chkBackupParts',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Download`
+  String get chkDownload {
+    return Intl.message('Download', name: 'chkDownload', desc: '', args: []);
+  }
+
+  /// `Archive, manifest, binaries`
+  String get chkRemoteParts {
+    return Intl.message(
+      'Archive, manifest, binaries',
+      name: 'chkRemoteParts',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `(none)`
+  String get chkNone {
+    return Intl.message('(none)', name: 'chkNone', desc: '', args: []);
+  }
+
+  /// `{mib} MiB zipped; at most {limit} MiB`
+  String chkTooLargeZipped(int mib, int limit) {
+    return Intl.message(
+      '$mib MiB zipped; at most $limit MiB',
+      name: 'chkTooLargeZipped',
+      desc: '',
+      args: [mib, limit],
+    );
+  }
+
+  /// `{mib} MiB; at most {limit} MiB`
+  String chkTooLarge(int mib, int limit) {
+    return Intl.message(
+      '$mib MiB; at most $limit MiB',
+      name: 'chkTooLarge',
+      desc: '',
+      args: [mib, limit],
+    );
+  }
+
+  /// `not a zip`
+  String get chkNotZip {
+    return Intl.message('not a zip', name: 'chkNotZip', desc: '', args: []);
+  }
+
+  /// `{files} files, {mib} MiB unpacked; at most {maxFiles} and {maxMib} MiB`
+  String chkTooManyFiles(int files, int mib, int maxFiles, int maxMib) {
+    return Intl.message(
+      '$files files, $mib MiB unpacked; at most $maxFiles and $maxMib MiB',
+      name: 'chkTooManyFiles',
+      desc: '',
+      args: [files, mib, maxFiles, maxMib],
+    );
+  }
+
+  /// `{kib} KiB, {files} files`
+  String chkKibAndFiles(int kib, int files) {
+    return Intl.message(
+      '$kib KiB, $files files',
+      name: 'chkKibAndFiles',
+      desc: '',
+      args: [kib, files],
+    );
+  }
+
+  /// `{kib} KiB`
+  String chkKib(int kib) {
+    return Intl.message('$kib KiB', name: 'chkKib', desc: '', args: [kib]);
+  }
+
+  /// `{n} entries`
+  String chkEntries(int n) {
+    return Intl.message('$n entries', name: 'chkEntries', desc: '', args: [n]);
+  }
+
+  /// `not relative: {path}`
+  String chkPathNotRelative(String path) {
+    return Intl.message(
+      'not relative: $path',
+      name: 'chkPathNotRelative',
+      desc: '',
+      args: [path],
+    );
+  }
+
+  /// `symbolic link: {name}`
+  String chkSymbolicLink(String name) {
+    return Intl.message(
+      'symbolic link: $name',
+      name: 'chkSymbolicLink',
+      desc: '',
+      args: [name],
+    );
+  }
+
+  /// `relative, no links`
+  String get chkPathsOk {
+    return Intl.message(
+      'relative, no links',
+      name: 'chkPathsOk',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `no {file} at the root of the archive`
+  String chkNoManifest(String file) {
+    return Intl.message(
+      'no $file at the root of the archive',
+      name: 'chkNoManifest',
+      desc: '',
+      args: [file],
+    );
+  }
+
+  /// `unknown fields: {fields}`
+  String chkUnknownFields(String fields) {
+    return Intl.message(
+      'unknown fields: $fields',
+      name: 'chkUnknownFields',
+      desc: '',
+      args: [fields],
+    );
+  }
+
+  /// `missing or wrong: {fields}`
+  String chkMissingFields(String fields) {
+    return Intl.message(
+      'missing or wrong: $fields',
+      name: 'chkMissingFields',
+      desc: '',
+      args: [fields],
+    );
+  }
+
+  /// `wyrm_link {n}`
+  String chkProtocolOk(int n) {
+    return Intl.message(
+      'wyrm_link $n',
+      name: 'chkProtocolOk',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `wyrm_link {found}; the brokers speak {speak}`
+  String chkProtocolOther(String found, int speak) {
+    return Intl.message(
+      'wyrm_link $found; the brokers speak $speak',
+      name: 'chkProtocolOther',
+      desc: '',
+      args: [found, speak],
+    );
+  }
+
+  /// `{name} {version}: name a key segment, version 1–32 of A–Z a–z 0–9 . _ - +`
+  String chkNameVersionBad(String name, String version) {
+    return Intl.message(
+      '$name $version: name a key segment, version 1–32 of A–Z a–z 0–9 . _ - +',
+      name: 'chkNameVersionBad',
+      desc: '',
+      args: [name, version],
+    );
+  }
+
+  /// `entry file missing for {hosts}`
+  String chkEntryMissing(String hosts) {
+    return Intl.message(
+      'entry file missing for $hosts',
+      name: 'chkEntryMissing',
+      desc: '',
+      args: [hosts],
+    );
+  }
+
+  /// `a process package needs entries per host`
+  String get chkNeedsEntries {
+    return Intl.message(
+      'a process package needs entries per host',
+      name: 'chkNeedsEntries',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `no entry for {host}`
+  String chkNoEntryFor(String host) {
+    return Intl.message(
+      'no entry for $host',
+      name: 'chkNoEntryFor',
+      desc: '',
+      args: [host],
+    );
+  }
+
+  /// `entry {entry} not in the zip`
+  String chkComponentMissing(String entry) {
+    return Intl.message(
+      'entry $entry not in the zip',
+      name: 'chkComponentMissing',
+      desc: '',
+      args: [entry],
+    );
+  }
+
+  /// `WebAssembly`
+  String get chkWasm {
+    return Intl.message('WebAssembly', name: 'chkWasm', desc: '', args: []);
+  }
+
+  /// `not WebAssembly`
+  String get chkNotWasm {
+    return Intl.message(
+      'not WebAssembly',
+      name: 'chkNotWasm',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{entry} is not WebAssembly`
+  String chkNotWasmFile(String entry) {
+    return Intl.message(
+      '$entry is not WebAssembly',
+      name: 'chkNotWasmFile',
+      desc: '',
+      args: [entry],
+    );
+  }
+
+  /// `read from the component by the broker`
+  String get chkWorldByBroker {
+    return Intl.message(
+      'read from the component by the broker',
+      name: 'chkWorldByBroker',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `a backup of kind {kind}: Add a link takes a link backup (.wyrm-link); a broker backup is restored in System`
+  String chkOtherKind(String kind) {
+    return Intl.message(
+      'a backup of kind $kind: Add a link takes a link backup (.wyrm-link); a broker backup is restored in System',
+      name: 'chkOtherKind',
+      desc: '',
+      args: [kind],
+    );
+  }
+
+  /// `{name} {version}, in the file`
+  String chkPackageInFile(String name, String version) {
+    return Intl.message(
+      '$name $version, in the file',
+      name: 'chkPackageInFile',
+      desc: '',
+      args: [name, version],
+    );
+  }
+
+  /// `{name} {version} is not in the file: the broker must have it installed`
+  String chkPackageNotInFile(String name, String version) {
+    return Intl.message(
+      '$name $version is not in the file: the broker must have it installed',
+      name: 'chkPackageNotInFile',
+      desc: '',
+      args: [name, version],
+    );
+  }
+
+  /// `sealed with a passphrase`
+  String get chkSealedPassphrase {
+    return Intl.message(
+      'sealed with a passphrase',
+      name: 'chkSealedPassphrase',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `sealed for {site}: the file opens only on a broker with the keys of that site`
+  String chkSealedForSite(String site) {
+    return Intl.message(
+      'sealed for $site: the file opens only on a broker with the keys of that site',
+      name: 'chkSealedForSite',
+      desc: '',
+      args: [site],
+    );
+  }
+
+  /// `none in the file`
+  String get chkNoSecrets {
+    return Intl.message(
+      'none in the file',
+      name: 'chkNoSecrets',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `checked by the broker as a new link`
+  String get chkAsNewLink {
+    return Intl.message(
+      'checked by the broker as a new link',
+      name: 'chkAsNewLink',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{mib} MiB: not read by Studio; checked by the broker after the upload. Give the link its name on the next step`
+  String chkNotReadHere(int mib) {
+    return Intl.message(
+      '$mib MiB: not read by Studio; checked by the broker after the upload. Give the link its name on the next step',
+      name: 'chkNotReadHere',
+      desc: '',
+      args: [mib],
+    );
+  }
+
+  /// `{what} is fetched by the broker`
+  String chkFetched(String what) {
+    return Intl.message(
+      '$what is fetched by the broker',
+      name: 'chkFetched',
+      desc: '',
+      args: [what],
+    );
+  }
+
+  /// `it is fetched by the broker`
+  String get chkFetchedIt {
+    return Intl.message(
+      'it is fetched by the broker',
+      name: 'chkFetchedIt',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `checked by the broker after the download`
+  String get chkAfterDownload {
+    return Intl.message(
+      'checked by the broker after the download',
+      name: 'chkAfterDownload',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The broker shows no SHA-256 of this backup, so what arrives cannot be checked. Nothing was saved.`
+  String get errBackupNoDigest {
+    return Intl.message(
+      'The broker shows no SHA-256 of this backup, so what arrives cannot be checked. Nothing was saved.',
+      name: 'errBackupNoDigest',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The file that arrived is not the backup: its SHA-256 is not the one the broker shows. Nothing was saved. Both are in the log.`
+  String get errBackupDigestMismatch {
+    return Intl.message(
+      'The file that arrived is not the backup: its SHA-256 is not the one the broker shows. Nothing was saved. Both are in the log.',
+      name: 'errBackupDigestMismatch',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{name} waits in quarantine, not read by this Studio`
+  String sysAttnNotRead(String name) {
+    return Intl.message(
+      '$name waits in quarantine, not read by this Studio',
+      name: 'sysAttnNotRead',
+      desc: '',
+      args: [name],
+    );
+  }
+
+  /// `{file} nests deeper than a manifest may`
+  String chkTooDeep(String file) {
+    return Intl.message(
+      '$file nests deeper than a manifest may',
+      name: 'chkTooDeep',
+      desc: '',
+      args: [file],
+    );
+  }
+
+  /// `The file could not be checked, so the install does not go on. Bring another file.`
+  String get errCheckNotRun {
+    return Intl.message(
+      'The file could not be checked, so the install does not go on. Bring another file.',
+      name: 'errCheckNotRun',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{file} is not JSON (at character {at})`
+  String chkNotJsonAt(String file, int at) {
+    return Intl.message(
+      '$file is not JSON (at character $at)',
+      name: 'chkNotJsonAt',
+      desc: '',
+      args: [file, at],
+    );
+  }
+
+  /// `{field} is not a field this file has`
+  String chkUnknownField(String field) {
+    return Intl.message(
+      '$field is not a field this file has',
+      name: 'chkUnknownField',
+      desc: '',
+      args: [field],
+    );
+  }
+
+  /// `{why}. Nothing was sent.`
+  String errFileNotReadBecause(String why) {
+    return Intl.message(
+      '$why. Nothing was sent.',
+      name: 'errFileNotReadBecause',
+      desc: '',
+      args: [why],
+    );
+  }
+
+  /// `This step may not start yet, so nothing was sent. The dialog says what is missing.`
+  String get errStepBlocked {
+    return Intl.message(
+      'This step may not start yet, so nothing was sent. The dialog says what is missing.',
+      name: 'errStepBlocked',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Upload and check the file first`
+  String get rstNotChecked {
+    return Intl.message(
+      'Upload and check the file first',
+      name: 'rstNotChecked',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The backups of this broker could not be read, so none is offered here. The error is in Problems.`
+  String get bakReadFailed {
+    return Intl.message(
+      'The backups of this broker could not be read, so none is offered here. The error is in Problems.',
+      name: 'bakReadFailed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The backups of this broker are not read yet.`
+  String get bakNotReadYet {
+    return Intl.message(
+      'The backups of this broker are not read yet.',
+      name: 'bakNotReadYet',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Read again`
+  String get bakReadAgain {
+    return Intl.message('Read again', name: 'bakReadAgain', desc: '', args: []);
+  }
+
+  /// `The file is still going to the broker`
+  String get rstStillUploading {
+    return Intl.message(
+      'The file is still going to the broker',
+      name: 'rstStillUploading',
+      desc: '',
+      args: [],
+    );
   }
 }
 

@@ -1,13 +1,17 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/agent_task.dart';
 import 'package:models/plan_step.dart';
 import 'package:models/step_check.dart';
 import 'package:models/step_kind.dart';
 import 'package:models/task_row.dart';
 import 'package:models/task_suggestion.dart';
+import 'package:models/withheld_args.dart';
 import 'package:wyrm_client/wyrm_client.dart' as wc;
+
+import '../assistant_view.dart';
 
 // What is made from a decoded task (`decode/agent_task.dart`): the text of
 // a follow-up ask, the plan as a file for `wyrm-agent run`, the arguments a
@@ -63,12 +67,18 @@ Map<String, Object?> planFile(AgentTask t) => {
   ],
 };
 
-/// The secret arguments of [t]'s plan, `step <n>: <arg>, …`, one per step
-/// that has any: what Save as a plan leaves out of the file.
-List<String> secretsLeftOut(AgentTask t) => [
+/// The arguments Save as a plan leaves out of the file of [t]'s plan, by
+/// step: the screen's notice names them.
+IList<WithheldArgs> withheldOf(AgentTask t) => [
   for (final s in t.plan)
     if (withheld(s) case final w when w.isNotEmpty)
-      'step ${s.n}: ${w.join(', ')}',
+      WithheldArgs(step: s.n, names: w.lock),
+].lock;
+
+/// [withheldOf] as the plan file names it (`secrets_left_out`, a field of
+/// the `wyrm-agent run` format): `step <n>: <arg>, …`, one per step.
+List<String> secretsLeftOut(AgentTask t) => [
+  for (final w in withheldOf(t)) 'step ${w.step}: ${w.names.join(', ')}',
 ];
 
 /// The arguments of [s] that are never written to a file and are masked
@@ -83,10 +93,10 @@ List<String> withheld(PlanStep s) => [
 /// How far the steps of [plan] that change something were checked: how
 /// many against the live tree now, and how many only when they run
 /// (`check: at_run`: an earlier step makes their node).
-({int now, int atRun}) planChecks(Iterable<PlanStep> plan) {
+PlanChecks planChecks(Iterable<PlanStep> plan) {
   final changing = plan.where((s) => s.kind.changes);
   final atRun = changing.where((s) => s.check == StepCheck.atRun).length;
-  return (now: changing.length - atRun, atRun: atRun);
+  return PlanChecks(now: changing.length - atRun, atRun: atRun);
 }
 
 /// A value of a step as it is sent, whole: text as it is, anything else as

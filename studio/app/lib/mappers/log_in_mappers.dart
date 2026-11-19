@@ -1,11 +1,15 @@
 import 'package:business/redux/app_state.dart';
+import 'package:business/redux/login/models/login_state.dart';
 import 'package:business/wyrm/discovery.dart' show FoundTag, RangeFault;
 import 'package:business/wyrm/log_in_page.dart';
+import 'package:models/answer_fault.dart';
 import 'package:models/found_problem.dart';
+import 'package:models/gateway_field_problem.dart';
 import 'package:models/host_platform.dart';
 import 'package:models/lock_error.dart';
 import 'package:models/refusal_code.dart';
 import 'package:models/step_up_error.dart';
+import 'package:models/step_up_line.dart';
 import 'package:models/trust_refusal.dart';
 import 'package:models/unlock_fallback.dart';
 import 'package:models/unlock_refusal.dart';
@@ -21,6 +25,7 @@ import 'package:wyrm_client/wyrm_client.dart' show Perm;
 
 import '../common/studio_version.dart';
 import 'device_mappers.dart';
+import 'shell_mappers.dart';
 
 // The log-in page's, the lock's and the step-up's domain values as `ui`
 // draws them: one exhaustive switch per enum or union (studio-rules §3). A
@@ -33,6 +38,22 @@ extension GatewayReachLogIn on GatewayReach {
     GatewayReach.answered => .answered,
     GatewayReach.down => .down,
   };
+}
+
+extension LoginUnreachable on LoginState {
+  /// The page's *could not reach* card: the gateway as its address says
+  /// it (as typed while it is none), why, and the standby; null unless
+  /// the log-in could not reach the gateway.
+  UnreachableData? get unreachable {
+    final field = GatewayField.of(gateway);
+    return failure == .unreachable
+        ? UnreachableData(
+            gateway: field.mainAddress?.text ?? field.main,
+            reason: reason?.view,
+            standby: field.standbyHost,
+          )
+        : null;
+  }
 }
 
 extension FieldStateTone on FieldState {
@@ -136,6 +157,21 @@ extension FoundProblemKindOf on FoundProblem {
   };
 }
 
+extension AnswerFaultView on AnswerFault {
+  /// Why `/api/info` gave nothing, as the row's note says it.
+  AnswerWhy get view => switch (this) {
+    AnswerFaultTimedOut() => const AnswerWhy.timedOut(),
+    AnswerFaultNotGateway() => const AnswerWhy.notGateway(),
+    AnswerFaultWrongShape(:final path) => AnswerWhy.wrongShape(path),
+    AnswerFaultHttp(:final code) => AnswerWhy.http(code),
+    AnswerFaultUntrusted() => const AnswerWhy.untrusted(),
+    AnswerFaultRefusedAfter(:final ms) => AnswerWhy.refusedAfter(ms),
+    AnswerFaultNoRoute() => const AnswerWhy.noRoute(),
+    AnswerFaultFailed(:final type) => AnswerWhy.failed(type),
+    AnswerFaultSaid(:final text) => AnswerWhy.said(text),
+  };
+}
+
 extension FoundRowLine on FoundRow {
   FoundRowData get line => FoundRowData(
     site: site,
@@ -147,6 +183,7 @@ extension FoundRowLine on FoundRow {
     ca: known.ca,
     problem: problem?.kind,
     detail: detail,
+    why: why?.view,
     seen: seen,
     selected: selected,
     enabled: enabled,
@@ -214,6 +251,12 @@ extension StepUpErrorProblem on StepUpError {
   };
 }
 
+extension StepUpLineDataOf on StepUpLine {
+  /// One line of the step-up: its level's badge, what it does, its key.
+  StepUpLineData get data =>
+      StepUpLineData(level: level.badge, deed: deed.vm, key: key);
+}
+
 extension PermStepUpLevel on Perm {
   StepUpLevel get badge => switch (this) {
     Perm.none => .none,
@@ -250,4 +293,12 @@ UnlockData unlockDataOf(Selectors r, UnlockForm form, HostPlatform platform) {
     reEnable: r.device.offersReEnable,
     version: studioVersion,
   );
+}
+
+extension GatewayFieldProblemUi on GatewayFieldProblem {
+  GatewayFieldError get ui => switch (this) {
+    GatewayFieldProblem.empty => .empty,
+    GatewayFieldProblem.invalid => .invalid,
+    GatewayFieldProblem.credentials => .credentials,
+  };
 }

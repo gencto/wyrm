@@ -11,7 +11,6 @@ import '../persistor.dart';
 import '../wyrm/device_keys.dart';
 import '../wyrm/failures.dart';
 import 'app_state.dart';
-import 'problems/actions/add_problem_action.dart';
 
 late Store<AppState>? _store;
 
@@ -21,17 +20,15 @@ Store<AppState> newStore({
   required AppState initialState,
   required BaseKeyValueStorage settings,
   Persistor<AppState>? persistor,
-  ErrorWording? wording,
 }) {
   WaitAction.reducer = _waitReducer;
 
   _store = Store<AppState>(
     initialState: initialState,
     environment: environment,
-    dependencies: (store) =>
-        AppDependencies(store, settings, wording: wording, prompts: prompts),
+    dependencies: (store) => AppDependencies(store, settings, prompts: prompts),
     persistor: persistor,
-    globalErrorObserver: (store) => _MyErrorObserver(wording ?? plainWording),
+    globalErrorObserver: (store) => _MyErrorObserver(),
     actionObservers: [_ReduxActionLogger()],
     stateObservers: [_StateChangeObserver()],
     modelObserver: _DefaultModelObserver<dynamic>(),
@@ -89,18 +86,16 @@ Future<String> setAsideSettings(String path) async {
 /// restores the last persisted state, and builds the store. Keeps the storage
 /// backend inside `business` — the app never touches it.
 ///
-/// [wording] gives an error its title and, for a fault in Studio, its
-/// sentence. It is the app's to supply, because words are the app's job:
-/// `business` never names `S`, so the arrow between the two packages keeps
-/// pointing one way. [prompts] are the words of the device key's OS
-/// prompts, the app's (`ui`'s) for the same reason.
+/// [prompts] are the words of the device key's OS prompts. They are the
+/// app's (`ui`'s) to supply: `business` never names `S`, so the arrow
+/// between the two packages keeps pointing one way. An error holds no
+/// words of Studio's at all: `ui` says them when it draws one.
 ///
 /// Throws a [StorageFault] when the settings do not open or do not read;
 /// `run_env.dart` then shows the start screen instead of the app.
 Future<Store<AppState>> createStore(
   Environment environment, {
   required DevicePrompts prompts,
-  ErrorWording? wording,
   String? directory,
 }) async {
   final settings = await openSettings(directory: directory);
@@ -118,7 +113,6 @@ Future<Store<AppState>> createStore(
     initialState: initialState,
     settings: settings,
     persistor: persistor,
-    wording: wording,
     prompts: prompts,
   );
 }
@@ -139,16 +133,14 @@ void _waitReducer(
 
 /// Logs every failure and makes sure it leaves as a [StudioException].
 ///
-/// An action of this app wraps its own failure in `Action.wrapError` (and
-/// adds it to Problems in `after`), so what arrives here is finished. An
-/// action that is not one of ours (async_redux's own) is wrapped here, and
-/// its problem added in a microtask: an observer must not dispatch while it
-/// observes.
+/// Every action of Studio, in `business` and in `app`, extends `Action`: it
+/// wraps its own failure in `Action.wrapError` and adds it to Problems in
+/// its own `after`, so what arrives here is finished and only logged. The
+/// observer dispatches nothing. (async_redux's own `WaitAction` is the one
+/// action of the store that is not ours; it changes a flag and has nothing
+/// that fails.)
 class _MyErrorObserver extends GlobalErrorObserver<AppState> {
-  _MyErrorObserver(this.wording);
-
   final _logger = Logger('Redux');
-  final ErrorWording wording;
 
   @override
   Object? observe() {
@@ -157,18 +149,18 @@ class _MyErrorObserver extends GlobalErrorObserver<AppState> {
       _logger.shout('${action.runtimeType} failed: $e');
       return e;
     }
+    // Every action of Studio extends `Action`
+    // (`redux/common/action.dart`): it wraps its own failure into a
+    // [StudioException] and adds it to Problems in its `after()`. What
+    // reaches here unwrapped is not one of them; it is logged and wrapped
+    // for whoever awaits it, and nothing is dispatched from an observer.
     final thrown = studioExceptionOf(
       e,
       stackTrace,
       step: '${action.runtimeType}',
     );
-    final filled = wording(
-      thrown.error.copyWith(id: nextErrorId(), at: DateTime.now()),
-    );
-    _logger.shout('${action.runtimeType} failed: ${thrown.withError(filled)}');
-    final s = store;
-    scheduleMicrotask(() => s.dispatchSync(AddProblemAction(filled)));
-    return thrown.withError(filled);
+    _logger.shout('${action.runtimeType} failed: $thrown');
+    return thrown;
   }
 }
 

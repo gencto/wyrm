@@ -21,6 +21,23 @@ sequenceDiagram
     A1->>ST: copyWith(assistant.unticked, assistant.refusals)
 ```
 
+## rows.onToggle
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as AssistantPage
+    participant VM as AssistantPageConnector
+    participant A1 as SetRowPickAction
+    participant ST as AppState
+
+    User->>UI: rows.onToggle
+    UI->>VM: rows()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(assistant.rowPicks)
+```
+
 ## onPick
 
 ```mermaid
@@ -79,23 +96,6 @@ sequenceDiagram
     A1->>ST: dispatchAndWait(AskAgentAction)
 ```
 
-## rows.onToggle
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User
-    participant UI as AssistantPage
-    participant VM as AssistantPageConnector
-    participant A1 as SetRowPickAction
-    participant ST as AppState
-
-    User->>UI: rows.onToggle
-    UI->>VM: rows()
-    VM->>A1: dispatchSync
-    A1->>ST: copyWith(assistant.rowPicks)
-```
-
 ## onReveal
 
 ```mermaid
@@ -113,7 +113,7 @@ sequenceDiagram
     A1->>ST: copyWith(assistant.revealed, assistant.refusals)
 ```
 
-## buttons
+## onStart
 
 ```mermaid
 sequenceDiagram
@@ -122,13 +122,13 @@ sequenceDiagram
     participant UI as AssistantPage
     participant VM as AssistantPageConnector
     participant A1 as ApproveTaskAction
-    participant A2 as OpenTaskAction
-    participant A3 as GoAfterAction
-    participant A4 as AskAgentAction
+    participant A2 as AskAgentAction
+    participant A3 as OpenTaskAction
+    participant A4 as GoAfterAction
     participant ST as AppState
 
-    User->>UI: buttons
-    UI->>VM: buttons()
+    User->>UI: onStart
+    UI->>VM: onStart()
     VM->>A1: dispatch
     Note over A1: NonReentrant · WaitingAction · async
     A1->>ST: copyWith(assistant.refusals)
@@ -136,24 +136,24 @@ sequenceDiagram
     A1->>ST: dispatchAndWait(RetrieveTaskRecordAction)
     A1->>ST: dispatchAndWait(RetrieveTaskRecordAction)
     VM->>A2: dispatch
-    Note over A2: async
-    A2->>ST: dispatchSync(SetSelectedTaskAction)
+    Note over A2: TaskRows · NonReentrant · WaitingAction · async
+    A2->>ST: dispatchSync(AddTasksAction)
+    A2->>ST: dispatchSync(AddTaskEventAction)
+    A2->>ST: dispatchSync(_Taken)
+    A2->>ST: dispatchSync(AddTaskEventAction)
     A2->>ST: dispatchAndWait(RetrieveTaskRecordAction)
     VM->>A3: dispatch
     Note over A3: async
-    A3->>ST: dispatchAndWait(a)
-    A3->>ST: dispatchSync(GoAction.navigate)
-    VM->>A3: dispatch
-    Note over A3: async
-    A3->>ST: dispatchAndWait(a)
-    A3->>ST: dispatchSync(GoAction.navigate)
+    A3->>ST: dispatchSync(SetSelectedTaskAction)
+    A3->>ST: dispatchAndWait(RetrieveTaskRecordAction)
     VM->>A4: dispatch
-    Note over A4: TaskRows · NonReentrant · WaitingAction · async
-    A4->>ST: dispatchSync(AddTasksAction)
-    A4->>ST: dispatchSync(AddTaskEventAction)
-    A4->>ST: dispatchSync(_Taken)
-    A4->>ST: dispatchSync(AddTaskEventAction)
-    A4->>ST: dispatchAndWait(RetrieveTaskRecordAction)
+    Note over A4: async
+    A4->>ST: dispatchAndWait(a)
+    A4->>ST: dispatchSync(GoAction.navigate)
+    VM->>A4: dispatch
+    Note over A4: async
+    A4->>ST: dispatchAndWait(a)
+    A4->>ST: dispatchSync(GoAction.navigate)
 ```
 
 ## onTimelineWindow
@@ -442,12 +442,12 @@ _Not drawn — these files dispatch outside any interaction:_
 | Interaction | Dispatches | Writes |
 | --- | --- | --- |
 | `ticks.onToggle` | `SetStepTickAction` | `assistant.unticked, assistant.refusals` |
+| `rows.onToggle` | `SetRowPickAction` | `assistant.rowPicks` |
 | `onPick` | `SetOptionPickAction.of` | `assistant.picks` |
 | `onAnswer` | `AnswerTaskAction` | `assistant.picks, assistant.draft` |
 | `onPickSuggestion` | `PickSuggestionAction` | `assistant.rowPicks` |
-| `rows.onToggle` | `SetRowPickAction` | `assistant.rowPicks` |
 | `onReveal` | `SetStepRevealAction.toggle` | `assistant.revealed, assistant.refusals` |
-| `buttons` | `ApproveTaskAction`, `OpenTaskAction`, `GoAfterAction`, `GoAfterAction`, `AskAgentAction` | `assistant.refusals` |
+| `onStart` | `ApproveTaskAction`, `AskAgentAction`, `OpenTaskAction`, `GoAfterAction`, `GoAfterAction` | `assistant.refusals` |
 | `onTimelineWindow` | `ZoomHistoryAction` | — |
 | `onTimelineReset` | `SetHistoryWindowAction` | `nodes.historyWindow` |
 | `onDraft` | `SetDraftAction` | `assistant.draft` |

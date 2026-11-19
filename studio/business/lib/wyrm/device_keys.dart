@@ -4,8 +4,9 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:device_key/device_key.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart' hide ErrorHint;
 import 'package:models/device_tag.dart';
+import 'package:models/error_hint.dart';
 import 'package:models/host_platform.dart';
 import 'package:models/key_kind.dart';
 import 'package:models/lock_error.dart';
@@ -245,7 +246,8 @@ final class PlainPrompts implements DevicePrompts {
   String confirm(String site) => site;
 }
 
-/// The OS prompt gave no signature: what it gave instead.
+/// The OS prompt gave no signature: what it gave instead. Its text is for
+/// the log; a screen says [signHintOf].
 final class SignStopped implements Exception {
   const SignStopped(this.result);
 
@@ -261,6 +263,16 @@ final class SignStopped implements Exception {
     Signed() => 'signed',
   };
 }
+
+/// What Studio says of a prompt that gave no signature; null when the
+/// system gave its own words ([SignFailed]), which are shown as they came.
+ErrorHint? signHintOf(SignResult r) => switch (r) {
+  SignCancelled() => const ErrorHint.signCancelled(),
+  SignLockout() => const ErrorHint.signLockedOut(),
+  SignInvalidated() => const ErrorHint.signKeyGone(),
+  SignUnavailable() => const ErrorHint.signUnavailable(),
+  SignFailed() || Signed() => null,
+};
 
 /// A `sign` callback of `wyrm_client` over the device key [alias]: the OS
 /// prompt with [reason]; anything but a signature throws [SignStopped].
@@ -284,7 +296,7 @@ int nowS() => DateTime.now().millisecondsSinceEpoch ~/ 1000;
 
 /// The gateway (the first of the field) and the user a device key is for,
 /// or null while the form has none.
-({Uri gateway, String origin, String user})? accountOf(
+({GatewayAddress gateway, String origin, String user})? accountOf(
   String? gatewayField,
   String? userField,
 ) {

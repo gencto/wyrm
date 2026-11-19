@@ -57,6 +57,7 @@ class SystemScreen extends StatelessWidget {
     required this.onBackUp,
     required this.onRestore,
     required this.onOpenBackup,
+    required this.onReadBackups,
     required this.onElsewhere,
     super.key,
   });
@@ -122,6 +123,7 @@ class SystemScreen extends StatelessWidget {
   final VoidCallback onBackUp;
   final VoidCallback onRestore;
   final ValueChanged<String> onOpenBackup;
+  final VoidCallback onReadBackups;
   final ValueChanged<SysElsewhere> onElsewhere;
 
   @override
@@ -139,17 +141,13 @@ class SystemScreen extends StatelessWidget {
     tabs: [
       for (final t in SysTab.values)
         PillTabVm(
-          id: _tabId(t),
+          id: t.name,
           label: t.label,
           dot: t == SysTab.availability ? vm.standby?.dot : null,
         ),
     ],
-    tab: _tabId(vm.tab),
-    onTab: (id) {
-      if (_tabOf[id] case final t?) {
-        onTab(t);
-      }
-    },
+    tab: vm.tab,
+    onTab: onTab,
     overview: _overview(),
     availability: _availability(),
     log: _log(),
@@ -201,25 +199,13 @@ class SystemScreen extends StatelessWidget {
     onBackUp: onBackUp,
     onRestore: onRestore,
     onOpenBackup: onOpenBackup,
+    onReadBackups: onReadBackups,
     onElsewhere: (id) {
       if (SysElsewhere.values.asNameMap()[id] case final e?) {
         onElsewhere(e);
       }
     },
   );
-
-  /// The [SysTab] of a tab id of [SystemPage].
-  static final Map<String, SysTab> _tabOf = {
-    for (final t in SysTab.values) _tabId(t): t,
-  };
-
-  /// The tab ids of [SystemPage], one per [SysTab].
-  static String _tabId(SysTab t) => switch (t) {
-    SysTab.overview => SystemPage.overviewTab,
-    SysTab.availability => SystemPage.availabilityTab,
-    SysTab.log => SystemPage.logTab,
-    SysTab.maintenance => SystemPage.maintenanceTab,
-  };
 
   // ---- words ---------------------------------------------------------------
 
@@ -767,32 +753,43 @@ class SystemScreen extends StatelessWidget {
     null => null,
     final b => BackupsCardVm(
       title: S.current.bakCard,
-      note: S.current.bakCardNote(b.keepDays),
+      note: b.state.said ?? S.current.bakCardNote(b.keepDays),
       empty: S.current.bakCardEmpty,
       backUpLabel: S.current.bakBackUp,
       restoreLabel: S.current.bakRestore,
-      reason: reason,
-      rows: [
-        for (final j in b.rows)
-          RowItemVm(
-            id: j.id,
-            title: j.name,
-            subtitle: [
-              j.kind.label(j.link),
-              j.sections.join(', '),
-              if (j.created case final t?) Formats.dateTime(t),
-            ].join(' · '),
-            trailing: switch (j.state) {
-              SysBackupState.running => S.current.bakRowRunning(j.progress),
-              SysBackupState.failed => S.current.bakRowFailed,
-              _ when j.sending => S.current.bakRowSending(j.sendProgress),
-              SysBackupState.pending ||
-              SysBackupState.done => Formats.bytes(j.size),
-            },
-            action: S.current.bakOpen,
-            actionHint: '${S.current.bakOpen} ${j.name}',
-          ),
-      ],
+      reason: b.state.said ?? reason,
+      readAgainLabel: b.state == SysBackupsState.failed
+          ? S.current.bakReadAgain
+          : null,
+      // not read: no list, so the card does not say "none is kept"
+      rows: b.state != SysBackupsState.read
+          ? null
+          : [
+              // a backup Studio could not read is there, and says so
+              for (final id in b.unread)
+                RowItemVm(id: id, title: id, subtitle: S.current.bakRowNotRead),
+              for (final j in b.rows)
+                RowItemVm(
+                  id: j.id,
+                  title: j.name,
+                  subtitle: [
+                    j.kind.label(j.link),
+                    [for (final s in j.sections) s.label].join(', '),
+                    if (j.created case final t?) Formats.dateTime(t),
+                  ].join(' · '),
+                  trailing: switch (j.state) {
+                    SysBackupState.running => S.current.bakRowRunning(
+                      j.progress,
+                    ),
+                    SysBackupState.failed => S.current.bakRowFailed,
+                    _ when j.sending => S.current.bakRowSending(j.sendProgress),
+                    SysBackupState.pending ||
+                    SysBackupState.done => Formats.bytes(j.size),
+                  },
+                  action: S.current.bakOpen,
+                  actionHint: '${S.current.bakOpen} ${j.name}',
+                ),
+            ],
     ),
   };
 
@@ -845,7 +842,7 @@ class SystemScreen extends StatelessWidget {
       ],
       profilesEmpty: unlisted == null
           ? S.current.sysNoProfiles
-          : S.current.sysProfilesUnlisted(unlisted),
+          : S.current.sysProfilesUnlisted(unlisted.text),
       profilesUnlisted: unlisted != null,
       profilesFooter: S.current.sysProfilesFooter,
       backups: _backups(reason),
@@ -919,6 +916,9 @@ class SystemScreen extends StatelessWidget {
             SysAttention.brokerWaiting => S.current.sysAttnBroker(
               _name(a.name),
             ),
+            SysAttention.waitingNotRead => S.current.sysAttnNotRead(
+              _name(a.name),
+            ),
             SysAttention.aclGrown => S.current.sysAttnAcl(_count(a.count)),
             SysAttention.noStandby => S.current.sysAttnNoStandby,
           },
@@ -939,6 +939,7 @@ class SystemScreen extends StatelessWidget {
               a.count == 0
                   ? S.current.sysAttnBrokerPlain
                   : S.current.sysAttnBrokerRelays(a.count),
+            SysAttention.waitingNotRead => S.current.waitNotReadNote,
             SysAttention.aclGrown => S.current.sysAttnAclDetail(
               _count(a.more),
             ),

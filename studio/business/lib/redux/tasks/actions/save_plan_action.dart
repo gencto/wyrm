@@ -12,18 +12,17 @@ import '../../problems/actions/show_notice_action.dart';
 /// removes it after a write error and must not throw.
 ///
 /// A secret argument (`PlanStep.secret`) is not written: the file names
-/// the steps and the arguments left out (`secrets_left_out`, also
-/// `secretsLeftOut` for the screen's note).
+/// the steps and the arguments left out (`secrets_left_out`).
 ///
-/// Once written, the notice [saved] words (the screen's words: where the
-/// file went, and the secret arguments left out of it) is shown.
+/// Once written into [path], a notice names it and the arguments left out
+/// (`NoticeKind.planSaved`; `ui` says it).
 class SavePlanAction extends Action with WaitingAction {
   SavePlanAction(
     this.id, {
     required this.write,
     required this.onDone,
     required this.onDiscard,
-    this.saved,
+    this.path,
   });
 
   final String id;
@@ -31,9 +30,8 @@ class SavePlanAction extends Action with WaitingAction {
   final Future<void> Function() onDone;
   final Future<void> Function() onDiscard;
 
-  /// The notice of a plan saved, from the secret arguments it left out
-  /// (`step <n>: <arg>, …`); null: none is shown.
-  final ({String title, String? detail}) Function(List<String> leftOut)? saved;
+  /// Where the file goes, for the notice; null: no notice is shown.
+  final String? path;
 
   @override
   Future<AppState?> reduce() async {
@@ -50,8 +48,10 @@ class SavePlanAction extends Action with WaitingAction {
       await onDiscard();
       rethrow;
     }
-    if (saved?.call(secretsLeftOut(task)) case (:final title, :final detail)) {
-      dispatchSync(ShowNoticeAction(title, detail: detail));
+    if (path case final p?) {
+      dispatchSync(
+        ShowNoticeAction(.planSaved, path: p, leftOut: withheldOf(task)),
+      );
     }
     return null;
   }

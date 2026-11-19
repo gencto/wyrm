@@ -3,7 +3,7 @@ import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/flow_summary.dart';
 
 import '../../../wyrm/calls.dart';
-import '../../../wyrm/mappers/values.dart';
+import '../../../wyrm/decode/flow_val.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 import 'retrieve_flow_defs_action.dart';
@@ -37,21 +37,18 @@ class RetrieveFlowsAction extends Action
     final vals = await readValues(api, '$base/*');
     final flows = <FlowSummary>[];
     for (final c in ids) {
-      final v = vals['$base/${c.name}'];
       final def = await RetrieveFlowDefsAction.read(api, base, c.name);
-      final state = integer(v?['state']);
+      // a `~val` this client cannot read: the flow is listed as one whose
+      // state is not known, never as a draft
       flows.add(
-        FlowSummary(
-          id: c.name,
-          version: integer(v?['version']),
-          deployedBy: str(v?['deployed_by']),
-          problem: state == 2 ? (str(v?['error']) ?? 'error') : null,
-          draft: state == null,
+        flowSummaryOf(
+          c.name,
+          flowValOfWire(vals['$base/${c.name}'])..record('$base/${c.name}'),
+          description: c.meta.displayName,
+        ).copyWith(
           reads: def?.reads ?? const IListConst([]),
           writes: def?.writes ?? const IListConst([]),
           blocks: def?.blocks ?? 0,
-          description: c.meta.displayName,
-          running: state == 0,
         ),
       );
     }

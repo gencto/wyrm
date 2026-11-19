@@ -370,7 +370,7 @@ sequenceDiagram
     User->>UI: onSaveLog
     UI->>VM: onSaveLog()
     VM->>A1: dispatch
-    Note over A1: Selectors · async
+    Note over A1: async
     A1->>ST: dispatchAndWait(ShowNoticeAction.system)
     A1->>ST: dispatchAndWait(ShowNoticeAction.system)
 ```
@@ -464,6 +464,27 @@ sequenceDiagram
     VM->>A1: dispatch
 ```
 
+## onReadBackups
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as SystemPage
+    participant VM as SystemPageConnector
+    participant A1 as RetrieveBackupsAction
+    participant ST as AppState
+
+    User->>UI: onReadBackups
+    UI->>VM: onReadBackups()
+    VM->>A1: dispatch
+    Note over A1: WaitingAction · async
+    A1->>ST: copyWith(backups.availability, backups.table, backups.view, backups.unread, backups.sections)
+    A1->>ST: dispatchSync(_ReadFailed)
+    A1->>ST: dispatchSync(AddProblemAction)
+    A1->>ST: dispatchSync(AddProblemAction)
+```
+
 | Interaction | Dispatches | Writes |
 | --- | --- | --- |
 | `onShow` | `ShowSystemAction` | — |
@@ -492,6 +513,7 @@ sequenceDiagram
 | `onRemoveProfile` | `RemoveProfileAction` | — |
 | `onCopyCommand` | `CopyTextAction` | — |
 | `onElsewhere` | `GoSystemPlaceAction` | — |
+| `onReadBackups` | `RetrieveBackupsAction` | `backups.availability, backups.table, backups.view, backups.unread, backups.sections` |
 
 `?` marks a dispatch that only runs under a condition.
 

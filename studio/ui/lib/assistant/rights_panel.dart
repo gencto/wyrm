@@ -37,6 +37,18 @@ enum ApiKeyState {
   unknown,
 }
 
+/// One prefix the agent may propose changes under: the full [prefix] and
+/// its [label] below the site.
+final class PrefixRowVm extends Equatable {
+  const PrefixRowVm(this.prefix, this.label);
+
+  final String prefix;
+  final String label;
+
+  @override
+  List<Object?> get props => [prefix, label];
+}
+
 /// What [RightsPanel] draws.
 final class RightsPanelVm extends Equatable {
   const RightsPanelVm({
@@ -100,9 +112,12 @@ final class RightsPanelVm extends Equatable {
   String? get stagedNote => staged ? S.current.paramsStaged : null;
 
   /// A prefix and its chip's words (below the site).
-  List<(String, String)> get prefixRows => [
+  List<PrefixRowVm> get prefixRows => [
     for (final p in prefixes)
-      (p, p.split('/').length > 2 ? p.split('/').skip(2).join('/') : p),
+      PrefixRowVm(
+        p,
+        p.split('/').length > 2 ? p.split('/').skip(2).join('/') : p,
+      ),
   ];
 
   /// The model, today's budget, the API key and where it is sent.
@@ -260,7 +275,7 @@ class RightsPanel extends StatelessWidget {
           runSpacing: 6,
           crossAxisAlignment: .center,
           children: [
-            for (final (p, label) in vm.prefixRows)
+            for (final PrefixRowVm(prefix: p, :label) in vm.prefixRows)
               Container(
                 height: 24,
                 constraints: const BoxConstraints(maxWidth: 260),

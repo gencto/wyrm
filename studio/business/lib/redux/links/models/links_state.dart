@@ -17,5 +17,9 @@ abstract class LinksState with _$LinksState {
     @Default(IListConst([])) IList<LinkRevision> revisions,
     String? version,
     @Default(0) int updatesAvailable,
+
+    /// Links is on screen (its workspace tab is the active one): what it
+    /// shows is read again after a site switch or a reconnect.
+    @Default(false) bool shown,
   }) = _LinksState;
 }

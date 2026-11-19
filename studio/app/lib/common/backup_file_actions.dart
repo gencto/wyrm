@@ -1,8 +1,8 @@
-import 'package:async_redux/async_redux.dart';
 import 'package:business/redux/app_state.dart';
 import 'package:business/redux/backups/actions/download_backup_action.dart';
 import 'package:business/redux/backups/actions/remove_backup_action.dart';
 import 'package:business/redux/backups/actions/upload_restore_action.dart';
+import 'package:business/redux/common/action.dart';
 import 'package:flutter/foundation.dart';
 import 'package:models/backup_job.dart';
 import 'package:models/backup_kind.dart';
@@ -16,7 +16,7 @@ import 'files.dart';
 /// *Download* of a kept backup: a folder is picked ([folderTitle] names
 /// the picker), then the backup is read into it in parts. Nothing when the
 /// user leaves the picker.
-class DownloadBackupFileAction extends ReduxAction<AppState> {
+class DownloadBackupFileAction extends Action {
   DownloadBackupFileAction(this.job, {required this.folderTitle});
 
   final BackupJob job;
@@ -50,7 +50,7 @@ class DownloadBackupFileAction extends ReduxAction<AppState> {
 
 /// *Choose a file* of the restore: a `.wyrm-backup` is picked and sent to
 /// the broker in parts. Nothing when the user leaves the picker.
-class UploadRestoreFileAction extends ReduxAction<AppState> {
+class UploadRestoreFileAction extends Action {
   @override
   Future<AppState?> reduce() async {
     final f = await pickFile(extensions: const ['wyrm-backup']);
@@ -71,7 +71,7 @@ class UploadRestoreFileAction extends ReduxAction<AppState> {
 /// *Remove* of a kept backup: the user is asked first ([ask], the
 /// dialog's question), then the backup is removed and [removed] is told
 /// (the dialog closes).
-class RemoveBackupAskedAction extends ReduxAction<AppState> {
+class RemoveBackupAskedAction extends Action {
   RemoveBackupAskedAction(this.id, {required this.ask, required this.removed});
 
   final String id;

@@ -3,19 +3,27 @@ import 'package:material_ui/material_ui.dart';
 import 'package:models/access_tab.dart';
 import 'package:models/action_answer.dart';
 import 'package:models/agent_config.dart';
-import 'package:models/agent_params.dart';
 import 'package:models/agent_task.dart';
+import 'package:models/answer_fault.dart';
 import 'package:models/approval_mode.dart';
+import 'package:models/approval_refusal.dart';
 import 'package:models/assistant_panel.dart';
 import 'package:models/attention_item.dart';
 import 'package:models/attention_kind.dart';
 import 'package:models/audit_entry.dart';
 import 'package:models/audit_line.dart';
 import 'package:models/backup_job.dart';
+import 'package:models/backup_place.dart';
+import 'package:models/backup_section.dart';
+import 'package:models/backup_stage.dart';
+import 'package:models/backups_read.dart';
 import 'package:models/block_info.dart';
 import 'package:models/broker_self_update.dart';
 import 'package:models/ca_pin.dart';
+import 'package:models/call_refusal.dart';
+import 'package:models/catalog_category.dart';
 import 'package:models/catalog_item.dart';
+import 'package:models/change_side.dart';
 import 'package:models/explorer_tab.dart';
 import 'package:models/field_id.dart';
 import 'package:models/flow_draft.dart';
@@ -71,6 +79,7 @@ import 'package:models/quarantine_entry.dart';
 import 'package:models/quarantine_kind.dart';
 import 'package:models/requested_right.dart';
 import 'package:models/restore_check.dart';
+import 'package:models/restore_mode.dart';
 import 'package:models/restore_point.dart';
 import 'package:models/role_grant.dart';
 import 'package:models/send_link.dart';
@@ -105,6 +114,8 @@ import 'package:wyrm_client/wyrm_client.dart'
     show DevicePolicy, GatewayDevice, Perm, Status, StepUp;
 
 import '../wyrm/approval.dart';
+import '../wyrm/assistant_view.dart';
+import '../wyrm/backup_plan.dart';
 import '../wyrm/catalog.dart';
 import '../wyrm/context_keys.dart';
 import '../wyrm/decode/agent_params.dart';
@@ -120,6 +131,7 @@ import '../wyrm/features.dart';
 import '../wyrm/flow_view/flow_view.dart';
 import '../wyrm/gateway_label.dart';
 import '../wyrm/historian_stats.dart';
+import '../wyrm/history_steps.dart';
 import '../wyrm/history_trend.dart';
 import '../wyrm/holds.dart';
 import '../wyrm/keys.dart';
@@ -297,7 +309,7 @@ extension AssistantScreen on Selectors {
 
   /// The tasks of the list, newest first: those under way, and those that
   /// ended.
-  ({List<AgentTask> now, List<AgentTask> earlier}) get taskGroups {
+  TaskGroups get taskGroups {
     final now = <AgentTask>[];
     final earlier = <AgentTask>[];
     for (final id in tasks.view.reversed) {
@@ -305,7 +317,7 @@ extension AssistantScreen on Selectors {
         (t.state.finished ? earlier : now).add(t);
       }
     }
-    return (now: now, earlier: earlier);
+    return TaskGroups(now: now, earlier: earlier);
   }
 
   /// The lines of [t]'s conversation in this session.
@@ -323,14 +335,16 @@ extension AssistantScreen on Selectors {
   }
 
   /// What the model read in this session, by tool, with how often.
-  List<(String, int)> readsOf(AgentTask t) {
+  List<ToolReads> readsOf(AgentTask t) {
     final reads = <String, int>{};
     for (final e in sessionOf(t)) {
       if (e.kind == TaskEventKind.tool) {
         reads[e.text] = (reads[e.text] ?? 0) + 1;
       }
     }
-    return [for (final MapEntry(:key, :value) in reads.entries) (key, value)];
+    return [
+      for (final MapEntry(:key, :value) in reads.entries) ToolReads(key, value),
+    ];
   }
 
   /// The ticks of the plan of [t]: only for a plan that waits, that no
@@ -491,9 +505,9 @@ extension AssistantScreen on Selectors {
       assistant.rowPicks['$task/$suggestion'] ?? const ISetConst({});
 
   /// The rows ticked in every *Same for more units?* of [t].
-  ISet<({String suggestion, String key})> pickedRowsOf(AgentTask t) => {
+  ISet<RowPick> pickedRowsOf(AgentTask t) => {
     for (final s in t.withRows)
-      for (final k in rowPicksOf(t.id, s.id)) (suggestion: s.id, key: k),
+      for (final k in rowPicksOf(t.id, s.id)) RowPick(s.id, k),
   }.lock;
 
   /// The masked arguments of step [n] of [task] are shown.
@@ -503,14 +517,14 @@ extension AssistantScreen on Selectors {
   /// The arguments of [s] of [t] as the plan card shows them: each with its
   /// value as it is sent, or null when it is masked (a secret, or a schema
   /// not known and not looked at). A masked value never leaves here.
-  List<({String name, String? text})> argsOf(AgentTask t, PlanStep s) {
+  List<ShownArg> argsOf(AgentTask t, PlanStep s) {
     final hidden = withheld(s);
     final shown = !s.argsKnown && revealedOf(t.id, s.n);
     return [
       for (final e in s.args.entries)
-        (
-          name: e.key,
-          text: s.secret.contains(e.key) || (hidden.contains(e.key) && !shown)
+        ShownArg(
+          e.key,
+          s.secret.contains(e.key) || (hidden.contains(e.key) && !shown)
               ? null
               : argText(e.value),
         ),
@@ -581,10 +595,12 @@ extension AssistantScreen on Selectors {
   /// The keys *+ from Explorer* offers: the selection and the point
   /// first, then the nodes Explorer read on the site on screen; only plain
   /// node keys of this site the agent reads, none twice, none a chip.
-  ({List<String> first, List<String> rest}) get chipChoices {
+  /// Null when no chip can be added now ([chipHold]: no site, or the
+  /// chips are full).
+  ChipOffer? get chipChoices {
     final root = site.root;
-    if (root == null) {
-      return (first: const [], rest: const []);
+    if (root == null || chipHold != null) {
+      return null;
     }
     final chips = assistant.chips.toSet();
     final selected = offeredChip;
@@ -595,7 +611,8 @@ extension AssistantScreen on Selectors {
       ?selected,
       if (point != null && point != selected) point,
     ].where(fits).toList();
-    return (
+    return ChipOffer(
+      root: root,
       first: first,
       rest: [
         for (final k in nodes.view.take(400))
@@ -604,17 +621,230 @@ extension AssistantScreen on Selectors {
     );
   }
 
+  /// The name a chip for [key] shows in the picker: the node's display
+  /// name when it has one of its own, else its name; null for a key the
+  /// tree has not listed.
+  String? chipNameOf(String key) => switch (nodes.table[key]) {
+    NodeInfo(:final display?, :final name)
+        when display.trim().isNotEmpty && display != name =>
+      display,
+    final n => n?.name,
+  };
+
+  /// The line *No tasks yet* is shown: no task is on screen and the site
+  /// has an agent.
+  bool get showsNoTasks => shownTask == null && assistant.agent != null;
+
+  /// The rights panel is open.
+  bool get rightsShown => assistant.panel == AssistantPanel.rights;
+
+  /// *What I found* is shown for [t]: only in the drawer ([drawer]), and
+  /// only with findings, findings the link refused, or the drawer's mini
+  /// timeline.
+  bool foundShown(AgentTask? t, {required bool drawer}) =>
+      drawer &&
+      ((t != null &&
+              (findingsShown(t).isNotEmpty || t.findingsRefused.isNotEmpty)) ||
+          timeline != null);
+
+  /// Whether the masked arguments of [s] of [t] are shown now; null for a
+  /// step whose arguments are not masked for an unknown schema (nothing
+  /// to reveal).
+  bool? revealedShown(AgentTask t, PlanStep s) =>
+      s.argsGuessed ? revealedOf(t.id, s.n) : null;
+
   /// A key typed in the picker, in full or below the site: the plain node
   /// key it names, and whether the agent reads it; null when it names none
   /// or is a chip already.
-  ({String key, bool reads})? typedChip(String text) {
+  TypedChip? typedChip(String text) {
     final root = site.root;
     final k = text.contains('/') ? contextKey(root, text) : null;
     if (root == null || k == null || assistant.chips.contains(k)) {
       return null;
     }
-    return (key: k, reads: agentReadsKey(k));
+    return TypedChip(k, reads: agentReadsKey(k));
   }
+}
+
+/// The Assistant's own decisions over the state.
+extension AssistantView on Selectors {
+  /// The site has no agent link (known: neither the agent nor the links
+  /// are being read).
+  bool get noAgent =>
+      assistant.agent == null && !assistant.isWaiting && !links.isWaiting;
+
+  /// The card under [t] with the plan's [choices] (null: no ticks are
+  /// shown); null for a run that stopped at a step and is not reviewed:
+  /// the Stopped card says where and what next.
+  TaskStanding? standingOf(AgentTask t, List<StepChoice>? choices) {
+    if (t.replacedBy case final next?) {
+      // its `~val` may still say it waits
+      return StandingReplaced(next);
+    }
+    final cancel = writeHold;
+    switch (t.state) {
+      case TaskState.awaitingApproval:
+        final shown = choices ?? const <StepChoice>[];
+        return StandingApproval(
+          note: approvalNote(t, shown),
+          runs: shown.tickedCount == 0 ? 0 : shown.runCount,
+          rejectHold: cancel,
+          approveHold: approveHold(t, shown),
+        );
+      case TaskState.awaitingAnswer:
+        return StandingAnswer(cancelHold: cancel);
+      case TaskState.planning || TaskState.running:
+        return StandingWorking(cancelHold: cancel);
+      case TaskState.done:
+        return StandingDone(
+          task: t.id,
+          leftOut: t.leftOut,
+          changedNode: t.changedNode,
+          trendPoint: t.touched.lastOrNull,
+          savable: t.plan.isNotEmpty,
+          followUpHold: followUpHold,
+        );
+      case TaskState.failed:
+        if (t.failedStep == null) {
+          return StandingFailed(t.error);
+        }
+        // while the model reviews the run it can be cancelled
+        return t.reviewing ? StandingWorking(cancelHold: cancel) : null;
+    }
+  }
+
+  /// The line under the plan of [t]: replaced, checked while it waits,
+  /// approved, else its state.
+  PlanLine planLineOf(AgentTask t) => switch (t.replacedBy) {
+    final next? => PlanLineReplaced(next),
+    null when t.state == TaskState.awaitingApproval => PlanLineChecked(
+      planChecks(t.plan),
+    ),
+    null => switch (t.approvedBy) {
+      final by? => PlanLineApproved(by),
+      null => const PlanLineState(),
+    },
+  };
+
+  /// The questions of [t] are open: the assistant waits for the answer.
+  bool answersOpen(AgentTask t) => t.state == TaskState.awaitingAnswer;
+
+  /// *Write the plan* is offered for [t]: its questions are open and one
+  /// of them is not answered yet.
+  bool confirmsAnswer(AgentTask t) => answersOpen(t) && t.asksStill;
+
+  /// The suggestions of [t] with rows (*Same for more units?*): offered
+  /// once the task is done.
+  List<TaskSuggestion> moreOf(AgentTask t) =>
+      t.state == TaskState.done ? t.withRows : const [];
+
+  /// The ask box for the task [t] on screen, as the tab or the [drawer].
+  ComposerState composerOf(AgentTask? t, {required bool drawer}) {
+    final answering = t != null && answersOpen(t);
+    return ComposerState(
+      cue: drawer && !answering
+          ? ComposerCue.drawer
+          : switch (t?.state) {
+              null => ComposerCue.ask,
+              TaskState.awaitingAnswer => ComposerCue.answer,
+              TaskState.planning => ComposerCue.planning,
+              TaskState.awaitingApproval =>
+                askParent(t) != null ? ComposerCue.awaiting : ComposerCue.ask,
+              TaskState.running => ComposerCue.running,
+              TaskState.done => ComposerCue.done,
+              TaskState.failed =>
+                t?.replacedBy == null ? ComposerCue.failed : ComposerCue.done,
+            },
+      answering: answering,
+      node: t?.failedStep?.key ?? '',
+      replaces: !drawer && t != null && replacesPlan(t),
+    );
+  }
+
+  /// What the model read for the task on screen, shown on *This task*;
+  /// nothing on *What it may do* or with no task.
+  List<ToolReads> get shownReads => switch (shownTask) {
+    final t? when assistant.panel != AssistantPanel.rights => readsOf(t),
+    _ => const [],
+  };
+
+  /// Why the drawer's timeline shows no audit records; null when it shows
+  /// them, or while they are not read yet.
+  AuditGap? get timelineAuditGap => !site.readsAudit
+      ? AuditGap.needsConfig
+      : (timelineAuditRead?.isEmpty ?? false)
+      ? AuditGap.none
+      : null;
+
+  /// The drawer's second button for [t]: while its plan waits a draft,
+  /// after a done task a follow-up; null otherwise, and when another task
+  /// replaced it or the model offered none.
+  SecondOffer? secondOf(AgentTask t) {
+    final s = t.second;
+    final waits = t.state == TaskState.awaitingApproval;
+    if (s == null ||
+        t.replacedBy != null ||
+        (!waits && t.state != TaskState.done)) {
+      return null;
+    }
+    return waits
+        ? SecondOffer(s, draft: true)
+        : SecondOffer(s, draft: false, hold: followHold(t));
+  }
+
+  /// The range of the history read for the timeline's point in µs (as
+  /// Explorer's): its span up to the last read or the newest row since.
+  ExplorerTrendSpan _timelineSpan(IList<HistPoint> rows) {
+    final span = nodes.historyRange.span;
+    final re = trendRangeEnd(nodes.historyAt, [rows.lastOrNull?.time]);
+    final rs = re - span.inMicroseconds;
+    final w = nodes.historyWindow;
+    final we = w?.end?.microsecondsSinceEpoch ?? re;
+    final ws = w == null ? rs : we - w.span.inMicroseconds;
+    return (
+      rangeStart: rs,
+      rangeEnd: re,
+      windowStart: ws.clamp(rs, re),
+      windowEnd: we.clamp(rs, re),
+      minWindow: 12 * stepDuration(stepFor(span, raw: false))!.inMicroseconds,
+      following: w?.end == null,
+    );
+  }
+
+  /// The drawer's mini timeline: the rows Explorer reads for
+  /// [timelinePoint] (none until they are its rows); null with no point.
+  ExplorerTrend? get timeline {
+    final point = timelinePoint;
+    if (point == null) {
+      return null;
+    }
+    final read = nodes.historyKey == point;
+    final rows = read ? nodes.history : const IListConst<HistPoint>([]);
+    final info = nodes.table[point];
+    return (
+      point: point,
+      name: point.split('/').last,
+      display: info?.display,
+      unit: info?.unit,
+      precision: null,
+      rows: rows,
+      span: _timelineSpan(rows),
+      loading: !read || (rows.isEmpty && nodes.historyLoading),
+    );
+  }
+
+  /// The audit records read for [timelinePoint]; null while those in the
+  /// state are another point's (not read yet).
+  IList<AuditEntry>? get timelineAuditRead =>
+      assistant.timelineKey == timelinePoint ? assistant.timelineAudit : null;
+
+  /// The keys whose live value the Assistant draws: those the Result card
+  /// shows and *Today* of What it may do ([assistantWatch]), and for the
+  /// [drawer] the nodes of the findings.
+  List<String> assistantLiveKeys({required bool drawer}) => [
+    ...assistantWatch,
+    if (drawer) ...drawerFindingKeys,
+  ];
 }
 
 /// The params of a link as they will be once the staged update of it is
@@ -623,17 +853,17 @@ extension AssistantScreen on Selectors {
 extension StagedParams on Selectors {
   /// The update staged for the agent link [key]: the params it sends and
   /// those it was made from; null when none is staged. Studio writes both
-  /// itself (`agentParamsJson`); one that does not read back is logged
-  /// and is no base for a new edit.
-  ({StagedChange change, AgentParams params, AgentParams base})?
-  stagedAgentParamsOf(String key) {
+  /// itself (`agentParamsJson`); one that does not read back is no base
+  /// for a new edit. Nothing is recorded here (a selector runs on every
+  /// rebuild): the action that stages the change records it once.
+  StagedAgentParams? stagedAgentParamsOf(String key) {
     for (final c in changes.table.values) {
       if (c.key == key && c.action == 'update') {
-        final params = agentParamsOf(c.args['params']).orWarn(key);
-        final base = agentParamsOf(c.value).orWarn(key);
+        final params = agentParamsOf(c.args['params']).orNull;
+        final base = agentParamsOf(c.value).orNull;
         return params == null || base == null
             ? null
-            : (change: c, params: params, base: base);
+            : StagedAgentParams(change: c, params: params, base: base);
       }
     }
     return null;
@@ -642,14 +872,14 @@ extension StagedParams on Selectors {
   /// The agent link's `require_approval` and `allowed_prefixes` as they will
   /// be: from the update staged for it on this site, else as read. The mode
   /// is null when it is not known (the agent's settings did not read).
-  ({ApprovalMode? mode, List<String> prefixes, bool staged}) get agentParams {
+  AgentParamsShown get agentParams {
     final agent = assistant.agent;
     final staged = agent == null
         ? null
         : stagedAgentParamsOf(
             '${site.root}/sys/links/${agent.split('/').last}',
           );
-    return (
+    return AgentParamsShown(
       mode: staged?.params.requireApproval ?? assistant.mode,
       prefixes: (staged?.params.allowedPrefixes ?? assistant.prefixes).toList(),
       staged: staged != null,
@@ -776,6 +1006,9 @@ extension LinkInstallScreen on Selectors {
       ? linkInstall.step
       : installSteps.first;
 
+  /// The wizard is at its last step: the result of the install.
+  bool get installEnded => installStep == InstallStep.result;
+
   /// The item of the official list picked; null before one is.
   CatalogItem? get installItem =>
       linkInstall.catalog.where((c) => c.id == linkInstall.item).firstOrNull;
@@ -820,24 +1053,22 @@ extension LinkInstallScreen on Selectors {
   String get installedLinkKey =>
       'wy/$installBroker/downstream/${linkInstall.name ?? ''}';
 
-  /// The official list as filtered on screen: by category and by the
-  /// words searched for in an item's name, code or description.
+  /// The official list of the category on screen. The words searched for
+  /// are matched by `catalogHit` (`wyrm/search.dart`) against what the
+  /// broker says of an item and what its card reads on screen; the app's
+  /// mapper hands in what the card reads (a known driver's title and line
+  /// are `ui`'s words, in the language on screen).
   List<CatalogItem> get installShownCatalog {
-    final q = (linkInstall.query ?? '').toLowerCase();
     final category = linkInstall.category;
     return [
       for (final c in linkInstall.catalog)
-        if ((category == null || c.category == category) &&
-            (q.isEmpty ||
-                '${c.name} ${c.code} ${c.description}'.toLowerCase().contains(
-                  q,
-                )))
-          c,
+        if (category == null || c.category == category) c,
     ];
   }
 
   /// The categories of the official list, each once.
-  List<String> get installCategories => categoriesOf(linkInstall.catalog);
+  List<CatalogCategory> get installCategories =>
+      categoriesOf(linkInstall.catalog);
 
   /// A check of the package or the backup failed.
   bool get installCheckFailed => linkInstall.checks.any(
@@ -946,8 +1177,7 @@ extension LinkInstallScreen on Selectors {
 }
 
 /// The package a link runs (`pkg:<name>`), or null for a built-in driver.
-String? packageOfLink(LinkInfo l) =>
-    l.driver.startsWith('pkg:') ? l.driver.substring(4) : null;
+String? packageOfLink(LinkInfo l) => l.packageName;
 
 final _linkStates = LastResult<Map<String, LinkState>>();
 final _livePackages = LastResult<Map<String, PackageInfo>>();
@@ -983,7 +1213,8 @@ extension LinksTables on Selectors {
     () => {
       for (final id in links.view)
         if (_live('links/$id/state') case final v?)
-          id: ?linkStateSampleOf(v).orWarn('sys/links/$id/state'),
+          // recorded where the value arrived (`warnUnreadLive`)
+          id: ?linkStateSampleOf(v).orNull,
     },
   );
 
@@ -1028,7 +1259,7 @@ extension LinksTables on Selectors {
   /// The links that run the package [name], by id, in list order.
   List<String> linksOfPackage(String name) => [
     for (final id in links.view)
-      if (links.table[id]?.driver == 'pkg:$name') id,
+      if (links.table[id]?.packageName == name) id,
   ];
 
   /// The restore points of [link] (`sys/links/<id>/restore_points`).
@@ -1043,10 +1274,8 @@ extension LinksTables on Selectors {
         () => {
           for (final id in links.view)
             id:
-                restorePointsOf(
-                  _live('links/$id/restore_points'),
-                  where: 'sys/links/$id/restore_points',
-                ).orWarn('sys/links/$id/restore_points') ??
+                // recorded where the value arrived (`warnUnreadLive`)
+                restorePointsOf(_live('links/$id/restore_points')).orNull ??
                 const [],
         },
       )[link] ??
@@ -1223,7 +1452,7 @@ extension SelectBrokerHealth on Selectors {
   QuarantineEntry? get oldestWaitingLink =>
       ([
             for (final q in _waiting)
-              if (q.kind != QuarantineKind.broker) q,
+              if (q.kind == QuarantineKind.link) q,
           ]..sort(
             (a, b) => (a.firstSeen ?? DateTime(0)).compareTo(
               b.firstSeen ?? DateTime(0),
@@ -1287,7 +1516,7 @@ extension SelectBrokerHealth on Selectors {
       for (final l in failedLinks)
         AttentionItem(kind: AttentionKind.linkFailed, subject: l.id),
       for (final q in waiting)
-        if (q.kind != QuarantineKind.broker)
+        if (q.kind == QuarantineKind.link)
           AttentionItem(
             kind: AttentionKind.quarantine,
             subject: q.node,
@@ -1301,6 +1530,15 @@ extension SelectBrokerHealth on Selectors {
             subject: q.node,
             name: q.cn,
             count: q.via.length,
+          ),
+      // a connection that awaits a decision and that Studio could not
+      // read is seen here too
+      for (final q in waiting)
+        if (q.kind == null)
+          AttentionItem(
+            kind: AttentionKind.waitingNotRead,
+            subject: q.node,
+            name: q.cn,
           ),
       if (acl != null && seen != null && acl > seen)
         AttentionItem(
@@ -1325,8 +1563,10 @@ extension SelectBrokerHealth on Selectors {
   /// the broker's own, else `info`.
   LogLevel get shownLogLevel =>
       switch (stagedLogLevel) {
-        final c? => LogLevel.fromWire(c.to),
-        null => null,
+        StagedChange(to: ChangeSideText(:final text)) => LogLevel.fromWire(
+          text,
+        ),
+        _ => null,
       } ??
       brokerLogLevel ??
       LogLevel.info;
@@ -1344,12 +1584,46 @@ extension SelectBrokerHealth on Selectors {
         l,
   ];
 
+  /// The session reaches the viewed site through an upstream broker: the
+  /// broker then refuses `keys`, a passphrase and a restore that
+  /// replaces.
+  bool get viaUpstream => site.viewed != site.name;
+
+  /// The broker's backups were read and it makes some: the backup
+  /// dialogs may open.
+  bool get backupsOffered =>
+      backups.availability == BackupsRead.read && backups.sections.isNotEmpty;
+
+  /// What *Back up* sends for the form as it is ([backupFormPlanOf]);
+  /// [passphraseLength] is the one thing only the dialog knows.
+  BackupFormPlan backupFormPlan({required int passphraseLength}) =>
+      backupFormPlanOf(
+        state.backups,
+        viaUpstream: viaUpstream,
+        passphraseLength: passphraseLength,
+      );
+
+  /// The file step of the restore dialog ([restoreFilePlanOf]).
+  RestoreFilePlan get restoreFilePlan => restoreFilePlanOf(state.backups);
+
+  /// What *Restore* sends for the form as it is ([restorePlanOf]).
+  RestorePlan restorePlan({required int passphraseLength}) => restorePlanOf(
+    state.backups,
+    viaUpstream: viaUpstream,
+    passphraseLength: passphraseLength,
+  );
+
+  /// What the dialog of the kept backup [job] does, and whether it may
+  /// ([backupJobPlanOf]); its live values decide (a send that runs).
+  BackupJobPlan backupJobPlan(BackupJob job) =>
+      backupJobPlanOf(state.backups, backupJob(job.id) ?? job);
+
   /// The kept backup [id] with its live values, or null.
   BackupJob? backupJob(String id) => switch (backups.table[id]) {
+    // recorded where the values arrive (`warnUnreadLive`)
     final j? => backupLiveOf(
       j,
       (leaf) => live.values['$_sysKey/backups/$id/$leaf']?.value,
-      '$_sysKey/backups/$id',
     ),
     null => null,
   };
@@ -1458,7 +1732,7 @@ extension type SelectLogin(AppState _state) {
   LoginFailure? get failure => _state.login.failure;
 
   /// Returns reason
-  String? get reason => _state.login.reason;
+  AnswerFault? get reason => _state.login.reason;
 
   /// Returns isProbing
   bool get isProbing => _state.wait.isWaitingForType<ProbeGatewayAction>();
@@ -1559,7 +1833,7 @@ extension type SelectLogin(AppState _state) {
     final ours =
         site.gateway != null &&
         site.name != null &&
-        parseGateways(site.gateway!).firstOrNull?.origin == uri?.origin;
+        site.gateway!.origin == uri?.origin;
     final https = uri?.isScheme('https') ?? false;
     return switch ((pending, pin, https)) {
       (final p?, _, _) => TlsNotTrusted(p.site),
@@ -1593,7 +1867,7 @@ extension type SelectLanguage(AppState _state) {
 
 extension type SelectSite(AppState _state) {
   /// Returns gateway
-  String? get gateway => _state.site.gateway;
+  GatewayAddress? get gateway => _state.site.gateway;
 
   /// Returns user
   String? get user => _state.site.user;
@@ -1872,6 +2146,9 @@ extension type SelectLinks(AppState _state) {
 
   /// Returns updatesAvailable
   int get updatesAvailable => _state.links.updatesAvailable;
+
+  /// Returns shown
+  bool get shown => _state.links.shown;
 }
 
 extension type SelectQuarantine(AppState _state) {
@@ -1944,7 +2221,7 @@ extension type SelectLinkInstall(AppState _state) {
   InstallPath get path => _state.linkInstall.path;
 
   /// Returns category
-  String? get category => _state.linkInstall.category;
+  CatalogCategory? get category => _state.linkInstall.category;
 
   /// Returns query
   String? get query => _state.linkInstall.query;
@@ -1972,6 +2249,9 @@ extension type SelectLinkInstall(AppState _state) {
 
   /// Returns refusedSaid
   String? get refusedSaid => _state.linkInstall.refusedSaid;
+
+  /// Returns refusedStatus
+  String? get refusedStatus => _state.linkInstall.refusedStatus;
 }
 
 extension type SelectPeers(AppState _state) {
@@ -2230,7 +2510,7 @@ extension type SelectAssistant(AppState _state) {
   IMap<String, ISet<int>> get unticked => _state.assistant.unticked;
 
   /// Returns refusals
-  IMap<String, String> get refusals => _state.assistant.refusals;
+  IMap<String, ApprovalRefusal> get refusals => _state.assistant.refusals;
 
   /// Returns isApproving
   bool get isApproving => _state.wait.isWaitingForType<ApproveTaskAction>();
@@ -2296,7 +2576,7 @@ extension type SelectChanges(AppState _state) {
   bool get open => _state.changes.open;
 
   /// Returns message
-  String? get message => _state.changes.message;
+  CallRefusal? get message => _state.changes.message;
 
   /// Returns isWaiting
   bool get isWaiting => _state.wait.isWaitingForType<ApplyChangesAction>();
@@ -2488,7 +2768,7 @@ extension type SelectSystem(AppState _state) {
   IList<ProfileInfo> get profiles => _state.system.profiles;
 
   /// Returns profilesNote
-  String? get profilesNote => _state.system.profilesNote;
+  CallRefusal? get profilesNote => _state.system.profilesNote;
 
   /// Returns aclSeen
   int? get aclSeen => _state.system.aclSeen;
@@ -2610,19 +2890,19 @@ extension type SelectBackups(AppState _state) {
   IList<SendLink> get sendLinks => _state.backups.sendLinks;
 
   /// Returns sections
-  IList<String> get sections => _state.backups.sections;
+  IList<BackupSection> get sections => _state.backups.sections;
 
   /// Returns keepDays
   int get keepDays => _state.backups.keepDays;
 
   /// Returns stage
-  String? get stage => _state.backups.stage;
+  BackupStage? get stage => _state.backups.stage;
 
   /// Returns link
   String? get link => _state.backups.link;
 
   /// Returns chosen
-  ISet<String> get chosen => _state.backups.chosen;
+  ISet<BackupSection> get chosen => _state.backups.chosen;
 
   /// Returns historyDays
   int? get historyDays => _state.backups.historyDays;
@@ -2631,7 +2911,7 @@ extension type SelectBackups(AppState _state) {
   ISet<String> get offLinks => _state.backups.offLinks;
 
   /// Returns where
-  String get where => _state.backups.where;
+  BackupPlace get where => _state.backups.where;
 
   /// Returns sendLink
   String? get sendLink => _state.backups.sendLink;
@@ -2646,7 +2926,7 @@ extension type SelectBackups(AppState _state) {
   IList<String> get connections => _state.backups.connections;
 
   /// Returns estimate
-  IMap<String, int> get estimate => _state.backups.estimate;
+  IMap<BackupSection, int> get estimate => _state.backups.estimate;
 
   /// Returns job
   String? get job => _state.backups.job;
@@ -2673,7 +2953,7 @@ extension type SelectBackups(AppState _state) {
   RestoreCheck? get check => _state.backups.check;
 
   /// Returns mode
-  String get mode => _state.backups.mode;
+  RestoreMode get mode => _state.backups.mode;
 
   /// Returns replaceKeys
   bool get replaceKeys => _state.backups.replaceKeys;
@@ -2692,6 +2972,18 @@ extension type SelectBackups(AppState _state) {
 
   /// Returns opening
   int get opening => _state.backups.opening;
+
+  /// Returns staged
+  IList<BackupSection> get staged => _state.backups.staged;
+
+  /// Returns availability
+  BackupsRead get availability => _state.backups.availability;
+
+  /// Returns unread
+  IList<String> get unread => _state.backups.unread;
+
+  /// Returns applySent
+  bool get applySent => _state.backups.applySent;
 }
 
 extension type SelectBrokerUpdate(AppState _state) {

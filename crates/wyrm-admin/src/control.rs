@@ -930,6 +930,20 @@ impl Control {
             .clone()
     }
 
+    /// Records written to the audit journal so far (its LSN): the perf tests of `wyrmd` count
+    /// audit records per second with it (feature `testkit`; never in a production build).
+    #[cfg(feature = "testkit")]
+    pub fn audit_lsn(&self) -> u64 {
+        self.audit.lock().unwrap_or_else(|p| p.into_inner()).lsn()
+    }
+
+    /// The historian itself: the perf tests of `wyrmd` give it 10 000 watches without 10 000
+    /// registry writes (feature `testkit`; never in a production build).
+    #[cfg(feature = "testkit")]
+    pub fn historian(&self) -> &Arc<wyrm_history::Historian> {
+        &self.history
+    }
+
     pub fn audit_tail(&self, n: usize) -> Vec<AuditRecord> {
         let a = self.audit.lock().unwrap_or_else(|p| p.into_inner());
         let r = &a.state().recent;

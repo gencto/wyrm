@@ -4,6 +4,8 @@ import 'package:models/block_category.dart';
 import 'package:models/block_type.dart';
 import 'package:models/engine_port.dart';
 import 'package:models/field_id.dart';
+import 'package:models/field_label.dart';
+import 'package:models/field_word.dart';
 import 'package:models/flow_block.dart';
 import 'package:models/flow_draft.dart';
 import 'package:models/flow_edge.dart';
@@ -176,7 +178,7 @@ final class FlowField {
 
   /// What the row reads: [fieldLabel] (`Input min`, `Input 1`, `Output`),
   /// a point's own name, an argument's key; never `in.<p>`, no colon.
-  final String label;
+  final FieldLabel label;
   final FieldKind kind;
 
   /// The engine input an edge into this field uses; null: no left port.
@@ -383,9 +385,9 @@ bool pairsOutputs(NodeType? t) =>
 
 /// What a case of a `router` reads: `Case 1` for the name `0`, else the
 /// name the user gave it (`high`).
-String caseLabel(String name) => switch (int.tryParse(name)) {
-  final n? => 'Case ${n + 1}',
-  null => name,
+FieldLabel caseLabel(String name) => switch (int.tryParse(name)) {
+  final n? => FieldLabel.numbered(FieldWord.caseOf, n + 1),
+  null => FieldLabel.text(name),
 };
 
 /// Block types whose variable inputs come in pairs: `case` (a case value,
@@ -395,63 +397,71 @@ const Set<KnownBlock> pairedInputs = {KnownBlock.case_};
 /// What the variable input at [index] of a paired block reads: `Case 1`,
 /// `Then 1`, `Case 2`, … (flow-editor.md §3: labels by position, as the
 /// engine reads the pairs by position).
-String pairLabel(int index) =>
-    '${index.isEven ? 'Case' : 'Then'} ${index ~/ 2 + 1}';
+FieldLabel pairLabel(int index) => FieldLabel.numbered(
+  index.isEven ? FieldWord.caseOf : FieldWord.then,
+  index ~/ 2 + 1,
+);
 
 // ---------- labels (flow-editor.md §3, owner decision 2026-11-08) ----------
 
 /// Ports whose sentence-case name reads wrong or says too little.
-const portLabels = <EnginePort, String>{
-  EnginePort.in_: 'Input',
-  EnginePort.out: 'Output',
-  EnginePort.trigger: 'Trigger',
-  EnginePort.inputOutOfRange: 'Input out of range',
+const portLabels = <EnginePort, FieldWord>{
+  EnginePort.in_: FieldWord.input,
+  EnginePort.out: FieldWord.output,
+  EnginePort.trigger: FieldWord.trigger,
+  EnginePort.inputOutOfRange: FieldWord.inputOutOfRange,
 };
 
 /// Parameters whose sentence-case name reads wrong or says too little.
 /// [typedFieldLabels] names a parameter of one type and wins over these.
-const paramLabels = <BlockCfgKey, String>{
-  BlockCfgKey.k: 'Factor',
-  BlockCfgKey.b: 'Offset',
-  BlockCfgKey.abs: 'Absolute change',
-  BlockCfgKey.pct: 'Percent change',
-  BlockCfgKey.fn: 'Function',
-  BlockCfgKey.op: 'Operation',
-  BlockCfgKey.expr: 'Expression',
-  BlockCfgKey.msg: 'Message',
-  BlockCfgKey.ms: 'Delay (ms)',
-  BlockCfgKey.key: 'Point',
-  BlockCfgKey.node: 'Value name',
-  BlockCfgKey.meta: 'Meta',
-  BlockCfgKey.allowBad: 'Allow bad quality',
-  BlockCfgKey.onBad: 'On bad quality',
-  BlockCfgKey.maxSamples: 'Max samples',
-  BlockCfgKey.memoryMb: 'Memory (MB)',
+const paramLabels = <BlockCfgKey, FieldWord>{
+  BlockCfgKey.k: FieldWord.factor,
+  BlockCfgKey.b: FieldWord.offset,
+  BlockCfgKey.abs: FieldWord.absoluteChange,
+  BlockCfgKey.pct: FieldWord.percentChange,
+  BlockCfgKey.fn: FieldWord.function,
+  BlockCfgKey.op: FieldWord.operation,
+  BlockCfgKey.expr: FieldWord.expression,
+  BlockCfgKey.msg: FieldWord.message,
+  BlockCfgKey.ms: FieldWord.delayMs,
+  BlockCfgKey.key: FieldWord.point,
+  BlockCfgKey.node: FieldWord.valueName,
+  BlockCfgKey.meta: FieldWord.meta,
+  BlockCfgKey.allowBad: FieldWord.allowBadQuality,
+  BlockCfgKey.onBad: FieldWord.onBadQuality,
+  BlockCfgKey.maxSamples: FieldWord.maxSamples,
+  BlockCfgKey.memoryMb: FieldWord.memoryMb,
   // ADR 0040: behaviours, scopes, the second set of blocks.
-  BlockCfgKey.trigger: 'Trigger',
-  BlockCfgKey.intervalMs: 'Every',
-  BlockCfgKey.autoRun: 'Auto run',
-  BlockCfgKey.runOnStart: 'Run on start',
-  BlockCfgKey.keyScope: 'Scope',
-  BlockCfgKey.pathScope: 'Scope',
+  BlockCfgKey.trigger: FieldWord.trigger,
+  BlockCfgKey.intervalMs: FieldWord.every,
+  BlockCfgKey.autoRun: FieldWord.autoRun,
+  BlockCfgKey.runOnStart: FieldWord.runOnStart,
+  BlockCfgKey.keyScope: FieldWord.scope,
+  BlockCfgKey.pathScope: FieldWord.scope,
 };
 
 /// The label of a parameter of one type: it wins over [paramLabels]
 /// (`latch` has an input and a parameter both named `reset`).
-const typedFieldLabels = <KnownBlock, Map<BlockCfgKey, String>>{
-  KnownBlock.latch: {BlockCfgKey.reset: 'Reset mode'},
+const typedFieldLabels = <KnownBlock, Map<BlockCfgKey, FieldWord>>{
+  KnownBlock.latch: {BlockCfgKey.reset: FieldWord.resetMode},
   // A liveliness token belongs to a node, not to a point.
-  KnownBlock.liveliness: {BlockCfgKey.key: 'Node'},
-  KnownBlock.set: {BlockCfgKey.path: 'Point', BlockCfgKey.on: 'Write on'},
-  KnownBlock.invoke: {BlockCfgKey.path: 'Node', BlockCfgKey.on: 'Run on'},
-  KnownBlock.stopwatch: {BlockCfgKey.interval: 'Interval (s)'},
+  KnownBlock.liveliness: {BlockCfgKey.key: FieldWord.node},
+  KnownBlock.set: {
+    BlockCfgKey.path: FieldWord.point,
+    BlockCfgKey.on: FieldWord.writeOn,
+  },
+  KnownBlock.invoke: {
+    BlockCfgKey.path: FieldWord.node,
+    BlockCfgKey.on: FieldWord.runOn,
+  },
+  KnownBlock.stopwatch: {BlockCfgKey.interval: FieldWord.intervalS},
   // ADR 0040: the second set of blocks.
-  KnownBlock.listChildren: {BlockCfgKey.path: 'Node'},
-  KnownBlock.throttle: {BlockCfgKey.ms: 'Period (ms)'},
-  KnownBlock.debounce: {BlockCfgKey.ms: 'Quiet time (ms)'},
+  KnownBlock.listChildren: {BlockCfgKey.path: FieldWord.node},
+  KnownBlock.throttle: {BlockCfgKey.ms: FieldWord.periodMs},
+  KnownBlock.debounce: {BlockCfgKey.ms: FieldWord.quietTimeMs},
   // ADR 0044: the third set (docs/flow-blocks.md, the editor's table).
-  KnownBlock.getNode: {BlockCfgKey.key: 'Node'},
-  KnownBlock.dateRange: {BlockCfgKey.rangeDelimiter: 'Delimiter'},
+  KnownBlock.getNode: {BlockCfgKey.key: FieldWord.node},
+  KnownBlock.dateRange: {BlockCfgKey.rangeDelimiter: FieldWord.delimiter},
 };
 
 /// Inputs that are commands, not values: a sample on the wire presses them
@@ -707,7 +717,7 @@ final class ListColumn {
 /// The items of a list parameter as rows of texts by key ([listItemsOf]):
 /// a text as it is, another value as JSON. A value that is no list of maps
 /// gives no rows.
-List<Map<String, String>> listRowsOf(Object? v) => listRowsIn(v);
+List<Map<String, String>> listRowsOf(JsonValue v) => listRowsIn(v);
 
 /// Whether the input at engine port [port] of a block of [type] is a
 /// command ([commandInputs]).
@@ -818,14 +828,14 @@ FieldGroup groupOf(NodeType? t, FlowBlock b, FlowField f) {
 }
 
 /// Outputs that say more under their own name than as `Output`.
-const outputLabelOverrides = <KnownBlock, Map<EnginePort, String>>{
+const outputLabelOverrides = <KnownBlock, Map<EnginePort, FieldWord>>{
   // A presence, not a value (docs/flow-blocks.md, "A key from a port").
-  KnownBlock.liveliness: {EnginePort.out: 'Alive'},
-  KnownBlock.invoke: {EnginePort.out: 'Result'},
-  KnownBlock.stats: {EnginePort.avg: 'Average'},
-  KnownBlock.alarm: {EnginePort.out: 'Active'},
-  KnownBlock.timer: {EnginePort.out: 'Count'},
-  KnownBlock.constant: {EnginePort.out: 'Value'},
+  KnownBlock.liveliness: {EnginePort.out: FieldWord.alive},
+  KnownBlock.invoke: {EnginePort.out: FieldWord.result},
+  KnownBlock.stats: {EnginePort.avg: FieldWord.average},
+  KnownBlock.alarm: {EnginePort.out: FieldWord.active},
+  KnownBlock.timer: {EnginePort.out: FieldWord.count},
+  KnownBlock.constant: {EnginePort.out: FieldWord.value},
 };
 
 /// Parameters a block of a type lists in the inspector only, though they
@@ -852,7 +862,7 @@ const _oneOf = <KnownBlock, Set<BlockCfgKey>>{
 /// ([portLabels]), else [humanize]. Numbered inputs (`in.0`) read
 /// `Input 1`; other variable inputs keep the name the user gave them (an
 /// `expression` variable, a `wasm` port).
-String fieldLabel(
+FieldLabel fieldLabel(
   BlockType type,
   String name, {
   ParamSpec? spec,
@@ -861,18 +871,51 @@ String fieldLabel(
 }) {
   final display = spec?.display;
   if (display != null && display.isNotEmpty) {
-    return display;
+    return FieldLabel.text(display);
   }
   final short = paramOfPort(name) ?? name;
   if (variable) {
     final n = int.tryParse(short);
-    return n == null ? short : 'Input ${n + 1}';
+    return n == null
+        ? FieldLabel.text(short)
+        : FieldLabel.numbered(FieldWord.input, n + 1);
   }
   final key = spec?.key;
-  return (key == null ? null : typedFieldLabels[type.known]?[key]) ??
+  final word =
+      (key == null ? null : typedFieldLabels[type.known]?[key]) ??
       (key == null ? null : paramLabels[key]) ??
-      (port == null ? null : portLabels[port]) ??
-      humanize(short);
+      (port == null ? null : portLabels[port]);
+  return word == null
+      ? FieldLabel.text(humanize(short))
+      : FieldLabel.word(word);
+}
+
+/// What the output [p] (engine [port]) of a block of [type] reads. A
+/// `subscribe` output ([reads]) is its point's value, named after the
+/// point ([pointName]); a `liveliness` output is whether its node is
+/// there; a port its author [named] keeps that name; an `invoke` that
+/// [behaves] reads `Output`; else an override, else [fieldLabel].
+FieldLabel _outputLabel(
+  BlockType type,
+  String p,
+  EnginePort? port, {
+  required String? pointName,
+  required bool reads,
+  required bool named,
+  required bool behaves,
+}) {
+  final word = outputLabelOverrides[type.known]?[port];
+  final own = word == null ? null : FieldLabel.word(word);
+  final plain = fieldLabel(type, p, port: port);
+  if (reads && port == EnginePort.out) {
+    return own ?? (pointName == null ? plain : FieldLabel.text(pointName));
+  }
+  if (named) {
+    return FieldLabel.text(p);
+  }
+  return type.known == KnownBlock.invoke && port == EnginePort.out && behaves
+      ? plain
+      : own ?? plain;
 }
 
 // ---------- forms (a block that does one of two things) ----------
@@ -1039,14 +1082,14 @@ List<FlowField> fieldsOf(
       FlowField(
         id: FieldId.input('in'),
         name: 'in',
-        label: 'Input',
+        label: FieldLabel.word(FieldWord.input),
         kind: .input,
         inPort: 'in',
       ),
       FlowField(
         id: FieldId.output('out'),
         name: 'out',
-        label: 'Output',
+        label: FieldLabel.word(FieldWord.output),
         kind: .output,
         outPort: 'out',
       ),
@@ -1193,11 +1236,16 @@ List<FlowField> fieldsOf(
       port: engine,
       name: port,
       label: switch (known) {
-        KnownBlock.publish when main => 'Value',
-        KnownBlock.set when main => pointName ?? 'Input',
-        KnownBlock.invoke when main => 'Run when',
+        KnownBlock.publish when main => const FieldLabel.word(FieldWord.value),
+        KnownBlock.set when main => switch (pointName) {
+          final name? => FieldLabel.text(name),
+          null => const FieldLabel.word(FieldWord.input),
+        },
+        KnownBlock.invoke when main => const FieldLabel.word(
+          FieldWord.runWhen,
+        ),
         // A custom block's ports keep the names their author gave them.
-        _ when instance => port,
+        _ when instance => FieldLabel.text(port),
         _ when variable && pairedInputs.contains(known) => pairLabel(index),
         _ when variable && routed => caseLabel(name),
         _ => fieldLabel(b.type, port, port: engine, variable: variable),
@@ -1237,7 +1285,7 @@ List<FlowField> fieldsOf(
   FlowField arg(String k, {required bool has}) => FlowField(
     id: FieldId.arg(k),
     name: k,
-    label: argSpecs[k]?.display ?? k,
+    label: FieldLabel.text(argSpecs[k]?.display ?? k),
     kind: .arg,
     inPort: t.dynInKeys ? '${t.dynInPrefix}$k' : null,
     argSpec: argSpecs[k],
@@ -1265,22 +1313,15 @@ List<FlowField> fieldsOf(
           port: t.knownOutputs[p],
           // A `subscribe` output is its point's value, named after the
           // point; a `liveliness` output is whether its node is there.
-          label: _reads.contains(known) && t.knownOutputs[p] == EnginePort.out
-              ? (outputLabelOverrides[known]?[t.knownOutputs[p]] ??
-                    pointName ??
-                    fieldLabel(b.type, p, port: t.knownOutputs[p]))
-              : (instance || t.dynOutParam != null && !t.outputs.contains(p)
-                    ? p
-                    : (known == KnownBlock.invoke &&
-                              t.knownOutputs[p] == EnginePort.out &&
-                              behaves
-                          ? fieldLabel(b.type, p, port: t.knownOutputs[p])
-                          : outputLabelOverrides[known]?[t.knownOutputs[p]] ??
-                                fieldLabel(
-                                  b.type,
-                                  p,
-                                  port: t.knownOutputs[p],
-                                ))),
+          label: _outputLabel(
+            b.type,
+            p,
+            t.knownOutputs[p],
+            pointName: pointName,
+            reads: _reads.contains(known),
+            named: instance || t.dynOutParam != null && !t.outputs.contains(p),
+            behaves: behaves,
+          ),
           kind: .output,
           outPort: p,
           onBlock: switch (t.knownOutputs[p]) {
@@ -1610,7 +1651,7 @@ FieldValue fieldValue(
   switch (f.kind) {
     case FieldKind.param:
       final p = f.spec!;
-      final typed = b.paramOr(p.name, p.defaultValue).raw;
+      final typed = b.paramOr(p.name, p.defaultValue?.raw).raw;
       if (f.variable) {
         sample =
             live(portKey(PortSide.output, b.id, f.outPort!)) ??

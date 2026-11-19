@@ -22,7 +22,9 @@ mixin _$FaultReport {
 /// stack frame inside Studio.
  String get where;/// The screen or the panel it belongs to, when known.
  String? get screen;/// The stack trace; in the copied report only, never on screen.
- String get stack;
+ String get stack;/// It came from outside any action (a widget that threw while
+/// building, a callback, a future nobody awaited).
+ bool get uncaught;
 /// Create a copy of FaultReport
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -34,20 +36,20 @@ $FaultReportCopyWith<FaultReport> get copyWith => _$FaultReportCopyWithImpl<Faul
 @override
 bool operator ==(Object other) {
   final _this = this as FaultReport;
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is FaultReport&&(identical(other.type, _this.type) || other.type == _this.type)&&(identical(other.line, _this.line) || other.line == _this.line)&&(identical(other.where, _this.where) || other.where == _this.where)&&(identical(other.screen, _this.screen) || other.screen == _this.screen)&&(identical(other.stack, _this.stack) || other.stack == _this.stack));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is FaultReport&&(identical(other.type, _this.type) || other.type == _this.type)&&(identical(other.line, _this.line) || other.line == _this.line)&&(identical(other.where, _this.where) || other.where == _this.where)&&(identical(other.screen, _this.screen) || other.screen == _this.screen)&&(identical(other.stack, _this.stack) || other.stack == _this.stack)&&(identical(other.uncaught, _this.uncaught) || other.uncaught == _this.uncaught));
 }
 
 
 @override
 int get hashCode {
   final _this = this as FaultReport;
-  return Object.hash(runtimeType,_this.type,_this.line,_this.where,_this.screen,_this.stack);
+  return Object.hash(runtimeType,_this.type,_this.line,_this.where,_this.screen,_this.stack,_this.uncaught);
 }
 
 @override
 String toString() {
   final _this = this as FaultReport;
-  return 'FaultReport(type: ${_this.type}, line: ${_this.line}, where: ${_this.where}, screen: ${_this.screen}, stack: ${_this.stack})';
+  return 'FaultReport(type: ${_this.type}, line: ${_this.line}, where: ${_this.where}, screen: ${_this.screen}, stack: ${_this.stack}, uncaught: ${_this.uncaught})';
 }
 
 
@@ -58,7 +60,7 @@ abstract mixin class $FaultReportCopyWith<$Res>  {
   factory $FaultReportCopyWith(FaultReport value, $Res Function(FaultReport) _then) = _$FaultReportCopyWithImpl;
 @useResult
 $Res call({
- String type, String line, String where, String? screen, String stack
+ String type, String line, String where, String? screen, String stack, bool uncaught
 });
 
 
@@ -75,14 +77,15 @@ class _$FaultReportCopyWithImpl<$Res>
 
 /// Create a copy of FaultReport
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? type = null,Object? line = null,Object? where = null,Object? screen = freezed,Object? stack = null,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? type = null,Object? line = null,Object? where = null,Object? screen = freezed,Object? stack = null,Object? uncaught = null,}) {
   return _then(FaultReport(
 type: null == type ? _self.type : type // ignore: cast_nullable_to_non_nullable
 as String,line: null == line ? _self.line : line // ignore: cast_nullable_to_non_nullable
 as String,where: null == where ? _self.where : where // ignore: cast_nullable_to_non_nullable
 as String,screen: freezed == screen ? _self.screen : screen // ignore: cast_nullable_to_non_nullable
 as String?,stack: null == stack ? _self.stack : stack // ignore: cast_nullable_to_non_nullable
-as String,
+as String,uncaught: null == uncaught ? _self.uncaught : uncaught // ignore: cast_nullable_to_non_nullable
+as bool,
   ));
 }
 
@@ -94,7 +97,7 @@ as String,
 
 
 class _FaultReport implements FaultReport {
-  const _FaultReport({this.type = '', this.line = '', this.where = '', this.screen, this.stack = ''});
+  const _FaultReport({this.type = '', this.line = '', this.where = '', this.screen, this.stack = '', this.uncaught = false});
   
 
 /// The Dart type of what was thrown (`FormatException`).
@@ -109,6 +112,9 @@ class _FaultReport implements FaultReport {
 @override final  String? screen;
 /// The stack trace; in the copied report only, never on screen.
 @override@JsonKey() final  String stack;
+/// It came from outside any action (a widget that threw while
+/// building, a callback, a future nobody awaited).
+@override@JsonKey() final  bool uncaught;
 
 /// Create a copy of FaultReport
 /// with the given fields replaced by the non-null parameter values.
@@ -120,18 +126,18 @@ _$FaultReportCopyWith<_FaultReport> get copyWith => __$FaultReportCopyWithImpl<_
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is _FaultReport&&(identical(other.type, type) || other.type == type)&&(identical(other.line, line) || other.line == line)&&(identical(other.where, where) || other.where == where)&&(identical(other.screen, screen) || other.screen == screen)&&(identical(other.stack, stack) || other.stack == stack));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _FaultReport&&(identical(other.type, type) || other.type == type)&&(identical(other.line, line) || other.line == line)&&(identical(other.where, where) || other.where == where)&&(identical(other.screen, screen) || other.screen == screen)&&(identical(other.stack, stack) || other.stack == stack)&&(identical(other.uncaught, uncaught) || other.uncaught == uncaught));
 }
 
 
 @override
 int get hashCode {
-    return Object.hash(runtimeType,type,line,where,screen,stack);
+    return Object.hash(runtimeType,type,line,where,screen,stack,uncaught);
 }
 
 @override
 String toString() {
-    return 'FaultReport(type: $type, line: $line, where: $where, screen: $screen, stack: $stack)';
+    return 'FaultReport(type: $type, line: $line, where: $where, screen: $screen, stack: $stack, uncaught: $uncaught)';
 }
 
 
@@ -142,7 +148,7 @@ abstract mixin class _$FaultReportCopyWith<$Res> implements $FaultReportCopyWith
   factory _$FaultReportCopyWith(_FaultReport value, $Res Function(_FaultReport) _then) = __$FaultReportCopyWithImpl;
 @override @useResult
 $Res call({
- String type, String line, String where, String? screen, String stack
+ String type, String line, String where, String? screen, String stack, bool uncaught
 });
 
 
@@ -159,14 +165,15 @@ class __$FaultReportCopyWithImpl<$Res>
 
 /// Create a copy of FaultReport
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? type = null,Object? line = null,Object? where = null,Object? screen = freezed,Object? stack = null,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? type = null,Object? line = null,Object? where = null,Object? screen = freezed,Object? stack = null,Object? uncaught = null,}) {
   return _then(_FaultReport(
 type: null == type ? _self.type : type // ignore: cast_nullable_to_non_nullable
 as String,line: null == line ? _self.line : line // ignore: cast_nullable_to_non_nullable
 as String,where: null == where ? _self.where : where // ignore: cast_nullable_to_non_nullable
 as String,screen: freezed == screen ? _self.screen : screen // ignore: cast_nullable_to_non_nullable
 as String?,stack: null == stack ? _self.stack : stack // ignore: cast_nullable_to_non_nullable
-as String,
+as String,uncaught: null == uncaught ? _self.uncaught : uncaught // ignore: cast_nullable_to_non_nullable
+as bool,
   ));
 }
 

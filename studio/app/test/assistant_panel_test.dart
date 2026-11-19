@@ -1,5 +1,6 @@
 import 'package:app/connectors/assistant_page_connector.dart';
 import 'package:app/connectors/explorer_page_connector.dart';
+import 'package:app/mappers/shell_mappers.dart';
 import 'package:app/navigation/app_router.dart';
 import 'package:async_redux/async_redux.dart';
 import 'package:business/redux/app_state.dart';
@@ -127,8 +128,8 @@ void main() {
       'Never — write steps run at once; config steps still wait for a person',
     );
     expect(vm.prefixRows, [
-      ('wy/central/downstream/modbus', 'downstream/modbus'),
-      ('wy/central/storage', 'storage'),
+      const PrefixRowVm('wy/central/downstream/modbus', 'downstream/modbus'),
+      const PrefixRowVm('wy/central/storage', 'storage'),
     ]);
     expect(
       [for (final f in vm.facts) (f.label, f.value)],
@@ -400,9 +401,9 @@ void main() {
 
     final card = _Reader(app.store.state).changes.reviewCards.single.change;
     expect(card.key, _links);
-    expect(card.field, 'params · require_approval');
-    expect(card.from, 'rev 2: require_approval write');
-    expect(card.to, 'require_approval config');
+    expect(card.field, 'params');
+    expect(card.from.vm.text, 'rev 2: require_approval write');
+    expect(card.to.vm.text, 'require_approval config');
   });
 
   testWidgets("the drawer: the second button is the model's tile with the "

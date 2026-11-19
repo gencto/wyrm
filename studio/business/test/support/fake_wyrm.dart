@@ -114,12 +114,15 @@ class FakeWyrmApi implements WyrmApi {
     calls.add(Call('invoke', key, action: action, args: args));
     final id = '$key ▸ $action';
     guard(id);
+    final gate = _gateOf(id);
     if (invokesInTurn[id] case [final first, ...]) {
       invokesInTurn[id]!.removeAt(0);
+      await gate;
       await Future<void>.delayed(first.$1);
       yield* Stream.fromIterable(first.$2);
       return;
     }
+    await gate;
     await _delay(id);
     if (errors[id] case final e?) {
       throw e;
@@ -173,12 +176,45 @@ class FakeWyrmApi implements WyrmApi {
   @override
   Future<List<Child>> children(String key) async {
     calls.add(Call('children', key));
+    final gate = _gateOf(key);
+    if (childrenInTurn[key] case [final first, ...]) {
+      childrenInTurn[key]!.removeAt(0);
+      await gate;
+      return first.list ?? (throw first.refusal!);
+    }
+    await gate;
     await _delay(key);
     if (errors[key] case final e?) {
       throw e;
     }
     return children_[key] ?? (throw _missing(key));
   }
+
+  /// Answers to the next lists of a key, one per call in call order: each
+  /// is the list as it was when the call was sent, or its refusal. When it
+  /// comes back is the test's to say ([gates]). Before [children_].
+  final childrenInTurn = <String, List<ListAnswer>>{};
+
+  /// Gates of the next calls of a key (a list) or of `key ▸ action` (an
+  /// invoke), one per call in call order: the call is answered only once
+  /// the test opens its gate ([hold]), so the order answers come in is
+  /// exact, with no clock (a gateway that serves every call in a task of
+  /// its own may answer a later call first).
+  final gates = <String, List<Completer<void>>>{};
+
+  /// Holds the next call of [id] until the gate it returns is completed.
+  Completer<void> hold(String id) {
+    final gate = Completer<void>();
+    (gates[id] ??= []).add(gate);
+    return gate;
+  }
+
+  /// The gate of the call of [id] that is being made now, taken when the
+  /// call is made; nothing to wait for when the test holds none.
+  Future<void> _gateOf(String id) => switch (gates[id]) {
+    [final first, ...] => (gates[id]!..removeAt(0), first.future).$2,
+    _ => Future<void>.value(),
+  };
 
   /// Answers to the next calls of an action, by `key ▸ action`, one per
   /// call in call order: each comes back after its own delay (a gateway
@@ -313,7 +349,7 @@ class FakeSession implements WyrmSession {
   Stream<bool> get connection => connected.stream;
 
   @override
-  Uri get base => Uri.parse('http://127.0.0.1:8445');
+  GatewayAddress get base => addressOf(Uri.parse('http://127.0.0.1:8445'));
 
   @override
   Future<GatewayIdentity> identity() async => switch (me) {
@@ -407,8 +443,10 @@ class FakeSession implements WyrmSession {
       gateway.confirmPassword(password);
 
   @override
-  Future<List<GatewayDevice>> devices() async =>
-      gateway.listOf(userName, own: gateway.sessionDevice);
+  Future<List<GatewayDevice>> devices() async => switch (gateway.listFails) {
+    final e? => throw e,
+    null => gateway.listOf(userName, own: gateway.sessionDevice),
+  };
 
   @override
   Future<List<GatewayDevice>> userDevices(String name) async =>
@@ -459,6 +497,9 @@ class FakeDevices {
   final String password;
 
   final records = <String, FakeDeviceRecord>{};
+
+  /// What the next lists of devices throw instead of answering.
+  Exception? listFails;
   var _next = 0;
   var _nonce = 0;
 
@@ -643,6 +684,19 @@ class FakeDevices {
   }
 }
 
+/// The address of [url], as the gateway field would give it.
+GatewayAddress addressOf(Uri url) => parseGateways('$url').single;
+
+/// What one call of a list answers: the list, or its refusal.
+final class ListAnswer {
+  const ListAnswer(List<Child> this.list) : refusal = null;
+
+  const ListAnswer.refused(WyrmException this.refusal) : list = null;
+
+  final List<Child>? list;
+  final WyrmException? refusal;
+}
+
 /// Opens [session], or throws [error]; records what it was asked.
 class FakeLogin implements WyrmLogin {
   FakeLogin({
@@ -676,12 +730,12 @@ class FakeLogin implements WyrmLogin {
 
   @override
   Future<WyrmSession> open(
-    List<Uri> gateways, {
+    List<GatewayAddress> gateways, {
     required String user,
     required String password,
     String? device,
   }) async {
-    this.gateways = gateways;
+    this.gateways = [for (final g in gateways) g.uri];
     this.user = user;
     this.password = password;
     this.device = device;
@@ -697,13 +751,13 @@ class FakeLogin implements WyrmLogin {
 
   @override
   Future<WyrmSession> openWithDevice(
-    Uri gateway, {
+    GatewayAddress gateway, {
     required String site,
     required String user,
     required String device,
     required Future<Uint8List> Function(Uint8List message) sign,
   }) async {
-    gateways = [gateway];
+    gateways = [gateway.uri];
     this.user = user;
     await session.gateway.login(
       site: site,
@@ -717,16 +771,16 @@ class FakeLogin implements WyrmLogin {
 
   @override
   Future<GatewayInfo?> info(
-    Uri gateway, {
+    GatewayAddress gateway, {
     Duration timeout = const Duration(seconds: 5),
   }) async => info_;
 
   @override
   Future<GatewayProbe> probe(
-    Uri gateway, {
+    GatewayAddress gateway, {
     Duration timeout = const Duration(seconds: 5),
   }) async {
-    probed.add(gateway);
+    probed.add(gateway.uri);
     return answer;
   }
 }
@@ -740,6 +794,7 @@ Store<AppState> fakeStore({
   FakeDeviceKey? keys,
   BaseKeyValueStorage? settings,
   TextClipboard? clipboard,
+  DateTime Function()? clock,
 }) => Store<AppState>(
   initialState: initial ?? AppState.initial(),
   dependencies: (s) => AppDependencies(
@@ -751,6 +806,7 @@ Store<AppState> fakeStore({
     // The platform's, unless a test hands in its own: a widget test
     // answers the platform channel itself.
     clipboard: clipboard ?? const SystemClipboard(),
+    clock: clock ?? DateTime.now,
   ),
 );
 

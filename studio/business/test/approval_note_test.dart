@@ -4,6 +4,7 @@ import 'package:business/wyrm/holds.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/agent_task.dart';
+import 'package:models/approval_refusal.dart';
 import 'package:models/task_state.dart';
 
 /// The two halves of the decision about a plan that waits, read from one
@@ -39,7 +40,7 @@ void main() {
           docs: docs,
           refusals: refusal == null
               ? const IMapConst({})
-              : {'t-1': refusal}.lock,
+              : {'t-1': ApprovalRefusal.said(refusal)}.lock,
         ),
       ),
     );
@@ -64,7 +65,11 @@ void main() {
     final r = at(refusal: 'step 2 needs config');
     expect(
       r.approvalNote(task, choices),
-      isA<ApprovalRefused>().having((n) => n.why, 'why', 'step 2 needs config'),
+      isA<ApprovalRefused>().having(
+        (n) => n.why,
+        'why',
+        const ApprovalRefusal.said('step 2 needs config'),
+      ),
     );
   });
 

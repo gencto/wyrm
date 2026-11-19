@@ -20,7 +20,7 @@ mixin _$AssistantState {
  AgentConfig? get config;/// The agent's `cfg` was read and is not one Studio reads (a setting of
 /// another type, a mode the link does not have): what it may do, and
 /// so who approves, is not known.
- bool get configInvalid; bool get docs; IMap<String, ISet<int>> get unticked; IMap<String, String> get refusals; IMap<String, ISet<String>> get picks; bool get shown; IList<String> get watched; IMap<String, ISet<String>> get rowPicks; IList<String> get chips; IMap<String, ISet<int>> get revealed; bool get drawer;/// The finding nodes the drawer watches while it is shown (its own
+ bool get configInvalid; bool get docs; IMap<String, ISet<int>> get unticked; IMap<String, ApprovalRefusal> get refusals; IMap<String, ISet<String>> get picks; bool get shown; IList<String> get watched; IMap<String, ISet<String>> get rowPicks; IList<String> get chips; IMap<String, ISet<int>> get revealed; bool get drawer;/// The finding nodes the drawer watches while it is shown (its own
 /// readers, apart from [watched]); empty while it is hidden.
  IList<String> get drawerWatched;/// The drawer is on screen (Explorer's tab active, the drawer open).
  bool get drawerShown; ISet<String>? get secrets; String? get timelineKey; IList<AuditEntry> get timelineAudit;
@@ -59,7 +59,7 @@ abstract mixin class $AssistantStateCopyWith<$Res>  {
   factory $AssistantStateCopyWith(AssistantState value, $Res Function(AssistantState) _then) = _$AssistantStateCopyWithImpl;
 @useResult
 $Res call({
- String? draft, AssistantPanel panel, String? agent, AgentConfig? config, bool configInvalid, bool docs, IMap<String, ISet<int>> unticked, IMap<String, String> refusals, IMap<String, ISet<String>> picks, bool shown, IList<String> watched, IMap<String, ISet<String>> rowPicks, IList<String> chips, IMap<String, ISet<int>> revealed, bool drawer, IList<String> drawerWatched, bool drawerShown, ISet<String>? secrets, String? timelineKey, IList<AuditEntry> timelineAudit
+ String? draft, AssistantPanel panel, String? agent, AgentConfig? config, bool configInvalid, bool docs, IMap<String, ISet<int>> unticked, IMap<String, ApprovalRefusal> refusals, IMap<String, ISet<String>> picks, bool shown, IList<String> watched, IMap<String, ISet<String>> rowPicks, IList<String> chips, IMap<String, ISet<int>> revealed, bool drawer, IList<String> drawerWatched, bool drawerShown, ISet<String>? secrets, String? timelineKey, IList<AuditEntry> timelineAudit
 });
 
 
@@ -86,7 +86,7 @@ as AgentConfig?,configInvalid: null == configInvalid ? _self.configInvalid : con
 as bool,docs: null == docs ? _self.docs : docs // ignore: cast_nullable_to_non_nullable
 as bool,unticked: null == unticked ? _self.unticked : unticked // ignore: cast_nullable_to_non_nullable
 as IMap<String, ISet<int>>,refusals: null == refusals ? _self.refusals : refusals // ignore: cast_nullable_to_non_nullable
-as IMap<String, String>,picks: null == picks ? _self.picks : picks // ignore: cast_nullable_to_non_nullable
+as IMap<String, ApprovalRefusal>,picks: null == picks ? _self.picks : picks // ignore: cast_nullable_to_non_nullable
 as IMap<String, ISet<String>>,shown: null == shown ? _self.shown : shown // ignore: cast_nullable_to_non_nullable
 as bool,watched: null == watched ? _self.watched : watched // ignore: cast_nullable_to_non_nullable
 as IList<String>,rowPicks: null == rowPicks ? _self.rowPicks : rowPicks // ignore: cast_nullable_to_non_nullable
@@ -137,7 +137,7 @@ class _AssistantState implements AssistantState {
 @override@JsonKey() final  bool configInvalid;
 @override@JsonKey() final  bool docs;
 @override@JsonKey() final  IMap<String, ISet<int>> unticked;
-@override@JsonKey() final  IMap<String, String> refusals;
+@override@JsonKey() final  IMap<String, ApprovalRefusal> refusals;
 @override@JsonKey() final  IMap<String, ISet<String>> picks;
 @override@JsonKey() final  bool shown;
 @override@JsonKey() final  IList<String> watched;
@@ -186,7 +186,7 @@ abstract mixin class _$AssistantStateCopyWith<$Res> implements $AssistantStateCo
   factory _$AssistantStateCopyWith(_AssistantState value, $Res Function(_AssistantState) _then) = __$AssistantStateCopyWithImpl;
 @override @useResult
 $Res call({
- String? draft, AssistantPanel panel, String? agent, AgentConfig? config, bool configInvalid, bool docs, IMap<String, ISet<int>> unticked, IMap<String, String> refusals, IMap<String, ISet<String>> picks, bool shown, IList<String> watched, IMap<String, ISet<String>> rowPicks, IList<String> chips, IMap<String, ISet<int>> revealed, bool drawer, IList<String> drawerWatched, bool drawerShown, ISet<String>? secrets, String? timelineKey, IList<AuditEntry> timelineAudit
+ String? draft, AssistantPanel panel, String? agent, AgentConfig? config, bool configInvalid, bool docs, IMap<String, ISet<int>> unticked, IMap<String, ApprovalRefusal> refusals, IMap<String, ISet<String>> picks, bool shown, IList<String> watched, IMap<String, ISet<String>> rowPicks, IList<String> chips, IMap<String, ISet<int>> revealed, bool drawer, IList<String> drawerWatched, bool drawerShown, ISet<String>? secrets, String? timelineKey, IList<AuditEntry> timelineAudit
 });
 
 
@@ -213,7 +213,7 @@ as AgentConfig?,configInvalid: null == configInvalid ? _self.configInvalid : con
 as bool,docs: null == docs ? _self.docs : docs // ignore: cast_nullable_to_non_nullable
 as bool,unticked: null == unticked ? _self.unticked : unticked // ignore: cast_nullable_to_non_nullable
 as IMap<String, ISet<int>>,refusals: null == refusals ? _self.refusals : refusals // ignore: cast_nullable_to_non_nullable
-as IMap<String, String>,picks: null == picks ? _self.picks : picks // ignore: cast_nullable_to_non_nullable
+as IMap<String, ApprovalRefusal>,picks: null == picks ? _self.picks : picks // ignore: cast_nullable_to_non_nullable
 as IMap<String, ISet<String>>,shown: null == shown ? _self.shown : shown // ignore: cast_nullable_to_non_nullable
 as bool,watched: null == watched ? _self.watched : watched // ignore: cast_nullable_to_non_nullable
 as IList<String>,rowPicks: null == rowPicks ? _self.rowPicks : rowPicks // ignore: cast_nullable_to_non_nullable

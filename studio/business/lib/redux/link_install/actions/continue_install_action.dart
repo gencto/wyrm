@@ -1,7 +1,11 @@
 import 'package:async_redux/async_redux.dart';
+import 'package:models/error_hint.dart';
+import 'package:models/error_kind.dart';
 import 'package:models/install_path.dart';
 import 'package:models/install_step.dart';
+import 'package:models/studio_error.dart';
 
+import '../../../wyrm/failures.dart';
 import '../../../wyrm/transfer.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
@@ -57,15 +61,35 @@ class ContinueInstallAction extends Action with NonReentrant {
         final f = file;
         final small = f != null && f.size <= CheckPackageAction.backupReadMax;
         // the checks are shown with the step after this one, in one state
-        await dispatchAndWait(
-          CheckPackageAction(backup: small ? await f.read(0, f.size) : null),
-          notify: false,
+        _checked(
+          await dispatchAndWait(
+            CheckPackageAction(
+              backup: small ? await f.read(0, f.size) : null,
+            ),
+            notify: false,
+          ),
         );
       case InstallStep.choose when li.path == InstallPath.custom:
-        await dispatchAndWait(CheckPackageAction(), notify: false);
+        _checked(await dispatchAndWait(CheckPackageAction(), notify: false));
       case InstallStep.choose || InstallStep.check || InstallStep.result:
         break;
     }
     return state.copyWith.linkInstall(step: steps[at + 1]);
+  }
+
+  /// Fails closed after the check: a check that threw, or that found
+  /// nothing, does not let the step go on to an empty list (which would
+  /// read as "nothing wrong"). The error is shown.
+  void _checked(ActionStatus status) {
+    if (status.isCompletedOk && linkInstall.checks.isNotEmpty) {
+      return;
+    }
+    throw StudioException(
+      const StudioError(
+        kind: ErrorKind.studio,
+        hint: ErrorHint.checkNotRun(),
+        call: .named('check'),
+      ),
+    );
   }
 }

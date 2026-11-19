@@ -10,6 +10,7 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:app/common/app_store.dart';
+import 'package:app/mappers/error_mappers.dart';
 import 'package:app/navigation/app_router.dart';
 import 'package:app/run_env.dart';
 import 'package:async_redux/async_redux.dart';
@@ -383,7 +384,7 @@ void main() {
     final first = store.state.problems.items.first;
     debugPrint(
       'errors: unreachable gateway → ${first.kind.name}/'
-      '${first.status?.name}: ${first.title}',
+      '${first.status?.name}: ${first.said.title}',
     );
     expect(store.state.problems.items.first.kind, ErrorKind.reach);
     await shot(tester, '00b_login_unreachable');
@@ -396,7 +397,7 @@ void main() {
     debugPrint(
       'errors: wrong password → ${store.state.problems.items.first.kind.name}'
       '/${store.state.problems.items.first.status?.name}: '
-      '${store.state.problems.items.first.title}',
+      '${store.state.problems.items.first.said.title}',
     );
     expect(store.state.problems.items.first.kind, ErrorKind.rights);
     expect(store.state.problems.toasts, isEmpty);
@@ -619,7 +620,7 @@ void main() {
       final e = store.state.problems.items.firstOrNull;
       return e == null
           ? 'nothing'
-          : '${e.kind.name}/${e.status?.name} "${e.title}" [${e.where}] '
+          : '${e.kind.name}/${e.status?.name} "${e.said.title}" [${e.where}] '
                 '"${e.message}"';
     }
 

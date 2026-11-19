@@ -1,5 +1,6 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
+import 'package:models/catalog_category.dart';
 import 'package:models/catalog_item.dart';
 import 'package:models/install_field.dart';
 import 'package:models/install_path.dart';
@@ -29,7 +30,7 @@ abstract class LinkInstallState with _$LinkInstallState {
     @Default(InstallPath.official) InstallPath path,
 
     /// The category of the official list on screen; null: all of them.
-    String? category,
+    CatalogCategory? category,
     String? query,
     InstallPhase? phase,
     String? manifest,
@@ -41,5 +42,6 @@ abstract class LinkInstallState with _$LinkInstallState {
     @Default(PackageMethod.zip) PackageMethod method,
     InstallField? refusedField,
     String? refusedSaid,
+    String? refusedStatus,
   }) = _LinkInstallState;
 }

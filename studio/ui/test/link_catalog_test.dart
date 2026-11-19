@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:ui/containers/catalog_card.dart';
+import 'package:ui/containers/catalog_words.dart';
 import 'package:ui/models/link_run_mode.dart';
 import 'package:ui/pages/link_install_page.dart';
 
@@ -23,7 +24,8 @@ void main() {
   }) => CatalogCardVm(
     id: id,
     tag: id.toUpperCase(),
-    name: id,
+    code: id,
+    title: CatalogTitleVm(name: id),
     description: description,
     builtIn: version != null,
     modes: const [
@@ -69,7 +71,12 @@ void main() {
             step: InstallStepKey.choose,
             broker: 'plant',
             mode: LinkRunMode.embedded,
-            categories: const ['Test', 'Equipment', 'File stores', 'Apps'],
+            categories: const [
+              CatalogCategoryKnownVm(LinkCategoryTag.test),
+              CatalogCategoryKnownVm(LinkCategoryTag.equipment),
+              CatalogCategoryKnownVm(LinkCategoryTag.fileStores),
+              CatalogCategoryKnownVm(LinkCategoryTag.apps),
+            ],
             cards: cards,
           ),
           onClose: () {},
@@ -131,7 +138,7 @@ void main() {
   ) async {
     await pump(tester, 1440);
     final field = find.byKey(const ValueKey('catalog-search'));
-    final chip = find.byKey(const ValueKey('category:Equipment'));
+    final chip = find.byKey(const ValueKey('category:equipment'));
     expect(tester.getSize(field).height, tester.getSize(chip).height);
     expect(tester.getCenter(field).dy, tester.getCenter(chip).dy);
   });
@@ -181,5 +188,78 @@ void main() {
     expect(tester.takeException(), isNull);
     await tester.tap(find.text(S.current.acceptRequestedRights));
     expect(ticks, [true]);
+  });
+
+  test(
+    'a known driver and a category read in the language on screen',
+    () async {
+      const known = CatalogCardVm(
+        id: 'driver:alarm',
+        tag: 'ALM',
+        code: 'alarm',
+        title: CatalogTitleVm(titled: LinkWords.alarm, process: true),
+        described: LinkWords.alarm,
+        builtIn: false,
+        modes: [LinkRunMode.process],
+      );
+      const category = CatalogCategoryKnownVm(LinkCategoryTag.historySync);
+      expect(known.name, 'Alarms (process)');
+      expect(known.summary, 'Alarm classes, records and acknowledgement');
+      expect(category.label, 'History sync');
+      await S.load(const Locale('uk'));
+      addTearDown(() => S.load(const Locale('en')));
+      expect(known.name, 'Тривоги (процес)');
+      expect(category.label, 'Синхронізація історії');
+      // what a broker says is shown as it came
+      const said = CatalogCardVm(
+        id: 'driver:modbus',
+        tag: 'MB',
+        title: CatalogTitleVm(name: 'Modbus'),
+        description: 'TCP and RTU',
+        described: LinkWords.modbus,
+        builtIn: true,
+        modes: [LinkRunMode.embedded],
+      );
+      expect(said.name, 'Modbus');
+      expect(said.summary, 'TCP and RTU');
+    },
+  );
+
+  testWidgets('the page draws the cards it is given: it filters none', (
+    tester,
+  ) async {
+    const vm = LinkInstallVm(
+      site: 'plant',
+      from: InstallFrom.official,
+      steps: [InstallStepKey.choose],
+      step: InstallStepKey.choose,
+      broker: 'plant',
+      mode: LinkRunMode.embedded,
+      // the words are shown in the box; what they leave was decided before
+      query: 'siemens',
+      cards: [
+        CatalogCardVm(
+          id: 'driver:s7',
+          tag: 'S7',
+          code: 's7',
+          title: CatalogTitleVm(titled: LinkWords.s7),
+          described: LinkWords.s7,
+          builtIn: true,
+          modes: [LinkRunMode.embedded],
+        ),
+        CatalogCardVm(
+          id: 'driver:mqtt',
+          tag: 'MQTT',
+          code: 'mqtt',
+          title: CatalogTitleVm(titled: LinkWords.mqtt),
+          builtIn: true,
+          modes: [LinkRunMode.embedded],
+        ),
+      ],
+    );
+    await tester.pumpWidget(frame(LinkInstallPage(vm: vm, onClose: () {})));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('card:driver:s7')), findsOneWidget);
+    expect(find.byKey(const ValueKey('card:driver:mqtt')), findsOneWidget);
   });
 }

@@ -14,8 +14,10 @@ abstract class QuarantineEntry with _$QuarantineEntry {
     /// The node under `sys/quarantine` (the CN made a key segment).
     required String node,
 
-    /// `link` or `broker`.
-    @Default(QuarantineKind.link) QuarantineKind kind,
+    /// `link` or `broker`. Null: the entry was answered in a form this
+    /// Studio does not read, so what waits is not known. It is listed so
+    /// that it does not vanish, and is never taken for a link or a broker.
+    @Default(QuarantineKind.link) QuarantineKind? kind,
     String? from,
     DateTime? firstSeen,
     @Default(IListConst([])) IList<String> via,

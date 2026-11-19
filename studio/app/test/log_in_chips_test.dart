@@ -6,6 +6,7 @@ import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:models/answer_fault.dart';
 import 'package:ui/buttons/recent_chip.dart';
 import 'package:ui/theme/common.dart';
 
@@ -26,7 +27,9 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     final store = fakeStore(
-      login: FakeLogin(answer: const GatewayProbe.noAnswer('timed out')),
+      login: FakeLogin(
+        answer: const GatewayProbe.noAnswer(AnswerFault.timedOut()),
+      ),
       initial: AppState.initial().copyWith.login(
         gateway: 'http://127.0.0.1:8446',
         recent: [for (final p in ports) 'http://127.0.0.1:$p'].lock,

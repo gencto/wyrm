@@ -92,6 +92,9 @@ abstract final class Formats {
   /// `2026-11-15 14:25`.
   static String dateTime(DateTime t) => '${date(t)} ${clock(t)}';
 
+  /// `2026-11-15 14:25:07`: a moment to the second (an error's Details).
+  static String dateTimeSeconds(DateTime t) => '${date(t)} ${clockSeconds(t)}';
+
   /// A countdown or a short run: `04:05` (minutes and seconds; the minutes
   /// grow past 59).
   static String minutesSeconds(Duration d) {

@@ -63,10 +63,7 @@ class _Factory extends VmFactory<AppState, StepUpDialogConnector, _Vm>
       final pending? => StepUpScreenVm(
         site: site.name ?? '',
         user: login.formUser,
-        lines: [
-          for (final l in pending.lines)
-            StepUpLineData(level: l.level.badge, text: l.text, key: l.key),
-        ],
+        lines: [for (final l in pending.lines) l.data],
         method: device.kind.method,
         os: hostPlatform().os,
         busy: pending.busy,

@@ -1,6 +1,6 @@
-import 'package:async_redux/async_redux.dart';
 import 'package:auto_route/auto_route.dart';
 import 'package:business/redux/app_state.dart';
+import 'package:business/redux/common/action.dart';
 import 'package:models/workspace.dart';
 
 import 'app_router.dart';
@@ -11,7 +11,7 @@ import 'app_router.dart';
 ///
 /// With auto_route the destination is a type-safe generated route
 /// (`RegistrationRoute`, `HomeRoute`, …) rather than a string name.
-class GoAction extends ReduxAction<AppState> {
+class GoAction extends Action {
   GoAction._(this._navigate);
 
   factory GoAction.push(PageRouteInfo route) =>

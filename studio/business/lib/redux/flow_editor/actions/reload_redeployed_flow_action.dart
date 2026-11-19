@@ -11,7 +11,7 @@ class ReloadRedeployedFlowAction extends Action {
   Future<AppState?> reduce() async {
     final id = flowEditor.flowId;
     if (id != null && id.isNotEmpty && !flowEditor.dirty) {
-      await dispatchAndWait(LoadFlowAction(id));
+      await dispatchAndWait(LoadFlowAction.redeployed(id));
     }
     return null;
   }

@@ -1,6 +1,6 @@
-import 'package:async_redux/async_redux.dart';
 import 'package:auto_route/auto_route.dart';
 import 'package:business/redux/app_state.dart';
+import 'package:business/redux/common/action.dart';
 import 'package:models/access_tab.dart';
 import 'package:models/attention_item.dart';
 import 'package:models/attention_kind.dart';
@@ -37,7 +37,7 @@ enum SystemPlace {
 /// Opens [place]: the tab of the workspace it names is set, then the
 /// workspace is shown. One state for the tab, then the route; nothing
 /// else is drawn in between.
-class GoSystemPlaceAction extends ReduxAction<AppState> {
+class GoSystemPlaceAction extends Action {
   GoSystemPlaceAction(this.place);
 
   final SystemPlace place;
@@ -79,7 +79,7 @@ class GoSystemPlaceAction extends ReduxAction<AppState> {
 /// quarantine entry, the broker waiting in Sites, Audit for the ACL
 /// counter, Availability for the standby. One state with the selection,
 /// then the route.
-class OpenAttentionAction extends ReduxAction<AppState> {
+class OpenAttentionAction extends Action {
   OpenAttentionAction(this.item);
 
   final AttentionItem item;
@@ -98,7 +98,8 @@ class OpenAttentionAction extends ReduxAction<AppState> {
             : LinksTab.local,
         selectedLink: what,
       ),
-      AttentionKind.quarantine => state.copyWith(
+      AttentionKind.quarantine ||
+      AttentionKind.waitingNotRead => state.copyWith(
         links: state.links.copyWith(tab: LinksTab.quarantine),
         quarantine: state.quarantine.copyWith(selectedEntry: what),
       ),
@@ -115,7 +116,9 @@ class OpenAttentionAction extends ReduxAction<AppState> {
     switch (item.kind) {
       case AttentionKind.standbyBehind || AttentionKind.noStandby:
         break;
-      case AttentionKind.linkFailed || AttentionKind.quarantine:
+      case AttentionKind.linkFailed ||
+          AttentionKind.quarantine ||
+          AttentionKind.waitingNotRead:
         _go(const LinksRoute());
       case AttentionKind.brokerWaiting:
         _go(const SitesRoute());

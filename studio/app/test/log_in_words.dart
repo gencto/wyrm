@@ -304,7 +304,7 @@ final logInWords = <String, List<String>>{
     'Увійти',
     'до gateway брокера. Ваша роль там визначає, що ви можете змінювати.',
     'Gateway не відповідає',
-    'https://plant.local:8446 · connection refused after 3 ms',
+    'https://plant.local:8446 · з’єднання відхилено через 3 мс',
     _j([
       'Брокер, можливо, перезапускається, або цей комп’ютер в іншій ',
       'мережі. Його резервний gateway відповідає на edge.local:8446.',
@@ -1767,10 +1767,10 @@ final logInWords = <String, List<String>>{
       'перед змінами рівня config.',
     ]),
     'config',
-    'set value',
+    'записати value',
     'wy/plant/sys/x',
     'write',
-    'add user ivan',
+    'додати користувача ivan',
     _j([
       'Touch ID підписує лише цей запит: plant отримує доказ, ',
       'прив’язаний до цих змін, і лишається підтвердженим на цьому Mac ',

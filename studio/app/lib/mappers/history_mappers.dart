@@ -3,6 +3,8 @@ import 'package:business/wyrm/history_trend.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/hist_point.dart';
 import 'package:models/history_call.dart';
+import 'package:models/logging.dart';
+import 'package:models/logging_type.dart';
 import 'package:models/trend_range.dart';
 import 'package:models/watch_group.dart';
 import 'package:ui/charts/trend.dart';
@@ -30,12 +32,25 @@ extension HistorySpanRange on HistorySpan {
   };
 }
 
+extension LoggingTypeUi on LoggingType {
+  GroupLogging get ui => switch (this) {
+    LoggingType.none => GroupLogging.none,
+    LoggingType.interval => GroupLogging.interval,
+    LoggingType.allData => GroupLogging.allData,
+    LoggingType.pointChange => GroupLogging.pointChange,
+  };
+}
+
 /// A watch group as History draws it, with the rows read for each point
 /// on the trend (`series`).
 extension WatchGroupVmOf on WatchGroup {
   WatchGroupVm vm(IMap<String, IList<HistPoint>> series) => WatchGroupVm(
     name: name,
-    logging: loggingType,
+    logging: switch (logging) {
+      LoggingKnown(:final type) => GroupLoggingVm.known(type.ui),
+      LoggingOther(:final name) => GroupLoggingVm.other(name),
+      null => null,
+    },
     interval: interval,
     flush: flush,
     points: [

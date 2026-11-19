@@ -5,6 +5,7 @@ import 'package:material_ui/material_ui.dart';
 import '../indicators/device_os.dart';
 import '../indicators/refusal_reason.dart';
 import '../indicators/unlock_method.dart';
+import '../models/change_words.dart';
 import 'step_up_dialog.dart';
 
 /// Why the last try of the step-up failed.
@@ -76,16 +77,18 @@ final class StepUpSaidProblem extends StepUpProblem {
 final class StepUpLineData extends Equatable {
   const StepUpLineData({
     required this.level,
-    required this.text,
+    required this.deed,
     this.key = '',
   });
 
   final StepUpLevel level;
-  final String text;
+
+  /// What it does.
+  final StepUpDeedVm deed;
   final String key;
 
   @override
-  List<Object?> get props => [level, text, key];
+  List<Object?> get props => [level, deed, key];
 }
 
 /// The step-up as typed values (ADR 0050 §1.3, board `UnlockStepUp`).
@@ -153,7 +156,7 @@ class StepUpScreen extends StatelessWidget {
         lead: s.stepUpLead(vm.lines.length, vm.site),
         lines: [
           for (final l in vm.lines)
-            StepUpLineVm(level: l.level, text: l.text, key: l.key),
+            StepUpLineVm(level: l.level, text: l.deed.text, key: l.key),
         ],
         glyph: vm.method.glyph,
         device: vm.busy

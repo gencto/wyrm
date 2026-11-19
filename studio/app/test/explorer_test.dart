@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:app/connectors/assistant_page_connector.dart';
+import 'package:app/mappers/shell_mappers.dart';
 import 'package:app/navigation/go_action.dart';
 import 'package:flutter/gestures.dart' show kSecondaryButton;
 import 'package:flutter/services.dart';
@@ -123,7 +124,9 @@ void main() {
   List<String> staged(ExplorerApp app) => [
     for (final id in app.store.state.changes.view)
       switch (app.store.state.changes.table[id]) {
-        final c? => '${c.op} ${c.key} ${c.field}: ${c.from} → ${c.to}',
+        final c? =>
+          '${c.op.name} ${c.key} ${c.field}: ${c.from.vm.text} → '
+              '${c.to.vm.text}',
         null => id,
       },
   ];
@@ -325,7 +328,7 @@ void main() {
         'flow',
       );
       await tap(t, app, 'Stage');
-      expect(staged(app), ['Add ${ExplorerApp.dev} Add point: — → name: flow']);
+      expect(staged(app), ['add ${ExplorerApp.dev} Add point: — → name: flow']);
       await tap(t, app, 'Read registers');
       await t.enterText(find.byType(TextFormField).last, '10');
       await tap(t, app, 'Run now');
@@ -349,8 +352,8 @@ void main() {
       await t.enterText(find.byType(TextFormField).last, '22');
       await tap(t, app, 'Stage');
       expect(staged(app), [
-        'Edit ${ExplorerApp.temp} poll: 1 s → 500 ms',
-        'Edit ${ExplorerApp.temp} value: 21.5 → 22',
+        'edit ${ExplorerApp.temp} poll: 1 s → 500 ms',
+        'edit ${ExplorerApp.temp} value: 21.5 → 22',
       ]);
       // the same row again shows the device itself
       await tap(t, app, 'temp');
@@ -367,13 +370,13 @@ void main() {
       await tap(t, app, 'Set poll…');
       await tap(t, app, '500 ms');
       expect(staged(app), [
-        'Edit ${ExplorerApp.temp} poll: 1 s → 500 ms',
-        'Edit ${ExplorerApp.mode} poll: 5 s → 500 ms',
+        'edit ${ExplorerApp.temp} poll: 1 s → 500 ms',
+        'edit ${ExplorerApp.mode} poll: 5 s → 500 ms',
       ]);
       await tap(t, app, 'Remove…');
       expect(staged(app).skip(2), [
-        'Remove ${ExplorerApp.temp} remove: — → remove',
-        'Remove ${ExplorerApp.mode} remove: — → remove',
+        'remove ${ExplorerApp.temp} remove: — → remove',
+        'remove ${ExplorerApp.mode} remove: — → remove',
       ]);
       expect(find.text('Clear'), findsNothing);
       // header: every row; Esc clears

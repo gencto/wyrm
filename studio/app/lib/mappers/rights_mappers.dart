@@ -1,5 +1,7 @@
 import 'package:business/wyrm/rights.dart';
+import 'package:models/call_refusal.dart';
 import 'package:ui/indicators/level_badge.dart';
+import 'package:ui/models/broker_said.dart';
 import 'package:ui/models/disabled.dart';
 import 'package:wyrm_client/wyrm_client.dart' show Perm;
 
@@ -21,4 +23,11 @@ extension LackDisabled on Lack {
 
   /// As the reason a control is disabled.
   Disabled get disabled => needs;
+}
+
+extension CallRefusalSaid on CallRefusal {
+  /// A call the broker refused (an apply, a list the user may not read),
+  /// as the screen writes it.
+  BrokerSaidVm get said =>
+      BrokerSaidVm(status: status, message: message, key: key);
 }

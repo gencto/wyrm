@@ -495,6 +495,7 @@
     "crates/wyrm-admin/src/control/actions.rs": 2,
     "crates/wyrm-admin/src/official.rs": 1,
     "crates/wyrm-admin/src/release.rs": 1,
+    "crates/wyrm-bench/src/alloc.rs": 1,
     "crates/wyrm-client/src/lib.rs": 3,
     "crates/wyrm-client/src/streams.rs": 2,
     "crates/wyrm-core/src/codec.rs": 1,

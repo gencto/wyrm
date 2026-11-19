@@ -6201,6 +6201,9 @@ async fn runtime_peers_over_quic() {
     let e_task = tokio::spawn(edge.run_until(async {
         let _ = e_rx.await;
     }));
+    // both start in the background: a loaded host takes more than a session's 5 s for that
+    up_on(c_tcp, "central").await;
+    up_on(e_tcp, "edge").await;
     // a fresh client per try: every peer change rebuilds that router
     let client = |port: u16, site: &'static str| {
         let key = key.clone();
@@ -6237,6 +6240,18 @@ async fn runtime_peers_over_quic() {
                 _ => Some(()),
             }
         })
+    };
+    // A broker admitted at once changes central's ACL: central rebuilds its router 300 ms
+    // after the answer (ADR 0006), and a request that meets the rebuild ends with no reply,
+    // `link stopped` or `driver stopped`. So the next request waits for the new router (its
+    // token watched from before the admission) and for a read there to answer.
+    let central_rebuilt = |watch: BrokerWatch, what: &'static str| async move {
+        watch.rebuilt(what).await;
+        eventually(what, 20, || async {
+            let c = client(c_tcp, "central").await;
+            c.meta("wy/central/sys").await.ok().map(|_| c)
+        })
+        .await
     };
     let ca = std::fs::read_to_string(c_dir.join("pki/ca.pem")).unwrap();
     let enroll_url = format!("quic/127.0.0.1:{c_enroll}");
@@ -6332,18 +6347,20 @@ async fn runtime_peers_over_quic() {
     .expect("add the upstream");
 
     // 2. It waits in central's quarantine, the same key on both sides.
-    eventually("the edge waits in quarantine", 20, || async {
+    // The request is in the registry before `sys/quarantine/edge` is declared from it.
+    let q = eventually("the edge waits in quarantine", 20, || async {
         c_ctl
             .registry()
             .enrollments
             .contains_key("edge")
-            .then_some(())
+            .then_some(())?;
+        let c = client(c_tcp, "central").await;
+        c.meta("wy/central/sys/quarantine/edge").await.ok()
     })
     .await;
     let e = client(e_tcp, "edge").await;
     let edge_key = text(last_val(&e, "wy/edge/sys/upstream/central/key").await);
     let c = client(c_tcp, "central").await;
-    let q = c.meta("wy/central/sys/quarantine/edge").await.unwrap();
     assert_eq!(q.attr_value("kind"), Some(&Value::Str("broker".into())));
     assert_eq!(q.attr_value("key"), Some(&Value::Str(edge_key.clone())));
     eventually("the edge shows it waits", 20, || async {
@@ -6382,6 +6399,7 @@ async fn runtime_peers_over_quic() {
         )
         .await;
     assert!(wrong.is_err(), "authorize with another key");
+    let e_watch = BrokerWatch::at(loopback_session(e_tcp).await, "edge").await;
     c.invoke_one(
         "wy/central/sys/quarantine/edge",
         "approve",
@@ -6389,6 +6407,14 @@ async fn runtime_peers_over_quic() {
     )
     .await
     .expect("authorize");
+    // The edge rebuilds its router twice: for the certificate, and once connected for
+    // central's signing keys (ADR 0018), which it reads at once and every 10 s. A request
+    // to the edge that meets either rebuild has no answer.
+    e_watch.rebuilt("edge's rebuild for its certificate").await;
+    e_watch
+        .rebuilt("edge's rebuild for central's signing keys")
+        .await;
+    assert!(e_ctl.registry().signers.contains_key("central"));
     edge_seen("edge links seen from central").await;
     let e = client(e_tcp, "edge").await;
     let mut shown: Vec<String> = e
@@ -6423,15 +6449,17 @@ async fn runtime_peers_over_quic() {
     assert!(!format!("{:?}", e_ctl.registry()).contains("PRIVATE KEY"));
     assert_eq!(c_ctl.registry().peers["edge"].key_sha256, edge_key);
 
-    // 4. Disabled: the edge drops the connection; enabled: back.
+    // 4. Disabled: the edge drops the connection; enabled: back. Each rebuilds the edge.
     e.set("wy/edge/sys/upstream/central/enabled", false)
         .await
         .unwrap();
+    e_watch.rebuilt("edge's rebuild after disable").await;
     edge_gone("edge gone from central").await;
     let e = client(e_tcp, "edge").await;
     e.set("wy/edge/sys/upstream/central/enabled", true)
         .await
         .unwrap();
+    e_watch.rebuilt("edge's rebuild after enable").await;
     edge_seen("edge back after enable").await;
 
     // 5. Deauthorize (a downstream broker is in its list): held.
@@ -6502,17 +6530,21 @@ async fn runtime_peers_over_quic() {
         other => panic!("{other:?}"),
     };
     assert!(!format!("{:?}", c_ctl.registry()).contains(&token));
+    let watch = BrokerWatch::at(loopback_session(c_tcp).await, "central").await;
     let r = ask("plant", Some(token.clone()), &[]).await;
     assert_eq!(status(&r), "issued");
     assert!(c_ctl.registry().peers.contains_key("plant"));
     assert!(c_ctl.registry().tokens.is_empty(), "used up");
+    let c = central_rebuilt(watch, "the rebuild after plant was admitted").await;
     assert_eq!(status(&ask("cell", Some(token), &[]).await), "pending");
 
     // 7. allow_all_links admits a broker by itself; one that names relayed sites waits for
     //    Authorize, where an administrator sees them (review ADM-2).
     c.set("wy/central/sys/allow_all_links", true).await.unwrap();
+    let watch = BrokerWatch::at(loopback_session(c_tcp).await, "central").await;
     assert_eq!(status(&ask("cell2", None, &[]).await), "issued");
     assert!(c_ctl.registry().peers["cell2"].via.is_empty());
+    let c = central_rebuilt(watch, "the rebuild after cell2 was admitted").await;
     assert_eq!(status(&ask("cell4", None, &["far"]).await), "pending");
     assert!(!c_ctl.registry().peers.contains_key("cell4"));
     assert_eq!(status(&ask("cell3", None, &["edge"]).await), "pending");
@@ -6730,6 +6762,26 @@ async fn loopback_session(port: u16) -> zenoh::Session {
 }
 
 /// Ok replies to `get key` within 2 s.
+/// Until the broker of `site` on loopback `port` answers a read of its `sys` (a daemon
+/// spawned by the test starts in the background).
+async fn up_on(port: u16, site: &str) {
+    eventually(&format!("{site} up"), 60, || async {
+        let mut zc = zenoh::Config::default();
+        zc.insert_json5("mode", r#""client""#).unwrap();
+        zc.insert_json5("connect/endpoints", &format!(r#"["tcp/127.0.0.1:{port}"]"#))
+            .unwrap();
+        zc.insert_json5("scouting/multicast/enabled", "false")
+            .unwrap();
+        let s = zenoh::open(zc).await.ok()?;
+        let up = !replies(&s, &format!("wy/{site}/sys/~meta"))
+            .await
+            .is_empty();
+        let _ = s.close().await;
+        up.then_some(())
+    })
+    .await;
+}
+
 async fn replies(s: &zenoh::Session, key: &str) -> Vec<String> {
     let r = s
         .get(key)
@@ -7983,10 +8035,14 @@ struct BrokerWatch {
 
 impl BrokerWatch {
     async fn new(env: &Env) -> Self {
-        let session = env.session().await;
+        Self::at(env.session().await, SITE).await
+    }
+
+    /// The token of `site`'s broker, seen through `session` (a client of that broker).
+    async fn at(session: zenoh::Session, site: &str) -> Self {
         let sub = session
             .liveliness()
-            .declare_subscriber(format!("wy/{SITE}/sys/broker"))
+            .declare_subscriber(format!("wy/{site}/sys/broker"))
             .await
             .unwrap();
         BrokerWatch {
@@ -7996,7 +8052,7 @@ impl BrokerWatch {
     }
 
     /// Waits for the old broker to go and a new one to come (as a process link sees it).
-    async fn rebuilt(self, what: &str) {
+    async fn rebuilt(&self, what: &str) {
         use zenoh::sample::SampleKind;
         let deadline = tokio::time::Instant::now() + Duration::from_secs(90);
         let mut gone = false;

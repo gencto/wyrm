@@ -19,7 +19,7 @@ import 'package:business/redux/link_install/actions/set_query_action.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:models/install_path.dart';
 import 'package:models/install_phase.dart';
-import 'package:models/install_step.dart';
+import 'package:ui/containers/catalog_words.dart';
 import 'package:ui/models/link_run_mode.dart';
 import 'package:ui/pages/link_install_page.dart';
 
@@ -96,7 +96,7 @@ class _Factory extends VmFactory<AppState, LinkInstallPageConnector, _Vm>
   _Vm fromStore() {
     final li = linkInstall;
     final step = installStep;
-    final last = step == InstallStep.result;
+    final last = installEnded;
     final item = installItem;
     return _Vm(
       page: LinkInstallVm(
@@ -105,7 +105,7 @@ class _Factory extends VmFactory<AppState, LinkInstallPageConnector, _Vm>
         from: li.path.ui,
         steps: [for (final s in installSteps) s.ui],
         step: step.ui,
-        itemName: item?.name,
+        item: item?.title,
         itemBuiltIn: item?.builtIn ?? true,
         sourceName: installSourceName,
         broker: installBroker,
@@ -115,13 +115,10 @@ class _Factory extends VmFactory<AppState, LinkInstallPageConnector, _Vm>
         needsRights: installNeedsRights,
         offersAccept: installOffersAccept,
         accepted: li.acceptRights,
-        categories: installCategories,
-        category: li.category,
+        categories: [for (final c in installCategories) c.ui],
+        category: li.category?.ui,
         query: li.query,
-        cards: [
-          for (final c in installShownCatalog)
-            c.card(selected: c.id == li.item),
-        ],
+        cards: catalogCards(installShownCatalog, li.query, li.item),
         method: li.method.ui,
         file: installFileName,
         url: installUrl,
@@ -136,14 +133,14 @@ class _Factory extends VmFactory<AppState, LinkInstallPageConnector, _Vm>
         replaces: installReplaces,
         rights: [...?li.rights?.map((r) => r.ui)],
         result: li.phase?.ui,
-        message: li.message,
+        message: brokerSaid(li.refusedStatus, li.message),
         hold: installBlock?.ui,
         configReason: installConfigReason?.disabled,
         canPickStep: !last,
       ),
       onClose: () => dispatch(GoAction.pop()),
       onFrom: (f) => dispatch(StartInstallOverAction(_held, f.domain)),
-      onCategory: (c) => dispatch(SetCategoryAction(c)),
+      onCategory: (c) => dispatch(SetCategoryAction(c?.domain)),
       onQuery: (q) => dispatch(SetQueryAction(q)),
       onItem: (id) => dispatch(SetItemAction(id)),
       onMethod: (m) => dispatch(SetMethodAction(m.domain)),
@@ -215,7 +212,7 @@ class _Vm extends Vm {
   final LinkInstallVm page;
   final VoidCallback onClose;
   final ValueChanged<InstallFrom> onFrom;
-  final ValueChanged<String?> onCategory;
+  final ValueChanged<CatalogCategoryVm?> onCategory;
   final ValueChanged<String?> onQuery;
   final ValueChanged<String> onItem;
   final ValueChanged<InstallMethod> onMethod;

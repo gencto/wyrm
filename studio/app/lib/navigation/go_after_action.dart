@@ -1,6 +1,7 @@
 import 'package:async_redux/async_redux.dart';
 import 'package:auto_route/auto_route.dart';
 import 'package:business/redux/app_state.dart';
+import 'package:business/redux/common/action.dart';
 
 import 'go_action.dart';
 
@@ -13,7 +14,7 @@ import 'go_action.dart';
 /// shows before its reads); the route changes then, and this action ends
 /// when the steps' reads have answered. Only the last step notifies. It
 /// changes no state itself (`null`); the route change is the router's.
-class GoAfterAction extends ReduxAction<AppState> {
+class GoAfterAction extends Action {
   GoAfterAction(this.route, this.steps);
 
   final PageRouteInfo route;

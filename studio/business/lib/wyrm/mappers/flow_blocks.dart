@@ -301,10 +301,8 @@ EntryBlock? blockOfEntry(
   final node = entry.node;
   final name = entry.action;
   final params = action?.params ?? const IListConst<ParamSpec>([]);
-  // An argument's default goes into the config, which holds JSON only:
-  // a default of another kind (bytes) is none there.
-  Object? json(ParamSpec p) =>
-      JsonValue.isJson(p.defaultValue) ? p.defaultValue : null;
+  // An argument's default goes into the config as the JSON it is.
+  Object? json(ParamSpec p) => p.defaultValue?.raw;
   if (!caps.args) {
     return EntryBlock(KnownBlock.invoke, {
       BlockCfgKey.path.wire: relativeKey(node),
@@ -406,7 +404,6 @@ FlowDraft withBlockDefs(FlowDraft d, Map<String, BlockDef> defs) =>
 /// its outputs fields with a right port.
 NodeType customTypeOf(String name, BlockDef def) => NodeType(
   type: CustomType(name),
-  category: 'My blocks',
   description: def.description ?? '',
   inputs: [for (final p in def.inputs) p.name].lock,
   outputs: [for (final p in def.outputs) p.name].lock,

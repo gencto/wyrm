@@ -1,7 +1,8 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 
 import '../../../wyrm/calls.dart';
-import '../../../wyrm/mappers/values.dart';
+import '../../../wyrm/decode/sys_answers.dart';
+import '../../../wyrm/decode/unreadable.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 import '../../nodes/actions/invoke_node_action.dart';
@@ -30,7 +31,7 @@ class IssueSiteTokenAction extends Action with WaitingAction {
     return state.copyWith.nodes(
       results: state.nodes.results.add(
         InvokeNodeAction.resultId(key, 'add'),
-        [for (final r in rows) text(r) ?? '${toDart(r)}'].lock,
+        issuedTokensOf(rows).orRefuse(key: key, call: const .known(.add)).lock,
       ),
     );
   }
