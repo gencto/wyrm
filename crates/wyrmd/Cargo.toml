@@ -103,8 +103,10 @@ rustls = { workspace = true, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { workspace = true, features = ["std"] }
 rcgen.workspace = true
 wyrm-wasm-host.workspace = true
-# `release::testkit` for tests/update.rs
+# `release::testkit` for tests/update.rs; `Control::audit_lsn`/`historian` for tests/perf.rs
 wyrm-admin = { workspace = true, features = ["testkit"] }
+# tests/perf.rs: PERF lines, process CPU and memory
+wyrm-bench.workspace = true
 
 [lints]
 workspace = true

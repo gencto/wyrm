@@ -6657,6 +6657,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "wyrm-bench"
+version = "0.1.0"
+dependencies = [
+ "nix 0.29.0",
+]
+
+[[package]]
 name = "wyrm-client"
 version = "0.1.0"
 dependencies = [
@@ -6802,6 +6809,7 @@ dependencies = [
  "tokio",
  "tracing",
  "wat",
+ "wyrm-bench",
  "wyrm-client",
  "wyrm-core",
  "wyrm-link-mock",
@@ -7291,6 +7299,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "wyrm-bench",
  "wyrm-core",
  "wyrm-link-sdk",
  "wyrm-link-sdk-derive",
@@ -7523,6 +7532,7 @@ dependencies = [
  "wat",
  "wit-component 0.243.0",
  "wyrm-admin",
+ "wyrm-bench",
  "wyrm-client",
  "wyrm-core",
  "wyrm-example-portable",

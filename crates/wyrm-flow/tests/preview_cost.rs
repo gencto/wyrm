@@ -13,42 +13,18 @@
     reason = "test code: a failed step fails the test"
 )]
 
-use std::alloc::{GlobalAlloc, Layout, System};
-use std::sync::atomic::{AtomicIsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use wyrm_bench::Allocs;
 use wyrm_client::{SigningTokens, WyrmClient};
 use wyrm_core::Value;
 use wyrm_flow::{Engine, EngineStart, FlowHost};
 use wyrm_link_sdk::harness::{isolated_config, TEST_KEY_SEED};
 use wyrm_link_sdk::LinkConfig;
 
-/// Bytes allocated and not freed yet.
-struct Counting;
-
-static LIVE: AtomicIsize = AtomicIsize::new(0);
-
-// SAFETY: every call goes to `System` with the caller's own arguments, so this
-// allocator keeps the contract `System` keeps; the counter has no effect on memory.
-#[allow(
-    unsafe_code,
-    reason = "a counting allocator: GlobalAlloc is an unsafe trait"
-)]
-unsafe impl GlobalAlloc for Counting {
-    unsafe fn alloc(&self, l: Layout) -> *mut u8 {
-        LIVE.fetch_add(l.size() as isize, Ordering::Relaxed);
-        // SAFETY: the caller's `alloc` contract (non-zero size) is passed on unchanged.
-        unsafe { System.alloc(l) }
-    }
-    unsafe fn dealloc(&self, p: *mut u8, l: Layout) {
-        LIVE.fetch_sub(l.size() as isize, Ordering::Relaxed);
-        // SAFETY: `p` came from `alloc` above, i.e. from `System`, with layout `l`.
-        unsafe { System.dealloc(p, l) }
-    }
-}
-
+/// Counts the heap: bytes allocated and not freed yet are `Allocs::read().live()`.
 #[global_allocator]
-static A: Counting = Counting;
+static A: wyrm_bench::Counting = wyrm_bench::Counting;
 
 const SITE: &str = "test";
 
@@ -104,7 +80,7 @@ async fn preview_cost() {
     for n in [10usize, 100, 1000] {
         let def = chain(n);
         tokio::time::sleep(Duration::from_millis(300)).await;
-        let before = LIVE.load(Ordering::Relaxed);
+        let before = Allocs::read().live();
         let t0 = Instant::now();
         let mut st = client
             .invoke(&root, "preview", map(vec![("def".into(), def)]))
@@ -112,7 +88,7 @@ async fn preview_cost() {
             .unwrap();
         let first = st.next().await.unwrap().unwrap().unwrap();
         let to_first = t0.elapsed();
-        let live = LIVE.load(Ordering::Relaxed) - before;
+        let live = Allocs::read().live() - before;
         let last = match &first {
             Value::Map(m) => match m.get("nodes") {
                 Some(Value::Map(nodes)) => {
@@ -129,7 +105,7 @@ async fn preview_cost() {
             "nodes {n:5}: first row {:7.1} ms, live heap {:8} B ({:6} B/node), last out {last:?}",
             to_first.as_secs_f64() * 1e3,
             live,
-            live / n as isize,
+            live / n as i64,
         );
         drop(st);
         // a newer preview of the same subject ends this one: open the next one
