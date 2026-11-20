@@ -128,22 +128,100 @@ pub fn split(ptok: &[u8]) -> Option<PtokParts<'_>> {
     })
 }
 
+/// Longest `ptok` a responder reads (spec 04 0.2.36): version, claims and signature. A longer
+/// one is refused before any other work. A real token is far below it: one grant for the
+/// request key and, on actions, the caller's grants in `auth` (about 550 grants of 100-byte
+/// keys fit).
+pub const MAX_PTOK_LEN: usize = 64 * 1024;
+
+/// Most CBOR items [`peek_sub`] passes over before it gives up.
+const PEEK_ITEMS: usize = 4096;
+
+/// One CBOR head at `at`: `(major type, argument, where the next byte is)`. `None` at the end
+/// of the bytes, for a reserved length and for an indefinite length (canonical CBOR, the only
+/// form spec 04 writes, has none).
+fn head(b: &[u8], at: usize) -> Option<(u8, u64, usize)> {
+    let first = *b.get(at)?;
+    let at = at.checked_add(1)?;
+    let n: usize = match first & 0x1f {
+        v @ 0..=23 => return Some((first >> 5, u64::from(v), at)),
+        24 => 1,
+        25 => 2,
+        26 => 4,
+        27 => 8,
+        _ => return None,
+    };
+    let end = at.checked_add(n)?;
+    let arg = b
+        .get(at..end)?
+        .iter()
+        .fold(0u64, |v, x| (v << 8) | u64::from(*x));
+    Some((first >> 5, arg, end))
+}
+
+/// The bytes of a text or byte string whose head said `len`, and where the next item is.
+fn body(b: &[u8], at: usize, len: u64) -> Option<(&[u8], usize)> {
+    let end = at.checked_add(usize::try_from(len).ok()?)?;
+    Some((b.get(at..end)?, end))
+}
+
+/// Where the item after the one at `at` begins. It keeps one number (the items still to pass)
+/// and no stack, so nesting of any depth costs no memory; `budget` bounds the items it reads.
+fn pass(b: &[u8], mut at: usize, budget: &mut usize) -> Option<usize> {
+    let mut todo: u64 = 1;
+    while todo > 0 {
+        *budget = budget.checked_sub(1)?;
+        todo -= 1;
+        let (major, arg, next) = head(b, at)?;
+        at = next;
+        match major {
+            // a byte or text string: its bytes follow
+            2 | 3 => at = body(b, at, arg)?.1,
+            // an array of `arg` items, a map of `arg` pairs, a tag before one item
+            4 => todo = todo.checked_add(arg)?,
+            5 => todo = todo.checked_add(arg.checked_mul(2)?)?,
+            6 => todo = todo.checked_add(1)?,
+            // an integer, a simple value or a float: the head is all of it
+            _ => {}
+        }
+    }
+    Some(at)
+}
+
 /// The `sub` of encoded claims, read without decoding anything else. For claims whose
 /// signature is NOT checked yet: the answer is the sender's word and may only pick which
 /// trusted key a verifier tries first, never what it decides. `None` when the bytes are not a
-/// claims map with a text `sub`.
+/// claims map with a text `sub`, and for anything a canonical encoder does not write or
+/// that is too long to walk (an indefinite length, more than 4096 items before `sub`).
+///
+/// It runs on bytes of anyone who may send a request, so it allocates nothing, whatever
+/// they are: it is a walk over the heads with a counter (no decoder, no stack), at most one
+/// pass over the bytes.
 pub fn peek_sub(claims: &[u8]) -> Option<&str> {
-    let mut d = Decoder::new(claims);
-    for _ in 0..map_len(&mut d).ok()? {
-        if !matches!(d.datatype().ok()?, Type::String) {
-            d.skip().ok()?;
-            d.skip().ok()?;
+    let mut budget = PEEK_ITEMS;
+    let (major, pairs, mut at) = head(claims, 0)?;
+    if major != 5 {
+        return None;
+    }
+    for _ in 0..pairs {
+        budget = budget.checked_sub(1)?;
+        let (major, len, next) = head(claims, at)?;
+        if major != 3 {
+            // not a text key: over it and its value
+            at = pass(claims, at, &mut budget)?;
+            at = pass(claims, at, &mut budget)?;
             continue;
         }
-        if d.str().ok()? == "sub" {
-            return d.str().ok();
+        let (name, next) = body(claims, next, len)?;
+        if name != b"sub" {
+            at = pass(claims, next, &mut budget)?;
+            continue;
         }
-        d.skip().ok()?;
+        let (major, len, next) = head(claims, next)?;
+        if major != 3 {
+            return None;
+        }
+        return std::str::from_utf8(body(claims, next, len)?.0).ok();
     }
     None
 }
@@ -316,6 +394,76 @@ mod level_tests {
         // a map without `sub`, and one whose `sub` is not text
         assert_eq!(peek_sub(&[0xa1, 0x63, b'e', b'x', b'p', 0x01]), None);
         assert_eq!(peek_sub(&[0xa1, 0x63, b's', b'u', b'b', 0x01]), None);
+        // an indefinite-length map, array or string anywhere: no answer (never written by a
+        // canonical encoder), also before a `sub` that is there
+        let sub = [0x63, b's', b'u', b'b', 0x61, b'x'];
+        for bad in [
+            &[0x9f, 0xff][..],
+            &[0xbf, 0xff],
+            &[0x5f, 0xff],
+            &[0x7f, 0xff],
+        ] {
+            let mut c = vec![0xa2, 0x00];
+            c.extend(bad);
+            c.extend(sub);
+            assert_eq!(peek_sub(&c), None, "{bad:02x?}");
+        }
+        // nested containers and a tag before it are passed over
+        let mut c = vec![0xa2, 0x00, 0x82, 0xa1, 0x01, 0x81, 0xc1, 0x02, 0x41, 0x00];
+        c.extend(sub);
+        assert_eq!(peek_sub(&c), Some("x"));
+        // lengths that point beyond the bytes or overflow
+        assert_eq!(
+            peek_sub(&[0xa1, 0x7b, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff]),
+            None
+        );
+        assert_eq!(
+            peek_sub(&[0xbb, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff]),
+            None
+        );
+        assert_eq!(
+            peek_sub(&[0xa2, 0x00, 0x9b, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff]),
+            None
+        );
+        assert_eq!(
+            peek_sub(&[0xa2, 0x00, 0xbb, 0x80, 0, 0, 0, 0, 0, 0, 0]),
+            None,
+            "pairs × 2 overflows"
+        );
+        // not UTF-8
+        assert_eq!(peek_sub(&[0xa1, 0x63, b's', b'u', b'b', 0x61, 0xff]), None);
+        // more items before `sub` than the walk reads: no answer
+        let mut c = vec![0xa2, 0x00, 0x99, 0x20, 0x00];
+        c.extend(std::iter::repeat_n(0x00, 0x2000));
+        c.extend(sub);
+        assert_eq!(peek_sub(&c), None);
+        // deep definite nesting: one array in another, 60 000 times
+        let mut c = vec![0xa2, 0x00];
+        c.extend(std::iter::repeat_n(0x81, 60_000));
+        c.push(0x00);
+        c.extend(sub);
+        assert_eq!(peek_sub(&c), None, "beyond the item budget");
+        let mut c = vec![0xa2, 0x00];
+        c.extend(std::iter::repeat_n(0x81, 1000));
+        c.push(0x00);
+        c.extend(sub);
+        assert_eq!(peek_sub(&c), Some("x"), "depth alone costs nothing");
+        // the peek agrees with the decoder on what an encoder writes
+        for n in [0usize, 1, 50, 400] {
+            let claims = PtokClaims {
+                sub: format!("user:{n}"),
+                grants: (0..n)
+                    .map(|i| Grant {
+                        k: format!("wy/s/downstream/l{i}/**"),
+                        p: Perm::Read,
+                    })
+                    .collect(),
+                auth: Some(Vec::new()),
+                ..Default::default()
+            };
+            let bytes = crate::codec::encode_to_vec(&claims);
+            assert_eq!(peek_sub(&bytes), Some(claims.sub.as_str()));
+        }
         // integer keys are passed over
         assert_eq!(
             peek_sub(&[0xa2, 0x01, 0x02, 0x63, b's', b'u', b'b', 0x61, b'x']),

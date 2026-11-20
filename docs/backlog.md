@@ -676,8 +676,10 @@ in the list (first and last measure the same above), on every `~set` and
 - the verifier remembers `sub` → the key that signed the last **accepted**
   token of that subject (at most 1024 subjects of at most 128 bytes, an
   arbitrary one goes when it is full), reads the `sub` of the token at hand
-  before the signature is checked (`wyrm_core::ptok::peek_sub`, nothing else
-  is decoded), and tries that key first;
+  before the signature is checked (`wyrm_core::ptok::peek_sub`: a walk over
+  the CBOR heads with a counter, no decoder and no allocation; an
+  indefinite length or more than 4096 items before `sub` give no hint), and
+  tries that key first;
 - without a remembered key, or when it does not verify, every other key is
   tried, the last used first; the search ends at the first key that
   verifies (`verify_strict` binds a signature to one public key).
@@ -696,7 +698,13 @@ random trust lists (keys named twice, different limits, lists replaced on
 the way; good, unknown signer, damaged, expired, replayed) get the same
 answer from both; a key trusted twice; one verification for a known subject
 with 31 keys and 31 for a refused token; a wrong hint; a new list; the
-bound. Left as it is: a signer whose every token has a new `sub` while
+bound. With it (security audit of #150, spec 04
+0.2.36): a `ptok` longer than 64 KiB is refused before any other work
+(`Denied::TooLarge`, `permission_denied` as every refusal). Before, the
+length had no bound, and a refused token was hashed whole once per trusted
+key, on the old path too. Test `tests/ptok_alloc.rs` runs on the counting
+allocator: nested and 16 MiB claims allocate nothing in the peek and under
+8 KiB in a refused check. Left as it is: a signer whose every token has a new `sub` while
 other signers work in turn (the last row above) is found by the search;
 only a key id in the token would remove that, and that is a spec change
 nobody needs yet.

@@ -126,7 +126,17 @@ impl TokenSource for SigningTokens {
             auth: key.contains("/~act/").then(|| self.grants.clone()),
             args: self.args,
         };
-        Some(sign(&self.key, &claims))
+        let token = sign(&self.key, &claims);
+        // every responder refuses a longer one (spec 04 0.2.36): say so where it is made
+        if token.len() > wyrm_core::ptok::MAX_PTOK_LEN {
+            tracing::error!(
+                sub = %self.sub,
+                grants = self.grants.len(),
+                "no token made: it is longer than 64 KiB (too many grants)"
+            );
+            return None;
+        }
+        Some(token)
     }
 }
 

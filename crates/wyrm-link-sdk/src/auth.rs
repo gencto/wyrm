@@ -1,6 +1,6 @@
 //! `ptok v1` verification in the responder. Spec: 04-attachment.
 //!
-//! Order (normative, spec 04 0.2.12): version → signature → `exp > now` →
+//! Order (normative, spec 04 0.2.12; length 0.2.36): at most 64 KiB → version → signature → `exp > now` →
 //! `site` → first grant whose key expression intersects the request key →
 //! `jti` not replayed → `effective = min(p, max, maxperm)`. A token with no
 //! grant for the key is never remembered (review SDK-1). Any failure is
@@ -147,6 +147,8 @@ pub enum Denied {
     ReplayCacheFull,
     /// `exp` further ahead than [`MAX_TOKEN_TTL_S`].
     TooLong,
+    /// More bytes than [`ptok::MAX_PTOK_LEN`].
+    TooLarge,
 }
 
 impl Denied {
@@ -161,6 +163,7 @@ impl Denied {
             Denied::NoGrant => "the token grants nothing on this key",
             Denied::ReplayCacheFull => "too many tokens of this subject at once; try again",
             Denied::TooLong => "the token lives longer than 15 min",
+            Denied::TooLarge => "the token is longer than 64 KiB",
         }
     }
 }
@@ -273,6 +276,11 @@ impl Trust {
     }
 
     fn hint(&self, sub: &str) -> Option<usize> {
+        // `sub` is the sender's word here: one that is never remembered is not hashed
+        // under the lock either
+        if sub.len() > HINT_SUB_MAX {
+            return None;
+        }
         self.hints
             .lock()
             .unwrap_or_else(|p| p.into_inner())
@@ -403,6 +411,11 @@ impl Verifier {
         maxperm: Option<Perm>,
         now: u64,
     ) -> Result<(PtokClaims, Perm, Option<SignerScopes>), Denied> {
+        // Before any work on it: every step below costs by the token's length, and a refused
+        // token is hashed once per trusted key (spec 04 0.2.36).
+        if token.len() > ptok::MAX_PTOK_LEN {
+            return Err(Denied::TooLarge);
+        }
         let parts = ptok::split(token).ok_or(Denied::Malformed)?;
         let sig = Signature::from_bytes(parts.sig);
         // one trust list for the whole check: a list set meanwhile counts from the next token
@@ -1220,6 +1233,58 @@ mod tests {
             assert_eq!(r, Err(Denied::Signature));
             assert_eq!(n, 31);
         }
+    }
+
+    /// A token longer than the bound is refused before its signature is looked at, also one
+    /// that a trusted key signed; the longest one within the bound is checked as any other.
+    #[test]
+    fn an_over_long_token_is_refused_before_any_signature_work() {
+        use ed25519_dalek::Signer;
+        let key = ed25519_dalek::SigningKey::from_bytes(&[7; 32]);
+        let v = Verifier::new(vec![key.verifying_key()], "s");
+        let plc = keyexpr::new("wy/s/downstream/plc/p/~set").unwrap();
+        let with_roles = |bytes: usize, jti: u8| {
+            let claims = PtokClaims {
+                sub: "user:ann".into(),
+                roles: vec!["r".repeat(bytes)],
+                grants: vec![g("wy/s/**", Perm::Write)],
+                max: Perm::Write,
+                iat: 1,
+                exp: 100,
+                jti: [jti; 16],
+                site: "s".into(),
+                ..Default::default()
+            };
+            let mut tok = vec![ptok::PTOK_VERSION];
+            tok.extend(wyrm_core::codec::to_vec(&claims).unwrap());
+            let sig = key.sign(&tok);
+            tok.extend(sig.to_bytes());
+            tok
+        };
+        let base = with_roles(0, 1).len();
+        // the text's own head grows from 1 to 3 bytes
+        let fits = with_roles(ptok::MAX_PTOK_LEN - base - 2, 2);
+        assert_eq!(fits.len(), ptok::MAX_PTOK_LEN);
+        let (r, n) = verifies(|| v.verify(&fits, plc, None, 10));
+        assert!(r.is_ok());
+        assert_eq!(n, 1);
+        let over = with_roles(ptok::MAX_PTOK_LEN - base - 1, 3);
+        assert_eq!(over.len(), ptok::MAX_PTOK_LEN + 1);
+        let (r, n) = verifies(|| v.verify(&over, plc, None, 10));
+        assert_eq!(r, Err(Denied::TooLarge));
+        assert_eq!(n, 0, "no key was tried");
+        assert_eq!(v.replay.lock().unwrap().total, 1, "and nothing remembered");
+    }
+
+    /// An unverified `sub` too long to be remembered is not looked up either.
+    #[test]
+    fn a_long_unverified_sub_is_not_looked_up() {
+        let t = Trust::new(Vec::new(), Vec::new());
+        let long = "x".repeat(HINT_SUB_MAX + 1);
+        t.hints.lock().unwrap().insert(long.as_str().into(), 0);
+        assert_eq!(t.hint(&long), None);
+        t.hints.lock().unwrap().insert("user:ann".into(), 0);
+        assert_eq!(t.hint("user:ann"), Some(0));
     }
 
     /// The remembered signer is a hint only: a token that names a subject of another key is
