@@ -120,18 +120,42 @@ pub fn grow(pages: u32) -> Vec<u8> {
     ))
 }
 
-/// A flow node component that imports `import` (an empty instance), e.g.
-/// `wasi:filesystem/types@0.2.0`.
-pub fn importing(import: &str) -> Vec<u8> {
-    let text = format!(
-        "(component (import \"{import}\" (instance)) (core module $m {CORE_PRELUDE} {}) {NODE_EXPORTS})",
+/// Flow node whose `process` traps (`unreachable`).
+pub fn trap() -> Vec<u8> {
+    node(
         r#"
+    (func (export "process") (param i32 i32 i32 i32 i32 i32) (result i32)
+      unreachable)
+"#,
+    )
+}
+
+/// `process` that answers `err("")`.
+const ERR_PROCESS: &str = r#"
     (func (export "process") (param i32 i32 i32 i32 i32 i32) (result i32)
       (i32.store8 (i32.const 0) (i32.const 1))
       (i32.store offset=4 (i32.const 0) (i32.const 0))
       (i32.store offset=8 (i32.const 0) (i32.const 0))
       (i32.const 0))
-"#
+"#;
+
+/// A flow node with `decls` added to its core module: a type, a memory, a tag (what a
+/// WebAssembly proposal brings).
+pub fn with_core(decls: &str) -> Vec<u8> {
+    node(&format!("{decls} {ERR_PROCESS}"))
+}
+
+/// A flow node component that imports `import` (an empty instance), e.g.
+/// `wasi:filesystem/types@0.2.0`.
+pub fn importing(import: &str) -> Vec<u8> {
+    importing_as(&format!("\"{import}\""))
+}
+
+/// As [`importing`], with the whole name clause of the import given: the name in quotes and
+/// then, when wanted, `(implements "…")`.
+pub fn importing_as(name: &str) -> Vec<u8> {
+    let text = format!(
+        "(component (import {name} (instance)) (core module $m {CORE_PRELUDE} {ERR_PROCESS}) {NODE_EXPORTS})"
     );
     wat::parse_str(text).expect("guest WAT")
 }
