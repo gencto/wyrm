@@ -18,6 +18,7 @@
 
 pub mod endpoint;
 mod intake;
+pub mod queryable;
 mod streams;
 pub mod tokens;
 
@@ -133,6 +134,9 @@ pub struct WyrmClient {
     tokens: Option<Arc<dyn TokenSource>>,
     timeout: Duration,
     origin: Option<String>,
+    /// The windows a stored-value read of [`subscribe`](Self::subscribe)
+    /// takes a turn in, in this order; none = no bound.
+    stored_reads: Vec<Arc<tokio::sync::Semaphore>>,
 }
 
 /// `wy/<site>/downstream/<link>` that owns `key`, if any.
@@ -190,7 +194,30 @@ impl WyrmClient {
             tokens: None,
             timeout: DEFAULT_TIMEOUT,
             origin: None,
+            stored_reads: Vec::new(),
         }
+    }
+
+    /// The stored-value read of every [`subscribe`](Self::subscribe) takes a
+    /// permit of `reads` (share one semaphore between clients to bound them
+    /// all) and gives it back when the read has every reply, or at its
+    /// timeout. With fewer permits than a responder's queue holds (the
+    /// `~val` storage's holds 256) that queue never fills from these
+    /// clients, however many points they follow at once.
+    ///
+    /// Only the stored read waits. The subscriber is declared at once and
+    /// `subscribe` returns at once, so live values are never late; the
+    /// stream itself waits for the turn while it is polled, and hands the
+    /// stored value out when the read comes (an older `t` than a live value
+    /// already handed out is skipped, as always).
+    ///
+    /// Called again, it adds a window: a read takes its turn in each, in the
+    /// order given. Give the narrower one first (say, one per link), so that
+    /// a responder that holds its reads to their timeout holds only its own
+    /// share of the wider one.
+    pub fn with_stored_reads(mut self, reads: Arc<tokio::sync::Semaphore>) -> Self {
+        self.stored_reads.push(reads);
+        self
     }
 
     /// `attachment.origin` on requests that carry a token. Responders keep
@@ -1008,6 +1035,77 @@ mod tests {
             c.insert_json5(k, v).unwrap();
         }
         c
+    }
+
+    /// `with_stored_reads(2)`: of five subscribes at once only two stored
+    /// reads reach the storage; a third goes out when one of them ends.
+    /// Every subscribe returns at once, and a point whose stored read still
+    /// waits for its turn already has its live values.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn stored_reads_are_bounded() {
+        let session = zenoh::open(isolated()).await.unwrap();
+        // a responder that keeps every read open: nothing ends by itself
+        let (_q, mut rx) = queryable::bounded("wy/t/downstream/m/**", 16)
+            .declare(&session)
+            .await
+            .unwrap();
+        let c = WyrmClient::new(session.clone())
+            .with_stored_reads(Arc::new(tokio::sync::Semaphore::new(2)));
+        let (tx, mut live) = tokio::sync::mpsc::channel(16);
+        let mut subs = Vec::new();
+        for i in 0..5 {
+            let key = format!("wy/t/downstream/m/p{i}");
+            let mut events = tokio::time::timeout(Duration::from_secs(5), c.subscribe(&key))
+                .await
+                .expect("subscribe waits for no stored read")
+                .unwrap();
+            let tx = tx.clone();
+            subs.push(tokio::spawn(async move {
+                while let Some(ev) = events.next().await {
+                    if let ValEvent::Sample { key, .. } = ev {
+                        let _ = tx.send(key).await;
+                    }
+                }
+            }));
+        }
+        let first = tokio::time::timeout(Duration::from_secs(5), rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        let _second = tokio::time::timeout(Duration::from_secs(5), rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert!(rx.try_recv().is_err(), "a third read while two are open");
+        // three stored reads wait, and every point is followed all the same
+        let sample = wyrm_core::codec::to_vec(&wyrm_core::Sample {
+            v: Value::Float(1.0),
+            q: wyrm_core::Quality::Good,
+            t: 7,
+        })
+        .unwrap();
+        let mut seen = std::collections::HashSet::new();
+        for i in 0..5 {
+            session
+                .put(format!("wy/t/downstream/m/p{i}/~val"), sample.clone())
+                .await
+                .unwrap();
+        }
+        while seen.len() < 5 {
+            let key = tokio::time::timeout(Duration::from_secs(5), live.recv())
+                .await
+                .expect("a live value while stored reads wait")
+                .unwrap();
+            seen.insert(key);
+        }
+        assert!(rx.try_recv().is_err(), "still two reads open");
+        drop(first); // its read ends: the next one goes out
+        let _third = tokio::time::timeout(Duration::from_secs(5), rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(rx.try_recv().is_err());
     }
 
     /// Security review: a stream `invoke` whose reader is gone must not

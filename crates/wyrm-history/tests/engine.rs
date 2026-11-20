@@ -10,6 +10,8 @@
     reason = "test code: a failed step fails the test"
 )]
 
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 use wyrm_core::{codec, HistRow, Quality, Sample, Value};
 use wyrm_history::{GroupCfg, Historian, Logging, WatchCfg};
@@ -224,5 +226,233 @@ async fn logging_types_and_rebuilds() {
             .load(std::sync::atomic::Ordering::Relaxed),
         0
     );
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// Run `body` on a runtime of `workers` threads (the body itself on the
+/// calling thread, as `block_on` does) and fail when `progress` stays still
+/// for `stall`: a stalled runtime fires no timer of its own, so the watch is
+/// a thread outside it. A slow machine is not a stall: only no progress is.
+fn without_stall<F>(
+    workers: usize,
+    stall: Duration,
+    progress: Arc<AtomicUsize>,
+    body: impl FnOnce() -> F + Send + 'static,
+) where
+    F: std::future::Future<Output = ()>,
+{
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(workers)
+            .enable_all()
+            .build()
+            .unwrap();
+        rt.block_on(body());
+        let _ = tx.send(());
+    });
+    let (mut seen, mut since) = (usize::MAX, std::time::Instant::now());
+    loop {
+        match rx.recv_timeout(Duration::from_millis(200)) {
+            Ok(()) => return,
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => panic!("the body failed"),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+        }
+        let now = progress.load(Ordering::Relaxed);
+        if now != seen {
+            (seen, since) = (now, std::time::Instant::now());
+        } else if since.elapsed() > stall {
+            panic!("no progress in {stall:?} at {now}: the runtime stalled");
+        }
+    }
+}
+
+/// docs/backlog.md §14: a group of many new watches opens one `get ~val` per
+/// point, and the historian's own `~val?history=` queryable matches every
+/// one. Its handler was a FIFO of 256 drained by a task of the same runtime:
+/// a follow that found it full blocked its worker in the send, and once
+/// every worker did, the task that drains it never ran again. Before the
+/// fix this stalled 5 runs of 5 (4 workers, 3000 watches, every worker in
+/// `flume::Sender<Query>::send`); after it the group starts in seconds.
+#[test]
+fn many_new_watches_do_not_stall_the_runtime() {
+    let n = 3000;
+    let recorded = Arc::new(AtomicUsize::new(0));
+    let seen = recorded.clone();
+    without_stall(4, Duration::from_secs(30), recorded, move || async move {
+        let dir = temp("many");
+        let h = Historian::open(&dir).unwrap();
+        let s = session().await;
+        let keys: Vec<String> = (0..n).map(|i| format!("wy/s/downstream/m/p{i}")).collect();
+        let refs: Vec<&str> = keys.iter().map(String::as_str).collect();
+        h.attach(
+            s.clone(),
+            vec![group("many", Logging::AllData, &refs)],
+            vec!["wy/s/downstream/**/~val".into()],
+            Some("wy/s/sys/history".into()),
+        );
+        // every point followed: a put on each is recorded
+        let started = std::time::Instant::now();
+        let mut t = wyrm_history::engine::now_us();
+        loop {
+            t += 1;
+            for k in &keys {
+                put(&s, k, 1.0, t).await;
+            }
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            let count = keys.iter().filter(|k| !values(&h, k).is_empty()).count();
+            seen.store(count, Ordering::Relaxed);
+            if count == n {
+                break;
+            }
+        }
+        println!("{n} watches recorded in {:?}", started.elapsed());
+        h.detach().await;
+        let _ = std::fs::remove_dir_all(dir);
+    });
+}
+
+/// Many more history queries at once than the historian takes
+/// (`QUERY_QUEUE` waiting, `MAX_ANSWERS` with a task, `MAX_QUERIES`
+/// reading): every one ends with rows, with a refusal or with nothing, none
+/// holds a worker, and the historian answers the next one as before.
+#[test]
+fn a_flood_of_history_queries_ends() {
+    let n = 3000;
+    let ended = Arc::new(AtomicUsize::new(0));
+    let seen = ended.clone();
+    without_stall(2, Duration::from_secs(30), ended, move || async move {
+        let dir = temp("flood");
+        let h = Historian::open(&dir).unwrap();
+        let s = session().await;
+        h.attach(
+            s.clone(),
+            vec![group("all", Logging::AllData, &[P])],
+            vec!["wy/s/downstream/**/~val".into()],
+            Some("wy/s/sys/history".into()),
+        );
+        let mut t = wyrm_history::engine::now_us();
+        while values(&h, P).is_empty() {
+            t += 1;
+            put(&s, P, 1.0, t).await;
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        let selector = format!("{P}/~val?history=2020-01-01..");
+        let mut gets = tokio::task::JoinSet::new();
+        for _ in 0..n {
+            let (s, selector, seen) = (s.clone(), selector.clone(), seen.clone());
+            gets.spawn(async move {
+                let rows = history(&s, &selector).await;
+                seen.fetch_add(1, Ordering::Relaxed);
+                !rows.is_empty()
+            });
+        }
+        let mut answered = 0;
+        while let Some(r) = gets.join_next().await {
+            answered += usize::from(r.unwrap());
+        }
+        println!("{answered} of {n} history queries answered with rows");
+        assert!(answered > 0, "no query of the flood got rows");
+        // the flood left nothing behind: one more read is answered
+        let mut rows = Vec::new();
+        for _ in 0..50 {
+            rows = history(&s, &selector).await;
+            if !rows.is_empty() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+        assert!(!rows.is_empty(), "no answer after the flood");
+        h.detach().await;
+        let _ = std::fs::remove_dir_all(dir);
+    });
+}
+
+/// One link holds every read of its points open (a hung link process), and
+/// its watches come first in the group. The points of another link are
+/// followed all the same, at once: their stored values are recorded, then
+/// their live ones. Before, a follow waited for a turn of the one window
+/// before it declared its subscriber, the hung link's reads held every turn
+/// to their timeout (64 per 10 s), and the other link's points had no
+/// subscriber and no stored value for all that time.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_link_that_answers_no_read_delays_no_other_point() {
+    let n = 400;
+    let dir = temp("hung");
+    let h = Historian::open(&dir).unwrap();
+    let s = session().await;
+    // the hung link: every query kept, none answered
+    let held = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let keep = held.clone();
+    let _hung = s
+        .declare_queryable("wy/s/downstream/hung/**")
+        .callback(move |q| keep.lock().unwrap().push(q))
+        .await
+        .unwrap();
+    // the storage of the healthy link's points: a stored value of each
+    let stored = codec::to_vec(&Sample {
+        v: Value::Float(42.0),
+        q: Quality::Good,
+        t: wyrm_history::engine::now_us(),
+    })
+    .unwrap();
+    let _storage = s
+        .declare_queryable("wy/s/downstream/ok/*/~val")
+        .callback(move |q| {
+            if q.parameters().as_str().is_empty() {
+                let _ = zenoh::Wait::wait(q.reply(q.key_expr(), stored.clone()));
+            }
+        })
+        .await
+        .unwrap();
+    let hung: Vec<String> = (0..n)
+        .map(|i| format!("wy/s/downstream/hung/p{i}"))
+        .collect();
+    let ok: Vec<String> = (0..n).map(|i| format!("wy/s/downstream/ok/p{i}")).collect();
+    let refs: Vec<&str> = hung.iter().chain(&ok).map(String::as_str).collect();
+    h.attach(
+        s.clone(),
+        vec![group("mixed", Logging::AllData, &refs)],
+        vec!["wy/s/downstream/**/~val".into()],
+        Some("wy/s/sys/history".into()),
+    );
+    // Each step well inside the 10 s a hung read holds its turn. First the
+    // stored values, with no live value sent: the reads of the healthy
+    // link's points do not wait behind the hung link's.
+    let started = std::time::Instant::now();
+    loop {
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let got = ok
+            .iter()
+            .filter(|k| values(&h, k) == vec![Value::Float(42.0)])
+            .count();
+        if got == n {
+            break;
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(8),
+            "the stored value of {got} of {n} points recorded"
+        );
+    }
+    // Then a live value of each.
+    let started = std::time::Instant::now();
+    let mut t = wyrm_history::engine::now_us();
+    loop {
+        t += 1;
+        for k in &ok {
+            put(&s, k, 1.0, t).await;
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let got = ok.iter().filter(|k| values(&h, k).len() > 1).count();
+        if got == n {
+            break;
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(8),
+            "a live value of {got} of {n} points recorded"
+        );
+    }
+    assert!(!held.lock().unwrap().is_empty(), "the hung link got reads");
+    h.detach().await;
     let _ = std::fs::remove_dir_all(dir);
 }

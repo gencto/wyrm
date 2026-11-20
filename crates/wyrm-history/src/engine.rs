@@ -56,6 +56,47 @@ pub struct WatchCfg {
     pub enabled: bool,
 }
 
+/// Stored-value reads of the follows of all groups in flight at once.
+pub const FOLLOW_READS: usize = 64;
+/// Of those, the reads of one owner's points (a link, or a site section
+/// that is no link's): a link that holds its reads to their timeout holds
+/// this many turns and leaves the rest to the others.
+pub const FOLLOW_READS_PER_OWNER: usize = 16;
+
+/// The turns of the follows' stored reads: one window for all, one per
+/// owner. Only the stored read of a point waits here, never its subscriber.
+pub(crate) struct FollowReads {
+    all: Arc<tokio::sync::Semaphore>,
+    /// One entry per owner ever followed (links and sections: few).
+    owners: Mutex<HashMap<String, Arc<tokio::sync::Semaphore>>>,
+}
+
+impl FollowReads {
+    fn new() -> Self {
+        Self {
+            all: Arc::new(tokio::sync::Semaphore::new(FOLLOW_READS)),
+            owners: Mutex::default(),
+        }
+    }
+
+    /// `wy/<site>/downstream/<link>` of a link's point, else
+    /// `wy/<site>/<section>`.
+    fn owner(key: &str) -> String {
+        wyrm_client::owner_key(key)
+            .unwrap_or_else(|| key.splitn(4, '/').take(3).collect::<Vec<_>>().join("/"))
+    }
+
+    /// The window of `key`'s owner.
+    fn of(&self, key: &str) -> Arc<tokio::sync::Semaphore> {
+        self.owners
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .entry(Self::owner(key))
+            .or_insert_with(|| Arc::new(tokio::sync::Semaphore::new(FOLLOW_READS_PER_OWNER)))
+            .clone()
+    }
+}
+
 /// Shortest flush and logging intervals.
 pub const MIN_FLUSH_MS: u64 = 100;
 pub const MIN_INTERVAL_MS: u64 = 100;
@@ -132,6 +173,8 @@ pub struct Historian {
     run: Mutex<Run>,
     /// Reads at the same time ([`crate::query::MAX_QUERIES`]).
     pub(crate) reads: tokio::sync::Semaphore,
+    /// Stored-value reads of every group's follows ([`FOLLOW_READS`]).
+    follow_reads: Arc<FollowReads>,
     sinks: Mutex<HashMap<String, SinkStats>>,
 }
 
@@ -143,6 +186,7 @@ impl Historian {
             last: Arc::default(),
             run: Mutex::default(),
             reads: tokio::sync::Semaphore::new(crate::query::MAX_QUERIES),
+            follow_reads: Arc::new(FollowReads::new()),
             sinks: Mutex::default(),
         }))
     }
@@ -267,6 +311,7 @@ impl Historian {
             }
             let (tx, rx) = watch::channel(false);
             let task = tokio::spawn(run_group(
+                self.follow_reads.clone(),
                 self.store.clone(),
                 self.counters.clone(),
                 self.last.clone(),
@@ -310,6 +355,7 @@ struct Point {
 }
 
 async fn run_group(
+    follow_reads: Arc<FollowReads>,
     store: Arc<Store>,
     counters: Arc<Counters>,
     last: Arc<Mutex<HashMap<String, Row>>>,
@@ -328,9 +374,10 @@ async fn run_group(
         .collect();
     let st = store.clone();
     let points = tokio::task::spawn_blocking(move || {
+        let ids = st.series_ids(&keys)?;
         keys.into_iter()
-            .map(|key| {
-                let series = st.series_id(&key, true)?.unwrap_or_default();
+            .zip(ids)
+            .map(|(key, series)| {
                 let stored = st.edge(series, true)?;
                 Ok(Point {
                     key,
@@ -352,9 +399,26 @@ async fn run_group(
     };
     let (tx, mut rx) = mpsc::channel::<(usize, Sample)>(4096);
     let mut subs = JoinSet::new();
+    // A group of 10 000 new watches is 10 000 `subscribe`s, each a stored
+    // read of the `~val` storage, whose queue holds 256: one window for all
+    // groups, well below that, keeps the historian from ever filling it
+    // (docs/backlog.md §14). Every subscriber is declared at once; only the
+    // stored read waits for its turn, first among its owner's points, so a
+    // link that answers no read delays the stored values of its own points
+    // alone.
     let client = WyrmClient::new(session);
+    let mut clients: HashMap<String, WyrmClient> = HashMap::new();
     for (i, p) in points.iter().enumerate() {
-        let (client, key, tx) = (client.clone(), p.key.clone(), tx.clone());
+        let client = clients
+            .entry(FollowReads::owner(&p.key))
+            .or_insert_with(|| {
+                client
+                    .clone()
+                    .with_stored_reads(follow_reads.of(&p.key))
+                    .with_stored_reads(follow_reads.all.clone())
+            })
+            .clone();
+        let (key, tx) = (p.key.clone(), tx.clone());
         subs.spawn(follow(client, key, i, tx));
     }
     drop(tx);
