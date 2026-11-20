@@ -513,6 +513,71 @@ async fn wildcard_fan_in() {
     h.stop().await;
 }
 
+/// A fan-in answers every key of the link that the pattern meets, and no other, whatever
+/// the pattern rules out before the tree is walked: with and without `answer_val`, the
+/// answer to each pattern is the keys of the whole answer (`**`) that intersect it.
+#[tokio::test(flavor = "multi_thread")]
+async fn fan_in_answers_what_the_pattern_meets() {
+    use zenoh::key_expr::keyexpr;
+    for answer_val in [false, true] {
+        let h =
+            TestHarness::<Demo>::start_with(Calls::default(), |c| c.answer_val = answer_val).await;
+        h.ctx()
+            .update("ahu1/fan", true, Quality::Good, 5)
+            .await
+            .unwrap();
+        let keys = |r: Vec<wyrm_link_sdk::harness::Reply>| {
+            let mut k: Vec<String> = r.into_iter().map(|r| r.key).collect();
+            k.sort();
+            k
+        };
+        let all = keys(h.query(&h.key("**", ""), None, Default::default()).await);
+        // the root, `ahu1` and its four children; `vault` is restricted; one value
+        let metas = all.iter().filter(|k| k.ends_with("/~meta")).count();
+        let vals: Vec<&String> = all.iter().filter(|k| k.ends_with("/~val")).collect();
+        assert_eq!(metas, 6, "{all:?}");
+        assert!(all.contains(&h.key("", "~meta")));
+        assert!(!all.iter().any(|k| k.contains("/vault")));
+        if answer_val {
+            assert_eq!(vals, [&h.key("ahu1/fan", "~val")]);
+        } else {
+            assert!(vals.is_empty(), "a storage answers the values: {vals:?}");
+        }
+        let site = format!("wy/{SITE}");
+        for p in [
+            h.key("**", "~meta"),
+            h.key("**", "~val"),
+            h.key("**", "~set"),
+            h.key("**", "~act/reset"),
+            h.key("*", "~meta"),
+            h.key("*", "~val"),
+            h.key("ahu1/*", "~meta"),
+            h.key("ahu1/*", "~val"),
+            h.key("ahu1/**", ""),
+            h.key("**/fan/*", ""),
+            h.key("*/fan", "~val"),
+            h.key("**/nothing/**", ""),
+            // patterns from above the link: the root's own key has no path
+            format!("{site}/downstream/*/~meta"),
+            format!("{site}/downstream/*/~val"),
+            format!("{site}/downstream/**"),
+            format!("{site}/**/~val"),
+            format!("{site}/**/~meta"),
+            "wy/*/downstream/demo/*/fan/~val".to_owned(),
+        ] {
+            let pat = keyexpr::new(p.as_str()).unwrap();
+            let want: Vec<String> = all
+                .iter()
+                .filter(|k| keyexpr::new(k.as_str()).unwrap().intersects(pat))
+                .cloned()
+                .collect();
+            let got = keys(h.query(&p, None, Default::default()).await);
+            assert_eq!(got, want, "pattern {p}, answer_val {answer_val}");
+        }
+        h.stop().await;
+    }
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn liveliness_token() {
     let (h, _) = harness().await;

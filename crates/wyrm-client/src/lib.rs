@@ -20,6 +20,8 @@ pub mod endpoint;
 mod intake;
 pub mod queryable;
 mod streams;
+#[cfg(feature = "testkit")]
+pub mod testkit;
 pub mod tokens;
 
 pub use streams::{
