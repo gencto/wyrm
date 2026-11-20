@@ -540,7 +540,7 @@ measured.
 
 | Group | Measurement | Audit item | What it covers |
 |---|---|---|---|
-| sdk | `cargo bench -p wyrm-link-sdk --bench verify` | 3 | one `ptok` check with 1 admin + 4/10/30 limited keys: best case (admin key) and worst case (the last limited key, 1 + n Ed25519 verifies) |
+| sdk | `cargo bench -p wyrm-link-sdk --bench verify` | 3 | one `ptok` check with 1 admin + 1/4/10/30 limited keys: signed by the admin key, by the first and by the last limited key, by a key nobody trusts (refused), a new `sub` in every token, the limited keys in turn with their own `sub` and with a new `sub` each time |
 | sdk | `cargo bench -p wyrm-link-sdk --bench tree` | 4, 5, 17 | declare 1k/5k/10k points (time, `~meta` puts and bytes; pure `NodeTree` and through `LinkCtx` over Zenoh); a wildcard `get` that hits one node of 10k; `view=list` of 1000 children with and without a profile name |
 | flow | `cargo test --release -p wyrm-flow --test throughput -- --ignored --nocapture` | 7–10 | `subscribe → (scale, add) × n → publish`, a paced rate ladder on one key and on 1000 keys, default and deep inbox; allocations per hop (9 hops minus 3); 10 000-row tables through `table_sort` ×1/×3 and `table_filter` + `table_aggregate` |
 | broker | `cargo test --release -p wyrmd --test perf -- --ignored --nocapture --exact <test>` | 1, 2, 12, 13, gateway | an in-process broker with the embedded mock: (a) base rate, (b) a client that subscribes `wy/<site>/downstream/**` in a loop and one `wy/**`, (c) the mock at `trace`, (d) the historian on 10 000 points, (e) 1000 invokes and the audit records/s, (f) 10 gateway WebSocket clients × 1000 points × 10 Hz, (g) a steady pattern consumer of 1000 points × 50 Hz, raw and through the client |
@@ -580,6 +580,11 @@ and the reference board (4-core ARM64, 2 GB) is not measured yet.
 | M4 Max, loaded (load 14–19), rough | release | historian, 10 000 points at 2 Hz, All Data, after the fix | 20k samples/s kept (lost 125 / 157 of 200k), p99 3.0–3.5 ms, 67–74 % CPU, RSS 165–168 MiB; 18 000 rows/s, 0 dropped, flush 139–149 ms | 2026-11-19 |
 | M4 Max, load 7–12, rough | release | the same two after the merge of main and the bounded query tasks (two runs) | group start: first row 0.2 / 1.2 s, a row of every point 4.2 / 4.2 s; 20k samples/s kept (lost 67 / 75 of 200k), p99 2.4–2.5 ms, 37–39 % CPU, RSS 166–167 MiB; 20 000 rows/s, 0 dropped, flush 52–53 ms | 2026-11-20 |
 | M4 Max, load 5–14, rough | release | the same two with every subscriber declared at once and 16 stored reads per link (audit of #146; two runs) | group start: first row 5.2 / 3.2 s (all 10 000 declarations now run at once, so the first row comes later), a row of every point 6.4 / 4.2 s; 20k samples/s kept (lost 734 / 135 of 200k), p99 6.7 / 2.7 ms, 58 / 40 % CPU, RSS 172–176 MiB; 20 000 rows/s, 0 dropped, flush 52–66 ms | 2026-11-20 |
+| M4 Max, load 6–9, rough | release | `verify` before the key index (`d642a85a`), last of 1 / 4 / 10 / 30 limited keys | p50 44.9 / 111 / 242 / 672 µs, 11 / 14 / 20 / 40 allocs; the same for the first limited key and for every other token of a limited key; admin key 22.6 µs | 2026-11-20 |
+| M4 Max, load 6–9, rough | release | `verify` before, refused token (unknown signer), 1 / 4 / 10 / 30 limited keys | p50 44.2 / 110 / 243 / 678 µs | 2026-11-20 |
+| M4 Max, load 12–19, rough | release | `verify` with the key index, first or last of 1 / 4 / 10 / 30 limited keys, also in turn with a `sub` each and with a new `sub` per token from one key | p50 21.8 / 21.7 / 21.8 / 21.7 µs (p99 28–36 µs), 9 allocs with a known `sub`; admin key 21.8 µs, 7 allocs | 2026-11-20 |
+| M4 Max, load 12–19, rough | release | `verify` with the key index, refused token, 1 / 4 / 10 / 30 limited keys | p50 42.4 / 105 / 231 / 645 µs (one verify per distinct key, as before) | 2026-11-20 |
+| M4 Max, load 12–19, rough | release | `verify` with the key index, the limited keys in turn and a new `sub` in every token (nothing tells the signer), 1 / 4 / 10 / 30 keys | p50 21.9 / 85.5 / 208 / 630 µs (before: 45.5 / 111 / 242 / 681 µs) | 2026-11-20 |
 | M4 Max, loaded, rough | release | 1000 invokes, audit | invoke p50 4.0 ms, p99 7.1 ms, 312/s; 233 audit records/s; derived 700 fsync/s | 2026-11-19 |
 | M4 Max, loaded, rough | release | gateway, 10 WS clients × 1000 points × 10 Hz | 100k frames/s, p50 4.0 ms, p99 8.1 ms, 84 % CPU, RSS 85 MiB | 2026-11-19 |
 
@@ -744,6 +749,52 @@ Not done:
   twice and keep the second (build with `CARGO_PROFILE_RELEASE_STRIP=false
   CARGO_PROFILE_RELEASE_DEBUG=line-tables-only` into a target directory of
   its own).
+
+**Done (2026-11-20, `perf/ptok-verify`): one signature check per token
+(audit item 3).** A `ptok` names no key (spec 04), so the responder tried the
+admin keys and then **every** limited key, one Ed25519 `verify_strict` each:
+a token of a limited key cost 1 + n verifications wherever its key stood
+in the list (first and last measure the same above), on every `~set` and
+`~act`. Now (`wyrm-link-sdk` `auth.rs`, `Trust`; the wire format and
+`spec/` did not change):
+
+- the trust list is kept as one entry per distinct public key, with all it
+  is trusted as (admin, and every limited entry of it in list order);
+- the verifier remembers `sub` → the key that signed the last **accepted**
+  token of that subject (at most 1024 subjects of at most 128 bytes, an
+  arbitrary one goes when it is full), reads the `sub` of the token at hand
+  before the signature is checked (`wyrm_core::ptok::peek_sub`: a walk over
+  the CBOR heads with a counter, no decoder and no allocation; an
+  indefinite length or more than 4096 items before `sub` give no hint), and
+  tries that key first;
+- without a remembered key, or when it does not verify, every other key is
+  tried, the last used first; the search ends at the first key that
+  verifies (`verify_strict` binds a signature to one public key).
+
+The remembered key is a hint only. The signature is always checked in full
+against the key that is tried, so a wrong or forged `sub` costs time and
+changes no answer; a refused token is checked against every distinct key
+once, whatever it claims (the refused figures above: unchanged). What a
+signer is trusted with is read as before: an admin key wins over its
+limited entries, several limited entries of one key count together (widest
+cap that covers the request, scopes of all in list order). A new trust list
+(`set_trust`: `hello`, a rebuild, the signers poll) is a new index with no
+remembered subjects; the replay cache stays, as before. Tests in `auth.rs`:
+the old sequential search is kept as the oracle and 2400 random tokens on 40
+random trust lists (keys named twice, different limits, lists replaced on
+the way; good, unknown signer, damaged, expired, replayed) get the same
+answer from both; a key trusted twice; one verification for a known subject
+with 31 keys and 31 for a refused token; a wrong hint; a new list; the
+bound. With it (security audit of #150, spec 04
+0.2.36): a `ptok` longer than 64 KiB is refused before any other work
+(`Denied::TooLarge`, `permission_denied` as every refusal). Before, the
+length had no bound, and a refused token was hashed whole once per trusted
+key, on the old path too. Test `tests/ptok_alloc.rs` runs on the counting
+allocator: nested and 16 MiB claims allocate nothing in the peek and under
+8 KiB in a refused check. Left as it is: a signer whose every token has a new `sub` while
+other signers work in turn (the last row above) is found by the search;
+only a key id in the token would remove that, and that is a spec change
+nobody needs yet.
 
 Not covered yet:
 

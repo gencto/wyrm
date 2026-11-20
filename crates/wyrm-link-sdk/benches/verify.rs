@@ -1,13 +1,19 @@
-//! What one `ptok` check costs a responder (performance audit item 3): the verifier tries
-//! the admin keys, then every limited key, with one Ed25519 `verify_strict` each, before it
-//! knows who signed. `cargo bench -p wyrm-link-sdk --bench verify`.
+//! What one `ptok` check costs a responder (performance audit item 3). Before the fix the
+//! verifier tried the admin keys, then every limited key, with one Ed25519 `verify_strict`
+//! each, before it knew who signed; now it tries the key that last signed for the token's
+//! `sub` first (`auth.rs`). `cargo bench -p wyrm-link-sdk --bench verify`.
 //!
-//! Per set of limited keys (4, 10, 30; the broker trusts the flow, gateway, scheduler, DQL,
-//! agent and requester keys and one per upstream grant, ADR 0013, 0046), two tokens:
+//! Per set of limited keys (1, 4, 10, 30; the broker trusts the flow, gateway, scheduler, DQL,
+//! agent and requester keys and one per upstream grant, ADR 0013, 0046):
 //!
-//! * `admin`: signed by the admin key, the first key tried (best case, one verify);
-//! * `limited_last`: signed by the last limited key, so the admin key and every limited key
-//!   are tried (worst case, 1 + n verifies).
+//! * `admin`: signed by the admin key;
+//! * `limited_first` / `limited_last`: signed by the first / the last limited key;
+//! * `refused`: signed by a key nobody trusts (every trusted key is tried, then refused);
+//! * `new_sub_last`: the last limited key, a `sub` never seen before in every token (a
+//!   gateway's users);
+//! * `mixed`: the limited keys take turns, each with its own `sub` (links and flows);
+//! * `mixed_new_sub`: the limited keys take turns and every token has a new `sub`: nothing
+//!   tells the signer beforehand (the worst case of the fix).
 //!
 //! Tokens are signed before the timed loop. A fresh verifier per case keeps the replay cache
 //! (16 384 `jti` per subject) from refusing them. One `PERF` line per case (`tool/perf.sh`).
@@ -25,7 +31,7 @@ use std::time::Instant;
 use wyrm_bench::{Allocs, Lat, Perf};
 use wyrm_core::ptok::{Grant, PtokClaims, PTOK_VERSION};
 use wyrm_core::Perm;
-use wyrm_link_sdk::auth::{LimitedKey, Verifier};
+use wyrm_link_sdk::auth::{Denied, LimitedKey, Verifier};
 use zenoh::key_expr::keyexpr;
 
 #[global_allocator]
@@ -37,12 +43,12 @@ const KEY: &str = "wy/bench/downstream/mock/g0/p0/~set";
 const ROUNDS: usize = 4_000;
 const WARMUP: usize = 200;
 
-fn sign(key: &SigningKey, jti: u64) -> Vec<u8> {
+fn sign(key: &SigningKey, sub: &str, jti: u64) -> Vec<u8> {
     let now = wyrm_core::clock::now_s();
     let mut id = [0u8; 16];
     id[..8].copy_from_slice(&jti.to_be_bytes());
     let claims = PtokClaims {
-        sub: "user:bench".into(),
+        sub: sub.into(),
         roles: vec!["operator".into()],
         grants: vec![Grant {
             k: "wy/bench/downstream/**".into(),
@@ -63,51 +69,53 @@ fn sign(key: &SigningKey, jti: u64) -> Vec<u8> {
     tok
 }
 
+fn signer(kind: u8, i: usize) -> SigningKey {
+    let mut seed = [0u8; 32];
+    seed[0] = kind;
+    seed[1..9].copy_from_slice(&(i as u64).to_be_bytes());
+    SigningKey::from_bytes(&seed)
+}
+
 fn limited(n: usize) -> (Vec<LimitedKey>, Vec<SigningKey>) {
-    let signers: Vec<SigningKey> = (0..n)
-        .map(|i| {
-            let mut seed = [0u8; 32];
-            seed[0] = 2;
-            seed[1..9].copy_from_slice(&(i as u64).to_be_bytes());
-            SigningKey::from_bytes(&seed)
-        })
-        .collect();
+    let signers: Vec<SigningKey> = (0..n).map(|i| signer(2, i)).collect();
     let keys = signers
         .iter()
-        .enumerate()
-        .map(|(i, s)| LimitedKey {
+        .map(|s| LimitedKey {
             key: s.verifying_key(),
             cap: Perm::Write,
-            // only the last one covers the request key
-            scopes: vec![if i + 1 == n {
-                "wy/bench/downstream".to_owned()
-            } else {
-                format!("wy/bench/downstream/other{i}")
-            }],
+            scopes: vec!["wy/bench/downstream".to_owned()],
             subject: None,
         })
         .collect();
     (keys, signers)
 }
 
-fn case(name: &str, verifier: &Verifier, signer: &SigningKey, verifies: usize) {
+/// Times `verifier` on the tokens `token(i)` makes; `accepted` = what every one must get.
+fn case(name: &str, verifier: &Verifier, accepted: bool, token: impl Fn(usize) -> Vec<u8>) {
     let key = keyexpr::new(KEY).unwrap();
-    let toks: Vec<Vec<u8>> = (0..ROUNDS + WARMUP)
-        .map(|i| sign(signer, i as u64 + 1))
-        .collect();
+    let toks: Vec<Vec<u8>> = (0..ROUNDS + WARMUP).map(token).collect();
     let (warm, timed) = toks.split_at(WARMUP);
     let now = wyrm_core::clock::now_s();
+    let check = |t: &[u8]| match verifier.verify(t, key, None, now) {
+        Ok((_, perm)) => {
+            assert!(accepted, "{name}: accepted");
+            assert_eq!(perm, Perm::Write);
+        }
+        Err(e) => {
+            assert!(!accepted, "{name}: {e:?}");
+            assert_eq!(e, Denied::Signature);
+        }
+    };
     for t in warm {
-        verifier.verify(t, key, None, now).unwrap();
+        check(t);
     }
     let mut lat = Lat::with_capacity(ROUNDS);
     let a0 = Allocs::read();
     let t0 = Instant::now();
     for t in timed {
         let s = Instant::now();
-        let (_, perm) = verifier.verify(t, key, None, now).unwrap();
+        check(t);
         lat.push(s.elapsed());
-        assert_eq!(perm, Perm::Write);
     }
     let wall = t0.elapsed().as_secs_f64();
     let allocs = Allocs::read().since(a0);
@@ -117,7 +125,6 @@ fn case(name: &str, verifier: &Verifier, signer: &SigningKey, verifies: usize) {
             .lat(&mut lat)
             .per_s(ROUNDS as f64 / wall)
             .allocs(allocs, ROUNDS as u64)
-            .field("verifies", verifies)
             .note("ptok verify, one request")
     );
 }
@@ -126,7 +133,7 @@ fn main() {
     let admin = SigningKey::from_bytes(&[1; 32]);
     // one Ed25519 verify alone, for scale
     {
-        let tok = sign(&admin, 1);
+        let tok = sign(&admin, "user:bench", 1);
         let parts = wyrm_core::ptok::split(&tok).unwrap();
         let sig = ed25519_dalek::Signature::from_bytes(parts.sig);
         let vk = admin.verifying_key();
@@ -146,11 +153,32 @@ fn main() {
                 .note("one verify_strict")
         );
     }
-    for n in [4usize, 10, 30] {
+    let stranger = signer(3, 0);
+    for n in [1usize, 4, 10, 30] {
         let (keys, signers) = limited(n);
         let fresh = || Verifier::new(vec![admin.verifying_key()], SITE).with_limited(keys.clone());
-        case(&format!("verify/admin/l{n}"), &fresh(), &admin, 1);
-        let last = signers.last().unwrap();
-        case(&format!("verify/limited_last/l{n}"), &fresh(), last, n + 1);
+        let (first, last) = (&signers[0], &signers[n - 1]);
+        let jti = |i: usize| i as u64 + 1;
+        case(&format!("verify/admin/l{n}"), &fresh(), true, |i| {
+            sign(&admin, "user:bench", jti(i))
+        });
+        case(&format!("verify/limited_first/l{n}"), &fresh(), true, |i| {
+            sign(first, "user:bench", jti(i))
+        });
+        case(&format!("verify/limited_last/l{n}"), &fresh(), true, |i| {
+            sign(last, "user:bench", jti(i))
+        });
+        case(&format!("verify/refused/l{n}"), &fresh(), false, |i| {
+            sign(&stranger, "user:bench", jti(i))
+        });
+        case(&format!("verify/new_sub_last/l{n}"), &fresh(), true, |i| {
+            sign(last, &format!("user:u{i}"), jti(i))
+        });
+        case(&format!("verify/mixed/l{n}"), &fresh(), true, |i| {
+            sign(&signers[i % n], &format!("link:l{}", i % n), jti(i))
+        });
+        case(&format!("verify/mixed_new_sub/l{n}"), &fresh(), true, |i| {
+            sign(&signers[i % n], &format!("user:u{i}"), jti(i))
+        });
     }
 }
