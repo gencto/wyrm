@@ -16,7 +16,7 @@ Flutter app, is the desktop window onto one broker or a chain of them.
 *Wyrm*: a wingless serpent-dragon. Its long body of segments is like a tree of
 nodes, and it is kin to the dragon on Zenoh's logo.
 
-> **Status: before 1.0 (version 0.1.0).** The protocol (`spec/` 0.2.35) and the
+> **Status: before 1.0 (version 0.1.0).** The protocol (`spec/` 0.2.36) and the
 > broker are tested on every commit (unit, fixture and end-to-end tests). Every
 > protocol link is tested against its own simulator. No link has been checked
 > against a real device yet ([ADR 0029](docs/adr/0029-delegated-decisions.md),
@@ -199,7 +199,7 @@ cargo test --workspace --all-features
 - `spec/` is normative. A change there needs four more steps: update `spec/fixtures/gen.py`, regenerate the 28 fixtures, make every SDK's fixture test pass, and add a line to `spec/CHANGELOG.md`.
 - A decision goes into `docs/adr/`.
 - [CONTRIBUTING.md](CONTRIBUTING.md) has the code rules (wire enums, QoS, logging, drivers).
-- Zenoh is pinned to an exact version, now 1.10.1. The MSRV is Rust 1.89.
+- Zenoh is pinned to an exact version, now 1.10.1. The MSRV is Rust 1.97 (wasmtime 50).
 
 ## License
 
