@@ -11,7 +11,9 @@
 //!   from 32 zero bytes: removing, reordering or editing a record breaks the chain.
 //! * A record cut off at the end of the last segment (power loss) is dropped
 //!   and the file truncated. A CRC-valid record with a wrong HMAC is tampering.
-//! * Every append is `fsync`ed. The WAL is the source of truth and is never
+//! * Every append is `fsync`ed before it is answered: [`Store::apply`] one record per
+//!   `fsync`, [`Store::apply_batch`] several records under one (group commit; the bytes
+//!   on disk are the same). The WAL is the source of truth and is never
 //!   deleted; the snapshot is only a cache. A snapshot with another
 //!   [`State::SCHEMA`] is ignored and the state is rebuilt from the WAL.
 
@@ -33,6 +35,9 @@ const HEADER: usize = 4 + 4 + 32; // len, crc, hmac
 pub const SNAPSHOT_EVERY: usize = 1000;
 /// Upper bound on one record; larger is corruption, not data.
 const MAX_RECORD: usize = 16 << 20;
+/// Most records [`Store::apply_batch`] writes under one `fsync`; a longer slice is
+/// written as several batches. Also the most records an anchor may announce.
+pub const MAX_BATCH: usize = 1024;
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -140,6 +145,58 @@ fn segments(dir: &Path) -> Result<Vec<(u64, PathBuf)>> {
     Ok(out)
 }
 
+/// An anchor file: `<lsn> <hex mac>`, and ` +<n>` while a batch of `n` records is
+/// being written after that head ([`Store::apply_batch`]).
+struct Anchor<'a> {
+    lsn: u64,
+    mac_hex: &'a str,
+    /// Records announced after `lsn`: 0 outside a batch.
+    pending: u64,
+}
+
+impl<'a> Anchor<'a> {
+    fn parse(text: &'a str) -> Option<Self> {
+        let mut it = text.split_whitespace();
+        let lsn = it.next()?.parse().ok()?;
+        let mac_hex = it.next().unwrap_or_default();
+        let pending = match it.next() {
+            None => 0,
+            Some(p) => p.strip_prefix('+')?.parse().ok()?,
+        };
+        Some(Self {
+            lsn,
+            mac_hex,
+            pending,
+        })
+    }
+
+    /// How many records the WAL may hold after the anchor's head: one (a crash
+    /// between the WAL write and the anchor write), or the batch the anchor
+    /// announced (a crash while that batch was written: any prefix of it may be
+    /// on disk, and none of it was answered).
+    fn may_follow(&self) -> u64 {
+        self.pending.min(MAX_BATCH as u64).max(1)
+    }
+}
+
+/// `e` again, for every caller of a batch that failed as a whole (an I/O error is
+/// not `Clone`).
+fn again(e: &StateError) -> StateError {
+    match e {
+        StateError::Io(io) => StateError::Io(std::io::Error::new(io.kind(), io.to_string())),
+        other => StateError::Io(std::io::Error::other(other.to_string())),
+    }
+}
+
+/// One WAL record: `len | crc32c | hmac | payload`.
+fn frame(out: &mut Vec<u8>, payload: &[u8], m: &[u8; 32]) {
+    out.reserve(HEADER + payload.len());
+    out.extend((payload.len() as u32).to_le_bytes());
+    out.extend(crc32c::crc32c(payload).to_le_bytes());
+    out.extend(m);
+    out.extend(payload);
+}
+
 impl<S: State> Store<S> {
     /// Open (or create) the store in `dir` with the HMAC `key`.
     pub fn open(dir: impl AsRef<Path>, key: &[u8]) -> Result<Self> {
@@ -223,7 +280,9 @@ impl<S: State> Store<S> {
     /// the store. The HMAC chain finds edited records but not records cut
     /// from the end; the anchor does. On open: an anchor ahead of the WAL,
     /// or the same LSN with another MAC, is an error; an anchor one record
-    /// behind (crash between the WAL write and the anchor write) is accepted.
+    /// behind (crash between the WAL write and the anchor write) is accepted,
+    /// and so is an anchor that announced a batch (`+<n>`) with at most `n`
+    /// records after it (crash while [`Store::apply_batch`] wrote them).
     pub fn with_anchor(mut self, path: impl Into<PathBuf>) -> Result<Self> {
         let path = path.into();
         let bad = |why: String| StateError::Anchor {
@@ -242,22 +301,18 @@ impl<S: State> Store<S> {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => return Err(e.into()),
             Ok(text) => {
-                let mut it = text.split_whitespace();
-                let lsn: u64 = it
-                    .next()
-                    .and_then(|v| v.parse().ok())
-                    .ok_or_else(|| bad("unreadable".into()))?;
-                let mac_hex = it.next().unwrap_or_default();
+                let a = Anchor::parse(&text).ok_or_else(|| bad("unreadable".into()))?;
+                let lsn = a.lsn;
                 if lsn > self.lsn {
                     return Err(bad(format!(
                         "anchor is at lsn {lsn}, the WAL ends at {}",
                         self.lsn
                     )));
                 }
-                if lsn == self.lsn && mac_hex != wyrm_core::hex::encode(self.chain) {
+                if lsn == self.lsn && a.mac_hex != wyrm_core::hex::encode(self.chain) {
                     return Err(bad(format!("chain at lsn {lsn} differs")));
                 }
-                if lsn + 1 < self.lsn {
+                if self.lsn - lsn > a.may_follow() {
                     return Err(bad(format!(
                         "anchor is at lsn {lsn}, {} records behind the WAL",
                         self.lsn - lsn
@@ -279,12 +334,22 @@ impl<S: State> Store<S> {
     }
 
     fn write_anchor(&self) -> Result<()> {
+        self.write_anchor_before(0)
+    }
+
+    /// The head as it is, and `pending` records announced after it (0 = none).
+    fn write_anchor_before(&self, pending: usize) -> Result<()> {
         let Some(path) = &self.anchor else {
             return Ok(());
         };
         let tmp = path.with_extension("tmp");
         let mut f = File::create(&tmp)?;
-        f.write_all(format!("{} {}\n", self.lsn, wyrm_core::hex::encode(self.chain)).as_bytes())?;
+        let mut line = format!("{} {}", self.lsn, wyrm_core::hex::encode(self.chain));
+        if pending > 0 {
+            line.push_str(&format!(" +{pending}"));
+        }
+        line.push('\n');
+        f.write_all(line.as_bytes())?;
         f.sync_all()?;
         fs::rename(&tmp, path)?;
         if let Some(dir) = path.parent() {
@@ -320,11 +385,8 @@ impl<S: State> Store<S> {
         let payload = minicbor::to_vec(&op).map_err(|e| StateError::Codec(e.to_string()))?;
         let lsn = self.lsn + 1;
         let m = mac(&self.key, &self.chain, lsn, &payload);
-        let mut rec = Vec::with_capacity(HEADER + payload.len());
-        rec.extend((payload.len() as u32).to_le_bytes());
-        rec.extend(crc32c::crc32c(&payload).to_le_bytes());
-        rec.extend(m);
-        rec.extend(&payload);
+        let mut rec = Vec::new();
+        frame(&mut rec, &payload, &m);
         self.wal.write_all(&rec)?;
         self.wal.sync_data()?;
         self.state = next;
@@ -343,6 +405,122 @@ impl<S: State> Store<S> {
             }
         }
         Ok(lsn)
+    }
+
+    /// Group commit: validate every op of `ops` in order, append the accepted ones
+    /// with one write and one `fsync`, then make them current. One answer per op,
+    /// in the order of `ops`: its LSN, or why it was not written.
+    ///
+    /// * The records are those [`Store::apply`] would write one by one: the same
+    ///   bytes, the same LSNs, the same chain.
+    /// * An op the state rejects (or that cannot be encoded) is answered alone;
+    ///   the others are written. An I/O failure fails every accepted op.
+    /// * No answer is `Ok` before the records are on disk and the anchor is at
+    ///   the last of them.
+    /// * With an anchor, a batch of two or more first announces itself in the
+    ///   anchor (`<lsn> <mac> +<n>`), so a crash while it is written leaves a WAL
+    ///   that opens with any prefix of the batch, and the anchor still refuses
+    ///   every other cut. A batch of one is written exactly as `apply` writes it.
+    pub fn apply_batch(&mut self, ops: &[S::Op]) -> Vec<Result<u64>> {
+        let mut out = Vec::with_capacity(ops.len());
+        for part in ops.chunks(MAX_BATCH) {
+            self.commit(part, &mut out);
+        }
+        out
+    }
+
+    /// One batch of at most [`MAX_BATCH`] ops; the answers are added to `out`.
+    fn commit(&mut self, ops: &[S::Op], out: &mut Vec<Result<u64>>) {
+        let base = out.len();
+        let fail_all = |out: &mut Vec<Result<u64>>, e: &StateError| {
+            out.truncate(base);
+            out.extend(ops.iter().map(|_| Err(again(e))));
+        };
+        if self.anchor_stale {
+            // Catch up first; while the anchor cannot be written, refuse.
+            if let Err(e) = self.write_anchor() {
+                return fail_all(out, &e);
+            }
+            self.anchor_stale = false;
+        }
+        let mut next = self.state.clone();
+        let mut buf = Vec::new();
+        let mut chain = self.chain;
+        let mut lsn = self.lsn;
+        // (index in `ops`, index in `out`) of the accepted ops
+        let mut accepted: Vec<(usize, usize)> = Vec::with_capacity(ops.len());
+        for (i, op) in ops.iter().enumerate() {
+            let payload = match minicbor::to_vec(op) {
+                Ok(p) if p.len() <= MAX_RECORD => p,
+                Ok(p) => {
+                    out.push(Err(StateError::Codec(format!(
+                        "a record of {} bytes is over the limit",
+                        p.len()
+                    ))));
+                    continue;
+                }
+                Err(e) => {
+                    out.push(Err(StateError::Codec(e.to_string())));
+                    continue;
+                }
+            };
+            if let Err(why) = next.apply(op) {
+                out.push(Err(StateError::Rejected(why)));
+                // `next` may be half changed: make it again from the accepted ops
+                next = self.state.clone();
+                for (j, _) in &accepted {
+                    let second = ops.get(*j).map(|op| next.apply(op));
+                    if !matches!(second, Some(Ok(()))) {
+                        let e = StateError::Rejected(
+                            "an accepted operation was rejected the second time".into(),
+                        );
+                        return fail_all(out, &e);
+                    }
+                }
+                continue;
+            }
+            lsn += 1;
+            chain = mac(&self.key, &chain, lsn, &payload);
+            frame(&mut buf, &payload, &chain);
+            accepted.push((i, out.len()));
+            out.push(Ok(lsn));
+        }
+        if accepted.is_empty() {
+            return;
+        }
+        let fail_accepted = |out: &mut Vec<Result<u64>>, e: &StateError| {
+            for (_, at) in &accepted {
+                if let Some(slot) = out.get_mut(*at) {
+                    *slot = Err(again(e));
+                }
+            }
+        };
+        if accepted.len() > 1 {
+            if let Err(e) = self.write_anchor_before(accepted.len()) {
+                // Nothing was written; the anchor is at the head or announces
+                // records that never come, and the next write puts it right.
+                return fail_accepted(out, &e);
+            }
+        }
+        let written = self.wal.write_all(&buf).and_then(|()| self.wal.sync_data());
+        if let Err(e) = written {
+            return fail_accepted(out, &e.into());
+        }
+        self.state = next;
+        self.lsn = lsn;
+        self.chain = chain;
+        if let Err(e) = self.write_anchor() {
+            // The records are durable (the anchor announced them, which open
+            // tolerates), but nothing more is written until it catches up.
+            self.anchor_stale = true;
+            return fail_accepted(out, &e);
+        }
+        self.since_snapshot += accepted.len();
+        if self.since_snapshot >= self.snapshot_every {
+            if let Err(e) = self.snapshot() {
+                warn!("snapshot failed (WAL still holds the truth): {e}");
+            }
+        }
     }
 
     /// Write a snapshot at the current LSN and start a new WAL segment.
@@ -585,16 +763,11 @@ pub fn verify(dir: &Path, key: &[u8], anchor: Option<&Path>) -> Result<Report> {
         }
     }
     let anchor_ok = anchor.map(|a| match fs::read_to_string(a) {
-        Ok(t) => {
-            let mut it = t.split_whitespace();
-            let alsn: Option<u64> = it.next().and_then(|v| v.parse().ok());
-            let amac = it.next().unwrap_or_default();
-            match alsn {
-                Some(n) if n == lsn => amac == wyrm_core::hex::encode(prev),
-                Some(n) => n + 1 == lsn,
-                None => false,
-            }
-        }
+        Ok(t) => match Anchor::parse(&t) {
+            Some(a) if a.lsn == lsn => a.mac_hex == wyrm_core::hex::encode(prev),
+            Some(a) => a.lsn < lsn && lsn - a.lsn <= a.may_follow(),
+            None => false,
+        },
         Err(_) => lsn == 0,
     });
     Ok(Report {

@@ -299,3 +299,250 @@ fn verify_reports_without_changing() {
         Some(false)
     );
 }
+
+fn puts(from: u32, n: u32) -> Vec<Op> {
+    (from..from + n)
+        .map(|i| Op::Put(format!("k{i}"), i))
+        .collect()
+}
+
+/// Group commit changes when the `fsync` happens, not what is written: a batch is
+/// byte for byte the records that single applies write.
+#[test]
+fn a_batch_writes_the_bytes_of_single_applies() {
+    let (one, many) = (dir("bytes-one"), dir("bytes-many"));
+    {
+        let mut s = Store::<Kv>::open(&one, KEY).unwrap();
+        for op in puts(0, 7) {
+            s.apply(op).unwrap();
+        }
+        s.apply(Op::Del("k3".into())).unwrap();
+    }
+    {
+        let mut s = Store::<Kv>::open(&many, KEY).unwrap();
+        let lsns: Vec<u64> = s
+            .apply_batch(&puts(0, 2))
+            .into_iter()
+            .map(Result::unwrap)
+            .collect();
+        assert_eq!(lsns, [1, 2]);
+        let mut ops = puts(2, 5);
+        ops.push(Op::Del("k3".into()));
+        let lsns: Vec<u64> = s
+            .apply_batch(&ops)
+            .into_iter()
+            .map(Result::unwrap)
+            .collect();
+        assert_eq!(lsns, [3, 4, 5, 6, 7, 8]);
+        assert_eq!(s.lsn(), 8);
+        assert!(s.apply_batch(&[]).is_empty());
+    }
+    assert_eq!(
+        std::fs::read(wal(&one)).unwrap(),
+        std::fs::read(wal(&many)).unwrap()
+    );
+    let a = Store::<Kv>::open(&one, KEY).unwrap();
+    let b = Store::<Kv>::open(&many, KEY).unwrap();
+    assert_eq!(a.state(), b.state());
+}
+
+/// A rejected op of a batch is answered alone; the others are written in order.
+#[test]
+fn a_batch_rejects_one_op_alone() {
+    let d = dir("batch-reject");
+    {
+        let mut s = Store::<Kv>::open(&d, KEY).unwrap();
+        let r = s.apply_batch(&[
+            Op::Put("a".into(), 1),
+            Op::Del("zz".into()),
+            Op::Put("b".into(), 2),
+            Op::Del("a".into()),
+            Op::Del("a".into()),
+        ]);
+        assert_eq!(r.len(), 5);
+        assert!(matches!(r[0], Ok(1)));
+        assert!(matches!(r[1], Err(StateError::Rejected(_))));
+        assert!(matches!(r[2], Ok(2)));
+        assert!(matches!(r[3], Ok(3)));
+        assert!(matches!(r[4], Err(StateError::Rejected(_))));
+        assert_eq!(s.state().map, BTreeMap::from([("b".into(), 2)]));
+        // nothing accepted: nothing written
+        let r = s.apply_batch(&[Op::Del("zz".into())]);
+        assert!(matches!(r[0], Err(StateError::Rejected(_))));
+        assert_eq!(s.lsn(), 3);
+    }
+    let s = Store::<Kv>::open(&d, KEY).unwrap();
+    assert_eq!(s.lsn(), 3);
+    assert_eq!(s.state().map, BTreeMap::from([("b".into(), 2)]));
+    drop(s);
+    assert_eq!(wyrm_state::verify(&d, KEY, None).unwrap().records, 3);
+}
+
+/// More ops than one batch holds, and snapshots between batches.
+#[test]
+fn long_batches_and_snapshots() {
+    let d = dir("batch-long");
+    let n = wyrm_state::MAX_BATCH as u32 + 5;
+    {
+        let mut s = Store::<Kv>::open(&d, KEY).unwrap().with_snapshot_every(300);
+        let r = s.apply_batch(&puts(0, n));
+        assert_eq!(r.len(), n as usize);
+        for (i, r) in r.iter().enumerate() {
+            assert_eq!(*r.as_ref().unwrap(), i as u64 + 1);
+        }
+        s.apply(Op::Del("k0".into())).unwrap();
+        assert!(matches!(s.apply_batch(&puts(n, 3))[2], Ok(l) if l == u64::from(n) + 4));
+    }
+    assert!(
+        d.join("CURRENT").exists(),
+        "a batch counts towards snapshots"
+    );
+    let s = Store::<Kv>::open(&d, KEY).unwrap();
+    assert_eq!(s.lsn(), u64::from(n) + 4);
+    assert_eq!(s.state().map.len(), n as usize + 2);
+    drop(s);
+    let r = wyrm_state::verify(&d, KEY, None).unwrap();
+    assert_eq!((r.records, r.torn_tail), (u64::from(n) + 4, false));
+}
+
+/// A crash anywhere while a batch is written (the WAL cut at every byte of the
+/// batch, the anchor as it was written before the batch) leaves a store that opens
+/// with a whole prefix of the batch and a chain that verifies.
+#[test]
+fn a_crash_inside_a_batch_leaves_a_valid_prefix() {
+    let d = dir("batch-crash");
+    let heads = dir("batch-crash-heads");
+    std::fs::create_dir_all(&heads).unwrap();
+    let anchor = heads.join("s.head");
+    let before_batch;
+    let base;
+    {
+        let mut s = Store::<Kv>::open(&d, KEY)
+            .unwrap()
+            .with_anchor(&anchor)
+            .unwrap();
+        s.apply(Op::Put("a".into(), 1)).unwrap();
+        s.apply(Op::Put("b".into(), 2)).unwrap();
+        before_batch = std::fs::read_to_string(&anchor).unwrap();
+        base = std::fs::metadata(wal(&d)).unwrap().len() as usize;
+        for r in s.apply_batch(&puts(0, 5)) {
+            r.unwrap();
+        }
+        assert_eq!(s.lsn(), 7);
+    }
+    // after the batch the anchor is the plain head again
+    let after_batch = std::fs::read_to_string(&anchor).unwrap();
+    assert_eq!(after_batch.split_whitespace().count(), 2, "{after_batch}");
+    assert!(after_batch.starts_with("7 "));
+    // what the batch wrote into the anchor first
+    let announced = format!("{} +5\n", before_batch.trim_end());
+    let full = std::fs::read(wal(&d)).unwrap();
+    let name = wal(&d).file_name().unwrap().to_owned();
+    // the end of every whole record of the batch
+    let mut ends = Vec::new();
+    let mut off = base;
+    while off < full.len() {
+        let len = u32::from_le_bytes(full[off..off + 4].try_into().unwrap()) as usize;
+        off += 40 + len;
+        ends.push(off);
+    }
+    assert_eq!(ends.len(), 5);
+    let crash = dir("batch-crash-copy");
+    let crash_anchor = heads.join("copy.head");
+    for cut in base..=full.len() {
+        copy_dir(&d, &crash);
+        std::fs::write(crash.join(&name), &full[..cut]).unwrap();
+        std::fs::write(&crash_anchor, &announced).unwrap();
+        let whole = ends.iter().filter(|e| **e <= cut).count() as u64;
+        let torn = cut != base && !ends.contains(&cut);
+        let r = wyrm_state::verify(&crash, KEY, Some(&crash_anchor)).unwrap();
+        assert_eq!(
+            (r.records, r.torn_tail, r.anchor_ok),
+            (2 + whole, torn, Some(true)),
+            "cut at {cut}"
+        );
+        let mut s = Store::<Kv>::open(&crash, KEY)
+            .unwrap()
+            .with_anchor(&crash_anchor)
+            .unwrap_or_else(|e| panic!("cut at {cut}: {e}"));
+        assert_eq!(s.lsn(), 2 + whole, "cut at {cut}");
+        assert_eq!(s.state().map.len(), 2 + whole as usize, "cut at {cut}");
+        // open put the anchor at the head, and the store goes on
+        if cut % 37 == 0 || cut == full.len() {
+            s.apply(Op::Put("after".into(), 9)).unwrap();
+            drop(s);
+            let r = wyrm_state::verify(&crash, KEY, Some(&crash_anchor)).unwrap();
+            assert_eq!((r.records, r.anchor_ok), (3 + whole, Some(true)));
+        }
+    }
+    // a byte changed inside the batch is still found
+    let mut bad = full.clone();
+    bad[ends[1] + 45] ^= 1;
+    copy_dir(&d, &crash);
+    std::fs::write(crash.join(&name), &bad).unwrap();
+    assert!(Store::<Kv>::open(&crash, KEY).is_err());
+}
+
+/// The announcement of a batch does not weaken the anchor: without it more than
+/// one record after the anchor is refused as before, with it no more than the
+/// batch may follow, and a finished batch leaves no allowance behind.
+#[test]
+fn the_anchor_of_a_batch_refuses_every_other_cut() {
+    let d = dir("batch-anchor");
+    let heads = dir("batch-anchor-heads");
+    std::fs::create_dir_all(&heads).unwrap();
+    let anchor = heads.join("s.head");
+    let at2;
+    {
+        let mut s = Store::<Kv>::open(&d, KEY)
+            .unwrap()
+            .with_anchor(&anchor)
+            .unwrap();
+        s.apply(Op::Put("a".into(), 1)).unwrap();
+        s.apply(Op::Put("b".into(), 2)).unwrap();
+        at2 = std::fs::read_to_string(&anchor).unwrap();
+    }
+    let at2 = at2.trim_end();
+    let two = dir("batch-anchor-two");
+    copy_dir(&d, &two);
+    {
+        let mut s = Store::<Kv>::open(&d, KEY)
+            .unwrap()
+            .with_anchor(&anchor)
+            .unwrap();
+        for r in s.apply_batch(&puts(0, 5)) {
+            r.unwrap();
+        }
+    }
+    // does a store in `dir` open with an anchor of this text? (`verify` must agree)
+    let opens = |dir: &PathBuf, text: &str| {
+        let a = heads.join("try.head");
+        std::fs::write(&a, text).unwrap();
+        let ok = wyrm_state::verify(dir, KEY, Some(&a)).unwrap().anchor_ok;
+        let opened = Store::<Kv>::open(dir, KEY).unwrap().with_anchor(&a).is_ok();
+        assert_eq!(ok, Some(opened), "verify and open agree on {text:?}");
+        opened
+    };
+    // the batch is whole and the anchor is at it: the store cut back to two is refused
+    let at7 = std::fs::read_to_string(&anchor).unwrap();
+    assert!(!opens(&two, &at7));
+    // an anchor five behind with no announcement: refused, as before group commit
+    assert!(!opens(&d, &format!("{at2}\n")));
+    // announced: five may follow, four may not
+    assert!(opens(&d, &format!("{at2} +5\n")));
+    assert!(!opens(&d, &format!("{at2} +4\n")));
+    // junk is not read as an announcement
+    assert!(!opens(&d, &format!("{at2} 5\n")));
+    assert!(!opens(&d, &format!("{at2} +x\n")));
+    // the same head with another MAC stays an error whatever is announced
+    assert!(!opens(&d, &format!("7 {} +5\n", "00".repeat(32))));
+    // an announcement is no licence beyond one batch
+    assert!(opens(&d, &format!("{at2} +99999999\n")));
+    {
+        let mut s = Store::<Kv>::open(&d, KEY).unwrap();
+        for r in s.apply_batch(&puts(100, wyrm_state::MAX_BATCH as u32)) {
+            r.unwrap();
+        }
+    }
+    assert!(!opens(&d, &format!("{at2} +99999999\n")));
+}
