@@ -710,3 +710,117 @@ async fn perf_f_gateway() {
     drop(c);
     env.stop().await;
 }
+
+/// 10 s of one consumer's own count (after 2 s to settle): its line and the CPU figure.
+async fn fan_window(
+    name: &str,
+    n: &AtomicU64,
+    lat: &Mutex<Lat>,
+    expected_per_s: f64,
+    note: &str,
+) -> (Perf, f64) {
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    *lat.lock().unwrap() = Lat::new();
+    let base = n.load(Ordering::Relaxed);
+    let u0 = Usage::read();
+    tokio::time::sleep(Duration::from_secs(10)).await;
+    let u1 = Usage::read();
+    let got = n.load(Ordering::Relaxed) - base;
+    let wall = u1.wall_since(&u0).as_secs_f64();
+    let expected = (expected_per_s * wall).round() as u64;
+    let mut l = std::mem::take(&mut *lat.lock().unwrap());
+    let cpu = u1.cpu_pct_since(&u0);
+    let p = Perf::new(name)
+        .lat(&mut l)
+        .per_s(got as f64 / wall)
+        .cpu_pct(cpu)
+        .rss(u1.rss_bytes)
+        .field("expected", expected)
+        .field("lost", expected.saturating_sub(got))
+        .note(note);
+    (p, cpu)
+}
+
+/// The steady cost of one pattern (fan-in) consumer: 1000 points at 50 Hz, and beside the
+/// base counter a second session that takes every sample (a) with a raw Zenoh callback
+/// that decodes the payload, (b) as `WyrmClient::subscribe("wy/<site>/downstream/**")`
+/// read to its end. The broker sends the same samples to the second session in both, so
+/// (b) − (a) is what the client's value stream costs on top of Zenoh.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "a measurement, run by hand"]
+async fn perf_g_fan_in() {
+    let (points, hz) = (1000, 50.0);
+    let rate = points as f64 * hz;
+    let (links, _) = mock(points, hz);
+    let env = Env::start("g", &links).await;
+    let s = env.session().await;
+    let c = Counter::on(&s).await;
+    c.ready(points).await;
+    let (p, base_cpu) = fan_window(
+        &format!("broker/fan_in/base/{points}x{hz}hz"),
+        &c.n,
+        &c.lat,
+        rate,
+        "one raw subscriber only",
+    )
+    .await;
+    println!("{p}");
+
+    // (a) a second session, raw callback
+    let s2 = env.session().await;
+    let raw = Counter::on(&s2).await;
+    raw.ready(points).await;
+    let (p, raw_cpu) = fan_window(
+        &format!("broker/fan_in/raw/{points}x{hz}hz"),
+        &raw.n,
+        &raw.lat,
+        rate,
+        "a second session with a raw Zenoh callback on mock/**/~val",
+    )
+    .await;
+    println!("{}", p.num("over_base_cpu_pct", raw_cpu - base_cpu));
+    drop(raw);
+    drop(s2);
+
+    // (b) a second session, the client's value stream
+    let w = env.client("svc:perf-fan").await;
+    let mut st = w
+        .subscribe(&format!("wy/{SITE}/downstream/**"))
+        .await
+        .unwrap();
+    let n = Arc::new(AtomicU64::new(0));
+    let lat = Arc::new(Mutex::new(Lat::new()));
+    let dropped = Arc::new(AtomicU64::new(0));
+    let (n2, l2, d2) = (n.clone(), lat.clone(), dropped.clone());
+    let reader = tokio::spawn(async move {
+        while let Some(ev) = st.next().await {
+            if let wyrm_client::ValEvent::Sample { key, sample, .. } = ev {
+                if key.contains("/downstream/mock/") {
+                    let now = wyrm_core::clock::now_us();
+                    l2.lock()
+                        .unwrap()
+                        .push_us(now.saturating_sub(sample.t) as f64);
+                    n2.fetch_add(1, Ordering::Relaxed);
+                }
+            }
+            d2.store(st.dropped(), Ordering::Relaxed);
+        }
+    });
+    let (p, client_cpu) = fan_window(
+        &format!("broker/fan_in/client/{points}x{hz}hz"),
+        &n,
+        &lat,
+        rate,
+        "a second session reading WyrmClient::subscribe(wy/<site>/downstream/**)",
+    )
+    .await;
+    println!(
+        "{}",
+        p.num("over_base_cpu_pct", client_cpu - base_cpu)
+            .num("stream_cpu_pct", client_cpu - raw_cpu)
+            .field("dropped", dropped.load(Ordering::Relaxed))
+    );
+    reader.abort();
+    drop(c);
+    env.stop().await;
+}

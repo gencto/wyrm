@@ -11,6 +11,9 @@ authors.workspace = true
 [features]
 # DSA QoS 2/3 subscriptions (zenoh-ext AdvancedSubscriber: history + recovery).
 advanced = ["dep:zenoh-ext"]
+# `testkit::value_stream`: a value stream fed by hand, for the stream's own tests and
+# measurements (tests/fan_in.rs). Dev only: no product crate turns it on.
+testkit = []
 
 [dependencies]
 wyrm-core = { workspace = true, features = ["rand"] }
@@ -26,7 +29,9 @@ tracing.workspace = true
 
 [dev-dependencies]
 wyrm-link-sdk = { workspace = true, features = ["harness", "advanced"] }
-wyrm-client = { path = ".", features = ["advanced"] }
+wyrm-client = { path = ".", features = ["advanced", "testkit"] }
+# the counting allocator and the PERF line of tests/fan_in.rs
+wyrm-bench.workspace = true
 wyrm-link-mock.workspace = true
 ed25519-dalek.workspace = true
 # `test-util`: paused time for the route-gap reads (`read_through_gap`)

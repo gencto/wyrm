@@ -924,6 +924,27 @@ pub(crate) async fn subscribe_reliable(
     ))
 }
 
+/// A `subscribe` stream fed by hand (`testkit::value_stream`).
+#[cfg(feature = "testkit")]
+pub(crate) fn fed() -> (zenoh::handlers::Callback<ZSample>, EventStream<ValEvent>) {
+    use zenoh::handlers::IntoHandler;
+    let dropped = Arc::new(AtomicU64::new(0));
+    let latest = Policy::Latest {
+        queue: VecDeque::new(),
+        pending: HashMap::new(),
+        order: VecDeque::new(),
+    };
+    let intake = Intake::new(Vals::new(latest, Arc::new(|_| true), 0, dropped.clone()));
+    let (cb, ()) = live_feed(&intake).into_handler();
+    let reader = ValReader {
+        intake,
+        _sub: Box::new(()),
+        stored: None,
+        first: None,
+    };
+    (cb, EventStream::new(reader, dropped))
+}
+
 fn to_val(smp: &ZSample) -> Option<ValEvent> {
     let key = smp
         .key_expr()
