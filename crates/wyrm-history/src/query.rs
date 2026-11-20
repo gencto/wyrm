@@ -23,6 +23,14 @@ pub const MAX_QUERIES: usize = 4;
 pub const QUEUE_WAIT: Duration = Duration::from_secs(5);
 /// Rows per reply of `~val?history=`: several replies, each an array.
 pub const CHUNK: usize = 5_000;
+/// History queries waiting for their task, per queryable; one more is
+/// answered `busy`.
+pub const QUERY_QUEUE: usize = 256;
+/// History queries with a task at once, over all queryables: the tasks that
+/// wait for a read ([`QUEUE_WAIT`]) and the [`MAX_QUERIES`] that read.
+pub const MAX_ANSWERS: usize = 256;
+/// Queries waiting for their `busy` answer; one more is dropped (no answer).
+pub const BUSY_QUEUE: usize = 256;
 
 /// One history read with its range resolved: what a `~val?history=`
 /// selector ([`HistoryQuery`]) asks at the time it came, or a Get History of
@@ -142,9 +150,41 @@ pub(crate) async fn serve(
         format!("{w}/")
     });
     let mut set = tokio::task::JoinSet::new();
+    // Nothing here grows with the load: a query is in a queue of
+    // `QUERY_QUEUE`, in one of `MAX_ANSWERS` tasks, in the queue of
+    // `BUSY_QUEUE` refusals, or dropped.
+    let answers = Arc::new(tokio::sync::Semaphore::new(MAX_ANSWERS));
+    let (busy_tx, mut busy_rx) = tokio::sync::mpsc::channel::<Query>(BUSY_QUEUE);
+    set.spawn(async move {
+        while let Some(q) = busy_rx.recv().await {
+            let err = status_att(Status::Busy, Some(QueryError::Busy.to_string()));
+            if let Err(e) = q
+                .reply(q.key_expr(), Vec::<u8>::new())
+                .attachment(err)
+                .await
+            {
+                debug!("history busy reply: {e}");
+            }
+        }
+    });
     for ke in key_exprs {
-        let qa = match session.declare_queryable(&ke).await {
-            Ok(qa) => qa,
+        // The key expressions match every plain `~val` read too (each
+        // `subscribe` reads the storage): those are dropped in the handler
+        // and never take room in the queue. The handler runs on the
+        // querier's thread and never blocks it (docs/backlog.md §14).
+        let busy_tx = busy_tx.clone();
+        let declared = wyrm_client::queryable::bounded(&ke, QUERY_QUEUE)
+            .keep(|q| !matches!(HistoryQuery::parse(q.parameters().as_str()), Ok(None)))
+            .on_full(move |q| {
+                if let Err(e) = busy_tx.try_send(q) {
+                    let q = e.into_inner();
+                    debug!(key = %q.key_expr(), "history: too many queries: one dropped");
+                }
+            })
+            .declare(&session)
+            .await;
+        let (qa, mut rx) = match declared {
+            Ok(d) => d,
             Err(e) => {
                 tracing::warn!(%ke, "history queryable: {e}");
                 continue;
@@ -152,12 +192,24 @@ pub(crate) async fn serve(
         };
         let h = h.clone();
         let watches = watches.clone();
+        let answers = answers.clone();
         set.spawn(async move {
-            while let Ok(q) = qa.recv_async().await {
-                tokio::spawn(answer(h.clone(), q, watches.clone()));
+            let _qa = qa;
+            while let Some(q) = rx.recv().await {
+                // waits while `MAX_ANSWERS` tasks run: the queue then fills
+                // and the handler refuses, this loop blocks no Zenoh thread
+                let Ok(turn) = answers.clone().acquire_owned().await else {
+                    return;
+                };
+                let (h, watches) = (h.clone(), watches.clone());
+                tokio::spawn(async move {
+                    answer(h, q, watches).await;
+                    drop(turn);
+                });
             }
         });
     }
+    drop(busy_tx);
     while set.join_next().await.is_some() {}
 }
 

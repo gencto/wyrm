@@ -275,6 +275,38 @@ impl Store {
         Ok(Some(id))
     }
 
+    /// The series of every key in `keys`, in order, the missing ones created
+    /// in one write transaction (a group of 10 000 new watches is one commit,
+    /// not 10 000).
+    pub fn series_ids(&self, keys: &[String]) -> Result<Vec<u32>> {
+        let mut map = self.series.lock().unwrap_or_else(|p| p.into_inner());
+        let missing: Vec<&String> = {
+            let mut seen = std::collections::HashSet::new();
+            keys.iter()
+                .filter(|k| !map.contains_key(k.as_str()) && seen.insert(k.as_str()))
+                .collect()
+        };
+        if !missing.is_empty() {
+            let mut next = map.values().max().map_or(1, |m| m + 1);
+            let mut new = Vec::with_capacity(missing.len());
+            let txn = self.index.begin_write().map_err(db)?;
+            {
+                let mut t = txn.open_table(SERIES).map_err(db)?;
+                for key in missing {
+                    t.insert(key.as_str(), next).map_err(db)?;
+                    new.push((key.clone(), next));
+                    next += 1;
+                }
+            }
+            txn.commit().map_err(db)?;
+            map.extend(new);
+        }
+        Ok(keys
+            .iter()
+            .map(|k| map.get(k).copied().unwrap_or_default())
+            .collect())
+    }
+
     /// The series whose point key starts with `prefix`, sorted by key.
     pub fn series_under(&self, prefix: &str) -> Vec<(String, u32)> {
         let mut out: Vec<(String, u32)> = self
@@ -937,6 +969,28 @@ mod tests {
         );
         assert_eq!(st.series_id("wy/s/down/m/p0", false).unwrap(), None);
         assert!(st.series_id("wy/s/sys/x", false).unwrap().is_some());
+    }
+
+    #[test]
+    fn series_of_many_keys_in_one_commit() {
+        let dir = temp("many");
+        let old = {
+            let st = Store::open(&dir).unwrap();
+            st.series_id("wy/s/downstream/m/b", true).unwrap().unwrap()
+        };
+        let st = Store::open(&dir).unwrap();
+        let keys: Vec<String> = ["a", "b", "c", "a"]
+            .iter()
+            .map(|k| format!("wy/s/downstream/m/{k}"))
+            .collect();
+        let ids = st.series_ids(&keys).unwrap();
+        assert_eq!(ids[1], old, "a known key keeps its series");
+        assert_eq!(ids[0], ids[3], "a key twice is one series");
+        assert!(ids[0] != old && ids[2] != old && ids[0] != ids[2]);
+        assert_eq!(st.series_count(), 3);
+        drop(st);
+        let st = Store::open(&dir).unwrap();
+        assert_eq!(st.series_ids(&keys).unwrap(), ids, "kept across a reopen");
     }
 
     #[test]

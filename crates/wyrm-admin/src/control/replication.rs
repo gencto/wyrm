@@ -874,18 +874,19 @@ pub(super) async fn serve_replication(ctl: Arc<Control>, session: Session) {
             return;
         }
     };
-    let q = match session
-        .declare_queryable(format!("{prefix}/**"))
-        .complete(true)
-        .await
-    {
-        Ok(q) => q,
+    let declared =
+        wyrm_client::queryable::bounded(format!("{prefix}/**"), super::ADMIN_QUERY_QUEUE)
+            .complete(true)
+            .declare(&session)
+            .await;
+    let (_q, mut rx) = match declared {
+        Ok(d) => d,
         Err(e) => {
             warn!("replication queryable: {e}");
             return;
         }
     };
-    while let Ok(query) = q.recv_async().await {
+    while let Some(query) = rx.recv().await {
         let key = query.key_expr().to_string();
         let Some(suffix) = key.strip_prefix(&prefix).and_then(|s| s.strip_prefix('/')) else {
             continue;

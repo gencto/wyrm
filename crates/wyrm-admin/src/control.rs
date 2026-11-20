@@ -6400,6 +6400,12 @@ async fn watch_audit(ctl: Arc<Control>, ctx: LinkCtx) {
     }
 }
 
+/// Queries waiting per admin queryable (profiles, signing keys,
+/// replication): as many as Zenoh's default FIFO held. One more blocked the
+/// querier's thread there; here it finds the queue full and is dropped, so
+/// a Zenoh thread never waits for the admin (docs/backlog.md §14).
+pub(crate) const ADMIN_QUERY_QUEUE: usize = 256;
+
 fn profile_key(site: &str, name: &str) -> String {
     format!("wy/{site}/pub/{name}/~meta")
 }
@@ -6409,14 +6415,19 @@ fn profile_key(site: &str, name: &str) -> String {
 /// folded in (no `extends` left). A wildcard `get` answers every match.
 async fn serve_profiles(ctl: Arc<Control>, session: Session) {
     let key = format!("wy/{}/pub/**", ctl.cfg.site);
-    let q = match session.declare_queryable(&key).complete(true).await {
-        Ok(q) => q,
+    // a handler that never blocks the querier's thread (docs/backlog.md §14)
+    let declared = wyrm_client::queryable::bounded(&key, ADMIN_QUERY_QUEUE)
+        .complete(true)
+        .declare(&session)
+        .await;
+    let (_q, mut rx) = match declared {
+        Ok(d) => d,
         Err(e) => {
             warn!("profiles queryable: {e}");
             return;
         }
     };
-    while let Ok(query) = q.recv_async().await {
+    while let Some(query) = rx.recv().await {
         answer_profiles(&ctl, &query).await;
     }
 }

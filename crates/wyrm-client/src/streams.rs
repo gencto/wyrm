@@ -747,7 +747,12 @@ struct ValReader {
     /// Keeps the subscriber declared for as long as the stream lives.
     _sub: Box<dyn Send>,
     stored: Option<Stored>,
+    /// The first stored read of a bounded client, until it is sent: it
+    /// waits for its turn here, polled with the stream.
+    first: Option<FirstRead>,
 }
+
+type FirstRead = std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>;
 
 impl ValReader {
     fn resync(&self) {
@@ -772,6 +777,11 @@ impl Source<ValEvent> for ValReader {
     }
 
     fn poll_next(&mut self, cx: &mut Context<'_>) -> Poll<Option<ValEvent>> {
+        if let Some(first) = &mut self.first {
+            if first.as_mut().poll(cx).is_ready() {
+                self.first = None;
+            }
+        }
         loop {
             match self.intake.poll(cx, Vals::pop) {
                 Poll::Pending => return Poll::Pending,
@@ -795,13 +805,24 @@ fn live_feed(intake: &Arc<Intake<Vals>>) -> crate::intake::Feed<Vals, ZSample> {
 }
 
 fn stored_feed(intake: &Arc<Intake<Vals>>) -> crate::intake::Feed<Vals, Reply> {
+    stored_feed_with(intake, Vec::new())
+}
+
+/// The feed of a stored-value read that holds `turns` until Zenoh drops it.
+fn stored_feed_with(
+    intake: &Arc<Intake<Vals>>,
+    turns: Vec<tokio::sync::OwnedSemaphorePermit>,
+) -> crate::intake::Feed<Vals, Reply> {
     intake.feed(
         |st: &mut Vals, reply: Reply| {
             if let Some(ev) = reply.result().ok().and_then(to_val) {
                 st.push(ev);
             }
         },
-        |st| st.gets = st.gets.saturating_sub(1),
+        move |st| {
+            drop(turns);
+            st.gets = st.gets.saturating_sub(1);
+        },
     )
 }
 
@@ -821,21 +842,52 @@ pub(crate) async fn subscribe(
     let intake = Intake::new(Vals::new(latest, keep, 1, dropped.clone()));
     // Live first, stored second (no lost update); both into one buffer,
     // newer `t` wins per key and nothing older than what was handed out.
+    // The subscriber never waits for anything: live values come from now on.
     let sub = s.declare_subscriber(&ke).with(live_feed(&intake)).await?;
-    s.get(&ke)
-        .timeout(client.timeout)
-        .with(stored_feed(&intake))
-        .await?;
     let stored = Stored {
         session: s.clone(),
         ke,
         timeout: client.timeout,
+    };
+    let first = if client.stored_reads.is_empty() {
+        s.get(&stored.ke)
+            .timeout(client.timeout)
+            .with(stored_feed(&intake))
+            .await?;
+        None
+    } else {
+        // A bounded client reads the stored value when its turn comes. The
+        // stream runs the wait itself (no task). The turns go with the
+        // read's feed, which Zenoh drops after the last reply (or the
+        // timeout).
+        let (windows, st) = (client.stored_reads.clone(), stored.clone());
+        let intake = intake.clone();
+        let first: FirstRead = Box::pin(async move {
+            let mut turns = Vec::with_capacity(windows.len());
+            for w in windows {
+                match w.acquire_owned().await {
+                    Ok(t) => turns.push(t),
+                    Err(e) => {
+                        debug!("stored reads: {e}");
+                        intake.update(|v| v.gets = v.gets.saturating_sub(1));
+                        return;
+                    }
+                }
+            }
+            // on an error the feed is dropped, and that ends this `get`
+            let feed = stored_feed_with(&intake, turns);
+            if let Err(e) = st.session.get(&st.ke).timeout(st.timeout).with(feed).await {
+                debug!("stored value: {e}");
+            }
+        });
+        Some(first)
     };
     Ok(EventStream::new(
         ValReader {
             intake,
             _sub: Box::new(sub),
             stored: Some(stored),
+            first,
         },
         dropped,
     ))
@@ -866,6 +918,7 @@ pub(crate) async fn subscribe_reliable(
             intake,
             _sub: Box::new(sub),
             stored: None,
+            first: None,
         },
         dropped,
     ))
