@@ -7337,6 +7337,7 @@ dependencies = [
  "thiserror 2.0.21",
  "tracing",
  "wyrm-core",
+ "wyrm-state",
 ]
 
 [[package]]

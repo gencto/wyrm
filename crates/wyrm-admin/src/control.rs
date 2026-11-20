@@ -786,10 +786,11 @@ impl Control {
         let (reload, rx) = mpsc::unbounded_channel();
         let kept = backups::Backups::open(&cfg.data_dir.join("backups"));
         let update = broker_update::BrokerUpdate::open(&cfg.data_dir);
+        let in_trial = update_in_trial(&cfg.data_dir);
         let ctl = Arc::new(Self {
             cfg,
             store: Mutex::new(store),
-            audit: Journal::start(audit)?,
+            audit: Journal::start(audit, in_trial)?,
             pki,
             secrets,
             supervisor: Supervisor::new(),
@@ -951,6 +952,14 @@ impl Control {
     #[cfg(feature = "testkit")]
     pub fn historian(&self) -> &Arc<wyrm_history::Historian> {
         &self.history
+    }
+
+    /// Tell the audit journal whether the broker's own update is in its trial
+    /// (`update.json`), after that file changed. In a trial the journal writes
+    /// record by record, in the form every earlier version opens: the guard may
+    /// start the previous version after a kill (ADR 0048 §2.5).
+    pub(crate) fn audit_follows_update(&self) {
+        self.audit.one_by_one(update_in_trial(&self.cfg.data_dir));
     }
 
     pub fn audit_tail(&self, n: usize) -> Vec<AuditRecord> {
@@ -6209,6 +6218,11 @@ async fn watch_quarantine(ctl: Arc<Control>, ctx: LinkCtx) {
     }
 }
 
+/// Is the broker's own update in its trial (the state file says so)?
+fn update_in_trial(data_dir: &Path) -> bool {
+    crate::release::UpdateFile::load(data_dir).is_some_and(|u| u.in_trial())
+}
+
 /// One record of the broker's own, stamped with the broker's clock.
 fn audit_record(sub: &str, op: AuditOp, key: &str, status: Status, detail: &str) -> AuditRecord {
     AuditRecord {
@@ -7038,6 +7052,46 @@ mod tests {
         assert_eq!(ctl.due_certificate(), None, "renewed: not due again");
         let pem = std::fs::read_to_string(pki_dir.join("broker-client.pem")).unwrap();
         assert!(!crate::secret::cert_due(&pem));
+    }
+
+    /// Audit of #152 (ADR 0048 §2.5): while `update.json` says trial, the audit journal
+    /// writes record by record, so a kill is followed by a previous version that opens the
+    /// store; from the start of the broker, and until the update is confirmed.
+    #[test]
+    fn the_audit_journal_follows_the_update_state() {
+        use crate::release::{UpdateFile, UpdateState};
+        let file = |state| UpdateFile {
+            from: "0.1.0".into(),
+            to: "0.2.0".into(),
+            state,
+            ..Default::default()
+        };
+        let ctl = control("audit-trial", false, |d| {
+            file(UpdateState::Trial).save(d).unwrap();
+        });
+        assert!(ctl.audit.is_one_by_one(), "a start in a trial");
+        ctl.record(
+            "user:a",
+            AuditOp::Event,
+            "k",
+            wyrm_core::Status::Ok,
+            "in the trial",
+        );
+        file(UpdateState::Confirmed)
+            .save(&ctl.cfg.data_dir)
+            .unwrap();
+        ctl.audit_follows_update();
+        assert!(!ctl.audit.is_one_by_one(), "confirmed");
+        file(UpdateState::Trial).save(&ctl.cfg.data_dir).unwrap();
+        ctl.audit_follows_update();
+        assert!(ctl.audit.is_one_by_one(), "the next update is staged");
+        for state in [UpdateState::RolledBack, UpdateState::Failed] {
+            file(state).save(&ctl.cfg.data_dir).unwrap();
+            ctl.audit_follows_update();
+            assert!(!ctl.audit.is_one_by_one(), "{state:?}");
+        }
+        let plain = control("audit-no-update", false, |_| {});
+        assert!(!plain.audit.is_one_by_one(), "no update at all");
     }
 
     /// Review 2026-11-16: the files of a removed peer (its CA, our certificate and key for

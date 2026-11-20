@@ -12,13 +12,17 @@
 //!   logs a failed write. [`Journal::flush`] and [`Journal::close`] write all of them.
 //! * Records are written in the order they entered the queue, and the queue is
 //!   bounded ([`QUEUE`]): a caller waits for room, no record is dropped to make room.
+//! * While the broker's own update is in its trial, records are written one by one
+//!   in the form every earlier version opens ([`Journal::one_by_one`], ADR 0048).
+//! * If the writer thread ends by a panic, every waiting and later caller gets an
+//!   error; nobody waits for ever.
 //! * No file I/O runs on the caller's thread. A caller on a runtime waits as a task;
 //!   a caller without `async` leaves its worker to the runtime while it waits
 //!   (`block_in_place`).
 
 use crate::audit::{AuditLog, AuditRecord, RECENT};
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Condvar, Mutex, MutexGuard};
 use tokio::sync::{oneshot, Notify};
 use tracing::{error, warn};
@@ -71,6 +75,9 @@ struct Shared {
     room_task: Notify,
     view: Mutex<View>,
     batches: AtomicU64,
+    /// Write one record per `fsync`, the anchor always the plain head: what a
+    /// version before group commit writes and reads ([`Journal::one_by_one`]).
+    one_by_one: AtomicBool,
     /// Tests set it to keep the writer from its next batch.
     #[cfg(test)]
     held: std::sync::atomic::AtomicBool,
@@ -101,8 +108,8 @@ pub(crate) struct Journal {
 }
 
 impl Journal {
-    /// Start the writer thread on `store`.
-    pub(crate) fn start(store: Store<AuditLog>) -> std::io::Result<Self> {
+    /// Start the writer thread on `store`; `one_by_one` as [`Journal::one_by_one`].
+    pub(crate) fn start(store: Store<AuditLog>, one_by_one: bool) -> std::io::Result<Self> {
         let shared = Arc::new(Shared {
             queue: Mutex::new(Queue::default()),
             work: Condvar::new(),
@@ -113,6 +120,7 @@ impl Journal {
                 recent: store.state().recent.clone(),
             }),
             batches: AtomicU64::new(0),
+            one_by_one: AtomicBool::new(one_by_one),
             #[cfg(test)]
             held: std::sync::atomic::AtomicBool::new(false),
         });
@@ -124,6 +132,21 @@ impl Journal {
             shared,
             writer: Mutex::new(Some(writer)),
         })
+    }
+
+    /// While `on`, every record is written alone: one write, one `fsync`, the anchor
+    /// at the plain head after it, exactly as before group commit. The files then
+    /// never hold what an older version cannot open (a batch announced in the
+    /// anchor). The broker asks for it while its own update is in its trial: a
+    /// kill there is followed by the previous version (ADR 0048 §2.5). Takes
+    /// effect with the writer's next batch.
+    pub(crate) fn one_by_one(&self, on: bool) {
+        self.shared.one_by_one.store(on, Ordering::SeqCst);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn is_one_by_one(&self) -> bool {
+        self.shared.one_by_one.load(Ordering::SeqCst)
     }
 
     /// Records written so far (the journal's LSN).
@@ -259,8 +282,61 @@ impl Drop for Journal {
     }
 }
 
+/// Closes the queue when the writer thread ends. After a normal end the queue
+/// is closed and empty already. After a panic it is not: callers would wait for
+/// room or for an answer that never comes. The queue is closed and what it
+/// holds is dropped, so each waiting caller gets "closed" (its answer channel
+/// goes away), as does every later one; the loss is in the log.
+struct WriterEnd<'a>(&'a Shared);
+
+impl Drop for WriterEnd<'_> {
+    fn drop(&mut self) {
+        let lost = {
+            let mut q = lock(&self.0.queue);
+            q.closed = true;
+            let n = q.items.len();
+            q.items.clear();
+            n
+        };
+        if std::thread::panicking() {
+            error!(
+                "the audit writer ended by a panic: {lost} queued records are not written, \
+                 and the journal takes no more until the broker starts again"
+            );
+        }
+        self.0.room.notify_all();
+        self.0.room_task.notify_waiters();
+    }
+}
+
+/// Write `recs` in order: one batch, or record by record while that is asked.
+fn write(
+    shared: &Shared,
+    store: &mut Store<AuditLog>,
+    recs: &[AuditRecord],
+) -> Vec<Option<Answer>> {
+    if shared.one_by_one.load(Ordering::SeqCst) {
+        let mut out = Vec::with_capacity(recs.len());
+        for r in recs {
+            shared.batches.fetch_add(1, Ordering::Relaxed);
+            out.extend(
+                store
+                    .apply_batch(std::slice::from_ref(r))
+                    .into_iter()
+                    .map(Some),
+            );
+        }
+        out
+    } else {
+        shared.batches.fetch_add(1, Ordering::Relaxed);
+        store.apply_batch(recs).into_iter().map(Some).collect()
+    }
+}
+
 /// The writer thread: batches until the queue is closed and empty.
 fn run(shared: &Shared, mut store: Store<AuditLog>) {
+    // However this thread ends (also by a panic), nobody waits for it for ever.
+    let _end = WriterEnd(shared);
     loop {
         let batch: Vec<Item> = {
             let mut q = lock(&shared.queue);
@@ -293,8 +369,7 @@ fn run(shared: &Shared, mut store: Store<AuditLog>) {
         let mut answers: Vec<Option<Answer>> = if recs.is_empty() {
             Vec::new()
         } else {
-            shared.batches.fetch_add(1, Ordering::Relaxed);
-            store.apply_batch(&recs).into_iter().map(Some).collect()
+            write(shared, &mut store, &recs)
         };
         // readers see the batch before its callers are answered
         {
@@ -375,7 +450,7 @@ mod tests {
     }
 
     fn open(d: &Path) -> Journal {
-        Journal::start(Store::open(d, KEY).unwrap()).unwrap()
+        Journal::start(Store::open(d, KEY).unwrap(), false).unwrap()
     }
 
     fn copy_dir(from: &Path, to: &Path) {
@@ -569,7 +644,7 @@ mod tests {
             .unwrap()
             .with_anchor(heads.join("audit.head"))
             .unwrap();
-        let j = Journal::start(store).unwrap();
+        let j = Journal::start(store, false).unwrap();
         assert_eq!(j.write_record(rec("user:a", 1)).await.unwrap(), 1);
         // the anchor's medium goes away: the head can no longer be kept
         std::fs::remove_dir_all(&heads).unwrap();
@@ -578,5 +653,159 @@ mod tests {
         // it is back: the journal goes on
         std::fs::create_dir_all(&heads).unwrap();
         assert!(j.write_record(rec("user:a", 4)).await.is_ok());
+    }
+
+    /// The rule of the anchor as every version before group commit reads it: two
+    /// fields, at most one record after the head.
+    fn an_older_version_opens(dir: &Path, anchor: &Path) -> bool {
+        let wal = wyrm_state::verify(dir, KEY, None).unwrap().last_lsn;
+        let text = std::fs::read_to_string(anchor).unwrap();
+        let mut it = text.split_whitespace();
+        let lsn: u64 = it.next().unwrap().parse().unwrap();
+        it.next().is_some() && it.next().is_none() && lsn <= wal && lsn + 1 >= wal
+    }
+
+    /// While the broker's own update is in its trial the journal writes record by
+    /// record: at every step of every write the files are what the previous version
+    /// opens (a kill there is followed by that version). Once the update is
+    /// confirmed, it writes batches again.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn in_a_trial_the_files_are_what_the_previous_version_opens() {
+        use wyrm_state::Step;
+        let d = dir("trial");
+        let heads = dir("trial-heads");
+        std::fs::create_dir_all(&heads).unwrap();
+        let anchor = heads.join("audit.head");
+        let steps: Arc<Mutex<Vec<Step>>> = Arc::default();
+        // set while the trial lasts: every step is then checked against the old rule
+        let trial = Arc::new(AtomicBool::new(true));
+        let (d2, a2, steps2, trial2) = (d.clone(), anchor.clone(), steps.clone(), trial.clone());
+        let store = Store::<AuditLog>::open(&d, KEY)
+            .unwrap()
+            .with_anchor(&anchor)
+            .unwrap()
+            .with_probe(Box::new(move |step| {
+                steps2.lock().unwrap().push(step);
+                if trial2.load(Ordering::SeqCst) {
+                    // the files as a kill before this step leaves them
+                    let copy = dir("trial-killed");
+                    copy_dir(&d2, &copy);
+                    assert!(
+                        an_older_version_opens(&copy, &a2),
+                        "before {step:?}: {}",
+                        std::fs::read_to_string(&a2).unwrap()
+                    );
+                }
+                Ok(())
+            }));
+        let j = Journal::start(store, true).unwrap();
+        j.hold(true);
+        for n in 0..40 {
+            j.push_record(rec("user:a", n)).await.unwrap();
+        }
+        j.hold(false);
+        j.flush().await.unwrap();
+        assert_eq!((j.lsn(), j.batches()), (40, 40), "one fsync per record");
+        {
+            let s = steps.lock().unwrap();
+            assert_eq!(s.len(), 120);
+            assert!(!s.contains(&Step::Announce), "a batch was announced");
+        }
+        // confirmed: batches again
+        trial.store(false, Ordering::SeqCst);
+        j.one_by_one(false);
+        j.hold(true);
+        for n in 40..90 {
+            j.push_record(rec("user:a", n)).await.unwrap();
+        }
+        j.hold(false);
+        j.flush().await.unwrap();
+        assert_eq!(j.lsn(), 90);
+        assert!(j.batches() < 40 + 50, "{} batches", j.batches());
+        assert!(steps.lock().unwrap().contains(&Step::Announce));
+        // and back, should another update begin
+        trial.store(true, Ordering::SeqCst);
+        j.one_by_one(true);
+        j.flush().await.unwrap();
+        let before = j.batches();
+        j.hold(true);
+        for n in 90..100 {
+            j.push_record(rec("user:a", n)).await.unwrap();
+        }
+        j.hold(false);
+        j.flush().await.unwrap();
+        assert_eq!(j.batches() - before, 10);
+        j.close();
+        let v = wyrm_state::verify(&d, KEY, Some(&anchor)).unwrap();
+        assert_eq!((v.records, v.anchor_ok), (100, Some(true)));
+        assert!(an_older_version_opens(&d, &anchor));
+    }
+
+    /// The writer thread dies (a panic inside a write): nobody waits for ever.
+    /// Who waits for an answer or for room gets an error, and so does every
+    /// later caller.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_writer_that_panics_fails_its_callers() {
+        let d = dir("panic");
+        let fail = Arc::new(AtomicBool::new(false));
+        let fail2 = fail.clone();
+        let store = Store::<AuditLog>::open(&d, KEY)
+            .unwrap()
+            .with_probe(Box::new(move |_| {
+                assert!(!fail2.load(Ordering::SeqCst), "the writer dies here (test)");
+                Ok(())
+            }));
+        let j = Arc::new(Journal::start(store, false).unwrap());
+        assert_eq!(j.write_record(rec("user:a", 0)).await.unwrap(), 1);
+        j.hold(true);
+        // more than one batch waits, with callers of every kind
+        for n in 0..(BATCH as u64 + 50) {
+            j.push_record(rec("user:a", n)).await.unwrap();
+        }
+        let task = tokio::spawn({
+            let j = j.clone();
+            async move { j.write_record(rec("user:b", 0)).await }
+        });
+        let flush = tokio::spawn({
+            let j = j.clone();
+            async move { j.flush().await }
+        });
+        let j2 = j.clone();
+        let thread = std::thread::spawn(move || j2.write_blocking(rec("user:c", 0)));
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        fail.store(true, Ordering::SeqCst);
+        j.hold(false);
+        let wait = Duration::from_secs(10);
+        let all = async {
+            assert!(task.await.unwrap().is_err());
+            assert!(flush.await.unwrap().is_err());
+            let r = tokio::task::spawn_blocking(move || thread.join().unwrap())
+                .await
+                .unwrap();
+            assert!(r.is_err());
+        };
+        tokio::time::timeout(wait, all)
+            .await
+            .expect("a caller waits for a writer that is gone");
+        // later callers are refused at once
+        let later = async {
+            assert!(j.write_record(rec("user:a", 1)).await.is_err());
+            assert!(j.push_record(rec("user:a", 2)).await.is_err());
+            assert!(j.flush().await.is_err());
+        };
+        tokio::time::timeout(wait, later)
+            .await
+            .expect("refused at once");
+        let j2 = j.clone();
+        let r = tokio::task::spawn_blocking(move || j2.write_blocking(rec("user:a", 3)));
+        assert!(tokio::time::timeout(wait, r)
+            .await
+            .unwrap()
+            .unwrap()
+            .is_err());
+        j.close();
+        // what was answered before is on disk, and the store opens
+        let store = Store::<AuditLog>::open(&d, KEY).unwrap();
+        assert_eq!(store.lsn(), 1);
     }
 }

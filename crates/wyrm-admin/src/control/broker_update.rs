@@ -1360,6 +1360,9 @@ async fn run(
             ctl.save_job(&j);
         }
     }
+    // `update.json` says trial from here on: the journal writes what the version
+    // that may run next, whichever it is, can open
+    ctl.audit_follows_update();
     debug!(bin = %bin.display(), "broker update: staged");
     ctl.record(
         &plan.by,
@@ -1816,6 +1819,9 @@ async fn trial(ctl: &Arc<Control>, session: &Session) {
                 warn!("update.json: {e}");
                 return;
             }
+            // confirmed: the guard no longer goes back by itself, so the journal
+            // may write batches again
+            ctl.audit_follows_update();
             ctl.record(
                 &u.by,
                 AuditOp::UpdateConfirmed,

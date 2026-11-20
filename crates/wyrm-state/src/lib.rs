@@ -61,6 +61,8 @@ pub enum StateError {
     InUse(String),
     #[error("anchor {anchor}: {why} (WAL truncated or replaced?)")]
     Anchor { anchor: String, why: String },
+    #[error("the store takes no more writes until it is opened again: {0}")]
+    Broken(String),
 }
 
 pub type Result<T, E = StateError> = core::result::Result<T, E>;
@@ -91,7 +93,42 @@ pub struct Store<S: State> {
     anchor_stale: bool,
     since_snapshot: usize,
     snapshot_every: usize,
+    /// A write to the WAL failed and what the file holds is not known to be what
+    /// it held before: every later write is refused ([`StateError::Broken`]). A
+    /// new open reads the file and drops what was torn.
+    broken: Option<String>,
+    /// Set by tests only (`with_probe`, feature `testkit`).
+    probe: Option<Probe>,
 }
+
+/// The steps of an append, in their order. A test's probe (feature `testkit`) is
+/// asked before each one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Step {
+    /// The anchor announces a batch of two or more.
+    Announce,
+    /// The records go into the WAL.
+    Write,
+    /// The WAL is synced.
+    Sync,
+    /// After a failed write: the WAL is cut back to its length before it.
+    Cut,
+    /// The anchor moves to the new head.
+    Anchor,
+}
+
+/// What a probe makes of a step.
+#[derive(Debug)]
+pub enum Fault {
+    /// The step fails with this error and does nothing.
+    Fail(std::io::Error),
+    /// [`Step::Write`] only: half of the bytes are written, then this error.
+    Torn(std::io::Error),
+}
+
+/// Asked before each [`Step`] of an append: `Err` makes the step fail. It may
+/// also look at the files as they are at that moment (a kill there leaves them).
+pub type Probe = Box<dyn FnMut(Step) -> core::result::Result<(), Fault> + Send>;
 
 /// A new HMAC-SHA-256 with `key`.
 fn hmac(key: &[u8]) -> HmacSha256 {
@@ -184,6 +221,7 @@ impl<'a> Anchor<'a> {
 fn again(e: &StateError) -> StateError {
     match e {
         StateError::Io(io) => StateError::Io(std::io::Error::new(io.kind(), io.to_string())),
+        StateError::Broken(why) => StateError::Broken(why.clone()),
         other => StateError::Io(std::io::Error::other(other.to_string())),
     }
 }
@@ -273,6 +311,8 @@ impl<S: State> Store<S> {
             anchor_stale: false,
             since_snapshot: replayed,
             snapshot_every: SNAPSHOT_EVERY,
+            broken: None,
+            probe: None,
         })
     }
 
@@ -333,12 +373,97 @@ impl<S: State> Store<S> {
         Ok(self)
     }
 
-    fn write_anchor(&self) -> Result<()> {
+    fn write_anchor(&mut self) -> Result<()> {
         self.write_anchor_before(0)
     }
 
+    /// Test hook: ask `probe` before every step of an append.
+    #[cfg(feature = "testkit")]
+    pub fn with_probe(mut self, probe: Probe) -> Self {
+        self.probe = Some(probe);
+        self
+    }
+
+    /// What the probe makes of `step` (no probe: nothing).
+    fn fault(&mut self, step: Step) -> Option<Fault> {
+        self.probe.as_mut().and_then(|p| p(step).err())
+    }
+
+    /// `Err` once a write left the WAL in a state this store does not know.
+    fn usable(&self) -> Result<()> {
+        match &self.broken {
+            Some(why) => Err(StateError::Broken(why.clone())),
+            None => Ok(()),
+        }
+    }
+
+    /// Write `buf` to the WAL and sync it; `Err((error, the sync failed))`.
+    fn write_synced(&mut self, buf: &[u8]) -> core::result::Result<(), (std::io::Error, bool)> {
+        match self.fault(Step::Write) {
+            Some(Fault::Fail(e)) => return Err((e, false)),
+            Some(Fault::Torn(e)) => {
+                let half = buf.get(..buf.len() / 2).unwrap_or(buf);
+                if let Err(w) = self.wal.write_all(half) {
+                    return Err((w, false));
+                }
+                return Err((e, false));
+            }
+            None => {}
+        }
+        self.wal.write_all(buf).map_err(|e| (e, false))?;
+        if let Some(Fault::Fail(e) | Fault::Torn(e)) = self.fault(Step::Sync) {
+            return Err((e, true));
+        }
+        self.wal.sync_data().map_err(|e| (e, true))
+    }
+
+    /// Append whole records to the WAL, durably. `Ok(())`: they are on disk.
+    ///
+    /// On a failure nothing of `buf` may stay behind where a later record would
+    /// follow it (a start would read that as a broken chain): the file is cut
+    /// back to the length it had. When the write failed and the cut is on disk,
+    /// the store goes on. When the cut failed, or when it was the `fsync` that
+    /// failed (what the disk holds is then not known), the store takes no more
+    /// writes ([`StateError::Broken`]) until it is opened again.
+    fn append(&mut self, buf: &[u8]) -> Result<()> {
+        let before = self.wal.metadata()?.len();
+        let Err((e, in_sync)) = self.write_synced(buf) else {
+            return Ok(());
+        };
+        let cut = match self.fault(Step::Cut) {
+            Some(Fault::Fail(c) | Fault::Torn(c)) => Err(c),
+            None => self.wal.set_len(before).and_then(|()| self.wal.sync_data()),
+        };
+        match cut {
+            Ok(()) if !in_sync => {}
+            Ok(()) => {
+                self.broken = Some(format!("an fsync of the WAL failed: {e}"));
+            }
+            Err(c) => {
+                self.broken = Some(format!(
+                    "a write to the WAL failed ({e}) and its bytes could not be cut back ({c})"
+                ));
+            }
+        }
+        if let Some(why) = &self.broken {
+            tracing::error!(dir = %self.dir.display(), "{why}; the store takes no more writes");
+        }
+        Err(e.into())
+    }
+
     /// The head as it is, and `pending` records announced after it (0 = none).
-    fn write_anchor_before(&self, pending: usize) -> Result<()> {
+    fn write_anchor_before(&mut self, pending: usize) -> Result<()> {
+        if self.anchor.is_none() {
+            return Ok(());
+        }
+        let step = if pending > 0 {
+            Step::Announce
+        } else {
+            Step::Anchor
+        };
+        if let Some(Fault::Fail(e) | Fault::Torn(e)) = self.fault(step) {
+            return Err(e.into());
+        }
         let Some(path) = &self.anchor else {
             return Ok(());
         };
@@ -375,6 +500,7 @@ impl<S: State> Store<S> {
 
     /// Validate `op` on a copy, append it durably, then make it current.
     pub fn apply(&mut self, op: S::Op) -> Result<u64> {
+        self.usable()?;
         if self.anchor_stale {
             // Catch up first; while the anchor cannot be written, refuse.
             self.write_anchor()?;
@@ -387,8 +513,7 @@ impl<S: State> Store<S> {
         let m = mac(&self.key, &self.chain, lsn, &payload);
         let mut rec = Vec::new();
         frame(&mut rec, &payload, &m);
-        self.wal.write_all(&rec)?;
-        self.wal.sync_data()?;
+        self.append(&rec)?;
         self.state = next;
         self.lsn = lsn;
         self.chain = m;
@@ -417,6 +542,8 @@ impl<S: State> Store<S> {
     ///   the others are written. An I/O failure fails every accepted op.
     /// * No answer is `Ok` before the records are on disk and the anchor is at
     ///   the last of them.
+    /// * A failed write leaves nothing in the WAL, or the store takes no more
+    ///   writes (`append`); the state and the head in memory do not move.
     /// * With an anchor, a batch of two or more first announces itself in the
     ///   anchor (`<lsn> <mac> +<n>`), so a crash while it is written leaves a WAL
     ///   that opens with any prefix of the batch, and the anchor still refuses
@@ -436,6 +563,9 @@ impl<S: State> Store<S> {
             out.truncate(base);
             out.extend(ops.iter().map(|_| Err(again(e))));
         };
+        if let Err(e) = self.usable() {
+            return fail_all(out, &e);
+        }
         if self.anchor_stale {
             // Catch up first; while the anchor cannot be written, refuse.
             if let Err(e) = self.write_anchor() {
@@ -502,9 +632,15 @@ impl<S: State> Store<S> {
                 return fail_accepted(out, &e);
             }
         }
-        let written = self.wal.write_all(&buf).and_then(|()| self.wal.sync_data());
-        if let Err(e) = written {
-            return fail_accepted(out, &e.into());
+        if let Err(e) = self.append(&buf) {
+            // Cut back and usable: the announcement must not outlive the batch
+            // (it would let that many records be cut later). Broken: bytes of the
+            // batch may be in the file, and the announcement is what lets the
+            // next open take them as the unanswered prefix they are.
+            if self.broken.is_none() && accepted.len() > 1 && self.write_anchor().is_err() {
+                self.anchor_stale = true;
+            }
+            return fail_accepted(out, &e);
         }
         self.state = next;
         self.lsn = lsn;

@@ -662,9 +662,35 @@ process (broker, mock, 50 clients) is 200–690 % of a core.
 `wyrm-state` stores (registry, flows, users) write one record per `fsync`
 from the caller's thread, as before; they are not on the command path.
 `wyrmd user …` (the offline command line) writes its audit record with a
-plain `apply`. Found beside it and not changed: a `write_all` that fails
-half way leaves the bytes it wrote in the WAL, in `apply` and in
-`apply_batch` alike, and the next append goes after them.
+plain `apply`.
+
+*After the audit of #152 (2026-11-20).*
+
+- A kill inside a batch left the anchor with its announcement, which a
+  version from before group commit refuses: the automatic rollback of a
+  broker update (ADR 0048 §2.5) then could not start the previous version.
+  Rule: while `update.json` says `trial`, the journal writes record by
+  record, in the form every earlier version opens
+  (`Journal::one_by_one`, set at `Control::open`, when an update is staged
+  and when it is confirmed). Tests
+  `in_a_trial_the_files_are_what_the_previous_version_opens` (the files at
+  every step of every write pass the old rule),
+  `the_audit_journal_follows_the_update_state`.
+- A failed write left its bytes in the WAL and the next record followed
+  them (the note above; with batches the window was larger). `Store::append`
+  cuts the file back; when it cannot, or when the `fsync` failed, the store
+  refuses every later write (`StateError::Broken`) until it is opened
+  again. For `apply` too, so for every store. Tests
+  `a_failed_batch_leaves_no_bytes_and_moves_nothing`,
+  `a_failed_apply_leaves_no_bytes`,
+  `a_store_that_cannot_undo_a_write_takes_no_more`.
+- The crash test wrote the announcement itself. Now a probe
+  (`Store::with_probe`, feature `testkit`) copies the files before each
+  step of a real batch: `a_kill_at_each_step_of_a_batch_leaves_a_store_that_opens`
+  fails when `commit` does not announce.
+- A panic of the writer thread left callers waiting for ever: the thread's
+  end closes the queue (`WriterEnd`); test
+  `a_writer_that_panics_fails_its_callers`.
 
 **Found: the historian's group start stalls the broker** (called a
 deadlock here: 0 % CPU and no progress for 9 min, twice; a symbolized

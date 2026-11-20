@@ -546,3 +546,274 @@ fn the_anchor_of_a_batch_refuses_every_other_cut() {
     }
     assert!(!opens(&d, &format!("{at2} +99999999\n")));
 }
+
+use std::sync::{Arc, Mutex};
+use wyrm_state::{Fault, Step};
+
+/// What the next append meets: a failure at one step, set by the test.
+type Plan = Arc<Mutex<Vec<(Step, bool)>>>;
+
+/// A store whose appends fail at the steps of `plan` (`true`: a torn write).
+fn failing(d: &PathBuf, anchor: Option<&PathBuf>, plan: &Plan) -> Store<Kv> {
+    let mut s = Store::<Kv>::open(d, KEY).unwrap();
+    if let Some(a) = anchor {
+        s = s.with_anchor(a).unwrap();
+    }
+    let plan = plan.clone();
+    s.with_probe(Box::new(move |step| {
+        let mut p = plan.lock().unwrap();
+        match p.iter().position(|(s, _)| *s == step) {
+            Some(i) => {
+                let (_, torn) = p.remove(i);
+                let e = std::io::Error::other(format!("injected at {step:?}"));
+                Err(if torn { Fault::Torn(e) } else { Fault::Fail(e) })
+            }
+            None => Ok(()),
+        }
+    }))
+}
+
+fn wal_len(d: &PathBuf) -> u64 {
+    std::fs::metadata(wal(d)).unwrap().len()
+}
+
+/// The pre-group-commit rule of the anchor, as every version before
+/// `apply_batch` reads it: two fields, at most one record after the head.
+fn old_rule_accepts(dir: &std::path::Path, anchor: &std::path::Path) -> bool {
+    let r = wyrm_state::verify(dir, KEY, None).unwrap();
+    let text = std::fs::read_to_string(anchor).unwrap();
+    let mut it = text.split_whitespace();
+    let lsn: u64 = it.next().unwrap().parse().unwrap();
+    lsn <= r.last_lsn && lsn + 1 >= r.last_lsn
+}
+
+/// The files as a kill at each step of a real batch leaves them: the store opens
+/// with a whole prefix. The batch itself wrote the announcement (not the test):
+/// with the same files and the plain head, the open is refused.
+#[test]
+fn a_kill_at_each_step_of_a_batch_leaves_a_store_that_opens() {
+    let d = dir("kill-steps");
+    let heads = dir("kill-steps-heads");
+    std::fs::create_dir_all(&heads).unwrap();
+    let anchor = heads.join("s.head");
+    let seen: Arc<Mutex<Vec<(Step, PathBuf, String)>>> = Arc::default();
+    let mut s = Store::<Kv>::open(&d, KEY)
+        .unwrap()
+        .with_anchor(&anchor)
+        .unwrap();
+    s.apply(Op::Put("a".into(), 1)).unwrap();
+    s.apply(Op::Put("b".into(), 2)).unwrap();
+    let plain = std::fs::read_to_string(&anchor).unwrap();
+    let (d2, a2, seen2) = (d.clone(), anchor.clone(), seen.clone());
+    let mut s = s.with_probe(Box::new(move |step| {
+        // the files as they are now: what a kill before this step leaves
+        let copy = dir(&format!("kill-steps-at-{step:?}"));
+        copy_dir(&d2, &copy);
+        let text = std::fs::read_to_string(&a2).unwrap();
+        seen2.lock().unwrap().push((step, copy, text));
+        Ok(())
+    }));
+    for r in s.apply_batch(&puts(0, 5)) {
+        r.unwrap();
+    }
+    drop(s);
+    let seen = std::mem::take(&mut *seen.lock().unwrap());
+    let steps: Vec<Step> = seen.iter().map(|(s, _, _)| *s).collect();
+    assert_eq!(
+        steps,
+        [Step::Announce, Step::Write, Step::Sync, Step::Anchor]
+    );
+    let announced = format!("{} +5\n", plain.trim_end());
+    for (step, copy, text) in &seen {
+        // records in the WAL at that moment, and the anchor beside it
+        let (records, want_anchor) = match step {
+            Step::Announce => (2, &plain),
+            Step::Write => (2, &announced),
+            _ => (7, &announced),
+        };
+        assert_eq!(text, want_anchor, "{step:?}");
+        let a = heads.join(format!("{step:?}.head"));
+        std::fs::write(&a, text).unwrap();
+        let v = wyrm_state::verify(copy, KEY, Some(&a)).unwrap();
+        assert_eq!((v.records, v.anchor_ok), (records, Some(true)), "{step:?}");
+        let s = Store::<Kv>::open(copy, KEY)
+            .unwrap()
+            .with_anchor(&a)
+            .unwrap_or_else(|e| panic!("a kill before {step:?}: {e}"));
+        assert_eq!(s.lsn(), records, "{step:?}");
+        drop(s);
+        // the announcement is what lets it open: the plain head does not
+        if records == 7 {
+            std::fs::write(&a, &plain).unwrap();
+            assert!(
+                Store::<Kv>::open(copy, KEY)
+                    .unwrap()
+                    .with_anchor(&a)
+                    .is_err(),
+                "{step:?}: five records after a plain head"
+            );
+            assert!(!old_rule_accepts(copy, &a));
+        }
+    }
+    // a batch of one announces nothing: its files pass the old rule at every step
+    let seen: Arc<Mutex<Vec<bool>>> = Arc::default();
+    let (d2, a2, seen2) = (d.clone(), anchor.clone(), seen.clone());
+    let mut s = Store::<Kv>::open(&d, KEY)
+        .unwrap()
+        .with_anchor(&anchor)
+        .unwrap()
+        .with_probe(Box::new(move |step| {
+            let copy = dir("kill-steps-one");
+            copy_dir(&d2, &copy);
+            let text = std::fs::read_to_string(&a2).unwrap();
+            assert_eq!(text.split_whitespace().count(), 2, "{step:?}: {text}");
+            seen2.lock().unwrap().push(old_rule_accepts(&copy, &a2));
+            Ok(())
+        }));
+    s.apply_batch(&puts(50, 1)).remove(0).unwrap();
+    s.apply(Op::Put("z".into(), 1)).unwrap();
+    assert_eq!(*seen.lock().unwrap(), [true; 6]);
+}
+
+/// A step of a batch fails: every op of the batch is answered with the error, the
+/// head and the state do not move, nothing of the batch stays in the WAL, and the
+/// store goes on (or says that it does not).
+#[test]
+fn a_failed_batch_leaves_no_bytes_and_moves_nothing() {
+    for (step, torn) in [
+        (Step::Announce, false),
+        (Step::Write, false),
+        (Step::Write, true),
+    ] {
+        let name = format!("fail-{step:?}-{torn}");
+        let d = dir(&name);
+        let heads = dir(&format!("{name}-heads"));
+        std::fs::create_dir_all(&heads).unwrap();
+        let anchor = heads.join("s.head");
+        let plan = Plan::default();
+        let mut s = failing(&d, Some(&anchor), &plan);
+        s.apply(Op::Put("a".into(), 1)).unwrap();
+        let (len, head) = (wal_len(&d), std::fs::read_to_string(&anchor).unwrap());
+        plan.lock().unwrap().push((step, torn));
+        let r = s.apply_batch(&[
+            Op::Put("b".into(), 2),
+            Op::Del("zz".into()),
+            Op::Put("c".into(), 3),
+        ]);
+        assert!(matches!(r[0], Err(StateError::Io(_))), "{name}: {:?}", r[0]);
+        assert!(matches!(r[1], Err(StateError::Rejected(_))), "{name}");
+        assert!(matches!(r[2], Err(StateError::Io(_))), "{name}");
+        assert_eq!(s.lsn(), 1, "{name}");
+        assert_eq!(s.state().map.len(), 1, "{name}");
+        assert_eq!(wal_len(&d), len, "{name}: bytes left in the WAL");
+        // the announcement did not outlive the batch
+        assert_eq!(std::fs::read_to_string(&anchor).unwrap(), head, "{name}");
+        // the store goes on, and the next records follow the old head
+        let r = s.apply_batch(&puts(0, 3));
+        assert!(matches!(r[2], Ok(4)), "{name}: {r:?}");
+        assert_eq!(s.apply(Op::Put("d".into(), 4)).unwrap(), 5, "{name}");
+        drop(s);
+        let v = wyrm_state::verify(&d, KEY, Some(&anchor)).unwrap();
+        assert_eq!(
+            (v.records, v.torn_tail, v.anchor_ok),
+            (5, false, Some(true)),
+            "{name}"
+        );
+        let s = Store::<Kv>::open(&d, KEY)
+            .unwrap()
+            .with_anchor(&anchor)
+            .unwrap();
+        assert_eq!(s.state().map.len(), 5, "{name}");
+    }
+}
+
+/// The same for one record through `apply`: a torn write is cut back.
+#[test]
+fn a_failed_apply_leaves_no_bytes() {
+    let d = dir("fail-apply");
+    let plan = Plan::default();
+    let mut s = failing(&d, None, &plan);
+    s.apply(Op::Put("a".into(), 1)).unwrap();
+    let len = wal_len(&d);
+    plan.lock().unwrap().push((Step::Write, true));
+    assert!(matches!(
+        s.apply(Op::Put("b".into(), 2)),
+        Err(StateError::Io(_))
+    ));
+    assert_eq!((s.lsn(), wal_len(&d)), (1, len));
+    assert_eq!(s.apply(Op::Put("c".into(), 3)).unwrap(), 2);
+    drop(s);
+    // before the cut, the half record stayed and the next one followed it: the
+    // start then read a broken log
+    let s = Store::<Kv>::open(&d, KEY).unwrap();
+    assert_eq!(s.lsn(), 2);
+    assert!(s.state().map.contains_key("c") && !s.state().map.contains_key("b"));
+}
+
+/// When the WAL cannot be put back (the cut fails), or the `fsync` failed, the
+/// store refuses every later write by name; nothing is appended after bytes it
+/// does not know. A new open reads the file: a whole prefix, no broken chain.
+#[test]
+fn a_store_that_cannot_undo_a_write_takes_no_more() {
+    for (fails, batch) in [
+        (vec![(Step::Sync, false)], true),
+        (vec![(Step::Write, true), (Step::Cut, false)], true),
+        (vec![(Step::Sync, false)], false),
+        (vec![(Step::Write, true), (Step::Cut, false)], false),
+    ] {
+        let name = format!("broken-{}-{batch}", fails.len());
+        let d = dir(&name);
+        let heads = dir(&format!("{name}-heads"));
+        std::fs::create_dir_all(&heads).unwrap();
+        let anchor = heads.join("s.head");
+        let plan = Plan::default();
+        let mut s = failing(&d, Some(&anchor), &plan);
+        s.apply(Op::Put("a".into(), 1)).unwrap();
+        *plan.lock().unwrap() = fails.clone();
+        if batch {
+            let r = s.apply_batch(&puts(0, 5));
+            assert!(
+                r.iter().all(|r| matches!(r, Err(StateError::Io(_)))),
+                "{name}"
+            );
+        } else {
+            assert!(matches!(
+                s.apply(Op::Put("b".into(), 2)),
+                Err(StateError::Io(_))
+            ));
+        }
+        assert_eq!(s.lsn(), 1, "{name}");
+        assert_eq!(s.state().map.len(), 1, "{name}");
+        let len = wal_len(&d);
+        // every later write is refused, and writes nothing
+        assert!(matches!(
+            s.apply(Op::Put("x".into(), 9)),
+            Err(StateError::Broken(_))
+        ));
+        let r = s.apply_batch(&puts(10, 2));
+        assert!(
+            r.iter().all(|r| matches!(r, Err(StateError::Broken(_)))),
+            "{name}: {r:?}"
+        );
+        assert_eq!((s.lsn(), wal_len(&d)), (1, len), "{name}");
+        drop(s);
+        // a new open: what was torn is dropped, whole records of the unanswered
+        // batch may be there, the chain holds, the anchor accepts it
+        let v = wyrm_state::verify(&d, KEY, Some(&anchor)).unwrap();
+        assert_eq!(v.anchor_ok, Some(true), "{name}");
+        let mut s = Store::<Kv>::open(&d, KEY)
+            .unwrap()
+            .with_anchor(&anchor)
+            .unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert!((1..=6).contains(&s.lsn()), "{name}: {}", s.lsn());
+        let n = s.lsn();
+        assert_eq!(
+            s.apply(Op::Put("after".into(), 1)).unwrap(),
+            n + 1,
+            "{name}"
+        );
+        drop(s);
+        let v = wyrm_state::verify(&d, KEY, Some(&anchor)).unwrap();
+        assert_eq!((v.records, v.torn_tail), (n + 1, false), "{name}");
+    }
+}
