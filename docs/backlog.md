@@ -583,7 +583,7 @@ and the reference board (4-core ARM64, 2 GB) is not measured yet.
 | M4 Max, load 7–12, rough | release | the same two after the merge of main and the bounded query tasks (two runs) | group start: first row 0.2 / 1.2 s, a row of every point 4.2 / 4.2 s; 20k samples/s kept (lost 67 / 75 of 200k), p99 2.4–2.5 ms, 37–39 % CPU, RSS 166–167 MiB; 20 000 rows/s, 0 dropped, flush 52–53 ms | 2026-11-20 |
 | M4 Max, load 5–14, rough | release | the same two with every subscriber declared at once and 16 stored reads per link (audit of #146; two runs) | group start: first row 5.2 / 3.2 s (all 10 000 declarations now run at once, so the first row comes later), a row of every point 6.4 / 4.2 s; 20k samples/s kept (lost 734 / 135 of 200k), p99 6.7 / 2.7 ms, 58 / 40 % CPU, RSS 172–176 MiB; 20 000 rows/s, 0 dropped, flush 52–66 ms | 2026-11-20 |
 | M4 Max, loaded, rough | release | 1000 invokes, audit | invoke p50 4.0 ms, p99 7.1 ms, 312/s; 233 audit records/s; derived 700 fsync/s (1 per record in fact: no anchor directory) | 2026-11-19 |
-| M4 Max, load 18–33, rough | release | 1000 invokes, audit, with the journal's group commit (two runs; table below) | invoke p50 0.12 / 0.31 ms, p99 0.20 / 6.1 ms, 7 991 / 1 330 per s; 6 717 / 1 289 audit records/s in 31 / 129 batches | 2026-11-20 |
+| M4 Max, load 4–33, rough | release | 1000 invokes, audit, with the journal's group commit (table below) | four runs: invoke p50 0.10–0.31 ms, p99 0.20–6.1 ms, 1 330–8 169 per s; 1 289–6 836 audit records/s, 8–33 records per `fsync` | 2026-11-20 |
 | M4 Max, loaded, rough | release | gateway, 10 WS clients × 1000 points × 10 Hz | 100k frames/s, p50 4.0 ms, p99 8.1 ms, 84 % CPU, RSS 85 MiB | 2026-11-19 |
 
 **Done: the audit journal's write path (item 1, 2026-11-20,
@@ -633,25 +633,25 @@ written exactly as before.
 
 *Figures.* `perf_e_audit`, M4 Max, release, the same hour, other agents'
 builds running (load average in the table; the second run after the change
-had twice the load of the first, and shows it):
+had the highest load, and shows it):
 
-| Figure | Before (2 runs, load 23 → 11) | After (2 runs, load 18 → 33) |
+| Figure | Before (2 runs, load 23 → 11) | After (4 runs: load 18, 33, then two at 4 → 22) |
 |---|---|---|
-| invoke, one after another: p50 / p99 | 3.96 / 4.84 ms; 3.96 / 5.62 ms | 0.12 / 0.20 ms; 0.31 / 6.1 ms |
-| invokes per second, one after another | 335; 322 | 7 991; 1 330 |
-| audit records per second, one caller | 242; 240 | 6 717; 1 289 |
-| records per `fsync`, one caller | 1; 1 | 32 (31 batches); 7.8 (129) |
-| 1 ms timer late, one caller: p50 / p99 | 2.92 / 3.74 ms; 2.87 / 4.40 ms | 1.03 / 1.28 ms; 1.28 / 6.0 ms |
-| invoke from 50 subjects at once: p50 / p99 | 160 / 539 ms; 156 / 501 ms | 1.1 / 2.4 ms; 4.1 / 18.7 ms |
-| invokes per second, 50 subjects | 267; 280 | 39 215; 9 347 |
-| audit records per second, 50 subjects | 233; 243 | 27 685; 8 080 |
-| records per `fsync`, 50 subjects | 1; 1 | 182 (11 batches); 69 (29) |
-| 1 ms timer late, 50 subjects: p50 / p95 / p99 | 1.27 / 127 / 267 ms; 1.26 / 141 / 282 ms | 1.26 / 1.93 / 2.03 ms; 1.41 / 3.47 / 4.37 ms |
+| invoke, one after another: p50 / p99 | 3.96 / 4.84 ms; 3.96 / 5.62 ms | 0.12 / 0.20 ms; 0.31 / 6.1 ms; 0.11 / 0.28 ms; 0.10 / 0.34 ms |
+| invokes per second, one after another | 335; 322 | 7 991; 1 330; 8 169; 7 689 |
+| audit records per second, one caller | 242; 240 | 6 717; 1 289; 6 836; 6 551 |
+| records per `fsync`, one caller | 1; 1 | 32; 7.8; 33; 32 |
+| 1 ms timer late, one caller: p50 / p99 | 2.92 / 3.74 ms; 2.87 / 4.40 ms | 1.03 / 1.28 ms; 1.28 / 6.0 ms; 1.05 / 1.48 ms; 1.05 / 2.05 ms |
+| invoke from 50 subjects at once: p50 / p99 | 160 / 539 ms; 156 / 501 ms | 1.1 / 2.4 ms; 4.1 / 18.7 ms; 1.0 / 2.2 ms; 1.0 / 2.2 ms |
+| invokes per second, 50 subjects | 267; 280 | 39 215; 9 347; 41 845; 41 463 |
+| audit records per second, 50 subjects | 233; 243 | 27 685; 8 080; 32 655; 31 479 |
+| records per `fsync`, 50 subjects | 1; 1 | 182; 69; 182; 182 |
+| 1 ms timer late, 50 subjects: p50 / p95 / p99 | 1.27 / 127 / 267 ms; 1.26 / 141 / 282 ms | 1.26 / 1.93 / 2.03 ms; 1.41 / 3.47 / 4.37 ms; 1.26 / 1.83 / 2.01 ms; 1.26 / 1.86 / 2.15 ms |
 
 A 1 ms `tokio::time::sleep` fires about 1 ms late on an idle runtime (the
 timer's own step), so 1.0–1.3 ms is the floor of that figure. The journal
 is no longer what bounds commands: with 50 callers the CPU of the whole
-process (broker, mock, 50 clients) is 200–680 % of a core.
+process (broker, mock, 50 clients) is 200–690 % of a core.
 
 *Left.* The reference board and a quiet machine. Not changed: the other
 `wyrm-state` stores (registry, flows, users) write one record per `fsync`
