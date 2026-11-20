@@ -199,7 +199,7 @@ cargo test --workspace --all-features
 - `spec/` is normative. A change there needs four more steps: update `spec/fixtures/gen.py`, regenerate the 28 fixtures, make every SDK's fixture test pass, and add a line to `spec/CHANGELOG.md`.
 - A decision goes into `docs/adr/`.
 - [CONTRIBUTING.md](CONTRIBUTING.md) has the code rules (wire enums, QoS, logging, drivers).
-- Zenoh is pinned to an exact version, now 1.10.1. The MSRV is Rust 1.89.
+- Zenoh is pinned to an exact version, now 1.10.1. The MSRV is Rust 1.97 (wasmtime 50).
 
 ## License
 

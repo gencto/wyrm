@@ -28,6 +28,8 @@
 //!   are the host's, under the link's grants). The linker defines nothing
 //!   else: no WASI, no files. A component that imports anything else is
 //!   rejected at load with [`Error::Denied`] naming the import.
+//! - **Features**: a guest may use the WebAssembly features of [`GUEST_FEATURES`] and no
+//!   other; the engine's defaults decide nothing. Anything else is [`Error::Invalid`] at load.
 //! - **Fuel** ([`Limits::fuel`]): the store gets a fresh budget before each
 //!   call; exhaustion is [`Error::Fuel`].
 //! - **Memory** ([`Limits::memory_bytes`]): a resource limiter turns any
@@ -53,7 +55,7 @@ use std::net::{IpAddr, SocketAddr, TcpStream};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 use wasmtime::component::{Component, Linker};
-use wasmtime::{Config, Engine, ResourceLimiter, Store, Trap};
+use wasmtime::{Config, Engine, ResourceLimiter, Store, Trap, WasmFeatures};
 /// Lowercase hex SHA-256 of `bytes`: the artifact id (an id is 64 lowercase hex
 /// characters, `wyrm_core::hex::is_lower_hex(id, 32)`).
 pub use wyrm_core::hex::sha256_hex;
@@ -98,6 +100,29 @@ mod app3_world {
         imports: { default: trappable },
     });
 }
+
+/// Every WebAssembly feature a guest may use, by name: WebAssembly 2.0 (mutable globals,
+/// sign extension, saturating conversions, multi-value, bulk memory, reference types with
+/// `funcref` only, SIMD), multi-memory, relaxed SIMD, tail calls, extended constants, 64-bit
+/// memories and the component model. It is the set the host has run since its first version.
+///
+/// [`Host::new`] turns these on and **every other feature off**, so the engine's defaults
+/// decide nothing and an engine upgrade cannot widen the set. Off by name, among others:
+/// `GC` and `FUNCTION_REFERENCES` (typed function references, subtypes, casts, `i31`),
+/// `GC_TYPES` (`externref`, `anyref`), `EXCEPTIONS`, `THREADS`, `WIDE_ARITHMETIC`,
+/// `STACK_SWITCHING`, `CUSTOM_PAGE_SIZES`, `COMPACT_IMPORTS` and every component-model
+/// extension (async, `map`, `implements`, …). A defect in the engine's code for one of them
+/// can abort the process (RUSTSEC-2026-0567, -0570, -0573), and an abort is no trap: it ends
+/// the broker with every link. A feature is added here only with a guest that needs it, a
+/// test that pins it and a line in ADR 0010.
+pub const GUEST_FEATURES: WasmFeatures = WasmFeatures::WASM2
+    .difference(WasmFeatures::GC_TYPES)
+    .union(WasmFeatures::MULTI_MEMORY)
+    .union(WasmFeatures::RELAXED_SIMD)
+    .union(WasmFeatures::TAIL_CALL)
+    .union(WasmFeatures::EXTENDED_CONST)
+    .union(WasmFeatures::MEMORY64)
+    .union(WasmFeatures::COMPONENT_MODEL);
 
 /// Epoch tick of the time limit.
 pub const TICK: Duration = Duration::from_millis(10);
@@ -482,7 +507,9 @@ impl Host {
         let mut cfg = Config::new();
         cfg.consume_fuel(true)
             .epoch_interruption(true)
-            .wasm_component_model(true);
+            // exactly [`GUEST_FEATURES`]: explicit settings win over the engine's defaults
+            .wasm_features(GUEST_FEATURES, true)
+            .wasm_features(GUEST_FEATURES.complement(), false);
         let engine = Engine::new(&cfg).map_err(|e| Error::Invalid(format!("engine: {e:#}")))?;
         let weak = engine.weak();
         std::thread::Builder::new()
@@ -715,6 +742,9 @@ impl<W: World> Runner<W> {
             },
         );
         store.limiter(|c| c);
+        // What one call from the guest may make the host allocate for its arguments. A guest
+        // holds at most its memory limit, so no call that fits the limit is refused.
+        store.set_hostcall_fuel(self.limits.memory_bytes);
         Self::arm(&mut store, &self.limits)?;
         let world = match W::instantiate(&art.pre, &mut store) {
             Ok(w) => w,
@@ -1282,6 +1312,9 @@ impl AppRunner {
             },
         );
         store.limiter(|c| c);
+        // What one call from the guest may make the host allocate for its arguments. A guest
+        // holds at most its memory limit, so no call that fits the limit is refused.
+        store.set_hostcall_fuel(self.limits.memory_bytes);
         arm(&mut store, &self.limits)?;
         let world = match AppWorld::instantiate(&art.pre, &mut store) {
             Ok(w) => w,
@@ -1537,12 +1570,12 @@ fn top_level(bytes: &[u8]) -> Result<(HashSet<String>, HashSet<String>), Error> 
             Payload::End(_) => depth = depth.saturating_sub(1),
             Payload::ComponentExportSection(r) if depth == 1 => {
                 for e in r {
-                    exports.insert(e.map_err(bad)?.name.0.to_owned());
+                    exports.insert(e.map_err(bad)?.name.full_name().into_owned());
                 }
             }
             Payload::ComponentImportSection(r) if depth == 1 => {
                 for i in r {
-                    imports.insert(i.map_err(bad)?.name.0.to_owned());
+                    imports.insert(i.map_err(bad)?.name.full_name().into_owned());
                 }
             }
             _ => {}
