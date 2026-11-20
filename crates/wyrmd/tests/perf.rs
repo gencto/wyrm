@@ -21,6 +21,10 @@
 //!   per second (`Control::audit_lsn`, feature `testkit`, item 1).
 //! * `perf_f_gateway`: 1000 points at 10 Hz, 10 gateway WebSocket clients each subscribed to
 //!   the mock's whole tree: frames per second and frame latency.
+//! * `perf_g_fan_in`: 1000 points at 50 Hz and a second session that takes every sample,
+//!   once with a raw Zenoh callback and once as `WyrmClient::subscribe` of the whole
+//!   `downstream` section: what a steady pattern (fan-in) consumer costs, and how much of
+//!   it is the client's value stream.
 //!
 //! "lost" is expected (points × Hz × seconds) minus received: the mock's ticker skips a
 //! missed tick (`MissedTickBehavior::Skip`) without a trace, so a skipped tick shows only as

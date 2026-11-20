@@ -545,7 +545,6 @@ enum Policy {
 
 struct Vals {
     policy: Policy,
-    keep: KeyFilter,
     /// Per key, the `t` of the last sample handed to the consumer: one as old
     /// or older is never handed out after it. At most [`MAX_STREAM_KEYS`]
     /// keys, never cleared.
@@ -573,10 +572,9 @@ enum Pop {
 }
 
 impl Vals {
-    fn new(policy: Policy, keep: KeyFilter, gets: usize, dropped: Arc<AtomicU64>) -> Self {
+    fn new(policy: Policy, gets: usize, dropped: Arc<AtomicU64>) -> Self {
         Self {
             policy,
-            keep,
             last_t: HashMap::new(),
             gets,
             overflowed: false,
@@ -608,8 +606,10 @@ impl Vals {
         ));
     }
 
+    /// One more event of a key the stream's filter accepted (the feed asks
+    /// it before the lock, [`to_val`]).
     fn push(&mut self, ev: ValEvent) {
-        if self.failed.is_some() || !(self.keep)(ev.key()) {
+        if self.failed.is_some() {
             return;
         }
         if let ValEvent::Sample { key, sample, .. } = &ev {
@@ -694,17 +694,22 @@ impl Vals {
             };
             let Some(ev) = ev else { break };
             match &ev {
+                // one lookup for a key the stream knows, and no copy of the key
                 ValEvent::Sample { key, sample, .. } => {
-                    if self.last_t.get(key).is_some_and(|t| *t >= sample.t) {
-                        continue;
+                    let room = self.last_t.len() < MAX_STREAM_KEYS;
+                    match self.last_t.get_mut(key) {
+                        Some(t) if *t >= sample.t => continue,
+                        Some(t) => *t = sample.t,
+                        None if room => {
+                            self.last_t.insert(key.clone(), sample.t);
+                        }
+                        None => {
+                            self.fail(format!(
+                                "the pattern matches more than {MAX_STREAM_KEYS} keys"
+                            ));
+                            return Some(Pop::End);
+                        }
                     }
-                    if self.last_t.len() >= MAX_STREAM_KEYS && !self.last_t.contains_key(key) {
-                        self.fail(format!(
-                            "the pattern matches more than {MAX_STREAM_KEYS} keys"
-                        ));
-                        return Some(Pop::End);
-                    }
-                    self.last_t.insert(key.clone(), sample.t);
                 }
                 ValEvent::Removed(key) => {
                     self.last_t.remove(key);
@@ -744,6 +749,8 @@ struct Stored {
 
 struct ValReader {
     intake: Arc<Intake<Vals>>,
+    /// The stream's key filter, for the stored values read again.
+    keep: KeyFilter,
     /// Keeps the subscriber declared for as long as the stream lives.
     _sub: Box<dyn Send>,
     stored: Option<Stored>,
@@ -761,7 +768,7 @@ impl ValReader {
             self.intake.update(|v| v.gets = v.gets.saturating_sub(1));
             return;
         };
-        let feed = stored_feed(&self.intake);
+        let feed = stored_feed(&self.intake, &self.keep, Vec::new());
         rt.spawn(async move {
             // on an error the feed is dropped, and that ends this `get`
             if let Err(e) = st.session.get(&st.ke).timeout(st.timeout).with(feed).await {
@@ -793,32 +800,28 @@ impl Source<ValEvent> for ValReader {
     }
 }
 
-fn live_feed(intake: &Arc<Intake<Vals>>) -> crate::intake::Feed<Vals, ZSample> {
-    intake.feed(
-        |st: &mut Vals, smp: ZSample| {
-            if let Some(ev) = to_val(&smp) {
-                st.push(ev);
-            }
-        },
+/// The feed of the live subscriber. A sample is filtered and decoded on
+/// Zenoh's thread before the buffer's lock is taken: the lock covers the
+/// push alone, so the consumer never waits for a decode.
+fn live_feed(intake: &Arc<Intake<Vals>>, keep: &KeyFilter) -> crate::intake::Feed<Vals, ZSample> {
+    let keep = keep.clone();
+    intake.feed_map(
+        move |smp: ZSample| to_val(&smp, &keep),
+        Vals::push,
         |st| st.live_closed = true,
     )
 }
 
-fn stored_feed(intake: &Arc<Intake<Vals>>) -> crate::intake::Feed<Vals, Reply> {
-    stored_feed_with(intake, Vec::new())
-}
-
 /// The feed of a stored-value read that holds `turns` until Zenoh drops it.
-fn stored_feed_with(
+fn stored_feed(
     intake: &Arc<Intake<Vals>>,
+    keep: &KeyFilter,
     turns: Vec<tokio::sync::OwnedSemaphorePermit>,
 ) -> crate::intake::Feed<Vals, Reply> {
-    intake.feed(
-        |st: &mut Vals, reply: Reply| {
-            if let Some(ev) = reply.result().ok().and_then(to_val) {
-                st.push(ev);
-            }
-        },
+    let keep = keep.clone();
+    intake.feed_map(
+        move |reply: Reply| to_val(reply.result().ok()?, &keep),
+        Vals::push,
         move |st| {
             drop(turns);
             st.gets = st.gets.saturating_sub(1);
@@ -839,11 +842,14 @@ pub(crate) async fn subscribe(
         pending: HashMap::new(),
         order: VecDeque::new(),
     };
-    let intake = Intake::new(Vals::new(latest, keep, 1, dropped.clone()));
+    let intake = Intake::new(Vals::new(latest, 1, dropped.clone()));
     // Live first, stored second (no lost update); both into one buffer,
     // newer `t` wins per key and nothing older than what was handed out.
     // The subscriber never waits for anything: live values come from now on.
-    let sub = s.declare_subscriber(&ke).with(live_feed(&intake)).await?;
+    let sub = s
+        .declare_subscriber(&ke)
+        .with(live_feed(&intake, &keep))
+        .await?;
     let stored = Stored {
         session: s.clone(),
         ke,
@@ -852,7 +858,7 @@ pub(crate) async fn subscribe(
     let first = if client.stored_reads.is_empty() {
         s.get(&stored.ke)
             .timeout(client.timeout)
-            .with(stored_feed(&intake))
+            .with(stored_feed(&intake, &keep, Vec::new()))
             .await?;
         None
     } else {
@@ -861,7 +867,7 @@ pub(crate) async fn subscribe(
         // read's feed, which Zenoh drops after the last reply (or the
         // timeout).
         let (windows, st) = (client.stored_reads.clone(), stored.clone());
-        let intake = intake.clone();
+        let (intake, keep) = (intake.clone(), keep.clone());
         let first: FirstRead = Box::pin(async move {
             let mut turns = Vec::with_capacity(windows.len());
             for w in windows {
@@ -875,7 +881,7 @@ pub(crate) async fn subscribe(
                 }
             }
             // on an error the feed is dropped, and that ends this `get`
-            let feed = stored_feed_with(&intake, turns);
+            let feed = stored_feed(&intake, &keep, turns);
             if let Err(e) = st.session.get(&st.ke).timeout(st.timeout).with(feed).await {
                 debug!("stored value: {e}");
             }
@@ -885,6 +891,7 @@ pub(crate) async fn subscribe(
     Ok(EventStream::new(
         ValReader {
             intake,
+            keep,
             _sub: Box::new(sub),
             stored: Some(stored),
             first,
@@ -903,7 +910,8 @@ pub(crate) async fn subscribe_reliable(
     use zenoh_ext::{AdvancedSubscriberBuilderExt, HistoryConfig, RecoveryConfig};
     let dropped = Arc::new(AtomicU64::new(0));
     let queue = Policy::Queue(VecDeque::new());
-    let intake = Intake::new(Vals::new(queue, Arc::new(|_| true), 0, dropped.clone()));
+    let keep: KeyFilter = Arc::new(|_| true);
+    let intake = Intake::new(Vals::new(queue, 0, dropped.clone()));
     let sub = client
         .session()
         .declare_subscriber(format!("{pattern}/{SUFFIX_VAL}"))
@@ -911,11 +919,12 @@ pub(crate) async fn subscribe_reliable(
         .history(HistoryConfig::default().detect_late_publishers())
         .recovery(RecoveryConfig::default().heartbeat())
         .subscriber_detection()
-        .with(live_feed(&intake))
+        .with(live_feed(&intake, &keep))
         .await?;
     Ok(EventStream::new(
         ValReader {
             intake,
+            keep,
             _sub: Box::new(sub),
             stored: None,
             first: None,
@@ -934,10 +943,12 @@ pub(crate) fn fed() -> (zenoh::handlers::Callback<ZSample>, EventStream<ValEvent
         pending: HashMap::new(),
         order: VecDeque::new(),
     };
-    let intake = Intake::new(Vals::new(latest, Arc::new(|_| true), 0, dropped.clone()));
-    let (cb, ()) = live_feed(&intake).into_handler();
+    let keep: KeyFilter = Arc::new(|_| true);
+    let intake = Intake::new(Vals::new(latest, 0, dropped.clone()));
+    let (cb, ()) = live_feed(&intake, &keep).into_handler();
     let reader = ValReader {
         intake,
+        keep,
         _sub: Box::new(()),
         stored: None,
         first: None,
@@ -945,13 +956,19 @@ pub(crate) fn fed() -> (zenoh::handlers::Callback<ZSample>, EventStream<ValEvent
     (cb, EventStream::new(reader, dropped))
 }
 
-fn to_val(smp: &ZSample) -> Option<ValEvent> {
+/// The event of a `…/~val` sample whose node key `keep` accepts. The filter
+/// runs first, on the key as Zenoh holds it: a refused sample is neither
+/// copied nor decoded, and never reaches the buffer.
+fn to_val(smp: &ZSample, keep: &KeyFilter) -> Option<ValEvent> {
     let key = smp
         .key_expr()
         .as_str()
         .strip_suffix(SUFFIX_VAL)?
-        .strip_suffix('/')?
-        .to_owned();
+        .strip_suffix('/')?;
+    if !keep(key) {
+        return None;
+    }
+    let key = key.to_owned();
     if smp.kind() == SampleKind::Delete {
         return Some(ValEvent::Removed(key));
     }
@@ -988,17 +1005,25 @@ mod tests {
         }
     }
 
-    fn latest(keep: KeyFilter) -> Vals {
+    fn latest() -> Vals {
         let p = Policy::Latest {
             queue: VecDeque::new(),
             pending: HashMap::new(),
             order: VecDeque::new(),
         };
-        Vals::new(p, keep, 1, Arc::default())
+        Vals::new(p, 1, Arc::default())
     }
 
-    fn all() -> KeyFilter {
-        Arc::new(|_| true)
+    /// The `~val` sample of [`smp`] as Zenoh delivers it.
+    fn zsmp(key: &str, t: u64) -> ZSample {
+        let s = Sample {
+            v: Value::UInt(t),
+            q: Quality::Good,
+            t,
+        };
+        let key = zenoh::key_expr::KeyExpr::try_from(format!("{key}/{SUFFIX_VAL}")).unwrap();
+        let payload = wyrm_core::codec::to_vec(&s).unwrap();
+        zenoh::sample::SampleBuilder::put(key, payload).into()
     }
 
     fn drain(v: &mut Vals) -> Vec<ValEvent> {
@@ -1018,7 +1043,7 @@ mod tests {
 
     #[test]
     fn every_sample_in_order_while_it_fits() {
-        let mut v = latest(all());
+        let mut v = latest();
         v.push(smp("a", 5)); // live during the stored get
         v.push(smp("b", 1));
         v.push(smp("a", 3)); // stored, older than a 5: never after it
@@ -1043,7 +1068,7 @@ mod tests {
     /// queue holds, all arrive in order (All Data, Point Change).
     #[test]
     fn quick_samples_of_one_key_all_arrive() {
-        let mut v = latest(all());
+        let mut v = latest();
         let n = VALUE_BUFFER as u64;
         for t in 1..=n {
             v.push(smp("p", t));
@@ -1056,7 +1081,7 @@ mod tests {
 
     #[test]
     fn beyond_the_queue_the_newest_per_key_wins_then_lossless_again() {
-        let mut v = latest(all());
+        let mut v = latest();
         fill_queue(&mut v);
         v.push(smp("a", 1)); // overflow mode
         v.push(smp("a", 2)); // replaces a 1
@@ -1075,7 +1100,7 @@ mod tests {
 
     #[test]
     fn pending_keys_are_bounded_and_read_again() {
-        let mut v = latest(all());
+        let mut v = latest();
         fill_queue(&mut v);
         let n = MAX_PENDING_KEYS as u64 + 10;
         for k in 0..n {
@@ -1104,7 +1129,7 @@ mod tests {
     /// ends after `MAX_RESYNCS` reads again, never loops.
     #[test]
     fn reads_again_are_bounded() {
-        let mut v = latest(all());
+        let mut v = latest();
         let n = (VALUE_BUFFER + 2 * MAX_PENDING_KEYS) as u64;
         let mut resyncs = 0;
         for round in 1..=20u64 {
@@ -1135,7 +1160,7 @@ mod tests {
 
     #[test]
     fn a_consumer_that_catches_up_starts_the_count_again() {
-        let mut v = latest(all());
+        let mut v = latest();
         v.resyncs = MAX_RESYNCS;
         v.gets = 0;
         assert!(v.pop().is_none());
@@ -1144,7 +1169,7 @@ mod tests {
 
     #[test]
     fn the_keys_of_one_stream_are_bounded() {
-        let mut v = latest(all());
+        let mut v = latest();
         v.gets = 0;
         for k in 0..MAX_STREAM_KEYS {
             v.push(smp(&format!("k{k}"), 1));
@@ -1161,18 +1186,292 @@ mod tests {
 
     #[test]
     fn a_refused_key_takes_no_memory() {
-        let mut v = latest(Arc::new(|k: &str| !k.starts_with("secret")));
-        for t in 0..100 {
-            v.push(smp("secret/x", t));
+        use zenoh::handlers::IntoHandler;
+        // through the handler Zenoh calls: the filter runs there, before the buffer
+        let asked = Arc::new(AtomicU64::new(0));
+        let asked2 = asked.clone();
+        let keep: KeyFilter = Arc::new(move |k: &str| {
+            asked2.fetch_add(1, Ordering::Relaxed);
+            !k.starts_with("secret")
+        });
+        let intake = Intake::new(latest());
+        let (cb, ()) = live_feed(&intake, &keep).into_handler();
+        let waiting = |v: &Vals| match &v.policy {
+            Policy::Latest { queue, pending, .. } => queue.len() + pending.len(),
+            Policy::Queue(q) => q.len(),
+        };
+        for t in 1..=100 {
+            cb.call(zsmp("secret/x", t));
         }
-        v.push(smp("open", 1));
-        assert_eq!(drain(&mut v), [smp("open", 1)]);
-        assert_eq!(v.dropped.load(Ordering::Relaxed), 0);
+        assert_eq!(intake.with(waiting), 0);
+        assert_eq!(intake.with(|v| v.last_t.len()), 0);
+        cb.call(zsmp("open", 1));
+        // once per sample: the filter is the caller's (the gateway's grants), not free
+        assert_eq!(asked.load(Ordering::Relaxed), 101);
+        let mut got = Vec::new();
+        intake.update(|v| got = drain(v));
+        assert_eq!(got, [smp("open", 1)]);
+        assert_eq!(intake.with(|v| v.dropped.load(Ordering::Relaxed)), 0);
+    }
+
+    /// The value buffer as it was before the fan-in work (docs/backlog.md §14), kept as
+    /// the model: the filter inside `push`, the key looked up three times and copied in
+    /// `pop`. [`the_same_input_gives_the_same_output`] runs both on one input.
+    struct Model {
+        queue: VecDeque<ValEvent>,
+        pending: HashMap<String, ValEvent>,
+        order: VecDeque<String>,
+        keep: KeyFilter,
+        last_t: HashMap<String, u64>,
+        gets: usize,
+        overflowed: bool,
+        live_closed: bool,
+        resyncs: u32,
+        failed: bool,
+        dropped: u64,
+    }
+
+    impl Model {
+        fn fail(&mut self) {
+            self.order.clear();
+            let waiting =
+                std::mem::take(&mut self.pending).len() + std::mem::take(&mut self.queue).len();
+            self.dropped += waiting as u64;
+            self.last_t = HashMap::new();
+            self.failed = true;
+        }
+
+        fn push(&mut self, ev: ValEvent) {
+            if self.failed || !(self.keep)(ev.key()) {
+                return;
+            }
+            if let ValEvent::Sample { key, sample, .. } = &ev {
+                if self.last_t.get(key).is_some_and(|t| *t >= sample.t) {
+                    return;
+                }
+            }
+            if self.order.is_empty() && self.queue.len() < VALUE_BUFFER {
+                self.queue.push_back(ev);
+                return;
+            }
+            let lost =
+                match self.pending.get_mut(ev.key()) {
+                    None if self.order.len() >= MAX_PENDING_KEYS => {
+                        self.overflowed = true;
+                        1
+                    }
+                    None => {
+                        self.order.push_back(ev.key().to_owned());
+                        self.pending.insert(ev.key().to_owned(), ev);
+                        0
+                    }
+                    Some(old) => match (&*old, &ev) {
+                        (
+                            ValEvent::Sample { sample: a, .. },
+                            ValEvent::Sample { sample: b, .. },
+                        ) if b.t == a.t => 0,
+                        (
+                            ValEvent::Sample { sample: a, .. },
+                            ValEvent::Sample { sample: b, .. },
+                        ) if b.t < a.t => 1,
+                        _ => {
+                            *old = ev;
+                            1
+                        }
+                    },
+                };
+            self.dropped += lost;
+        }
+
+        fn pop(&mut self) -> Out {
+            if self.failed {
+                return Out::End;
+            }
+            loop {
+                let ev = self.queue.pop_front().or_else(|| {
+                    std::iter::from_fn(|| self.order.pop_front())
+                        .find_map(|k| self.pending.remove(&k))
+                });
+                let Some(ev) = ev else { break };
+                match &ev {
+                    ValEvent::Sample { key, sample, .. } => {
+                        if self.last_t.get(key).is_some_and(|t| *t >= sample.t) {
+                            continue;
+                        }
+                        if self.last_t.len() >= MAX_STREAM_KEYS && !self.last_t.contains_key(key) {
+                            self.fail();
+                            return Out::End;
+                        }
+                        self.last_t.insert(key.clone(), sample.t);
+                    }
+                    ValEvent::Removed(key) => {
+                        self.last_t.remove(key);
+                    }
+                }
+                return Out::Event(ev);
+            }
+            if self.gets == 0 {
+                if self.overflowed {
+                    if self.resyncs >= MAX_RESYNCS {
+                        self.fail();
+                        return Out::End;
+                    }
+                    self.overflowed = false;
+                    self.resyncs += 1;
+                    self.gets += 1;
+                    return Out::Resync;
+                }
+                self.resyncs = 0;
+            }
+            if self.live_closed && self.gets == 0 {
+                Out::End
+            } else {
+                Out::Idle
+            }
+        }
+    }
+
+    #[derive(Debug, PartialEq)]
+    enum Out {
+        Event(ValEvent),
+        Resync,
+        End,
+        Idle,
+    }
+
+    fn out(p: Option<Pop>) -> Out {
+        match p {
+            Some(Pop::Event(ev)) => Out::Event(ev),
+            Some(Pop::Resync) => Out::Resync,
+            Some(Pop::End) => Out::End,
+            None => Out::Idle,
+        }
+    }
+
+    /// One recorded input (events of `keys` keys in bursts of up to `burst`, times that
+    /// go on, repeat and go back, removals, refused keys, reads that end, a session that
+    /// closes) through the model and through the buffer: every `pop` gives the same, in
+    /// the same order, and both count the same losses.
+    fn same_output(seed: u64, keys: u64, burst: u64, steps: usize) {
+        let keep: KeyFilter = Arc::new(|k: &str| !k.starts_with("secret"));
+        let mut m = Model {
+            queue: VecDeque::new(),
+            pending: HashMap::new(),
+            order: VecDeque::new(),
+            keep: keep.clone(),
+            last_t: HashMap::new(),
+            gets: 1,
+            overflowed: false,
+            live_closed: false,
+            resyncs: 0,
+            failed: false,
+            dropped: 0,
+        };
+        let mut v = latest();
+        // xorshift64: the same input on every run
+        let mut x = seed;
+        let mut rnd = move |n: u64| {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            x % n
+        };
+        let mut clock: HashMap<u64, u64> = HashMap::new();
+        let (mut events, mut ends, mut resyncs) = (0u64, 0u64, 0u64);
+        for step in 0..steps {
+            for _ in 0..rnd(burst) + 1 {
+                let k = rnd(keys);
+                let key = match k % 16 {
+                    0 => format!("secret/p{k}"),
+                    _ => format!("wy/s/downstream/l/p{k}"),
+                };
+                let ev = if rnd(64) == 0 {
+                    ValEvent::Removed(key)
+                } else {
+                    // mostly forward; sometimes the same time again, or an older one
+                    let t = clock.entry(k).or_insert(10);
+                    match rnd(8) {
+                        0 => {}
+                        1 => *t = t.saturating_sub(rnd(3) + 1),
+                        _ => *t += rnd(4) + 1,
+                    }
+                    smp(&key, *t)
+                };
+                m.push(ev.clone());
+                // the buffer's filter runs in its feed (`to_val`)
+                if keep(ev.key()) {
+                    v.push(ev);
+                }
+            }
+            if rnd(6) == 0 {
+                // a stored read ends
+                m.gets = m.gets.saturating_sub(1);
+                v.gets = v.gets.saturating_sub(1);
+            }
+            if step + 1 == steps {
+                m.live_closed = true;
+                v.live_closed = true;
+            }
+            // the consumer reads some, sometimes all
+            let reads = match rnd(4) {
+                0 => u64::MAX,
+                _ => rnd(burst * 2),
+            };
+            for _ in 0..reads {
+                let (a, b) = (m.pop(), out(v.pop()));
+                assert_eq!(a, b, "seed {seed}, step {step}");
+                match a {
+                    Out::Event(_) => events += 1,
+                    Out::Resync => resyncs += 1,
+                    Out::End => {
+                        ends += 1;
+                        break;
+                    }
+                    Out::Idle => break,
+                }
+            }
+            assert_eq!(m.dropped, v.dropped.load(Ordering::Relaxed), "step {step}");
+            assert_eq!(m.failed, v.failed.is_some(), "step {step}");
+            assert_eq!(m.last_t, v.last_t, "seed {seed}, step {step}");
+        }
+        // what still waits comes out the same
+        loop {
+            let (a, b) = (m.pop(), out(v.pop()));
+            assert_eq!(a, b, "seed {seed}, the rest");
+            match a {
+                Out::Event(_) => events += 1,
+                Out::Resync => {
+                    resyncs += 1;
+                    m.gets = m.gets.saturating_sub(1);
+                    v.gets = v.gets.saturating_sub(1);
+                }
+                Out::End | Out::Idle => break,
+            }
+        }
+        assert_eq!(m.dropped, v.dropped.load(Ordering::Relaxed));
+        assert!(events > 0, "seed {seed}: nothing came out");
+        // said once, so a run that tests nothing is seen
+        println!(
+            "seed {seed}: {events} events, {} dropped, {resyncs} reads again, {ends} ends",
+            m.dropped
+        );
+    }
+
+    #[test]
+    fn the_same_input_gives_the_same_output() {
+        // a consumer that keeps up: the lossless queue alone
+        same_output(0x9e37_79b9_7f4a_7c15, 1_000, 600, 400);
+        // bursts beyond the queue: overflow mode, newest per key
+        same_output(0x2545_f491_4f6c_dd1d, 3_000, 9_000, 120);
+        // more keys than may wait: values dropped, stored values read again, the limit
+        same_output(0xd1b5_4a32_d192_ed03, 12_000, 30_000, 60);
+        // more keys than one stream may hand out: it ends with the limit
+        same_output(0x94d0_49bb_1331_11eb, 40_000, 3_000, 200);
     }
 
     #[test]
     fn the_reliable_queue_drops_the_oldest() {
-        let mut v = Vals::new(Policy::Queue(VecDeque::new()), all(), 0, Arc::default());
+        let mut v = Vals::new(Policy::Queue(VecDeque::new()), 0, Arc::default());
         for t in 0..RELIABLE_BUFFER as u64 + 2 {
             v.push(smp("a", t));
         }
