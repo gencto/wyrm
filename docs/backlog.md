@@ -692,6 +692,14 @@ plain `apply`.
   end closes the queue (`WriterEnd`); test
   `a_writer_that_panics_fails_its_callers`.
 
+`perf_e_audit` after these changes and the merge of main (two runs, load
+15–22, outside a trial): invoke p50 0.12 / 0.11 ms, p99 0.20 / 0.35 ms,
+7 968 / 7 558 per s; 6 749 / 6 415 audit records/s in 31 / 31 batches; 50
+subjects: p50 1.10 / 0.99 ms, p99 2.2 / 2.3 ms, 40 085 / 43 489 invokes/s,
+34 500 / 33 177 records/s in 11 / 11 batches; 1 ms timer late p99 2.1 /
+1.9 ms and 2.2 / 1.8 ms. No change against the table above. Follow-ups:
+issue #153.
+
 **Found: the historian's group start stalls the broker** (called a
 deadlock here: 0 % CPU and no progress for 9 min, twice; a symbolized
 `sample` of the second run). A group of 10 000 new watches first makes each
