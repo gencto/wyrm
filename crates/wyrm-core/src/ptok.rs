@@ -128,6 +128,26 @@ pub fn split(ptok: &[u8]) -> Option<PtokParts<'_>> {
     })
 }
 
+/// The `sub` of encoded claims, read without decoding anything else. For claims whose
+/// signature is NOT checked yet: the answer is the sender's word and may only pick which
+/// trusted key a verifier tries first, never what it decides. `None` when the bytes are not a
+/// claims map with a text `sub`.
+pub fn peek_sub(claims: &[u8]) -> Option<&str> {
+    let mut d = Decoder::new(claims);
+    for _ in 0..map_len(&mut d).ok()? {
+        if !matches!(d.datatype().ok()?, Type::String) {
+            d.skip().ok()?;
+            d.skip().ok()?;
+            continue;
+        }
+        if d.str().ok()? == "sub" {
+            return d.str().ok();
+        }
+        d.skip().ok()?;
+    }
+    None
+}
+
 impl<C> Encode<C> for Grant {
     fn encode<W: encode::Write>(
         &self,
@@ -267,6 +287,41 @@ impl<'b, C> Decode<'b, C> for PtokClaims {
 #[cfg(test)]
 mod level_tests {
     use super::*;
+
+    #[test]
+    fn peek_sub_reads_only_the_subject() {
+        let claims = PtokClaims {
+            sub: "user:ann".into(),
+            roles: vec!["operator".into()],
+            grants: vec![Grant {
+                k: "wy/s/**".into(),
+                p: Perm::Write,
+            }],
+            auth: Some(Vec::new()),
+            args: Some([9; 32]),
+            ..Default::default()
+        };
+        let bytes = crate::codec::encode_to_vec(&claims);
+        assert_eq!(peek_sub(&bytes), Some("user:ann"));
+        // not claims: nothing, and never a panic
+        assert_eq!(peek_sub(&[]), None);
+        assert_eq!(peek_sub(&[0xff; 40]), None);
+        assert_eq!(
+            peek_sub(&[0xbf, 0x63, b's', b'u', b'b', 0x61, b'x', 0xff]),
+            None
+        );
+        for cut in 0..bytes.len() {
+            let _ = peek_sub(&bytes[..cut]);
+        }
+        // a map without `sub`, and one whose `sub` is not text
+        assert_eq!(peek_sub(&[0xa1, 0x63, b'e', b'x', b'p', 0x01]), None);
+        assert_eq!(peek_sub(&[0xa1, 0x63, b's', b'u', b'b', 0x01]), None);
+        // integer keys are passed over
+        assert_eq!(
+            peek_sub(&[0xa2, 0x01, 0x02, 0x63, b's', b'u', b'b', 0x61, b'x']),
+            Some("x")
+        );
+    }
 
     #[test]
     fn the_first_intersecting_grant_decides() {
