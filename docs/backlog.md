@@ -675,7 +675,11 @@ plain `apply`.
   and when it is confirmed). Tests
   `in_a_trial_the_files_are_what_the_previous_version_opens` (the files at
   every step of every write pass the old rule),
-  `the_audit_journal_follows_the_update_state`.
+  `the_audit_journal_follows_the_update_state`. Second audit: the same
+  from the moment `rollback_update` is asked (the state stays `confirmed`
+  and names who asked); the switch waits for a batch in flight before the
+  action answers. Test `a_rollback_asked_switches_the_journal_before_it_answers`
+  (through the action).
 - A failed write left its bytes in the WAL and the next record followed
   them (the note above; with batches the window was larger). `Store::append`
   cuts the file back; when it cannot, or when the `fsync` failed, the store

@@ -1506,9 +1506,13 @@ pub(super) async fn rollback(
     // held until the broker has stopped (see `update`)
     ctl.replacing(true)?;
     u.rollback = sub.to_owned();
-    if let Err(e) = u.save(d) {
+    // From here the guard starts the previous version next, however this process
+    // ends. The journal writes what that version opens before anything else is
+    // written and before the caller is answered: `save_update` returns when a
+    // batch in flight is on disk and the anchor is the plain head.
+    if let Err(e) = ctl.save_update(&u) {
         let _ = ctl.replacing(false);
-        return Err(LinkError::internal(e));
+        return Err(e);
     }
     ctl.record(
         sub,
@@ -1815,13 +1819,12 @@ async fn trial(ctl: &Arc<Control>, session: &Session) {
             u.ended = now;
             u.keep_until = now + u64::from(ctl.cfg.updates.keep_days) * 86_400;
             u.audited = true;
-            if let Err(e) = u.save(d) {
-                warn!("update.json: {e}");
-                return;
-            }
             // confirmed: the guard no longer goes back by itself, so the journal
             // may write batches again
-            ctl.audit_follows_update();
+            if let Err(e) = ctl.save_update(&u) {
+                warn!("update.json: {}", e.message);
+                return;
+            }
             ctl.record(
                 &u.by,
                 AuditOp::UpdateConfirmed,
@@ -2081,6 +2084,69 @@ mod tests {
             .other_job()
             .is_some_and(|j| j.contains("update of the broker")));
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// Audit of #152, round 2: `rollback_update` hands the files to the previous
+    /// version (the guard goes back at the next start, however this process ends).
+    /// Through the action itself: when it answers, `update.json` names who asked
+    /// and the audit journal writes record by record, its own `update_rollback`
+    /// record included.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_rollback_asked_switches_the_journal_before_it_answers() {
+        let me = release::identity().version.clone();
+        let prefix =
+            std::env::temp_dir().join(format!("wyrm-rollback-asked-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&prefix);
+        std::fs::create_dir_all(&prefix).unwrap();
+        let built = prefix.join("built");
+        std::fs::write(&built, b"this version").unwrap();
+        let l = Layout::install(&prefix.join("opt"), &built, &me).unwrap();
+        std::fs::create_dir_all(l.versions().join("0.0.1")).unwrap();
+        std::fs::write(l.bin_of("0.0.1"), b"the version before").unwrap();
+        let exe = l.bin_of(&me);
+        let exe2 = exe.clone();
+        let ctl = super::super::tests::control_tweaked("rollback-asked", move |c| {
+            c.updates.mode = UpdateMode::SelfUpdate;
+            c.link_exe = exe2;
+        });
+        let d = ctl.cfg.data_dir.clone();
+        release::stamp_guard(&d, &me);
+        UpdateFile {
+            from: "0.0.1".into(),
+            to: me.clone(),
+            state: release::UpdateState::Confirmed,
+            ..Default::default()
+        }
+        .save(&d)
+        .unwrap();
+        ctl.audit_follows_update();
+        assert!(!ctl.audit.is_one_by_one(), "confirmed: batches");
+        // a wrong site name is refused and changes nothing
+        let refused = rollback(
+            &ctl,
+            RollbackUpdate {
+                confirm_site: "another".into(),
+            },
+            "user:root",
+        )
+        .await;
+        assert!(refused.is_err());
+        assert!(!ctl.audit.is_one_by_one());
+        let site = ctl.cfg.site.clone();
+        let answer = rollback(&ctl, RollbackUpdate { confirm_site: site }, "user:root")
+            .await
+            .unwrap();
+        assert!(answer.is_some());
+        // at the answer: the state file, the switch, and the record written under it
+        assert_eq!(UpdateFile::load(&d).unwrap().rollback, "user:root");
+        assert!(
+            ctl.audit.is_one_by_one(),
+            "the previous version starts next"
+        );
+        let last = ctl.audit_tail(1).pop().unwrap();
+        assert_eq!(last.op, AuditOp::UpdateRollback.into());
+        let _ = std::fs::remove_dir_all(&prefix);
     }
 
     /// The guard ran before the process started; the daemon of a promoted

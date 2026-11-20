@@ -786,7 +786,7 @@ impl Control {
         let (reload, rx) = mpsc::unbounded_channel();
         let kept = backups::Backups::open(&cfg.data_dir.join("backups"));
         let update = broker_update::BrokerUpdate::open(&cfg.data_dir);
-        let in_trial = update_in_trial(&cfg.data_dir);
+        let in_trial = previous_version_may_start(&cfg.data_dir);
         let ctl = Arc::new(Self {
             cfg,
             store: Mutex::new(store),
@@ -954,12 +954,25 @@ impl Control {
         &self.history
     }
 
-    /// Tell the audit journal whether the broker's own update is in its trial
-    /// (`update.json`), after that file changed. In a trial the journal writes
-    /// record by record, in the form every earlier version opens: the guard may
-    /// start the previous version after a kill (ADR 0048 §2.5).
+    /// Tell the audit journal whether the previous version may be the next to
+    /// open the files (`update.json`: an update in its trial, or a rollback asked),
+    /// after that file changed. While it may, the journal writes record by
+    /// record, in the form every earlier version opens (ADR 0048 §2.5). When this
+    /// returns with that switched on, a batch that was in flight is on disk and
+    /// the anchor is the plain head.
     pub(crate) fn audit_follows_update(&self) {
-        self.audit.one_by_one(update_in_trial(&self.cfg.data_dir));
+        let on = previous_version_may_start(&self.cfg.data_dir);
+        if let Err(e) = self.audit.one_by_one(on) {
+            warn!("the audit journal did not take the update state: {e}");
+        }
+    }
+
+    /// Write `update.json` and make the audit journal follow it: the one way the
+    /// state of an update changes while the broker runs.
+    pub(crate) fn save_update(&self, u: &crate::release::UpdateFile) -> Result<(), LinkError> {
+        u.save(&self.cfg.data_dir).map_err(LinkError::internal)?;
+        self.audit_follows_update();
+        Ok(())
     }
 
     pub fn audit_tail(&self, n: usize) -> Vec<AuditRecord> {
@@ -6218,9 +6231,16 @@ async fn watch_quarantine(ctl: Arc<Control>, ctx: LinkCtx) {
     }
 }
 
-/// Is the broker's own update in its trial (the state file says so)?
-fn update_in_trial(data_dir: &Path) -> bool {
-    crate::release::UpdateFile::load(data_dir).is_some_and(|u| u.in_trial())
+/// May the version before this one be the next to open the files? While the
+/// broker's own update is in its trial (a kill, or a trial given up, is
+/// followed by the guard's way back), and from the moment a rollback of a
+/// confirmed update is asked (`rollback_update`: the guard goes back at the
+/// next start, however this process ends).
+fn previous_version_may_start(data_dir: &Path) -> bool {
+    use crate::release::UpdateState;
+    crate::release::UpdateFile::load(data_dir).is_some_and(|u| {
+        u.in_trial() || (u.state == UpdateState::Confirmed && !u.rollback.is_empty())
+    })
 }
 
 /// One record of the broker's own, stamped with the broker's clock.
@@ -7090,6 +7110,22 @@ mod tests {
             ctl.audit_follows_update();
             assert!(!ctl.audit.is_one_by_one(), "{state:?}");
         }
+        // a rollback of a confirmed update is asked: the guard goes back at the
+        // next start, so the previous version opens what is written from now on
+        let mut asked = file(UpdateState::Confirmed);
+        asked.rollback = "user:root".into();
+        ctl.save_update(&asked).unwrap();
+        assert!(ctl.audit.is_one_by_one(), "a rollback is asked");
+        // done by the guard: the old version runs, and who asked stays in the file
+        asked.state = UpdateState::RolledBack;
+        ctl.save_update(&asked).unwrap();
+        assert!(!ctl.audit.is_one_by_one(), "rolled back");
+        // a start with a rollback asked (the stop did not come: a kill)
+        asked.state = UpdateState::Confirmed;
+        let again = control("audit-rollback-asked", false, |d| {
+            asked.save(d).unwrap();
+        });
+        assert!(again.audit.is_one_by_one(), "a start with a rollback asked");
         let plain = control("audit-no-update", false, |_| {});
         assert!(!plain.audit.is_one_by_one(), "no update at all");
     }

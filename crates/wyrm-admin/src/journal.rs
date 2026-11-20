@@ -138,10 +138,27 @@ impl Journal {
     /// at the plain head after it, exactly as before group commit. The files then
     /// never hold what an older version cannot open (a batch announced in the
     /// anchor). The broker asks for it while its own update is in its trial: a
-    /// kill there is followed by the previous version (ADR 0048 §2.5). Takes
-    /// effect with the writer's next batch.
-    pub(crate) fn one_by_one(&self, on: bool) {
+    /// kill there is followed by the previous version (ADR 0048 §2.5), and from
+    /// the moment a rollback is asked.
+    ///
+    /// Switching it on returns when it holds: a batch the writer had taken
+    /// before is written and the anchor is back at the plain head, and every
+    /// later record is written alone. `Err` when the journal is closed.
+    pub(crate) fn one_by_one(&self, on: bool) -> Result<(), StateError> {
         self.shared.one_by_one.store(on, Ordering::SeqCst);
+        if !on {
+            return Ok(());
+        }
+        // an item with nothing to write: answered after everything queued before
+        // it, so after any batch that was taken while the switch was off
+        off_worker(|| {
+            let (tx, rx) = mpsc::sync_channel(1);
+            self.enqueue_blocking(Item {
+                rec: None,
+                ack: Ack::Thread(tx),
+            })?;
+            rx.recv().unwrap_or_else(|_| Err(closed())).map(|_| ())
+        })
     }
 
     #[cfg(test)]
@@ -698,7 +715,7 @@ mod tests {
                 }
                 Ok(())
             }));
-        let j = Journal::start(store, true).unwrap();
+        let j = Arc::new(Journal::start(store, true).unwrap());
         j.hold(true);
         for n in 0..40 {
             j.push_record(rec("user:a", n)).await.unwrap();
@@ -713,7 +730,7 @@ mod tests {
         }
         // confirmed: batches again
         trial.store(false, Ordering::SeqCst);
-        j.one_by_one(false);
+        j.one_by_one(false).unwrap();
         j.hold(true);
         for n in 40..90 {
             j.push_record(rec("user:a", n)).await.unwrap();
@@ -724,20 +741,46 @@ mod tests {
         assert!(j.batches() < 40 + 50, "{} batches", j.batches());
         assert!(steps.lock().unwrap().contains(&Step::Announce));
         // and back, should another update begin
+        // the switch itself waits for a batch in flight: held, a batch of the
+        // records queued here is still to be written when it is asked
+        j.hold(true);
+        for n in 90..120 {
+            j.push_record(rec("user:a", n)).await.unwrap();
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let switch = tokio::task::spawn_blocking({
+            let j = j.clone();
+            move || j.one_by_one(true)
+        });
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(
+            !switch.is_finished(),
+            "switched before the batch in flight ended"
+        );
+        j.hold(false);
+        switch.await.unwrap().unwrap();
+        // it holds now: the batch is on disk, the anchor is the plain head
+        assert_eq!(j.lsn(), 120);
+        assert_eq!(
+            std::fs::read_to_string(&anchor)
+                .unwrap()
+                .split_whitespace()
+                .count(),
+            2
+        );
         trial.store(true, Ordering::SeqCst);
-        j.one_by_one(true);
-        j.flush().await.unwrap();
         let before = j.batches();
         j.hold(true);
-        for n in 90..100 {
+        for n in 120..130 {
             j.push_record(rec("user:a", n)).await.unwrap();
         }
         j.hold(false);
         j.flush().await.unwrap();
         assert_eq!(j.batches() - before, 10);
         j.close();
+        assert!(j.one_by_one(true).is_err(), "closed: the switch says so");
         let v = wyrm_state::verify(&d, KEY, Some(&anchor)).unwrap();
-        assert_eq!((v.records, v.anchor_ok), (100, Some(true)));
+        assert_eq!((v.records, v.anchor_ok), (130, Some(true)));
         assert!(an_older_version_opens(&d, &anchor));
     }
 

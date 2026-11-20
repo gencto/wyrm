@@ -56,7 +56,12 @@ makes; only the number of `fsync`s differs.
   files never hold one. This is a rule, not a case for one version: what a
   version in its trial leaves on disk is what the version before it opens.
   The journal takes about one `fsync` per record for those minutes (the
-  rate of before); after the confirmation it writes batches again.
+  rate of before); after the confirmation it writes batches again. The
+  same holds from the moment `rollback_update` is asked for a confirmed
+  update (`update.json` names who asked): the guard starts the previous
+  version next, however this process ends. The action answers only after
+  the switch holds: a batch that was being written is on disk and the
+  anchor is the plain head.
 - A downgrade by hand, outside a trial, to a version from before group
   commit: stop the broker first (a stop leaves the plain head). Only after
   a kill inside a batch can such a version refuse the anchor (`records
