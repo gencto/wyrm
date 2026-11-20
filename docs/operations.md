@@ -18,7 +18,37 @@ its `data_dir` and from its links:
 | History rows | `history/days/*.redb` | the rows still in the write buffer: up to `buffer_flush_time` of each watch group (5 s by default) |
 | Gateway sessions | nothing: users log in again (the explorer's client reconnects and reopens its streams) | all |
 | A `set` or an action in flight | nothing: the caller gets an error and repeats it | that one request |
-| The audit journal | `audit/` | nothing already written; records a link put while the broker was away are not sent again (ADR 0029, decision 7) |
+| The audit journal | `audit/` | nothing already written; a link's records that the broker had received and not yet written (at most 1024, about one `fsync` of time); records a link put while the broker was away are not sent again (ADR 0029, decision 7) |
+
+**The audit journal: what is durable when.** One thread writes the journal.
+It takes the records that wait (at most 256) and writes them as one batch:
+one write, one `fsync`, then the anchor (`state_anchor_dir`). The records,
+their order, their CRC and their HMAC chain are the ones a write per record
+makes; only the number of `fsync`s differs.
+
+- A record the broker makes itself (an admin action, a login, a change of
+  role, an update: everything but the next item) is on disk before the
+  operation goes on. The caller waits for the `fsync` that covers its record;
+  a failed write is logged as `audit write failed`.
+- A record a link reports for its own `set`/`invoke` was never acknowledged:
+  the link puts it after the command and does not wait (ADR 0029, decision
+  7). The broker queues it in the order it arrived and writes it with the
+  next batch. A failed write is logged.
+- The queue holds 1024 records. When it is full, who adds a record waits;
+  nothing is dropped to make room. (The limit of 50 records per second for a
+  link over the network, ADR 0031 ADM-3, is apart and is itself audited as
+  `audit_dropped`.)
+- A stop (SIGTERM) writes the whole queue before the store closes. A kill
+  loses only link records that were still in the queue.
+- With `state_anchor_dir`, a batch of two or more records first writes the
+  anchor as `<lsn> <mac> +<n>`: "`n` records follow this head". After the
+  batch the anchor is the plain head again. A start after a kill inside a
+  batch finds that announcement and accepts any whole prefix of the batch;
+  no caller had an answer for those records. Without the announcement the
+  rule is as before: at most one record after the anchor. A version older
+  than this one does not read the announcement: after a kill inside a batch
+  and a rollback to such a version, the start can refuse the anchor
+  (`records behind the WAL`); run `wyrmd verify`, then `wyrmd init-anchors`.
 
 So the broker needs no cluster to survive its own crash: it needs to be
 started again, quickly, with the same `data_dir`. That is the supervisor's

@@ -13,6 +13,7 @@
 
 use crate::acl;
 use crate::audit::{AuditLog, AuditOp, AuditRecord};
+use crate::journal::Journal;
 use crate::logs::LogLevel;
 use crate::packages;
 use crate::registry::{
@@ -404,7 +405,8 @@ fn option_info(name: OptionName) -> &'static str {
 pub struct Control {
     cfg: ControlConfig,
     store: Mutex<Store<Registry>>,
-    audit: Mutex<Store<AuditLog>>,
+    /// The audit journal: its writer thread owns the store (`crate::journal`).
+    audit: Journal,
     pki: Pki,
     secrets: crate::secrets::SecretStore,
     supervisor: Arc<Supervisor>,
@@ -787,7 +789,7 @@ impl Control {
         let ctl = Arc::new(Self {
             cfg,
             store: Mutex::new(store),
-            audit: Mutex::new(audit),
+            audit: Journal::start(audit)?,
             pki,
             secrets,
             supervisor: Supervisor::new(),
@@ -934,7 +936,14 @@ impl Control {
     /// audit records per second with it (feature `testkit`; never in a production build).
     #[cfg(feature = "testkit")]
     pub fn audit_lsn(&self) -> u64 {
-        self.audit.lock().unwrap_or_else(|p| p.into_inner()).lsn()
+        self.audit.lsn()
+    }
+
+    /// Batches the audit journal has written so far, one `fsync` of its WAL each (feature
+    /// `testkit`; never in a production build).
+    #[cfg(feature = "testkit")]
+    pub fn audit_batches(&self) -> u64 {
+        self.audit.batches()
     }
 
     /// The historian itself: the perf tests of `wyrmd` give it 10 000 watches without 10 000
@@ -945,9 +954,7 @@ impl Control {
     }
 
     pub fn audit_tail(&self, n: usize) -> Vec<AuditRecord> {
-        let a = self.audit.lock().unwrap_or_else(|p| p.into_inner());
-        let r = &a.state().recent;
-        r.iter().skip(r.len().saturating_sub(n)).cloned().collect()
+        self.audit.tail(n)
     }
 
     pub(crate) fn apply(&self, op: Op) -> Result<(), StateError> {
@@ -1003,21 +1010,30 @@ impl Control {
 
     /// One record in the admin's audit journal (also for in-process
     /// components such as the user gateway). Never pass secret values.
+    ///
+    /// The record is on disk when this returns (a failed write is logged). The
+    /// journal's writer thread does the write and the `fsync`, one for all the
+    /// records that wait; this thread only waits for it, and a runtime worker is
+    /// handed back to the runtime meanwhile.
     pub fn record(&self, sub: &str, op: AuditOp, key: &str, status: Status, detail: &str) {
-        let rec = AuditRecord {
-            t: now_us(),
-            sub: sub.to_owned(),
-            op: op.into(),
-            key: key.to_owned(),
-            status: status.code(),
-            detail: detail.to_owned(),
-        };
-        if let Err(e) = self
-            .audit
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .apply(rec)
-        {
+        let rec = audit_record(sub, op, key, status, detail);
+        if let Err(e) = self.audit.write_blocking(rec) {
+            warn!("audit write failed: {e}");
+        }
+    }
+
+    /// [`Control::record`] for `async` code: the task waits for the write, its
+    /// worker runs other tasks.
+    pub async fn record_async(
+        &self,
+        sub: &str,
+        op: AuditOp,
+        key: &str,
+        status: Status,
+        detail: &str,
+    ) {
+        let rec = audit_record(sub, op, key, status, detail);
+        if let Err(e) = self.audit.write_record(rec).await {
             warn!("audit write failed: {e}");
         }
     }
@@ -1997,6 +2013,10 @@ impl Control {
     /// Stop all supervised processes (broker exit).
     pub async fn shutdown(&self) {
         self.supervisor.stop_all().await;
+        // every audit record still queued is on disk before the process ends
+        if let Err(e) = self.audit.flush().await {
+            warn!("audit journal not flushed: {e}");
+        }
     }
 
     /// Reference nodes of the peer brokers: one link `downstream/<d>` per
@@ -6189,6 +6209,18 @@ async fn watch_quarantine(ctl: Arc<Control>, ctx: LinkCtx) {
     }
 }
 
+/// One record of the broker's own, stamped with the broker's clock.
+fn audit_record(sub: &str, op: AuditOp, key: &str, status: Status, detail: &str) -> AuditRecord {
+    AuditRecord {
+        t: now_us(),
+        sub: sub.to_owned(),
+        op: op.into(),
+        key: key.to_owned(),
+        status: status.code(),
+        detail: detail.to_owned(),
+    }
+}
+
 /// `set`/`invoke` records put by links on `wy/<site>/sys/audit/<link>`; the
 /// ACL lets only CN `<link>` write that key, so the origin is the key.
 /// A link's audit record larger than this is dropped unread (review ADM-3).
@@ -6287,13 +6319,14 @@ async fn watch_audit(ctl: Arc<Control>, ctx: LinkCtx) {
             },
             _ = report.tick() => {
                 for (link, n) in limiter.drain() {
-                    ctl.record(
+                    ctl.record_async(
                         "system",
                         AuditOp::AuditDropped,
                         &format!("wy/{}/sys/audit/{link}", ctl.cfg.site),
                         Status::RateLimited,
                         &format!("link:{link} dropped_by_broker:{n}"),
-                    );
+                    )
+                    .await;
                 }
                 continue;
             }
@@ -6389,12 +6422,10 @@ async fn watch_audit(ctl: Arc<Control>, ctx: LinkCtx) {
                 if in_subtree { "" } else { " key_outside_link" }
             ),
         };
-        if let Err(e) = ctl
-            .audit
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .apply(rec)
-        {
+        // The link did not wait for this record (ADR 0029, decision 7) and nobody else
+        // does: it is queued in the order it came, and the journal's writer logs a failed
+        // write. A full queue holds this task, so the subscriber, until there is room.
+        if let Err(e) = ctl.audit.push_record(rec).await {
             warn!("audit write failed: {e}");
         }
     }
@@ -6704,8 +6735,7 @@ async fn watch_metrics(ctl: Arc<Control>, ctx: LinkCtx) {
         set("standby_lag", standby.map_or(0.0, |s| s.lag as f64)).await;
         set("standby_forks", ctl.standby_forks() as f64).await;
         set("arbiter_lease_s", ctl.arbiter_lease_s()).await;
-        let audit = ctl.audit.lock().unwrap_or_else(|p| p.into_inner()).lsn();
-        set("audit_records", audit as f64).await;
+        set("audit_records", ctl.audit.lsn() as f64).await;
         let now = std::time::Instant::now();
         if let Some(c) = cpu_seconds() {
             if let Some((then, before)) = cpu_prev {

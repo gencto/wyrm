@@ -35,6 +35,8 @@ zenoh-link-tls 1.10.1 reads and writes one TLS session from two tasks; rustls 0.
 A link puts an audit record (`sys/audit/<link>`) at `Background` priority, without an acknowledgement. A record put while the link has no session to the router is dropped. The responder still refuses or answers the request as usual; only the record is missing. A resend needs an acknowledged audit path (a spec change); it is not done.
 *If wrong:* the audit misses commands that ran during a broker restart or a network cut.
 
+Added 2026-11-20 (audit write path, `docs/backlog.md` §14). The broker's side of the same record: what a link put and the broker received is queued (at most 1024 records, the subscriber waits when the queue is full) and written by the journal's one writer thread with the next batch, one `fsync` per batch. Nobody is answered for such a record, so a kill of the broker loses the ones still in the queue (before: the ones still in the subscriber's queue); a stop writes them all. The broker's own records are not in this class: `Control::record` returns after the `fsync` that covers the record. `docs/operations.md` §1 states both.
+
 ### 8. RUSTSEC-2023-0071 (`rsa` 0.9, Marvin timing) is accepted in `links/opcua`
 async-opcua uses `rsa` for the RSA security policies of OPC UA, and no fixed `rsa` release exists. The attack needs many timed decryptions by the server under attack; the link is a client that decrypts only the server's replies to its own session. `docs/opcua.md` states it.
 *If wrong:* an attacker who can time many of the link's decryptions on the network could recover a session key.

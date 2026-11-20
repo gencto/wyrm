@@ -25,9 +25,11 @@
 //! "lost" is expected (points × Hz × seconds) minus received: the mock's ticker skips a
 //! missed tick (`MissedTickBehavior::Skip`) without a trace, so a skipped tick shows only as
 //! a shortfall. CPU is this process (broker, links and the counting client) in % of one core.
-//! No OS counts `fsync` calls: the audit's are derived from `wyrm-state` (`apply` =
-//! `sync_data` of the WAL + `sync_all` of the anchor + `sync_all` of the directory, 3 per
-//! record); on Linux `/proc/self/io` adds write calls and bytes.
+//! No OS counts `fsync` calls: the audit's are the journal's own count of batches
+//! (`Control::audit_batches`, one `sync_data` of the WAL per batch; with
+//! `state_anchor_dir`, which these tests do not set, each batch adds the anchor's
+//! `sync_all` and its directory's, twice for a batch of two or more records); on Linux
+//! `/proc/self/io` adds write calls and bytes.
 
 #![allow(
     clippy::unwrap_used,
@@ -559,6 +561,50 @@ async fn perf_d_historian() {
     env.stop().await;
 }
 
+/// Timers of 1 ms on the runtime the broker runs on: how late each one fires. A worker
+/// that stands in a system call (an `fsync`) cannot run the tasks it holds, and a timer
+/// that was due on it fires late; a runtime whose workers only run tasks keeps them on
+/// time. A proxy: the other workers steal, so one blocked worker of four shows as a
+/// longer tail, not as every tick late.
+struct LateTicks {
+    lat: Arc<Mutex<Lat>>,
+    tasks: Vec<tokio::task::JoinHandle<()>>,
+}
+
+impl LateTicks {
+    fn start(n: usize) -> Self {
+        let lat = Arc::new(Mutex::new(Lat::new()));
+        let tasks = (0..n)
+            .map(|_| {
+                let lat = lat.clone();
+                tokio::spawn(async move {
+                    let step = Duration::from_millis(1);
+                    loop {
+                        let t = Instant::now();
+                        tokio::time::sleep(step).await;
+                        let late = t.elapsed().saturating_sub(step);
+                        lat.lock().unwrap().push(late);
+                    }
+                })
+            })
+            .collect();
+        Self { lat, tasks }
+    }
+
+    /// The ticks since the last call.
+    fn take(&self) -> Lat {
+        std::mem::take(&mut *self.lat.lock().unwrap())
+    }
+}
+
+impl Drop for LateTicks {
+    fn drop(&mut self) {
+        for t in &self.tasks {
+            t.abort();
+        }
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "a measurement, run by hand"]
 async fn perf_e_audit() {
@@ -580,7 +626,9 @@ async fn perf_e_audit() {
     }
     tokio::time::sleep(Duration::from_secs(2)).await;
     let n = 1000u64;
+    let late = LateTicks::start(8);
     let lsn0 = env.ctl.audit_lsn();
+    let batches0 = env.ctl.audit_batches();
     let u0 = Usage::read();
     let mut lat = Lat::with_capacity(1000);
     let mut refused = 0u64;
@@ -619,7 +667,7 @@ async fn perf_e_audit() {
         .n(records)
         .per_s(records as f64 / wall)
         .cpu_pct(u1.cpu_pct_since(&u0))
-        .num("fsync_per_s_derived", 3.0 * records as f64 / wall)
+        .field("batches", env.ctl.audit_batches() - batches0)
         .note("audit records written per second (first invoke to the last record)");
     if let Some(io) = u1.io_since(&u0) {
         p = p
@@ -627,6 +675,81 @@ async fn perf_e_audit() {
             .field("write_bytes", io.write_bytes);
     }
     println!("{p}");
+    println!(
+        "{}",
+        Perf::new("broker/audit/late_tick")
+            .lat(&mut late.take())
+            .note("how late a 1 ms timer of the broker's runtime fires (4 workers, 8 timers)")
+    );
+
+    // the same commands from the 50 subjects at once: what the journal takes under load
+    let per = 40u64;
+    let lsn0 = env.ctl.audit_lsn();
+    let batches0 = env.ctl.audit_batches();
+    let u0 = Usage::read();
+    let mut tasks = Vec::new();
+    for cl in clients {
+        let root = root.clone();
+        tasks.push(tokio::spawn(async move {
+            let mut lat = Vec::with_capacity(per as usize);
+            let mut refused = 0u64;
+            for _ in 0..per {
+                let t = Instant::now();
+                if cl
+                    .invoke_one(&root, "reset", Value::Map(Default::default()))
+                    .await
+                    .is_err()
+                {
+                    refused += 1;
+                }
+                lat.push(t.elapsed());
+            }
+            (lat, refused)
+        }));
+    }
+    let mut lat = Lat::with_capacity(2000);
+    let mut refused = 0u64;
+    for t in tasks {
+        let (l, r) = t.await.unwrap();
+        for d in l {
+            lat.push(d);
+        }
+        refused += r;
+    }
+    let u_sent = Usage::read();
+    let n = 50 * per;
+    let want = n - refused;
+    let deadline = Instant::now() + Duration::from_secs(60);
+    while env.ctl.audit_lsn() - lsn0 < want && Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    let u1 = Usage::read();
+    let records = env.ctl.audit_lsn() - lsn0;
+    println!(
+        "{}",
+        Perf::new("broker/audit/invoke_x50")
+            .lat(&mut lat)
+            .per_s(n as f64 / u_sent.wall_since(&u0).as_secs_f64())
+            .cpu_pct(u_sent.cpu_pct_since(&u0))
+            .rss(u_sent.rss_bytes)
+            .field("refused", refused)
+            .note("the same invoke from 50 subjects at once, 40 each")
+    );
+    println!(
+        "{}",
+        Perf::new("broker/audit/records_x50")
+            .n(records)
+            .per_s(records as f64 / u1.wall_since(&u0).as_secs_f64())
+            .cpu_pct(u1.cpu_pct_since(&u0))
+            .field("batches", env.ctl.audit_batches() - batches0)
+            .note("audit records written per second under the 50 callers")
+    );
+    println!(
+        "{}",
+        Perf::new("broker/audit/late_tick_x50")
+            .lat(&mut late.take())
+            .note("how late a 1 ms timer of the broker's runtime fires under the 50 callers")
+    );
     drop(c);
     env.stop().await;
 }
