@@ -87,7 +87,10 @@ pub type Overlays = HashMap<String, BTreeMap<String, Value>>;
 
 #[derive(Debug)]
 pub struct NodeTree {
-    nodes: HashMap<String, Node>,
+    /// Boxed: a `Node` is some 350 bytes, and a hash table keeps up to twice
+    /// as many slots as entries (and both tables while it grows). The table
+    /// holds a key and a pointer per slot; a node costs its own size once.
+    nodes: HashMap<String, Box<Node>>,
     /// The broker's attributes for nodes (ADR 0016): a layer of its own, so
     /// a re-declared node keeps them; merged into answers only.
     overlays: Overlays,
@@ -171,7 +174,7 @@ impl NodeTree {
         let mut nodes = HashMap::new();
         let mut root = sanitize(root);
         fill_actions(&mut root);
-        nodes.insert(String::new(), Node::new(root));
+        nodes.insert(String::new(), Box::new(Node::new(root)));
         Self {
             nodes,
             overlays: HashMap::new(),
@@ -226,7 +229,7 @@ impl NodeTree {
     }
 
     pub fn get(&self, path: &str) -> Option<&Node> {
-        self.nodes.get(path)
+        self.nodes.get(path).map(|n| &**n)
     }
 
     pub fn len(&self) -> usize {
@@ -238,7 +241,7 @@ impl NodeTree {
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (&String, &Node)> {
-        self.nodes.iter()
+        self.nodes.iter().map(|(p, n)| (p, &**n))
     }
 
     /// Create or replace a node. The parent must exist. Re-declaring with an
@@ -284,7 +287,8 @@ impl NodeTree {
         }
         p.children.push(name.to_owned());
         p.rev = p.rev.wrapping_add(1);
-        self.nodes.insert(path.to_owned(), Node::new(meta));
+        self.nodes
+            .insert(path.to_owned(), Box::new(Node::new(meta)));
         Ok(Changed {
             node: true,
             parent: Some(parent.to_owned()),
@@ -379,7 +383,7 @@ impl NodeTree {
     pub fn restricted(&self, path: &str) -> bool {
         let mut p = path;
         loop {
-            if self.nodes.get(p).is_some_and(Node::is_restricted) {
+            if self.get(p).is_some_and(Node::is_restricted) {
                 return true;
             }
             match split_parent(p) {
@@ -396,15 +400,11 @@ impl NodeTree {
         path: &'a str,
         authorized: bool,
     ) -> impl Iterator<Item = &'a String> + 'a {
-        let node = self.nodes.get(path);
+        let node = self.get(path);
         node.into_iter()
             .flat_map(|n| n.children.iter())
             .filter(move |c| {
-                authorized
-                    || !self
-                        .nodes
-                        .get(&join(path, c))
-                        .is_some_and(Node::is_restricted)
+                authorized || !self.get(&join(path, c)).is_some_and(Node::is_restricted)
             })
     }
 
@@ -412,18 +412,39 @@ impl NodeTree {
     /// value (spec 02 `has_nodes`).
     fn has_nodes(&self, path: &str, authorized: bool) -> bool {
         self.visible_children(path, authorized)
-            .any(|c| self.nodes.get(&join(path, c)).is_some_and(|n| !n.is_leaf()))
+            .any(|c| self.get(&join(path, c)).is_some_and(|n| !n.is_leaf()))
     }
 
     /// `view=full` for a caller; `children` hides restricted ones unless `authorized`.
+    ///
+    /// One pass over the children: each is looked up once (for `restricted`
+    /// and `has_nodes`) through one reused key, and each name is copied once.
     pub fn full(&self, path: &str, authorized: bool) -> Option<NodeMeta> {
-        let mut m = self.nodes.get(path)?.full();
+        let node = self.nodes.get(path)?;
+        let mut m = node.meta.clone();
+        m.rev = Some(node.rev);
         m.attr = merge_attr(m.attr.take(), self.overlays.get(path));
-        if m.children.is_some() {
-            let kids: Vec<String> = self.visible_children(path, authorized).cloned().collect();
+        if !node.is_leaf() || !node.children.is_empty() {
+            let mut kids = Vec::with_capacity(node.children.len());
+            let mut has_nodes = false;
+            let mut key = String::with_capacity(path.len() + 32);
+            for c in &node.children {
+                key.clear();
+                if !path.is_empty() {
+                    key.push_str(path);
+                    key.push('/');
+                }
+                key.push_str(c);
+                let child = self.get(key.as_str());
+                if !authorized && child.is_some_and(Node::is_restricted) {
+                    continue;
+                }
+                has_nodes |= child.is_some_and(|n| !n.is_leaf());
+                kids.push(c.clone());
+            }
             m.children_count = Some(kids.len() as u32);
             m.children = Some(kids);
-            m.has_nodes = Some(self.has_nodes(path, authorized));
+            m.has_nodes = Some(has_nodes);
         }
         Some(m)
     }

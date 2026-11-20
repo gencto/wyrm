@@ -541,7 +541,7 @@ measured.
 | Group | Measurement | Audit item | What it covers |
 |---|---|---|---|
 | sdk | `cargo bench -p wyrm-link-sdk --bench verify` | 3 | one `ptok` check with 1 admin + 4/10/30 limited keys: best case (admin key) and worst case (the last limited key, 1 + n Ed25519 verifies) |
-| sdk | `cargo bench -p wyrm-link-sdk --bench tree` | 4, 5, 17 | declare 1k/5k/10k points (time, `~meta` puts and bytes; pure `NodeTree` and through `LinkCtx` over Zenoh); a wildcard `get` that hits one node of 10k; `view=list` of 1000 children with and without a profile name |
+| sdk | `cargo bench -p wyrm-link-sdk --bench tree` | 4, 5, 17 | declare 1k/10k/30k points (time, `~meta` puts and bytes, the parent's apart, bytes kept, peak RSS; pure `NodeTree` with one parent put per child, and through `LinkCtx` over Zenoh; `TREE_DECLARE_ONLY=<n>` runs one size in a process of its own); a wildcard `get` that hits one node of 10k; `view=list` of 1000 children with and without a profile name |
 | flow | `cargo test --release -p wyrm-flow --test throughput -- --ignored --nocapture` | 7–10 | `subscribe → (scale, add) × n → publish`, a paced rate ladder on one key and on 1000 keys, default and deep inbox; allocations per hop (9 hops minus 3); 10 000-row tables through `table_sort` ×1/×3 and `table_filter` + `table_aggregate` |
 | broker | `cargo test --release -p wyrmd --test perf -- --ignored --nocapture --exact <test>` | 1, 2, 12, 13, gateway | an in-process broker with the embedded mock: (a) base rate, (b) a client that subscribes `wy/<site>/downstream/**` in a loop and one `wy/**`, (c) the mock at `trace`, (d) the historian on 10 000 points, (e) 1000 invokes and the audit records/s, (f) 10 gateway WebSocket clients × 1000 points × 10 Hz |
 
@@ -560,6 +560,8 @@ and the reference board (4-core ARM64, 2 GB) is not measured yet.
 | M4 Max, loaded, rough | release | `verify`, last of 4 / 10 / 30 limited keys | p50 111 / 243 / 684 µs (p99 1.27 ms at 30), 14 / 20 / 40 allocs | 2026-11-19 |
 | M4 Max, loaded, rough | release | one Ed25519 `verify_strict` | p50 21.6 µs | 2026-11-19 |
 | M4 Max, loaded, rough | release | declare 1k / 5k / 10k points (`LinkCtx`) | 85 ms / 2.1 s / 8.9 s; `~meta` 2.3 / 67 / 276 MiB in 2 puts per point; 2.6k / 12.6k / 25k allocs per point | 2026-11-19 |
+| M4 Max, load 12–20, rough | release | the same before the fix below, `origin/main` `32cfee50`, 1k / 10k / 30k points, one process per size | 84 ms / 8.4 s / 104 s; `~meta` put 2.3 / 276 / 2735 MiB, all but 0.01 / 0.1 / 0.4 MiB of it the parent's (1 parent put per point); 2.6k / 25k / 75k allocs per point; kept 0.78 / 6.5 / 25.0 MiB; peak RSS 9.0 / 20.9 / 51.6 MiB | 2026-11-20 |
+| M4 Max, load 12–18, rough | release | the same after the fix (`perf/declare-on`) | 2.8 ms / 29 ms / 89 ms (2.0 µs per point at every size); `~meta` put 0.07 / 1.1 / 4.1 MiB in 1 put per point + 43 / 82 / 102 parent puts in all; 50 / 55 / 57 allocs per point; kept 0.44 / 4.5 / 13.6 MiB; peak RSS 7.7 / 13.4 / 26.2 MiB | 2026-11-20 |
 | M4 Max, loaded, rough | release | wildcard `get` hitting 1 node of 10k vs. the plain `get` | p50 1.98 ms vs. 10.9 µs; 20 070 vs. 50 allocs | 2026-11-19 |
 | M4 Max, loaded, rough | release | `view=list` of 1000 children, plain vs. `is: "wy:number"` | p50 195 µs vs. 795 µs; 3.1k vs. 29k allocs; 0.58 vs. 6.6 MB allocated | 2026-11-19 |
 | M4 Max, loaded, rough | release | flow chain, 3 hops, one key, 2000/s | 7 % of samples thinned (the source keeps the latest sample per key) | 2026-11-19 |
@@ -657,6 +659,63 @@ at 2 Hz the historian wrote 18 000 rows/s of the 20 000 samples/s, with 0
 counted as dropped. On 2026-11-20 (load 7–12) it wrote 20 000 rows/s in
 both runs; the cause of the lower figure under the heavier load is not
 diagnosed.
+
+**Fixed (2026-11-20, `perf/declare-on`): declaring n points under one
+node cost n².** Audit item 4. The cause, by the counters of the bench (no
+`samply`/`cargo flamegraph` on the machine; a `sample` of the stripped
+bench shows only `malloc`, `free` and `memmove` on top): every new child
+put its parent's whole `~meta`, and that lists every child. Of the 276 MiB
+put for 10 000 points, all but 0.1 MiB were the parent's 10 000 puts (27.6 kB
+each on average); a point's own `~meta` is about 10 bytes. Each of those puts
+also copied the child list twice and built two keys per child (2.5
+allocations per child and declare). The 276 MiB were bytes put, never
+memory held: the process peaked at 21 MiB. Nothing of it was Zenoh's: the
+broker stores `~val` only, and of the 6.5 MiB kept after 10 000 declares
+6.4 MiB are the link's own tree (the same figure without Zenoh).
+
+The rule now (`LinkCtx`, `Parents` in `crates/wyrm-link-sdk/src/ctx.rs`):
+
+- a child's own `~meta` is put by its declare, as before: a `list` client
+  gets `Added` for every child from that put, and a snapshot
+  (`view=full|list|keys`) is answered from the tree, which the declare has
+  already changed. Wire, keys and payloads are unchanged;
+- the parent's `~meta` for a changed child list (a child declared or
+  removed) is put at once when no such put was made just before. After
+  one, the next waits 4 times as long as that put took (at most 500 ms);
+  a parent that changes meanwhile is noted in a set (a path once, so never
+  more than the tree holds: no queue) and one task puts each noted parent
+  when the wait ends, once, with the list as it is then. The parent puts
+  take at most 1/5 of a burst's time, so n children cost O(n). A single
+  Add in a quiet link is put by the declare itself, as before;
+- a requester that follows the parent's `~meta` sees fewer puts in a
+  burst, with `rev` rising by more than 1; the last put always carries
+  the whole list (spec 02 Patch already tells a requester what a gap
+  means). All `~meta` puts of a link take turns, and each reads the tree
+  inside its turn, so the last put of a node is its newest meta also when
+  two tasks put it (before, two tasks could leave the older one last);
+- a put made later by the task cannot fail the declare that asked for it
+  (it is logged at `debug`); a stopped link drops what waited;
+- the tree keeps its nodes boxed: the hash table holds a key and a pointer
+  per slot instead of a 352-byte node in every slot, used or not (kept
+  25.0 → 13.6 MiB at 30 000 points, and no 12 + 24 MiB copy when the
+  table grows); `NodeTree::full` reads each child once.
+
+Tests: `crates/wyrm-link-sdk/tests/declare_burst.rs` (5000 children put
+the parent at most 500 times, it was 5000; the last put is the whole list
+with the tree's `rev`, also with two declaring tasks and for removals; a
+single child is put at once; a stopped link puts nothing) and
+`crates/wyrm-client/tests/declare_burst.rs` (lists opened before and
+during a burst of 10 000 children all end with every child, each added
+once; the folder's last put, seen by its parent's list, carries all).
+
+Left as it is: a `list` opened while children are declared faster than
+its snapshot is read answers `busy` ("children kept changing"), as
+before; the caller asks again, and the bursts are now some 300 times
+shorter at 10 000 points. A node is still 352 bytes for a 10-byte meta (`NodeMeta` is a
+struct of many optional fields: a change of `wyrm-core`, not done here).
+Removing n children one at a time still searches the parent's list each
+time (n² short string compares; not measured apart). The framework's four own `~meta` puts per point (the point,
+then each action) are a constant per point and are not merged.
 
 Not covered yet:
 

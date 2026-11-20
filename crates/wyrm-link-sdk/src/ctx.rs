@@ -3,10 +3,11 @@
 use crate::error::{LinkError, Result};
 use crate::support::{Metrics, SecretStore};
 use crate::tree::{Changed, NodeTree};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, RwLock, Weak};
+use std::time::{Duration, Instant};
 pub use wyrm_core::clock::now_us;
 use wyrm_core::keyspace::{self, SUFFIX_META, SUFFIX_VAL};
 use wyrm_core::meta::ActionMeta;
@@ -20,6 +21,53 @@ use zenoh::Session;
 /// The root attribute that says the responder answers `~act/<a>?check` (spec 05 0.2.33).
 pub const CHECK_ATTR: &str = "check";
 
+/// After a parent's `~meta` (its `children`) was put, the next put of a
+/// parent waits this many times as long as that put took: the lists of a
+/// burst of new children cost at most 1/(1 + `HOLD_FACTOR`) of its time.
+const HOLD_FACTOR: u32 = 4;
+
+/// The longest a changed child list waits for its put.
+const HOLD_MAX: Duration = Duration::from_millis(500);
+
+/// Parents whose child list changed and whose `~meta` is not put yet.
+///
+/// A parent's `~meta` lists every child, so one put per new child makes a
+/// burst of n children cost n² (docs/backlog.md §14). The first change of a
+/// list is put at once, as it always was; while the hold that follows it
+/// lasts, a changed parent is only noted here and one task
+/// ([`flush_parents`]) puts it when the hold ends, once, with the list as
+/// it is then. A set, not a queue: it holds a path once, so it never grows
+/// beyond the tree, and nothing is lost when the driver is faster than the
+/// puts.
+#[derive(Default)]
+struct Parents {
+    state: Mutex<ParentsState>,
+    /// Wakes [`flush_parents`]: a parent was noted, or the link has ended.
+    wake: tokio::sync::Notify,
+    /// Puts of a parent's `~meta` for a changed child list (for tests and
+    /// benches: it grows much slower than the children of a burst).
+    puts: AtomicU64,
+}
+
+#[derive(Default)]
+struct ParentsState {
+    dirty: BTreeSet<String>,
+    /// Until then a changed parent is noted, not put.
+    hold_until: Option<Instant>,
+}
+
+impl Parents {
+    fn state(&self) -> std::sync::MutexGuard<'_, ParentsState> {
+        self.state.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    /// Start the hold that follows parent puts which took `took`.
+    fn hold_after(&self, took: Duration) {
+        let hold = took.saturating_mul(HOLD_FACTOR).min(HOLD_MAX);
+        self.state().hold_until = Some(Instant::now() + hold);
+    }
+}
+
 pub(crate) struct Inner {
     pub session: Session,
     pub site: String,
@@ -28,6 +76,11 @@ pub(crate) struct Inner {
     pub prefix: String,
     pub tree: RwLock<NodeTree>,
     tokens: Mutex<HashMap<String, LivelinessToken>>,
+    /// One `~meta` put at a time, each with the tree as it is when its turn
+    /// comes: the last put of a node always carries its newest meta, also
+    /// when the driver's tasks and [`flush_parents`] put the same node.
+    meta_turn: tokio::sync::Mutex<()>,
+    parents: Arc<Parents>,
     #[cfg(feature = "advanced")]
     reliable: Mutex<HashMap<String, Arc<zenoh_ext::AdvancedPublisher<'static>>>>,
     /// Set by `LinkHandle::stop`/drop; every mutation then fails with `closed`.
@@ -74,13 +127,16 @@ impl LinkCtx {
         root: NodeMeta,
         host: HostState,
     ) -> Self {
-        Self(Arc::new(Inner {
+        let parents = Arc::new(Parents::default());
+        let ctx = Self(Arc::new(Inner {
             session,
             site: site.to_owned(),
             link: link.to_owned(),
             prefix,
             tree: RwLock::new(NodeTree::new(root)),
             tokens: Mutex::new(HashMap::new()),
+            meta_turn: tokio::sync::Mutex::new(()),
+            parents: parents.clone(),
             #[cfg(feature = "advanced")]
             reliable: Mutex::new(HashMap::new()),
             closed: AtomicBool::new(false),
@@ -90,7 +146,16 @@ impl LinkCtx {
             grants: host.grants,
             driver_timeout: host.driver_timeout,
             reads: tokio::sync::broadcast::channel(64).0,
-        }))
+        }));
+        tokio::spawn(flush_parents(Arc::downgrade(&ctx.0), parents));
+        ctx
+    }
+
+    /// How many times a parent's `~meta` was put because its child list
+    /// changed (a child declared or removed).
+    #[cfg(feature = "harness")]
+    pub fn parent_puts(&self) -> u64 {
+        self.0.parents.puts.load(Ordering::Relaxed)
     }
 
     /// Paths of this link whose `~meta` or `~val` a requester read, as they
@@ -139,6 +204,9 @@ impl LinkCtx {
             .clear();
         #[cfg(feature = "advanced")]
         self.reliable().clear();
+        // a stopped link puts nothing more: the flusher ends
+        self.0.parents.state().dirty.clear();
+        self.0.parents.wake.notify_one();
     }
 
     /// `true` after the link was stopped; driver tasks should exit.
@@ -183,7 +251,9 @@ impl LinkCtx {
     }
 
     /// Declare or replace a node; the parent must already exist. Publishes the
-    /// node's `~meta` and, for a new node, the parent's (new `children`).
+    /// node's `~meta` and, for a new node, the parent's (new `children`): at
+    /// once, or, in a burst of new children, a moment later and once for the
+    /// children declared meanwhile (`Parents`).
     pub async fn declare_node(&self, path: &str, meta: NodeMeta) -> Result<()> {
         self.ensure_open()?;
         let meta = if path.is_empty() {
@@ -313,7 +383,7 @@ impl LinkCtx {
                     .await?;
             }
         }
-        self.publish_meta(&parent).await
+        self.publish_parent(&parent).await
     }
 
     /// Per-node liveliness at `downstream/<link>/<path>` for nodes that come and go
@@ -532,13 +602,41 @@ impl LinkCtx {
             self.publish_meta(path).await?;
         }
         if let Some(parent) = changed.parent {
-            self.publish_meta(&parent).await?;
+            self.publish_parent(&parent).await?;
         }
         Ok(())
     }
 
+    /// `put ~meta` of a parent whose child list changed: now, or, while the
+    /// hold after an earlier such put lasts, by [`flush_parents`] when it
+    /// ends.
+    async fn publish_parent(&self, parent: &str) -> Result<()> {
+        let parents = &self.0.parents;
+        {
+            let mut st = parents.state();
+            if st.hold_until.is_some_and(|until| Instant::now() < until) {
+                if !st.dirty.contains(parent) {
+                    st.dirty.insert(parent.to_owned());
+                }
+                drop(st);
+                parents.wake.notify_one();
+                return Ok(());
+            }
+        }
+        let start = Instant::now();
+        parents.puts.fetch_add(1, Ordering::Relaxed);
+        let done = self.publish_meta(parent).await;
+        parents.hold_after(start.elapsed());
+        done
+    }
+
     /// `put ~meta` with the full meta of `path` (DataHigh + Block).
     pub(crate) async fn publish_meta(&self, path: &str) -> Result<()> {
+        // One put at a time, the tree read inside the turn: a put never
+        // carries an older meta than the put before it.
+        let _turn = self.0.meta_turn.lock().await;
+        // this put carries the child list as it is now: nothing left to flush
+        self.0.parents.state().dirty.remove(path);
         // Restricted nodes are never broadcast: `~meta` only on an authorized get.
         let Some(meta) = ({
             let tree = self.tree();
@@ -555,6 +653,46 @@ impl LinkCtx {
             .congestion_control(CongestionControl::Block)
             .await?;
         Ok(())
+    }
+}
+
+/// The one task that puts the `~meta` of the parents noted in [`Parents`]
+/// when their hold ends. It ends with the link (`close`, or its last
+/// context dropped).
+async fn flush_parents(inner: Weak<Inner>, parents: Arc<Parents>) {
+    loop {
+        parents.wake.notified().await;
+        let until = parents.state().hold_until;
+        if let Some(until) = until {
+            tokio::time::sleep_until(until.into()).await;
+        }
+        let Some(ctx) = inner.upgrade().map(LinkCtx) else {
+            return;
+        };
+        if ctx.is_closed() {
+            return;
+        }
+        let batch = {
+            let mut st = parents.state();
+            // children declared while this batch is put wait for the next one
+            st.hold_until = Some(Instant::now() + HOLD_MAX);
+            std::mem::take(&mut st.dirty)
+        };
+        let start = Instant::now();
+        for parent in &batch {
+            parents.puts.fetch_add(1, Ordering::Relaxed);
+            if let Err(e) = ctx.publish_meta(parent).await {
+                tracing::debug!(%parent, "put of a changed child list failed: {e}");
+            }
+        }
+        parents.hold_after(start.elapsed());
+    }
+}
+
+impl Drop for Inner {
+    fn drop(&mut self) {
+        // the flusher holds no context: wake it so that it ends
+        self.parents.wake.notify_one();
     }
 }
 
