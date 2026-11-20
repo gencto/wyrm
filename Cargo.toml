@@ -128,8 +128,10 @@ url = "2.5"
 wyrm-link-agent = { path = "links/agent" }
 # WASM host: no defaults (no cache, wasi, async, gc, threads, profiling). The newest release
 # line, pinned exactly; it sets the workspace `rust-version` (1.97). Was 36.x (LTS) until
-# 2026-11-20 (ADR 0010, ADR 0031 DEP-1). Without `gc` and `threads` the engine refuses GC
-# types, exceptions and shared memory at load; never turn them on with `Config::wasm_features`.
+# 2026-11-20 (ADR 0010, ADR 0031 DEP-1). The cargo features do not decide what a guest may
+# use: a build without `gc` still takes typed function references, subtypes and casts by
+# default. `wyrm_wasm_host::GUEST_FEATURES` names the accepted WebAssembly features and
+# `Host::new` turns every other one off.
 wasmtime = { version = "=50.0.3", default-features = false, features = ["runtime", "cranelift", "component-model", "std"] }
 wat = "1"
 # The `wasm-tools` crates of the version this wasmtime is built on: one copy in the binary.

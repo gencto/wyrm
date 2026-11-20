@@ -171,25 +171,107 @@ fn a_trap_is_reported_and_the_instance_recovers() {
     );
 }
 
-/// The host is built without the engine's `gc` and `threads` features and turns no proposal
-/// on by hand: garbage-collected types, exceptions (they live on the GC heap) and shared
-/// memory are refused when a component is loaded. So no guest reaches the code of
-/// RUSTSEC-2026-0567 (atomics in a build without `threads`) or RUSTSEC-2026-0573 (GC heap).
+/// The host turns on exactly `GUEST_FEATURES` and every other WebAssembly feature off, so
+/// the engine's defaults decide nothing. Each feature outside the set is refused when a
+/// component is loaded: no guest reaches the engine's code for it (RUSTSEC-2026-0567 atomics
+/// without `threads`, -0570 GC instructions in a build without `gc`, -0573 GC heap).
 #[test]
-fn proposals_outside_the_build_are_refused_at_load() {
+fn features_outside_the_set_are_refused_at_load() {
     let host = Host::new().unwrap();
     // the plain node loads: the refusals below are about the added declaration
     host.load::<NodeWorld>(&guests::with_core("")).unwrap();
     for (what, decls) in [
-        ("gc", "(type $s (struct (field i32)))"),
+        ("gc: struct type", "(type $s (struct (field i32)))"),
+        (
+            "gc: function subtype and ref.test",
+            "(type $t (sub (func))) (func $f (type $t)) (elem declare func $f)
+             (func (result i32) (ref.test (ref $t) (ref.func $f)))",
+        ),
+        (
+            "gc: ref.i31",
+            "(func (result i32) (i31.get_s (ref.i31 (i32.const 1))))",
+        ),
+        (
+            "function references: call_ref",
+            "(type $ft (func)) (func $g (type $ft)) (elem declare func $g)
+             (func (call_ref $ft (ref.func $g)))",
+        ),
+        ("gc types: externref", "(func (param externref))"),
+        (
+            "wide arithmetic: i64.add128",
+            "(func (result i64 i64)
+               (i64.add128 (i64.const 1) (i64.const 2) (i64.const 3) (i64.const 4)))",
+        ),
         ("exceptions", "(tag $e (param i32))"),
-        ("threads", "(memory $shared 1 1 shared)"),
+        ("threads: shared memory", "(memory $shared 1 1 shared)"),
+        (
+            "threads: atomics",
+            "(func (result i32) (i32.atomic.load (i32.const 0)))",
+        ),
+        ("custom page sizes", "(memory $small 1 (pagesize 1))"),
     ] {
         match host.load::<NodeWorld>(&guests::with_core(decls)) {
             Err(Error::Invalid(_)) => {}
             Err(e) => panic!("{what}: {e}"),
             Ok(_) => panic!("{what}: loaded"),
         }
+    }
+}
+
+/// The accepted set, one guest per feature of `GUEST_FEATURES`: what the host has always
+/// run. A feature that stops loading here breaks packages in the field.
+#[test]
+fn features_of_the_set_load_and_run() {
+    let host = Host::new().unwrap();
+    for (what, decls) in [
+        (
+            "sign extension",
+            "(func (result i32) (i32.extend8_s (i32.const 1)))",
+        ),
+        (
+            "saturating conversions",
+            "(func (result i32) (i32.trunc_sat_f32_s (f32.const 1)))",
+        ),
+        (
+            "multi-value",
+            "(func (result i32 i32) (i32.const 1) (i32.const 2))",
+        ),
+        (
+            "bulk memory",
+            "(func (memory.fill (i32.const 0) (i32.const 0) (i32.const 0)))",
+        ),
+        (
+            "reference types: funcref",
+            "(table $t 1 funcref) (func (result funcref) (table.get $t (i32.const 0)))",
+        ),
+        ("simd", "(func (result v128) (v128.const i64x2 0 0))"),
+        (
+            "relaxed simd",
+            "(func (param v128 v128) (result v128)
+               (i8x16.relaxed_swizzle (local.get 0) (local.get 1)))",
+        ),
+        (
+            "tail calls",
+            "(func $one (result i32) (i32.const 1)) (func (result i32) (return_call $one))",
+        ),
+        (
+            "extended constants",
+            "(global i32 (i32.add (i32.const 1) (i32.const 2)))",
+        ),
+        ("multi-memory", "(memory $second 1)"),
+        ("memory64", "(memory $wide i64 1)"),
+    ] {
+        let art = match host.load::<NodeWorld>(&guests::with_core(decls)) {
+            Ok(a) => a,
+            Err(e) => panic!("{what}: {e}"),
+        };
+        let mut n = FlowNode::new(Slot::new(art), vec![0xf6], Limits::default());
+        // the guest answers `err("")`: it was instantiated and it ran
+        assert_eq!(
+            n.process("in", &sample(1), &[]),
+            Err(Error::Guest(String::new())),
+            "{what}"
+        );
     }
 }
 

@@ -14,7 +14,7 @@
 use std::path::Path;
 
 use wit_parser::{LiftLowerAbi, ManglingAndAbi, Resolve};
-use wyrm_wasm_host::{app_version, component_world, AppWorld, ComponentWorld, Host};
+use wyrm_wasm_host::{app_version, component_world, AppWorld, ComponentWorld, DriverWorld, Host};
 
 /// A component of the world in `wit/<dir>` whose functions all trap: enough to load it.
 fn dummy(dir: &str) -> Vec<u8> {
@@ -81,4 +81,50 @@ fn an_unknown_app_world_version_is_refused() {
         Err(e) => panic!("not denied: {e}"),
         Ok(_) => panic!("loaded"),
     }
+}
+
+/// Every `.wasm` under `WYRM_WASM_PACKAGES` (unpacked packages of `wyr repo build --form wasm`
+/// and `wyr link pack`) loads on this host as the world its exports tell. Run it by hand
+/// after an engine upgrade or a change of `GUEST_FEATURES`: what the guest toolchain emits
+/// must stay inside the set. Without the variable it does nothing.
+#[test]
+fn built_packages_load() {
+    let Some(root) = std::env::var_os("WYRM_WASM_PACKAGES") else {
+        println!("SKIP: WYRM_WASM_PACKAGES is not set");
+        return;
+    };
+    let host = Host::new().unwrap();
+    let mut dirs = vec![std::path::PathBuf::from(root)];
+    let mut loaded = 0;
+    while let Some(dir) = dirs.pop() {
+        for entry in std::fs::read_dir(&dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                dirs.push(path);
+                continue;
+            }
+            if path.extension().and_then(|e| e.to_str()) != Some("wasm") {
+                continue;
+            }
+            let bytes = std::fs::read(&path).unwrap();
+            let name = path.display();
+            let world = component_world(&bytes).unwrap_or_else(|e| panic!("{name}: {e}"));
+            match world {
+                ComponentWorld::App => {
+                    let art = host
+                        .load::<AppWorld>(&bytes)
+                        .unwrap_or_else(|e| panic!("{name}: {e}"));
+                    println!("{name}: wyrm:app@{}", art.app_version());
+                }
+                ComponentWorld::Driver | ComponentWorld::Point => {
+                    host.load::<DriverWorld>(&bytes)
+                        .unwrap_or_else(|e| panic!("{name}: {e}"));
+                    println!("{name}: {world:?}");
+                }
+            }
+            loaded += 1;
+        }
+    }
+    assert!(loaded > 0, "no .wasm file under WYRM_WASM_PACKAGES");
+    println!("{loaded} components loaded");
 }
