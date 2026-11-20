@@ -578,6 +578,7 @@ and the reference board (4-core ARM64, 2 GB) is not measured yet.
 | M4 Max, loaded (load 14–19), rough | release | historian group start, 10 000 new watches, after the fix | first row 0.6 / 1.6 s, a row of every point 8.6 / 9.5 s (two runs; before: stalled, `started=false` after 360 s) | 2026-11-19 |
 | M4 Max, loaded (load 14–19), rough | release | historian, 10 000 points at 2 Hz, All Data, after the fix | 20k samples/s kept (lost 125 / 157 of 200k), p99 3.0–3.5 ms, 67–74 % CPU, RSS 165–168 MiB; 18 000 rows/s, 0 dropped, flush 139–149 ms | 2026-11-19 |
 | M4 Max, load 7–12, rough | release | the same two after the merge of main and the bounded query tasks (two runs) | group start: first row 0.2 / 1.2 s, a row of every point 4.2 / 4.2 s; 20k samples/s kept (lost 67 / 75 of 200k), p99 2.4–2.5 ms, 37–39 % CPU, RSS 166–167 MiB; 20 000 rows/s, 0 dropped, flush 52–53 ms | 2026-11-20 |
+| M4 Max, load 5–14, rough | release | the same two with every subscriber declared at once and 16 stored reads per link (audit of #146; two runs) | group start: first row 5.2 / 3.2 s (all 10 000 declarations now run at once, so the first row comes later), a row of every point 6.4 / 4.2 s; 20k samples/s kept (lost 734 / 135 of 200k), p99 6.7 / 2.7 ms, 58 / 40 % CPU, RSS 172–176 MiB; 20 000 rows/s, 0 dropped, flush 52–66 ms | 2026-11-20 |
 | M4 Max, loaded, rough | release | 1000 invokes, audit | invoke p50 4.0 ms, p99 7.1 ms, 312/s; 233 audit records/s; derived 700 fsync/s | 2026-11-19 |
 | M4 Max, loaded, rough | release | gateway, 10 WS clients × 1000 points × 10 Hz | 100k frames/s, p50 4.0 ms, p99 8.1 ms, 84 % CPU, RSS 85 MiB | 2026-11-19 |
 
@@ -623,16 +624,22 @@ The fix, by rule (CLAUDE.md, Zenoh facts):
   of its own (256, then dropped); at most 256 history queries have a task
   at once. The admin's profiles, signing keys and replication queryables
   use it too (queue 256, as the FIFO held; full = dropped). The link SDK's queryable already did this;
-- a client that follows many points bounds its stored reads:
-  `WyrmClient::with_stored_reads` takes a permit per `subscribe` before it
-  declares its subscriber and gives it back with the read's last reply;
-  the historian shares one window of 64 (below the storage's 256) over all
-  its groups;
+- a client that follows many points bounds its stored reads, and only
+  those: with `WyrmClient::with_stored_reads` a `subscribe` declares its
+  subscriber and returns at once, and the stream takes a turn before it
+  sends the stored read (held until the read's last reply or its timeout).
+  The historian has one window of 64 over all its groups (below the
+  storage's 256) and, before it, one of 16 per owner (a link, or a site
+  section). A `get <point>/~val` also reaches the point's link, so a link
+  that answers no query holds its reads for their 10 s: it holds 16 turns,
+  its own points' stored values come late, and no other point waits.
+  (Audit of #146: with the turn taken before the subscriber, such a link
+  left every other point without a subscriber, 64 points per 10 s.)
 - a group's new series go into the index in one commit
   (`Store::series_ids`), not one durable commit per key.
 
 Chosen by measurement: with the bounded reads the whole group of 10 000 is
-followed in about 9 s and the steady state is unchanged (one subscriber per
+followed in about 9 s (4 to 6 s on 2026-11-20) and the steady state is unchanged (one subscriber per
 point, as ADR 0014 records it). Most of those 9 s are Zenoh's own:
 each `declare_subscriber` of a new key registers a resource and walks the
 existing ones (`declare_nonwild_prefix` → `Resource::get_matches`), so the

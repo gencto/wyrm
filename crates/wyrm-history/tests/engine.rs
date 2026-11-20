@@ -367,3 +367,92 @@ fn a_flood_of_history_queries_ends() {
         let _ = std::fs::remove_dir_all(dir);
     });
 }
+
+/// One link holds every read of its points open (a hung link process), and
+/// its watches come first in the group. The points of another link are
+/// followed all the same, at once: their stored values are recorded, then
+/// their live ones. Before, a follow waited for a turn of the one window
+/// before it declared its subscriber, the hung link's reads held every turn
+/// to their timeout (64 per 10 s), and the other link's points had no
+/// subscriber and no stored value for all that time.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_link_that_answers_no_read_delays_no_other_point() {
+    let n = 400;
+    let dir = temp("hung");
+    let h = Historian::open(&dir).unwrap();
+    let s = session().await;
+    // the hung link: every query kept, none answered
+    let held = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let keep = held.clone();
+    let _hung = s
+        .declare_queryable("wy/s/downstream/hung/**")
+        .callback(move |q| keep.lock().unwrap().push(q))
+        .await
+        .unwrap();
+    // the storage of the healthy link's points: a stored value of each
+    let stored = codec::to_vec(&Sample {
+        v: Value::Float(42.0),
+        q: Quality::Good,
+        t: wyrm_history::engine::now_us(),
+    })
+    .unwrap();
+    let _storage = s
+        .declare_queryable("wy/s/downstream/ok/*/~val")
+        .callback(move |q| {
+            if q.parameters().as_str().is_empty() {
+                let _ = zenoh::Wait::wait(q.reply(q.key_expr(), stored.clone()));
+            }
+        })
+        .await
+        .unwrap();
+    let hung: Vec<String> = (0..n)
+        .map(|i| format!("wy/s/downstream/hung/p{i}"))
+        .collect();
+    let ok: Vec<String> = (0..n).map(|i| format!("wy/s/downstream/ok/p{i}")).collect();
+    let refs: Vec<&str> = hung.iter().chain(&ok).map(String::as_str).collect();
+    h.attach(
+        s.clone(),
+        vec![group("mixed", Logging::AllData, &refs)],
+        vec!["wy/s/downstream/**/~val".into()],
+        Some("wy/s/sys/history".into()),
+    );
+    // Each step well inside the 10 s a hung read holds its turn. First the
+    // stored values, with no live value sent: the reads of the healthy
+    // link's points do not wait behind the hung link's.
+    let started = std::time::Instant::now();
+    loop {
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let got = ok
+            .iter()
+            .filter(|k| values(&h, k) == vec![Value::Float(42.0)])
+            .count();
+        if got == n {
+            break;
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(8),
+            "the stored value of {got} of {n} points recorded"
+        );
+    }
+    // Then a live value of each.
+    let started = std::time::Instant::now();
+    let mut t = wyrm_history::engine::now_us();
+    loop {
+        t += 1;
+        for k in &ok {
+            put(&s, k, 1.0, t).await;
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let got = ok.iter().filter(|k| values(&h, k).len() > 1).count();
+        if got == n {
+            break;
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(8),
+            "a live value of {got} of {n} points recorded"
+        );
+    }
+    assert!(!held.lock().unwrap().is_empty(), "the hung link got reads");
+    h.detach().await;
+    let _ = std::fs::remove_dir_all(dir);
+}
