@@ -368,7 +368,9 @@ state of the moment (the choices of a list, the value in force) is set with
 `ActionMeta::shown`, which cannot change a type or add a parameter. In
 `wyrm-admin` and `wyrm-storage` this is the only way (C12): no argument
 reader, no `ParamMeta` written out. A `dynamic` parameter is a field of type
-`Value` (any value but `null`, which is no value, as for every argument).
+`Value`: required, any value, and a `null` that is there is a value
+(`Value::Null`, as a DSA broker publishes it); only an absent name is
+refused. Every other field, `Option<Value>` too, reads `null` as absent.
 
 **Why.** **T3**: ≈508 `Some(Value::…(` matches and ≈343 `.get("literal")`
 reads; the schema is declared twice (`ParamMeta`, which the SDK validates, and

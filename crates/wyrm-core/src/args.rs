@@ -294,8 +294,10 @@ impl ArgValue for BTreeMap<String, Value> {
 }
 
 /// A `dynamic` argument: any value the action checks itself (a value a
-/// storage node is set to). `null` is no value, as for every argument: the
-/// reader drops it before a field sees it.
+/// storage node is set to). A required field of this type is read with
+/// [`Reader::take_present`]: a `null` that is there is a value
+/// (`Value::Null`, as a DSA broker publishes it), only an absent name is
+/// not. An `Option<Value>` field drops `null` as every other field does.
 impl ArgValue for Value {
     const TYPE: TypeCode = TypeCode::Dynamic;
     fn from_value(v: &mut Value) -> Result<Self, Fault> {
@@ -428,6 +430,20 @@ impl Reader {
         Field {
             name,
             value: self.map.remove(name).filter(|v| !matches!(v, Value::Null)),
+            repeated,
+        }
+    }
+
+    /// The argument `name` as [`Reader::take`] takes it, except that a `null`
+    /// that is there is a value: the reader of a required `dynamic` field
+    /// (`Value`), where `null` is a value like any other. Only an absent name
+    /// is not there.
+    pub fn take_present(&mut self, name: &'static str) -> Field {
+        let repeated = self.taken.contains(&name);
+        self.taken.push(name);
+        Field {
+            name,
+            value: self.map.remove(name),
             repeated,
         }
     }
@@ -648,20 +664,34 @@ mod tests {
     }
 
     #[test]
-    fn a_dynamic_value_is_taken_whole_and_null_is_none() {
+    fn a_dynamic_value_is_taken_whole_and_a_present_null_is_a_value() {
         let mut r = Reader::new(map(&[
             ("v", Value::Array(vec![Value::from("a"), Value::UInt(1)])),
             ("n", Value::Null),
+            ("s", Value::Null),
+            ("o", Value::Null),
         ]))
         .unwrap();
         assert_eq!(
-            r.take("v").required(Value::from_value),
+            r.take_present("v").required(Value::from_value),
             Ok(Value::Array(vec![Value::from("a"), Value::UInt(1)]))
         );
+        // a present null is a value of a required dynamic field
         assert_eq!(
-            r.take("n").required(Value::from_value),
-            Err(ArgError::new("n", Fault::Missing))
+            r.take_present("n").required(Value::from_value),
+            Ok(Value::Null)
         );
+        // an absent one is refused with the field's name
+        assert_eq!(
+            r.take_present("gone").required(Value::from_value),
+            Err(ArgError::new("gone", Fault::Missing))
+        );
+        // every other field still reads null as not there
+        assert_eq!(
+            r.take("s").required(String::from_value),
+            Err(ArgError::new("s", Fault::Missing))
+        );
+        assert_eq!(r.take("o").optional(Value::from_value), Ok(None));
         assert_eq!(r.finish(), Ok(()));
         assert_eq!(<Value as ArgValue>::TYPE, TypeCode::Dynamic);
     }

@@ -175,24 +175,6 @@ async fn data_actions_rights_and_restart() {
         Status::InvalidParameter,
         "type of an existing value"
     );
-    // `null` is no value (one decoder for every argument): refused by the action and by its
-    // `?check` alike, with the field's name
-    let null = args(&[
-        ("path", Value::Str("plant/line1/count".into())),
-        ("value", Value::Null),
-    ]);
-    for r in [
-        run(&h, "", "publish", null.clone()).await,
-        check(&h, "", "publish", &null).await,
-    ] {
-        let att = &r.last().expect("a reply").att;
-        assert_eq!(status(att), Status::InvalidParameter);
-        assert!(
-            att.err.as_deref().unwrap_or("").starts_with("value"),
-            "{att:?}"
-        );
-    }
-    assert_eq!(value(&h, "plant/line1/count"), Some(Value::UInt(3)));
     let a = args(&[
         ("path", Value::Str("plant/temp/x".into())),
         ("value", Value::UInt(3)),
@@ -216,6 +198,28 @@ async fn data_actions_rights_and_restart() {
         Some(Value::UInt(3)),
         "check writes nothing"
     );
+    // a present `null` is a value of a dynamic node (as a DSA broker publishes it): checked
+    // and written like any other, and read back; an absent value is refused
+    let null = args(&[
+        ("path", Value::Str("plant/line1/count".into())),
+        ("value", Value::Null),
+    ]);
+    assert_eq!(last(&check(&h, "", "publish", &null).await), Status::Ok);
+    assert_eq!(last(&run(&h, "", "publish", null).await), Status::Ok);
+    assert_eq!(value(&h, "plant/line1/count"), Some(Value::Null));
+    let absent = args(&[("path", Value::Str("plant/line1/count".into()))]);
+    for r in [
+        run(&h, "", "publish", absent.clone()).await,
+        check(&h, "", "publish", &absent).await,
+    ] {
+        assert_eq!(last(&r), Status::InvalidParameter);
+    }
+    let three = args(&[
+        ("path", Value::Str("plant/line1/count".into())),
+        ("value", Value::UInt(3)),
+    ]);
+    assert_eq!(last(&run(&h, "", "publish", three).await), Status::Ok);
+    assert_eq!(value(&h, "plant/line1/count"), Some(Value::UInt(3)));
     // a type outside the set: refused by `?check` of add_value too, with the field's name
     let bad = args(&[
         ("name", Value::Str("free".into())),

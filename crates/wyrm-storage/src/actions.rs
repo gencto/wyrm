@@ -310,17 +310,25 @@ mod tests {
         // `recursive` is false when absent, and a wrong type is no false
         assert!(!Delete::decode(map(&[])).unwrap().recursive);
         assert!(Delete::decode(map(&[("recursive", Value::from("yes"))])).is_err());
-        // a dynamic value is any value but `null`, which is no value
+        // a dynamic value is any value, a present `null` too; an absent one is refused
         let p = Publish::decode(map(&[
             ("path", Value::from("a/b")),
             ("value", Value::from(3u64)),
         ]))
         .unwrap();
         assert_eq!(p.value, Value::from(3u64));
-        assert!(Publish::decode(map(
-            &[("path", Value::from("a/b")), ("value", Value::Null),]
-        ))
-        .is_err());
+        let p =
+            Publish::decode(map(&[("path", Value::from("a/b")), ("value", Value::Null)])).unwrap();
+        assert_eq!(p.value, Value::Null);
+        let e = Publish::decode(map(&[("path", Value::from("a/b"))]))
+            .err()
+            .unwrap();
+        assert_eq!(e.to_string(), "value: required");
+        // the text beside it still reads null as absent
+        let e = Publish::decode(map(&[("path", Value::Null), ("value", Value::Null)]))
+            .err()
+            .unwrap();
+        assert_eq!(e.to_string(), "path: required");
         // export takes nothing
         assert!(<()>::decode(map(&[("x", Value::from(1u64))])).is_err());
     }
