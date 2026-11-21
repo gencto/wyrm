@@ -483,10 +483,10 @@ def c4(s: Source) -> list[int]:
     """A field of a `Value` map read by hand outside a decoder: `Some(Value::…`, `if let
     Value::…(`, `let Value::…(..) =`, `.get/get_mut/remove/contains_key("x" | CONST)`,
     `m["x"]`, `Value::as_*`, and the argument helpers (`arg_str(&args, "x")`, …)."""
-    # a `decode.rs` is a decoder module; not in `wyrm-admin`, where an action's struct is the
-    # decoder and C12 counts every other read of its arguments
+    # a `decode.rs` is a decoder module; not in a crate of C12 (`C12_CRATES`), where an
+    # action's struct is the decoder and C12 counts every other read of its arguments
     decoder = s.path.endswith("/decode.rs") or "/decode/" in s.path
-    if (decoder and not s.path.startswith("crates/wyrm-admin/src/")) or s.path in DECODERS:
+    if (decoder and not s.path.startswith(C12_CRATES)) or s.path in DECODERS:
         return []
     hits = [m.start() for p in C4_PATTERNS for m in re.finditer(p, s.code)]
     return s.hits("C4", hits)
@@ -1149,6 +1149,10 @@ def c11(s: Source) -> list[int]:
 
 
 ADMIN = "crates/wyrm-admin/src/"
+STORAGE = "crates/wyrm-storage/src/"
+# The crates whose actions take their arguments only through `#[derive(Args)]` (C12); the
+# others follow as they move (audit T3). A crate here has a C12 baseline of 0.
+C12_CRATES = (ADMIN, STORAGE)
 C12_PATTERNS = [
     # an argument reader, defined or called (not a method: `cmd.arg(…)` of a process)
     r"(?<!\.)\b(?:arg|arg_str|arg_num|arg_ms|arg_bool|arg_bytes|opt_str|req_str|get_str|get_u64|"
@@ -1175,7 +1179,7 @@ C12_PATTERNS = [
     r"\bValue::\w+\s*\([^()]*\)\s*:",
     r"\btype\s+\w+\s*=\s*&?\s*(?:'\w+\s+)?(?:[\w:]+::)?Value\s*;",
 ]
-# `args` is the name of an action's arguments in `wyrm-admin`, and of nothing else.
+# `args` is the name of an action's arguments in a crate of C12, and of nothing else.
 ARGS_WORD = re.compile(r"(?<![.\w])args\b")
 ARGS_DECODE_BEFORE = re.compile(r"((?:[a-z_]\w*\s*::\s*)*)(?:\b(\w+)|<(\(\))>)\s*::\s*decode\(\s*$")
 # a parameter, a struct field or a field of a struct literal (`args: argv`)
@@ -1186,11 +1190,12 @@ INVOKE_PATH = re.compile(r"\b[a-z_]\w*\s*::\s*invoke$")
 # the functions that take an action's arguments
 ARGS_FN = re.compile(r"\bfn\s+(on_invoke|on_check|invoke|decode)\b")
 ARGS_PARAM = re.compile(r"(?<![.\w])(?:mut\s+)?args\s*:\s*&?\s*Value\s*(?=[,)])")
-# The structs that derive `Args` in `wyrm-admin`, each with the stems of the files that
-# define it, filled by `measure_patterns` before the rules run: `X::decode(args)` is the
-# struct's decoder only for these, by a local path (`X`, `super::X`, `crate::…::X`,
-# `<stem>::X` of the file that defines it).
-ADMIN_ARGS: dict[str, set[str]] = {}
+# The structs that derive `Args` in each crate of C12 (by `crate_of`), each with the stems
+# of the files that define it, filled by `measure_patterns` before the rules run:
+# `X::decode(args)` is the struct's decoder only for a struct of the same crate, by a local
+# path (`X`, `super::X`, `crate::…::X`, `<stem>::X` of the file that defines it). A struct
+# of another crate of the list is no decoder here, whatever its name.
+CRATE_ARGS: dict[str, dict[str, set[str]]] = {}
 
 
 def stem_of(path: str) -> str:
@@ -1232,7 +1237,7 @@ def args_uses(s: Source) -> list[int]:
     (`X::decode(args)`, `<()>::decode(args)`), or handed whole to a dispatcher of this crate
     (`history::invoke(…, args, …)`)."""
     text, hits = s.masked, []
-    known = {k: set(v) for k, v in ADMIN_ARGS.items()}
+    known = {k: set(v) for k, v in CRATE_ARGS.get(crate_of(s.path), {}).items()}
     for name, _, _ in args_structs(text):
         known.setdefault(name, set()).add(stem_of(s.path))
     for m in ARGS_WORD.finditer(text):
@@ -1289,7 +1294,8 @@ def args_fns(s: Source) -> list[int]:
 
 
 def c12(s: Source) -> list[int]:
-    """In `wyrm-admin`, an action's arguments read or declared outside its struct.
+    """In a crate of `C12_CRATES` (`wyrm-admin`, `wyrm-storage`), an action's arguments read or
+    declared outside its struct.
     `args` names an action's arguments and nothing else, and it has three uses: the
     parameter (`args: Value`), the decoder of a struct of this crate that derives `Args`
     (`X::decode(args)`; `<()>` for no parameters), and a whole hand-over to a dispatcher
@@ -1308,7 +1314,7 @@ def c12(s: Source) -> list[int]:
     written by hand (`impl Args for`), a `Value` taken apart in a parameter
     (`Value::Map(m): Value`) and a type alias of `Value`. An action's struct with
     `#[derive(Args)]` is the one declaration and the one decoder (docs/rust-rules.md §7)."""
-    if not s.path.startswith(ADMIN):
+    if not s.path.startswith(C12_CRATES):
         return []
     hits = [m.start() for p in C12_PATTERNS for m in re.finditer(p, s.masked)]
     return s.hits("C12", hits + args_uses(s) + args_fns(s))
@@ -1458,6 +1464,17 @@ PROBES = [
         "#[derive(Args)]\nstruct Create {\n    n: u32,\n}\nfn f(args: Value) { let a = wyrm_storage::Create::decode(args)?; }",
         1,
     ),
+    # C12 holds in wyrm-storage as in wyrm-admin, and nowhere else yet
+    ("C12", STORAGE + "lib.rs", 'fn f(args: &Value) { let n = text_arg(args, "name"); }', 2),
+    ("C12", STORAGE + "lib.rs", 'fn f() -> ActionMeta { ActionMeta::new().param("n", ParamMeta::of(TypeCode::Bool)) }', 3),
+    ("C12", STORAGE + "lib.rs", "async fn on_invoke(&mut self, path: &str, action: &str, args: Value) { self.add(path, &args).await }", 1),
+    (
+        "C12",
+        STORAGE + "lib.rs",
+        "#[derive(Args)]\nstruct Delete {\n    recursive: bool,\n}\nasync fn on_invoke(&mut self, path: &str, args: Value) { self.delete(path, Delete::decode(args)?).await }",
+        0,
+    ),
+    ("C12", "crates/wyrm-flow/src/engine.rs", 'fn f(args: &Value) { let n = name_arg(args); }', 0),
     # C4 has no `.as_map()` / `?.as_str()` form: `Value` has neither method (only `as_f64`),
     # so such code does not compile; a key that is a variable is not counted (it would count
     # every map of the workspace)
@@ -1740,6 +1757,22 @@ def self_test() -> list[str]:
         got = len(fn(Source(path, text)))
         if got != want:
             bad.append(f"{rule} on {text!r}: {got} hits, {want} expected")
+    # C12: a struct of wyrm-admin is no decoder in wyrm-storage, nor the other way round
+    saved = dict(CRATE_ARGS)
+    CRATE_ARGS.clear()
+    CRATE_ARGS["crates/wyrm-admin"] = {"Install": {"actions"}}
+    CRATE_ARGS["crates/wyrm-storage"] = {"Publish": {"actions"}}
+    for path, text, want in [
+        (STORAGE + "lib.rs", "fn f(args: Value) { let a = Install::decode(args)?; }", 1),
+        (STORAGE + "lib.rs", "fn f(args: Value) { let a = Publish::decode(args)?; }", 0),
+        (ADMIN + "control.rs", "fn f(args: Value) { let a = Publish::decode(args)?; }", 1),
+        (ADMIN + "control.rs", "fn f(args: Value) { let a = actions::Install::decode(args)?; }", 0),
+    ]:
+        got = len(c12(Source(path, text)))
+        if got != want:
+            bad.append(f"C12 on {path}: {text!r}: {got} hits, {want} expected")
+    CRATE_ARGS.clear()
+    CRATE_ARGS.update(saved)
     return bad
 
 
@@ -1785,14 +1818,15 @@ def measure_patterns(show: str | None = None) -> dict[str, dict[str, int]]:
     files = list(sources())
     CRATE_TEXT_ERRORS.clear()
     CRATE_NAME_FIELDS.clear()
-    ADMIN_ARGS.clear()
+    CRATE_ARGS.clear()
     for path, text in files:
         CRATE_TEXT_ERRORS.setdefault(crate_of(path), set()).update(text_error_aliases(path, text))
         masked = Source(path, text).masked  # code only, tests left out
         CRATE_NAME_FIELDS.setdefault(crate_of(path), set()).update(name_fields(masked))
-        if path.startswith(ADMIN):
+        if path.startswith(C12_CRATES):
+            known = CRATE_ARGS.setdefault(crate_of(path), {})
             for name, _, _ in args_structs(masked):
-                ADMIN_ARGS.setdefault(name, set()).add(stem_of(path))
+                known.setdefault(name, set()).add(stem_of(path))
     for path, text in files:
         s = Source(path, text)
         for name, rule in PATTERNS.items():

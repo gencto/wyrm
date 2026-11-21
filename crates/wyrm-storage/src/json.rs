@@ -5,7 +5,7 @@
 //! (a DSA export's `$is`, `$name`, …) are ignored on import.
 
 use crate::store::Rec;
-use crate::{check_value, Limits, EDITORS, TYPES};
+use crate::{check_value, Limits, ValueEditor, ValueType};
 use serde_json::{Map, Number, Value as Json};
 use std::collections::BTreeMap;
 use wyrm_core::keyspace::validate_segment;
@@ -211,17 +211,17 @@ fn record(path: &str, m: &Map<String, Json>, limits: &Limits) -> Result<Rec> {
     let ty = match m.get("$type") {
         None => None,
         Some(Json::String(t)) => Some(
-            wyrm_core::TypeCode::from_name(t)
-                .filter(|c| TYPES.contains(c))
-                .ok_or_else(|| bad("unknown $type"))?,
+            ValueType::from_name(t)
+                .ok_or_else(|| bad("unknown $type"))?
+                .code(),
         ),
         Some(_) => return Err(bad("$type is not text")),
     };
     let editor = match m.get("@editor") {
         None => None,
-        Some(Json::String(e)) if EDITORS.contains(&e.as_str()) => {
-            (e != EDITORS[0]).then(|| e.clone())
-        }
+        Some(Json::String(e)) => ValueEditor::from_name(e)
+            .ok_or_else(|| bad("unknown @editor"))?
+            .stored(),
         Some(_) => return Err(bad("unknown @editor")),
     };
     let value = match m.get("?value") {

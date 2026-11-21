@@ -293,6 +293,16 @@ impl ArgValue for BTreeMap<String, Value> {
     }
 }
 
+/// A `dynamic` argument: any value the action checks itself (a value a
+/// storage node is set to). `null` is no value, as for every argument: the
+/// reader drops it before a field sees it.
+impl ArgValue for Value {
+    const TYPE: TypeCode = TypeCode::Dynamic;
+    fn from_value(v: &mut Value) -> Result<Self, Fault> {
+        Ok(std::mem::replace(v, Value::Null))
+    }
+}
+
 /// Each element of a list through `f`; a refusal says which element.
 fn list<T>(v: &mut Value, f: impl Fn(&mut Value) -> Result<T, Fault>) -> Result<Vec<T>, Fault> {
     let Value::Array(items) = v else {
@@ -635,6 +645,25 @@ mod tests {
                 .map(|(k, v)| ((*k).to_owned(), v.clone()))
                 .collect(),
         )
+    }
+
+    #[test]
+    fn a_dynamic_value_is_taken_whole_and_null_is_none() {
+        let mut r = Reader::new(map(&[
+            ("v", Value::Array(vec![Value::from("a"), Value::UInt(1)])),
+            ("n", Value::Null),
+        ]))
+        .unwrap();
+        assert_eq!(
+            r.take("v").required(Value::from_value),
+            Ok(Value::Array(vec![Value::from("a"), Value::UInt(1)]))
+        );
+        assert_eq!(
+            r.take("n").required(Value::from_value),
+            Err(ArgError::new("n", Fault::Missing))
+        );
+        assert_eq!(r.finish(), Ok(()));
+        assert_eq!(<Value as ArgValue>::TYPE, TypeCode::Dynamic);
     }
 
     #[test]

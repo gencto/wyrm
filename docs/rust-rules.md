@@ -366,8 +366,9 @@ the action is about: what does not exist is `not_found`, and a broker that is
 closing is `busy`, whatever the arguments are. What a form shows from the
 state of the moment (the choices of a list, the value in force) is set with
 `ActionMeta::shown`, which cannot change a type or add a parameter. In
-`wyrm-admin` this is the only way (C12): no argument reader, no `ParamMeta`
-written out.
+`wyrm-admin` and `wyrm-storage` this is the only way (C12): no argument
+reader, no `ParamMeta` written out. A `dynamic` parameter is a field of type
+`Value` (any value but `null`, which is no value, as for every argument).
 
 **Why.** **T3**: ≈508 `Some(Value::…(` matches and ≈343 `.get("literal")`
 reads; the schema is declared twice (`ParamMeta`, which the SDK validates, and
@@ -395,8 +396,10 @@ literal or a `CONST` key, `m["x"]`, `Value::as_*`, and the argument helpers
 `decode/`, the codec in `wyrm-core/src/value.rs` and the decoder behind
 `#[derive(Args)]` (`wyrm-core/src/args.rs`) are exempt.
 
-C12 `admin-arg-read`, in `crates/wyrm-admin/src` (baseline 0; the other crates
-follow as they move, audit T3). There `args` names an action's arguments and
+C12 `admin-arg-read`, in `crates/wyrm-admin/src` and `crates/wyrm-storage/src`
+(`C12_CRATES` in the script; baseline 0; the other crates follow as they move,
+audit T3: a crate joins the list in the change that moves its last action onto
+structs). There `args` names an action's arguments and
 nothing else (a process's arguments are `argv`, a call built for another link
 is a `request`), and it has three uses: the parameter (`args: Value`), the
 one argument of a struct's decoder (`X::decode(args)`, `<()>::decode(args)`,
@@ -404,7 +407,8 @@ also as rustfmt writes it over lines with a comma),
 and a whole hand-over to a dispatcher of the crate (`history::invoke(…, args,
 …)`: a lower-case module path, never a bare or a closure `invoke`). The
 decoder is that of a struct of the crate that derives `Args` (the script
-collects the names and the files that define them) or `<()>`, by a local path:
+collects the names and the files that define them per crate: a struct of
+`wyrm-admin` is no decoder in `wyrm-storage`) or `<()>`, by a local path:
 `X`, `super::X`, `crate::…::X`, or `<stem>::X` where `<stem>` is the file that
 defines `X` (`restore_broker::RestoreCheck`). `Raw::decode(args)`,
 `Self::decode(args)`, a type of another crate (`wyrm_storage::Create`) and a
@@ -427,8 +431,8 @@ reader by name
 is `X::action()`); a change of an action's declared parameters
 (`a.params.insert(…)`, `.entry`, `.retain`, `.values_mut()`, `&mut a.params`,
 `a.params = …`); a decoder written by hand (`impl Args for`, `fn decode(v:
-Value)`). A file named `decode.rs` is no decoder module inside `wyrm-admin`:
-C4 counts its reads. (C4 does not count an arm `Value::Map(m) =>` nor a key
+Value)`). A file named `decode.rs` is no decoder module inside a crate of
+C12: C4 counts its reads. (C4 does not count an arm `Value::Map(m) =>` nor a key
 that is a variable: measured on 2026-11-18, the arm alone would add 580 hits
 outside `wyrm-admin`, mostly codecs and flow blocks. `Value` has no `as_map`
 or `as_str`, so `v.as_map()?.get(k)?.as_str()` does not compile.)
