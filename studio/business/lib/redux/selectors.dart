@@ -9,7 +9,6 @@ import 'package:models/approval_mode.dart';
 import 'package:models/approval_refusal.dart';
 import 'package:models/assistant_panel.dart';
 import 'package:models/attention_item.dart';
-import 'package:models/attention_kind.dart';
 import 'package:models/audit_entry.dart';
 import 'package:models/audit_line.dart';
 import 'package:models/backup_job.dart';
@@ -1508,46 +1507,30 @@ extension SelectBrokerHealth on Selectors {
     final seen = system.aclSeen;
     return [
       if (lag > 0 || forks > 0)
-        AttentionItem(
-          kind: AttentionKind.standbyBehind,
-          count: lag.round(),
-          more: forks.round(),
-        ),
-      for (final l in failedLinks)
-        AttentionItem(kind: AttentionKind.linkFailed, subject: l.id),
+        AttentionItem.standbyBehind(lag: lag.round(), forks: forks.round()),
+      for (final l in failedLinks) AttentionItem.linkFailed(link: l.id),
       for (final q in waiting)
         if (q.kind == QuarantineKind.link)
-          AttentionItem(
-            kind: AttentionKind.quarantine,
-            subject: q.node,
-            name: q.cn,
+          AttentionItem.quarantine(
+            node: q.node,
+            cn: q.cn,
             since: q.firstSeen,
           ),
       for (final q in waiting)
         if (q.kind == QuarantineKind.broker)
-          AttentionItem(
-            kind: AttentionKind.brokerWaiting,
-            subject: q.node,
-            name: q.cn,
-            count: q.via.length,
+          AttentionItem.brokerWaiting(
+            node: q.node,
+            cn: q.cn,
+            relays: q.via.length,
           ),
       // a connection that awaits a decision and that Studio could not
       // read is seen here too
       for (final q in waiting)
         if (q.kind == null)
-          AttentionItem(
-            kind: AttentionKind.waitingNotRead,
-            subject: q.node,
-            name: q.cn,
-          ),
+          AttentionItem.waitingNotRead(node: q.node, cn: q.cn),
       if (acl != null && seen != null && acl > seen)
-        AttentionItem(
-          kind: AttentionKind.aclGrown,
-          count: (acl - seen).round(),
-          more: seen,
-        ),
-      if (standby == StandbyState.none)
-        const AttentionItem(kind: AttentionKind.noStandby),
+        AttentionItem.aclGrown(grown: (acl - seen).round(), seen: seen),
+      if (standby == StandbyState.none) const AttentionItem.noStandby(),
     ];
   }
 

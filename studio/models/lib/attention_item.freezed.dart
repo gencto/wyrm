@@ -15,49 +15,77 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$AttentionItem {
 
- AttentionKind get kind;/// What it is about: a link id, or the node under `sys/quarantine`.
- String get subject;/// The certificate CN of a quarantine entry (`link:field-gw`).
- String get name;/// Records behind (standby), sites relayed (broker), denials more
-/// (ACL).
- int get count;/// Forks moved aside (standby); the ACL counter when last seen.
- int get more;/// When a quarantine entry was first seen.
- DateTime? get since;
+
+
+
+
+@override
+bool operator ==(Object other) {
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is AttentionItem);
+}
+
+
+@override
+int get hashCode => runtimeType.hashCode;
+
+@override
+String toString() {
+    return 'AttentionItem()';
+}
+
+
+}
+
+/// @nodoc
+class $AttentionItemCopyWith<$Res>  {
+$AttentionItemCopyWith(AttentionItem _, $Res Function(AttentionItem) __);
+}
+
+
+
+/// @nodoc
+
+
+class AttentionStandbyBehind implements AttentionItem {
+  const AttentionStandbyBehind({required this.lag, required this.forks});
+  
+
+ final  int lag;
+ final  int forks;
+
 /// Create a copy of AttentionItem
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
 @pragma('vm:prefer-inline')
-$AttentionItemCopyWith<AttentionItem> get copyWith => _$AttentionItemCopyWithImpl<AttentionItem>(this as AttentionItem, _$identity);
+$AttentionStandbyBehindCopyWith<AttentionStandbyBehind> get copyWith => _$AttentionStandbyBehindCopyWithImpl<AttentionStandbyBehind>(this, _$identity);
 
 
 
 @override
 bool operator ==(Object other) {
-  final _this = this as AttentionItem;
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is AttentionItem&&(identical(other.kind, _this.kind) || other.kind == _this.kind)&&(identical(other.subject, _this.subject) || other.subject == _this.subject)&&(identical(other.name, _this.name) || other.name == _this.name)&&(identical(other.count, _this.count) || other.count == _this.count)&&(identical(other.more, _this.more) || other.more == _this.more)&&(identical(other.since, _this.since) || other.since == _this.since));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is AttentionStandbyBehind&&(identical(other.lag, lag) || other.lag == lag)&&(identical(other.forks, forks) || other.forks == forks));
 }
 
 
 @override
 int get hashCode {
-  final _this = this as AttentionItem;
-  return Object.hash(runtimeType,_this.kind,_this.subject,_this.name,_this.count,_this.more,_this.since);
+    return Object.hash(runtimeType,lag,forks);
 }
 
 @override
 String toString() {
-  final _this = this as AttentionItem;
-  return 'AttentionItem(kind: ${_this.kind}, subject: ${_this.subject}, name: ${_this.name}, count: ${_this.count}, more: ${_this.more}, since: ${_this.since})';
+    return 'AttentionItem.standbyBehind(lag: $lag, forks: $forks)';
 }
 
 
 }
 
 /// @nodoc
-abstract mixin class $AttentionItemCopyWith<$Res>  {
-  factory $AttentionItemCopyWith(AttentionItem value, $Res Function(AttentionItem) _then) = _$AttentionItemCopyWithImpl;
+abstract mixin class $AttentionStandbyBehindCopyWith<$Res> implements $AttentionItemCopyWith<$Res> {
+  factory $AttentionStandbyBehindCopyWith(AttentionStandbyBehind value, $Res Function(AttentionStandbyBehind) _then) = _$AttentionStandbyBehindCopyWithImpl;
 @useResult
 $Res call({
- AttentionKind kind, String subject, String name, int count, int more, DateTime? since
+ int lag, int forks
 });
 
 
@@ -65,84 +93,68 @@ $Res call({
 
 }
 /// @nodoc
-class _$AttentionItemCopyWithImpl<$Res>
-    implements $AttentionItemCopyWith<$Res> {
-  _$AttentionItemCopyWithImpl(this._self, this._then);
+class _$AttentionStandbyBehindCopyWithImpl<$Res>
+    implements $AttentionStandbyBehindCopyWith<$Res> {
+  _$AttentionStandbyBehindCopyWithImpl(this._self, this._then);
 
-  final AttentionItem _self;
-  final $Res Function(AttentionItem) _then;
+  final AttentionStandbyBehind _self;
+  final $Res Function(AttentionStandbyBehind) _then;
 
 /// Create a copy of AttentionItem
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? kind = null,Object? subject = null,Object? name = null,Object? count = null,Object? more = null,Object? since = freezed,}) {
-  return _then(AttentionItem(
-kind: null == kind ? _self.kind : kind // ignore: cast_nullable_to_non_nullable
-as AttentionKind,subject: null == subject ? _self.subject : subject // ignore: cast_nullable_to_non_nullable
-as String,name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
-as String,count: null == count ? _self.count : count // ignore: cast_nullable_to_non_nullable
-as int,more: null == more ? _self.more : more // ignore: cast_nullable_to_non_nullable
-as int,since: freezed == since ? _self.since : since // ignore: cast_nullable_to_non_nullable
-as DateTime?,
+@pragma('vm:prefer-inline') $Res call({Object? lag = null,Object? forks = null,}) {
+  return _then(AttentionStandbyBehind(
+lag: null == lag ? _self.lag : lag // ignore: cast_nullable_to_non_nullable
+as int,forks: null == forks ? _self.forks : forks // ignore: cast_nullable_to_non_nullable
+as int,
   ));
 }
 
+
 }
-
-
 
 /// @nodoc
 
 
-class _AttentionItem implements AttentionItem {
-  const _AttentionItem({required this.kind, this.subject = '', this.name = '', this.count = 0, this.more = 0, this.since});
+class AttentionLinkFailed implements AttentionItem {
+  const AttentionLinkFailed({required this.link});
   
 
-@override final  AttentionKind kind;
-/// What it is about: a link id, or the node under `sys/quarantine`.
-@override@JsonKey() final  String subject;
-/// The certificate CN of a quarantine entry (`link:field-gw`).
-@override@JsonKey() final  String name;
-/// Records behind (standby), sites relayed (broker), denials more
-/// (ACL).
-@override@JsonKey() final  int count;
-/// Forks moved aside (standby); the ACL counter when last seen.
-@override@JsonKey() final  int more;
-/// When a quarantine entry was first seen.
-@override final  DateTime? since;
+ final  String link;
 
 /// Create a copy of AttentionItem
 /// with the given fields replaced by the non-null parameter values.
-@override @JsonKey(includeFromJson: false, includeToJson: false)
+@JsonKey(includeFromJson: false, includeToJson: false)
 @pragma('vm:prefer-inline')
-_$AttentionItemCopyWith<_AttentionItem> get copyWith => __$AttentionItemCopyWithImpl<_AttentionItem>(this, _$identity);
+$AttentionLinkFailedCopyWith<AttentionLinkFailed> get copyWith => _$AttentionLinkFailedCopyWithImpl<AttentionLinkFailed>(this, _$identity);
 
 
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is _AttentionItem&&(identical(other.kind, kind) || other.kind == kind)&&(identical(other.subject, subject) || other.subject == subject)&&(identical(other.name, name) || other.name == name)&&(identical(other.count, count) || other.count == count)&&(identical(other.more, more) || other.more == more)&&(identical(other.since, since) || other.since == since));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is AttentionLinkFailed&&(identical(other.link, link) || other.link == link));
 }
 
 
 @override
 int get hashCode {
-    return Object.hash(runtimeType,kind,subject,name,count,more,since);
+    return Object.hash(runtimeType,link);
 }
 
 @override
 String toString() {
-    return 'AttentionItem(kind: $kind, subject: $subject, name: $name, count: $count, more: $more, since: $since)';
+    return 'AttentionItem.linkFailed(link: $link)';
 }
 
 
 }
 
 /// @nodoc
-abstract mixin class _$AttentionItemCopyWith<$Res> implements $AttentionItemCopyWith<$Res> {
-  factory _$AttentionItemCopyWith(_AttentionItem value, $Res Function(_AttentionItem) _then) = __$AttentionItemCopyWithImpl;
-@override @useResult
+abstract mixin class $AttentionLinkFailedCopyWith<$Res> implements $AttentionItemCopyWith<$Res> {
+  factory $AttentionLinkFailedCopyWith(AttentionLinkFailed value, $Res Function(AttentionLinkFailed) _then) = _$AttentionLinkFailedCopyWithImpl;
+@useResult
 $Res call({
- AttentionKind kind, String subject, String name, int count, int more, DateTime? since
+ String link
 });
 
 
@@ -150,28 +162,339 @@ $Res call({
 
 }
 /// @nodoc
-class __$AttentionItemCopyWithImpl<$Res>
-    implements _$AttentionItemCopyWith<$Res> {
-  __$AttentionItemCopyWithImpl(this._self, this._then);
+class _$AttentionLinkFailedCopyWithImpl<$Res>
+    implements $AttentionLinkFailedCopyWith<$Res> {
+  _$AttentionLinkFailedCopyWithImpl(this._self, this._then);
 
-  final _AttentionItem _self;
-  final $Res Function(_AttentionItem) _then;
+  final AttentionLinkFailed _self;
+  final $Res Function(AttentionLinkFailed) _then;
 
 /// Create a copy of AttentionItem
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? kind = null,Object? subject = null,Object? name = null,Object? count = null,Object? more = null,Object? since = freezed,}) {
-  return _then(_AttentionItem(
-kind: null == kind ? _self.kind : kind // ignore: cast_nullable_to_non_nullable
-as AttentionKind,subject: null == subject ? _self.subject : subject // ignore: cast_nullable_to_non_nullable
-as String,name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
-as String,count: null == count ? _self.count : count // ignore: cast_nullable_to_non_nullable
-as int,more: null == more ? _self.more : more // ignore: cast_nullable_to_non_nullable
-as int,since: freezed == since ? _self.since : since // ignore: cast_nullable_to_non_nullable
+@pragma('vm:prefer-inline') $Res call({Object? link = null,}) {
+  return _then(AttentionLinkFailed(
+link: null == link ? _self.link : link // ignore: cast_nullable_to_non_nullable
+as String,
+  ));
+}
+
+
+}
+
+/// @nodoc
+
+
+class AttentionQuarantine implements AttentionItem {
+  const AttentionQuarantine({required this.node, required this.cn, this.since});
+  
+
+ final  String node;
+ final  String cn;
+ final  DateTime? since;
+
+/// Create a copy of AttentionItem
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$AttentionQuarantineCopyWith<AttentionQuarantine> get copyWith => _$AttentionQuarantineCopyWithImpl<AttentionQuarantine>(this, _$identity);
+
+
+
+@override
+bool operator ==(Object other) {
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is AttentionQuarantine&&(identical(other.node, node) || other.node == node)&&(identical(other.cn, cn) || other.cn == cn)&&(identical(other.since, since) || other.since == since));
+}
+
+
+@override
+int get hashCode {
+    return Object.hash(runtimeType,node,cn,since);
+}
+
+@override
+String toString() {
+    return 'AttentionItem.quarantine(node: $node, cn: $cn, since: $since)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $AttentionQuarantineCopyWith<$Res> implements $AttentionItemCopyWith<$Res> {
+  factory $AttentionQuarantineCopyWith(AttentionQuarantine value, $Res Function(AttentionQuarantine) _then) = _$AttentionQuarantineCopyWithImpl;
+@useResult
+$Res call({
+ String node, String cn, DateTime? since
+});
+
+
+
+
+}
+/// @nodoc
+class _$AttentionQuarantineCopyWithImpl<$Res>
+    implements $AttentionQuarantineCopyWith<$Res> {
+  _$AttentionQuarantineCopyWithImpl(this._self, this._then);
+
+  final AttentionQuarantine _self;
+  final $Res Function(AttentionQuarantine) _then;
+
+/// Create a copy of AttentionItem
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') $Res call({Object? node = null,Object? cn = null,Object? since = freezed,}) {
+  return _then(AttentionQuarantine(
+node: null == node ? _self.node : node // ignore: cast_nullable_to_non_nullable
+as String,cn: null == cn ? _self.cn : cn // ignore: cast_nullable_to_non_nullable
+as String,since: freezed == since ? _self.since : since // ignore: cast_nullable_to_non_nullable
 as DateTime?,
   ));
 }
 
 
 }
+
+/// @nodoc
+
+
+class AttentionBrokerWaiting implements AttentionItem {
+  const AttentionBrokerWaiting({required this.node, required this.cn, required this.relays});
+  
+
+ final  String node;
+ final  String cn;
+ final  int relays;
+
+/// Create a copy of AttentionItem
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$AttentionBrokerWaitingCopyWith<AttentionBrokerWaiting> get copyWith => _$AttentionBrokerWaitingCopyWithImpl<AttentionBrokerWaiting>(this, _$identity);
+
+
+
+@override
+bool operator ==(Object other) {
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is AttentionBrokerWaiting&&(identical(other.node, node) || other.node == node)&&(identical(other.cn, cn) || other.cn == cn)&&(identical(other.relays, relays) || other.relays == relays));
+}
+
+
+@override
+int get hashCode {
+    return Object.hash(runtimeType,node,cn,relays);
+}
+
+@override
+String toString() {
+    return 'AttentionItem.brokerWaiting(node: $node, cn: $cn, relays: $relays)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $AttentionBrokerWaitingCopyWith<$Res> implements $AttentionItemCopyWith<$Res> {
+  factory $AttentionBrokerWaitingCopyWith(AttentionBrokerWaiting value, $Res Function(AttentionBrokerWaiting) _then) = _$AttentionBrokerWaitingCopyWithImpl;
+@useResult
+$Res call({
+ String node, String cn, int relays
+});
+
+
+
+
+}
+/// @nodoc
+class _$AttentionBrokerWaitingCopyWithImpl<$Res>
+    implements $AttentionBrokerWaitingCopyWith<$Res> {
+  _$AttentionBrokerWaitingCopyWithImpl(this._self, this._then);
+
+  final AttentionBrokerWaiting _self;
+  final $Res Function(AttentionBrokerWaiting) _then;
+
+/// Create a copy of AttentionItem
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') $Res call({Object? node = null,Object? cn = null,Object? relays = null,}) {
+  return _then(AttentionBrokerWaiting(
+node: null == node ? _self.node : node // ignore: cast_nullable_to_non_nullable
+as String,cn: null == cn ? _self.cn : cn // ignore: cast_nullable_to_non_nullable
+as String,relays: null == relays ? _self.relays : relays // ignore: cast_nullable_to_non_nullable
+as int,
+  ));
+}
+
+
+}
+
+/// @nodoc
+
+
+class AttentionWaitingNotRead implements AttentionItem {
+  const AttentionWaitingNotRead({required this.node, required this.cn});
+  
+
+ final  String node;
+ final  String cn;
+
+/// Create a copy of AttentionItem
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$AttentionWaitingNotReadCopyWith<AttentionWaitingNotRead> get copyWith => _$AttentionWaitingNotReadCopyWithImpl<AttentionWaitingNotRead>(this, _$identity);
+
+
+
+@override
+bool operator ==(Object other) {
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is AttentionWaitingNotRead&&(identical(other.node, node) || other.node == node)&&(identical(other.cn, cn) || other.cn == cn));
+}
+
+
+@override
+int get hashCode {
+    return Object.hash(runtimeType,node,cn);
+}
+
+@override
+String toString() {
+    return 'AttentionItem.waitingNotRead(node: $node, cn: $cn)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $AttentionWaitingNotReadCopyWith<$Res> implements $AttentionItemCopyWith<$Res> {
+  factory $AttentionWaitingNotReadCopyWith(AttentionWaitingNotRead value, $Res Function(AttentionWaitingNotRead) _then) = _$AttentionWaitingNotReadCopyWithImpl;
+@useResult
+$Res call({
+ String node, String cn
+});
+
+
+
+
+}
+/// @nodoc
+class _$AttentionWaitingNotReadCopyWithImpl<$Res>
+    implements $AttentionWaitingNotReadCopyWith<$Res> {
+  _$AttentionWaitingNotReadCopyWithImpl(this._self, this._then);
+
+  final AttentionWaitingNotRead _self;
+  final $Res Function(AttentionWaitingNotRead) _then;
+
+/// Create a copy of AttentionItem
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') $Res call({Object? node = null,Object? cn = null,}) {
+  return _then(AttentionWaitingNotRead(
+node: null == node ? _self.node : node // ignore: cast_nullable_to_non_nullable
+as String,cn: null == cn ? _self.cn : cn // ignore: cast_nullable_to_non_nullable
+as String,
+  ));
+}
+
+
+}
+
+/// @nodoc
+
+
+class AttentionAclGrown implements AttentionItem {
+  const AttentionAclGrown({required this.grown, required this.seen});
+  
+
+ final  int grown;
+ final  int seen;
+
+/// Create a copy of AttentionItem
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$AttentionAclGrownCopyWith<AttentionAclGrown> get copyWith => _$AttentionAclGrownCopyWithImpl<AttentionAclGrown>(this, _$identity);
+
+
+
+@override
+bool operator ==(Object other) {
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is AttentionAclGrown&&(identical(other.grown, grown) || other.grown == grown)&&(identical(other.seen, seen) || other.seen == seen));
+}
+
+
+@override
+int get hashCode {
+    return Object.hash(runtimeType,grown,seen);
+}
+
+@override
+String toString() {
+    return 'AttentionItem.aclGrown(grown: $grown, seen: $seen)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $AttentionAclGrownCopyWith<$Res> implements $AttentionItemCopyWith<$Res> {
+  factory $AttentionAclGrownCopyWith(AttentionAclGrown value, $Res Function(AttentionAclGrown) _then) = _$AttentionAclGrownCopyWithImpl;
+@useResult
+$Res call({
+ int grown, int seen
+});
+
+
+
+
+}
+/// @nodoc
+class _$AttentionAclGrownCopyWithImpl<$Res>
+    implements $AttentionAclGrownCopyWith<$Res> {
+  _$AttentionAclGrownCopyWithImpl(this._self, this._then);
+
+  final AttentionAclGrown _self;
+  final $Res Function(AttentionAclGrown) _then;
+
+/// Create a copy of AttentionItem
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') $Res call({Object? grown = null,Object? seen = null,}) {
+  return _then(AttentionAclGrown(
+grown: null == grown ? _self.grown : grown // ignore: cast_nullable_to_non_nullable
+as int,seen: null == seen ? _self.seen : seen // ignore: cast_nullable_to_non_nullable
+as int,
+  ));
+}
+
+
+}
+
+/// @nodoc
+
+
+class AttentionNoStandby implements AttentionItem {
+  const AttentionNoStandby();
+  
+
+
+
+
+
+
+@override
+bool operator ==(Object other) {
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is AttentionNoStandby);
+}
+
+
+@override
+int get hashCode => runtimeType.hashCode;
+
+@override
+String toString() {
+    return 'AttentionItem.noStandby()';
+}
+
+
+}
+
+
+
 
 // dart format on

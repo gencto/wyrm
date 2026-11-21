@@ -3,7 +3,6 @@ import 'package:business/redux/app_state.dart';
 import 'package:business/redux/common/action.dart';
 import 'package:models/access_tab.dart';
 import 'package:models/attention_item.dart';
-import 'package:models/attention_kind.dart';
 import 'package:models/link_mode.dart';
 import 'package:models/links_tab.dart';
 import 'package:models/site_node.dart';
@@ -85,44 +84,40 @@ class OpenAttentionAction extends Action {
   final AttentionItem item;
 
   @override
-  AppState reduce() {
-    final what = item.subject;
-    return switch (item.kind) {
-      AttentionKind.standbyBehind ||
-      AttentionKind.noStandby => state.copyWith.system(
-        tab: SystemTab.availability,
-      ),
-      AttentionKind.linkFailed => state.copyWith.links(
-        tab: state.links.table[what]?.mode == LinkMode.external
-            ? LinksTab.remote
-            : LinksTab.local,
-        selectedLink: what,
-      ),
-      AttentionKind.quarantine ||
-      AttentionKind.waitingNotRead => state.copyWith(
-        links: state.links.copyWith(tab: LinksTab.quarantine),
-        quarantine: state.quarantine.copyWith(selectedEntry: what),
-      ),
-      AttentionKind.brokerWaiting => state.copyWith.peers(
-        selectedPeer: SitePick(SiteNode.waiting, what),
-      ),
-      AttentionKind.aclGrown => state.copyWith.access(tab: AccessTab.audit),
-    };
-  }
+  AppState reduce() => switch (item) {
+    AttentionStandbyBehind() || AttentionNoStandby() => state.copyWith.system(
+      tab: SystemTab.availability,
+    ),
+    AttentionLinkFailed(:final link) => state.copyWith.links(
+      tab: state.links.table[link]?.mode == LinkMode.external
+          ? LinksTab.remote
+          : LinksTab.local,
+      selectedLink: link,
+    ),
+    AttentionQuarantine(:final node) ||
+    AttentionWaitingNotRead(:final node) => state.copyWith(
+      links: state.links.copyWith(tab: LinksTab.quarantine),
+      quarantine: state.quarantine.copyWith(selectedEntry: node),
+    ),
+    AttentionBrokerWaiting(:final node) => state.copyWith.peers(
+      selectedPeer: SitePick(SiteNode.waiting, node),
+    ),
+    AttentionAclGrown() => state.copyWith.access(tab: AccessTab.audit),
+  };
 
   @override
   void after() {
     super.after();
-    switch (item.kind) {
-      case AttentionKind.standbyBehind || AttentionKind.noStandby:
+    switch (item) {
+      case AttentionStandbyBehind() || AttentionNoStandby():
         break;
-      case AttentionKind.linkFailed ||
-          AttentionKind.quarantine ||
-          AttentionKind.waitingNotRead:
+      case AttentionLinkFailed() ||
+          AttentionQuarantine() ||
+          AttentionWaitingNotRead():
         _go(const LinksRoute());
-      case AttentionKind.brokerWaiting:
+      case AttentionBrokerWaiting():
         _go(const SitesRoute());
-      case AttentionKind.aclGrown:
+      case AttentionAclGrown():
         _go(const AccessRoute());
     }
   }
