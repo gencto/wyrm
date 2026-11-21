@@ -1161,6 +1161,22 @@ include the producer's samples.
 | whole path, one thread, 1000 keys | 1 436 ns, 29 allocations (2 449 B); 1.0 flush per frame | 457 ns; 555 ns; 2 allocations (167 B); 0.008 flushes per frame |
 | 10 connections × 1000 points × 10 Hz, 2 workers | 100k frames/s; 71.2 % CPU (68.8 % without the producer); 36 allocations (2 699 B) per sample; RSS 153 MiB; 1.0 flush per frame | 100k frames/s; 24.5 % CPU (22.0 %); 18.8 % (16.3 %); 9 allocations (409 B); RSS 133 / 125 MiB; 0.171 / 0.144 flushes per frame |
 
+With real sockets, `perf_f_gateway` (a broker with the embedded mock, 10
+WebSocket clients × 1000 points × 10 Hz; latency = arrival − the sample's
+time), one run each, `origin/main` `d3d6309e` against this branch:
+
+| Figure | Before (load 17 → 13) | After (load 31 → 21) |
+|---|---|---|
+| frames per second | 99 967 | 99 943 |
+| latency p50 / p95 / p99 | 4.01 / 6.05 / 6.79 ms | 0.55 / 1.42 / 2.38 ms |
+| CPU of the whole process (broker, mock, clients) | 65.2 % | 45.8 % |
+| RSS | 90.3 MiB | 78.5 MiB |
+| samples lost | 331 of 1 000 331 | 570 of 1 000 570 |
+
+The losses are the samples of the last tick at the window's edge in both
+runs (as in the first figures), not the batching. The After run had the
+higher load.
+
 Not done:
 
 - one allocation per frame is left: the frame's own buffer, which the
