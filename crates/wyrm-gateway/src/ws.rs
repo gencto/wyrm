@@ -84,8 +84,15 @@ const RECHECK: Duration = Duration::from_secs(15);
 
 enum Out {
     Frame(Value),
+    /// A frame already encoded (the value frames of a `subscribe`).
+    Bytes(Vec<u8>),
     Close(u16, &'static str),
 }
+
+/// The writer hands at most this many waiting frames to the transport before it flushes
+/// it, and stops sooner once they hold [`WRITE_BATCH_BYTES`].
+const WRITE_BATCH: usize = 256;
+const WRITE_BATCH_BYTES: usize = 64 * 1024;
 
 /// `GET /api/ws?ticket=…` (single-use, from `POST /api/ws-ticket`) or with
 /// `Authorization: Bearer <session>`. Sessions are never taken from the URL.
@@ -308,22 +315,50 @@ async fn run(st: AppState, p: Principal, socket: WebSocket) {
 
 /// The one task that writes a connection's frames to its transport, in the order they
 /// were queued; it ends with the queue or with a close.
+///
+/// The frames that wait in the queue at one moment go to the transport together and are
+/// flushed once (on a socket: one write, not one per frame). Nothing waits for a batch to
+/// fill: a frame alone in the queue is flushed at once. A batch ends at [`WRITE_BATCH`]
+/// frames or [`WRITE_BATCH_BYTES`], and its flush comes before the queue is read again, so
+/// a transport that does not take the bytes holds the writer, and with it the queue, as
+/// before.
 async fn write_frames<Si>(mut out_rx: mpsc::Receiver<Out>, mut sink: Si)
 where
     Si: futures_util::Sink<WsOut> + Unpin,
 {
-    while let Some(o) = out_rx.recv().await {
-        match o {
-            Out::Frame(v) => {
-                let Ok(b) = to_vec(&v) else { continue };
-                if sink.send(WsOut::Binary(b)).await.is_err() {
-                    break;
+    'conn: while let Some(first) = out_rx.recv().await {
+        let mut next = Some(first);
+        let (mut frames, mut bytes) = (0usize, 0usize);
+        while let Some(o) = next.take() {
+            let frame = match o {
+                Out::Frame(v) => match to_vec(&v) {
+                    Ok(b) => Some(b),
+                    // a frame that does not encode is left out, as it always was
+                    Err(e) => {
+                        debug!("gateway: a frame left out: {e}");
+                        None
+                    }
+                },
+                Out::Bytes(b) => Some(b),
+                Out::Close(code, reason) => {
+                    // `send` flushes the frames fed before it, in order
+                    let _ = sink.send(WsOut::Close(code, reason)).await;
+                    break 'conn;
+                }
+            };
+            if let Some(b) = frame {
+                frames += 1;
+                bytes += b.len();
+                if sink.feed(WsOut::Binary(b)).await.is_err() {
+                    break 'conn;
                 }
             }
-            Out::Close(code, reason) => {
-                let _ = sink.send(WsOut::Close(code, reason)).await;
-                break;
+            if frames < WRITE_BATCH && bytes < WRITE_BATCH_BYTES {
+                next = out_rx.try_recv().ok();
             }
+        }
+        if sink.flush().await.is_err() {
+            break;
         }
     }
     let _ = sink.close().await;
@@ -830,16 +865,16 @@ impl Conn {
 
     async fn subscribe(&self, p: Principal, id: u64, key: String) {
         // The read filter runs before the client stream buffers anything: a
-        // point the user may not read takes no memory (security review). It
-        // is checked again below, as grants can change while a value waits.
-        let (gw, filter) = (self.gw.clone(), self.grants.subscribe());
-        let readable = move |key: &str| may_read(&gw, &filter.borrow(), key);
+        // point the user may not read takes no memory (security review). The
+        // pump checks again once the grants or the sites change, as a value
+        // may wait in the buffer across the change (`Recheck`).
+        let (recheck, readable) = value_filter(&self.gw, &self.grants);
         let mut s = match self.client(&p).subscribe_filtered(&key, readable).await {
             Ok(s) => s,
             Err(e) => return self.send(client_err(id, &e)).await,
         };
         self.send(ok_frame(id, None)).await;
-        if !pump_values(&self.gw, self.grants.subscribe(), id, &mut s, &self.out).await {
+        if !pump_values(&self.gw, recheck, id, &mut s, &self.out).await {
             return;
         }
         // a stream ended by a limit (`resource_exhausted`: too many keys,
@@ -851,17 +886,90 @@ impl Conn {
     }
 }
 
-/// The user may read the value of the node `key` (the first grant matching this very key).
-fn may_read(gw: &Gateway, g: &Grants, key: &str) -> bool {
-    g.perm(&format!("{}/~val", gw.as_own(key))) >= Perm::Read
+/// The read filter of a new `subscribe` stream and the [`Recheck`] of its pump, made in
+/// that order: the pump's view of the grants and sites is taken before the filter can run.
+fn value_filter(
+    gw: &Arc<Gateway>,
+    grants: &watch::Sender<Arc<Grants>>,
+) -> (Recheck, impl Fn(&str) -> bool + Send + Sync + 'static) {
+    let recheck = Recheck {
+        grants: grants.subscribe(),
+        sites: gw.sites_gen(),
+        changed: false,
+    };
+    let filter = read_filter(gw.clone(), recheck.grants.clone());
+    (recheck, filter)
 }
 
-/// The frame of one value event of stream `id`, and the node key it is about.
-fn value_frame(id: u64, ev: ValEvent) -> (String, Value) {
+thread_local! {
+    /// The buffer of the read filter on each of Zenoh's receive threads.
+    static OWN_KEY: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
+}
+
+/// The filter of a `subscribe` stream: it runs on Zenoh's receive path, before the
+/// client stream buffers a value, with the grants of that moment.
+fn read_filter(
+    gw: Arc<Gateway>,
+    grants: watch::Receiver<Arc<Grants>>,
+) -> impl Fn(&str) -> bool + Send + Sync + 'static {
+    move |key: &str| {
+        OWN_KEY.with(|own| match own.try_borrow_mut() {
+            Ok(mut own) => may_read(&gw, &grants.borrow(), key, &mut own),
+            // (a filter inside a filter on one thread: never seen, still answered)
+            Err(_) => may_read(&gw, &grants.borrow(), key, &mut String::new()),
+        })
+    }
+}
+
+/// The user may read the value of the node `key` (the first grant matching this very
+/// key). `own` is a buffer for the key the grants are asked about; what it held is lost.
+fn may_read(gw: &Gateway, g: &Grants, key: &str, own: &mut String) -> bool {
+    own.clear();
+    gw.as_own_into(key, own);
+    own.push_str("/~val");
+    g.perm(own) >= Perm::Read
+}
+
+/// When the pump of a `subscribe` checks a value's rights again. The stream's filter
+/// checked every value it let through, with the grants and the downstream sites of that
+/// moment. While neither has changed since the stream began, that verdict stands and the
+/// pump checks nothing more. After a change, a value may have waited in the stream's
+/// buffer across it, so every value is checked again before it goes out, to the end of
+/// the stream.
+struct Recheck {
+    grants: watch::Receiver<Arc<Grants>>,
+    /// [`Gateway::sites_gen`] when the stream began.
+    sites: u64,
+    /// Sticky: once a change is seen, every value is checked.
+    changed: bool,
+}
+
+impl Recheck {
+    fn needed(&mut self, gw: &Gateway) -> bool {
+        if !self.changed {
+            // a closed sender counts as a change
+            self.changed =
+                self.grants.has_changed().unwrap_or(true) || gw.sites_gen() != self.sites;
+        }
+        self.changed
+    }
+}
+
+/// The node key of a value event.
+fn event_key(ev: &ValEvent) -> &str {
+    match ev {
+        ValEvent::Sample { key, .. } | ValEvent::Removed(key) => key,
+    }
+}
+
+/// The frame of one value event of stream `id` as [`Value`]s, the way the frames were
+/// made before [`value_frame`]: the model it is checked against.
+#[cfg(test)]
+fn value_frame_model(id: u64, ev: ValEvent) -> Value {
     match ev {
         ValEvent::Sample { key, sample, qual } => {
             let mut f = vec![
-                ("key", Value::Str(key.clone())),
+                ("key", Value::Str(key)),
                 ("v", sample.v),
                 ("q", Value::from(sample.q.name())),
                 ("t", Value::UInt(sample.t)),
@@ -869,21 +977,52 @@ fn value_frame(id: u64, ev: ValEvent) -> (String, Value) {
             if let Some(q) = qual {
                 f.push(("qual", Value::Str(q)));
             }
-            let ev = event_frame(id, "sample", f);
-            (key, ev)
+            event_frame(id, "sample", f)
+        }
+        ValEvent::Removed(key) => event_frame(id, "removed", [("key", Value::Str(key))]),
+    }
+}
+
+/// The frame of one value event of stream `id`, encoded: `{id, event: {type: "sample",
+/// key, v, q, t, qual?}}` or `{id, event: {type: "removed", key}}`. The bytes are those of
+/// the canonical CBOR of that map built as a [`Value`] (keys shortest first, then by their
+/// bytes), written straight into one buffer.
+fn value_frame(
+    id: u64,
+    ev: &ValEvent,
+) -> Result<Vec<u8>, minicbor::encode::Error<std::convert::Infallible>> {
+    let key = event_key(ev);
+    // a float sample of a mock point takes 59 bytes besides its key
+    let mut e = minicbor::Encoder::new(Vec::with_capacity(96 + key.len()));
+    e.map(2)?.str("id")?.u64(id)?.str("event")?;
+    match ev {
+        ValEvent::Sample { key, sample, qual } => {
+            e.map(if qual.is_some() { 6 } else { 5 })?;
+            e.str("q")?.str(sample.q.name())?;
+            e.str("t")?.u64(sample.t)?;
+            e.str("v")?.encode(&sample.v)?;
+            e.str("key")?.str(key)?;
+            if let Some(q) = qual {
+                e.str("qual")?.str(q)?;
+            }
+            e.str("type")?.str("sample")?;
         }
         ValEvent::Removed(key) => {
-            let ev = event_frame(id, "removed", [("key", Value::Str(key.clone()))]);
-            (key, ev)
+            e.map(2)?
+                .str("key")?
+                .str(key)?
+                .str("type")?
+                .str("removed")?;
         }
     }
+    Ok(e.into_writer())
 }
 
 /// The value events of one `subscribe`, each as a frame into the connection's queue,
 /// until the stream ends. `false`: the connection is gone.
 async fn pump_values<S>(
     gw: &Gateway,
-    grants: watch::Receiver<Arc<Grants>>,
+    mut recheck: Recheck,
     id: u64,
     s: &mut S,
     out: &mpsc::Sender<Out>,
@@ -891,17 +1030,23 @@ async fn pump_values<S>(
 where
     S: futures_util::Stream<Item = ValEvent> + Unpin,
 {
+    let mut own = String::new();
     while let Some(ev) = s.next().await {
-        let (key, ev) = value_frame(id, ev);
-        // Per-point filter: the first grant matching this very key.
-        if !may_read(gw, &grants.borrow(), &key) {
+        // Per-point filter: the first grant matching this very key. The stream's filter
+        // has checked it; again here only after the grants or the sites changed.
+        if recheck.needed(gw) && !may_read(gw, &recheck.grants.borrow(), event_key(&ev), &mut own) {
             continue;
         }
+        // (a `Vec` takes every write: this does not fail)
+        let Ok(frame) = value_frame(id, &ev) else {
+            continue;
+        };
+        drop(ev);
         // Wait for room: only this task waits. The client stream keeps
         // one pending value per key meanwhile (newest wins) and never
         // holds up the shared session, so a slow socket gets the latest
         // value of every point instead of losing some at random.
-        if out.send(Out::Frame(ev)).await.is_err() {
+        if out.send(Out::Bytes(frame)).await.is_err() {
             return false;
         }
     }
@@ -1034,10 +1179,13 @@ fn laid(sites: &crate::overlay::Sites, parent: &str, mut c: Child) -> Child {
 #[cfg(feature = "testkit")]
 pub mod testkit {
     use super::{mpsc, watch, Arc, Gateway, Grants, Out, ValEvent, WsOut, OUT_QUEUE};
+    use std::future::Future;
     use std::pin::Pin;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::Mutex;
     use std::task::{Context, Poll};
+    use zenoh::handlers::Callback;
+    use zenoh::sample::Sample as ZSample;
 
     /// What the writer handed to the transport.
     #[derive(Debug, Default)]
@@ -1116,39 +1264,427 @@ pub mod testkit {
 
     /// The bytes of the frame of one value event of stream `id`, as a socket gets them.
     pub fn value_frame(id: u64, ev: ValEvent) -> Vec<u8> {
-        wyrm_core::codec::encode_to_vec(&super::value_frame(id, ev).1)
+        super::value_frame(id, &ev).unwrap_or_default()
     }
 
     /// The rights check of one sample: `grants` let the user read the value of `key`.
-    pub fn may_read(gw: &Gateway, grants: &Grants, key: &str) -> bool {
-        super::may_read(gw, grants, key)
+    /// `own` is the buffer the value path keeps for it.
+    pub fn may_read(gw: &Gateway, grants: &Grants, key: &str, own: &mut String) -> bool {
+        super::may_read(gw, grants, key, own)
     }
 
-    /// One `subscribe` of a connection of its own, to the end of `stream`: every event
-    /// `grants` allow goes as a frame through the connection's queue and its writer task
-    /// to `wire`. `false`: the writer task did not end by itself.
-    pub async fn serve_values<S>(
-        gw: Arc<Gateway>,
-        grants: Grants,
-        id: u64,
-        mut stream: S,
-        wire: Arc<Wire>,
-    ) -> bool
-    where
-        S: futures_util::Stream<Item = ValEvent> + Unpin + Send,
-    {
-        let (out_tx, out_rx) = mpsc::channel::<Out>(OUT_QUEUE);
-        let writer = tokio::spawn(super::write_frames(out_rx, Tap(wire)));
-        let (_keep, grants) = watch::channel(Arc::new(grants));
-        super::pump_values(&gw, grants, id, &mut stream, &out_tx).await;
-        drop(out_tx);
-        writer.await.is_ok()
+    /// One `subscribe` of a connection of its own, as the connection runs it once its
+    /// stream is open.
+    pub struct Served {
+        /// The handler of the stream's Zenoh subscriber: it takes `…/~val` samples, runs
+        /// the gateway's read filter on each and buffers what passes. Dropping it ends the
+        /// stream.
+        pub feed: Callback<ZSample>,
+        /// The connection's grants: a send is what a re-read of the user does.
+        pub grants: watch::Sender<Arc<Grants>>,
+        /// To run to the end of the stream: every event the grants allow goes as a frame
+        /// through the connection's queue and its writer task to the wire. `false`: the
+        /// writer task did not end by itself.
+        pub run: Pin<Box<dyn Future<Output = bool> + Send>>,
+    }
+
+    /// [`Served`] of stream `id` for a user with `grants`, its frames to `wire`.
+    pub fn serve_values(gw: Arc<Gateway>, grants: Grants, id: u64, wire: Arc<Wire>) -> Served {
+        let (tx, _) = watch::channel(Arc::new(grants));
+        let (recheck, filter) = super::value_filter(&gw, &tx);
+        let (feed, mut stream) = wyrm_client::testkit::value_stream_filtered(filter);
+        let run = Box::pin(async move {
+            let (out_tx, out_rx) = mpsc::channel::<Out>(OUT_QUEUE);
+            let writer = tokio::spawn(super::write_frames(out_rx, Tap(wire)));
+            super::pump_values(&gw, recheck, id, &mut stream, &out_tx).await;
+            drop(out_tx);
+            writer.await.is_ok()
+        });
+        Served {
+            feed,
+            grants: tx,
+            run,
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::pin::Pin;
+    use std::task::{Context, Poll};
+    use wyrm_core::ptok::Grant;
+    use wyrm_core::{Quality, Sample};
+
+    /// A gateway of its own (no server) for site `s`, its data in a directory of `name`.
+    fn bare_gateway(name: &str) -> (Arc<Gateway>, std::path::PathBuf) {
+        let dir =
+            std::env::temp_dir().join(format!("wyrm-gateway-ws-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let cfg = crate::GatewayConfig::new("s", &dir, "127.0.0.1:0".parse().unwrap());
+        (Gateway::open(cfg, b"test state key").unwrap(), dir)
+    }
+
+    fn values() -> Vec<Value> {
+        let mut v = vec![
+            Value::Null,
+            Value::Bool(false),
+            Value::Bool(true),
+            Value::Str(String::new()),
+            Value::from("x"),
+            Value::from("Привіт, світ ✓ 温度"),
+            Value::Str("a".repeat(23)),
+            Value::Str("b".repeat(24)),
+            Value::Str("c".repeat(256)),
+            Value::Bytes(Vec::new()),
+            Value::Bytes(vec![0, 1, 255]),
+            Value::Bytes(vec![7; 300]),
+            Value::Array(Vec::new()),
+            Value::Map(BTreeMap::new()),
+            Value::Array(vec![Value::Null, Value::from(1.5), Value::from("z")]),
+            map([
+                ("zz", Value::UInt(1)),
+                ("a", Value::Int(-1)),
+                ("bbb", Value::Null),
+                ("b", Value::Bool(true)),
+                ("ab", Value::Array(vec![])),
+            ]),
+            map([(
+                "outer",
+                Value::Array(vec![
+                    map([("x", Value::Float(0.1)), ("é", Value::Bytes(vec![1]))]),
+                    Value::Array(vec![Value::Array(vec![Value::Int(-1000)])]),
+                ]),
+            )]),
+        ];
+        for u in [
+            0,
+            23,
+            24,
+            255,
+            256,
+            65_535,
+            65_536,
+            u64::from(u32::MAX),
+            u64::from(u32::MAX) + 1,
+            u64::MAX,
+        ] {
+            v.push(Value::UInt(u));
+        }
+        for i in [
+            -1,
+            -24,
+            -25,
+            -256,
+            -257,
+            -65_536,
+            -65_537,
+            i64::from(i32::MIN),
+            i64::MIN,
+        ] {
+            v.push(Value::Int(i));
+        }
+        for f in [
+            0.0,
+            -0.0,
+            1.0,
+            1.5,
+            65_504.0,
+            100_000.0,
+            0.1,
+            1e300,
+            f64::from(f32::MAX),
+            f64::MIN_POSITIVE,
+            f64::NAN,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+        ] {
+            v.push(Value::Float(f));
+        }
+        v
+    }
+
+    /// The frame written straight into its buffer is the frame built as `Value`s, byte
+    /// for byte, for every shape a value can take, every quality, ids and times at the
+    /// widths of CBOR, short and long and non-ASCII keys, with and without `qual`.
+    #[test]
+    fn value_frames_are_the_bytes_of_the_value_model() {
+        let edges = [
+            0,
+            23,
+            24,
+            255,
+            256,
+            65_535,
+            65_536,
+            u64::from(u32::MAX),
+            u64::from(u32::MAX) + 1,
+            u64::MAX,
+        ];
+        let keys = [
+            "wy/s/downstream/mock/p0".to_owned(),
+            "k".repeat(23),
+            "k".repeat(24),
+            "k".repeat(255),
+            "k".repeat(256),
+            "wy/s/downstream/модуль/точка ✓".to_owned(),
+        ];
+        let same = |id: u64, ev: ValEvent| {
+            let new = value_frame(id, &ev).unwrap();
+            let old = wyrm_core::codec::encode_to_vec(&value_frame_model(id, ev.clone()));
+            assert_eq!(new, old, "{id} {ev:?}");
+        };
+        let mut n = 0;
+        for (i, v) in values().into_iter().enumerate() {
+            for q in [Quality::Good, Quality::Uncertain, Quality::Bad] {
+                for qual in [None, Some("comm_fail".to_owned()), Some(String::new())] {
+                    let id = edges[i % edges.len()];
+                    let t = edges[(i + 3) % edges.len()];
+                    let key = keys[i % keys.len()].clone();
+                    let sample = Sample { v: v.clone(), q, t };
+                    same(id, ValEvent::Sample { key, sample, qual });
+                    n += 1;
+                }
+            }
+        }
+        for id in edges {
+            for t in edges {
+                let sample = Sample {
+                    v: Value::Float(t as f64 * 0.5),
+                    q: Quality::Good,
+                    t,
+                };
+                let key = keys[0].clone();
+                same(
+                    id,
+                    ValEvent::Sample {
+                        key,
+                        sample,
+                        qual: None,
+                    },
+                );
+            }
+            for key in &keys {
+                same(id, ValEvent::Removed(key.clone()));
+            }
+        }
+        assert!(n > 100);
+    }
+
+    /// The rights check with its buffer gives the verdict of the check it replaced
+    /// (`format!` of `as_own` and `/~val`), and `as_own_into` the key of `as_own`, for own
+    /// and downstream keys, a site whose name only starts like a downstream one, other
+    /// sites, `*` and `**` grants, a narrow deny before a broad allow, and a buffer that
+    /// held a longer key before.
+    #[test]
+    fn rights_check_gives_the_old_verdicts() {
+        let (gw, dir) = bare_gateway("rights");
+        gw.set_downstream_sites(vec!["edge".into(), "plant".into()]);
+        let grant = |k: &str, p| Grant { k: k.into(), p };
+        let sets = [
+            Grants::new(vec![grant("wy/s/**", Perm::Read)]),
+            Grants::new(vec![
+                grant("wy/s/downstream/mock/secret/**", Perm::None),
+                grant("wy/s/downstream/**", Perm::Write),
+            ]),
+            Grants::new(vec![
+                grant("wy/s/downstream/*/p0/~val", Perm::Read),
+                grant("wy/s/downstream/*/p1/~val", Perm::List),
+            ]),
+            Grants::new(vec![grant("wy/edge2/**", Perm::Read)]),
+            Grants::new(vec![grant("wy/**", Perm::Config)]),
+            Grants::new(vec![]),
+        ];
+        let keys = [
+            "wy/s/downstream/mock/p0",
+            "wy/s/downstream/mock/p1",
+            "wy/s/downstream/mock/secret/p0",
+            "wy/s/dataflows/f/nodes/n",
+            "wy/s",
+            "wy/edge",
+            "wy/edge/downstream/mock/p0",
+            "wy/edge/downstream/mock/secret/p0",
+            "wy/plant/downstream/m/p1",
+            "wy/edge2/downstream/mock/p0",
+            "wy/edg/downstream/mock/p0",
+            "wy/other/downstream/mock/p0",
+            "wy",
+            "xy/s/downstream/mock/p0",
+            "wy/edge/downstream/модуль/точка",
+        ];
+        let old = |g: &Grants, key: &str| {
+            let own = match gw.downstream_site_of(key) {
+                Some(d) => format!("wy/s{}", &key[3 + d.len()..]),
+                None => key.to_owned(),
+            };
+            g.perm(&format!("{own}/~val")) >= Perm::Read
+        };
+        let mut own = "wy/a/key/longer/than/any/of/the/keys/below/~val".repeat(4);
+        let (mut allowed, mut denied) = (0, 0);
+        for g in &sets {
+            for key in keys {
+                let want = old(g, key);
+                assert_eq!(may_read(&gw, g, key, &mut own), want, "{key} {g:?}");
+                let mut into = "left".to_owned();
+                gw.as_own_into(key, &mut into);
+                assert_eq!(into, format!("left{}", gw.as_own(key)));
+                if want {
+                    allowed += 1;
+                } else {
+                    denied += 1;
+                }
+            }
+        }
+        assert!(allowed > 10 && denied > 10, "{allowed} {denied}");
+        // a downstream site is matched as a whole segment
+        assert_eq!(gw.as_own("wy/edge/downstream/x"), "wy/s/downstream/x");
+        assert_eq!(gw.as_own("wy/edge2/downstream/x"), "wy/edge2/downstream/x");
+        assert_eq!(gw.as_own("wy/edge"), "wy/s");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The same downstream sites set again are no change; other sites are.
+    #[test]
+    fn only_a_new_set_of_sites_counts_as_a_change() {
+        let (gw, dir) = bare_gateway("sites-gen");
+        let g0 = gw.sites_gen();
+        gw.set_downstream_sites(vec!["edge".into()]);
+        let g1 = gw.sites_gen();
+        assert_ne!(g0, g1);
+        gw.set_downstream_sites(vec!["edge".into()]);
+        assert_eq!(gw.sites_gen(), g1);
+        gw.set_downstream_sites(vec![]);
+        assert_ne!(gw.sites_gen(), g1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// What the writer handed to its transport: the frames, and where each flush came.
+    #[derive(Default)]
+    struct Log {
+        frames: Vec<Vec<u8>>,
+        /// The number of frames handed over before each flush.
+        flushes: Vec<usize>,
+        close: Option<u16>,
+    }
+
+    struct LogSink(Arc<std::sync::Mutex<Log>>);
+
+    impl futures_util::Sink<WsOut> for LogSink {
+        type Error = std::convert::Infallible;
+
+        fn poll_ready(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+
+        fn start_send(self: Pin<&mut Self>, o: WsOut) -> Result<(), Self::Error> {
+            let mut l = self.0.lock().unwrap();
+            match o {
+                WsOut::Binary(b) => l.frames.push(b),
+                WsOut::Close(code, _) => l.close = Some(code),
+            }
+            Ok(())
+        }
+
+        fn poll_flush(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+            let mut l = self.0.lock().unwrap();
+            let n = l.frames.len();
+            l.flushes.push(n);
+            Poll::Ready(Ok(()))
+        }
+
+        fn poll_close(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+    }
+
+    /// Run the writer over `queued` (all in the queue before it starts) to the end.
+    async fn write_all(queued: Vec<Out>) -> Log {
+        let (tx, rx) = mpsc::channel::<Out>(OUT_QUEUE);
+        for o in queued {
+            tx.try_send(o).ok().unwrap();
+        }
+        drop(tx);
+        let log = Arc::new(std::sync::Mutex::new(Log::default()));
+        write_frames(rx, LogSink(log.clone())).await;
+        let mut l = log.lock().unwrap();
+        std::mem::take(&mut *l)
+    }
+
+    fn numbered(n: usize, size: usize) -> Vec<Out> {
+        (0..n)
+            .map(|i| {
+                let mut b = vec![0u8; size.max(4)];
+                b[..4].copy_from_slice(&(i as u32).to_be_bytes());
+                Out::Bytes(b)
+            })
+            .collect()
+    }
+
+    fn number(b: &[u8]) -> u32 {
+        u32::from_be_bytes([b[0], b[1], b[2], b[3]])
+    }
+
+    /// Queued frames go out in order with one flush per batch of 256; a frame alone is
+    /// flushed at once; a batch ends at 64 KiB; a close goes after the frames before it;
+    /// a `Value` frame and an encoded one mix in their order.
+    #[tokio::test]
+    async fn the_writer_flushes_once_per_batch() {
+        let l = write_all(numbered(1000, 8)).await;
+        assert_eq!(l.frames.len(), 1000);
+        assert!(l
+            .frames
+            .iter()
+            .enumerate()
+            .all(|(i, b)| number(b) == i as u32));
+        assert_eq!(l.flushes, [256, 512, 768, 1000]);
+
+        let l = write_all(numbered(1, 8)).await;
+        assert_eq!((l.frames.len(), l.flushes.as_slice()), (1, &[1][..]));
+
+        // 1 KiB frames: 64 of them reach 64 KiB
+        let l = write_all(numbered(130, 1024)).await;
+        assert_eq!(l.flushes, [64, 128, 130]);
+
+        let mut q = numbered(3, 8);
+        q.push(Out::Close(4001, "session revoked"));
+        q.extend(numbered(2, 8));
+        let l = write_all(q).await;
+        assert_eq!(l.frames.len(), 3);
+        assert_eq!(l.close, Some(4001));
+
+        let mut q = numbered(1, 8);
+        q.push(Out::Frame(ok_frame(9, None)));
+        q.extend(numbered(1, 8));
+        let l = write_all(q).await;
+        assert_eq!(l.frames.len(), 3);
+        assert_eq!(
+            from_slice::<Value>(&l.frames[1]).unwrap(),
+            ok_frame(9, None)
+        );
+        assert_eq!(l.flushes, [3]);
+    }
+
+    /// A frame that comes while the writer waits is flushed by itself, with no wait for
+    /// others.
+    #[tokio::test]
+    async fn a_lone_frame_is_flushed_at_once() {
+        let (tx, rx) = mpsc::channel::<Out>(OUT_QUEUE);
+        let log = Arc::new(std::sync::Mutex::new(Log::default()));
+        let writer = tokio::spawn(write_frames(rx, LogSink(log.clone())));
+        for i in 1..=3 {
+            tx.send(numbered(1, 8).remove(0)).await.unwrap();
+            tokio::time::timeout(Duration::from_secs(5), async {
+                while log.lock().unwrap().flushes.len() < i {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+            assert_eq!(log.lock().unwrap().flushes.last(), Some(&i));
+        }
+        drop(tx);
+        writer.await.unwrap();
+    }
 
     /// Review S2: the `limit` of a history read is the gateway's at most, and a `from` that
     /// carries its own `&limit=` makes no selector at all.

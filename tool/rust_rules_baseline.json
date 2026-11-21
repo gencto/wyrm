@@ -719,7 +719,6 @@
     "crates/wyrm-flow/src/blocks/math.rs": 10,
     "crates/wyrm-flow/src/blocks/tables.rs": 4,
     "crates/wyrm-flow/src/readers.rs": 2,
-    "crates/wyrm-gateway/src/lib.rs": 1,
     "crates/wyrm-history-sync/src/sigv4.rs": 1,
     "crates/wyrm-link-sdk/src/tree.rs": 2,
     "crates/wyrm-messenger/src/lib.rs": 6,

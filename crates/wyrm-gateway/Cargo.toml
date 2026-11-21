@@ -14,7 +14,7 @@ default = ["mcp"]
 mcp = ["dep:rmcp", "dep:wyrm-mcp", "dep:wyrm-gateway-client", "dep:tokio-tungstenite"]
 # `ws::testkit`: the value path of one `subscribe` with no socket and no session, for its
 # own tests and measurements (tests/frame_path.rs). Dev only: no product crate turns it on.
-testkit = []
+testkit = ["wyrm-client/testkit"]
 
 [dependencies]
 wyrm-core = { workspace = true, features = ["ring"] }

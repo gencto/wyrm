@@ -1,15 +1,16 @@
 //! What one value frame costs the gateway itself, with no socket and no session: the
-//! client's value stream is fed by hand (`wyrm_client::testkit::value_stream`) and the
-//! frames end in a counting sink (`wyrm_gateway::ws::testkit`; docs/backlog.md §14).
+//! client's value stream is fed by hand (`wyrm_client::testkit::value_stream`; with the
+//! gateway's own read filter in its callback, `ws::testkit::serve_values`) and the frames
+//! end in a counting sink (`wyrm_gateway::ws::testkit`; docs/backlog.md §14).
 //!
 //! * `perf_frame_path` is a measurement, run by hand:
 //!   `cargo test --release -p wyrm-gateway --test frame_path -- --ignored --nocapture`
 //!   - `gateway/frame/encode`: a value event → the bytes of its frame;
-//!   - `gateway/frame/rights`: the rights check of one sample (the path runs it twice: in
-//!     the stream's filter and again before the frame is queued);
+//!   - `gateway/frame/rights`: the rights check of one sample (the path runs it once, in
+//!     the stream's filter; the pump runs it again only after the grants changed);
 //!   - `gateway/frame/stream_only`: the client's stream read by a task that drops the
 //!     events (what is not the gateway's);
-//!   - `gateway/frame/one_thread`: stream → rights → frame → queue → writer → sink on one
+//!   - `gateway/frame/one_thread`: rights → stream → frame → queue → writer → sink on one
 //!     thread, and how many flushes of the transport the frames took;
 //!   - `gateway/frame/10x1000x10hz`: ten connections of 1000 points at 10 Hz (100 000
 //!     frames/s) on a runtime of two workers, with the producer's own cost beside it.
@@ -108,6 +109,86 @@ fn produce(cbs: Vec<Callback<ZSample>>, secs: u64) -> std::thread::JoinHandle<u6
     })
 }
 
+/// The node keys of the frames on `wire`, in order.
+fn frame_keys(wire: &Wire) -> Vec<String> {
+    wire.take()
+        .iter()
+        .map(|b| {
+            let Value::Map(m) = wyrm_core::codec::from_slice::<Value>(b).unwrap() else {
+                panic!("a map")
+            };
+            let Some(Value::Map(ev)) = m.get("event") else {
+                panic!("an event")
+            };
+            let Some(Value::Str(k)) = ev.get("key") else {
+                panic!("a key")
+            };
+            k.clone()
+        })
+        .collect()
+}
+
+/// Values the filter let through wait in the stream's buffer while the user's grants
+/// change (or the downstream sites do): what may no longer be read never goes out. With
+/// no change, everything the filter let through goes out; what it refused never does.
+#[test]
+fn values_that_waited_across_a_change_of_rights_are_checked_again() {
+    use wyrm_core::ptok::Grant;
+    use wyrm_core::Perm;
+    let _one = ONE.lock().unwrap_or_else(|e| e.into_inner());
+    let (gw, _, dir) = gateway("recheck");
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let all = || {
+        Grants::new(vec![Grant {
+            k: format!("wy/{SITE}/**"),
+            p: Perm::Read,
+        }])
+    };
+    let mine = |k: &str| format!("wy/{SITE}/downstream/mock/{k}");
+    let edge = "wy/edge/downstream/mock/e0".to_owned();
+    gw.set_downstream_sites(vec!["edge".into()]);
+    // `run` the stream after `feed`, with `change` between them
+    let serve = |change: &dyn Fn(&testkit::Served)| {
+        let wire = Wire::keeping();
+        let sv = testkit::serve_values(gw.clone(), all(), 3, wire.clone());
+        for k in [mine("a"), mine("b"), edge.clone(), "wy/other/x".to_owned()] {
+            sv.feed.call(zsample(&k, 5));
+        }
+        change(&sv);
+        drop(sv.feed);
+        assert!(rt.block_on(sv.run));
+        frame_keys(&wire)
+    };
+    // no change: the other site's key was refused by the filter, the rest goes out
+    assert_eq!(serve(&|_| {}), [mine("a"), mine("b"), edge.clone()]);
+    // `b` is taken away while its value waits
+    let b_gone = |sv: &testkit::Served| {
+        sv.grants.send_replace(Arc::new(Grants::new(vec![
+            Grant {
+                k: format!("wy/{SITE}/downstream/mock/b/**"),
+                p: Perm::None,
+            },
+            Grant {
+                k: format!("wy/{SITE}/**"),
+                p: Perm::Read,
+            },
+        ])));
+    };
+    assert_eq!(serve(&b_gone), [mine("a"), edge.clone()]);
+    // everything is taken away
+    let none = |sv: &testkit::Served| {
+        sv.grants.send_replace(Arc::new(Grants::new(vec![])));
+    };
+    assert!(serve(&none).is_empty());
+    // the site `edge` is no longer a downstream one: its key is no longer this site's
+    let edge_gone = |_: &testkit::Served| gw.set_downstream_sites(vec![]);
+    assert_eq!(serve(&edge_gone), [mine("a"), mine("b")]);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 #[ignore = "a measurement, run by hand"]
 fn perf_frame_path() {
@@ -146,10 +227,10 @@ fn perf_frame_path() {
 
     // (2) the rights check of one sample
     let (a0, t0) = (Allocs::read(), Instant::now());
-    let mut ok = 0u64;
+    let (mut ok, mut own) = (0u64, String::new());
     for _ in 0..ROUNDS {
         for k in &keys {
-            ok += u64::from(testkit::may_read(&gw, &grants, k));
+            ok += u64::from(testkit::may_read(&gw, &grants, k, &mut own));
         }
     }
     let (wall, a) = (t0.elapsed().as_secs_f64(), Allocs::read().since(a0));
@@ -161,7 +242,7 @@ fn perf_frame_path() {
             .per_s(total as f64 / wall)
             .allocs(a, total)
             .num("ns_per_check", wall * 1e9 / total as f64)
-            .note("one rights check of a sample; the value path runs it twice per frame")
+            .note("one rights check of a sample, with the buffer the path keeps for it")
     );
 
     let rt = tokio::runtime::Builder::new_current_thread()
@@ -220,15 +301,10 @@ fn perf_frame_path() {
 
     // (4) the whole value path of one subscribe on one thread
     {
-        let (cb, st) = wyrm_client::testkit::value_stream();
         let wire = Wire::new();
-        let served = rt.spawn(testkit::serve_values(
-            gw.clone(),
-            grants.clone(),
-            7,
-            st,
-            wire.clone(),
-        ));
+        let sv = testkit::serve_values(gw.clone(), grants.clone(), 7, wire.clone());
+        let (cb, _grants) = (sv.feed, sv.grants);
+        let served = rt.spawn(sv.run);
         let rounds: Vec<Vec<ZSample>> = (0..=ROUNDS).map(|t| round(&keys, t + 1)).collect();
         let (wall, a, flushes, bytes) = rt.block_on(async {
             let mut rounds = rounds.into_iter();
@@ -304,16 +380,12 @@ fn perf_frame_path() {
     let wire = Wire::new();
     let mut cbs = Vec::new();
     let mut served = Vec::new();
+    let mut keep = Vec::new();
     for id in 0..conns {
-        let (cb, st) = wyrm_client::testkit::value_stream();
-        cbs.push(cb);
-        served.push(rt.spawn(testkit::serve_values(
-            gw.clone(),
-            grants.clone(),
-            id,
-            st,
-            wire.clone(),
-        )));
+        let sv = testkit::serve_values(gw.clone(), grants.clone(), id, wire.clone());
+        cbs.push(sv.feed);
+        keep.push(sv.grants);
+        served.push(rt.spawn(sv.run));
     }
     let (a0, u0) = (Allocs::read(), Usage::read());
     // the callbacks go with the producer thread: the streams end when it is done
