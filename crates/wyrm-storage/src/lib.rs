@@ -279,8 +279,16 @@ impl Storage {
     /// Create the folders and the `dynamic` value at `path` that are missing,
     /// then set the value.
     async fn publish(&self, a: Publish) -> Result<()> {
-        let Publish { path, value } = a;
-        let path = path.trim_matches('/');
+        let (at, missing) = self.plan_publish(&a)?;
+        if !missing.is_empty() {
+            self.replace(Vec::new(), &[], missing).await?;
+        }
+        self.set(&at, a.value).await
+    }
+
+    /// What `publish` checks before it writes: the value node it sets and the nodes it makes.
+    fn plan_publish(&self, a: &Publish) -> Result<(String, Vec<(String, Rec)>)> {
+        let path = a.path.trim_matches('/');
         keyspace::validate_path(path).map_err(|e| LinkError::invalid_parameter(e.to_string()))?;
         self.limits.check_depth(path)?;
         let mut missing = Vec::new();
@@ -312,14 +320,11 @@ impl Storage {
             .get(&at)
             .and_then(|r| r.ty)
             .unwrap_or(TypeCode::Dynamic);
-        check_value(ty, &value, &self.limits)?;
+        check_value(ty, &a.value, &self.limits)?;
         if self.store.len() + missing.len() > self.limits.nodes {
             return Err(self.limits.too_many());
         }
-        if !missing.is_empty() {
-            self.replace(Vec::new(), &[], missing).await?;
-        }
-        self.set(&at, value).await
+        Ok((at, missing))
     }
 
     async fn set(&self, path: &str, v: Value) -> Result<()> {
@@ -521,6 +526,9 @@ impl Link for Storage {
             (_, "add_value") => {
                 let a = AddValue::decode(args)?;
                 self.new_child(path, &a.name, 1)?;
+            }
+            ("", "publish") => {
+                self.plan_publish(&Publish::decode(args)?)?;
             }
             (p, "rename") if !p.is_empty() => {
                 let parent = self.may_name_beside(path, action, who)?;
