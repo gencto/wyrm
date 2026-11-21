@@ -987,27 +987,55 @@ impl<C: Send + 'static> Shared<C> {
     /// Wildcard `get` (fan-in): full `~meta` of every non-restricted node
     /// whose key intersects, plus `~val` with `answer_val`. Selector
     /// parameters are ignored here.
+    ///
+    /// Every key this answers is `<prefix>[/<path>]/~meta` or `…/~val`, and a
+    /// path has plain segments only (`keyspace::validate_segment`). So the
+    /// pattern is first tried against `<prefix>/**/<suffix>`, once per
+    /// suffix: a pattern that meets neither (the stored read of a
+    /// subscriber, `…/**/~val`, at a link whose values a storage answers)
+    /// ends here, without the tree's lock and without a key built. Each
+    /// such read walked the whole tree before, with two keys per node.
     async fn fan_in(&self, q: &Query) {
         let qk = q.key_expr();
+        let prefix = self.ctx.0.prefix.as_str();
+        // a pattern of ours that does not parse rules nothing out: the walk decides
+        let may = |suffix: &str| {
+            keyexpr::new(&format!("{prefix}/**/{suffix}")).map_or(true, |k| k.intersects(qk))
+        };
+        let (meta, val) = (may(SUFFIX_META), self.answer_val && may(SUFFIX_VAL));
+        if !meta && !val {
+            return;
+        }
         let hits = |k: &str| keyexpr::new(k).is_ok_and(|k| k.intersects(qk));
+        // one buffer for the keys that are tried: a key is copied only when it is answered
+        let mut k = String::with_capacity(prefix.len() + 64);
+        let mut key = |path: &str, suffix: &str| -> bool {
+            k.clear();
+            k.push_str(prefix);
+            for part in [path, suffix] {
+                if !part.is_empty() {
+                    k.push('/');
+                    k.push_str(part);
+                }
+            }
+            hits(&k)
+        };
         let mut out: Vec<(String, Vec<u8>, Option<Attachment>)> = Vec::new();
         {
             let tree = self.ctx.tree();
             for (path, node) in tree.iter() {
-                let k = self.ctx.key(path, SUFFIX_META);
-                if !tree.restricted(path) && hits(&k) {
+                if meta && !tree.restricted(path) && key(path, SUFFIX_META) {
                     if let Ok(p) = encode(&tree.full(path, false).unwrap_or_default()) {
                         let mut att = status_att(Status::Ok);
                         att.rev = Some(node.rev);
-                        out.push((k, p, Some(att)));
+                        out.push((self.ctx.key(path, SUFFIX_META), p, Some(att)));
                     }
                 }
-                if self.answer_val {
+                if val {
                     if let Some(last) = &node.last {
-                        let k = self.ctx.key(path, SUFFIX_VAL);
-                        if hits(&k) {
+                        if key(path, SUFFIX_VAL) {
                             if let Ok(p) = encode(last) {
-                                out.push((k, p, None));
+                                out.push((self.ctx.key(path, SUFFIX_VAL), p, None));
                             }
                         }
                     }
