@@ -616,27 +616,119 @@ enum SysAttention {
   };
 }
 
-/// A card of the attention panel: what it is about, the subject (a link
-/// id, a quarantine node), the certificate CN, the counts and since when.
-final class SysAttentionData extends Equatable {
-  const SysAttentionData(
-    this.kind, {
-    this.subject = '',
-    this.name = '',
-    this.count = 0,
-    this.more = 0,
+/// A card of the attention panel: what it is about ([kind]), with what
+/// that card alone says and names.
+sealed class SysAttentionData extends Equatable {
+  const SysAttentionData();
+
+  SysAttention get kind;
+}
+
+/// The standby is behind by [lag] records, or [forks] forks were moved
+/// aside.
+final class SysStandbyBehind extends SysAttentionData {
+  const SysStandbyBehind({required this.lag, required this.forks});
+
+  final int lag;
+  final int forks;
+
+  @override
+  SysAttention get kind => SysAttention.standbyBehind;
+
+  @override
+  List<Object?> get props => [lag, forks];
+}
+
+/// The link [link] failed.
+final class SysLinkFailed extends SysAttentionData {
+  const SysLinkFailed(this.link);
+
+  final String link;
+
+  @override
+  SysAttention get kind => SysAttention.linkFailed;
+
+  @override
+  List<Object?> get props => [link];
+}
+
+/// A link certificate ([cn]) waits at [node] in quarantine, first seen at
+/// [since] (null: the broker did not say).
+final class SysQuarantineWaiting extends SysAttentionData {
+  const SysQuarantineWaiting({
+    required this.node,
+    required this.cn,
     this.since,
   });
 
-  final SysAttention kind;
-  final String subject;
-  final String name;
-  final int count;
-  final int more;
+  final String node;
+  final String cn;
   final DateTime? since;
 
   @override
-  List<Object?> get props => [kind, subject, name, count, more, since];
+  SysAttention get kind => SysAttention.quarantine;
+
+  @override
+  List<Object?> get props => [node, cn, since];
+}
+
+/// A downstream broker ([cn]) waits at [node] and relays [relays] sites.
+final class SysBrokerWaiting extends SysAttentionData {
+  const SysBrokerWaiting({
+    required this.node,
+    required this.cn,
+    required this.relays,
+  });
+
+  final String node;
+  final String cn;
+  final int relays;
+
+  @override
+  SysAttention get kind => SysAttention.brokerWaiting;
+
+  @override
+  List<Object?> get props => [node, cn, relays];
+}
+
+/// A connection ([cn]) waits at [node]; Studio could not read what it is.
+final class SysWaitingNotRead extends SysAttentionData {
+  const SysWaitingNotRead({required this.node, required this.cn});
+
+  final String node;
+  final String cn;
+
+  @override
+  SysAttention get kind => SysAttention.waitingNotRead;
+
+  @override
+  List<Object?> get props => [node, cn];
+}
+
+/// The ACL denials grew by [grown] since the counter was last seen at
+/// [seen].
+final class SysAclGrown extends SysAttentionData {
+  const SysAclGrown({required this.grown, required this.seen});
+
+  final int grown;
+  final int seen;
+
+  @override
+  SysAttention get kind => SysAttention.aclGrown;
+
+  @override
+  List<Object?> get props => [grown, seen];
+}
+
+/// No standby follows the broker.
+final class SysNoStandby extends SysAttentionData {
+  const SysNoStandby();
+
+  @override
+  SysAttention get kind => SysAttention.noStandby;
+
+  @override
+  List<Object?> get props => const [];
 }
 
 /// The broker itself: its build and when it started.

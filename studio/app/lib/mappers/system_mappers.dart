@@ -3,7 +3,6 @@ import 'package:business/redux/backups/models/backups_state.dart';
 import 'package:business/redux/last_result.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/attention_item.dart';
-import 'package:models/attention_kind.dart';
 import 'package:models/backup_job.dart';
 import 'package:models/backup_kind.dart';
 import 'package:models/backup_status.dart';
@@ -145,27 +144,27 @@ extension SysElsewherePlace on SysElsewhere {
   };
 }
 
-extension AttentionKindSys on AttentionKind {
-  SysAttention get sys => switch (this) {
-    AttentionKind.standbyBehind => SysAttention.standbyBehind,
-    AttentionKind.linkFailed => SysAttention.linkFailed,
-    AttentionKind.quarantine => SysAttention.quarantine,
-    AttentionKind.brokerWaiting => SysAttention.brokerWaiting,
-    AttentionKind.waitingNotRead => SysAttention.waitingNotRead,
-    AttentionKind.aclGrown => SysAttention.aclGrown,
-    AttentionKind.noStandby => SysAttention.noStandby,
-  };
-}
-
 extension AttentionItemSys on AttentionItem {
-  SysAttentionData get sys => SysAttentionData(
-    kind.sys,
-    subject: subject,
-    name: name,
-    count: count,
-    more: more,
-    since: since,
-  );
+  SysAttentionData get sys => switch (this) {
+    AttentionStandbyBehind(:final lag, :final forks) => SysStandbyBehind(
+      lag: lag,
+      forks: forks,
+    ),
+    AttentionLinkFailed(:final link) => SysLinkFailed(link),
+    AttentionQuarantine(:final node, :final cn, :final since) =>
+      SysQuarantineWaiting(node: node, cn: cn, since: since),
+    AttentionBrokerWaiting(:final node, :final cn, :final relays) =>
+      SysBrokerWaiting(node: node, cn: cn, relays: relays),
+    AttentionWaitingNotRead(:final node, :final cn) => SysWaitingNotRead(
+      node: node,
+      cn: cn,
+    ),
+    AttentionAclGrown(:final grown, :final seen) => SysAclGrown(
+      grown: grown,
+      seen: seen,
+    ),
+    AttentionNoStandby() => const SysNoStandby(),
+  };
 }
 
 extension LogLineSys on LogLine {
