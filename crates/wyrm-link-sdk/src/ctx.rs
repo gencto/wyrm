@@ -56,9 +56,38 @@ struct Parents {
     /// Puts of a parent's `~meta` for a changed child list (for tests and
     /// benches: it grows much slower than the children of a burst).
     puts: AtomicU64,
-    /// Test hooks: `~meta` puts to fail, and a pause before each put.
+    /// Test hooks: `~meta` puts to fail, and a gate before the puts of a node.
     #[cfg(feature = "harness")]
-    hooks: Mutex<(u32, Duration)>,
+    hooks: Mutex<(u32, Option<MetaGate>)>,
+}
+
+/// Test hook ([`LinkCtx::gate_meta_puts`]): every `~meta` put of one node
+/// stops between its read of the tree and the put, inside its turn, until
+/// the gate is opened.
+#[cfg(feature = "harness")]
+#[derive(Clone)]
+pub struct MetaGate {
+    path: Arc<str>,
+    /// One permit per put that has stopped at the gate.
+    stopped: Arc<tokio::sync::Semaphore>,
+    /// Closed = the gate is open.
+    open: Arc<tokio::sync::Semaphore>,
+}
+
+#[cfg(feature = "harness")]
+impl MetaGate {
+    /// Wait until a put of the node has stopped at the gate (each stopped
+    /// put is told once).
+    pub async fn stopped(&self) {
+        if let Ok(p) = self.stopped.acquire().await {
+            p.forget();
+        }
+    }
+
+    /// Open the gate for good: the stopped put and every later one go on.
+    pub fn open(&self) {
+        self.open.close();
+    }
 }
 
 #[derive(Default)]
@@ -212,16 +241,22 @@ impl LinkCtx {
             .0 = n;
     }
 
-    /// Test hook: every `~meta` put waits this long between reading the
-    /// tree and the put.
+    /// Test hook: every `~meta` put of `path` stops between reading the
+    /// tree and the put until the returned gate is opened.
     #[cfg(feature = "harness")]
-    pub fn pause_meta_puts(&self, pause: Duration) {
+    pub fn gate_meta_puts(&self, path: &str) -> MetaGate {
+        let gate = MetaGate {
+            path: path.into(),
+            stopped: Arc::new(tokio::sync::Semaphore::new(0)),
+            open: Arc::new(tokio::sync::Semaphore::new(0)),
+        };
         self.0
             .parents
             .hooks
             .lock()
             .unwrap_or_else(|p| p.into_inner())
-            .1 = pause;
+            .1 = Some(gate.clone());
+        gate
     }
 
     /// How many times a parent's `~meta` was put because its child list
@@ -432,7 +467,7 @@ impl LinkCtx {
     /// node, drops their liveliness tokens, republishes the parent's `~meta`.
     pub async fn remove_node(&self, path: &str) -> Result<()> {
         self.ensure_open()?;
-        let parent = {
+        let (parent, deleted) = {
             // The removal and its deletes take a turn of the `~meta` puts: a
             // put of a removed node is either out before its delete or finds
             // no node any more, and a node declared again after the removal
@@ -458,19 +493,26 @@ impl LinkCtx {
                     st.dirty.remove(p);
                 }
             }
-            for p in &removed {
-                for suffix in [SUFFIX_META, SUFFIX_VAL] {
-                    self.0
-                        .session
-                        .delete(self.key(p, suffix))
-                        .priority(Priority::DataHigh)
-                        .congestion_control(CongestionControl::Block)
-                        .await?;
-                }
-            }
-            parent
+            (parent, self.delete_keys(&removed).await)
         };
-        self.publish_parent(&parent).await
+        // also after a failed delete: the parent's list has changed
+        let put = self.publish_parent(&parent).await;
+        deleted.and(put)
+    }
+
+    /// `delete` the `~meta` and `~val` of every node of `removed`.
+    async fn delete_keys(&self, removed: &[String]) -> Result<()> {
+        for p in removed {
+            for suffix in [SUFFIX_META, SUFFIX_VAL] {
+                self.0
+                    .session
+                    .delete(self.key(p, suffix))
+                    .priority(Priority::DataHigh)
+                    .congestion_control(CongestionControl::Block)
+                    .await?;
+            }
+        }
+        Ok(())
     }
 
     /// Per-node liveliness at `downstream/<link>/<path>` for nodes that come and go
@@ -763,7 +805,7 @@ impl LinkCtx {
         };
         if let Some(meta) = meta {
             #[cfg(feature = "harness")]
-            self.meta_put_hooks().await?;
+            self.meta_put_hooks(path).await?;
             self.0
                 .session
                 .put(self.key(path, SUFFIX_META), encode(&meta)?)
@@ -784,8 +826,8 @@ impl LinkCtx {
     }
 
     #[cfg(feature = "harness")]
-    async fn meta_put_hooks(&self) -> Result<()> {
-        let (fail, pause) = {
+    async fn meta_put_hooks(&self, path: &str) -> Result<()> {
+        let (fail, gate) = {
             let mut h = self
                 .0
                 .parents
@@ -794,10 +836,14 @@ impl LinkCtx {
                 .unwrap_or_else(|p| p.into_inner());
             let fail = h.0 > 0;
             h.0 = h.0.saturating_sub(1);
-            (fail, h.1)
+            (fail, h.1.clone().filter(|g| &*g.path == path))
         };
-        if !pause.is_zero() {
-            tokio::time::sleep(pause).await;
+        if let Some(gate) = gate {
+            gate.stopped.add_permits(1);
+            // an error = the gate was opened
+            if let Ok(p) = gate.open.acquire().await {
+                p.forget();
+            }
         }
         if fail {
             return Err(LinkError::internal("test: this ~meta put fails"));

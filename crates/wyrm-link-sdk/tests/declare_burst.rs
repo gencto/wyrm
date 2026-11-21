@@ -225,33 +225,52 @@ async fn kinds(h: &TestHarness<Bare>, path: &str) -> (Arc<Mutex<Vec<bool>>>, imp
     (seen, sub)
 }
 
-/// A folder removed while the put of its changed child list waits: the put
-/// is out before the delete or not at all. (The batch task read the tree,
-/// the folder was removed and deleted, then the task's put went out: a
-/// `list` client saw `Removed` and then `Added` for a node that is gone.)
-/// The pause hook holds every put between its tree read and the put; the
-/// removal is tried at many moments around the task's put.
+/// A folder removed while a put of its changed child list is under way:
+/// the put is out before the delete or not at all. (The put read the tree,
+/// the folder was removed and deleted, then the put went out: a `list`
+/// client saw `Removed` and then `Added` for a node that is gone.)
+///
+/// No timing decides the result: the gate stops the put of `d` between its
+/// read of the tree and the put, and the removal starts only then.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn no_put_follows_the_delete_of_a_removed_node() {
     let h = TestHarness::<Bare>::start(()).await;
     let ctx = h.ctx().clone();
     let (seen, _sub) = kinds(&h, "d").await;
-    ctx.pause_meta_puts(Duration::from_millis(20));
-    for offset in (32..=112).step_by(8) {
+    for round in 0..5 {
+        seen.lock().unwrap().clear();
         ctx.declare_node("d", NodeMeta::folder()).await.unwrap();
         ctx.declare_node("d/a", NodeMeta::number()).await.unwrap();
-        // the list of `d` was just put: this change of it waits for the task
-        ctx.declare_node("d/b", NodeMeta::number()).await.unwrap();
-        tokio::time::sleep(Duration::from_millis(offset)).await;
-        ctx.remove_node("d").await.unwrap();
-        // whatever was held is out by now
-        tokio::time::sleep(Duration::from_millis(300)).await;
-        assert!(!ctx.has_node("d"));
-        assert_eq!(
-            seen.lock().unwrap().last(),
-            Some(&false),
-            "a ~meta put of the removed node followed its delete (removed {offset} ms after its last child)"
+        let gate = ctx.gate_meta_puts("d");
+        // the list of `d` changes: its put (by the declare or by the batch
+        // task, whichever it is) stops at the gate with the tree read
+        let c = ctx.clone();
+        let declare = tokio::spawn(async move { c.declare_node("d/b", NodeMeta::number()).await });
+        gate.stopped().await;
+        let c = ctx.clone();
+        let remove = tokio::spawn(async move { c.remove_node("d").await });
+        // time for the removal to send its deletes, if it does not wait
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(
+            !remove.is_finished(),
+            "round {round}: the removal did not wait for the put under way"
         );
+        assert!(ctx.has_node("d"));
+        gate.open();
+        declare.await.unwrap().unwrap();
+        remove.await.unwrap().unwrap();
+        assert!(!ctx.has_node("d"));
+        // whatever was held is out after the longest hold
+        tokio::time::sleep(Duration::from_millis(600)).await;
+        let seen = seen.lock().unwrap().clone();
+        // puts, then the one delete: nothing after it
+        let first_delete = seen.iter().position(|put| !put);
+        assert_eq!(
+            first_delete,
+            Some(seen.len() - 1),
+            "round {round}: ~meta samples of the removed node (true = put): {seen:?}"
+        );
+        assert!(seen.len() >= 2, "round {round}: no put of d: {seen:?}");
     }
     h.stop().await;
 }
@@ -321,15 +340,22 @@ async fn a_failed_or_dropped_parent_put_is_made_again() {
     let last = settled(&h, "f", &puts).await;
     assert_eq!(last.children, Some(names(1..2)));
 
-    // a caller that gives up (a timeout around the driver's call) half-way
+    // a caller that gives up (a timeout around the driver's call) half-way:
+    // its put of the parent has read the tree and is dropped at the gate
     tokio::time::sleep(Duration::from_millis(600)).await;
-    ctx.pause_meta_puts(Duration::from_millis(300));
-    let gave_up = tokio::time::timeout(Duration::from_millis(50), ctx.remove_node("f/p1")).await;
-    assert!(
-        gave_up.is_err(),
-        "the removal ended before its parent's put"
+    let before = puts.lock().unwrap().len();
+    let gate = ctx.gate_meta_puts("f");
+    let c = ctx.clone();
+    let remove = tokio::spawn(async move { c.remove_node("f/p1").await });
+    gate.stopped().await;
+    remove.abort();
+    assert!(remove.await.unwrap_err().is_cancelled());
+    assert_eq!(
+        puts.lock().unwrap().len(),
+        before,
+        "the dropped put went out"
     );
-    ctx.pause_meta_puts(Duration::ZERO);
+    gate.open();
     let last = settled(&h, "f", &puts).await;
     assert_eq!(last.children, Some(Vec::new()));
     revs_rise(&puts);
