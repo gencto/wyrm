@@ -10,6 +10,7 @@ pub mod eckey;
 pub mod fetch;
 pub mod git;
 pub mod history;
+mod journal;
 pub mod keys;
 pub mod logs;
 pub mod nofollow;

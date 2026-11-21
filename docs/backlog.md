@@ -533,9 +533,11 @@ counting allocator (calls, frees, bytes; a bench or test installs it as its
 `#[global_allocator]`), nearest-rank percentiles, process CPU time and
 resident memory. CPU is the whole process (broker, links, the measuring
 client) in % of one core. No OS counts `fsync` calls: the audit figure gives
-them as derived from `wyrm-state` (3 per record: `sync_data` of the WAL,
-`sync_all` of the anchor, `sync_all` of the directory); on Linux
-`/proc/self/io` adds write calls and bytes; on macOS nothing more is
+the journal's own count of batches (`batches=`, one `sync_data` of the WAL
+each; with `state_anchor_dir` a batch adds the anchor's `sync_all` and its
+directory's, twice for a batch of two or more records; the perf tests set no
+anchor directory, so the first figure's "3 per record" was 1 per record); on
+Linux `/proc/self/io` adds write calls and bytes; on macOS nothing more is
 measured.
 
 | Group | Measurement | Audit item | What it covers |
@@ -543,11 +545,12 @@ measured.
 | sdk | `cargo bench -p wyrm-link-sdk --bench verify` | 3 | one `ptok` check with 1 admin + 1/4/10/30 limited keys: signed by the admin key, by the first and by the last limited key, by a key nobody trusts (refused), a new `sub` in every token, the limited keys in turn with their own `sub` and with a new `sub` each time |
 | sdk | `cargo bench -p wyrm-link-sdk --bench tree` | 4, 5, 17 | declare 1k/10k/30k points (time, `~meta` puts and bytes, the parent's apart, bytes kept, peak RSS; pure `NodeTree` with one parent put per child, and through `LinkCtx` over Zenoh; `TREE_DECLARE_ONLY=<n>` runs one size in a process of its own); a wildcard `get` that hits one node of 10k; `view=list` of 1000 children with and without a profile name |
 | flow | `cargo test --release -p wyrm-flow --test throughput -- --ignored --nocapture` | 7–10 | `subscribe → (scale, add) × n → publish`, a paced rate ladder on one key and on 1000 keys, default and deep inbox; allocations per hop (9 hops minus 3); 10 000-row tables through `table_sort` ×1/×3 and `table_filter` + `table_aggregate` |
-| broker | `cargo test --release -p wyrmd --test perf -- --ignored --nocapture --exact <test>` | 1, 2, 12, 13, gateway | an in-process broker with the embedded mock: (a) base rate, (b) a client that subscribes `wy/<site>/downstream/**` in a loop and one `wy/**`, (c) the mock at `trace`, (d) the historian on 10 000 points, (e) 1000 invokes and the audit records/s, (f) 10 gateway WebSocket clients × 1000 points × 10 Hz, (g) a steady pattern consumer of 1000 points × 50 Hz, raw and through the client |
+| broker | `cargo test --release -p wyrmd --test perf -- --ignored --nocapture --exact <test>` | 1, 2, 12, 13, gateway | an in-process broker with the embedded mock: (a) base rate, (b) a client that subscribes `wy/<site>/downstream/**` in a loop and one `wy/**`, (c) the mock at `trace`, (d) the historian on 10 000 points, (e) 1000 invokes one after another, then 2000 from 50 subjects at once: latency, audit records/s, batches, and how late a 1 ms timer of the broker's runtime fires, (f) 10 gateway WebSocket clients × 1000 points × 10 Hz, (g) a steady pattern consumer of 1000 points × 50 Hz, raw and through the client |
 | broker | `cargo test --release -p wyrm-client --test fan_in -- --ignored --nocapture` | pattern consumer | the client's value stream with no session: handler + read on one thread, and 1000 samples every 20 ms read by a task |
 
 Test hooks: `wyrm-admin`'s `testkit` feature (dev only) gives the perf tests
-`Control::audit_lsn` and `Control::historian`. No product code changed.
+`Control::audit_lsn`, `Control::audit_batches` and `Control::historian`. Slice
+P0 changed no product code.
 
 First figures. Machine: Apple M4 Max (14 cores, 36 GB), macOS, release
 build, commit `9b95c288`/`c938a6b4` (the measurements only), 2026-11-19. The
@@ -587,8 +590,122 @@ and the reference board (4-core ARM64, 2 GB) is not measured yet.
 | M4 Max, load 12–19, rough | release | `verify` with the key index, first or last of 1 / 4 / 10 / 30 limited keys, also in turn with a `sub` each and with a new `sub` per token from one key | p50 21.8 / 21.7 / 21.8 / 21.7 µs (p99 28–36 µs), 9 allocs with a known `sub`; admin key 21.8 µs, 7 allocs | 2026-11-20 |
 | M4 Max, load 12–19, rough | release | `verify` with the key index, refused token, 1 / 4 / 10 / 30 limited keys | p50 42.4 / 105 / 231 / 645 µs (one verify per distinct key, as before) | 2026-11-20 |
 | M4 Max, load 12–19, rough | release | `verify` with the key index, the limited keys in turn and a new `sub` in every token (nothing tells the signer), 1 / 4 / 10 / 30 keys | p50 21.9 / 85.5 / 208 / 630 µs (before: 45.5 / 111 / 242 / 681 µs) | 2026-11-20 |
-| M4 Max, loaded, rough | release | 1000 invokes, audit | invoke p50 4.0 ms, p99 7.1 ms, 312/s; 233 audit records/s; derived 700 fsync/s | 2026-11-19 |
+| M4 Max, loaded, rough | release | 1000 invokes, audit | invoke p50 4.0 ms, p99 7.1 ms, 312/s; 233 audit records/s; derived 700 fsync/s (1 per record in fact: no anchor directory) | 2026-11-19 |
+| M4 Max, load 4–33, rough | release | 1000 invokes, audit, with the journal's group commit (table below) | four runs: invoke p50 0.10–0.31 ms, p99 0.20–6.1 ms, 1 330–8 169 per s; 1 289–6 836 audit records/s, 8–33 records per `fsync` | 2026-11-20 |
 | M4 Max, loaded, rough | release | gateway, 10 WS clients × 1000 points × 10 Hz | 100k frames/s, p50 4.0 ms, p99 8.1 ms, 84 % CPU, RSS 85 MiB | 2026-11-19 |
+
+**Done: the audit journal's write path (item 1, 2026-11-20,
+`perf/audit-write`).**
+
+*Cause, measured first.* Each audit record was one `Store::apply` under a
+`std::sync::Mutex`, called on a runtime worker: the `watch_audit` task for a
+link's records, any handler for the broker's own. `apply` writes the record
+and calls `fsync` (`F_FULLFSYNC` on macOS, about 4 ms on this machine). So
+the journal took 1 / 4 ms = 240 records/s whatever the load, a worker stood
+in the system call for all of that time, and a 1 ms timer of the same
+runtime fired 2.9 ms late at the median with one caller and 127–282 ms late
+at p95–p99 with 50. An `invoke` took the same 4 ms. The link puts its audit
+record before it answers; which step waited for the write (the put, or the
+task that answers) was not taken apart.
+
+*The contract, as it was and as it stays* (`docs/operations.md` §1):
+
+- a record the broker makes itself is on disk before the operation goes on
+  (`Control::record` returns after the `fsync`);
+- a record a link reports for its own `set`/`invoke` is not acknowledged to
+  anyone (ADR 0029, decision 7): the command's answer never waited for the
+  record to be durable, only for the put. It is written in arrival order;
+- nothing is dropped to make room, and a failed write is logged.
+
+*The change.* One thread (`wyrm-audit`) owns the store. Callers put records
+in a bounded queue (1024; a full queue makes the caller wait) and the thread
+writes what waits, at most 256 records, as one batch
+(`wyrm_state::Store::apply_batch`): one write, one `fsync`, then the anchor.
+`Control::record` waits for the batch that holds its record (a runtime
+worker is handed back with `block_in_place` meanwhile; `record_async` waits
+as a task); `watch_audit` only queues. Readers (`tail`, `audit_records`) see
+a copy that the writer updates after each batch and before it answers.
+`Control::shutdown` and the drop of the journal write the whole queue before
+the store closes. The bytes on disk are the same: same records, LSNs, CRC,
+HMAC chain, SCHEMA (test `a_batch_writes_the_bytes_of_single_applies`).
+
+One rule moved, in the anchor file, not in the WAL: the anchor let the WAL
+be one record ahead (a crash between the WAL write and the anchor write). A
+batch of n ≥ 2 first writes the anchor as `<lsn> <mac> +<n>`; open and
+`verify` then accept at most n records after it, and the anchor is the plain
+head again when the batch is done. Without the announcement the rule is the
+old one, so a cut of the tail is found as before (tests
+`a_crash_inside_a_batch_leaves_a_valid_prefix`: the WAL cut at every byte of
+a batch; `the_anchor_of_a_batch_refuses_every_other_cut`). A batch of one is
+written exactly as before.
+
+*Figures.* `perf_e_audit`, M4 Max, release, the same hour, other agents'
+builds running (load average in the table; the second run after the change
+had the highest load, and shows it):
+
+| Figure | Before (2 runs, load 23 → 11) | After (4 runs: load 18, 33, then two at 4 → 22) |
+|---|---|---|
+| invoke, one after another: p50 / p99 | 3.96 / 4.84 ms; 3.96 / 5.62 ms | 0.12 / 0.20 ms; 0.31 / 6.1 ms; 0.11 / 0.28 ms; 0.10 / 0.34 ms |
+| invokes per second, one after another | 335; 322 | 7 991; 1 330; 8 169; 7 689 |
+| audit records per second, one caller | 242; 240 | 6 717; 1 289; 6 836; 6 551 |
+| records per `fsync`, one caller | 1; 1 | 32; 7.8; 33; 32 |
+| 1 ms timer late, one caller: p50 / p99 | 2.92 / 3.74 ms; 2.87 / 4.40 ms | 1.03 / 1.28 ms; 1.28 / 6.0 ms; 1.05 / 1.48 ms; 1.05 / 2.05 ms |
+| invoke from 50 subjects at once: p50 / p99 | 160 / 539 ms; 156 / 501 ms | 1.1 / 2.4 ms; 4.1 / 18.7 ms; 1.0 / 2.2 ms; 1.0 / 2.2 ms |
+| invokes per second, 50 subjects | 267; 280 | 39 215; 9 347; 41 845; 41 463 |
+| audit records per second, 50 subjects | 233; 243 | 27 685; 8 080; 32 655; 31 479 |
+| records per `fsync`, 50 subjects | 1; 1 | 182; 69; 182; 182 |
+| 1 ms timer late, 50 subjects: p50 / p95 / p99 | 1.27 / 127 / 267 ms; 1.26 / 141 / 282 ms | 1.26 / 1.93 / 2.03 ms; 1.41 / 3.47 / 4.37 ms; 1.26 / 1.83 / 2.01 ms; 1.26 / 1.86 / 2.15 ms |
+
+A 1 ms `tokio::time::sleep` fires about 1 ms late on an idle runtime (the
+timer's own step), so 1.0–1.3 ms is the floor of that figure. The journal
+is no longer what bounds commands: with 50 callers the CPU of the whole
+process (broker, mock, 50 clients) is 200–690 % of a core.
+
+*Left.* The reference board and a quiet machine. Not changed: the other
+`wyrm-state` stores (registry, flows, users) write one record per `fsync`
+from the caller's thread, as before; they are not on the command path.
+`wyrmd user …` (the offline command line) writes its audit record with a
+plain `apply`.
+
+*After the audit of #152 (2026-11-20).*
+
+- A kill inside a batch left the anchor with its announcement, which a
+  version from before group commit refuses: the automatic rollback of a
+  broker update (ADR 0048 §2.5) then could not start the previous version.
+  Rule: while `update.json` says `trial`, the journal writes record by
+  record, in the form every earlier version opens
+  (`Journal::one_by_one`, set at `Control::open`, when an update is staged
+  and when it is confirmed). Tests
+  `in_a_trial_the_files_are_what_the_previous_version_opens` (the files at
+  every step of every write pass the old rule),
+  `the_audit_journal_follows_the_update_state`. Second audit: the same
+  from the moment `rollback_update` is asked (the state stays `confirmed`
+  and names who asked); the switch waits for a batch in flight before the
+  action answers. Test `a_rollback_asked_switches_the_journal_before_it_answers`
+  (through the action).
+- A failed write left its bytes in the WAL and the next record followed
+  them (the note above; with batches the window was larger). `Store::append`
+  cuts the file back; when it cannot, or when the `fsync` failed, the store
+  refuses every later write (`StateError::Broken`) until it is opened
+  again. For `apply` too, so for every store. Tests
+  `a_failed_batch_leaves_no_bytes_and_moves_nothing`,
+  `a_failed_apply_leaves_no_bytes`,
+  `a_store_that_cannot_undo_a_write_takes_no_more`.
+- The crash test wrote the announcement itself. Now a probe
+  (`Store::with_probe`, feature `testkit`) copies the files before each
+  step of a real batch: `a_kill_at_each_step_of_a_batch_leaves_a_store_that_opens`
+  fails when `commit` does not announce.
+- A panic of the writer thread left callers waiting for ever: the thread's
+  end closes the queue (`WriterEnd`); test
+  `a_writer_that_panics_fails_its_callers`.
+
+`perf_e_audit` after these changes and the merge of main (two runs, load
+15–22, outside a trial): invoke p50 0.12 / 0.11 ms, p99 0.20 / 0.35 ms,
+7 968 / 7 558 per s; 6 749 / 6 415 audit records/s in 31 / 31 batches; 50
+subjects: p50 1.10 / 0.99 ms, p99 2.2 / 2.3 ms, 40 085 / 43 489 invokes/s,
+34 500 / 33 177 records/s in 11 / 11 batches; 1 ms timer late p99 2.1 /
+1.9 ms and 2.2 / 1.8 ms. No change against the table above. Follow-ups:
+issue #153.
 
 **Found: the historian's group start stalls the broker** (called a
 deadlock here: 0 % CPU and no progress for 9 min, twice; a symbolized
@@ -883,7 +1000,7 @@ Not covered yet:
 
 - the reference board, a LAN between broker and clients, and a quiet
   machine;
-- `fsync` counts (no OS counts them; the audit's are derived);
+- `fsync` counts (no OS counts them; the audit's are its batches);
 - the historian's flush cost per row (its start and rate under 10 000
   watches are above);
 - musl and its system allocator (audit item 6): the container images are

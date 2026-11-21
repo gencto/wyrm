@@ -648,6 +648,8 @@ PERSIST_CALLS = [
     r"getrandom::\w+",  # an RNG fill
     r"\.fill\(",  # SecureRandom::fill
     r"\.apply\(",  # a store's op
+    r"\.(?:write|push)_record\(",  # the audit journal: a record on disk, or queued
+    r"\.write_blocking\(",
     r"\.save\(",
     r"\.persist\(",
     r"\.sync_all\(",
@@ -776,6 +778,8 @@ PROBE_CALLS = [
     "getrandom::fill(&mut b)",
     "rng.fill(&mut b)",
     "store.apply(op)",
+    "journal.write_record(rec)",
+    "journal.write_blocking(rec)",
     "db.save(&x)",
     "f.persist(p)",
     "f.sync_all()",

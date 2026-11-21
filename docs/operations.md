@@ -18,7 +18,70 @@ its `data_dir` and from its links:
 | History rows | `history/days/*.redb` | the rows still in the write buffer: up to `buffer_flush_time` of each watch group (5 s by default) |
 | Gateway sessions | nothing: users log in again (the explorer's client reconnects and reopens its streams) | all |
 | A `set` or an action in flight | nothing: the caller gets an error and repeats it | that one request |
-| The audit journal | `audit/` | nothing already written; records a link put while the broker was away are not sent again (ADR 0029, decision 7) |
+| The audit journal | `audit/` | nothing already written; a link's records that the broker had received and not yet written (at most 1024, about one `fsync` of time); records a link put while the broker was away are not sent again (ADR 0029, decision 7) |
+
+**The audit journal: what is durable when.** One thread writes the journal.
+It takes the records that wait (at most 256) and writes them as one batch:
+one write, one `fsync`, then the anchor (`state_anchor_dir`). The records,
+their order, their CRC and their HMAC chain are the ones a write per record
+makes; only the number of `fsync`s differs.
+
+- A record the broker makes itself (an admin action, a login, a change of
+  role, an update: everything but the next item) is on disk before the
+  operation goes on. The caller waits for the `fsync` that covers its record;
+  a failed write is logged as `audit write failed`.
+- A record a link reports for its own `set`/`invoke` was never acknowledged:
+  the link puts it after the command and does not wait (ADR 0029, decision
+  7). The broker queues it in the order it arrived and writes it with the
+  next batch. A failed write is logged.
+- The queue holds 1024 records. When it is full, who adds a record waits;
+  nothing is dropped to make room. (The limit of 50 records per second for a
+  link over the network, ADR 0031 ADM-3, is apart and is itself audited as
+  `audit_dropped`.)
+- A stop (SIGTERM) writes the whole queue before the store closes. A kill
+  loses only link records that were still in the queue.
+- With `state_anchor_dir`, a batch of two or more records first writes the
+  anchor as `<lsn> <mac> +<n>`: "`n` records follow this head". After the
+  batch the anchor is the plain head again. A start after a kill inside a
+  batch finds that announcement and accepts any whole prefix of the batch;
+  no caller had an answer for those records. Without the announcement the
+  rule is as before: at most one record after the anchor.
+- **While the broker's own update is in its trial** (`update.json` says
+  `trial`, §2: from the moment the update is staged until
+  `update_confirmed`), the journal writes record by record: one write, one
+  `fsync`, the anchor at the plain head, exactly as every earlier version
+  did. A kill in a trial is followed by the previous version (the guard goes
+  back), and that version must open what this one left; a version from
+  before group commit does not read an announcement. So in a trial the
+  files never hold one. This is a rule, not a case for one version: what a
+  version in its trial leaves on disk is what the version before it opens.
+  The journal takes about one `fsync` per record for those minutes (the
+  rate of before); after the confirmation it writes batches again. The
+  same holds from the moment `rollback_update` is asked for a confirmed
+  update (`update.json` names who asked): the guard starts the previous
+  version next, however this process ends. The action answers only after
+  the switch holds: a batch that was being written is on disk and the
+  anchor is the plain head.
+- A downgrade by hand, outside a trial, to a version from before group
+  commit: stop the broker first (a stop leaves the plain head). Only after
+  a kill inside a batch can such a version refuse the anchor (`records
+  behind the WAL`): start the newer version once, or run `wyrmd verify`
+  and then `wyrmd init-anchors`.
+- A write to a control-plane WAL that fails (all stores: registry, flows,
+  users, audit) leaves no bytes behind: the file is cut back to the length
+  it had, and the store goes on. If the cut fails too, or if it was the
+  `fsync` that failed (what the disk holds is then not known), the store
+  takes no more writes until the broker starts again: every later change
+  is refused with `the store takes no more writes until it is opened
+  again`, an audit record is logged as `audit write failed`. A start reads
+  the file, drops a torn record and goes on. Nothing is appended after
+  bytes the store does not know (before: the next record followed them,
+  and the next start read a broken log).
+- If the journal's writer thread ever ends by a panic, the queue is closed:
+  every caller that waits, and every later one, gets an error (logged as
+  `audit write failed`); nobody waits for ever. The broker's operations go
+  on unaudited until a restart, and the log says so (`the audit writer
+  ended by a panic`).
 
 So the broker needs no cluster to survive its own crash: it needs to be
 started again, quickly, with the same `data_dir`. That is the supervisor's
