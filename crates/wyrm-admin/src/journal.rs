@@ -461,7 +461,7 @@ mod tests {
 
     impl Journal {
         /// Keep the writer from its next batch, or let it go on.
-        fn hold(&self, on: bool) {
+        pub(crate) fn hold(&self, on: bool) {
             self.shared.held.store(on, Ordering::SeqCst);
         }
     }

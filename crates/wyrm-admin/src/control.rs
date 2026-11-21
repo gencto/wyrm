@@ -402,11 +402,19 @@ fn option_info(name: OptionName) -> &'static str {
     }
 }
 
+/// What a test runs at the moment `update.json` is written ([`Control::save_update`]).
+#[cfg(test)]
+type UpdateSaved = Box<dyn Fn(&Control) + Send + Sync>;
+
 pub struct Control {
     cfg: ControlConfig,
     store: Mutex<Store<Registry>>,
     /// The audit journal: its writer thread owns the store (`crate::journal`).
     audit: Journal,
+    /// Tests look at the files and the journal here: called when `update.json` is
+    /// on disk, before the journal is told to follow it.
+    #[cfg(test)]
+    update_saved: Mutex<Option<UpdateSaved>>,
     pki: Pki,
     secrets: crate::secrets::SecretStore,
     supervisor: Arc<Supervisor>,
@@ -791,6 +799,8 @@ impl Control {
             cfg,
             store: Mutex::new(store),
             audit: Journal::start(audit, in_trial)?,
+            #[cfg(test)]
+            update_saved: Mutex::new(None),
             pki,
             secrets,
             supervisor: Supervisor::new(),
@@ -969,10 +979,45 @@ impl Control {
 
     /// Write `update.json` and make the audit journal follow it: the one way the
     /// state of an update changes while the broker runs.
+    ///
+    /// The journal follows after the file. That is the right order for a change
+    /// that lets it write batches again (confirmed, rolled back). A change after
+    /// which the previous version may start next goes the other way round: the
+    /// journal first ([`Control::audit_one_by_one`]), the file second.
     pub(crate) fn save_update(&self, u: &crate::release::UpdateFile) -> Result<(), LinkError> {
         u.save(&self.cfg.data_dir).map_err(LinkError::internal)?;
+        #[cfg(test)]
+        if let Some(seen) = self
+            .update_saved
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .as_ref()
+        {
+            seen(self);
+        }
         self.audit_follows_update();
         Ok(())
+    }
+
+    /// Switch the audit journal to record by record before `update.json` says that
+    /// the previous version may start next. When this returns `Ok`, the writer has
+    /// answered: a batch that was in flight is on disk, the anchor is the plain
+    /// head, and every later record is written alone. A kill after the file is
+    /// written then leaves nothing the previous version refuses. `Err`: the
+    /// journal did not switch, and the caller must not write the file.
+    pub(crate) fn audit_one_by_one(&self) -> Result<(), LinkError> {
+        self.audit.one_by_one(true).map_err(|e| {
+            LinkError::internal(format!(
+                "the audit journal did not switch to the form the previous version opens: {e}"
+            ))
+        })
+    }
+
+    /// Run `seen` each time [`Control::save_update`] has written `update.json`,
+    /// before the journal is told.
+    #[cfg(test)]
+    pub(crate) fn on_update_saved(&self, seen: impl Fn(&Control) + Send + Sync + 'static) {
+        *self.update_saved.lock().unwrap_or_else(|p| p.into_inner()) = Some(Box::new(seen));
     }
 
     pub fn audit_tail(&self, n: usize) -> Vec<AuditRecord> {

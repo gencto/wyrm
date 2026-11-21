@@ -1506,11 +1506,19 @@ pub(super) async fn rollback(
     // held until the broker has stopped (see `update`)
     ctl.replacing(true)?;
     u.rollback = sub.to_owned();
-    // From here the guard starts the previous version next, however this process
-    // ends. The journal writes what that version opens before anything else is
-    // written and before the caller is answered: `save_update` returns when a
-    // batch in flight is on disk and the anchor is the plain head.
-    if let Err(e) = ctl.save_update(&u) {
+    // Once `update.json` names who asked, the guard starts the previous version
+    // next, however this process ends. So the journal switches first, and the
+    // file is written only after its writer answered: a batch in flight is on
+    // disk, the anchor is the plain head, every later record is written alone.
+    // The other order left a window (file durable, a batch announced in the
+    // anchor, a kill) after which the previous version refused the journal.
+    let asked = ctl.audit_one_by_one().and_then(|()| {
+        ctl.save_update(&u).inspect_err(|_| {
+            // not asked after all: back to what the file on disk says
+            ctl.audit_follows_update();
+        })
+    });
+    if let Err(e) = asked {
         let _ = ctl.replacing(false);
         return Err(e);
     }
@@ -2146,6 +2154,111 @@ mod tests {
         );
         let last = ctl.audit_tail(1).pop().unwrap();
         assert_eq!(last.op, AuditOp::UpdateRollback.into());
+        let _ = std::fs::remove_dir_all(&prefix);
+    }
+
+    /// Audit of #152, round 3: the order. At the moment `update.json` with
+    /// `rollback` is on disk, the journal has already switched and its writer has
+    /// answered: the batch that was in flight is written, the anchor is the plain
+    /// head. With the file first, a kill between the two left an anchor that
+    /// announces a batch, which the previous version refuses.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_rollback_switches_the_journal_before_update_json_says_so() {
+        use std::sync::Mutex;
+        let me = release::identity().version.clone();
+        let prefix =
+            std::env::temp_dir().join(format!("wyrm-rollback-order-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&prefix);
+        std::fs::create_dir_all(&prefix).unwrap();
+        let built = prefix.join("built");
+        std::fs::write(&built, b"this version").unwrap();
+        let l = Layout::install(&prefix.join("opt"), &built, &me).unwrap();
+        std::fs::create_dir_all(l.versions().join("0.0.1")).unwrap();
+        std::fs::write(l.bin_of("0.0.1"), b"the version before").unwrap();
+        let exe = l.bin_of(&me);
+        let anchors = prefix.join("anchors");
+        std::fs::create_dir_all(&anchors).unwrap();
+        let anchors2 = anchors.clone();
+        let ctl = super::super::tests::control_tweaked("rollback-order", move |c| {
+            c.updates.mode = UpdateMode::SelfUpdate;
+            c.link_exe = exe;
+            c.anchor_dir = Some(anchors2);
+            c.anchor_init = true;
+        });
+        let d = ctl.cfg.data_dir.clone();
+        release::stamp_guard(&d, &me);
+        UpdateFile {
+            from: "0.0.1".into(),
+            to: me.clone(),
+            state: release::UpdateState::Confirmed,
+            ..Default::default()
+        }
+        .save(&d)
+        .unwrap();
+        ctl.audit_follows_update();
+        assert!(!ctl.audit.is_one_by_one(), "confirmed: batches");
+        // a batch in flight: taken by the writer, not yet written
+        let before = ctl.audit.lsn();
+        ctl.audit.hold(true);
+        for n in 0..3 {
+            let rec = super::super::audit_record(
+                "user:a",
+                AuditOp::Event,
+                "k",
+                Status::Ok,
+                &n.to_string(),
+            );
+            ctl.audit.push_record(rec).await.unwrap();
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert_eq!(ctl.audit.lsn(), before, "held");
+        // what is true at the moment the file is on disk
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        ctl.on_update_saved({
+            let (seen, head) = (seen.clone(), anchors.join("audit.head"));
+            move |ctl| {
+                let asked = UpdateFile::load(&ctl.cfg.data_dir).is_some_and(|u| {
+                    u.state == release::UpdateState::Confirmed && !u.rollback.is_empty()
+                });
+                seen.lock().unwrap().push((
+                    asked,
+                    ctl.audit.is_one_by_one(),
+                    ctl.audit.lsn(),
+                    std::fs::read_to_string(&head).unwrap(),
+                ));
+            }
+        });
+        let release_writer = std::thread::spawn({
+            let ctl = ctl.clone();
+            move || {
+                std::thread::sleep(Duration::from_millis(200));
+                ctl.audit.hold(false);
+            }
+        });
+        let site = ctl.cfg.site.clone();
+        let answer = rollback(&ctl, RollbackUpdate { confirm_site: site }, "user:root").await;
+        release_writer.join().unwrap();
+        assert!(answer.unwrap().is_some());
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 1, "update.json is written once");
+        let (asked, one_by_one, lsn, head) = &seen[0];
+        assert!(asked, "the file on disk says a rollback is asked");
+        assert!(
+            one_by_one,
+            "update.json said rollback while the journal still wrote batches"
+        );
+        assert_eq!(
+            *lsn,
+            before + 3,
+            "update.json said rollback before the batch in flight was on disk"
+        );
+        let head: Vec<&str> = head.split_whitespace().collect();
+        assert_eq!(head.len(), 2, "the anchor announces a batch: {head:?}");
+        assert_eq!(head[0], (before + 3).to_string(), "the plain head");
+        // and the record of the rollback itself came after, alone
+        assert!(ctl.audit.is_one_by_one());
+        assert_eq!(ctl.audit.lsn(), before + 4);
         let _ = std::fs::remove_dir_all(&prefix);
     }
 
