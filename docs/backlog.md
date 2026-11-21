@@ -701,6 +701,23 @@ The rule now (`LinkCtx`, `Parents` in `crates/wyrm-link-sdk/src/ctx.rs`):
   two tasks put it (before, two tasks could leave the older one last);
 - a put made later by the task cannot fail the declare that asked for it
   (it is logged at `debug`); a stopped link drops what waited;
+- a removal takes a turn of the `~meta` puts (audit of #154): `remove_node`
+  takes the nodes out of the tree and sends their deletes inside one turn.
+  A put of a removed node, or of a parent that still lists it, is out
+  before the delete, or its turn comes after and it reads a tree without
+  the node. Before, a put that had read the tree could follow the delete,
+  and a `list` client showed the removed node again (5–11 of 20 000
+  add/remove cycles). `remove_node` is the only place that deletes keys and
+  `put_meta` the only one that puts a `~meta`; a link's stop deletes
+  nothing and puts nothing more;
+- a changed child list is noted before its put, also when the put is made
+  at once, and the note goes only with a put that carried it: a put that
+  failed, or whose caller gave up half-way, is made again by the task
+  after 250 ms (before, the list stayed old until the next change);
+  Measured again with both (2026-11-21, M4 Max, load 5–7, three runs
+  each): 1k / 10k / 30k points in 2.8 / 28–33 / 91–92 ms, `~meta` put
+  0.07 / 1.0–1.1 / 4.1–4.4 MiB, 41–42 / 72–81 / 106–109 parent puts: the
+  figures of the table above did not move;
 - the tree keeps its nodes boxed: the hash table holds a key and a pointer
   per slot instead of a 352-byte node in every slot, used or not (kept
   25.0 → 13.6 MiB at 30 000 points, and no 12 + 24 MiB copy when the
@@ -709,7 +726,11 @@ The rule now (`LinkCtx`, `Parents` in `crates/wyrm-link-sdk/src/ctx.rs`):
 Tests: `crates/wyrm-link-sdk/tests/declare_burst.rs` (5000 children put
 the parent at most 500 times, it was 5000; the last put is the whole list
 with the tree's `rev`, also with two declaring tasks and for removals; a
-single child is put at once; a stopped link puts nothing) and
+single child is put at once; a stopped link puts nothing; a put of a
+folder stopped by a test gate after its read of the tree, then the folder
+removed: the removal waits and the folder's samples end with the one
+delete, with no sleep that decides the result; a failed and a dropped
+parent put are made again) and
 `crates/wyrm-client/tests/declare_burst.rs` (lists opened before and
 during a burst of 10 000 children all end with every child, each added
 once; the folder's last put, seen by its parent's list, carries all).
@@ -720,7 +741,10 @@ before; the caller asks again, and the bursts are now some 300 times
 shorter at 10 000 points. A node is still 352 bytes for a 10-byte meta (`NodeMeta` is a
 struct of many optional fields: a change of `wyrm-core`, not done here).
 Removing n children one at a time still searches the parent's list each
-time (n² short string compares; not measured apart). The framework's four own `~meta` puts per point (the point,
+time (n² short string compares; not measured apart). A `~val` put is outside the turns (as before this change): `update` checks
+the tree and then puts, so a value published while its node is removed can
+follow the delete of `~val`; a turn per value would put every sample of a
+link in one queue. The framework's four own `~meta` puts per point (the point,
 then each action) are a constant per point and are not merged.
 
 **Pattern (fan-in) consumer (2026-11-20, `perf/fan-in`): partly done.**
