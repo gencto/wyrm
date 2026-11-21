@@ -166,7 +166,6 @@ class LinksApp {
           'kind': const VStr('link'),
           'from': const VStr('10.0.4.20:51234'),
           'first_seen': VStr(seen.toIso8601String()),
-          'key': const VStr('ed25519:AAAAC3NzaC1lZDI1NTE5AAAAIB'),
         },
         actions: {
           'approve': ActionMeta(
@@ -186,6 +185,9 @@ class LinksApp {
         attr: {
           'kind': const VStr('broker'),
           'via': const VArray([VStr('line3')]),
+          // the broker sends a key (and `via`) for a broker's enrollment
+          // only, never for a link (`crates/wyrm-admin` control.rs)
+          'key': const VStr('ed25519:AAAAC3NzaC1lZDI1NTE5AAAAIB'),
         },
       )
       ..metas['$sys/quarantine/old'] = NodeMeta(

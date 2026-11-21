@@ -125,16 +125,13 @@ void main() {
     final sel = _Sel(
       s.copyWith.quarantine(
         table: const {
-          'plc': QuarantineEntry(cn: 'link:plc', node: 'plc'),
-          'gw-9': QuarantineEntry(
-            cn: 'gateway:gw-9',
-            node: 'gw-9',
-            kind: null,
-          ),
-          'held': QuarantineEntry(
+          'plc': QuarantineEntry.link(cn: 'link:plc', node: 'plc'),
+          'gw-9': QuarantineEntry.notRead(cn: 'gateway:gw-9', node: 'gw-9'),
+          // an entry that was not read is not known to be held: one held
+          // back is a link (or a broker) Deauthorize holds
+          'held': QuarantineEntry.link(
             cn: 'x',
             node: 'held',
-            kind: null,
             deauthorized: true,
           ),
         }.lock,

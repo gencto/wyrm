@@ -53,7 +53,6 @@ import 'package:models/manifest_problem.dart';
 import 'package:models/profile_draft.dart';
 import 'package:models/profile_read.dart';
 import 'package:models/quarantine_entry.dart';
-import 'package:models/quarantine_kind.dart';
 import 'package:models/standby_state.dart';
 import 'package:models/studio_error.dart';
 import 'package:models/system_tab.dart';
@@ -606,18 +605,17 @@ void main() {
                 .copyWith
                 .quarantine(
                   table: IMapConst({
-                    'line2': const QuarantineEntry(
+                    'line2': const QuarantineEntry.broker(
                       cn: 'broker:line2',
                       node: 'line2',
-                      kind: QuarantineKind.broker,
                       via: IListConst(['cell-a']),
                     ),
-                    'field-gw': QuarantineEntry(
+                    'field-gw': QuarantineEntry.link(
                       cn: 'link:field-gw',
                       node: 'field-gw',
                       firstSeen: DateTime.utc(2026, 11, 10, 1, 20),
                     ),
-                    'old': const QuarantineEntry(
+                    'old': const QuarantineEntry.link(
                       cn: 'link:old',
                       node: 'old',
                       deauthorized: true,

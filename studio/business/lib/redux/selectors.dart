@@ -75,7 +75,6 @@ import 'package:models/peer_kind.dart';
 import 'package:models/plan_step.dart';
 import 'package:models/profile_info.dart';
 import 'package:models/quarantine_entry.dart';
-import 'package:models/quarantine_kind.dart';
 import 'package:models/requested_right.dart';
 import 'package:models/restore_check.dart';
 import 'package:models/restore_mode.dart';
@@ -1444,15 +1443,12 @@ extension SelectBrokerHealth on Selectors {
   /// Deauthorize), in list order.
   List<QuarantineEntry> get _waiting => [
     for (final id in quarantine.view)
-      if (quarantine.table[id] case final q? when !q.deauthorized) q,
+      if (quarantine.table[id] case final q? when !q.held) q,
   ];
 
   /// The link that has waited in quarantine longest (no time: first).
-  QuarantineEntry? get oldestWaitingLink =>
-      ([
-            for (final q in _waiting)
-              if (q.kind == QuarantineKind.link) q,
-          ]..sort(
+  QuarantineLink? get oldestWaitingLink =>
+      ([..._waiting.whereType<QuarantineLink>()]..sort(
             (a, b) => (a.firstSeen ?? DateTime(0)).compareTo(
               b.firstSeen ?? DateTime(0),
             ),
@@ -1510,24 +1506,16 @@ extension SelectBrokerHealth on Selectors {
         AttentionItem.standbyBehind(lag: lag.round(), forks: forks.round()),
       for (final l in failedLinks) AttentionItem.linkFailed(link: l.id),
       for (final q in waiting)
-        if (q.kind == QuarantineKind.link)
-          AttentionItem.quarantine(
-            node: q.node,
-            cn: q.cn,
-            since: q.firstSeen,
-          ),
+        if (q case QuarantineLink(:final node, :final cn, :final firstSeen))
+          AttentionItem.quarantine(node: node, cn: cn, since: firstSeen),
       for (final q in waiting)
-        if (q.kind == QuarantineKind.broker)
-          AttentionItem.brokerWaiting(
-            node: q.node,
-            cn: q.cn,
-            relays: q.via.length,
-          ),
+        if (q case QuarantineBroker(:final node, :final cn, :final via))
+          AttentionItem.brokerWaiting(node: node, cn: cn, relays: via.length),
       // a connection that awaits a decision and that Studio could not
       // read is seen here too
       for (final q in waiting)
-        if (q.kind == null)
-          AttentionItem.waitingNotRead(node: q.node, cn: q.cn),
+        if (q case QuarantineNotRead(:final node, :final cn))
+          AttentionItem.waitingNotRead(node: node, cn: cn),
       if (acl != null && seen != null && acl > seen)
         AttentionItem.aclGrown(grown: (acl - seen).round(), seen: seen),
       if (standby == StandbyState.none) const AttentionItem.noStandby(),

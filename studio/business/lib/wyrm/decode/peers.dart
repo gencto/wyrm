@@ -83,14 +83,32 @@ Decoded<Peer> upstreamPeerOf(
 Decoded<QuarantineEntry> quarantineEntryOf(String node, NodeMeta m) =>
     decoding('quarantine entry', () {
       final f = Fields.attrs(m);
-      return QuarantineEntry(
-        cn: m.displayName ?? node,
-        node: node,
-        kind: f.name('kind', QuarantineKind.fromWire),
-        from: f.textOr('from') ?? f.textOr('addr'),
-        firstSeen: f.timeOr('first_seen'),
-        via: f.listOr('via').lock,
-        key: f.textOr('key'),
-        deauthorized: f.flagOr('held') ?? false,
-      );
+      final cn = m.displayName ?? node;
+      final from = f.textOr('from') ?? f.textOr('addr');
+      final firstSeen = f.timeOr('first_seen');
+      final deauthorized = f.flagOr('held') ?? false;
+      // read whatever the kind, so that one of another shape is refused
+      // with its name; a link keeps neither (the broker sends them for a
+      // broker's enrollment only)
+      final via = f.listOr('via').lock;
+      final key = f.textOr('key');
+      return switch (f.name('kind', QuarantineKind.fromWire)) {
+        QuarantineKind.link => QuarantineEntry.link(
+          cn: cn,
+          node: node,
+          from: from,
+          firstSeen: firstSeen,
+          deauthorized: deauthorized,
+        ),
+        // only a broker relays sites and has a key to compare
+        QuarantineKind.broker => QuarantineEntry.broker(
+          cn: cn,
+          node: node,
+          from: from,
+          firstSeen: firstSeen,
+          via: via,
+          key: key,
+          deauthorized: deauthorized,
+        ),
+      };
     });

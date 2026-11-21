@@ -24,7 +24,6 @@ import 'package:models/live_value.dart';
 import 'package:models/peer.dart';
 import 'package:models/peer_kind.dart';
 import 'package:models/quarantine_entry.dart';
-import 'package:models/quarantine_kind.dart';
 import 'package:models/traffic_sample.dart';
 import 'package:ui/alerts/toast_stack.dart';
 import 'package:ui/models/tone.dart';
@@ -350,18 +349,17 @@ class SystemApp {
   ];
 
   List<QuarantineEntry> get _quarantine => [
-    QuarantineEntry(
+    QuarantineEntry.link(
       cn: 'link:field-gw',
       node: 'field-gw',
       firstSeen: DateTime.utc(2026, 11, 12, 1, 20),
     ),
-    QuarantineEntry(
+    QuarantineEntry.broker(
       cn: 'broker:line2',
       node: 'line2',
-      kind: QuarantineKind.broker,
       via: ['line3'].lock,
     ),
-    const QuarantineEntry(
+    const QuarantineEntry.link(
       cn: 'link:old',
       node: 'old',
       deauthorized: true,

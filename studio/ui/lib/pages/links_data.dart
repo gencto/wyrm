@@ -6,7 +6,6 @@ import '../indicators/app_icon.dart';
 import '../models/disabled.dart';
 import '../models/link_run_mode.dart';
 import '../models/tone.dart';
-import '../models/waiting_kind.dart';
 
 /// A tab of Links, as drawn.
 enum LinksTabKey {
@@ -210,31 +209,67 @@ final class LinkData extends Equatable {
   ];
 }
 
-/// A connection waiting in quarantine.
-final class QuarantineData extends Equatable {
-  const QuarantineData({
-    required this.node,
-    required this.cn,
-    required this.kind,
+/// A connection waiting in quarantine: a link ([QuarantineLinkData]), a
+/// downstream broker ([QuarantineBrokerData]), or an entry Studio could
+/// not read ([QuarantineNotReadData]; the row says so).
+sealed class QuarantineData extends Equatable {
+  const QuarantineData({required this.node, required this.cn});
+
+  final String node;
+  final String cn;
+}
+
+/// A link's certificate.
+final class QuarantineLinkData extends QuarantineData {
+  const QuarantineLinkData({
+    required super.node,
+    required super.cn,
     this.from,
-    this.via = const [],
-    this.deauthorized = false,
     this.firstSeen,
+    this.deauthorized = false,
+    this.fields,
+    this.reason,
+  });
+
+  final String? from;
+  final DateTime? firstSeen;
+  final bool deauthorized;
+
+  /// The form of its `approve`; null when the broker offers none.
+  final List<ParamFieldVm>? fields;
+
+  /// Why the user may not decide; null when they may.
+  final Disabled? reason;
+
+  @override
+  List<Object?> get props => [
+    node,
+    cn,
+    from,
+    firstSeen,
+    deauthorized,
+    fields,
+    reason,
+  ];
+}
+
+/// A downstream broker asking for Authorize: the sites it relays and the
+/// key hash to compare.
+final class QuarantineBrokerData extends QuarantineData {
+  const QuarantineBrokerData({
+    required super.node,
+    required super.cn,
+    this.from,
+    this.firstSeen,
+    this.via = const [],
     this.key,
     this.fields,
     this.reason,
   });
 
-  final String node;
-  final String cn;
-
-  /// What waits: a link, a downstream broker, or an entry Studio could
-  /// not read (the row says so).
-  final WaitingKind kind;
   final String? from;
-  final List<String> via;
-  final bool deauthorized;
   final DateTime? firstSeen;
+  final List<String> via;
   final String? key;
 
   /// The form of its `approve`; null when the broker offers none.
@@ -247,15 +282,22 @@ final class QuarantineData extends Equatable {
   List<Object?> get props => [
     node,
     cn,
-    kind,
     from,
-    via,
-    deauthorized,
     firstSeen,
+    via,
     key,
     fields,
     reason,
   ];
+}
+
+/// An entry answered in a form Studio does not read: what waits is not
+/// known, and no Authorize is offered for it.
+final class QuarantineNotReadData extends QuarantineData {
+  const QuarantineNotReadData({required super.node, required super.cn});
+
+  @override
+  List<Object?> get props => [node, cn];
 }
 
 /// Which screen the update sheet shows.

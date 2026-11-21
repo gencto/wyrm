@@ -14,7 +14,6 @@ import '../indicators/app_icon.dart';
 import '../indicators/status_pill.dart';
 import '../models/disabled.dart';
 import '../models/tone.dart';
-import '../models/waiting_kind.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/spacing.dart';
@@ -190,43 +189,59 @@ final class DownstreamSiteVm extends SiteDetailVm {
   List<Object?> get props => [name, key, relays];
 }
 
-/// A connection waiting in quarantine; a broker's has the [fields] of its
-/// `approve`.
-final class WaitingSiteVm extends SiteDetailVm {
-  const WaitingSiteVm(
+/// A connection waiting in quarantine: a link, a downstream broker (with
+/// the [WaitingBrokerSiteVm.fields] of its `approve`), or an entry Studio
+/// could not read.
+sealed class WaitingSiteVm extends SiteDetailVm {
+  const WaitingSiteVm(super.name, super.key, {required this.cn});
+
+  final String cn;
+}
+
+/// A link's certificate, decided in Links.
+final class WaitingLinkSiteVm extends WaitingSiteVm {
+  const WaitingLinkSiteVm(
     super.name,
     super.key, {
-    required this.cn,
-    this.kind = WaitingKind.link,
+    required super.cn,
+    this.from,
+  });
+
+  final String? from;
+
+  @override
+  List<Object?> get props => [name, key, cn, from];
+}
+
+/// A downstream broker asking for Authorize.
+final class WaitingBrokerSiteVm extends WaitingSiteVm {
+  const WaitingBrokerSiteVm(
+    super.name,
+    super.key, {
+    required super.cn,
     this.from,
     this.via = const [],
     this.hash,
     this.fields,
   });
 
-  final String cn;
-
-  /// What waits: a link, a downstream broker, or an entry Studio could
-  /// not read.
-  final WaitingKind kind;
   final String? from;
   final List<String> via;
 
-  /// The key hash to compare (a broker).
+  /// The key hash to compare.
   final String? hash;
   final List<ParamFieldVm>? fields;
 
   @override
-  List<Object?> get props => [
-    name,
-    key,
-    cn,
-    kind,
-    from,
-    via,
-    hash,
-    fields,
-  ];
+  List<Object?> get props => [name, key, cn, from, via, hash, fields];
+}
+
+/// An entry Studio could not read: what waits is not known.
+final class WaitingNotReadSiteVm extends WaitingSiteVm {
+  const WaitingNotReadSiteVm(super.name, super.key, {required super.cn});
+
+  @override
+  List<Object?> get props => [name, key, cn];
 }
 
 /// A device of an external link.
@@ -520,13 +535,13 @@ class SitesPage extends StatelessWidget {
           ),
         ],
       ),
-      WaitingSiteVm(:final key) && final d => DetailInspectorVm(
-        eyebrow: switch (d.kind) {
-          WaitingKind.notRead => s.waitNotRead,
-          WaitingKind.broker => s.brokerWaiting,
-          WaitingKind.link => s.waitingInQuarantine,
+      WaitingSiteVm(:final key, :final cn) && final d => DetailInspectorVm(
+        eyebrow: switch (d) {
+          WaitingNotReadSiteVm() => s.waitNotRead,
+          WaitingBrokerSiteVm() => s.brokerWaiting,
+          WaitingLinkSiteVm() => s.waitingInQuarantine,
         },
-        title: d.cn,
+        title: cn,
         pill: StatusPillVm(
           label: s.stateWaiting,
           tone: Tone.warn,
@@ -534,15 +549,17 @@ class SitesPage extends StatelessWidget {
         ),
         keyName: key,
         facts: [
-          if (d.from case final f?)
+          if (d
+              case WaitingLinkSiteVm(from: final f?) ||
+                  WaitingBrokerSiteVm(from: final f?))
             FactVm(label: s.factFrom, value: f, mono: true),
-          if (d.via.isNotEmpty)
-            FactVm(label: s.factRelays, value: d.via.join(', '), mono: true),
-          if (d.hash case final k?)
+          if (d case WaitingBrokerSiteVm(:final via) when via.isNotEmpty)
+            FactVm(label: s.factRelays, value: via.join(', '), mono: true),
+          if (d case WaitingBrokerSiteVm(hash: final k?))
             FactVm(label: s.factKey, value: k, mono: true),
         ],
-        form: switch (d.fields) {
-          final fields? when d.kind == WaitingKind.broker => InspectorFormVm(
+        form: switch (d) {
+          WaitingBrokerSiteVm(:final fields?) => InspectorFormVm(
             id: d.name,
             label: s.letTheBrokerIn,
             fields: fields,
@@ -551,24 +568,27 @@ class SitesPage extends StatelessWidget {
             note: s.approveBrokerNote,
             disabledReason: vm.lack?.text,
           ),
-          _ => null,
+          WaitingBrokerSiteVm() ||
+          WaitingLinkSiteVm() ||
+          WaitingNotReadSiteVm() => null,
         },
-        groups: d.kind == WaitingKind.broker
-            ? const []
-            : [
-                ActionGroupVm(
-                  label: s.groupWork,
-                  actions: [
-                    _row(
-                      SiteAct.decideInLinks,
-                      AppIcon.wsLinks,
-                      s.decideInLinks,
-                      s.decideInLinksNote,
-                      'sys/quarantine',
-                    ),
-                  ],
+        groups: switch (d) {
+          WaitingBrokerSiteVm() => const [],
+          WaitingLinkSiteVm() || WaitingNotReadSiteVm() => [
+            ActionGroupVm(
+              label: s.groupWork,
+              actions: [
+                _row(
+                  SiteAct.decideInLinks,
+                  AppIcon.wsLinks,
+                  s.decideInLinks,
+                  s.decideInLinksNote,
+                  'sys/quarantine',
                 ),
               ],
+            ),
+          ],
+        },
       ),
       DeviceSiteVm(:final name, :final key) && final d => DetailInspectorVm(
         eyebrow: s.runsOnAnotherDevice,

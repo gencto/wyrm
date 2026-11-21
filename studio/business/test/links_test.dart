@@ -17,6 +17,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:models/call_refusal.dart';
 import 'package:models/change_side.dart';
 import 'package:models/link_mode.dart';
+import 'package:models/quarantine_entry.dart';
 import 'package:models/quarantine_kind.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -185,9 +186,9 @@ void main() {
     // it does not vanish: it waits in the table as one that was not read
     expect(s.state.quarantine.view, ['plc-gw-7', 'gw-9', 'old']);
     final table = s.state.quarantine.table;
-    expect(table['plc-gw-7']!.kind, QuarantineKind.link);
-    expect(table['gw-9']!.kind, isNull);
-    expect(table['old']!.kind, isNull);
+    expect(table['plc-gw-7'], isA<QuarantineLink>());
+    expect(table['gw-9'], isA<QuarantineNotRead>());
+    expect(table['old'], isA<QuarantineNotRead>());
     // and no Authorize form is offered for what was not read
     expect(s.state.quarantine.forms.keys, isEmpty);
     // it is neither a link that waits nor a broker that asks to join

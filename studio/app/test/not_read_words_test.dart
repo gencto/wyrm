@@ -97,11 +97,7 @@ void main() {
         (s) => s.copyWith.quarantine(
           table: s.quarantine.table.add(
             'gw-9',
-            const QuarantineEntry(
-              cn: 'gateway:gw-9',
-              node: 'gw-9',
-              kind: null,
-            ),
+            const QuarantineEntry.notRead(cn: 'gateway:gw-9', node: 'gw-9'),
           ),
           view: s.quarantine.view.add('gw-9'),
         ),

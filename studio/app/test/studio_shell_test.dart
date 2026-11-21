@@ -67,7 +67,10 @@ void main() {
           ),
           quarantine: s.quarantine.copyWith(
             table: IMap(const {
-              'field-x': QuarantineEntry(cn: 'link:field-x', node: 'field-x'),
+              'field-x': QuarantineEntry.link(
+                cn: 'link:field-x',
+                node: 'field-x',
+              ),
             }),
             view: ['field-x'].lock,
           ),

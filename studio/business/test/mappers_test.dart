@@ -9,6 +9,7 @@ import 'package:business/wyrm/mappers/live_value_mapper.dart';
 import 'package:business/wyrm/mappers/node_info_mapper.dart';
 import 'package:business/wyrm/mappers/value_text.dart';
 import 'package:business/wyrm/mappers/values.dart';
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:models/agent_task.dart';
@@ -20,7 +21,6 @@ import 'package:models/peer.dart';
 import 'package:models/peer_kind.dart';
 import 'package:models/quality.dart' as m;
 import 'package:models/quarantine_entry.dart';
-import 'package:models/quarantine_kind.dart';
 import 'package:models/task_state.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -187,13 +187,18 @@ void main() {
       ),
     );
 
-    final q = (read as Valid<QuarantineEntry>).value;
-    expect(q.cn, 'broker:plant');
-    expect(q.node, 'broker_plant');
-    expect(q.kind, QuarantineKind.broker);
-    expect(q.via, ['site_a', 'site_b']);
-    expect(q.key, 'ab12');
-    expect(q.firstSeen, DateTime.utc(2026, 11, 8, 3, 32, 40));
+    expect(
+      read,
+      Valid<QuarantineEntry>(
+        QuarantineEntry.broker(
+          cn: 'broker:plant',
+          node: 'broker_plant',
+          firstSeen: DateTime.utc(2026, 11, 8, 3, 32, 40),
+          via: const ['site_a', 'site_b'].lock,
+          key: 'ab12',
+        ),
+      ),
+    );
   });
 
   test('packageInfoOf', () {
