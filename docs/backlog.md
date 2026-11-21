@@ -545,7 +545,8 @@ measured.
 | sdk | `cargo bench -p wyrm-link-sdk --bench verify` | 3 | one `ptok` check with 1 admin + 1/4/10/30 limited keys: signed by the admin key, by the first and by the last limited key, by a key nobody trusts (refused), a new `sub` in every token, the limited keys in turn with their own `sub` and with a new `sub` each time |
 | sdk | `cargo bench -p wyrm-link-sdk --bench tree` | 4, 5, 17 | declare 1k/5k/10k points (time, `~meta` puts and bytes; pure `NodeTree` and through `LinkCtx` over Zenoh); a wildcard `get` that hits one node of 10k; `view=list` of 1000 children with and without a profile name |
 | flow | `cargo test --release -p wyrm-flow --test throughput -- --ignored --nocapture` | 7–10 | `subscribe → (scale, add) × n → publish`, a paced rate ladder on one key and on 1000 keys, default and deep inbox; allocations per hop (9 hops minus 3); 10 000-row tables through `table_sort` ×1/×3 and `table_filter` + `table_aggregate` |
-| broker | `cargo test --release -p wyrmd --test perf -- --ignored --nocapture --exact <test>` | 1, 2, 12, 13, gateway | an in-process broker with the embedded mock: (a) base rate, (b) a client that subscribes `wy/<site>/downstream/**` in a loop and one `wy/**`, (c) the mock at `trace`, (d) the historian on 10 000 points, (e) 1000 invokes one after another, then 2000 from 50 subjects at once: latency, audit records/s, batches, and how late a 1 ms timer of the broker's runtime fires, (f) 10 gateway WebSocket clients × 1000 points × 10 Hz |
+| broker | `cargo test --release -p wyrmd --test perf -- --ignored --nocapture --exact <test>` | 1, 2, 12, 13, gateway | an in-process broker with the embedded mock: (a) base rate, (b) a client that subscribes `wy/<site>/downstream/**` in a loop and one `wy/**`, (c) the mock at `trace`, (d) the historian on 10 000 points, (e) 1000 invokes one after another, then 2000 from 50 subjects at once: latency, audit records/s, batches, and how late a 1 ms timer of the broker's runtime fires, (f) 10 gateway WebSocket clients × 1000 points × 10 Hz, (g) a steady pattern consumer of 1000 points × 50 Hz, raw and through the client |
+| broker | `cargo test --release -p wyrm-client --test fan_in -- --ignored --nocapture` | pattern consumer | the client's value stream with no session: handler + read on one thread, and 1000 samples every 20 ms read by a task |
 
 Test hooks: `wyrm-admin`'s `testkit` feature (dev only) gives the perf tests
 `Control::audit_lsn`, `Control::audit_batches` and `Control::historian`. Slice
@@ -779,6 +780,92 @@ at 2 Hz the historian wrote 18 000 rows/s of the 20 000 samples/s, with 0
 counted as dropped. On 2026-11-20 (load 7–12) it wrote 20 000 rows/s in
 both runs; the cause of the lower figure under the heavier load is not
 diagnosed.
+
+**Pattern (fan-in) consumer (2026-11-20, `perf/fan-in`): partly done.**
+The figure "CPU 10.5 → 121 %" above is not what a pattern consumer costs.
+`perf_b_wildcard` opens `subscribe("wy/<site>/downstream/**")` again and
+again, about 250 times a second, and each one is a declaration and a stored
+read of 1000 points. Two measurements were missing and are added:
+
+- `perf_g_fan_in` (`wyrmd`): 1000 points at 50 Hz and a second session that
+  takes every sample, once with a raw Zenoh callback and once as
+  `WyrmClient::subscribe` of the whole `downstream` section read to its end;
+- `tests/fan_in.rs` (`wyrm-client`, feature `testkit`): the handler of a
+  value stream called by hand and the stream read, with no session; the
+  counting allocator; one thread, and 1000 samples every 20 ms read by a
+  task.
+
+What they show (M4 Max, release, load 3–44 from other builds, rough; before
+and after run in turn; ranges over 2–5 runs each):
+
+| Figure | Before | After |
+|---|---|---|
+| base, 50k samples/s to one raw subscriber | 23–31 % CPU | the same |
+| + a second session, raw callback | +15–27 % | the same |
+| + a second session, `WyrmClient::subscribe("…/downstream/**")` | +30–44 %; consumer p50 2.3–2.6 ms, p99 3.4–12 ms; 0 dropped | +23–43 %; p50 2.0–2.3 ms, p99 2.9–8.1 ms; 0 dropped |
+| the value stream alone, one thread (handler + read) | 153–179 ns per sample (5.6–6.5 M samples/s on one core), 2.0 allocations, 63.6 B | 136–155 ns (6.4–7.4 M/s), 1.0 allocation, 31.8 B |
+| the value stream alone at 50k/s, read by a task | 4.0–8.7 % CPU; p50 10–22 µs, p95 38–154 µs, p99 76–342 µs | 5.2–6.0 % CPU; p50 4–13 µs, p95 17–150 µs, p99 42–335 µs |
+| profile of the consumer (1 ms samples, 6 s): the handler on Zenoh's receive threads | 186 samples of 3340 (5.6 % of a core), 108 of them waiting for the buffer's lock in the kernel | 47 of 3095 (1.5 %), 2 waiting |
+| the same profile: kernel waits for the buffer's lock, handler and reader | 137 samples (4.1 % of a core) | 6 (0.2 %) |
+| SDK, the stored read of a subscriber (`…/**/~val`) at a link of 10 000 nodes (`tree/fan_in_val/10000`) | p50 1.84 ms, 20 059 allocations, no reply | p50 12.2 µs, 39 allocations, no reply |
+| SDK, wildcard `get` hitting 1 node of 10k (`tree/fan_in/10000`) | p50 1.64 ms, 20 070 allocations | p50 1.41 ms, 53 allocations |
+| `perf_b_wildcard`, the subscribe loop at 20k/s | 112–116 % CPU, snapshot p50 3.7–3.9 ms | 107–113 % CPU, p50 3.7–3.9 ms: not changed |
+
+So a steady pattern consumer at 50 000 samples/s was under half a core
+before, and is now: about 20 % of a core is Zenoh's delivery to one more
+session (a raw callback pays it too), the rest is the client's stream and
+the task that reads it. The process CPU of that case did not change beyond
+the noise of the loaded machine; the profile, the allocations and the
+latency did.
+
+Where the profile pointed, and what changed (no change of the events, their
+order, the bounds or the counters; `the_same_input_gives_the_same_output`
+runs four recorded inputs through the old buffer, kept as a model, and the
+new one):
+
+- `wyrm-client`: a sample was copied, decoded and filtered inside the
+  buffer's lock, and the standard lock of macOS waits in the kernel as soon
+  as it is taken: more than half of the handler's time was that wait, and
+  the reader waited there too. Now the key filter runs first, on the key as
+  Zenoh holds it (a refused sample is not decoded), the decode runs before
+  the lock (`Intake::feed_map`), and a thread that finds the lock taken
+  tries 64 times before it waits. `parking_lot`'s lock was tried and
+  refused: it yields its turn, and on a loaded host a yield cost a scheduler
+  quantum (p95 of the stream 10 ms, measured).
+- `wyrm-client`: `pop` looked the key up three times and copied it for every
+  sample; one lookup, a copy only for a key seen first. One allocation per
+  sample is left, the key `String` of the event
+  (`one_allocation_per_sample`).
+- `wyrm-link-sdk`: every wildcard `get` walked the link's whole tree under
+  its lock and built two keys per node. The stored read of every pattern
+  subscriber reaches every link, and a link whose values the storage
+  answers has nothing for it. `fan_in` now tries the pattern against
+  `<prefix>/**/~meta` and `<prefix>/**/~val` first and ends at once when it
+  meets neither; a walk builds its keys in one buffer
+  (`fan_in_answers_what_the_pattern_meets`,
+  `a_fan_in_read_does_not_pay_per_node`).
+
+Not done:
+
+- the subscribe loop itself (`perf_b_wildcard`): the link's walk was a small
+  part of it (about 0.2 ms of CPU per subscribe on 1000 points). The rest is
+  Zenoh's: the declaration of a wildcard subscriber, the storage's answer of
+  1000 keys and its consolidation in the session. Audit item 2 stays open;
+- one wake-up of the reading task per sample when the samples come spread
+  out: most of what the stream costs beside Zenoh now. Fewer wake-ups need
+  a delay before a wake (tokio's timer has 1 ms steps), which changes the
+  latency of every consumer; a candidate as an opt-in of the client, not
+  done. Reading several events in one lock was tried (no gain in the
+  measurement) and removed;
+- `tree/fan_in/10000` still walks 10 000 nodes for one hit (a key check per
+  node, 0.14 µs each); the tree has no index by pattern;
+- the consumers above the client (the flow engine's sources, the portable
+  runtime's event queue, the gateway's frames) are not profiled apart;
+- `sample` stalls a process the first time it reads a new binary's symbols
+  (17 samples in 6 s, 350 000 samples of the window lost): run a profile
+  twice and keep the second (build with `CARGO_PROFILE_RELEASE_STRIP=false
+  CARGO_PROFILE_RELEASE_DEBUG=line-tables-only` into a target directory of
+  its own).
 
 **Done (2026-11-20, `perf/ptok-verify`): one signature check per token
 (audit item 3).** A `ptok` names no key (spec 04), so the responder tried the

@@ -8,7 +8,8 @@
 //!      subscriber on the link's `**/~meta` that counts the puts and their bytes.
 //! 2. **Fan-in** (`tree/fan_in/10000`): a wildcard `get` that hits one node of 10 000; the
 //!    runtime walks the whole tree for it. Beside it `tree/meta_one/10000`, the plain `get` of
-//!    the same node.
+//!    the same node, and `tree/fan_in_val/10000`, the stored read of a pattern subscriber
+//!    (`…/**/~val`), which no node of this link answers.
 //! 3. **`view=list`** of 1 000 children, each `is: "wy:number"` (a profile name, so the runtime
 //!    resolves the profile per child) and, beside it, the same children without `is`.
 //!
@@ -173,10 +174,27 @@ async fn fan_in(n: usize) {
             .await
             .unwrap();
     }
-    // one node: f7/p17
-    for (name, sel) in [
-        ("tree/fan_in", "wy/test/downstream/bench/*/p17/~meta"),
-        ("tree/meta_one", "wy/test/downstream/bench/f7/p17/~meta"),
+    // one node: f7/p17; and the stored read of a pattern subscriber, which no node of a link
+    // answers (a storage answers the values)
+    for (name, sel, replies, note) in [
+        (
+            "tree/fan_in",
+            "wy/test/downstream/bench/*/p17/~meta",
+            1,
+            "get that answers one ~meta of a 10k-node tree",
+        ),
+        (
+            "tree/meta_one",
+            "wy/test/downstream/bench/f7/p17/~meta",
+            1,
+            "get that answers one ~meta of a 10k-node tree",
+        ),
+        (
+            "tree/fan_in_val",
+            "wy/test/downstream/**/~val",
+            0,
+            "the stored read of subscribe(downstream/**) at a link of 10k nodes: no reply",
+        ),
     ] {
         for _ in 0..20 {
             get_all(&h, sel).await;
@@ -187,7 +205,7 @@ async fn fan_in(n: usize) {
         let t0 = Instant::now();
         for _ in 0..rounds {
             let (d, got) = get_all(&h, sel).await;
-            assert_eq!(got, 1, "{sel}");
+            assert_eq!(got, replies, "{sel}");
             lat.push(d);
         }
         let wall = t0.elapsed();
@@ -198,7 +216,7 @@ async fn fan_in(n: usize) {
                 .lat(&mut lat)
                 .per_s(rounds as f64 / wall.as_secs_f64())
                 .allocs(allocs, rounds as u64)
-                .note("get that answers one ~meta of a 10k-node tree")
+                .note(note)
         );
     }
     h.stop().await;

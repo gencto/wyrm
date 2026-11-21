@@ -6533,6 +6533,7 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "tracing",
+ "wyrm-bench",
  "wyrm-client",
  "wyrm-core",
  "wyrm-link-mock",

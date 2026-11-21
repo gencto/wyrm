@@ -9,7 +9,8 @@
 # Groups:
 #   sdk     cargo bench -p wyrm-link-sdk --bench verify / --bench tree   (audit items 3, 4, 5, 17)
 #   flow    cargo test --release -p wyrm-flow --test throughput          (items 7-10)
-#   broker  cargo test --release -p wyrmd --test perf, one test at a time (items 1, 2, 12, 13, gateway)
+#   broker  cargo test --release -p wyrmd --test perf, one test at a time (items 1, 2, 12, 13, gateway,
+#           a pattern consumer), and -p wyrm-client --test fan_in (its value stream alone)
 #
 # Every run writes its whole output to target/perf/<group>.log and the table to
 # target/perf/table.txt. The machine and its load (`uptime`) head the table: record both
@@ -27,7 +28,7 @@ for a in "$@"; do
     sdk | flow | broker) groups+=("$a") ;;
     --existing) existing=1 ;;
     -h | --help)
-      sed -n '2,20p' "$0"
+      sed -n '2,17p' "$0"
       exit 0
       ;;
     *)
@@ -72,9 +73,11 @@ for g in "${groups[@]}"; do
       run flow cargo test --release -p wyrm-flow --test throughput -- --ignored --nocapture
       ;;
     broker)
-      for t in perf_a_base perf_b_wildcard perf_c_trace perf_d_historian perf_e_audit perf_f_gateway; do
+      for t in perf_a_base perf_b_wildcard perf_c_trace perf_d_historian perf_e_audit perf_f_gateway perf_g_fan_in; do
         run broker cargo test --release -p wyrmd --test perf -- --ignored --nocapture --exact "$t"
       done
+      # the client's value stream alone (no session): what one sample costs a pattern consumer
+      run broker cargo test --release -p wyrm-client --test fan_in -- --ignored --nocapture
       ;;
   esac
 done
