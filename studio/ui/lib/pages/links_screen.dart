@@ -725,7 +725,7 @@ class LinksScreen extends StatelessWidget {
   /// *Roll back to `<v>`…*: the confirm names the links that restart.
   Future<void> _rollBack(BuildContext context) async {
     final d = vm.sheet;
-    final to = d?.previous;
+    final to = d?.kept?.version;
     if (d == null || to == null) {
       return;
     }
@@ -762,7 +762,7 @@ class LinksScreen extends StatelessWidget {
   /// rolls back (asked first); else it closes the sheet.
   void _secondary(BuildContext context) {
     final d = vm.sheet;
-    if (d?.stage == LinkUpdateStage.progress && d?.previous != null) {
+    if (d?.stage is LinkUpdateProgressStage && d?.kept != null) {
       unawaited(_rollBack(context));
     } else {
       onCloseSheet();

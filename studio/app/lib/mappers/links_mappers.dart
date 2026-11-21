@@ -48,25 +48,6 @@ extension LinkStateUi on LinkState {
   };
 }
 
-extension UpdateStageUi on UpdateStage {
-  LinkUpdateStage get ui => switch (this) {
-    UpdateStage.review => LinkUpdateStage.review,
-    UpdateStage.progress => LinkUpdateStage.progress,
-    UpdateStage.result => LinkUpdateStage.result,
-    UpdateStage.points => LinkUpdateStage.points,
-  };
-}
-
-extension UpdateResultUi on UpdateResult {
-  LinkUpdateEnd get ui => switch (this) {
-    UpdateResult.checking => LinkUpdateEnd.checking,
-    UpdateResult.ok => LinkUpdateEnd.ok,
-    UpdateResult.rolledBack => LinkUpdateEnd.rolledBack,
-    UpdateResult.failed => LinkUpdateEnd.failed,
-    UpdateResult.unknown => LinkUpdateEnd.unknown,
-  };
-}
-
 extension UpdateNextUi on UpdateNext {
   LinkUpdateNext get ui => switch (this) {
     UpdateNext.update => LinkUpdateNext.update,
@@ -86,8 +67,15 @@ extension UpdateReportUi on UpdateReport {
     from: from,
     to: to,
     at: _at(at),
-    end: result?.ui,
-    endWord: resultWord,
+    end: switch (result) {
+      null => null,
+      UpdateResult.checking => const LinkUpdateChecking(),
+      UpdateResult.ok => const LinkUpdateOk(),
+      UpdateResult.rolledBack => const LinkUpdateRolledBack(),
+      UpdateResult.failed => const LinkUpdateFailed(),
+      // the broker's own word for an end this Studio does not know
+      UpdateResult.unknown => LinkUpdateUnknown(resultWord),
+    },
     kept: kept,
     added: added,
     gone: gone,
@@ -170,7 +158,19 @@ extension LinkUpdateUi on LinkUpdate {
     return LinkUpdateData(
       name: p.name,
       version: p.version,
-      stage: stage.ui,
+      stage: switch (stage) {
+        UpdateStage.review => const LinkUpdateReviewStage(),
+        UpdateStage.points => const LinkUpdatePointsStage(),
+        UpdateStage.progress => LinkUpdateProgressStage(
+          checked: answered ? p.lastUpdate?.ui : null,
+        ),
+        UpdateStage.result => switch (p.lastUpdate) {
+          final r? => LinkUpdateResultStage(r.ui),
+          // `LinkUpdate.stage` is a result only with a last update; were
+          // there none, nothing has ended yet
+          null => const LinkUpdateProgressStage(),
+        },
+      },
       links: links,
       latest: p.latest,
       official: official,
@@ -186,10 +186,17 @@ extension LinkUpdateUi on LinkUpdate {
       said: said,
       busy: busy,
       rollingBack: rollingBack,
-      answered: answered,
-      report: p.lastUpdate?.ui,
-      previous: p.previous,
-      keepUntil: _at(p.keepUntil),
+      kept: switch (p.previous) {
+        final v? => LinkKeptVersion(
+          version: v,
+          until: _at(p.keepUntil),
+          offered: offersRollBack,
+          allowed: canRollBack,
+        ),
+        // both need a kept version (`LinkUpdate.offersRollBack`,
+        // `canRollBack`)
+        null => null,
+      },
       points: [
         for (final lp in points)
           LinkPointData(
@@ -202,8 +209,6 @@ extension LinkUpdateUi on LinkUpdate {
       queue: queue,
       reason: reason?.disabled,
       next: next?.ui,
-      offersRollBack: offersRollBack,
-      canRollBack: canRollBack,
     );
   }
 }
