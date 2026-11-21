@@ -18,7 +18,7 @@
 
 use crate::commands::{MAX_INTERVAL_MS, MIN_INTERVAL_MS};
 use crate::def::Map;
-use crate::nodes::{names, Io, Msg, Node, Out, PortType, Ports};
+use crate::nodes::{names, put, Io, Msg, Node, Out, PortName, PortType, Ports};
 use std::collections::BTreeMap;
 use std::time::Duration;
 use tracing::trace;
@@ -1355,17 +1355,24 @@ impl Block {
     }
 
     /// Send `v` on `port` when it differs from what was sent there last.
-    fn send(&mut self, port: &str, v: Value, q: Quality, t: u64, out: &mut Out) {
-        let next = (v, q);
-        if self.sent.get(port) == Some(&next) {
-            return;
+    fn send(&mut self, port: impl Into<PortName>, v: Value, q: Quality, t: u64, out: &mut Out) {
+        let port = port.into();
+        // the slot is found once and its key is made only for a port's first value
+        match self.sent.get_mut(port.as_ref()) {
+            Some(last) if last.0 == v && last.1 == q => return,
+            Some(last) => {
+                last.0.clone_from(&v);
+                last.1 = q;
+            }
+            None => {
+                self.sent.insert(port.to_string(), (v.clone(), q));
+            }
         }
-        out.emit(port, Msg::new(next.0.clone(), next.1, t));
-        self.sent.insert(port.to_owned(), next);
+        out.emit(port, Msg::new(v, q, t));
     }
 
     /// An event on `port`: always sent.
-    fn fire(&mut self, port: &str, t: u64, out: &mut Out) {
+    fn fire(&mut self, port: &'static str, t: u64, out: &mut Out) {
         self.events += 1;
         let v = Value::Map(BTreeMap::from([
             ("event".to_owned(), Value::Str(port.to_owned())),
@@ -1376,7 +1383,12 @@ impl Block {
 
     fn calculate(&mut self, changed: &str, out: &mut Out) {
         let (q, t) = self.quality();
-        let nums = || -> Vec<N> { self.item_values().iter().filter_map(num).collect() };
+        // an input with no value yet is `null`, which is no number: the same as leaving it out
+        let nums = || {
+            self.items
+                .iter()
+                .filter_map(|n| self.values.get(n).and_then(num))
+        };
         match self.kind {
             Kind::Number | Kind::Text | Kind::Bool => {
                 let v = self.var_value(self.values.get("in").unwrap_or(self.param("value")));
@@ -1386,7 +1398,7 @@ impl Block {
                 let v = self.values.get("in").unwrap_or(self.param("value"));
                 let (v, q) = match v {
                     Value::Null => (table::Table::default().to_value().unwrap_or(Value::Null), q),
-                    v => match table::Table::from_value(v).and_then(|t| t.to_value()) {
+                    v => match table::Table::from_value(v).and_then(table::Table::into_value) {
                         Some(t) => (t, q),
                         None => (Value::Null, Quality::Bad),
                     },
@@ -1400,17 +1412,15 @@ impl Block {
                 self.send_all(outs, q, t, out);
             }
             Kind::Add => {
-                let v = nums()
-                    .into_iter()
-                    .fold(N::I(0), |a, b| a.op(b, i64::checked_add, |x, y| x + y));
+                let v = nums().fold(N::I(0), |a, b| a.op(b, i64::checked_add, |x, y| x + y));
                 self.send("out", v.value(), q, t, out);
             }
             Kind::Subtract | Kind::Multiply | Kind::Divide => {
-                let xs = nums();
-                let v = xs.split_first().map(|(first, rest)| {
-                    rest.iter().fold(*first, |a, b| match self.kind {
-                        Kind::Subtract => a.op(*b, i64::checked_sub, |x, y| x - y),
-                        Kind::Multiply => a.op(*b, i64::checked_mul, |x, y| x * y),
+                let mut xs = nums();
+                let v = xs.next().map(|first| {
+                    xs.fold(first, |a, b| match self.kind {
+                        Kind::Subtract => a.op(b, i64::checked_sub, |x, y| x - y),
+                        Kind::Multiply => a.op(b, i64::checked_mul, |x, y| x * y),
                         _ => N::F(a.f() / b.f()),
                     })
                 });
@@ -1423,7 +1433,7 @@ impl Block {
             }
             Kind::Max | Kind::Min => {
                 let max = self.kind == Kind::Max;
-                let v = nums().into_iter().reduce(|a, b| {
+                let v = nums().reduce(|a, b| {
                     let better = if max { b.f() > a.f() } else { b.f() < a.f() };
                     if better {
                         b
@@ -1899,11 +1909,11 @@ impl Block {
                 let v = self.in_value().clone();
                 if truth(self.param("single_output"), false) {
                     if let Some(last) = self.route.take().filter(|l| *l != port) {
-                        self.send(&last, Value::Null, q, t, out);
+                        self.send(last, Value::Null, q, t, out);
                     }
                 }
                 self.route = Some(port.clone());
-                self.send(&port, v, q, t, out);
+                self.send(port, v, q, t, out);
             }
             Kind::EventGate => {
                 if changed == "reset" {
@@ -2307,7 +2317,6 @@ impl Node for Block {
                 None => return,
             },
         };
-        let name = name.to_owned();
         // `op` takes only an operator the block knows: another text is ignored (spec 06 0.2.20)
         if name == "op" && Ops::has(self.kind) {
             match &m.v {
@@ -2316,7 +2325,7 @@ impl Node for Block {
             }
         }
         // a number that is not finite never becomes a parameter: the last good value stays
-        let is_param = port.starts_with("in.") && self.param_ports.contains(&name.as_str());
+        let is_param = port.starts_with("in.") && self.param_ports.contains(&name);
         if is_param && matches!(&m.v, Value::Float(x) if !x.is_finite()) {
             return;
         }
@@ -2324,15 +2333,15 @@ impl Node for Block {
         if is_param && self.kind == Kind::Date(date::Op::Now) && !now_interval_ok(&m.v) {
             return;
         }
-        self.seen.insert(name.clone(), (m.q, m.t));
+        put(&mut self.seen, name, (m.q, m.t));
         self.born = m.start;
-        if port.starts_with("in.") && self.param_ports.contains(&name.as_str()) {
-            self.params.insert(name.clone(), m.v);
+        if is_param {
+            put(&mut self.params, name, m.v);
             self.params_rev += 1;
         } else {
-            self.values.insert(name.clone(), m.v);
+            put(&mut self.values, name, m.v);
         }
-        self.calculate(&name, out);
+        self.calculate(name, out);
     }
 
     fn tick_every(&self) -> Option<Duration> {

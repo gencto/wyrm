@@ -8,7 +8,8 @@ use std::collections::VecDeque;
 use wyrm_core::audit::LinkOp;
 use wyrm_core::named::OrUnknown;
 
-const RECENT: usize = 1000;
+/// Records kept in memory for `sys/audit/~act/tail`.
+pub(crate) const RECENT: usize = 1000;
 
 wyrm_core::name_enum! {
     /// What an audit record is about: every `op` this build writes. The broker's own
