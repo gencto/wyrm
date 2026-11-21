@@ -11,7 +11,8 @@
 #   flow    cargo test --release -p wyrm-flow --test throughput          (items 7-10), and
 #           --test copies (the runtime alone: allocations and CPU per sample)
 #   broker  cargo test --release -p wyrmd --test perf, one test at a time (items 1, 2, 12, 13, gateway,
-#           a pattern consumer), and -p wyrm-client --test fan_in (its value stream alone)
+#           a pattern consumer), -p wyrm-client --test fan_in (its value stream alone) and
+#           -p wyrm-gateway --test frame_path (the gateway's value frames, no socket)
 #
 # Every run writes its whole output to target/perf/<group>.log and the table to
 # target/perf/table.txt. The machine and its load (`uptime`) head the table: record both
@@ -81,6 +82,8 @@ for g in "${groups[@]}"; do
       done
       # the client's value stream alone (no session): what one sample costs a pattern consumer
       run broker cargo test --release -p wyrm-client --test fan_in -- --ignored --nocapture
+      # the gateway's value path alone (no socket, no session): what one frame costs it
+      run broker cargo test --release -p wyrm-gateway --test frame_path -- --ignored --nocapture
       ;;
   esac
 done

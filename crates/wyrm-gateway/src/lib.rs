@@ -47,6 +47,7 @@ use session::SessionKey;
 use std::future::Future;
 use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 use tokio::sync::{watch, Semaphore};
@@ -367,6 +368,9 @@ pub struct Gateway {
     /// Downstream sites reached through this gateway (starts as
     /// `cfg.downstream_sites`; peers added at runtime change it).
     downstream_sites: RwLock<Vec<String>>,
+    /// Counts the changes of `downstream_sites` (bumped under its write lock): a value
+    /// let through before a change is checked again before it goes out (`ws`).
+    sites_gen: AtomicU64,
     /// Other sites' points this site records (ADR 0020), followed while
     /// the gateway serves.
     sites: Arc<watch::Sender<Arc<overlay::Sites>>>,
@@ -506,6 +510,7 @@ impl Gateway {
             addr: watch::channel(None).0,
             tickets: Mutex::new(Default::default()),
             downstream_sites: RwLock::new(cfg.downstream_sites.clone()),
+            sites_gen: AtomicU64::new(0),
             sites: Arc::new(watch::channel(Arc::default()).0),
             agent_links: RwLock::new(Vec::new()),
             per_user: Mutex::new(Default::default()),
@@ -693,10 +698,20 @@ impl Gateway {
 
     /// Downstream sites reached through the gateway (the broker's peers).
     pub fn set_downstream_sites(&self, sites: Vec<String>) {
-        *self
+        let mut cur = self
             .downstream_sites
             .write()
-            .unwrap_or_else(|p| p.into_inner()) = sites;
+            .unwrap_or_else(|p| p.into_inner());
+        if *cur != sites {
+            *cur = sites;
+            self.sites_gen.fetch_add(1, Ordering::AcqRel);
+        }
+    }
+
+    /// How many times the downstream sites have changed: [`Gateway::as_own`] of a key
+    /// can differ only across a change of this number.
+    pub(crate) fn sites_gen(&self) -> u64 {
+        self.sites_gen.load(Ordering::Acquire)
     }
 
     /// The agent links of this site (their link ids), from the broker's registry. The
@@ -723,10 +738,31 @@ impl Gateway {
     /// `key` with a downstream site's prefix replaced by the own site's (roles
     /// are written for the own site); other keys unchanged.
     pub fn as_own(&self, key: &str) -> String {
-        match self.downstream_site_of(key) {
-            Some(d) => format!("wy/{}{}", self.cfg.site, &key[3 + d.len()..]),
-            None => key.to_owned(),
+        let mut own = String::with_capacity(key.len() + self.cfg.site.len());
+        self.as_own_into(key, &mut own);
+        own
+    }
+
+    /// [`Gateway::as_own`] of `key` added to the end of `out`, with no allocation but the
+    /// growth of `out` (the value path checks every sample with it).
+    pub fn as_own_into(&self, key: &str, out: &mut String) {
+        if let Some(rest) = key.strip_prefix("wy/") {
+            let site = rest.split('/').next().unwrap_or(rest);
+            let below = rest.strip_prefix(site).unwrap_or_default();
+            let downstream = self
+                .downstream_sites
+                .read()
+                .unwrap_or_else(|p| p.into_inner())
+                .iter()
+                .any(|s| s == site);
+            if downstream {
+                out.push_str("wy/");
+                out.push_str(&self.cfg.site);
+                out.push_str(below);
+                return;
+            }
         }
+        out.push_str(key);
     }
 
     /// Key that links must trust (`LinkConfig::admin_keys`) for gateway ptoks.

@@ -547,6 +547,7 @@ measured.
 | flow | `cargo test --release -p wyrm-flow --test throughput -- --ignored --nocapture` | 7–10 | `subscribe → (scale, add) × n → publish`, a paced rate ladder on one key and on 1000 keys, default and deep inbox; allocations per hop (9 hops minus 3); 10 000-row tables through `table_sort` ×1/×3 and `table_filter` + `table_aggregate` |
 | flow | `cargo test --release -p wyrm-flow --test copies -- --ignored --nocapture` | flow copies | the runtime started directly, no session and no `publish`: samples pushed into the first node's inbox, the end read from the flow's counters; a chain of 10 pure blocks, one output with 16 edges, one `expression` (rhai), a 1000-row table of 3 columns through 3 `table_sort`; median of 7 rounds: samples/s, CPU per sample, allocations and bytes per sample |
 | broker | `cargo test --release -p wyrmd --test perf -- --ignored --nocapture --exact <test>` | 1, 2, 12, 13, gateway | an in-process broker with the embedded mock: (a) base rate, (b) a client that subscribes `wy/<site>/downstream/**` in a loop and one `wy/**`, (c) the mock at `trace`, (d) the historian on 10 000 points, (e) 1000 invokes one after another, then 2000 from 50 subjects at once: latency, audit records/s, batches, and how late a 1 ms timer of the broker's runtime fires, (f) 10 gateway WebSocket clients × 1000 points × 10 Hz, (g) a steady pattern consumer of 1000 points × 50 Hz, raw and through the client |
+| broker | `cargo test --release -p wyrm-gateway --test frame_path -- --ignored --nocapture` | gateway | the value path of one `subscribe` with no socket and no session: the client's value stream fed by hand with the gateway's read filter in its callback, the pump, the connection's queue, the writer task and a sink that counts frames and flushes; a value event to its frame, one rights check, the stream alone, the whole path on one thread, and 10 connections × 1000 points × 10 Hz on two workers beside the producer's own cost |
 | broker | `cargo test --release -p wyrm-client --test fan_in -- --ignored --nocapture` | pattern consumer | the client's value stream with no session: handler + read on one thread, and 1000 samples every 20 ms read by a task |
 
 Test hooks: `wyrm-admin`'s `testkit` feature (dev only) gives the perf tests
@@ -1088,6 +1089,103 @@ Not done:
   `last_sample_t`;
 - the sources and the sinks (`subscribe`, `publish` and its encode, the
   commands) are not in this measurement;
+- the reference board and a quiet machine.
+
+**Done: the gateway's value frames (2026-11-21, `perf/gateway`).** What one
+value frame costs the gateway itself was not measured apart:
+`perf_f_gateway` puts it through a broker, a session and real sockets.
+`tests/frame_path.rs` (`wyrm-gateway`, feature `testkit`, dev only) runs the
+value path of one `subscribe` with no socket and no session: the client's
+value stream fed by hand with the gateway's own read filter in its callback
+(`wyrm_client::testkit::value_stream_filtered`), the pump, the connection's
+queue, the writer task and a sink that counts frames and flushes. The
+measuring commit (`f0a9350e`) fed a stream with no filter, so its whole path
+held one of the two rights checks (1 238 ns, 26 allocations per frame); the
+"Before" column below has the filter in it, as a socket has.
+
+*Cause, per frame.*
+
+- The frame was built as a `Value` tree (maps with owned keys, the node key
+  copied) and encoded from it: 22 allocations, 655 ns.
+- The rights check made the user's own key with `as_own` (a copy of the
+  downstream site's name, a copy of the key) and `format!("{own}/~val")`:
+  3 allocations, 160–180 ns. It ran twice: in the stream's filter and again
+  in the pump before the frame was queued.
+- The writer `send`-ed each frame: one flush, on a socket one write, per
+  frame.
+
+*The change* (`crates/wyrm-gateway/src/ws.rs`, `lib.rs`):
+
+- `value_frame` writes `{id, event: {q, t, v, key, qual?, type}}` straight
+  into one buffer, in canonical key order, and the frame goes to the queue
+  as bytes (`Out::Bytes`). Test `value_frames_are_the_bytes_of_the_value_model`:
+  the bytes are those of the old `Value` path for null, bools, integers at
+  every CBOR width edge, floats that shorten to f16/f32 and plain f64, −0.0,
+  NaN, ±inf, empty and long and non-ASCII strings, bytes, arrays, maps with
+  keys of mixed length, nested values; every quality; ids and times at the
+  width edges; keys of 23, 24, 255, 256 bytes and non-ASCII; with and
+  without `qual`; `removed`.
+- `Gateway::as_own_into` writes the own key into the caller's buffer and
+  matches the downstream site under the read lock with no copy; `may_read`
+  takes the buffer. The filter keeps one per Zenoh receive thread, the pump
+  one per stream. Test `rights_check_gives_the_old_verdicts`: the verdicts
+  of the `format!` check and the key of `as_own`, for own and downstream
+  keys, `wy/edge2/…` beside the downstream site `edge` (a whole segment,
+  not a prefix), other sites, `*` and `**` grants, a narrow deny before a
+  broad allow, no grants.
+- The check runs once per frame and per key: in the stream's filter, before
+  the value takes room in the buffer (as before). The pump checks a value
+  again only when the connection's grants (a `watch` receiver made before
+  the filter, `has_changed`) or the downstream sites (`Gateway::sites_gen`,
+  bumped under the write lock when the list changes) changed after the
+  stream began; from then on it checks every value to the end of the
+  stream. A value that waited in the buffer across a revocation is still
+  dropped. Test `values_that_waited_across_a_change_of_rights_are_checked_again`
+  (`frame_path.rs`, runs with the other tests; it fails with the pump's
+  check taken out).
+- The writer feeds every frame already in the queue (at most 256, or until
+  64 KiB) to the transport and flushes once. A frame alone in the queue is
+  flushed at once: no timer, no added wait. A close still goes after the
+  frames queued before it. Tests `the_writer_flushes_once_per_batch`,
+  `a_lone_frame_is_flushed_at_once`.
+
+*Figures.* `perf_frame_path`, M4 Max, release, the same hour, other agents'
+builds running (load in the header; rough). Allocations of the last row
+include the producer's samples.
+
+| Figure | Before (load 16 → 25) | After (two runs: load 14 → 9, then 7 → 4) |
+|---|---|---|
+| value event → frame bytes | 654 ns, 22 allocations (2 155 B) | 59.9 ns; 63.2 ns; 1 allocation (128 B) |
+| one rights check | 181 ns, 3 allocations (127 B); 2 per frame | 88.0 ns; 92.5 ns; 0 allocations; 1 per frame |
+| the client's stream alone (not changed) | 161 ns, 1 allocation | 165 ns; 236 ns; 1 allocation |
+| whole path, one thread, 1000 keys | 1 436 ns, 29 allocations (2 449 B); 1.0 flush per frame | 457 ns; 555 ns; 2 allocations (167 B); 0.008 flushes per frame |
+| 10 connections × 1000 points × 10 Hz, 2 workers | 100k frames/s; 71.2 % CPU (68.8 % without the producer); 36 allocations (2 699 B) per sample; RSS 153 MiB; 1.0 flush per frame | 100k frames/s; 24.5 % CPU (22.0 %); 18.8 % (16.3 %); 9 allocations (409 B); RSS 133 / 125 MiB; 0.171 / 0.144 flushes per frame |
+
+With real sockets, `perf_f_gateway` (a broker with the embedded mock, 10
+WebSocket clients × 1000 points × 10 Hz; latency = arrival − the sample's
+time), one run each, `origin/main` `d3d6309e` against this branch:
+
+| Figure | Before (load 17 → 13) | After (load 31 → 21) |
+|---|---|---|
+| frames per second | 99 967 | 99 943 |
+| latency p50 / p95 / p99 | 4.01 / 6.05 / 6.79 ms | 0.55 / 1.42 / 2.38 ms |
+| CPU of the whole process (broker, mock, clients) | 65.2 % | 45.8 % |
+| RSS | 90.3 MiB | 78.5 MiB |
+| samples lost | 331 of 1 000 331 | 570 of 1 000 570 |
+
+The losses are the samples of the last tick at the window's edge in both
+runs (as in the first figures), not the batching. The After run had the
+higher load.
+
+Not done:
+
+- one allocation per frame is left: the frame's own buffer, which the
+  socket takes as `Bytes`. A pool would need the transport to hand the
+  buffers back;
+- the client's stream (165 ns and 1 allocation per value: the node key
+  copied out of the Zenoh sample) is the client's, not changed here;
+- the other frames of a connection (`list` events, answers) are still built
+  as `Value` trees: they are not per sample;
 - the reference board and a quiet machine.
 
 Not covered yet:
