@@ -372,13 +372,10 @@ extension TrafficTrendSys on TrafficTrendView {
 
 extension LogReadErrorSys on LogReadError {
   SysLogError get sys => switch (this) {
-    LogRefused(:final status, :final message) => SysLogError.refused(
+    LogRefused(:final status, :final message) => SysLogRefused(
       status,
       message,
     ),
-    LogInvalid(:final field, :final reason) => SysLogError.invalid(
-      field,
-      reason,
-    ),
+    LogInvalid(:final field, :final reason) => SysLogInvalid(field, reason),
   };
 }

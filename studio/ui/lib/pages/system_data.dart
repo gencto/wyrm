@@ -258,31 +258,41 @@ final class SysLogLine extends Equatable {
   List<Object?> get props => [time, at, level, target, message];
 }
 
-/// Why the last read of the log gave no lines: the broker refused (its
-/// status name and message), or the answer is not a log (the field and
-/// why).
-final class SysLogError extends Equatable {
-  const SysLogError.refused(this.status, this.message) : invalid = false;
-  const SysLogError.invalid(String field, String reason)
-    : status = field,
-      message = reason,
-      invalid = true;
-
-  final bool invalid;
-
-  /// The status name; for an [invalid] answer, the field at fault.
-  final String status;
-
-  /// The broker's message; for an [invalid] answer, why.
-  final String message;
+/// Why the last read of the log gave no lines: the broker refused
+/// ([SysLogRefused]), or the answer is not a log ([SysLogInvalid]).
+sealed class SysLogError extends Equatable {
+  const SysLogError();
 
   /// As the log box says it.
-  String get text => invalid
-      ? S.current.sysLogInvalid('$status: $message')
-      : '$status: $message';
+  String get text;
+}
+
+/// The broker refused the read: its status name and its message.
+final class SysLogRefused extends SysLogError {
+  const SysLogRefused(this.status, this.message);
+
+  final String status;
+  final String message;
 
   @override
-  List<Object?> get props => [invalid, status, message];
+  String get text => '$status: $message';
+
+  @override
+  List<Object?> get props => [status, message];
+}
+
+/// The answer is not a log: the field at fault and why.
+final class SysLogInvalid extends SysLogError {
+  const SysLogInvalid(this.field, this.reason);
+
+  final String field;
+  final String reason;
+
+  @override
+  String get text => S.current.sysLogInvalid('$field: $reason');
+
+  @override
+  List<Object?> get props => [field, reason];
 }
 
 /// The Log tab: the toolbar's arguments, the lines shown and the broker's

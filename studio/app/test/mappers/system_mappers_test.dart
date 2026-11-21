@@ -10,6 +10,7 @@ import 'package:models/backup_kind.dart';
 import 'package:models/backup_status.dart';
 import 'package:models/broker_self_update.dart';
 import 'package:models/log_level.dart';
+import 'package:models/log_read_error.dart';
 import 'package:models/notice_kind.dart';
 import 'package:models/self_update_state.dart';
 import 'package:models/standby_state.dart';
@@ -45,6 +46,15 @@ void main() {
     expect(SysTileKey.aclDenied.place, SystemPlace.audit);
     expect(SysTileKey.quarantined.place, SystemPlace.quarantine);
     expect(SysValue.values.map((v) => v.key).toSet(), hasLength(25));
+  });
+
+  test('a failed log read: a refusal or an answer that is not a log', () {
+    final refused = const LogReadError.refused('forbidden', 'needs config').sys;
+    expect(refused, const SysLogRefused('forbidden', 'needs config'));
+    expect(refused.text, 'forbidden: needs config');
+    final invalid = const LogReadError.invalid('lines', 'not a list').sys;
+    expect(invalid, const SysLogInvalid('lines', 'not a list'));
+    expect(invalid.text, S.current.sysLogInvalid('lines: not a list'));
   });
 
   test('the standby: no value yet is no dot and no state', () {
