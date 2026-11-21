@@ -22,7 +22,7 @@
     "business/lib/wyrm/decode/sys_about.dart": 1,
     "business/lib/wyrm/device_keys.dart": 2,
     "business/lib/wyrm/discovery.dart": 2,
-    "business/lib/wyrm/explorer.dart": 17,
+    "business/lib/wyrm/explorer.dart": 16,
     "business/lib/wyrm/mappers/flow_blocks.dart": 1,
     "business/lib/wyrm/mappers/flow_canvas.dart": 1,
     "business/lib/wyrm/mappers/flow_layout.dart": 1,

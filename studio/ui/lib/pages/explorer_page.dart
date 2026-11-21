@@ -963,17 +963,19 @@ class _ExplorerPageState extends State<ExplorerPage> {
                 cells: [
                   CellVm(title: k.name, subtitle: k.display, monospace: true),
                   CellVm(
-                    title: switch ((k.type, k.kind)) {
-                      (final t?, _) => [
-                        t.word,
-                        if (k.writable) S.current.pointRw,
+                    title: switch (k) {
+                      ChildValueRowVm(:final type, :final writable) => [
+                        type.word,
+                        if (writable) S.current.pointRw,
                       ].join(' · '),
-                      (null, final kind?) => kind.word,
-                      (null, null) => '—',
+                      ChildNodeRowVm(:final kind) => kind.word,
                     },
                   ),
                   CellVm(
-                    title: k.type == null ? '—' : k.value ?? '—',
+                    title: switch (k) {
+                      ChildValueRowVm(:final value) => value ?? '—',
+                      ChildNodeRowVm() => '—',
+                    },
                     monospace: true,
                   ),
                 ],
