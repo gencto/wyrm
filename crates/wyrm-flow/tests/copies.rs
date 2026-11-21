@@ -360,6 +360,150 @@ async fn a_number_through_ten_blocks_allocates_next_to_nothing() {
     );
 }
 
+/// 3 hubs in a chain pass a table on as it came: the edges, the probe and each block's
+/// last input and output share it, so no block copies it. (Before the shared payload: 12
+/// copies, 4 per block.) The bound is a tenth of one copy.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_table_through_three_hubs_is_not_copied() {
+    let _one = ONE_AT_A_TIME.lock().await;
+    let env = env().await;
+    let (unit, _) = copy_cost(&table(0));
+    let c = Case {
+        name: "check",
+        def: &hub3(),
+        first: "h0",
+        port: "in.0",
+        inputs_per_sample: 3,
+        count: 20,
+        make: &table,
+        note: "",
+        copy_allocs: Some(unit),
+    };
+    let r = measure(&env, &c, 1).await;
+    let line = Perf::new("flow/copies/check_hub3")
+        .n(c.count)
+        .per_s(r[0].per_s)
+        .allocs_op(r[0].allocs, r[0].bytes)
+        .num("copies", r[0].allocs / unit)
+        .note("the check: a 1000-row table through 3 hubs, in the build the tests run in");
+    let _ = writeln!(std::io::stderr().lock(), "{line}");
+    assert!(
+        r[0].allocs < unit / 10.0,
+        "{} allocations per table through 3 hubs; one copy is {unit}",
+        r[0].allocs
+    );
+}
+
+/// 3 `hub` blocks in a chain.
+fn hub3() -> Value {
+    let mut nodes = Vec::new();
+    let mut edges = Vec::new();
+    for i in 0..3 {
+        nodes.push((format!("h{i}"), node("hub", &[])));
+        if i > 0 {
+            edges.push(edge(&format!("h{}.out", i - 1), &format!("h{i}.in.0")));
+        }
+    }
+    flow("hub3", nodes, edges, 65_536)
+}
+
+/// The value of port `port` of node `id` in a `ports` row (`[v, q]`).
+fn port_value<'a>(row: &'a Value, id: &str, side: &str, port: &str) -> Option<&'a Value> {
+    let mut v = row;
+    for k in ["nodes", id, side, port] {
+        let Value::Map(m) = v else { return None };
+        v = m.get(k)?;
+    }
+    match v {
+        Value::Array(pair) => pair.first(),
+        _ => None,
+    }
+}
+
+/// Fan-out isolation (issue #160): a table sent on two edges is one value in memory, and a
+/// block that changes it (`table_sort`) changes only its own copy. The sibling edge's `hub`
+/// passes on the table as it came, unsorted, whichever edge comes first; the input's slots in
+/// the probe hold the table as it came too.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_block_that_changes_its_input_leaves_a_sibling_edge_alone() {
+    let _one = ONE_AT_A_TIME.lock().await;
+    let env = env().await;
+    for sort_first in [true, false] {
+        let nodes = vec![
+            ("h".to_owned(), node("hub", &[])),
+            (
+                "s".to_owned(),
+                node(
+                    "table_sort",
+                    &[("column", s("n")), ("order", s("descending"))],
+                ),
+            ),
+            ("k".to_owned(), node("hub", &[])),
+        ];
+        let mut edges = vec![edge("h.out", "s.in"), edge("h.out", "k.in.0")];
+        if !sort_first {
+            edges.reverse();
+        }
+        let (def, ports) =
+            wyrm_flow::def::compile(&flow("fanout_isolation", nodes, edges, 64)).unwrap();
+        let stats = Arc::new(FlowStats::default());
+        let probe = Probe::new(&def);
+        let (ptx, mut prx) = mpsc::unbounded_channel();
+        let run = runtime::start(
+            &def,
+            &ports,
+            &BTreeMap::new(),
+            |_node, inject| Io {
+                client: env.client.clone(),
+                ctx: env.ctx.clone(),
+                site: "test".into(),
+                flow: def.id.clone(),
+                inject,
+            },
+            ptx,
+            None,
+            probe.clone(),
+            &Mode::Live,
+            stats.clone(),
+        )
+        .unwrap();
+        let input = table(0);
+        run.inboxes["h"].push_now("in.0", Msg::new(input.clone(), Quality::Good, 1));
+        let since = Instant::now();
+        while stats.samples_in.load(Ordering::Relaxed) < 3 {
+            assert!(
+                since.elapsed() < Duration::from_secs(10),
+                "the flow did not run"
+            );
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        }
+        let row = wyrm_flow::watch::ports(&probe, None).await;
+        let at = |id: &str, side: &str, port: &str| port_value(&row, id, side, port);
+        assert_eq!(
+            at("k", "out", "out"),
+            Some(&input),
+            "sort first: {sort_first}"
+        );
+        assert_eq!(at("k", "in", "in.0"), Some(&input));
+        assert_eq!(at("s", "in", "in"), Some(&input));
+        assert_eq!(at("h", "out", "out"), Some(&input));
+        let sorted = at("s", "out", "out").unwrap();
+        assert_ne!(sorted, &input, "the sort changed its own copy");
+        let Value::Map(t) = sorted else { panic!() };
+        let Value::Array(rows) = &t["rows"] else {
+            panic!()
+        };
+        let n = |r: &Value| match r {
+            Value::Map(m) => m["n"].as_f64().unwrap(),
+            _ => panic!(),
+        };
+        assert_eq!(rows.len(), ROWS as usize);
+        assert!(rows.windows(2).all(|w| n(&w[0]) >= n(&w[1])));
+        assert!(prx.try_recv().is_err(), "a node panicked");
+        run.stop().await;
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "a measurement, run by hand"]
 async fn copies() {
@@ -476,19 +620,11 @@ async fn copies() {
     .await;
 
     // a table through blocks that pass it on as it is: 3 hubs in a chain
-    let mut nodes = Vec::new();
-    let mut edges = Vec::new();
-    for i in 0..3 {
-        nodes.push((format!("h{i}"), node("hub", &[])));
-        if i > 0 {
-            edges.push(edge(&format!("h{}.out", i - 1), &format!("h{i}.in.0")));
-        }
-    }
     case(
         &env,
         Case {
             name: "flow/copies/hub3",
-            def: &flow("hub3", nodes, edges, 65_536),
+            def: &hub3(),
             first: "h0",
             port: "in.0",
             inputs_per_sample: 3,
@@ -503,7 +639,10 @@ async fn copies() {
     // a table sorted once and sent on 4 edges, each into a hub
     let mut nodes = vec![(
         "t".to_owned(),
-        node("table_sort", &[("column", s("n")), ("order", s("descending"))]),
+        node(
+            "table_sort",
+            &[("column", s("n")), ("order", s("descending"))],
+        ),
     )];
     let mut edges = Vec::new();
     for i in 0..4 {
@@ -520,7 +659,8 @@ async fn copies() {
             inputs_per_sample: 5,
             count: tables,
             make: &table,
-            note: "a 1000-row table through one table_sort whose output has 4 edges, each into a hub",
+            note:
+                "a 1000-row table through one table_sort whose output has 4 edges, each into a hub",
             copy_allocs: Some(unit),
         },
     )

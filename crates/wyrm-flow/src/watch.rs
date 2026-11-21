@@ -17,7 +17,7 @@
 //!    remove, or when the engine stops.
 
 use crate::def::FlowDef;
-use crate::nodes::{Msg, SinkOp};
+use crate::nodes::{Msg, Payload, SinkOp};
 use std::collections::{BTreeMap, BTreeSet};
 use std::future::Future;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
@@ -56,7 +56,8 @@ pub enum End {
 
 #[derive(Debug, Clone)]
 struct PortRec {
-    v: Value,
+    /// Shared with the sample: keeping the last sample of a port copies no table.
+    v: Payload,
     q: Quality,
     seq: u64,
 }
@@ -203,7 +204,7 @@ impl Probe {
     pub(crate) fn record(
         &self,
         node: &str,
-        input: Option<(&str, &Value, Quality)>,
+        input: Option<(&str, &Payload, Quality)>,
         outs: &[(crate::nodes::PortName, Msg)],
         params: Option<&BTreeMap<String, Value>>,
     ) {
@@ -227,7 +228,14 @@ impl Probe {
     }
 
     /// The slot of `port` takes `v`, in place; `false` when it held that already.
-    fn record_port(&self, n: &mut NodeRec, input: bool, port: &str, v: &Value, q: Quality) -> bool {
+    fn record_port(
+        &self,
+        n: &mut NodeRec,
+        input: bool,
+        port: &str,
+        v: &Payload,
+        q: Quality,
+    ) -> bool {
         let m = if input { &mut n.ins } else { &mut n.outs };
         let seq = match m.get_mut(port) {
             Some(x) if x.v == *v && x.q == q => return false,
@@ -827,7 +835,7 @@ mod tests {
         // records are kept with no watch open (spec 06 0.2.18); a hold only wakes watches
         p.record(
             "r",
-            Some(("in", &Value::Float(1.5), Quality::Good)),
+            Some(("in", &Value::Float(1.5).into(), Quality::Good)),
             &[("out".into(), m(1.5))],
             None,
         );
@@ -853,7 +861,7 @@ mod tests {
         p.record("r", None, &[("out".into(), m(3.0))], None);
         p.record(
             "r",
-            Some(("in", &Value::Float(1.5), Quality::Good)),
+            Some(("in", &Value::Float(1.5).into(), Quality::Good)),
             &[],
             None,
         );

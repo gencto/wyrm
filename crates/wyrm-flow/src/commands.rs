@@ -29,8 +29,8 @@
 use crate::def::Map;
 use crate::modes::{InvokeOn, SetOn};
 use crate::nodes::{
-    b, command_target, f, only, pick_of, req_s, truthy, Io, Mode, Msg, Node, Out, PortType, Ports,
-    SinkOp,
+    b, command_target, f, only, pick_of, req_s, truthy, Io, Mode, Msg, Node, Out, Payload,
+    PortType, Ports, SinkOp,
 };
 use crate::watch::Probe;
 use std::collections::BTreeMap;
@@ -219,7 +219,7 @@ pub(crate) struct Command {
     enabled: bool,
     allow_bad: bool,
     /// The last sample on `trigger`.
-    trigger: Option<Value>,
+    trigger: Option<Payload>,
     /// The number of the last run sent to the writer.
     seq: u64,
     running: bool,
@@ -485,7 +485,7 @@ impl Node for Command {
                 out.emit("last_run", Msg::new(Value::UInt(m.t), Quality::Good, m.t));
             }
             "__result" => {
-                let Value::Map(r) = &m.v else { return };
+                let Value::Map(r) = &*m.v else { return };
                 if m.q == Quality::Bad {
                     // a failure never reads as a success: no valid error code is
                     // `internal_error`; a user-defined code travels as it is
@@ -533,7 +533,7 @@ impl Node for Command {
                     } => {
                         // never act on bad data
                         !bad && {
-                            *input = m.v.clone();
+                            *input = m.v.get().clone();
                             should_fire(*on, last_in, &m.v)
                         }
                     }
@@ -544,7 +544,7 @@ impl Node for Command {
                         value,
                     } => {
                         !bad && {
-                            *value = Some(m.v.clone());
+                            *value = Some(m.v.get().clone());
                             let within = *change
                                 && match (written.as_ref().and_then(Value::as_f64), m.v.as_f64()) {
                                     (Some(a), Some(b)) => (a - b).abs() <= *deadband,
@@ -570,8 +570,8 @@ impl Node for Command {
                 let Some(slot) = args.get_mut(name) else {
                     return;
                 };
-                let changed = *slot != m.v;
-                *slot = m.v.clone();
+                let changed = m.v != *slot;
+                *slot = m.v.get().clone();
                 let live = Value::Map(args.clone());
                 self.set_param("args", live);
                 // a value born at the start gives the argument its value and runs nothing

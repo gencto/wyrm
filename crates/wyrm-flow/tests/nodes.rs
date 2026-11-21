@@ -109,7 +109,7 @@ async fn alarm_high_low_hysteresis_and_event() {
     assert_eq!(out[0].0, "out");
     assert_eq!(out[0].1.v, Value::Bool(true));
     assert_eq!(out[1].0, "event");
-    let Value::Map(ev) = &out[1].1.v else {
+    let Value::Map(ev) = &*out[1].1.v else {
         panic!()
     };
     assert_eq!(ev["edge"], Value::from("rising"));
@@ -119,7 +119,7 @@ async fn alarm_high_low_hysteresis_and_event() {
     assert!(feed(a.as_mut(), &e.io, "in", g(97.0, 3)).is_empty());
     let out = feed(a.as_mut(), &e.io, "in", g(94.0, 4));
     assert_eq!(out[0].1.v, Value::Bool(false));
-    let Value::Map(ev) = &out[1].1.v else {
+    let Value::Map(ev) = &*out[1].1.v else {
         panic!()
     };
     assert_eq!(ev["edge"], Value::from("falling"));
@@ -537,7 +537,7 @@ async fn a_source_takes_its_key_from_a_port_inside_its_scope() {
     let on = |sent: &[(String, Msg)], port: &str| {
         sent.iter()
             .find(|(p, _)| p == port)
-            .map(|(_, m)| (m.v.clone(), m.q))
+            .map(|(_, m)| (m.v.get().clone(), m.q))
     };
     for ty in ["subscribe", "liveliness"] {
         let mut n = build(ty, &[("key_scope", "downstream/m/*".into())]);
@@ -709,7 +709,7 @@ fn result(kv: &[(&str, Value)]) -> Value {
 fn error_code(out: &[(String, Msg)]) -> Option<Value> {
     out.iter()
         .find(|(p, _)| p == "error")
-        .and_then(|(_, m)| match &m.v {
+        .and_then(|(_, m)| match &*m.v {
             Value::Map(e) => e.get("code").cloned(),
             _ => None,
         })

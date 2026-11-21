@@ -4267,14 +4267,20 @@ async fn liveliness_is_true_while_a_token_is_there() {
         last_on(s, "out").is_some()
     })
     .await;
-    assert_eq!(last_on(&sent, "out").map(|m| m.v.clone()), Some(b(true)));
+    assert_eq!(
+        last_on(&sent, "out").map(|m| m.v.get().clone()),
+        Some(b(true))
+    );
     // the token goes: false
     token.undeclare().await.unwrap();
     pump(&mut *node, &io, &inbox, &mut sent, |s| {
         last_on(s, "out").is_some_and(|m| m.v == b(false))
     })
     .await;
-    assert_eq!(last_on(&sent, "out").map(|m| m.v.clone()), Some(b(false)));
+    assert_eq!(
+        last_on(&sent, "out").map(|m| m.v.get().clone()),
+        Some(b(false))
+    );
 }
 
 /// A stand-in for the broker's storage and historian on `wy/test/downstream/probe/**`: `~val`
@@ -4337,7 +4343,7 @@ async fn load_value_reads_a_stored_value() {
     // `out` carries the stored value with its quality and time
     let out = last_on(&sent, "out").unwrap_or_else(|| panic!("no out: {sent:?}"));
     assert_eq!(
-        (out.v.clone(), out.q, out.t),
+        (out.v.get().clone(), out.q, out.t),
         (fl(21.5), Quality::Uncertain, 123)
     );
     assert!(Want::Event

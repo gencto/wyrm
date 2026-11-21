@@ -8,7 +8,7 @@
 //! [`scope::RESUBSCRIBE`] apart; the latest value wins.
 
 use crate::def::Map;
-use crate::nodes::{Io, Msg, Node, Out, Tasks};
+use crate::nodes::{Io, Msg, Node, Out, Payload, Tasks};
 use crate::scope::{self, Scope};
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -134,7 +134,8 @@ pub(crate) struct Source {
     /// The key of the config, as written.
     start: Option<String>,
     key: DynKey,
-    last: Option<Value>,
+    /// The last sample, shared with what was sent.
+    last: Option<Payload>,
     /// The number of the read in use: samples of an earlier one are dropped.
     gen: u64,
     tasks: Tasks,
@@ -201,7 +202,7 @@ impl Source {
                     (io2.inject)(
                         &src,
                         Msg {
-                            v: sample.v,
+                            v: sample.v.into(),
                             q: sample.q,
                             t: sample.t,
                             key: Some(key.into()),
@@ -272,7 +273,7 @@ impl Node for Source {
             self.io = Some(io.clone());
         }
         if port == "in.key" {
-            if let Some(sw) = self.key.offer(m.v, &io.site) {
+            if let Some(sw) = self.key.offer(m.v.into_value(), &io.site) {
                 self.switch(sw, io, out);
             }
             return;

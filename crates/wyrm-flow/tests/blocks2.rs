@@ -68,7 +68,7 @@ fn feed(n: &mut dyn Node, io: &Io, port: &str, msg: Msg) -> Vec<(String, Value)>
     n.input(port, msg, io, &mut out);
     out.0
         .into_iter()
-        .map(|(p, m)| (p.into_owned(), m.v))
+        .map(|(p, m)| (p.into_owned(), m.v.into_value()))
         .collect()
 }
 
@@ -77,7 +77,7 @@ fn tick(n: &mut dyn Node) -> Vec<(String, Value)> {
     n.tick(1, &mut out);
     out.0
         .into_iter()
-        .map(|(p, m)| (p.into_owned(), m.v))
+        .map(|(p, m)| (p.into_owned(), m.v.into_value()))
         .collect()
 }
 
@@ -155,7 +155,7 @@ async fn text_blocks() {
     let mut out = Out::default();
     sp.input("in", good("/".repeat(2000)), io, &mut out);
     assert_eq!(
-        (out.0[0].1.v.clone(), out.0[0].1.q),
+        (out.0[0].1.v.get().clone(), out.0[0].1.q),
         (Value::Null, Quality::Bad)
     );
     let mut j = build("join", &[("separator", "/".into())]);
@@ -620,7 +620,7 @@ async fn numbers_from_ports_are_bounded() {
     let mut out = Out::default();
     j.input("in", good(texts(&["a", "b", "c"])), io, &mut out);
     assert_eq!(
-        (out.0[0].1.v.clone(), out.0[0].1.q),
+        (out.0[0].1.v.get().clone(), out.0[0].1.q),
         (Value::Null, Quality::Bad)
     );
 }

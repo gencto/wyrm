@@ -5,7 +5,7 @@
 
 use crate::artifacts::Artifacts;
 use crate::def::{FlowDef, Overflow};
-use crate::nodes::{self, EchoOf, Io, Msg, Node, Out, Ports};
+use crate::nodes::{self, EchoOf, Io, Msg, Node, Out, Payload, Ports};
 use crate::watch::Probe;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::panic::AssertUnwindSafe;
@@ -397,6 +397,7 @@ async fn run_node(
     asks.borrow_and_update();
     // the operands' constants are the inputs' values from the start
     for (port, v) in node.seeds() {
+        let v = Payload::new(v);
         probe.record(&id, Some((&port, &v, Quality::Good)), &[], None);
     }
     let _alive = Alive::new(&probe, &id);
@@ -628,5 +629,35 @@ mod tests {
             );
             assert_eq!(all(&b), [at("in", 1.0), at("trigger", 2.0), at("in", 3.0)]);
         }
+    }
+
+    /// Fan-out isolation (issue #160): every edge of an output takes the one table, not a
+    /// copy; a node that changes the table it took changes a copy of its own, and the sample
+    /// of the other edge stays as it was sent.
+    #[tokio::test]
+    async fn the_edges_share_a_table_and_a_change_stays_on_its_edge() {
+        let stats = Arc::new(FlowStats::default());
+        let a = Inbox::new(16, Overflow::DropOldest, stats.clone());
+        let b = Inbox::new(16, Overflow::DropOldest, stats.clone());
+        let routes: HashMap<String, Route> = HashMap::from([(
+            "out".to_owned(),
+            vec![(a.clone(), Arc::from("in")), (b.clone(), Arc::from("in"))],
+        )]);
+        let table = Value::Map(BTreeMap::from([(
+            "rows".to_owned(),
+            Value::Array(vec![Value::UInt(1), Value::UInt(2)]),
+        )]));
+        let mut out = Out::default();
+        out.emit("out", Msg::new(table.clone(), Quality::Good, 1));
+        route(&routes, &mut out, &stats).await;
+        let (_, mut on_a) = a.pop().await;
+        let (_, on_b) = b.pop().await;
+        assert!(on_a.v.shares(&on_b.v), "one table on both edges");
+        if let Value::Map(m) = on_a.v.make_mut() {
+            m.insert("changed".to_owned(), Value::Bool(true));
+        }
+        assert!(!on_a.v.shares(&on_b.v));
+        assert_eq!(on_b.v, table, "the other edge's sample is as it was sent");
+        assert_ne!(on_a.v, table);
     }
 }

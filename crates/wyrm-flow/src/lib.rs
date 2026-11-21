@@ -17,6 +17,7 @@ pub mod def;
 pub mod engine;
 pub mod modes;
 pub mod nodes;
+pub mod payload;
 pub mod preview;
 mod readers;
 pub mod runtime;
