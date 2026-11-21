@@ -199,24 +199,6 @@ List<SysRate> sysRatesOf(
 
 final _rates = LastResult<List<SysRate>>();
 
-extension BackupKindSys on BackupKind {
-  SysBackupKind get sys => switch (this) {
-    BackupKind.full => SysBackupKind.full,
-    BackupKind.link => SysBackupKind.link,
-    BackupKind.preUpdate => SysBackupKind.preUpdate,
-    BackupKind.preRestore => SysBackupKind.preRestore,
-  };
-}
-
-extension BackupStatusSys on BackupStatus {
-  SysBackupState get sys => switch (this) {
-    BackupStatus.unknown => SysBackupState.pending,
-    BackupStatus.running => SysBackupState.running,
-    BackupStatus.done => SysBackupState.done,
-    BackupStatus.failed => SysBackupState.failed,
-  };
-}
-
 extension BackupSendStatusSys on BackupSendStatus {
   /// The backup is being sent to a file store now.
   bool get sending => switch (this) {
@@ -238,11 +220,9 @@ extension BackupsReadCard on BackupsRead {
     required IList<String> unread,
   }) => switch (this) {
     BackupsRead.absent || BackupsRead.unknown => null,
-    BackupsRead.unreadable => const SysBackupsData(
-      state: SysBackupsState.unreadable,
-    ),
-    BackupsRead.failed => const SysBackupsData(state: SysBackupsState.failed),
-    BackupsRead.read => SysBackupsData(
+    BackupsRead.unreadable => const SysBackupsUnreadable(),
+    BackupsRead.failed => const SysBackupsFailed(),
+    BackupsRead.read => SysBackupsRead(
       keepDays: keepDays,
       rows: [for (final j in rows) j.row],
       unread: unread.unlock,
@@ -266,14 +246,24 @@ extension BackupJobRow on BackupJob {
   SysBackupRow get row => SysBackupRow(
     id: id,
     name: name,
-    kind: kind.sys,
-    link: link,
+    kind: switch (kind) {
+      BackupKind.full => const SysBackupFull(),
+      BackupKind.link => SysBackupOfLink(link),
+      BackupKind.preUpdate => const SysBackupPreUpdate(),
+      BackupKind.preRestore => const SysBackupPreRestore(),
+    },
+    // the row says one thing, in this order: being made, failed, being
+    // sent, else its size
+    step: switch (status) {
+      BackupStatus.running => SysBackupRunning(progress),
+      BackupStatus.failed => const SysBackupMakeFailed(),
+      BackupStatus.unknown || BackupStatus.done =>
+        sendStatus.sending
+            ? SysBackupSending(sendProgress)
+            : const SysBackupKept(),
+    },
     sections: [for (final s in sections) s.part],
     created: created,
-    state: status.sys,
-    progress: progress,
-    sending: sendStatus.sending,
-    sendProgress: sendProgress,
     size: size,
   );
 }

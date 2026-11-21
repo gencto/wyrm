@@ -753,43 +753,50 @@ class SystemScreen extends StatelessWidget {
     null => null,
     final b => BackupsCardVm(
       title: S.current.bakCard,
-      note: b.state.said ?? S.current.bakCardNote(b.keepDays),
+      note: switch (b) {
+        SysBackupsRead(:final keepDays) => S.current.bakCardNote(keepDays),
+        SysBackupsUnreadable(:final said) ||
+        SysBackupsFailed(:final said) => said,
+      },
       empty: S.current.bakCardEmpty,
       backUpLabel: S.current.bakBackUp,
       restoreLabel: S.current.bakRestore,
-      reason: b.state.said ?? reason,
-      readAgainLabel: b.state == SysBackupsState.failed
-          ? S.current.bakReadAgain
-          : null,
+      reason: b.said ?? reason,
+      readAgainLabel: switch (b) {
+        SysBackupsFailed() => S.current.bakReadAgain,
+        SysBackupsRead() || SysBackupsUnreadable() => null,
+      },
       // not read: no list, so the card does not say "none is kept"
-      rows: b.state != SysBackupsState.read
-          ? null
-          : [
-              // a backup Studio could not read is there, and says so
-              for (final id in b.unread)
-                RowItemVm(id: id, title: id, subtitle: S.current.bakRowNotRead),
-              for (final j in b.rows)
-                RowItemVm(
-                  id: j.id,
-                  title: j.name,
-                  subtitle: [
-                    j.kind.label(j.link),
-                    [for (final s in j.sections) s.label].join(', '),
-                    if (j.created case final t?) Formats.dateTime(t),
-                  ].join(' · '),
-                  trailing: switch (j.state) {
-                    SysBackupState.running => S.current.bakRowRunning(
-                      j.progress,
-                    ),
-                    SysBackupState.failed => S.current.bakRowFailed,
-                    _ when j.sending => S.current.bakRowSending(j.sendProgress),
-                    SysBackupState.pending ||
-                    SysBackupState.done => Formats.bytes(j.size),
-                  },
-                  action: S.current.bakOpen,
-                  actionHint: '${S.current.bakOpen} ${j.name}',
+      rows: switch (b) {
+        SysBackupsUnreadable() || SysBackupsFailed() => null,
+        SysBackupsRead(:final unread, :final rows) => [
+          // a backup Studio could not read is there, and says so
+          for (final id in unread)
+            RowItemVm(id: id, title: id, subtitle: S.current.bakRowNotRead),
+          for (final j in rows)
+            RowItemVm(
+              id: j.id,
+              title: j.name,
+              subtitle: [
+                j.kind.label,
+                [for (final s in j.sections) s.label].join(', '),
+                if (j.created case final t?) Formats.dateTime(t),
+              ].join(' · '),
+              trailing: switch (j.step) {
+                SysBackupRunning(:final progress) => S.current.bakRowRunning(
+                  progress,
                 ),
-            ],
+                SysBackupMakeFailed() => S.current.bakRowFailed,
+                SysBackupSending(:final progress) => S.current.bakRowSending(
+                  progress,
+                ),
+                SysBackupKept() => Formats.bytes(j.size),
+              },
+              action: S.current.bakOpen,
+              actionHint: '${S.current.bakOpen} ${j.name}',
+            ),
+        ],
+      },
     ),
   };
 

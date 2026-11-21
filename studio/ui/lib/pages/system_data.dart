@@ -385,101 +385,140 @@ final class SysProfile extends Equatable {
   List<Object?> get props => [name, points];
 }
 
-/// What a kept backup holds.
-enum SysBackupKind {
-  full,
-  link,
-  preUpdate,
-  preRestore;
+/// What a kept backup holds: the whole broker, one link (named), or
+/// what was kept before an update or a restore.
+sealed class SysBackupKind extends Equatable {
+  const SysBackupKind();
 
-  /// [linkId] names the link of a link backup.
-  String label(String linkId) => switch (this) {
-    full => S.current.bakKindFull,
-    link => S.current.bakKindLink(linkId),
-    preUpdate => S.current.bakKindPreUpdate,
-    preRestore => S.current.bakKindPreRestore,
-  };
+  String get label;
 }
 
-/// Where the making of a kept backup is.
-enum SysBackupState { pending, running, done, failed }
+final class SysBackupFull extends SysBackupKind {
+  const SysBackupFull();
+
+  @override
+  String get label => S.current.bakKindFull;
+
+  @override
+  List<Object?> get props => const [];
+}
+
+/// A backup of the link [link].
+final class SysBackupOfLink extends SysBackupKind {
+  const SysBackupOfLink(this.link);
+
+  final String link;
+
+  @override
+  String get label => S.current.bakKindLink(link);
+
+  @override
+  List<Object?> get props => [link];
+}
+
+final class SysBackupPreUpdate extends SysBackupKind {
+  const SysBackupPreUpdate();
+
+  @override
+  String get label => S.current.bakKindPreUpdate;
+
+  @override
+  List<Object?> get props => const [];
+}
+
+final class SysBackupPreRestore extends SysBackupKind {
+  const SysBackupPreRestore();
+
+  @override
+  String get label => S.current.bakKindPreRestore;
+
+  @override
+  List<Object?> get props => const [];
+}
+
+/// Where a kept backup is, as its row says it: being made (with its
+/// percent), failed, being sent to a file store (with its percent), or
+/// kept.
+sealed class SysBackupStep extends Equatable {
+  const SysBackupStep();
+}
+
+final class SysBackupRunning extends SysBackupStep {
+  const SysBackupRunning(this.progress);
+
+  /// Percent.
+  final int progress;
+
+  @override
+  List<Object?> get props => [progress];
+}
+
+final class SysBackupMakeFailed extends SysBackupStep {
+  const SysBackupMakeFailed();
+
+  @override
+  List<Object?> get props => const [];
+}
+
+final class SysBackupSending extends SysBackupStep {
+  const SysBackupSending(this.progress);
+
+  /// Percent.
+  final int progress;
+
+  @override
+  List<Object?> get props => [progress];
+}
+
+/// Made (or not yet known to run) and not being sent: its size is shown.
+final class SysBackupKept extends SysBackupStep {
+  const SysBackupKept();
+
+  @override
+  List<Object?> get props => const [];
+}
 
 /// A kept backup as its row shows it.
 final class SysBackupRow extends Equatable {
   const SysBackupRow({
     required this.id,
     required this.name,
-    this.kind = SysBackupKind.full,
-    this.link = '',
+    required this.kind,
+    required this.step,
     this.sections = const [],
     this.created,
-    this.state = SysBackupState.pending,
-    this.progress = 0,
-    this.sending = false,
-    this.sendProgress = 0,
     this.size = 0,
   });
 
   final String id;
   final String name;
   final SysBackupKind kind;
-  final String link;
+  final SysBackupStep step;
   final List<BackupPart> sections;
   final DateTime? created;
-  final SysBackupState state;
-
-  /// Percent, while it is made and while it is sent.
-  final int progress;
-  final bool sending;
-  final int sendProgress;
 
   /// Bytes.
   final int size;
 
   @override
-  List<Object?> get props => [
-    id,
-    name,
-    kind,
-    link,
-    sections,
-    created,
-    state,
-    progress,
-    sending,
-    sendProgress,
-    size,
-  ];
+  List<Object?> get props => [id, name, kind, step, sections, created, size];
 }
 
-/// What is known of the broker's backups, as the card *Backups* says it.
-enum SysBackupsState {
-  /// Read: the kept backups are listed.
-  read,
-
-  /// The attributes of `sys/backups` came in a form this Studio does not
-  /// read: no backup is offered, no list is drawn, and the card says why.
-  unreadable,
-
-  /// The read failed: nothing is known, no list is drawn, and the card
-  /// offers to read again.
-  failed;
+/// The card *Backups*: the kept backups when they were read
+/// ([SysBackupsRead]), else why no list is drawn.
+sealed class SysBackupsData extends Equatable {
+  const SysBackupsData();
 
   /// Why no backup is offered, or null when the backups were read.
-  String? get said => switch (this) {
-    read => null,
-    unreadable => S.current.bakNotRead,
-    failed => S.current.bakReadFailed,
-  };
+  String? get said;
 }
 
-/// The card *Backups*: the days a backup is kept, the kept ones.
-final class SysBackupsData extends Equatable {
-  const SysBackupsData({
-    this.keepDays = 7,
+/// Read: the days a backup is kept and the kept backups.
+final class SysBackupsRead extends SysBackupsData {
+  const SysBackupsRead({
+    required this.keepDays,
     this.rows = const [],
     this.unread = const [],
-    this.state = SysBackupsState.read,
   });
 
   final int keepDays;
@@ -489,11 +528,35 @@ final class SysBackupsData extends Equatable {
   /// is a row that says so.
   final List<String> unread;
 
-  /// Whether the backups were read; else why not.
-  final SysBackupsState state;
+  @override
+  String? get said => null;
 
   @override
-  List<Object?> get props => [keepDays, rows, unread, state];
+  List<Object?> get props => [keepDays, rows, unread];
+}
+
+/// The attributes of `sys/backups` came in a form this Studio does not
+/// read: no backup is offered, no list is drawn, and the card says why.
+final class SysBackupsUnreadable extends SysBackupsData {
+  const SysBackupsUnreadable();
+
+  @override
+  String get said => S.current.bakNotRead;
+
+  @override
+  List<Object?> get props => const [];
+}
+
+/// The read failed: nothing is known, no list is drawn, and the card
+/// offers to read again.
+final class SysBackupsFailed extends SysBackupsData {
+  const SysBackupsFailed();
+
+  @override
+  String get said => S.current.bakReadFailed;
+
+  @override
+  List<Object?> get props => const [];
 }
 
 /// Where the broker's update of itself is, as the card *Broker version*
