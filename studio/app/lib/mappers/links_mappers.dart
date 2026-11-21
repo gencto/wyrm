@@ -5,14 +5,12 @@ import 'package:models/links_tab.dart';
 import 'package:models/package_info.dart';
 import 'package:models/package_kind.dart';
 import 'package:models/quarantine_entry.dart';
-import 'package:models/quarantine_kind.dart';
 import 'package:models/update_next.dart';
 import 'package:models/update_report.dart';
 import 'package:models/update_result.dart';
 import 'package:models/update_stage.dart';
 import 'package:ui/forms/param_form.dart';
 import 'package:ui/models/disabled.dart';
-import 'package:ui/models/waiting_kind.dart';
 import 'package:ui/pages/links_data.dart';
 
 import 'rights_mappers.dart';
@@ -50,25 +48,6 @@ extension LinkStateUi on LinkState {
   };
 }
 
-extension UpdateStageUi on UpdateStage {
-  LinkUpdateStage get ui => switch (this) {
-    UpdateStage.review => LinkUpdateStage.review,
-    UpdateStage.progress => LinkUpdateStage.progress,
-    UpdateStage.result => LinkUpdateStage.result,
-    UpdateStage.points => LinkUpdateStage.points,
-  };
-}
-
-extension UpdateResultUi on UpdateResult {
-  LinkUpdateEnd get ui => switch (this) {
-    UpdateResult.checking => LinkUpdateEnd.checking,
-    UpdateResult.ok => LinkUpdateEnd.ok,
-    UpdateResult.rolledBack => LinkUpdateEnd.rolledBack,
-    UpdateResult.failed => LinkUpdateEnd.failed,
-    UpdateResult.unknown => LinkUpdateEnd.unknown,
-  };
-}
-
 extension UpdateNextUi on UpdateNext {
   LinkUpdateNext get ui => switch (this) {
     UpdateNext.update => LinkUpdateNext.update,
@@ -88,8 +67,15 @@ extension UpdateReportUi on UpdateReport {
     from: from,
     to: to,
     at: _at(at),
-    end: result?.ui,
-    endWord: resultWord,
+    end: switch (result) {
+      null => null,
+      UpdateResult.checking => const LinkUpdateChecking(),
+      UpdateResult.ok => const LinkUpdateOk(),
+      UpdateResult.rolledBack => const LinkUpdateRolledBack(),
+      UpdateResult.failed => const LinkUpdateFailed(),
+      // the broker's own word for an end this Studio does not know
+      UpdateResult.unknown => LinkUpdateUnknown(resultWord),
+    },
     kept: kept,
     added: added,
     gone: gone,
@@ -119,32 +105,51 @@ extension PackageInfoUi on PackageInfo {
       );
 }
 
-extension QuarantineKindUi on QuarantineKind? {
-  /// What waits, as the screens tell it apart; no kind is an entry that
-  /// was not read.
-  WaitingKind get waiting => switch (this) {
-    QuarantineKind.link => WaitingKind.link,
-    QuarantineKind.broker => WaitingKind.broker,
-    null => WaitingKind.notRead,
-  };
-}
-
 extension QuarantineEntryUi on QuarantineEntry {
   /// Its row and inspector; [fields] the form of its `approve`, [reason]
-  /// why the user may not decide.
+  /// why the user may not decide (neither for an entry that was not
+  /// read: no Authorize is offered for it).
   QuarantineData data({List<ParamFieldVm>? fields, Disabled? reason}) =>
-      QuarantineData(
-        node: node,
-        cn: cn,
-        kind: kind.waiting,
-        from: from,
-        via: via.unlock,
-        deauthorized: deauthorized,
-        firstSeen: firstSeen,
-        key: key,
-        fields: fields,
-        reason: reason,
-      );
+      switch (this) {
+        QuarantineLink(
+          :final node,
+          :final cn,
+          :final from,
+          :final firstSeen,
+          :final deauthorized,
+        ) =>
+          QuarantineLinkData(
+            node: node,
+            cn: cn,
+            from: from,
+            firstSeen: firstSeen,
+            deauthorized: deauthorized,
+            fields: fields,
+            reason: reason,
+          ),
+        QuarantineBroker(
+          :final node,
+          :final cn,
+          :final from,
+          :final firstSeen,
+          :final via,
+          :final key,
+        ) =>
+          QuarantineBrokerData(
+            node: node,
+            cn: cn,
+            from: from,
+            firstSeen: firstSeen,
+            via: via.unlock,
+            key: key,
+            fields: fields,
+            reason: reason,
+          ),
+        QuarantineNotRead(:final node, :final cn) => QuarantineNotReadData(
+          node: node,
+          cn: cn,
+        ),
+      };
 }
 
 extension LinkUpdateUi on LinkUpdate {
@@ -153,7 +158,19 @@ extension LinkUpdateUi on LinkUpdate {
     return LinkUpdateData(
       name: p.name,
       version: p.version,
-      stage: stage.ui,
+      stage: switch (stage) {
+        UpdateStage.review => const LinkUpdateReviewStage(),
+        UpdateStage.points => const LinkUpdatePointsStage(),
+        UpdateStage.progress => LinkUpdateProgressStage(
+          checked: answered ? p.lastUpdate?.ui : null,
+        ),
+        UpdateStage.result => switch (p.lastUpdate) {
+          final r? => LinkUpdateResultStage(r.ui),
+          // `LinkUpdate.stage` is a result only with a last update; were
+          // there none, nothing has ended yet
+          null => const LinkUpdateProgressStage(),
+        },
+      },
       links: links,
       latest: p.latest,
       official: official,
@@ -169,10 +186,17 @@ extension LinkUpdateUi on LinkUpdate {
       said: said,
       busy: busy,
       rollingBack: rollingBack,
-      answered: answered,
-      report: p.lastUpdate?.ui,
-      previous: p.previous,
-      keepUntil: _at(p.keepUntil),
+      kept: switch (p.previous) {
+        final v? => LinkKeptVersion(
+          version: v,
+          until: _at(p.keepUntil),
+          offered: offersRollBack,
+          allowed: canRollBack,
+        ),
+        // both need a kept version (`LinkUpdate.offersRollBack`,
+        // `canRollBack`)
+        null => null,
+      },
       points: [
         for (final lp in points)
           LinkPointData(
@@ -185,8 +209,6 @@ extension LinkUpdateUi on LinkUpdate {
       queue: queue,
       reason: reason?.disabled,
       next: next?.ui,
-      offersRollBack: offersRollBack,
-      canRollBack: canRollBack,
     );
   }
 }

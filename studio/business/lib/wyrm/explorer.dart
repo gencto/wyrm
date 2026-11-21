@@ -193,23 +193,52 @@ typedef ExplorerPointRow = ({
   bool adding,
 });
 
-/// One row of the Contents tab: a child node or value.
-typedef ExplorerChildRow = ({
-  String key,
-  String name,
-  String? display,
+/// One row of the Contents tab: a child value ([ExplorerValueRow]) or
+/// node ([ExplorerNodeRow]).
+sealed class ExplorerChildRow {
+  const ExplorerChildRow({
+    required this.key,
+    required this.name,
+    required this.display,
+    required this.selected,
+  });
 
-  /// A value's type; null for a node.
-  TypeCode? type,
-  bool writable,
+  final String key;
+  final String name;
+  final String? display;
+  final bool selected;
+}
 
-  /// A node's kind; null for a value.
-  NodeKind? kind,
+/// A child value: its type, whether it is writable, and its value as the
+/// user reads it, with its unit (null: none read yet).
+final class ExplorerValueRow extends ExplorerChildRow {
+  const ExplorerValueRow({
+    required super.key,
+    required super.name,
+    required super.display,
+    required super.selected,
+    required this.type,
+    required this.writable,
+    required this.value,
+  });
 
-  /// A value as the user reads it, with its unit.
-  String? value,
-  bool selected,
-});
+  final TypeCode type;
+  final bool writable;
+  final String? value;
+}
+
+/// A child node: its kind.
+final class ExplorerNodeRow extends ExplorerChildRow {
+  const ExplorerNodeRow({
+    required super.key,
+    required super.name,
+    required super.display,
+    required super.selected,
+    required this.kind,
+  });
+
+  final NodeKind kind;
+}
 
 /// One field of a node's or a point's `edit` (or one the board shows the
 /// driver has no parameter for: `missing`).
@@ -1092,22 +1121,28 @@ extension type ExplorerView(AppState _state) {
     return [
       for (final k in _kids)
         if (!_hidden(k))
-          (
-            key: k.key,
-            name: k.name,
-            display: displayOf(k.key),
-            type: k.type,
-            writable: k.writable != null,
-            kind: k.type == null ? kindOf(k.key) : null,
-            value: k.type == null
-                ? null
-                : valueOf(
-                    _state.live.values[k.key],
-                    k.unit,
-                    choices: choicesOf(k.key),
-                  ),
-            selected: k.key == _nodes.point,
-          ),
+          switch (k.type) {
+            final type? => ExplorerValueRow(
+              key: k.key,
+              name: k.name,
+              display: displayOf(k.key),
+              selected: k.key == _nodes.point,
+              type: type,
+              writable: k.writable != null,
+              value: valueOf(
+                _state.live.values[k.key],
+                k.unit,
+                choices: choicesOf(k.key),
+              ),
+            ),
+            null => ExplorerNodeRow(
+              key: k.key,
+              name: k.name,
+              display: displayOf(k.key),
+              selected: k.key == _nodes.point,
+              kind: kindOf(k.key),
+            ),
+          },
     ];
   }
 

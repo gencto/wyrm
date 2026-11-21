@@ -4,7 +4,6 @@ import 'package:models/param_spec.dart';
 import 'package:models/peer.dart';
 import 'package:models/peer_kind.dart';
 import 'package:models/quarantine_entry.dart';
-import 'package:models/quarantine_kind.dart';
 import 'package:models/site_node.dart';
 import 'package:models/site_pick.dart';
 import 'package:wyrm_client/wyrm_client.dart' show Perm;
@@ -245,7 +244,7 @@ final class _Sites with Selectors {
         parent: self,
         notRead: p.unreadable,
       ),
-    for (final q in waiting.where((q) => q.kind == QuarantineKind.broker))
+    for (final q in waiting.whereType<QuarantineBroker>())
       SiteMapNode(
         pick: SitePick(SiteNode.waiting, q.node),
         name: q.cn,
@@ -261,13 +260,14 @@ final class _Sites with Selectors {
         offline: !p.connected,
         parent: self,
       ),
-    for (final q in waiting.where((q) => q.kind != QuarantineKind.broker))
-      SiteMapNode(
-        pick: SitePick(SiteNode.waiting, q.node),
-        name: q.cn,
-        parent: self,
-        notRead: q.kind == null,
-      ),
+    for (final q in waiting)
+      if (q is! QuarantineBroker)
+        SiteMapNode(
+          pick: SitePick(SiteNode.waiting, q.node),
+          name: q.cn,
+          parent: self,
+          notRead: q is QuarantineNotRead,
+        ),
     for (final p in of(PeerKind.relayed))
       SiteMapNode(
         pick: SitePick(SiteNode.relayed, p.site),
@@ -321,7 +321,10 @@ final class _Sites with Selectors {
           name,
           'sys/quarantine/$name',
           entry: q,
-          form: q.kind == QuarantineKind.broker ? quarantine.forms[name] : null,
+          form: switch (q) {
+            QuarantineBroker() => quarantine.forms[name],
+            QuarantineLink() || QuarantineNotRead() => null,
+          },
         ),
       },
       SiteNode.device => DeviceDetail(

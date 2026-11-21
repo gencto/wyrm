@@ -14,6 +14,7 @@ import 'package:models/update_stage.dart';
 import 'package:ui/models/tone.dart';
 import 'package:ui/overlays/link_update_sheet.dart';
 import 'package:ui/overlays/task_sheet.dart';
+import 'package:ui/pages/links_data.dart';
 import 'package:wyrm_client/wyrm_client.dart' show Perm;
 
 UpdateReport _report(UpdateResult result, {int at = 10, int gone = 0}) =>
@@ -252,6 +253,53 @@ void main() {
     );
     expect(sheet(d).pill, 'failed');
     expect(d.next, UpdateNext.rollback);
+  });
+
+  test('as typed values: a result holds its report, a kept version its '
+      'rollback', () {
+    final failed = _data(
+      _pkg(last: _report(UpdateResult.failed), previous: '0.4.2'),
+      follow: true,
+    ).ui;
+    expect(
+      failed.stage,
+      isA<LinkUpdateResultStage>().having(
+        (s) => s.report.end,
+        'end',
+        const LinkUpdateFailed(),
+      ),
+    );
+    expect(
+      failed.kept,
+      LinkKeptVersion(
+        version: '0.4.2',
+        until: DateTime.fromMillisecondsSinceEpoch(
+          1700000000 * 1000,
+          isUtc: true,
+        ),
+        offered: true,
+        allowed: true,
+      ),
+    );
+    // no version kept: no rollback to offer or allow
+    expect(
+      _data(_pkg(last: _report(UpdateResult.failed)), follow: true).ui.kept,
+      isNull,
+    );
+    // an update the broker answered and checks shows its steps; one it
+    // has not answered yet shows none
+    expect(
+      _data(_pkg(last: _report(UpdateResult.checking)), follow: true).ui.stage,
+      isA<LinkUpdateProgressStage>().having(
+        (s) => s.checked?.end,
+        'checked',
+        const LinkUpdateChecking(),
+      ),
+    );
+    expect(
+      _data(_pkg(), follow: true, busy: true).ui.stage,
+      const LinkUpdateProgressStage(),
+    );
   });
 
   test('restore points without any update: no progress, no rollback', () {

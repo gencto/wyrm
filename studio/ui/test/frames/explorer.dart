@@ -816,14 +816,14 @@ Widget explorerFolder() => _shell(
     ],
     tab: .contents,
     children: const [
-      ChildRowVm(
+      ChildValueRowVm(
         key: '$_edge/storage/line1/fault',
         name: 'fault',
         type: ValueType.bool_,
         writable: true,
         value: 'false',
       ),
-      ChildRowVm(
+      ChildValueRowVm(
         key: '$_edge/storage/line1/temp',
         name: 'temp',
         display: 'Line 1 air temp',
@@ -832,7 +832,7 @@ Widget explorerFolder() => _shell(
         value: '21.5 °C',
         selected: true,
       ),
-      ChildRowVm(
+      ChildNodeRowVm(
         key: '$_edge/storage/line1/test',
         name: 'test',
         kind: .storage,

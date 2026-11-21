@@ -6,7 +6,6 @@ import '../indicators/app_icon.dart';
 import '../models/disabled.dart';
 import '../models/link_run_mode.dart';
 import '../models/tone.dart';
-import '../models/waiting_kind.dart';
 
 /// A tab of Links, as drawn.
 enum LinksTabKey {
@@ -210,31 +209,67 @@ final class LinkData extends Equatable {
   ];
 }
 
-/// A connection waiting in quarantine.
-final class QuarantineData extends Equatable {
-  const QuarantineData({
-    required this.node,
-    required this.cn,
-    required this.kind,
+/// A connection waiting in quarantine: a link ([QuarantineLinkData]), a
+/// downstream broker ([QuarantineBrokerData]), or an entry Studio could
+/// not read ([QuarantineNotReadData]; the row says so).
+sealed class QuarantineData extends Equatable {
+  const QuarantineData({required this.node, required this.cn});
+
+  final String node;
+  final String cn;
+}
+
+/// A link's certificate.
+final class QuarantineLinkData extends QuarantineData {
+  const QuarantineLinkData({
+    required super.node,
+    required super.cn,
     this.from,
-    this.via = const [],
-    this.deauthorized = false,
     this.firstSeen,
+    this.deauthorized = false,
+    this.fields,
+    this.reason,
+  });
+
+  final String? from;
+  final DateTime? firstSeen;
+  final bool deauthorized;
+
+  /// The form of its `approve`; null when the broker offers none.
+  final List<ParamFieldVm>? fields;
+
+  /// Why the user may not decide; null when they may.
+  final Disabled? reason;
+
+  @override
+  List<Object?> get props => [
+    node,
+    cn,
+    from,
+    firstSeen,
+    deauthorized,
+    fields,
+    reason,
+  ];
+}
+
+/// A downstream broker asking for Authorize: the sites it relays and the
+/// key hash to compare.
+final class QuarantineBrokerData extends QuarantineData {
+  const QuarantineBrokerData({
+    required super.node,
+    required super.cn,
+    this.from,
+    this.firstSeen,
+    this.via = const [],
     this.key,
     this.fields,
     this.reason,
   });
 
-  final String node;
-  final String cn;
-
-  /// What waits: a link, a downstream broker, or an entry Studio could
-  /// not read (the row says so).
-  final WaitingKind kind;
   final String? from;
-  final List<String> via;
-  final bool deauthorized;
   final DateTime? firstSeen;
+  final List<String> via;
   final String? key;
 
   /// The form of its `approve`; null when the broker offers none.
@@ -247,22 +282,135 @@ final class QuarantineData extends Equatable {
   List<Object?> get props => [
     node,
     cn,
-    kind,
     from,
-    via,
-    deauthorized,
     firstSeen,
+    via,
     key,
     fields,
     reason,
   ];
 }
 
-/// Which screen the update sheet shows.
-enum LinkUpdateStage { review, progress, result, points }
+/// An entry answered in a form Studio does not read: what waits is not
+/// known, and no Authorize is offered for it.
+final class QuarantineNotReadData extends QuarantineData {
+  const QuarantineNotReadData({required super.node, required super.cn});
 
-/// How the last update of a package ended, as drawn.
-enum LinkUpdateEnd { checking, ok, rolledBack, failed, unknown }
+  @override
+  List<Object?> get props => [node, cn];
+}
+
+/// Which screen the update sheet shows, with what that screen alone
+/// needs.
+sealed class LinkUpdateStage extends Equatable {
+  const LinkUpdateStage();
+}
+
+/// The review before an update.
+final class LinkUpdateReviewStage extends LinkUpdateStage {
+  const LinkUpdateReviewStage();
+
+  @override
+  List<Object?> get props => const [];
+}
+
+/// An update runs. Once the broker answered and checks it, [checked] is
+/// that update; until then the broker tells nothing of its steps.
+final class LinkUpdateProgressStage extends LinkUpdateStage {
+  const LinkUpdateProgressStage({this.checked});
+
+  final LinkUpdateReport? checked;
+
+  @override
+  List<Object?> get props => [checked];
+}
+
+/// How the last update or rollback ended.
+final class LinkUpdateResultStage extends LinkUpdateStage {
+  const LinkUpdateResultStage(this.report);
+
+  final LinkUpdateReport report;
+
+  @override
+  List<Object?> get props => [report];
+}
+
+/// A package never updated here: its restore points alone.
+final class LinkUpdatePointsStage extends LinkUpdateStage {
+  const LinkUpdatePointsStage();
+
+  @override
+  List<Object?> get props => const [];
+}
+
+/// The version kept for a rollback, until when, and what the sheet does
+/// with it.
+final class LinkKeptVersion extends Equatable {
+  const LinkKeptVersion({
+    required this.version,
+    required this.until,
+    this.offered = false,
+    this.allowed = false,
+  });
+
+  final String version;
+  final DateTime until;
+
+  /// The result offers the rollback first: the update failed, or ran with
+  /// nodes gone.
+  final bool offered;
+
+  /// This user may roll back to it.
+  final bool allowed;
+
+  @override
+  List<Object?> get props => [version, until, offered, allowed];
+}
+
+/// How the last update of a package ended, as drawn: its check runs, it
+/// ran, it was rolled back, it failed, or it ended in a way this Studio
+/// does not know ([LinkUpdateUnknown], with the broker's own word).
+sealed class LinkUpdateEnd extends Equatable {
+  const LinkUpdateEnd();
+}
+
+final class LinkUpdateChecking extends LinkUpdateEnd {
+  const LinkUpdateChecking();
+
+  @override
+  List<Object?> get props => const [];
+}
+
+final class LinkUpdateOk extends LinkUpdateEnd {
+  const LinkUpdateOk();
+
+  @override
+  List<Object?> get props => const [];
+}
+
+final class LinkUpdateRolledBack extends LinkUpdateEnd {
+  const LinkUpdateRolledBack();
+
+  @override
+  List<Object?> get props => const [];
+}
+
+final class LinkUpdateFailed extends LinkUpdateEnd {
+  const LinkUpdateFailed();
+
+  @override
+  List<Object?> get props => const [];
+}
+
+/// An end this Studio does not know: the broker's own [word] for it.
+final class LinkUpdateUnknown extends LinkUpdateEnd {
+  const LinkUpdateUnknown(this.word);
+
+  final String word;
+
+  @override
+  List<Object?> get props => [word];
+}
 
 /// What the primary button of the update sheet does.
 enum LinkUpdateNext { update, file, rollback, log, open }
@@ -274,7 +422,6 @@ final class LinkUpdateReport extends Equatable {
     required this.to,
     required this.at,
     this.end,
-    this.endWord = '',
     this.kept = 0,
     this.added = 0,
     this.gone = 0,
@@ -288,11 +435,9 @@ final class LinkUpdateReport extends Equatable {
   final String from;
   final String to;
   final DateTime at;
-  final LinkUpdateEnd? end;
 
-  /// The broker's own word for [end], said when it is
-  /// [LinkUpdateEnd.unknown].
-  final String endWord;
+  /// How it ended; null when the broker says nothing of it.
+  final LinkUpdateEnd? end;
   final int kept;
   final int added;
   final int gone;
@@ -308,7 +453,6 @@ final class LinkUpdateReport extends Equatable {
     to,
     at,
     end,
-    endWord,
     kept,
     added,
     gone,
@@ -383,16 +527,11 @@ final class LinkUpdateData extends Equatable {
     this.said,
     this.busy = false,
     this.rollingBack = false,
-    this.answered = false,
-    this.report,
-    this.previous,
-    this.keepUntil,
+    this.kept,
     this.points = const [],
     this.queue = const [],
     this.reason,
     this.next,
-    this.offersRollBack = false,
-    this.canRollBack = false,
   });
 
   final String name;
@@ -416,19 +555,12 @@ final class LinkUpdateData extends Equatable {
   final bool busy;
   final bool rollingBack;
 
-  /// The broker answered and checks the update.
-  final bool answered;
-  final LinkUpdateReport? report;
-
-  /// The version kept for a rollback, and until when.
-  final String? previous;
-  final DateTime? keepUntil;
+  /// The version kept for a rollback; null when none is kept.
+  final LinkKeptVersion? kept;
   final List<LinkPointData> points;
   final List<String> queue;
   final Disabled? reason;
   final LinkUpdateNext? next;
-  final bool offersRollBack;
-  final bool canRollBack;
 
   @override
   List<Object?> get props => [
@@ -450,16 +582,11 @@ final class LinkUpdateData extends Equatable {
     said,
     busy,
     rollingBack,
-    answered,
-    report,
-    previous,
-    keepUntil,
+    kept,
     points,
     queue,
     reason,
     next,
-    offersRollBack,
-    canRollBack,
   ];
 }
 

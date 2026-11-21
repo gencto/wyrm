@@ -12,7 +12,6 @@ import '../models/link_run_mode.dart';
 import '../models/submit.dart';
 import '../models/tone.dart';
 import '../models/value_changed.dart';
-import '../models/waiting_kind.dart';
 import '../overlays/confirm_dialog.dart';
 import '../overlays/link_update_sheet.dart';
 import '../tables/row_table.dart';
@@ -310,10 +309,10 @@ class LinksScreen extends StatelessWidget {
     );
   }
 
-  String _kind(QuarantineData q) => switch (q.kind) {
-    WaitingKind.notRead => S.current.waitNotRead,
-    WaitingKind.broker => S.current.downstreamBrokerQuic,
-    WaitingKind.link => S.current.linkOverTls,
+  String _kind(QuarantineData q) => switch (q) {
+    QuarantineNotReadData() => S.current.waitNotRead,
+    QuarantineBrokerData() => S.current.downstreamBrokerQuic,
+    QuarantineLinkData() => S.current.linkOverTls,
   };
 
   String _seen(DateTime t) => S.current.firstSeen(Formats.ago(t));
@@ -324,26 +323,36 @@ class LinksScreen extends StatelessWidget {
     cells: [
       CellVm(title: q.cn, subtitle: _kind(q), strong: true),
       CellVm(
-        title: q.from == null ? '—' : S.current.fromAddress(q.from!),
-        subtitle: q.via.isEmpty
-            ? S.current.caSigned(vm.site)
-            : S.current.asksToRelay(q.via.join(', ')),
+        title: switch (q) {
+          QuarantineLinkData(from: final f?) ||
+          QuarantineBrokerData(from: final f?) => S.current.fromAddress(f),
+          QuarantineLinkData() ||
+          QuarantineBrokerData() ||
+          QuarantineNotReadData() => '—',
+        },
+        subtitle: switch (q) {
+          QuarantineBrokerData(:final via) when via.isNotEmpty =>
+            S.current.asksToRelay(via.join(', ')),
+          QuarantineBrokerData() ||
+          QuarantineLinkData() ||
+          QuarantineNotReadData() => S.current.caSigned(vm.site),
+        },
       ),
       CellVm(
-        chip: switch (q.kind) {
-          WaitingKind.notRead => S.current.whyNotRead,
-          WaitingKind.broker => S.current.whyBroker,
-          WaitingKind.link when q.deauthorized => S.current.whyDeauthorized,
-          WaitingKind.link => S.current.whyNew,
+        chip: switch (q) {
+          QuarantineNotReadData() => S.current.whyNotRead,
+          QuarantineBrokerData() => S.current.whyBroker,
+          QuarantineLinkData(deauthorized: true) => S.current.whyDeauthorized,
+          QuarantineLinkData() => S.current.whyNew,
         },
       ),
       CellVm(
         title: S.current.stateWaiting,
         tone: Tone.warn,
-        subtitle: switch (q.kind) {
-          WaitingKind.notRead => S.current.waitNotReadNote,
-          WaitingKind.broker => S.current.decideInSites,
-          WaitingKind.link => switch (q.firstSeen) {
+        subtitle: switch (q) {
+          QuarantineNotReadData() => S.current.waitNotReadNote,
+          QuarantineBrokerData() => S.current.decideInSites,
+          QuarantineLinkData(:final firstSeen) => switch (firstSeen) {
             final t? => _seen(t),
             null => null,
           },
@@ -586,39 +595,50 @@ class LinksScreen extends StatelessWidget {
 
   DetailInspectorVm<LinkAct> _quarantineInspector(QuarantineData q) {
     final s = S.current;
-    final fields = q.fields;
     return DetailInspectorVm(
       eyebrow: s.waitingInQuarantine,
       title: q.cn,
       pill: StatusPillVm(label: s.stateWaiting, tone: Tone.warn, mark: .ring),
       keyName: 'sys/quarantine/${q.node}',
       facts: [
-        if (q.from case final f?)
+        if (q
+            case QuarantineLinkData(from: final f?) ||
+                QuarantineBrokerData(from: final f?))
           FactVm(label: s.factFrom, value: s.fromAddress(f)),
         FactVm(label: s.factKind, value: _kind(q)),
-        if (q.firstSeen case final t?)
+        if (q
+            case QuarantineLinkData(firstSeen: final t?) ||
+                QuarantineBrokerData(firstSeen: final t?))
           FactVm(label: s.factSeen, value: _seen(t)),
-        if (q.via.isNotEmpty)
-          FactVm(label: s.factRelays, value: q.via.join(', '), mono: true),
-        if (q.key case final k?)
+        if (q case QuarantineBrokerData(:final via) when via.isNotEmpty)
+          FactVm(label: s.factRelays, value: via.join(', '), mono: true),
+        if (q case QuarantineBrokerData(key: final k?))
           FactVm(label: s.factKey, value: _short(k), mono: true),
         FactVm(label: s.factCanDo, value: s.canDoNothing),
       ],
-      form: fields == null
-          ? null
-          : InspectorFormVm(
-              id: q.node,
-              label: q.kind == WaitingKind.broker
-                  ? s.letTheBrokerIn
-                  : s.letItIn,
-              fields: fields,
-              submit: s.approve,
-              secondary: s.reject,
-              note: q.kind == WaitingKind.broker
-                  ? s.approveBrokerNote
-                  : s.approveLinkNote,
-              disabledReason: q.reason?.text,
-            ),
+      form: switch (q) {
+        QuarantineLinkData(:final fields?, :final reason) => InspectorFormVm(
+          id: q.node,
+          label: s.letItIn,
+          fields: fields,
+          submit: s.approve,
+          secondary: s.reject,
+          note: s.approveLinkNote,
+          disabledReason: reason?.text,
+        ),
+        QuarantineBrokerData(:final fields?, :final reason) => InspectorFormVm(
+          id: q.node,
+          label: s.letTheBrokerIn,
+          fields: fields,
+          submit: s.approve,
+          secondary: s.reject,
+          note: s.approveBrokerNote,
+          disabledReason: reason?.text,
+        ),
+        QuarantineLinkData() ||
+        QuarantineBrokerData() ||
+        QuarantineNotReadData() => null,
+      },
     );
   }
 
@@ -705,7 +725,7 @@ class LinksScreen extends StatelessWidget {
   /// *Roll back to `<v>`…*: the confirm names the links that restart.
   Future<void> _rollBack(BuildContext context) async {
     final d = vm.sheet;
-    final to = d?.previous;
+    final to = d?.kept?.version;
     if (d == null || to == null) {
       return;
     }
@@ -742,7 +762,7 @@ class LinksScreen extends StatelessWidget {
   /// rolls back (asked first); else it closes the sheet.
   void _secondary(BuildContext context) {
     final d = vm.sheet;
-    if (d?.stage == LinkUpdateStage.progress && d?.previous != null) {
+    if (d?.stage is LinkUpdateProgressStage && d?.kept != null) {
       unawaited(_rollBack(context));
     } else {
       onCloseSheet();

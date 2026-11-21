@@ -1017,7 +1017,6 @@ final linksWords = <String, List<String>>{
     'From',
     'Kind',
     'Seen',
-    'Key',
     'Can do',
     'LET IT IN',
     'Name *',
@@ -1075,6 +1074,7 @@ final linksWords = <String, List<String>>{
     'sys/quarantine/line2',
     'Kind',
     'Relays',
+    'Key',
     'Can do',
   ],
   'uk local bacnet': [
@@ -1364,7 +1364,6 @@ final linksWords = <String, List<String>>{
     'Звідки',
     'Тип',
     'Побачено',
-    'Ключ',
     'Може',
     'ДОПУСТИТИ',
     'Name *',

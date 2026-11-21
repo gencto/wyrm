@@ -3,7 +3,6 @@ import 'package:business/redux/backups/models/backups_state.dart';
 import 'package:business/redux/last_result.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/attention_item.dart';
-import 'package:models/attention_kind.dart';
 import 'package:models/backup_job.dart';
 import 'package:models/backup_kind.dart';
 import 'package:models/backup_status.dart';
@@ -145,27 +144,27 @@ extension SysElsewherePlace on SysElsewhere {
   };
 }
 
-extension AttentionKindSys on AttentionKind {
-  SysAttention get sys => switch (this) {
-    AttentionKind.standbyBehind => SysAttention.standbyBehind,
-    AttentionKind.linkFailed => SysAttention.linkFailed,
-    AttentionKind.quarantine => SysAttention.quarantine,
-    AttentionKind.brokerWaiting => SysAttention.brokerWaiting,
-    AttentionKind.waitingNotRead => SysAttention.waitingNotRead,
-    AttentionKind.aclGrown => SysAttention.aclGrown,
-    AttentionKind.noStandby => SysAttention.noStandby,
-  };
-}
-
 extension AttentionItemSys on AttentionItem {
-  SysAttentionData get sys => SysAttentionData(
-    kind.sys,
-    subject: subject,
-    name: name,
-    count: count,
-    more: more,
-    since: since,
-  );
+  SysAttentionData get sys => switch (this) {
+    AttentionStandbyBehind(:final lag, :final forks) => SysStandbyBehind(
+      lag: lag,
+      forks: forks,
+    ),
+    AttentionLinkFailed(:final link) => SysLinkFailed(link),
+    AttentionQuarantine(:final node, :final cn, :final since) =>
+      SysQuarantineWaiting(node: node, cn: cn, since: since),
+    AttentionBrokerWaiting(:final node, :final cn, :final relays) =>
+      SysBrokerWaiting(node: node, cn: cn, relays: relays),
+    AttentionWaitingNotRead(:final node, :final cn) => SysWaitingNotRead(
+      node: node,
+      cn: cn,
+    ),
+    AttentionAclGrown(:final grown, :final seen) => SysAclGrown(
+      grown: grown,
+      seen: seen,
+    ),
+    AttentionNoStandby() => const SysNoStandby(),
+  };
 }
 
 extension LogLineSys on LogLine {
@@ -200,24 +199,6 @@ List<SysRate> sysRatesOf(
 
 final _rates = LastResult<List<SysRate>>();
 
-extension BackupKindSys on BackupKind {
-  SysBackupKind get sys => switch (this) {
-    BackupKind.full => SysBackupKind.full,
-    BackupKind.link => SysBackupKind.link,
-    BackupKind.preUpdate => SysBackupKind.preUpdate,
-    BackupKind.preRestore => SysBackupKind.preRestore,
-  };
-}
-
-extension BackupStatusSys on BackupStatus {
-  SysBackupState get sys => switch (this) {
-    BackupStatus.unknown => SysBackupState.pending,
-    BackupStatus.running => SysBackupState.running,
-    BackupStatus.done => SysBackupState.done,
-    BackupStatus.failed => SysBackupState.failed,
-  };
-}
-
 extension BackupSendStatusSys on BackupSendStatus {
   /// The backup is being sent to a file store now.
   bool get sending => switch (this) {
@@ -239,11 +220,9 @@ extension BackupsReadCard on BackupsRead {
     required IList<String> unread,
   }) => switch (this) {
     BackupsRead.absent || BackupsRead.unknown => null,
-    BackupsRead.unreadable => const SysBackupsData(
-      state: SysBackupsState.unreadable,
-    ),
-    BackupsRead.failed => const SysBackupsData(state: SysBackupsState.failed),
-    BackupsRead.read => SysBackupsData(
+    BackupsRead.unreadable => const SysBackupsUnreadable(),
+    BackupsRead.failed => const SysBackupsFailed(),
+    BackupsRead.read => SysBackupsRead(
       keepDays: keepDays,
       rows: [for (final j in rows) j.row],
       unread: unread.unlock,
@@ -267,14 +246,24 @@ extension BackupJobRow on BackupJob {
   SysBackupRow get row => SysBackupRow(
     id: id,
     name: name,
-    kind: kind.sys,
-    link: link,
+    kind: switch (kind) {
+      BackupKind.full => const SysBackupFull(),
+      BackupKind.link => SysBackupOfLink(link),
+      BackupKind.preUpdate => const SysBackupPreUpdate(),
+      BackupKind.preRestore => const SysBackupPreRestore(),
+    },
+    // the row says one thing, in this order: being made, failed, being
+    // sent, else its size
+    step: switch (status) {
+      BackupStatus.running => SysBackupRunning(progress),
+      BackupStatus.failed => const SysBackupMakeFailed(),
+      BackupStatus.unknown || BackupStatus.done =>
+        sendStatus.sending
+            ? SysBackupSending(sendProgress)
+            : const SysBackupKept(),
+    },
     sections: [for (final s in sections) s.part],
     created: created,
-    state: status.sys,
-    progress: progress,
-    sending: sendStatus.sending,
-    sendProgress: sendProgress,
     size: size,
   );
 }
@@ -373,13 +362,10 @@ extension TrafficTrendSys on TrafficTrendView {
 
 extension LogReadErrorSys on LogReadError {
   SysLogError get sys => switch (this) {
-    LogRefused(:final status, :final message) => SysLogError.refused(
+    LogRefused(:final status, :final message) => SysLogRefused(
       status,
       message,
     ),
-    LogInvalid(:final field, :final reason) => SysLogError.invalid(
-      field,
-      reason,
-    ),
+    LogInvalid(:final field, :final reason) => SysLogInvalid(field, reason),
   };
 }

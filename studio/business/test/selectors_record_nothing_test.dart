@@ -4,7 +4,7 @@ import 'package:business/wyrm/mappers/live_overlay_mapper.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
-import 'package:models/attention_kind.dart';
+import 'package:models/attention_item.dart';
 import 'package:models/backup_job.dart';
 import 'package:models/backup_status.dart';
 import 'package:models/link_info.dart';
@@ -125,33 +125,44 @@ void main() {
     final sel = _Sel(
       s.copyWith.quarantine(
         table: const {
-          'plc': QuarantineEntry(cn: 'link:plc', node: 'plc'),
-          'gw-9': QuarantineEntry(
-            cn: 'gateway:gw-9',
-            node: 'gw-9',
-            kind: null,
-          ),
-          'held': QuarantineEntry(
+          'plc': QuarantineEntry.link(cn: 'link:plc', node: 'plc'),
+          'gw-9': QuarantineEntry.notRead(cn: 'gateway:gw-9', node: 'gw-9'),
+          // an entry that was not read is not known to be held: one held
+          // back is a link (or a broker) Deauthorize holds
+          'held': QuarantineEntry.link(
             cn: 'x',
             node: 'held',
-            kind: null,
             deauthorized: true,
           ),
         }.lock,
         view: const ['plc', 'gw-9', 'held'].lock,
       ),
     );
-    final items = [
-      for (final a in sel.attention) (a.kind, a.subject, a.name),
-    ];
-    expect(items, contains((AttentionKind.quarantine, 'plc', 'link:plc')));
+    final items = sel.attention;
     expect(
       items,
-      contains((AttentionKind.waitingNotRead, 'gw-9', 'gateway:gw-9')),
+      contains(const AttentionItem.quarantine(node: 'plc', cn: 'link:plc')),
+    );
+    expect(
+      items,
+      contains(
+        const AttentionItem.waitingNotRead(node: 'gw-9', cn: 'gateway:gw-9'),
+      ),
     );
     // it is one card, of its own kind: neither a link nor a broker
-    expect(items.where((i) => i.$2 == 'gw-9'), hasLength(1));
+    expect(items.where((i) => _nodeOf(i) == 'gw-9'), hasLength(1));
     // one that is held back does not wait
-    expect(items.where((i) => i.$2 == 'held'), isEmpty);
+    expect(items.where((i) => _nodeOf(i) == 'held'), isEmpty);
   });
 }
+
+/// The node under `sys/quarantine` a card is about; null for the others.
+String? _nodeOf(AttentionItem item) => switch (item) {
+  AttentionQuarantine(:final node) ||
+  AttentionBrokerWaiting(:final node) ||
+  AttentionWaitingNotRead(:final node) => node,
+  AttentionStandbyBehind() ||
+  AttentionLinkFailed() ||
+  AttentionAclGrown() ||
+  AttentionNoStandby() => null,
+};

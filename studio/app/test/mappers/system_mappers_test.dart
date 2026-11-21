@@ -10,6 +10,7 @@ import 'package:models/backup_kind.dart';
 import 'package:models/backup_status.dart';
 import 'package:models/broker_self_update.dart';
 import 'package:models/log_level.dart';
+import 'package:models/log_read_error.dart';
 import 'package:models/notice_kind.dart';
 import 'package:models/self_update_state.dart';
 import 'package:models/standby_state.dart';
@@ -47,6 +48,15 @@ void main() {
     expect(SysValue.values.map((v) => v.key).toSet(), hasLength(25));
   });
 
+  test('a failed log read: a refusal or an answer that is not a log', () {
+    final refused = const LogReadError.refused('forbidden', 'needs config').sys;
+    expect(refused, const SysLogRefused('forbidden', 'needs config'));
+    expect(refused.text, 'forbidden: needs config');
+    final invalid = const LogReadError.invalid('lines', 'not a list').sys;
+    expect(invalid, const SysLogInvalid('lines', 'not a list'));
+    expect(invalid.text, S.current.sysLogInvalid('lines: not a list'));
+  });
+
   test('the standby: no value yet is no dot and no state', () {
     expect(StandbyState.unknown.sys, isNull);
     expect(StandbyState.none.sys?.dot, isNotNull);
@@ -61,11 +71,46 @@ void main() {
       sendStatus: BackupSendStatus.sending,
       sendProgress: 30,
     ).row;
-    expect(row.kind, SysBackupKind.preRestore);
-    expect(row.state, SysBackupState.done);
-    expect(row.sending, isTrue);
-    expect(row.sendProgress, 30);
-    expect(const BackupJob(id: 'b').row.state, SysBackupState.pending);
+    expect(row.kind, const SysBackupPreRestore());
+    expect(row.step, const SysBackupSending(30));
+    expect(const BackupJob(id: 'b').row.step, const SysBackupKept());
+    // a link backup names its link
+    expect(
+      const BackupJob(id: 'b', kind: BackupKind.link, link: 'plc').row.kind,
+      const SysBackupOfLink('plc'),
+    );
+  });
+
+  test('a kept backup says one step: made, failed, sent, else kept', () {
+    SysBackupStep step(BackupStatus status, BackupSendStatus send) => BackupJob(
+      id: 'b',
+      status: status,
+      progress: 40,
+      sendStatus: send,
+      sendProgress: 70,
+    ).row.step;
+    // being made wins over being sent, and so does a failure
+    expect(
+      step(BackupStatus.running, BackupSendStatus.sending),
+      const SysBackupRunning(40),
+    );
+    expect(
+      step(BackupStatus.failed, BackupSendStatus.sending),
+      const SysBackupMakeFailed(),
+    );
+    // one not yet known to run is sent like one that is made
+    expect(
+      step(BackupStatus.unknown, BackupSendStatus.sending),
+      const SysBackupSending(70),
+    );
+    for (final send in [
+      BackupSendStatus.none,
+      BackupSendStatus.done,
+      BackupSendStatus.failed,
+    ]) {
+      expect(step(BackupStatus.done, send), const SysBackupKept());
+      expect(step(BackupStatus.unknown, send), const SysBackupKept());
+    }
   });
 
   test('the broker update as the card says it', () {

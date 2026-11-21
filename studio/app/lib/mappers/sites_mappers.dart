@@ -1,11 +1,11 @@
 import 'package:business/wyrm/sites.dart';
+import 'package:models/quarantine_entry.dart';
 import 'package:models/site_node.dart';
 import 'package:models/site_pick.dart';
 import 'package:ui/charts/site_map.dart';
 import 'package:ui/pages/sites_page.dart';
 
 import '../common/forms.dart';
-import 'links_mappers.dart' show QuarantineKindUi;
 
 /// A node of the domain as the map draws it; a waiting one by what waits
 /// (`broker`: a broker, else a link).
@@ -75,16 +75,34 @@ extension SiteDetailVmOf on SiteDetail {
       relays: d.relays,
     ),
     WaitingDetail(:final name, :final key, :final entry, :final form) =>
-      WaitingSiteVm(
-        name,
-        key,
-        cn: entry.cn,
-        kind: entry.kind.waiting,
-        from: entry.from,
-        via: entry.via.unlock,
-        hash: entry.key,
-        fields: form == null ? null : paramFields(form),
-      ),
+      switch (entry) {
+        QuarantineLink(:final cn, :final from) => WaitingLinkSiteVm(
+          name,
+          key,
+          cn: cn,
+          from: from,
+        ),
+        QuarantineBroker(
+          :final cn,
+          :final from,
+          :final via,
+          key: final hash,
+        ) =>
+          WaitingBrokerSiteVm(
+            name,
+            key,
+            cn: cn,
+            from: from,
+            via: via.unlock,
+            hash: hash,
+            fields: form == null ? null : paramFields(form),
+          ),
+        QuarantineNotRead(:final cn) => WaitingNotReadSiteVm(
+          name,
+          key,
+          cn: cn,
+        ),
+      },
     DeviceDetail(:final name, :final key) && final d => DeviceSiteVm(
       name,
       key,

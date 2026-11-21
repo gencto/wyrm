@@ -1059,19 +1059,16 @@ void main() {
       );
       expect(card(BackupsRead.absent), isNull);
       expect(card(BackupsRead.unknown), isNull);
+      expect(card(BackupsRead.unreadable), const SysBackupsUnreadable());
+      expect(card(BackupsRead.failed), const SysBackupsFailed());
       expect(
-        card(BackupsRead.unreadable),
-        const SysBackupsData(state: SysBackupsState.unreadable),
+        card(BackupsRead.read),
+        isA<SysBackupsRead>()
+            .having((r) => r.keepDays, 'keepDays', 7)
+            .having((r) => [for (final j in r.rows) j.id], 'rows', ['b1'])
+            // a backup that was not read is still a row
+            .having((r) => r.unread, 'unread', ['b2']),
       );
-      expect(
-        card(BackupsRead.failed),
-        const SysBackupsData(state: SysBackupsState.failed),
-      );
-      final read = card(BackupsRead.read)!;
-      expect(read.state, SysBackupsState.read);
-      expect(read.rows.map((r) => r.id), ['b1']);
-      // a backup that was not read is still a row
-      expect(read.unread, ['b2']);
     });
 
     test('a kept backup lists its sections by their labels', () {

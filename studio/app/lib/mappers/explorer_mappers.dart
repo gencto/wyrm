@@ -289,16 +289,25 @@ extension ExplorerPointRowVm on ExplorerPointRow {
 }
 
 extension ExplorerChildRowVm on ExplorerChildRow {
-  ChildRowVm get vm => ChildRowVm(
-    key: key,
-    name: name,
-    display: display,
-    type: type?.valueType,
-    writable: writable,
-    kind: kind?.tag,
-    value: value,
-    selected: selected,
-  );
+  ChildRowVm get vm => switch (this) {
+    ExplorerValueRow(:final type, :final writable, :final value) =>
+      ChildValueRowVm(
+        key: key,
+        name: name,
+        display: display,
+        selected: selected,
+        type: type.valueType,
+        writable: writable,
+        value: value,
+      ),
+    ExplorerNodeRow(:final kind) => ChildNodeRowVm(
+      key: key,
+      name: name,
+      display: display,
+      selected: selected,
+      kind: kind.tag,
+    ),
+  };
 }
 
 extension ExplorerFieldOf on ExplorerField {

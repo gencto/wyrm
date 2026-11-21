@@ -753,43 +753,50 @@ class SystemScreen extends StatelessWidget {
     null => null,
     final b => BackupsCardVm(
       title: S.current.bakCard,
-      note: b.state.said ?? S.current.bakCardNote(b.keepDays),
+      note: switch (b) {
+        SysBackupsRead(:final keepDays) => S.current.bakCardNote(keepDays),
+        SysBackupsUnreadable(:final said) ||
+        SysBackupsFailed(:final said) => said,
+      },
       empty: S.current.bakCardEmpty,
       backUpLabel: S.current.bakBackUp,
       restoreLabel: S.current.bakRestore,
-      reason: b.state.said ?? reason,
-      readAgainLabel: b.state == SysBackupsState.failed
-          ? S.current.bakReadAgain
-          : null,
+      reason: b.said ?? reason,
+      readAgainLabel: switch (b) {
+        SysBackupsFailed() => S.current.bakReadAgain,
+        SysBackupsRead() || SysBackupsUnreadable() => null,
+      },
       // not read: no list, so the card does not say "none is kept"
-      rows: b.state != SysBackupsState.read
-          ? null
-          : [
-              // a backup Studio could not read is there, and says so
-              for (final id in b.unread)
-                RowItemVm(id: id, title: id, subtitle: S.current.bakRowNotRead),
-              for (final j in b.rows)
-                RowItemVm(
-                  id: j.id,
-                  title: j.name,
-                  subtitle: [
-                    j.kind.label(j.link),
-                    [for (final s in j.sections) s.label].join(', '),
-                    if (j.created case final t?) Formats.dateTime(t),
-                  ].join(' · '),
-                  trailing: switch (j.state) {
-                    SysBackupState.running => S.current.bakRowRunning(
-                      j.progress,
-                    ),
-                    SysBackupState.failed => S.current.bakRowFailed,
-                    _ when j.sending => S.current.bakRowSending(j.sendProgress),
-                    SysBackupState.pending ||
-                    SysBackupState.done => Formats.bytes(j.size),
-                  },
-                  action: S.current.bakOpen,
-                  actionHint: '${S.current.bakOpen} ${j.name}',
+      rows: switch (b) {
+        SysBackupsUnreadable() || SysBackupsFailed() => null,
+        SysBackupsRead(:final unread, :final rows) => [
+          // a backup Studio could not read is there, and says so
+          for (final id in unread)
+            RowItemVm(id: id, title: id, subtitle: S.current.bakRowNotRead),
+          for (final j in rows)
+            RowItemVm(
+              id: j.id,
+              title: j.name,
+              subtitle: [
+                j.kind.label,
+                [for (final s in j.sections) s.label].join(', '),
+                if (j.created case final t?) Formats.dateTime(t),
+              ].join(' · '),
+              trailing: switch (j.step) {
+                SysBackupRunning(:final progress) => S.current.bakRowRunning(
+                  progress,
                 ),
-            ],
+                SysBackupMakeFailed() => S.current.bakRowFailed,
+                SysBackupSending(:final progress) => S.current.bakRowSending(
+                  progress,
+                ),
+                SysBackupKept() => Formats.bytes(j.size),
+              },
+              action: S.current.bakOpen,
+              actionHint: '${S.current.bakOpen} ${j.name}',
+            ),
+        ],
+      },
     ),
   };
 
@@ -904,46 +911,44 @@ class SystemScreen extends StatelessWidget {
       for (final (i, a) in vm.attention.indexed)
         AttentionItemVm(
           id: '$i',
-          title: switch (a.kind) {
-            SysAttention.standbyBehind =>
-              a.count > 0
-                  ? S.current.sysAttnBehind(_count(a.count))
+          title: switch (a) {
+            SysStandbyBehind(:final lag) =>
+              lag > 0
+                  ? S.current.sysAttnBehind(_count(lag))
                   : S.current.sysAttnFork,
-            SysAttention.linkFailed => S.current.sysAttnLinkFailed(a.subject),
-            SysAttention.quarantine => S.current.sysAttnQuarantine(
-              _name(a.name),
+            SysLinkFailed(:final link) => S.current.sysAttnLinkFailed(link),
+            SysQuarantineWaiting(:final cn) => S.current.sysAttnQuarantine(
+              _name(cn),
             ),
-            SysAttention.brokerWaiting => S.current.sysAttnBroker(
-              _name(a.name),
+            SysBrokerWaiting(:final cn) => S.current.sysAttnBroker(_name(cn)),
+            SysWaitingNotRead(:final cn) => S.current.sysAttnNotRead(
+              _name(cn),
             ),
-            SysAttention.waitingNotRead => S.current.sysAttnNotRead(
-              _name(a.name),
-            ),
-            SysAttention.aclGrown => S.current.sysAttnAcl(_count(a.count)),
-            SysAttention.noStandby => S.current.sysAttnNoStandby,
+            SysAclGrown(:final grown) => S.current.sysAttnAcl(_count(grown)),
+            SysNoStandby() => S.current.sysAttnNoStandby,
           },
-          detail: switch (a.kind) {
-            SysAttention.standbyBehind =>
-              a.more > 0
-                  ? S.current.sysAttnBehindDetail(a.more)
+          detail: switch (a) {
+            SysStandbyBehind(:final forks) =>
+              forks > 0
+                  ? S.current.sysAttnBehindDetail(forks)
                   : S.current.sysAttnBehindPlain,
-            SysAttention.linkFailed => S.current.sysAttnLinkDetail(a.subject),
-            SysAttention.quarantine => switch (a.since) {
+            SysLinkFailed(:final link) => S.current.sysAttnLinkDetail(link),
+            SysQuarantineWaiting(:final cn, :final since) => switch (since) {
               final t? => S.current.sysAttnQuarantineSince(
-                a.name,
+                cn,
                 Formats.clock(t),
               ),
-              null => S.current.sysAttnQuarantineDetail(a.name),
+              null => S.current.sysAttnQuarantineDetail(cn),
             },
-            SysAttention.brokerWaiting =>
-              a.count == 0
+            SysBrokerWaiting(:final relays) =>
+              relays == 0
                   ? S.current.sysAttnBrokerPlain
-                  : S.current.sysAttnBrokerRelays(a.count),
-            SysAttention.waitingNotRead => S.current.waitNotReadNote,
-            SysAttention.aclGrown => S.current.sysAttnAclDetail(
-              _count(a.more),
+                  : S.current.sysAttnBrokerRelays(relays),
+            SysWaitingNotRead() => S.current.waitNotReadNote,
+            SysAclGrown(:final seen) => S.current.sysAttnAclDetail(
+              _count(seen),
             ),
-            SysAttention.noStandby => S.current.sysAttnNoStandbyDetail,
+            SysNoStandby() => S.current.sysAttnNoStandbyDetail,
           },
           go: a.kind.go,
           tone: a.kind.tone,

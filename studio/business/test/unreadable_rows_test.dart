@@ -19,7 +19,7 @@ import 'package:models/error_call.dart';
 import 'package:models/error_hint.dart';
 import 'package:models/error_kind.dart';
 import 'package:models/known_call.dart';
-import 'package:models/quarantine_kind.dart';
+import 'package:models/quarantine_entry.dart';
 import 'package:models/studio_error.dart';
 import 'package:models/unreadable_part.dart';
 import 'package:wyrm_client/wyrm_client.dart';
@@ -104,11 +104,12 @@ void main() {
     // the entries stay, as ones that were not read
     expect(s.state.quarantine.view, ['plc-gw-7', 'gw-9', 'old']);
     expect(
+      [for (final id in s.state.quarantine.view) s.state.quarantine.table[id]],
       [
-        for (final id in s.state.quarantine.view)
-          s.state.quarantine.table[id]!.kind,
+        isA<QuarantineLink>(),
+        isA<QuarantineNotRead>(),
+        isA<QuarantineNotRead>(),
       ],
-      [QuarantineKind.link, null, null],
     );
     final p = unread().single;
     expect(p.key, '$_root/sys/quarantine');
@@ -126,7 +127,7 @@ void main() {
     final before = s.state.problems.items.length;
     await s.dispatchAndWait(RetrieveQuarantineAction());
     expect(s.state.quarantine.view, ['plc-gw-7', 'gw-9', 'old']);
-    expect(s.state.quarantine.table['gw-9']!.kind, QuarantineKind.broker);
+    expect(s.state.quarantine.table['gw-9'], isA<QuarantineBroker>());
     expect(s.state.problems.items, hasLength(before));
   });
 

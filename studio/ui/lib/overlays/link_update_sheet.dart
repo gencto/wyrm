@@ -18,15 +18,15 @@ TaskSheetVm linkUpdateSheet(
   ValueChanged<bool>? onAcceptNew,
   VoidCallback? onRollBack,
 }) => switch (d.stage) {
-  .review => _review(
+  LinkUpdateReviewStage() => _review(
     d,
     onTakePoint: onTakePoint,
     onAutoRollback: onAutoRollback,
     onAcceptNew: onAcceptNew,
   ),
-  .progress => _progress(d),
-  .result => _result(d, onRollBack),
-  .points => _points(d),
+  LinkUpdateProgressStage(:final checked) => _progress(d, checked),
+  LinkUpdateResultStage(:final report) => _result(d, report, onRollBack),
+  LinkUpdatePointsStage() => _points(d),
 };
 
 String _point(LinkPointData p) => p.version.isEmpty
@@ -144,12 +144,11 @@ TaskSheetVm _review(
   );
 }
 
-TaskSheetVm _progress(LinkUpdateData d) {
+TaskSheetVm _progress(LinkUpdateData d, LinkUpdateReport? r) {
   final l = S.current;
-  final r = d.report;
   // The action answers once the links restarted; until then the broker
   // tells nothing of its steps.
-  final answered = d.answered && r != null;
+  final answered = r != null;
   final first = answered ? SheetStepState.done : SheetStepState.todo;
   return TaskSheetVm(
     title: l.updUpdating(d.name),
@@ -195,31 +194,39 @@ TaskSheetVm _progress(LinkUpdateData d) {
   );
 }
 
-TaskSheetVm _result(LinkUpdateData d, VoidCallback? onRollBack) {
+TaskSheetVm _result(
+  LinkUpdateData d,
+  LinkUpdateReport r,
+  VoidCallback? onRollBack,
+) {
   final l = S.current;
-  final r = d.report!;
+  // the version a rollback goes to: as a link of the newest restore point
+  // when this user may, and as the first button when the result offers it
+  final kept = d.kept;
+  final allowedTo = kept != null && kept.allowed ? kept.version : null;
+  final offeredTo = kept != null && kept.offered ? kept.version : null;
   final (Tone tone, String title, String text) = switch (r.end) {
-    LinkUpdateEnd.rolledBack => (
+    LinkUpdateRolledBack() => (
       Tone.warn,
       // A rollback keeps the update's `from` and `to`: the links are
       // back on `from`.
       l.updRolledBackTo(r.from),
       r.reason.isEmpty ? l.updRolledBackNote : r.reason,
     ),
-    LinkUpdateEnd.failed => (
+    LinkUpdateFailed() => (
       Tone.warn,
       l.updFailed(r.to),
       r.reason.isEmpty ? l.updFailedNote : r.reason,
     ),
-    LinkUpdateEnd.unknown => (
+    LinkUpdateUnknown(:final word) => (
       Tone.warn,
-      l.updUnknownResult(r.endWord),
+      l.updUnknownResult(word),
       r.reason.isEmpty ? l.updUnknownResultNote : r.reason,
     ),
     _ when r.gone > 0 => (Tone.warn, l.updRuns(r.to), r.reason),
     _ => (Tone.good, l.updRuns(r.to), l.updRunsNote(r.links.join(', '))),
   };
-  final rolled = r.end == LinkUpdateEnd.rolledBack;
+  final rolled = r.end is LinkUpdateRolledBack;
   final first = r.links.isEmpty ? null : r.links.first;
   return TaskSheetVm(
     title: rolled ? l.updTitleRolledBack(d.name) : l.updTitleDone(d.name),
@@ -227,9 +234,9 @@ TaskSheetVm _result(LinkUpdateData d, VoidCallback? onRollBack) {
         '${r.from} → ${r.to} · ${l.updLinksCount(r.links.length)} · '
         '${Formats.dateTime(r.at)}',
     pill: switch (r.end) {
-      LinkUpdateEnd.rolledBack => l.updPillRolledBack,
-      LinkUpdateEnd.failed => l.updPillFailed,
-      LinkUpdateEnd.unknown => l.updPillUnknown,
+      LinkUpdateRolledBack() => l.updPillRolledBack,
+      LinkUpdateFailed() => l.updPillFailed,
+      LinkUpdateUnknown() => l.updPillUnknown,
       _ => l.updPillDone,
     },
     pillTone: tone,
@@ -260,31 +267,26 @@ TaskSheetVm _result(LinkUpdateData d, VoidCallback? onRollBack) {
           divider: true,
           text: _point(p),
           note: _pointNote(p),
-          actionLabel: i == 0 && d.canRollBack
-              ? l.updRollBackTo(d.previous!)
+          actionLabel: i == 0 && allowedTo != null
+              ? l.updRollBackTo(allowedTo)
               : null,
-          onAction: i == 0 && d.canRollBack ? onRollBack : null,
+          onAction: i == 0 && allowedTo != null ? onRollBack : null,
         ),
-      if (d.previous case final v?)
+      if (d.kept case LinkKeptVersion(:final version, :final until))
         SheetText(
-          l.updKeptUntil(
-            v,
-            Formats.dateTime(
-              d.keepUntil ?? DateTime.fromMillisecondsSinceEpoch(0),
-            ),
-          ),
+          l.updKeptUntil(version, Formats.dateTime(until)),
           small: true,
         ),
     ],
     note: rolled ? l.updAuditRollback : l.updAuditUpdate,
     secondary: l.updClose,
-    primary: d.offersRollBack
-        ? l.updRollBackTo(d.previous!)
+    primary: offeredTo != null
+        ? l.updRollBackTo(offeredTo)
         : (rolled
               ? l.updOpenLog
               : (first == null ? null : l.updOpenLink(first))),
-    primaryQuiet: d.offersRollBack,
-    primaryEnabled: !d.offersRollBack || d.reason == null,
+    primaryQuiet: offeredTo != null,
+    primaryEnabled: offeredTo == null || d.reason == null,
     primaryReason: d.reason?.text,
     busy: d.rollingBack,
   );

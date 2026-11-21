@@ -258,31 +258,41 @@ final class SysLogLine extends Equatable {
   List<Object?> get props => [time, at, level, target, message];
 }
 
-/// Why the last read of the log gave no lines: the broker refused (its
-/// status name and message), or the answer is not a log (the field and
-/// why).
-final class SysLogError extends Equatable {
-  const SysLogError.refused(this.status, this.message) : invalid = false;
-  const SysLogError.invalid(String field, String reason)
-    : status = field,
-      message = reason,
-      invalid = true;
-
-  final bool invalid;
-
-  /// The status name; for an [invalid] answer, the field at fault.
-  final String status;
-
-  /// The broker's message; for an [invalid] answer, why.
-  final String message;
+/// Why the last read of the log gave no lines: the broker refused
+/// ([SysLogRefused]), or the answer is not a log ([SysLogInvalid]).
+sealed class SysLogError extends Equatable {
+  const SysLogError();
 
   /// As the log box says it.
-  String get text => invalid
-      ? S.current.sysLogInvalid('$status: $message')
-      : '$status: $message';
+  String get text;
+}
+
+/// The broker refused the read: its status name and its message.
+final class SysLogRefused extends SysLogError {
+  const SysLogRefused(this.status, this.message);
+
+  final String status;
+  final String message;
 
   @override
-  List<Object?> get props => [invalid, status, message];
+  String get text => '$status: $message';
+
+  @override
+  List<Object?> get props => [status, message];
+}
+
+/// The answer is not a log: the field at fault and why.
+final class SysLogInvalid extends SysLogError {
+  const SysLogInvalid(this.field, this.reason);
+
+  final String field;
+  final String reason;
+
+  @override
+  String get text => S.current.sysLogInvalid('$field: $reason');
+
+  @override
+  List<Object?> get props => [field, reason];
 }
 
 /// The Log tab: the toolbar's arguments, the lines shown and the broker's
@@ -375,101 +385,140 @@ final class SysProfile extends Equatable {
   List<Object?> get props => [name, points];
 }
 
-/// What a kept backup holds.
-enum SysBackupKind {
-  full,
-  link,
-  preUpdate,
-  preRestore;
+/// What a kept backup holds: the whole broker, one link (named), or
+/// what was kept before an update or a restore.
+sealed class SysBackupKind extends Equatable {
+  const SysBackupKind();
 
-  /// [linkId] names the link of a link backup.
-  String label(String linkId) => switch (this) {
-    full => S.current.bakKindFull,
-    link => S.current.bakKindLink(linkId),
-    preUpdate => S.current.bakKindPreUpdate,
-    preRestore => S.current.bakKindPreRestore,
-  };
+  String get label;
 }
 
-/// Where the making of a kept backup is.
-enum SysBackupState { pending, running, done, failed }
+final class SysBackupFull extends SysBackupKind {
+  const SysBackupFull();
+
+  @override
+  String get label => S.current.bakKindFull;
+
+  @override
+  List<Object?> get props => const [];
+}
+
+/// A backup of the link [link].
+final class SysBackupOfLink extends SysBackupKind {
+  const SysBackupOfLink(this.link);
+
+  final String link;
+
+  @override
+  String get label => S.current.bakKindLink(link);
+
+  @override
+  List<Object?> get props => [link];
+}
+
+final class SysBackupPreUpdate extends SysBackupKind {
+  const SysBackupPreUpdate();
+
+  @override
+  String get label => S.current.bakKindPreUpdate;
+
+  @override
+  List<Object?> get props => const [];
+}
+
+final class SysBackupPreRestore extends SysBackupKind {
+  const SysBackupPreRestore();
+
+  @override
+  String get label => S.current.bakKindPreRestore;
+
+  @override
+  List<Object?> get props => const [];
+}
+
+/// Where a kept backup is, as its row says it: being made (with its
+/// percent), failed, being sent to a file store (with its percent), or
+/// kept.
+sealed class SysBackupStep extends Equatable {
+  const SysBackupStep();
+}
+
+final class SysBackupRunning extends SysBackupStep {
+  const SysBackupRunning(this.progress);
+
+  /// Percent.
+  final int progress;
+
+  @override
+  List<Object?> get props => [progress];
+}
+
+final class SysBackupMakeFailed extends SysBackupStep {
+  const SysBackupMakeFailed();
+
+  @override
+  List<Object?> get props => const [];
+}
+
+final class SysBackupSending extends SysBackupStep {
+  const SysBackupSending(this.progress);
+
+  /// Percent.
+  final int progress;
+
+  @override
+  List<Object?> get props => [progress];
+}
+
+/// Made (or not yet known to run) and not being sent: its size is shown.
+final class SysBackupKept extends SysBackupStep {
+  const SysBackupKept();
+
+  @override
+  List<Object?> get props => const [];
+}
 
 /// A kept backup as its row shows it.
 final class SysBackupRow extends Equatable {
   const SysBackupRow({
     required this.id,
     required this.name,
-    this.kind = SysBackupKind.full,
-    this.link = '',
+    required this.kind,
+    required this.step,
     this.sections = const [],
     this.created,
-    this.state = SysBackupState.pending,
-    this.progress = 0,
-    this.sending = false,
-    this.sendProgress = 0,
     this.size = 0,
   });
 
   final String id;
   final String name;
   final SysBackupKind kind;
-  final String link;
+  final SysBackupStep step;
   final List<BackupPart> sections;
   final DateTime? created;
-  final SysBackupState state;
-
-  /// Percent, while it is made and while it is sent.
-  final int progress;
-  final bool sending;
-  final int sendProgress;
 
   /// Bytes.
   final int size;
 
   @override
-  List<Object?> get props => [
-    id,
-    name,
-    kind,
-    link,
-    sections,
-    created,
-    state,
-    progress,
-    sending,
-    sendProgress,
-    size,
-  ];
+  List<Object?> get props => [id, name, kind, step, sections, created, size];
 }
 
-/// What is known of the broker's backups, as the card *Backups* says it.
-enum SysBackupsState {
-  /// Read: the kept backups are listed.
-  read,
-
-  /// The attributes of `sys/backups` came in a form this Studio does not
-  /// read: no backup is offered, no list is drawn, and the card says why.
-  unreadable,
-
-  /// The read failed: nothing is known, no list is drawn, and the card
-  /// offers to read again.
-  failed;
+/// The card *Backups*: the kept backups when they were read
+/// ([SysBackupsRead]), else why no list is drawn.
+sealed class SysBackupsData extends Equatable {
+  const SysBackupsData();
 
   /// Why no backup is offered, or null when the backups were read.
-  String? get said => switch (this) {
-    read => null,
-    unreadable => S.current.bakNotRead,
-    failed => S.current.bakReadFailed,
-  };
+  String? get said;
 }
 
-/// The card *Backups*: the days a backup is kept, the kept ones.
-final class SysBackupsData extends Equatable {
-  const SysBackupsData({
-    this.keepDays = 7,
+/// Read: the days a backup is kept and the kept backups.
+final class SysBackupsRead extends SysBackupsData {
+  const SysBackupsRead({
+    required this.keepDays,
     this.rows = const [],
     this.unread = const [],
-    this.state = SysBackupsState.read,
   });
 
   final int keepDays;
@@ -479,11 +528,35 @@ final class SysBackupsData extends Equatable {
   /// is a row that says so.
   final List<String> unread;
 
-  /// Whether the backups were read; else why not.
-  final SysBackupsState state;
+  @override
+  String? get said => null;
 
   @override
-  List<Object?> get props => [keepDays, rows, unread, state];
+  List<Object?> get props => [keepDays, rows, unread];
+}
+
+/// The attributes of `sys/backups` came in a form this Studio does not
+/// read: no backup is offered, no list is drawn, and the card says why.
+final class SysBackupsUnreadable extends SysBackupsData {
+  const SysBackupsUnreadable();
+
+  @override
+  String get said => S.current.bakNotRead;
+
+  @override
+  List<Object?> get props => const [];
+}
+
+/// The read failed: nothing is known, no list is drawn, and the card
+/// offers to read again.
+final class SysBackupsFailed extends SysBackupsData {
+  const SysBackupsFailed();
+
+  @override
+  String get said => S.current.bakReadFailed;
+
+  @override
+  List<Object?> get props => const [];
 }
 
 /// Where the broker's update of itself is, as the card *Broker version*
@@ -616,27 +689,119 @@ enum SysAttention {
   };
 }
 
-/// A card of the attention panel: what it is about, the subject (a link
-/// id, a quarantine node), the certificate CN, the counts and since when.
-final class SysAttentionData extends Equatable {
-  const SysAttentionData(
-    this.kind, {
-    this.subject = '',
-    this.name = '',
-    this.count = 0,
-    this.more = 0,
+/// A card of the attention panel: what it is about ([kind]), with what
+/// that card alone says and names.
+sealed class SysAttentionData extends Equatable {
+  const SysAttentionData();
+
+  SysAttention get kind;
+}
+
+/// The standby is behind by [lag] records, or [forks] forks were moved
+/// aside.
+final class SysStandbyBehind extends SysAttentionData {
+  const SysStandbyBehind({required this.lag, required this.forks});
+
+  final int lag;
+  final int forks;
+
+  @override
+  SysAttention get kind => SysAttention.standbyBehind;
+
+  @override
+  List<Object?> get props => [lag, forks];
+}
+
+/// The link [link] failed.
+final class SysLinkFailed extends SysAttentionData {
+  const SysLinkFailed(this.link);
+
+  final String link;
+
+  @override
+  SysAttention get kind => SysAttention.linkFailed;
+
+  @override
+  List<Object?> get props => [link];
+}
+
+/// A link certificate ([cn]) waits at [node] in quarantine, first seen at
+/// [since] (null: the broker did not say).
+final class SysQuarantineWaiting extends SysAttentionData {
+  const SysQuarantineWaiting({
+    required this.node,
+    required this.cn,
     this.since,
   });
 
-  final SysAttention kind;
-  final String subject;
-  final String name;
-  final int count;
-  final int more;
+  final String node;
+  final String cn;
   final DateTime? since;
 
   @override
-  List<Object?> get props => [kind, subject, name, count, more, since];
+  SysAttention get kind => SysAttention.quarantine;
+
+  @override
+  List<Object?> get props => [node, cn, since];
+}
+
+/// A downstream broker ([cn]) waits at [node] and relays [relays] sites.
+final class SysBrokerWaiting extends SysAttentionData {
+  const SysBrokerWaiting({
+    required this.node,
+    required this.cn,
+    required this.relays,
+  });
+
+  final String node;
+  final String cn;
+  final int relays;
+
+  @override
+  SysAttention get kind => SysAttention.brokerWaiting;
+
+  @override
+  List<Object?> get props => [node, cn, relays];
+}
+
+/// A connection ([cn]) waits at [node]; Studio could not read what it is.
+final class SysWaitingNotRead extends SysAttentionData {
+  const SysWaitingNotRead({required this.node, required this.cn});
+
+  final String node;
+  final String cn;
+
+  @override
+  SysAttention get kind => SysAttention.waitingNotRead;
+
+  @override
+  List<Object?> get props => [node, cn];
+}
+
+/// The ACL denials grew by [grown] since the counter was last seen at
+/// [seen].
+final class SysAclGrown extends SysAttentionData {
+  const SysAclGrown({required this.grown, required this.seen});
+
+  final int grown;
+  final int seen;
+
+  @override
+  SysAttention get kind => SysAttention.aclGrown;
+
+  @override
+  List<Object?> get props => [grown, seen];
+}
+
+/// No standby follows the broker.
+final class SysNoStandby extends SysAttentionData {
+  const SysNoStandby();
+
+  @override
+  SysAttention get kind => SysAttention.noStandby;
+
+  @override
+  List<Object?> get props => const [];
 }
 
 /// The broker itself: its build and when it started.

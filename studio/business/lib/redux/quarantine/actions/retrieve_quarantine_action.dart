@@ -43,12 +43,8 @@ class RetrieveQuarantineAction extends Action with WaitingAction {
       );
       if (entry == null) {
         entries.add(
-          QuarantineEntry(
-            cn: m.displayName ?? c.name,
-            node: c.name,
-            // what it is, is not known
-            kind: null,
-          ),
+          // what it is, is not known
+          QuarantineEntry.notRead(cn: m.displayName ?? c.name, node: c.name),
         );
         continue;
       }

@@ -19,7 +19,6 @@ import 'package:models/param_spec.dart';
 import 'package:models/peer.dart';
 import 'package:models/peer_kind.dart';
 import 'package:models/quarantine_entry.dart';
-import 'package:models/quarantine_kind.dart';
 import 'package:models/watch_group.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -220,10 +219,9 @@ void main() {
           }),
         ),
         Valid(
-          QuarantineEntry(
+          QuarantineEntry.broker(
             cn: 'broker:plant',
             node: 'broker_plant',
-            kind: QuarantineKind.broker,
             firstSeen: DateTime.utc(2026, 11, 8, 3, 32, 40),
             via: const ['site_a', 'site_b'].lock,
             key: 'ab12',
@@ -232,10 +230,8 @@ void main() {
         ),
       );
       expect(
-        _valid(
-          quarantineEntryOf('x', entry({'kind': const VStr('link')})),
-        ).kind,
-        QuarantineKind.link,
+        _valid(quarantineEntryOf('x', entry({'kind': const VStr('link')}))),
+        isA<QuarantineLink>(),
       );
     });
 

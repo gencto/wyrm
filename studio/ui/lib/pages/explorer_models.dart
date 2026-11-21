@@ -244,42 +244,66 @@ final class SelectionBarVm extends Equatable {
   List<Object?> get props => [count, buttons];
 }
 
-/// One row of the Contents tab: a child value (its [type]) or node (its
-/// [kind]).
-final class ChildRowVm extends Equatable {
+/// One row of the Contents tab: a child value ([ChildValueRowVm]) or
+/// node ([ChildNodeRowVm]).
+sealed class ChildRowVm extends Equatable {
   const ChildRowVm({
     required this.key,
     required this.name,
     this.display,
-    this.type,
-    this.writable = false,
-    this.kind,
-    this.value,
     this.selected = false,
   });
 
   final String key;
   final String name;
   final String? display;
-  final ValueType? type;
-  final bool writable;
-  final NodeKindTag? kind;
-
-  /// A value as the user reads it, with its unit.
-  final String? value;
   final bool selected;
+}
+
+/// A child value: its type, whether it is writable, and its value.
+final class ChildValueRowVm extends ChildRowVm {
+  const ChildValueRowVm({
+    required super.key,
+    required super.name,
+    required this.type,
+    super.display,
+    super.selected,
+    this.writable = false,
+    this.value,
+  });
+
+  final ValueType type;
+  final bool writable;
+
+  /// A value as the user reads it, with its unit; null when none was read.
+  final String? value;
 
   @override
   List<Object?> get props => [
     key,
     name,
     display,
+    selected,
     type,
     writable,
-    kind,
     value,
-    selected,
   ];
+}
+
+/// A child node: its kind.
+final class ChildNodeRowVm extends ChildRowVm {
+  const ChildNodeRowVm({
+    required super.key,
+    required super.name,
+    required this.kind,
+    super.display,
+    super.selected,
+  });
+
+  final NodeKindTag kind;
+
+  @override
+  List<Object?> get props => [key, name, display, selected, kind];
 }
 
 /// A group of action cards: Configure · staged, or Operate · runs now.

@@ -33,7 +33,7 @@ import 'package:business/wyrm/mappers/log_line_mapper.dart';
 import 'package:business/wyrm/mappers/profile_mapper.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:models/attention_kind.dart';
+import 'package:models/attention_item.dart';
 import 'package:models/error_call.dart';
 import 'package:models/error_hint.dart';
 import 'package:models/error_kind.dart';
@@ -53,7 +53,6 @@ import 'package:models/manifest_problem.dart';
 import 'package:models/profile_draft.dart';
 import 'package:models/profile_read.dart';
 import 'package:models/quarantine_entry.dart';
-import 'package:models/quarantine_kind.dart';
 import 'package:models/standby_state.dart';
 import 'package:models/studio_error.dart';
 import 'package:models/system_tab.dart';
@@ -606,18 +605,17 @@ void main() {
                 .copyWith
                 .quarantine(
                   table: IMapConst({
-                    'line2': const QuarantineEntry(
+                    'line2': const QuarantineEntry.broker(
                       cn: 'broker:line2',
                       node: 'line2',
-                      kind: QuarantineKind.broker,
                       via: IListConst(['cell-a']),
                     ),
-                    'field-gw': QuarantineEntry(
+                    'field-gw': QuarantineEntry.link(
                       cn: 'link:field-gw',
                       node: 'field-gw',
                       firstSeen: DateTime.utc(2026, 11, 10, 1, 20),
                     ),
-                    'old': const QuarantineEntry(
+                    'old': const QuarantineEntry.link(
                       cn: 'link:old',
                       node: 'old',
                       deauthorized: true,
@@ -637,22 +635,19 @@ void main() {
 
       final a = _Read(s.state).attention;
 
-      expect(
-        [for (final x in a) x.kind],
-        [
-          AttentionKind.standbyBehind,
-          AttentionKind.linkFailed,
-          AttentionKind.quarantine,
-          AttentionKind.brokerWaiting,
-          AttentionKind.aclGrown,
-        ],
-      );
-      expect((a[0].count, a[0].more), (1240, 1));
-      expect(a[1].subject, 'bacnet');
-      expect((a[2].subject, a[2].name), ('field-gw', 'link:field-gw'));
-      expect(a[2].since, DateTime.utc(2026, 11, 10, 1, 20));
-      expect((a[3].subject, a[3].count), ('line2', 1));
-      expect((a[4].count, a[4].more), (2, 3));
+      expect(a, [
+        const AttentionItem.standbyBehind(lag: 1240, forks: 1),
+        const AttentionItem.linkFailed(link: 'bacnet'),
+        AttentionItem.quarantine(
+          node: 'field-gw',
+          cn: 'link:field-gw',
+          since: DateTime.utc(2026, 11, 10, 1, 20),
+        ),
+        isA<AttentionBrokerWaiting>()
+            .having((b) => b.node, 'node', 'line2')
+            .having((b) => b.relays, 'relays', 1),
+        const AttentionItem.aclGrown(grown: 2, seen: 3),
+      ]);
     });
 
     test('no standby is the last card, and only once the value is known', () {
@@ -670,13 +665,10 @@ void main() {
       );
       sys({'standby_connected': 0});
 
-      expect(
-        [for (final x in _Read(s.state).attention) x.kind],
-        [
-          AttentionKind.linkFailed,
-          AttentionKind.noStandby,
-        ],
-      );
+      expect(_Read(s.state).attention, const [
+        AttentionItem.linkFailed(link: 'bacnet'),
+        AttentionItem.noStandby(),
+      ]);
     });
 
     test('ACL denials count only when grown since the screen was left', () {
@@ -687,7 +679,7 @@ void main() {
       expect(_Read(s.state).attention, isEmpty, reason: 'not grown');
 
       sys({'acl_denied': 6});
-      expect(_Read(s.state).attention.single.kind, AttentionKind.aclGrown);
+      expect(_Read(s.state).attention.single, isA<AttentionAclGrown>());
     });
   });
 
