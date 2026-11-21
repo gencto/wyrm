@@ -453,7 +453,7 @@ async fn node(io: &Io, full: &str) -> Result<Msg, (Status, String)> {
 }
 
 impl Reader {
-    fn event(&mut self, port: &str, more: &[(&str, Value)], out: &mut Out) {
+    fn event(&mut self, port: &'static str, more: &[(&str, Value)], out: &mut Out) {
         self.events += 1;
         let mut m = BTreeMap::from([
             ("event".to_owned(), Value::Str(port.to_owned())),

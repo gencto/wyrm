@@ -21,6 +21,8 @@
 //! machine's load; the rates do.
 //!
 //! One `PERF` line per figure (`tool/perf.sh`).
+//!
+//! One check runs with the other tests: `a_number_through_ten_blocks_allocates_next_to_nothing`.
 
 #![allow(
     clippy::unwrap_used,
@@ -130,7 +132,7 @@ struct Round {
 /// `count × inputs_per_sample` more samples.
 struct Case<'a> {
     name: &'a str,
-    def: Value,
+    def: &'a Value,
     first: &'a str,
     port: &'a str,
     inputs_per_sample: u64,
@@ -139,7 +141,8 @@ struct Case<'a> {
     note: &'a str,
 }
 
-async fn case(env: &Env, c: Case<'_>) {
+/// The rounds of `c`, each measured.
+async fn measure(env: &Env, c: &Case<'_>, rounds: usize) -> Vec<Round> {
     let Case {
         name,
         def,
@@ -148,9 +151,8 @@ async fn case(env: &Env, c: Case<'_>) {
         inputs_per_sample,
         count,
         make,
-        note,
-    } = c;
-    let def = &def;
+        ..
+    } = *c;
     let (def, ports) = wyrm_flow::def::compile(def).unwrap();
     let stats = Arc::new(FlowStats::default());
     let (ptx, mut prx) = mpsc::unbounded_channel();
@@ -192,8 +194,8 @@ async fn case(env: &Env, c: Case<'_>) {
     inbox.push_now(port, Msg::new(make(0), Quality::Good, 1));
     settle(base + inputs_per_sample, Instant::now()).await;
     let mut i = 1u64;
-    let mut rounds = Vec::new();
-    for _ in 0..ROUNDS {
+    let mut out = Vec::new();
+    for _ in 0..rounds {
         let msgs: Vec<Msg> = (0..count)
             .map(|k| Msg::new(make(i + k), Quality::Good, i + k))
             .collect();
@@ -212,7 +214,7 @@ async fn case(env: &Env, c: Case<'_>) {
             (Some(a), Some(b)) => a - b,
             _ => f64::NAN,
         };
-        rounds.push(Round {
+        out.push(Round {
             per_s: count as f64 / wall.as_secs_f64(),
             cpu_us: cpu_s * 1e6 / count as f64,
             allocs: a.calls_per(count),
@@ -222,6 +224,14 @@ async fn case(env: &Env, c: Case<'_>) {
     assert_eq!(stats.dropped.load(Ordering::Relaxed), 0, "{name}: dropped");
     assert!(prx.try_recv().is_err(), "{name}: a node panicked");
     run.stop().await;
+    out
+}
+
+async fn case(env: &Env, c: Case<'_>) {
+    let rounds = measure(env, &c, ROUNDS).await;
+    let Case {
+        name, count, note, ..
+    } = c;
     let med = |f: &dyn Fn(&Round) -> f64| {
         let mut v: Vec<f64> = rounds.iter().map(f).collect();
         v.sort_by(f64::total_cmp);
@@ -264,14 +274,11 @@ fn table(shift: u64) -> Value {
     ])
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "a measurement, run by hand"]
-async fn copies() {
-    let env = env().await;
-    let num = |i: u64| Value::Float(i as f64);
+/// The counters are the whole process's: the measurement and the check never run together.
+static ONE_AT_A_TIME: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-    // a round is one burst: it must fit the deepest inbox a flow may have (65 536)
-    let count = 50_000u64;
+/// 10 pure blocks in a chain: `add` with a constant and `multiply` in turn.
+fn chain10() -> Value {
     let mut nodes = Vec::new();
     let mut edges = Vec::new();
     for i in 0..10 {
@@ -288,11 +295,50 @@ async fn copies() {
             edges.push(edge(&format!("n{}.out", i - 1), &format!("n{i}.in.0")));
         }
     }
+    flow("chain10", nodes, edges, 65_536)
+}
+
+/// A sample that goes from block to block costs no allocation per block: the port names
+/// are shared with the edges, the blocks' slots are found by their names, and a number
+/// holds no heap. (Before this slice: 9 allocations per block and sample.) One allocation
+/// per sample is the test's own push into the first inbox; the bound leaves room for what
+/// the idle session's threads allocate meanwhile.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_number_through_ten_blocks_allocates_next_to_nothing() {
+    let _one = ONE_AT_A_TIME.lock().await;
+    let env = env().await;
+    let c = Case {
+        name: "check",
+        def: &chain10(),
+        first: "n0",
+        port: "in.0",
+        inputs_per_sample: 10,
+        count: 20_000,
+        make: &|i| Value::Float(i as f64),
+        note: "",
+    };
+    let r = measure(&env, &c, 1).await;
+    assert!(
+        r[0].allocs < 3.0,
+        "{} allocations per sample through 10 blocks",
+        r[0].allocs
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "a measurement, run by hand"]
+async fn copies() {
+    let _one = ONE_AT_A_TIME.lock().await;
+    let env = env().await;
+    let num = |i: u64| Value::Float(i as f64);
+
+    // a round is one burst: it must fit the deepest inbox a flow may have (65 536)
+    let count = 50_000u64;
     case(
         &env,
         Case {
             name: "flow/copies/chain10",
-            def: flow("chain10", nodes, edges, 65_536),
+            def: &chain10(),
             first: "n0",
             port: "in.0",
             inputs_per_sample: 10,
@@ -313,7 +359,7 @@ async fn copies() {
         &env,
         Case {
             name: "flow/copies/fanout16",
-            def: flow("fanout16", nodes, edges, 65_536),
+            def: &flow("fanout16", nodes, edges, 65_536),
             first: "n0",
             port: "in.0",
             inputs_per_sample: 17,
@@ -338,7 +384,7 @@ async fn copies() {
         &env,
         Case {
             name: "flow/copies/rhai",
-            def: flow("rhai", nodes, Vec::new(), 65_536),
+            def: &flow("rhai", nodes, Vec::new(), 65_536),
             first: "e",
             port: "in.x",
             inputs_per_sample: 1,
@@ -370,7 +416,7 @@ async fn copies() {
         &env,
         Case {
             name: "flow/copies/table3",
-            def: flow("table3", nodes, edges, 65_536),
+            def: &flow("table3", nodes, edges, 65_536),
             first: "t0",
             port: "in",
             inputs_per_sample: 3,

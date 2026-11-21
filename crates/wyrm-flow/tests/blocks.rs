@@ -74,7 +74,10 @@ fn good(v: impl Into<Value>) -> Msg {
 fn feed(n: &mut dyn Node, io: &Io, port: &str, msg: Msg) -> Vec<(String, Value)> {
     let mut out = Out::default();
     n.input(port, msg, io, &mut out);
-    out.0.into_iter().map(|(p, m)| (p, m.v)).collect()
+    out.0
+        .into_iter()
+        .map(|(p, m)| (p.into_owned(), m.v))
+        .collect()
 }
 
 /// The value sent on `port`, if any.
@@ -375,7 +378,7 @@ async fn stopwatch_counts_loops_resets_and_keeps_its_count() {
     for i in 0..8 {
         let mut out = Out::default();
         sw.tick(i, &mut out);
-        sent.extend(out.0.into_iter().map(|(p, m)| (p, m.v)));
+        sent.extend(out.0.into_iter().map(|(p, m)| (p.into_owned(), m.v)));
     }
     // 8 × 50 ms = 4 steps of 100 ms: 1, 2, 0 (looped, with an event), 1
     let counts: Vec<Value> = sent

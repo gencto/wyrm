@@ -66,13 +66,19 @@ fn good(v: impl Into<Value>) -> Msg {
 fn feed(n: &mut dyn Node, io: &Io, port: &str, msg: Msg) -> Vec<(String, Value)> {
     let mut out = Out::default();
     n.input(port, msg, io, &mut out);
-    out.0.into_iter().map(|(p, m)| (p, m.v)).collect()
+    out.0
+        .into_iter()
+        .map(|(p, m)| (p.into_owned(), m.v))
+        .collect()
 }
 
 fn tick(n: &mut dyn Node) -> Vec<(String, Value)> {
     let mut out = Out::default();
     n.tick(1, &mut out);
-    out.0.into_iter().map(|(p, m)| (p, m.v)).collect()
+    out.0
+        .into_iter()
+        .map(|(p, m)| (p.into_owned(), m.v))
+        .collect()
 }
 
 fn on(sent: &[(String, Value)], port: &str) -> Option<Value> {
