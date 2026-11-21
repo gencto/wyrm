@@ -108,7 +108,7 @@ fn event(id: u64) -> Msg {
 fn feed(n: &mut dyn Node, io: &Io, port: &str, msg: Msg) -> Vec<String> {
     let mut out = Out::default();
     n.input(port, msg, io, &mut out);
-    out.0.into_iter().map(|(p, _)| p).collect()
+    out.0.into_iter().map(|(p, _)| p.into_owned()).collect()
 }
 
 fn ran(sent: &[String]) -> bool {
@@ -369,7 +369,10 @@ async fn run_on_start_is_off_by_default_and_runs_exactly_once() {
     let tick = |n: &mut dyn Node| {
         let mut out = Out::default();
         n.tick(1, &mut out);
-        out.0.into_iter().map(|(p, _)| p).collect::<Vec<_>>()
+        out.0
+            .into_iter()
+            .map(|(p, _)| p.into_owned())
+            .collect::<Vec<_>>()
     };
     // off: no clock at the start, nothing runs
     let (mut n, probe) = capture("invoke", &[("args", map(&[("n", Value::UInt(3))]))]);

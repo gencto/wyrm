@@ -287,7 +287,7 @@ pub(crate) fn build(ty: &str, id: &str, cfg: &Map, mode: &Mode) -> Result<Box<dy
 
 impl Command {
     /// An event on `port`: always sent, as `{event, id}` plus `more`.
-    fn event(&mut self, port: &str, more: &[(&str, Value)], start: bool, out: &mut Out) {
+    fn event(&mut self, port: &'static str, more: &[(&str, Value)], start: bool, out: &mut Out) {
         self.events += 1;
         let mut m = BTreeMap::from([
             ("event".to_owned(), Value::Str(port.to_owned())),

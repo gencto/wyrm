@@ -527,13 +527,17 @@ pub fn needs_perm(ty: &str) -> Option<Perm> {
 
 // ---------- runtime interface ----------
 
+/// The name of an output a sample goes out on. A node names its outputs in its code, so a
+/// name is borrowed as it stands there; only a name made while the flow runs is owned.
+pub type PortName = std::borrow::Cow<'static, str>;
+
 /// Emitted samples of one call.
 #[derive(Default)]
-pub struct Out(pub Vec<(String, Msg)>);
+pub struct Out(pub Vec<(PortName, Msg)>);
 
 impl Out {
-    pub fn emit(&mut self, port: &str, m: Msg) {
-        self.0.push((port.to_owned(), m));
+    pub fn emit(&mut self, port: impl Into<PortName>, m: Msg) {
+        self.0.push((port.into(), m));
     }
 }
 
@@ -596,6 +600,16 @@ pub trait Node: Send {
     /// Called before [`Node::start`] when no edge leads into the node: a pure block then
     /// calculates once at the start from its constants (spec 06 0.2.30).
     fn unwired(&mut self) {}
+}
+
+/// `map[key] = v`; the key is copied only when the map does not have it yet.
+pub(crate) fn put<V>(map: &mut BTreeMap<String, V>, key: &str, v: V) {
+    match map.get_mut(key) {
+        Some(slot) => *slot = v,
+        None => {
+            map.insert(key.to_owned(), v);
+        }
+    }
 }
 
 pub(crate) fn truthy(v: &Value) -> bool {
@@ -692,8 +706,8 @@ impl Node for Expression {
         let Some(name) = port.strip_prefix("in.") else {
             return;
         };
-        self.last.insert(name.to_owned(), m);
-        self.fresh.insert(name.to_owned(), true);
+        put(&mut self.last, name, m);
+        put(&mut self.fresh, name, true);
         // Every input must have been seen; `all` also needs a fresh one each.
         if self.inputs.iter().any(|n| !self.last.contains_key(n)) {
             return;
@@ -1618,7 +1632,7 @@ impl Node for Wasm {
                 self.state = state;
                 for (p, s) in emits {
                     if self.outputs.contains(&p) {
-                        out.emit(&p, Msg::new(s.v, s.q, s.t));
+                        out.emit(p, Msg::new(s.v, s.q, s.t));
                     } else {
                         self.errors += 1;
                         debug!("wasm: emit on undeclared port {p}");

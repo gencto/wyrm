@@ -545,6 +545,7 @@ measured.
 | sdk | `cargo bench -p wyrm-link-sdk --bench verify` | 3 | one `ptok` check with 1 admin + 1/4/10/30 limited keys: signed by the admin key, by the first and by the last limited key, by a key nobody trusts (refused), a new `sub` in every token, the limited keys in turn with their own `sub` and with a new `sub` each time |
 | sdk | `cargo bench -p wyrm-link-sdk --bench tree` | 4, 5, 17 | declare 1k/10k/30k points (time, `~meta` puts and bytes, the parent's apart, bytes kept, peak RSS; pure `NodeTree` with one parent put per child, and through `LinkCtx` over Zenoh; `TREE_DECLARE_ONLY=<n>` runs one size in a process of its own); a wildcard `get` that hits one node of 10k; `view=list` of 1000 children with and without a profile name |
 | flow | `cargo test --release -p wyrm-flow --test throughput -- --ignored --nocapture` | 7–10 | `subscribe → (scale, add) × n → publish`, a paced rate ladder on one key and on 1000 keys, default and deep inbox; allocations per hop (9 hops minus 3); 10 000-row tables through `table_sort` ×1/×3 and `table_filter` + `table_aggregate` |
+| flow | `cargo test --release -p wyrm-flow --test copies -- --ignored --nocapture` | flow copies | the runtime started directly, no session and no `publish`: samples pushed into the first node's inbox, the end read from the flow's counters; a chain of 10 pure blocks, one output with 16 edges, one `expression` (rhai), a 1000-row table of 3 columns through 3 `table_sort`; median of 7 rounds: samples/s, CPU per sample, allocations and bytes per sample |
 | broker | `cargo test --release -p wyrmd --test perf -- --ignored --nocapture --exact <test>` | 1, 2, 12, 13, gateway | an in-process broker with the embedded mock: (a) base rate, (b) a client that subscribes `wy/<site>/downstream/**` in a loop and one `wy/**`, (c) the mock at `trace`, (d) the historian on 10 000 points, (e) 1000 invokes one after another, then 2000 from 50 subjects at once: latency, audit records/s, batches, and how late a 1 ms timer of the broker's runtime fires, (f) 10 gateway WebSocket clients × 1000 points × 10 Hz, (g) a steady pattern consumer of 1000 points × 50 Hz, raw and through the client |
 | broker | `cargo test --release -p wyrm-client --test fan_in -- --ignored --nocapture` | pattern consumer | the client's value stream with no session: handler + read on one thread, and 1000 samples every 20 ms read by a task |
 
@@ -995,6 +996,99 @@ allocator: nested and 16 MiB claims allocate nothing in the peek and under
 other signers work in turn (the last row above) is found by the search;
 only a key id in the token would remove that, and that is a spec change
 nobody needs yet.
+
+**Flow copies (2026-11-21, `perf/flow-copies`): partly done.** What one
+sample costs inside the flow runtime was not measured apart: `throughput`
+puts every sample through a session and a `publish` node. `tests/copies.rs`
+(`wyrm-flow`) starts the runtime directly (`runtime::start`), pushes the
+samples of a round into the first node's inbox in one burst and reads the
+end from the flow's own `samples_in`; the counting allocator; each case is
+the median of 7 rounds, and the table gives the median of 5 such runs. No
+profiler is installed on this machine (`samply`, `cargo flamegraph`): the
+copies were ranked by the allocation count of each stage, one change at a
+time.
+
+M4 Max, release, loaded by other agents' builds (load 25–46 before, 12–14
+after; rough). The allocation counts do not move with the load; the rates
+and the CPU do.
+
+| Figure | Before | After |
+|---|---|---|
+| chain of 10 pure blocks (`add`, `multiply`), one number per sample | 123 800 samples/s; 16.8 µs CPU and 90 allocations (4 960 B) per sample | 305 900 samples/s; 6.7 µs, 1.0 allocation (24–50 B) |
+| one `add` whose output has 16 edges, each into an `abs` | 53 500 samples/s; 64.6 µs, 121 allocations (6 580 B) | 196 900 samples/s; 16.6 µs, 1.0 allocation (24–234 B) |
+| one `expression` (rhai, `x.v * 2.0 + 1.0`) | 991 700 samples/s; 1.00 µs, 15 allocations (1 234 B) | 1 103 000 samples/s; 0.97 µs, 11 allocations (897 B) |
+| a 1000-row table of 3 columns through 3 `table_sort` | 375 tables/s; 2 695 µs, 97 190 allocations (12.0 MB) per table | 523 tables/s; 1 930 µs, 60 100 allocations (8.25 MB); two runs, load 11 |
+| `throughput`, `flow/per_hop` (`scale`, `add`; one run) | 6.0 allocations, 425 B per sample and hop | 0.002 allocations, 0.3 B |
+| `throughput`, `flow/table/per_hop` (10 000 rows as lists, `table_sort`; one run) | 140 000 allocations, 40.6 MB | 80 000 allocations, 27.1 MB |
+| `throughput`, 10 000-row table through 3 `table_sort` (one run, load 6–10) | lossless at 20 tables/s | lossless at 50 tables/s, the top of the ladder |
+
+The one allocation left per sample in the first two rows is the test's own
+push into the first inbox (a port name given as text, as a source's
+`inject` gives it).
+
+Where the copies were, per block and sample, and what changed (no change of
+a sample, of the order of samples on an edge, of the `start`/`constant`
+marks, of `watch` or of the counters; `spec/` did not change):
+
+- `runtime.rs`: an inbox kept the input's name as a `String` made for every
+  sample. An edge now holds the name once (`Arc<str>`) and every sample
+  pushed there shares it. A name given as text (`Inbox::push_now`: a
+  source's `inject`, `~act/trigger`) is still copied once.
+- `runtime.rs`: `route` copied the sample for every edge and dropped the
+  original. The last edge of an output now takes the sample itself, so an
+  output with one edge copies nothing: one deep copy less per table and hop.
+  The edges are served in the same order (`route_keeps_the_order_of_edges_and_samples`).
+- `runtime.rs`: the list of what a call emitted was allocated for every
+  call; a node task now keeps one and `route` empties it.
+- `nodes.rs`: `Out::emit` copied the output's name for every sample. An
+  output is named in the code: `Out` holds `Cow<'static, str>` (`PortName`),
+  and only a name made while the flow runs (`router`'s `out.<name>`, an
+  input's echo, a `wasm` node's outputs) is owned.
+- `blocks.rs`: a block copied the input's name three times for every sample
+  (the name, the key of `seen`, the key of `values` or `params`) and the
+  output's name once (the key of `sent`). Each slot is now found by the name
+  and its key is made only for the first sample (`put`). `add`, `subtract`,
+  `multiply`, `divide`, `max`, `min` read their inputs in place instead of
+  copying all of them into a list and the numbers into a second one.
+- `nodes.rs`: `expression` copied the input's name twice per sample.
+- `blocks/table.rs`, `blocks/tables.rs`: a table block parsed its input
+  into rows (one copy, needed: the block keeps its input) and then copied
+  every row again into the output value. `Table::into_value` moves a row
+  that holds exactly the table's columns (`into_value_is_to_value`). The
+  parser copied every key of every row to ask whether the column was
+  known; it now copies a key only for a new column.
+- test `a_number_through_ten_blocks_allocates_next_to_nothing`
+  (`tests/copies.rs`, runs with the other tests): under 3 allocations per
+  sample through 10 blocks.
+
+Dropped: nothing. Each change was measured alone or with its neighbours in
+the same file, and each took at least one allocation of the nine per block
+and sample, or a copy of a table per block.
+
+Not done:
+
+- a table is still copied four times per block: the parse of the input the
+  block keeps, the last value sent per output (`sent`, for "send only when
+  it differs"), and the last sample of the input and of the output in the
+  probe (`watch` keeps them with no watch open, spec 06 0.2.18). An output
+  with n edges adds n − 1. All of them need a payload that is shared
+  (`Arc`, copy on write), and `Msg.v` is a `wyrm_core::Value`, read in
+  about 60 places of the engine and 120 of its tests: a slice of its own.
+  Expected from it: one copy per table and block instead of four;
+- rhai: 11 allocations per call are left (the variables' map and scope, the
+  `state` map boxed and read back, the evaluation itself). A value that is a
+  map or a list is converted to `Dynamic` and back on every call; a scope
+  kept between calls was not tried;
+- the per-row scripts of `table_filter` and the other row blocks (a row
+  converted to a rhai map per row) and `flow/table/filter_sum`, which still
+  loses tables to its 100 ms script budget;
+- what is left of a hop, about 0.7 µs of CPU per sample, was not profiled.
+  It is not an allocation. In the code of a hop: a wake-up of the next
+  node's task, the probe's lock and compare twice per call, a clock read for
+  `last_sample_t`;
+- the sources and the sinks (`subscribe`, `publish` and its encode, the
+  commands) are not in this measurement;
+- the reference board and a quiet machine.
 
 Not covered yet:
 
