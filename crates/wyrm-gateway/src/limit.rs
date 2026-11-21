@@ -243,13 +243,18 @@ mod tests {
 
     #[test]
     fn a_refusal_is_noted_once_per_window() {
-        let l = LoginLimiter::new(1, Duration::from_millis(50));
+        // A long window for "once": a loaded runner may pause longer than a
+        // short window between two calls.
+        let l = LoginLimiter::new(1, Duration::from_secs(60));
         let a: IpAddr = "10.0.0.1".parse().unwrap();
         assert!(l.note_refusal("u", a));
         assert!(!l.note_refusal("u", a));
         assert!(l.note_refusal("v", a), "per user");
+        // A short window only for "again after it".
+        let short = LoginLimiter::new(1, Duration::from_millis(50));
+        assert!(short.note_refusal("u", a));
         std::thread::sleep(Duration::from_millis(60));
-        assert!(l.note_refusal("u", a), "again after the window");
+        assert!(short.note_refusal("u", a), "again after the window");
     }
 
     #[test]
