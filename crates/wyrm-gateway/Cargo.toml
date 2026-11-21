@@ -12,6 +12,9 @@ authors.workspace = true
 default = ["mcp"]
 # The remote MCP endpoint `/mcp` (ADR 0041 stage B); the OAuth server is always built.
 mcp = ["dep:rmcp", "dep:wyrm-mcp", "dep:wyrm-gateway-client", "dep:tokio-tungstenite"]
+# `ws::testkit`: the value path of one `subscribe` with no socket and no session, for its
+# own tests and measurements (tests/frame_path.rs). Dev only: no product crate turns it on.
+testkit = []
 
 [dependencies]
 wyrm-core = { workspace = true, features = ["ring"] }
@@ -46,6 +49,10 @@ wyrm-gateway-client = { workspace = true, optional = true }
 tokio-tungstenite = { workspace = true, optional = true }
 
 [dev-dependencies]
+wyrm-gateway = { path = ".", features = ["testkit"] }
+# the value stream fed by hand, the counting allocator and the PERF line of tests/frame_path.rs
+wyrm-client = { workspace = true, features = ["testkit"] }
+wyrm-bench.workspace = true
 # the users store snapshot of SCHEMA 5 decodes as today's (`users.rs` tests)
 postcard.workspace = true
 wyrm-gateway-client.workspace = true

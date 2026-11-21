@@ -306,6 +306,29 @@ async fn run(st: AppState, p: Principal, socket: WebSocket) {
     serve_frames(st, p, true, stream, sink).await;
 }
 
+/// The one task that writes a connection's frames to its transport, in the order they
+/// were queued; it ends with the queue or with a close.
+async fn write_frames<Si>(mut out_rx: mpsc::Receiver<Out>, mut sink: Si)
+where
+    Si: futures_util::Sink<WsOut> + Unpin,
+{
+    while let Some(o) = out_rx.recv().await {
+        match o {
+            Out::Frame(v) => {
+                let Ok(b) = to_vec(&v) else { continue };
+                if sink.send(WsOut::Binary(b)).await.is_err() {
+                    break;
+                }
+            }
+            Out::Close(code, reason) => {
+                let _ = sink.send(WsOut::Close(code, reason)).await;
+                break;
+            }
+        }
+    }
+    let _ = sink.close().await;
+}
+
 /// The protocol over any frame transport: an axum socket, or the in-process
 /// pipe of the MCP endpoint (ADR 0041).
 ///
@@ -324,25 +347,8 @@ pub(crate) async fn serve_frames<St, Si>(
     Si: futures_util::Sink<WsOut> + Send + Unpin + 'static,
 {
     let mut stream = stream;
-    let mut sink = sink;
-    let (out_tx, mut out_rx) = mpsc::channel::<Out>(OUT_QUEUE);
-    let writer = tokio::spawn(async move {
-        while let Some(o) = out_rx.recv().await {
-            match o {
-                Out::Frame(v) => {
-                    let Ok(b) = to_vec(&v) else { continue };
-                    if sink.send(WsOut::Binary(b)).await.is_err() {
-                        break;
-                    }
-                }
-                Out::Close(code, reason) => {
-                    let _ = sink.send(WsOut::Close(code, reason)).await;
-                    break;
-                }
-            }
-        }
-        let _ = sink.close().await;
-    });
+    let (out_tx, out_rx) = mpsc::channel::<Out>(OUT_QUEUE);
+    let writer = tokio::spawn(write_frames(out_rx, sink));
     let conn = Arc::new(Conn {
         gw: st.gw.clone(),
         session: st.session.clone(),
@@ -827,50 +833,14 @@ impl Conn {
         // point the user may not read takes no memory (security review). It
         // is checked again below, as grants can change while a value waits.
         let (gw, filter) = (self.gw.clone(), self.grants.subscribe());
-        let readable = move |key: &str| {
-            filter.borrow().perm(&format!("{}/~val", gw.as_own(key))) >= Perm::Read
-        };
+        let readable = move |key: &str| may_read(&gw, &filter.borrow(), key);
         let mut s = match self.client(&p).subscribe_filtered(&key, readable).await {
             Ok(s) => s,
             Err(e) => return self.send(client_err(id, &e)).await,
         };
         self.send(ok_frame(id, None)).await;
-        let grants = self.grants.subscribe();
-        while let Some(ev) = s.next().await {
-            let (key, ev) = match ev {
-                ValEvent::Sample { key, sample, qual } => {
-                    let mut f = vec![
-                        ("key", Value::Str(key.clone())),
-                        ("v", sample.v),
-                        ("q", Value::from(sample.q.name())),
-                        ("t", Value::UInt(sample.t)),
-                    ];
-                    if let Some(q) = qual {
-                        f.push(("qual", Value::Str(q)));
-                    }
-                    let ev = event_frame(id, "sample", f);
-                    (key, ev)
-                }
-                ValEvent::Removed(key) => {
-                    let ev = event_frame(id, "removed", [("key", Value::Str(key.clone()))]);
-                    (key, ev)
-                }
-            };
-            // Per-point filter: the first grant matching this very key.
-            if grants
-                .borrow()
-                .perm(&format!("{}/~val", self.gw.as_own(&key)))
-                < Perm::Read
-            {
-                continue;
-            }
-            // Wait for room: only this task waits. The client stream keeps
-            // one pending value per key meanwhile (newest wins) and never
-            // holds up the shared session, so a slow socket gets the latest
-            // value of every point instead of losing some at random.
-            if self.out.send(Out::Frame(ev)).await.is_err() {
-                return;
-            }
+        if !pump_values(&self.gw, self.grants.subscribe(), id, &mut s, &self.out).await {
+            return;
         }
         // a stream ended by a limit (`resource_exhausted`: too many keys,
         // or a socket that never catches up) ends with that error
@@ -879,6 +849,63 @@ impl Conn {
             None => self.send(event_frame(id, "closed", [])).await,
         }
     }
+}
+
+/// The user may read the value of the node `key` (the first grant matching this very key).
+fn may_read(gw: &Gateway, g: &Grants, key: &str) -> bool {
+    g.perm(&format!("{}/~val", gw.as_own(key))) >= Perm::Read
+}
+
+/// The frame of one value event of stream `id`, and the node key it is about.
+fn value_frame(id: u64, ev: ValEvent) -> (String, Value) {
+    match ev {
+        ValEvent::Sample { key, sample, qual } => {
+            let mut f = vec![
+                ("key", Value::Str(key.clone())),
+                ("v", sample.v),
+                ("q", Value::from(sample.q.name())),
+                ("t", Value::UInt(sample.t)),
+            ];
+            if let Some(q) = qual {
+                f.push(("qual", Value::Str(q)));
+            }
+            let ev = event_frame(id, "sample", f);
+            (key, ev)
+        }
+        ValEvent::Removed(key) => {
+            let ev = event_frame(id, "removed", [("key", Value::Str(key.clone()))]);
+            (key, ev)
+        }
+    }
+}
+
+/// The value events of one `subscribe`, each as a frame into the connection's queue,
+/// until the stream ends. `false`: the connection is gone.
+async fn pump_values<S>(
+    gw: &Gateway,
+    grants: watch::Receiver<Arc<Grants>>,
+    id: u64,
+    s: &mut S,
+    out: &mpsc::Sender<Out>,
+) -> bool
+where
+    S: futures_util::Stream<Item = ValEvent> + Unpin,
+{
+    while let Some(ev) = s.next().await {
+        let (key, ev) = value_frame(id, ev);
+        // Per-point filter: the first grant matching this very key.
+        if !may_read(gw, &grants.borrow(), &key) {
+            continue;
+        }
+        // Wait for room: only this task waits. The client stream keeps
+        // one pending value per key meanwhile (newest wins) and never
+        // holds up the shared session, so a slow socket gets the latest
+        // value of every point instead of losing some at random.
+        if out.send(Out::Frame(ev)).await.is_err() {
+            return false;
+        }
+    }
+    true
 }
 
 fn visible_child(g: &Grants, parent: &str, name: &str) -> bool {
@@ -999,6 +1026,124 @@ fn child_value(c: &Child) -> Value {
 fn laid(sites: &crate::overlay::Sites, parent: &str, mut c: Child) -> Child {
     crate::overlay::lay(sites, &format!("{parent}/{}", c.name), &mut c.meta);
     c
+}
+
+/// Test hooks (feature `testkit`, dev only): the value path of one `subscribe`
+/// (value stream → rights → frame → queue → writer) with no socket and no session, for
+/// its own tests and measurements (`tests/frame_path.rs`, docs/backlog.md §14).
+#[cfg(feature = "testkit")]
+pub mod testkit {
+    use super::{mpsc, watch, Arc, Gateway, Grants, Out, ValEvent, WsOut, OUT_QUEUE};
+    use std::pin::Pin;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::Mutex;
+    use std::task::{Context, Poll};
+
+    /// What the writer handed to the transport.
+    #[derive(Debug, Default)]
+    pub struct Wire {
+        frames: AtomicU64,
+        bytes: AtomicU64,
+        flushes: AtomicU64,
+        /// The frames themselves, in order, when asked for ([`Wire::keeping`]).
+        kept: Option<Mutex<Vec<Vec<u8>>>>,
+    }
+
+    impl Wire {
+        pub fn new() -> Arc<Self> {
+            Arc::new(Self::default())
+        }
+
+        /// A wire that also keeps every frame ([`Wire::take`]).
+        pub fn keeping() -> Arc<Self> {
+            Arc::new(Self {
+                kept: Some(Mutex::new(Vec::new())),
+                ..Self::default()
+            })
+        }
+
+        pub fn frames(&self) -> u64 {
+            self.frames.load(Ordering::Relaxed)
+        }
+
+        pub fn bytes(&self) -> u64 {
+            self.bytes.load(Ordering::Relaxed)
+        }
+
+        /// Flushes of the transport: on a socket, each is a write to it.
+        pub fn flushes(&self) -> u64 {
+            self.flushes.load(Ordering::Relaxed)
+        }
+
+        /// The frames kept so far.
+        pub fn take(&self) -> Vec<Vec<u8>> {
+            self.kept
+                .as_ref()
+                .map(|k| std::mem::take(&mut *k.lock().unwrap_or_else(|p| p.into_inner())))
+                .unwrap_or_default()
+        }
+    }
+
+    struct Tap(Arc<Wire>);
+
+    impl futures_util::Sink<WsOut> for Tap {
+        type Error = std::convert::Infallible;
+
+        fn poll_ready(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+
+        fn start_send(self: Pin<&mut Self>, o: WsOut) -> Result<(), Self::Error> {
+            if let WsOut::Binary(b) = o {
+                self.0.frames.fetch_add(1, Ordering::Relaxed);
+                self.0.bytes.fetch_add(b.len() as u64, Ordering::Relaxed);
+                if let Some(k) = &self.0.kept {
+                    k.lock().unwrap_or_else(|p| p.into_inner()).push(b);
+                }
+            }
+            Ok(())
+        }
+
+        fn poll_flush(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+            self.0.flushes.fetch_add(1, Ordering::Relaxed);
+            Poll::Ready(Ok(()))
+        }
+
+        fn poll_close(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+    }
+
+    /// The bytes of the frame of one value event of stream `id`, as a socket gets them.
+    pub fn value_frame(id: u64, ev: ValEvent) -> Vec<u8> {
+        wyrm_core::codec::encode_to_vec(&super::value_frame(id, ev).1)
+    }
+
+    /// The rights check of one sample: `grants` let the user read the value of `key`.
+    pub fn may_read(gw: &Gateway, grants: &Grants, key: &str) -> bool {
+        super::may_read(gw, grants, key)
+    }
+
+    /// One `subscribe` of a connection of its own, to the end of `stream`: every event
+    /// `grants` allow goes as a frame through the connection's queue and its writer task
+    /// to `wire`. `false`: the writer task did not end by itself.
+    pub async fn serve_values<S>(
+        gw: Arc<Gateway>,
+        grants: Grants,
+        id: u64,
+        mut stream: S,
+        wire: Arc<Wire>,
+    ) -> bool
+    where
+        S: futures_util::Stream<Item = ValEvent> + Unpin + Send,
+    {
+        let (out_tx, out_rx) = mpsc::channel::<Out>(OUT_QUEUE);
+        let writer = tokio::spawn(super::write_frames(out_rx, Tap(wire)));
+        let (_keep, grants) = watch::channel(Arc::new(grants));
+        super::pump_values(&gw, grants, id, &mut stream, &out_tx).await;
+        drop(out_tx);
+        writer.await.is_ok()
+    }
 }
 
 #[cfg(test)]
