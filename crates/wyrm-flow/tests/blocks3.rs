@@ -69,6 +69,9 @@ fn feed(n: &mut dyn Node, io: &Io, port: &str, msg: Msg) -> Vec<(String, Msg)> {
     let mut out = Out::default();
     n.input(port, msg, io, &mut out);
     out.0
+        .into_iter()
+        .map(|(p, m)| (p.into_owned(), m))
+        .collect()
 }
 
 fn on(sent: &[(String, Msg)], port: &str) -> Option<Value> {
@@ -775,7 +778,12 @@ async fn now_has_a_clock() {
     std::thread::sleep(std::time::Duration::from_millis(2));
     let mut out = Out::default();
     n.tick(0, &mut out);
-    let t1 = on(&out.0, "out").unwrap();
+    let sent: Vec<(String, Msg)> = out
+        .0
+        .into_iter()
+        .map(|(p, m)| (p.into_owned(), m))
+        .collect();
+    let t1 = on(&sent, "out").unwrap();
     assert!(t1.as_f64().unwrap() > t0.as_f64().unwrap());
     // a new period from its port; one it cannot keep is ignored
     assert!(feed(&mut *n, io, "in.interval_ms", good(Value::Int(250))).is_empty());

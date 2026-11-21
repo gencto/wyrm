@@ -364,8 +364,8 @@ pub(super) fn scripts(op: Op, cfg: &crate::def::Map) -> Result<Option<Scripts>, 
 }
 
 /// A table result as outputs: `null` and `bad` past a bound.
-fn table_out(t: &Table) -> (Value, bool) {
-    match t.to_value() {
+fn table_out(t: Table) -> (Value, bool) {
+    match t.into_value() {
         Some(v) => (v, false),
         None => (Value::Null, true),
     }
@@ -446,7 +446,7 @@ pub(super) fn calc(op: Op, v: &View, sc: Option<&Scripts>) -> Outs {
                 Value::Str(s) if s.len() <= MAX_TEXT_TABLE => {
                     match parse_csv(s, delim, truth(v.p("with_header"), true)) {
                         Some(t) => {
-                            let (val, bad) = table_out(&t);
+                            let (val, bad) = table_out(t);
                             vec![
                                 ("out", val, bad),
                                 ("parse_error", Value::Bool(false), false),
@@ -499,7 +499,7 @@ pub(super) fn calc(op: Op, v: &View, sc: Option<&Scripts>) -> Outs {
             };
             match t {
                 Some(t) => {
-                    let (val, bad) = table_out(&t);
+                    let (val, bad) = table_out(t);
                     vec![
                         ("out", val, bad),
                         ("parse_error", Value::Bool(false), false),
@@ -565,7 +565,7 @@ pub(super) fn calc(op: Op, v: &View, sc: Option<&Scripts>) -> Outs {
                 }
             }
             out.columns = cols;
-            let (val, bad) = table_out(&out);
+            let (val, bad) = table_out(out);
             vec![("out", val, bad), ("error", Value::Null, false)]
         }
         Op::Sort => {
@@ -585,7 +585,7 @@ pub(super) fn calc(op: Op, v: &View, sc: Option<&Scripts>) -> Outs {
                     )
                 });
             }
-            one(table_out(&t))
+            one(table_out(t))
         }
         Op::Filter | Op::RemoveRows => {
             let (Some(t), Some(sc)) = (input_table(v), sc) else {
@@ -604,7 +604,7 @@ pub(super) fn calc(op: Op, v: &View, sc: Option<&Scripts>) -> Outs {
                         .filter(|(_, k)| *k != remove)
                         .map(|(r, _)| r.clone())
                         .collect();
-                    let (val, bad) = table_out(&Table {
+                    let (val, bad) = table_out(Table {
                         columns: t.columns.clone(),
                         rows,
                     });
@@ -622,7 +622,7 @@ pub(super) fn calc(op: Op, v: &View, sc: Option<&Scripts>) -> Outs {
             };
             let Value::Map(cells) = v.p("cells") else {
                 return vec![
-                    ("out", table_out(&t).0, false),
+                    ("out", table_out(t).0, false),
                     ("error", Value::Null, false),
                 ];
             };
@@ -638,7 +638,7 @@ pub(super) fn calc(op: Op, v: &View, sc: Option<&Scripts>) -> Outs {
                             t.columns.push(k.clone());
                         }
                     }
-                    let (val, bad) = table_out(&t);
+                    let (val, bad) = table_out(t);
                     vec![("out", val, bad), ("error", Value::Null, false)]
                 }
                 Err(e) => vec![("out", Value::Null, false), ("error", Value::Str(e), false)],
@@ -697,7 +697,7 @@ pub(super) fn calc(op: Op, v: &View, sc: Option<&Scripts>) -> Outs {
                 }
                 out.rows.push(row);
             }
-            one(table_out(&out))
+            one(table_out(out))
         }
         Op::Join => {
             let (l, r) = (
@@ -711,7 +711,7 @@ pub(super) fn calc(op: Op, v: &View, sc: Option<&Scripts>) -> Outs {
             };
             let kind = ptext(v, "join");
             match join(l, r, &col, &rcol, &kind) {
-                Some(t) => one(table_out(&t)),
+                Some(t) => one(table_out(t)),
                 None => nul(),
             }
         }
@@ -721,7 +721,7 @@ pub(super) fn calc(op: Op, v: &View, sc: Option<&Scripts>) -> Outs {
                 return nul();
             };
             match rollup(&t, v) {
-                Some(t) => one(table_out(&t)),
+                Some(t) => one(table_out(t)),
                 None => nul(),
             }
         }
@@ -754,7 +754,7 @@ pub(super) fn calc(op: Op, v: &View, sc: Option<&Scripts>) -> Outs {
                 .take(MAX_ROWS)
                 .filter_map(|i| t.rows.get(i).cloned())
                 .collect();
-            one(table_out(&Table {
+            one(table_out(Table {
                 columns: t.columns.clone(),
                 rows,
             }))
@@ -778,7 +778,7 @@ pub(super) fn calc(op: Op, v: &View, sc: Option<&Scripts>) -> Outs {
                         .collect()
                 })
                 .collect();
-            one(table_out(&Table {
+            one(table_out(Table {
                 columns: cols,
                 rows,
             }))
@@ -794,7 +794,7 @@ pub(super) fn calc(op: Op, v: &View, sc: Option<&Scripts>) -> Outs {
                     ("type".to_owned(), Value::from(column_type(&t, c))),
                 ]));
             }
-            one(table_out(&out))
+            one(table_out(out))
         }
         Op::RowCells => {
             let Some(t) = input_table(v) else {
@@ -828,13 +828,13 @@ pub(super) fn calc(op: Op, v: &View, sc: Option<&Scripts>) -> Outs {
                 }
                 t.rows.push(r.clone());
             }
-            one(table_out(&t))
+            one(table_out(t))
         }
         Op::Transpose => {
             let Some(t) = input_table(v) else {
                 return nul();
             };
-            one(table_out(&transpose(&t, v)))
+            one(table_out(transpose(&t, v)))
         }
         Op::FromMap => match v.inv {
             Value::Map(m) if !m.contains_key("rows") => {
@@ -842,10 +842,10 @@ pub(super) fn calc(op: Op, v: &View, sc: Option<&Scripts>) -> Outs {
                     columns: m.keys().cloned().collect(),
                     rows: vec![m.clone()],
                 };
-                one(table_out(&t))
+                one(table_out(t))
             }
             x => match Table::from_value(x) {
-                Some(t) => one(table_out(&t)),
+                Some(t) => one(table_out(t)),
                 None => nul(),
             },
         },

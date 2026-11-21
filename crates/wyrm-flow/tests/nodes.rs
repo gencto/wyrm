@@ -72,12 +72,18 @@ fn feed(n: &mut dyn Node, io: &Io, port: &str, msg: Msg) -> Vec<(String, Msg)> {
     let mut out = Out::default();
     n.input(port, msg, io, &mut out);
     out.0
+        .into_iter()
+        .map(|(p, m)| (p.into_owned(), m))
+        .collect()
 }
 
 fn tick(n: &mut dyn Node, now: u64) -> Vec<(String, Msg)> {
     let mut out = Out::default();
     n.tick(now, &mut out);
     out.0
+        .into_iter()
+        .map(|(p, m)| (p.into_owned(), m))
+        .collect()
 }
 
 fn num(o: &(String, Msg)) -> f64 {

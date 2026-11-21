@@ -77,7 +77,7 @@ impl FlowStats {
     /// The events of a command block in what one call sent.
     fn command_events(&self, out: &Out) {
         for (port, _) in &out.0 {
-            let c = match port.as_str() {
+            let c = match port.as_ref() {
                 "sent" => &self.commands_sent,
                 "ok" => &self.commands_ok,
                 "error" => &self.commands_error,
@@ -100,7 +100,7 @@ fn counts_in(port: &str) -> bool {
 
 /// Bounded queue of `(port, msg)` with the flow's overflow policy.
 pub struct Inbox {
-    q: Mutex<VecDeque<(String, Msg)>>,
+    q: Mutex<VecDeque<(Arc<str>, Msg)>>,
     data: Notify,
     space: Notify,
     cap: usize,
@@ -122,12 +122,17 @@ impl Inbox {
         })
     }
 
-    fn lock(&self) -> std::sync::MutexGuard<'_, VecDeque<(String, Msg)>> {
+    fn lock(&self) -> std::sync::MutexGuard<'_, VecDeque<(Arc<str>, Msg)>> {
         self.q.lock().unwrap_or_else(|p| p.into_inner())
     }
 
     /// Non-blocking push (sources): `block` degrades to `drop_newest`.
     pub fn push_now(&self, port: &str, m: Msg) {
+        self.push_shared(Arc::from(port), m);
+    }
+
+    /// [`Inbox::push_now`] with the port's name as an edge holds it: no copy of the name.
+    fn push_shared(&self, port: Arc<str>, m: Msg) {
         let mut q = self.lock();
         if q.len() >= self.cap {
             self.dropped.fetch_add(1, Ordering::Relaxed);
@@ -139,22 +144,22 @@ impl Inbox {
                 Overflow::DropNewest | Overflow::Block => return,
             }
         }
-        q.push_back((port.to_owned(), m));
+        q.push_back((port, m));
         drop(q);
         self.data.notify_one();
     }
 
     /// Node-to-node push: `block` waits for space.
-    async fn push(&self, port: &str, m: Msg) {
+    async fn push(&self, port: &Arc<str>, m: Msg) {
         if self.overflow != Overflow::Block {
-            return self.push_now(port, m);
+            return self.push_shared(port.clone(), m);
         }
         loop {
             let wait = self.space.notified();
             {
                 let mut q = self.lock();
                 if q.len() < self.cap {
-                    q.push_back((port.to_owned(), m));
+                    q.push_back((port.clone(), m));
                     drop(q);
                     self.data.notify_one();
                     return;
@@ -169,7 +174,7 @@ impl Inbox {
         self.lock().is_empty()
     }
 
-    async fn pop(&self) -> (String, Msg) {
+    async fn pop(&self) -> (Arc<str>, Msg) {
         loop {
             let wait = self.data.notified();
             if let Some(item) = self.lock().pop_front() {
@@ -192,7 +197,9 @@ pub struct Running {
     pub inboxes: BTreeMap<String, Arc<Inbox>>,
 }
 
-type Route = Vec<(Arc<Inbox>, String)>;
+/// Where an output's samples go: each edge's inbox and the input's name, shared with every
+/// sample pushed there.
+type Route = Vec<(Arc<Inbox>, Arc<str>)>;
 
 /// The echo outputs of one node that an edge reads (ADR 0038 §1); the others are never built.
 #[derive(Default)]
@@ -289,7 +296,7 @@ pub fn start(
             .or_default()
             .entry(out)
             .or_default()
-            .push((inboxes[&e.to.node].clone(), e.to.port.clone()));
+            .push((inboxes[&e.to.node].clone(), Arc::from(e.to.port.as_str())));
     }
     let states: States = Arc::new(Mutex::new(BTreeMap::new()));
     let (stop, stop_rx) = watch::channel(false);
@@ -412,12 +419,12 @@ async fn run_node(
                 .and_then(|(_, m)| m.get(p).cloned())
                 .or_else(|| statics.get(p).cloned());
             if let Some(v) = v {
-                out.emit(p, Msg::new(v.clone(), Quality::Good, now).at_start());
-                echoed.insert(p.clone(), v);
+                echoed.insert(p.clone(), v.clone());
+                out.emit(p.clone(), Msg::new(v, Quality::Good, now).at_start());
             }
         }
         probe.record(&id, None, &out.0, None);
-        route(&routes, out, stats).await;
+        route(&routes, &mut out, stats).await;
     }
     let clock = |p: std::time::Duration, first: tokio::time::Instant| {
         let mut iv = tokio::time::interval_at(first, p);
@@ -443,8 +450,8 @@ async fn run_node(
     // a sample that was (ADR 0040 §2): the mark goes on with everything such a call sends. The
     // same holds for a sample made of typed constants (spec 06 0.2.30).
     let mut start_tick = at_once;
+    let mut out = Out::default(); // one buffer for every call: `route` leaves it empty
     loop {
-        let mut out = Out::default();
         let mut born_at_start = false;
         let mut of_constants = false;
         let ok = tokio::select! {
@@ -456,8 +463,8 @@ async fn run_node(
                 }
                 if !port.starts_with("__") {
                     // an input's echo goes out before the node handles the sample
-                    if !echoes.inputs.is_empty() && echoes.inputs.contains(&port) {
-                        out.emit(&port, m.clone());
+                    if !echoes.inputs.is_empty() && echoes.inputs.contains(&*port) {
+                        out.emit(port.to_string(), m.clone());
                     }
                     // the input's slot, before the node takes the sample (no copy of it)
                     probe.record(&id, Some((&port, &m.v, m.q)), &[], None);
@@ -497,7 +504,7 @@ async fn run_node(
                     for p in &echoes.params {
                         if let Some(v) = live.get(p) {
                             if echoed.get(p) != Some(v) {
-                                out.emit(p, Msg::new(v.clone(), Quality::Good, now));
+                                out.emit(p.clone(), Msg::new(v.clone(), Quality::Good, now));
                                 echoed.insert(p.clone(), v.clone());
                             }
                         }
@@ -513,7 +520,7 @@ async fn run_node(
         if !out.0.is_empty() || live.is_some() {
             probe.record(&id, None, &out.0, live.map(|(_, m)| m));
         }
-        route(&routes, out, stats).await;
+        route(&routes, &mut out, stats).await;
         // a parameter on its port may change the clock (`timer.period_ms`, `delay.ms`,
         // `window.size_s`, `alarm.delay_s`): the new one starts one period from now
         let Ok((now_every, _)) = clock_of(node.as_ref()) else {
@@ -538,13 +545,18 @@ async fn run_node(
 
 /// Send what a node emitted to the inboxes its edges name; a sample with an edge counts in
 /// `samples_out`.
-async fn route(routes: &HashMap<String, Route>, out: Out, stats: &FlowStats) {
-    for (port, m) in out.0 {
-        if let Some(targets) = routes.get(&port) {
+/// `out` is left empty. The edges of one output take the sample in their order; the last one
+/// takes the sample itself, the others a copy.
+async fn route(routes: &HashMap<String, Route>, out: &mut Out, stats: &FlowStats) {
+    for (port, m) in out.0.drain(..) {
+        if let Some(((last, last_port), others)) =
+            routes.get(port.as_ref()).and_then(|t| t.split_last())
+        {
             stats.samples_out.fetch_add(1, Ordering::Relaxed);
-            for (target, in_port) in targets {
+            for (target, in_port) in others {
                 target.push(in_port, m.clone()).await;
             }
+            last.push(last_port, m).await;
         }
     }
 }
@@ -562,5 +574,59 @@ impl<'a> Alive<'a> {
 impl Drop for Alive<'_> {
     fn drop(&mut self) {
         self.0.alive(self.1, false);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn msg(x: f64) -> Msg {
+        Msg::new(Value::Float(x), Quality::Good, 1)
+    }
+
+    /// Every edge of an output takes every sample, in the order of the edges and of the
+    /// samples; the buffer is empty after it; a sample on an output with no edge goes nowhere
+    /// and does not count.
+    #[tokio::test]
+    async fn route_keeps_the_order_of_edges_and_samples() {
+        for overflow in [Overflow::DropOldest, Overflow::Block] {
+            let stats = Arc::new(FlowStats::default());
+            let a = Inbox::new(16, overflow, stats.clone());
+            let b = Inbox::new(16, overflow, stats.clone());
+            let edge = |i: &Arc<Inbox>, p: &str| (i.clone(), Arc::<str>::from(p));
+            let routes: HashMap<String, Route> = HashMap::from([
+                (
+                    "out".to_owned(),
+                    vec![edge(&a, "in.0"), edge(&b, "in"), edge(&a, "in.1")],
+                ),
+                ("event".to_owned(), vec![edge(&b, "trigger")]),
+            ]);
+            let mut out = Out::default();
+            out.emit("out", msg(1.0));
+            out.emit("nobody", msg(9.0));
+            out.emit("event", msg(2.0));
+            out.emit("out".to_owned(), msg(3.0));
+            route(&routes, &mut out, &stats).await;
+            assert!(out.0.is_empty());
+            assert_eq!(stats.samples_out.load(Ordering::Relaxed), 3);
+            let all = |i: &Inbox| -> Vec<(String, Msg)> {
+                i.lock()
+                    .iter()
+                    .map(|(p, m)| (p.to_string(), m.clone()))
+                    .collect()
+            };
+            let at = |p: &str, x: f64| (p.to_owned(), msg(x));
+            assert_eq!(
+                all(&a),
+                [
+                    at("in.0", 1.0),
+                    at("in.1", 1.0),
+                    at("in.0", 3.0),
+                    at("in.1", 3.0)
+                ]
+            );
+            assert_eq!(all(&b), [at("in", 1.0), at("trigger", 2.0), at("in", 3.0)]);
+        }
     }
 }
