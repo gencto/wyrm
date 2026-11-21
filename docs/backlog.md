@@ -533,22 +533,25 @@ counting allocator (calls, frees, bytes; a bench or test installs it as its
 `#[global_allocator]`), nearest-rank percentiles, process CPU time and
 resident memory. CPU is the whole process (broker, links, the measuring
 client) in % of one core. No OS counts `fsync` calls: the audit figure gives
-them as derived from `wyrm-state` (3 per record: `sync_data` of the WAL,
-`sync_all` of the anchor, `sync_all` of the directory); on Linux
-`/proc/self/io` adds write calls and bytes; on macOS nothing more is
+the journal's own count of batches (`batches=`, one `sync_data` of the WAL
+each; with `state_anchor_dir` a batch adds the anchor's `sync_all` and its
+directory's, twice for a batch of two or more records; the perf tests set no
+anchor directory, so the first figure's "3 per record" was 1 per record); on
+Linux `/proc/self/io` adds write calls and bytes; on macOS nothing more is
 measured.
 
 | Group | Measurement | Audit item | What it covers |
 |---|---|---|---|
 | sdk | `cargo bench -p wyrm-link-sdk --bench verify` | 3 | one `ptok` check with 1 admin + 1/4/10/30 limited keys: signed by the admin key, by the first and by the last limited key, by a key nobody trusts (refused), a new `sub` in every token, the limited keys in turn with their own `sub` and with a new `sub` each time |
-| sdk | `cargo bench -p wyrm-link-sdk --bench tree` | 4, 5, 17 | declare 1k/5k/10k points (time, `~meta` puts and bytes; pure `NodeTree` and through `LinkCtx` over Zenoh); a wildcard `get` that hits one node of 10k; `view=list` of 1000 children with and without a profile name |
+| sdk | `cargo bench -p wyrm-link-sdk --bench tree` | 4, 5, 17 | declare 1k/10k/30k points (time, `~meta` puts and bytes, the parent's apart, bytes kept, peak RSS; pure `NodeTree` with one parent put per child, and through `LinkCtx` over Zenoh; `TREE_DECLARE_ONLY=<n>` runs one size in a process of its own); a wildcard `get` that hits one node of 10k; `view=list` of 1000 children with and without a profile name |
 | flow | `cargo test --release -p wyrm-flow --test throughput -- --ignored --nocapture` | 7–10 | `subscribe → (scale, add) × n → publish`, a paced rate ladder on one key and on 1000 keys, default and deep inbox; allocations per hop (9 hops minus 3); 10 000-row tables through `table_sort` ×1/×3 and `table_filter` + `table_aggregate` |
 | flow | `cargo test --release -p wyrm-flow --test copies -- --ignored --nocapture` | flow copies | the runtime started directly, no session and no `publish`: samples pushed into the first node's inbox, the end read from the flow's counters; a chain of 10 pure blocks, one output with 16 edges, one `expression` (rhai), a 1000-row table of 3 columns through 3 `table_sort`; median of 7 rounds: samples/s, CPU per sample, allocations and bytes per sample |
-| broker | `cargo test --release -p wyrmd --test perf -- --ignored --nocapture --exact <test>` | 1, 2, 12, 13, gateway | an in-process broker with the embedded mock: (a) base rate, (b) a client that subscribes `wy/<site>/downstream/**` in a loop and one `wy/**`, (c) the mock at `trace`, (d) the historian on 10 000 points, (e) 1000 invokes and the audit records/s, (f) 10 gateway WebSocket clients × 1000 points × 10 Hz, (g) a steady pattern consumer of 1000 points × 50 Hz, raw and through the client |
+| broker | `cargo test --release -p wyrmd --test perf -- --ignored --nocapture --exact <test>` | 1, 2, 12, 13, gateway | an in-process broker with the embedded mock: (a) base rate, (b) a client that subscribes `wy/<site>/downstream/**` in a loop and one `wy/**`, (c) the mock at `trace`, (d) the historian on 10 000 points, (e) 1000 invokes one after another, then 2000 from 50 subjects at once: latency, audit records/s, batches, and how late a 1 ms timer of the broker's runtime fires, (f) 10 gateway WebSocket clients × 1000 points × 10 Hz, (g) a steady pattern consumer of 1000 points × 50 Hz, raw and through the client |
 | broker | `cargo test --release -p wyrm-client --test fan_in -- --ignored --nocapture` | pattern consumer | the client's value stream with no session: handler + read on one thread, and 1000 samples every 20 ms read by a task |
 
 Test hooks: `wyrm-admin`'s `testkit` feature (dev only) gives the perf tests
-`Control::audit_lsn` and `Control::historian`. No product code changed.
+`Control::audit_lsn`, `Control::audit_batches` and `Control::historian`. Slice
+P0 changed no product code.
 
 First figures. Machine: Apple M4 Max (14 cores, 36 GB), macOS, release
 build, commit `9b95c288`/`c938a6b4` (the measurements only), 2026-11-19. The
@@ -562,6 +565,8 @@ and the reference board (4-core ARM64, 2 GB) is not measured yet.
 | M4 Max, loaded, rough | release | `verify`, last of 4 / 10 / 30 limited keys | p50 111 / 243 / 684 µs (p99 1.27 ms at 30), 14 / 20 / 40 allocs | 2026-11-19 |
 | M4 Max, loaded, rough | release | one Ed25519 `verify_strict` | p50 21.6 µs | 2026-11-19 |
 | M4 Max, loaded, rough | release | declare 1k / 5k / 10k points (`LinkCtx`) | 85 ms / 2.1 s / 8.9 s; `~meta` 2.3 / 67 / 276 MiB in 2 puts per point; 2.6k / 12.6k / 25k allocs per point | 2026-11-19 |
+| M4 Max, load 12–20, rough | release | the same before the fix below, `origin/main` `32cfee50`, 1k / 10k / 30k points, one process per size | 84 ms / 8.4 s / 104 s; `~meta` put 2.3 / 276 / 2735 MiB, all but 0.01 / 0.1 / 0.4 MiB of it the parent's (1 parent put per point); 2.6k / 25k / 75k allocs per point; kept 0.78 / 6.5 / 25.0 MiB; peak RSS 9.0 / 20.9 / 51.6 MiB | 2026-11-20 |
+| M4 Max, load 12–18, rough | release | the same after the fix (`perf/declare-on`) | 2.8 ms / 29 ms / 89 ms (2.0 µs per point at every size); `~meta` put 0.07 / 1.1 / 4.1 MiB in 1 put per point + 43 / 82 / 102 parent puts in all; 50 / 55 / 57 allocs per point; kept 0.44 / 4.5 / 13.6 MiB; peak RSS 7.7 / 13.4 / 26.2 MiB | 2026-11-20 |
 | M4 Max, loaded, rough | release | wildcard `get` hitting 1 node of 10k vs. the plain `get` | p50 1.98 ms vs. 10.9 µs; 20 070 vs. 50 allocs | 2026-11-19 |
 | M4 Max, loaded, rough | release | `view=list` of 1000 children, plain vs. `is: "wy:number"` | p50 195 µs vs. 795 µs; 3.1k vs. 29k allocs; 0.58 vs. 6.6 MB allocated | 2026-11-19 |
 | M4 Max, loaded, rough | release | flow chain, 3 hops, one key, 2000/s | 7 % of samples thinned (the source keeps the latest sample per key) | 2026-11-19 |
@@ -586,8 +591,122 @@ and the reference board (4-core ARM64, 2 GB) is not measured yet.
 | M4 Max, load 12–19, rough | release | `verify` with the key index, first or last of 1 / 4 / 10 / 30 limited keys, also in turn with a `sub` each and with a new `sub` per token from one key | p50 21.8 / 21.7 / 21.8 / 21.7 µs (p99 28–36 µs), 9 allocs with a known `sub`; admin key 21.8 µs, 7 allocs | 2026-11-20 |
 | M4 Max, load 12–19, rough | release | `verify` with the key index, refused token, 1 / 4 / 10 / 30 limited keys | p50 42.4 / 105 / 231 / 645 µs (one verify per distinct key, as before) | 2026-11-20 |
 | M4 Max, load 12–19, rough | release | `verify` with the key index, the limited keys in turn and a new `sub` in every token (nothing tells the signer), 1 / 4 / 10 / 30 keys | p50 21.9 / 85.5 / 208 / 630 µs (before: 45.5 / 111 / 242 / 681 µs) | 2026-11-20 |
-| M4 Max, loaded, rough | release | 1000 invokes, audit | invoke p50 4.0 ms, p99 7.1 ms, 312/s; 233 audit records/s; derived 700 fsync/s | 2026-11-19 |
+| M4 Max, loaded, rough | release | 1000 invokes, audit | invoke p50 4.0 ms, p99 7.1 ms, 312/s; 233 audit records/s; derived 700 fsync/s (1 per record in fact: no anchor directory) | 2026-11-19 |
+| M4 Max, load 4–33, rough | release | 1000 invokes, audit, with the journal's group commit (table below) | four runs: invoke p50 0.10–0.31 ms, p99 0.20–6.1 ms, 1 330–8 169 per s; 1 289–6 836 audit records/s, 8–33 records per `fsync` | 2026-11-20 |
 | M4 Max, loaded, rough | release | gateway, 10 WS clients × 1000 points × 10 Hz | 100k frames/s, p50 4.0 ms, p99 8.1 ms, 84 % CPU, RSS 85 MiB | 2026-11-19 |
+
+**Done: the audit journal's write path (item 1, 2026-11-20,
+`perf/audit-write`).**
+
+*Cause, measured first.* Each audit record was one `Store::apply` under a
+`std::sync::Mutex`, called on a runtime worker: the `watch_audit` task for a
+link's records, any handler for the broker's own. `apply` writes the record
+and calls `fsync` (`F_FULLFSYNC` on macOS, about 4 ms on this machine). So
+the journal took 1 / 4 ms = 240 records/s whatever the load, a worker stood
+in the system call for all of that time, and a 1 ms timer of the same
+runtime fired 2.9 ms late at the median with one caller and 127–282 ms late
+at p95–p99 with 50. An `invoke` took the same 4 ms. The link puts its audit
+record before it answers; which step waited for the write (the put, or the
+task that answers) was not taken apart.
+
+*The contract, as it was and as it stays* (`docs/operations.md` §1):
+
+- a record the broker makes itself is on disk before the operation goes on
+  (`Control::record` returns after the `fsync`);
+- a record a link reports for its own `set`/`invoke` is not acknowledged to
+  anyone (ADR 0029, decision 7): the command's answer never waited for the
+  record to be durable, only for the put. It is written in arrival order;
+- nothing is dropped to make room, and a failed write is logged.
+
+*The change.* One thread (`wyrm-audit`) owns the store. Callers put records
+in a bounded queue (1024; a full queue makes the caller wait) and the thread
+writes what waits, at most 256 records, as one batch
+(`wyrm_state::Store::apply_batch`): one write, one `fsync`, then the anchor.
+`Control::record` waits for the batch that holds its record (a runtime
+worker is handed back with `block_in_place` meanwhile; `record_async` waits
+as a task); `watch_audit` only queues. Readers (`tail`, `audit_records`) see
+a copy that the writer updates after each batch and before it answers.
+`Control::shutdown` and the drop of the journal write the whole queue before
+the store closes. The bytes on disk are the same: same records, LSNs, CRC,
+HMAC chain, SCHEMA (test `a_batch_writes_the_bytes_of_single_applies`).
+
+One rule moved, in the anchor file, not in the WAL: the anchor let the WAL
+be one record ahead (a crash between the WAL write and the anchor write). A
+batch of n ≥ 2 first writes the anchor as `<lsn> <mac> +<n>`; open and
+`verify` then accept at most n records after it, and the anchor is the plain
+head again when the batch is done. Without the announcement the rule is the
+old one, so a cut of the tail is found as before (tests
+`a_crash_inside_a_batch_leaves_a_valid_prefix`: the WAL cut at every byte of
+a batch; `the_anchor_of_a_batch_refuses_every_other_cut`). A batch of one is
+written exactly as before.
+
+*Figures.* `perf_e_audit`, M4 Max, release, the same hour, other agents'
+builds running (load average in the table; the second run after the change
+had the highest load, and shows it):
+
+| Figure | Before (2 runs, load 23 → 11) | After (4 runs: load 18, 33, then two at 4 → 22) |
+|---|---|---|
+| invoke, one after another: p50 / p99 | 3.96 / 4.84 ms; 3.96 / 5.62 ms | 0.12 / 0.20 ms; 0.31 / 6.1 ms; 0.11 / 0.28 ms; 0.10 / 0.34 ms |
+| invokes per second, one after another | 335; 322 | 7 991; 1 330; 8 169; 7 689 |
+| audit records per second, one caller | 242; 240 | 6 717; 1 289; 6 836; 6 551 |
+| records per `fsync`, one caller | 1; 1 | 32; 7.8; 33; 32 |
+| 1 ms timer late, one caller: p50 / p99 | 2.92 / 3.74 ms; 2.87 / 4.40 ms | 1.03 / 1.28 ms; 1.28 / 6.0 ms; 1.05 / 1.48 ms; 1.05 / 2.05 ms |
+| invoke from 50 subjects at once: p50 / p99 | 160 / 539 ms; 156 / 501 ms | 1.1 / 2.4 ms; 4.1 / 18.7 ms; 1.0 / 2.2 ms; 1.0 / 2.2 ms |
+| invokes per second, 50 subjects | 267; 280 | 39 215; 9 347; 41 845; 41 463 |
+| audit records per second, 50 subjects | 233; 243 | 27 685; 8 080; 32 655; 31 479 |
+| records per `fsync`, 50 subjects | 1; 1 | 182; 69; 182; 182 |
+| 1 ms timer late, 50 subjects: p50 / p95 / p99 | 1.27 / 127 / 267 ms; 1.26 / 141 / 282 ms | 1.26 / 1.93 / 2.03 ms; 1.41 / 3.47 / 4.37 ms; 1.26 / 1.83 / 2.01 ms; 1.26 / 1.86 / 2.15 ms |
+
+A 1 ms `tokio::time::sleep` fires about 1 ms late on an idle runtime (the
+timer's own step), so 1.0–1.3 ms is the floor of that figure. The journal
+is no longer what bounds commands: with 50 callers the CPU of the whole
+process (broker, mock, 50 clients) is 200–690 % of a core.
+
+*Left.* The reference board and a quiet machine. Not changed: the other
+`wyrm-state` stores (registry, flows, users) write one record per `fsync`
+from the caller's thread, as before; they are not on the command path.
+`wyrmd user …` (the offline command line) writes its audit record with a
+plain `apply`.
+
+*After the audit of #152 (2026-11-20).*
+
+- A kill inside a batch left the anchor with its announcement, which a
+  version from before group commit refuses: the automatic rollback of a
+  broker update (ADR 0048 §2.5) then could not start the previous version.
+  Rule: while `update.json` says `trial`, the journal writes record by
+  record, in the form every earlier version opens
+  (`Journal::one_by_one`, set at `Control::open`, when an update is staged
+  and when it is confirmed). Tests
+  `in_a_trial_the_files_are_what_the_previous_version_opens` (the files at
+  every step of every write pass the old rule),
+  `the_audit_journal_follows_the_update_state`. Second audit: the same
+  from the moment `rollback_update` is asked (the state stays `confirmed`
+  and names who asked); the switch waits for a batch in flight before the
+  action answers. Test `a_rollback_asked_switches_the_journal_before_it_answers`
+  (through the action).
+- A failed write left its bytes in the WAL and the next record followed
+  them (the note above; with batches the window was larger). `Store::append`
+  cuts the file back; when it cannot, or when the `fsync` failed, the store
+  refuses every later write (`StateError::Broken`) until it is opened
+  again. For `apply` too, so for every store. Tests
+  `a_failed_batch_leaves_no_bytes_and_moves_nothing`,
+  `a_failed_apply_leaves_no_bytes`,
+  `a_store_that_cannot_undo_a_write_takes_no_more`.
+- The crash test wrote the announcement itself. Now a probe
+  (`Store::with_probe`, feature `testkit`) copies the files before each
+  step of a real batch: `a_kill_at_each_step_of_a_batch_leaves_a_store_that_opens`
+  fails when `commit` does not announce.
+- A panic of the writer thread left callers waiting for ever: the thread's
+  end closes the queue (`WriterEnd`); test
+  `a_writer_that_panics_fails_its_callers`.
+
+`perf_e_audit` after these changes and the merge of main (two runs, load
+15–22, outside a trial): invoke p50 0.12 / 0.11 ms, p99 0.20 / 0.35 ms,
+7 968 / 7 558 per s; 6 749 / 6 415 audit records/s in 31 / 31 batches; 50
+subjects: p50 1.10 / 0.99 ms, p99 2.2 / 2.3 ms, 40 085 / 43 489 invokes/s,
+34 500 / 33 177 records/s in 11 / 11 batches; 1 ms timer late p99 2.1 /
+1.9 ms and 2.2 / 1.8 ms. No change against the table above. Follow-ups:
+issue #153.
 
 **Found: the historian's group start stalls the broker** (called a
 deadlock here: 0 % CPU and no progress for 9 min, twice; a symbolized
@@ -664,6 +783,87 @@ at 2 Hz the historian wrote 18 000 rows/s of the 20 000 samples/s, with 0
 counted as dropped. On 2026-11-20 (load 7–12) it wrote 20 000 rows/s in
 both runs; the cause of the lower figure under the heavier load is not
 diagnosed.
+
+**Fixed (2026-11-20, `perf/declare-on`): declaring n points under one
+node cost n².** Audit item 4. The cause, by the counters of the bench (no
+`samply`/`cargo flamegraph` on the machine; a `sample` of the stripped
+bench shows only `malloc`, `free` and `memmove` on top): every new child
+put its parent's whole `~meta`, and that lists every child. Of the 276 MiB
+put for 10 000 points, all but 0.1 MiB were the parent's 10 000 puts (27.6 kB
+each on average); a point's own `~meta` is about 10 bytes. Each of those puts
+also copied the child list twice and built two keys per child (2.5
+allocations per child and declare). The 276 MiB were bytes put, never
+memory held: the process peaked at 21 MiB. Nothing of it was Zenoh's: the
+broker stores `~val` only, and of the 6.5 MiB kept after 10 000 declares
+6.4 MiB are the link's own tree (the same figure without Zenoh).
+
+The rule now (`LinkCtx`, `Parents` in `crates/wyrm-link-sdk/src/ctx.rs`):
+
+- a child's own `~meta` is put by its declare, as before: a `list` client
+  gets `Added` for every child from that put, and a snapshot
+  (`view=full|list|keys`) is answered from the tree, which the declare has
+  already changed. Wire, keys and payloads are unchanged;
+- the parent's `~meta` for a changed child list (a child declared or
+  removed) is put at once when no such put was made just before. After
+  one, the next waits 4 times as long as that put took (at most 500 ms);
+  a parent that changes meanwhile is noted in a set (a path once, so never
+  more than the tree holds: no queue) and one task puts each noted parent
+  when the wait ends, once, with the list as it is then. The parent puts
+  take at most 1/5 of a burst's time, so n children cost O(n). A single
+  Add in a quiet link is put by the declare itself, as before;
+- a requester that follows the parent's `~meta` sees fewer puts in a
+  burst, with `rev` rising by more than 1; the last put always carries
+  the whole list (spec 02 Patch already tells a requester what a gap
+  means). All `~meta` puts of a link take turns, and each reads the tree
+  inside its turn, so the last put of a node is its newest meta also when
+  two tasks put it (before, two tasks could leave the older one last);
+- a put made later by the task cannot fail the declare that asked for it
+  (it is logged at `debug`); a stopped link drops what waited;
+- a removal takes a turn of the `~meta` puts (audit of #154): `remove_node`
+  takes the nodes out of the tree and sends their deletes inside one turn.
+  A put of a removed node, or of a parent that still lists it, is out
+  before the delete, or its turn comes after and it reads a tree without
+  the node. Before, a put that had read the tree could follow the delete,
+  and a `list` client showed the removed node again (5–11 of 20 000
+  add/remove cycles). `remove_node` is the only place that deletes keys and
+  `put_meta` the only one that puts a `~meta`; a link's stop deletes
+  nothing and puts nothing more;
+- a changed child list is noted before its put, also when the put is made
+  at once, and the note goes only with a put that carried it: a put that
+  failed, or whose caller gave up half-way, is made again by the task
+  after 250 ms (before, the list stayed old until the next change);
+  Measured again with both (2026-11-21, M4 Max, load 5–7, three runs
+  each): 1k / 10k / 30k points in 2.8 / 28–33 / 91–92 ms, `~meta` put
+  0.07 / 1.0–1.1 / 4.1–4.4 MiB, 41–42 / 72–81 / 106–109 parent puts: the
+  figures of the table above did not move;
+- the tree keeps its nodes boxed: the hash table holds a key and a pointer
+  per slot instead of a 352-byte node in every slot, used or not (kept
+  25.0 → 13.6 MiB at 30 000 points, and no 12 + 24 MiB copy when the
+  table grows); `NodeTree::full` reads each child once.
+
+Tests: `crates/wyrm-link-sdk/tests/declare_burst.rs` (5000 children put
+the parent at most 500 times, it was 5000; the last put is the whole list
+with the tree's `rev`, also with two declaring tasks and for removals; a
+single child is put at once; a stopped link puts nothing; a put of a
+folder stopped by a test gate after its read of the tree, then the folder
+removed: the removal waits and the folder's samples end with the one
+delete, with no sleep that decides the result; a failed and a dropped
+parent put are made again) and
+`crates/wyrm-client/tests/declare_burst.rs` (lists opened before and
+during a burst of 10 000 children all end with every child, each added
+once; the folder's last put, seen by its parent's list, carries all).
+
+Left as it is: a `list` opened while children are declared faster than
+its snapshot is read answers `busy` ("children kept changing"), as
+before; the caller asks again, and the bursts are now some 300 times
+shorter at 10 000 points. A node is still 352 bytes for a 10-byte meta (`NodeMeta` is a
+struct of many optional fields: a change of `wyrm-core`, not done here).
+Removing n children one at a time still searches the parent's list each
+time (n² short string compares; not measured apart). A `~val` put is outside the turns (as before this change): `update` checks
+the tree and then puts, so a value published while its node is removed can
+follow the delete of `~val`; a turn per value would put every sample of a
+link in one queue. The framework's four own `~meta` puts per point (the point,
+then each action) are a constant per point and are not merged.
 
 **Pattern (fan-in) consumer (2026-11-20, `perf/fan-in`): partly done.**
 The figure "CPU 10.5 → 121 %" above is not what a pattern consumer costs.
@@ -894,7 +1094,7 @@ Not covered yet:
 
 - the reference board, a LAN between broker and clients, and a quiet
   machine;
-- `fsync` counts (no OS counts them; the audit's are derived);
+- `fsync` counts (no OS counts them; the audit's are its batches);
 - the historian's flush cost per row (its start and rate under 10 000
   watches are above);
 - musl and its system allocator (audit item 6): the container images are

@@ -3,10 +3,12 @@
 use crate::error::{LinkError, Result};
 use crate::support::{Metrics, SecretStore};
 use crate::tree::{Changed, NodeTree};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, RwLock, Weak};
+use std::time::{Duration, Instant};
+use tracing::Instrument;
 pub use wyrm_core::clock::now_us;
 use wyrm_core::keyspace::{self, SUFFIX_META, SUFFIX_VAL};
 use wyrm_core::meta::ActionMeta;
@@ -20,6 +22,129 @@ use zenoh::Session;
 /// The root attribute that says the responder answers `~act/<a>?check` (spec 05 0.2.33).
 pub const CHECK_ATTR: &str = "check";
 
+/// After a parent's `~meta` (its `children`) was put, the next put of a
+/// parent waits this many times as long as that put took: the lists of a
+/// burst of new children cost at most 1/(1 + `HOLD_FACTOR`) of its time.
+const HOLD_FACTOR: u32 = 4;
+
+/// The longest a changed child list waits for its put.
+const HOLD_MAX: Duration = Duration::from_millis(500);
+
+/// A put of a changed child list that failed is tried again after this.
+const RETRY: Duration = Duration::from_millis(250);
+
+/// Parents whose child list changed and whose `~meta` is not put yet.
+///
+/// A parent's `~meta` lists every child, so one put per new child makes a
+/// burst of n children cost n² (docs/backlog.md §14). The first change of a
+/// list is put at once, as it always was; while the hold that follows it
+/// lasts, a changed parent is only noted here and one task
+/// ([`flush_parents`]) puts it when the hold ends, once, with the list as
+/// it is then. A set, not a queue: it holds a path once, so it never grows
+/// beyond the tree, and nothing is lost when the driver is faster than the
+/// puts.
+///
+/// A parent is noted before its put, also when the put is made at once,
+/// and the note goes only when a put that carried that change (or a later
+/// one) has succeeded, the node is gone or the link has stopped: a put
+/// that failed or was dropped half-way is made again by the task.
+#[derive(Default)]
+struct Parents {
+    state: Mutex<ParentsState>,
+    /// Wakes [`flush_parents`]: a parent was noted, or the link has ended.
+    wake: tokio::sync::Notify,
+    /// Puts of a parent's `~meta` for a changed child list (for tests and
+    /// benches: it grows much slower than the children of a burst).
+    puts: AtomicU64,
+    /// Test hooks: `~meta` puts to fail, and a gate before the puts of a node.
+    #[cfg(feature = "harness")]
+    hooks: Mutex<(u32, Option<MetaGate>)>,
+}
+
+/// Test hook ([`LinkCtx::gate_meta_puts`]): every `~meta` put of one node
+/// stops between its read of the tree and the put, inside its turn, until
+/// the gate is opened.
+#[cfg(feature = "harness")]
+#[derive(Clone)]
+pub struct MetaGate {
+    path: Arc<str>,
+    /// One permit per put that has stopped at the gate.
+    stopped: Arc<tokio::sync::Semaphore>,
+    /// Closed = the gate is open.
+    open: Arc<tokio::sync::Semaphore>,
+}
+
+#[cfg(feature = "harness")]
+impl MetaGate {
+    /// Wait until a put of the node has stopped at the gate (each stopped
+    /// put is told once).
+    pub async fn stopped(&self) {
+        if let Ok(p) = self.stopped.acquire().await {
+            p.forget();
+        }
+    }
+
+    /// Open the gate for good: the stopped put and every later one go on.
+    pub fn open(&self) {
+        self.open.close();
+    }
+}
+
+#[derive(Default)]
+struct ParentsState {
+    /// Parent → the number of its last change (`changes`).
+    dirty: BTreeMap<String, u64>,
+    changes: u64,
+    /// Until then a changed parent is noted, not put.
+    hold_until: Option<Instant>,
+}
+
+/// Until disarmed: the put of a noted parent did not succeed (an error, or
+/// its future was dropped). The note stays; the task tries again.
+struct Unfinished<'a> {
+    parents: &'a Parents,
+    armed: bool,
+}
+
+impl Drop for Unfinished<'_> {
+    fn drop(&mut self) {
+        if self.armed {
+            let retry = Instant::now() + RETRY;
+            let mut st = self.parents.state();
+            if st.hold_until.is_none_or(|until| until < retry) {
+                st.hold_until = Some(retry);
+            }
+            drop(st);
+            self.parents.wake.notify_one();
+        }
+    }
+}
+
+impl Parents {
+    fn state(&self) -> std::sync::MutexGuard<'_, ParentsState> {
+        self.state.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    /// Start the hold that follows parent puts which took `took`.
+    fn hold_after(&self, took: Duration) {
+        let hold = took.saturating_mul(HOLD_FACTOR).min(HOLD_MAX);
+        self.state().hold_until = Some(Instant::now() + hold);
+    }
+
+    /// The number of the noted change of `path`, if one waits.
+    fn noted(&self, path: &str) -> Option<u64> {
+        self.state().dirty.get(path).copied()
+    }
+
+    /// Drop the note of `path` unless it changed again after `change`.
+    fn done(&self, path: &str, change: u64) {
+        let mut st = self.state();
+        if st.dirty.get(path) == Some(&change) {
+            st.dirty.remove(path);
+        }
+    }
+}
+
 pub(crate) struct Inner {
     pub session: Session,
     pub site: String,
@@ -28,6 +153,11 @@ pub(crate) struct Inner {
     pub prefix: String,
     pub tree: RwLock<NodeTree>,
     tokens: Mutex<HashMap<String, LivelinessToken>>,
+    /// One `~meta` put at a time, each with the tree as it is when its turn
+    /// comes: the last put of a node always carries its newest meta, also
+    /// when the driver's tasks and [`flush_parents`] put the same node.
+    meta_turn: tokio::sync::Mutex<()>,
+    parents: Arc<Parents>,
     #[cfg(feature = "advanced")]
     reliable: Mutex<HashMap<String, Arc<zenoh_ext::AdvancedPublisher<'static>>>>,
     /// Set by `LinkHandle::stop`/drop; every mutation then fails with `closed`.
@@ -74,13 +204,16 @@ impl LinkCtx {
         root: NodeMeta,
         host: HostState,
     ) -> Self {
-        Self(Arc::new(Inner {
+        let parents = Arc::new(Parents::default());
+        let ctx = Self(Arc::new(Inner {
             session,
             site: site.to_owned(),
             link: link.to_owned(),
             prefix,
             tree: RwLock::new(NodeTree::new(root)),
             tokens: Mutex::new(HashMap::new()),
+            meta_turn: tokio::sync::Mutex::new(()),
+            parents: parents.clone(),
             #[cfg(feature = "advanced")]
             reliable: Mutex::new(HashMap::new()),
             closed: AtomicBool::new(false),
@@ -90,7 +223,47 @@ impl LinkCtx {
             grants: host.grants,
             driver_timeout: host.driver_timeout,
             reads: tokio::sync::broadcast::channel(64).0,
-        }))
+        }));
+        // in a `link{id}` span of its own, so that the link's log filter takes its lines
+        let span = tracing::error_span!("link", id = %link);
+        tokio::spawn(flush_parents(Arc::downgrade(&ctx.0), parents).instrument(span));
+        ctx
+    }
+
+    /// Test hook: the next `n` puts of a `~meta` fail.
+    #[cfg(feature = "harness")]
+    pub fn fail_meta_puts(&self, n: u32) {
+        self.0
+            .parents
+            .hooks
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .0 = n;
+    }
+
+    /// Test hook: every `~meta` put of `path` stops between reading the
+    /// tree and the put until the returned gate is opened.
+    #[cfg(feature = "harness")]
+    pub fn gate_meta_puts(&self, path: &str) -> MetaGate {
+        let gate = MetaGate {
+            path: path.into(),
+            stopped: Arc::new(tokio::sync::Semaphore::new(0)),
+            open: Arc::new(tokio::sync::Semaphore::new(0)),
+        };
+        self.0
+            .parents
+            .hooks
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .1 = Some(gate.clone());
+        gate
+    }
+
+    /// How many times a parent's `~meta` was put because its child list
+    /// changed (a child declared or removed).
+    #[cfg(feature = "harness")]
+    pub fn parent_puts(&self) -> u64 {
+        self.0.parents.puts.load(Ordering::Relaxed)
     }
 
     /// Paths of this link whose `~meta` or `~val` a requester read, as they
@@ -139,6 +312,9 @@ impl LinkCtx {
             .clear();
         #[cfg(feature = "advanced")]
         self.reliable().clear();
+        // a stopped link puts nothing more: the flusher ends
+        self.0.parents.state().dirty.clear();
+        self.0.parents.wake.notify_one();
     }
 
     /// `true` after the link was stopped; driver tasks should exit.
@@ -183,7 +359,9 @@ impl LinkCtx {
     }
 
     /// Declare or replace a node; the parent must already exist. Publishes the
-    /// node's `~meta` and, for a new node, the parent's (new `children`).
+    /// node's `~meta` and, for a new node, the parent's (new `children`): at
+    /// once, or, in a burst of new children, a moment later and once for the
+    /// children declared meanwhile (`Parents`).
     pub async fn declare_node(&self, path: &str, meta: NodeMeta) -> Result<()> {
         self.ensure_open()?;
         let meta = if path.is_empty() {
@@ -289,21 +467,42 @@ impl LinkCtx {
     /// node, drops their liveliness tokens, republishes the parent's `~meta`.
     pub async fn remove_node(&self, path: &str) -> Result<()> {
         self.ensure_open()?;
-        let (removed, parent) = self.tree_mut().remove(path)?;
-        {
-            let mut tokens = self.0.tokens.lock().unwrap_or_else(|p| p.into_inner());
-            for p in &removed {
-                tokens.remove(p);
+        let (parent, deleted) = {
+            // The removal and its deletes take a turn of the `~meta` puts: a
+            // put of a removed node is either out before its delete or finds
+            // no node any more, and a node declared again after the removal
+            // puts its `~meta` after the delete.
+            let _turn = self.0.meta_turn.lock().await;
+            let (removed, parent) = self.tree_mut().remove(path)?;
+            {
+                let mut tokens = self.0.tokens.lock().unwrap_or_else(|p| p.into_inner());
+                for p in &removed {
+                    tokens.remove(p);
+                }
             }
-        }
-        #[cfg(feature = "advanced")]
-        {
-            let mut rel = self.reliable();
-            for p in &removed {
-                rel.remove(p);
+            #[cfg(feature = "advanced")]
+            {
+                let mut rel = self.reliable();
+                for p in &removed {
+                    rel.remove(p);
+                }
             }
-        }
-        for p in &removed {
+            {
+                let mut st = self.0.parents.state();
+                for p in &removed {
+                    st.dirty.remove(p);
+                }
+            }
+            (parent, self.delete_keys(&removed).await)
+        };
+        // also after a failed delete: the parent's list has changed
+        let put = self.publish_parent(&parent).await;
+        deleted.and(put)
+    }
+
+    /// `delete` the `~meta` and `~val` of every node of `removed`.
+    async fn delete_keys(&self, removed: &[String]) -> Result<()> {
+        for p in removed {
             for suffix in [SUFFIX_META, SUFFIX_VAL] {
                 self.0
                     .session
@@ -313,7 +512,7 @@ impl LinkCtx {
                     .await?;
             }
         }
-        self.publish_meta(&parent).await
+        Ok(())
     }
 
     /// Per-node liveliness at `downstream/<link>/<path>` for nodes that come and go
@@ -532,29 +731,173 @@ impl LinkCtx {
             self.publish_meta(path).await?;
         }
         if let Some(parent) = changed.parent {
-            self.publish_meta(&parent).await?;
+            self.publish_parent(&parent).await?;
         }
         Ok(())
     }
 
+    /// `put ~meta` of a parent whose child list changed: now, or, while the
+    /// hold after an earlier such put lasts, by [`flush_parents`] when it
+    /// ends. The change is noted first and the note goes with the put that
+    /// carried it.
+    async fn publish_parent(&self, parent: &str) -> Result<()> {
+        let parents = &self.0.parents;
+        {
+            let mut st = parents.state();
+            st.changes += 1;
+            let change = st.changes;
+            match st.dirty.get_mut(parent) {
+                Some(c) => *c = change,
+                None => {
+                    st.dirty.insert(parent.to_owned(), change);
+                }
+            }
+            if st.hold_until.is_some_and(|until| Instant::now() < until) {
+                drop(st);
+                parents.wake.notify_one();
+                return Ok(());
+            }
+        }
+        let start = Instant::now();
+        // also when this future is dropped while it waits for its turn
+        let mut unfinished = Unfinished {
+            parents,
+            armed: true,
+        };
+        let done = self.put_meta(parent, false).await;
+        // an error has armed the retry inside
+        unfinished.armed = false;
+        if done.is_ok() {
+            parents.hold_after(start.elapsed());
+        }
+        done
+    }
+
     /// `put ~meta` with the full meta of `path` (DataHigh + Block).
     pub(crate) async fn publish_meta(&self, path: &str) -> Result<()> {
+        self.put_meta(path, false).await
+    }
+
+    /// [`publish_meta`](Self::publish_meta); with `noted_only`, nothing when
+    /// no change of `path`'s child list waits (another put carried it).
+    async fn put_meta(&self, path: &str, noted_only: bool) -> Result<()> {
+        // One put at a time, the tree read inside the turn: a put never
+        // carries an older meta than the put before it, and none follows the
+        // delete of a removed node (`remove_node` takes the same turn).
+        let _turn = self.0.meta_turn.lock().await;
+        // a stopped link puts nothing more (its next start may already declare)
+        self.ensure_open()?;
+        let parents = &*self.0.parents;
+        let noted = parents.noted(path);
+        if noted_only && noted.is_none() {
+            return Ok(());
+        }
+        let mut unfinished = Unfinished {
+            parents,
+            armed: noted.is_some(),
+        };
         // Restricted nodes are never broadcast: `~meta` only on an authorized get.
-        let Some(meta) = ({
+        let meta = {
             let tree = self.tree();
             (!tree.restricted(path))
                 .then(|| tree.full(path, false))
                 .flatten()
-        }) else {
-            return Ok(());
         };
-        self.0
-            .session
-            .put(self.key(path, SUFFIX_META), encode(&meta)?)
-            .priority(Priority::DataHigh)
-            .congestion_control(CongestionControl::Block)
-            .await?;
+        if let Some(meta) = meta {
+            #[cfg(feature = "harness")]
+            self.meta_put_hooks(path).await?;
+            self.0
+                .session
+                .put(self.key(path, SUFFIX_META), encode(&meta)?)
+                .priority(Priority::DataHigh)
+                .congestion_control(CongestionControl::Block)
+                .await?;
+            if noted.is_some() {
+                parents.puts.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+        // put, or nothing to put (restricted, or the node is gone): this
+        // change needs no put any more
+        if let Some(change) = noted {
+            parents.done(path, change);
+        }
+        unfinished.armed = false;
         Ok(())
+    }
+
+    #[cfg(feature = "harness")]
+    async fn meta_put_hooks(&self, path: &str) -> Result<()> {
+        let (fail, gate) = {
+            let mut h = self
+                .0
+                .parents
+                .hooks
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
+            let fail = h.0 > 0;
+            h.0 = h.0.saturating_sub(1);
+            (fail, h.1.clone().filter(|g| &*g.path == path))
+        };
+        if let Some(gate) = gate {
+            gate.stopped.add_permits(1);
+            // an error = the gate was opened
+            if let Ok(p) = gate.open.acquire().await {
+                p.forget();
+            }
+        }
+        if fail {
+            return Err(LinkError::internal("test: this ~meta put fails"));
+        }
+        Ok(())
+    }
+}
+
+/// The one task that puts the `~meta` of the parents noted in [`Parents`]
+/// when their hold ends. It ends with the link (`close`, or its last
+/// context dropped).
+async fn flush_parents(inner: Weak<Inner>, parents: Arc<Parents>) {
+    loop {
+        parents.wake.notified().await;
+        let until = parents.state().hold_until;
+        if let Some(until) = until {
+            tokio::time::sleep_until(until.into()).await;
+        }
+        let Some(ctx) = inner.upgrade().map(LinkCtx) else {
+            return;
+        };
+        let batch: Vec<String> = {
+            let mut st = parents.state();
+            // children declared while this batch is put wait for the next one
+            st.hold_until = Some(Instant::now() + HOLD_MAX);
+            st.dirty.keys().cloned().collect()
+        };
+        let start = Instant::now();
+        let mut failed = false;
+        for parent in &batch {
+            if ctx.is_closed() {
+                return;
+            }
+            // the note stays when the put fails: `Unfinished` wakes this task again
+            if let Err(e) = ctx.put_meta(parent, true).await {
+                failed = true;
+                tracing::debug!(%parent, "put of a changed child list failed: {e}");
+            }
+        }
+        if ctx.is_closed() {
+            return;
+        }
+        if failed {
+            parents.state().hold_until = Some(Instant::now() + RETRY);
+        } else {
+            parents.hold_after(start.elapsed());
+        }
+    }
+}
+
+impl Drop for Inner {
+    fn drop(&mut self) {
+        // the flusher holds no context: wake it so that it ends
+        self.parents.wake.notify_one();
     }
 }
 
