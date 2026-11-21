@@ -580,7 +580,8 @@ on such a call, and `to_vec(..).unwrap_or_default()` / `.ok()`. The secret
 store counts under any receiver (`.drop_link(`, `.unstash(`, `set`/`remove`
 on a receiver named for secrets). The calls are a name list in `tool/check_rust_rules.py`
 (`PERSIST_CALLS`); a new security or persistence call that returns `Result`
-goes there with a sample in `PROBE_CALLS`. Every run first checks that list
+goes there with a sample in `PROBE_CALLS`. (The audit journal's
+`write_record`, `push_record` and `write_blocking` are in it since 2026-11-20.) Every run first checks that list
 against samples (`probe()`): each call in each dropped form is counted, none
 in a handled form, or the check fails. clippy `let_underscore_must_use`
 (baselined) counts every dropped `Result` whatever its name. The list was

@@ -204,7 +204,7 @@ impl Probe {
         &self,
         node: &str,
         input: Option<(&str, &Value, Quality)>,
-        outs: &[(String, Msg)],
+        outs: &[(crate::nodes::PortName, Msg)],
         params: Option<&BTreeMap<String, Value>>,
     ) {
         let Some(mut n) = self.node(node) else {
@@ -1039,7 +1039,7 @@ mod tests {
         let time = |v: &dyn Fn(u32) -> Msg| {
             let t0 = std::time::Instant::now();
             for i in 0..n {
-                let out = [("out".to_owned(), v(i))];
+                let out = [("out".into(), v(i))];
                 p.record("r", Some(("in", &out[0].1.v, Quality::Good)), &out, None);
             }
             t0.elapsed().as_nanos() as f64 / f64::from(n)
@@ -1048,7 +1048,7 @@ mod tests {
         let build = |v: &dyn Fn(u32) -> Msg| {
             let t0 = std::time::Instant::now();
             for i in 0..n {
-                std::hint::black_box([("out".to_owned(), v(i))]);
+                std::hint::black_box([(crate::nodes::PortName::from("out"), v(i))]);
             }
             t0.elapsed().as_nanos() as f64 / f64::from(n)
         };

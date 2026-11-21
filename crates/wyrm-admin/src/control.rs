@@ -13,6 +13,7 @@
 
 use crate::acl;
 use crate::audit::{AuditLog, AuditOp, AuditRecord};
+use crate::journal::Journal;
 use crate::logs::LogLevel;
 use crate::packages;
 use crate::registry::{
@@ -401,10 +402,19 @@ fn option_info(name: OptionName) -> &'static str {
     }
 }
 
+/// What a test runs at the moment `update.json` is written ([`Control::save_update`]).
+#[cfg(test)]
+type UpdateSaved = Box<dyn Fn(&Control) + Send + Sync>;
+
 pub struct Control {
     cfg: ControlConfig,
     store: Mutex<Store<Registry>>,
-    audit: Mutex<Store<AuditLog>>,
+    /// The audit journal: its writer thread owns the store (`crate::journal`).
+    audit: Journal,
+    /// Tests look at the files and the journal here: called when `update.json` is
+    /// on disk, before the journal is told to follow it.
+    #[cfg(test)]
+    update_saved: Mutex<Option<UpdateSaved>>,
     pki: Pki,
     secrets: crate::secrets::SecretStore,
     supervisor: Arc<Supervisor>,
@@ -784,10 +794,13 @@ impl Control {
         let (reload, rx) = mpsc::unbounded_channel();
         let kept = backups::Backups::open(&cfg.data_dir.join("backups"));
         let update = broker_update::BrokerUpdate::open(&cfg.data_dir);
+        let in_trial = previous_version_may_start(&cfg.data_dir);
         let ctl = Arc::new(Self {
             cfg,
             store: Mutex::new(store),
-            audit: Mutex::new(audit),
+            audit: Journal::start(audit, in_trial)?,
+            #[cfg(test)]
+            update_saved: Mutex::new(None),
             pki,
             secrets,
             supervisor: Supervisor::new(),
@@ -934,7 +947,14 @@ impl Control {
     /// audit records per second with it (feature `testkit`; never in a production build).
     #[cfg(feature = "testkit")]
     pub fn audit_lsn(&self) -> u64 {
-        self.audit.lock().unwrap_or_else(|p| p.into_inner()).lsn()
+        self.audit.lsn()
+    }
+
+    /// Batches the audit journal has written so far, one `fsync` of its WAL each (feature
+    /// `testkit`; never in a production build).
+    #[cfg(feature = "testkit")]
+    pub fn audit_batches(&self) -> u64 {
+        self.audit.batches()
     }
 
     /// The historian itself: the perf tests of `wyrmd` give it 10 000 watches without 10 000
@@ -944,10 +964,64 @@ impl Control {
         &self.history
     }
 
+    /// Tell the audit journal whether the previous version may be the next to
+    /// open the files (`update.json`: an update in its trial, or a rollback asked),
+    /// after that file changed. While it may, the journal writes record by
+    /// record, in the form every earlier version opens (ADR 0048 §2.5). When this
+    /// returns with that switched on, a batch that was in flight is on disk and
+    /// the anchor is the plain head.
+    pub(crate) fn audit_follows_update(&self) {
+        let on = previous_version_may_start(&self.cfg.data_dir);
+        if let Err(e) = self.audit.one_by_one(on) {
+            warn!("the audit journal did not take the update state: {e}");
+        }
+    }
+
+    /// Write `update.json` and make the audit journal follow it: the one way the
+    /// state of an update changes while the broker runs.
+    ///
+    /// The journal follows after the file. That is the right order for a change
+    /// that lets it write batches again (confirmed, rolled back). A change after
+    /// which the previous version may start next goes the other way round: the
+    /// journal first ([`Control::audit_one_by_one`]), the file second.
+    pub(crate) fn save_update(&self, u: &crate::release::UpdateFile) -> Result<(), LinkError> {
+        u.save(&self.cfg.data_dir).map_err(LinkError::internal)?;
+        #[cfg(test)]
+        if let Some(seen) = self
+            .update_saved
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .as_ref()
+        {
+            seen(self);
+        }
+        self.audit_follows_update();
+        Ok(())
+    }
+
+    /// Switch the audit journal to record by record before `update.json` says that
+    /// the previous version may start next. When this returns `Ok`, the writer has
+    /// answered: a batch that was in flight is on disk, the anchor is the plain
+    /// head, and every later record is written alone. A kill after the file is
+    /// written then leaves nothing the previous version refuses. `Err`: the
+    /// journal did not switch, and the caller must not write the file.
+    pub(crate) fn audit_one_by_one(&self) -> Result<(), LinkError> {
+        self.audit.one_by_one(true).map_err(|e| {
+            LinkError::internal(format!(
+                "the audit journal did not switch to the form the previous version opens: {e}"
+            ))
+        })
+    }
+
+    /// Run `seen` each time [`Control::save_update`] has written `update.json`,
+    /// before the journal is told.
+    #[cfg(test)]
+    pub(crate) fn on_update_saved(&self, seen: impl Fn(&Control) + Send + Sync + 'static) {
+        *self.update_saved.lock().unwrap_or_else(|p| p.into_inner()) = Some(Box::new(seen));
+    }
+
     pub fn audit_tail(&self, n: usize) -> Vec<AuditRecord> {
-        let a = self.audit.lock().unwrap_or_else(|p| p.into_inner());
-        let r = &a.state().recent;
-        r.iter().skip(r.len().saturating_sub(n)).cloned().collect()
+        self.audit.tail(n)
     }
 
     pub(crate) fn apply(&self, op: Op) -> Result<(), StateError> {
@@ -1003,21 +1077,30 @@ impl Control {
 
     /// One record in the admin's audit journal (also for in-process
     /// components such as the user gateway). Never pass secret values.
+    ///
+    /// The record is on disk when this returns (a failed write is logged). The
+    /// journal's writer thread does the write and the `fsync`, one for all the
+    /// records that wait; this thread only waits for it, and a runtime worker is
+    /// handed back to the runtime meanwhile.
     pub fn record(&self, sub: &str, op: AuditOp, key: &str, status: Status, detail: &str) {
-        let rec = AuditRecord {
-            t: now_us(),
-            sub: sub.to_owned(),
-            op: op.into(),
-            key: key.to_owned(),
-            status: status.code(),
-            detail: detail.to_owned(),
-        };
-        if let Err(e) = self
-            .audit
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .apply(rec)
-        {
+        let rec = audit_record(sub, op, key, status, detail);
+        if let Err(e) = self.audit.write_blocking(rec) {
+            warn!("audit write failed: {e}");
+        }
+    }
+
+    /// [`Control::record`] for `async` code: the task waits for the write, its
+    /// worker runs other tasks.
+    pub async fn record_async(
+        &self,
+        sub: &str,
+        op: AuditOp,
+        key: &str,
+        status: Status,
+        detail: &str,
+    ) {
+        let rec = audit_record(sub, op, key, status, detail);
+        if let Err(e) = self.audit.write_record(rec).await {
             warn!("audit write failed: {e}");
         }
     }
@@ -1997,6 +2080,10 @@ impl Control {
     /// Stop all supervised processes (broker exit).
     pub async fn shutdown(&self) {
         self.supervisor.stop_all().await;
+        // every audit record still queued is on disk before the process ends
+        if let Err(e) = self.audit.flush().await {
+            warn!("audit journal not flushed: {e}");
+        }
     }
 
     /// Reference nodes of the peer brokers: one link `downstream/<d>` per
@@ -6189,6 +6276,30 @@ async fn watch_quarantine(ctl: Arc<Control>, ctx: LinkCtx) {
     }
 }
 
+/// May the version before this one be the next to open the files? While the
+/// broker's own update is in its trial (a kill, or a trial given up, is
+/// followed by the guard's way back), and from the moment a rollback of a
+/// confirmed update is asked (`rollback_update`: the guard goes back at the
+/// next start, however this process ends).
+fn previous_version_may_start(data_dir: &Path) -> bool {
+    use crate::release::UpdateState;
+    crate::release::UpdateFile::load(data_dir).is_some_and(|u| {
+        u.in_trial() || (u.state == UpdateState::Confirmed && !u.rollback.is_empty())
+    })
+}
+
+/// One record of the broker's own, stamped with the broker's clock.
+fn audit_record(sub: &str, op: AuditOp, key: &str, status: Status, detail: &str) -> AuditRecord {
+    AuditRecord {
+        t: now_us(),
+        sub: sub.to_owned(),
+        op: op.into(),
+        key: key.to_owned(),
+        status: status.code(),
+        detail: detail.to_owned(),
+    }
+}
+
 /// `set`/`invoke` records put by links on `wy/<site>/sys/audit/<link>`; the
 /// ACL lets only CN `<link>` write that key, so the origin is the key.
 /// A link's audit record larger than this is dropped unread (review ADM-3).
@@ -6287,13 +6398,14 @@ async fn watch_audit(ctl: Arc<Control>, ctx: LinkCtx) {
             },
             _ = report.tick() => {
                 for (link, n) in limiter.drain() {
-                    ctl.record(
+                    ctl.record_async(
                         "system",
                         AuditOp::AuditDropped,
                         &format!("wy/{}/sys/audit/{link}", ctl.cfg.site),
                         Status::RateLimited,
                         &format!("link:{link} dropped_by_broker:{n}"),
-                    );
+                    )
+                    .await;
                 }
                 continue;
             }
@@ -6389,12 +6501,10 @@ async fn watch_audit(ctl: Arc<Control>, ctx: LinkCtx) {
                 if in_subtree { "" } else { " key_outside_link" }
             ),
         };
-        if let Err(e) = ctl
-            .audit
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .apply(rec)
-        {
+        // The link did not wait for this record (ADR 0029, decision 7) and nobody else
+        // does: it is queued in the order it came, and the journal's writer logs a failed
+        // write. A full queue holds this task, so the subscriber, until there is room.
+        if let Err(e) = ctl.audit.push_record(rec).await {
             warn!("audit write failed: {e}");
         }
     }
@@ -6704,8 +6814,7 @@ async fn watch_metrics(ctl: Arc<Control>, ctx: LinkCtx) {
         set("standby_lag", standby.map_or(0.0, |s| s.lag as f64)).await;
         set("standby_forks", ctl.standby_forks() as f64).await;
         set("arbiter_lease_s", ctl.arbiter_lease_s()).await;
-        let audit = ctl.audit.lock().unwrap_or_else(|p| p.into_inner()).lsn();
-        set("audit_records", audit as f64).await;
+        set("audit_records", ctl.audit.lsn() as f64).await;
         let now = std::time::Instant::now();
         if let Some(c) = cpu_seconds() {
             if let Some((then, before)) = cpu_prev {
@@ -7008,6 +7117,62 @@ mod tests {
         assert_eq!(ctl.due_certificate(), None, "renewed: not due again");
         let pem = std::fs::read_to_string(pki_dir.join("broker-client.pem")).unwrap();
         assert!(!crate::secret::cert_due(&pem));
+    }
+
+    /// Audit of #152 (ADR 0048 §2.5): while `update.json` says trial, the audit journal
+    /// writes record by record, so a kill is followed by a previous version that opens the
+    /// store; from the start of the broker, and until the update is confirmed.
+    #[test]
+    fn the_audit_journal_follows_the_update_state() {
+        use crate::release::{UpdateFile, UpdateState};
+        let file = |state| UpdateFile {
+            from: "0.1.0".into(),
+            to: "0.2.0".into(),
+            state,
+            ..Default::default()
+        };
+        let ctl = control("audit-trial", false, |d| {
+            file(UpdateState::Trial).save(d).unwrap();
+        });
+        assert!(ctl.audit.is_one_by_one(), "a start in a trial");
+        ctl.record(
+            "user:a",
+            AuditOp::Event,
+            "k",
+            wyrm_core::Status::Ok,
+            "in the trial",
+        );
+        file(UpdateState::Confirmed)
+            .save(&ctl.cfg.data_dir)
+            .unwrap();
+        ctl.audit_follows_update();
+        assert!(!ctl.audit.is_one_by_one(), "confirmed");
+        file(UpdateState::Trial).save(&ctl.cfg.data_dir).unwrap();
+        ctl.audit_follows_update();
+        assert!(ctl.audit.is_one_by_one(), "the next update is staged");
+        for state in [UpdateState::RolledBack, UpdateState::Failed] {
+            file(state).save(&ctl.cfg.data_dir).unwrap();
+            ctl.audit_follows_update();
+            assert!(!ctl.audit.is_one_by_one(), "{state:?}");
+        }
+        // a rollback of a confirmed update is asked: the guard goes back at the
+        // next start, so the previous version opens what is written from now on
+        let mut asked = file(UpdateState::Confirmed);
+        asked.rollback = "user:root".into();
+        ctl.save_update(&asked).unwrap();
+        assert!(ctl.audit.is_one_by_one(), "a rollback is asked");
+        // done by the guard: the old version runs, and who asked stays in the file
+        asked.state = UpdateState::RolledBack;
+        ctl.save_update(&asked).unwrap();
+        assert!(!ctl.audit.is_one_by_one(), "rolled back");
+        // a start with a rollback asked (the stop did not come: a kill)
+        asked.state = UpdateState::Confirmed;
+        let again = control("audit-rollback-asked", false, |d| {
+            asked.save(d).unwrap();
+        });
+        assert!(again.audit.is_one_by_one(), "a start with a rollback asked");
+        let plain = control("audit-no-update", false, |_| {});
+        assert!(!plain.audit.is_one_by_one(), "no update at all");
     }
 
     /// Review 2026-11-16: the files of a removed peer (its CA, our certificate and key for

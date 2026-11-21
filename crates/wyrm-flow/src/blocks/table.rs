@@ -122,7 +122,9 @@ impl Table {
                         return None;
                     }
                     for k in m.keys() {
-                        if seen.insert(k.clone()) {
+                        // a key is copied only when it is a new column
+                        if !seen.contains(k) {
+                            seen.insert(k.clone());
                             columns.push(k.clone());
                             if columns.len() > MAX_COLUMNS {
                                 return None;
@@ -210,6 +212,46 @@ impl Table {
             ),
         ])))
     }
+
+    /// [`Table::to_value`] of a table that is not needed after it: a row that holds exactly
+    /// the table's columns goes into the value as it is, with no copy of its cells.
+    pub fn into_value(self) -> Option<Value> {
+        if !self.fits() {
+            return None;
+        }
+        let Table { columns, rows } = self;
+        // a name twice in `columns` (never from `from_value`): every row is built anew
+        let distinct = columns
+            .iter()
+            .collect::<std::collections::BTreeSet<_>>()
+            .len()
+            == columns.len();
+        let rows = rows
+            .into_iter()
+            .map(|r| {
+                // the same number of distinct keys, and every column among them: the same keys
+                let whole = distinct
+                    && r.len() == columns.len()
+                    && columns.iter().all(|c| r.contains_key(c));
+                Value::Map(if whole {
+                    r
+                } else {
+                    // only the table's columns, every one of them
+                    columns
+                        .iter()
+                        .map(|c| (c.clone(), r.get(c).cloned().unwrap_or(Value::Null)))
+                        .collect()
+                })
+            })
+            .collect();
+        let columns = Value::Array(columns.into_iter().map(Value::Str).collect());
+        let table = BTreeMap::from([
+            ("columns".to_owned(), columns),
+            ("rows".to_owned(), Value::Array(rows)),
+        ]);
+        let table = Value::Map(table);
+        Some(table)
+    }
 }
 
 /// Column names once each, in their first place.
@@ -284,5 +326,54 @@ mod tests {
         assert!(Table::from_value(&wide).is_none());
         let heavy = Value::Array(vec![map(&[("a", Value::Str("x".repeat(MAX_BYTES)))])]);
         assert!(Table::from_value(&heavy).is_none());
+    }
+
+    /// `into_value` moves the rows it can; the value is `to_value`'s in every case.
+    #[test]
+    fn into_value_is_to_value() {
+        let row = |kv: &[(&str, i64)]| -> BTreeMap<String, Value> {
+            kv.iter()
+                .map(|(k, v)| ((*k).to_owned(), Value::Int(*v)))
+                .collect()
+        };
+        let cols = |c: &[&str]| c.iter().map(|c| (*c).to_owned()).collect::<Vec<_>>();
+        let tables = [
+            Table::default(),
+            // every row holds the columns exactly
+            Table {
+                columns: cols(&["b", "a"]),
+                rows: vec![row(&[("a", 1), ("b", 2)]), row(&[("a", 3), ("b", 4)])],
+            },
+            // a row with a cell too many, one with a cell too few, one with other keys only
+            Table {
+                columns: cols(&["a", "b"]),
+                rows: vec![
+                    row(&[("a", 1), ("b", 2), ("c", 3)]),
+                    row(&[("a", 1)]),
+                    row(&[("c", 1), ("d", 2)]),
+                    row(&[("a", 5), ("b", 6)]),
+                ],
+            },
+            // a column named twice: a row of as many other keys is not taken as it is
+            Table {
+                columns: cols(&["a", "a"]),
+                rows: vec![row(&[("a", 1), ("b", 2)]), row(&[("a", 1)])],
+            },
+            Table {
+                columns: Vec::new(),
+                rows: vec![row(&[]), row(&[("a", 1)])],
+            },
+            // past a bound: no value from either
+            Table {
+                columns: cols(&["a"]),
+                rows: vec![BTreeMap::from([(
+                    "a".to_owned(),
+                    Value::Str("x".repeat(MAX_BYTES)),
+                )])],
+            },
+        ];
+        for t in tables {
+            assert_eq!(t.clone().into_value(), t.to_value(), "{:?}", t.columns);
+        }
     }
 }

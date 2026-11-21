@@ -22,7 +22,8 @@ wyrm-client.workspace = true
 wyrm-link-sdk = { workspace = true, features = ["package"] }
 wyrm-wasm-host.workspace = true
 zenoh = { workspace = true, features = ["unstable"] }
-tokio = { workspace = true, features = ["rt", "sync", "time", "macros", "process", "fs", "net", "io-util"] }
+# rt-multi-thread: `block_in_place` for the audit journal's callers that are not async
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "sync", "time", "macros", "process", "fs", "net", "io-util"] }
 minicbor.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -55,6 +56,8 @@ nix = { workspace = true, features = ["resource", "fs"] }
 rustix.workspace = true
 
 [dev-dependencies]
+# `Store::with_probe` for the journal tests
+wyrm-state = { workspace = true, features = ["testkit"] }
 wat.workspace = true
 # `harness`: the admin as a link in a test session (the `sys` action schemas)
 wyrm-link-sdk = { workspace = true, features = ["package", "harness"] }

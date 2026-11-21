@@ -503,6 +503,9 @@ async fn run(case: &Case, base: &Io) -> Result<(), String> {
                 _ => {}
             }
             out.0
+                .into_iter()
+                .map(|(p, m)| (p.into_owned(), m))
+                .collect()
         };
         match step {
             Advance(ms) => tokio::time::advance(Duration::from_millis(*ms)).await,
@@ -4234,7 +4237,7 @@ async fn pump(
         for (p, m) in msgs {
             let mut out = Out::default();
             node.input(&p, m, io, &mut out);
-            sent.extend(out.0);
+            sent.extend(out.0.into_iter().map(|(p, m)| (p.into_owned(), m)));
         }
         if done(sent) {
             return;
