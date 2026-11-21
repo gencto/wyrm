@@ -35,7 +35,7 @@ WYRM brokers talk over QUIC with mTLS, so a downstream broker needs a certificat
   2. A Deauthorized broker does not come back by itself (held; Reject: never).
   3. A key never leaves the site that made it; no key or token enters the registry WAL, `~meta`, `~val`, the audit journal or a log (tokens are kept as SHA-256; action arguments are not logged; the gateway audits their SHA-256).
   4. A session without a certificate on the enrollment listener reaches `sys/~act/enroll` only (`enroll_listener_reaches_one_key`).
-- **Rebuilds.** A broker start waits (up to 30 s) until the QUIC peer port is free: after a router rebuild (ADR 0006) the old runtime keeps the UDP socket while its connections drain, and Zenoh 1.10.1 tries a listener once.
+- **Rebuilds.** A broker start waits (up to 30 s) until the QUIC peer port is free: after a router rebuild (ADR 0006) the old runtime keeps the UDP socket while its connections drain, and Zenoh 1.10.1 tries a listener once. Both the peer listener (`peers.listen`) and the enrollment listener (`peers.enroll`) ports are waited for, under one 30 s deadline for both (#145).
 
 ## Consequences
 - ADR 0007's accepted risk is gone: only this broker's CA signs `broker:*` identities on its listener, and it signs one per admitted site.

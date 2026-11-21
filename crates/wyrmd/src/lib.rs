@@ -2487,13 +2487,26 @@ impl Daemon {
         // would undo a `quiesce` taken meanwhile.
         let mut closed = false;
         loop {
-            if let Some(ep) = &self.cfg.peers.listen {
-                if !wait_udp_free(ep, QUIC_PORT_WAIT).await {
-                    tracing::warn!(
-                        endpoint = %ep,
-                        "QUIC peer port in use: downstream brokers cannot connect until a restart"
-                    );
-                }
+            // Both QUIC listeners under one deadline: `STANDBY_HOLD` counts
+            // on a single wait.
+            let peers = &self.cfg.peers;
+            let ports = [peers.listen.as_deref(), peers.enroll.as_deref()];
+            let busy = wait_udp_free(
+                &ports.into_iter().flatten().collect::<Vec<_>>(),
+                QUIC_PORT_WAIT,
+            )
+            .await;
+            if let Some(ep) = peers.listen.as_deref().filter(|ep| busy.contains(ep)) {
+                tracing::warn!(
+                    endpoint = %ep,
+                    "QUIC peer port in use: downstream brokers cannot connect until a restart"
+                );
+            }
+            if let Some(ep) = peers.enroll.as_deref().filter(|ep| busy.contains(ep)) {
+                tracing::warn!(
+                    endpoint = %ep,
+                    "QUIC enrollment port in use: downstream brokers cannot enroll until a restart"
+                );
             }
             let broker = Broker::start(
                 &self.cfg,
@@ -2551,7 +2564,8 @@ impl Daemon {
 }
 
 /// How long a broker start waits for an old runtime (a rebuild, or a
-/// restart in the same process) to let the QUIC peer port go.
+/// restart in the same process) to let the QUIC peer ports go: one
+/// deadline for all of them.
 const QUIC_PORT_WAIT: Duration = Duration::from_secs(30);
 
 /// How long a standby waits for a rebuild (ADR 0036): the QUIC port wait
@@ -2562,15 +2576,37 @@ const STANDBY_HOLD: Duration = Duration::from_secs(60);
 /// polls once a second).
 const STANDBY_HOLD_READ: Duration = Duration::from_millis(2500);
 
-/// Wait until the UDP port of `quic/<host>:<port>` is free. The old
-/// runtime's QUIC endpoint keeps it while its connections drain; Zenoh
-/// 1.10.1 tries a listener once (`listen/timeout_ms` 0), so a busy port
-/// would leave downstream brokers out until the next restart.
-async fn wait_udp_free(endpoint: &str, max: Duration) -> bool {
-    let Some(addr) = endpoint.strip_prefix("quic/") else {
-        return true;
-    };
+/// Wait until the UDP ports of the `quic/<host>:<port>` endpoints are free,
+/// all under one deadline `max` from now (each address once); returns the
+/// endpoints whose port is still in use. The old runtime's QUIC endpoint
+/// keeps a port while its connections drain; Zenoh 1.10.1 tries a listener
+/// once (`listen/timeout_ms` 0), so a busy port would leave downstream
+/// brokers out until the next restart.
+async fn wait_udp_free<'a>(endpoints: &[&'a str], max: Duration) -> Vec<&'a str> {
     let deadline = std::time::Instant::now() + max;
+    let mut done: Vec<(&str, bool)> = Vec::new();
+    let mut busy = Vec::new();
+    for &ep in endpoints {
+        let Some(addr) = ep.strip_prefix("quic/") else {
+            continue;
+        };
+        let free = match done.iter().find(|(a, _)| *a == addr) {
+            Some(&(_, free)) => free,
+            None => {
+                let free = wait_addr_free(addr, deadline).await;
+                done.push((addr, free));
+                free
+            }
+        };
+        if !free {
+            busy.push(ep);
+        }
+    }
+    busy
+}
+
+/// Wait until UDP `addr` can be bound, at least one try even past `deadline`.
+async fn wait_addr_free(addr: &str, deadline: std::time::Instant) -> bool {
     loop {
         if std::net::UdpSocket::bind(addr).is_ok() {
             return true;
@@ -2615,6 +2651,32 @@ mod tests {
         }
         let e = parse(r#", mode: "remote""#).err().unwrap().to_string();
         assert!(e.contains("link mode: unknown name \"remote\""), "{e}");
+    }
+
+    /// Issue #145: the enrollment listener's port is waited for as the peer
+    /// listener's is, both under one deadline (`STANDBY_HOLD` counts on one
+    /// wait), each address once; a port let go meanwhile ends the wait.
+    #[tokio::test]
+    async fn quic_ports_wait_under_one_deadline() {
+        let a = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let b = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let ea = format!("quic/{}", a.local_addr().unwrap());
+        let eb = format!("quic/{}", b.local_addr().unwrap());
+        let max = Duration::from_secs(2);
+        let t0 = std::time::Instant::now();
+        let busy = wait_udp_free(&[&ea, &eb, &ea, "tls/127.0.0.1:1"], max).await;
+        let took = t0.elapsed();
+        assert_eq!(busy, [ea.as_str(), eb.as_str(), ea.as_str()]);
+        // a wait of `max` per address would take at least 2 × max
+        assert!(took >= max && took < 2 * max, "{took:?}");
+
+        let release = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            drop((a, b));
+        });
+        let busy = wait_udp_free(&[&ea, &eb], Duration::from_secs(30)).await;
+        assert!(busy.is_empty(), "{busy:?}");
+        release.await.unwrap();
     }
 
     /// Every QUIC endpoint of the router is one stream; its config stays after `#`.
