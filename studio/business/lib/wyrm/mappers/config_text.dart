@@ -17,8 +17,8 @@ String jsonEditText(JsonValue v) => switch (v) {
 
 /// What a field shows for a map or a list it holds, in short (`{…}`,
 /// `[…]`); null for anything else, an empty one too, and for a live value
-/// that is no JSON (bytes: its own text shows it).
-String? jsonShortText(Object? v) => switch (JsonValue.tryOf(v)) {
+/// that is no JSON (null here: bytes, its own text shows them).
+String? jsonShortText(JsonValue? v) => switch (v) {
   JsonMap(:final fields) when fields.isNotEmpty => '{…}',
   JsonList(:final items) when items.isNotEmpty => '[…]',
   _ => null,

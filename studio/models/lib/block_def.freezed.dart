@@ -17,9 +17,9 @@ mixin _$BlockPort {
 
  String get name;/// An input: the inner inputs it feeds (`to`); an output: the one inner
 /// output it sends (`from`).
- List<PortEnd> get ends;/// An input's default, as JSON; null for none, or a `null` default
+ List<PortEnd> get ends;/// An input's default, decoded; null for none, or a `null` default
 /// when [hasDefault].
- Object? get defaultValue;/// The definition wrote a `default`, a `null` one too: written back
+ JsonValue? get defaultValue;/// The definition wrote a `default`, a `null` one too: written back
 /// the same way.
  bool get hasDefault; String? get description;/// The definition wrote the input's `to` as one text, not a list (the
 /// spec takes both): written back the same way.
@@ -61,7 +61,7 @@ abstract mixin class $BlockPortCopyWith<$Res>  {
   factory $BlockPortCopyWith(BlockPort value, $Res Function(BlockPort) _then) = _$BlockPortCopyWithImpl;
 @useResult
 $Res call({
- String name, List<PortEnd> ends, Object? defaultValue, bool hasDefault, String? description, bool oneEnd, IMap<String, Object?> extra
+ String name, List<PortEnd> ends, JsonValue? defaultValue, bool hasDefault, String? description, bool oneEnd, IMap<String, Object?> extra
 });
 
 
@@ -82,7 +82,8 @@ class _$BlockPortCopyWithImpl<$Res>
   return _then(BlockPort(
 null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
 as String,ends: null == ends ? _self.ends : ends // ignore: cast_nullable_to_non_nullable
-as List<PortEnd>,defaultValue: freezed == defaultValue ? _self.defaultValue : defaultValue ,hasDefault: null == hasDefault ? _self.hasDefault : hasDefault // ignore: cast_nullable_to_non_nullable
+as List<PortEnd>,defaultValue: freezed == defaultValue ? _self.defaultValue : defaultValue // ignore: cast_nullable_to_non_nullable
+as JsonValue?,hasDefault: null == hasDefault ? _self.hasDefault : hasDefault // ignore: cast_nullable_to_non_nullable
 as bool,description: freezed == description ? _self.description : description // ignore: cast_nullable_to_non_nullable
 as String?,oneEnd: null == oneEnd ? _self.oneEnd : oneEnd // ignore: cast_nullable_to_non_nullable
 as bool,extra: null == extra ? _self.extra : extra // ignore: cast_nullable_to_non_nullable
@@ -113,9 +114,9 @@ class _BlockPort extends BlockPort {
   return EqualUnmodifiableListView(_ends);
 }
 
-/// An input's default, as JSON; null for none, or a `null` default
+/// An input's default, decoded; null for none, or a `null` default
 /// when [hasDefault].
-@override final  Object? defaultValue;
+@override final  JsonValue? defaultValue;
 /// The definition wrote a `default`, a `null` one too: written back
 /// the same way.
 @override@JsonKey() final  bool hasDefault;
@@ -159,7 +160,7 @@ abstract mixin class _$BlockPortCopyWith<$Res> implements $BlockPortCopyWith<$Re
   factory _$BlockPortCopyWith(_BlockPort value, $Res Function(_BlockPort) _then) = __$BlockPortCopyWithImpl;
 @override @useResult
 $Res call({
- String name, List<PortEnd> ends, Object? defaultValue, bool hasDefault, String? description, bool oneEnd, IMap<String, Object?> extra
+ String name, List<PortEnd> ends, JsonValue? defaultValue, bool hasDefault, String? description, bool oneEnd, IMap<String, Object?> extra
 });
 
 
@@ -180,7 +181,8 @@ class __$BlockPortCopyWithImpl<$Res>
   return _then(_BlockPort(
 null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
 as String,ends: null == ends ? _self._ends : ends // ignore: cast_nullable_to_non_nullable
-as List<PortEnd>,defaultValue: freezed == defaultValue ? _self.defaultValue : defaultValue ,hasDefault: null == hasDefault ? _self.hasDefault : hasDefault // ignore: cast_nullable_to_non_nullable
+as List<PortEnd>,defaultValue: freezed == defaultValue ? _self.defaultValue : defaultValue // ignore: cast_nullable_to_non_nullable
+as JsonValue?,hasDefault: null == hasDefault ? _self.hasDefault : hasDefault // ignore: cast_nullable_to_non_nullable
 as bool,description: freezed == description ? _self.description : description // ignore: cast_nullable_to_non_nullable
 as String?,oneEnd: null == oneEnd ? _self.oneEnd : oneEnd // ignore: cast_nullable_to_non_nullable
 as bool,extra: null == extra ? _self.extra : extra // ignore: cast_nullable_to_non_nullable

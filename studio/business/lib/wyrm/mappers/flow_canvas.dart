@@ -488,7 +488,7 @@ enum FieldEditError { number, json, toggle }
 /// The typed value of [f] of [b] as the config holds it: the config's
 /// value, else the parameter's default; [JsonNull] when it has none.
 JsonValue fieldEditValue(FlowBlock b, FlowField f) => switch (f) {
-  FlowField(:final spec?) => b.paramOr(spec.name, spec.defaultValue?.raw),
+  FlowField(:final spec?) => b.paramOr(spec.name, spec.defaultValue),
   FlowField(kind: FieldKind.arg) => b.cfgArgs[f.name] ?? const JsonNull(),
   FlowField(operand: true, :final inPort?) => operandValueOf(b, inPort),
   _ => const JsonNull(),
@@ -529,30 +529,36 @@ FieldEditError? fieldEditError(String text, FieldEdit edit) {
 /// number, a bool, a decoded structure; else the text itself. A text that
 /// does not read as its kind stays a text (the engine's validation says
 /// what is wrong with it).
-Object? typedText(String text, FieldEdit edit) {
+JsonValue typedText(String text, FieldEdit edit) {
   final s = text.trim();
   switch (edit) {
     case FieldEdit.number:
-      return num.tryParse(s) ?? text;
+      return switch (num.tryParse(s)) {
+        final n? => JsonNumber(n),
+        null => JsonText(text),
+      };
     case FieldEdit.toggle:
-      return bool.tryParse(s) ?? text;
+      return switch (bool.tryParse(s)) {
+        final b? => JsonBool(b),
+        null => JsonText(text),
+      };
     // A text that does not decode (no JSON, or nested past the bound,
     // `typedJsonOf`) stays the text: no such value reaches a config.
     // JSON `null` decodes to null (it removes the value), not to the text.
     case FieldEdit.json:
       return switch (typedJsonOf(text)) {
-        Valid(:final value) => value.raw,
-        Invalid() => text,
+        Valid(:final value) => value,
+        Invalid() => JsonText(text),
       };
     case FieldEdit.any:
       if (s.isEmpty) {
-        return text;
+        return JsonText(text);
       }
       return switch (typedJsonOf(s)) {
-        Valid(:final value) => value.raw,
-        Invalid() => text,
+        Valid(:final value) => value,
+        Invalid() => JsonText(text),
       };
     case FieldEdit.choice || FieldEdit.text:
-      return text;
+      return JsonText(text);
   }
 }

@@ -18,6 +18,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:models/flow_block.dart';
 import 'package:models/flow_draft.dart';
 import 'package:models/flow_edge.dart';
+import 'package:models/json_value.dart';
 import 'package:models/live_value.dart';
 import 'package:models/node_type.dart';
 import 'package:wyrm_client/wyrm_client.dart';
@@ -553,7 +554,9 @@ void main() {
         expect(previews(), isEmpty, reason: 'the layout runs nothing');
 
         s
-          ..dispatchSync(SetBlockParamAction('limit', 'value', 30))
+          ..dispatchSync(
+            SetBlockParamAction('limit', 'value', const JsonNumber(30)),
+          )
           ..dispatchSync(PreviewFlowAction());
         await debounce();
         expect(previews(), hasLength(1));
@@ -570,7 +573,9 @@ void main() {
       'back to the deployed version: the preview ends, its values go',
       () async {
         s
-          ..dispatchSync(SetBlockParamAction('limit', 'value', 30))
+          ..dispatchSync(
+            SetBlockParamAction('limit', 'value', const JsonNumber(30)),
+          )
           ..dispatchSync(PreviewFlowAction());
         await debounce();
         api.opened['wy/central/dataflows ▸ preview']!.single.add(
@@ -592,7 +597,9 @@ void main() {
         expect(s.state.flowEditor.previewPorts['out:limit.out']?.value, 30);
 
         s
-          ..dispatchSync(SetBlockParamAction('limit', 'value', 25))
+          ..dispatchSync(
+            SetBlockParamAction('limit', 'value', const JsonNumber(25)),
+          )
           ..dispatchSync(PreviewFlowAction());
         await Future<void>.delayed(const Duration(milliseconds: 100));
         expect(s.state.flowEditor.previewPorts, isEmpty);
@@ -613,13 +620,17 @@ void main() {
             'action preview',
           );
         s
-          ..dispatchSync(SetBlockParamAction('limit', 'value', 30))
+          ..dispatchSync(
+            SetBlockParamAction('limit', 'value', const JsonNumber(30)),
+          )
           ..dispatchSync(PreviewFlowAction());
         await debounce();
         expect(s.state.flowEditor.previewOff, Status.notFound);
         expect(s.state.flowEditor.previewError, isNull);
         s
-          ..dispatchSync(SetBlockParamAction('limit', 'value', 31))
+          ..dispatchSync(
+            SetBlockParamAction('limit', 'value', const JsonNumber(31)),
+          )
           ..dispatchSync(PreviewFlowAction());
         await debounce();
         expect(previews(), hasLength(1), reason: 'not asked again');

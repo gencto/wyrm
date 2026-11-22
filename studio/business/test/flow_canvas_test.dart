@@ -34,6 +34,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:models/field_id.dart';
 import 'package:models/flow_draft.dart';
 import 'package:models/flow_edge.dart';
+import 'package:models/json_value.dart';
 import 'package:models/node_type.dart';
 import 'package:models/port_end.dart';
 import 'package:models/undo_kind.dart';
@@ -431,14 +432,14 @@ void main() {
       expect(fieldEditError('{"a": 1', FieldEdit.json), FieldEditError.json);
       expect(fieldEditError('3', FieldEdit.json), FieldEditError.json);
       expect(fieldEditError('anything', FieldEdit.any), isNull);
-      expect(typedText('12.5', FieldEdit.number), 12.5);
-      expect(typedText('true', FieldEdit.toggle), true);
-      expect(typedText('{"a": [1]}', FieldEdit.json), {
+      expect(typedText('12.5', FieldEdit.number).raw, 12.5);
+      expect(typedText('true', FieldEdit.toggle).raw, true);
+      expect(typedText('{"a": [1]}', FieldEdit.json).raw, {
         'a': [1],
       });
-      expect(typedText('2', FieldEdit.any), 2);
-      expect(typedText('AHU-', FieldEdit.any), 'AHU-');
-      expect(typedText('2', FieldEdit.text), '2');
+      expect(typedText('2', FieldEdit.any).raw, 2);
+      expect(typedText('AHU-', FieldEdit.any).raw, 'AHU-');
+      expect(typedText('2', FieldEdit.text).raw, '2');
     });
   });
 
@@ -662,10 +663,10 @@ void main() {
 
     test('typing in one field is one step; the history holds 100', () {
       for (final v in [1, 12, 120]) {
-        s.dispatchSync(SetBlockParamAction('avg', 'size_s', v));
+        s.dispatchSync(SetBlockParamAction('avg', 'size_s', JsonNumber(v)));
       }
       expect(s.state.flowEditor.undo, hasLength(1));
-      s.dispatchSync(SetBlockParamAction('avg', 'fn', 'max'));
+      s.dispatchSync(SetBlockParamAction('avg', 'fn', const JsonText('max')));
       expect(s.state.flowEditor.undo, hasLength(2));
       s.dispatchSync(UndoFlowAction());
       expect(now().blocks['avg']!.cfg['size_s'], 120);

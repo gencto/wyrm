@@ -27,6 +27,7 @@ import 'package:models/field_label.dart';
 import 'package:models/field_word.dart';
 import 'package:models/flow_draft.dart';
 import 'package:models/grant.dart';
+import 'package:models/json_value.dart';
 import 'package:models/live_value.dart';
 import 'package:models/node_info.dart';
 import 'package:models/node_type.dart';
@@ -465,7 +466,7 @@ void main() {
         outputs: [],
         defaults: {'x': '2'},
       ).defaults,
-      {'x': 2},
+      {'x': const JsonNumber(2)},
     );
   });
 

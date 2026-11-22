@@ -207,7 +207,7 @@ void main() {
         ['fan'],
       ],
     );
-    final value = typedText(grid.toJsonText(), FieldEdit.json);
+    final value = typedText(grid.toJsonText(), FieldEdit.json).raw;
     expect(value, {
       'columns': ['name', 'kw'],
       'rows': [

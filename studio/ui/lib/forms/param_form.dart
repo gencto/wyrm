@@ -255,10 +255,10 @@ class ParamField extends StatelessWidget {
     final style = TextStyle(fontSize: FontSizes.md, color: c.text1);
     switch (vm.kind) {
       case .choice:
-        final value = vm.value as String?;
         return DropdownButtonFormField<String>(
           key: ValueKey('${vm.id}/choice'),
-          initialValue: vm.choices.contains(value) ? value : null,
+          // the choice the value is; none for any other value
+          initialValue: vm.choices.where((c) => c == vm.value).firstOrNull,
           focusNode: vm.focusNode,
           isExpanded: true,
           dropdownColor: c.ground3,
@@ -279,7 +279,8 @@ class ParamField extends StatelessWidget {
           onChanged: vm.enabled ? vm.onChanged : null,
         );
       case .file:
-        final name = vm.value as String?;
+        // the file's name, as the form holds it
+        final name = vm.value?.toString();
         return InkWell(
           onTap: vm.enabled ? vm.onPickFile : null,
           borderRadius: Radii.segment,

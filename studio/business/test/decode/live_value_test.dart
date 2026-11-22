@@ -20,7 +20,7 @@ void main() {
 
   test('a sample of a map keeps its fields', () {
     final v = liveValueOf(
-      Sample(Value.from({'a': 1, 'b': 'x'}), q: Quality.good, t: 1),
+      Sample(Value.from({'a': 1, 'b': 'x'}), t: 1),
     );
 
     expect(v.value, {'a': 1, 'b': 'x'});

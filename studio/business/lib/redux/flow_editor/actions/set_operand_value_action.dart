@@ -1,5 +1,6 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 
+import 'package:models/json_value.dart';
 import 'package:models/undo_kind.dart';
 import 'package:models/undo_tag.dart';
 
@@ -18,7 +19,7 @@ class SetOperandValueAction extends Action {
 
   final String id;
   final String port;
-  final Object? value;
+  final JsonValue value;
 
   @override
   AppState? reduce() {

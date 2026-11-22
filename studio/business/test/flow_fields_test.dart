@@ -26,6 +26,7 @@ import 'package:models/field_word.dart';
 import 'package:models/flow_block.dart';
 import 'package:models/flow_draft.dart';
 import 'package:models/flow_edge.dart';
+import 'package:models/json_value.dart';
 import 'package:models/live_value.dart';
 import 'package:models/node_type.dart';
 import 'package:models/param_spec.dart';
@@ -766,7 +767,7 @@ void main() {
 
     test('a scale switched to range writes the range and drops k and b', () {
       s
-        ..dispatchSync(SetBlockParamAction('gate', 'k', 2))
+        ..dispatchSync(SetBlockParamAction('gate', 'k', const JsonNumber(2)))
         ..dispatchSync(SetBlockFormAction('gate', BlockFormId.linear))
         ..dispatchSync(ConnectPortsAction('gate', 'k', 'sum', 'in.0'));
       expect(s.state.flowEditor.draft!.blocks['gate']!.cfg['k'], 2);

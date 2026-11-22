@@ -30,13 +30,17 @@ void main() {
     });
 
     test('a deep text is not saved as a structure: it stays the text', () {
-      expect(typedText(nested(63), FieldEdit.json), isA<List<Object?>>());
-      expect(typedText(nested(64), FieldEdit.json), nested(64));
-      expect(typedText(nested(65), FieldEdit.any), nested(65));
-      expect(typedText('{"a": 1}', FieldEdit.any), {'a': 1});
+      expect(typedText(nested(63), FieldEdit.json), isA<JsonList>());
+      expect(typedText(nested(64), FieldEdit.json), JsonText(nested(64)));
+      expect(typedText(nested(65), FieldEdit.any), JsonText(nested(65)));
+      expect(typedText('{"a": 1}', FieldEdit.any).raw, {'a': 1});
       // JSON null is null (it removes the value), not the text "null"
-      expect(typedText('null', FieldEdit.any), isNull);
-      expect(typedText('null', FieldEdit.json), isNull);
+      expect(typedText('null', FieldEdit.any), const JsonNull());
+      expect(typedText('null', FieldEdit.json), const JsonNull());
+      expect(typedText('7', FieldEdit.number), const JsonNumber(7));
+      expect(typedText('7x', FieldEdit.number), const JsonText('7x'));
+      expect(typedText('true', FieldEdit.toggle), const JsonBool(true));
+      expect(typedText('', FieldEdit.any), const JsonText(''));
     });
   });
 

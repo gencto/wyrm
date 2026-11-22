@@ -306,13 +306,13 @@ void main() {
       expect(range.operand, isTrue);
       final how = fieldEditOf(block('date_range'), range, const []).edit!;
       expect(how, FieldEdit.text);
-      expect(typedText('2026', how), '2026');
+      expect(typedText('2026', how).raw, '2026');
       // Another operand still reads JSON.
       expect(
         typedText(
           '2',
           fieldEditOf(block('sin'), field('sin', 'in:in'), const []).edit!,
-        ),
+        ).raw,
         2,
       );
     });
@@ -570,9 +570,9 @@ void main() {
     final f = field('table_from_csv', 'in:in');
     final edit = fieldEditOf(b, f, const []).edit;
     expect(edit, FieldEdit.text);
-    expect(typedText('a,b\n1,2', edit!), 'a,b\n1,2');
+    expect(typedText('a,b\n1,2', edit!).raw, 'a,b\n1,2');
     // a one-line `5` is the text `5`, not the number JSON makes of it
-    expect(typedText('5', edit), '5');
+    expect(typedText('5', edit).raw, '5');
     expect(isTextOperand(bt('split'), EnginePort.in_), isTrue);
     // an operand of another block still reads JSON
     final add = fieldEditOf(block('add'), field('add', 'in:in.0'), const []);

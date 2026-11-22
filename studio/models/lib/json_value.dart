@@ -158,6 +158,10 @@ final class JsonList extends JsonValue {
     : raw = list,
       items = [for (final x in list) JsonValue._at(x, depth + 1)].lock;
 
+  /// The list of [items], already decoded: what an edit of the editor
+  /// writes (its [raw] is theirs).
+  JsonList.items(this.items) : raw = [for (final x in items) x.raw];
+
   @override
   final List<Object?> raw;
 
@@ -185,6 +189,13 @@ final class JsonMap extends JsonValue {
         for (final MapEntry(:key, :value) in map.entries)
           '$key': JsonValue._at(value, depth + 1),
       }.lock;
+
+  /// The object of [fields], already decoded: what an edit of the editor
+  /// writes (its [raw] is theirs, in their order).
+  JsonMap.fields(this.fields)
+    : raw = {
+        for (final MapEntry(:key, :value) in fields.entries) key: value.raw,
+      };
 
   @override
   final Map<Object?, Object?> raw;

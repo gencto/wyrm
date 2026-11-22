@@ -23,6 +23,10 @@ abstract class FlowDraft with _$FlowDraft {
     /// The custom blocks of the definition (`blocks`), decoded, by name.
     @Default(IMapConst({})) IMap<String, BlockDef> defs,
 
+    /// `description`, decoded (it is in [rest] too, as it came, for the
+    /// write back); null when the definition has no text there.
+    String? description,
+
     /// `permissions`, decoded (it is in [rest] too, as it came, for the
     /// write back); null when the definition has none.
     FlowPermissions? permissions,
