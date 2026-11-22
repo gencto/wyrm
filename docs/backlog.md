@@ -1242,7 +1242,7 @@ session chains again one after the other at load 5–11.
 | `throughput`, `flow/table/per_hop` (10 000 rows, one `table_sort` hop) | 80 037 allocations, 27.1 MB | 20 020 allocations, 7.13 MB |
 | `throughput`, 10 000-row table through 1 / 3 `table_sort` | 170 144 / 330 218 allocations (40.3 / 94.5 MB) per table; at 50 tables/s p50 9.3 / 1 477 ms, RSS 107 / 856 MiB; lossless at 50 / 50 tables/s | 100 116 / 140 156 allocations (25.1 / 39.4 MB); at 50 tables/s p50 5.2 / 7.4 ms, RSS 74 / 89 MiB; lossless at 50 / 50 tables/s (the top of the ladder) |
 | `throughput`, `table_filter` (rhai per row) + `table_aggregate` | 560 324 allocations per table; 4 of 8 tables lost at 2/s | 440 244 allocations; 4 of 8 lost at 2/s (the script budget, not copies) |
-| `throughput`, session chains of 3 / 9 hops, 1000 keys, inbox 65 536 | lossless at 100 000 / 50 000 samples/s; 44 allocations per sample (the session's); `flow/per_hop` 0.003 allocations | lossless at 100 000 / 100 000 samples/s; 44 allocations; `flow/per_hop` 0.001 |
+| `throughput`, session chains of 3 / 9 hops, 1000 keys, inbox 65 536 (no change expected: a number is not shared) | lossless at 100 000 / 100 000 samples/s (one of two runs: 100 000 / 50 000); 44 allocations per sample (the session's); `flow/per_hop` 0.003 allocations | lossless at 100 000 / 100 000 samples/s (one of two runs, at load 12: 10 000 for both); 44 allocations; `flow/per_hop` 0.001 (both per-hop figures are noise) |
 
 Per table block and table: 4 copies before (the parse, `sent`, the probe's
 input and output slots) and 1 after (the parse); per extra edge 1 before
