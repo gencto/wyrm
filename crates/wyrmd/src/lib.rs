@@ -61,6 +61,44 @@ use zenoh_plugin_storage_manager::StoragesPlugin;
 
 pub type Error = zenoh::Error;
 
+/// A store that did not open, with the name of what it belongs to in front
+/// of its text (`gateway: …`). The cause stays its [`source`](std::error::Error::source),
+/// so [`store_held`] still sees it.
+#[derive(Debug, thiserror::Error)]
+#[error("{what}: {source}")]
+pub struct OpenError {
+    what: &'static str,
+    #[source]
+    source: Error,
+}
+
+impl OpenError {
+    pub fn new(what: &'static str, source: impl Into<Error>) -> Self {
+        Self {
+            what,
+            source: source.into(),
+        }
+    }
+}
+
+/// `e`, or one of its causes, says that a store is held: a `wyrm-state` WAL
+/// (its `LOCK`), the broker storage or the history index is open in another
+/// process, or in a daemon of this one that is still closing. Opening it
+/// again a moment later may succeed.
+pub fn store_held(e: &(dyn std::error::Error + 'static)) -> bool {
+    let mut at = Some(e);
+    while let Some(e) = at {
+        if matches!(e.downcast_ref(), Some(wyrm_state::StateError::InUse(_)))
+            || matches!(e.downcast_ref(), Some(wyrm_storage::Error::InUse(_)))
+            || matches!(e.downcast_ref(), Some(wyrm_history::store::Error::InUse(_)))
+        {
+            return true;
+        }
+        at = e.source();
+    }
+    false
+}
+
 /// `wyrmd.json5`. Unknown fields are rejected.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1932,17 +1970,18 @@ impl UserAdmin {
             .gateway
             .as_ref()
             .ok_or("no gateway section in the config")?;
-        let in_use = |e: String| -> Error {
-            if e.contains("in use") {
+        // the stores of a running broker: say what to do instead
+        let in_use = |e: Error| -> Error {
+            if store_held(&*e) {
                 format!("{e} (stop wyrmd, or use the gateway HTTP API)").into()
             } else {
-                e.into()
+                e
             }
         };
-        let gw = open_gateway(cfg, g, false).map_err(|e| in_use(e.to_string()))?;
+        let gw = open_gateway(cfg, g, false).map_err(in_use)?;
         let key = wyrm_admin::secret::load_or_create_key(&cfg.data_dir.join("state.key"))?;
         let audit = wyrm_state::Store::open(cfg.data_dir.join("audit"), &key)
-            .map_err(|e| in_use(e.to_string()))?;
+            .map_err(|e| in_use(e.into()))?;
         Ok(Self {
             gw,
             audit: std::sync::Mutex::new(audit),
@@ -2007,7 +2046,7 @@ fn open_gateway(cfg: &Config, g: &GatewaySection, bootstrap: bool) -> Result<Arc
         pair: announce::pair_of(cfg),
         up: cfg.peers.upstream.iter().map(|u| u.site.clone()).collect(),
     };
-    let gw = Gateway::open(gc, &hmac).map_err(|e| format!("gateway: {e}"))?;
+    let gw = Gateway::open(gc, &hmac).map_err(|e| OpenError::new("gateway", e))?;
     if !bootstrap {
         return Ok(gw);
     }
@@ -2621,6 +2660,50 @@ async fn wait_addr_free(addr: &str, deadline: std::time::Instant) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Audit T7: a store held by a closing daemon is told by its error's
+    /// type, through boxes and [`OpenError`], never by its text; the texts
+    /// stay as they were.
+    #[test]
+    fn a_held_store_is_told_by_its_type() {
+        let dir = std::env::temp_dir().join(format!("wyrmd-held-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let storage = wyrm_storage::Store::open(&dir.join("storage")).unwrap();
+        let held: Error = wyrm_storage::Store::open(&dir.join("storage"))
+            .err()
+            .unwrap()
+            .into();
+        assert!(store_held(&*held), "{held}");
+        let history = wyrm_history::Store::open(&dir.join("history")).unwrap();
+        let held = wyrm_history::Store::open(&dir.join("history"))
+            .err()
+            .unwrap();
+        let held: Error = OpenError::new("history", held).into();
+        assert!(store_held(&*held), "{held}");
+        assert_eq!(
+            held.to_string(),
+            format!(
+                "history: history store: {} is in use by another process",
+                dir.join("history").display()
+            )
+        );
+        // a state store behind the gateway's error, behind OpenError
+        let state = wyrm_state::StateError::InUse("users".into());
+        let held: Error = OpenError::new("gateway", wyrm_gateway::Error::State(state)).into();
+        assert!(store_held(&*held), "{held}");
+        assert_eq!(
+            held.to_string(),
+            "gateway: state: users is in use by another process"
+        );
+        // the words alone are no longer a held store
+        let text: Error = "users is in use by another process".into();
+        assert!(!store_held(&*text));
+        let other: Error =
+            OpenError::new("gateway", wyrm_gateway::Error::Config("x".into())).into();
+        assert!(!store_held(&*other));
+        drop((storage, history));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     /// Review T5: `links.<id>.mode` was an `Option<String>` checked at load and parsed
     /// again where it was used. It is read as a [`Mode`] now; another name, also in

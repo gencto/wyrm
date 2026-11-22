@@ -789,8 +789,9 @@ impl Control {
         }
         let pki = Pki::open_or_create(&cfg.data_dir.join("pki"))?;
         let secrets = crate::secrets::SecretStore::open(&cfg.data_dir)?;
-        let history = wyrm_history::Historian::open(&cfg.data_dir.join("history"))
-            .map_err(|e| e.to_string())?;
+        // `?` keeps the error's type: a caller that waits for a closing
+        // broker asks it whether the store is held (`InUse`)
+        let history = wyrm_history::Historian::open(&cfg.data_dir.join("history"))?;
         let (reload, rx) = mpsc::unbounded_channel();
         let kept = backups::Backups::open(&cfg.data_dir.join("backups"));
         let update = broker_update::BrokerUpdate::open(&cfg.data_dir);

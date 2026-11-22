@@ -825,7 +825,7 @@ async fn sync_storage(
             c.delete
         };
         if !c.put.is_empty() || !delete.is_empty() {
-            storage.apply(c.put, delete)?;
+            storage.apply(c.put, delete).map_err(|e| e.to_string())?;
         }
         *at = (c.epoch, c.rev);
         if c.full || paths < replication::MAX_STORAGE_PATHS {
@@ -997,11 +997,7 @@ async fn retry_open<T>(mut open: impl FnMut() -> Result<T, Error>) -> Result<T, 
         match open() {
             Ok(v) => return Ok(v),
             Err(e) => {
-                let held = {
-                    let m = e.to_string();
-                    m.contains("in use") || m.contains("already open")
-                };
-                if !held || Instant::now() >= deadline {
+                if !crate::store_held(&*e) || Instant::now() >= deadline {
                     return Err(e);
                 }
                 tokio::time::sleep(Duration::from_millis(200)).await;
@@ -1057,7 +1053,7 @@ pub async fn follow_with(
     let mut storage_at = (0u64, 0u64);
     let history = retry_open(|| {
         wyrm_history::Store::open(&cfg.data_dir.join("history"))
-            .map_err(|e| Error::from(format!("history: {e}")))
+            .map_err(|e| Error::from(crate::OpenError::new("history", e)))
     })
     .await?;
     let mut history_at: Option<HistoryAt> = None;

@@ -126,23 +126,58 @@ pub struct Store {
     epoch: u64,
 }
 
-fn db<E: std::fmt::Display>(e: E) -> String {
-    format!("storage: {e}")
+/// Why the store did not open, read or write. Every text starts with
+/// `storage: ` and then the cause's own text, as it did when this was a
+/// `String`: it reaches logs and the storage link's `InternalError` refusals.
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    /// Another [`Store`] (this process or another one) has `storage.redb`
+    /// open: a broker that is closing holds it for a moment, so a caller
+    /// may try again.
+    #[error("storage: {0}")]
+    InUse(#[source] redb::DatabaseError),
+    #[error("storage: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("storage: {0}")]
+    Database(#[source] redb::DatabaseError),
+    #[error("storage: {0}")]
+    Transaction(#[from] redb::TransactionError),
+    #[error("storage: {0}")]
+    Table(#[from] redb::TableError),
+    #[error("storage: {0}")]
+    Storage(#[from] redb::StorageError),
+    #[error("storage: {0}")]
+    Commit(#[from] redb::CommitError),
+}
+
+impl From<redb::DatabaseError> for Error {
+    fn from(e: redb::DatabaseError) -> Self {
+        match e {
+            redb::DatabaseError::DatabaseAlreadyOpen => Self::InUse(e),
+            e => Self::Database(e),
+        }
+    }
+}
+
+impl From<Error> for wyrm_link_sdk::LinkError {
+    fn from(e: Error) -> Self {
+        Self::internal(e.to_string())
+    }
 }
 
 impl Store {
     /// Open or create the store in `dir`; every node is loaded.
-    pub fn open(dir: &Path) -> Result<Self, String> {
-        std::fs::create_dir_all(dir).map_err(db)?;
-        let db_ = Database::create(dir.join("storage.redb")).map_err(db)?;
+    pub fn open(dir: &Path) -> Result<Self, Error> {
+        std::fs::create_dir_all(dir)?;
+        let db_ = Database::create(dir.join("storage.redb"))?;
         let mut nodes = BTreeMap::new();
         let mut bytes = 0;
         {
-            let txn = db_.begin_write().map_err(db)?;
+            let txn = db_.begin_write()?;
             {
-                let t = txn.open_table(NODES).map_err(db)?;
-                for item in t.iter().map_err(db)? {
-                    let (k, v) = item.map_err(db)?;
+                let t = txn.open_table(NODES)?;
+                for item in t.iter()? {
+                    let (k, v) = item?;
                     match Rec::decode(v.value()) {
                         Some(r) => {
                             bytes += r.size();
@@ -154,7 +189,7 @@ impl Store {
                     }
                 }
             }
-            txn.commit().map_err(db)?;
+            txn.commit()?;
         }
         let epoch = wyrm_core::clock::now_us().max(1);
         Ok(Self {
@@ -209,19 +244,19 @@ impl Store {
 
     /// A structure change in one transaction: `delete` these paths, then
     /// `put` these records (with their values).
-    pub fn apply(&self, put: Vec<(String, Rec)>, delete: Vec<String>) -> Result<(), String> {
+    pub fn apply(&self, put: Vec<(String, Rec)>, delete: Vec<String>) -> Result<(), Error> {
         let mut inner = self.lock();
-        let txn = self.db.begin_write().map_err(db)?;
+        let txn = self.db.begin_write()?;
         {
-            let mut t = txn.open_table(NODES).map_err(db)?;
+            let mut t = txn.open_table(NODES)?;
             for p in &delete {
-                t.remove(p.as_str()).map_err(db)?;
+                t.remove(p.as_str())?;
             }
             for (p, r) in &put {
-                t.insert(p.as_str(), r.encode().as_slice()).map_err(db)?;
+                t.insert(p.as_str(), r.encode().as_slice())?;
             }
         }
-        txn.commit().map_err(db)?;
+        txn.commit()?;
         for p in delete {
             inner.dirty.remove(&p);
             if let Some(old) = inner.nodes.remove(&p) {
@@ -321,23 +356,23 @@ impl Store {
     }
 
     /// Write the values set since the last flush (one transaction).
-    pub fn flush(&self) -> Result<usize, String> {
+    pub fn flush(&self) -> Result<usize, Error> {
         let mut inner = self.lock();
         if inner.dirty.is_empty() {
             return Ok(0);
         }
-        let txn = self.db.begin_write().map_err(db)?;
+        let txn = self.db.begin_write()?;
         let mut n = 0;
         {
-            let mut t = txn.open_table(NODES).map_err(db)?;
+            let mut t = txn.open_table(NODES)?;
             for p in &inner.dirty {
                 if let Some(r) = inner.nodes.get(p) {
-                    t.insert(p.as_str(), r.encode().as_slice()).map_err(db)?;
+                    t.insert(p.as_str(), r.encode().as_slice())?;
                     n += 1;
                 }
             }
         }
-        txn.commit().map_err(db)?;
+        txn.commit()?;
         inner.dirty.clear();
         Ok(n)
     }
@@ -481,5 +516,44 @@ mod replication_tests {
         // nothing new
         let none = s.changes_since(epoch, 6, 10);
         assert!(!none.full && none.put.is_empty() && none.delete.is_empty() && none.rev == 6);
+    }
+
+    /// Audit T7: a store held by another `Store` is `InUse`, so a caller that
+    /// waits for a closing broker matches the variant, not the text. The text
+    /// is the one this error had as a `String`, and it reaches the storage
+    /// link's refusals as an `InternalError`.
+    #[test]
+    fn a_held_store_is_in_use_with_the_old_text() {
+        let held = dir("held");
+        let first = Store::open(&held).unwrap();
+        let Err(e) = Store::open(&held) else {
+            panic!("a second open of a held store succeeded");
+        };
+        assert!(matches!(e, Error::InUse(_)), "{e:?}");
+        assert_eq!(
+            e.to_string(),
+            "storage: Database already open. Cannot acquire lock."
+        );
+        assert!(std::error::Error::source(&e).is_some());
+        let refused = wyrm_link_sdk::LinkError::from(e);
+        assert_eq!(refused.status, wyrm_core::Status::InternalError);
+        assert_eq!(
+            refused.message,
+            "storage: Database already open. Cannot acquire lock."
+        );
+        // let go, it opens again
+        drop(first);
+        Store::open(&held).unwrap();
+        // a file that is no database is not "in use"
+        let bad = dir("not-a-db");
+        std::fs::create_dir_all(&bad).unwrap();
+        std::fs::write(bad.join("storage.redb"), b"not a redb file").unwrap();
+        let Err(e) = Store::open(&bad) else {
+            panic!("a broken file opened");
+        };
+        assert!(matches!(e, Error::Database(_)), "{e:?}");
+        assert!(e.to_string().starts_with("storage: "), "{e}");
+        let _ = std::fs::remove_dir_all(held);
+        let _ = std::fs::remove_dir_all(bad);
     }
 }

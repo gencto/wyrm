@@ -297,7 +297,6 @@
     "crates/wyrm-messenger/src/model.rs": 22,
     "crates/wyrm-messenger/src/render.rs": 3,
     "crates/wyrm-state/src/lib.rs": 1,
-    "crates/wyrm-storage/src/store.rs": 3,
     "crates/wyrmd/src/lib.rs": 1,
     "crates/wyrmd/src/update.rs": 6,
     "links/agent/src/llm.rs": 2,

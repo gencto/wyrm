@@ -45,6 +45,11 @@ const MAX_OPEN: usize = 4;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    /// Another [`Store`] (this process or another one) has `index.redb`
+    /// open: a broker that is closing holds it for a moment, so a caller
+    /// may try again. The same words as `wyrm_state::StateError::InUse`.
+    #[error("history store: {} is in use by another process", .0.display())]
+    InUse(PathBuf),
     #[error("history store: {0}")]
     Db(String),
     #[error("history store: {0}")]
@@ -156,10 +161,7 @@ impl Store {
         let index = builder()
             .create(dir.join("index.redb"))
             .map_err(|e| match e {
-                // the same wording as wyrm-state's lock: callers retry on it
-                redb::DatabaseError::DatabaseAlreadyOpen => {
-                    Error::Db(format!("{} is in use by another process", dir.display()))
-                }
+                redb::DatabaseError::DatabaseAlreadyOpen => Error::InUse(dir.to_path_buf()),
                 e => db(e),
             })?;
         let mut series = HashMap::new();
@@ -917,6 +919,28 @@ mod tests {
 
     fn row(s: u32, t: u64, v: f64) -> NewRow {
         (s, t, encode_row(&Value::Float(v), Quality::Good))
+    }
+
+    /// Audit T7: a store held by another `Store` is `InUse` (it was a `Db`
+    /// text that callers searched for "in use"), with the same text as before.
+    #[test]
+    fn a_held_store_is_in_use_with_the_old_text() {
+        let dir = temp("held");
+        let first = Store::open(&dir).unwrap();
+        let Err(e) = Store::open(&dir) else {
+            panic!("a second open of a held store succeeded");
+        };
+        assert!(matches!(&e, Error::InUse(d) if d == &dir), "{e:?}");
+        assert_eq!(
+            e.to_string(),
+            format!(
+                "history store: {} is in use by another process",
+                dir.display()
+            )
+        );
+        drop(first);
+        Store::open(&dir).unwrap();
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

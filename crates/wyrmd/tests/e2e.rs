@@ -173,11 +173,7 @@ impl Env {
             let cfg = Config::from_json5(&text).unwrap();
             match open_daemon(cfg, env!("CARGO_BIN_EXE_wyrmd").into()) {
                 Ok(d) => break d,
-                Err(e)
-                    if tries < 50
-                        && (e.to_string().contains("in use")
-                            || e.to_string().contains("already open")) =>
-                {
+                Err(e) if tries < 50 && wyrmd::store_held(&*e) => {
                     tries += 1;
                     tokio::time::sleep(Duration::from_millis(100)).await;
                 }
@@ -5286,12 +5282,22 @@ async fn user_cli_offline_only() {
 
     // While the broker runs, the stores are locked.
     let cfg = Config::from_json5(&std::fs::read_to_string(&cfg_path).unwrap()).unwrap();
-    let daemon = open_daemon(cfg, env!("CARGO_BIN_EXE_wyrmd").into()).unwrap();
+    let daemon = open_daemon(cfg.clone(), env!("CARGO_BIN_EXE_wyrmd").into()).unwrap();
     let gw = daemon.gateway().unwrap();
     assert!(gw.list_users().iter().any(|(n, _, _)| n == "bob"));
+    // a second daemon on the same data_dir is refused with a held store,
+    // told by the error's type (audit T7)
+    match open_daemon(cfg, env!("CARGO_BIN_EXE_wyrmd").into()) {
+        Ok(_) => panic!("a second daemon opened the held stores"),
+        Err(e) => assert!(wyrmd::store_held(&*e), "{e}"),
+    }
     let out = wyrmd(&["user", "list"], None);
     assert!(!out.status.success());
-    assert!(String::from_utf8_lossy(&out.stderr).contains("in use"));
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        err.contains("in use by another process (stop wyrmd, or use the gateway HTTP API)"),
+        "{err}"
+    );
     drop(gw);
     drop(daemon);
 }
