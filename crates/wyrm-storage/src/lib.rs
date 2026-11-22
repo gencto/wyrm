@@ -7,33 +7,21 @@
 
 #![forbid(unsafe_code)]
 
+mod actions;
 pub mod json;
 pub mod store;
 
+use actions::{AddNode, AddValue, Delete, Duplicate, Import, Publish, Rename};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::warn;
-use wyrm_core::meta::{ActionResult, ParamMeta, GROUP_EDIT, GROUP_NEW};
-use wyrm_core::{keyspace, ActionMeta, NodeMeta, Perm, Quality, Status, TypeCode, Value, Writable};
+use wyrm_core::{keyspace, NodeMeta, Perm, Quality, Status, TypeCode, Value, Writable};
 use wyrm_link_sdk::tree::split_parent;
-use wyrm_link_sdk::{now_us, Caller, Link, LinkCtx, LinkError, ReplySink, Result};
+use wyrm_link_sdk::{now_us, Args, Caller, Link, LinkCtx, LinkError, ReplySink, Result};
 
+pub use actions::{ValueEditor, ValueType};
 pub use store::{Changes, Rec, Store};
-
-/// Types of `add_value`, in the order a UI offers them.
-pub const TYPES: [TypeCode; 7] = [
-    TypeCode::String,
-    TypeCode::Number,
-    TypeCode::Bool,
-    TypeCode::Array,
-    TypeCode::Map,
-    TypeCode::Binary,
-    TypeCode::Dynamic,
-];
-
-/// Editors of `add_value`; the first means none.
-pub const EDITORS: [&str; 3] = ["none", "textarea", "date"];
 
 /// How long values wait in memory before they are written.
 const FLUSH_EVERY: Duration = Duration::from_secs(1);
@@ -142,86 +130,19 @@ fn join(parent: &str, name: &str) -> String {
     }
 }
 
-fn act(display: &str) -> ActionMeta {
-    ActionMeta::new().level(Perm::Write).display(display)
-}
-
-fn name_param() -> ParamMeta {
-    ParamMeta::of(TypeCode::String).required(true)
-}
-
-fn add_node() -> ActionMeta {
-    act("Add node").group(GROUP_NEW).param("name", name_param())
-}
-
-fn add_value() -> ActionMeta {
-    act("Add value")
-        .group(GROUP_NEW)
-        .param("name", name_param())
-        // Choices travel as text, as every action's (the SDK checks the type).
-        .param(
-            "type",
-            ParamMeta::of(TypeCode::String)
-                .enum_values(TYPES.iter().map(|t| t.name()))
-                .required(true),
-        )
-        .param(
-            "editor",
-            ParamMeta::of(TypeCode::String).enum_values(EDITORS),
-        )
-}
-
-fn export() -> ActionMeta {
-    act("Export").result(ActionResult::Type(TypeCode::String))
-}
-
-/// `data` or `file`: a file parameter lets the gateway take JSON larger
-/// than a WebSocket frame (`POST /api/invoke`, ADR 0011).
-fn import() -> ActionMeta {
-    act("Import")
-        .param(
-            "data",
-            ParamMeta::of(TypeCode::String)
-                .editor(wyrm_core::meta::Editor::Textarea)
-                .description("JSON from Export"),
-        )
-        .param(
-            "file",
-            ParamMeta::of(TypeCode::Binary)
-                .editor(wyrm_core::meta::Editor::File)
-                .description("A JSON file from Export, instead of data"),
-        )
-}
-
-fn edits(m: &mut BTreeMap<String, ActionMeta>) {
-    m.insert(
-        "delete".into(),
-        act("Delete")
-            .group(GROUP_EDIT)
-            .param("recursive", ParamMeta::of(TypeCode::Bool)),
-    );
-    m.insert(
-        "rename".into(),
-        act("Rename").group(GROUP_EDIT).param("name", name_param()),
-    );
-    m.insert(
-        "duplicate".into(),
-        act("Duplicate")
-            .group(GROUP_EDIT)
-            .param("name", name_param()),
-    );
-}
-
 /// `~meta` of a stored node with its actions.
 fn meta(rec: &Rec) -> NodeMeta {
-    let mut actions = BTreeMap::new();
-    edits(&mut actions);
+    let mut actions = BTreeMap::from([
+        ("delete".to_owned(), actions::delete()),
+        ("rename".to_owned(), actions::rename()),
+        ("duplicate".to_owned(), actions::duplicate()),
+    ]);
     let mut m = match rec.ty {
         None => {
-            actions.insert("add_node".into(), add_node());
-            actions.insert("add_value".into(), add_value());
-            actions.insert("export".into(), export());
-            actions.insert("import".into(), import());
+            actions.insert("add_node".into(), actions::add_node());
+            actions.insert("add_value".into(), actions::add_value());
+            actions.insert("export".into(), actions::export());
+            actions.insert("import".into(), actions::import());
             NodeMeta::folder()
         }
         Some(ty) => {
@@ -234,33 +155,6 @@ fn meta(rec: &Rec) -> NodeMeta {
     };
     m.actions = Some(actions);
     m
-}
-
-fn arg<'a>(args: &'a Value, name: &str) -> Option<&'a Value> {
-    match args {
-        Value::Map(m) => m.get(name),
-        _ => None,
-    }
-}
-
-fn text_arg<'a>(args: &'a Value, name: &str) -> Result<&'a str> {
-    match arg(args, name) {
-        Some(Value::Str(s)) => Ok(s),
-        _ => Err(LinkError::invalid_parameter(format!("{name}: required"))),
-    }
-}
-
-/// A choice among `options`; `None` when the argument is absent.
-fn choice<'a>(args: &Value, name: &str, options: &[&'a str]) -> Result<Option<&'a str>> {
-    match arg(args, name) {
-        None => Ok(None),
-        Some(Value::Str(s)) => options
-            .iter()
-            .find(|o| **o == s)
-            .map(|o| Some(*o))
-            .ok_or_else(|| LinkError::invalid_parameter(format!("{name}: one of {options:?}"))),
-        Some(_) => Err(LinkError::invalid_parameter(format!("{name}: text"))),
-    }
 }
 
 fn segment(name: &str) -> Result<()> {
@@ -347,10 +241,10 @@ impl Storage {
             .collect()
     }
 
-    async fn delete(&self, path: &str, args: &Value) -> Result<()> {
+    async fn delete(&self, path: &str, a: Delete) -> Result<()> {
         let rec = self.rec(path)?;
         let sub = self.store.subtree(path);
-        let recursive = matches!(arg(args, "recursive"), Some(Value::Bool(true)));
+        let recursive = a.recursive;
         if rec.is_folder() && sub.len() > 1 && !recursive {
             return Err(LinkError::invalid_parameter(
                 "the node has children: set recursive",
@@ -360,11 +254,12 @@ impl Storage {
         self.replace(old, &[path.to_owned()], Vec::new()).await
     }
 
-    async fn rename(&self, path: &str, args: &Value, keep: bool) -> Result<()> {
+    /// `path` under the new `name` beside it; `keep` (a duplicate) leaves it where it is.
+    async fn rename(&self, path: &str, name: &str, keep: bool) -> Result<()> {
         let (parent, _) = split_parent(path).ok_or_else(|| LinkError::invalid_parameter("root"))?;
         self.rec(path)?;
         let n = self.store.subtree(path).len();
-        let to = self.new_child(parent, text_arg(args, "name")?, if keep { n } else { 0 })?;
+        let to = self.new_child(parent, name, if keep { n } else { 0 })?;
         let new = self.copy(path, &to);
         let (old, top) = if keep {
             (Vec::new(), Vec::new())
@@ -375,36 +270,27 @@ impl Storage {
         self.replace(old, &top, new).await
     }
 
-    async fn add(&self, parent: &str, args: &Value, value: bool) -> Result<()> {
-        let path = self.new_child(parent, text_arg(args, "name")?, 1)?;
-        let rec = if value {
-            let names: Vec<&str> = TYPES.iter().map(|t| t.name()).collect();
-            let ty = choice(args, "type", &names)?
-                .and_then(|n| TypeCode::from_name(n).filter(|t| TYPES.contains(t)))
-                .ok_or_else(|| LinkError::invalid_parameter("type: required"))?;
-            let editor = choice(args, "editor", &EDITORS)?
-                .filter(|e| *e != EDITORS[0])
-                .map(str::to_owned);
-            Rec {
-                ty: Some(ty),
-                editor,
-                ..Rec::default()
-            }
-        } else {
-            Rec::folder()
-        };
+    /// The node `rec` as the new child `name` of the folder `parent`.
+    async fn add(&self, parent: &str, name: &str, rec: Rec) -> Result<()> {
+        let path = self.new_child(parent, name, 1)?;
         self.replace(Vec::new(), &[], vec![(path, rec)]).await
     }
 
     /// Create the folders and the `dynamic` value at `path` that are missing,
     /// then set the value.
-    async fn publish(&self, args: &Value) -> Result<()> {
-        let path = text_arg(args, "path")?.trim_matches('/');
+    async fn publish(&self, a: Publish) -> Result<()> {
+        let (at, missing) = self.plan_publish(&a)?;
+        if !missing.is_empty() {
+            self.replace(Vec::new(), &[], missing).await?;
+        }
+        self.set(&at, a.value).await
+    }
+
+    /// What `publish` checks before it writes: the value node it sets and the nodes it makes.
+    fn plan_publish(&self, a: &Publish) -> Result<(String, Vec<(String, Rec)>)> {
+        let path = a.path.trim_matches('/');
         keyspace::validate_path(path).map_err(|e| LinkError::invalid_parameter(e.to_string()))?;
         self.limits.check_depth(path)?;
-        let value = arg(args, "value")
-            .cloned()
-            .ok_or_else(|| LinkError::invalid_parameter("value: required"))?;
         let mut missing = Vec::new();
         let mut at = String::new();
         let segs: Vec<&str> = path.split('/').collect();
@@ -434,14 +320,11 @@ impl Storage {
             .get(&at)
             .and_then(|r| r.ty)
             .unwrap_or(TypeCode::Dynamic);
-        check_value(ty, &value, &self.limits)?;
+        check_value(ty, &a.value, &self.limits)?;
         if self.store.len() + missing.len() > self.limits.nodes {
             return Err(self.limits.too_many());
         }
-        if !missing.is_empty() {
-            self.replace(Vec::new(), &[], missing).await?;
-        }
-        self.set(&at, value).await
+        Ok((at, missing))
     }
 
     async fn set(&self, path: &str, v: Value) -> Result<()> {
@@ -476,15 +359,16 @@ impl Storage {
     }
 
     /// Replace the children of the folder `path` with the JSON's.
-    async fn import(&self, path: &str, args: &Value) -> Result<()> {
+    async fn import(&self, path: &str, a: Import) -> Result<()> {
         self.folder(path)?;
-        let text = match (arg(args, "data"), arg(args, "file")) {
-            (Some(Value::Str(s)), None) => s.as_str(),
-            (None, Some(Value::Bytes(b))) => std::str::from_utf8(b)
-                .map_err(|_| LinkError::invalid_parameter("file: not UTF-8 text"))?,
+        let text = match (a.data, a.file) {
+            (Some(s), None) => s,
+            (None, Some(b)) => String::from_utf8(b).map_err(|e| {
+                LinkError::invalid_parameter(format!("file: not UTF-8 text ({})", e.utf8_error()))
+            })?,
             _ => return Err(LinkError::invalid_parameter("import: data or file")),
         };
-        let new = json::import(path, text, &self.limits)?;
+        let new = json::import(path, &text, &self.limits)?;
         let old: Vec<String> = self
             .store
             .subtree(path)
@@ -504,6 +388,26 @@ impl Storage {
     }
 }
 
+impl Storage {
+    /// A rename or a duplicate writes a sibling under the parent, outside `path`: the caller
+    /// needs write there too, or a grant on a folder could copy it out (ADR 0046). The parent.
+    fn may_name_beside<'p>(&self, path: &'p str, action: &str, who: &Caller) -> Result<&'p str> {
+        let (parent, _) = split_parent(path).ok_or_else(|| LinkError::invalid_parameter("root"))?;
+        let parent_key = self.ctx.key(parent, "");
+        let have = who.perm_on(&parent_key);
+        if have < Perm::Write {
+            return Err(LinkError::new(
+                Status::PermissionDenied,
+                format!(
+                    "{action}: needs write on {parent_key}, where the new name goes (the caller has {})",
+                    have.name()
+                ),
+            ));
+        }
+        Ok(parent)
+    }
+}
+
 impl Drop for Storage {
     /// `stop` is skipped when the driver panics: the flusher must not keep
     /// the store for the rest of the process.
@@ -519,16 +423,11 @@ impl Link for Storage {
 
     async fn start(cfg: StorageStart, ctx: LinkCtx) -> Result<Self> {
         for (name, a) in [
-            ("add_node", add_node()),
-            ("add_value", add_value()),
-            (
-                "publish",
-                act("Publish")
-                    .param("path", name_param().placeholder("folder/value"))
-                    .param("value", ParamMeta::of(TypeCode::Dynamic).required(true)),
-            ),
-            ("export", export()),
-            ("import", import()),
+            ("add_node", actions::add_node()),
+            ("add_value", actions::add_value()),
+            ("publish", actions::publish()),
+            ("export", actions::export()),
+            ("import", actions::import()),
         ] {
             ctx.declare_action("", name, a).await?;
         }
@@ -571,29 +470,40 @@ impl Link for Storage {
         out: ReplySink,
     ) -> Result<()> {
         match (path, action) {
-            (_, "add_node") => self.add(path, &args, false).await,
-            (_, "add_value") => self.add(path, &args, true).await,
-            ("", "publish") => self.publish(&args).await,
-            (_, "export") => out.reply(self.export(path)?).await,
-            (_, "import") => self.import(path, &args).await,
-            (p, "delete") if !p.is_empty() => self.delete(path, &args).await,
-            (p, "rename" | "duplicate") if !p.is_empty() => {
-                // Both write a sibling under the parent, outside `path`: the caller needs
-                // write there too, or a grant on a folder could copy it out (ADR 0046).
-                let (parent, _) =
-                    split_parent(path).ok_or_else(|| LinkError::invalid_parameter("root"))?;
-                let parent_key = self.ctx.key(parent, "");
-                let have = who.perm_on(&parent_key);
-                if have < Perm::Write {
-                    return Err(LinkError::new(
-                        Status::PermissionDenied,
-                        format!(
-                            "{action}: needs write on {parent_key}, where the new name goes (the caller has {})",
-                            have.name()
-                        ),
-                    ));
-                }
-                self.rename(path, &args, action == "duplicate").await
+            (_, "add_node") => {
+                let a = AddNode::decode(args)?;
+                self.add(path, &a.name, Rec::folder()).await
+            }
+            (_, "add_value") => {
+                let a = AddValue::decode(args)?;
+                let rec = Rec {
+                    ty: Some(a.ty.code()),
+                    editor: a.editor.and_then(ValueEditor::stored),
+                    ..Rec::default()
+                };
+                self.add(path, &a.name, rec).await
+            }
+            ("", "publish") => self.publish(Publish::decode(args)?).await,
+            (_, "export") => {
+                <()>::decode(args)?;
+                out.reply(self.export(path)?).await
+            }
+            (_, "import") => self.import(path, Import::decode(args)?).await,
+            (p, "delete") if !p.is_empty() => {
+                self.rec(path)?;
+                self.delete(path, Delete::decode(args)?).await
+            }
+            (p, "rename") if !p.is_empty() => {
+                self.may_name_beside(path, action, who)?;
+                self.rec(path)?;
+                let a = Rename::decode(args)?;
+                self.rename(path, &a.name, false).await
+            }
+            (p, "duplicate") if !p.is_empty() => {
+                self.may_name_beside(path, action, who)?;
+                self.rec(path)?;
+                let a = Duplicate::decode(args)?;
+                self.rename(path, &a.name, true).await
             }
             _ => Err(LinkError::not_supported(action.to_owned())),
         }
@@ -608,32 +518,29 @@ impl Link for Storage {
         args: Value,
         who: &Caller,
     ) -> Result<()> {
-        let args = &args;
         match (path, action) {
-            (_, "add_node" | "add_value") => {
-                self.new_child(path, text_arg(args, "name")?, 1)?;
+            (_, "add_node") => {
+                let a = AddNode::decode(args)?;
+                self.new_child(path, &a.name, 1)?;
             }
-            (p, "rename" | "duplicate") if !p.is_empty() => {
-                let (parent, _) =
-                    split_parent(path).ok_or_else(|| LinkError::invalid_parameter("root"))?;
-                let parent_key = self.ctx.key(parent, "");
-                let have = who.perm_on(&parent_key);
-                if have < Perm::Write {
-                    return Err(LinkError::new(
-                        Status::PermissionDenied,
-                        format!(
-                            "{action}: needs write on {parent_key}, where the new name goes (the caller has {})",
-                            have.name()
-                        ),
-                    ));
-                }
+            (_, "add_value") => {
+                let a = AddValue::decode(args)?;
+                self.new_child(path, &a.name, 1)?;
+            }
+            ("", "publish") => {
+                self.plan_publish(&Publish::decode(args)?)?;
+            }
+            (p, "rename") if !p.is_empty() => {
+                let parent = self.may_name_beside(path, action, who)?;
                 self.rec(path)?;
-                let n = if action == "duplicate" {
-                    self.store.subtree(path).len()
-                } else {
-                    0
-                };
-                self.new_child(parent, text_arg(args, "name")?, n)?;
+                let a = Rename::decode(args)?;
+                self.new_child(parent, &a.name, 0)?;
+            }
+            (p, "duplicate") if !p.is_empty() => {
+                let parent = self.may_name_beside(path, action, who)?;
+                self.rec(path)?;
+                let a = Duplicate::decode(args)?;
+                self.new_child(parent, &a.name, self.store.subtree(path).len())?;
             }
             (p, "delete") if !p.is_empty() => {
                 self.rec(path)?;

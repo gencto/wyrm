@@ -228,14 +228,30 @@ fn declared(sh: &Shape<'_>, a: &Attrs, code: &Tokens) -> Tokens {
     }
 }
 
+/// A required `dynamic` field: of type `Value` (by its last path segment), no
+/// `Option`, no attribute that reads it as something else.
+fn present_null(sh: &Shape<'_>, a: &Attrs) -> bool {
+    let Type::Path(p) = sh.ty else {
+        return false;
+    };
+    let plain = !(a.choice || a.index || a.trim || a.secret || a.nonempty);
+    plain
+        && a.absent.is_none()
+        && a.default.is_none()
+        && p.qself.is_none()
+        && p.path.segments.last().is_some_and(|s| s.ident == "Value")
+}
+
 /// The expression that takes one field out of the arguments.
 fn reading(sh: &Shape<'_>, a: &Attrs, name: &str, decode: &Tokens) -> Tokens {
     let args = quote!(::wyrm_core::args);
     let ty = sh.ty;
-    // an empty text is not there; white space counts only for a trimmed field
+    // an empty text is not there; white space counts only for a trimmed field; a
+    // required `dynamic` field takes a present `null` as a value
     let field = match (a.nonempty, a.trim) {
         (true, true) => quote!(r.take(#name).nonblank()),
         (true, false) => quote!(r.take(#name).nonempty()),
+        (false, _) if present_null(sh, a) => quote!(r.take_present(#name)),
         (false, _) => quote!(r.take(#name)),
     };
     let take = match (sh.option, a.absent.as_ref().or(a.default.as_ref())) {

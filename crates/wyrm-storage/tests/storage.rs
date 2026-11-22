@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use wyrm_core::status::StatusCode;
-use wyrm_core::{Perm, Status, TypeCode, Value, Writable};
+use wyrm_core::{Attachment, Perm, Status, TypeCode, Value, Writable};
 use wyrm_link_sdk::harness::{Reply, SITE};
 use wyrm_link_sdk::TestHarness;
 use wyrm_storage::{Limits, Storage, StorageStart, Store};
@@ -57,6 +57,17 @@ fn last(r: &[Reply]) -> Status {
 
 async fn run(h: &TestHarness<Storage>, path: &str, action: &str, a: Value) -> Vec<Reply> {
     h.invoke(path, action, a, Some(h.ptok(Perm::Write))).await
+}
+
+/// `~act/<action>?check` (spec 05 0.2.33) with write: what the action would answer, nothing done.
+async fn check(h: &TestHarness<Storage>, path: &str, action: &str, a: &Value) -> Vec<Reply> {
+    let at = Attachment {
+        ptok: Some(h.ptok(Perm::Write)),
+        ..Default::default()
+    };
+    let key = format!("{}?check", h.key(path, &format!("~act/{action}")));
+    h.query(&key, Some(wyrm_core::codec::to_vec(a).unwrap()), at)
+        .await
 }
 
 fn value(h: &TestHarness<Storage>, path: &str) -> Option<Value> {
@@ -163,6 +174,63 @@ async fn data_actions_rights_and_restart() {
         last(&run(&h, "", "publish", a).await),
         Status::InvalidParameter,
         "type of an existing value"
+    );
+    let a = args(&[
+        ("path", Value::Str("plant/temp/x".into())),
+        ("value", Value::UInt(3)),
+    ]);
+    assert_eq!(
+        last(&check(&h, "", "publish", &a).await),
+        Status::InvalidParameter,
+        "check: through a value"
+    );
+    let a = args(&[
+        ("path", Value::Str("plant/line1/count".into())),
+        ("value", Value::UInt(4)),
+    ]);
+    assert_eq!(
+        last(&check(&h, "", "publish", &a).await),
+        Status::Ok,
+        "check: a good publish"
+    );
+    assert_eq!(
+        value(&h, "plant/line1/count"),
+        Some(Value::UInt(3)),
+        "check writes nothing"
+    );
+    // a present `null` is a value of a dynamic node (as a DSA broker publishes it): checked
+    // and written like any other, and read back; an absent value is refused
+    let null = args(&[
+        ("path", Value::Str("plant/line1/count".into())),
+        ("value", Value::Null),
+    ]);
+    assert_eq!(last(&check(&h, "", "publish", &null).await), Status::Ok);
+    assert_eq!(last(&run(&h, "", "publish", null).await), Status::Ok);
+    assert_eq!(value(&h, "plant/line1/count"), Some(Value::Null));
+    let absent = args(&[("path", Value::Str("plant/line1/count".into()))]);
+    for r in [
+        run(&h, "", "publish", absent.clone()).await,
+        check(&h, "", "publish", &absent).await,
+    ] {
+        assert_eq!(last(&r), Status::InvalidParameter);
+    }
+    let three = args(&[
+        ("path", Value::Str("plant/line1/count".into())),
+        ("value", Value::UInt(3)),
+    ]);
+    assert_eq!(last(&run(&h, "", "publish", three).await), Status::Ok);
+    assert_eq!(value(&h, "plant/line1/count"), Some(Value::UInt(3)));
+    // a type outside the set: refused by `?check` of add_value too, with the field's name
+    let bad = args(&[
+        ("name", Value::Str("free".into())),
+        ("type", Value::Str("enum".into())),
+    ]);
+    let r = check(&h, "plant", "add_value", &bad).await;
+    let att = &r.last().expect("a reply").att;
+    assert_eq!(status(att), Status::InvalidParameter);
+    assert!(
+        att.err.as_deref().unwrap_or("").starts_with("type"),
+        "{att:?}"
     );
 
     // duplicate, rename, delete
