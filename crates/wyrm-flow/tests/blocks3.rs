@@ -78,7 +78,7 @@ fn on(sent: &[(String, Msg)], port: &str) -> Option<Value> {
     sent.iter()
         .rev()
         .find(|(p, _)| p == port)
-        .map(|(_, m)| m.v.clone())
+        .map(|(_, m)| m.v.get().clone())
 }
 
 /// The value a block sends on `port` for `v` on `input`.
@@ -174,7 +174,7 @@ async fn no_input_makes_a_block_panic() {
                 let mut m = good(v);
                 m.q = Quality::Uncertain;
                 for (out, m) in feed(&mut *n, io, port, m) {
-                    let bytes = wyrm_core::codec::to_vec(&m.v)
+                    let bytes = wyrm_core::codec::to_vec(m.v.get())
                         .unwrap_or_else(|e| panic!("{ty}.{out} from {port}: {e}"));
                     assert!(
                         bytes.len() <= cap,

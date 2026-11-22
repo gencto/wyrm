@@ -13,7 +13,9 @@
 
 use crate::commands::{is_event, MAX_INTERVAL_MS, MIN_INTERVAL_MS};
 use crate::def::Map;
-use crate::nodes::{b, f, only, read_field, truthy, Io, Msg, Node, Out, PortType, Ports, Tasks};
+use crate::nodes::{
+    b, f, only, read_field, truthy, Io, Msg, Node, Out, Payload, PortType, Ports, Tasks,
+};
 use crate::scope;
 use crate::sources::{DynKey, Switch};
 use std::collections::BTreeMap;
@@ -197,7 +199,7 @@ pub(crate) struct Reader {
     interval_ms: f64,
     auto_run: bool,
     enabled: bool,
-    trigger: Option<Value>,
+    trigger: Option<Payload>,
     /// The number of the read in flight: an answer with another number is dropped.
     seq: u64,
     running: bool,
@@ -537,7 +539,7 @@ impl Reader {
             let (v, q, t) = match r {
                 Ok(m) => (
                     BTreeMap::from([
-                        ("v".to_owned(), m.v),
+                        ("v".to_owned(), m.v.into_value()),
                         ("q".to_owned(), Value::UInt(u64::from(m.q.code()))),
                     ]),
                     Quality::Good,
@@ -607,7 +609,7 @@ impl Node for Reader {
             if seq.parse::<u64>().ok() != Some(self.seq) {
                 return; // an answer of a read that was given up
             }
-            let Value::Map(r) = &m.v else { return };
+            let Value::Map(r) = &*m.v else { return };
             if m.q == Quality::Bad {
                 // a failure never reads as a success: no valid error code is `internal_error`
                 let f = crate::decode::Failure::of(r);
@@ -680,14 +682,14 @@ impl Node for Reader {
                     .is_some_and(|n| HISTORY_PARAMS.contains(&n)) =>
             {
                 let name = &p[3..];
-                let ok = match (name, &m.v) {
+                let ok = match (name, &*m.v) {
                     ("limit", v) => v.to_int::<usize>().is_ok_and(limit_ok),
                     ("rollup", Value::Str(r)) => ROLLUPS.contains(&r.as_str()),
                     (_, Value::Str(_) | Value::Null) => true,
                     _ => false,
                 };
-                if ok && self.params.get(name) != Some(&m.v) {
-                    self.set_param(name, m.v);
+                if ok && self.params.get(name) != Some(m.v.get()) {
+                    self.set_param(name, m.v.into_value());
                     // a read is no command: a field born at the start reads too
                     if self.auto_run {
                         if self.running {
@@ -699,7 +701,7 @@ impl Node for Reader {
                 }
             }
             p if p.strip_prefix("in.") == Some(self.field) => {
-                if let Some(sw) = self.key.offer(m.v, &io.site) {
+                if let Some(sw) = self.key.offer(m.v.into_value(), &io.site) {
                     self.switch(sw, io, out);
                 }
             }

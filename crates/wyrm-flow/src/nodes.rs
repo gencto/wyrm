@@ -13,6 +13,7 @@
 use crate::artifacts::Artifacts;
 use crate::def::Map;
 use crate::modes::{OnBad, QualityMode, Reset, Trigger, WindowFn, WindowKind};
+pub use crate::payload::Payload;
 use crate::script;
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
@@ -25,7 +26,8 @@ use wyrm_link_sdk::{now_us, LinkCtx};
 /// What flows on an edge (spec 06: the `~val` sample plus its source key).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Msg {
-    pub v: Value,
+    /// Shared when it is a list or a map: a copy of a `Msg` copies no table ([`Payload`]).
+    pub v: Payload,
     pub q: Quality,
     pub t: u64,
     pub key: Option<Arc<str>>,
@@ -45,9 +47,9 @@ pub struct Msg {
 }
 
 impl Msg {
-    pub fn new(v: Value, q: Quality, t: u64) -> Self {
+    pub fn new(v: impl Into<Payload>, q: Quality, t: u64) -> Self {
         Self {
-            v,
+            v: v.into(),
             q,
             t,
             key: None,
@@ -1329,7 +1331,8 @@ impl Node for Capture {
         if port.starts_with("__") {
             return;
         }
-        self.probe.sink(&self.node, SinkOp::Publish, &self.key, m.v);
+        self.probe
+            .sink(&self.node, SinkOp::Publish, &self.key, m.v.into_value());
     }
 }
 
@@ -1614,7 +1617,7 @@ impl Node for Wasm {
             return;
         }
         let sample = wyrm_core::Sample {
-            v: m.v,
+            v: m.v.into_value(),
             q: m.q,
             t: m.t,
         };

@@ -545,7 +545,7 @@ measured.
 | sdk | `cargo bench -p wyrm-link-sdk --bench verify` | 3 | one `ptok` check with 1 admin + 1/4/10/30 limited keys: signed by the admin key, by the first and by the last limited key, by a key nobody trusts (refused), a new `sub` in every token, the limited keys in turn with their own `sub` and with a new `sub` each time |
 | sdk | `cargo bench -p wyrm-link-sdk --bench tree` | 4, 5, 17 | declare 1k/10k/30k points (time, `~meta` puts and bytes, the parent's apart, bytes kept, peak RSS; pure `NodeTree` with one parent put per child, and through `LinkCtx` over Zenoh; `TREE_DECLARE_ONLY=<n>` runs one size in a process of its own); a wildcard `get` that hits one node of 10k; `view=list` of 1000 children with and without a profile name |
 | flow | `cargo test --release -p wyrm-flow --test throughput -- --ignored --nocapture` | 7–10 | `subscribe → (scale, add) × n → publish`, a paced rate ladder on one key and on 1000 keys, default and deep inbox; allocations per hop (9 hops minus 3); 10 000-row tables through `table_sort` ×1/×3 and `table_filter` + `table_aggregate` |
-| flow | `cargo test --release -p wyrm-flow --test copies -- --ignored --nocapture` | flow copies | the runtime started directly, no session and no `publish`: samples pushed into the first node's inbox, the end read from the flow's counters; a chain of 10 pure blocks, one output with 16 edges, one `expression` (rhai), a 1000-row table of 3 columns through 3 `table_sort`; median of 7 rounds: samples/s, CPU per sample, allocations and bytes per sample |
+| flow | `cargo test --release -p wyrm-flow --test copies -- --ignored --nocapture` | flow copies | the runtime started directly, no session and no `publish`: samples pushed into the first node's inbox, the end read from the flow's counters; a chain of 10 pure blocks, one output with 16 edges, one `expression` (rhai), a 1000-row table of 3 columns through 3 `table_sort`, through 3 `hub`s and through one `table_sort` with 4 edges into `hub`s; median of 7 rounds: samples/s, CPU per sample, allocations and bytes per sample, and for a table the copies (allocations over one `Value::clone`) |
 | broker | `cargo test --release -p wyrmd --test perf -- --ignored --nocapture --exact <test>` | 1, 2, 12, 13, gateway | an in-process broker with the embedded mock: (a) base rate, (b) a client that subscribes `wy/<site>/downstream/**` in a loop and one `wy/**`, (c) the mock at `trace`, (d) the historian on 10 000 points, (e) 1000 invokes one after another, then 2000 from 50 subjects at once: latency, audit records/s, batches, and how late a 1 ms timer of the broker's runtime fires, (f) 10 gateway WebSocket clients × 1000 points × 10 Hz, (g) a steady pattern consumer of 1000 points × 50 Hz, raw and through the client |
 | broker | `cargo test --release -p wyrm-gateway --test frame_path -- --ignored --nocapture` | gateway | the value path of one `subscribe` with no socket and no session: the client's value stream fed by hand with the gateway's read filter in its callback, the pump, the connection's queue, the writer task and a sink that counts frames and flushes; a value event to its frame, one rights check, the stream alone, the whole path on one thread, and 10 connections × 1000 points × 10 Hz on two workers beside the producer's own cost |
 | broker | `cargo test --release -p wyrm-client --test fan_in -- --ignored --nocapture` | pattern consumer | the client's value stream with no session: handler + read on one thread, and 1000 samples every 20 ms read by a task |
@@ -1075,7 +1075,8 @@ Not done:
   with n edges adds n − 1. All of them need a payload that is shared
   (`Arc`, copy on write), and `Msg.v` is a `wyrm_core::Value`, read in
   about 60 places of the engine and 120 of its tests: a slice of its own.
-  Expected from it: one copy per table and block instead of four;
+  Expected from it: one copy per table and block instead of four. Done
+  (issue #160, `perf/flow-table-payload`, below);
 - rhai: 11 allocations per call are left (the variables' map and scope, the
   `state` map boxed and read back, the evaluation itself). A value that is a
   map or a list is converted to `Dynamic` and back on every call; a scope
@@ -1187,6 +1188,92 @@ Not done:
 - the other frames of a connection (`list` events, answers) are still built
   as `Value` trees: they are not per sample;
 - the reference board and a quiet machine.
+
+**Done: a shared payload for tables (2026-11-22, `perf/flow-table-payload`,
+issue #160 items 1 and 3).** A table (or any list or map) that went from
+block to block was copied four times per block and once more per extra edge
+(above). `Msg.v` is now a `wyrm_flow::payload::Payload`: a list or a map
+behind an `Arc`, any other value in place. A number stays in place because
+sharing it would cost one allocation per sample, and copying it costs none.
+Reads go through `Deref` to `Value`. `make_mut` copies a shared value before
+a change. `into_value` moves the value out when nobody else holds it, and
+copies it otherwise. Equality compares the values with no pointer shortcut,
+so a table with a NaN cell is still "different" to "send only when it
+differs", as before.
+
+What holds the payload instead of a copy: the edges of one output
+(`route`), the probe's last sample per port (`watch`), a block's last input
+per port (`values`), its last value per output (`sent`), `prev`/`held` of
+`changed`, the edge blocks, `debounce` and `throttle`, the last sample of
+`subscribe`/`liveliness`, and the `trigger` of the command and reader
+blocks. A block that passes its input on (`hub`, `select`, `router`,
+`sample_and_hold`, `debounce`, `throttle`) sends it shared. Left as copies,
+where a block really makes a value of its own: a table block parses its
+input into rows (the one copy per block), a parameter taken from a port, the
+input of `invoke`/`set` and its `args`, the rows of `table_recorder`, and
+what a sink encodes. A map sample (an event, a table a block made) costs
+one allocation more (the `Arc`). No sample, order, mark, watch record or
+counter changes; `spec/` did not change.
+
+Measurement: `tests/copies.rs` as before, with three new lines.
+`flow/copies/table_copy` gives what one `Value::clone` of the test table
+allocates (5 008 allocations, 675 kB). `hub3` puts the table through 3
+`hub`s. `table_fanout4` puts it through one `table_sort` whose output has 4
+edges into `hub`s. Each table line gives `copies` = its allocations per
+table over one clone. The check now writes its `PERF` line to stderr past
+the test harness's capture, so a passing `cargo test` shows the
+allocations in the CI log (issue #160 item 3).
+
+M4 Max, release, 2026-11-22. `copies`: the binaries of the base
+(`origin/main` with the new measurement only) and of the change were run in
+turn, three times each, load 15–29 (other agents' builds); the table gives
+the median of the three. Allocations and copies did not move between runs;
+rates and CPU did. `throughput`: one run each, load 9–13, and the two
+session chains again one after the other at load 5–11.
+
+| Figure | Before | After |
+|---|---|---|
+| chain of 10 pure blocks (`add`, `multiply`), one number per sample | 392 800 samples/s; 5.3 µs CPU and 1.0 allocation per sample | 422 400 samples/s; 4.9 µs, 1.0 allocation |
+| one `add` whose output has 16 edges, each into an `abs` | 309 100 samples/s; 11.6 µs, 1.0 allocation | 380 700 samples/s; 9.5 µs, 1.0 allocation |
+| one `expression` (rhai) | 1 119 000 samples/s; 0.95 µs, 11 allocations | 1 117 000 samples/s; 0.94 µs, 11 allocations |
+| a 1000-row table of 3 columns through 3 `table_sort` | 532 tables/s; 1 901 µs CPU, 60 148 allocations (8.25 MB) per table; **12.0 copies** | 1 160 tables/s; 869 µs, 15 079 allocations (2.17 MB); **3.0 copies** |
+| the same table through 3 `hub`s | 720 tables/s; 1 398 µs, 60 124 allocations (8.11 MB); **12.0 copies** | 17 590 tables/s; 59.6 µs, 19 allocations (2.1 kB); **0.004 copies** |
+| the same table through one `table_sort` with 4 edges into `hub`s | 73.6 tables/s; 52 961 µs, 115 238 allocations (15.6 MB); **23.0 copies** | 1 670 tables/s; 962 µs, 5 051 allocations (0.73 MB); **1.0 copy** |
+| `throughput`, `flow/table/per_hop` (10 000 rows, one `table_sort` hop) | 80 037 allocations, 27.1 MB | 20 020 allocations, 7.13 MB |
+| `throughput`, 10 000-row table through 1 / 3 `table_sort` | 170 144 / 330 218 allocations (40.3 / 94.5 MB) per table; at 50 tables/s p50 9.3 / 1 477 ms, RSS 107 / 856 MiB; lossless at 50 / 50 tables/s | 100 116 / 140 156 allocations (25.1 / 39.4 MB); at 50 tables/s p50 5.2 / 7.4 ms, RSS 74 / 89 MiB; lossless at 50 / 50 tables/s (the top of the ladder) |
+| `throughput`, `table_filter` (rhai per row) + `table_aggregate` | 560 324 allocations per table; 4 of 8 tables lost at 2/s | 440 244 allocations; 4 of 8 lost at 2/s (the script budget, not copies) |
+| `throughput`, session chains of 3 / 9 hops, 1000 keys, inbox 65 536 (no change expected: a number is not shared) | lossless at 100 000 / 100 000 samples/s (one of two runs: 100 000 / 50 000); 44 allocations per sample (the session's); `flow/per_hop` 0.003 allocations | lossless at 100 000 / 100 000 samples/s (one of two runs, at load 12: 10 000 for both); 44 allocations; `flow/per_hop` 0.001 (both per-hop figures are noise) |
+
+Per table block and table: 4 copies before (the parse, `sent`, the probe's
+input and output slots) and 1 after (the parse); per extra edge 1 before
+and 0 after. A block that passes the table on copies nothing. The numbers'
+rows did not change: a number was never shared, and the rates are within
+the load's noise (an earlier run of the change at load 28–30 gave 249 000
+samples/s for the chain of 10, a run of the base at load 23 gave 273 000).
+The hubs' 19 allocations per table are mostly their `on_change` event maps
+(about 5 each, the `Arc` included) and the test's own push.
+
+New checks that run with the other tests: `a_table_through_three_hubs_is_not_copied`
+(under a tenth of one copy per table; it prints `flow/copies/check_hub3`),
+`a_block_that_changes_its_input_leaves_a_sibling_edge_alone` (one table on
+two edges, into `table_sort` and into a `hub`, in both edge orders: the
+hub's output and every input slot hold the table as it came, the sort's
+output is sorted), `the_edges_share_a_table_and_a_change_stays_on_its_edge`
+(`runtime.rs`: both edges hold one table, `make_mut` on one leaves the
+other as sent) and the `Payload` unit tests. The existing tests changed
+only where they read `Msg.v` as a `Value` (`.get()`, `.into_value()`,
+`&*`); no expected value changed.
+
+Not done:
+
+- the parse of a table block's input into rows (one copy per table block).
+  A block that reads the table in place would remove it, block by block;
+- the probe still compares a port's new sample with its last one, and a
+  block its output with the last sent: a deep compare of two tables when
+  they are equal (no allocation; the CPU of a walk over the table);
+- a text and bytes are not shared: a long text sent on many edges is copied
+  per edge, as before;
+- rhai (issue #160 item 2), the reference board and a quiet machine.
 
 Not covered yet:
 

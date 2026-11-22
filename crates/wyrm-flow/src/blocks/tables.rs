@@ -702,7 +702,7 @@ pub(super) fn calc(op: Op, v: &View, sc: Option<&Scripts>) -> Outs {
         Op::Join => {
             let (l, r) = (
                 input_table(v),
-                v.ins.get("right").and_then(Table::from_value),
+                v.ins.get("right").and_then(|r| Table::from_value(r)),
             );
             let col = ptext(v, "column");
             let rcol = match v.p("right_column") {
@@ -1662,7 +1662,10 @@ mod tests {
             .collect();
         cfg.extend(kv.iter().map(|(k, v)| ((*k).to_owned(), v.clone())));
         let sc = scripts(op, &cfg).unwrap();
-        let insm = map(ins);
+        let insm: BTreeMap<String, crate::nodes::Payload> = ins
+            .iter()
+            .map(|(k, v)| ((*k).to_owned(), v.clone().into()))
+            .collect();
         calc(
             op,
             &View {

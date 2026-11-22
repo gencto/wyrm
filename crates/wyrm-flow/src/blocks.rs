@@ -18,7 +18,7 @@
 
 use crate::commands::{MAX_INTERVAL_MS, MIN_INTERVAL_MS};
 use crate::def::Map;
-use crate::nodes::{names, put, Io, Msg, Node, Out, PortName, PortType, Ports};
+use crate::nodes::{names, put, Io, Msg, Node, Out, Payload, PortName, PortType, Ports};
 use std::collections::BTreeMap;
 use std::time::Duration;
 use tracing::trace;
@@ -335,12 +335,12 @@ pub(crate) struct View<'a> {
     params: &'a BTreeMap<String, Value>,
     now_us: u64,
     /// Every input's last sample (`table_join`'s `right`).
-    ins: &'a BTreeMap<String, Value>,
+    ins: &'a BTreeMap<String, Payload>,
 }
 
 /// No inputs, for a view in a test.
 #[cfg(test)]
-pub(crate) static NO_INPUTS: BTreeMap<String, Value> = BTreeMap::new();
+pub(crate) static NO_INPUTS: BTreeMap<String, Payload> = BTreeMap::new();
 
 impl View<'_> {
     fn p(&self, name: &str) -> &Value {
@@ -1226,8 +1226,11 @@ pub fn build(ty: &str, flow: &str, id: &str, cfg: &Map) -> Option<Result<Box<dyn
         };
         Ok(Box::new(Block {
             ops: Ops::of_config(k, cfg)?,
-            consts: consts.clone(),
-            values: consts,
+            values: consts
+                .iter()
+                .map(|(k, v)| (k.clone(), Payload::new(v.clone())))
+                .collect(),
+            consts,
             kind: k,
             name: format!("{flow}/{id}"),
             param_ports: sh
@@ -1280,14 +1283,15 @@ struct Block {
     /// The variable inputs' names, in order.
     items: Vec<String>,
     /// The last sample of each input port (without `in.`; `in` and `reset` as they are),
-    /// seeded with the operands' constants.
-    values: BTreeMap<String, Value>,
+    /// seeded with the operands' constants. Held as it came: a table is shared with the edge
+    /// and the probe, not copied.
+    values: BTreeMap<String, Payload>,
     /// The operands' constants from config `values`, for `watch` (`Node::seeds`).
     consts: BTreeMap<String, Value>,
     /// Quality and time of each input that has a sample.
     seen: BTreeMap<String, (Quality, u64)>,
-    /// The last value and quality sent on each output.
-    sent: BTreeMap<String, (Value, Quality)>,
+    /// The last value and quality sent on each output (shared with the sample sent).
+    sent: BTreeMap<String, (Payload, Quality)>,
     events: u64,
     /// The stopwatch's count; `None` until it was set.
     count: Option<N>,
@@ -1299,9 +1303,9 @@ struct Block {
     /// No edge leads into the block: a pure one calculates at start (spec 06 0.2.30).
     unwired: bool,
     /// `changed` and the edge blocks: the sample before.
-    prev: Option<Value>,
+    prev: Option<Payload>,
     /// `debounce` and `throttle`: the value that waits, and when it goes out.
-    held: Option<Value>,
+    held: Option<Payload>,
     due: Option<tokio::time::Instant>,
     /// `throttle`: when a value last went out.
     passed: Option<tokio::time::Instant>,
@@ -1329,13 +1333,18 @@ impl Block {
     fn item_values(&self) -> Vec<Value> {
         self.items
             .iter()
-            .map(|n| self.values.get(n).cloned().unwrap_or(Value::Null))
+            .map(|n| self.values.get(n).map_or(Value::Null, |v| v.get().clone()))
             .collect()
     }
 
     /// The last sample on `in`.
     fn in_value(&self) -> &Value {
-        self.values.get("in").unwrap_or(&Value::Null)
+        self.in_sample().map_or(&Value::Null, Payload::get)
+    }
+
+    /// The last sample on `in` as it came: a table stays shared.
+    fn in_sample(&self) -> Option<&Payload> {
+        self.values.get("in")
     }
 
     fn quality(&self) -> (Quality, u64) {
@@ -1355,8 +1364,16 @@ impl Block {
     }
 
     /// Send `v` on `port` when it differs from what was sent there last.
-    fn send(&mut self, port: impl Into<PortName>, v: Value, q: Quality, t: u64, out: &mut Out) {
+    fn send(
+        &mut self,
+        port: impl Into<PortName>,
+        v: impl Into<Payload>,
+        q: Quality,
+        t: u64,
+        out: &mut Out,
+    ) {
         let port = port.into();
+        let v = v.into();
         // the slot is found once and its key is made only for a port's first value
         match self.sent.get_mut(port.as_ref()) {
             Some(last) if last.0 == v && last.1 == q => return,
@@ -1387,15 +1404,22 @@ impl Block {
         let nums = || {
             self.items
                 .iter()
-                .filter_map(|n| self.values.get(n).and_then(num))
+                .filter_map(|n| self.values.get(n).and_then(|v| num(v)))
         };
         match self.kind {
             Kind::Number | Kind::Text | Kind::Bool => {
-                let v = self.var_value(self.values.get("in").unwrap_or(self.param("value")));
+                let v = self.var_value(
+                    self.values
+                        .get("in")
+                        .map_or(self.param("value"), Payload::get),
+                );
                 self.send("out", v, q, t, out);
             }
             Kind::TableVar => {
-                let v = self.values.get("in").unwrap_or(self.param("value"));
+                let v = self
+                    .values
+                    .get("in")
+                    .map_or(self.param("value"), Payload::get);
                 let (v, q) = match v {
                     Value::Null => (table::Table::default().to_value().unwrap_or(Value::Null), q),
                     v => match table::Table::from_value(v).and_then(table::Table::into_value) {
@@ -1564,7 +1588,7 @@ impl Block {
                 let Some(index) = self.items.iter().position(|n| n == changed) else {
                     return;
                 };
-                let v = self.values.get(changed).cloned().unwrap_or(Value::Null);
+                let v = self.values.get(changed).cloned().unwrap_or_default();
                 if v == Value::Null && truth(self.param("ignore_null"), true) {
                     return;
                 }
@@ -1781,7 +1805,7 @@ impl Block {
                 if changed != "in" {
                     return;
                 }
-                let v = self.in_value().clone();
+                let v = self.in_sample().cloned().unwrap_or_default();
                 let prev = self.prev.replace(v.clone());
                 // a value born at the start is where the block starts from, not an event
                 if self.born {
@@ -1809,7 +1833,10 @@ impl Block {
                 let hit = changed == "in" && !self.born && *self.in_value() != Value::Null;
                 if changed == "reset"
                     && !self.born
-                    && truth(self.values.get("reset").unwrap_or(&Value::Null), false)
+                    && truth(
+                        self.values.get("reset").map_or(&Value::Null, Payload::get),
+                        false,
+                    )
                 {
                     n = initial;
                 } else if hit && self.kind == Kind::Counter {
@@ -1837,7 +1864,7 @@ impl Block {
                     .get("trigger")
                     .is_some_and(|v| *v != Value::Null);
                 if changed == "trigger" && !self.born && fired {
-                    let v = self.in_value().clone();
+                    let v = self.in_sample().cloned().unwrap_or_default();
                     self.send("out", v, q, t, out);
                 }
             }
@@ -1846,14 +1873,14 @@ impl Block {
                     .and_then(|i| self.items.get(i))
                     .and_then(|name| self.values.get(name))
                     .cloned()
-                    .unwrap_or(Value::Null);
+                    .unwrap_or_default();
                 self.send("out", v, q, t, out);
             }
             Kind::Debounce | Kind::Throttle => {
                 if changed != "in" {
                     return;
                 }
-                let v = self.in_value().clone();
+                let v = self.in_sample().cloned().unwrap_or_default();
                 let now = tokio::time::Instant::now();
                 let ms = self.hold();
                 if self.kind == Kind::Debounce {
@@ -1896,17 +1923,17 @@ impl Block {
                 }
             }
             Kind::Router => {
-                let x = self.values.get("condition").cloned().unwrap_or(Value::Null);
+                let x = self.values.get("condition").cloned().unwrap_or_default();
                 let op = self.ops.case_op;
                 let mut cache = self.re.take();
                 let names = self.items.clone();
                 let hit = names.iter().find(|name| {
-                    let p = self.values.get(*name).cloned().unwrap_or(Value::Null);
+                    let p = self.values.get(*name).cloned().unwrap_or_default();
                     case_match(op, &x, &p, &mut cache)
                 });
                 self.re = cache;
                 let port = hit.map_or_else(|| "else".to_owned(), |n| format!("out.{n}"));
-                let v = self.in_value().clone();
+                let v = self.in_sample().cloned().unwrap_or_default();
                 if truth(self.param("single_output"), false) {
                     if let Some(last) = self.route.take().filter(|l| *l != port) {
                         self.send(last, Value::Null, q, t, out);
@@ -1917,7 +1944,7 @@ impl Block {
             }
             Kind::EventGate => {
                 if changed == "reset" {
-                    let v = self.values.get("reset").unwrap_or(&Value::Null);
+                    let v = self.values.get("reset").map_or(&Value::Null, Payload::get);
                     if !self.born && *v != Value::Null {
                         self.gate.clear();
                         self.order.clear();
@@ -1960,11 +1987,11 @@ impl Block {
                 if self.born || !self.items.iter().any(|n| n == changed) {
                     return;
                 }
-                let v = self.values.get(changed).cloned().unwrap_or(Value::Null);
+                let v = self.values.get(changed).cloned().unwrap_or_default();
                 if v == Value::Null {
                     return;
                 }
-                let (message, code) = match &v {
+                let (message, code) = match &*v {
                     Value::Map(m) => (
                         m.get("message").map_or_else(|| text(&v), text),
                         m.get("code").and_then(num).map_or(Value::Null, N::value),
@@ -2048,7 +2075,7 @@ impl Block {
     /// `time_window_s` only the rows that recent.
     fn record(&mut self, changed: &str, q: Quality, t: u64, out: &mut Out) {
         if changed == "reset" {
-            let v = self.values.get("reset").cloned().unwrap_or(Value::Null);
+            let v = self.values.get("reset").cloned().unwrap_or_default();
             if self.born || v == Value::Null {
                 return;
             }
@@ -2057,7 +2084,7 @@ impl Block {
                 .map(|tb| tb.rows.into_iter().collect())
                 .unwrap_or_default();
         } else if self.items.iter().any(|n| n == changed) {
-            let v = self.values.get(changed).cloned().unwrap_or(Value::Null);
+            let v = self.values.get(changed).cloned().unwrap_or_default();
             if !truth(self.param("enabled"), true)
                 || (v == Value::Null && truth(self.param("ignore_null"), false))
             {
@@ -2069,7 +2096,7 @@ impl Block {
                 .map(|n| {
                     (
                         n.clone(),
-                        self.values.get(n).cloned().unwrap_or(Value::Null),
+                        self.values.get(n).map_or(Value::Null, |v| v.get().clone()),
                     )
                 })
                 .collect();
@@ -2319,14 +2346,14 @@ impl Node for Block {
         };
         // `op` takes only an operator the block knows: another text is ignored (spec 06 0.2.20)
         if name == "op" && Ops::has(self.kind) {
-            match &m.v {
+            match &*m.v {
                 Value::Str(o) if self.ops.set(self.kind, o).is_ok() => {}
                 _ => return,
             }
         }
         // a number that is not finite never becomes a parameter: the last good value stays
         let is_param = port.starts_with("in.") && self.param_ports.contains(&name);
-        if is_param && matches!(&m.v, Value::Float(x) if !x.is_finite()) {
+        if is_param && matches!(&*m.v, Value::Float(x) if !x.is_finite()) {
             return;
         }
         // `now` takes only an `interval_ms` it can keep: another value is ignored
@@ -2336,7 +2363,8 @@ impl Node for Block {
         put(&mut self.seen, name, (m.q, m.t));
         self.born = m.start;
         if is_param {
-            put(&mut self.params, name, m.v);
+            // a parameter keeps a value of its own: a list the probe shares is copied once
+            put(&mut self.params, name, m.v.into_value());
             self.params_rev += 1;
         } else {
             put(&mut self.values, name, m.v);
