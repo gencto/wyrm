@@ -9,6 +9,11 @@ import 'package:ui/overlays/value_viewer.dart';
 import 'package:ui/tables/table_edits.dart';
 import 'package:ui/trees/json_tree.dart';
 
+/// [t]'s cells as plain Dart, to compare.
+List<List<Object?>> rawRows(TableDataVm t) => [
+  for (final r in t.rows) [for (final c in r) c.raw],
+];
+
 void main() {
   setUpAll(() => S.load(const Locale('en')));
 
@@ -57,8 +62,9 @@ void main() {
     final t = (v.content as TableContentVm).table;
     expect(t.columns, ['name', 'kw']);
     expect(t.rows, hasLength(10000));
-    expect(t.rows.first, ['p0', 0]);
-    expect(t.rows.last, ['p9999', 9999]);
+    expect(rawRows(t).first, ['p0', 0]);
+    expect(rawRows(t).last, ['p9999', 9999]);
+    expect(t.rows.first.last, isA<NumberCell>());
     expect(v.copy, contains('"columns"'));
     // Built again for the same value (a dispatch), it is the same grid:
     // the view-model compares equal at once.
@@ -83,7 +89,7 @@ void main() {
       const ViewerCsvVm(delimiter: ';'),
     )!;
     expect(t.columns, ['name', 'kw']);
-    expect(t.rows, [
+    expect(rawRows(t), [
       ['pump', '3'],
     ]);
     expect(
@@ -97,8 +103,14 @@ void main() {
     );
     expect(viewerTables.copyCsv!(t), 'name,kw\npump,3\n');
     final us = DateTime.utc(2026, 11, 11).microsecondsSinceEpoch;
-    expect(viewerTables.cellText!('t', us), isNotNull);
-    expect(viewerTables.cellText!('kw', 3), isNull);
+    expect(viewerTables.cellText!('t', NumberCell(us)), isNotNull);
+    expect(viewerTables.cellText!('t', const TextCell('x')), isNull);
+    expect(viewerTables.cellText!('kw', const NumberCell(3)), isNull);
+    // a JSON text typed into a cell is read by the app's decoder
+    expect(viewerTables.readJson!('{"a": [1]}')?.raw, {
+      'a': [1],
+    });
+    expect(viewerTables.readJson!('{oops'), isNull);
   });
 
   test('a list of maps is a table where a table is expected only', () {
@@ -203,8 +215,8 @@ void main() {
     final grid = TableDataVm(
       ['name', 'kw'],
       [
-        ['pump', 4.5],
-        ['fan'],
+        [const TextCell('pump'), const NumberCell(4.5)],
+        [const TextCell('fan')],
       ],
     );
     final value = typedText(grid.toJsonText(), FieldEdit.json).raw;
@@ -218,7 +230,7 @@ void main() {
     // Read back, it is the same table.
     final again = tableDataOf(value)!;
     expect(again.columns, grid.columns);
-    expect(again.rows, [
+    expect(rawRows(again), [
       ['pump', 4.5],
       ['fan', null],
     ]);

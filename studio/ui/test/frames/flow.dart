@@ -27,6 +27,7 @@ import 'package:ui/tables/table_edits.dart';
 import 'package:ui/trees/json_tree.dart';
 
 import '../support/test_query.dart';
+import 'cells.dart';
 
 // The data of boards *Flow editor · fields, bindings, properties* (FlowBind)
 // and *· drag points and actions from the tree* (FlowTree), as
@@ -2595,7 +2596,7 @@ FlowEditorPage flowCustomInside() => _wave2(
 /// the viewer as a grid of every row, cells by type, the filter, Add row
 /// and Add column; Copy CSV and Copy JSON in the title row.
 FlowEditorPage flowViewerTable() {
-  final t = TableDataVm(
+  final t = rawTable(
     ['t', 'name', 'kw', 'on', 'note', 'limits'],
     [
       [1762862400000000, 'pump 1', 3, true, 'duty', null],
@@ -2636,9 +2637,11 @@ FlowEditorPage flowViewerTable() {
       edit: ViewerEditVm(kind: .table, text: '', table: t),
     ),
     tables: ViewerTables(
-      cellText: (column, v) => column == 't' && v is int
-          ? '2026-11-11 12:${((v - 1762862400000000) ~/ 60000000).toString().padLeft(2, '0')}:00'
-          : null,
+      cellText: (column, cell) => switch (cell) {
+        NumberCell(value: final int v) when column == 't' =>
+          '2026-11-11 12:${((v - 1762862400000000) ~/ 60000000).toString().padLeft(2, '0')}:00',
+        _ => null,
+      },
       copyCsv: (_) => '',
     ),
   );

@@ -37,14 +37,14 @@ $BlockPortCopyWith<BlockPort> get copyWith => _$BlockPortCopyWithImpl<BlockPort>
 @override
 bool operator ==(Object other) {
   final _this = this as BlockPort;
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is BlockPort&&(identical(other.name, _this.name) || other.name == _this.name)&&const DeepCollectionEquality().equals(other.ends, _this.ends)&&const DeepCollectionEquality().equals(other.defaultValue, _this.defaultValue)&&(identical(other.hasDefault, _this.hasDefault) || other.hasDefault == _this.hasDefault)&&(identical(other.description, _this.description) || other.description == _this.description)&&(identical(other.oneEnd, _this.oneEnd) || other.oneEnd == _this.oneEnd)&&(identical(other.extra, _this.extra) || other.extra == _this.extra));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is BlockPort&&(identical(other.name, _this.name) || other.name == _this.name)&&const DeepCollectionEquality().equals(other.ends, _this.ends)&&(identical(other.defaultValue, _this.defaultValue) || other.defaultValue == _this.defaultValue)&&(identical(other.hasDefault, _this.hasDefault) || other.hasDefault == _this.hasDefault)&&(identical(other.description, _this.description) || other.description == _this.description)&&(identical(other.oneEnd, _this.oneEnd) || other.oneEnd == _this.oneEnd)&&(identical(other.extra, _this.extra) || other.extra == _this.extra));
 }
 
 
 @override
 int get hashCode {
   final _this = this as BlockPort;
-  return Object.hash(runtimeType,_this.name,const DeepCollectionEquality().hash(_this.ends),const DeepCollectionEquality().hash(_this.defaultValue),_this.hasDefault,_this.description,_this.oneEnd,_this.extra);
+  return Object.hash(runtimeType,_this.name,const DeepCollectionEquality().hash(_this.ends),_this.defaultValue,_this.hasDefault,_this.description,_this.oneEnd,_this.extra);
 }
 
 @override
@@ -138,13 +138,13 @@ _$BlockPortCopyWith<_BlockPort> get copyWith => __$BlockPortCopyWithImpl<_BlockP
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is _BlockPort&&(identical(other.name, name) || other.name == name)&&const DeepCollectionEquality().equals(other.ends, _ends)&&const DeepCollectionEquality().equals(other.defaultValue, defaultValue)&&(identical(other.hasDefault, hasDefault) || other.hasDefault == hasDefault)&&(identical(other.description, description) || other.description == description)&&(identical(other.oneEnd, oneEnd) || other.oneEnd == oneEnd)&&(identical(other.extra, extra) || other.extra == extra));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _BlockPort&&(identical(other.name, name) || other.name == name)&&const DeepCollectionEquality().equals(other.ends, _ends)&&(identical(other.defaultValue, defaultValue) || other.defaultValue == defaultValue)&&(identical(other.hasDefault, hasDefault) || other.hasDefault == hasDefault)&&(identical(other.description, description) || other.description == description)&&(identical(other.oneEnd, oneEnd) || other.oneEnd == oneEnd)&&(identical(other.extra, extra) || other.extra == extra));
 }
 
 
 @override
 int get hashCode {
-    return Object.hash(runtimeType,name,const DeepCollectionEquality().hash(_ends),const DeepCollectionEquality().hash(defaultValue),hasDefault,description,oneEnd,extra);
+    return Object.hash(runtimeType,name,const DeepCollectionEquality().hash(_ends),defaultValue,hasDefault,description,oneEnd,extra);
 }
 
 @override

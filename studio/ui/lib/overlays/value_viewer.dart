@@ -194,17 +194,21 @@ enum ViewerTextProblemVm {
 }
 
 /// How the viewer reads and writes tables, given by the app: a cell's own
-/// text (a date), Copy as CSV, and the engine's own CSV rules for the "As
-/// table" tab of a CSV text.
+/// text (a date), a JSON text typed into a cell, Copy as CSV, and the
+/// engine's own CSV rules for the "As table" tab of a CSV text.
 final class ViewerTables {
   const ViewerTables({
     this.cellText,
+    this.readJson,
     this.copyCsv,
     this.readCsv,
     this.writeCsv,
   });
 
   final CellTextOf? cellText;
+
+  /// A JSON text typed into a map or a list cell, as the cell it is.
+  final CellJsonOf? readJson;
 
   /// The table as CSV with a comma and a header; null: no Copy CSV.
   final String Function(TableDataVm table)? copyCsv;
@@ -709,6 +713,7 @@ class _ValueViewerState extends State<ValueViewer> {
                             key: _grid,
                             table: table,
                             cellText: widget.tables?.cellText,
+                            readJson: widget.tables?.readJson,
                             textCells: _asTable,
                             renamable: !_asTable || (csv?.header ?? true),
                             onSubmit: _saveTable,

@@ -1,9 +1,133 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+/// A cell of a table as the grid holds it, by what it holds. [raw] is the
+/// value as it came (what Save writes back); [json] the value as JSON can
+/// hold it.
+sealed class CellVm {
+  const CellVm();
+
+  /// The value as it came.
+  Object? get raw;
+
+  /// The value as JSON can hold it: map keys as texts, a number that is
+  /// not finite as its text, bytes as base64, anything else as its text.
+  Object? get json;
+}
+
+/// An empty cell: `null`.
+final class NullCell extends CellVm {
+  const NullCell();
+
+  @override
+  Object? get raw => null;
+
+  @override
+  Object? get json => null;
+}
+
+/// A bool.
+final class FlagCell extends CellVm {
+  const FlagCell(this.value);
+
+  final bool value;
+
+  @override
+  Object? get raw => value;
+
+  @override
+  Object? get json => value;
+}
+
+/// A number.
+final class NumberCell extends CellVm {
+  const NumberCell(this.value);
+
+  final num value;
+
+  @override
+  Object? get raw => value;
+
+  @override
+  Object? get json => value.isFinite ? value : '$value';
+}
+
+/// A text.
+final class TextCell extends CellVm {
+  const TextCell(this.text);
+
+  final String text;
+
+  @override
+  Object? get raw => text;
+
+  @override
+  Object? get json => text;
+}
+
+/// Bytes.
+final class BytesCell extends CellVm {
+  const BytesCell(this.bytes);
+
+  final Uint8List bytes;
+
+  @override
+  Object? get raw => bytes;
+
+  @override
+  Object? get json => base64Encode(bytes);
+}
+
+/// A list: its [items] in order.
+final class ListCell extends CellVm {
+  const ListCell(this.items, {required this.raw});
+
+  final List<CellVm> items;
+
+  @override
+  final Object raw;
+
+  @override
+  Object? get json => [for (final x in items) x.json];
+}
+
+/// A map: its [entries] in order.
+final class MapCell extends CellVm {
+  const MapCell(this.entries, {required this.raw});
+
+  final List<CellEntryVm> entries;
+
+  @override
+  final Object raw;
+
+  @override
+  Object? get json => {for (final e in entries) e.key: e.value.json};
+}
+
+/// One field of a [MapCell]: its key as text.
+final class CellEntryVm {
+  const CellEntryVm(this.key, this.value);
+
+  final String key;
+  final CellVm value;
+}
+
+/// Anything else: its [text] as Dart writes it.
+final class OtherCell extends CellVm {
+  const OtherCell(this.text, {required this.raw});
+
+  final String text;
+
+  @override
+  final Object raw;
+
+  @override
+  Object? get json => text;
+}
+
 /// A table as a grid holds it (ADR 0044 §2): its [columns] in order and its
-/// [rows], each one cell per column by position (`null` where a row lacks
-/// one).
+/// [rows], each one cell per column by position ([NullCell] where a row
+/// lacks one).
 ///
 /// It compares by identity on purpose: a table may hold 10 000 rows, and a
 /// view-model that holds it is compared on every dispatch. The app keeps
@@ -15,12 +139,12 @@ final class TableDataVm {
   TableDataVm.empty() : columns = const [], rows = const [];
 
   final List<String> columns;
-  final List<List<Object?>> rows;
+  final List<List<CellVm>> rows;
 
-  /// The cell of row [r], column [c]; null past the row's end.
-  Object? cell(int r, int c) {
+  /// The cell of row [r], column [c]; [NullCell] past the row's end.
+  CellVm cell(int r, int c) {
     final row = rows[r];
-    return c < row.length ? row[c] : null;
+    return c < row.length ? row[c] : const NullCell();
   }
 
   /// As the engine writes a table: `{columns, rows}`, each row a map of
@@ -29,27 +153,20 @@ final class TableDataVm {
     'columns': columns,
     'rows': [
       for (var r = 0; r < rows.length; r++)
-        {for (final (c, name) in columns.indexed) name: cell(r, c)},
+        {for (final (c, name) in columns.indexed) name: cell(r, c).raw},
     ],
   };
 
-  /// [toJson] as indented JSON: what Save writes into the field.
-  String toJsonText() =>
-      const JsonEncoder.withIndent('  ').convert(jsonSafe(toJson()));
+  /// [toJson] as indented JSON (each cell as [CellVm.json]): what Save
+  /// writes into the field.
+  String toJsonText() => const JsonEncoder.withIndent('  ').convert({
+    'columns': columns,
+    'rows': [
+      for (var r = 0; r < rows.length; r++)
+        {for (final (c, name) in columns.indexed) name: cell(r, c).json},
+    ],
+  });
 }
-
-/// [v] as JSON can hold it: map keys as texts, a number that is not
-/// finite as its text, bytes as base64, anything else as its text.
-Object? jsonSafe(Object? v) => switch (v) {
-  final double d when !d.isFinite => '$d',
-  null || bool() || num() || String() => v,
-  final Uint8List b => base64Encode(b),
-  final Map<Object?, Object?> m => {
-    for (final e in m.entries) '${e.key}': jsonSafe(e.value),
-  },
-  final List<Object?> l => [for (final x in l) jsonSafe(x)],
-  _ => '$v',
-};
 
 /// The bounds of a table (ADR 0044 §2, `crates/wyrm-flow/src/blocks/table.rs`).
 abstract final class TableBounds {
@@ -95,24 +212,24 @@ int tableBytes(TableDataVm t) {
   var n = 0;
   for (final r in t.rows) {
     for (var c = 0; c < t.columns.length; c++) {
-      n += cellBytes(c < r.length ? r[c] : null);
+      n += c < r.length ? cellBytes(r[c]) : 1;
     }
   }
   return n;
 }
 
 /// The weight of one cell, as [tableBytes] counts it.
-int cellBytes(Object? v) => switch (v) {
-  null || bool() => 1,
-  num() => 9,
-  final String s => utf8Length(s) + 3,
-  final Uint8List b => b.length + 3,
-  final List<Object?> l => l.fold<int>(3, (n, x) => n + cellBytes(x)),
-  final Map<Object?, Object?> m => m.entries.fold<int>(
+int cellBytes(CellVm v) => switch (v) {
+  NullCell() || FlagCell() => 1,
+  NumberCell() => 9,
+  TextCell(:final text) => utf8Length(text) + 3,
+  BytesCell(:final bytes) => bytes.length + 3,
+  ListCell(:final items) => items.fold<int>(3, (n, x) => n + cellBytes(x)),
+  MapCell(:final entries) => entries.fold<int>(
     3,
-    (n, e) => n + utf8Length('${e.key}') + 3 + cellBytes(e.value),
+    (n, e) => n + utf8Length(e.key) + 3 + cellBytes(e.value),
   ),
-  _ => utf8Length('$v') + 3,
+  OtherCell(:final text) => utf8Length(text) + 3,
 };
 
 /// The UTF-8 length of [s], without encoding it.
@@ -134,21 +251,21 @@ int utf8Length(String s) {
   return n;
 }
 
-List<List<Object?>> _copyRows(TableDataVm t) => [
-  for (final r in t.rows) List<Object?>.of(r),
+List<List<CellVm>> _copyRows(TableDataVm t) => [
+  for (final r in t.rows) List<CellVm>.of(r),
 ];
 
 /// [t] with cell [r], [c] set to [v]; refused past [TableBounds.bytes].
-TableEdit setCell(TableDataVm t, int r, int c, Object? v) {
+TableEdit setCell(TableDataVm t, int r, int c, CellVm v) {
   final was = t.cell(r, c);
   if (cellBytes(v) > cellBytes(was) &&
       tableBytes(t) - cellBytes(was) + cellBytes(v) > TableBounds.bytes) {
     return _no(.bytes);
   }
-  final rows = List<List<Object?>>.of(t.rows);
-  final row = List<Object?>.of(rows[r]);
+  final rows = List<List<CellVm>>.of(t.rows);
+  final row = List<CellVm>.of(rows[r]);
   while (row.length < t.columns.length) {
-    row.add(null);
+    row.add(const NullCell());
   }
   row[c] = v;
   rows[r] = row;
@@ -163,17 +280,17 @@ TableEdit addRow(TableDataVm t, {int? at}) {
   if (tableBytes(t) + t.columns.length > TableBounds.bytes) {
     return _no(.bytes);
   }
-  final rows = List<List<Object?>>.of(t.rows)
+  final rows = List<List<CellVm>>.of(t.rows)
     ..insert(
       (at ?? t.rows.length).clamp(0, t.rows.length),
-      List<Object?>.filled(t.columns.length, null),
+      List<CellVm>.filled(t.columns.length, const NullCell()),
     );
   return _ok(TableDataVm(t.columns, rows));
 }
 
 /// [t] without row [r].
 TableEdit removeRow(TableDataVm t, int r) =>
-    _ok(TableDataVm(t.columns, List<List<Object?>>.of(t.rows)..removeAt(r)));
+    _ok(TableDataVm(t.columns, List<List<CellVm>>.of(t.rows)..removeAt(r)));
 
 /// Why [name] cannot name a column of [t] (other than column [except]);
 /// null when it can.
@@ -214,9 +331,9 @@ TableEdit addColumn(TableDataVm t, String name, {int? at}) {
   final rows = _copyRows(t);
   for (final r in rows) {
     while (r.length < t.columns.length) {
-      r.add(null);
+      r.add(const NullCell());
     }
-    r.insert(i, null);
+    r.insert(i, const NullCell());
   }
   return _ok(TableDataVm(List.of(t.columns)..insert(i, name), rows));
 }
@@ -240,52 +357,61 @@ TableEdit removeColumn(TableDataVm t, int c) {
   return _ok(TableDataVm(List.of(t.columns)..removeAt(c), rows));
 }
 
+/// A JSON text read as a cell: a map, a list or a scalar; null when the
+/// text is no JSON. The app gives it (`ViewerTables.readJson`): a value
+/// is decoded at its boundary, not in a widget.
+typedef CellJsonOf = CellVm? Function(String text);
+
 /// What a cell typed as [text] holds, by what it held before ([was]): a
 /// number stays a number when the text reads as one, a bool a bool for
-/// `true`/`false`, a map or a list one when the text is its JSON; anything
-/// else is the text. An empty cell (`null`) takes a number or a bool when
-/// the text is one, else the text; an empty text leaves it `null`. With
-/// [textOnly] (a CSV cell) the text is kept as it is.
-Object? typedCell(String text, Object? was, {bool textOnly = false}) {
+/// `true`/`false`, a map or a list one when the text is its JSON (read by
+/// [readJson]; none: the text); anything else is the text. An empty cell
+/// takes a number or a bool when the text is one, else the text; an empty
+/// text leaves it empty. With [textOnly] (a CSV cell) the text is kept as
+/// it is.
+CellVm typedCell(
+  String text,
+  CellVm was, {
+  bool textOnly = false,
+  CellJsonOf? readJson,
+}) {
   if (textOnly) {
-    return text;
+    return TextCell(text);
   }
   final s = text.trim();
-  num? number() => switch (num.tryParse(s)) {
-    final n? when n.isFinite => n,
+  NumberCell? asNumber() => switch (num.tryParse(s)) {
+    final n? when n.isFinite => NumberCell(n),
     _ => null,
   };
-  bool? flag() => s == 'true' ? true : (s == 'false' ? false : null);
-  switch (was) {
-    case num():
-      return s.isEmpty ? null : (number() ?? text);
-    case bool():
-      return s.isEmpty ? null : (flag() ?? text);
-    case Map<Object?, Object?>() || List<Object?>():
-      if (s.isEmpty) {
-        return null;
-      }
-      try {
-        return switch (jsonDecode(s)) {
-          final Map<Object?, Object?> m => m,
-          final List<Object?> l => l,
-          _ => text,
-        };
-      } on FormatException {
-        return text;
-      }
-    case null:
-      return s.isEmpty ? null : (number() ?? flag() ?? text);
-    default:
-      return text;
-  }
+  FlagCell? asFlag() => s == 'true'
+      ? const FlagCell(true)
+      : (s == 'false' ? const FlagCell(false) : null);
+  return switch (was) {
+    NumberCell() =>
+      s.isEmpty ? const NullCell() : (asNumber() ?? TextCell(text)),
+    FlagCell() => s.isEmpty ? const NullCell() : (asFlag() ?? TextCell(text)),
+    // bytes are read as a list (a list of numbers in JSON)
+    MapCell() || ListCell() || BytesCell() =>
+      s.isEmpty
+          ? const NullCell()
+          : switch (readJson?.call(s)) {
+              final MapCell m => m,
+              final ListCell l => l,
+              _ => TextCell(text),
+            },
+    NullCell() =>
+      s.isEmpty ? const NullCell() : (asNumber() ?? asFlag() ?? TextCell(text)),
+    TextCell() || OtherCell() => TextCell(text),
+  };
 }
 
 /// A cell as its editor starts with it: a text itself, a number or a bool
-/// as written, a map or a list as compact JSON, `null` empty.
-String cellEditText(Object? v) => switch (v) {
-  null => '',
-  final String s => s,
-  Map<Object?, Object?>() || List<Object?>() => jsonEncode(jsonSafe(v)),
-  _ => '$v',
+/// as written, a map, a list or bytes as compact JSON, `null` empty.
+String cellEditText(CellVm v) => switch (v) {
+  NullCell() => '',
+  TextCell(:final text) => text,
+  MapCell() || ListCell() || BytesCell() => jsonEncode(v.json),
+  FlagCell(:final value) => '$value',
+  NumberCell(:final value) => '$value',
+  OtherCell(:final text) => text,
 };

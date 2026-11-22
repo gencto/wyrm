@@ -9,11 +9,11 @@ import 'package:models/node_info.dart';
 import 'package:models/node_type.dart';
 import 'package:models/quality.dart';
 
+import '../decode/table_value.dart';
 import '../mappers/block_cfg.dart';
 import '../mappers/csv_table.dart';
 import '../mappers/flow_canvas.dart';
 import '../mappers/flow_fields.dart';
-import '../mappers/table_value.dart';
 
 /// How the viewer's Edit mode types a value.
 enum ViewerEditMode { choice, toggle, number, table, json, text }
@@ -177,9 +177,10 @@ ViewerView? viewerViewOf(
           JsonNull() || JsonText(text: '')
               when b.type.known != KnownBlock.tableFromJson =>
             const ViewerTable.empty(),
-          final x when tableOf(x.raw, rowsOfMaps: true) != null => ViewerTable(
-            x.raw,
-          ),
+          final x when tableValueOf(x.raw, rowsOfMaps: true) != null =>
+            ViewerTable(
+              x.raw,
+            ),
           _ => null,
         }
       : null;

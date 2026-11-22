@@ -1,10 +1,15 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:business/wyrm/decode/plain_value.dart';
+import 'package:business/wyrm/decode/table_value.dart';
 import 'package:business/wyrm/mappers/csv_table.dart';
 import 'package:business/wyrm/mappers/table_value.dart';
 import 'package:business/wyrm/mappers/value_text.dart';
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:localization/localization.dart';
+import 'package:models/plain_entry.dart';
+import 'package:models/plain_value.dart';
 import 'package:models/quality.dart';
 import 'package:ui/indicators/quality_mark.dart';
 import 'package:ui/overlays/value_viewer.dart';
@@ -80,8 +85,9 @@ ValueViewerVm valueViewerOf({
       quality: quality,
     );
   }
-  switch (value) {
-    case null:
+  final shown = plainValueOf(value);
+  switch (shown) {
+    case PlainValueNothing():
       return ValueViewerVm(
         title: title,
         type: 'null',
@@ -89,7 +95,7 @@ ValueViewerVm valueViewerOf({
         copy: 'null',
         quality: quality,
       );
-    case final Uint8List b:
+    case PlainValueBytes(bytes: final b):
       return ValueViewerVm(
         title: title,
         type: 'bytes',
@@ -98,25 +104,25 @@ ValueViewerVm valueViewerOf({
         copy: [for (final x in b) x.toRadixString(16).padLeft(2, '0')].join(),
         quality: quality,
       );
-    case final Map<Object?, Object?> m:
+    case PlainValueMap(:final entries):
       return ValueViewerVm(
         title: title,
         type: 'map',
-        size: s.sizeKeys(m.length),
-        content: JsonContentVm(jsonNode(m)),
-        copy: _pretty(m),
+        size: s.sizeKeys(entries.length),
+        content: JsonContentVm(jsonNode(shown)),
+        copy: _pretty(shown),
         quality: quality,
       );
-    case final List<Object?> l:
+    case PlainValueList(:final items):
       return ValueViewerVm(
         title: title,
         type: 'list',
-        size: s.sizeItems(l.length),
-        content: JsonContentVm(jsonNode(l)),
-        copy: _pretty(l),
+        size: s.sizeItems(items.length),
+        content: JsonContentVm(jsonNode(shown)),
+        copy: _pretty(shown),
         quality: quality,
       );
-    case final String t:
+    case PlainValueText(text: final t):
       final lines = t.split('\n');
       final json = _json(t);
       return ValueViewerVm(
@@ -132,7 +138,7 @@ ValueViewerVm valueViewerOf({
         copy: t,
         quality: quality,
       );
-    case final bool b:
+    case PlainValueFlag(value: final b):
       return ValueViewerVm(
         title: title,
         type: 'bool',
@@ -143,7 +149,7 @@ ValueViewerVm valueViewerOf({
         copy: '$b',
         quality: quality,
       );
-    case final num n:
+    case PlainValueNumber(value: final n):
       final named = valueText(n, choices: choices);
       final isEnum = choices.isNotEmpty && named != valueText(n);
       return ValueViewerVm(
@@ -156,11 +162,10 @@ ValueViewerVm valueViewerOf({
         copy: jsonEncode(n),
         quality: quality,
       );
-    default:
-      final t = '$value';
+    case PlainValueOther(text: final t, :final type):
       return ValueViewerVm(
         title: title,
-        type: value.runtimeType.toString(),
+        type: type,
         size: s.sizeChars(t.length),
         content: TextContentVm(t.split('\n')),
         copy: t,
@@ -174,39 +179,84 @@ ValueViewerVm valueViewerOf({
 /// the same instance and compares equal at once (a table may hold 10 000
 /// rows, and `fromStore` runs on every dispatch).
 final _tables = Expando<TableDataVm>('tables');
-final _tablesOfMaps = Expando<TableDataVm>('tables of maps');
 final _jsonTexts = Expando<String>('json texts');
 
-/// [v] as the grid of a table ([tableOf]), the same instance for the same
-/// value; null when it is none.
-TableDataVm? tableDataOf(Object? v, {bool rowsOfMaps = false}) {
-  if (v is! Map && v is! List) {
-    return null;
-  }
-  final cache = rowsOfMaps ? _tablesOfMaps : _tables;
-  if (cache[v!] case final t?) {
-    return t;
-  }
-  final t = tableOf(v, rowsOfMaps: rowsOfMaps);
-  if (t == null) {
-    return null;
-  }
-  return cache[v] = TableDataVm(t.columns, t.rows);
-}
+/// [v] as the grid of a table ([tableValueOf]), the same instance for the
+/// same value; null when it is none.
+TableDataVm? tableDataOf(Object? v, {bool rowsOfMaps = false}) =>
+    switch (tableValueOf(v, rowsOfMaps: rowsOfMaps)) {
+      final t? => _tables[t] ??= TableDataVm(t.columns, [
+        for (final r in t.rows) [for (final c in r) cellVmOf(c)],
+      ]),
+      null => null,
+    };
 
-/// [_pretty] of [v], once per value.
-String _prettyOnce(Object v) => _jsonTexts[v] ??= _pretty(v);
+/// [_pretty] of the table [v], once per value.
+String _prettyOnce(Object v) => _jsonTexts[v] ??= _pretty(plainValueOf(v));
+
+/// A cell of a table as the grid holds it.
+CellVm cellVmOf(PlainValue v) => switch (v) {
+  PlainValueNothing() => const NullCell(),
+  PlainValueFlag(:final value) => FlagCell(value),
+  PlainValueNumber(:final value) => NumberCell(value),
+  PlainValueText(:final text) => TextCell(text),
+  PlainValueBytes(:final bytes) => BytesCell(bytes),
+  PlainValueList(:final items, :final raw) => ListCell([
+    for (final x in items) cellVmOf(x),
+  ], raw: raw),
+  PlainValueMap(:final entries, :final raw) => MapCell([
+    for (final e in entries) CellEntryVm(e.key, cellVmOf(e.value)),
+  ], raw: raw),
+  PlainValueOther(:final text, :final raw) => OtherCell(text, raw: raw),
+};
+
+/// A cell of the grid as the CSV writer reads it.
+PlainValue _plainOf(CellVm c) => switch (c) {
+  NullCell() => const PlainValue.nothing(),
+  FlagCell(:final value) => PlainValue.flag(value),
+  NumberCell(:final value) => PlainValue.number(value),
+  TextCell(:final text) => PlainValue.text(text),
+  BytesCell(:final bytes) => PlainValue.bytes(bytes),
+  ListCell(:final items, :final raw) => PlainValue.list(
+    items: [for (final x in items) _plainOf(x)].lock,
+    raw: raw,
+  ),
+  MapCell(:final entries, :final raw) => PlainValue.map(
+    entries: [
+      for (final e in entries)
+        PlainEntry(key: e.key, textKey: true, value: _plainOf(e.value)),
+    ].lock,
+    raw: raw,
+  ),
+  OtherCell(:final text, :final raw) => PlainValue.other(
+    text: text,
+    type: raw.runtimeType.toString(),
+    raw: raw,
+  ),
+};
+
+/// [t]'s rows as the CSV writer reads them.
+List<List<PlainValue>> _plainRows(TableDataVm t) => [
+  for (final r in t.rows) [for (final c in r) _plainOf(c)],
+];
 
 /// How the viewers read and write tables: a date of the time column `t`,
 /// Copy as CSV with a comma and a header, and `table_from_csv`'s own CSV
 /// rules for the "As table" tab (docs/studio.md §6.8).
 final viewerTables = ViewerTables(
-  cellText: tableCellText,
-  copyCsv: (t) => writeCsv(t.columns, t.rows),
+  cellText: (column, cell) => switch (cell) {
+    NumberCell(:final value) => tableCellText(column, value),
+    _ => null,
+  },
+  readJson: (text) => switch (plainJsonOf(text)) {
+    final v? => cellVmOf(v),
+    null => null,
+  },
+  copyCsv: (t) => writeCsv(t.columns, _plainRows(t)),
   readCsv: _readCsv,
   writeCsv: (t, rules) => writeCsv(
     t.columns,
-    t.rows,
+    _plainRows(t),
     delimiter: rules.delimiter,
     header: rules.header,
   ),
@@ -231,7 +281,9 @@ TableDataVm? _readCsv(String text, ViewerCsvVm rules) {
     delimiter: rules.delimiter,
     header: rules.header,
   )) {
-    final t? => TableDataVm(t.columns, t.rows),
+    final t? => TableDataVm(t.columns, [
+      for (final r in t.rows) [for (final c in r) cellVmOf(c)],
+    ]),
     null => null,
   };
   _lastCsv = (text, rules, got);
@@ -250,26 +302,50 @@ QualityMarkVm qualityMarkOf(Quality q) => switch (q) {
 };
 
 /// [v] (a map, a list or a scalar) as a tree of nodes; [key] is its key
-/// in its map.
-JsonNodeVm jsonNode(Object? v, {String? key}) => switch (v) {
-  final Map<Object?, Object?> m => JsonNodeVm(
+/// in its map. Bytes inside a structure are a list of numbers.
+JsonNodeVm jsonNode(PlainValue v, {String? key}) => switch (v) {
+  PlainValueMap(:final entries) => JsonNodeVm(
     key: key,
     kind: .object,
-    text: S.current.sizeKeys(m.length),
-    children: [for (final e in m.entries) jsonNode(e.value, key: '${e.key}')],
+    text: S.current.sizeKeys(entries.length),
+    children: [for (final e in entries) jsonNode(e.value, key: e.key)],
   ),
-  final List<Object?> l => JsonNodeVm(
+  PlainValueList(:final items) => _array(key, [
+    for (final x in items) jsonNode(x),
+  ]),
+  PlainValueBytes(:final bytes) => _array(key, [
+    for (final x in bytes) JsonNodeVm(kind: .number, text: _encode(x)),
+  ]),
+  PlainValueNothing() => JsonNodeVm(key: key, kind: .nil, text: 'null'),
+  PlainValueFlag(:final value) => JsonNodeVm(
     key: key,
-    kind: .array,
-    text: S.current.sizeItems(l.length),
-    children: [for (final x in l) jsonNode(x)],
+    kind: .flag,
+    text: '$value',
   ),
-  null => JsonNodeVm(key: key, kind: .nil, text: 'null'),
-  final bool b => JsonNodeVm(key: key, kind: .flag, text: '$b'),
-  final num n => JsonNodeVm(key: key, kind: .number, text: _encode(n)),
-  final String t => JsonNodeVm(key: key, kind: .string, text: jsonEncode(t)),
-  _ => JsonNodeVm(key: key, kind: .string, text: jsonEncode('$v')),
+  PlainValueNumber(:final value) => JsonNodeVm(
+    key: key,
+    kind: .number,
+    text: _encode(value),
+  ),
+  PlainValueText(:final text) => JsonNodeVm(
+    key: key,
+    kind: .string,
+    text: jsonEncode(text),
+  ),
+  PlainValueOther(:final text) => JsonNodeVm(
+    key: key,
+    kind: .string,
+    text: jsonEncode(text),
+  ),
 };
+
+/// An array of [children]; [key] is its key in its map.
+JsonNodeVm _array(String? key, List<JsonNodeVm> children) => JsonNodeVm(
+  key: key,
+  kind: .array,
+  text: S.current.sizeItems(children.length),
+  children: children,
+);
 
 /// [b] as rows of a hex dump: `00000010  48 65 6c …  Hel…`, at most
 /// [_maxBytes], then how many more there are.
@@ -294,42 +370,37 @@ List<String> hexRows(Uint8List b) {
 }
 
 /// A text that is a JSON map or list, decoded; null otherwise.
-Object? _json(String t) {
+PlainValue? _json(String t) {
   final x = t.trimLeft();
   if (!x.startsWith('{') && !x.startsWith('[')) {
     return null;
   }
-  try {
-    return switch (jsonDecode(t)) {
-      final Map<Object?, Object?> m => m,
-      final List<Object?> l => l,
-      _ => null,
-    };
-  } on FormatException {
-    return null;
-  }
+  return switch (plainJsonOf(t)) {
+    final PlainValueMap m => m,
+    final PlainValueList l => l,
+    _ => null,
+  };
 }
 
 /// [v] as indented JSON; what JSON cannot hold (a map with keys that
 /// are not texts, NaN) as Dart writes it.
-String _pretty(Object v) => _jsonable(v)
-    ? const JsonEncoder.withIndent('  ', _encodable).convert(v)
-    : '$v';
+String _pretty(PlainValue v) => _jsonable(v)
+    ? const JsonEncoder.withIndent('  ', _encodable).convert(v.raw)
+    : '${v.raw}';
 
 /// Whether JSON holds [v] as it is: keys are texts, numbers are finite.
-bool _jsonable(Object? v) => switch (v) {
-  final Map<Object?, Object?> m => m.entries.every(
-    (e) => e.key is String && _jsonable(e.value),
+bool _jsonable(PlainValue v) => switch (v) {
+  PlainValueMap(:final entries) => entries.every(
+    (e) => e.textKey && _jsonable(e.value),
   ),
-  final List<Object?> l => l.every(_jsonable),
-  final double d => d.isFinite,
+  PlainValueList(:final items) => items.every(_jsonable),
+  PlainValueNumber(:final value) => value.isFinite,
   _ => true,
 };
 
-Object? _encodable(Object? v) => switch (v) {
-  final Uint8List b => base64Encode(b),
-  _ => '$v',
-};
+/// What the encoder cannot write itself, as its text (bytes are a list to
+/// it, a list of numbers).
+Object? _encodable(Object? v) => '$v';
 
 String _encode(num n) =>
     n is double && (n.isNaN || n.isInfinite) ? jsonEncode('$n') : jsonEncode(n);

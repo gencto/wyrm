@@ -17,7 +17,7 @@ import 'table_edits.dart';
 
 /// A cell's own text, given by the app (a date of the time column `t`);
 /// null: the grid writes the cell itself.
-typedef CellTextOf = String? Function(String column, Object? cell);
+typedef CellTextOf = String? Function(String column, CellVm cell);
 
 /// How a cell is drawn, by what it holds.
 enum _Kind { text, number, flag, nil, nested }
@@ -48,6 +48,7 @@ class TableGrid extends StatefulWidget {
     required this.table,
     this.onChanged,
     this.cellText,
+    this.readJson,
     this.textCells = false,
     this.renamable = true,
     this.onSubmit,
@@ -61,6 +62,10 @@ class TableGrid extends StatefulWidget {
 
   /// A cell's own text; null for the grid's.
   final CellTextOf? cellText;
+
+  /// A JSON text typed into a map or a list cell, read; null: it stays the
+  /// text.
+  final CellJsonOf? readJson;
 
   /// Every cell is a text (a CSV): a typed cell stays the text typed.
   final bool textCells;
@@ -155,18 +160,18 @@ class TableGridState extends State<TableGrid> {
 
   // ---------- reading ----------
 
-  _Shown _show(int c, Object? v) {
+  _Shown _show(int c, CellVm v) {
     if (widget.cellText?.call(_t.columns[c], v) case final own?) {
-      return (text: own, kind: .number, more: 0, tip: '$v');
+      return (text: own, kind: .number, more: 0, tip: '${v.raw}');
     }
     switch (v) {
-      case null:
+      case NullCell():
         return (text: 'null', kind: .nil, more: 0, tip: null);
-      case bool():
-        return (text: '$v', kind: .flag, more: 0, tip: null);
-      case num():
-        return (text: '$v', kind: .number, more: 0, tip: null);
-      case final String s:
+      case FlagCell(:final value):
+        return (text: '$value', kind: .flag, more: 0, tip: null);
+      case NumberCell(:final value):
+        return (text: '$value', kind: .number, more: 0, tip: null);
+      case TextCell(text: final s):
         final nl = s.indexOf('\n');
         if (nl < 0) {
           return (text: s, kind: .text, more: 0, tip: s.length > 40 ? s : null);
@@ -177,7 +182,7 @@ class TableGridState extends State<TableGrid> {
           more: '\n'.allMatches(s).length,
           tip: clipTip(s),
         );
-      case final Uint8List b:
+      case BytesCell(bytes: final b):
         final hex = [
           for (final x in b.take(16)) x.toRadixString(16).padLeft(2, '0'),
         ].join(' ');
@@ -187,20 +192,20 @@ class TableGridState extends State<TableGrid> {
           more: 0,
           tip: S.current.sizeBytes(b.length),
         );
-      case Map<Object?, Object?>() || List<Object?>():
+      case MapCell() || ListCell():
         return (
           text: cellEditText(v),
           kind: .nested,
           more: 0,
           tip: clipTip(_pretty(v)),
         );
-      default:
-        return (text: '$v', kind: .text, more: 0, tip: null);
+      case OtherCell(:final text):
+        return (text: text, kind: .text, more: 0, tip: null);
     }
   }
 
-  static String _pretty(Object v) =>
-      const JsonEncoder.withIndent('  ').convert(jsonSafe(v));
+  static String _pretty(CellVm v) =>
+      const JsonEncoder.withIndent('  ').convert(v.json);
 
   void _refilter() {
     final q = _filter.text.trim().toLowerCase();
@@ -379,9 +384,15 @@ class TableGridState extends State<TableGrid> {
     }
     final (r, c) = sel;
     final was = _t.cell(r, c);
-    final v = typedCell(_text.text, was, textOnly: widget.textCells);
+    final v = typedCell(
+      _text.text,
+      was,
+      textOnly: widget.textCells,
+      readJson: widget.readJson,
+    );
     _editing = false;
-    if (v.runtimeType != was.runtimeType ||
+    // a value of another Dart type is another value (3 is not 3.0)
+    if (v.raw.runtimeType != was.raw.runtimeType ||
         cellEditText(v) != cellEditText(was)) {
       _apply(setCell(_t, r, c, v));
     } else {
@@ -402,7 +413,14 @@ class TableGridState extends State<TableGrid> {
 
   void _clear() {
     if (_sel case (final r, final c) when _editable) {
-      _apply(setCell(_t, r, c, widget.textCells ? '' : null));
+      _apply(
+        setCell(
+          _t,
+          r,
+          c,
+          widget.textCells ? const TextCell('') : const NullCell(),
+        ),
+      );
     }
   }
 

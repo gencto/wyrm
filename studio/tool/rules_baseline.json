@@ -125,25 +125,7 @@
     "ui/lib/overlays/value_viewer.dart": 3
   },
   "untyped-wire": {
-    "app/lib/common/value_viewer.dart": 9,
-    "business/lib/redux/flow_editor/actions/set_block_param_action.dart": 1,
-    "business/lib/wyrm/calls.dart": 2,
-    "business/lib/wyrm/flow_view/viewer_view.dart": 1,
-    "business/lib/wyrm/mappers/block_cfg.dart": 7,
-    "business/lib/wyrm/mappers/config_text.dart": 1,
-    "business/lib/wyrm/mappers/csv_table.dart": 1,
-    "business/lib/wyrm/mappers/flow_blocks.dart": 3,
-    "business/lib/wyrm/mappers/flow_mapper.dart": 1,
-    "business/lib/wyrm/mappers/live_value_mapper.dart": 1,
-    "business/lib/wyrm/mappers/node_detail_mapper.dart": 5,
-    "business/lib/wyrm/mappers/table_value.dart": 7,
-    "ui/lib/forms/param_form.dart": 2,
-    "ui/lib/indicators/value_type.dart": 1,
-    "ui/lib/overlays/step_up_screen.dart": 1,
-    "ui/lib/overlays/value_viewer.dart": 1,
-    "ui/lib/pages/log_in_data.dart": 1,
-    "ui/lib/tables/table_edits.dart": 8,
-    "ui/lib/tables/table_grid.dart": 2
+    "business/lib/wyrm/calls.dart": 2
   },
   "multi-dispatch": {},
   "vm-equality": {},

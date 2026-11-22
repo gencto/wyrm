@@ -8,6 +8,7 @@ import 'package:business/redux/login/actions/set_gateway_action.dart';
 import 'package:business/redux/login/actions/set_password_action.dart';
 import 'package:business/redux/login/actions/set_user_action.dart';
 import 'package:business/wyrm/decode/node_type.dart';
+import 'package:business/wyrm/decode/table_value.dart';
 import 'package:business/wyrm/mappers/flow_canvas.dart';
 import 'package:business/wyrm/mappers/flow_fields.dart';
 import 'package:business/wyrm/mappers/table_value.dart';
@@ -368,7 +369,7 @@ void main() {
     });
 
     test('{columns, rows} is a table, rows by name or by position', () {
-      final t = tableOf({
+      final t = tableValueOf({
         'columns': ['name', 'kw'],
         'rows': [
           {'name': 'pump', 'kw': 3},
@@ -377,11 +378,25 @@ void main() {
         ],
       })!;
       expect(t.columns, ['name', 'kw']);
-      expect(t.rows, [
-        ['pump', 3],
-        ['fan', 7.5],
-        ['gap', null],
-      ]);
+      expect(
+        [
+          for (final r in t.rows) [for (final c in r) c.raw],
+        ],
+        [
+          ['pump', 3],
+          ['fan', 7.5],
+          ['gap', null],
+        ],
+      );
+      const empty = {
+        'columns': ['a'],
+        'rows': <Object?>[],
+      };
+      expect(
+        identical(tableValueOf(empty), tableValueOf(empty)),
+        isTrue,
+        reason: 'read once per value',
+      );
     });
 
     test('a list of maps is a table only where a table is expected', () {
@@ -389,11 +404,11 @@ void main() {
         {'t': DateTime.utc(2026).microsecondsSinceEpoch, 'v': 1, 'q': 0},
         {'t': DateTime.utc(2026).microsecondsSinceEpoch, 'v': 2, 'x': true},
       ];
-      expect(tableOf(rows), isNull, reason: 'the Explorer keeps a list');
-      final t = tableOf(rows, rowsOfMaps: true)!;
+      expect(tableValueOf(rows), isNull, reason: 'the Explorer keeps a list');
+      final t = tableValueOf(rows, rowsOfMaps: true)!;
       expect(t.columns, ['t', 'v', 'q', 'x']);
       expect(
-        tableCellText('t', rows[0]['t']),
+        tableCellText('t', DateTime.utc(2026).microsecondsSinceEpoch),
         dateText(rows[0]['t']),
         reason: 't is a date',
       );
@@ -412,7 +427,7 @@ void main() {
       );
       expect(holdsTable(types['add'], field('add', 'out:out')), isFalse);
       expect(
-        tableOf({
+        tableValueOf({
           'columns': ['a'],
           'rows': [1],
         }),
