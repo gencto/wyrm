@@ -528,7 +528,7 @@ class _ValueViewerState extends State<ValueViewer> {
   Widget _copyButton(
     String id,
     String label,
-    String Function() text, {
+    String Function() content, {
     bool dense = false,
   }) => Button.quiet(
     key: ValueKey('viewer-copy-$id'),
@@ -537,7 +537,7 @@ class _ValueViewerState extends State<ValueViewer> {
     size: ButtonSize.small,
     fontSize: dense ? FontSizes.sm : FontSizes.lg,
     inset: dense ? 10 : 16,
-    onPressed: () => _copy(id, text()),
+    onPressed: () => _copy(id, content()),
   );
 
   @override

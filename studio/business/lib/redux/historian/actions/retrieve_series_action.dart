@@ -4,8 +4,8 @@ import 'package:models/node_detail.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../../wyrm/decode/hist_point.dart';
+import '../../../wyrm/decode/node_detail.dart';
 import '../../../wyrm/history_steps.dart';
-import '../../../wyrm/mappers/node_detail_mapper.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 import 'load_trend_extremes_action.dart';

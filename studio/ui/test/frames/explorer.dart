@@ -376,7 +376,7 @@ PointInspectorVm _pointInspector() => PointInspectorVm(
       fields: [_f('writable', false, word: .writable, kind: ParamKind.toggle)],
     ),
     PublishSectionVm(
-      type: ValueType.number,
+      type: ValueType.numeric,
       unit: '°C',
       writable: false,
       value: '64.1',
@@ -827,7 +827,7 @@ Widget explorerFolder() => _shell(
         key: '$_edge/storage/line1/temp',
         name: 'temp',
         display: 'Line 1 air temp',
-        type: ValueType.number,
+        type: ValueType.numeric,
         writable: true,
         value: '21.5 °C',
         selected: true,
@@ -847,7 +847,7 @@ Widget explorerFolder() => _shell(
       time: DateTime(2026, 11, 8, 8, 3, 19),
       sections: const [
         PointFactsSectionVm(
-          type: ValueType.number,
+          type: ValueType.numeric,
           unit: '°C',
           level: AccessLevel.write,
         ),

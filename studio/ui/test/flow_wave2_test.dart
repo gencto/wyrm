@@ -144,7 +144,7 @@ void main() {
         key: 'n/level',
         name: 'level',
         depth: 1,
-        type: ValueType.number,
+        type: ValueType.numeric,
         value: '92.6',
         writable: writable,
         places: true,

@@ -8,7 +8,7 @@ void main() {
     expect(
       [
         for (final t in [
-          ValueType.number,
+          ValueType.numeric,
           ValueType.bool_,
           ValueType.enum_,
           ValueType.string,

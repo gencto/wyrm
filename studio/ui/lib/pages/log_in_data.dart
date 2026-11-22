@@ -402,7 +402,7 @@ enum FoundProblemKind {
 
   /// Its words, with the [detail] it came with (a version) and [why]
   /// there was no answer.
-  String text(String detail, {AnswerWhy? why}) => switch (this) {
+  String words(String detail, {AnswerWhy? why}) => switch (this) {
     plainHttp => S.current.problemPlainHttp,
     noInfo => S.current.problemNoInfo,
     studioTooOld => S.current.problemStudioTooOld(detail),

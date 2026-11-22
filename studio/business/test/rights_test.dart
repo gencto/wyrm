@@ -1,7 +1,7 @@
 import 'package:business/redux/app_state.dart';
 import 'package:business/wyrm/decode/access.dart';
 import 'package:business/wyrm/decode/decoded.dart';
-import 'package:business/wyrm/mappers/node_detail_mapper.dart';
+import 'package:business/wyrm/decode/node_detail.dart';
 import 'package:business/wyrm/rights.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';

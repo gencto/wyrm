@@ -29,7 +29,7 @@ sealed class StepUpProblem extends Equatable {
   const factory StepUpProblem.said(String text) = StepUpSaidProblem;
 
   /// Its words, with the [site] and the unlock [method].
-  String text(String site, UnlockMethod method) => switch (this) {
+  String words(String site, UnlockMethod method) => switch (this) {
     StepUpWrongPasswordProblem() => S.current.lockWrongPassword,
     StepUpStoppedProblem() => S.current.stepUpStopped(method.label),
     StepUpKeyGoneProblem() => S.current.stepUpKeyGone(site),
@@ -168,7 +168,7 @@ class StepUpScreen extends StatelessWidget {
         cancel: s.cancel,
         passwordLabel: s.unlockPasswordFor(vm.user),
         busy: vm.busy,
-        error: vm.problem?.text(vm.site, vm.method),
+        error: vm.problem?.words(vm.site, vm.method),
         passwordOnly: vm.passwordOnly,
       ),
       onDevice: onDevice,

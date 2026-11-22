@@ -2,7 +2,7 @@ import 'package:models/live_value.dart';
 import 'package:models/quality.dart' as m;
 import 'package:wyrm_client/wyrm_client.dart';
 
-import 'values.dart';
+import '../mappers/values.dart';
 
 /// A sample of `subscribe` as a [LiveValue].
 LiveValue liveValueOf(Sample s) => LiveValue(

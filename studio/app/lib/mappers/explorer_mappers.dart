@@ -240,7 +240,7 @@ extension ReachDisabled on Reach {
 extension TypeCodeValueType on TypeCode {
   ValueType get valueType => switch (this) {
     TypeCode.null_ => .null_,
-    TypeCode.number => .number,
+    TypeCode.number => .numeric,
     TypeCode.string => .string,
     TypeCode.bool_ => .bool_,
     TypeCode.enum_ => .enum_,
