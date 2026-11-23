@@ -1572,7 +1572,7 @@ struct Wasm {
 
 impl Wasm {
     fn new(cfg: WasmCfg, artifacts: &Artifacts) -> Result<Self, String> {
-        let art = artifacts.get(&cfg.artifact)?;
+        let art = artifacts.get(&cfg.artifact).map_err(|e| e.to_string())?;
         let config = wyrm_core::codec::to_vec(&cfg.config).map_err(|e| format!("config: {e}"))?;
         let mut node =
             wyrm_wasm_host::FlowNode::new(wyrm_wasm_host::Slot::new(art), config, cfg.limits);
