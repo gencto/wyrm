@@ -521,8 +521,10 @@ fn build_storage(tree: &Path, dir: &Path) -> Result<(), String> {
         .ok()
         .and_then(replication::parse_changes)
         .ok_or("storage tree: unreadable")?;
-    let store = wyrm_storage::Store::open(dir)?;
-    store.apply(changes.put, Vec::new())?;
+    let store = wyrm_storage::Store::open(dir).map_err(|e| e.to_string())?;
+    store
+        .apply(changes.put, Vec::new())
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -1527,7 +1529,8 @@ impl Admin {
             if n > 0 {
                 tokio::task::spawn_blocking(move || store.apply(put, Vec::new()))
                     .await
-                    .map_err(|e| e.to_string())??;
+                    .map_err(|e| e.to_string())?
+                    .map_err(|e| e.to_string())?;
                 // the storage link reads its store again
                 ctl.schedule_reload();
             }

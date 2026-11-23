@@ -21,7 +21,7 @@ use wyrm_link_sdk::tree::split_parent;
 use wyrm_link_sdk::{now_us, Args, Caller, Link, LinkCtx, LinkError, ReplySink, Result};
 
 pub use actions::{ValueEditor, ValueType};
-pub use store::{Changes, Rec, Store};
+pub use store::{Changes, Error, Rec, Store};
 
 /// How long values wait in memory before they are written.
 const FLUSH_EVERY: Duration = Duration::from_secs(1);
@@ -221,9 +221,7 @@ impl Storage {
         if self.store.bytes().saturating_sub(removed) + added > self.limits.total_bytes {
             return Err(self.limits.too_large());
         }
-        self.store
-            .apply(new.clone(), old)
-            .map_err(LinkError::internal)?;
+        self.store.apply(new.clone(), old)?;
         for p in top {
             if self.ctx.has_node(p) {
                 self.ctx.remove_node(p).await?;
