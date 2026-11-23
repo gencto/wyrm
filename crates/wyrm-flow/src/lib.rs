@@ -27,4 +27,5 @@ mod sources;
 pub mod store;
 pub mod watch;
 
-pub use engine::{command_targets, Engine, EngineStart, FlowHost};
+pub use artifacts::ArtifactError;
+pub use engine::{command_targets, Engine, EngineStart, FlowHost, HostError};

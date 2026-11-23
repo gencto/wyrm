@@ -62,7 +62,38 @@ const STATE_ERROR: u64 = 2;
 /// `wyrmd` sets its `metrics_interval_ms`, whose default is the same 10 s.
 const STATS_EVERY_MS: u64 = 10_000;
 
-pub type Error = Box<dyn std::error::Error + Send + Sync>;
+/// Why a [`FlowHost`] did not open. Every text is the text of the cause, as
+/// it was while `open` returned a boxed error: `wyrmd` prints it at start.
+#[derive(Debug, thiserror::Error)]
+pub enum HostError {
+    /// Another process (or a host of this one that is still closing) holds
+    /// the store's `LOCK`: opening again a moment later may succeed. The
+    /// source is `wyrm_state::StateError::InUse`.
+    #[error("{0}")]
+    InUse(#[source] wyrm_state::StateError),
+    /// The store or its anchor: WAL tampered or corrupt, snapshot codec,
+    /// anchor mismatch, I/O inside the store.
+    #[error("{0}")]
+    State(#[source] wyrm_state::StateError),
+    /// The host's directory was not made, or `flow.key` was not written.
+    #[error("{0}")]
+    Io(#[from] std::io::Error),
+    /// `flow.key` is there and is not 32 bytes of hex.
+    #[error("flow.key: expected 32 bytes hex")]
+    Key,
+    /// No randomness for a new `flow.key`.
+    #[error("{0}")]
+    Random(#[from] wyrm_core::rand::NoRandomness),
+}
+
+impl From<wyrm_state::StateError> for HostError {
+    fn from(e: wyrm_state::StateError) -> Self {
+        match e {
+            wyrm_state::StateError::InUse(_) => Self::InUse(e),
+            e => Self::State(e),
+        }
+    }
+}
 
 /// What survives broker reloads: the store and the flow signing key.
 pub struct FlowHost {
@@ -77,7 +108,7 @@ pub struct FlowHost {
 impl FlowHost {
     /// Store under `dir/state`, signing key in `dir/flow.key` (0600), WASM
     /// artifacts under `dir/artifacts`.
-    pub fn open(dir: &Path, hmac_key: &[u8], site: &str) -> Result<Arc<Self>, Error> {
+    pub fn open(dir: &Path, hmac_key: &[u8], site: &str) -> Result<Arc<Self>, HostError> {
         Self::open_anchored(dir, hmac_key, site, None)
     }
 
@@ -89,7 +120,7 @@ impl FlowHost {
         hmac_key: &[u8],
         site: &str,
         anchor: Option<(&Path, bool)>,
-    ) -> Result<Arc<Self>, Error> {
+    ) -> Result<Arc<Self>, HostError> {
         std::fs::create_dir_all(dir)?;
         let mut store = Store::<FlowStore>::open(dir.join("state"), hmac_key)?;
         match anchor {
@@ -99,11 +130,10 @@ impl FlowHost {
         }
         let key_path = dir.join("flow.key");
         let seed: [u8; 32] = match std::fs::read_to_string(&key_path) {
-            Ok(t) => wyrm_core::hex::decode_array::<32>(t.trim())
-                .ok_or("flow.key: expected 32 bytes hex")?,
+            Ok(t) => wyrm_core::hex::decode_array::<32>(t.trim()).ok_or(HostError::Key)?,
             Err(_) => {
                 let mut s = [0u8; 32];
-                getrandom_fill(&mut s)?;
+                wyrm_core::rand::fill(&mut s)?;
                 write_private(&key_path, &wyrm_core::hex::encode(s))?;
                 s
             }
@@ -149,10 +179,6 @@ impl FlowHost {
             .map(|_| ())
             .map_err(|e| LinkError::internal(e.to_string()))
     }
-}
-
-fn getrandom_fill(b: &mut [u8]) -> Result<(), Error> {
-    wyrm_core::rand::fill(b).map_err(|e| e.to_string().into())
 }
 
 fn write_private(path: &Path, text: &str) -> std::io::Result<()> {
