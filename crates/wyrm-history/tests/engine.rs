@@ -10,11 +10,12 @@
     reason = "test code: a failed step fails the test"
 )]
 
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use wyrm_core::{codec, HistRow, Quality, Sample, Value};
-use wyrm_history::{GroupCfg, Historian, Logging, WatchCfg};
+use wyrm_history::time::{parse_iso, US_PER_DAY, US_PER_S};
+use wyrm_history::{GroupCfg, Historian, Logging, Row, WatchCfg};
 
 const P: &str = "wy/s/downstream/mock/p";
 const Q: &str = "wy/s/downstream/mock/q";
@@ -79,16 +80,30 @@ fn group(name: &str, logging: Logging, keys: &[&str]) -> GroupCfg {
     }
 }
 
-fn values(h: &Historian, key: &str) -> Vec<Value> {
+fn stored(h: &Historian, key: &str) -> Vec<Row> {
     let st = h.store();
     let Some(s) = st.series_id(key, false).unwrap() else {
         return Vec::new();
     };
-    st.read(s, 0, u64::MAX, 1000)
-        .unwrap()
-        .into_iter()
-        .map(|r| r.v)
-        .collect()
+    st.read(s, 0, u64::MAX, 1000).unwrap()
+}
+
+fn values(h: &Historian, key: &str) -> Vec<Value> {
+    stored(h, key).into_iter().map(|r| r.v).collect()
+}
+
+/// A clock the test owns: every read is 1 µs after the one before (so two
+/// `Interval` rows never share a time), and the test moves it by a store.
+/// No part of the scenario below reads the wall clock, so the days its rows
+/// land on are the same at whatever hour it runs (issue #170).
+fn ticking(start: u64) -> (Arc<AtomicU64>, wyrm_history::engine::Clock) {
+    let at = Arc::new(AtomicU64::new(start));
+    let read = at.clone();
+    (at, Arc::new(move || read.fetch_add(1, Ordering::Relaxed)))
+}
+
+fn day(t: u64) -> i64 {
+    (t / US_PER_DAY) as i64
 }
 
 async fn eventually(what: &str, mut f: impl FnMut() -> bool) {
@@ -101,10 +116,45 @@ async fn eventually(what: &str, mut f: impl FnMut() -> bool) {
     panic!("{what}");
 }
 
+/// The whole scenario inside one UTC day: one day file.
 #[tokio::test(flavor = "multi_thread")]
 async fn logging_types_and_rebuilds() {
-    let dir = temp("types");
-    let h = Historian::open(&dir).unwrap();
+    let noon = parse_iso("2026-03-14T12:00:00Z").unwrap();
+    logging_types_and_rebuilds_at("types", noon + US_PER_S, noon, None, &[day(noon)]).await;
+}
+
+/// The same scenario across UTC midnight (issue #170): the five samples are
+/// three before 00:00:00 and two from it on (a source less than a second
+/// ahead of the historian), the clock passes midnight before the rebuild,
+/// which goes on from the newest row (in the new day's file), and the
+/// `Interval` rows land on the new day. Two day files, the rows of both
+/// read as one series, and still none for the implausible times.
+#[tokio::test(flavor = "multi_thread")]
+async fn logging_types_and_rebuilds_across_utc_midnight() {
+    let midnight = parse_iso("2026-03-15T00:00:00Z").unwrap();
+    logging_types_and_rebuilds_at(
+        "midnight",
+        midnight - US_PER_S,
+        midnight - 3,
+        Some(midnight + US_PER_S),
+        &[day(midnight) - 1, day(midnight)],
+    )
+    .await;
+}
+
+/// The scenario on a clock that starts at `start`, with samples from `t0`
+/// on; the clock is moved to `later` before the rebuild. `days` are the day
+/// files it must leave, and no other.
+async fn logging_types_and_rebuilds_at(
+    name: &str,
+    start: u64,
+    t0: u64,
+    later: Option<u64>,
+    days: &[i64],
+) {
+    let dir = temp(name);
+    let (at, clock) = ticking(start);
+    let h = Historian::open_with_clock(&dir, clock).unwrap();
     let s = session().await;
     h.attach(
         s.clone(),
@@ -116,13 +166,17 @@ async fn logging_types_and_rebuilds() {
         Some("wy/s/sys/history".into()),
     );
     tokio::time::sleep(Duration::from_millis(300)).await; // subscribers up
-    let t0 = wyrm_history::engine::now_us();
     for (i, v) in [1.0, 1.0, 2.0, 2.0, 3.0].into_iter().enumerate() {
         put(&s, P, v, t0 + i as u64).await;
         put(&s, Q, v, t0 + i as u64).await;
     }
     eventually("all data: every update", || values(&h, P).len() == 5).await;
     eventually("point change: changes only", || values(&h, Q).len() == 3).await;
+    assert_eq!(
+        stored(&h, P).iter().map(|r| r.t).collect::<Vec<_>>(),
+        (0..5).map(|i| t0 + i).collect::<Vec<_>>(),
+        "every row at its source time, in order, whatever its day file"
+    );
     assert_eq!(
         values(&h, Q),
         [Value::Float(1.0), Value::Float(2.0), Value::Float(3.0)]
@@ -132,6 +186,9 @@ async fn logging_types_and_rebuilds() {
     // A rebuild: detach flushes, a new session continues; an old sample
     // again (as storage would replay it) is not stored twice.
     h.detach().await;
+    if let Some(later) = later {
+        at.store(later, Ordering::Relaxed);
+    }
     let s2 = session().await;
     h.attach(
         s2.clone(),
@@ -194,6 +251,14 @@ async fn logging_types_and_rebuilds() {
             >= 2
     })
     .await;
+    if let Some(later) = later {
+        assert!(
+            stored(&h, P)
+                .iter()
+                .any(|r| r.v == Value::Float(5.0) && r.t >= later),
+            "interval rows at the clock's time, after it moved"
+        );
+    }
     // A source clock far off: neither a day ahead nor a year back is stored.
     let dropped = || {
         h.counters()
@@ -205,10 +270,10 @@ async fn logging_types_and_rebuilds() {
     tokio::time::sleep(Duration::from_millis(300)).await;
     // Sent again until both are counted: on a slow machine the new watches
     // may subscribe after the first samples went by.
-    let now = wyrm_history::engine::now_us();
+    let now = h.now_us();
     for _ in 0..100 {
-        put(&s2, P, 6.0, now + 86_400_000_000).await;
-        put(&s2, R, 7.0, now - 365 * 86_400_000_000).await;
+        put(&s2, P, 6.0, now + US_PER_DAY).await;
+        put(&s2, R, 7.0, now - 365 * US_PER_DAY).await;
         tokio::time::sleep(Duration::from_millis(50)).await;
         if dropped() >= before + 2 {
             break;
@@ -218,7 +283,7 @@ async fn logging_types_and_rebuilds() {
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert!(!values(&h, P).contains(&Value::Float(6.0)));
     assert!(values(&h, R).is_empty());
-    assert_eq!(h.store().days().len(), 1, "no day file for them");
+    assert_eq!(h.store().days(), days, "no day file for them");
     h.detach().await;
     assert_eq!(
         h.counters()
