@@ -11,16 +11,16 @@ resolution: workspace
 dependencies:
   equatable: ^3.0.0
   extended_image: ^10.1.0
-  fast_immutable_collections: ^12.0.0
+  fast_immutable_collections: ^12.0.1
   file_picker: ^13.3.3
   flutter:
     sdk: flutter
   flutter_lucide: ^1.72.0
-  flutter_svg: ^2.4.0
+  flutter_svg: ^2.5.0
   image_picker: ^1.2.4
   localization:
     path: ../localization
-  material_ui: ^1.11.0
+  material_ui: ^1.11.1
   theme_extensions_builder_annotation: ^7.5.0
 
 dev_dependencies:
