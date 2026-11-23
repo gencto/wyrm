@@ -230,7 +230,9 @@ pub fn main(test: Option<crate::update::TestBuild>) -> Result<ExitCode, Error> {
         }
         Some(Cmd::InstallLayout { prefix }) => {
             let me = &wyrm_admin::release::identity().version;
-            let l = wyrm_admin::release::Layout::install(prefix, &std::env::current_exe()?, me)?;
+            // as text: `main` prints the error with `Debug`
+            let l = wyrm_admin::release::Layout::install(prefix, &std::env::current_exe()?, me)
+                .map_err(|e| e.to_string())?;
             println!(
                 "ExecStartPre={} -c <wyrmd.json5> update-guard\nExecStart={} -c <wyrmd.json5>",
                 l.guard().display(),
