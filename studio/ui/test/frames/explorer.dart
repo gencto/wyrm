@@ -306,7 +306,7 @@ const _toolbar = [
 
 ExplorerFieldVm _f(
   String code,
-  Object? value, {
+  ParamValue value, {
   PointFieldWord? word,
   ParamKind kind = ParamKind.text,
   List<String> choices = const [],
@@ -337,29 +337,44 @@ PointInspectorVm _pointInspector() => PointInspectorVm(
       fields: [
         _f(
           'table',
-          'holding',
+          const TextValue('holding'),
           word: .area,
           kind: ParamKind.choice,
           choices: const ['coil', 'discrete', 'input', 'holding'],
         ),
-        _f('addr', 2, word: .address, kind: ParamKind.number),
+        _f(
+          'addr',
+          const NumberValue(2),
+          word: .address,
+          kind: ParamKind.number,
+        ),
         _f(
           'dtype',
-          'f32',
+          const TextValue('f32'),
           word: .dataType,
           kind: ParamKind.choice,
           choices: const ['u16', 'f32', 'f32_wswap'],
         ),
-        _f('word_order', WordOrderTag.abcd, word: .wordOrder, missing: true),
+        _f(
+          'word_order',
+          TextValue(WordOrderTag.abcd.text),
+          word: .wordOrder,
+          missing: true,
+        ),
       ],
     ),
     PointFieldsSectionVm(
       node: _node,
       value: true,
       fields: [
-        _f('unit', '°C', word: .unit),
-        _f('scale', 1.0, word: .scale, kind: ParamKind.number),
-        _f('precision', null, word: .precision, missing: true),
+        _f('unit', const TextValue('°C'), word: .unit),
+        _f(
+          'scale',
+          const NumberValue(1.0),
+          word: .scale,
+          kind: ParamKind.number,
+        ),
+        _f('precision', const NoValue(), word: .precision, missing: true),
       ],
     ),
     const PollingSectionVm(
@@ -373,7 +388,14 @@ PointInspectorVm _pointInspector() => PointInspectorVm(
     WriteSectionVm(
       node: _node,
       level: AccessLevel.config,
-      fields: [_f('writable', false, word: .writable, kind: ParamKind.toggle)],
+      fields: [
+        _f(
+          'writable',
+          const FlagValue(on: false),
+          word: .writable,
+          kind: ParamKind.toggle,
+        ),
+      ],
     ),
     PublishSectionVm(
       type: ValueType.number,
@@ -394,16 +416,20 @@ NodeInspectorVm _deviceInspector() => NodeInspectorVm(
     ParamsSectionVm(
       node: _dev,
       fields: [
-        _f('unit', 1, kind: ParamKind.number),
+        _f('unit', const NumberValue(1), kind: ParamKind.number),
         _f(
           'ping',
-          'probe',
+          const TextValue('probe'),
           kind: ParamKind.choice,
           choices: const ['probe', 'fc17', 'none'],
         ),
-        _f('ping_s', 5.0, kind: ParamKind.number),
-        _f('max_regs', 125, kind: ParamKind.number),
-        _f('contiguous_only', false, kind: ParamKind.toggle),
+        _f('ping_s', const NumberValue(5.0), kind: ParamKind.number),
+        _f('max_regs', const NumberValue(125), kind: ParamKind.number),
+        _f(
+          'contiguous_only',
+          const FlagValue(on: false),
+          kind: ParamKind.toggle,
+        ),
       ],
     ),
     const DiagnosticsSectionVm([
@@ -853,7 +879,7 @@ Widget explorerFolder() => _shell(
         ),
       ],
       edit: ParamKind.number,
-      editValue: 21.5,
+      editValue: const NumberValue(21.5),
     ),
   ),
   changes: 0,

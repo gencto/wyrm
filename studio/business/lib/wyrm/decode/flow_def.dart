@@ -202,6 +202,10 @@ FlowRead _read(String id, Value def) {
           if (!_own.contains(e.key)) e.key: _bounded(toDart(e.value), e.key),
       }.lock,
       defs: defs.lock,
+      description: switch (def['description']) {
+        VStr(:final v) => v,
+        _ => null,
+      },
       permissions: flowPermissionsOf(def['permissions']).orWarn('flow $id'),
     ),
     placed.lock,

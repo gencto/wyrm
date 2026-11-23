@@ -1,9 +1,10 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
-import 'package:freezed_annotation/freezed_annotation.dart';
+import 'package:freezed_annotation/freezed_annotation.dart' hide JsonValue;
 
 import 'block_type.dart';
 import 'engine_port.dart';
 import 'flow_draft.dart';
+import 'json_value.dart';
 import 'port_end.dart';
 
 part 'block_def.freezed.dart';
@@ -19,9 +20,9 @@ abstract class BlockPort with _$BlockPort {
     /// output it sends (`from`).
     @Default([]) List<PortEnd> ends,
 
-    /// An input's default, as JSON; null for none, or a `null` default
+    /// An input's default, decoded; null for none, or a `null` default
     /// when [hasDefault].
-    Object? defaultValue,
+    JsonValue? defaultValue,
 
     /// The definition wrote a `default`, a `null` one too: written back
     /// the same way.

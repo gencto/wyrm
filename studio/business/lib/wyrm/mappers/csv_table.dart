@@ -1,6 +1,8 @@
 import 'dart:convert';
 
-import 'table_value.dart';
+import 'package:models/plain_value.dart';
+
+import '../decode/table_value.dart';
 
 /// The text a `table_from_csv` reads at most (`MAX_TEXT_TABLE`, 512 KiB);
 /// past it the block says `parse_error`.
@@ -142,7 +144,10 @@ TableValue? parseCsv(String s, {String delimiter = ',', bool header = true}) {
     for (final r in body)
       [
         for (var i = 0; i < columns.length; i++)
-          if (i < r.length) r[i] else null,
+          if (i < r.length)
+            PlainValue.text(r[i])
+          else
+            const PlainValue.nothing(),
       ],
   ]);
 }
@@ -175,7 +180,7 @@ final class _Names {
 /// map as JSON).
 String writeCsv(
   List<String> columns,
-  List<List<Object?>> rows, {
+  List<List<PlainValue>> rows, {
   String delimiter = ',',
   bool header = true,
 }) {
@@ -200,7 +205,7 @@ String writeCsv(
     out
       ..writeAll([
         for (var i = 0; i < columns.length; i++)
-          q(cellText(i < r.length ? r[i] : null)),
+          q(i < r.length ? cellText(r[i]) : ''),
       ], d)
       ..write('\n');
   }
@@ -210,25 +215,29 @@ String writeCsv(
 /// A cell as the engine writes it in a text (`text` in `blocks.rs`): null
 /// empty, a text itself, a number and a bool as written, a list or a map as
 /// compact JSON.
-String cellText(Object? v) => switch (v) {
-  null => '',
-  final String s => s,
-  final bool b => '$b',
-  final int i => '$i',
-  final double x => '$x',
-  _ => _json(v),
+String cellText(PlainValue v) => switch (v) {
+  PlainValueNothing() => '',
+  PlainValueText(:final text) => text,
+  PlainValueFlag(:final value) => '$value',
+  PlainValueNumber(:final value) => '$value',
+  PlainValueBytes() ||
+  PlainValueList() ||
+  PlainValueMap() ||
+  PlainValueOther() => jsonEncode(_plain(v)),
 };
 
-String _json(Object? v) => jsonEncode(_plain(v));
-
 /// [v] as JSON can hold it: keys as texts, a number that is not finite and
-/// anything else JSON lacks as its text.
-Object? _plain(Object? v) => switch (v) {
-  final double d when !d.isFinite => '$d',
-  null || bool() || num() || String() => v,
-  final Map<Object?, Object?> m => {
-    for (final e in m.entries) '${e.key}': _plain(e.value),
+/// anything else JSON lacks as its text (bytes are a list of numbers).
+Object? _plain(PlainValue v) => switch (v) {
+  PlainValueNumber(:final value) when !value.isFinite => '$value',
+  PlainValueNothing() ||
+  PlainValueFlag() ||
+  PlainValueNumber() ||
+  PlainValueText() => v.raw,
+  PlainValueBytes(:final bytes) => [for (final b in bytes) b],
+  PlainValueMap(:final entries) => {
+    for (final e in entries) e.key: _plain(e.value),
   },
-  final List<Object?> l => [for (final x in l) _plain(x)],
-  _ => '$v',
+  PlainValueList(:final items) => [for (final x in items) _plain(x)],
+  PlainValueOther(:final text) => text,
 };

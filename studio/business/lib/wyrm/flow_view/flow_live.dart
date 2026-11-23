@@ -210,7 +210,7 @@ final class FlowLive {
       if (ports?[portKey(PortSide.param, b.id, f.name)] case final v?) {
         return v;
       }
-      return switch (b.paramOr(f.name, f.spec?.defaultValue?.raw)) {
+      return switch (b.paramOr(f.name, f.spec?.defaultValue)) {
         JsonNull() => null,
         final typed => LiveValue(time: typedTime, value: typed.raw),
       };

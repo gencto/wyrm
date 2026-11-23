@@ -40,28 +40,28 @@ class TypeFieldAction extends Action {
     final empty = text.trim().isEmpty;
     if (b.id == blockInputsId) {
       // The default of a custom block's input.
-      final defaults = rawFields(b.cfgDefaults);
-      if (empty) {
-        defaults.remove(f.name);
-      } else {
-        defaults[f.name] = value;
-      }
+      final defaults = empty
+          ? b.cfgDefaults.remove(f.name)
+          : b.cfgDefaults.add(f.name, value);
       dispatchSync(
-        SetBlockParamAction(b.id, BlockCfgKey.defaults.wire, defaults),
+        SetBlockParamAction(
+          b.id,
+          BlockCfgKey.defaults.wire,
+          JsonMap.fields(defaults),
+        ),
       );
     } else if (f.operand) {
       dispatchSync(SetOperandValueAction(b.id, f.inPort!, value));
     } else if (f.kind == FieldKind.arg) {
-      final args = rawFields(b.cfgArgs);
       // Nothing typed: an argument the action may go without leaves the
       // call; any other is sent as nothing.
-      if (empty && f.argSpec != null && !f.argSpec!.required) {
-        args.remove(f.name);
-      } else {
-        args[f.name] = empty ? null : value;
-      }
+      final args = empty && f.argSpec != null && !f.argSpec!.required
+          ? b.cfgArgs.remove(f.name)
+          : b.cfgArgs.add(f.name, empty ? const JsonNull() : value);
       // An empty map stays a map: the block still names its arguments.
-      dispatchSync(SetBlockParamAction(b.id, BlockCfgKey.args.wire, args));
+      dispatchSync(
+        SetBlockParamAction(b.id, BlockCfgKey.args.wire, JsonMap.fields(args)),
+      );
     } else if (f.spec case final p?) {
       dispatchSync(SetBlockParamAction(b.id, p.name, value));
     }

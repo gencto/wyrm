@@ -1,6 +1,8 @@
 import 'package:models/driver_status.dart';
 import 'package:models/flow_summary.dart';
+import 'package:models/json_value.dart';
 import 'package:models/link_state.dart';
+import 'package:models/live_value.dart';
 
 import '../mappers/value_text.dart';
 import 'decoded.dart';
@@ -8,6 +10,15 @@ import 'decoded.dart';
 // Live samples as Explorer reads them. `LiveValue.value` holds a sample as
 // plain Dart (the live values service turns the wire value into one); the
 // shapes below are read from that form, once, here.
+
+/// A sample's value as JSON (a port's value of the flow engine, ADR 0044:
+/// a number, a text, a map, a table …); null when it is no JSON (a value
+/// of the wire may hold bytes) or nests past [JsonValue.maxDepth]. Read
+/// once per sample: the same sample is the same instance.
+JsonValue? liveJsonOf(LiveValue s) =>
+    (_liveJson[s] ??= (JsonValue.tryOf(s.value),)).$1;
+
+final _liveJson = Expando<(JsonValue?,)>('live json');
 
 /// `sys/links/<id>/state`: an enum code (wyrm-admin `STATES`) or its name.
 Decoded<LinkState> linkStateSampleOf(Object? v) => switch (v) {

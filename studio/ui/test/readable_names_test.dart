@@ -77,7 +77,7 @@ void main() {
     expect(find.text('read_back'), findsNothing);
     await tester.tap(find.text('Read back').last);
     await tester.pumpAndSettle();
-    expect(sent, 'read_back');
+    expect(sent, const TextValue('read_back'));
   });
 
   testWidgets('a menu item in words keeps the action name as tooltip', (

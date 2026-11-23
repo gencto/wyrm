@@ -19,6 +19,7 @@ import 'package:models/quality.dart';
 import 'package:wyrm_client/wyrm_client.dart' show TypeCode;
 
 import '../decode/flow_rows.dart';
+import '../decode/live_values.dart';
 import '../labels.dart';
 import 'block_cfg.dart';
 import 'config_text.dart';
@@ -1603,6 +1604,7 @@ final class FieldValue {
     this.bad = false,
     this.live = false,
     this.raw,
+    this.json,
     this.quality,
   });
 
@@ -1611,6 +1613,11 @@ final class FieldValue {
   /// The value itself, as [text] reads it in short: a map or a list whole,
   /// for the field's viewer.
   final Object? raw;
+
+  /// [raw] as JSON, decoded where it was read (a typed value as the config
+  /// holds it, a sample by [liveJsonOf]); null when there is none or it is
+  /// no JSON.
+  final JsonValue? json;
 
   /// The quality of the sample behind it; null for a typed value.
   final Quality? quality;
@@ -1648,26 +1655,45 @@ FieldValue fieldValue(
       d.edges.any((e) => e.to == b.id && e.toPort == f.inPort);
   LiveValue? sample;
   Object? shown;
+  JsonValue? json;
+  // What the field shows: a sample's value, or a typed one (as JSON).
+  void showLive(LiveValue? s) {
+    shown = s?.value;
+    json = s == null ? null : liveJsonOf(s);
+  }
+
+  void showTyped(JsonValue v) {
+    shown = v.raw;
+    json = v;
+  }
+
   switch (f.kind) {
     case FieldKind.param:
       final p = f.spec!;
-      final typed = b.paramOr(p.name, p.defaultValue?.raw).raw;
+      final typed = b.paramOr(p.name, p.defaultValue);
+      LiveValue? param() => live(portKey(PortSide.param, b.id, p.name));
       if (f.variable) {
         sample =
             live(portKey(PortSide.output, b.id, f.outPort!)) ??
             (bound ? live(portKey(PortSide.input, b.id, f.inPort!)) : null);
-        shown =
-            sample?.value ??
-            (bound
-                ? null
-                : typed ?? live(portKey(PortSide.param, b.id, p.name))?.value);
+        if (sample?.value != null) {
+          showLive(sample);
+        } else if (bound) {
+          showLive(null);
+        } else if (typed is! JsonNull) {
+          showTyped(typed);
+        } else {
+          showLive(param());
+        }
       } else if (bound) {
         sample =
             live(portKey(PortSide.input, b.id, f.inPort!)) ??
             live(portKey(PortSide.param, b.id, p.name));
-        shown = sample?.value;
+        showLive(sample);
+      } else if (typed is! JsonNull) {
+        showTyped(typed);
       } else {
-        shown = typed ?? live(portKey(PortSide.param, b.id, p.name))?.value;
+        showLive(param());
       }
       if (sample == null && shown == null) {
         return FieldValue('', bound: bound);
@@ -1676,20 +1702,20 @@ FieldValue fieldValue(
       // An operand's typed constant, until a binding replaces it (ADR 0038
       // §7): bound, the value that comes in; else the constant.
       final constant = f.operand && !bound
-          ? operandValueOf(b, f.inPort!).raw
-          : null;
-      if (constant != null) {
-        shown = constant;
+          ? operandValueOf(b, f.inPort!)
+          : const JsonNull();
+      if (constant is! JsonNull) {
+        showTyped(constant);
         break;
       }
       sample = live(portKey(PortSide.input, b.id, f.inPort!));
-      shown = sample?.value;
+      showLive(sample);
       if (sample == null) {
         return FieldValue('', bound: bound);
       }
     case FieldKind.output:
       sample = live(portKey(PortSide.output, b.id, f.outPort!));
-      shown = sample?.value;
+      showLive(sample);
       if (sample == null) {
         return const FieldValue('');
       }
@@ -1697,18 +1723,18 @@ FieldValue fieldValue(
       // An argument's constant, until a binding replaces it (ADR 0040 §2).
       if (bound) {
         sample = live(portKey(PortSide.input, b.id, f.inPort!));
-        shown = sample?.value;
+        showLive(sample);
         if (sample == null) {
           return FieldValue('', bound: bound);
         }
-      } else {
-        shown = b.cfgArgs[f.name]?.raw;
+      } else if (b.cfgArgs[f.name] case final a?) {
+        showTyped(a);
       }
   }
   final point = f.kind == FieldKind.input || f.kind == FieldKind.output;
   return FieldValue(
     switch (shown) {
-      _ when jsonShortText(shown) != null => jsonShortText(shown)!,
+      _ when jsonShortText(json) != null => jsonShortText(json)!,
       // A date of the engine (µs) reads as a date and time.
       _ when isTimeField(b.type, f.port) && dateText(shown) != null => dateText(
         shown,
@@ -1724,6 +1750,7 @@ FieldValue fieldValue(
     bad: sample?.quality == Quality.bad,
     live: sample != null,
     raw: shown,
+    json: json,
     quality: sample?.quality,
   );
 }

@@ -17,9 +17,9 @@ mixin _$BlockPort {
 
  String get name;/// An input: the inner inputs it feeds (`to`); an output: the one inner
 /// output it sends (`from`).
- List<PortEnd> get ends;/// An input's default, as JSON; null for none, or a `null` default
+ List<PortEnd> get ends;/// An input's default, decoded; null for none, or a `null` default
 /// when [hasDefault].
- Object? get defaultValue;/// The definition wrote a `default`, a `null` one too: written back
+ JsonValue? get defaultValue;/// The definition wrote a `default`, a `null` one too: written back
 /// the same way.
  bool get hasDefault; String? get description;/// The definition wrote the input's `to` as one text, not a list (the
 /// spec takes both): written back the same way.
@@ -37,14 +37,14 @@ $BlockPortCopyWith<BlockPort> get copyWith => _$BlockPortCopyWithImpl<BlockPort>
 @override
 bool operator ==(Object other) {
   final _this = this as BlockPort;
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is BlockPort&&(identical(other.name, _this.name) || other.name == _this.name)&&const DeepCollectionEquality().equals(other.ends, _this.ends)&&const DeepCollectionEquality().equals(other.defaultValue, _this.defaultValue)&&(identical(other.hasDefault, _this.hasDefault) || other.hasDefault == _this.hasDefault)&&(identical(other.description, _this.description) || other.description == _this.description)&&(identical(other.oneEnd, _this.oneEnd) || other.oneEnd == _this.oneEnd)&&(identical(other.extra, _this.extra) || other.extra == _this.extra));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is BlockPort&&(identical(other.name, _this.name) || other.name == _this.name)&&const DeepCollectionEquality().equals(other.ends, _this.ends)&&(identical(other.defaultValue, _this.defaultValue) || other.defaultValue == _this.defaultValue)&&(identical(other.hasDefault, _this.hasDefault) || other.hasDefault == _this.hasDefault)&&(identical(other.description, _this.description) || other.description == _this.description)&&(identical(other.oneEnd, _this.oneEnd) || other.oneEnd == _this.oneEnd)&&(identical(other.extra, _this.extra) || other.extra == _this.extra));
 }
 
 
 @override
 int get hashCode {
   final _this = this as BlockPort;
-  return Object.hash(runtimeType,_this.name,const DeepCollectionEquality().hash(_this.ends),const DeepCollectionEquality().hash(_this.defaultValue),_this.hasDefault,_this.description,_this.oneEnd,_this.extra);
+  return Object.hash(runtimeType,_this.name,const DeepCollectionEquality().hash(_this.ends),_this.defaultValue,_this.hasDefault,_this.description,_this.oneEnd,_this.extra);
 }
 
 @override
@@ -61,7 +61,7 @@ abstract mixin class $BlockPortCopyWith<$Res>  {
   factory $BlockPortCopyWith(BlockPort value, $Res Function(BlockPort) _then) = _$BlockPortCopyWithImpl;
 @useResult
 $Res call({
- String name, List<PortEnd> ends, Object? defaultValue, bool hasDefault, String? description, bool oneEnd, IMap<String, Object?> extra
+ String name, List<PortEnd> ends, JsonValue? defaultValue, bool hasDefault, String? description, bool oneEnd, IMap<String, Object?> extra
 });
 
 
@@ -82,7 +82,8 @@ class _$BlockPortCopyWithImpl<$Res>
   return _then(BlockPort(
 null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
 as String,ends: null == ends ? _self.ends : ends // ignore: cast_nullable_to_non_nullable
-as List<PortEnd>,defaultValue: freezed == defaultValue ? _self.defaultValue : defaultValue ,hasDefault: null == hasDefault ? _self.hasDefault : hasDefault // ignore: cast_nullable_to_non_nullable
+as List<PortEnd>,defaultValue: freezed == defaultValue ? _self.defaultValue : defaultValue // ignore: cast_nullable_to_non_nullable
+as JsonValue?,hasDefault: null == hasDefault ? _self.hasDefault : hasDefault // ignore: cast_nullable_to_non_nullable
 as bool,description: freezed == description ? _self.description : description // ignore: cast_nullable_to_non_nullable
 as String?,oneEnd: null == oneEnd ? _self.oneEnd : oneEnd // ignore: cast_nullable_to_non_nullable
 as bool,extra: null == extra ? _self.extra : extra // ignore: cast_nullable_to_non_nullable
@@ -113,9 +114,9 @@ class _BlockPort extends BlockPort {
   return EqualUnmodifiableListView(_ends);
 }
 
-/// An input's default, as JSON; null for none, or a `null` default
+/// An input's default, decoded; null for none, or a `null` default
 /// when [hasDefault].
-@override final  Object? defaultValue;
+@override final  JsonValue? defaultValue;
 /// The definition wrote a `default`, a `null` one too: written back
 /// the same way.
 @override@JsonKey() final  bool hasDefault;
@@ -137,13 +138,13 @@ _$BlockPortCopyWith<_BlockPort> get copyWith => __$BlockPortCopyWithImpl<_BlockP
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is _BlockPort&&(identical(other.name, name) || other.name == name)&&const DeepCollectionEquality().equals(other.ends, _ends)&&const DeepCollectionEquality().equals(other.defaultValue, defaultValue)&&(identical(other.hasDefault, hasDefault) || other.hasDefault == hasDefault)&&(identical(other.description, description) || other.description == description)&&(identical(other.oneEnd, oneEnd) || other.oneEnd == oneEnd)&&(identical(other.extra, extra) || other.extra == extra));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _BlockPort&&(identical(other.name, name) || other.name == name)&&const DeepCollectionEquality().equals(other.ends, _ends)&&(identical(other.defaultValue, defaultValue) || other.defaultValue == defaultValue)&&(identical(other.hasDefault, hasDefault) || other.hasDefault == hasDefault)&&(identical(other.description, description) || other.description == description)&&(identical(other.oneEnd, oneEnd) || other.oneEnd == oneEnd)&&(identical(other.extra, extra) || other.extra == extra));
 }
 
 
 @override
 int get hashCode {
-    return Object.hash(runtimeType,name,const DeepCollectionEquality().hash(_ends),const DeepCollectionEquality().hash(defaultValue),hasDefault,description,oneEnd,extra);
+    return Object.hash(runtimeType,name,const DeepCollectionEquality().hash(_ends),defaultValue,hasDefault,description,oneEnd,extra);
 }
 
 @override
@@ -159,7 +160,7 @@ abstract mixin class _$BlockPortCopyWith<$Res> implements $BlockPortCopyWith<$Re
   factory _$BlockPortCopyWith(_BlockPort value, $Res Function(_BlockPort) _then) = __$BlockPortCopyWithImpl;
 @override @useResult
 $Res call({
- String name, List<PortEnd> ends, Object? defaultValue, bool hasDefault, String? description, bool oneEnd, IMap<String, Object?> extra
+ String name, List<PortEnd> ends, JsonValue? defaultValue, bool hasDefault, String? description, bool oneEnd, IMap<String, Object?> extra
 });
 
 
@@ -180,7 +181,8 @@ class __$BlockPortCopyWithImpl<$Res>
   return _then(_BlockPort(
 null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
 as String,ends: null == ends ? _self._ends : ends // ignore: cast_nullable_to_non_nullable
-as List<PortEnd>,defaultValue: freezed == defaultValue ? _self.defaultValue : defaultValue ,hasDefault: null == hasDefault ? _self.hasDefault : hasDefault // ignore: cast_nullable_to_non_nullable
+as List<PortEnd>,defaultValue: freezed == defaultValue ? _self.defaultValue : defaultValue // ignore: cast_nullable_to_non_nullable
+as JsonValue?,hasDefault: null == hasDefault ? _self.hasDefault : hasDefault // ignore: cast_nullable_to_non_nullable
 as bool,description: freezed == description ? _self.description : description // ignore: cast_nullable_to_non_nullable
 as String?,oneEnd: null == oneEnd ? _self.oneEnd : oneEnd // ignore: cast_nullable_to_non_nullable
 as bool,extra: null == extra ? _self.extra : extra // ignore: cast_nullable_to_non_nullable

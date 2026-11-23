@@ -219,9 +219,10 @@ void main() {
       expect(jsonEditText(JsonValue.of('a')), 'a');
       expect(jsonEditText(JsonValue.of(2)), '2');
       expect(jsonEditText(JsonValue.of(const {'a': 1})), '{\n  "a": 1\n}');
-      expect(jsonShortText({'a': 1}), '{…}');
-      expect(jsonShortText([1]), '[…]');
-      expect(jsonShortText(const <Object?>[]), isNull);
+      expect(jsonShortText(JsonValue.of(const {'a': 1})), '{…}');
+      expect(jsonShortText(JsonValue.of(const [1])), '[…]');
+      expect(jsonShortText(JsonValue.of(const <Object?>[])), isNull);
+      expect(jsonShortText(null), isNull);
       expect(
         listRowsIn(
           JsonValue.of(const [

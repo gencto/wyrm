@@ -100,16 +100,16 @@ IMap<String, Object?>? cfgWithOperandValue(
   NodeType? t,
   FlowBlock b,
   String port,
-  Object? value,
+  JsonValue value,
 ) {
   if (!operandPortsOf(t, b).contains(port)) {
     return null;
   }
   final m = rawFields(operandValuesOf(b));
-  if (JsonValue.of(value) case JsonNull() || JsonText(text: '')) {
+  if (value case JsonNull() || JsonText(text: '')) {
     m.remove(port);
   } else {
-    m[port] = value;
+    m[port] = value.raw;
   }
   // `values` is read as JSON while the editor builds: a map past the bound
   // is refused here, in the action, never stored (typed text cannot make

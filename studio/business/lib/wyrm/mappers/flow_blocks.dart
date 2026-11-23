@@ -353,7 +353,7 @@ String? eventText(LiveValue? v) {
 }
 
 /// `last_run` (µs since the epoch) as a clock time; null when it is none.
-String? lastRunText(Object? micros) => switch (JsonValue.tryOf(micros)) {
+String? lastRunText(JsonValue? micros) => switch (micros) {
   JsonNumber(value: final n) when n > 0 => clockText(
     DateTime.fromMicrosecondsSinceEpoch(n.toInt(), isUtc: true),
   ),
@@ -456,9 +456,8 @@ JsonValue instanceValueOf(FlowDraft d, FlowBlock b, String port) {
     final name? => d.defs[name],
     null => null,
   };
-  return JsonValue.of(
-    def?.inputs.where((p) => p.name == port).firstOrNull?.defaultValue,
-  );
+  return def?.inputs.where((p) => p.name == port).firstOrNull?.defaultValue ??
+      const JsonNull();
 }
 
 /// Where a field of instance [b] reads its live value: the inner input its
@@ -571,8 +570,11 @@ final class CustomBlockSpec {
   final List<String> outputs;
 
   /// An input's default, by its name.
-  final Map<String, Object?> defaults;
+  final Map<String, JsonValue> defaults;
 }
+
+/// A default as a port holds it: a `null` one is none ([BlockPort]).
+JsonValue? _given(JsonValue? v) => v is JsonNull ? null : v;
 
 /// Why a block cannot be created or renamed.
 enum BlockNameProblem {
@@ -664,7 +666,7 @@ BlockNameProblem? customBlockProblem(FlowDraft d, CustomBlockSpec spec) {
         BlockPort(
           spec.inputs[i],
           ends: p.inside,
-          defaultValue: spec.defaults[spec.inputs[i]],
+          defaultValue: _given(spec.defaults[spec.inputs[i]]),
         ),
     ],
     outputs: [
@@ -728,7 +730,7 @@ FlowDraft? insideDraftOf(FlowDraft outer, String name) {
               BlockCfgKey.inputs.wire: [for (final p in ins) p.name],
               BlockCfgKey.defaults.wire: {
                 for (final p in ins)
-                  if (p.defaultValue != null) p.name: p.defaultValue,
+                  if (p.defaultValue case final v?) p.name: v.raw,
               },
               BlockCfgKey.descriptions.wire: {
                 for (final p in [...ins, ...outs])
@@ -758,6 +760,7 @@ FlowDraft? insideDraftOf(FlowDraft outer, String name) {
           FlowEdge.between(e, PortEnd(blockOutputsId, p.name)),
     ]),
     rest: <String, Object?>{'description': ?read.description}.lock,
+    description: read.description,
     defs: outer.defs,
   );
 }
@@ -847,9 +850,8 @@ BlockDef blockDefOfInside(FlowDraft inner, {int? mark, BlockDef? was}) {
       was?.outputs.where((p) => p.name == n).firstOrNull;
   return BlockDef(
     body: body,
-    description: switch (JsonValue.of(inner.rest['description'])) {
-      JsonText(:final text) when text.isNotEmpty || was?.description == text =>
-        text,
+    description: switch (inner.description) {
+      final text? when text.isNotEmpty || was?.description == text => text,
       _ => null,
     },
     inputs: [
@@ -860,7 +862,7 @@ BlockDef blockDefOfInside(FlowDraft inner, {int? mark, BlockDef? was}) {
             for (final e in inner.edges)
               if (e.from == blockInputsId && e.fromPort == n) e.target,
           ],
-          defaultValue: defaults[n]?.raw,
+          defaultValue: _given(defaults[n]),
           // A `null` default is none to the inside: kept as it was.
           hasDefault:
               defaults.containsKey(n) ||
