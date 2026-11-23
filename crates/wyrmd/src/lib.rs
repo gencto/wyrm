@@ -122,13 +122,14 @@ fn control_open_error(e: Error) -> Error {
 }
 
 /// `e`, or one of its causes, says that a store is held: a `wyrm-state` WAL
-/// (its `LOCK`), the broker storage or the history index is open in another
+/// (its `LOCK`), the flows store, the broker storage or the history index is open in another
 /// process, or in a daemon of this one that is still closing. Opening it
 /// again a moment later may succeed.
 pub fn store_held(e: &(dyn std::error::Error + 'static)) -> bool {
     let mut at = Some(e);
     while let Some(e) = at {
         if matches!(e.downcast_ref(), Some(wyrm_state::StateError::InUse(_)))
+            || matches!(e.downcast_ref(), Some(wyrm_flow::HostError::InUse(_)))
             || matches!(e.downcast_ref(), Some(wyrm_storage::Error::InUse(_)))
             || matches!(e.downcast_ref(), Some(wyrm_history::store::Error::InUse(_)))
         {
@@ -2347,7 +2348,8 @@ impl Daemon {
             &hmac,
             &cfg.site,
             flows_anchor.as_deref().map(|a| (a, cfg.init_anchors)),
-        )?;
+        )
+        .map_err(OpenError::named)?;
         // flow counters in `~val.stats` at the pace of `sys` metrics, never faster than
         // every 5 s: gateway and historian watchers of `dataflows/**` see each one (ADR 0045)
         flows.set_stats_every(Duration::from_millis(cfg.metrics_interval_ms.max(5_000)));
@@ -2764,6 +2766,60 @@ mod tests {
         assert_eq!(
             start_line(&e),
             r#"Error: "history store: Not a directory (os error 20)""#
+        );
+        assert!(!store_held(&*e));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Issue #180: a second `wyrmd` on a `data_dir` fails first on the flows
+    /// store. A real `Daemon::open` while another host holds that store: the
+    /// line is the cause's text in quotes, as for every other store (it was
+    /// the cause's `Debug`, `Error: InUse("<data_dir>/flows/state")`), the
+    /// text is the one of main, and the held store is told by its type.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_held_flows_store_prints_its_start_line() {
+        let dir = std::env::temp_dir().join(format!("wyrmd-flowsline-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let open = |data: &std::path::Path| {
+            let cfg =
+                Config::from_json5(&format!(r#"{{ site: "plant", data_dir: {data:?} }}"#)).unwrap();
+            match Daemon::open(cfg, "wyrmd".into()) {
+                Ok(_) => panic!("the daemon opened in {}", data.display()),
+                Err(e) => e,
+            }
+        };
+        let data = dir.join("held");
+        let holder = FlowHost::open(&data.join("flows"), b"another-process", "plant").unwrap();
+        let e = open(&data);
+        let text = format!(
+            "{} is in use by another process",
+            data.join("flows/state").display()
+        );
+        assert_eq!(start_line(&e), format!("Error: {text:?}"));
+        assert_eq!(e.to_string(), text);
+        assert!(store_held(&*e));
+        let cause = std::error::Error::source(&*e).and_then(|s| s.downcast_ref());
+        assert!(
+            matches!(cause, Some(wyrm_flow::HostError::InUse(_))),
+            "{cause:?}"
+        );
+        drop(holder);
+        // the store's place is a file: the old text, and nothing is held
+        let data = dir.join("file");
+        std::fs::create_dir_all(&data).unwrap();
+        std::fs::write(data.join("flows"), b"not a directory").unwrap();
+        let e = open(&data);
+        assert_eq!(start_line(&e), r#"Error: "File exists (os error 17)""#);
+        assert!(!store_held(&*e));
+        // a flow key that is no key
+        let data = dir.join("key");
+        std::fs::create_dir_all(data.join("flows")).unwrap();
+        std::fs::write(data.join("flows/flow.key"), b"zz").unwrap();
+        let e = open(&data);
+        assert_eq!(
+            start_line(&e),
+            r#"Error: "flow.key: expected 32 bytes hex""#
         );
         assert!(!store_held(&*e));
         let _ = std::fs::remove_dir_all(&dir);
