@@ -20,6 +20,7 @@ final class Rule {
     this.count, {
     this.except = const [],
     this.still = const [],
+    this.countAt,
   });
 
   final String name;
@@ -31,6 +32,13 @@ final class Rule {
   /// exception is for. Its hits stay in the baseline until it does.
   final List<String> still;
   final int Function(String text) count;
+
+  /// As [count], for a rule that must know which file the text is: what a
+  /// file imports is resolved from its own place.
+  final int Function(String path, String text)? countAt;
+
+  int hits(String path, String text) =>
+      countAt == null ? count(text) : countAt!(path, text);
 
   bool covers(String path) =>
       roots.any(path.startsWith) &&
@@ -151,49 +159,8 @@ final _rules = <Rule>[
     // `ui/lib` too: a cast moved out of a connector into a widget is the same
     // untyped read (audit of #123)
     ['app/lib/', 'business/lib/', 'ui/lib/'],
-    (t) {
-      final c = _code(t);
-      return _matches(
-            c,
-            RegExp(r'\bas\s+(?:String|int|double|num|bool|Map|List)\b\??'),
-          ) +
-          _matches(c, RegExp(r'Map<Object\?,\s*Object\?>')) +
-          // a cast written as a pattern (`case final Map<String, Object?> m`)
-          // is the same untyped read (audit of #117)
-          _matches(c, RegExp(r'\bcase\s+final\s+(?:Map|List)<')) +
-          // and so is a scalar pattern (`case final String s`): the value
-          // it tests is still untyped (audit of #135)
-          _matches(
-            c,
-            RegExp(r'\bcase\s+final\s+(?:String|int|double|bool|num)\b'),
-          ) +
-          // a value read through `JsonValue` outside a decoder is the same
-          // untyped read in another spelling (re-audit of #135)
-          _matches(c, RegExp(r'\bJsonValue\.(?:of|tryOf)\(')) +
-          _matches(c, RegExp(r'\btoDart\(')) +
-          // the loose readers of values.dart, outside a decoder: their
-          // names, in a file that imports them. A file that does not import
-          // `values.dart` cannot call them (`ui` does not depend on
-          // `business` at all), so `String text(…)` of its own or an enum
-          // value `number(…)` there is no read of the wire (audit of #172).
-          (_wireHelpersImport.hasMatch(c)
-              ? _matches(
-                  c,
-                  RegExp(
-                    r'(?<![\w.])'
-                    r'(?:str|text|integer|number|boolean|strings|time)\(',
-                  ),
-                )
-              : 0) +
-          // handing the readers on to the files that import this one opens
-          // them to code this rule would no longer see
-          _matches(c, _wireHelpersExport) +
-          // a wire Value taken apart by hand, outside a decoder
-          _matches(
-            c,
-            RegExp(r'\bV(?:Map|Str|Int|Float|Bool|Array|Bytes|Null)\('),
-          );
-    },
+    _untypedWire,
+    countAt: _untypedWireAt,
     except: [
       'business/lib/wyrm/decode/',
       'business/lib/wyrm/mappers/values.dart',
@@ -269,6 +236,51 @@ final _rules = <Rule>[
   ),
 ];
 
+/// Untyped reads of a wire value (rule 8), in a sample that has no place.
+int _untypedWire(String text) => _untypedWireAt('', text);
+
+/// Untyped reads of a wire value (rule 8) in the file at [path].
+int _untypedWireAt(String path, String t) {
+  final c = _code(t);
+  return _matches(
+        c,
+        RegExp(r'\bas\s+(?:String|int|double|num|bool|Map|List)\b\??'),
+      ) +
+      _matches(c, RegExp(r'Map<Object\?,\s*Object\?>')) +
+      // a cast written as a pattern (`case final Map<String, Object?> m`)
+      // is the same untyped read (audit of #117)
+      _matches(c, RegExp(r'\bcase\s+final\s+(?:Map|List)<')) +
+      // and so is a scalar pattern (`case final String s`): the value
+      // it tests is still untyped (audit of #135)
+      _matches(
+        c,
+        RegExp(r'\bcase\s+final\s+(?:String|int|double|bool|num)\b'),
+      ) +
+      // a value read through `JsonValue` outside a decoder is the same
+      // untyped read in another spelling (re-audit of #135)
+      _matches(c, RegExp(r'\bJsonValue\.(?:of|tryOf)\(')) +
+      _matches(c, RegExp(r'\btoDart\(')) +
+      // the loose readers of values.dart, outside a decoder: their
+      // names, in a file that can call them. A file that does not import
+      // `values.dart` cannot (`ui` does not depend on `business` at
+      // all), so `String text(…)` of its own or an enum value
+      // `number(…)` there is no read of the wire (audit of #172).
+      (_seesWireHelpers(path, c)
+          ? _matches(
+              c,
+              RegExp(
+                r'(?<![\w.])'
+                r'(?:str|text|integer|number|boolean|strings|time)\(',
+              ),
+            )
+          : 0) +
+      // handing the readers on to the files that import this one opens
+      // them to code this rule would no longer see
+      _matches(c, _wireHelpersExport) +
+      // a wire Value taken apart by hand, outside a decoder
+      _matches(c, RegExp(r'\bV(?:Map|Str|Int|Float|Bool|Array|Bytes|Null)\('));
+}
+
 /// An import of the loose readers (`business/lib/wyrm/mappers/values.dart`),
 /// by any path: `'values.dart'` beside it, `'../mappers/values.dart'`,
 /// `'package:business/wyrm/mappers/values.dart'`, with or without `show`.
@@ -283,6 +295,65 @@ final _wireHelpersExport = RegExp(
   r"""^\s*export\s+['"](?:[^'"]*/)?values\.dart['"]""",
   multiLine: true,
 );
+
+/// The file of the loose readers.
+const _wireHelpersPath = 'business/lib/wyrm/mappers/values.dart';
+
+/// A `part of` directive: the file is a piece of a library and sees what
+/// that library imports. It is taken as a file that imports the readers:
+/// which library it belongs to is not followed.
+final _partOf = RegExp(r'^\s*part\s+of\s', multiLine: true);
+
+/// The files that hand the loose readers on: [_wireHelpersPath] and every
+/// file that exports one of these, in an excluded folder of the rule too
+/// (a decoder's `export '../mappers/values.dart';` opens the readers to
+/// whoever imports that decoder). Set by [_measure] before it counts.
+Set<String> _wireCarriers = const {_wireHelpersPath};
+
+/// The files of [files] (path to text) that export the readers, directly
+/// or through one another.
+Set<String> _carriersOf(Map<String, String> files) {
+  final exports = {
+    for (final e in files.entries)
+      e.key: _directives(e.key, _code(e.value), 'export').toSet(),
+  };
+  final out = {_wireHelpersPath};
+  var grew = true;
+  while (grew) {
+    grew = false;
+    for (final e in exports.entries) {
+      if (!out.contains(e.key) && e.value.any(out.contains)) {
+        out.add(e.key);
+        grew = true;
+      }
+    }
+  }
+  return out;
+}
+
+/// The files that the [kind] (`import`, `export`) directives of [code]
+/// name, as paths from the repository's `studio/`: a relative URI from the
+/// place of [path], `package:<name>/x.dart` as `<name>/lib/x.dart`.
+Iterable<String> _directives(String path, String code, String kind) sync* {
+  final re = RegExp('^\\s*$kind\\s+[\'"]([^\'"]+)[\'"]', multiLine: true);
+  for (final m in re.allMatches(code)) {
+    final uri = m.group(1)!;
+    final package = RegExp(r'^package:([^/]+)/(.*)$').firstMatch(uri);
+    if (package != null) {
+      yield '${package.group(1)}/lib/${package.group(2)}';
+    } else if (!uri.contains(':')) {
+      yield Uri.parse(path).resolve(uri).path;
+    }
+  }
+}
+
+/// Whether the code of the file at [path] can call the loose readers: it
+/// imports them, it imports a file that hands them on, or it is a part of
+/// a library.
+bool _seesWireHelpers(String path, String code) =>
+    _wireHelpersImport.hasMatch(code) ||
+    _partOf.hasMatch(code) ||
+    _directives(path, code, 'import').any(_wireCarriers.contains);
 
 /// The argument list of each call of [head] in [code] (`head` is a regular
 /// expression that ends before the `(`).
@@ -739,6 +810,8 @@ const _forms = <String, ({List<String> counted, List<String> left})>{
           "final n = integer(m['n']);",
       "import '../mappers/values.dart' show number;\nfinal x = number(v);",
       "export '../mappers/values.dart';",
+      // a part of a library sees the library's imports
+      "part of 'calls.dart';\nfinal name = text(m['name']);",
       'final name = vm.value as String?;',
       'value: toDart(s.v),',
       'return const VNull();',
@@ -816,8 +889,62 @@ const _forms = <String, ({List<String> counted, List<String> left})>{
   ),
 };
 
-/// Runs [_probes] and [_forms]; the names of the rules that fail them.
+/// Trees of files (path to text) for a form no single file shows: the
+/// files named in `counted` must be counted, each at least once, with the
+/// carriers found in the tree itself.
+const _trees = <({Map<String, String> files, List<String> counted})>[
+  // the readers handed on by an `export` in an excluded folder, called in
+  // a file that imports only that folder's file (second audit of #172)
+  (
+    files: {
+      'business/lib/wyrm/decode/handed.dart':
+          "export '../mappers/values.dart';",
+      'business/lib/wyrm/mappers/via_export.dart':
+          "import '../decode/handed.dart';\nfinal name = text(m['name']);",
+      'app/lib/mappers/via_package.dart':
+          "import 'package:business/wyrm/decode/handed.dart';\n"
+          "final n = integer(m['n']);",
+      // through two exports
+      'business/lib/wyrm/decode/again.dart': "export 'handed.dart';",
+      'business/lib/wyrm/mappers/via_two.dart':
+          "import '../decode/again.dart';\nfinal x = number(v);",
+    },
+    counted: [
+      'business/lib/wyrm/mappers/via_export.dart',
+      'app/lib/mappers/via_package.dart',
+      'business/lib/wyrm/mappers/via_two.dart',
+    ],
+  ),
+];
+
+/// The files of [_trees] that the rule `untyped-wire` does not count.
+List<String> _failedTrees() {
+  final rule = _rules.firstWhere((r) => r.name == 'untyped-wire');
+  final kept = _wireCarriers;
+  final out = <String>[];
+  for (final t in _trees) {
+    _wireCarriers = _carriersOf(t.files);
+    for (final path in t.counted) {
+      if (!rule.covers(path) || rule.hits(path, t.files[path]!) == 0) {
+        out.add('${rule.name}: not counted: $path');
+      }
+    }
+    // the same importer, with no file that hands the readers on
+    _wireCarriers = const {_wireHelpersPath};
+    for (final path in t.counted) {
+      if (rule.hits(path, t.files[path]!) != 0) {
+        out.add('${rule.name}: counted without the export: $path');
+      }
+    }
+  }
+  _wireCarriers = kept;
+  return out;
+}
+
+/// Runs [_probes], [_forms] and [_trees]; the names of the rules that fail
+/// them.
 List<String> _failedProbes() => [
+  ..._failedTrees(),
   for (final e in _probes.entries)
     for (final r in _rules)
       if (r.name == e.key &&
@@ -868,6 +995,7 @@ const _baselinePath = 'tool/rules_baseline.json';
 
 Map<String, Map<String, int>> _measure() {
   final out = <String, Map<String, int>>{for (final r in _rules) r.name: {}};
+  final files = <String, String>{};
   for (final root in ['app/lib', 'business/lib', 'ui/lib', 'models/lib']) {
     final dir = Directory(root);
     if (!dir.existsSync()) {
@@ -882,13 +1010,18 @@ Map<String, Map<String, int>> _measure() {
           path.contains('/generated/')) {
         continue;
       }
-      final text = f.readAsStringSync();
-      for (final r in _rules) {
-        if (r.covers(path)) {
-          final n = r.count(text);
-          if (n > 0) {
-            out[r.name]![path] = n;
-          }
+      files[path] = f.readAsStringSync();
+    }
+  }
+  // every file, the excluded folders of a rule too: an export there hands
+  // the readers on to files the rule counts
+  _wireCarriers = _carriersOf(files);
+  for (final e in files.entries) {
+    for (final r in _rules) {
+      if (r.covers(e.key)) {
+        final n = r.hits(e.key, e.value);
+        if (n > 0) {
+          out[r.name]![e.key] = n;
         }
       }
     }

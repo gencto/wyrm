@@ -408,7 +408,9 @@ final class FlowPermissions {
 `business/lib/wyrm/decode/` and `business/lib/wyrm/mappers/values.dart`; a
 cast written as a pattern (`case final Map<String, Object?> m`) counts as the
 cast it is. The helpers' names (`text(`, `number(`, …) count in a file
-that imports `values.dart`, and so does an `export` of it; the same name
+that imports `values.dart`, directly or through a file that exports it (an
+`export` in `decode/` too), and in a `part of` file; an `export` of it
+counts as well. The same name
 declared by a file that does not import them (`String text(…)` in `ui`) is
 no read of the wire. A file in `decode/` whose result is not typed yet is
 listed in the rule's `still` and stays counted (`decode/live_value.dart`:
