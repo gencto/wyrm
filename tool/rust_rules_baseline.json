@@ -870,6 +870,7 @@
     "links/agent/src/lib.rs": 3,
     "links/agent/src/llm.rs": 5,
     "links/agent/src/tools.rs": 1,
+    "links/alarm/src/lib.rs": 1,
     "links/alarm/src/model.rs": 1,
     "links/bacnet/src/codec.rs": 7,
     "links/bacnet/src/lib.rs": 3,

@@ -92,12 +92,17 @@ Through an action an enum is given by its index, as everywhere in WYRM (`algorit
 `from`: 0 `start`, 1 `now`); in an import, by its name.
 
 Arguments: each action declares its parameters once (a struct, `src/actions.rs`), and
-the same declaration reads them. A refusal is `invalid_parameter` and names the
-argument (`limit: expected a whole number (…)`, `id: required`, `x: unknown
-argument`). An optional argument that is absent or `null` is not there, so an `edit`
-keeps what it does not give. For that reason an `edit` cannot take a limit of
-`out_of_range` away (`min` or `max` back to none): remove the watch and add it
-again. A record's `id` is a number or its decimal text.
+the same declaration reads them. The SDK checks the arguments against `~meta` before the
+link sees them: a name the action does not declare (`unknown param x`), a required
+argument that is absent (`missing id`), a value of another type (`min: expected number`,
+`algorithm: expected enum index`). The link itself refuses a number that is no whole
+number from 0 (`limit: expected a whole number (a negative number)`) and a record `id`
+that is none (`id: required` for `null`, `id: a record id`); these are
+`invalid_parameter`. A record's `id` is a number or its decimal text.
+
+An `edit` keeps what it does not give. A `null` is no value of a typed argument (the SDK
+refuses it), so an `edit` cannot take a limit of `out_of_range` away (`min` or `max` back
+to none): remove the watch and add it again.
 
 Common fields: `type` (`alert`, `warning`, `fault`), `message` (a template:
 `{name}` is the key's last segment, `{source}`, `{value}`, `{quality}`, `{class}`, `{watch}`,

@@ -1647,11 +1647,7 @@ impl Alarm {
     fn record_id(id: &Value) -> Result<u64, AppError> {
         match id {
             Value::Null => Err(invalid("id", "required")),
-            Value::Str(s) => s
-                .trim()
-                .parse()
-                .ok()
-                .ok_or_else(|| invalid("id", "a record id")),
+            Value::Str(s) => s.trim().parse().map_err(|_| invalid("id", "a record id")),
             number => number
                 .to_int()
                 .ok()

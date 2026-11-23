@@ -47,5 +47,11 @@ kind = "wasm"
 features = ["process"]
 capabilities = { store_mb = 16 }
 
+[dev-dependencies]
+# tests/wire.rs: the alarm behind the SDK, as a caller on the wire meets it
+wyrm-link-sdk = { workspace = true, features = ["harness"] }
+wyrm-link-portable.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
+
 [lints]
 workspace = true

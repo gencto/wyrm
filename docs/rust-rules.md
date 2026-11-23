@@ -374,8 +374,8 @@ is an `AppError` of `invalid_parameter` there as it is a `LinkError` on the
 SDK. A closed set of names is an `enum` parameter in a link (`#[param(enum)]`:
 the index into the list `~meta` declares, the one form the SDK lets through);
 a stored map or an import that carries the name is read by the link's own
-reader of stored data, never by the action's struct. A `dynamic` parameter is a field of type
-`Value`: required, any value, and a `null` that is there is a value
+reader of stored data, never by the action's struct. A `dynamic` parameter is
+a field of type `Value`: required, any value, and a `null` that is there is a value
 (`Value::Null`, as a DSA broker publishes it); only an absent name is
 refused. Every other field, `Option<Value>` too, reads `null` as absent.
 
@@ -406,8 +406,8 @@ literal or a `CONST` key, `m["x"]`, `Value::as_*`, and the argument helpers
 `#[derive(Args)]` (`wyrm-core/src/args.rs`) are exempt.
 
 C12 `admin-arg-read`, in `crates/wyrm-admin/src`, `crates/wyrm-storage/src` and
-`links/alarm/src` (`C12_CRATES` in the script; baseline 0; the other crates follow as they move,
-audit T3: a crate joins the list in the change that moves its last action onto
+`links/alarm/src` (`C12_CRATES` in the script; baseline 0; the other crates
+follow as they move, audit T3: a crate joins the list in the change that moves its last action onto
 structs). There `args` names an action's arguments and
 nothing else (a process's arguments are `argv`, a call built for another link
 is a `request`), and it has three uses: the parameter (`args: Value`), the
@@ -447,7 +447,8 @@ is `X::action()`); a change of an action's declared parameters
 Value)`). A file named `decode.rs` is no decoder module inside a crate of
 C12: C4 counts its reads. The readers of a stored map in such a crate have
 names of their own (`stored_str`, `stored_u64`, … in `links/alarm`: the store,
-an import, the link's params), which C4 counts like the argument helpers. (C4 does not count an arm `Value::Map(m) =>` nor a key
+an import, the link's params), which C4 counts like the argument helpers. (C4
+does not count an arm `Value::Map(m) =>` nor a key
 that is a variable: measured on 2026-11-18, the arm alone would add 580 hits
 outside `wyrm-admin`, mostly codecs and flow blocks. `Value` has no `as_map`
 or `as_str`, so `v.as_map()?.get(k)?.as_str()` does not compile.)

@@ -1311,7 +1311,8 @@ def args_fns(s: Source) -> list[int]:
 
 
 def c12(s: Source) -> list[int]:
-    """In a crate of `C12_CRATES` (`wyrm-admin`, `wyrm-storage`), an action's arguments read or
+    """In a crate of `C12_CRATES` (`wyrm-admin`, `wyrm-storage`, `links/alarm`), an action's
+    arguments read or
     declared outside its struct.
     `args` names an action's arguments and nothing else, and it has three uses: the
     parameter (`args: Value`), the decoder of a struct of this crate that derives `Args`
