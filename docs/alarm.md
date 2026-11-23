@@ -91,6 +91,19 @@ Through an action an enum is given by its index, as everywhere in WYRM (`algorit
 `fault`; `get_alarms` `state`: 0 `open`, 1 `active`, 2 `unacked`, 3 `closed`, 4 `all`; a sink's
 `from`: 0 `start`, 1 `now`); in an import, by its name.
 
+Arguments: each action declares its parameters once (a struct, `src/actions.rs`), and
+the same declaration reads them. The SDK checks the arguments against `~meta` before the
+link sees them: a name the action does not declare (`unknown param x`), a required
+argument that is absent (`missing id`), a value of another type (`min: expected number`,
+`algorithm: expected enum index`). The link itself refuses a number that is no whole
+number from 0 (`limit: expected a whole number (a negative number)`) and a record `id`
+that is none (`id: required` for `null`, `id: a record id`); these are
+`invalid_parameter`. A record's `id` is a number or its decimal text.
+
+An `edit` keeps what it does not give. A `null` is no value of a typed argument (the SDK
+refuses it), so an `edit` cannot take a limit of `out_of_range` away (`min` or `max` back
+to none): remove the watch and add it again.
+
 Common fields: `type` (`alert`, `warning`, `fault`), `message` (a template:
 `{name}` is the key's last segment, `{source}`, `{value}`, `{quality}`, `{class}`, `{watch}`,
 `{stale_s}`; default `{name}: {value}`), `to_alarm_s`, `to_normal_s`, `enabled`.

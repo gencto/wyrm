@@ -20,10 +20,12 @@ pub fn invalid(field: &str, rule: impl std::fmt::Display) -> AppError {
     AppError::new(Status::InvalidParameter, format!("{field}: {rule}"))
 }
 
-// ---------- reading maps (action args and stored values) ----------
+// ---------- reading stored maps (the store, an import, the link's params) ----------
+//
+// An action's arguments are never read here: each action has its struct (`crate::actions`).
 
 /// Text, or `None` when absent or null.
-pub fn get_str(m: &Map, k: &str) -> Result<Option<String>, AppError> {
+pub fn stored_str(m: &Map, k: &str) -> Result<Option<String>, AppError> {
     match m.get(k) {
         None | Some(Value::Null) => Ok(None),
         Some(Value::Str(s)) => Ok(Some(s.clone())),
@@ -31,11 +33,11 @@ pub fn get_str(m: &Map, k: &str) -> Result<Option<String>, AppError> {
     }
 }
 
-pub fn req_str(m: &Map, k: &str) -> Result<String, AppError> {
-    get_str(m, k)?.ok_or_else(|| invalid(k, "required"))
+pub fn stored_req(m: &Map, k: &str) -> Result<String, AppError> {
+    stored_str(m, k)?.ok_or_else(|| invalid(k, "required"))
 }
 
-pub fn get_bool(m: &Map, k: &str) -> Result<Option<bool>, AppError> {
+pub fn stored_bool(m: &Map, k: &str) -> Result<Option<bool>, AppError> {
     match m.get(k) {
         None | Some(Value::Null) => Ok(None),
         Some(Value::Bool(b)) => Ok(Some(*b)),
@@ -44,7 +46,7 @@ pub fn get_bool(m: &Map, k: &str) -> Result<Option<bool>, AppError> {
 }
 
 /// A whole number, or `None` when absent or null.
-pub fn get_u64(m: &Map, k: &str) -> Result<Option<u64>, AppError> {
+pub fn stored_u64(m: &Map, k: &str) -> Result<Option<u64>, AppError> {
     let bad = || invalid(k, "must be a whole number from 0");
     match m.get(k) {
         None | Some(Value::Null) => Ok(None),
@@ -53,7 +55,7 @@ pub fn get_u64(m: &Map, k: &str) -> Result<Option<u64>, AppError> {
 }
 
 /// A finite number, or `None` when absent or null.
-pub fn get_f64(m: &Map, k: &str) -> Result<Option<f64>, AppError> {
+pub fn stored_f64(m: &Map, k: &str) -> Result<Option<f64>, AppError> {
     match m.get(k) {
         None | Some(Value::Null) => Ok(None),
         Some(v) => v
@@ -62,14 +64,6 @@ pub fn get_f64(m: &Map, k: &str) -> Result<Option<f64>, AppError> {
             .map(Some)
             .ok_or_else(|| invalid(k, "must be a finite number")),
     }
-}
-
-/// An enum argument: through an action its index (the SDK checks `enum` params that way, as
-/// the scheduler's `confirm`), in an import or a stored map its name; `None` when absent.
-pub fn enum_arg(m: &Map, k: &str, names: &[&str]) -> Result<Option<String>, AppError> {
-    wyrm_link_api::args::enum_name(m.get(k), names)
-        .map(|n| n.map(str::to_owned))
-        .map_err(|e| invalid(k, format!("{e} (by index)")))
 }
 
 /// An instant stored as a number (CBOR gives a positive integer back as unsigned).
@@ -136,28 +130,20 @@ pub fn parse_timerange(s: &str) -> Result<(Micros, Micros), AppError> {
 
 // ---------- alarm types ----------
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AlarmType {
-    Alert,
-    Warning,
-    Fault,
+wyrm_core::name_enum! {
+    /// The type of an alarm record, in the order an action's `type` lists them.
+    pub enum AlarmType as "alarm type" without codec {
+        Alert => "alert",
+        Warning => "warning",
+        Fault => "fault",
+    }
 }
 
 impl AlarmType {
-    pub const ALL: [AlarmType; 3] = [AlarmType::Alert, AlarmType::Warning, AlarmType::Fault];
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            AlarmType::Alert => "alert",
-            AlarmType::Warning => "warning",
-            AlarmType::Fault => "fault",
-        }
-    }
-
-    /// From an action's enum (its name or its index) or a stored name.
+    /// From a stored or imported value: its name, or its index.
     pub fn parse(v: &Value) -> Option<Self> {
         match v {
-            Value::Str(s) => Self::ALL.into_iter().find(|t| t.as_str() == s),
+            Value::Str(s) => Self::from_name(s),
             Value::UInt(_) | Value::Int(_) | Value::Float(_) => v
                 .to_int::<usize>()
                 .ok()
@@ -166,7 +152,8 @@ impl AlarmType {
         }
     }
 
-    pub fn from_args(m: &Map, k: &str) -> Result<Option<Self>, AppError> {
+    /// The type a stored or imported map names at `k`; `None` when absent or null.
+    pub fn stored(m: &Map, k: &str) -> Result<Option<Self>, AppError> {
         match m.get(k) {
             None | Some(Value::Null) => Ok(None),
             Some(v) => Self::parse(v)
@@ -246,7 +233,7 @@ impl Record {
                 self.watch.clone().map_or(Value::Null, Value::Str),
             ),
             ("source".to_owned(), Value::Str(self.source.clone())),
-            ("type".to_owned(), Value::from(self.ty.as_str())),
+            ("type".to_owned(), Value::from(self.ty.name())),
             ("message".to_owned(), Value::Str(self.message.clone())),
             ("value".to_owned(), self.value.clone()),
             ("created".to_owned(), at(Some(self.created))),
@@ -436,7 +423,7 @@ impl WatchDef {
             ("source".to_owned(), Value::Str(self.sub_key())),
             ("algorithm".to_owned(), Value::from(self.algorithm.name())),
             ("params".to_owned(), Value::Map(self.algorithm.params())),
-            ("type".to_owned(), Value::from(self.ty.as_str())),
+            ("type".to_owned(), Value::from(self.ty.name())),
             ("message".to_owned(), Value::Str(self.message.clone())),
             ("to_alarm_s".to_owned(), Value::UInt(self.to_alarm_s)),
             ("to_normal_s".to_owned(), Value::UInt(self.to_normal_s)),
@@ -455,21 +442,21 @@ impl WatchDef {
         let Value::Map(m) = v else {
             return Err(invalid("watch", "a map"));
         };
-        let id = req_str(m, "id")?;
-        let (source, subtree) = parse_source(&req_str(m, "source")?)?;
+        let id = stored_req(m, "id")?;
+        let (source, subtree) = parse_source(&stored_req(m, "source")?)?;
         let params = match m.get("params") {
             Some(Value::Map(p)) => p.clone(),
             _ => Map::new(),
         };
-        let algorithm = Algorithm::from_args(&req_str(m, "algorithm")?, &params, None)?;
-        let ty = AlarmType::from_args(m, "type")?.unwrap_or(AlarmType::Alert);
+        let algorithm = Algorithm::stored(&stored_req(m, "algorithm")?, &params)?;
+        let ty = AlarmType::stored(m, "type")?.unwrap_or(AlarmType::Alert);
         Ok(WatchDef {
-            message: get_str(m, "message")?
+            message: stored_str(m, "message")?
                 .unwrap_or_else(|| algorithm.default_message().to_owned()),
-            to_alarm_s: inhibit(m, "to_alarm_s")?.unwrap_or(0),
-            to_normal_s: inhibit(m, "to_normal_s")?.unwrap_or(0),
-            enabled: get_bool(m, "enabled")?.unwrap_or(true),
-            created_by: get_str(m, "created_by")?.unwrap_or_default(),
+            to_alarm_s: stored_seconds(m, "to_alarm_s", MAX_INHIBIT_S)?.unwrap_or(0),
+            to_normal_s: stored_seconds(m, "to_normal_s", MAX_INHIBIT_S)?.unwrap_or(0),
+            enabled: stored_bool(m, "enabled")?.unwrap_or(true),
+            created_by: stored_str(m, "created_by")?.unwrap_or_default(),
             rights: m.get("rights").and_then(Rights::from_value),
             id,
             source,
@@ -480,20 +467,25 @@ impl WatchDef {
     }
 }
 
-/// An inhibit or escalation time in seconds, at most `max`.
-pub fn seconds(m: &Map, k: &str, max: u64) -> Result<Option<u64>, AppError> {
-    match get_u64(m, k)? {
-        Some(s) if s > max => Err(invalid(k, format!("at most {max} seconds"))),
+/// An inhibit or escalation time in seconds (`field`, for the refusal), at most `max`.
+fn seconds(field: &str, s: Option<u64>, max: u64) -> Result<Option<u64>, AppError> {
+    match s {
+        Some(s) if s > max => Err(invalid(field, format!("at most {max} seconds"))),
         other => Ok(other),
     }
 }
 
-pub fn inhibit(m: &Map, k: &str) -> Result<Option<u64>, AppError> {
-    seconds(m, k, MAX_INHIBIT_S)
+/// The seconds a stored or imported map holds at `k`, at most `max`.
+fn stored_seconds(m: &Map, k: &str, max: u64) -> Result<Option<u64>, AppError> {
+    seconds(k, stored_u64(m, k)?, max)
 }
 
-pub fn escalation(m: &Map, k: &str) -> Result<Option<u64>, AppError> {
-    seconds(m, k, MAX_ESCALATION_S)
+pub fn inhibit(field: &str, s: Option<u64>) -> Result<Option<u64>, AppError> {
+    seconds(field, s, MAX_INHIBIT_S)
+}
+
+pub fn escalation(field: &str, s: Option<u64>) -> Result<Option<u64>, AppError> {
+    seconds(field, s, MAX_ESCALATION_S)
 }
 
 /// A source: a key of the tree (`wy/<site>/<section>/<link>/<path…>`, no `*`, `~` or empty
@@ -560,7 +552,7 @@ impl ClassDef {
         let Value::Map(m) = v else {
             return Err(invalid("class", "a map"));
         };
-        let id = req_str(m, "id")?;
+        let id = stored_req(m, "id")?;
         valid_id(&id)?;
         let watches = match m.get("watches") {
             Some(Value::Array(a)) => a
@@ -582,7 +574,7 @@ impl ClassDef {
                     .ok_or_else(|| invalid("watches", format!("{}: not a watch id w<n>", w.id)))?;
             max_n = max_n.max(n);
         }
-        let next_watch = match get_u64(m, "next_watch")? {
+        let next_watch = match stored_u64(m, "next_watch")? {
             Some(n) => u32::try_from(n).map_err(|_| invalid("next_watch", "too large"))?,
             None => max_n + 1,
         };
@@ -590,10 +582,10 @@ impl ClassDef {
             return Err(invalid("next_watch", "below a watch id in use"));
         }
         Ok(ClassDef {
-            display: get_str(m, "display")?.unwrap_or_else(|| id.clone()),
-            escalation1_s: escalation(m, "escalation1_s")?.unwrap_or(0),
-            escalation2_s: escalation(m, "escalation2_s")?.unwrap_or(0),
-            created_by: get_str(m, "created_by")?.unwrap_or_default(),
+            display: stored_str(m, "display")?.unwrap_or_else(|| id.clone()),
+            escalation1_s: stored_seconds(m, "escalation1_s", MAX_ESCALATION_S)?.unwrap_or(0),
+            escalation2_s: stored_seconds(m, "escalation2_s", MAX_ESCALATION_S)?.unwrap_or(0),
+            created_by: stored_str(m, "created_by")?.unwrap_or_default(),
             id,
             watches,
             next_watch,

@@ -92,6 +92,15 @@ impl core::fmt::Display for AppError {
 
 impl std::error::Error for AppError {}
 
+/// A refused action argument (`wyrm_core::args`): `invalid_parameter` with
+/// the field's name and why, as the SDK's `LinkError` takes it. So a portable
+/// link decodes its arguments with `X::decode(args)?`.
+impl From<wyrm_core::args::ArgError> for AppError {
+    fn from(e: wyrm_core::args::ArgError) -> Self {
+        Self::new(Status::InvalidParameter, e.to_string())
+    }
+}
+
 /// The verified caller of a `set` or `invoke`: its subject and its grants (key pattern, level).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Who {
@@ -451,6 +460,22 @@ mod tests {
             AppError::from_cbor(&[0xff, 0x00, 0x13]).status,
             Status::InternalError
         );
+    }
+
+    #[test]
+    fn a_refused_argument_is_invalid_parameter_with_its_name() {
+        #[derive(Args)]
+        struct Limit {
+            n: u64,
+        }
+        let args = |v: Value| Value::Map([("n".to_owned(), v)].into());
+        assert_eq!(Limit::decode(args(Value::UInt(3))).map(|l| l.n), Ok(3));
+        let e: AppError = match Limit::decode(args(Value::from("x"))) {
+            Err(e) => e.into(),
+            Ok(_) => panic!("text is no number"),
+        };
+        assert_eq!(e.status, Status::InvalidParameter);
+        assert_eq!(e.msg, "n: expected a number");
     }
 
     #[test]

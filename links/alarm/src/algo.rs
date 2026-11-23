@@ -3,13 +3,47 @@
 use std::collections::BTreeMap;
 
 use wyrm_core::{Quality, Sample, Status, Value};
-use wyrm_link_api::AppError;
+use wyrm_link_api::{AppError, Args};
 
 use crate::limits::MAX_STALE_S;
-use crate::model::{get_bool, get_f64, get_u64};
+use crate::model::{stored_bool, stored_f64, stored_u64};
 
 fn invalid(field: &str, rule: impl std::fmt::Display) -> AppError {
     AppError::new(Status::InvalidParameter, format!("{field}: {rule}"))
+}
+
+wyrm_core::name_enum! {
+    /// The algorithms, in the order an action's `algorithm` lists them.
+    pub enum AlgorithmName as "algorithm" without codec {
+        Boolean => "boolean",
+        OutOfRange => "out_of_range",
+        Staleness => "staleness",
+        Quality => "quality",
+    }
+}
+
+/// The parameters of the algorithms as `add_watch` and a watch's `edit` take them, each
+/// optional: the algorithm that is chosen says which it needs ([`Algorithm::build`]).
+#[derive(Debug, Default, Clone, PartialEq, Args)]
+pub struct AlgorithmArgs {
+    #[param(display = "Alarm value", desc = "boolean: the value in alarm (true).")]
+    pub alarm_value: Option<bool>,
+    #[param(display = "Min", desc = "out_of_range: below it is an alarm.")]
+    pub min: Option<f64>,
+    #[param(display = "Max", desc = "out_of_range: above it is an alarm.")]
+    pub max: Option<f64>,
+    #[param(
+        display = "Deadband",
+        desc = "out_of_range: back to normal only this far inside the limit (0)."
+    )]
+    pub deadband: Option<f64>,
+    #[param(display = "Stale after", desc = "staleness: seconds without a sample.")]
+    pub stale_s: Option<u64>,
+    #[param(
+        display = "Include uncertain",
+        desc = "quality: an uncertain sample is an alarm too (false)."
+    )]
+    pub include_uncertain: Option<bool>,
 }
 
 /// An alarm algorithm with its parameters.
@@ -40,51 +74,45 @@ pub enum Judged {
 }
 
 impl Algorithm {
-    pub const NAMES: [&'static str; 4] = ["boolean", "out_of_range", "staleness", "quality"];
-
-    pub fn name(&self) -> &'static str {
+    pub fn kind(&self) -> AlgorithmName {
         match self {
-            Algorithm::Boolean { .. } => "boolean",
-            Algorithm::OutOfRange { .. } => "out_of_range",
-            Algorithm::Staleness { .. } => "staleness",
-            Algorithm::Quality { .. } => "quality",
+            Algorithm::Boolean { .. } => AlgorithmName::Boolean,
+            Algorithm::OutOfRange { .. } => AlgorithmName::OutOfRange,
+            Algorithm::Staleness { .. } => AlgorithmName::Staleness,
+            Algorithm::Quality { .. } => AlgorithmName::Quality,
         }
     }
 
-    /// The algorithm named `name` with the parameters in `m` (an action's args or a stored
-    /// map); `base` (an edit) gives the parameters not named.
-    pub fn from_args(
-        name: &str,
-        m: &BTreeMap<String, Value>,
+    pub fn name(&self) -> &'static str {
+        self.kind().name()
+    }
+
+    /// The algorithm `kind` with the parameters `given`; `base` (an edit) gives the
+    /// parameters not given when it is of the same kind.
+    pub fn build(
+        kind: AlgorithmName,
+        given: &AlgorithmArgs,
         base: Option<&Algorithm>,
     ) -> Result<Self, AppError> {
-        let same = base.filter(|b| b.name() == name);
-        Ok(match name {
-            "boolean" => {
+        let same = base.filter(|b| b.kind() == kind);
+        Ok(match kind {
+            AlgorithmName::Boolean => {
                 let was = match same {
                     Some(Algorithm::Boolean { alarm_value }) => *alarm_value,
                     _ => true,
                 };
                 Algorithm::Boolean {
-                    alarm_value: get_bool(m, "alarm_value")?.unwrap_or(was),
+                    alarm_value: given.alarm_value.unwrap_or(was),
                 }
             }
-            "out_of_range" => {
+            AlgorithmName::OutOfRange => {
                 let (bmin, bmax, bdead) = match same {
                     Some(Algorithm::OutOfRange { min, max, deadband }) => (*min, *max, *deadband),
                     _ => (None, None, 0.0),
                 };
-                let min = match m.get("min") {
-                    None => bmin,
-                    Some(Value::Null) => None,
-                    Some(_) => Some(get_f64(m, "min")?.unwrap_or(0.0)),
-                };
-                let max = match m.get("max") {
-                    None => bmax,
-                    Some(Value::Null) => None,
-                    Some(_) => Some(get_f64(m, "max")?.unwrap_or(0.0)),
-                };
-                let deadband = get_f64(m, "deadband")?.unwrap_or(bdead);
+                let min = given.min.or(bmin);
+                let max = given.max.or(bmax);
+                let deadband = given.deadband.unwrap_or(bdead);
                 if min.is_none() && max.is_none() {
                     return Err(invalid("min", "min or max is required"));
                 }
@@ -98,12 +126,13 @@ impl Algorithm {
                 }
                 Algorithm::OutOfRange { min, max, deadband }
             }
-            "staleness" => {
+            AlgorithmName::Staleness => {
                 let was = match same {
                     Some(Algorithm::Staleness { stale_s }) => Some(*stale_s),
                     _ => None,
                 };
-                let stale_s = get_u64(m, "stale_s")?
+                let stale_s = given
+                    .stale_s
                     .or(was)
                     .ok_or_else(|| invalid("stale_s", "required"))?;
                 if !(1..=MAX_STALE_S).contains(&stale_s) {
@@ -111,22 +140,48 @@ impl Algorithm {
                 }
                 Algorithm::Staleness { stale_s }
             }
-            "quality" => {
+            AlgorithmName::Quality => {
                 let was = match same {
                     Some(Algorithm::Quality { include_uncertain }) => *include_uncertain,
                     _ => false,
                 };
                 Algorithm::Quality {
-                    include_uncertain: get_bool(m, "include_uncertain")?.unwrap_or(was),
+                    include_uncertain: given.include_uncertain.unwrap_or(was),
                 }
             }
-            _ => {
-                return Err(invalid(
-                    "algorithm",
-                    format!("one of {}", Self::NAMES.join(", ")),
-                ))
-            }
         })
+    }
+
+    /// The algorithm a stored or imported watch names, with its `params` map; only the
+    /// parameters of that algorithm are read.
+    pub fn stored(name: &str, m: &BTreeMap<String, Value>) -> Result<Self, AppError> {
+        let Some(kind) = AlgorithmName::from_name(name) else {
+            return Err(invalid(
+                "algorithm",
+                format!("one of {}", AlgorithmName::NAMES.join(", ")),
+            ));
+        };
+        let given = match kind {
+            AlgorithmName::Boolean => AlgorithmArgs {
+                alarm_value: stored_bool(m, "alarm_value")?,
+                ..AlgorithmArgs::default()
+            },
+            AlgorithmName::OutOfRange => AlgorithmArgs {
+                min: stored_f64(m, "min")?,
+                max: stored_f64(m, "max")?,
+                deadband: stored_f64(m, "deadband")?,
+                ..AlgorithmArgs::default()
+            },
+            AlgorithmName::Staleness => AlgorithmArgs {
+                stale_s: stored_u64(m, "stale_s")?,
+                ..AlgorithmArgs::default()
+            },
+            AlgorithmName::Quality => AlgorithmArgs {
+                include_uncertain: stored_bool(m, "include_uncertain")?,
+                ..AlgorithmArgs::default()
+            },
+        };
+        Self::build(kind, &given, None)
     }
 
     /// The parameters as a map (an attribute, the store, the export).
@@ -327,7 +382,7 @@ mod tests {
             Judged::Same
         );
         let m = BTreeMap::from([("max".to_owned(), Value::UInt(5))]);
-        let a = Algorithm::from_args("out_of_range", &m, None).unwrap();
+        let a = Algorithm::stored("out_of_range", &m).unwrap();
         assert_eq!(
             a,
             Algorithm::OutOfRange {
@@ -336,15 +391,30 @@ mod tests {
                 deadband: 0.0
             }
         );
-        // an edit keeps what it does not name and clears with null
-        let m = BTreeMap::from([("min".to_owned(), Value::Float(1.0))]);
-        let e = Algorithm::from_args("out_of_range", &m, Some(&a)).unwrap();
+        // an edit keeps what it does not give
+        let given = AlgorithmArgs {
+            min: Some(1.0),
+            ..AlgorithmArgs::default()
+        };
+        let e = Algorithm::build(AlgorithmName::OutOfRange, &given, Some(&a)).unwrap();
         assert_eq!(e.params()["max"], Value::Float(5.0));
+        assert_eq!(e.params()["min"], Value::Float(1.0));
+        // a stored limit that is null is no limit; one limit at least is needed
+        let m = BTreeMap::from([
+            ("min".to_owned(), Value::Float(1.0)),
+            ("max".to_owned(), Value::Null),
+        ]);
+        assert_eq!(
+            Algorithm::stored("out_of_range", &m).unwrap().params()["max"],
+            Value::Null
+        );
         let m = BTreeMap::from([("max".to_owned(), Value::Null)]);
-        assert!(Algorithm::from_args("out_of_range", &m, Some(&e)).is_ok());
-        let m = BTreeMap::from([("max".to_owned(), Value::Null)]);
-        assert!(Algorithm::from_args("out_of_range", &m, Some(&a)).is_err());
-        assert!(Algorithm::from_args("nope", &BTreeMap::new(), None).is_err());
+        assert!(Algorithm::stored("out_of_range", &m).is_err());
+        assert!(Algorithm::stored("nope", &BTreeMap::new()).is_err());
+        // another algorithm starts from its own defaults, not from the base
+        let s =
+            Algorithm::build(AlgorithmName::Boolean, &AlgorithmArgs::default(), Some(&a)).unwrap();
+        assert_eq!(s, Algorithm::Boolean { alarm_value: true });
     }
 
     #[test]

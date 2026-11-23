@@ -232,6 +232,11 @@ impl SimHost {
         action: &str,
         args: Value,
     ) -> (Result<Value, AppError>, Vec<Command>) {
+        // as the SDK hands them over: a call without a payload has an empty map of arguments
+        let args = match args {
+            Value::Null => Value::Map(BTreeMap::new()),
+            given => given,
+        };
         self.event(|app, h| app.on_invoke(h, path, action, args, who))
     }
 

@@ -6806,6 +6806,7 @@ version = "0.1.0"
 dependencies = [
  "jiff",
  "serde_json",
+ "tokio",
  "wyrm-core",
  "wyrm-link-api",
  "wyrm-link-guest",

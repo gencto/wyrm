@@ -465,7 +465,12 @@ def a4(s: Source) -> list[int]:
     return [s.line_of(o) for o in opened]
 
 
-ARG_HELPERS = r"\b(?:arg|arg_str|opt_str|req_str|get_str|get_u64|get_bool|get_f64|enum_arg|text_arg|choice|uint_arg|bool_arg)\(\s*[^;)]*?\""
+# `stored_*`: the readers of a stored map in a crate of C12 (`links/alarm`), where the names
+# of the argument readers are C12's: a field read by hand is counted here all the same.
+ARG_HELPERS = (
+    r"\b(?:arg|arg_str|opt_str|req_str|get_str|get_u64|get_bool|get_f64|enum_arg|text_arg|choice|uint_arg|bool_arg|"
+    r"stored_str|stored_req|stored_bool|stored_u64|stored_f64)\(\s*[^;)]*?\""
+)
 # The codec of `Value` and the decoder behind `#[derive(Args)]`.
 DECODERS = ("crates/wyrm-core/src/value.rs", "crates/wyrm-core/src/args.rs")
 C4_PATTERNS = [
@@ -1150,9 +1155,10 @@ def c11(s: Source) -> list[int]:
 
 ADMIN = "crates/wyrm-admin/src/"
 STORAGE = "crates/wyrm-storage/src/"
+ALARM = "links/alarm/src/"
 # The crates whose actions take their arguments only through `#[derive(Args)]` (C12); the
 # others follow as they move (audit T3). A crate here has a C12 baseline of 0.
-C12_CRATES = (ADMIN, STORAGE)
+C12_CRATES = (ADMIN, STORAGE, ALARM)
 C12_PATTERNS = [
     # an argument reader, defined or called (not a method: `cmd.arg(…)` of a process)
     r"(?<!\.)\b(?:arg|arg_str|arg_num|arg_ms|arg_bool|arg_bytes|opt_str|req_str|get_str|get_u64|"
@@ -1190,6 +1196,12 @@ INVOKE_PATH = re.compile(r"\b[a-z_]\w*\s*::\s*invoke$")
 # the functions that take an action's arguments
 ARGS_FN = re.compile(r"\bfn\s+(on_invoke|on_check|invoke|decode)\b")
 ARGS_PARAM = re.compile(r"(?<![.\w])(?:mut\s+)?args\s*:\s*&?\s*Value\s*(?=[,)])")
+# The outbound call of a portable link's `Host` (`wyrm-link-api`), which a link that wraps its
+# host implements: `fn invoke(&mut self, key: &str, action: &str, request: Value) ->
+# Result<ReqId, …>`. It is told by both: the call it sends is a `request` (never `args`), and
+# it answers the handle of a request, which no action of a link does.
+REQUEST_PARAM = re.compile(r"(?<![.\w])request\s*:\s*Value\s*(?=[,)])")
+REQUEST_HANDLE = re.compile(r"\s*->\s*Result\s*<\s*ReqId\b")
 # The structs that derive `Args` in each crate of C12 (by `crate_of`), each with the stems
 # of the files that define it, filled by `measure_patterns` before the rules run:
 # `X::decode(args)` is the struct's decoder only for a struct of the same crate, by a local
@@ -1281,10 +1293,15 @@ def args_fns(s: Source) -> list[int]:
     other `Value` in its generics or parameters (`v: &'a Value`, `impl Into<Value>`,
     `Option<Value>`, `Arc<Value>`, `wyrm_core::value::Value`), and an `on_invoke`,
     `on_check` or `invoke` without `args: Value` at all. (A `decode` of another form, as
-    `decode(b: &[u8])`, is no decoder of arguments.)"""
+    `decode(b: &[u8])`, is no decoder of arguments; nor is the outbound `invoke` of a
+    portable link's `Host`: `request: Value` in, `Result<ReqId, …>` out.)"""
     hits = []
     for m in ARGS_FN.finditer(s.masked):
         sig, at = params_of(s.masked, m.end())
+        if m.group(1) == "invoke" and REQUEST_HANDLE.match(s.masked, at + len(sig)):
+            rest, n = REQUEST_PARAM.subn("", sig)
+            if n == 1 and not re.search(r"\bValue\b", rest):
+                continue
         rest, n = ARGS_PARAM.subn("", sig)
         # any other `Value`; and a link's dispatcher without `args: Value` (an `invoke` or a
         # `decode` with no `Value` at all is about something else)
@@ -1294,7 +1311,8 @@ def args_fns(s: Source) -> list[int]:
 
 
 def c12(s: Source) -> list[int]:
-    """In a crate of `C12_CRATES` (`wyrm-admin`, `wyrm-storage`), an action's arguments read or
+    """In a crate of `C12_CRATES` (`wyrm-admin`, `wyrm-storage`, `links/alarm`), an action's
+    arguments read or
     declared outside its struct.
     `args` names an action's arguments and nothing else, and it has three uses: the
     parameter (`args: Value`), the decoder of a struct of this crate that derives `Args`
@@ -1475,6 +1493,26 @@ PROBES = [
         0,
     ),
     ("C12", "crates/wyrm-flow/src/engine.rs", 'fn f(args: &Value) { let n = name_arg(args); }', 0),
+    # C12 holds in links/alarm, a portable link: its dispatcher is `actions::invoke`, and the
+    # one other `invoke` is its host's outbound call (a `request` in, a `ReqId` out)
+    ("C12", ALARM + "lib.rs", 'fn f(args: &Value) { let n = get_str(args, "name"); }', 2),
+    ("C12", ALARM + "lib.rs", "fn on_invoke(&mut self, host: &mut dyn Host, path: &str, action: &str, args: Value, who: &Who) { actions::invoke(self, host, path, action, args, who) }", 0),
+    ("C12", ALARM + "lib.rs", "fn on_invoke(&mut self, host: &mut dyn Host, path: &str, action: &str, args: Value, who: &Who) { self.invoke(host, path, action, args, who) }", 1),
+    (
+        "C12",
+        ALARM + "limits.rs",
+        "impl Host for Counted<'_> { fn invoke(&mut self, key: &str, action: &str, request: Value) -> Result<ReqId, AppError> { self.host.invoke(key, action, request) } }",
+        0,
+    ),
+    # not the outbound call: it answers a value, it names the call `args`, it takes a second value
+    ("C12", ALARM + "limits.rs", "fn invoke(&mut self, key: &str, action: &str, request: Value) -> Result<Value, AppError> { self.go(key, action, request) }", 1),
+    ("C12", ALARM + "limits.rs", "fn invoke(&mut self, key: &str, action: &str, args: Value) -> Result<ReqId, AppError> { self.host.invoke(key, action, args) }", 1),
+    ("C12", ALARM + "limits.rs", "fn invoke(&mut self, request: Value, more: Value) -> Result<ReqId, AppError> { self.go(request, more) }", 1),
+    ("C12", ALARM + "limits.rs", "fn on_invoke(&mut self, path: &str, action: &str, request: Value) -> Result<ReqId, AppError> { self.go(request) }", 1),
+    # the readers of a stored map there are no argument readers by name, and C4 counts them
+    ("C12", ALARM + "model.rs", 'fn f(m: &Map) -> Option<String> { stored_str(m, "name").ok()? }', 0),
+    ("C4", ALARM + "model.rs", 'fn f(m: &Map) -> Option<String> { stored_str(m, "name").ok()? }', 1),
+    ("C4", ALARM + "model.rs", 'fn f(m: &Map) -> Option<u64> { stored_u64(m, "n").ok()? }', 1),
     # C4 has no `.as_map()` / `?.as_str()` form: `Value` has neither method (only `as_f64`),
     # so such code does not compile; a key that is a variable is not counted (it would count
     # every map of the workspace)
