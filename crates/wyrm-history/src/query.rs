@@ -2,7 +2,7 @@
 //! the bounded read behind it and behind `sys/history` Get History, and the
 //! queryable that answers it beside the memory storage.
 
-use crate::engine::{now_us, Historian};
+use crate::engine::Historian;
 use crate::rollup::{Folder, Out, Rollup};
 use std::sync::Arc;
 use std::time::Duration;
@@ -214,7 +214,7 @@ pub(crate) async fn serve(
 }
 
 async fn answer(h: Arc<Historian>, q: Query, watches: Option<String>) {
-    let parsed = parse_selector(q.parameters().as_str(), now_us());
+    let parsed = parse_selector(q.parameters().as_str(), h.now_us());
     if matches!(parsed, Ok(None)) {
         return; // a plain `~val` read: the storage answers it
     }
