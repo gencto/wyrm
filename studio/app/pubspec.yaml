@@ -13,12 +13,12 @@ dependencies:
   auto_route: ^11.2.0
   business:
     path: ../business
-  cupertino_ui: ^1.1.6
+  cupertino_ui: ^1.1.7
   # Declared here too so the app registers the plugin's platform code.
   device_key:
     path: ../device_key
   equatable: ^3.0.0
-  fast_immutable_collections: ^12.0.0
+  fast_immutable_collections: ^12.0.1
   file_picker: ^13.3.3
   flutter:
     sdk: flutter
@@ -26,7 +26,7 @@ dependencies:
     sdk: flutter
   localization:
     path: ../localization
-  material_ui: ^1.11.0
+  material_ui: ^1.11.1
   models:
     path: ../models
   pro_pretty_logging: ^2.0.0
@@ -44,7 +44,7 @@ dependencies:
 
 dev_dependencies:
   # The Add a link tests build package zips and link backups.
-  archive: ^4.6.0
+  archive: ^4.7.1
   auto_route_generator: ^10.6.0
   build_runner: ^2.16.1
   flutter_test:
