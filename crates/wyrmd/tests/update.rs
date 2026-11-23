@@ -1511,6 +1511,20 @@ fn release_index_refuses_what_does_not_verify() {
         &release::sign_index(channel.index.as_bytes(), &other),
     );
     refused(&refs(&add("foreign.json", "0.2.0")), "pinned release key");
+    // the command line says a refusal as its text, the way `main` prints a
+    // text: in quotes after `Error: `, never as the name of an error type
+    refused(
+        &["verify", "--channel", "foreign.json", "--key", &public],
+        "Error: \"signature: not made by a pinned release key\"\n",
+    );
+    refused(
+        &["verify", "--channel", "laundered.json", "--key", &public],
+        "Error: \"index: an entry is refused: signature: not made by a pinned release key\"\n",
+    );
+    refused(
+        &["verify", "--channel", "releases.json", "--key", "zz"],
+        "Error: \"updates.keys: an Ed25519 public key is 64 hex digits\"\n",
+    );
     // (4) an old index put back: a version that was released is not in it
     refused(
         &refs(&add("releases.json", "0.2.5")),

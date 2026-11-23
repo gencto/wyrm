@@ -68,7 +68,7 @@ impl Default for UpdatesSection {
 impl UpdatesSection {
     pub fn validate(&self) -> Result<(), String> {
         let mode = self.mode;
-        release::pinned_keys(&self.keys)?;
+        release::pinned_keys(&self.keys).map_err(said)?;
         if !(10..=3600).contains(&self.trial_s) {
             return Err(format!("updates.trial_s {}: 10 to 3600", self.trial_s));
         }
@@ -127,7 +127,7 @@ pub fn update_config(cfg: &Config) -> Result<UpdateConfig, String> {
     Ok(UpdateConfig {
         mode: u.mode,
         channel: u.channel.clone(),
-        keys: release::pinned_keys(&u.keys)?,
+        keys: release::pinned_keys(&u.keys).map_err(said)?,
         trial_s: u.trial_s,
         keep_days: u.keep_days,
         // the new binary is run from another directory
@@ -245,7 +245,7 @@ pub fn verify_self(cfg: &Config, exe: &Path) -> Result<(), String> {
     let Ok(layout) = Layout::of_broker(exe, me) else {
         return Ok(());
     };
-    let keys = release::pinned_keys(&cfg.updates.keys)?;
+    let keys = release::pinned_keys(&cfg.updates.keys).map_err(said)?;
     layout.verify(me, &keys).map_err(|e| {
         format!(
             "{e}. This broker does not start: updates.mode \"self\" runs only a verified binary"
@@ -355,7 +355,7 @@ pub async fn standby_poll(session: &Session, prefix: &str, cfg: &Config) -> Resu
     let Some(Value::Str(version)) = map_get(order, "version") else {
         return Err("order: no version".into());
     };
-    release::check_version(version)?;
+    release::check_version(version).map_err(said)?;
     // an order this host refused or rolled back is not tried again
     if file.is_some_and(|u| &u.to == version && u.state != release::UpdateState::Confirmed) {
         return Ok(false);
@@ -374,7 +374,7 @@ pub async fn standby_poll(session: &Session, prefix: &str, cfg: &Config) -> Resu
                 audited: true,
                 ..Default::default()
             };
-            u.save(&cfg.data_dir)?;
+            u.save(&cfg.data_dir).map_err(said)?;
             wyrm_core::files::discard_dir(&cfg.data_dir.join("update.fetch"));
             Err(e)
         }
@@ -393,7 +393,7 @@ async fn standby_apply(
         return Err("updates.mode is not \"self\" on the standby".into());
     }
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    let layout = Layout::of_broker(&exe, &me.version)?;
+    let layout = Layout::of_broker(&exe, &me.version).map_err(said)?;
     let started = STARTED.load(Ordering::SeqCst);
     if !guard_fresh(release::guard_stamp(&cfg.data_dir), started) {
         return Err("the guard did not run before the standby started".into());
@@ -404,12 +404,12 @@ async fn standby_apply(
         return Err("order: no release or signature".into());
     };
     // under this host's own pinned keys: the active is not trusted for it
-    let keys = release::pinned_keys(&cfg.updates.keys)?;
-    let rel = release::read_release(doc, signature, &keys)?;
+    let keys = release::pinned_keys(&cfg.updates.keys).map_err(said)?;
+    let rel = release::read_release(doc, signature, &keys).map_err(said)?;
     if rel.version != version {
         return Err(format!("order: the release is wyrmd {}", rel.version));
     }
-    let asset = rel.compatible(me)?.clone();
+    let asset = rel.compatible(me).map_err(said)?.clone();
     if rel.replication != me.replication {
         return Err(format!(
             "wyrmd {} changes the replication protocol: a standby cannot go first",
@@ -488,7 +488,7 @@ async fn standby_apply(
             tracing::warn!("broker update: the guard is not replaced: {e}");
         }
     }
-    u.save(&cfg.data_dir)?;
+    u.save(&cfg.data_dir).map_err(said)?;
     if let Err(e) = layout.switch(&u.to) {
         // a state file that stayed would start a trial of a version not switched to
         let state = cfg.data_dir.join(release::STATE_FILE);
@@ -496,7 +496,7 @@ async fn standby_apply(
             tracing::error!("{} stays: {r}", state.display());
             return Err(format!("{e}; {} stays: {r}", state.display()));
         }
-        return Err(e);
+        return Err(said(e));
     }
     tracing::warn!(from = %u.from, to = %u.to, "broker update: the standby stops for wyrmd {}", u.to);
     Ok(())
@@ -518,10 +518,10 @@ pub fn run_guard(cfg: &Config) -> Result<(), Error> {
         }
     };
     let keys = match cfg.updates.mode {
-        UpdateMode::SelfUpdate => Some(release::pinned_keys(&cfg.updates.keys)?),
+        UpdateMode::SelfUpdate => Some(release::pinned_keys(&cfg.updates.keys).map_err(said)?),
         _ => None,
     };
-    match release::guard(&layout, &cfg.data_dir, me, keys.as_deref())? {
+    match release::guard(&layout, &cfg.data_dir, me, keys.as_deref()).map_err(said)? {
         release::Guarded::Nothing => {}
         release::Guarded::RolledBack { from, to, restored } => eprintln!(
             "update-guard: wyrmd {to} is taken back; current is wyrmd {from} again \
@@ -539,15 +539,15 @@ pub fn run_guard(cfg: &Config) -> Result<(), Error> {
 /// the guard stays the previous version). It writes nothing but the guard.
 pub fn run_guard_refresh(cfg: &Config) -> Result<(), Error> {
     let exe: PathBuf = std::env::current_exe()?;
-    let layout = Layout::of_guard(&exe)?;
+    let layout = Layout::of_guard(&exe).map_err(said)?;
     if cfg.updates.mode != UpdateMode::SelfUpdate {
         return Ok(());
     }
     if UpdateFile::load(&cfg.data_dir).is_some_and(|u| u.in_trial()) {
         return Ok(());
     }
-    let keys = release::pinned_keys(&cfg.updates.keys)?;
-    if layout.refresh_guard_verified(&keys)? {
+    let keys = release::pinned_keys(&cfg.updates.keys).map_err(said)?;
+    if layout.refresh_guard_verified(&keys).map_err(said)? {
         eprintln!(
             "guard-refresh: the guard is wyrmd {}",
             layout.current_version().unwrap_or_default()
@@ -689,7 +689,8 @@ pub fn release_cmd(cmd: ReleaseCmd) -> Result<(), Error> {
                 &[],
                 &out,
                 flate2::Compression::best(),
-            )?;
+            )
+            .map_err(said)?;
             let packed = Packed {
                 identity: me,
                 asset,
@@ -756,7 +757,7 @@ pub fn release_cmd(cmd: ReleaseCmd) -> Result<(), Error> {
                 replication: id.replication,
                 targets,
             };
-            rel.check()?;
+            rel.check().map_err(said)?;
             let out = dir.join(format!("wyrmd-{}.release.json", rel.version));
             std::fs::write(&out, pretty(&rel)?)?;
             println!("{}", out.display());
@@ -770,7 +771,7 @@ pub fn release_cmd(cmd: ReleaseCmd) -> Result<(), Error> {
             have,
             created,
         } => {
-            let keys = release::pinned_keys(&key)?;
+            let keys = release::pinned_keys(&key).map_err(said)?;
             let text = |p: &Path| {
                 String::from_utf8(read(p)?).map_err(|_| format!("{}: not text", p.display()))
             };
@@ -800,10 +801,12 @@ pub fn release_cmd(cmd: ReleaseCmd) -> Result<(), Error> {
                 )
                 .into());
             }
-            let idx = old.with(&read(&doc)?, &text(&sig_path(&doc))?, &keys, &created)?;
+            let idx = old
+                .with(&read(&doc)?, &text(&sig_path(&doc))?, &keys, &created)
+                .map_err(said)?;
             // not signed yet: an old signature does not cover it
             std::fs::remove_file(sig_path(&index)).or_else(wyrm_core::files::gone_ok)?;
-            std::fs::write(&index, pretty(&idx.to_file()?)?)?;
+            std::fs::write(&index, pretty(&idx.to_file().map_err(said)?)?)?;
             println!(
                 "{}: sequence {}, {} releases",
                 index.display(),
@@ -816,12 +819,12 @@ pub fn release_cmd(cmd: ReleaseCmd) -> Result<(), Error> {
             channel,
             key,
         } => {
-            let keys = release::pinned_keys(&key)?;
+            let keys = release::pinned_keys(&key).map_err(said)?;
             let bytes = read(&index)?;
             let sig =
                 String::from_utf8(read(&sig_path(&index))?).map_err(|_| "signature: not text")?;
-            let checked = release::read_index(&bytes, &sig, &keys)?;
-            std::fs::write(&channel, release::bundle(&bytes, &sig)?)?;
+            let checked = release::read_index(&bytes, &sig, &keys).map_err(said)?;
+            std::fs::write(&channel, release::bundle(&bytes, &sig).map_err(said)?)?;
             println!(
                 "{}: sequence {}, {} releases",
                 channel.display(),
@@ -861,25 +864,33 @@ pub fn release_cmd(cmd: ReleaseCmd) -> Result<(), Error> {
             channel,
             key,
         } => {
-            let keys = release::pinned_keys(&key)?;
+            let keys = release::pinned_keys(&key).map_err(said)?;
             let bytes = read(&file)?;
             if channel {
-                let i = release::read_channel(&bytes, &keys)?;
+                let i = release::read_channel(&bytes, &keys).map_err(said)?;
                 println!("ok: sequence {}, {} releases", i.sequence, i.releases.len());
                 return Ok(());
             }
             let sig =
                 String::from_utf8(read(&sig_path(&file))?).map_err(|_| "signature: not text")?;
             if index {
-                let i = release::read_index(&bytes, &sig, &keys)?;
+                let i = release::read_index(&bytes, &sig, &keys).map_err(said)?;
                 println!("ok: sequence {}, {} releases", i.sequence, i.releases.len());
             } else {
-                let r = release::read_release(&bytes, &sig, &keys)?;
+                let r = release::read_release(&bytes, &sig, &keys).map_err(said)?;
                 println!("ok: wyrmd {}", r.version);
             }
         }
     }
     Ok(())
+}
+
+/// The text of an error of [`release`], for a function whose error is text
+/// and for the command line: `main` prints an [`Error`] with `Debug`, which
+/// for a text is the text in quotes and for a typed error would be the name
+/// of its variant.
+fn said(e: impl std::fmt::Display) -> String {
+    e.to_string()
 }
 
 fn pretty<T: serde::Serialize>(v: &T) -> Result<Vec<u8>, String> {

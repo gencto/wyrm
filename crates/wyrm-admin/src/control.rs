@@ -986,7 +986,8 @@ impl Control {
     /// which the previous version may start next goes the other way round: the
     /// journal first ([`Control::audit_one_by_one`]), the file second.
     pub(crate) fn save_update(&self, u: &crate::release::UpdateFile) -> Result<(), LinkError> {
-        u.save(&self.cfg.data_dir).map_err(LinkError::internal)?;
+        u.save(&self.cfg.data_dir)
+            .map_err(|e| LinkError::internal(e.to_string()))?;
         #[cfg(test)]
         if let Some(seen) = self
             .update_saved

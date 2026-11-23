@@ -72,6 +72,450 @@ const DOMAIN_INDEX: &[u8] = b"wyrmd-releases-v1\n";
 /// (`packaging/wyrmd/README.md` says how the key is made and pinned here).
 pub const RELEASE_KEYS: [&str; 0] = [];
 
+/// A file or directory this module could not read, write, rename or sync:
+/// the path and the cause, said as `<path>: <cause>`.
+#[derive(Debug, thiserror::Error)]
+#[error("{}: {source}", .path.display())]
+pub struct FileError {
+    pub path: PathBuf,
+    #[source]
+    pub source: std::io::Error,
+}
+
+/// A text that may not name a version directory ([`check_version`]).
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("version {0:?}: not a version name")]
+pub struct BadVersion(pub String);
+
+/// Which signed document an error is about: the first word of its text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Document {
+    Release,
+    Index,
+    Channel,
+}
+
+impl std::fmt::Display for Document {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Release => "release",
+            Self::Index => "index",
+            Self::Channel => "channel",
+        })
+    }
+}
+
+/// What is wrong with the archive a release names for one target
+/// ([`ReleaseError::Asset`]).
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum AssetFault {
+    #[error("file {0:?}: a plain *.tar.gz name")]
+    File(String),
+    #[error("sha256: 64 lower-case hex digits")]
+    Sha256,
+    #[error("bin_sha256: 64 lower-case hex digits")]
+    BinSha256,
+    #[error("size {0}: 1 to {max} bytes", max = MAX_ARCHIVE)]
+    Size(u64),
+    #[error("url: https:// only")]
+    Url,
+}
+
+/// Why a release document, an index, a channel file or a release key is
+/// refused (audit T7): the signature, the bounds of what was signed, the
+/// index sequence. The texts are the ones these errors had as a `String`;
+/// they reach the refusals of `sys/~act/update` and `check_updates`,
+/// `sys/update_hint` and the output of `wyrmd release …`.
+///
+/// A detached signature names no key, so "the signature is bad" and "the
+/// key is not pinned" are one case: [`Self::NotSigned`]. A release or an
+/// index that is refused for its signature was never parsed.
+#[derive(Debug, thiserror::Error)]
+pub enum ReleaseError {
+    #[error(transparent)]
+    Version(#[from] BadVersion),
+    /// Refused by its length, before the signature is looked at.
+    #[error("{what}: more than {max} bytes")]
+    TooLarge { what: Document, max: usize },
+    /// Nothing can be verified: no key is pinned.
+    #[error("no release key is pinned: this build has none and updates.keys is empty")]
+    NoPinnedKey,
+    /// The signature text holds no line that is an Ed25519 signature.
+    #[error("signature: no Ed25519 signature (128 hex digits a line)")]
+    NoSignature,
+    /// No signature of the text verifies under a pinned key (and the
+    /// document's own domain): changed bytes, another key, or a signature
+    /// made for the other kind of document.
+    #[error("signature: not made by a pinned release key")]
+    NotSigned,
+    /// A key of `updates.keys` is not hex (a public key: the cause may
+    /// quote it).
+    #[error("updates.keys: an Ed25519 public key is 64 hex digits")]
+    KeyNotHex(#[source] hex::FromHexError),
+    /// A key of `updates.keys` is hex of this many bytes, not 32.
+    #[error("updates.keys: an Ed25519 public key is 64 hex digits")]
+    KeyLength(usize),
+    #[error("updates.keys: not an Ed25519 public key")]
+    KeyNotEd25519(#[source] ed25519_dalek::SignatureError),
+    /// Not JSON of that document (a release and an index are signed all
+    /// the same; a channel file carries no signature of its own).
+    #[error("{what}: {source}")]
+    Json {
+        what: Document,
+        #[source]
+        source: serde_json::Error,
+    },
+    /// Of a format this version does not read.
+    #[error("{what} format {found}: this broker reads format {format}", format = FORMAT)]
+    Format { what: Document, found: u32 },
+    #[error("version {0:?}: not dotted numbers")]
+    NotDotted(String),
+    #[error("date or notes: too long")]
+    TextTooLong,
+    #[error("notes: an https:// URL")]
+    NotesUrl,
+    #[error("schemas: at most 16 plain names")]
+    Schemas,
+    #[error("targets: 1 to 64")]
+    Targets,
+    #[error("target {0:?}: not a plain name")]
+    TargetName(String),
+    #[error("target {target}: {fault}")]
+    Asset { target: String, fault: AssetFault },
+    #[error("index: more than {max} releases", max = MAX_RELEASES)]
+    TooManyReleases,
+    #[error("index: no sequence, or a created that is not a date")]
+    IndexHeader,
+    /// An entry of a signed index is refused by itself: its own signature
+    /// or its bounds.
+    #[error("index: an entry is refused: {0}")]
+    Entry(#[source] Box<ReleaseError>),
+    #[error("index: wyrmd {0} twice")]
+    Twice(String),
+    #[error("index: the sequence is used up")]
+    SequenceUsedUp,
+    #[error("a release document is not text")]
+    DocumentNotText(#[source] std::string::FromUtf8Error),
+    #[error("index: not text")]
+    IndexNotText(#[source] std::string::FromUtf8Error),
+    /// A document could not be written as JSON.
+    #[error("{0}")]
+    Encode(#[source] serde_json::Error),
+    /// A validly signed index older than one this host has read
+    /// ([`note_sequence`]).
+    #[error(
+        "the releases index is older than one this broker has read (sequence {sequence}, \
+         read {seen}): an old index was put back"
+    )]
+    SequenceWentBack { sequence: u64, seen: u64 },
+    /// `update.seen` could not be written.
+    #[error(transparent)]
+    File(#[from] FileError),
+}
+
+/// Why a broker may not update to a release ([`Release::compatible`]). The
+/// release itself is good; it does not fit this broker.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum Incompatible {
+    #[error("wyrmd {version} has no build for {target} (it has {has})")]
+    NoBuild {
+        version: String,
+        target: String,
+        /// The targets it has, joined with `, `.
+        has: String,
+    },
+    #[error("wyrmd {version} is not newer than {running}: an update never goes down a version")]
+    NotNewer { version: String, running: String },
+    #[error(
+        "wyrmd {version} names the store {store:?}, which this version cannot restore \
+         after a failed update: update this broker by hand"
+    )]
+    UnknownStore { version: String, store: String },
+    #[error(
+        "wyrmd {version} starts from {min_from} or later; this broker runs {running}: \
+         update to {min_from} first"
+    )]
+    TooOld {
+        version: String,
+        min_from: String,
+        running: String,
+    },
+    #[error(
+        "wyrmd {version} writes SCHEMA {writes} of {store}; this data_dir is at {have}: \
+         it cannot be read by an older SCHEMA"
+    )]
+    OlderSchema {
+        version: String,
+        store: String,
+        writes: u32,
+        have: u32,
+    },
+    #[error("wyrmd {version} does not name the SCHEMA of {store}")]
+    SchemaNotNamed { version: String, store: String },
+}
+
+/// Where a tar stream ended too early ([`ArchiveError::CutOff`]).
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum CutOff {
+    #[error("in a header")]
+    Header,
+    #[error("in {0}")]
+    In(String),
+    #[error("after {0}")]
+    After(String),
+}
+
+/// Why one entry of an archive is refused ([`ArchiveError::Entry`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Refused {
+    /// It uses ustar's prefix field: a path.
+    Path,
+    HardLink,
+    SymbolicLink,
+    /// A device or a pipe.
+    Device,
+    Directory,
+    /// Another type flag of a tar header.
+    Type(char),
+    /// A name with a directory, `..` or other characters.
+    NotPlainName,
+    /// [`RELEASE_DOC`] or [`RELEASE_SIG`]: files the broker writes.
+    Reserved,
+    Twice,
+}
+
+/// The text of a refused entry after `archive: entry `. The first seven are
+/// said with the name as the header has it, quoted (it is not checked yet).
+fn entry_said(name: &str, refused: Refused) -> String {
+    match refused {
+        Refused::Path => format!("{name:?}: a path, not a plain name"),
+        Refused::HardLink => format!("{name:?} is a hard link"),
+        Refused::SymbolicLink => format!("{name:?} is a symbolic link"),
+        Refused::Device => format!("{name:?} is a device or a pipe"),
+        Refused::Directory => format!("{name:?} is a directory"),
+        Refused::Type(t) => format!("{name:?} has type {t:?}: plain files only"),
+        Refused::NotPlainName => {
+            format!("{name:?}: not a plain file name (no directories, no `..`)")
+        }
+        Refused::Reserved => format!("{name}: the name of a file the broker writes"),
+        Refused::Twice => format!("{name} twice"),
+    }
+}
+
+/// Why an archive is not unpacked ([`unpack`]) or not made ([`pack`]). What
+/// the signed release says of the archive ([`Self::SizeMismatch`],
+/// [`Self::HashMismatch`], [`Self::BinaryMismatch`]), what the archive holds
+/// (the variants whose text starts with `archive: `) and a file of this host
+/// ([`Self::File`]) are different cases. The texts are the ones these errors
+/// had as a `String`; they reach `sys/update_last` and the refusals of
+/// `sys/~act/update`.
+#[derive(Debug, thiserror::Error)]
+pub enum ArchiveError {
+    #[error(transparent)]
+    Version(#[from] BadVersion),
+    /// A file of this host: the archive, the directory it is unpacked into.
+    #[error(transparent)]
+    File(#[from] FileError),
+    #[error("the archive has {size} bytes, the release says {want}")]
+    SizeMismatch { size: u64, want: u64 },
+    #[error("the archive's SHA-256 is not the one of the release")]
+    HashMismatch,
+    #[error("the archive has more than {max} bytes", max = MAX_ARCHIVE)]
+    TooLarge,
+    /// The archive is the one of the release; the binary in it is not.
+    #[error("the binary in the archive is not the one of the release (SHA-256)")]
+    BinaryMismatch,
+    /// The gzip or tar stream could not be read (a bad gzip stream too).
+    #[error("archive: {0}")]
+    Read(#[source] std::io::Error),
+    #[error("archive: it ends without an end mark")]
+    NoEndMark,
+    #[error("archive: cut off {0}")]
+    CutOff(CutOff),
+    #[error("archive: bad header checksum")]
+    BadChecksum,
+    #[error("archive: a name is not UTF-8")]
+    NameNotUtf8(#[source] std::string::FromUtf8Error),
+    /// `name`: the name as it is said (at most 64 characters of the
+    /// header's; the plain name for `Reserved` and `Twice`).
+    #[error("archive: entry {}", entry_said(.name, *.refused))]
+    Entry { name: String, refused: Refused },
+    #[error("archive: more than {max} files", max = MAX_FILES)]
+    TooManyFiles,
+    #[error("archive: bad size")]
+    BadSize,
+    #[error("archive: {name} has {size} bytes, more than {max}")]
+    EntryTooLarge { name: String, size: u64, max: u64 },
+    #[error("archive: {bin} is not an executable file", bin = BIN)]
+    NotExecutable,
+    #[error("archive: data after its end")]
+    DataAfterEnd,
+    #[error("archive: no {bin} in it", bin = BIN)]
+    NoBinary,
+    /// [`pack`]: the binary to pack is empty or too large.
+    #[error("{}: 1 to {max} bytes", .0.display(), max = MAX_BINARY)]
+    BinarySize(PathBuf),
+    /// [`pack`]: an extra file that may not go into an archive.
+    #[error("{0}: not a small file with a plain name")]
+    Extra(String),
+}
+
+/// A small file that must be a plain file (no link) could not be read.
+#[derive(Debug, thiserror::Error)]
+pub enum PlainFileError {
+    #[error(transparent)]
+    File(#[from] FileError),
+    /// A link, a directory, or more than `max` bytes.
+    #[error("{}: not a plain file of at most {max} bytes", .path.display())]
+    NotPlain { path: PathBuf, max: u64 },
+}
+
+/// Why the binary of a version is not one this host may run
+/// ([`LayoutError::NotVerified`]).
+#[derive(Debug, thiserror::Error)]
+pub enum Unverified {
+    /// The kept release document or its signature is not there as a plain
+    /// file.
+    #[error(transparent)]
+    File(#[from] PlainFileError),
+    #[error("signature: not text")]
+    SignatureNotText(#[source] std::string::FromUtf8Error),
+    /// The kept release document is refused: its signature or its bounds.
+    #[error(transparent)]
+    Release(#[from] ReleaseError),
+    /// A signed release of another version was put into the directory.
+    #[error("its release document is of wyrmd {0}")]
+    OtherVersion(String),
+    #[error("its release has no build for this host")]
+    NoBuild,
+    /// The release is good and names another binary than the one on disk.
+    #[error("the binary is not the one its signed release names")]
+    BinaryMismatch,
+}
+
+/// Why the install layout, a version in it, `update.json` or the guard is
+/// refused or could not be changed (audit T7). The texts are the ones these
+/// errors had as a `String`; they reach `sys/update_hint`, `sys/update_last`,
+/// the refusals of `sys/~act/update` and what `wyrmd update-guard`,
+/// `guard-refresh` and `install-layout` print.
+#[derive(Debug, thiserror::Error)]
+pub enum LayoutError {
+    #[error(transparent)]
+    Version(#[from] BadVersion),
+    #[error(transparent)]
+    File(#[from] FileError),
+    #[error(transparent)]
+    PlainFile(#[from] PlainFileError),
+    /// The binary of `version` is neither named by a kept signed release
+    /// nor put there by hand: it is never started.
+    #[error("wyrmd {version} in {} is not verified: {why}", .dir.display())]
+    NotVerified {
+        version: String,
+        dir: PathBuf,
+        #[source]
+        why: Box<Unverified>,
+    },
+    /// The binary of a version is a link or is not there.
+    #[error("{}: not a plain file", .0.display())]
+    BinaryNotPlain(PathBuf),
+    /// `current` is no link to `versions/<v>`.
+    #[error("{}: not a link to a version", .0.display())]
+    CurrentNotVersion(PathBuf),
+    #[error("updates.mode \"self\" works on Linux and macOS only")]
+    Unsupported,
+    #[error(
+        "updates.mode \"self\": this broker runs {}, not \
+         <prefix>/versions/{version}/{bin} ({help}; `wyrmd install-layout <prefix>` makes it)",
+        .exe.display(), bin = BIN, help = LAYOUT_HELP
+    )]
+    NotInLayout { exe: PathBuf, version: String },
+    #[error(
+        "updates.mode \"self\": {} is not a symbolic link to versions/{version} ({help})",
+        .current.display(), help = LAYOUT_HELP
+    )]
+    CurrentNotLink { current: PathBuf, version: String },
+    #[error("updates.mode \"self\": no guard at {} ({help})", .0.display(), help = LAYOUT_HELP)]
+    NoGuard(PathBuf),
+    #[error("{}: no prefix", .0.display())]
+    NoPrefix(PathBuf),
+    #[error("{}: the guard runs as <prefix>/bin/{guard}", .0.display(), guard = GUARD)]
+    NotGuard(PathBuf),
+    #[error("{}: no such version", .0.display())]
+    NoSuchVersion(PathBuf),
+    #[error("the layout of a self-updating broker needs Linux or macOS")]
+    InstallUnsupported,
+    #[error("{}: another binary of version {version} is there", .path.display())]
+    OtherBinary { path: PathBuf, version: String },
+    /// `update.json` or `trusted.json` could not be written as JSON.
+    #[error("{0}")]
+    Encode(#[source] serde_json::Error),
+    /// The guard starts nothing: the current version is not verified
+    /// (the cause) and no other version of the update is.
+    #[error(
+        "{0}. Nothing is started: a broker in updates.mode \"self\" runs only a binary \
+         that a pinned release key signed or that `wyrmd install-layout` put there"
+    )]
+    NothingVerified(#[source] Box<LayoutError>),
+}
+
+/// Why the control plane was not put back from the pre-update backup
+/// ([`restore_control`]).
+#[derive(Debug, thiserror::Error)]
+pub enum RestoreError {
+    /// The backup could not be opened or a file of it not taken out: the
+    /// text of [`crate::backup`], which is not typed yet.
+    #[error("{0}")]
+    Backup(String),
+    #[error("not a broker backup")]
+    NotBroker,
+    #[error("not sealed for this broker")]
+    NotSealedForBroker,
+    /// `secrets.key` could not be read.
+    #[error("secrets.key: not readable")]
+    SecretsKey(#[source] std::io::Error),
+    /// `secrets.key` is not hex. The cause is not kept: it quotes a
+    /// character of the key.
+    #[error("secrets.key: not readable")]
+    SecretsKeyNotHex,
+    /// The manifest's MAC is not made with this broker's key, or the
+    /// manifest was changed (the text of [`crate::backup`]).
+    #[error("its manifest is not this broker's: {0}")]
+    Manifest(String),
+    #[error("the backup has no control section")]
+    NoControl,
+    #[error("{0}: not a control-plane store")]
+    UnknownStore(String),
+    #[error("{0}: not a file of a WAL store")]
+    NotWalFile(String),
+    #[error("the backup does not hold the store {0}")]
+    StoreMissing(String),
+    #[error(transparent)]
+    File(#[from] FileError),
+}
+
+/// Why a binary gave no output to use ([`run_binary`]).
+#[derive(Debug, thiserror::Error)]
+pub enum RunError {
+    /// It could not be started or waited for.
+    #[error(transparent)]
+    File(#[from] FileError),
+    #[error("{}: no answer in {secs} s", .bin.display())]
+    Timeout {
+        bin: PathBuf,
+        secs: u64,
+        #[source]
+        source: tokio::time::error::Elapsed,
+    },
+    /// It ended with another status than 0; `said`: the end of what it
+    /// wrote.
+    #[error("{} ({status}): {said}", .bin.display())]
+    Failed {
+        bin: PathBuf,
+        status: std::process::ExitStatus,
+        said: String,
+    },
+}
+
 /// What a `wyrmd` binary is: told by `wyrmd release-info`, compared with a
 /// release before it is installed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -126,7 +570,7 @@ pub fn identity() -> &'static Identity {
 
 /// Is `v` a version name that may be a directory: 1 to 64 of `0-9 A-Z a-z
 /// . + -`, starting with a digit.
-pub fn check_version(v: &str) -> Result<(), String> {
+pub fn check_version(v: &str) -> Result<(), BadVersion> {
     let ok = !v.is_empty()
         && v.len() <= 64
         && v.as_bytes()[0].is_ascii_digit()
@@ -136,7 +580,7 @@ pub fn check_version(v: &str) -> Result<(), String> {
     if ok {
         Ok(())
     } else {
-        Err(format!("version {v:?}: not a version name"))
+        Err(BadVersion(v.to_owned()))
     }
 }
 
@@ -278,57 +722,53 @@ fn plain_name(s: &str, max: usize) -> bool {
 
 impl Release {
     /// The bounds of a release document.
-    pub fn check(&self) -> Result<(), String> {
+    pub fn check(&self) -> Result<(), ReleaseError> {
         if self.wyrmd_release != FORMAT {
-            return Err(format!(
-                "release format {}: this broker reads format {FORMAT}",
-                self.wyrmd_release
-            ));
+            return Err(ReleaseError::Format {
+                what: Document::Release,
+                found: self.wyrmd_release,
+            });
         }
         check_version(&self.version)?;
         if core(&self.version).is_none() {
-            return Err(format!("version {:?}: not dotted numbers", self.version));
+            return Err(ReleaseError::NotDotted(self.version.clone()));
         }
         if !self.min_from.is_empty() {
             check_version(&self.min_from)?;
         }
         if self.date.len() > 32 || self.notes.len() > 512 {
-            return Err("date or notes: too long".into());
+            return Err(ReleaseError::TextTooLong);
         }
         if !self.notes.is_empty() && !https_url(&self.notes) {
-            return Err("notes: an https:// URL".into());
+            return Err(ReleaseError::NotesUrl);
         }
         if self.schemas.len() > 16 || self.schemas.keys().any(|k| !plain_name(k, 32)) {
-            return Err("schemas: at most 16 plain names".into());
+            return Err(ReleaseError::Schemas);
         }
         if self.targets.is_empty() || self.targets.len() > 64 {
-            return Err("targets: 1 to 64".into());
+            return Err(ReleaseError::Targets);
         }
         for (t, a) in &self.targets {
             if !plain_name(t, 64) {
-                return Err(format!("target {t:?}: not a plain name"));
+                return Err(ReleaseError::TargetName(t.clone()));
             }
-            if !plain_name(&a.file, 128) || !a.file.ends_with(".tar.gz") {
-                return Err(format!(
-                    "target {t}: file {:?}: a plain *.tar.gz name",
-                    a.file
-                ));
-            }
-            if !wyrm_core::hex::is_lower_hex(&a.sha256, 32) {
-                return Err(format!("target {t}: sha256: 64 lower-case hex digits"));
-            }
-            if !wyrm_core::hex::is_lower_hex(&a.bin_sha256, 32) {
-                return Err(format!("target {t}: bin_sha256: 64 lower-case hex digits"));
-            }
-            if a.size == 0 || a.size > MAX_ARCHIVE {
-                return Err(format!(
-                    "target {t}: size {}: 1 to {MAX_ARCHIVE} bytes",
-                    a.size
-                ));
-            }
-            if !a.url.is_empty() && (!https_url(&a.url) || a.url.len() > 1024) {
-                return Err(format!("target {t}: url: https:// only"));
-            }
+            let fault = if !plain_name(&a.file, 128) || !a.file.ends_with(".tar.gz") {
+                AssetFault::File(a.file.clone())
+            } else if !wyrm_core::hex::is_lower_hex(&a.sha256, 32) {
+                AssetFault::Sha256
+            } else if !wyrm_core::hex::is_lower_hex(&a.bin_sha256, 32) {
+                AssetFault::BinSha256
+            } else if a.size == 0 || a.size > MAX_ARCHIVE {
+                AssetFault::Size(a.size)
+            } else if !a.url.is_empty() && (!https_url(&a.url) || a.url.len() > 1024) {
+                AssetFault::Url
+            } else {
+                continue;
+            };
+            return Err(ReleaseError::Asset {
+                target: t.clone(),
+                fault,
+            });
         }
         Ok(())
     }
@@ -337,20 +777,21 @@ impl Release {
     /// `me.target`, or why not: no build for the host, a version that is not
     /// newer (an update never goes down), a version too old to start from,
     /// or a release that writes an older SCHEMA than the stores have.
-    pub fn compatible(&self, me: &Identity) -> Result<&Asset, String> {
-        let asset = self.targets.get(&me.target).ok_or_else(|| {
-            format!(
-                "wyrmd {} has no build for {} (it has {})",
-                self.version,
-                me.target,
-                self.targets.keys().cloned().collect::<Vec<_>>().join(", ")
-            )
-        })?;
+    pub fn compatible(&self, me: &Identity) -> Result<&Asset, Incompatible> {
+        let version = || self.version.clone();
+        let asset = self
+            .targets
+            .get(&me.target)
+            .ok_or_else(|| Incompatible::NoBuild {
+                version: version(),
+                target: me.target.clone(),
+                has: self.targets.keys().cloned().collect::<Vec<_>>().join(", "),
+            })?;
         if !newer(&self.version, &me.version) {
-            return Err(format!(
-                "wyrmd {} is not newer than {}: an update never goes down a version",
-                self.version, me.version
-            ));
+            return Err(Incompatible::NotNewer {
+                version: version(),
+                running: me.version.clone(),
+            });
         }
         // a store this version does not know could not be put back by its
         // guard: such a release is installed by hand
@@ -360,33 +801,34 @@ impl Release {
             .chain(me.schemas.keys())
             .find(|k| !CONTROL_STORES.iter().any(|(name, _, _)| name == k))
         {
-            return Err(format!(
-                "wyrmd {} names the store {unknown:?}, which this version cannot restore \
-                 after a failed update: update this broker by hand",
-                self.version
-            ));
+            return Err(Incompatible::UnknownStore {
+                version: version(),
+                store: unknown.clone(),
+            });
         }
         if !self.min_from.is_empty() && newer(&self.min_from, &me.version) {
-            return Err(format!(
-                "wyrmd {} starts from {} or later; this broker runs {}: update to {} first",
-                self.version, self.min_from, me.version, self.min_from
-            ));
+            return Err(Incompatible::TooOld {
+                version: version(),
+                min_from: self.min_from.clone(),
+                running: me.version.clone(),
+            });
         }
         for (store, have) in &me.schemas {
             match self.schemas.get(store) {
                 Some(n) if n >= have => {}
                 Some(n) => {
-                    return Err(format!(
-                        "wyrmd {} writes SCHEMA {n} of {store}; this data_dir is at {have}: \
-                         it cannot be read by an older SCHEMA",
-                        self.version
-                    ))
+                    return Err(Incompatible::OlderSchema {
+                        version: version(),
+                        store: store.clone(),
+                        writes: *n,
+                        have: *have,
+                    })
                 }
                 None => {
-                    return Err(format!(
-                        "wyrmd {} does not name the SCHEMA of {store}",
-                        self.version
-                    ))
+                    return Err(Incompatible::SchemaNotNamed {
+                        version: version(),
+                        store: store.clone(),
+                    })
                 }
             }
         }
@@ -413,18 +855,17 @@ pub fn moved(from: &BTreeMap<String, u32>, to: &BTreeMap<String, u32>) -> Vec<St
 
 /// The keys a broker trusts for releases: the built-in ones and `extra`
 /// (hex public keys of `updates.keys`).
-pub fn pinned_keys(extra: &[String]) -> Result<Vec<VerifyingKey>, String> {
+pub fn pinned_keys(extra: &[String]) -> Result<Vec<VerifyingKey>, ReleaseError> {
     RELEASE_KEYS
         .iter()
         .map(|k| (*k).to_owned())
         .chain(extra.iter().cloned())
         .map(|k| {
-            let raw: [u8; 32] = hex::decode(k.trim())
-                .ok()
-                .and_then(|b| b.try_into().ok())
-                .ok_or("updates.keys: an Ed25519 public key is 64 hex digits")?;
-            VerifyingKey::from_bytes(&raw)
-                .map_err(|_| "updates.keys: not an Ed25519 public key".to_owned())
+            let raw = hex::decode(k.trim()).map_err(ReleaseError::KeyNotHex)?;
+            let raw: [u8; 32] = raw
+                .try_into()
+                .map_err(|b: Vec<u8>| ReleaseError::KeyLength(b.len()))?;
+            VerifyingKey::from_bytes(&raw).map_err(ReleaseError::KeyNotEd25519)
         })
         .collect()
 }
@@ -443,11 +884,9 @@ fn verify(
     bytes: &[u8],
     signature: &str,
     keys: &[VerifyingKey],
-) -> Result<(), String> {
+) -> Result<(), ReleaseError> {
     if keys.is_empty() {
-        return Err(
-            "no release key is pinned: this build has none and updates.keys is empty".into(),
-        );
+        return Err(ReleaseError::NoPinnedKey);
     }
     let msg = signed_message(domain, bytes);
     let sigs: Vec<Signature> = signature
@@ -461,7 +900,7 @@ fn verify(
         })
         .collect();
     if sigs.is_empty() {
-        return Err("signature: no Ed25519 signature (128 hex digits a line)".into());
+        return Err(ReleaseError::NoSignature);
     }
     let good = sigs
         .iter()
@@ -469,7 +908,7 @@ fn verify(
     if good {
         Ok(())
     } else {
-        Err("signature: not made by a pinned release key".into())
+        Err(ReleaseError::NotSigned)
     }
 }
 
@@ -488,12 +927,18 @@ pub fn read_release(
     bytes: &[u8],
     signature: &str,
     keys: &[VerifyingKey],
-) -> Result<Release, String> {
+) -> Result<Release, ReleaseError> {
     if bytes.len() > MAX_RELEASE {
-        return Err(format!("release: more than {MAX_RELEASE} bytes"));
+        return Err(ReleaseError::TooLarge {
+            what: Document::Release,
+            max: MAX_RELEASE,
+        });
     }
     verify(DOMAIN_RELEASE, bytes, signature, keys)?;
-    let r: Release = serde_json::from_slice(bytes).map_err(|e| format!("release: {e}"))?;
+    let r: Release = serde_json::from_slice(bytes).map_err(|source| ReleaseError::Json {
+        what: Document::Release,
+        source,
+    })?;
     r.check()?;
     Ok(r)
 }
@@ -504,23 +949,33 @@ pub const MAX_RELEASES: usize = 256;
 /// An index: its own signature first, then the signature and the bounds of
 /// every entry. An entry whose own signature does not verify refuses the
 /// whole index: no release is trusted because the list around it is signed.
-pub fn read_index(bytes: &[u8], signature: &str, keys: &[VerifyingKey]) -> Result<Index, String> {
+pub fn read_index(
+    bytes: &[u8],
+    signature: &str,
+    keys: &[VerifyingKey],
+) -> Result<Index, ReleaseError> {
     if bytes.len() > MAX_RELEASE * 4 {
-        return Err(format!("index: more than {} bytes", MAX_RELEASE * 4));
+        return Err(ReleaseError::TooLarge {
+            what: Document::Index,
+            max: MAX_RELEASE * 4,
+        });
     }
     verify(DOMAIN_INDEX, bytes, signature, keys)?;
-    let file: IndexFile = serde_json::from_slice(bytes).map_err(|e| format!("index: {e}"))?;
+    let file: IndexFile = serde_json::from_slice(bytes).map_err(|source| ReleaseError::Json {
+        what: Document::Index,
+        source,
+    })?;
     if file.wyrmd_releases != FORMAT {
-        return Err(format!(
-            "index format {}: this broker reads format {FORMAT}",
-            file.wyrmd_releases
-        ));
+        return Err(ReleaseError::Format {
+            what: Document::Index,
+            found: file.wyrmd_releases,
+        });
     }
     if file.releases.len() > MAX_RELEASES {
-        return Err(format!("index: more than {MAX_RELEASES} releases"));
+        return Err(ReleaseError::TooManyReleases);
     }
     if file.sequence == 0 || file.created.len() > 32 {
-        return Err("index: no sequence, or a created that is not a date".into());
+        return Err(ReleaseError::IndexHeader);
     }
     let mut out = Index {
         sequence: file.sequence,
@@ -529,9 +984,9 @@ pub fn read_index(bytes: &[u8], signature: &str, keys: &[VerifyingKey]) -> Resul
     };
     for e in file.releases {
         let release = read_release(e.release.as_bytes(), &e.signature, keys)
-            .map_err(|why| format!("index: an entry is refused: {why}"))?;
+            .map_err(|why| ReleaseError::Entry(Box::new(why)))?;
         if out.get(&release.version).is_some() {
-            return Err(format!("index: wyrmd {} twice", release.version));
+            return Err(ReleaseError::Twice(release.version));
         }
         out.releases.push(Signed {
             release,
@@ -568,17 +1023,17 @@ impl Index {
         signature: &str,
         keys: &[VerifyingKey],
         created: &str,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, ReleaseError> {
         let release = read_release(document, signature, keys)?;
         self.sequence = self
             .sequence
             .checked_add(1)
-            .ok_or("index: the sequence is used up")?;
+            .ok_or(ReleaseError::SequenceUsedUp)?;
         created.clone_into(&mut self.created);
         self.releases
             .retain(|s| s.release.version != release.version);
         if self.releases.len() >= MAX_RELEASES {
-            return Err(format!("index: more than {MAX_RELEASES} releases"));
+            return Err(ReleaseError::TooManyReleases);
         }
         self.releases.push(Signed {
             release,
@@ -589,18 +1044,18 @@ impl Index {
     }
 
     /// As it is written to `releases.json`.
-    pub fn to_file(&self) -> Result<IndexFile, String> {
+    pub fn to_file(&self) -> Result<IndexFile, ReleaseError> {
         let releases = self
             .releases
             .iter()
             .map(|s| {
                 Ok(IndexEntry {
                     release: String::from_utf8(s.document.clone())
-                        .map_err(|_| "a release document is not text".to_owned())?,
+                        .map_err(ReleaseError::DocumentNotText)?,
                     signature: s.signature.clone(),
                 })
             })
-            .collect::<Result<Vec<_>, String>>()?;
+            .collect::<Result<Vec<_>, ReleaseError>>()?;
         Ok(IndexFile {
             wyrmd_releases: FORMAT,
             sequence: self.sequence,
@@ -611,29 +1066,35 @@ impl Index {
 }
 
 /// The channel file of an index and its signature.
-pub fn bundle(index: &[u8], signature: &str) -> Result<Vec<u8>, String> {
+pub fn bundle(index: &[u8], signature: &str) -> Result<Vec<u8>, ReleaseError> {
     let c = Channel {
         wyrmd_channel: FORMAT,
-        index: String::from_utf8(index.to_vec()).map_err(|_| "index: not text".to_owned())?,
+        index: String::from_utf8(index.to_vec()).map_err(ReleaseError::IndexNotText)?,
         signature: signature.trim().to_owned(),
     };
-    serde_json::to_vec(&c).map_err(|e| e.to_string())
+    serde_json::to_vec(&c).map_err(ReleaseError::Encode)
 }
 
 /// Largest channel file (the index as a JSON string, and its signature).
 pub const MAX_CHANNEL: usize = MAX_RELEASE * 10;
 
 /// A channel file: the index in it, checked as [`read_index`] checks it.
-pub fn read_channel(bytes: &[u8], keys: &[VerifyingKey]) -> Result<Index, String> {
+pub fn read_channel(bytes: &[u8], keys: &[VerifyingKey]) -> Result<Index, ReleaseError> {
     if bytes.len() > MAX_CHANNEL {
-        return Err(format!("channel: more than {MAX_CHANNEL} bytes"));
+        return Err(ReleaseError::TooLarge {
+            what: Document::Channel,
+            max: MAX_CHANNEL,
+        });
     }
-    let c: Channel = serde_json::from_slice(bytes).map_err(|e| format!("channel: {e}"))?;
+    let c: Channel = serde_json::from_slice(bytes).map_err(|source| ReleaseError::Json {
+        what: Document::Channel,
+        source,
+    })?;
     if c.wyrmd_channel != FORMAT {
-        return Err(format!(
-            "channel format {}: this broker reads format {FORMAT}",
-            c.wyrmd_channel
-        ));
+        return Err(ReleaseError::Format {
+            what: Document::Channel,
+            found: c.wyrmd_channel,
+        });
     }
     read_index(c.index.as_bytes(), &c.signature, keys)
 }
@@ -648,13 +1109,10 @@ pub fn seen_sequence(data_dir: &Path) -> u64 {
 
 /// Take the index of sequence `sequence`: refused when this host has read
 /// a later one; remembered when it is later than all before.
-pub fn note_sequence(data_dir: &Path, sequence: u64) -> Result<(), String> {
+pub fn note_sequence(data_dir: &Path, sequence: u64) -> Result<(), ReleaseError> {
     let seen = seen_sequence(data_dir);
     if sequence < seen {
-        return Err(format!(
-            "the releases index is older than one this broker has read (sequence {sequence}, \
-             read {seen}): an old index was put back"
-        ));
+        return Err(ReleaseError::SequenceWentBack { sequence, seen });
     }
     if sequence > seen {
         let path = data_dir.join(SEEN_FILE);
@@ -664,12 +1122,15 @@ pub fn note_sequence(data_dir: &Path, sequence: u64) -> Result<(), String> {
     Ok(())
 }
 
-fn io(path: &Path, e: std::io::Error) -> String {
-    format!("{}: {e}", path.display())
+fn io(path: &Path, source: std::io::Error) -> FileError {
+    FileError {
+        path: path.to_owned(),
+        source,
+    }
 }
 
 /// SHA-256 (hex) and length of a file.
-pub fn sha256_file(path: &Path) -> Result<(String, u64), String> {
+pub fn sha256_file(path: &Path) -> Result<(String, u64), FileError> {
     let f = std::fs::File::open(path).map_err(|e| io(path, e))?;
     let (sum, total) = wyrm_core::hex::sha256_reader(f).map_err(|e| io(path, e))?;
     Ok((wyrm_core::hex::encode(sum), total))
@@ -677,7 +1138,7 @@ pub fn sha256_file(path: &Path) -> Result<(String, u64), String> {
 
 /// Make the entries of `dir` durable: a rename is not on disk before its directory is.
 /// A directory handle syncs on unix; elsewhere it is not needed.
-fn sync_dir(dir: &Path) -> Result<(), String> {
+fn sync_dir(dir: &Path) -> Result<(), FileError> {
     #[cfg(unix)]
     std::fs::File::open(dir)
         .and_then(|d| d.sync_all())
@@ -735,22 +1196,22 @@ fn octal(field: &[u8]) -> Option<u64> {
 /// files only, by plain name, the binary [`BIN`] among them. Nothing of a
 /// header but the name, the size, the type and the binary's execute bit is
 /// used. Returns the names written.
-fn untar(src: &mut impl Read, dir: &Path) -> Result<Vec<String>, String> {
+fn untar(src: &mut impl Read, dir: &Path) -> Result<Vec<String>, ArchiveError> {
     let mut names: Vec<String> = Vec::new();
     let mut header = [0u8; 512];
     loop {
-        let got = read_full(src, &mut header).map_err(|e| format!("archive: {e}"))?;
+        let got = read_full(src, &mut header).map_err(ArchiveError::Read)?;
         if got == 0 {
-            return Err("archive: it ends without an end mark".into());
+            return Err(ArchiveError::NoEndMark);
         }
         if got != 512 {
-            return Err("archive: cut off in a header".into());
+            return Err(ArchiveError::CutOff(CutOff::Header));
         }
         if header.iter().all(|b| *b == 0) {
             break;
         }
         // the checksum: the sum of the header with its own field as spaces
-        let want = octal(&header[148..156]).ok_or("archive: bad header checksum")?;
+        let want = octal(&header[148..156]).ok_or(ArchiveError::BadChecksum)?;
         let sum: u64 = header
             .iter()
             .enumerate()
@@ -763,62 +1224,50 @@ fn untar(src: &mut impl Read, dir: &Path) -> Result<Vec<String>, String> {
             })
             .sum();
         if sum != want {
-            return Err("archive: bad header checksum".into());
+            return Err(ArchiveError::BadChecksum);
         }
         let name_raw: Vec<u8> = header[..100]
             .iter()
             .copied()
             .take_while(|b| *b != 0)
             .collect();
-        let name = String::from_utf8(name_raw).map_err(|_| "archive: a name is not UTF-8")?;
+        let name = String::from_utf8(name_raw).map_err(ArchiveError::NameNotUtf8)?;
         let shown: String = name.chars().take(64).collect();
+        let refused = |name: String, refused: Refused| ArchiveError::Entry { name, refused };
         // ustar's prefix field: a longer path, never ours
         if header[345] != 0 {
-            return Err(format!(
-                "archive: entry {shown:?}: a path, not a plain name"
-            ));
+            return Err(refused(shown, Refused::Path));
         }
         match header[156] {
             0 | b'0' => {}
-            b'1' => return Err(format!("archive: entry {shown:?} is a hard link")),
-            b'2' => return Err(format!("archive: entry {shown:?} is a symbolic link")),
-            b'3' | b'4' | b'6' => {
-                return Err(format!("archive: entry {shown:?} is a device or a pipe"))
-            }
-            b'5' => return Err(format!("archive: entry {shown:?} is a directory")),
-            t => {
-                return Err(format!(
-                    "archive: entry {shown:?} has type {:?}: plain files only",
-                    t as char
-                ))
-            }
+            b'1' => return Err(refused(shown, Refused::HardLink)),
+            b'2' => return Err(refused(shown, Refused::SymbolicLink)),
+            b'3' | b'4' | b'6' => return Err(refused(shown, Refused::Device)),
+            b'5' => return Err(refused(shown, Refused::Directory)),
+            t => return Err(refused(shown, Refused::Type(t as char))),
         }
         let name = name.strip_prefix("./").unwrap_or(&name).to_owned();
         if !plain_name(&name, 64) {
-            return Err(format!(
-                "archive: entry {shown:?}: not a plain file name (no directories, no `..`)"
-            ));
+            return Err(refused(shown, Refused::NotPlainName));
         }
         if name == RELEASE_DOC || name == RELEASE_SIG {
-            return Err(format!(
-                "archive: entry {name}: the name of a file the broker writes"
-            ));
+            return Err(refused(name, Refused::Reserved));
         }
         if names.contains(&name) {
-            return Err(format!("archive: entry {name} twice"));
+            return Err(refused(name, Refused::Twice));
         }
         if names.len() >= MAX_FILES {
-            return Err(format!("archive: more than {MAX_FILES} files"));
+            return Err(ArchiveError::TooManyFiles);
         }
-        let size = octal(&header[124..136]).ok_or("archive: bad size")?;
+        let size = octal(&header[124..136]).ok_or(ArchiveError::BadSize)?;
         let is_bin = name == BIN;
         let max = if is_bin { MAX_BINARY } else { MAX_EXTRA };
         if size > max {
-            return Err(format!("archive: {name} has {size} bytes, more than {max}"));
+            return Err(ArchiveError::EntryTooLarge { name, size, max });
         }
         let mode = octal(&header[100..108]).unwrap_or(0);
         if is_bin && (size == 0 || mode & 0o100 == 0) {
-            return Err(format!("archive: {BIN} is not an executable file"));
+            return Err(ArchiveError::NotExecutable);
         }
         // the mode is the broker's: 0755 for the binary, 0644 for the rest
         let path = dir.join(&name);
@@ -828,9 +1277,9 @@ fn untar(src: &mut impl Read, dir: &Path) -> Result<Vec<String>, String> {
         let mut buf = vec![0u8; 1 << 16];
         while left > 0 {
             let want = left.min(buf.len() as u64) as usize;
-            let n = read_full(src, &mut buf[..want]).map_err(|e| format!("archive: {e}"))?;
+            let n = read_full(src, &mut buf[..want]).map_err(ArchiveError::Read)?;
             if n != want {
-                return Err(format!("archive: cut off in {name}"));
+                return Err(ArchiveError::CutOff(CutOff::In(name)));
             }
             out.write_all(&buf[..n]).map_err(|e| io(&path, e))?;
             left -= n as u64;
@@ -838,10 +1287,9 @@ fn untar(src: &mut impl Read, dir: &Path) -> Result<Vec<String>, String> {
         out.sync_all().map_err(|e| io(&path, e))?;
         let pad = (512 - (size % 512)) % 512;
         if pad > 0 {
-            let n =
-                read_full(src, &mut buf[..pad as usize]).map_err(|e| format!("archive: {e}"))?;
+            let n = read_full(src, &mut buf[..pad as usize]).map_err(ArchiveError::Read)?;
             if n as u64 != pad {
-                return Err(format!("archive: cut off after {name}"));
+                return Err(ArchiveError::CutOff(CutOff::After(name)));
             }
         }
         names.push(name);
@@ -850,17 +1298,17 @@ fn untar(src: &mut impl Read, dir: &Path) -> Result<Vec<String>, String> {
     let mut rest = 0usize;
     let mut buf = vec![0u8; 1 << 14];
     loop {
-        let n = src.read(&mut buf).map_err(|e| format!("archive: {e}"))?;
+        let n = src.read(&mut buf).map_err(ArchiveError::Read)?;
         if n == 0 {
             break;
         }
         rest += n;
         if rest > 1 << 20 || buf[..n].iter().any(|b| *b != 0) {
-            return Err("archive: data after its end".into());
+            return Err(ArchiveError::DataAfterEnd);
         }
     }
     if !names.iter().any(|n| n == BIN) {
-        return Err(format!("archive: no {BIN} in it"));
+        return Err(ArchiveError::NoBinary);
     }
     Ok(names)
 }
@@ -876,20 +1324,20 @@ pub fn unpack(
     asset: &Asset,
     versions: &Path,
     version: &str,
-) -> Result<PathBuf, String> {
+) -> Result<PathBuf, ArchiveError> {
     check_version(version)?;
     let (sha, size) = sha256_file(archive)?;
     if size != asset.size {
-        return Err(format!(
-            "the archive has {size} bytes, the release says {}",
-            asset.size
-        ));
+        return Err(ArchiveError::SizeMismatch {
+            size,
+            want: asset.size,
+        });
     }
     if sha != asset.sha256 {
-        return Err("the archive's SHA-256 is not the one of the release".into());
+        return Err(ArchiveError::HashMismatch);
     }
     if size > MAX_ARCHIVE {
-        return Err(format!("the archive has more than {MAX_ARCHIVE} bytes"));
+        return Err(ArchiveError::TooLarge);
     }
     std::fs::create_dir_all(versions).map_err(|e| io(versions, e))?;
     let part = versions.join(format!(".{version}.part"));
@@ -899,7 +1347,7 @@ pub fn unpack(
             .map_err(|e| io(&part, e))?;
     }
     new_dir(&part, 0o755).map_err(|e| io(&part, e))?;
-    let unpacked = (|| {
+    let unpacked = (|| -> Result<Vec<String>, ArchiveError> {
         let f = std::fs::File::open(archive).map_err(|e| io(archive, e))?;
         // what the archive may unpack to, with room for the headers
         let limit = MAX_BINARY + (MAX_FILES as u64) * (MAX_EXTRA + 1024) + (2 << 20);
@@ -912,7 +1360,7 @@ pub fn unpack(
         if bin == asset.bin_sha256 {
             Ok(())
         } else {
-            Err("the binary in the archive is not the one of the release (SHA-256)".to_owned())
+            Err(ArchiveError::BinaryMismatch)
         }
     });
     if let Err(e) = unpacked {
@@ -939,7 +1387,7 @@ pub fn keep_release(
     version: &str,
     document: &[u8],
     signature: &str,
-) -> Result<(), String> {
+) -> Result<(), LayoutError> {
     check_version(version)?;
     let dir = versions.join(version);
     for (name, bytes) in [
@@ -959,15 +1407,15 @@ pub fn keep_release(
 }
 
 /// A small file that is a file (no link), read whole.
-fn read_plain_file(path: &Path, max: u64) -> Result<Vec<u8>, String> {
+fn read_plain_file(path: &Path, max: u64) -> Result<Vec<u8>, PlainFileError> {
     let m = path.symlink_metadata().map_err(|e| io(path, e))?;
     if !m.file_type().is_file() || m.len() > max {
-        return Err(format!(
-            "{}: not a plain file of at most {max} bytes",
-            path.display()
-        ));
+        return Err(PlainFileError::NotPlain {
+            path: path.to_owned(),
+            max,
+        });
     }
-    std::fs::read(path).map_err(|e| io(path, e))
+    Ok(std::fs::read(path).map_err(|e| io(path, e))?)
 }
 
 /// The install layout of a broker that updates itself.
@@ -1018,45 +1466,43 @@ impl Layout {
         version: &str,
         sha256: &str,
         keys: &[VerifyingKey],
-    ) -> Result<(), String> {
+    ) -> Result<(), LayoutError> {
         check_version(version)?;
         if self.trusted_list().get(version).map(String::as_str) == Some(sha256) {
             return Ok(());
         }
         let dir = self.versions().join(version);
-        let found = (|| {
+        let found = (|| -> Result<(), Unverified> {
             let doc = read_plain_file(&dir.join(RELEASE_DOC), MAX_RELEASE as u64)?;
             let sig = read_plain_file(&dir.join(RELEASE_SIG), 4096)?;
-            let sig = String::from_utf8(sig).map_err(|_| "signature: not text".to_owned())?;
+            let sig = String::from_utf8(sig).map_err(Unverified::SignatureNotText)?;
             let release = read_release(&doc, &sig, keys)?;
             if release.version != version {
-                return Err(format!(
-                    "its release document is of wyrmd {}",
-                    release.version
-                ));
+                return Err(Unverified::OtherVersion(release.version));
             }
-            let asset = release
-                .targets
-                .get(&target())
-                .ok_or("its release has no build for this host")?;
+            let asset = release.targets.get(&target()).ok_or(Unverified::NoBuild)?;
             if asset.bin_sha256 != sha256 {
-                return Err("the binary is not the one its signed release names".to_owned());
+                return Err(Unverified::BinaryMismatch);
             }
             Ok(())
         })();
-        found.map_err(|e| format!("wyrmd {version} in {} is not verified: {e}", dir.display()))
+        found.map_err(|why| LayoutError::NotVerified {
+            version: version.to_owned(),
+            dir,
+            why: Box::new(why),
+        })
     }
 
     /// [`Self::verify_hash`] of the binary of `version` as it is on disk (a
     /// plain file, no link).
-    pub fn verify(&self, version: &str, keys: &[VerifyingKey]) -> Result<(), String> {
+    pub fn verify(&self, version: &str, keys: &[VerifyingKey]) -> Result<(), LayoutError> {
         check_version(version)?;
         let bin = self.bin_of(version);
         let plain = bin
             .symlink_metadata()
             .is_ok_and(|m| m.file_type().is_file());
         if !plain {
-            return Err(format!("{}: not a plain file", bin.display()));
+            return Err(LayoutError::BinaryNotPlain(bin));
         }
         let (sha, _) = sha256_file(&bin)?;
         self.verify_hash(version, &sha, keys)
@@ -1064,7 +1510,7 @@ impl Layout {
 
     /// Name `version` with the hash of its binary in `bin/trusted.json`: a
     /// version put there by hand has no signed release.
-    fn trust(&self, version: &str, sha256: &str) -> Result<(), String> {
+    fn trust(&self, version: &str, sha256: &str) -> Result<(), LayoutError> {
         let mut list = self.trusted_list();
         list.insert(version.to_owned(), sha256.to_owned());
         let path = self.trusted();
@@ -1074,11 +1520,12 @@ impl Layout {
         if tmp.symlink_metadata().is_ok() {
             std::fs::remove_file(&tmp).map_err(|e| io(&tmp, e))?;
         }
-        let bytes = serde_json::to_vec_pretty(&list).map_err(|e| e.to_string())?;
+        let bytes = serde_json::to_vec_pretty(&list).map_err(LayoutError::Encode)?;
         let mut f = new_file(&tmp, 0o644).map_err(|e| io(&tmp, e))?;
         f.write_all(&bytes).map_err(|e| io(&tmp, e))?;
         f.sync_all().map_err(|e| io(&tmp, e))?;
-        std::fs::rename(&tmp, &path).map_err(|e| io(&path, e))
+        std::fs::rename(&tmp, &path).map_err(|e| io(&path, e))?;
+        Ok(())
     }
 
     /// For a guard that runs as root (`ExecStartPre=+… guard-refresh`, the
@@ -1086,10 +1533,10 @@ impl Layout {
     /// current, when that version is verified. The binary is read once,
     /// through no link, and what was hashed is what is written. Returns
     /// whether the guard was replaced.
-    pub fn refresh_guard_verified(&self, keys: &[VerifyingKey]) -> Result<bool, String> {
+    pub fn refresh_guard_verified(&self, keys: &[VerifyingKey]) -> Result<bool, LayoutError> {
         let version = self
             .current_version()
-            .ok_or_else(|| format!("{}: not a link to a version", self.current().display()))?;
+            .ok_or_else(|| LayoutError::CurrentNotVersion(self.current()))?;
         let bytes = read_plain_file(&self.bin_of(&version), MAX_BINARY)?;
         let sha = wyrm_core::hex::sha256_hex(&bytes);
         self.verify_hash(&version, &sha, keys)?;
@@ -1129,17 +1576,14 @@ impl Layout {
     /// `<prefix>/versions/<version>/wyrmd`, `<prefix>/current` the link to
     /// that version and `<prefix>/bin/wyrmd-guard` a file. `Err` says what
     /// is missing.
-    pub fn of_broker(exe: &Path, version: &str) -> Result<Self, String> {
+    pub fn of_broker(exe: &Path, version: &str) -> Result<Self, LayoutError> {
         if !cfg!(unix) {
-            return Err("updates.mode \"self\" works on Linux and macOS only".into());
+            return Err(LayoutError::Unsupported);
         }
         let exe = exe.canonicalize().map_err(|e| io(exe, e))?;
-        let wrong = || {
-            format!(
-                "updates.mode \"self\": this broker runs {}, not \
-                 <prefix>/versions/{version}/{BIN} ({LAYOUT_HELP}; `wyrmd install-layout <prefix>` makes it)",
-                exe.display()
-            )
+        let wrong = || LayoutError::NotInLayout {
+            exe: exe.clone(),
+            version: version.to_owned(),
         };
         if exe.file_name().and_then(|n| n.to_str()) != Some(BIN) {
             return Err(wrong());
@@ -1160,26 +1604,23 @@ impl Layout {
             .symlink_metadata()
             .is_ok_and(|m| m.file_type().is_symlink());
         if !is_link || l.current_version().as_deref() != Some(version) {
-            return Err(format!(
-                "updates.mode \"self\": {} is not a symbolic link to versions/{version} ({LAYOUT_HELP})",
-                l.current().display()
-            ));
+            return Err(LayoutError::CurrentNotLink {
+                current: l.current(),
+                version: version.to_owned(),
+            });
         }
         let guard_ok = l
             .guard()
             .symlink_metadata()
             .is_ok_and(|m| m.file_type().is_file());
         if !guard_ok {
-            return Err(format!(
-                "updates.mode \"self\": no guard at {} ({LAYOUT_HELP})",
-                l.guard().display()
-            ));
+            return Err(LayoutError::NoGuard(l.guard()));
         }
         Ok(l)
     }
 
     /// The layout of a guard: `exe` is `<prefix>/bin/wyrmd-guard`.
-    pub fn of_guard(exe: &Path) -> Result<Self, String> {
+    pub fn of_guard(exe: &Path) -> Result<Self, LayoutError> {
         let exe = exe.canonicalize().map_err(|e| io(exe, e))?;
         let bin = exe
             .parent()
@@ -1188,25 +1629,19 @@ impl Layout {
             Some(b) if b.file_name().and_then(|n| n.to_str()) == Some("bin") => Ok(Self {
                 prefix: b
                     .parent()
-                    .ok_or_else(|| format!("{}: no prefix", exe.display()))?
+                    .ok_or_else(|| LayoutError::NoPrefix(exe.clone()))?
                     .to_owned(),
             }),
-            _ => Err(format!(
-                "{}: the guard runs as <prefix>/bin/{GUARD}",
-                exe.display()
-            )),
+            _ => Err(LayoutError::NotGuard(exe)),
         }
     }
 
     /// Point `current` at `versions/<version>`: a new symbolic link beside
     /// it, renamed over it. A reader sees the old target or the new one.
-    pub fn switch(&self, version: &str) -> Result<(), String> {
+    pub fn switch(&self, version: &str) -> Result<(), LayoutError> {
         check_version(version)?;
         if !self.bin_of(version).is_file() {
-            return Err(format!(
-                "{}: no such version",
-                self.bin_of(version).display()
-            ));
+            return Err(LayoutError::NoSuchVersion(self.bin_of(version)));
         }
         #[cfg(unix)]
         {
@@ -1222,12 +1657,12 @@ impl Layout {
             Ok(())
         }
         #[cfg(not(unix))]
-        Err("updates.mode \"self\" works on Linux and macOS only".into())
+        Err(LayoutError::Unsupported)
     }
 
     /// Make `bin/wyrmd-guard` a copy of `from`: written new beside it, then
     /// renamed over it.
-    pub fn refresh_guard(&self, from: &Path) -> Result<(), String> {
+    pub fn refresh_guard(&self, from: &Path) -> Result<(), LayoutError> {
         let guard = self.guard();
         let dir = guard.parent().unwrap_or(&self.prefix).to_owned();
         std::fs::create_dir_all(&dir).map_err(|e| io(&dir, e))?;
@@ -1257,10 +1692,10 @@ impl Layout {
     /// (`wyrmd install-layout`): the version directory, `current`, the
     /// guard. An existing version directory of that name must hold the same
     /// binary.
-    pub fn install(prefix: &Path, exe: &Path, version: &str) -> Result<Self, String> {
+    pub fn install(prefix: &Path, exe: &Path, version: &str) -> Result<Self, LayoutError> {
         check_version(version)?;
         if !cfg!(unix) {
-            return Err("the layout of a self-updating broker needs Linux or macOS".into());
+            return Err(LayoutError::InstallUnsupported);
         }
         std::fs::create_dir_all(prefix).map_err(|e| io(prefix, e))?;
         let l = Self {
@@ -1270,10 +1705,10 @@ impl Layout {
         let bin = vdir.join(BIN);
         if bin.is_file() {
             if sha256_file(&bin)? != sha256_file(exe)? {
-                return Err(format!(
-                    "{}: another binary of version {version} is there",
-                    bin.display()
-                ));
+                return Err(LayoutError::OtherBinary {
+                    path: bin,
+                    version: version.to_owned(),
+                });
             }
         } else {
             std::fs::create_dir_all(&vdir).map_err(|e| io(&vdir, e))?;
@@ -1451,9 +1886,9 @@ impl UpdateFile {
     }
 
     /// Written beside the file and renamed over it.
-    pub fn save(&self, data_dir: &Path) -> Result<(), String> {
+    pub fn save(&self, data_dir: &Path) -> Result<(), LayoutError> {
         let path = data_dir.join(STATE_FILE);
-        let bytes = serde_json::to_vec_pretty(self).map_err(|e| e.to_string())?;
+        let bytes = serde_json::to_vec_pretty(self).map_err(LayoutError::Encode)?;
         crate::secret::write_private(&path, &bytes).map_err(|e| io(&path, e))?;
         sync_dir(data_dir)?;
         Ok(())
@@ -1571,7 +2006,7 @@ pub fn guard(
     data_dir: &Path,
     version: &str,
     keys: Option<&[VerifyingKey]>,
-) -> Result<Guarded, String> {
+) -> Result<Guarded, LayoutError> {
     stamp_guard(data_dir, version);
     let done = match UpdateFile::load(data_dir) {
         Some(u) => decide(layout, data_dir, u),
@@ -1732,10 +2167,14 @@ fn restore_for(data_dir: &Path, u: &UpdateFile, moved: &[String]) -> Result<(), 
 
 /// The version `current` names is verified, or another version of the
 /// update that is; `Err` when nothing verified can be started.
-fn verified_current(layout: &Layout, data_dir: &Path, keys: &[VerifyingKey]) -> Result<(), String> {
+fn verified_current(
+    layout: &Layout,
+    data_dir: &Path,
+    keys: &[VerifyingKey],
+) -> Result<(), LayoutError> {
     let current = layout
         .current_version()
-        .ok_or_else(|| format!("{}: not a link to a version", layout.current().display()))?;
+        .ok_or_else(|| LayoutError::CurrentNotVersion(layout.current()))?;
     let Err(why) = layout.verify(&current, keys) else {
         return Ok(());
     };
@@ -1745,10 +2184,7 @@ fn verified_current(layout: &Layout, data_dir: &Path, keys: &[VerifyingKey]) -> 
         .map(|u| other_of(u, &current).to_owned())
         .filter(|o| o != &current && layout.verify(o, keys).is_ok());
     let Some(other) = other else {
-        return Err(format!(
-            "{why}. Nothing is started: a broker in updates.mode \"self\" runs only a binary \
-             that a pinned release key signed or that `wyrmd install-layout` put there"
-        ));
+        return Err(LayoutError::NothingVerified(Box::new(why)));
     };
     layout.switch(&other)?;
     if let Some(u) = u.as_mut() {
@@ -1799,30 +2235,31 @@ pub fn restore_control(
     backup: &Path,
     stores: &[String],
     existed: &[String],
-) -> Result<(), String> {
+) -> Result<(), RestoreError> {
     use crate::backup as format;
-    let mut r = format::Reader::open(backup, 8 << 30)?;
+    let mut r = format::Reader::open(backup, 8 << 30).map_err(RestoreError::Backup)?;
     if r.manifest().kind != format::Kind::Broker {
-        return Err("not a broker backup".into());
+        return Err(RestoreError::NotBroker);
     }
     if r.manifest().sealed.how != crate::backup::How::Broker {
-        return Err("not sealed for this broker".into());
+        return Err(RestoreError::NotSealedForBroker);
     }
     let key_path = data_dir.join("secrets.key");
-    let secrets_key = zeroize::Zeroizing::new(
-        std::fs::read_to_string(&key_path)
-            .ok()
-            .and_then(|t| hex::decode(t.trim()).ok())
-            .ok_or("secrets.key: not readable")?,
-    );
+    let key_text = std::fs::read_to_string(&key_path).map_err(RestoreError::SecretsKey)?;
+    // the cause of a key that is not hex quotes a character of the key: it
+    // is not kept
+    let Ok(key_bytes) = hex::decode(key_text.trim()) else {
+        return Err(RestoreError::SecretsKeyNotHex);
+    };
+    let secrets_key = zeroize::Zeroizing::new(key_bytes);
     // the manifest is authentic: every path, size and digest in it
     r.manifest()
         .key(None, Some(&secrets_key))
-        .map_err(|e| format!("its manifest is not this broker's: {e}"))?;
+        .map_err(RestoreError::Manifest)?;
     let listed: Vec<String> = r
         .manifest()
         .section(crate::backup::SectionName::Control)
-        .ok_or("the backup has no control section")?
+        .ok_or(RestoreError::NoControl)?
         .files
         .iter()
         .map(|f| f.path.clone())
@@ -1838,7 +2275,7 @@ pub fn restore_control(
         let (_, name, dir) = CONTROL_STORES
             .iter()
             .find(|(schema, _, _)| schema == store)
-            .ok_or_else(|| format!("{store}: not a control-plane store"))?;
+            .ok_or_else(|| RestoreError::UnknownStore(store.clone()))?;
         if !existed.contains(store) {
             swaps.push((name, dir, false));
             continue;
@@ -1848,13 +2285,14 @@ pub fn restore_control(
         for path in listed.iter().filter(|p| p.starts_with(&prefix)) {
             let file = &path[prefix.len()..];
             if !plain_name(file, 128) {
-                return Err(format!("{path}: not a file of a WAL store"));
+                return Err(RestoreError::NotWalFile(path.clone()));
             }
-            r.extract(path, &stage.join(name).join(file), None)?;
+            r.extract(path, &stage.join(name).join(file), None)
+                .map_err(RestoreError::Backup)?;
             n += 1;
         }
         if n == 0 {
-            return Err(format!("the backup does not hold the store {store}"));
+            return Err(RestoreError::StoreMissing(store.clone()));
         }
         swaps.push((name, dir, true));
     }
@@ -1888,7 +2326,7 @@ pub fn restore_control(
                 sync_dir(parent)?;
             }
         }
-        Ok::<(), String>(())
+        Ok::<(), FileError>(())
     })();
     if let Err(e) = swapped {
         // back to what was there: the caller starts a version on it
@@ -1910,7 +2348,7 @@ pub fn restore_control(
             }
         }
         wyrm_core::files::discard_dir(&stage);
-        return Err(e);
+        return Err(e.into());
     }
     wyrm_core::files::discard_dir(&stage);
     Ok(())
@@ -1923,7 +2361,7 @@ pub async fn run_binary(
     bin: &Path,
     argv: &[std::ffi::OsString],
     timeout: std::time::Duration,
-) -> Result<String, String> {
+) -> Result<String, RunError> {
     let mut cmd = tokio::process::Command::new(bin);
     cmd.args(argv)
         .env_clear()
@@ -1934,7 +2372,11 @@ pub async fn run_binary(
     let child = cmd.spawn().map_err(|e| io(bin, e))?;
     let out = tokio::time::timeout(timeout, child.wait_with_output())
         .await
-        .map_err(|_| format!("{}: no answer in {} s", bin.display(), timeout.as_secs()))?
+        .map_err(|source| RunError::Timeout {
+            bin: bin.to_owned(),
+            secs: timeout.as_secs(),
+            source,
+        })?
         .map_err(|e| io(bin, e))?;
     let tail = |b: &[u8]| {
         let s = String::from_utf8_lossy(b);
@@ -1951,7 +2393,11 @@ pub async fn run_binary(
         } else {
             said
         };
-        Err(format!("{} ({}): {said}", bin.display(), out.status))
+        Err(RunError::Failed {
+            bin: bin.to_owned(),
+            status: out.status,
+            said,
+        })
     }
 }
 
@@ -1981,14 +2427,14 @@ pub fn pack(
     extras: &[(&str, &[u8])],
     out: &Path,
     level: flate2::Compression,
-) -> Result<Asset, String> {
+) -> Result<Asset, ArchiveError> {
     let size = std::fs::metadata(bin).map_err(|e| io(bin, e))?.len();
     if size == 0 || size > MAX_BINARY {
-        return Err(format!("{}: 1 to {MAX_BINARY} bytes", bin.display()));
+        return Err(ArchiveError::BinarySize(bin.to_owned()));
     }
     for (name, data) in extras {
         if !plain_name(name, 64) || *name == BIN || data.len() as u64 > MAX_EXTRA {
-            return Err(format!("{name}: not a small file with a plain name"));
+            return Err(ArchiveError::Extra((*name).to_owned()));
         }
     }
     let f = std::fs::File::create(out).map_err(|e| io(out, e))?;
@@ -2011,7 +2457,7 @@ pub fn pack(
     gz.finish().map_err(werr)?.sync_all().map_err(werr)?;
     let (sha256, size) = sha256_file(out)?;
     if size > MAX_ARCHIVE {
-        return Err(format!("the archive has more than {MAX_ARCHIVE} bytes"));
+        return Err(ArchiveError::TooLarge);
     }
     Ok(Asset {
         file: out
@@ -2054,7 +2500,11 @@ pub mod testkit {
     }
 
     /// [`pack`] without compression (a debug binary is large).
-    pub fn archive_of(bin: &Path, extras: &[(&str, &[u8])], out: &Path) -> Result<Asset, String> {
+    pub fn archive_of(
+        bin: &Path,
+        extras: &[(&str, &[u8])],
+        out: &Path,
+    ) -> Result<Asset, ArchiveError> {
         pack(bin, extras, out, flate2::Compression::none())
     }
 }
@@ -2134,6 +2584,19 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// Is it this refusal of one entry of an archive?
+    fn entry(want: Refused) -> impl Fn(&ArchiveError) -> bool {
+        move |e| matches!(e, ArchiveError::Entry { refused, .. } if *refused == want)
+    }
+
+    /// Why a version is not verified, if that is the error.
+    fn unverified(e: &LayoutError) -> Option<&Unverified> {
+        match e {
+            LayoutError::NotVerified { why, .. } => Some(why),
+            _ => None,
+        }
+    }
+
     fn scratch(name: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("wyrm-release-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
@@ -2143,6 +2606,434 @@ mod tests {
 
     fn key(n: u8) -> SigningKey {
         SigningKey::from_bytes(&[n; 32])
+    }
+
+    /// The texts are the ones these errors had as a `String` (audit T7): they
+    /// are what `sys/update_last`, `sys/update_hint`, the refusals of
+    /// `sys/~act/update`, the audit journal and the command line say.
+    #[test]
+    fn the_errors_say_what_they_said_as_text() {
+        fn io_err() -> std::io::Error {
+            std::io::Error::other("no")
+        }
+        fn file() -> FileError {
+            io(Path::new("/p/f"), io_err())
+        }
+        fn not_text() -> std::string::FromUtf8Error {
+            String::from_utf8(vec![0xff]).unwrap_err()
+        }
+        fn json() -> serde_json::Error {
+            serde_json::from_slice::<Release>(b"{").unwrap_err()
+        }
+        let json_said = json().to_string();
+        let said = |e: &dyn std::fmt::Display, want: &str| assert_eq!(e.to_string(), want);
+        let p = || PathBuf::from("/p/f");
+
+        said(&file(), "/p/f: no");
+        said(
+            &BadVersion("a/b".into()),
+            "version \"a/b\": not a version name",
+        );
+
+        use Document::{Channel as C, Index as I, Release as Rel};
+        use ReleaseError as R;
+        said(
+            &R::Version(BadVersion("x".into())),
+            "version \"x\": not a version name",
+        );
+        for (what, max, want) in [
+            (Rel, MAX_RELEASE, "release: more than 262144 bytes"),
+            (I, MAX_RELEASE * 4, "index: more than 1048576 bytes"),
+            (C, MAX_CHANNEL, "channel: more than 2621440 bytes"),
+        ] {
+            said(&R::TooLarge { what, max }, want);
+        }
+        said(
+            &R::NoPinnedKey,
+            "no release key is pinned: this build has none and updates.keys is empty",
+        );
+        said(
+            &R::NoSignature,
+            "signature: no Ed25519 signature (128 hex digits a line)",
+        );
+        said(&R::NotSigned, "signature: not made by a pinned release key");
+        let hex_digits = "updates.keys: an Ed25519 public key is 64 hex digits";
+        said(&pinned_keys(&["zz".into()]).unwrap_err(), hex_digits);
+        said(&pinned_keys(&["abcd".into()]).unwrap_err(), hex_digits);
+        assert!(matches!(pinned_keys(&["zz".into()]), Err(R::KeyNotHex(_))));
+        assert!(matches!(
+            pinned_keys(&["abcd".into()]),
+            Err(R::KeyLength(2))
+        ));
+        // 32 bytes that are no point of the curve
+        let no_point = (0u8..=255)
+            .map(|b| hex::encode([b; 32]))
+            .find_map(|k| pinned_keys(&[k]).err())
+            .unwrap();
+        assert!(matches!(no_point, R::KeyNotEd25519(_)), "{no_point}");
+        said(&no_point, "updates.keys: not an Ed25519 public key");
+        for (what, word) in [(Rel, "release"), (I, "index"), (C, "channel")] {
+            said(
+                &R::Json {
+                    what,
+                    source: json(),
+                },
+                &format!("{word}: {json_said}"),
+            );
+            said(
+                &R::Format { what, found: 2 },
+                &format!("{word} format 2: this broker reads format 1"),
+            );
+        }
+        said(
+            &R::NotDotted("1x".into()),
+            "version \"1x\": not dotted numbers",
+        );
+        said(&R::TextTooLong, "date or notes: too long");
+        said(&R::NotesUrl, "notes: an https:// URL");
+        said(&R::Schemas, "schemas: at most 16 plain names");
+        said(&R::Targets, "targets: 1 to 64");
+        said(
+            &R::TargetName("a b".into()),
+            "target \"a b\": not a plain name",
+        );
+        for (fault, want) in [
+            (
+                AssetFault::File("x.zip".into()),
+                "target t: file \"x.zip\": a plain *.tar.gz name",
+            ),
+            (
+                AssetFault::Sha256,
+                "target t: sha256: 64 lower-case hex digits",
+            ),
+            (
+                AssetFault::BinSha256,
+                "target t: bin_sha256: 64 lower-case hex digits",
+            ),
+            (
+                AssetFault::Size(0),
+                "target t: size 0: 1 to 536870912 bytes",
+            ),
+            (AssetFault::Url, "target t: url: https:// only"),
+        ] {
+            said(
+                &R::Asset {
+                    target: "t".into(),
+                    fault,
+                },
+                want,
+            );
+        }
+        said(&R::TooManyReleases, "index: more than 256 releases");
+        said(
+            &R::IndexHeader,
+            "index: no sequence, or a created that is not a date",
+        );
+        said(
+            &R::Entry(Box::new(R::NotSigned)),
+            "index: an entry is refused: signature: not made by a pinned release key",
+        );
+        said(&R::Twice("0.2.0".into()), "index: wyrmd 0.2.0 twice");
+        said(&R::SequenceUsedUp, "index: the sequence is used up");
+        said(
+            &R::DocumentNotText(not_text()),
+            "a release document is not text",
+        );
+        said(&R::IndexNotText(not_text()), "index: not text");
+        said(&R::Encode(json()), &json_said);
+        said(
+            &R::SequenceWentBack {
+                sequence: 8,
+                seen: 9,
+            },
+            "the releases index is older than one this broker has read (sequence 8, \
+             read 9): an old index was put back",
+        );
+        said(&R::File(file()), "/p/f: no");
+
+        let v = || "0.2.0".to_owned();
+        said(
+            &Incompatible::NoBuild {
+                version: v(),
+                target: "a".into(),
+                has: "b, c".into(),
+            },
+            "wyrmd 0.2.0 has no build for a (it has b, c)",
+        );
+        said(
+            &Incompatible::NotNewer {
+                version: v(),
+                running: "0.3.0".into(),
+            },
+            "wyrmd 0.2.0 is not newer than 0.3.0: an update never goes down a version",
+        );
+        said(
+            &Incompatible::UnknownStore {
+                version: v(),
+                store: "ledger".into(),
+            },
+            "wyrmd 0.2.0 names the store \"ledger\", which this version cannot restore \
+             after a failed update: update this broker by hand",
+        );
+        said(
+            &Incompatible::TooOld {
+                version: v(),
+                min_from: "0.1.5".into(),
+                running: "0.1.0".into(),
+            },
+            "wyrmd 0.2.0 starts from 0.1.5 or later; this broker runs 0.1.0: update to 0.1.5 first",
+        );
+        said(
+            &Incompatible::OlderSchema {
+                version: v(),
+                store: "registry".into(),
+                writes: 18,
+                have: 19,
+            },
+            "wyrmd 0.2.0 writes SCHEMA 18 of registry; this data_dir is at 19: \
+             it cannot be read by an older SCHEMA",
+        );
+        said(
+            &Incompatible::SchemaNotNamed {
+                version: v(),
+                store: "audit".into(),
+            },
+            "wyrmd 0.2.0 does not name the SCHEMA of audit",
+        );
+
+        use ArchiveError as A;
+        said(
+            &A::Version(BadVersion("x".into())),
+            "version \"x\": not a version name",
+        );
+        said(&A::File(file()), "/p/f: no");
+        said(
+            &A::SizeMismatch { size: 5, want: 6 },
+            "the archive has 5 bytes, the release says 6",
+        );
+        said(
+            &A::HashMismatch,
+            "the archive's SHA-256 is not the one of the release",
+        );
+        said(&A::TooLarge, "the archive has more than 536870912 bytes");
+        said(
+            &A::BinaryMismatch,
+            "the binary in the archive is not the one of the release (SHA-256)",
+        );
+        said(&A::Read(io_err()), "archive: no");
+        said(&A::NoEndMark, "archive: it ends without an end mark");
+        said(&A::CutOff(CutOff::Header), "archive: cut off in a header");
+        said(
+            &A::CutOff(CutOff::In("wyrmd".into())),
+            "archive: cut off in wyrmd",
+        );
+        said(
+            &A::CutOff(CutOff::After("wyrmd".into())),
+            "archive: cut off after wyrmd",
+        );
+        said(&A::BadChecksum, "archive: bad header checksum");
+        said(&A::NameNotUtf8(not_text()), "archive: a name is not UTF-8");
+        for (refused, want) in [
+            (
+                Refused::Path,
+                "archive: entry \"a/b\": a path, not a plain name",
+            ),
+            (Refused::HardLink, "archive: entry \"a/b\" is a hard link"),
+            (
+                Refused::SymbolicLink,
+                "archive: entry \"a/b\" is a symbolic link",
+            ),
+            (
+                Refused::Device,
+                "archive: entry \"a/b\" is a device or a pipe",
+            ),
+            (Refused::Directory, "archive: entry \"a/b\" is a directory"),
+            (
+                Refused::Type('L'),
+                "archive: entry \"a/b\" has type 'L': plain files only",
+            ),
+            (
+                Refused::NotPlainName,
+                "archive: entry \"a/b\": not a plain file name (no directories, no `..`)",
+            ),
+            (
+                Refused::Reserved,
+                "archive: entry a/b: the name of a file the broker writes",
+            ),
+            (Refused::Twice, "archive: entry a/b twice"),
+        ] {
+            said(
+                &A::Entry {
+                    name: "a/b".into(),
+                    refused,
+                },
+                want,
+            );
+        }
+        said(&A::TooManyFiles, "archive: more than 9 files");
+        said(&A::BadSize, "archive: bad size");
+        said(
+            &A::EntryTooLarge {
+                name: "big".into(),
+                size: 1_048_577,
+                max: MAX_EXTRA,
+            },
+            "archive: big has 1048577 bytes, more than 1048576",
+        );
+        said(
+            &A::NotExecutable,
+            "archive: wyrmd is not an executable file",
+        );
+        said(&A::DataAfterEnd, "archive: data after its end");
+        said(&A::NoBinary, "archive: no wyrmd in it");
+        said(&A::BinarySize(p()), "/p/f: 1 to 1073741824 bytes");
+        said(
+            &A::Extra("../x".into()),
+            "../x: not a small file with a plain name",
+        );
+
+        let not_plain = || PlainFileError::NotPlain {
+            path: p(),
+            max: 4096,
+        };
+        said(&not_plain(), "/p/f: not a plain file of at most 4096 bytes");
+        said(&PlainFileError::File(file()), "/p/f: no");
+        let not_verified = |why: Unverified| LayoutError::NotVerified {
+            version: v(),
+            dir: PathBuf::from("/opt/versions/0.2.0"),
+            why: Box::new(why),
+        };
+        for (why, want) in [
+            (
+                Unverified::File(not_plain()),
+                "/p/f: not a plain file of at most 4096 bytes",
+            ),
+            (
+                Unverified::SignatureNotText(not_text()),
+                "signature: not text",
+            ),
+            (
+                Unverified::Release(R::NotSigned),
+                "signature: not made by a pinned release key",
+            ),
+            (
+                Unverified::OtherVersion("0.3.0".into()),
+                "its release document is of wyrmd 0.3.0",
+            ),
+            (
+                Unverified::NoBuild,
+                "its release has no build for this host",
+            ),
+            (
+                Unverified::BinaryMismatch,
+                "the binary is not the one its signed release names",
+            ),
+        ] {
+            said(
+                &not_verified(why),
+                &format!("wyrmd 0.2.0 in /opt/versions/0.2.0 is not verified: {want}"),
+            );
+        }
+
+        use LayoutError as L;
+        said(
+            &L::Version(BadVersion("x".into())),
+            "version \"x\": not a version name",
+        );
+        said(&L::File(file()), "/p/f: no");
+        said(
+            &L::PlainFile(not_plain()),
+            "/p/f: not a plain file of at most 4096 bytes",
+        );
+        said(&L::BinaryNotPlain(p()), "/p/f: not a plain file");
+        said(&L::CurrentNotVersion(p()), "/p/f: not a link to a version");
+        said(
+            &L::Unsupported,
+            "updates.mode \"self\" works on Linux and macOS only",
+        );
+        said(
+            &L::NotInLayout {
+                exe: p(),
+                version: v(),
+            },
+            "updates.mode \"self\": this broker runs /p/f, not \
+             <prefix>/versions/0.2.0/wyrmd (docs/operations.md §2 \"A broker that updates \
+             itself\"; `wyrmd install-layout <prefix>` makes it)",
+        );
+        said(
+            &L::CurrentNotLink {
+                current: p(),
+                version: v(),
+            },
+            "updates.mode \"self\": /p/f is not a symbolic link to versions/0.2.0 \
+             (docs/operations.md §2 \"A broker that updates itself\")",
+        );
+        said(
+            &L::NoGuard(p()),
+            "updates.mode \"self\": no guard at /p/f \
+             (docs/operations.md §2 \"A broker that updates itself\")",
+        );
+        said(&L::NoPrefix(p()), "/p/f: no prefix");
+        said(
+            &L::NotGuard(p()),
+            "/p/f: the guard runs as <prefix>/bin/wyrmd-guard",
+        );
+        said(&L::NoSuchVersion(p()), "/p/f: no such version");
+        said(
+            &L::InstallUnsupported,
+            "the layout of a self-updating broker needs Linux or macOS",
+        );
+        said(
+            &L::OtherBinary {
+                path: p(),
+                version: v(),
+            },
+            "/p/f: another binary of version 0.2.0 is there",
+        );
+        said(&L::Encode(json()), &json_said);
+        said(
+            &L::NothingVerified(Box::new(not_verified(Unverified::BinaryMismatch))),
+            "wyrmd 0.2.0 in /opt/versions/0.2.0 is not verified: the binary is not the one \
+             its signed release names. Nothing is started: a broker in updates.mode \"self\" \
+             runs only a binary that a pinned release key signed or that `wyrmd \
+             install-layout` put there",
+        );
+
+        use RestoreError as Rs;
+        said(&Rs::Backup("b.zip: no".into()), "b.zip: no");
+        said(&Rs::NotBroker, "not a broker backup");
+        said(&Rs::NotSealedForBroker, "not sealed for this broker");
+        said(&Rs::SecretsKey(io_err()), "secrets.key: not readable");
+        said(&Rs::SecretsKeyNotHex, "secrets.key: not readable");
+        said(
+            &Rs::Manifest("manifest: changed".into()),
+            "its manifest is not this broker's: manifest: changed",
+        );
+        said(&Rs::NoControl, "the backup has no control section");
+        said(
+            &Rs::UnknownStore("ledger".into()),
+            "ledger: not a control-plane store",
+        );
+        said(
+            &Rs::NotWalFile("control/state/a b".into()),
+            "control/state/a b: not a file of a WAL store",
+        );
+        said(
+            &Rs::StoreMissing("users".into()),
+            "the backup does not hold the store users",
+        );
+        said(&Rs::File(file()), "/p/f: no");
+        said(&RunError::File(file()), "/p/f: no");
+    }
+
+    /// The key of `secrets.key` is never in an error: not in its text, and
+    /// not in a cause a log could print.
+    #[test]
+    fn an_error_about_the_secrets_key_does_not_quote_it() {
+        use std::error::Error as _;
+        let e = RestoreError::SecretsKeyNotHex;
+        assert!(e.source().is_none());
+        assert_eq!(format!("{e:?}"), "SecretsKeyNotHex");
     }
 
     fn me() -> Identity {
@@ -2209,29 +3100,40 @@ mod tests {
         );
         // another key signed it
         let err = read_release(&bytes, &sign_release(&bytes, &key(2)), &pinned).unwrap_err();
-        assert!(err.contains("pinned release key"), "{err}");
+        assert!(matches!(err, ReleaseError::NotSigned), "{err}");
         // one byte changed after signing
         let mut changed = bytes.clone();
         let at = changed.iter().position(|b| *b == b'2').unwrap();
         changed[at] = b'9';
-        assert!(read_release(&changed, &sig, &pinned).is_err());
+        assert!(matches!(
+            read_release(&changed, &sig, &pinned),
+            Err(ReleaseError::NotSigned)
+        ));
         // a signature of the index domain does not sign a release
         let err = read_release(&bytes, &sign_index(&bytes, &key(1)), &pinned).unwrap_err();
-        assert!(err.contains("pinned release key"), "{err}");
+        assert!(matches!(err, ReleaseError::NotSigned), "{err}");
         // no key pinned: nothing is trusted, whatever the document says
         let err = read_release(&bytes, &sig, &[]).unwrap_err();
-        assert!(err.contains("no release key is pinned"), "{err}");
+        assert!(matches!(err, ReleaseError::NoPinnedKey), "{err}");
         // not a signature
-        assert!(read_release(&bytes, "zz", &pinned).is_err());
-        assert!(read_release(&bytes, "", &pinned).is_err());
+        for none in ["zz", ""] {
+            assert!(matches!(
+                read_release(&bytes, none, &pinned),
+                Err(ReleaseError::NoSignature)
+            ));
+        }
         // several lines: one good one is enough (a key being rotated)
         let two = format!("{}\n{sig}\n", sign_release(&bytes, &key(2)));
         assert!(read_release(&bytes, &two, &pinned).is_ok());
         // too large, before the signature is looked at
         let big = vec![b' '; MAX_RELEASE + 1];
-        assert!(read_release(&big, &sig, &pinned)
-            .unwrap_err()
-            .contains("more than"));
+        assert!(matches!(
+            read_release(&big, &sig, &pinned),
+            Err(ReleaseError::TooLarge {
+                what: Document::Release,
+                max: MAX_RELEASE
+            })
+        ));
     }
 
     /// The bytes of an index of `releases`, each signed by `signer`.
@@ -2269,7 +3171,11 @@ mod tests {
         assert_eq!(version("x86_64-linux").as_deref(), Some("0.10.0"));
         assert_eq!(version("aarch64-linux").as_deref(), Some("0.9.0"));
         assert!(read.latest("riscv64-linux").is_none());
-        assert!(read_index(&bytes, &sign_release(&bytes, &key(1)), &pinned).is_err());
+        // a signature of the release domain does not sign an index
+        assert!(matches!(
+            read_index(&bytes, &sign_release(&bytes, &key(1)), &pinned),
+            Err(ReleaseError::NotSigned)
+        ));
         // written again it is the same file
         assert_eq!(serde_json::to_vec(&read.to_file().unwrap()).unwrap(), bytes);
     }
@@ -2290,19 +3196,34 @@ mod tests {
         });
         let bytes = serde_json::to_vec(&file).unwrap();
         let err = read_index(&bytes, &sign_index(&bytes, &key(1)), &pinned).unwrap_err();
-        assert!(err.contains("an entry is refused"), "{err}");
+        let entry = |e: &ReleaseError, want: &dyn Fn(&ReleaseError) -> bool| matches!(e, ReleaseError::Entry(why) if want(why));
+        assert!(
+            entry(&err, &|why| matches!(why, ReleaseError::NotSigned)),
+            "{err}"
+        );
         // an entry without a signature, and one whose text was changed
         file.releases[1].signature = String::new();
         let bytes = serde_json::to_vec(&file).unwrap();
-        assert!(read_index(&bytes, &sign_index(&bytes, &key(1)), &pinned).is_err());
+        let err = read_index(&bytes, &sign_index(&bytes, &key(1)), &pinned).unwrap_err();
+        assert!(
+            entry(&err, &|why| matches!(why, ReleaseError::NoSignature)),
+            "{err}"
+        );
         file.releases.pop();
         file.releases[0].release = file.releases[0].release.replace("0.2.0", "0.2.1");
         let bytes = serde_json::to_vec(&file).unwrap();
-        assert!(read_index(&bytes, &sign_index(&bytes, &key(1)), &pinned).is_err());
+        let err = read_index(&bytes, &sign_index(&bytes, &key(1)), &pinned).unwrap_err();
+        assert!(
+            entry(&err, &|why| matches!(why, ReleaseError::NotSigned)),
+            "{err}"
+        );
         // the same version twice
         let bytes = index_bytes(&[release("0.2.0"), release("0.2.0")], &key(1));
         let err = read_index(&bytes, &sign_index(&bytes, &key(1)), &pinned).unwrap_err();
-        assert!(err.contains("twice"), "{err}");
+        assert!(
+            matches!(&err, ReleaseError::Twice(v) if v == "0.2.0"),
+            "{err}"
+        );
         // adding a release needs that release's own signature
         let good = index_bytes(&[release("0.2.0")], &key(1));
         let index = read_index(&good, &sign_index(&good, &key(1)), &pinned).unwrap();
@@ -2311,7 +3232,7 @@ mod tests {
             .clone()
             .with(&doc, &sign_release(&doc, &key(2)), &pinned, "")
             .unwrap_err();
-        assert!(err.contains("pinned release key"), "{err}");
+        assert!(matches!(err, ReleaseError::NotSigned), "{err}");
         let more = index
             .with(&doc, &sign_release(&doc, &key(1)), &pinned, "2026-11-14")
             .unwrap();
@@ -2339,15 +3260,25 @@ mod tests {
         assert_eq!(index.sequence, 7);
         let mut c: Channel = serde_json::from_slice(&channel).unwrap();
         c.index = c.index.replace("\"sequence\":7", "\"sequence\":9");
-        assert!(read_channel(&serde_json::to_vec(&c).unwrap(), &pinned).is_err());
-        assert!(read_channel(b"{}", &pinned).is_err());
+        assert!(matches!(
+            read_channel(&serde_json::to_vec(&c).unwrap(), &pinned),
+            Err(ReleaseError::NotSigned)
+        ));
+        assert!(matches!(
+            read_channel(b"{}", &pinned),
+            Err(ReleaseError::Json {
+                what: Document::Channel,
+                ..
+            })
+        ));
         // an index without a sequence is none
         let mut file: IndexFile = serde_json::from_slice(&bytes).unwrap();
         file.sequence = 0;
         let zero = serde_json::to_vec(&file).unwrap();
-        assert!(read_index(&zero, &sign_index(&zero, &key(1)), &pinned)
-            .unwrap_err()
-            .contains("sequence"));
+        assert!(matches!(
+            read_index(&zero, &sign_index(&zero, &key(1)), &pinned),
+            Err(ReleaseError::IndexHeader)
+        ));
         // what a host has read
         assert_eq!(seen_sequence(&d), 0);
         note_sequence(&d, 7).unwrap();
@@ -2355,7 +3286,16 @@ mod tests {
         note_sequence(&d, 9).unwrap();
         assert_eq!(seen_sequence(&d), 9);
         let err = note_sequence(&d, 8).unwrap_err();
-        assert!(err.contains("older than one this broker has read"), "{err}");
+        assert!(
+            matches!(
+                err,
+                ReleaseError::SequenceWentBack {
+                    sequence: 8,
+                    seen: 9
+                }
+            ),
+            "{err}"
+        );
         assert_eq!(seen_sequence(&d), 9);
         let _ = std::fs::remove_dir_all(&d);
     }
@@ -2367,23 +3307,50 @@ mod tests {
             f(&mut r);
             r.check().unwrap_err()
         };
-        assert!(bad(&|r| r.wyrmd_release = 2).contains("format"));
-        assert!(bad(&|r| r.version = "../0.2.0".into()).contains("version"));
-        assert!(bad(&|r| r.version = "0.2/x".into()).contains("version"));
-        assert!(bad(&|r| r.version = "1x".into()).contains("dotted"));
-        assert!(bad(&|r| r.notes = "http://x".into()).contains("https"));
-        assert!(bad(&|r| r.targets.clear()).contains("targets"));
+        assert!(matches!(
+            bad(&|r| r.wyrmd_release = 2),
+            ReleaseError::Format {
+                what: Document::Release,
+                found: 2
+            }
+        ));
+        for name in ["../0.2.0", "0.2/x"] {
+            assert!(matches!(
+                bad(&|r| r.version = name.into()),
+                ReleaseError::Version(_)
+            ));
+        }
+        assert!(matches!(
+            bad(&|r| r.version = "1x".into()),
+            ReleaseError::NotDotted(_)
+        ));
+        assert!(matches!(
+            bad(&|r| r.notes = "http://x".into()),
+            ReleaseError::NotesUrl
+        ));
+        assert!(matches!(bad(&|r| r.targets.clear()), ReleaseError::Targets));
         let t = "x86_64-linux";
-        assert!(
-            bad(&|r| r.targets.get_mut(t).unwrap().file = "../x.tar.gz".into()).contains("file")
+        let asset = |f: &dyn Fn(&mut Asset)| match bad(&|r| f(r.targets.get_mut(t).unwrap())) {
+            ReleaseError::Asset { target, fault } if target == t => fault,
+            other => panic!("{other}"),
+        };
+        assert!(matches!(
+            asset(&|a| a.file = "../x.tar.gz".into()),
+            AssetFault::File(_)
+        ));
+        assert!(matches!(
+            asset(&|a| a.file = "x.zip".into()),
+            AssetFault::File(_)
+        ));
+        assert_eq!(asset(&|a| a.sha256 = "A".repeat(64)), AssetFault::Sha256);
+        assert_eq!(
+            asset(&|a| a.size = MAX_ARCHIVE + 1),
+            AssetFault::Size(MAX_ARCHIVE + 1)
         );
-        assert!(bad(&|r| r.targets.get_mut(t).unwrap().file = "x.zip".into()).contains("file"));
-        assert!(bad(&|r| r.targets.get_mut(t).unwrap().sha256 = "A".repeat(64)).contains("sha256"));
-        assert!(bad(&|r| r.targets.get_mut(t).unwrap().size = MAX_ARCHIVE + 1).contains("size"));
-        assert!(bad(&|r| r.targets.get_mut(t).unwrap().size = 0).contains("size"));
-        assert!(
-            bad(&|r| r.targets.get_mut(t).unwrap().url = "http://h/x.tar.gz".into())
-                .contains("https")
+        assert_eq!(asset(&|a| a.size = 0), AssetFault::Size(0));
+        assert_eq!(
+            asset(&|a| a.url = "http://h/x.tar.gz".into()),
+            AssetFault::Url
         );
     }
 
@@ -2392,46 +3359,60 @@ mod tests {
         let me = me();
         assert!(release("0.2.0").compatible(&me).is_ok());
         // the same and an older version
-        let err = release("0.1.0").compatible(&me).unwrap_err();
-        assert!(err.contains("never goes down"), "{err}");
-        let err = release("0.0.9").compatible(&me).unwrap_err();
-        assert!(err.contains("never goes down"), "{err}");
-        // a pre-release of what runs is older
-        assert!(release("0.1.0-rc1").compatible(&me).is_err());
+        // (and a pre-release of what runs is older)
+        for old in ["0.1.0", "0.0.9", "0.1.0-rc1"] {
+            let err = release(old).compatible(&me).unwrap_err();
+            assert!(matches!(err, Incompatible::NotNewer { .. }), "{err}");
+        }
         // no build for this host
         let mut arm = me.clone();
         arm.target = "aarch64-linux".into();
-        assert!(release("0.2.0")
-            .compatible(&arm)
-            .unwrap_err()
-            .contains("no build"));
+        assert!(matches!(
+            release("0.2.0").compatible(&arm),
+            Err(Incompatible::NoBuild { .. })
+        ));
         // too old to start from
         let mut r = release("0.5.0");
         r.min_from = "0.3.0".into();
         let err = r.compatible(&me).unwrap_err();
-        assert!(err.contains("update to 0.3.0 first"), "{err}");
+        assert!(
+            matches!(&err, Incompatible::TooOld { min_from, .. } if min_from == "0.3.0"),
+            "{err}"
+        );
         r.min_from = "0.1.0".into();
         assert!(r.compatible(&me).is_ok());
         // a newer version that writes an older SCHEMA
         let mut r = release("0.2.0");
         r.schemas.insert("registry".into(), 18);
         let err = r.compatible(&me).unwrap_err();
-        assert!(err.contains("older SCHEMA"), "{err}");
+        assert!(
+            matches!(
+                &err,
+                Incompatible::OlderSchema { store, writes: 18, have: 19, .. } if store == "registry"
+            ),
+            "{err}"
+        );
         // or does not say
         let mut r = release("0.2.0");
         r.schemas.remove("audit");
-        assert!(r.compatible(&me).unwrap_err().contains("does not name"));
+        assert!(matches!(
+            r.compatible(&me),
+            Err(Incompatible::SchemaNotNamed { store, .. }) if store == "audit"
+        ));
         // a store this version cannot put back after a failed update
         let mut r = release("0.2.0");
         r.schemas.insert("ledger".into(), 1);
         let err = r.compatible(&me).unwrap_err();
         assert!(
-            err.contains("\"ledger\"") && err.contains("by hand"),
+            matches!(&err, Incompatible::UnknownStore { store, .. } if store == "ledger"),
             "{err}"
         );
         let mut odd = me.clone();
         odd.schemas.insert("ledger".into(), 1);
-        assert!(r.compatible(&odd).is_err());
+        assert!(matches!(
+            r.compatible(&odd),
+            Err(Incompatible::UnknownStore { .. })
+        ));
         // a SCHEMA that moves up is fine and is named
         let mut r = release("0.2.0");
         r.schemas.insert("registry".into(), 20);
@@ -2485,10 +3466,10 @@ mod tests {
         let d = scratch("hostile");
         let versions = d.join("versions");
         let good = tar_entry("wyrmd", b'0', 0o755, b"binary");
-        let refuse = |name: &str, entries: &[Vec<u8>], want: &str| {
+        let refuse = |name: &str, entries: &[Vec<u8>], want: &dyn Fn(&ArchiveError) -> bool| {
             let (path, asset) = asset_of(&d, &tar_gz(entries));
             let err = unpack(&path, &asset, &versions, "0.2.0").unwrap_err();
-            assert!(err.contains(want), "{name}: {err}");
+            assert!(want(&err), "{name}: {err}");
             assert!(
                 !versions.join("0.2.0").exists(),
                 "{name}: a version is there"
@@ -2501,68 +3482,72 @@ mod tests {
         refuse(
             "traversal",
             &[good.clone(), tar_entry("../evil", b'0', 0o644, b"x")],
-            "not a plain file name",
+            &entry(Refused::NotPlainName),
         );
         refuse(
             "absolute",
             &[good.clone(), tar_entry("/etc/cron.d/x", b'0', 0o644, b"x")],
-            "not a plain file name",
+            &entry(Refused::NotPlainName),
         );
         refuse(
             "nested",
             &[good.clone(), tar_entry("a/b", b'0', 0o644, b"x")],
-            "not a plain file name",
+            &entry(Refused::NotPlainName),
         );
         refuse(
             "hidden",
             &[good.clone(), tar_entry(".profile", b'0', 0o644, b"x")],
-            "not a plain file name",
+            &entry(Refused::NotPlainName),
         );
         refuse(
             "symlink",
             &[good.clone(), tar_entry("link", b'2', 0o777, b"")],
-            "symbolic link",
+            &entry(Refused::SymbolicLink),
         );
         refuse(
             "symlink as the binary",
             &[tar_entry("wyrmd", b'2', 0o777, b"")],
-            "symbolic link",
+            &entry(Refused::SymbolicLink),
         );
         refuse(
             "hard link",
             &[good.clone(), tar_entry("hard", b'1', 0o644, b"")],
-            "hard link",
+            &entry(Refused::HardLink),
         );
         refuse(
             "device",
             &[good.clone(), tar_entry("null", b'3', 0o644, b"")],
-            "device",
+            &entry(Refused::Device),
         );
         refuse(
             "fifo",
             &[good.clone(), tar_entry("pipe", b'6', 0o644, b"")],
-            "device or a pipe",
+            &entry(Refused::Device),
         );
         refuse(
             "directory",
             &[tar_entry("dir/", b'5', 0o755, b""), good.clone()],
-            "directory",
+            &entry(Refused::Directory),
         );
         refuse(
             "long name header",
             &[tar_entry("././@LongLink", b'L', 0o644, b"x"), good.clone()],
-            "plain files only",
+            &entry(Refused::Type('L')),
         );
-        refuse("twice", &[good.clone(), good.clone()], "twice");
+        refuse(
+            "twice",
+            &[good.clone(), good.clone()],
+            &entry(Refused::Twice),
+        );
         refuse(
             "no binary",
             &[tar_entry("README", b'0', 0o644, b"x")],
-            "no wyrmd",
+            &|e| matches!(e, ArchiveError::NoBinary),
         );
         refuse(
             "not executable",
             &[tar_entry("wyrmd", b'0', 0o644, b"binary")],
-            "not an executable",
+            &|e| matches!(e, ArchiveError::NotExecutable),
         );
         refuse(
             "oversized extra",
@@ -2570,12 +3555,14 @@ mod tests {
                 good.clone(),
                 tar_entry("big", b'0', 0o644, &vec![0u8; MAX_EXTRA as usize + 1]),
             ],
-            "more than",
+            &|e| matches!(e, ArchiveError::EntryTooLarge { name, max: MAX_EXTRA, .. } if name == "big"),
         );
         let many: Vec<Vec<u8>> = std::iter::once(good.clone())
             .chain((0..MAX_FILES).map(|i| tar_entry(&format!("f{i}"), b'0', 0o644, b"x")))
             .collect();
-        refuse("too many", &many, "more than");
+        refuse("too many", &many, &|e| {
+            matches!(e, ArchiveError::TooManyFiles)
+        });
         // a header that claims more than is there
         let mut cut = tar_entry("wyrmd", b'0', 0o755, b"binary");
         cut.truncate(512 + 3);
@@ -2584,22 +3571,26 @@ mod tests {
             gz.write_all(&cut).unwrap();
             gz.finish().unwrap()
         });
-        assert!(unpack(&path, &asset, &versions, "0.2.0")
-            .unwrap_err()
-            .contains("cut off"));
+        assert!(matches!(
+            unpack(&path, &asset, &versions, "0.2.0"),
+            Err(ArchiveError::CutOff(CutOff::In(name))) if name == "wyrmd"
+        ));
         // a header with a broken checksum
         let mut broken = good.clone();
         broken[0] = b'x';
-        refuse("checksum", &[broken], "checksum");
+        refuse("checksum", &[broken], &|e| {
+            matches!(e, ArchiveError::BadChecksum)
+        });
         // data after the end
         let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
         gz.write_all(&[good.clone(), vec![0u8; 1024], b"#!/bin/sh".to_vec()].concat())
             .unwrap();
         let tail = gz.finish().unwrap();
         let (path, asset) = asset_of(&d, &tail);
-        assert!(unpack(&path, &asset, &versions, "0.2.0")
-            .unwrap_err()
-            .contains("after its end"));
+        assert!(matches!(
+            unpack(&path, &asset, &versions, "0.2.0"),
+            Err(ArchiveError::DataAfterEnd)
+        ));
         let _ = std::fs::remove_dir_all(&d);
     }
 
@@ -2612,16 +3603,22 @@ mod tests {
         let mut wrong = asset.clone();
         wrong.sha256 = "0".repeat(64);
         let err = unpack(&path, &wrong, &versions, "0.2.0").unwrap_err();
-        assert!(err.contains("SHA-256"), "{err}");
+        assert!(matches!(err, ArchiveError::HashMismatch), "{err}");
         let mut wrong = asset.clone();
         wrong.size += 1;
         let err = unpack(&path, &wrong, &versions, "0.2.0").unwrap_err();
-        assert!(err.contains("bytes"), "{err}");
+        assert!(
+            matches!(err, ArchiveError::SizeMismatch { size, want } if want == size + 1),
+            "{err}"
+        );
         // nothing was made: not even the part directory
         assert!(!versions.join(".0.2.0.part").exists());
         assert!(!versions.join("0.2.0").exists());
         // a version name that is a path
-        assert!(unpack(&path, &asset, &versions, "../0.2.0").is_err());
+        assert!(matches!(
+            unpack(&path, &asset, &versions, "../0.2.0"),
+            Err(ArchiveError::Version(_))
+        ));
         let _ = std::fs::remove_dir_all(&d);
     }
 
@@ -2646,8 +3643,12 @@ mod tests {
         assert_eq!(again.sha256, asset.sha256);
         let unpacked = unpack(&out, &asset, &d.join("versions"), "0.2.0").unwrap();
         assert_eq!(std::fs::read(unpacked).unwrap(), bytes);
-        assert!(pack(&bin, &[("../x", b"")], &out, level).is_err());
-        assert!(pack(&bin, &[("wyrmd", b"")], &out, level).is_err());
+        for extra in ["../x", "wyrmd"] {
+            assert!(matches!(
+                pack(&bin, &[(extra, b"")], &out, level),
+                Err(ArchiveError::Extra(name)) if name == extra
+            ));
+        }
         let _ = std::fs::remove_dir_all(&d);
     }
 
@@ -2659,7 +3660,7 @@ mod tests {
         std::fs::write(&exe, b"v1").unwrap();
         // a binary that sits anywhere else is refused, and the reason says so
         let err = Layout::of_broker(&exe, "0.1.0").unwrap_err();
-        assert!(err.contains("install-layout"), "{err}");
+        assert!(matches!(err, LayoutError::NotInLayout { .. }), "{err}");
         let l = Layout::install(&d.join("opt"), &exe, "0.1.0").unwrap();
         assert_eq!(l.current_version().as_deref(), Some("0.1.0"));
         assert_eq!(std::fs::read(l.guard()).unwrap(), b"v1");
@@ -2671,15 +3672,21 @@ mod tests {
         );
         assert_eq!(Layout::of_guard(&l.guard()).unwrap(), l);
         // the binary says another version than its directory
-        assert!(Layout::of_broker(&l.bin_of("0.1.0"), "0.2.0").is_err());
+        assert!(matches!(
+            Layout::of_broker(&l.bin_of("0.1.0"), "0.2.0"),
+            Err(LayoutError::NotInLayout { .. })
+        ));
         // without the guard
         let guard = l.guard();
         std::fs::rename(&guard, d.join("guard.away")).unwrap();
         let err = Layout::of_broker(&l.bin_of("0.1.0"), "0.1.0").unwrap_err();
-        assert!(err.contains("no guard"), "{err}");
+        assert!(matches!(err, LayoutError::NoGuard(_)), "{err}");
         std::fs::rename(d.join("guard.away"), &guard).unwrap();
         // a version that is not there cannot become current
-        assert!(l.switch("0.2.0").is_err());
+        assert!(matches!(
+            l.switch("0.2.0"),
+            Err(LayoutError::NoSuchVersion(_))
+        ));
         std::fs::create_dir_all(l.versions().join("0.2.0")).unwrap();
         std::fs::write(l.bin_of("0.2.0"), b"v2").unwrap();
         l.switch("0.2.0").unwrap();
@@ -2688,7 +3695,7 @@ mod tests {
         assert!(!d.join("opt").join(".current.new").exists());
         // `current` as a directory is not the layout
         let err = Layout::of_broker(&l.bin_of("0.1.0"), "0.1.0").unwrap_err();
-        assert!(err.contains("symbolic link"), "{err}");
+        assert!(matches!(err, LayoutError::CurrentNotLink { .. }), "{err}");
         // the guard follows a confirmed version
         assert!(!l.guard_is(&l.bin_of("0.2.0")));
         l.refresh_guard(&l.bin_of("0.2.0")).unwrap();
@@ -2997,10 +4004,11 @@ mod tests {
         .save(&data)
         .unwrap();
         std::fs::write(l.bin_of("0.2.0"), b"evil").unwrap();
-        assert!(l
-            .verify("0.2.0", &pinned)
-            .unwrap_err()
-            .contains("not verified"));
+        let err = l.verify("0.2.0", &pinned).unwrap_err();
+        assert!(
+            matches!(unverified(&err), Some(Unverified::BinaryMismatch)),
+            "{err}"
+        );
         assert_eq!(run().unwrap(), Guarded::Nothing);
         assert_eq!(l.current_version().as_deref(), Some("0.1.0"));
         let u = UpdateFile::load(&data).unwrap();
@@ -3013,34 +4021,58 @@ mod tests {
         // both replaced: nothing is started, and the guard says why
         std::fs::write(l.bin_of("0.1.0"), b"evil too").unwrap();
         let err = run().unwrap_err();
-        assert!(err.contains("Nothing is started"), "{err}");
+        assert!(
+            // 0.1.0 was put there by hand: with another binary it has no
+            // signed release to be verified by
+            matches!(&err, LayoutError::NothingVerified(why)
+                if matches!(unverified(why), Some(Unverified::File(PlainFileError::File(_))))),
+            "{err}"
+        );
         std::fs::write(l.bin_of("0.1.0"), b"v1").unwrap();
         assert!(run().is_ok());
 
         // what does not make a binary verified
-        let refused = |why: &str| {
+        let refused = |why: &dyn Fn(&LayoutError) -> bool| {
             let err = l.verify("0.2.0", &pinned).unwrap_err();
-            assert!(err.contains(why), "{err}");
+            assert!(why(&err), "{err}");
         };
         // a release another key signed
         signed_version("0.2.0", b"v2", &key(2), "0.2.0");
-        refused("pinned release key");
+        refused(&|e| {
+            matches!(
+                unverified(e),
+                Some(Unverified::Release(ReleaseError::NotSigned))
+            )
+        });
         // a signed release of another version beside the binary
         signed_version("0.2.0", b"v2", &key(1), "0.3.0");
-        refused("of wyrmd 0.3.0");
+        refused(&|e| matches!(unverified(e), Some(Unverified::OtherVersion(v)) if v == "0.3.0"));
         // no release document at all
         signed_version("0.2.0", b"v2", &key(1), "0.2.0");
         std::fs::remove_file(l.versions().join("0.2.0").join(RELEASE_DOC)).unwrap();
-        refused("not verified");
+        refused(&|e| {
+            matches!(
+                unverified(e),
+                Some(Unverified::File(PlainFileError::File(f)))
+                    if f.source.kind() == std::io::ErrorKind::NotFound
+            )
+        });
         // the binary is a link to a file that would verify
         signed_version("0.2.0", b"v2", &key(1), "0.2.0");
         std::fs::rename(l.bin_of("0.2.0"), d.join("real")).unwrap();
         std::os::unix::fs::symlink(d.join("real"), l.bin_of("0.2.0")).unwrap();
-        refused("not a plain file");
+        refused(&|e| matches!(e, LayoutError::BinaryNotPlain(_)));
         // no key pinned: nothing signed is trusted (the hand-put one still is)
         std::fs::remove_file(l.bin_of("0.2.0")).unwrap();
         std::fs::rename(d.join("real"), l.bin_of("0.2.0")).unwrap();
-        assert!(l.verify("0.2.0", &[]).is_err());
+        let err = l.verify("0.2.0", &[]).unwrap_err();
+        assert!(
+            matches!(
+                unverified(&err),
+                Some(Unverified::Release(ReleaseError::NoPinnedKey))
+            ),
+            "{err}"
+        );
         l.verify("0.1.0", &[]).unwrap();
 
         // the guard a root step keeps: the verified binary of the current
@@ -3053,7 +4085,11 @@ mod tests {
             "already that binary"
         );
         std::fs::write(l.bin_of("0.2.0"), b"evil").unwrap();
-        assert!(l.refresh_guard_verified(&pinned).is_err());
+        let err = l.refresh_guard_verified(&pinned).unwrap_err();
+        assert!(
+            matches!(unverified(&err), Some(Unverified::BinaryMismatch)),
+            "{err}"
+        );
         assert_eq!(
             std::fs::read(l.guard()).unwrap(),
             b"v2",
@@ -3073,18 +4109,24 @@ mod tests {
         let (path, mut asset) = asset_of(&d, &tar_gz(std::slice::from_ref(&good)));
         asset.bin_sha256 = "0".repeat(64);
         let err = unpack(&path, &asset, &versions, "0.2.0").unwrap_err();
-        assert!(err.contains("binary in the archive"), "{err}");
+        assert!(matches!(err, ArchiveError::BinaryMismatch), "{err}");
         assert!(!versions.join("0.2.0").exists() && !versions.join(".0.2.0.part").exists());
         for name in [RELEASE_DOC, RELEASE_SIG] {
             let entries = [good.clone(), tar_entry(name, b'0', 0o644, b"{}")];
             let (path, asset) = asset_of(&d, &tar_gz(&entries));
             let err = unpack(&path, &asset, &versions, "0.2.0").unwrap_err();
-            assert!(err.contains("a file the broker writes"), "{err}");
+            assert!(entry(Refused::Reserved)(&err), "{err}");
         }
         // a release without the binary's hash is no release
         let mut r = release("0.2.0");
         r.targets.get_mut("x86_64-linux").unwrap().bin_sha256 = String::new();
-        assert!(r.check().unwrap_err().contains("bin_sha256"));
+        assert!(matches!(
+            r.check(),
+            Err(ReleaseError::Asset {
+                fault: AssetFault::BinSha256,
+                ..
+            })
+        ));
         let _ = std::fs::remove_dir_all(&d);
     }
 
@@ -3110,7 +4152,11 @@ mod tests {
             .unwrap();
         assert_eq!(out.trim(), "env:none:a b; echo x");
         let err = run_binary(&script, &["bad".into()], t).await.unwrap_err();
-        assert!(err.contains("broken"), "{err}");
+        assert!(
+            matches!(&err, RunError::Failed { status, said, .. }
+                if status.code() == Some(3) && said == "broken"),
+            "{err}"
+        );
         let err = run_binary(
             &script,
             &["slow".into()],
@@ -3118,7 +4164,7 @@ mod tests {
         )
         .await
         .unwrap_err();
-        assert!(err.contains("no answer"), "{err}");
+        assert!(matches!(err, RunError::Timeout { secs: 0, .. }), "{err}");
         let _ = std::fs::remove_dir_all(&d);
     }
 }

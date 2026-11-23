@@ -449,20 +449,22 @@ pub async fn stage(
     );
     let (doc2, sig2) = (document.to_vec(), signature.to_owned());
     let bin = tokio::task::spawn_blocking(move || {
-        let bin = release::unpack(&a, &asset2, &vs2, &v2)?;
+        let bin = release::unpack(&a, &asset2, &vs2, &v2).map_err(|e| e.to_string())?;
         // the signed release stays with the binary: the guard and the
         // broker check the binary against it before every start
         if let Err(e) = release::keep_release(&vs2, &v2, &doc2, &sig2) {
             // a version without its signed release: the guard never starts it
             remove_version(&vs2.join(&v2));
-            return Err(e);
+            return Err(e.to_string());
         }
         Ok::<_, String>(bin)
     })
     .await
     .map_err(|e| e.to_string())??;
     let proved = async {
-        let said = release::run_binary(&bin, &["release-info".into()], BINARY_TIMEOUT).await?;
+        let said = release::run_binary(&bin, &["release-info".into()], BINARY_TIMEOUT)
+            .await
+            .map_err(|e| e.to_string())?;
         let id: Identity = serde_json::from_str(said.trim())
             .map_err(|e| format!("release-info of the new binary: {e}"))?;
         if id.version != release.version
@@ -573,6 +575,7 @@ impl Control {
 
     fn layout(&self) -> Result<Layout, String> {
         Layout::of_broker(&self.cfg.link_exe, &release::identity().version)
+            .map_err(|e| e.to_string())
     }
 
     fn guard_ran(&self) -> bool {
@@ -689,9 +692,10 @@ impl Control {
         // without the other
         let r = async {
             let bytes = crate::fetch::get(channel, release::MAX_CHANNEL, FETCH_TIMEOUT).await?;
-            let index = release::read_channel(&bytes, &u.keys)?;
+            let index = release::read_channel(&bytes, &u.keys).map_err(|e| e.to_string())?;
             // an older index than one read before was put back
-            release::note_sequence(&self.cfg.data_dir, index.sequence)?;
+            release::note_sequence(&self.cfg.data_dir, index.sequence)
+                .map_err(|e| e.to_string())?;
             Ok::<_, String>(index)
         }
         .await;
@@ -1035,7 +1039,7 @@ async fn plan_of(
             .into_bytes();
         let signature = a.signature.clone();
         let r = release::read_release(&text, &signature, &u.keys)
-            .map_err(LinkError::invalid_parameter)?;
+            .map_err(|e| LinkError::invalid_parameter(e.to_string()))?;
         if !version.is_empty() && version != r.version {
             return Err(LinkError::invalid_parameter(format!(
                 "version: the release is wyrmd {}",
@@ -1046,7 +1050,7 @@ async fn plan_of(
     };
     let asset = release
         .compatible(release::identity())
-        .map_err(|e| LinkError::new(Status::InvalidParameter, e))?
+        .map_err(|e| LinkError::new(Status::InvalidParameter, e.to_string()))?
         .clone();
     if !release.moves(release::identity()).is_empty() && ctl.cfg.anchor_dir.is_some() {
         return Err(LinkError::not_supported(format!(
@@ -1332,7 +1336,7 @@ async fn run(
                 warn!("broker update: the guard is not replaced: {e}");
             }
         }
-        u2.save(&d2)?;
+        u2.save(&d2).map_err(|e| e.to_string())?;
         if let Err(e) = layout2.switch(&u2.to) {
             // a state file that stayed would start a trial of a version not switched to
             let state = d2.join(release::STATE_FILE);
@@ -1340,7 +1344,7 @@ async fn run(
                 tracing::error!("{} stays: {r}", state.display());
                 return Err(format!("{e}; {} stays: {r}", state.display()));
             }
-            return Err(e);
+            return Err(e.to_string());
         }
         // the version before the one that runs can no longer be gone back to
         layout2.prune(&[u2.from.as_str(), u2.to.as_str()]);
@@ -1417,7 +1421,7 @@ async fn stage_for_standby(ctl: &Arc<Control>, plan: &Plan, archive: &Path) -> R
     let order2 = order.clone();
     tokio::task::spawn_blocking(move || -> Result<(), String> {
         let io = |p: &Path, e: std::io::Error| format!("{}: {e}", p.display());
-        let (sha, size) = release::sha256_file(&archive)?;
+        let (sha, size) = release::sha256_file(&archive).map_err(|e| e.to_string())?;
         if size != asset.size || sha != asset.sha256 {
             return Err("the archive is not the one of the release (size or SHA-256)".into());
         }
@@ -1851,7 +1855,7 @@ async fn trial(ctl: &Arc<Control>, session: &Session) {
             // the guard is now this version
             let (layout, exe) = (ctl.layout(), ctl.cfg.link_exe.clone());
             let r = tokio::task::spawn_blocking(move || match layout {
-                Ok(l) if !l.guard_is(&exe) => l.refresh_guard(&exe),
+                Ok(l) if !l.guard_is(&exe) => l.refresh_guard(&exe).map_err(|e| e.to_string()),
                 Ok(_) => Ok(()),
                 Err(e) => Err(e),
             })
