@@ -8,13 +8,14 @@ import '../../../wyrm/mappers/flow_canvas.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 
-/// Sets parameter [name] of block [id] (null removes it).
+/// Sets parameter [name] of block [id] (`null` or an empty text removes
+/// it).
 class SetBlockParamAction extends Action {
   SetBlockParamAction(this.id, this.name, this.value);
 
   final String id;
   final String name;
-  final Object? value;
+  final JsonValue value;
 
   @override
   AppState? reduce() {
@@ -24,9 +25,9 @@ class SetBlockParamAction extends Action {
       return null;
     }
     final tag = UndoTag(UndoKind.param, block: id, name: name);
-    final cfg = switch (JsonValue.of(value)) {
+    final cfg = switch (value) {
       JsonNull() || JsonText(text: '') => b.cfg.remove(name),
-      _ => b.cfg.add(name, value),
+      _ => b.cfg.add(name, value.raw),
     };
     return state.copyWith.flowEditor(
       draft: d.copyWith(blocks: d.blocks.add(id, b.copyWith(cfg: cfg))),

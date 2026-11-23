@@ -262,7 +262,7 @@ LinksPage linksQuarantine() => LinksPage(
           id: 'group',
           label: 'Who may operate it',
           kind: ParamKind.choice,
-          value: 'engineer',
+          value: TextValue('engineer'),
           choices: ['admin', 'engineer', 'operator'],
           onChanged: _none,
         ),

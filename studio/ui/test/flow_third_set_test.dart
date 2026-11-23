@@ -8,8 +8,8 @@ import 'package:ui/flows/flow_block_view.dart';
 import 'package:ui/flows/rows_editor.dart';
 import 'package:ui/flows/suggest_field.dart';
 import 'package:ui/overlays/value_viewer.dart';
-import 'package:ui/tables/table_edits.dart';
 
+import 'frames/cells.dart';
 import 'frames/harness.dart';
 
 /// The editors of the third set of blocks (ADR 0044, flow-editor.md §6): a
@@ -193,7 +193,7 @@ void main() {
                 type: 'table',
                 size: '2 rows · 2 columns',
                 content: TableContentVm(
-                  TableDataVm(
+                  rawTable(
                     ['t', 'v'],
                     [
                       ['2026-11-11 12:00:00', 20.5],

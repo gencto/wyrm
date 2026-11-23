@@ -111,6 +111,10 @@ pub const MAX_AHEAD_US: u64 = 5 * 60 * 1_000_000;
 /// days back.
 pub const MAX_BEHIND_US: u64 = 31 * 86_400 * 1_000_000;
 
+/// The clock of one historian: µs since the Unix epoch. The broker's is
+/// [`now_us`]; a test gives its own to place a run on the days it wants.
+pub type Clock = Arc<dyn Fn() -> u64 + Send + Sync>;
+
 /// `t` is close enough to `now` to be stored.
 pub fn plausible(t: u64, now: u64) -> bool {
     t <= now.saturating_add(MAX_AHEAD_US) && t >= now.saturating_sub(MAX_BEHIND_US)
@@ -176,10 +180,20 @@ pub struct Historian {
     /// Stored-value reads of every group's follows ([`FOLLOW_READS`]).
     follow_reads: Arc<FollowReads>,
     sinks: Mutex<HashMap<String, SinkStats>>,
+    /// Every "now" of this historian: the plausibility of a sample's time,
+    /// the time of an `Interval` row, the open end of a history range.
+    clock: Clock,
 }
 
 impl Historian {
     pub fn open(dir: &Path) -> crate::store::Result<Arc<Self>> {
+        Self::open_with_clock(dir, Arc::new(now_us))
+    }
+
+    /// [`Historian::open`] on `clock` instead of the wall clock: time is an
+    /// input, so a test runs on fixed days (a run across UTC midnight
+    /// included) whatever the hour it is run at.
+    pub fn open_with_clock(dir: &Path, clock: Clock) -> crate::store::Result<Arc<Self>> {
         Ok(Arc::new(Self {
             store: Arc::new(Store::open(dir)?),
             counters: Arc::default(),
@@ -188,7 +202,13 @@ impl Historian {
             reads: tokio::sync::Semaphore::new(crate::query::MAX_QUERIES),
             follow_reads: Arc::new(FollowReads::new()),
             sinks: Mutex::default(),
+            clock,
         }))
+    }
+
+    /// This historian's time (µs since the Unix epoch).
+    pub fn now_us(&self) -> u64 {
+        (self.clock)()
     }
 
     /// Change the counters of sink `name` (created at zero).
@@ -312,7 +332,7 @@ impl Historian {
             let (tx, rx) = watch::channel(false);
             let task = tokio::spawn(run_group(
                 self.follow_reads.clone(),
-                self.store.clone(),
+                (self.store.clone(), self.clock.clone()),
                 self.counters.clone(),
                 self.last.clone(),
                 session.clone(),
@@ -356,7 +376,7 @@ struct Point {
 
 async fn run_group(
     follow_reads: Arc<FollowReads>,
-    store: Arc<Store>,
+    (store, clock): (Arc<Store>, Clock),
     counters: Arc<Counters>,
     last: Arc<Mutex<HashMap<String, Row>>>,
     session: Session,
@@ -433,7 +453,7 @@ async fn run_group(
         tokio::select! {
             m = rx.recv() => {
                 let Some((i, s)) = m else { break };
-                if !plausible(s.t, now_us()) {
+                if !plausible(s.t, clock()) {
                     counters.dropped.fetch_add(1, Ordering::Relaxed);
                     continue;
                 }
@@ -461,7 +481,7 @@ async fn run_group(
                 }
             }
             _ = sample_tick.tick(), if interval => {
-                let t = now_us();
+                let t = clock();
                 for p in points.iter_mut() {
                     if let Some(s) = p.seen.clone() {
                         push(&mut buffer, &counters, p, t, s.v, s.q);

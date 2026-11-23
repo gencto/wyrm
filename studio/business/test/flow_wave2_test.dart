@@ -573,8 +573,13 @@ void main() {
       );
       expect(eventText(LiveValue(time: at)), isNull);
       expect(eventText(null), isNull);
-      expect(lastRunText(0), isNull);
-      expect(lastRunText(at.microsecondsSinceEpoch), '14:03:27');
+      expect(lastRunText(const JsonNumber(0)), isNull);
+      expect(lastRunText(const JsonText('14:03')), isNull);
+      expect(lastRunText(null), isNull);
+      expect(
+        lastRunText(JsonNumber(at.microsecondsSinceEpoch)),
+        '14:03:27',
+      );
     });
 
     test('the new blocks read as words', () {
@@ -618,7 +623,7 @@ void main() {
       description: 'The mean of two values',
       inputs: ['first', 'second'],
       outputs: ['out'],
-      defaults: {'second': 0},
+      defaults: {'second': JsonNumber(0)},
     );
 
     test('a selection becomes a block and one instance; the wires that '
@@ -931,7 +936,7 @@ void main() {
           SetBlockParamAction(
             'level',
             'key_scope',
-            'downstream/modbus/line1/**',
+            const JsonText('downstream/modbus/line1/**'),
           ),
         )
         ..dispatchSync(SetScopePromptAction(null));
@@ -1017,8 +1022,16 @@ void main() {
         ..dispatchSync(
           ConnectPortsAction('half', 'out', 'invoke1', 'arg.target'),
         )
-        ..dispatchSync(SetBlockParamAction('invoke1', 'interval_ms', 60000))
-        ..dispatchSync(SetBlockParamAction('invoke1', 'run_on_start', true))
+        ..dispatchSync(
+          SetBlockParamAction(
+            'invoke1',
+            'interval_ms',
+            const JsonNumber(60000),
+          ),
+        )
+        ..dispatchSync(
+          SetBlockParamAction('invoke1', 'run_on_start', const JsonBool(true)),
+        )
         ..dispatchSync(ConnectPortsAction('invoke1', 'error', 'mean', 'in'));
       expect(ed().scopePrompt, isNull, reason: 'no key was bound');
       await s.dispatchAndWait(DeployFlowAction());
@@ -1121,7 +1134,9 @@ void main() {
       // A second instance, a constant on its input.
       s
         ..dispatchSync(AddBlockAction(bt('block:mean2'), 300, 600))
-        ..dispatchSync(SetOperandValueAction('mean22', 'second', 7));
+        ..dispatchSync(
+          SetOperandValueAction('mean22', 'second', const JsonNumber(7)),
+        );
       expect(now().blocks['mean22']!.cfg.unlock, {
         'values': {'second': 7},
       });
@@ -1141,7 +1156,9 @@ void main() {
         ..dispatchSync(
           RemoveBlocksAction(const [blockInputsId, blockOutputsId]),
         )
-        ..dispatchSync(SetOperandValueAction('half', 'in.1', 4));
+        ..dispatchSync(
+          SetOperandValueAction('half', 'in.1', const JsonNumber(4)),
+        );
       expect(now().blocks.keys, contains(blockInputsId));
       await s.dispatchAndWait(ValidateFlowAction());
       final checked = api.calls.lastWhere((c) => c.action == 'validate').args!;

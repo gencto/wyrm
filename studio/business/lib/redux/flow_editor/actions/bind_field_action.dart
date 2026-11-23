@@ -28,10 +28,11 @@ class BindFieldAction extends Action {
     }
     if (f.kind == FieldKind.arg && !b.cfgArgs.containsKey(f.name)) {
       dispatchSync(
-        SetBlockParamAction(b.id, BlockCfgKey.args.wire, {
-          ...rawFields(b.cfgArgs),
-          f.name: null,
-        }),
+        SetBlockParamAction(
+          b.id,
+          BlockCfgKey.args.wire,
+          JsonMap.fields(b.cfgArgs.add(f.name, const JsonNull())),
+        ),
         notify: false,
       );
     }

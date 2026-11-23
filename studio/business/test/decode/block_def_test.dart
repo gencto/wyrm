@@ -10,6 +10,7 @@ import 'package:models/block_def.dart';
 import 'package:models/block_info.dart';
 import 'package:models/block_type.dart';
 import 'package:models/flow_draft.dart';
+import 'package:models/json_value.dart';
 import 'package:models/port_end.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -60,7 +61,7 @@ void main() {
     expect(d.description, 'the mean of two');
     expect([for (final p in d.inputs) p.name], ['a', 'b']);
     expect(d.inputs.first.ends, [PortEnd('sum', 'in.0')]);
-    expect(d.inputs.first.defaultValue, 1);
+    expect(d.inputs.first.defaultValue, const JsonNumber(1));
     expect(d.inputs.last.ends, [PortEnd('sum', 'in.1')]);
     expect(d.inputs.last.description, 'the other');
     expect(d.outputs.single.ends, [PortEnd('half', 'out')]);

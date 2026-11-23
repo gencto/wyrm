@@ -4,6 +4,7 @@ import 'package:business/wyrm/labels.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter/foundation.dart' show VoidCallback;
 import 'package:models/error_kind.dart';
+import 'package:models/json_value.dart';
 import 'package:models/param_spec.dart';
 import 'package:ui/forms/action_form.dart';
 import 'package:ui/forms/param_form.dart';
@@ -35,7 +36,7 @@ ParamFieldVm paramField(ParamSpec p) {
     id: p.name,
     label: labelOf(p.name, display: p.display),
     kind: kind,
-    value: p.defaultValue?.raw,
+    value: defaultValueOf(p.defaultValue, kind, p.choices),
     choices: p.choices.unlock,
     choiceLabels: choiceLabels(p.choices),
     required: p.required,
@@ -44,6 +45,40 @@ ParamFieldVm paramField(ParamSpec p) {
     onChanged: (_) {},
   );
 }
+
+/// A parameter's default as its field holds it. This is where the default
+/// of the wire gets its type, by the editor ([kind]) that will show it: a
+/// text for the text kinds and a secret, one of [choices] for a choice, a
+/// number, a flag, a file's name. A default that does not fit its editor
+/// (a map for a file, a number for a text, a choice that is not offered)
+/// is none: the field is empty, and the form sends nothing for it.
+ParamValue defaultValueOf(
+  JsonValue? value,
+  ParamKind kind,
+  IList<String> choices,
+) => switch ((kind, value)) {
+  (
+    ParamKind.text || ParamKind.textarea || ParamKind.secret,
+    JsonText(:final text),
+  ) =>
+    TextValue(text),
+  (ParamKind.choice, JsonText(:final text)) when choices.contains(text) =>
+    TextValue(text),
+  (ParamKind.number, JsonNumber(:final value)) => NumberValue(value),
+  (ParamKind.toggle, JsonBool(:final value)) => FlagValue(on: value),
+  (ParamKind.file, JsonText(:final text)) => FileValue(text),
+  _ => const NoValue(),
+};
+
+/// A value the Explorer holds for a field of an `edit` (a staged change, a
+/// point's value to set: `business` gives it as a text, a number or a flag)
+/// as its field holds it; none for anything else.
+ParamValue heldValueOf(Object? value, ParamKind kind) => switch (value) {
+  final String s => kind == ParamKind.file ? FileValue(s) : TextValue(s),
+  final num n => NumberValue(n),
+  final bool b => FlagValue(on: b),
+  _ => const NoValue(),
+};
 
 /// The values of an [ActionForm] as action arguments: a picked file becomes
 /// its bytes, a map typed as JSON text stays text (the broker parses it).

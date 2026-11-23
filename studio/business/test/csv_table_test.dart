@@ -1,5 +1,20 @@
+import 'dart:typed_data';
+
+import 'package:business/wyrm/decode/plain_value.dart';
+import 'package:business/wyrm/decode/table_value.dart';
 import 'package:business/wyrm/mappers/csv_table.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:models/plain_value.dart';
+
+/// [t]'s cells as plain Dart, to compare.
+List<List<Object?>> rawRows(TableValue t) => [
+  for (final r in t.rows) [for (final c in r) c.raw],
+];
+
+/// Plain rows as the cells a table holds.
+List<List<PlainValue>> cells(List<List<Object?>> rows) => [
+  for (final r in rows) [for (final x in r) plainValueOf(x)],
+];
 
 /// The CSV rules of `table_from_csv` and `table_to_csv`, mirrored from
 /// `crates/wyrm-flow/src/blocks/tables.rs` (`parse_csv`, `write_csv` and
@@ -14,7 +29,7 @@ void main() {
   }) {
     final t = parseCsv(csv, delimiter: d, header: header)!;
     final i = t.columns.indexOf(name);
-    return [for (final r in t.rows) r[i]];
+    return [for (final r in t.rows) r[i].raw];
   }
 
   test('a header names the columns; cells are texts', () {
@@ -66,7 +81,7 @@ void main() {
     () {
       final t = parseCsv('a\n1,2\n3')!;
       expect(t.columns, ['a', 'v2']);
-      expect(t.rows, [
+      expect(rawRows(t), [
         ['1', '2'],
         ['3', null],
       ]);
@@ -91,19 +106,19 @@ void main() {
     expect(
       writeCsv(
         ['name', 'kw', 'zone'],
-        [
+        cells([
           ['pump', 3, 'A'],
           ['valve', null, 'B'],
-        ],
+        ]),
       ),
       'name,kw,zone\npump,3,A\nvalve,,B\n',
     );
     expect(
       writeCsv(
         ['a'],
-        [
+        cells([
           ['x,"y"'],
-        ],
+        ]),
         header: false,
       ),
       '"x,""y"""\n',
@@ -111,15 +126,32 @@ void main() {
     expect(
       writeCsv(
         ['a'],
-        [
+        cells([
           [
             {'k': 1},
           ],
           ['two\nlines'],
-        ],
+        ]),
         header: false,
       ),
       '"{""k"":1}"\n"two\nlines"\n',
+    );
+    // as the engine's text: a number as written, bytes as a list, a map
+    // with a key that is no text by its text, a number JSON lacks as text
+    expect(
+      writeCsv(
+        ['a', 'b', 'c', 'd'],
+        cells([
+          [
+            2.5,
+            Uint8List.fromList([1, 2]),
+            {1: double.nan},
+            true,
+          ],
+        ]),
+        header: false,
+      ),
+      '2.5,"[1,2]","{""1"":""NaN""}",true\n',
     );
   });
 

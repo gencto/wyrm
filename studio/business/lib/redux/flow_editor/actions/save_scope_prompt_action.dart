@@ -1,3 +1,5 @@
+import 'package:models/json_value.dart';
+
 import '../../../wyrm/mappers/flow_blocks.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
@@ -18,7 +20,7 @@ class SaveScopePromptAction extends Action {
     final keyed = scopedKeyOf(ed.base.types[b?.type]);
     if (b != null && keyed != null) {
       dispatchSync(
-        SetBlockParamAction(b.id, keyed.scope, scope),
+        SetBlockParamAction(b.id, keyed.scope, JsonText(scope)),
         notify: false,
       );
     }

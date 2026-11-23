@@ -105,14 +105,19 @@ void main() {
     test('typed: written under the engine port, read back', () {
       final t = types['concat'];
       final c = block('c', 'concat');
-      final cfg = cfgWithOperandValue(t, c, 'in.0', 'AHU-')!;
+      final cfg = cfgWithOperandValue(t, c, 'in.0', const JsonText('AHU-'))!;
       expect(cfg['values'], {'in.0': 'AHU-'});
       final c2 = c.copyWith(cfg: cfg);
       expect(operandValueOf(c2, 'in.0').raw, 'AHU-');
-      final cfg2 = cfgWithOperandValue(t, c2, 'in.1', 2)!;
+      final cfg2 = cfgWithOperandValue(t, c2, 'in.1', const JsonNumber(2))!;
       expect(cfg2['values'], {'in.0': 'AHU-', 'in.1': 2});
       expect(
-        cfgWithOperandValue(t, c2, 'in.0', '')!.containsKey('values'),
+        cfgWithOperandValue(
+          t,
+          c2,
+          'in.0',
+          const JsonText(''),
+        )!.containsKey('values'),
         isFalse,
         reason: 'the last constant gone: no values key',
       );
@@ -120,7 +125,12 @@ void main() {
 
     test('refused for parameter ports, events and variables', () {
       expect(
-        cfgWithOperandValue(types['if'], block('i', 'if'), 'in.op', '>'),
+        cfgWithOperandValue(
+          types['if'],
+          block('i', 'if'),
+          'in.op',
+          const JsonText('>'),
+        ),
         isNull,
       );
       expect(
@@ -128,7 +138,7 @@ void main() {
           types['round'],
           block('r', 'round'),
           'in.precision',
-          2,
+          const JsonNumber(2),
         ),
         isNull,
       );
@@ -137,16 +147,26 @@ void main() {
           types['stopwatch'],
           block('s', 'stopwatch'),
           'reset',
-          1,
+          const JsonNumber(1),
         ),
         isNull,
       );
       expect(
-        cfgWithOperandValue(types['number'], block('n', 'number'), 'in', 1),
+        cfgWithOperandValue(
+          types['number'],
+          block('n', 'number'),
+          'in',
+          const JsonNumber(1),
+        ),
         isNull,
       );
       expect(
-        cfgWithOperandValue(types['concat'], block('c', 'concat'), 'in.9', 1),
+        cfgWithOperandValue(
+          types['concat'],
+          block('c', 'concat'),
+          'in.9',
+          const JsonNumber(1),
+        ),
         isNull,
         reason: 'no such variable input',
       );
@@ -338,20 +358,22 @@ void main() {
     FlowBlock b(String id) => s.state.flowEditor.draft!.blocks[id]!;
 
     test('typing a value stores it under the engine port', () {
-      s.dispatchSync(SetOperandValueAction('c', 'in.1', 2));
+      s.dispatchSync(SetOperandValueAction('c', 'in.1', const JsonNumber(2)));
       expect(rawFields(operandValuesOf(b('c'))), {'in.0': 'AHU-', 'in.1': 2});
       expect(s.state.flowEditor.dirty, isTrue);
-      s.dispatchSync(SetOperandValueAction('c', 'in.0', null));
+      s.dispatchSync(SetOperandValueAction('c', 'in.0', const JsonNull()));
       expect(rawFields(operandValuesOf(b('c'))), {'in.1': 2});
     });
 
     test('refused for a parameter port and for a type without values', () {
       final before = s.state.flowEditor.draft;
       s
-        ..dispatchSync(SetOperandValueAction('c', 'in.strict', true))
-        ..dispatchSync(SetOperandValueAction('k', 'in.op', '>'))
-        ..dispatchSync(SetOperandValueAction('w', 'reset', 1))
-        ..dispatchSync(SetOperandValueAction('n', 'in', 3));
+        ..dispatchSync(
+          SetOperandValueAction('c', 'in.strict', const JsonBool(true)),
+        )
+        ..dispatchSync(SetOperandValueAction('k', 'in.op', const JsonText('>')))
+        ..dispatchSync(SetOperandValueAction('w', 'reset', const JsonNumber(1)))
+        ..dispatchSync(SetOperandValueAction('n', 'in', const JsonNumber(3)));
       expect(s.state.flowEditor.draft, before);
     });
 
@@ -387,9 +409,11 @@ void main() {
       s.dispatchSync(ResizeInputsAction('k', add: true));
       expect(b('k').cfg['inputs'], ['0', '1', '2', '3']);
       s
-        ..dispatchSync(SetOperandValueAction('k', 'in.2', 10))
-        ..dispatchSync(SetOperandValueAction('k', 'in.3', 'normal'))
-        ..dispatchSync(SetOperandValueAction('k', 'in.0', 90))
+        ..dispatchSync(SetOperandValueAction('k', 'in.2', const JsonNumber(10)))
+        ..dispatchSync(
+          SetOperandValueAction('k', 'in.3', const JsonText('normal')),
+        )
+        ..dispatchSync(SetOperandValueAction('k', 'in.0', const JsonNumber(90)))
         ..dispatchSync(ConnectPortsAction('n', 'out', 'k', 'in.3'))
         ..dispatchSync(ResizeInputsAction('k', add: false));
       expect(b('k').cfg['inputs'], ['0', '1']);

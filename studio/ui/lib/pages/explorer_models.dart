@@ -445,7 +445,7 @@ final class ExplorerFieldVm extends Equatable {
     required this.label,
     required this.kind,
     this.word,
-    this.value,
+    this.value = const NoValue(),
     this.choices = const [],
     this.choiceLabels = const {},
     this.description,
@@ -459,8 +459,8 @@ final class ExplorerFieldVm extends Equatable {
   final PointFieldWord? word;
   final ParamKind kind;
 
-  /// The value shown (a [WordOrderTag] for the word order).
-  final Object? value;
+  /// The value shown (the word order by its [WordOrderTag.text]).
+  final ParamValue value;
   final List<String> choices;
   final Map<String, String> choiceLabels;
   final String? description;
@@ -678,7 +678,7 @@ final class PointInspectorVm extends ExplorerInspectorVm {
     this.time,
     this.fails = const [],
     this.edit,
-    this.editValue,
+    this.editValue = const NoValue(),
     this.choices = const [],
     this.choiceLabels = const {},
     this.readOnly,
@@ -703,7 +703,7 @@ final class PointInspectorVm extends ExplorerInspectorVm {
 
   /// How a new value is typed; null when the point cannot be set.
   final ParamKind? edit;
-  final Object? editValue;
+  final ParamValue editValue;
   final List<String> choices;
   final Map<String, String> choiceLabels;
   final Disabled? readOnly;
@@ -877,7 +877,7 @@ final class ParamEdit extends Equatable {
 
   final String node;
   final String param;
-  final Object? value;
+  final ParamValue value;
 
   @override
   List<Object?> get props => [node, param, value];

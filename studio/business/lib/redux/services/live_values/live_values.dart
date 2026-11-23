@@ -4,7 +4,7 @@ import 'package:models/live_value.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../../common/services/interface.dart';
-import '../../../wyrm/mappers/live_value_mapper.dart';
+import '../../../wyrm/decode/live_value.dart';
 
 /// What [LiveValuesService] tells its listener.
 abstract class LiveValuesServiceListener {

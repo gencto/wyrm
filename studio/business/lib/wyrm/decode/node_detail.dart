@@ -3,8 +3,8 @@ import 'package:models/action_info.dart';
 import 'package:models/node_detail.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
-import '../decode/param_spec.dart';
-import 'values.dart';
+import '../mappers/values.dart';
+import 'param_spec.dart';
 
 /// The full `~meta` of [key] as a [NodeDetail].
 NodeDetail nodeDetailOf(String key, NodeMeta m) => NodeDetail(

@@ -520,7 +520,7 @@ class _Center extends StatelessWidget {
                 id: f.key,
                 label: f.label,
                 kind: .text,
-                value: f == InstallText.ref ? vm.ref : vm.url,
+                value: ParamValue.text(f == InstallText.ref ? vm.ref : vm.url),
                 error: f == vm.refused ? vm.refusedSaid : null,
                 hint: f.hint,
                 onChanged: (v) =>
@@ -621,7 +621,7 @@ class _Center extends StatelessWidget {
               id: InstallText.name.key,
               label: InstallText.name.label,
               kind: .text,
-              value: vm.name,
+              value: ParamValue.text(vm.name),
               error: _nameError,
               onChanged: (v) => page.onName?.call(_textOf(v)),
             ),
@@ -779,8 +779,8 @@ class _Center extends StatelessWidget {
 
 /// What a text field reports: its text, or none (a text field of
 /// [ParamField] reports a `String` or null).
-String? _textOf(Object? v) => switch (v) {
-  final String s => s,
+String? _textOf(ParamValue v) => switch (v) {
+  TextValue(:final text) => text,
   _ => null,
 };
 

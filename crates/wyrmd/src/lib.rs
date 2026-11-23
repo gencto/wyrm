@@ -61,6 +61,84 @@ use zenoh_plugin_storage_manager::StoragesPlugin;
 
 pub type Error = zenoh::Error;
 
+/// A store that did not open. Its text is the line `wyrmd` printed for it
+/// when these errors were strings: the name of what the store belongs to
+/// (`gateway: …`) and the cause's text, or the cause's text alone when that
+/// names the store itself (`storage: …`, `history store: …`).
+///
+/// `Debug` is the same text in quotes, not the fields: `main` returns its
+/// error, the runtime prints it with `{:?}`, and operators read
+/// `Error: "storage: File exists (os error 17)"`. The cause stays the
+/// [`source`](std::error::Error::source), so [`store_held`] still sees it.
+#[derive(thiserror::Error)]
+pub struct OpenError {
+    what: Option<&'static str>,
+    #[source]
+    source: Error,
+}
+
+impl OpenError {
+    /// `<what>: <the cause's text>`.
+    pub fn new(what: &'static str, source: impl Into<Error>) -> Self {
+        Self {
+            what: Some(what),
+            source: source.into(),
+        }
+    }
+
+    /// The cause's text as it is: it names the store already.
+    pub fn named(source: impl Into<Error>) -> Self {
+        Self {
+            what: None,
+            source: source.into(),
+        }
+    }
+}
+
+impl std::fmt::Display for OpenError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.what {
+            Some(what) => write!(f, "{what}: {}", self.source),
+            None => write!(f, "{}", self.source),
+        }
+    }
+}
+
+impl std::fmt::Debug for OpenError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // as the `String` error it replaces prints
+        std::fmt::Debug::fmt(&self.to_string(), f)
+    }
+}
+
+/// The error of [`Control::open`] for the start line: a history store that
+/// did not open prints its text (`history store: …`), as it did when
+/// `Control::open` made a string of it. Every other error is as it was.
+fn control_open_error(e: Error) -> Error {
+    match e.downcast::<wyrm_history::store::Error>() {
+        Ok(history) => OpenError::named(*history).into(),
+        Err(e) => e,
+    }
+}
+
+/// `e`, or one of its causes, says that a store is held: a `wyrm-state` WAL
+/// (its `LOCK`), the broker storage or the history index is open in another
+/// process, or in a daemon of this one that is still closing. Opening it
+/// again a moment later may succeed.
+pub fn store_held(e: &(dyn std::error::Error + 'static)) -> bool {
+    let mut at = Some(e);
+    while let Some(e) = at {
+        if matches!(e.downcast_ref(), Some(wyrm_state::StateError::InUse(_)))
+            || matches!(e.downcast_ref(), Some(wyrm_storage::Error::InUse(_)))
+            || matches!(e.downcast_ref(), Some(wyrm_history::store::Error::InUse(_)))
+        {
+            return true;
+        }
+        at = e.source();
+    }
+    false
+}
+
 /// `wyrmd.json5`. Unknown fields are rejected.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1932,17 +2010,20 @@ impl UserAdmin {
             .gateway
             .as_ref()
             .ok_or("no gateway section in the config")?;
-        let in_use = |e: String| -> Error {
-            if e.contains("in use") {
+        // the stores of a running broker: say what to do instead
+        let in_use = |e: Error| -> Error {
+            if store_held(&*e) {
                 format!("{e} (stop wyrmd, or use the gateway HTTP API)").into()
             } else {
-                e.into()
+                // text, as before the typed errors: `wyrmd user` prints the
+                // Debug of what it returns, and nobody reads the type further
+                e.to_string().into()
             }
         };
-        let gw = open_gateway(cfg, g, false).map_err(|e| in_use(e.to_string()))?;
+        let gw = open_gateway(cfg, g, false).map_err(in_use)?;
         let key = wyrm_admin::secret::load_or_create_key(&cfg.data_dir.join("state.key"))?;
         let audit = wyrm_state::Store::open(cfg.data_dir.join("audit"), &key)
-            .map_err(|e| in_use(e.to_string()))?;
+            .map_err(|e| in_use(OpenError::named(e).into()))?;
         Ok(Self {
             gw,
             audit: std::sync::Mutex::new(audit),
@@ -2007,7 +2088,7 @@ fn open_gateway(cfg: &Config, g: &GatewaySection, bootstrap: bool) -> Result<Arc
         pair: announce::pair_of(cfg),
         up: cfg.peers.upstream.iter().map(|u| u.site.clone()).collect(),
     };
-    let gw = Gateway::open(gc, &hmac).map_err(|e| format!("gateway: {e}"))?;
+    let gw = Gateway::open(gc, &hmac).map_err(|e| OpenError::new("gateway", e))?;
     if !bootstrap {
         return Ok(gw);
     }
@@ -2220,6 +2301,13 @@ impl Daemon {
             // The stores did not open on what the restore put in place:
             // everything goes back, and the next start (the supervisor's)
             // runs on the state before it and reports the failure.
+            //
+            // The error is text and `e` is not its source, on purpose: `e` is
+            // about the restored state, which `undo_pending` has just taken
+            // away, so it is no longer true of this `data_dir`. A caller that
+            // opens again while `store_held` says so would start on the state
+            // before the restore and never show this report; with a text it
+            // gives the report to the operator, who starts again.
             Err(e) if applied => match restore::undo_pending(&data_dir, &e.to_string()) {
                 Ok(()) => Err(format!(
                     "the restore was not applied ({e}): the state before it is back in place, \
@@ -2263,7 +2351,9 @@ impl Daemon {
         // flow counters in `~val.stats` at the pace of `sys` metrics, never faster than
         // every 5 s: gateway and historian watchers of `dataflows/**` see each one (ADR 0045)
         flows.set_stats_every(Duration::from_millis(cfg.metrics_interval_ms.max(5_000)));
-        let storage = Arc::new(wyrm_storage::Store::open(&cfg.data_dir.join("storage"))?);
+        let storage = Arc::new(
+            wyrm_storage::Store::open(&cfg.data_dir.join("storage")).map_err(OpenError::named)?,
+        );
         let gateway = match &cfg.gateway {
             None => None,
             Some(g) => Some(open_gateway(&cfg, g, true)?),
@@ -2335,7 +2425,8 @@ impl Daemon {
             keep_previous_days: cfg.packages.keep_previous_days,
             updates: update::update_config(&cfg)?,
         };
-        let (ctl, reload) = Control::open(ctl_cfg, Arc::new(Drivers))?;
+        let (ctl, reload) =
+            Control::open(ctl_cfg, Arc::new(Drivers)).map_err(control_open_error)?;
         wyrm_link_wasm::set_component_root(ctl.component_store());
         ctl.set_storage(&storage);
         ctl.set_peers(cfg.peers.peer_config());
@@ -2621,6 +2712,217 @@ async fn wait_addr_free(addr: &str, deadline: std::time::Instant) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// What `main` prints for an error it returns: the runtime writes
+    /// `Error: {e:?}` to stderr.
+    fn start_line(e: &Error) -> String {
+        format!("Error: {e:?}")
+    }
+
+    /// Audit T7, review of PR #171: a store that does not open at start
+    /// prints the line it printed while these errors were strings (the
+    /// broker before the typed errors), byte for byte. Each case is a real
+    /// `Daemon::open` on a `data_dir` where the store's place is a file.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_store_that_does_not_open_prints_its_old_start_line() {
+        let dir = std::env::temp_dir().join(format!("wyrmd-startline-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let open = |name: &str, block: &str, gateway: &str| {
+            let data = dir.join(name);
+            let block = data.join(block);
+            if let Some(parent) = block.parent() {
+                std::fs::create_dir_all(parent).unwrap();
+            }
+            std::fs::write(&block, b"not a directory").unwrap();
+            let cfg = Config::from_json5(&format!(
+                r#"{{ site: "plant", data_dir: {data:?} {gateway} }}"#
+            ))
+            .unwrap();
+            match Daemon::open(cfg, "wyrmd".into()) {
+                Ok(_) => panic!("{name}: the daemon opened"),
+                Err(e) => e,
+            }
+        };
+        let e = open("storage", "storage", "");
+        assert_eq!(
+            start_line(&e),
+            r#"Error: "storage: File exists (os error 17)""#
+        );
+        assert!(!store_held(&*e));
+        let e = open(
+            "gateway",
+            "gateway/users",
+            r#", gateway: { listen: "127.0.0.1:0" }"#,
+        );
+        assert_eq!(
+            start_line(&e),
+            r#"Error: "gateway: state: io: File exists (os error 17)""#
+        );
+        assert!(!store_held(&*e));
+        let e = open("history", "history", "");
+        assert_eq!(
+            start_line(&e),
+            r#"Error: "history store: Not a directory (os error 20)""#
+        );
+        assert!(!store_held(&*e));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// `wyrmd user` on a `data_dir` it cannot open: every error on the way to
+    /// the gateway's stores prints as its text, not only the ones a store
+    /// returns (second review of PR #171).
+    #[cfg(unix)]
+    #[test]
+    fn user_admin_prints_its_old_line_for_an_error_before_the_stores() {
+        let dir = std::env::temp_dir().join(format!("wyrmd-userline-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let open = |name: &str, prepare: &dyn Fn(&std::path::Path)| {
+            let data = dir.join(name);
+            std::fs::create_dir_all(&data).unwrap();
+            prepare(&data);
+            let cfg = Config::from_json5(&format!(
+                r#"{{ site: "plant", data_dir: {data:?}, gateway: {{ listen: "127.0.0.1:0" }} }}"#
+            ))
+            .unwrap();
+            match UserAdmin::open(&cfg) {
+                Ok(_) => panic!("{name}: the user stores opened"),
+                Err(e) => e,
+            }
+        };
+        // the gateway's directory is a file
+        let e = open("file", &|data| {
+            std::fs::write(data.join("gateway"), b"not a directory").unwrap();
+        });
+        assert_eq!(start_line(&e), r#"Error: "File exists (os error 17)""#);
+        // its HMAC key is not hex
+        let e = open("key", &|data| {
+            std::fs::create_dir_all(data.join("gateway")).unwrap();
+            std::fs::write(data.join("gateway/hmac.key"), b"zz").unwrap();
+        });
+        assert_eq!(
+            start_line(&e),
+            r#"Error: "Invalid character 'z' at position 0""#
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The same for stores that are held, at every place `wyrmd` opens one:
+    /// the old line, and the held store is still found through the wrapper.
+    #[test]
+    fn a_held_store_prints_its_old_start_line() {
+        let dir = std::env::temp_dir().join(format!("wyrmd-heldline-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        // broker storage: `Daemon::open` and the standby
+        let storage = wyrm_storage::Store::open(&dir.join("storage")).unwrap();
+        let held = wyrm_storage::Store::open(&dir.join("storage"))
+            .err()
+            .unwrap();
+        let held: Error = OpenError::named(held).into();
+        assert_eq!(
+            start_line(&held),
+            r#"Error: "storage: Database already open. Cannot acquire lock.""#
+        );
+        assert_eq!(
+            held.to_string(),
+            "storage: Database already open. Cannot acquire lock."
+        );
+        assert!(store_held(&*held));
+        // the historian, through `Control::open`
+        let history_dir = dir.join("history");
+        let history = wyrm_history::Store::open(&history_dir).unwrap();
+        let held = |()| wyrm_history::Store::open(&history_dir).err().unwrap();
+        let from_control = control_open_error(held(()).into());
+        assert_eq!(
+            start_line(&from_control),
+            format!(
+                "Error: {:?}",
+                format!(
+                    "history store: {} is in use by another process",
+                    history_dir.display()
+                )
+            )
+        );
+        assert!(store_held(&*from_control));
+        // the standby's history store
+        let standby: Error = OpenError::new("history", held(())).into();
+        assert_eq!(
+            start_line(&standby),
+            format!(
+                "Error: {:?}",
+                format!(
+                    "history: history store: {} is in use by another process",
+                    history_dir.display()
+                )
+            )
+        );
+        assert!(store_held(&*standby));
+        // the gateway's user store, and the audit store of `wyrmd user`
+        let state = || wyrm_state::StateError::InUse("/var/lib/wyrm/gateway/users".into());
+        let gateway: Error = OpenError::new("gateway", wyrm_gateway::Error::State(state())).into();
+        assert_eq!(
+            start_line(&gateway),
+            r#"Error: "gateway: state: /var/lib/wyrm/gateway/users is in use by another process""#
+        );
+        assert!(store_held(&*gateway));
+        let audit: Error = OpenError::named(wyrm_state::StateError::Rejected("x".into())).into();
+        assert_eq!(start_line(&audit), r#"Error: "operation rejected: x""#);
+        assert!(!store_held(&*audit));
+        // another error of `Control::open` is not touched
+        let io: Error = std::io::Error::other("x").into();
+        let io = control_open_error(io);
+        assert!(io.downcast_ref::<std::io::Error>().is_some());
+        // a text with a quote or a line break is escaped as a `String` is
+        let odd: Error = OpenError::new("gateway", "a \"b\"\n").into();
+        let text: Error = String::from("gateway: a \"b\"\n").into();
+        assert_eq!(start_line(&odd), start_line(&text));
+        drop((storage, history));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Audit T7: a store held by a closing daemon is told by its error's
+    /// type, through boxes and [`OpenError`], never by its text; the texts
+    /// stay as they were.
+    #[test]
+    fn a_held_store_is_told_by_its_type() {
+        let dir = std::env::temp_dir().join(format!("wyrmd-held-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let storage = wyrm_storage::Store::open(&dir.join("storage")).unwrap();
+        let held: Error = wyrm_storage::Store::open(&dir.join("storage"))
+            .err()
+            .unwrap()
+            .into();
+        assert!(store_held(&*held), "{held}");
+        let history = wyrm_history::Store::open(&dir.join("history")).unwrap();
+        let held = wyrm_history::Store::open(&dir.join("history"))
+            .err()
+            .unwrap();
+        let held: Error = OpenError::new("history", held).into();
+        assert!(store_held(&*held), "{held}");
+        assert_eq!(
+            held.to_string(),
+            format!(
+                "history: history store: {} is in use by another process",
+                dir.join("history").display()
+            )
+        );
+        // a state store behind the gateway's error, behind OpenError
+        let state = wyrm_state::StateError::InUse("users".into());
+        let held: Error = OpenError::new("gateway", wyrm_gateway::Error::State(state)).into();
+        assert!(store_held(&*held), "{held}");
+        assert_eq!(
+            held.to_string(),
+            "gateway: state: users is in use by another process"
+        );
+        // the words alone are no longer a held store
+        let text: Error = "users is in use by another process".into();
+        assert!(!store_held(&*text));
+        let other: Error =
+            OpenError::new("gateway", wyrm_gateway::Error::Config("x".into())).into();
+        assert!(!store_held(&*other));
+        drop((storage, history));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     /// Review T5: `links.<id>.mode` was an `Option<String>` checked at load and parsed
     /// again where it was used. It is read as a [`Mode`] now; another name, also in

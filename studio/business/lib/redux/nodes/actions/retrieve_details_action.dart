@@ -3,7 +3,7 @@ import 'dart:collection';
 
 import 'package:wyrm_client/wyrm_client.dart';
 
-import '../../../wyrm/mappers/node_detail_mapper.dart';
+import '../../../wyrm/decode/node_detail.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 

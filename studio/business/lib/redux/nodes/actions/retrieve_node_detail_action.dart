@@ -2,8 +2,8 @@ import 'package:models/node_detail.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../../wyrm/calls.dart';
+import '../../../wyrm/decode/node_detail.dart';
 import '../../../wyrm/failures.dart';
-import '../../../wyrm/mappers/node_detail_mapper.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 import 'retrieve_details_action.dart';

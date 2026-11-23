@@ -570,10 +570,7 @@ class _ExplorerPageState extends State<ExplorerPage> {
 
   ParamFieldVm _field(String node, ExplorerFieldVm f, {String? description}) {
     final label = f.word?.label ?? f.label;
-    final value = switch (f.value) {
-      final WordOrderTag o => o.text,
-      final v => v,
-    };
+    final value = f.value;
     return ParamFieldVm(
       id: f.code,
       label: label,
@@ -588,7 +585,7 @@ class _ExplorerPageState extends State<ExplorerPage> {
           description ??
           (!f.missing
               ? f.description
-              : value == null
+              : value is NoValue
               ? S.current.noParamReason(label.toLowerCase())
               : S.current.wordOrderReason),
       onChanged: f.missing
@@ -695,8 +692,9 @@ class _ExplorerPageState extends State<ExplorerPage> {
         note: s.staged ? S.current.stagedWas(rate(s.was)) : null,
         segments: [for (final r in s.rates) rate(r)],
         segment: i < 0 ? null : i,
-        onSegment: (i) =>
-            _w.onParam?.call(ParamEdit(s.node, s.code, s.rates[i])),
+        onSegment: (i) => _w.onParam?.call(
+          ParamEdit(s.node, s.code, NumberValue(s.rates[i])),
+        ),
       );
     }(),
     WriteSectionVm() => InspectorSectionVm(

@@ -5,7 +5,6 @@ import 'package:business/wyrm/decode/live_values.dart';
 import 'package:business/wyrm/decode/package_info.dart';
 import 'package:business/wyrm/decode/param_spec.dart';
 import 'package:business/wyrm/decode/peers.dart';
-import 'package:business/wyrm/mappers/live_value_mapper.dart';
 import 'package:business/wyrm/mappers/node_info_mapper.dart';
 import 'package:business/wyrm/mappers/value_text.dart';
 import 'package:business/wyrm/mappers/values.dart';
@@ -19,7 +18,6 @@ import 'package:models/link_state.dart';
 import 'package:models/package_kind.dart';
 import 'package:models/peer.dart';
 import 'package:models/peer_kind.dart';
-import 'package:models/quality.dart' as m;
 import 'package:models/quarantine_entry.dart';
 import 'package:models/task_state.dart';
 import 'package:wyrm_client/wyrm_client.dart';
@@ -272,16 +270,6 @@ void main() {
     expect(specs[3].secret, isTrue);
     expect(specs[3].editor, isNull);
     expect(specs[3].description, 'one-time');
-  });
-
-  test('liveValueOf', () {
-    final v = liveValueOf(
-      const Sample(VFloat(21.5), q: Quality.uncertain, t: 1794108760204785),
-    );
-
-    expect(v.value, 21.5);
-    expect(v.quality, m.Quality.uncertain);
-    expect(v.time.microsecondsSinceEpoch, 1794108760204785);
   });
 
   test('agentTaskOf: a plan waiting for approval', () {

@@ -140,9 +140,12 @@ List<BlockPort> _ports(Object? v, String field, String endsKey) {
           // read as JSON while the editor builds: none past the bound
           // where it is shown, one level down in the boundary block's
           // `defaults`
-          defaultValue: JsonValue.isJson(m['default'], nestedIn: 1)
-              ? m['default']
-              : throw _Bad('$field[$i].default', 'nested too deep'),
+          defaultValue: switch (m['default']) {
+            null => null,
+            final d =>
+              JsonValue.tryOf(d, nestedIn: 1) ??
+                  (throw _Bad('$field[$i].default', 'nested too deep')),
+          },
           hasDefault: m.containsKey('default'),
           description: switch (m['description']) {
             null => null,
@@ -217,7 +220,8 @@ Map<String, Object?> blockDefJsonOf(BlockDef def) => {
         'to': p.oneEnd && p.ends.length == 1
             ? p.ends.single.wire
             : [for (final e in p.ends) e.wire],
-        if (p.hasDefault || p.defaultValue != null) 'default': p.defaultValue,
+        if (p.hasDefault || p.defaultValue != null)
+          'default': p.defaultValue?.raw,
         'description': ?p.description,
         ...p.extra.unlock,
       },

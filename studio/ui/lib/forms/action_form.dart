@@ -83,9 +83,12 @@ class ActionForm extends StatefulWidget {
 }
 
 class _ActionFormState extends State<ActionForm> {
-  late final Map<String, Object?> _values = {
+  late final Map<String, ParamValue> _values = {
     for (final f in widget.fields) f.id: f.value,
   };
+
+  /// The files picked, by field id.
+  final _files = <String, PickedFile>{};
 
   final _nodes = <String, FocusNode>{};
 
@@ -107,7 +110,10 @@ class _ActionFormState extends State<ActionForm> {
     });
     FieldRefusal? refused;
     try {
-      refused = await widget.onSubmit(Map.of(_values));
+      refused = await widget.onSubmit({
+        for (final MapEntry(:key, :value) in _values.entries)
+          key: _files[key] ?? value.plain,
+      });
     } finally {
       if (mounted) {
         setState(() => _sending--);
@@ -139,7 +145,12 @@ class _ActionFormState extends State<ActionForm> {
   }
 
   bool get _complete => widget.fields.every(
-    (f) => !f.required || (_values[f.id] != null && _values[f.id] != ''),
+    (f) =>
+        !f.required ||
+        switch (_values[f.id]) {
+          null || NoValue() || TextValue(text: '') => false,
+          _ => true,
+        },
   );
 
   Future<void> _pick(ParamFieldVm f) async {
@@ -149,7 +160,10 @@ class _ActionFormState extends State<ActionForm> {
     }
     final bytes = await file.readAsBytes();
     if (mounted) {
-      setState(() => _values[f.id] = PickedFile(file.name, bytes));
+      setState(() {
+        _values[f.id] = FileValue(file.name);
+        _files[f.id] = PickedFile(file.name, bytes);
+      });
     }
   }
 
@@ -161,10 +175,7 @@ class _ActionFormState extends State<ActionForm> {
           id: f.id,
           label: f.label,
           kind: f.kind,
-          value: switch (_values[f.id]) {
-            final PickedFile p => p.name,
-            final v => v,
-          },
+          value: _values[f.id] ?? const NoValue(),
           hint: f.hint,
           unit: f.unit,
           choices: f.choices,

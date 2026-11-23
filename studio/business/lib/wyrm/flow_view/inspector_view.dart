@@ -598,7 +598,7 @@ InspectorRow _row(
   }
   final p = f.spec;
   if (p != null) {
-    final v = b.paramOr(p.name, p.defaultValue?.raw);
+    final v = b.paramOr(p.name, p.defaultValue);
     final scoped = p.name == keyed?.scope;
     final keyBound =
         keyed != null &&
@@ -722,7 +722,7 @@ InspectorRow _row(
     _ when group == FieldGroup.events => eventText(
       live(portKey(PortSide.output, b.id, f.name)),
     ),
-    EnginePort.lastRun when behaves => lastRunText(shown.raw),
+    EnginePort.lastRun when behaves => lastRunText(shown.json),
     _ => shown.text,
   };
   if (f.kind == FieldKind.output) {

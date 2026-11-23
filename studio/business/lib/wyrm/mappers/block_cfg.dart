@@ -3,11 +3,13 @@ import 'package:models/block_cfg_key.dart';
 import 'package:models/flow_block.dart';
 import 'package:models/json_value.dart';
 
+import '../decode/block_config.dart';
+
 export 'package:models/block_cfg_key.dart';
 export 'package:models/json_value.dart';
 
 /// What a flow node's config holds, read through its typed JSON
-/// ([JsonValue]).
+/// ([JsonValue], decoded once by [blockConfigOf]).
 ///
 /// A node's config ([FlowBlock.cfg]) stays the JSON of the definition's
 /// node: the inspector edits any parameter the catalog names by its name,
@@ -20,14 +22,17 @@ export 'package:models/json_value.dart';
 extension BlockCfg on FlowBlock {
   /// The value of the catalog parameter [name] as the config holds it
   /// ([JsonNull] when it holds none).
-  JsonValue param(String name) => JsonValue.of(cfg[name]);
+  JsonValue param(String name) => _config[name] ?? const JsonNull();
 
   /// The value of the catalog parameter [name], else [fallback] (the
   /// catalog's default for it).
-  JsonValue paramOr(String name, Object? fallback) => switch (param(name)) {
-    JsonNull() => JsonValue.of(fallback),
+  JsonValue paramOr(String name, JsonValue? fallback) => switch (param(name)) {
+    JsonNull() => fallback ?? const JsonNull(),
     final v => v,
   };
+
+  /// The config, decoded.
+  IMap<String, JsonValue> get _config => blockConfigOf(cfg);
 
   /// Whether the config holds a value for the parameter [name].
   bool hasParam(String name) => cfg[name] != null;
@@ -63,43 +68,39 @@ extension BlockCfg on FlowBlock {
   };
 
   /// `args` of an `invoke`, by argument name; empty when it has none.
-  IMap<String, JsonValue> get cfgArgs => _fields(cfg[BlockCfgKey.args.wire]);
+  IMap<String, JsonValue> get cfgArgs => _fields(param(BlockCfgKey.args.wire));
 
   /// Whether `args` is a map at all (an `invoke` with no arguments yet).
-  bool get hasArgs => JsonValue.of(cfg[BlockCfgKey.args.wire]) is JsonMap;
+  bool get hasArgs => param(BlockCfgKey.args.wire) is JsonMap;
 
   /// `values`: the operand constants, by port (ADR 0038 §7).
   IMap<String, JsonValue> get cfgValues => operandValuesIn(cfg);
 
   /// `defaults` of a boundary block: an input's default, by its name.
   IMap<String, JsonValue> get cfgDefaults =>
-      _fields(cfg[BlockCfgKey.defaults.wire]);
+      _fields(param(BlockCfgKey.defaults.wire));
 
   /// `descriptions` of a boundary block: a port's note, by its name.
   IMap<String, JsonValue> get cfgDescriptions =>
-      _fields(cfg[BlockCfgKey.descriptions.wire]);
+      _fields(param(BlockCfgKey.descriptions.wire));
 
   /// `enabled`; null when the config does not say.
-  bool? get cfgEnabled => switch (JsonValue.of(
-    cfg[BlockCfgKey.enabled.wire],
-  )) {
+  bool? get cfgEnabled => switch (param(BlockCfgKey.enabled.wire)) {
     JsonBool(:final value) => value,
     _ => null,
   };
 
   /// The names a list parameter holds (`inputs` of `add`, a boundary
   /// block's `inputs`/`outputs`): its non-empty texts in order; null when
-  /// [param] is no list.
-  List<String>? namesOf(String param) => switch (JsonValue.of(cfg[param])) {
+  /// [name] is no list.
+  List<String>? namesOf(String name) => switch (param(name)) {
     final JsonList l => l.names,
     _ => null,
   };
 
   /// The keys of a map parameter (`args` of `invoke`, ADR 0040 §2), else
   /// the names of a list one; null when it is neither.
-  List<String>? portNamesOf(String param) => switch (JsonValue.of(
-    cfg[param],
-  )) {
+  List<String>? portNamesOf(String name) => switch (param(name)) {
     JsonMap(:final fields) => fields.keys.toList(),
     final JsonList l => l.names,
     _ => null,
@@ -108,7 +109,7 @@ extension BlockCfg on FlowBlock {
 
 /// The operand constants of a node config [cfg] (`values`), by port.
 IMap<String, JsonValue> operandValuesIn(IMap<String, Object?> cfg) =>
-    _fields(cfg[BlockCfgKey.operandValues.wire]);
+    _fields(blockConfigOf(cfg)[BlockCfgKey.operandValues.wire]);
 
 /// [fields] as the definition writes them: what a config written back
 /// holds.
@@ -117,7 +118,7 @@ Map<String, Object?> rawFields(IMap<String, JsonValue> fields) => {
 };
 
 /// The fields of a JSON map; none for anything else.
-IMap<String, JsonValue> _fields(Object? v) => switch (JsonValue.of(v)) {
+IMap<String, JsonValue> _fields(JsonValue? v) => switch (v) {
   JsonMap(:final fields) => fields,
   _ => const IMapConst({}),
 };

@@ -9,6 +9,7 @@ import 'package:ui/indicators/lines_text.dart';
 import 'package:ui/overlays/value_viewer.dart';
 import 'package:ui/tables/table_edits.dart';
 
+import 'frames/cells.dart';
 import 'frames/harness.dart';
 
 /// The table window of the value viewer (owner request 2026-11-11,
@@ -27,7 +28,7 @@ void main() {
     closed = 0;
   });
 
-  TableDataVm pumps() => TableDataVm(
+  TableDataVm pumps() => rawTable(
     ['name', 'kw', 'on', 'meta'],
     [
       ['pump', 3, true, null],
@@ -90,7 +91,7 @@ void main() {
   testWidgets('10 000 rows build; only the rows in view are built', (
     tester,
   ) async {
-    final big = TableDataVm(
+    final big = rawTable(
       ['n', 'name'],
       [
         for (var i = 0; i < 10000; i++) [i, 'row $i'],
@@ -258,7 +259,7 @@ void main() {
   testWidgets('past the bounds of a table an edit is refused', (
     tester,
   ) async {
-    final full = TableDataVm(
+    final full = rawTable(
       [for (var i = 0; i < TableBounds.columns; i++) 'c$i'],
       [
         for (var r = 0; r < TableBounds.rows; r++) const <Object?>[],
@@ -281,13 +282,13 @@ void main() {
       readCsv: (text, r) {
         final lines = text.trim().split('\n');
         final cols = lines.first.split(r.delimiter);
-        return TableDataVm(cols, [
+        return rawTable(cols, [
           for (final l in lines.skip(1)) l.split(r.delimiter),
         ]);
       },
       writeCsv: (t, r) => [
         t.columns.join(r.delimiter),
-        for (final row in t.rows) row.join(r.delimiter),
+        for (final row in rawRows(t)) row.join(r.delimiter),
         '',
       ].join('\n'),
     );
@@ -381,20 +382,31 @@ void main() {
 
   group('table edits', () {
     test('a typed cell keeps its type', () {
-      expect(typedCell('4', 3), 4);
-      expect(typedCell('n/a', 3), 'n/a');
-      expect(typedCell('false', true), false);
-      expect(typedCell('{"a":1}', {'b': 2}), {'a': 1});
-      expect(typedCell('7', 'seven'), '7');
-      expect(typedCell('7', null), 7);
-      expect(typedCell('', null), isNull);
-      expect(typedCell('7', 3, textOnly: true), '7');
+      Object? typed(String text, Object? was, {bool textOnly = false}) =>
+          typedCell(
+            text,
+            cellOf(was),
+            textOnly: textOnly,
+            readJson: readJsonCell,
+          ).raw;
+      expect(typed('4', 3), 4);
+      expect(typed('n/a', 3), 'n/a');
+      expect(typed('false', true), false);
+      expect(typed('{"a":1}', {'b': 2}), {'a': 1});
+      expect(typed('[1]', {'b': 2}), [1]);
+      expect(typed('3', {'b': 2}), '3');
+      expect(typed('7', 'seven'), '7');
+      expect(typed('7', null), 7);
+      expect(typed('', null), isNull);
+      expect(typed('7', 3, textOnly: true), '7');
+      // without a reader a JSON text stays the text
+      expect(typedCell('{"a":1}', cellOf({'b': 2})).raw, '{"a":1}');
     });
 
     test('the cells weigh as the engine counts them', () {
       expect(
         tableBytes(
-          TableDataVm(
+          rawTable(
             ['a', 'b'],
             [
               ['é', 1],
@@ -404,19 +416,22 @@ void main() {
         ),
         (2 + 3) + 9 + 1 + 1,
       );
-      final heavy = TableDataVm(
+      final heavy = rawTable(
         ['a'],
         [
           ['x' * (TableBounds.bytes - 10)],
           [null],
         ],
       );
-      expect(setCell(heavy, 1, 0, 'y' * 20).refused, TableRefusal.bytes);
-      expect(setCell(heavy, 1, 0, 'y').table, isNotNull);
+      expect(
+        setCell(heavy, 1, 0, TextCell('y' * 20)).refused,
+        TableRefusal.bytes,
+      );
+      expect(setCell(heavy, 1, 0, const TextCell('y')).table, isNotNull);
     });
 
     test('a column name is unique and not empty', () {
-      final t = TableDataVm(['a'], const []);
+      final t = rawTable(['a'], const []);
       expect(addColumn(t, 'a').refused, TableRefusal.nameTaken);
       expect(addColumn(t, '').refused, TableRefusal.name);
       expect(renameColumn(t, 0, 'a').table, isNotNull);
