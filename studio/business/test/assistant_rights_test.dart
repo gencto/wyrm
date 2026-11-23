@@ -365,7 +365,7 @@ void main() {
   });
 }
 
-class _Reader with Selectors {
+class _Reader with Selectors, NothingInFlight {
   _Reader(this.state);
 
   @override

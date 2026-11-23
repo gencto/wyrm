@@ -27,19 +27,17 @@ abstract class AppState with _$AppState {
   const factory AppState({
     required LoginState login,
     required ThemeState theme,
-    required Wait wait,
   }) = _AppState;
 
   factory AppState.initial() => const AppState(
     login: LoginState(),
     theme: ThemeState(),
-    wait: Wait.empty,
   );
 }
 ```
 
-`wait` is async_redux's own barrier registry, not a slice of this app. Leave it
-alone — actions raise and clear it through the `WaitingAction` mixin.
+There is no `wait` field: this project reads what is in flight from the
+store (`asyncredux-in-this-template`, "Waiting"), not from `AppState`.
 
 A slice is a `@freezed` class of its own, at
 `business/lib/redux/<slice>/models/<slice>_state.dart`. Every field is nullable

@@ -408,7 +408,7 @@ void main() {
     await settle(tester, 4000);
     debugPrint(
       'after log in: token=${store.state.session.token} '
-      'site=${store.state.site.name} wait=${store.state.wait} '
+      'site=${store.state.site.name} '
       'login=${store.state.login} '
       'route=${appRouter.current.name}',
     );

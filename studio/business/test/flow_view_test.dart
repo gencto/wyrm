@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:async_redux/async_redux.dart' show Wait;
 import 'package:business/redux/app_state.dart';
 import 'package:business/redux/flow_editor/actions/save_block_to_library_action.dart';
 import 'package:business/redux/flow_editor/models/flow_editor_state.dart';
@@ -79,7 +78,7 @@ AppState stateOf({
   ),
 );
 
-FlowView viewOf(AppState s) => SelectFlowEditor(s).view('dvpsm-bot');
+FlowView viewOf(AppState s) => flowViewOf(s, const Waiting.none(), 'dvpsm-bot');
 
 void main() {
   group('the view of the large flow', () {
@@ -124,7 +123,7 @@ void main() {
       expect(viewOf(stateOf(draft: moved)).deployOff, isNull);
       final loading = AppState.initial();
       expect(
-        SelectFlowEditor(loading).view('x').status,
+        flowViewOf(loading, const Waiting.none(), 'x').status,
         EditorStatus.loading,
       );
     });
@@ -412,12 +411,8 @@ void main() {
   });
 
   test('a library call that runs holds the library items of My blocks', () {
-    final idle = stateOf();
-    final busy = idle.copyWith(
-      wait: Wait.empty.add(flag: SaveBlockToLibraryAction('mean')),
-    );
-    expect(libraryBusyOf(idle), isFalse);
-    expect(libraryBusyOf(busy), isTrue);
+    expect(libraryBusyOf(const Waiting.none()), isFalse);
+    expect(libraryBusyOf(Waiting.fixed({SaveBlockToLibraryAction})), isTrue);
     final library = [const BlockInfo(name: 'mean', version: 2)].lock;
     LibraryEntry entry({required bool libraryBusy}) => libraryOf(
       library,

@@ -184,19 +184,19 @@ final _shown = Memo<ExplorerShown>();
 /// its tree only when what the tree reads changed ([explorerTreeInputsOf]).
 /// A dispatch elsewhere in the app, or a value of a key not on screen,
 /// gives the very same object. Nothing here reads the clock.
-ExplorerShown explorerShownOf(AppState s) {
-  final r = _Read(s);
+ExplorerShown explorerShownOf(AppState s, Waiting w) {
+  final r = _Read(s, w);
   final tree = _tree.of(
     explorerTreeInputsOf(s),
     () => [for (final row in r.explorer.treeRows) _treeRow(r, row)].lock,
   );
-  final busy = r.nodes.isWaiting || r.changes.isWaiting;
-  final treeLoading = r.nodes.view.isEmpty && r.nodes.isWaiting;
-  final menuOpening = r.nodes.menuOpening;
+  final busy = r.waiting.nodes || r.waiting.applyChanges;
+  final treeLoading = r.nodes.view.isEmpty && r.waiting.nodes;
+  final menuOpening = r.waiting.nodeMenu;
   return _shown.of(
     [
       tree,
-      ...explorerInputsOf(s),
+      ...explorerInputsOf(s, w),
       busy,
       treeLoading,
       menuOpening,
@@ -215,11 +215,14 @@ ExplorerShown explorerShownOf(AppState s) {
 }
 
 /// The state read through its selectors.
-final class _Read with Selectors {
-  _Read(this.state);
+final class _Read with Selectors, WaitingGiven {
+  _Read(this.state, this.given);
 
   @override
   final AppState state;
+
+  @override
+  final Waiting given;
 }
 
 ExplorerShown _shownOf(
@@ -350,7 +353,7 @@ ExplorerShown _shownOf(
       null => null,
     },
     range: nodes.historyRange.tag,
-    trend: x.trend?.vm,
+    trend: x.trend(reading: r.waiting.history)?.vm,
     historyRows: [
       for (final h in history?.rows ?? const <ExplorerHistoryRow>[])
         HistoryRowVm(time: h.time, value: h.value, mark: h.quality?.sample),

@@ -10,7 +10,7 @@ import 'retrieve_access_action.dart';
 /// assistant through the gateway) come in this way, with the grants and
 /// the audit tail.
 ///
-/// The same read as `RetrieveAccessAction`, but not in `Wait` (no sweep
+/// The same read as `RetrieveAccessAction`, but not a `WaitingAction` (no sweep
 /// bar every ten seconds) and silent: a failed poll keeps what is shown
 /// and the next one tries again, so a gateway that is down raises no
 /// dialog or toast per tick (the shell's offline banner says it). It does
@@ -21,7 +21,7 @@ class PollAccessAction extends Action with NonReentrant {
 
   @override
   Future<AppState?> reduce() async {
-    if (!access.shown || access.isWaiting) {
+    if (!access.shown || waiting.access) {
       return null;
     }
     try {

@@ -165,7 +165,7 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
   /// when it runs.
   @override
   _Vm fromStore() {
-    final shown = explorerShownOf(state);
+    final shown = explorerShownOf(state, waiting);
     return _Vm(
       shown: shown,
       submit: SubmitVm(

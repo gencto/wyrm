@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:app/common/window.dart';
 import 'package:app/connectors/gallery_page_connector.dart';
 import 'package:app/connectors/splash_page_connector.dart';
@@ -5,6 +7,7 @@ import 'package:app/connectors/toast_stack_connector.dart';
 import 'package:app/connectors/top_level_page_connector.dart';
 import 'package:app/connectors/window_controls_connector.dart';
 import 'package:business/redux/access/actions/set_shown_action.dart';
+import 'package:business/redux/app_state.dart';
 import 'package:business/redux/common/action.dart' as redux;
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -188,7 +191,15 @@ void main() {
     testWidgets('no internet, then a blocking wait', (t) async {
       final app = ScreenApp();
       await app.logIn(t);
-      await app.pump(t, const TopLevelPageConnector(child: Text('page')));
+      // the barrier's list as a test gives it: the action it runs here
+      // (`blockingActions` itself: `blocking_actions_test.dart`)
+      await app.pump(
+        t,
+        const TopLevelPageConnector(
+          blocking: [_Blocking],
+          child: Text('page'),
+        ),
+      );
       expect(find.byType(NoInternetOverlay), findsNothing);
       expect(find.byType(BarrierOverlay), findsNothing);
 
@@ -200,10 +211,22 @@ void main() {
       );
       expect(find.text('page'), findsOneWidget);
 
-      app.put((s) => s.copyWith(wait: s.wait.add(flag: _Blocking())));
+      // the action runs: the store tells the connector, the state is the
+      // same object
+      final before = app.store.state;
+      final gate = Completer<void>();
+      final run = app.store.dispatchAndWait(_Blocking(gate));
       await app.settle(t);
+      expect(app.store.state, same(before));
       expect(find.byType(BarrierOverlay), findsOneWidget);
       expect(find.byType(NoInternetOverlay), findsNothing);
+
+      // and it ends: the barrier is gone, what was under it is back
+      gate.complete();
+      await run;
+      await app.settle(t);
+      expect(find.byType(BarrierOverlay), findsNothing);
+      expect(find.byType(NoInternetOverlay), findsOneWidget);
       await app.leave(t);
     });
   });
@@ -219,11 +242,19 @@ void main() {
   });
 }
 
-/// A wait that covers the app.
+/// A wait that covers the app, until [gate] is completed. It changes no
+/// state.
 class _Blocking extends redux.Action
     with redux.WaitingAction, redux.BlockingAction {
+  _Blocking(this.gate);
+
+  final Completer<void> gate;
+
   @override
-  Null reduce() => null;
+  Future<AppState?> reduce() async {
+    await gate.future;
+    return null;
+  }
 }
 
 /// The window the buttons act on, as a list of what they asked of it.

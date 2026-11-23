@@ -62,7 +62,7 @@ Future<void> showLinkLog(BuildContext context, String id) {
         onInit: (s) => s.dispatch(GetLinkLogAction(id)),
         converter: (s) => (
           s.state.links.log.unlock,
-          SelectLinks(s.state).isReadingLog,
+          Waiting(s.isWaiting).linkLog,
         ),
         builder: (context, v) => SizedBox(
           height: AppSizes.logDialog,
@@ -148,7 +148,7 @@ Future<void> showLinkHistory(BuildContext context, String id) {
         onInit: (s) => s.dispatch(RetrieveLinkHistoryAction(id)),
         converter: (s) => (
           s.state.links.revisions.unlock,
-          SelectLinks(s.state).isReadingHistory,
+          Waiting(s.isWaiting).linkHistory,
         ),
         builder: (context, v) => SizedBox(
           height: AppSizes.logDialog,

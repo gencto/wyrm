@@ -1558,7 +1558,8 @@ extension type ExplorerView(AppState _state) {
   }
 
   /// The trend of the point whose history is on screen; null with none.
-  ExplorerTrend? get trend {
+  /// [reading]: a history read is in flight (`waiting.history`).
+  ExplorerTrend? trend({required bool reading}) {
     final point = _nodes.point;
     if (point == null || _nodes.historyKey != point) {
       return null;
@@ -1574,7 +1575,7 @@ extension type ExplorerView(AppState _state) {
       precision: detail?.cfg['precision'],
       rows: rows,
       span: trendSpan,
-      loading: rows.isEmpty && _nodes.historyLoading,
+      loading: rows.isEmpty && reading,
     );
   }
 
@@ -1650,14 +1651,14 @@ List<Object?> _liveOf(AppState s, List<String> keys) => [
 /// made of the view is kept (`Memo`) while every input is the same object.
 /// The parts of the state it reads ([SelectSite], [SelectNodes], the links'
 /// and the changes' tables), the one wait it reads (a history read: the
-/// trend's spinner, [SelectNodes.historyLoading]) and the live values of
+/// trend's spinner, `waiting.history`) and the live values of
 /// [ExplorerView.readKeys]. It reads no clock.
-List<Object?> explorerInputsOf(AppState s) => [
+List<Object?> explorerInputsOf(AppState s, Waiting w) => [
   s.site,
   s.nodes,
   s.links.table,
   s.changes.table,
-  SelectNodes(s).historyLoading,
+  w.history,
   ..._liveOf(
     s,
     _readKeys.of([s.site, s.nodes], () => ExplorerView(s).readKeys),

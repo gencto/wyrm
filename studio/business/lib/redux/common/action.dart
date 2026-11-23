@@ -91,71 +91,40 @@ abstract class Action extends ReduxAction<AppState> with Selectors {
   }
 }
 
-/// Registers the action in `Wait` while it runs, so a selector can read that it
-/// is in flight — `_state.wait.isWaitingForType<MyAction>()`.
+/// The action is drawn while it runs: a selector may ask whether it is in
+/// flight, `waiting.on<MyAction>()` (see `Waiting`, `common/waiting.dart`).
 ///
-/// That is all it says. It drives an indicator; it does not decide whether the
-/// screen is usable meanwhile. A background refresh, a poll or a paginating
-/// load wants exactly this and nothing more.
+/// **A marker, with no hook of its own.** Through async_redux 29 this mixin
+/// filed the action in `Wait` in `before()` and took it out in `after()`.
+/// Since 30 the store knows every action in progress by itself and tells
+/// the widgets that asked about its type when it starts and when it ends,
+/// so there is nothing to raise and nothing a mixin that does not chain
+/// `super.after()` can leave up.
 ///
-/// **Both hooks call `super`, and that is load-bearing.** Dart gives a class
-/// one `after()` — the last mixin's. Through async_redux 28.1, `NonReentrant`,
-/// `Throttle` and `Fresh` overrode it to release their own lock *without*
-/// calling `super.after()`, so in `with WaitingAction, NonReentrant` this
-/// mixin's `after()` was never reached: the barrier went up and never came
-/// down, and every widget reading `isWaitingForType<T>()` stayed disabled for
-/// the rest of the session. Reversing the pair only moved the loss — then it
-/// was the reentrancy lock that was never released.
+/// What is left is the claim, and `Waiting.on` takes only a type that
+/// makes it. It drives an indicator; it does not decide whether the screen
+/// is usable meanwhile. A background refresh, a poll or a paginating load
+/// that no screen draws does not mix it in, and then nothing can ask about
+/// it by accident.
 ///
-/// Since 28.3.1 every mixin async_redux declares chains (this package requires
-/// ≥ 28.4), and this one always did: it cleans up and passes the baton, and
-/// `add-action` puts it **last** in the `with` clause so it is the one Dart
-/// calls — a rule that costs nothing and covers the next mixin that does not
-/// chain. `frx doctor` checks both halves.
-///
-/// Both hooks are `@mustCallSuper`, as async_redux's own are from 28.4: an
-/// action that writes its own `after()` and forgets `super` is the other way
-/// to end the chain, and this way the analyzer says so where it is written,
-/// before `doctor` does.
-///
-/// `before()` returns `Future<void>` rather than `void` for a narrower reason:
-/// `CheckInternet` declares `Future<void> before()`, and a `void` override of
-/// it is a compile error — which is what a `WaitingAction` placed last, in
-/// front of nothing, would otherwise be.
-mixin WaitingAction on ReduxAction<AppState> {
-  bool get notifyBefore => true;
-  bool get notifyAfter => false;
-
-  @mustCallSuper
-  @override
-  Future<void> before() async {
-    // Synchronous — the body runs to the first `await` before the store gets
-    // its future back, so the indicator is up in the same frame as the tap.
-    dispatchSync(WaitAction.add(this), notify: notifyBefore);
-    await super.before();
-  }
-
-  @mustCallSuper
-  @override
-  void after() {
-    // Locks first, barrier second: whoever wakes on the barrier coming down
-    // finds a dispatchable action rather than one still holding its own lock.
-    super.after();
-    dispatchSync(WaitAction.remove(this), notify: notifyAfter);
-  }
-}
+/// `frx add-action -k waiting` still puts it **last** in the `with` clause
+/// and `frx doctor` still checks that; the order no longer matters to the
+/// wait, and it is kept so that the generated form needs no edit.
+mixin WaitingAction on ReduxAction<AppState> {}
 
 /// The user is blocked on this: the modal barrier covers the app while it runs.
 ///
 /// **Separate from [WaitingAction] because "is in flight" and "the screen is
 /// unusable" are different claims,** and the second is the one nobody should
-/// make by accident. The barrier asks `isWaitingForType<BlockingAction>()` —
-/// `WaitAction.add(this)` files the action itself as the flag and
-/// `isWaitingForType<T>` tests `flag is T`, so a mixin answers as readily as a
-/// class, and the set needs no list anywhere.
+/// make by accident: every action that wants an indicator reaches for
+/// [WaitingAction], and if that also meant the barrier, the first background
+/// operation anyone adds would blank the app.
 ///
-/// Keyed on this rather than on `Wait` membership because every async action
-/// that wants an indicator reaches for [WaitingAction]; if that also meant the
-/// barrier, the first background operation anyone adds would blank the app.
-/// Opting in is a sentence you write on purpose.
+/// **The mixin alone does not raise the barrier.** The store compares exact
+/// runtime types (`Store.isWaiting`), so no question can be put about "any
+/// action with this mixin". The barrier asks about the types listed in
+/// `blockingActions` (`app/lib/common/blocking_actions.dart`); an action
+/// with this mixin goes into that list, and
+/// `app/test/blocking_actions_test.dart` fails while one is missing from it
+/// or one is listed without the mixin.
 mixin BlockingAction on WaitingAction {}

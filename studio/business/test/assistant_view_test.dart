@@ -276,23 +276,49 @@ void main() {
 
     test('a dispatch elsewhere and a value of another key change none of '
         'it; a value of a key it shows does', () {
-      final before = assistantInputsOf(s.state, drawer: false);
+      final before = assistantInputsOf(
+        s.state,
+        const Waiting.none(),
+        drawer: false,
+      );
 
       s
         ..dispatchSync(SetTreeFilterAction('q'))
         ..dispatchSync(
           SetLiveValuesAction({'wy/central/downstream/other/x': sample(1)}),
         );
-      expect(same(assistantInputsOf(s.state, drawer: false), before), isTrue);
+      expect(
+        same(
+          assistantInputsOf(s.state, const Waiting.none(), drawer: false),
+          before,
+        ),
+        isTrue,
+      );
 
       s.dispatchSync(SetLiveValuesAction({sp: sample(2)}));
-      expect(same(assistantInputsOf(s.state, drawer: false), before), isFalse);
+      expect(
+        same(
+          assistantInputsOf(s.state, const Waiting.none(), drawer: false),
+          before,
+        ),
+        isFalse,
+      );
     });
 
     test('the draft is a part of it', () {
-      final before = assistantInputsOf(s.state, drawer: false);
+      final before = assistantInputsOf(
+        s.state,
+        const Waiting.none(),
+        drawer: false,
+      );
       s.dispatchSync(SetDraftAction('add ahu3'));
-      expect(same(assistantInputsOf(s.state, drawer: false), before), isFalse);
+      expect(
+        same(
+          assistantInputsOf(s.state, const Waiting.none(), drawer: false),
+          before,
+        ),
+        isFalse,
+      );
     });
   });
 
@@ -572,7 +598,7 @@ void main() {
   });
 }
 
-class _Reader with Selectors {
+class _Reader with Selectors, NothingInFlight {
   _Reader(this.state);
 
   @override

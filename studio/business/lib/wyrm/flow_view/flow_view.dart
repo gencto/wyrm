@@ -316,10 +316,10 @@ final class FlowBase {
 
 /// A save to, an update from or a removal from the site's library runs
 /// (each is `NonReentrant`): the My blocks tab holds the library's items.
-bool libraryBusyOf(AppState s) =>
-    s.wait.isWaitingForType<SaveBlockToLibraryAction>() ||
-    s.wait.isWaitingForType<UpdateBlockFromLibraryAction>() ||
-    s.wait.isWaitingForType<RemoveLibraryBlockAction>();
+bool libraryBusyOf(Waiting w) =>
+    w.on<SaveBlockToLibraryAction>() ||
+    w.on<UpdateBlockFromLibraryAction>() ||
+    w.on<RemoveLibraryBlockAction>();
 
 final _base = Memo<FlowBase>();
 
@@ -467,7 +467,7 @@ final _customBlock = Memo<CustomBlockView?>();
 
 /// The flow editor of [s] for the route [routeId] (`newFlowId` for a new
 /// flow): its every part, each made again only when what it reads changed.
-FlowView flowViewOf(AppState s, String routeId) {
+FlowView flowViewOf(AppState s, Waiting w, String routeId) {
   final fe = s.flowEditor;
   final site = SelectSite(s);
   final base = flowBaseOf(s, routeId);
@@ -475,7 +475,7 @@ FlowView flowViewOf(AppState s, String routeId) {
   final d = base.draft;
   final previewing = previewingOf(s, base);
   final live = _liveOf(s, base);
-  final busy = s.wait.isWaitingForType<DeployFlowAction>();
+  final busy = w.on<DeployFlowAction>();
   final sel = fe.selectedBlock;
   final b = sel == null ? null : d?.blocks[sel];
   final inside = fe.frames.isNotEmpty;
@@ -634,7 +634,7 @@ FlowView flowViewOf(AppState s, String routeId) {
     ),
   );
   final catalog = _catalog.of([fe.types], () => catalogOf(fe.types));
-  final libraryBusy = libraryBusyOf(s);
+  final libraryBusy = libraryBusyOf(w);
   final myBlocks = _myBlocks.of(
     [base, fe.library, config, libraryBusy],
     () => myBlocksOf(

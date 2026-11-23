@@ -15,7 +15,7 @@ class CloseFlowEditorAction extends Action {
   @override
   AppState? reduce() {
     dispatchSync(
-      UnwatchKeysAction(flowViewOf(state, routeId).follow.watch),
+      UnwatchKeysAction(flowViewOf(state, waiting, routeId).follow.watch),
       notify: false,
     );
     dispatchSync(WatchFlowAction(null), notify: false);

@@ -38,7 +38,7 @@ allows to be a number (untyped decoding). Both compiled, both passed the tests.
 `unawaited(store.dispatch…)` are not written anywhere. A callback that starts
 work calls `dispatch(SomeAction())` and returns. If the screen must show that
 the work runs, the action has `WaitingAction` and the connector reads
-`isWaitingForType<SomeAction>()`. If two steps must run in order, they are one
+`waiting.<name>` (`asyncredux-in-this-template`, "Waiting"). If two steps must run in order, they are one
 action whose `reduce` awaits each step — the sequence lives in the action, not
 in the connector.
 
@@ -55,7 +55,7 @@ onMode: (m) => unawaited(dispatchAndWait(StageAgentParamAction.mode(m))),
 
 // good — the action carries its own wait state; the connector starts it
 onMode: (m) => dispatch(StageAgentParamAction.mode(m)),
-isStaging: isWaitingForType<StageAgentParamAction>(),
+isStaging: waiting.stageAgentParam,
 ```
 
 ```dart
@@ -428,8 +428,10 @@ purpose:
 - the action returns one new state at the end (one `copyWith` that sets every
   field) instead of several dispatches that each set one field;
 - `reduce` returns `null` when nothing changed — no state, no rebuild;
-- a waiting action chooses `notifyBefore`/`notifyAfter`
-  (`business/lib/redux/common/action.dart`) for what the screen really shows;
+- an action is a `WaitingAction` only when a screen draws its wait: the
+  store tells a widget that an action started or ended only when the widget
+  asked about its type (`waiting.<name>`), and the answer is part of what
+  the connector compares;
 - a connector's `_Vm` compares exactly what is drawn (`data-driven-widgets`,
   "Equality"), so a dispatch that changes nothing on this screen does not
   rebuild it.
@@ -530,8 +532,8 @@ To collapse a callback with several dispatches (rule 9):
 3. Start a load inside it with `dispatch(...)` when it has its own
    `WaitingAction`; `await dispatchAndWait(...)` only when the next step
    needs its result.
-4. Return `null` when nothing changed. A waiting action that no screen
-   draws sets `notifyBefore => false`.
+4. Return `null` when nothing changed. An action that no screen draws is
+   not a `WaitingAction`.
 5. The callback becomes `() => dispatch(TheIntentAction(...))`.
 
 ## Before you call a Studio change done

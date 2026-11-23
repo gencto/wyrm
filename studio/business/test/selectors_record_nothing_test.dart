@@ -12,7 +12,7 @@ import 'package:models/link_state.dart';
 import 'package:models/live_value.dart';
 import 'package:models/quarantine_entry.dart';
 
-class _Sel with Selectors {
+class _Sel with Selectors, NothingInFlight {
   _Sel(this.state);
 
   @override

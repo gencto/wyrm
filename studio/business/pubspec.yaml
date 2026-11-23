@@ -10,7 +10,7 @@ resolution: workspace
 
 dependencies:
   archive: ^4.7.1
-  async_redux: ^29.2.3
+  async_redux: ^30.0.0
   bonsoir: ^7.1.6
   connectivity_plus: ^7.3.2
   crypto: ^3.0.0

@@ -53,7 +53,7 @@ class _Factory extends VmFactory<AppState, LockOverlayConnector, _Vm>
             method: device.kind.method,
             kept: changes.view.length,
             problem: device.lockError?.problem,
-            checking: device.isUnlocking,
+            checking: waiting.unlocking,
             passwordOnly: !device.keyUsable,
           )
         : null,

@@ -152,7 +152,7 @@ class _Factory extends VmFactory<AppState, SystemPageConnector, _Vm>
         held: system.log.length,
         around: system.around,
         error: system.logError?.sys,
-        reading: system.isWaiting,
+        reading: waiting.systemLog,
         sources: [for (final l in logSourceLinks) l.id],
         source: system.source,
         level: system.logLevel?.sys ?? SysLevel.info,
@@ -163,7 +163,7 @@ class _Factory extends VmFactory<AppState, SystemPageConnector, _Vm>
       ),
       maintenance: SysMaintData(
         reason: sysConfigReason?.disabled,
-        busy: system.isActing,
+        busy: waiting.systemActing,
         stale: [for (final l in clearableLinks) l.stale],
         profiles: [
           for (final p in system.profiles) SysProfile(p.name, points: p.points),

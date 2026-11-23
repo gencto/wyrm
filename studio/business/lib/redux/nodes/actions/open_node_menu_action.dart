@@ -6,7 +6,7 @@ import 'set_menu_asked_action.dart';
 
 /// The node menu of [key] (tree `⋯`, right click, Actions ▾): the node is
 /// selected and the menu opens once its `~meta` is read (its actions are
-/// the menu). While it waits, `nodes.menuOpening` says so; the menu asked
+/// the menu). While it waits, `waiting.nodeMenu` says so; the menu asked
 /// last is the one that opens: an answer for a menu asked before (another
 /// node's, or the same one asked again) or for a node no longer on screen
 /// is dropped. A failed read opens no menu (the node shows `read failed`).

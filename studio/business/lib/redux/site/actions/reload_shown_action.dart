@@ -12,15 +12,12 @@ import '../../quarantine/actions/retrieve_quarantine_action.dart';
 /// (studio-rules §1, §9), in place of a fire-and-forget dispatch per part.
 ///
 /// Rebuilds, decided: each part notifies when its own slice changes, as it
-/// would on its own. This action changes no state (`null`), and its wait is
-/// recorded without a notification on either side ([notifyBefore] false,
-/// [notifyAfter] false): no screen draws "reloading", so raising the flag
-/// must not rebuild every connector. A screen that one day shows it reads
-/// `isWaitingForType<ReloadShownAction>()` and turns [notifyBefore] on.
-class ReloadShownAction extends Action with WaitingAction {
-  @override
-  bool get notifyBefore => false;
-
+/// would on its own. This action changes no state (`null`) and is not a
+/// `WaitingAction`: no screen draws "reloading", so nothing asks the store
+/// about it and the store tells no widget when it starts or ends. A screen
+/// that one day shows it mixes `WaitingAction` in and reads
+/// `waiting.on<ReloadShownAction>()`.
+class ReloadShownAction extends Action {
   @override
   Future<AppState?> reduce() async {
     await dispatchAndWaitAll([

@@ -26,6 +26,7 @@ import 'package:wyrm_client/wyrm_client.dart'
         GatewayDeviceState,
         StepUp;
 
+import '../../business/test/support/held_store.dart';
 import 'support/assistant_app.dart';
 
 /// Account › Security as the store makes it: every word on the dialog for a
@@ -224,7 +225,7 @@ void main() {
 
   /// The dialog opened as the avatar menu opens it, over a page, in
   /// [locale]; returns the store.
-  Future<Store<AppState>> open(
+  Future<HeldStore> open(
     WidgetTester t,
     AppState state, {
     List<ActionObserver<AppState>> seen = const [],
@@ -234,7 +235,7 @@ void main() {
       ..physicalSize = const Size(1400, 1100)
       ..devicePixelRatio = 1;
     addTearDown(t.view.reset);
-    final store = Store<AppState>(
+    final store = HeldStore(
       initialState: state,
       actionObservers: seen,
       dependencies: (s) => AppDependencies(
@@ -330,9 +331,7 @@ void main() {
   testWidgets('busy: the switch and Sign out start nothing', (t) async {
     final seen = _Seen();
     final store = await open(t, stateAt(DateTime.now()), seen: [seen]);
-    store.dispatchSync(
-      WaitAction.add(SetDeviceUnlockAction(on: true, reason: '')),
-    );
+    store.hold(SetDeviceUnlockAction);
     await t.pumpAndSettle();
     seen.started.clear();
     await t.tap(

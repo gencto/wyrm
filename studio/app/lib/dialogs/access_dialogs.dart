@@ -54,7 +54,7 @@ enum AccessField {
 }
 
 /// The selectors over the store's state now.
-class _Sel with Selectors {
+class _Sel with Selectors, StateAlone {
   _Sel(this.state);
 
   @override

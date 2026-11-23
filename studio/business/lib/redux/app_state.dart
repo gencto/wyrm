@@ -1,4 +1,3 @@
-import 'package:async_redux/async_redux.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 
 import 'access/models/access_state.dart';
@@ -32,6 +31,7 @@ import 'theme/models/theme_state.dart';
 import 'updates/models/updates_state.dart';
 import 'window/models/window_state.dart';
 
+export 'common/waiting.dart';
 export 'selectors.dart';
 
 part 'app_state.freezed.dart';
@@ -69,7 +69,6 @@ abstract class AppState with _$AppState {
     required DeviceState device,
     required DiscoveryState discovery,
     required ClockState clock,
-    required Wait wait,
   }) = _AppState;
 
   factory AppState.initial() => const AppState(
@@ -103,6 +102,5 @@ abstract class AppState with _$AppState {
     device: DeviceState(),
     discovery: DiscoveryState(),
     clock: ClockState(),
-    wait: Wait.empty,
   );
 }

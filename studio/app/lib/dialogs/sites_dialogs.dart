@@ -20,7 +20,7 @@ import '../common/app_store.dart';
 import '../common/forms.dart';
 
 /// The selectors over the store's state now.
-class _Sel with Selectors {
+class _Sel with Selectors, StateAlone {
   _Sel(this.state);
 
   @override

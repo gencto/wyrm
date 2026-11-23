@@ -198,7 +198,7 @@ void main() {
       expect(login.session.api.calls.map((c) => '${c.op} ${c.key}'), [
         'children wy/central/sys/links',
       ]);
-      expect(s.state.wait.isWaitingForType<ReloadShownAction>(), isFalse);
+      expect(s.isWaiting(ReloadShownAction), isFalse);
     });
   });
 

@@ -158,7 +158,7 @@ final class PlatformDetail extends SiteDetail {
 }
 
 /// What Sites shows, computed from the state.
-final class _Sites with Selectors {
+final class _Sites with Selectors, StateAlone {
   _Sites(this.state);
 
   @override

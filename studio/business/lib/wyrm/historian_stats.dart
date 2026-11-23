@@ -25,7 +25,7 @@ final class HistorianStats {
 }
 
 /// What History shows of the historian, from the state.
-final class _Historian with Selectors {
+final class _Historian with Selectors, StateAlone {
   _Historian(this.state);
 
   @override

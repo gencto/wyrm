@@ -215,7 +215,7 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
   /// runs.
   @override
   _Vm fromStore() {
-    final shown = assistantShownOf(state, drawer: drawer);
+    final shown = assistantShownOf(state, waiting, drawer: drawer);
     final id = shown.taskId;
     final ticked = shown.tickedSteps;
     final picked = shown.pickedRows;

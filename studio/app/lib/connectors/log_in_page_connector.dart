@@ -96,7 +96,7 @@ class _Factory extends VmFactory<AppState, LogInPageConnector, _Vm>
 
   @override
   _Vm fromStore() {
-    final busy = login.isWaiting;
+    final busy = waiting.logIn;
     final field = login.field;
     final standby = field.standbyUri;
     final platform = hostPlatform();
@@ -143,7 +143,7 @@ class _Factory extends VmFactory<AppState, LogInPageConnector, _Vm>
         busy: busy,
         reach: login.fieldState.tone,
         note: login.fieldNote?.note,
-        checking: login.isProbing,
+        checking: waiting.probeGateway,
         recent: [for (final r in login.recentGateways) r.chip],
         fieldLabel: login.fieldLabel,
         step: login.step,
@@ -173,7 +173,7 @@ class _Factory extends VmFactory<AppState, LogInPageConnector, _Vm>
                 maxPerUser: device.maxPerUser,
                 passwordEveryDays: device.passwordEveryDays,
                 standbyHost: standby?.host,
-                busy: device.isEnabling,
+                busy: waiting.enableDevice,
               )
             : null,
         unlock: switch (device.stage.form) {
@@ -189,7 +189,7 @@ class _Factory extends VmFactory<AppState, LogInPageConnector, _Vm>
             code: discovery.pendingCode,
             host: discovery.pendingHost,
             refused: discovery.trustRefused?.refused,
-            busy: discovery.isWaiting,
+            busy: waiting.trustGateway,
           ),
           null => null,
         },

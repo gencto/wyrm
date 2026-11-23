@@ -85,15 +85,27 @@ void main() {
         ),
       ),
     );
-    final read = RetrieveHistoryAction(ExplorerApp.temp);
-    s.dispatchSync(WaitAction.add(read));
-    await t.pump();
-    await t.pump();
     ExplorerPage page() => t.widget<ExplorerPage>(find.byType(ExplorerPage));
+    await t.pump();
+    await t.pump();
+    expect(page().trend?.loading, isFalse);
+    // The read runs and the gateway holds its answer. Nothing is written to
+    // the state for that: the store tells the page, which asked about this
+    // action when it was first built.
+    app.api.histories.remove(ExplorerApp.temp);
+    final gate = app.api.hold('${ExplorerApp.temp} ▸ history');
+    final before = s.state;
+    final read = s.dispatchAndWait(RetrieveHistoryAction(ExplorerApp.temp));
+    await t.pump();
+    await t.pump();
+    expect(s.state, same(before), reason: 'a wait is no part of the state');
     expect(page().trend?.loading, isTrue);
-    s.dispatchSync(WaitAction.remove(read));
+    // an answer with no rows: the spinner goes because the read ended
+    gate.complete();
+    await t.runAsync(() => read);
     await t.pump();
     await t.pump();
+    expect(s.state.nodes.history, isEmpty);
     expect(page().trend?.loading, isFalse);
   });
 

@@ -75,7 +75,7 @@ void main() {
     final after = [Child('old', NodeMeta()), Child('added', NodeMeta())];
     final late = WyrmException.of(Status.timeout, 'late');
 
-    bool waiting() => s.state.wait.isWaitingForType<RetrieveLinksAction>();
+    bool waiting() => Waiting(s.isWaiting).links;
 
     /// Starts a read whose list is [answer]; its gate, and how it ends.
     (Completer<void>, Future<ActionStatus>) read(ListAnswer answer) {

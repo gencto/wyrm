@@ -1,31 +1,30 @@
+import 'dart:async';
+
 import 'package:async_redux/async_redux.dart';
 import 'package:business/redux/app_state.dart';
 import 'package:business/redux/common/action.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-/// `WaitingAction` composed with the async_redux behaviour mixins.
+/// What is in flight, since async_redux 30: the store's own record of the
+/// actions in progress, read through `Waiting` (`common/waiting.dart`).
 ///
-/// **The one thing about this mixin that no other test can see.** The template
-/// tests in `tools/` check what `frx add-action` *writes*; the analyzer checks
-/// that it compiles. Neither notices that
+/// Through async_redux 29 `WaitingAction` filed the action in `Wait`
+/// (`AppState.wait`) in `before()` and took it out in `after()`, and this
+/// file pinned the ways that could go wrong: a mixin after it that did not
+/// chain `super.after()`, or an action's own bare `after()`, left the flag
+/// up for the rest of the session. `Wait` is deprecated from 29.3.2. The
+/// store adds an action to its set when the dispatch starts and removes it
+/// when it has ended, whatever the hooks do, so those defects have nothing
+/// left to break; the probes stay and now say so.
 ///
-///     class SendVoiceAction extends Action with WaitingAction, NonReentrant
-///
-/// ran to completion and left `isWaitingForType<SendVoiceAction>()` true for
-/// the rest of the session — a button that never re-enabled. Dart runs one
-/// `after()`, the last mixin's, and through async_redux 28.1
-/// `NonReentrant.after()` released its own lock and returned without
-/// `super.after()`; `Throttle` and `Fresh` did the same. Since 28.3.1 all three
-/// chain, and 28.4 marks the hooks `@mustCallSuper`.
-///
-/// So the fix has two halves and this file pins both: `WaitingAction` chains
-/// `super` in `before()` and `after()`, and it is mixed in **last** so it is
-/// the one Dart calls. Reversing either half was a silent regression — which
-/// is what shipped — and the probes below would say so again if a mixin
-/// stopped chaining.
+/// The second half is what the move could have lost and did not: a widget
+/// is told when a wait it draws starts and when it ends, although the state
+/// does not change (the groups "the store tells its listeners" below).
 Store<AppState> _store() => Store<AppState>(initialState: AppState.initial());
 
-/// The reduce body every probe shares: async, so `Wait` is observable.
+Waiting _waiting(Store<AppState> store) => Waiting(store.isWaiting);
+
+/// The reduce body every probe shares: async, so the wait is observable.
 mixin _Probe on ReduxAction<AppState> {
   static var runs = 0;
 
@@ -47,9 +46,9 @@ class ThrottleProbe extends Action with Throttle, WaitingAction, _Probe {}
 /// `-m fresh`.
 class FreshProbe extends Action with Fresh, WaitingAction, _Probe {}
 
-/// `-m checkInternet` — the reason `before()` returns `Future<void>` rather
-/// than `void`. `CheckInternet` narrows the return type, so a `void` override
-/// of it does not compile; this class existing is the assertion.
+/// `-m checkInternet`: `CheckInternet` declares `Future<void> before()`.
+/// The marker has no `before()` of its own any more, so there is nothing to
+/// clash; this class existing is the assertion.
 class CheckInternetProbe extends Action
     with CheckInternet, WaitingAction, _Probe {}
 
@@ -57,31 +56,25 @@ class CheckInternetProbe extends Action
 /// `BlockingAction` is declared `on WaitingAction`, so it must follow it.
 class BlockingProbe extends Action with WaitingAction, BlockingAction, _Probe {}
 
-/// The same defect with the clause in the right order and the base mixin
-/// chaining correctly — the *action* ends the chain.
-///
-/// A class member wins over the whole `with` clause, so this `after()` is the
-/// only one Dart runs. Nothing about it looks wrong, and nothing else in the
-/// tree can see it: the doctor rule and this test are the two things that can.
+/// An action whose `after()` does not chain. Through async_redux 29 this
+/// left its flag in `Wait` for ever (the only `after()` Dart runs is this
+/// one, and the mixin's never took the flag out).
 class _OwnAfter extends Action with NonReentrant, WaitingAction, _Probe {
   @override
-  // The defect on purpose; since 28.4 the analyzer names it too, which is the
-  // point of the annotation on both `WaitingAction`'s hooks and async_redux's.
+  // The defect on purpose: the wait must come down all the same.
   // ignore: must_call_super
   void after() {}
 }
 
-/// And the other hook: a `before()` that does not chain never raises the
-/// barrier at all, so the indicator simply never appears.
+/// And the other hook: a `before()` that does not chain. Through 29 the
+/// flag was never raised, so the indicator never appeared.
 class _OwnBefore extends Action with NonReentrant, WaitingAction, _Probe {
   @override
   // The same defect in the other hook, on purpose.
-  // ignore: must_call_super
   Future<void> before() async {}
 }
 
-/// The correct spelling of both, as the control — an action with real work in
-/// its own hooks that still passes the chain on.
+/// An action with real work in its own hooks that passes the chain on.
 class _OwnHooksChained extends Action with NonReentrant, WaitingAction, _Probe {
   final ran = <String>[];
 
@@ -98,10 +91,49 @@ class _OwnHooksChained extends Action with NonReentrant, WaitingAction, _Probe {
   }
 }
 
+/// Runs until [gate] is completed, and changes no state.
+class _Held extends Action with WaitingAction {
+  _Held(this.gate);
+
+  final Completer<void> gate;
+
+  @override
+  Future<AppState?> reduce() async {
+    await gate.future;
+    return null;
+  }
+}
+
+/// The same, failing at the end.
+class _HeldThenFails extends Action with WaitingAction {
+  _HeldThenFails(this.gate);
+
+  final Completer<void> gate;
+
+  @override
+  Future<AppState?> reduce() async {
+    await gate.future;
+    throw const UserException('no');
+  }
+}
+
+/// Another type, which nothing asks about.
+class _Other extends Action with WaitingAction {
+  _Other(this.gate);
+
+  final Completer<void> gate;
+
+  @override
+  Future<AppState?> reduce() async {
+    await gate.future;
+    return null;
+  }
+}
+
 void main() {
   setUp(() => _Probe.runs = 0);
 
-  group('the barrier comes down', () {
+  group('the wait comes down', () {
     for (final probe in <String, Action Function()>{
       'NonReentrant': NonReentrantProbe.new,
       'Throttle': ThrottleProbe.new,
@@ -114,12 +146,11 @@ void main() {
         await store.dispatchAndWait(action);
 
         expect(
-          store.state.wait.isWaiting(action),
+          _waiting(store).any([action.runtimeType]),
           isFalse,
           reason:
-              '${action.runtimeType} finished and is still in Wait — '
-              '${probe.key} ended the after() chain, so WaitingAction.after() '
-              'never ran and every widget reading isWaiting stays disabled',
+              '${action.runtimeType} finished and the store still has it '
+              'in progress: every widget reading the wait stays disabled',
         );
       });
     }
@@ -127,34 +158,33 @@ void main() {
 
   test('it composes with a mixin that narrows before()', () {
     // Not dispatched — `CheckInternet.before()` reaches connectivity_plus,
-    // which is not a thing to boot for this. Constructing it is the assertion:
-    // `CheckInternet` declares `Future<void> before()`, so a `WaitingAction`
-    // placed after it that returned `void` would not compile, and this file
-    // would not load.
+    // which is not a thing to boot for this. Constructing it is the
+    // assertion: the file would not load if the two did not compose.
     expect(CheckInternetProbe(), isA<WaitingAction>());
   });
 
   group('an action that writes its own hook', () {
-    test('a bare after() leaves the barrier up', () async {
+    test('a bare after() no longer leaves the wait up', () async {
       final store = _store();
       final action = _OwnAfter();
       await store.dispatchAndWait(action);
 
       expect(
-        store.state.wait.isWaiting(action),
-        isTrue,
+        _waiting(store).on<_OwnAfter>(),
+        isFalse,
         reason:
-            'if this ever goes false the defect is gone and the doctor rule '
-            'that reports it has nothing left to report',
+            'the store takes an ended action out of its set by itself; '
+            'no hook of the action is part of that',
       );
     });
 
-    test('a bare before() never raises it', () async {
+    test('a bare before() no longer hides it', () async {
       final store = _store();
       final pending = store.dispatchAndWait(_OwnBefore());
 
-      expect(store.state.wait.isWaitingAny, isFalse);
+      expect(_waiting(store).on<_OwnBefore>(), isTrue);
       await pending;
+      expect(_waiting(store).on<_OwnBefore>(), isFalse);
     });
 
     test('chaining both is correct in both directions', () async {
@@ -162,28 +192,29 @@ void main() {
       final action = _OwnHooksChained();
       final pending = store.dispatchAndWait(action);
 
-      expect(store.state.wait.isWaiting(action), isTrue, reason: 'up');
+      expect(_waiting(store).on<_OwnHooksChained>(), isTrue, reason: 'up');
       await pending;
-      expect(store.state.wait.isWaiting(action), isFalse, reason: 'and down');
+      expect(
+        _waiting(store).on<_OwnHooksChained>(),
+        isFalse,
+        reason: 'and down',
+      );
       expect(action.ran, ['before', 'after'], reason: 'its own work ran too');
     });
   });
 
-  test('the barrier is up while the action runs', () async {
-    // The other direction, or "comes down" would pass on a mixin that never
-    // raised it: `before()` has to still put the action into Wait, and
-    // synchronously, so the indicator is up in the same frame as the tap.
+  test('the wait is up while the action runs', () async {
+    // The other direction, or "comes down" would pass on a store that never
+    // had it: the action is in progress as the dispatch returns, so the
+    // indicator is up in the same frame as the tap.
     final store = _store();
     final pending = store.dispatchAndWait(NonReentrantProbe());
 
-    expect(store.state.wait.isWaitingForType<NonReentrantProbe>(), isTrue);
+    expect(_waiting(store).on<NonReentrantProbe>(), isTrue);
     await pending;
   });
 
   test('NonReentrant still releases its own lock', () async {
-    // The half a bare reorder would have lost. `WaitingAction.after()` calls
-    // `super.after()`, so `NonReentrant.after()` runs too and the key is freed
-    // — without it the action is dispatchable exactly once per session.
     final store = _store();
     await store.dispatchAndWait(NonReentrantProbe());
     await store.dispatchAndWait(NonReentrantProbe());
@@ -206,5 +237,190 @@ void main() {
     await Future.wait([first, second]);
 
     expect(_Probe.runs, 1);
+  });
+
+  group('Waiting asks for exact types', () {
+    test('a type that runs answers, another does not', () async {
+      final store = _store();
+      final gate = Completer<void>();
+      final pending = store.dispatchAndWait(_Held(gate));
+
+      expect(_waiting(store).on<_Held>(), isTrue);
+      expect(_waiting(store).on<_Other>(), isFalse);
+      expect(_waiting(store).any([_Other, _Held]), isTrue);
+      expect(_waiting(store).any([_Other]), isFalse);
+      expect(_waiting(store).any(const []), isFalse);
+      gate.complete();
+      await pending;
+    });
+
+    test('a mixin is not a type the store answers for', () async {
+      // Why the barrier asks about a list (`blockingActions`) and not about
+      // `BlockingAction`: the store compares runtime types.
+      final store = _store();
+      final pending = store.dispatchAndWait(BlockingProbe());
+
+      expect(store.isWaiting(BlockingAction), isFalse);
+      expect(store.isWaiting(BlockingProbe), isTrue);
+      await pending;
+    });
+
+    test('fixed, none and unasked', () {
+      final w = Waiting.fixed({_Held});
+      expect(w.on<_Held>(), isTrue);
+      expect(w.on<_Other>(), isFalse);
+      expect(w.any([_Other, _Held]), isTrue);
+      expect(const Waiting.none().on<_Held>(), isFalse);
+      expect(
+        () => const Waiting.unasked().on<_Held>(),
+        throwsA(isA<AssertionError>()),
+        reason: 'a view made from a state alone must not draw a wait',
+      );
+    });
+  });
+
+  // What a connector sees. A `StoreConnector` makes its view-model again on
+  // every event of `store.onChange` and builds its widget again when the
+  // view-model differs. So "is the widget told" is "is there an event after
+  // which the question has its new answer". The state is the same object
+  // throughout: none of these actions changes it.
+  group('the store tells its listeners', () {
+    /// The answers a listener gets, one per event, asking as a view-model
+    /// factory does: again on every run.
+    List<bool> answers(Store<AppState> store) {
+      final seen = <bool>[];
+      store.onChange.listen((_) => seen.add(_waiting(store).on<_Held>()));
+      return seen;
+    }
+
+    test('when a wait it has asked about starts, and when it ends', () async {
+      final store = _store();
+      final before = store.state;
+      // the first run of the view-model: it asks, and finds nothing
+      expect(_waiting(store).on<_Held>(), isFalse);
+      final seen = answers(store);
+
+      final gate = Completer<void>();
+      final pending = store.dispatchAndWait(_Held(gate));
+      await pumpEventQueue();
+      expect(seen, [true], reason: 'the first frame of the wait');
+
+      gate.complete();
+      await pending;
+      await pumpEventQueue();
+      expect(seen.last, isFalse, reason: 'and its end');
+      expect(seen.length, greaterThanOrEqualTo(2));
+      expect(store.state, same(before), reason: 'no state was changed');
+    });
+
+    test('also when the action is dispatched with notify: false', () async {
+      final store = _store();
+      expect(_waiting(store).on<_Held>(), isFalse);
+      final seen = answers(store);
+
+      final gate = Completer<void>();
+      final pending = store.dispatchAndWait(_Held(gate), notify: false);
+      await pumpEventQueue();
+      expect(seen, [true]);
+
+      gate.complete();
+      await pending;
+      await pumpEventQueue();
+      expect(seen.last, isFalse);
+    });
+
+    test('also when the action fails', () async {
+      final store = _store();
+      expect(_waiting(store).on<_HeldThenFails>(), isFalse);
+      final seen = <bool>[];
+      store.onChange.listen(
+        (_) => seen.add(_waiting(store).on<_HeldThenFails>()),
+      );
+
+      final gate = Completer<void>();
+      final pending = store.dispatchAndWait(_HeldThenFails(gate));
+      await pumpEventQueue();
+      expect(seen, [true]);
+
+      gate.complete();
+      final status = await pending;
+      expect(status.originalError, isNotNull, reason: 'it did fail');
+      await pumpEventQueue();
+      expect(seen.last, isFalse);
+    });
+
+    test('a wait nobody asked about tells nobody when it starts', () async {
+      // The rule "every rebuild is decided", kept: an action no screen
+      // draws makes no view-model run. (Its end is an event when it was
+      // dispatched with `notify: true`, as for any action.)
+      final store = _store();
+      var events = 0;
+      store.onChange.listen((_) => events++);
+
+      final gate = Completer<void>();
+      final pending = store.dispatchAndWait(_Other(gate), notify: false);
+      await pumpEventQueue();
+      expect(events, 0);
+
+      gate.complete();
+      await pending;
+      await pumpEventQueue();
+      expect(events, 0);
+    });
+
+    test('a view-model that asks behind a condition misses nothing', () async {
+      // `a || b` does not ask about `b` while `a` is true, so the store has
+      // no record of `b` and does not tell when `b` starts. Nothing is
+      // missed: the answer could not have changed. When `a` ends the store
+      // tells (it was asked about `a`), the view-model runs, asks about `b`
+      // and finds it.
+      final store = _store();
+      bool vm() => _waiting(store).on<_Held>() || _waiting(store).on<_Other>();
+      expect(vm(), isFalse); // asks about both: both false
+      final seen = <bool>[];
+      store.onChange.listen((_) => seen.add(vm()));
+
+      final a = Completer<void>();
+      final first = store.dispatchAndWait(_Held(a));
+      await pumpEventQueue();
+      expect(seen, [true]);
+
+      final b = Completer<void>();
+      final second = store.dispatchAndWait(_Other(b));
+      a.complete();
+      await first;
+      await pumpEventQueue();
+      expect(seen.last, isTrue, reason: 'the second is still in flight');
+
+      b.complete();
+      await second;
+      await pumpEventQueue();
+      expect(seen.last, isFalse);
+    });
+
+    test('a view-model whose first run is behind a condition', () async {
+      // The harder half: `b` was never asked about before it starts,
+      // because `a` was already true on the very first run.
+      final store = _store();
+      final a = Completer<void>();
+      final first = store.dispatchAndWait(_Held(a));
+      bool vm() => _waiting(store).on<_Held>() || _waiting(store).on<_Other>();
+      expect(vm(), isTrue); // asks about `a` only
+      final seen = <bool>[];
+      store.onChange.listen((_) => seen.add(vm()));
+
+      final b = Completer<void>();
+      final second = store.dispatchAndWait(_Other(b));
+      await pumpEventQueue();
+      a.complete();
+      await first;
+      await pumpEventQueue();
+      expect(seen.last, isTrue, reason: 'still busy: the second runs');
+
+      b.complete();
+      await second;
+      await pumpEventQueue();
+      expect(seen.last, isFalse, reason: 'and told when it ends');
+    });
   });
 }

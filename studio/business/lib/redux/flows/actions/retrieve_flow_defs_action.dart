@@ -1,4 +1,4 @@
-import 'package:async_redux/async_redux.dart';
+import 'package:async_redux/async_redux.dart' show Store;
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -21,35 +21,26 @@ typedef FlowDefFacts = ({
 /// `version` changed. A row's `version` is then the live one: the version
 /// its reads, writes and blocks belong to.
 ///
-/// Not in `Wait` as an action (a live change is not a refresh of the
-/// screen, so no sweep bar): each id is a [reading] flag instead, which
-/// `ApplyFlowValuesAction` asks so a version that arrives during the read
-/// does not read it twice. A flow whose history the user may not read
-/// keeps its row.
+/// Not a `WaitingAction` (a live change is not a refresh of the screen, so
+/// no sweep bar). `ApplyFlowValuesAction` asks [reading] for each id, so a
+/// version that arrives during the read does not read it twice. A flow
+/// whose history the user may not read keeps its row.
 class RetrieveFlowDefsAction extends Action {
   RetrieveFlowDefsAction(this.ids);
 
   final List<String> ids;
 
-  /// The `Wait` flag of a definition being read; the flow id is its ref.
-  static const reading = 'flowDefReading';
-
-  @override
-  Future<void> before() async {
-    // Before the first await: the flags are up as the dispatch returns.
-    for (final id in ids) {
-      dispatchSync(WaitAction.add(reading, ref: id), notify: false);
-    }
-    await super.before();
-  }
-
-  @override
-  void after() {
-    super.after();
-    for (final id in ids) {
-      dispatchSync(WaitAction.remove(reading, ref: id), notify: false);
-    }
-  }
+  /// The definition of the flow [id] is being read in [store]: one of
+  /// these actions in progress has it among its [ids]. An action is in
+  /// progress from the moment its dispatch returns until it has ended,
+  /// also when it failed, so nothing is left behind.
+  ///
+  /// One action reads several ids, which a `statusKey` (one value per
+  /// action) cannot say; the store's own set of actions in progress can.
+  static bool reading(Store<AppState> store, String id) => store
+      .actionsInProgress()
+      .whereType<RetrieveFlowDefsAction>()
+      .any((a) => a.ids.contains(id));
 
   /// The facts of [id]'s newest definition under [base] (`…/dataflows`),
   /// or null when there is none or it may not be read.
