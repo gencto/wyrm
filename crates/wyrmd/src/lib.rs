@@ -2015,7 +2015,9 @@ impl UserAdmin {
             if store_held(&*e) {
                 format!("{e} (stop wyrmd, or use the gateway HTTP API)").into()
             } else {
-                e
+                // text, as before the typed errors: `wyrmd user` prints the
+                // Debug of what it returns, and nobody reads the type further
+                e.to_string().into()
             }
         };
         let gw = open_gateway(cfg, g, false).map_err(in_use)?;
@@ -2764,6 +2766,44 @@ mod tests {
             r#"Error: "history store: Not a directory (os error 20)""#
         );
         assert!(!store_held(&*e));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// `wyrmd user` on a `data_dir` it cannot open: every error on the way to
+    /// the gateway's stores prints as its text, not only the ones a store
+    /// returns (second review of PR #171).
+    #[cfg(unix)]
+    #[test]
+    fn user_admin_prints_its_old_line_for_an_error_before_the_stores() {
+        let dir = std::env::temp_dir().join(format!("wyrmd-userline-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let open = |name: &str, prepare: &dyn Fn(&std::path::Path)| {
+            let data = dir.join(name);
+            std::fs::create_dir_all(&data).unwrap();
+            prepare(&data);
+            let cfg = Config::from_json5(&format!(
+                r#"{{ site: "plant", data_dir: {data:?}, gateway: {{ listen: "127.0.0.1:0" }} }}"#
+            ))
+            .unwrap();
+            match UserAdmin::open(&cfg) {
+                Ok(_) => panic!("{name}: the user stores opened"),
+                Err(e) => e,
+            }
+        };
+        // the gateway's directory is a file
+        let e = open("file", &|data| {
+            std::fs::write(data.join("gateway"), b"not a directory").unwrap();
+        });
+        assert_eq!(start_line(&e), r#"Error: "File exists (os error 17)""#);
+        // its HMAC key is not hex
+        let e = open("key", &|data| {
+            std::fs::create_dir_all(data.join("gateway")).unwrap();
+            std::fs::write(data.join("gateway/hmac.key"), b"zz").unwrap();
+        });
+        assert_eq!(
+            start_line(&e),
+            r#"Error: "Invalid character 'z' at position 0""#
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
