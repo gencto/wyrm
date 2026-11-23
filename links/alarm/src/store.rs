@@ -16,7 +16,7 @@ use wyrm_core::{Status, Value};
 use wyrm_link_api::{AppError, Host};
 
 use crate::limits::{JOURNAL_PAGE, PAGE};
-use crate::model::{get_u64, ClassDef, Map, Record};
+use crate::model::{stored_u64, ClassDef, Map, Record};
 
 pub const INDEX: &str = "index";
 pub const OPEN: &str = "open";
@@ -151,7 +151,7 @@ impl Meta {
         let Some(Value::Map(m)) = host.store_get(META).and_then(|b| decode(&b)) else {
             return Meta::default();
         };
-        let n = |k: &str| get_u64(&m, k).ok().flatten().unwrap_or(0);
+        let n = |k: &str| stored_u64(&m, k).ok().flatten().unwrap_or(0);
         Meta {
             first_page: n("first_page"),
             page_hint: n("page_hint"),

@@ -366,9 +366,16 @@ the action is about: what does not exist is `not_found`, and a broker that is
 closing is `busy`, whatever the arguments are. What a form shows from the
 state of the moment (the choices of a list, the value in force) is set with
 `ActionMeta::shown`, which cannot change a type or add a parameter. In
-`wyrm-admin` and `wyrm-storage` this is the only way (C12): no argument
-reader, no `ParamMeta` written out. A `dynamic` parameter is a field of type
-`Value`: required, any value, and a `null` that is there is a value
+`wyrm-admin`, `wyrm-storage` and `links/alarm` this is the only way (C12): no
+argument reader, no `ParamMeta` written out. A portable link (ADR 0023) takes
+the derive and the trait from `wyrm-link-api` (`wyrm_link_api::Args`: the
+decoder is `wyrm_core::args`, which builds for wasm32), and a refused argument
+is an `AppError` of `invalid_parameter` there as it is a `LinkError` on the
+SDK. A closed set of names is an `enum` parameter in a link (`#[param(enum)]`:
+the index into the list `~meta` declares, the one form the SDK lets through);
+a stored map or an import that carries the name is read by the link's own
+reader of stored data, never by the action's struct. A `dynamic` parameter is
+a field of type `Value`: required, any value, and a `null` that is there is a value
 (`Value::Null`, as a DSA broker publishes it); only an absent name is
 refused. Every other field, `Option<Value>` too, reads `null` as absent.
 
@@ -398,9 +405,9 @@ literal or a `CONST` key, `m["x"]`, `Value::as_*`, and the argument helpers
 `decode/`, the codec in `wyrm-core/src/value.rs` and the decoder behind
 `#[derive(Args)]` (`wyrm-core/src/args.rs`) are exempt.
 
-C12 `admin-arg-read`, in `crates/wyrm-admin/src` and `crates/wyrm-storage/src`
-(`C12_CRATES` in the script; baseline 0; the other crates follow as they move,
-audit T3: a crate joins the list in the change that moves its last action onto
+C12 `admin-arg-read`, in `crates/wyrm-admin/src`, `crates/wyrm-storage/src` and
+`links/alarm/src` (`C12_CRATES` in the script; baseline 0; the other crates
+follow as they move, audit T3: a crate joins the list in the change that moves its last action onto
 structs). There `args` names an action's arguments and
 nothing else (a process's arguments are `argv`, a call built for another link
 is a `request`), and it has three uses: the parameter (`args: Value`), the
@@ -422,7 +429,11 @@ counted: a function that takes the arguments (`on_invoke`, `on_check`,
 `args: Value` / `args: &Value` (`&'a Value`, `impl Into<Value>`,
 `Option<Value>`, `Arc<Value>`, a full path), and an `on_invoke` or
 `on_check` without it (an `invoke` or a `decode` with no `Value` at all, as
-`fn invoke(&self, cmd: &Command)`, is about something else); `invoke` and
+`fn invoke(&self, cmd: &Command)`, is about something else, and so is the
+outbound call of a portable link's `Host`, which a link that wraps its host
+implements: `fn invoke(&mut self, key: &str, action: &str, request: Value) ->
+Result<ReqId, …>`, told by both the name `request` of its one `Value` and the
+`ReqId` it answers); `invoke` and
 `decode` as a closure; a trait of the crate on `Value` (`impl Take for Value`);
 a `Value` taken apart in a parameter; a type alias that is `Value` or `&Value`
 (not one that holds it, as `Result<Option<Value>>`); `let a: ActionMeta =
@@ -434,7 +445,10 @@ is `X::action()`); a change of an action's declared parameters
 (`a.params.insert(…)`, `.entry`, `.retain`, `.values_mut()`, `&mut a.params`,
 `a.params = …`); a decoder written by hand (`impl Args for`, `fn decode(v:
 Value)`). A file named `decode.rs` is no decoder module inside a crate of
-C12: C4 counts its reads. (C4 does not count an arm `Value::Map(m) =>` nor a key
+C12: C4 counts its reads. The readers of a stored map in such a crate have
+names of their own (`stored_str`, `stored_u64`, … in `links/alarm`: the store,
+an import, the link's params), which C4 counts like the argument helpers. (C4
+does not count an arm `Value::Map(m) =>` nor a key
 that is a variable: measured on 2026-11-18, the arm alone would add 580 hits
 outside `wyrm-admin`, mostly codecs and flow blocks. `Value` has no `as_map`
 or `as_str`, so `v.as_map()?.get(k)?.as_str()` does not compile.)

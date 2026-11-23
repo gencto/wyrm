@@ -158,9 +158,9 @@ impl Host for Counted<'_> {
         self.one();
         self.host.set(key, value)
     }
-    fn invoke(&mut self, key: &str, action: &str, args: Value) -> Result<ReqId, AppError> {
+    fn invoke(&mut self, key: &str, action: &str, request: Value) -> Result<ReqId, AppError> {
         self.one();
-        self.host.invoke(key, action, args)
+        self.host.invoke(key, action, request)
     }
     fn tcp_connect(&mut self, addr: &str, port: u16, timeout_ms: u32) -> Result<ConnId, AppError> {
         self.host.tcp_connect(addr, port, timeout_ms)
