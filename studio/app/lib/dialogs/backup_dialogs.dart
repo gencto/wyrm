@@ -37,11 +37,38 @@ import '../mappers/rights_mappers.dart';
 import '../navigation/leave_on_log_out_action.dart';
 
 /// The selectors over a state, for a dialog's converter.
-class _Sel with Selectors {
+class _Sel with Selectors, StateAlone {
   _Sel(this.state);
 
   @override
   final AppState state;
+}
+
+/// The waits the backup dialog draws. They are part of what its connector
+/// compares: the state does not change when an action starts or ends, so
+/// the dialog is built again only because one of these did.
+final class _Busy {
+  _Busy(Waiting w)
+    : creating = w.on<CreateBackupAction>(),
+      sending = w.on<SendBackupAction>(),
+      uploading = w.on<UploadRestoreAction>(),
+      restoring = w.on<CheckRestoreAction>() || w.on<ApplyRestoreAction>();
+
+  final bool creating;
+  final bool sending;
+  final bool uploading;
+  final bool restoring;
+
+  @override
+  bool operator ==(Object other) =>
+      other is _Busy &&
+      other.creating == creating &&
+      other.sending == sending &&
+      other.uploading == uploading &&
+      other.restoring == restoring;
+
+  @override
+  int get hashCode => Object.hash(creating, sending, uploading, restoring);
 }
 
 /// The backup [id] of [state] with its live values, or null.
@@ -124,7 +151,7 @@ class _BackupDialogState extends State<_BackupDialog> {
   RestorePlan _restorePlan(AppState state) =>
       _Sel(state).restorePlan(passphraseLength: _passphrase.length);
 
-  BackupFormData _form(AppState state) {
+  BackupFormData _form(AppState state, _Busy busy) {
     final s = _Sel(state);
     final link = s.backups.link;
     return backupFormDataOf(
@@ -141,11 +168,11 @@ class _BackupDialogState extends State<_BackupDialog> {
                 : '${s.site.root}/sys/links/$link',
           )
           ?.disabled,
-      busy: state.wait.isWaitingForType<CreateBackupAction>(),
+      busy: busy.creating,
     );
   }
 
-  BackupJobData? _job(AppState state, BackupJob? j) {
+  BackupJobData? _job(AppState state, _Busy busy, BackupJob? j) {
     final s = _Sel(state);
     return j == null
         ? null
@@ -154,14 +181,14 @@ class _BackupDialogState extends State<_BackupDialog> {
             b: state.backups,
             job: j,
             plan: s.backupJobPlan(j),
-            sending: state.wait.isWaitingForType<SendBackupAction>(),
+            sending: busy.sending,
             reason: s.site
                 .lacks(Perm.config, '${s.site.root}/sys/backups')
                 ?.disabled,
           );
   }
 
-  RestoreData _restore(AppState state, RestoreView view) {
+  RestoreData _restore(AppState state, _Busy busy, RestoreView view) {
     final s = _Sel(state);
     return restoreDataOf(
       site: s.site.viewed ?? '',
@@ -169,10 +196,8 @@ class _BackupDialogState extends State<_BackupDialog> {
       plan: _restorePlan(state),
       file: s.restoreFilePlan,
       view: view,
-      uploading: state.wait.isWaitingForType<UploadRestoreAction>(),
-      busy:
-          state.wait.isWaitingForType<CheckRestoreAction>() ||
-          state.wait.isWaitingForType<ApplyRestoreAction>(),
+      uploading: busy.uploading,
+      busy: busy.restoring,
       reason: s.site.lacks(Perm.config, '${s.site.root}/sys/backups')?.disabled,
     );
   }
@@ -182,12 +207,12 @@ class _BackupDialogState extends State<_BackupDialog> {
 
   void _setPassphrase(String text) => setState(() => _passphrase = text);
 
-  TaskSheetVm _vm(AppState state) {
+  TaskSheetVm _vm(AppState state, _Busy busy) {
     final stage = state.backups.stage;
     switch (stage) {
       case BackupStage.choose || BackupStage.link:
         return backupFormSheet(
-          _form(state),
+          _form(state, busy),
           onSection: _section,
           onHistoryRange: (range) => _store.dispatch(
             ChangeBackupFormAction.estimate(
@@ -210,7 +235,7 @@ class _BackupDialogState extends State<_BackupDialog> {
               _store.dispatchSync(SetBackupFormAction(sendPath: path)),
         );
       case BackupStage.job:
-        final d = _job(state, backupJobIn(state, state.backups.job));
+        final d = _job(state, busy, backupJobIn(state, state.backups.job));
         return d == null
             // The job is not in the table yet (or was removed).
             ? TaskSheetVm(
@@ -240,7 +265,7 @@ class _BackupDialogState extends State<_BackupDialog> {
           BackupStage.lost ||
           null:
         return restoreSheet(
-          _restore(state, stage?.restoreView ?? RestoreView.form),
+          _restore(state, busy, stage?.restoreView ?? RestoreView.form),
           onSection: _section,
           onMode: (how) =>
               _store.dispatchSync(SetBackupFormAction(mode: how.mode)),
@@ -353,24 +378,27 @@ class _BackupDialogState extends State<_BackupDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => StoreConnector<AppState, AppState>(
-    // The sheet is built here, not in the converter: it also reads the
-    // passphrase's length from this widget's own state.
-    converter: (s) => s.state,
-    // The step that needed the passphrase is done once the stage moves on
-    // (a backup made, a restore applied): it is kept no longer.
-    onDidChange: (_, _, state) {
-      if (state.backups.stage != _stage) {
-        _stage = state.backups.stage;
-        _forget();
-      }
-    },
-    builder: (context, state) => TaskSheet(
-      vm: _vm(state),
-      dialog: true,
-      width: 680,
-      onPrimary: _primary,
-      onSecondary: _close,
-    ),
-  );
+  Widget build(BuildContext context) =>
+      StoreConnector<AppState, (AppState, _Busy)>(
+        // The sheet is built here, not in the converter: it also reads the
+        // passphrase's length from this widget's own state. The waits are read
+        // in the converter, so one that starts or ends builds the sheet again.
+        converter: (s) => (s.state, _Busy(Waiting(s.isWaiting))),
+        // The step that needed the passphrase is done once the stage moves on
+        // (a backup made, a restore applied): it is kept no longer.
+        onDidChange: (_, _, seen) {
+          final stage = seen.$1.backups.stage;
+          if (stage != _stage) {
+            _stage = stage;
+            _forget();
+          }
+        },
+        builder: (context, seen) => TaskSheet(
+          vm: _vm(seen.$1, seen.$2),
+          dialog: true,
+          width: 680,
+          onPrimary: _primary,
+          onSecondary: _close,
+        ),
+      );
 }

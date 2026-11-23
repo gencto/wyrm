@@ -13,7 +13,6 @@ import 'package:wyrm_client/wyrm_client.dart';
 import 'common/latest.dart';
 import 'common/text_clipboard.dart';
 import 'redux/app_state.dart';
-import 'redux/changes/actions/apply_changes_action.dart';
 import 'redux/device/actions/show_step_up_action.dart';
 import 'redux/services/agent_tasks/agent_tasks.dart';
 import 'redux/services/agent_tasks/agent_tasks_dispatcher.dart';
@@ -209,7 +208,7 @@ class AppDependencies {
   /// the user may apply, each with its level (board `UnlockStepUp`).
   List<StepUpLine>? _applying() {
     final s = _store.state;
-    if (!s.wait.isWaitingForType<ApplyChangesAction>()) {
+    if (!Waiting(_store.isWaiting).applyChanges) {
       return null;
     }
     final site = SelectSite(s);

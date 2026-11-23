@@ -198,7 +198,7 @@ void main() {
   });
 }
 
-class _Sel with Selectors {
+class _Sel with Selectors, NothingInFlight {
   _Sel(this.state);
 
   @override

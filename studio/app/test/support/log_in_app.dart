@@ -32,6 +32,7 @@ import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../../business/test/support/fake_discovery.dart';
 import '../../../business/test/support/fake_wyrm.dart';
+import '../../../business/test/support/held_store.dart';
 import '../../../business/test/support/test_tls.dart';
 
 export '../../../business/test/support/fake_discovery.dart';
@@ -125,7 +126,7 @@ class LogInApp {
        net = net ?? FakeInfo(),
        settings = settings ?? InMemoryKeyValueStorage(),
        browser = FakeBrowser(found) {
-    store = Store<AppState>(
+    store = HeldStore(
       initialState: AppState.initial(),
       dependencies: (s) => AppDependencies(
         s,
@@ -145,7 +146,10 @@ class LogInApp {
   final FakeInfo net;
   final FakeBrowser browser;
   final InMemoryKeyValueStorage settings;
-  late final Store<AppState> store;
+
+  /// A [HeldStore]: a test of the page at one step of a log-in says the
+  /// log-in is in flight (`store.hold(LogInAction)`).
+  late final HeldStore store;
 
   FakeDevices get gateway => login.session.gateway;
 

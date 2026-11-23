@@ -1,8 +1,7 @@
-import 'package:async_redux/async_redux.dart';
 import 'package:business/redux/app_state.dart';
-import 'package:business/redux/common/action.dart';
 import 'package:business/redux/flows/actions/retrieve_flows_action.dart';
 import 'package:business/redux/links/actions/retrieve_links_action.dart';
+import 'package:business/redux/links/actions/stop_link_action.dart';
 import 'package:business/redux/login/actions/log_in_action.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -12,18 +11,22 @@ import 'package:models/link_info.dart';
 import 'package:models/node_info.dart';
 import 'package:models/workspace.dart';
 
-/// Holds an [AppState] and nothing else — which is the entire contract
-/// [Selectors] asks for.
+/// Holds an [AppState] and what is in flight, and nothing else — which is
+/// the entire contract [Selectors] asks for.
 ///
-/// That one-member requirement is the facade's best property, and this class is
-/// the proof: a reducer, a connector's `_Factory` and a test all satisfy it the
-/// same way, so the selectors are exercised through exactly the surface
-/// production code uses.
-class _Reader with Selectors {
-  _Reader(this.state);
+/// That two-member requirement is the facade's best property, and this class
+/// is the proof: a reducer, a connector's `_Factory` and a test all satisfy
+/// it the same way, so the selectors are exercised through exactly the
+/// surface production code uses. A reducer and a `_Factory` ask their store
+/// (`Waiting(isWaiting)`); a test says it (`Waiting.fixed`).
+class _Reader with Selectors, WaitingGiven {
+  _Reader(this.state, [this.given = const Waiting.none()]);
 
   @override
   final AppState state;
+
+  @override
+  final Waiting given;
 }
 
 void main() {
@@ -78,69 +81,38 @@ void main() {
     });
   });
 
-  group('SelectComposites.isBusy', () {
-    test('is false when nothing is in flight', () {
-      expect(_Reader(AppState.initial()).isBusy, isFalse);
+  // The barrier's own question (which actions cover the app) is asked in
+  // `app`, of its list: `app/test/blocking_actions_test.dart`.
+  group('a wait by its name', () {
+    test('nothing is in flight', () {
+      final r = _Reader(AppState.initial());
+
+      expect(r.waiting.logIn, isFalse);
+      expect(r.waiting.linkActing, isFalse);
     });
 
-    test('the log-in does not raise it: the page shows its own progress', () {
-      // LogInAction was the one blocking action. The log-in page now shows
-      // the busy button and the three live steps (docs/design/specs/login.md
-      // §3.6–3.7); the barrier would blur them over.
-      final r = _Reader(
-        AppState.initial().copyWith(wait: Wait.empty.add(flag: LogInAction())),
-      );
+    test('the log-in is its own wait: the page shows its progress', () {
+      // The log-in page shows the busy button and the three live steps
+      // (docs/design/specs/login.md §3.6–3.7).
+      final r = _Reader(AppState.initial(), Waiting.fixed({LogInAction}));
 
-      expect(r.isBusy, isFalse);
-      expect(SelectLogin(r.state).isWaiting, isTrue);
+      expect(r.waiting.logIn, isTrue);
+      expect(r.waiting.links, isFalse, reason: 'another action');
     });
 
-    test('an action written later raises it with no edit here', () {
-      // The property a list of slices cannot have: membership is the mixin, so
-      // nothing has to be told about a new action.
-      final r = _Reader(
-        AppState.initial().copyWith(wait: Wait.empty.add(flag: _LaterAction())),
-      );
-
-      expect(r.isBusy, isTrue);
-    });
-
-    test('a waiting action that is not blocking leaves the screen', () {
-      // The reason this is keyed on `BlockingAction`. Every async action that
-      // wants an indicator mixes in `WaitingAction`, because that is what puts
-      // it in `Wait` — so keying on *that* would blank the app for the first
-      // background refresh anyone adds. This is the case both earlier
-      // predicates got wrong.
-      final r = _Reader(
-        AppState.initial().copyWith(
-          wait: Wait.empty.add(flag: _BackgroundAction()),
-        ),
-      );
-
-      expect(r.isBusy, isFalse);
-    });
-
-    test('a flag that is not an action at all does not either', () {
-      // `Wait` takes any `Object?` as a flag, so `isWaitingAny` was true for
-      // things that are not operations the user is waiting on.
-      final r = _Reader(
-        AppState.initial().copyWith(wait: Wait.empty.add(flag: 'some-flag')),
-      );
-
-      expect(r.isBusy, isFalse);
+    test('a name over several actions answers for each of them', () {
+      expect(Waiting.fixed({StopLinkAction}).linkActing, isTrue);
+      expect(Waiting.fixed({RetrieveLinksAction}).linkActing, isFalse);
     });
   });
 
   group('refreshing: stale while revalidate', () {
     const flow = FlowSummary(id: 'f1');
-    AppState waitingFor(AppState s, Object flag) =>
-        s.copyWith(wait: s.wait.add(flag: flag));
-
     test('a read with content held is a refresh', () {
       final held = AppState.initial().copyWith.flows(
         table: {'f1': flow}.lock,
       );
-      final r = _Reader(waitingFor(held, RetrieveFlowsAction()));
+      final r = _Reader(held, Waiting.fixed({RetrieveFlowsAction}));
 
       expect(r.refreshing(Workspace.flows), isTrue);
       expect(r.refreshing(Workspace.links), isFalse, reason: 'not its read');
@@ -148,7 +120,8 @@ void main() {
 
     test('a read with nothing held is a first load, not a refresh', () {
       final r = _Reader(
-        waitingFor(AppState.initial(), RetrieveFlowsAction()),
+        AppState.initial(),
+        Waiting.fixed({RetrieveFlowsAction}),
       );
 
       expect(r.refreshing(Workspace.flows), isFalse);
@@ -169,25 +142,10 @@ void main() {
           .nodes(
             table: {'k': const NodeInfo(key: 'k', name: 'k')}.lock,
           );
-      final r = _Reader(waitingFor(held, RetrieveLinksAction()));
+      final r = _Reader(held, Waiting.fixed({RetrieveLinksAction}));
 
       expect(r.refreshing(Workspace.links), isTrue);
       expect(r.refreshing(Workspace.explorer), isTrue, reason: 'link dots');
     });
   });
-}
-
-/// Stands in for an action written after this test that opts into the barrier —
-/// the case the hand-listed disjunction could not cover.
-class _LaterAction extends ReduxAction<AppState>
-    with WaitingAction, BlockingAction {
-  @override
-  AppState? reduce() => null;
-}
-
-/// Waits so it can drive its own indicator, and does not ask to be covered —
-/// a background refresh, a poll, a paginating load.
-class _BackgroundAction extends ReduxAction<AppState> with WaitingAction {
-  @override
-  AppState? reduce() => null;
 }

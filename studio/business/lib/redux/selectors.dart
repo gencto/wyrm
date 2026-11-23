@@ -152,7 +152,6 @@ import 'assistant/actions/retrieve_agent_action.dart';
 import 'backups/actions/retrieve_backups_action.dart';
 import 'broker_update/actions/update_broker_action.dart';
 import 'changes/actions/apply_changes_action.dart';
-import 'common/action.dart';
 import 'device/actions/enable_device_action.dart';
 import 'device/actions/load_device_action.dart';
 import 'device/actions/set_device_unlock_action.dart';
@@ -202,8 +201,23 @@ import 'updates/actions/update_package_action.dart';
 /// `Action` mixes it in, and so does every connector's `_Factory` — which is
 /// the whole surface. A reducer reads `login.email`; nothing has to go through
 /// a root type and a hop to get there.
+///
+/// **Two inputs, the state and what is in flight.** The second is not in
+/// the state (`Waiting`, `common/waiting.dart`); it is asked with
+/// async_redux's own [isWaiting]. An action and a `VmFactory` have that
+/// method already (it asks their store), so `with Selectors` is all they
+/// write. A holder with no store adds one of the mixins below:
+/// [WaitingGiven] (it was handed a [Waiting]), [StateAlone] (it draws no
+/// wait), [NothingInFlight] (a test).
 mixin Selectors {
   AppState get state;
+
+  /// async_redux's question: is an action of this type (or of one of these
+  /// types) in progress.
+  bool isWaiting(Object actionOrTypeOrList, {Object? statusKey});
+
+  /// What is in flight: read through the names of [WaitingFor].
+  Waiting get waiting => Waiting(isWaiting);
 
   SelectConnectivity get connectivity => SelectConnectivity(state);
   SelectLogin get login => SelectLogin(state);
@@ -235,6 +249,170 @@ mixin Selectors {
   SelectDevice get device => SelectDevice(state);
   SelectDiscovery get discovery => SelectDiscovery(state);
   SelectClock get clock => SelectClock(state);
+}
+
+/// [Selectors] over a state and the [Waiting] its maker handed it: a view
+/// made from both (`explorerShownOf(state, waiting)`).
+mixin WaitingGiven on Selectors {
+  /// What is in flight, as given.
+  Waiting get given;
+
+  @override
+  bool isWaiting(Object actionOrTypeOrList, {Object? statusKey}) =>
+      given.ask(actionOrTypeOrList, statusKey: statusKey);
+}
+
+/// [Selectors] over a state alone, for a view that draws no wait. Asking
+/// it about one is a fault in Studio (`Waiting.unasked`).
+mixin StateAlone on Selectors {
+  @override
+  bool isWaiting(Object actionOrTypeOrList, {Object? statusKey}) =>
+      const Waiting.unasked().ask(actionOrTypeOrList, statusKey: statusKey);
+}
+
+/// [Selectors] over a state with nothing in flight: for a test.
+mixin NothingInFlight on Selectors {
+  @override
+  bool isWaiting(Object actionOrTypeOrList, {Object? statusKey}) => false;
+}
+
+/// What the screens draw as busy, by name: each asks the store about the
+/// actions behind it (`Waiting`, `common/waiting.dart`).
+///
+/// **Busy is read here, never off `AppState`.** A selector of a slice
+/// (`SelectLinks` …) is a function of the state alone, and the state holds
+/// nothing about actions in flight. `frx add-action -k waiting` still
+/// writes a getter over `_state.wait` into a slice; it is moved here as
+/// `on<MyAction>()` (studio/CLAUDE.md, "Waiting").
+extension WaitingFor on Waiting {
+  /// `LogInAction` is in flight.
+  bool get logIn => on<LogInAction>();
+
+  /// `ProbeGatewayAction` is in flight.
+  bool get probeGateway => on<ProbeGatewayAction>();
+
+  /// `LogOutAction` is in flight.
+  bool get logOut => on<LogOutAction>();
+
+  /// `RetrieveSitesAction` is in flight.
+  bool get sites => on<RetrieveSitesAction>();
+
+  /// `RetrieveNodesAction` is in flight.
+  bool get nodes => on<RetrieveNodesAction>();
+
+  /// `RetrieveHistoryAction` is in flight.
+  bool get history => on<RetrieveHistoryAction>();
+
+  /// A node menu waits for its node's `~meta`.
+  bool get nodeMenu => on<OpenNodeMenuAction>();
+
+  /// `RetrieveLinksAction` is in flight.
+  bool get links => on<RetrieveLinksAction>();
+
+  /// A start, stop, remove, grant, deauthorize or rollback is running.
+  bool get linkActing => any(const [
+    StartLinkAction,
+    StopLinkAction,
+    RemoveLinkAction,
+    GrantLinkAction,
+    DeauthorizeLinkAction,
+    RollbackLinkParamsAction,
+  ]);
+
+  /// The log is being read.
+  bool get linkLog => on<GetLinkLogAction>();
+
+  /// The parameter revisions are being read.
+  bool get linkHistory => on<RetrieveLinkHistoryAction>();
+
+  /// `RetrieveQuarantineAction` is in flight.
+  bool get quarantine => on<RetrieveQuarantineAction>();
+
+  /// `RetrievePackagesAction` is in flight.
+  bool get packages => on<RetrievePackagesAction>();
+
+  /// `InstallLinkAction` is in flight.
+  bool get installLink => on<InstallLinkAction>();
+
+  /// `RetrievePeersAction` is in flight.
+  bool get peers => on<RetrievePeersAction>();
+
+  /// `RetrieveFlowsAction` is in flight.
+  bool get flows => on<RetrieveFlowsAction>();
+
+  /// `DeployFlowAction` is in flight.
+  bool get deployFlow => on<DeployFlowAction>();
+
+  /// `RetrieveTasksAction` is in flight.
+  bool get tasks => on<RetrieveTasksAction>();
+
+  /// `AnswerTaskAction` is in flight.
+  bool get answerTask => on<AnswerTaskAction>();
+
+  /// `RetrieveAgentAction` is in flight.
+  bool get agent => on<RetrieveAgentAction>();
+
+  /// The agent is answering an ask.
+  bool get askAgent => on<AskAgentAction>();
+
+  /// `ApproveTaskAction` is in flight.
+  bool get approveTask => on<ApproveTaskAction>();
+
+  /// `ApplyChangesAction` is in flight.
+  bool get applyChanges => on<ApplyChangesAction>();
+
+  /// `RetrieveHistorianAction` is in flight.
+  bool get historian => on<RetrieveHistorianAction>();
+
+  /// The trend's range is being read (spec trend.md §6: a skeleton until
+  /// it has rows).
+  bool get series => on<RetrieveSeriesAction>();
+
+  /// The trend's window is being read finer (the bar over the plot).
+  bool get trendWindow => on<LoadTrendWindowAction>();
+
+  /// `RetrieveAccessAction` is in flight.
+  bool get access => on<RetrieveAccessAction>();
+
+  /// `RetrieveSystemLogAction` is in flight.
+  bool get systemLog => on<RetrieveSystemLogAction>();
+
+  /// `ClearConnsAction` is in flight.
+  bool get systemActing => any(const [
+    ClearConnsAction,
+    PutProfileAction,
+    RemoveProfileAction,
+  ]);
+
+  /// `UpdatePackageAction` is in flight.
+  bool get updatePackage => on<UpdatePackageAction>();
+
+  /// `RollbackPackageAction` is in flight.
+  bool get rollbackPackage => on<RollbackPackageAction>();
+
+  /// `RetrieveBackupsAction` is in flight.
+  bool get backups => on<RetrieveBackupsAction>();
+
+  /// `UpdateBrokerAction` is in flight.
+  bool get updateBroker => on<UpdateBrokerAction>();
+
+  /// `LoadDeviceAction` is in flight.
+  bool get loadDevice => on<LoadDeviceAction>();
+
+  /// The unlock switch is being turned on or off.
+  bool get setDeviceUnlock => on<SetDeviceUnlockAction>();
+
+  /// The key or the password of the lock is being checked.
+  bool get unlocking => any(const [
+    UnlockWithDeviceAction,
+    UnlockWithPasswordAction,
+  ]);
+
+  /// A key is being made and registered.
+  bool get enableDevice => on<EnableDeviceAction>();
+
+  /// `TrustGatewayAction` is in flight.
+  bool get trustGateway => on<TrustGatewayAction>();
 }
 
 /// The approval of a task as the logged-in user may give it.
@@ -366,7 +544,7 @@ extension AssistantScreen on Selectors {
     if (otherSite case final s?) {
       return HoldOtherSite(s);
     }
-    if (assistant.isApproving) {
+    if (waiting.approveTask) {
       return const HoldBusy();
     }
     if (!choices.any((c) => c.ticked ?? false)) {
@@ -412,25 +590,25 @@ extension AssistantScreen on Selectors {
   Hold? get askHold => assistant.agent == null
       ? const HoldNoAgent()
       : writeHold ??
-            (assistant.isAsking || tasks.isAnswering ? const HoldBusy() : null);
+            (waiting.askAgent || waiting.answerTask ? const HoldBusy() : null);
 
   /// Why a suggestion of [t] cannot be picked: no agent, no `write` on it,
   /// an ask on its way, or the user may not follow the task up.
   Hold? followHold(AgentTask t) => assistant.agent == null
       ? const HoldNoAgent()
       : writeHold ??
-            (assistant.isAsking ? const HoldBusy() : null) ??
+            (waiting.askAgent ? const HoldBusy() : null) ??
             (mayFollow(t) ? null : const HoldFollow());
 
   /// Why the steps a run left out cannot be asked for.
   Hold? get followUpHold =>
-      writeHold ?? (assistant.isAsking ? const HoldBusy() : null);
+      writeHold ?? (waiting.askAgent ? const HoldBusy() : null);
 
   /// Why *Write the plan* cannot be pressed for [t]: no `write`, an answer
   /// on its way, or nothing picked.
   Hold? answerHold(AgentTask t) =>
       writeHold ??
-      (tasks.isAnswering
+      (waiting.answerTask
           ? const HoldBusy()
           : (t.questions.every(
                   (q) => q.answered || picksOf(t.id, q.id).isEmpty,
@@ -666,11 +844,6 @@ extension AssistantScreen on Selectors {
 
 /// The Assistant's own decisions over the state.
 extension AssistantView on Selectors {
-  /// The site has no agent link (known: neither the agent nor the links
-  /// are being read).
-  bool get noAgent =>
-      assistant.agent == null && !assistant.isWaiting && !links.isWaiting;
-
   /// The card under [t] with the plan's [choices] (null: no ticks are
   /// shown); null for a run that stopped at a step and is not reviewed:
   /// the Stopped card says where and what next.
@@ -827,7 +1000,7 @@ extension AssistantView on Selectors {
       precision: null,
       rows: rows,
       span: _timelineSpan(rows),
-      loading: !read || (rows.isEmpty && nodes.historyLoading),
+      loading: !read || (rows.isEmpty && waiting.history),
     );
   }
 
@@ -900,84 +1073,108 @@ extension ExplorerSelect on Selectors {
   ExplorerView get explorer => ExplorerView(state);
 }
 
-extension SelectComposites on Selectors {
-  /// Whether any foreground operation is in flight — what the modal barrier
-  /// covers.
-  ///
-  /// **Folded off `Wait`, not named slice by slice.** The barrier read
-  /// `login.isWaiting || registration.isWaiting`, and the two features written
-  /// after that line showed no loading state at all: both mix in
-  /// `WaitingAction`, both have an `isWaiting` getter, and neither was in the
-  /// disjunction. A list of the slices that count is a list somebody has to
-  /// remember, and it was already wrong.
-  ///
-  /// **Keyed on `BlockingAction`, which is a claim, not a side effect.** Two
-  /// narrower predicates were tried and both were too wide. `isWaitingAny` is
-  /// true for any flag in `Wait`, including ones that are not actions.
-  /// `isWaitingForType<WaitingAction>()` looks narrower and is not: every async
-  /// action that wants an indicator mixes in `WaitingAction`, because that is
-  /// what puts it in `Wait` — so the first background refresh anyone adds would
-  /// blank the app.
-  ///
-  /// `BlockingAction` is written on purpose and means only this. The set stays
-  /// a fold rather than a list: `WaitAction.add(this)` files the action as the
-  /// flag and `isWaitingForType<T>` tests `flag is T`, so the mixin answers for
-  /// every action carrying it and nothing here names any of them.
-  bool get isBusy => state.wait.isWaitingForType<BlockingAction>();
+extension SelectComposites on Selectors {}
+
+/// What a screen decides from the state and from what is in flight
+/// together.
+extension WaitingComposites on Selectors {
+  /// Returns trend
+  HistoryTrend? get historyTrend => historyTrendOf(state, waiting);
+
+  /// The editor of the route [routeId] (`newFlowId`: a new flow) as it is
+  /// drawn, typed; the same view while nothing it shows changed.
+  FlowView flowView(String routeId) => flowViewOf(state, waiting, routeId);
+
+  /// The site has no agent link (known: neither the agent nor the links
+  /// are being read).
+  bool get noAgent =>
+      assistant.agent == null && !waiting.agent && !waiting.links;
+
+  /// The update sheet open, or null.
+  LinkUpdate? get linkUpdate {
+    final p = livePackage(updates.package);
+    if (p == null) {
+      return null;
+    }
+    final ids = linksOfPackage(p.name);
+    final row = linkInstall.catalog
+        .where((c) => c.id == 'package:${p.name}')
+        .firstOrNull;
+    return LinkUpdate(
+      package: p,
+      links: ids,
+      follow: updates.view != UpdateView.review,
+      official: isOfficialPackage(p),
+      title: row?.name,
+      summary: row?.description,
+      takePoint: updates.takePoint,
+      autoRollback: updates.autoRollback,
+      acceptNew: updates.acceptNew,
+      asks: updates.asks,
+      said: updates.message,
+      busy: waiting.updatePackage,
+      rollingBack: waiting.rollbackPackage,
+      seenAt: updates.seenAt,
+      points: [
+        for (final id in ids)
+          for (final point in restorePointsOfLink(id)) LinkPoint(id, point),
+      ]..sort((a, b) => b.point.at.compareTo(a.point.at)),
+      queue: updates.queue.unlock,
+      reason: linksConfigReason,
+    );
+  }
 
   /// The workspaces reading again what they show.
-  ISet<Workspace> get refreshingWorkspaces => refreshingWorkspacesOf(state);
+  ISet<Workspace> get refreshingWorkspaces => {
+    for (final w in Workspace.values)
+      if (refreshing(w)) w,
+  }.lock;
 
   /// [ws] is reading again data it already shows: stale while revalidate
   /// (docs/studio.md §6.7). The workspace keeps its content and the shell
   /// lays the sweep bar over it.
   ///
   /// **Two halves, both needed.** A read of the workspace is in flight — one
-  /// of the `Retrieve…` actions it dispatches when it is shown, read off
-  /// `Wait` like every other `isWaiting` — *and* its slice already holds
+  /// of the `Retrieve…` actions it dispatches when it is shown, asked of
+  /// [waiting] like every other wait — *and* its slice already holds
   /// something to keep on screen. In flight with nothing held is a first
   /// load, which stays the workspace's own empty or loading state.
   ///
   /// Only reads count. A command in flight (Start, Deploy, Install, Apply)
   /// has its own busy control and is not a refresh.
   bool refreshing(Workspace ws) {
-    final w = state.wait;
+    final w = waiting;
     return switch (ws) {
       .explorer =>
         state.nodes.table.isNotEmpty &&
-            (w.isWaitingForType<RetrieveNodeDetailAction>() ||
-                w.isWaitingForType<RetrieveHistoryAction>() ||
-                w.isWaitingForType<RetrieveLinksAction>()),
+            (w.on<RetrieveNodeDetailAction>() ||
+                w.on<RetrieveHistoryAction>() ||
+                w.on<RetrieveLinksAction>()),
       .links =>
         (state.links.table.isNotEmpty || state.quarantine.table.isNotEmpty) &&
-            (w.isWaitingForType<RetrieveLinksAction>() ||
-                w.isWaitingForType<RetrieveQuarantineAction>() ||
-                w.isWaitingForType<RetrievePackagesAction>()),
-      .flows =>
-        state.flows.table.isNotEmpty &&
-            w.isWaitingForType<RetrieveFlowsAction>(),
+            (w.on<RetrieveLinksAction>() ||
+                w.on<RetrieveQuarantineAction>() ||
+                w.on<RetrievePackagesAction>()),
+      .flows => state.flows.table.isNotEmpty && w.on<RetrieveFlowsAction>(),
       .history =>
         state.historian.groups.isNotEmpty &&
-            (w.isWaitingForType<RetrieveHistorianAction>() ||
-                w.isWaitingForType<RetrieveSeriesAction>()),
+            (w.on<RetrieveHistorianAction>() || w.on<RetrieveSeriesAction>()),
       .access =>
         (state.access.users.isNotEmpty || state.access.grants.isNotEmpty) &&
-            w.isWaitingForType<RetrieveAccessAction>(),
+            w.on<RetrieveAccessAction>(),
       .sites =>
         (state.peers.table.isNotEmpty || state.site.choices.isNotEmpty) &&
-            (w.isWaitingForType<RetrievePeersAction>() ||
-                w.isWaitingForType<RetrieveSitesAction>() ||
-                w.isWaitingForType<RetrieveQuarantineAction>() ||
-                w.isWaitingForType<RetrieveLinksAction>()),
+            (w.on<RetrievePeersAction>() ||
+                w.on<RetrieveSitesAction>() ||
+                w.on<RetrieveQuarantineAction>() ||
+                w.on<RetrieveLinksAction>()),
       .assistant =>
         (state.tasks.table.isNotEmpty || state.assistant.agent != null) &&
-            (w.isWaitingForType<RetrieveAgentAction>() ||
-                w.isWaitingForType<RetrieveTasksAction>()),
+            (w.on<RetrieveAgentAction>() || w.on<RetrieveTasksAction>()),
       .system =>
-        (state.system.log.isNotEmpty &&
-                w.isWaitingForType<RetrieveSystemLogAction>()) ||
+        (state.system.log.isNotEmpty && w.on<RetrieveSystemLogAction>()) ||
             (state.system.profiles.isNotEmpty &&
-                w.isWaitingForType<RetrieveProfilesAction>()),
+                w.on<RetrieveProfilesAction>()),
     };
   }
 }
@@ -1344,40 +1541,6 @@ extension LinksTables on Selectors {
   /// them (false when it says nothing).
   bool get holdsUnknown => _live('enable_quarantine') == true;
   bool get allowsAllLinks => _live('allow_all_links') == true;
-
-  /// The update sheet open, or null.
-  LinkUpdate? get linkUpdate {
-    final p = livePackage(updates.package);
-    if (p == null) {
-      return null;
-    }
-    final ids = linksOfPackage(p.name);
-    final row = linkInstall.catalog
-        .where((c) => c.id == 'package:${p.name}')
-        .firstOrNull;
-    return LinkUpdate(
-      package: p,
-      links: ids,
-      follow: updates.view != UpdateView.review,
-      official: isOfficialPackage(p),
-      title: row?.name,
-      summary: row?.description,
-      takePoint: updates.takePoint,
-      autoRollback: updates.autoRollback,
-      acceptNew: updates.acceptNew,
-      asks: updates.asks,
-      said: updates.message,
-      busy: updates.isWaiting,
-      rollingBack: updates.isRollingBack,
-      seenAt: updates.seenAt,
-      points: [
-        for (final id in ids)
-          for (final point in restorePointsOfLink(id)) LinkPoint(id, point),
-      ]..sort((a, b) => b.point.at.compareTo(a.point.at)),
-      queue: updates.queue.unlock,
-      reason: linksConfigReason,
-    );
-  }
 }
 
 /// What System says about the broker on screen, from the values it serves
@@ -1678,9 +1841,6 @@ extension type SelectLogin(AppState _state) {
   /// Returns password value
   String? get password => _state.login.password;
 
-  /// Returns isWaiting
-  bool get isWaiting => _state.wait.isWaitingForType<LogInAction>();
-
   /// Returns gateway
   String? get gateway => _state.login.gateway;
 
@@ -1704,9 +1864,6 @@ extension type SelectLogin(AppState _state) {
 
   /// Returns reason
   AnswerFault? get reason => _state.login.reason;
-
-  /// Returns isProbing
-  bool get isProbing => _state.wait.isWaitingForType<ProbeGatewayAction>();
 
   /// Returns preload
   int get preload => _state.login.preload;
@@ -1821,9 +1978,6 @@ extension type SelectSession(AppState _state) {
 
   /// Returns true if session is available
   bool get isAvailable => token != null;
-
-  /// Returns isWaiting
-  bool get isWaiting => _state.wait.isWaitingForType<LogOutAction>();
 }
 
 extension type SelectTheme(AppState _state) {
@@ -1874,9 +2028,6 @@ extension type SelectSite(AppState _state) {
 
   /// Returns choices
   IList<SiteChoice> get choices => _state.site.choices;
-
-  /// Returns isWaiting
-  bool get isWaiting => _state.wait.isWaitingForType<RetrieveSitesAction>();
 
   /// The user's level on [key], as the gateway signs it (`Grants::perm`,
   /// roles.rs) and the link reads it (spec 04, `wyrm_core::ptok::level_on`):
@@ -1944,9 +2095,6 @@ extension type SelectSite(AppState _state) {
 }
 
 extension type SelectNodes(AppState _state) {
-  /// Returns waiting value
-  bool get isWaiting => _state.wait.isWaitingForType<RetrieveNodesAction>();
-
   /// Returns [IMap<String, NodeInfo>] table
   IMap<String, NodeInfo> get table => _state.nodes.table;
 
@@ -2025,10 +2173,6 @@ extension type SelectNodes(AppState _state) {
   /// Returns historyAt
   DateTime? get historyAt => _state.nodes.historyAt;
 
-  /// Returns historyLoading
-  bool get historyLoading =>
-      _state.wait.isWaitingForType<RetrieveHistoryAction>();
-
   /// How many links the first list of the viewed site's `downstream` holds.
   int get linkCount {
     final prefix = '${SelectSite(_state).root}/downstream/';
@@ -2046,9 +2190,6 @@ extension type SelectNodes(AppState _state) {
 
   /// The node menu: the node whose menu is open.
   String? get menu => _state.nodes.menu;
-
-  /// A node menu waits for its node's `~meta`.
-  bool get menuOpening => _state.wait.isWaitingForType<OpenNodeMenuAction>();
 
   /// Returns menuAsked
   String? get menuAsked => _state.nodes.menuAsked;
@@ -2072,9 +2213,6 @@ extension type SelectLive(AppState _state) {
 }
 
 extension type SelectLinks(AppState _state) {
-  /// Returns waiting value
-  bool get isWaiting => _state.wait.isWaitingForType<RetrieveLinksAction>();
-
   /// Returns [IMap<String, LinkInfo>] table
   IMap<String, LinkInfo> get table => _state.links.table;
 
@@ -2099,22 +2237,6 @@ extension type SelectLinks(AppState _state) {
   /// Returns version
   String? get version => _state.links.version;
 
-  /// A start, stop, remove, grant, deauthorize or rollback is running.
-  bool get isActing =>
-      _state.wait.isWaitingForType<StartLinkAction>() ||
-      _state.wait.isWaitingForType<StopLinkAction>() ||
-      _state.wait.isWaitingForType<RemoveLinkAction>() ||
-      _state.wait.isWaitingForType<GrantLinkAction>() ||
-      _state.wait.isWaitingForType<DeauthorizeLinkAction>() ||
-      _state.wait.isWaitingForType<RollbackLinkParamsAction>();
-
-  /// The log is being read.
-  bool get isReadingLog => _state.wait.isWaitingForType<GetLinkLogAction>();
-
-  /// The parameter revisions are being read.
-  bool get isReadingHistory =>
-      _state.wait.isWaitingForType<RetrieveLinkHistoryAction>();
-
   /// Returns updatesAvailable
   int get updatesAvailable => _state.links.updatesAvailable;
 
@@ -2123,10 +2245,6 @@ extension type SelectLinks(AppState _state) {
 }
 
 extension type SelectQuarantine(AppState _state) {
-  /// Returns waiting value
-  bool get isWaiting =>
-      _state.wait.isWaitingForType<RetrieveQuarantineAction>();
-
   /// Returns [IMap<String, QuarantineEntry>] table
   IMap<String, QuarantineEntry> get table => _state.quarantine.table;
 
@@ -2144,9 +2262,6 @@ extension type SelectQuarantine(AppState _state) {
 }
 
 extension type SelectPackages(AppState _state) {
-  /// Returns waiting value
-  bool get isWaiting => _state.wait.isWaitingForType<RetrievePackagesAction>();
-
   /// Returns [IMap<String, PackageInfo>] table
   IMap<String, PackageInfo> get table => _state.packages.table;
 
@@ -2184,9 +2299,6 @@ extension type SelectLinkInstall(AppState _state) {
 
   /// Returns message
   String? get message => _state.linkInstall.message;
-
-  /// Returns isWaiting
-  bool get isWaiting => _state.wait.isWaitingForType<InstallLinkAction>();
 
   /// Returns path
   InstallPath get path => _state.linkInstall.path;
@@ -2226,9 +2338,6 @@ extension type SelectLinkInstall(AppState _state) {
 }
 
 extension type SelectPeers(AppState _state) {
-  /// Returns waiting value
-  bool get isWaiting => _state.wait.isWaitingForType<RetrievePeersAction>();
-
   /// Returns [IMap<String, Peer>] table
   IMap<String, Peer> get table => _state.peers.table;
 
@@ -2276,9 +2385,6 @@ extension type SelectFlows(AppState _state) {
   /// Returns defs
   IMap<String, Object> get defs => _state.flows.defs;
 
-  /// Returns isWaiting
-  bool get isWaiting => _state.wait.isWaitingForType<RetrieveFlowsAction>();
-
   /// Returns blockTypes
   IList<NodeType> get blockTypes => _state.flows.blockTypes;
 
@@ -2325,9 +2431,6 @@ extension type SelectFlowEditor(AppState _state) {
 
   /// Returns selectedBlock
   String? get selectedBlock => _state.flowEditor.selectedBlock;
-
-  /// Returns isWaiting
-  bool get isWaiting => _state.wait.isWaitingForType<DeployFlowAction>();
 
   /// Returns types
   IList<NodeType> get types => _state.flowEditor.types;
@@ -2406,10 +2509,6 @@ extension type SelectFlowEditor(AppState _state) {
     libraryOff: _state.flowEditor.libraryOff,
   );
 
-  /// The editor of the route [routeId] (`newFlowId`: a new flow) as it is
-  /// drawn, typed; the same view while nothing it shows changed.
-  FlowView view(String routeId) => flowViewOf(_state, routeId);
-
   /// The route the editor was opened on (`newFlowId` for a new flow);
   /// null before it was opened.
   String? get route => _state.flowEditor.route;
@@ -2420,9 +2519,6 @@ extension type SelectFlowEditor(AppState _state) {
 }
 
 extension type SelectTasks(AppState _state) {
-  /// Returns waiting value
-  bool get isWaiting => _state.wait.isWaitingForType<RetrieveTasksAction>();
-
   /// Returns [IMap<String, AgentTask>] table
   IMap<String, AgentTask> get table => _state.tasks.table;
 
@@ -2437,9 +2533,6 @@ extension type SelectTasks(AppState _state) {
 
   /// Returns events
   IMap<String, IList<TaskEvent>> get events => _state.tasks.events;
-
-  /// Returns isAnswering
-  bool get isAnswering => _state.wait.isWaitingForType<AnswerTaskAction>();
 }
 
 extension type SelectAssistant(AppState _state) {
@@ -2468,12 +2561,6 @@ extension type SelectAssistant(AppState _state) {
   /// Who approves is not known: the agent's settings did not read.
   bool get modeUnknown => _state.assistant.configInvalid;
 
-  /// Returns isWaiting
-  bool get isWaiting => _state.wait.isWaitingForType<RetrieveAgentAction>();
-
-  /// The agent is answering an ask.
-  bool get isAsking => _state.wait.isWaitingForType<AskAgentAction>();
-
   /// Returns docs
   bool get docs => _state.assistant.docs;
 
@@ -2482,9 +2569,6 @@ extension type SelectAssistant(AppState _state) {
 
   /// Returns refusals
   IMap<String, ApprovalRefusal> get refusals => _state.assistant.refusals;
-
-  /// Returns isApproving
-  bool get isApproving => _state.wait.isWaitingForType<ApproveTaskAction>();
 
   /// Returns picks
   IMap<String, ISet<String>> get picks => _state.assistant.picks;
@@ -2549,9 +2633,6 @@ extension type SelectChanges(AppState _state) {
   /// Returns message
   CallRefusal? get message => _state.changes.message;
 
-  /// Returns isWaiting
-  bool get isWaiting => _state.wait.isWaitingForType<ApplyChangesAction>();
-
   /// Returns reviewCards
   List<ReviewCard> get reviewCards => reviewCardsOf(_state);
 
@@ -2574,9 +2655,6 @@ extension type SelectHistorian(AppState _state) {
 
   /// Returns stats
   IMap<String, String> get stats => _state.historian.stats;
-
-  /// Returns isWaiting
-  bool get isWaiting => _state.wait.isWaitingForType<RetrieveHistorianAction>();
 
   /// Returns points
   IList<String> get points => _state.historian.points;
@@ -2621,20 +2699,8 @@ extension type SelectHistorian(AppState _state) {
   /// Returns seriesAt
   DateTime? get seriesAt => _state.historian.seriesAt;
 
-  /// The trend's range is being read (spec trend.md §6: a skeleton until
-  /// it has rows).
-  bool get seriesLoading =>
-      _state.wait.isWaitingForType<RetrieveSeriesAction>();
-
-  /// The trend's window is being read finer (the bar over the plot).
-  bool get windowLoading =>
-      _state.wait.isWaitingForType<LoadTrendWindowAction>();
-
   /// Returns trendSpan
   TrendSpan get trendSpan => historyRangeOf(_state);
-
-  /// Returns trend
-  HistoryTrend? get trend => historyTrendOf(_state);
 
   /// Returns shownGroup
   WatchGroup? get shownGroup => shownGroupOf(_state);
@@ -2664,9 +2730,6 @@ extension type SelectAccess(AppState _state) {
 
   /// Returns tab
   AccessTab get tab => _state.access.tab;
-
-  /// Returns isWaiting
-  bool get isWaiting => _state.wait.isWaitingForType<RetrieveAccessAction>();
 
   /// Returns shown
   bool get shown => _state.access.shown;
@@ -2704,9 +2767,6 @@ extension type SelectSystem(AppState _state) {
 
   /// Returns filter
   String? get filter => _state.system.filter;
-
-  /// Returns isWaiting
-  bool get isWaiting => _state.wait.isWaitingForType<RetrieveSystemLogAction>();
 
   /// Returns tab
   SystemTab get tab => _state.system.tab;
@@ -2749,12 +2809,6 @@ extension type SelectSystem(AppState _state) {
 
   /// Returns units
   IMap<String, String> get units => _state.system.units;
-
-  /// Returns isActing
-  bool get isActing =>
-      _state.wait.isWaitingForType<ClearConnsAction>() ||
-      _state.wait.isWaitingForType<PutProfileAction>() ||
-      _state.wait.isWaitingForType<RemoveProfileAction>();
 
   /// Returns around
   String? get around => _state.system.around;
@@ -2838,13 +2892,6 @@ extension type SelectUpdates(AppState _state) {
 
   /// Returns queue
   IList<String> get queue => _state.updates.queue;
-
-  /// Returns isWaiting
-  bool get isWaiting => _state.wait.isWaitingForType<UpdatePackageAction>();
-
-  /// Returns isRollingBack
-  bool get isRollingBack =>
-      _state.wait.isWaitingForType<RollbackPackageAction>();
 }
 
 extension type SelectBackups(AppState _state) {
@@ -2935,9 +2982,6 @@ extension type SelectBackups(AppState _state) {
   /// Returns result
   String? get result => _state.backups.result;
 
-  /// Returns isWaiting
-  bool get isWaiting => _state.wait.isWaitingForType<RetrieveBackupsAction>();
-
   /// Returns saved
   IMap<String, String> get saved => _state.backups.saved;
 
@@ -2963,9 +3007,6 @@ extension type SelectBrokerUpdate(AppState _state) {
 
   /// Returns confirm
   String get confirm => _state.brokerUpdate.confirm;
-
-  /// Returns isWaiting
-  bool get isWaiting => _state.wait.isWaitingForType<UpdateBrokerAction>();
 }
 
 extension type SelectDevice(AppState _state) {
@@ -3045,9 +3086,6 @@ extension type SelectDevice(AppState _state) {
   /// Returns needPassword
   bool get needPassword => _state.device.needPassword;
 
-  /// Returns isWaiting
-  bool get isWaiting => _state.wait.isWaitingForType<LoadDeviceAction>();
-
   /// Returns keyRole
   String? get keyRole => _state.device.keyRole;
 
@@ -3098,10 +3136,6 @@ extension type SelectDevice(AppState _state) {
   /// When this computer's key was made; null when not known.
   DateTime? get keyAddedAt => momentOf(_state.device.added);
 
-  /// The unlock switch is being turned on or off.
-  bool get isSettingUnlock =>
-      _state.wait.isWaitingForType<SetDeviceUnlockAction>();
-
   /// Returns passwordRefused
   bool get passwordRefused => _state.device.passwordRefused;
 
@@ -3110,14 +3144,6 @@ extension type SelectDevice(AppState _state) {
       _state.device.available &&
       _state.device.keyId != null &&
       !_state.device.stale;
-
-  /// The key or the password of the lock is being checked.
-  bool get isUnlocking =>
-      _state.wait.isWaitingForType<UnlockWithDeviceAction>() ||
-      _state.wait.isWaitingForType<UnlockWithPasswordAction>();
-
-  /// A key is being made and registered.
-  bool get isEnabling => _state.wait.isWaitingForType<EnableDeviceAction>();
 
   /// `Turn <name> on again after I log in` is offered: after `changed`
   /// and `signedOut`, not after `devices_off` (nothing to turn on) nor
@@ -3177,9 +3203,6 @@ extension type SelectDiscovery(AppState _state) {
 
   /// Returns subnet
   String? get subnet => _state.discovery.subnet;
-
-  /// Returns isWaiting
-  bool get isWaiting => _state.wait.isWaitingForType<TrustGatewayAction>();
 
   /// Returns range
   String? get range => _state.discovery.range;

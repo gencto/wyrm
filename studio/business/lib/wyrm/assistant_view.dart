@@ -323,11 +323,14 @@ final class RowPick extends Equatable {
 }
 
 /// The state read through its selectors.
-final class _Read with Selectors {
-  _Read(this.state);
+final class _Read with Selectors, WaitingGiven {
+  _Read(this.state, this.given);
 
   @override
   final AppState state;
+
+  @override
+  final Waiting given;
 }
 
 final _tabKeys = Memo<List<String>>();
@@ -341,8 +344,12 @@ final _drawerKeys = Memo<List<String>>();
 /// [AssistantView.assistantLiveKeys] only, never the whole map. The
 /// [drawer] also reads Explorer's point and its history (the timeline).
 /// It reads no clock.
-List<Object?> assistantInputsOf(AppState s, {required bool drawer}) {
-  final r = _Read(s);
+List<Object?> assistantInputsOf(
+  AppState s,
+  Waiting w, {
+  required bool drawer,
+}) {
+  final r = _Read(s, w);
   final keys = (drawer ? _drawerKeys : _tabKeys).of(
     [s.tasks, s.assistant, s.site],
     () => r.assistantLiveKeys(drawer: drawer),
@@ -354,11 +361,11 @@ List<Object?> assistantInputsOf(AppState s, {required bool drawer}) {
     s.site,
     s.changes.table,
     s.language,
-    r.assistant.isWaiting,
-    r.links.isWaiting,
-    r.assistant.isAsking,
-    r.assistant.isApproving,
-    r.tasks.isAnswering,
+    r.waiting.agent,
+    r.waiting.links,
+    r.waiting.askAgent,
+    r.waiting.approveTask,
+    r.waiting.answerTask,
     for (final k in keys) s.live.values[k],
     if (drawer) ...[
       nodes.point,
@@ -367,7 +374,7 @@ List<Object?> assistantInputsOf(AppState s, {required bool drawer}) {
       nodes.historyAt,
       nodes.historyRange,
       nodes.historyWindow,
-      r.nodes.historyLoading,
+      r.waiting.history,
       if (r.timelinePoint case final p?) nodes.table[p],
     ],
   ];

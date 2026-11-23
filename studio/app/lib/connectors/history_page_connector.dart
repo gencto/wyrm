@@ -75,7 +75,7 @@ class _Factory extends VmFactory<AppState, HistoryPageConnector, _Vm>
           onToggle: (key, {required on}) =>
               dispatch(PickTrendPointAction(key, add: true)),
         ),
-        trend: historian.trend?.vm,
+        trend: historyTrend?.vm,
         watch: historian.pickedWatch,
         disabled: site.lacks(Perm.config, '${site.root}/sys/history')?.disabled,
         panels: WorkspacePanels.history.widths(panels.widths),

@@ -141,7 +141,7 @@ class _Factory extends VmFactory<AppState, LinksPageConnector, _Vm>
   _Vm fromStore() {
     final local = localLinks;
     final remote = remoteLinks;
-    final waiting = quarantined;
+    final held = quarantined;
     final tab = links.tab;
     return _Vm(
       screen: LinksScreenVm(
@@ -153,7 +153,7 @@ class _Factory extends VmFactory<AppState, LinksPageConnector, _Vm>
           LinksTabData(LinksTabKey.local, local.length),
           if (showsUpdates) LinksTabData(LinksTabKey.updates, updateCount),
           LinksTabData(LinksTabKey.remote, remote.length),
-          LinksTabData(LinksTabKey.quarantine, waiting.length),
+          LinksTabData(LinksTabKey.quarantine, held.length),
         ],
         addReason: linksConfigReason?.disabled,
         updateAll: tab == .updates && updatablePackages.isNotEmpty,
@@ -161,7 +161,7 @@ class _Factory extends VmFactory<AppState, LinksPageConnector, _Vm>
         toUpdate: [for (final l in linksToUpdate) _link(l)],
         remote: [for (final l in remote) _link(l)],
         waiting: [
-          for (final q in waiting)
+          for (final q in held)
             q.data(
               fields: switch (quarantine.forms[q.node]) {
                 final specs? => paramFields(specs),
@@ -170,7 +170,7 @@ class _Factory extends VmFactory<AppState, LinksPageConnector, _Vm>
               reason: quarantineReason(q.node)?.disabled,
             ),
         ],
-        loading: links.isWaiting && links.table.isEmpty,
+        loading: waiting.links && links.table.isEmpty,
         selectedLink: links.selectedLink,
         selectedEntry: quarantine.selectedEntry,
         updating: updates.package,
@@ -178,7 +178,7 @@ class _Factory extends VmFactory<AppState, LinksPageConnector, _Vm>
         allowAll: allowsAllLinks,
         admissionReason: admissionReason?.disabled,
         backupsOff: backups.availability.off,
-        busy: links.isActing || quarantine.isWaiting,
+        busy: waiting.linkActing || waiting.quarantine,
         sheet: linkUpdate?.ui,
       ),
       approve: SubmitVm(

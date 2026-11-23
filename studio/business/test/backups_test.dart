@@ -136,7 +136,7 @@ Uint8List _linkBackup({String how = 'broker', String kind = 'link'}) {
 }
 
 /// The selectors over a state.
-class _Sel with Selectors {
+class _Sel with Selectors, NothingInFlight {
   _Sel(this.state);
 
   @override

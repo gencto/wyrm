@@ -19,7 +19,7 @@ import '../common/broker_update_sheets.dart';
 import '../mappers/rights_mappers.dart';
 import 'backup_dialogs.dart';
 
-class _Sel with Selectors {
+class _Sel with Selectors, StateAlone {
   _Sel(this.state);
 
   @override
@@ -29,7 +29,15 @@ class _Sel with Selectors {
 /// What the broker update dialog is built from: what the broker says of
 /// its own update (ADR 0048 §2.4, the selector `selfUpdate`), the dialog's
 /// own state, the gateway socket and how long it has been lost.
-BrokerUpdateData brokerUpdateIn(AppState state, {int lostSeconds = 0}) {
+///
+/// [busy]: an update or a rollback is in flight ([brokerUpdateBusy]). The
+/// state does not change when one starts or ends, so the caller reads it
+/// where its connector compares it.
+BrokerUpdateData brokerUpdateIn(
+  AppState state, {
+  required bool busy,
+  int lostSeconds = 0,
+}) {
   final s = _Sel(state);
   final u = s.selfUpdate;
   return BrokerUpdateData(
@@ -43,12 +51,14 @@ BrokerUpdateData brokerUpdateIn(AppState state, {int lostSeconds = 0}) {
     connected: s.site.connected,
     lostSeconds: lostSeconds,
     confirm: s.brokerUpdate.confirm,
-    busy:
-        state.wait.isWaitingForType<UpdateBrokerAction>() ||
-        state.wait.isWaitingForType<RollbackBrokerUpdateAction>(),
+    busy: busy,
     reason: s.sysConfigReason?.disabled,
   );
 }
+
+/// An update of the broker or its rollback is in flight.
+bool brokerUpdateBusy(Waiting w) =>
+    w.on<UpdateBrokerAction>() || w.on<RollbackBrokerUpdateAction>();
 
 /// Opens the broker update dialog (boards `BrokerUpdate*`). Reached only
 /// behind `Features.brokerUpdate`.
@@ -100,18 +110,23 @@ class _BrokerUpdateDialogState extends State<_BrokerUpdateDialog> {
     super.dispose();
   }
 
-  BrokerUpdateData _data(AppState state) => brokerUpdateIn(
-    state,
-    lostSeconds: switch (_lostAt) {
-      final t? => DateTime.now().difference(t).inSeconds,
-      null => 0,
-    },
-  );
+  BrokerUpdateData _data(AppState state, {required bool busy}) =>
+      brokerUpdateIn(
+        state,
+        busy: busy,
+        lostSeconds: switch (_lostAt) {
+          final t? => DateTime.now().difference(t).inSeconds,
+          null => 0,
+        },
+      );
 
   void _close() => Navigator.of(context).pop();
 
   Future<void> _primary() async {
-    final d = _data(_store.state);
+    final d = _data(
+      _store.state,
+      busy: brokerUpdateBusy(Waiting(_store.isWaiting)),
+    );
     switch (d.stage) {
       case .review:
         await _store.dispatchAndWait(UpdateBrokerAction(d.latest));
@@ -139,18 +154,19 @@ class _BrokerUpdateDialogState extends State<_BrokerUpdateDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => StoreConnector<AppState, AppState>(
-    converter: (s) => s.state,
-    builder: (context, state) => TaskSheet(
-      vm: brokerUpdateSheet(
-        _data(state),
-        onConfirm: (text) => _store.dispatchSync(SetConfirmAction(text)),
-      ),
-      dialog: true,
-      width: 640,
-      maxHeight: 840,
-      onPrimary: () => unawaited(_primary()),
-      onSecondary: _close,
-    ),
-  );
+  Widget build(BuildContext context) =>
+      StoreConnector<AppState, (AppState, bool)>(
+        converter: (s) => (s.state, brokerUpdateBusy(Waiting(s.isWaiting))),
+        builder: (context, seen) => TaskSheet(
+          vm: brokerUpdateSheet(
+            _data(seen.$1, busy: seen.$2),
+            onConfirm: (text) => _store.dispatchSync(SetConfirmAction(text)),
+          ),
+          dialog: true,
+          width: 640,
+          maxHeight: 840,
+          onPrimary: () => unawaited(_primary()),
+          onSecondary: _close,
+        ),
+      );
 }

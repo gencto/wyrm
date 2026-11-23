@@ -33,3 +33,41 @@ decided (`notify: false`, one state at the end, `null` when nothing changed).
 pattern per file against `tool/rules_baseline.json`. A count may only go down;
 a new file starts at zero. After removing violations, run it with `--lower` and
 commit the smaller baseline. Never raise a baseline number by hand.
+
+## Waiting: this project diverges from `frx` 0.3.7 (async_redux 30)
+
+`frx add-action -k waiting` still generates the form of async_redux 29: a
+getter over `_state.wait` in `selectors.dart`. `AppState` has no `wait`
+here, and `Wait`/`WaitAction` are deprecated in async_redux. "Busy" is read
+through `Waiting` (`business/lib/redux/common/waiting.dart`), from the
+store, never from the state. The full rules are in
+`.claude/skills/asyncredux-in-this-template/SKILL.md`, section "Waiting".
+
+To bring a freshly generated waiting action to this form:
+
+1. Run `frx add-action <name> --state <slice> -k waiting --no-selector`. With
+   `--no-selector` it writes no getter into `selectors.dart`. The action file
+   needs no edit: `class MyAction extends Action with WaitingAction` is the
+   form in use (`WaitingAction` is a marker with no hooks).
+2. If you ran it without `--no-selector`, delete the getter it wrote into
+   `Select<Slice>` in `business/lib/redux/selectors.dart`
+   (`bool get isWaiting => _state.wait.isWaitingForType<MyAction>();`). It
+   does not compile: `AppState` has no `wait`.
+3. Add the name of the wait to `extension WaitingFor on Waiting` in the same
+   file: `bool get myThing => on<MyAction>();` (several actions:
+   `any(const [A, B])`).
+4. Read it where a store is at hand: `waiting.myThing` in the connector's
+   `_Factory.fromStore()` or in another action. Put the answer into the
+   `_Vm` (it is compared).
+5. If the action must cover the app with the barrier, add `BlockingAction`
+   to its `with` clause **and** its type to `blockingActions`
+   (`app/lib/common/blocking_actions.dart`).
+   `app/test/blocking_actions_test.dart` fails while the two disagree.
+6. Run `frx doctor`, `dart run tool/check_rules.dart`, `flutter analyze`.
+
+A `StoreConnector` whose `converter` returns only state is not built again
+when an action starts or ends, because the state is the same object. Put the
+wait into the converter's value, or into the `_Vm`.
+
+`frx doctor` accepts this form (it reports the skills warning only). Do not
+run `frx update-skills`: it would write the old "Waiting" text back.

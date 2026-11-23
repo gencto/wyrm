@@ -12,7 +12,10 @@ import 'stage_value_action.dart';
 /// the point on screen staged — what the inspector shows when it is sent,
 /// read here and not when the page was drawn. A run is this action's own
 /// work, so a refusal of the input is its error and goes back to the form.
-class SubmitInspectorAction extends Action with WaitingAction {
+///
+/// Not a `WaitingAction`: the form shows its own wait (it awaits this
+/// action) and no screen draws this one, so nothing asks the store about it.
+class SubmitInspectorAction extends Action {
   SubmitInspectorAction(this.values);
 
   /// The form's values as action arguments.
@@ -20,11 +23,6 @@ class SubmitInspectorAction extends Action with WaitingAction {
 
   /// What was run: *Try again* runs it again, *Reload* reads its node.
   RunActionSubmit? _ran;
-
-  /// The form shows its own wait (it awaits this action); no screen draws
-  /// this one.
-  @override
-  bool get notifyBefore => false;
 
   @override
   Action? again() => switch (_ran) {

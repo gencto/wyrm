@@ -1,4 +1,3 @@
-import 'package:async_redux/async_redux.dart';
 import 'package:business/redux/app_state.dart';
 import 'package:business/redux/device/actions/show_step_up_action.dart';
 import 'package:business/redux/login/actions/log_in_action.dart';
@@ -55,6 +54,7 @@ void main() {
     LogInApp? app,
     AppState Function(AppState)? before,
     AppState Function(AppState)? after,
+    Type? inFlight,
     Future<void> Function(WidgetTester, LogInApp)? setup,
     Locale locale = const Locale('en'),
   }) async {
@@ -62,8 +62,13 @@ void main() {
     await setup?.call(t, a);
     a.put(before ?? form);
     await a.pumpLogIn(t, locale: locale);
+    if (inFlight != null) {
+      a.store.hold(inFlight);
+    }
     if (after != null) {
       a.put(after);
+    }
+    if (inFlight != null || after != null) {
       await a.settle(t);
     }
     expectWords(name, a.logInWords(t), logInWords);
@@ -103,10 +108,8 @@ void main() {
       (t) => logIn(
         t,
         'signing',
-        after: (a) => a.copyWith(
-          wait: a.wait.process(WaitOperation.add, flag: LogInAction()),
-          login: a.login.copyWith(step: 1),
-        ),
+        inFlight: LogInAction,
+        after: (a) => a.copyWith.login(step: 1),
       ),
       variant: mac,
     );

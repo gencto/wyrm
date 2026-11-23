@@ -21,8 +21,6 @@ Store<AppState> newStore({
   required BaseKeyValueStorage settings,
   Persistor<AppState>? persistor,
 }) {
-  WaitAction.reducer = _waitReducer;
-
   _store = Store<AppState>(
     initialState: initialState,
     environment: environment,
@@ -117,28 +115,12 @@ Future<Store<AppState>> createStore(
   );
 }
 
-void _waitReducer(
-  dynamic state,
-  WaitOperation operation,
-  Object? flag,
-  Object? ref,
-) =>
-    //
-    // ignore: avoid_dynamic_calls
-    state.copyWith(
-      //
-      // ignore: avoid_dynamic_calls
-      wait: state.wait.process(operation, flag: flag, ref: ref),
-    );
-
 /// Logs every failure and makes sure it leaves as a [StudioException].
 ///
 /// Every action of Studio, in `business` and in `app`, extends `Action`: it
 /// wraps its own failure in `Action.wrapError` and adds it to Problems in
 /// its own `after`, so what arrives here is finished and only logged. The
-/// observer dispatches nothing. (async_redux's own `WaitAction` is the one
-/// action of the store that is not ours; it changes a flag and has nothing
-/// that fails.)
+/// observer dispatches nothing.
 class _MyErrorObserver extends GlobalErrorObserver<AppState> {
   final _logger = Logger('Redux');
 
@@ -165,7 +147,7 @@ class _MyErrorObserver extends GlobalErrorObserver<AppState> {
 }
 
 /// One in-flight dispatch, keyed by the action instance — stable across nested
-/// WaitActions that would otherwise bump the global dispatchCount mid-action.
+/// dispatches that would otherwise bump the global dispatchCount mid-action.
 /// Lets the action logger print duration + the state diff on the action's line.
 final _pending = <ReduxAction<AppState>, _PendingAction>{};
 
@@ -188,17 +170,6 @@ class _ReduxActionLogger extends ActionObserver<AppState> {
     int dispatchCount, {
     bool ini = false,
   }) {
-    if (action is WaitAction<AppState>) {
-      // WaitActions log once, on end. The flag is usually the awaited action
-      // (WaitingAction does `WaitAction.add(this)`) — show its type.
-      if (!ini) {
-        final flag = action.flag;
-        final target = flag is ReduxAction ? flag.runtimeType : flag;
-        _logger.info('⏳ WaitAction  ${action.operation.name}  $target');
-      }
-      return;
-    }
-
     if (ini) {
       _pending[action] = _PendingAction(action);
       return;
@@ -217,8 +188,7 @@ class _ReduxActionLogger extends ActionObserver<AppState> {
 }
 
 /// Records which top-level [AppState] substates an action changed into
-/// [_pending], for the action logger to print. (`wait` is omitted — WaitActions
-/// log themselves.)
+/// [_pending], for the action logger to print.
 class _StateChangeObserver implements StateObserver<AppState> {
   @override
   void observe(

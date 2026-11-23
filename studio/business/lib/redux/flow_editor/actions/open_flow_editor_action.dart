@@ -26,7 +26,7 @@ class OpenFlowEditorAction extends Action {
     // keys stay watched until it closes (`CloseFlowEditorAction`). Nothing
     // on the screen shows it: the read that follows builds the page.
     dispatchSync(
-      WatchKeysAction(flowViewOf(state, routeId).follow.watch),
+      WatchKeysAction(flowViewOf(state, waiting, routeId).follow.watch),
       notify: false,
     );
     final isNew = routeId == newFlowId;
@@ -50,7 +50,7 @@ class OpenFlowEditorAction extends Action {
     dispatchSync(PreviewFlowAction());
     // The reads the page needs, at once, each with its own state; the
     // editor is open when they have answered.
-    final details = flowViewOf(state, routeId).follow.details;
+    final details = flowViewOf(state, waiting, routeId).follow.details;
     await Future.wait([
       // The Tree tab draws the site's live tree: its lists open like the
       // Explorer's.

@@ -13,7 +13,7 @@ import 'package:models/role_grant.dart';
 import 'package:models/staged_change.dart';
 import 'package:wyrm_client/wyrm_client.dart' hide Grant;
 
-class _Reader with Selectors {
+class _Reader with Selectors, NothingInFlight {
   _Reader(this.state);
 
   @override

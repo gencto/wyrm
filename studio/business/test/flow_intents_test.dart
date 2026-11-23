@@ -109,7 +109,7 @@ void main() {
     });
 
     test('close lets go of what open and follow watched', () async {
-      final view = SelectFlowEditor(s.state).view('tank').follow;
+      final view = flowViewOf(s.state, Waiting(s.isWaiting), 'tank').follow;
       await s.dispatchAndWait(
         FollowFlowEditorAction(
           FlowFollow(
@@ -212,12 +212,18 @@ void main() {
       s.dispatchSync(TypeFieldAction(add, rowOf(add, 'in.1'), nested(63)));
       expect(depthOf(now().blocks[add]!.cfgValues['in.1']!), 63);
       s.dispatchSync(SelectBlocksAction([add]));
-      expect(flowViewOf(s.state, 'tank').inspector, isNotNull);
+      expect(
+        flowViewOf(s.state, Waiting(s.isWaiting), 'tank').inspector,
+        isNotNull,
+      );
 
       // one level more is no JSON for the field: it is kept as the text
       s.dispatchSync(TypeFieldAction(add, rowOf(add, 'in.1'), nested(64)));
       expect(now().blocks[add]!.cfgValues['in.1'], JsonValue.of(nested(64)));
-      expect(flowViewOf(s.state, 'tank').inspector, isNotNull);
+      expect(
+        flowViewOf(s.state, Waiting(s.isWaiting), 'tank').inspector,
+        isNotNull,
+      );
     });
 
     test('a live value past the bound is not kept on unbind; the '
@@ -241,7 +247,10 @@ void main() {
         ..dispatchSync(SelectBlocksAction(const ['count']));
       expect(now().edges.where((e) => e.toPort == 'in.step'), isEmpty);
       expect(now().blocks['count']!.cfg.containsKey('step'), isFalse);
-      expect(flowViewOf(s.state, 'tank').inspector, isNotNull);
+      expect(
+        flowViewOf(s.state, Waiting(s.isWaiting), 'tank').inspector,
+        isNotNull,
+      );
     });
 
     test('a typed number goes into the parameter', () {

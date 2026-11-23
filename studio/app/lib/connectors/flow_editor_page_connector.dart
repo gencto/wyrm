@@ -157,7 +157,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
   @override
   _Vm fromStore() {
     final route = connector.id;
-    final view = flowEditor.view(route);
+    final view = flowView(route);
     final sel = view.selected;
     return _Vm(
       window: windowBar(fullScreen: window.fullScreen),

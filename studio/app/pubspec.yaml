@@ -9,7 +9,7 @@ environment:
 resolution: workspace
 
 dependencies:
-  async_redux: ^29.2.3
+  async_redux: ^30.0.0
   auto_route: ^11.2.0
   business:
     path: ../business

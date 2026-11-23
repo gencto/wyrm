@@ -1,10 +1,8 @@
-import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/node_glyph.dart';
 import 'package:models/node_info.dart';
 import 'package:models/staged_change.dart';
 import 'package:models/studio_error.dart';
 import 'package:models/studio_notice.dart';
-import 'package:models/workspace.dart';
 import 'package:wyrm_client/wyrm_client.dart' show Perm;
 
 import '../redux/app_state.dart';
@@ -82,7 +80,7 @@ final class NoticeToast extends Toast {
 }
 
 /// What the Studio shell shows, computed from the state.
-final class _Shell with Selectors {
+final class _Shell with Selectors, StateAlone {
   _Shell(this.state);
 
   @override
@@ -136,12 +134,6 @@ final class _Shell with Selectors {
     );
   }
 
-  /// The workspaces reading again what they show.
-  ISet<Workspace> get refreshingWorkspaces => {
-    for (final w in Workspace.values)
-      if (refreshing(w)) w,
-  }.lock;
-
   /// The nodes the search palette finds (the first 400 the tree holds).
   List<SearchNode> get searchNodes => [
     for (final k in nodes.view.take(400))
@@ -188,9 +180,6 @@ List<ReviewCard> reviewCardsOf(AppState s) => _Shell(s).reviewCards;
 String reviewAuditOf(AppState s) => _Shell(s).reviewAudit;
 
 ProblemsCount? problemsCountOf(AppState s) => _Shell(s).problemsCount;
-
-ISet<Workspace> refreshingWorkspacesOf(AppState s) =>
-    _Shell(s).refreshingWorkspaces;
 
 List<SearchNode> searchNodesOf(AppState s) => _Shell(s).searchNodes;
 

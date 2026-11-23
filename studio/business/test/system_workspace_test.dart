@@ -62,11 +62,14 @@ import 'package:wyrm_client/wyrm_client.dart';
 import 'support/fake_wyrm.dart';
 
 /// The facade over one state, as an action or a connector reads it.
-class _Read with Selectors {
-  _Read(this.state);
+class _Read with Selectors, WaitingGiven {
+  _Read(this.state, [this.given = const Waiting.none()]);
 
   @override
   final AppState state;
+
+  @override
+  final Waiting given;
 }
 
 const _sys = 'wy/central/sys';
@@ -217,12 +220,18 @@ void main() {
 
       final poll = s.dispatchAndWait(PollSystemLogAction());
       await Future<void>.delayed(const Duration(milliseconds: 5));
-      expect(_Read(s.state).refreshing(Workspace.system), isFalse);
+      expect(
+        _Read(s.state, Waiting(s.isWaiting)).refreshing(Workspace.system),
+        isFalse,
+      );
       await poll;
 
       final read = s.dispatchAndWait(RetrieveSystemLogAction());
       await Future<void>.delayed(const Duration(milliseconds: 5));
-      expect(_Read(s.state).refreshing(Workspace.system), isTrue);
+      expect(
+        _Read(s.state, Waiting(s.isWaiting)).refreshing(Workspace.system),
+        isTrue,
+      );
       await read;
     });
 
@@ -876,7 +885,7 @@ class _Set extends ReduxAction<AppState> {
   AppState reduce() => change(state);
 }
 
-class _Sel with Selectors {
+class _Sel with Selectors, NothingInFlight {
   _Sel(this.state);
 
   @override

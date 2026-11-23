@@ -388,7 +388,7 @@ extension ApiKeySetState on bool? {
 }
 
 /// The state read through its selectors.
-final class _Read with Selectors {
+final class _Read with Selectors, StateAlone {
   _Read(this.state);
 
   @override

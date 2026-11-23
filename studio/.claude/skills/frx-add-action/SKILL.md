@@ -63,11 +63,38 @@ class LogInWithEmailAction extends Action with WaitingAction {
 }
 ```
 
-`with WaitingAction` raises a wait barrier for the duration — `before()` puts it
-up, `after()` takes it down — and a screen asks about it through a selector,
-`isWaiting => _state.wait.isWaitingForType<LogInWithEmailAction>()`. With
-behaviour mixins alongside it, `WaitingAction` goes **last**: several of them
-end the `after()` chain, so anything before one never takes the barrier down.
+**This project diverges from the generated form here** (async_redux 30,
+owner decision 2026-11-23; the `--help` text below is the tool's and still
+describes `Wait`). `with WaitingAction` is a marker with no hooks: it says a
+screen draws this action's wait. The store knows the action is in flight; a
+screen asks through `Waiting`: `waiting.logIn`, a name in `extension
+WaitingFor on Waiting` that is `on<LogInWithEmailAction>()`. `AppState` has
+no `wait`, so the getter `-k waiting` writes into `Select<Slice>` does not
+compile. After `frx add-action -k waiting`:
+
+1. Run `frx add-action <name> --state <slice> -k waiting --no-selector`. With
+   `--no-selector` it writes no getter into `selectors.dart`. The action file
+   needs no edit: `class MyAction extends Action with WaitingAction` is the
+   form in use (`WaitingAction` is a marker with no hooks).
+2. If you ran it without `--no-selector`, delete the getter it wrote into
+   `Select<Slice>` in `business/lib/redux/selectors.dart`
+   (`bool get isWaiting => _state.wait.isWaitingForType<MyAction>();`). It
+   does not compile: `AppState` has no `wait`.
+3. Add the name of the wait to `extension WaitingFor on Waiting` in the same
+   file: `bool get myThing => on<MyAction>();` (several actions:
+   `any(const [A, B])`).
+4. Read it where a store is at hand: `waiting.myThing` in the connector's
+   `_Factory.fromStore()` or in another action. Put the answer into the
+   `_Vm` (it is compared).
+5. If the action must cover the app with the barrier, add `BlockingAction`
+   to its `with` clause **and** its type to `blockingActions`
+   (`app/lib/common/blocking_actions.dart`).
+   `app/test/blocking_actions_test.dart` fails while the two disagree.
+6. Run `frx doctor`, `dart run tool/check_rules.dart`, `flutter analyze`.
+
+`WaitingAction` still goes **last** in the `with` clause: `add-action`
+writes it there and `frx doctor` checks it. The order no longer matters to
+the wait (the store takes an ended action out by itself).
 
 **How it is dispatched**, from a connector's `_Factory`: `dispatchSync` for a
 synchronous setter, `dispatchAndWait` when the next step depends on the result,
@@ -86,17 +113,18 @@ plain `dispatch` for fire-and-forget.
   inside async_redux throws on the first dispatch, in a debug build only.
   Ask `frx list-mixins` which exclude which and let the scaffolder write
   the `with` clause; it refuses a bad pair up front.
-- `-k waiting` also adds the substate's `isWaiting` getter, on the same
-  ground as a field's getter: a waiting action a page cannot ask about is
-  half-wired.
+- `-k waiting` also adds the substate's `isWaiting` getter over
+  `_state.wait`. Here that getter does not compile: pass `--no-selector`
+  and add the name to `WaitingFor` by hand (steps above).
 - The **order** of a `with` clause is load-bearing, and getting it wrong is
   not a compile error. Dart runs one `after()` — the last mixin's — so a
   mixin that overrides it without `super.after()` ends the chain. Through
   async_redux 28.1 `NonReentrant`, `Throttle` and `Fresh` did: `with
   WaitingAction, NonReentrant` analyzed clean and never lowered the wait
   barrier, and the button reading `isWaiting` stayed dead for the session.
-  Since 28.3.1 every mixin chains (this template requires ≥ 28.4), and the
-  rule stays for the next one that does not: `WaitingAction` goes **last**;
+  Since 28.3.1 every mixin chains, and since this project reads the wait
+  from the store (async_redux 30) no hook can leave it up. The rule stays
+  for other hooks and for `frx doctor`: `WaitingAction` goes **last**;
   `add-action` writes it there, `frx list-mixins` says which mixins end the
   chain, and `frx doctor` reports a clause that has it wrong.
 

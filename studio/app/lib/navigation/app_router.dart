@@ -76,6 +76,10 @@ class _AuthGuard extends AutoRouteGuard with Selectors {
 
   final Store<AppState> _store;
 
+  @override
+  bool isWaiting(Object actionOrTypeOrList, {Object? statusKey}) =>
+      _store.isWaiting(actionOrTypeOrList, statusKey: statusKey);
+
   /// The one member the facade asks for — read live, so every run of the
   /// guard sees the store as it is at that moment, not as it was when the
   /// guard was built.

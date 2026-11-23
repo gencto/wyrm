@@ -104,7 +104,7 @@ class _Factory extends VmFactory<AppState, StudioPageConnector, _Vm>
         quarantined: quarantine.view.length,
         reviewOpen: changes.open,
         reviewError: changes.message?.said,
-        applying: changes.isWaiting,
+        applying: waiting.applyChanges,
         cards: [for (final c in changes.reviewCards) c.data],
         level: site.downstreamLevel.access,
         audit: changes.reviewAudit,

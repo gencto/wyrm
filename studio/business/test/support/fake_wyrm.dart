@@ -269,6 +269,8 @@ class FakeWyrmApi implements WyrmApi {
         }),
       ),
     );
+    // held while the test says so: `hold('<key> ▸ history')`
+    await _gateOf('$key ▸ history');
     if (errors['$key ▸ history'] case final e?) {
       throw e;
     }

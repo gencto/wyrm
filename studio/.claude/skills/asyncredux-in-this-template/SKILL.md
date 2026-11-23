@@ -30,8 +30,8 @@ Everything below is the part no command scaffolds.
   depends on whether the action succeeded.
 - `dispatch` — fire and forget, including `GoAction` for navigation.
 - Never `unawaited(dispatch…(…))` (`studio-rules` §1): start work with
-  `dispatch`, show it with `WaitingAction`, and put a sequence of steps inside
-  one action that awaits them.
+  `dispatch`, show it with `WaitingAction` and `waiting.<name>` (see
+  "Waiting"), and put a sequence of steps inside one action that awaits them.
 
 Navigation is itself an action (`GoAction.push` / `replace` / `navigate` / `pop`
 / `popUntilRoot`), so it is observable and testable like any other, and
@@ -39,33 +39,102 @@ connectors never poke the router.
 
 ## Waiting
 
-`Wait` is a field on `AppState`, owned by async_redux. An action opts in with the
-`WaitingAction` mixin, which raises the barrier in `before()` and clears it in
-`after()`. The reader is a selector keyed on the action type:
+**This project diverges from what `frx` 0.3.7 generates** (owner decision
+2026-11-23, async_redux 30). async_redux deprecated `Wait`, `WaitAction`,
+`WaitOperation` and `WaitReducer` in 29.3.2; none of them is used here.
+`AppState` has no `wait` field, and nothing about an action in flight is
+written to the state. The store knows the actions it runs.
+
+`Waiting` (`business/lib/redux/common/waiting.dart`) is the one way to read
+"busy". It wraps the store's `isWaiting`:
 
 ```dart
-bool get isWaiting => _state.wait.isWaitingForType<LogInWithEmailAction>();
+waiting                       // in an `Action` and in a `VmFactory` (`with Selectors`)
+Waiting(store.isWaiting)      // beside a store: a dialog, a service
+Waiting.fixed({MyAction})     // in a test of a selector or a view
+const Waiting.none()          // in a test: nothing is in flight
+const Waiting.unasked()       // a view made from a state alone (asserts if asked)
 ```
 
-`frx add-action -k waiting` writes both. Never reduce `wait` yourself.
+`Selectors` needs two members, `state` and async_redux's own `isWaiting`,
+and makes `waiting` from them. An action and a `VmFactory` have both, so a
+connector's `_Factory` writes `with Selectors` and nothing more. A holder
+with no store adds a mixin: `WaitingGiven` (it was handed a `Waiting`),
+`StateAlone` (it draws no wait; asking asserts), `NothingInFlight` (a
+test). Every wait a screen
+draws has a name in `extension WaitingFor on Waiting` (`selectors.dart`):
+`waiting.logIn`, `waiting.linkActing`. A selector that needs both the state
+and a wait is in `extension WaitingComposites on Selectors`. A pure view
+function takes the `Waiting` as an argument (`flowViewOf(state, waiting, id)`).
+Never read a wait from a slice selector (`Select<Slice>`): it has the state
+only.
 
-**`WaitingAction` goes last in the `with` clause.** Dart runs one `after()` —
-the last mixin's — so a mixin that overrides it without calling `super.after()`
-ends the chain, and anything before it never cleans up; none of that is a
-compile error or an analyzer hint. Through async_redux 28.1 `NonReentrant`,
-`Throttle` and `Fresh` did exactly that; since 28.3.1 every mixin chains, and
-this template requires ≥ 28.4. The rule stays because it costs nothing and
-covers the next mixin that does not:
+`WaitingAction` is a marker with no hooks: `Waiting.on<T>()` accepts only a
+type that has it. An action that no screen draws does not mix it in.
 
-```dart
-class SendVoiceAction extends Action with WaitingAction, NonReentrant {}  // fragile
-class SendVoiceAction extends Action with NonReentrant, WaitingAction {}  // right
-```
+### A new waiting action: bring the generated form to this one
 
-Under 28.1 the first one finished and left `isWaitingForType<SendVoiceAction>()` true
-forever. `frx add-action` writes the second; `frx doctor` reports the first.
-`BlockingAction` is the one exception, and Dart enforces it — it is declared
-`on WaitingAction`, so it follows it and overrides nothing.
+1. Run `frx add-action <name> --state <slice> -k waiting --no-selector`. With
+   `--no-selector` it writes no getter into `selectors.dart`. The action file
+   needs no edit: `class MyAction extends Action with WaitingAction` is the
+   form in use (`WaitingAction` is a marker with no hooks).
+2. If you ran it without `--no-selector`, delete the getter it wrote into
+   `Select<Slice>` in `business/lib/redux/selectors.dart`
+   (`bool get isWaiting => _state.wait.isWaitingForType<MyAction>();`). It
+   does not compile: `AppState` has no `wait`.
+3. Add the name of the wait to `extension WaitingFor on Waiting` in the same
+   file: `bool get myThing => on<MyAction>();` (several actions:
+   `any(const [A, B])`).
+4. Read it where a store is at hand: `waiting.myThing` in the connector's
+   `_Factory.fromStore()` or in another action. Put the answer into the
+   `_Vm` (it is compared).
+5. If the action must cover the app with the barrier, add `BlockingAction`
+   to its `with` clause **and** its type to `blockingActions`
+   (`app/lib/common/blocking_actions.dart`).
+   `app/test/blocking_actions_test.dart` fails while the two disagree.
+6. Run `frx doctor`, `dart run tool/check_rules.dart`, `flutter analyze`.
+
+### Rebuilds: the wait must be in what the connector compares
+
+The state does not change when an action starts or ends. The store tells its
+listeners at both moments only for an action type that somebody has asked
+about with `isWaiting` (`Store._awaitableActions`). So:
+
+- a view-model asks again on every run, and puts the answer into the value
+  it returns (`_Vm(equals: [...])`); a view-model that asked is told, also
+  for an action dispatched with `notify: false`;
+- a `StoreConnector` whose `converter` returns only state is **not** built
+  again when an action starts. Put the wait into the converter's value:
+  `converter: (s) => (s.state, Waiting(s.isWaiting).linkLog)`;
+- a memoized view (`Memo`) has every wait it reads among its inputs;
+- an action nobody asks about tells nobody when it starts. That replaces
+  `notifyBefore => false`, which is gone.
+
+`business/test/waiting_action_test.dart` holds this on the real store;
+`app/test/rebuild_explorer_test.dart` and `app/test/shell_parts_test.dart`
+hold it at the widget level.
+
+### The barrier
+
+`Store.isWaiting` compares exact runtime types, so it cannot be asked about
+the `BlockingAction` mixin. `TopLevelPageConnector` asks about the list
+`blockingActions` (`app/lib/common/blocking_actions.dart`). An action blocks
+when it has the mixin and is in the list; a test reads the sources and fails
+while they disagree.
+
+### Several keys under one action type
+
+Override `Object? get statusKey` in the action and ask with
+`isWaiting(MyAction, statusKey: key)`. An action that covers several keys at
+once reads `store.actionsInProgress()`
+(`RetrieveFlowDefsAction.reading(store, id)`).
+
+### In a test
+
+Run the real action and hold its answer at the fake gateway
+(`api.hold('<key> ▸ history')`), then pump. Where the work cannot be held,
+`HeldStore` (`business/test/support/held_store.dart`) says a type is in
+flight. Do not write a wait into an `AppState`: there is no place for it.
 
 ## Errors the user should see
 

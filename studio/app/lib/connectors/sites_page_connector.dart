@@ -61,7 +61,7 @@ class _Factory extends VmFactory<AppState, SitesPageConnector, _Vm>
         waiting: peers.sitesWaiting,
         detail: peers.siteDetail?.vm,
         lack: peers.sitesLack?.disabled,
-        busy: peers.isWaiting || quarantine.isWaiting,
+        busy: waiting.peers || waiting.quarantine,
       ),
       onShow: () => dispatch(ShowSitesAction()),
       onHide: () => dispatchSync(UnwatchKeysAction(keys)),

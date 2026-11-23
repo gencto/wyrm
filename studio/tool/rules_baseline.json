@@ -50,7 +50,7 @@
     "app/lib/connectors/studio_page_connector.dart": 175,
     "app/lib/connectors/system_page_connector.dart": 289,
     "app/lib/connectors/toast_stack_connector.dart": 62,
-    "app/lib/connectors/top_level_page_connector.dart": 52,
+    "app/lib/connectors/top_level_page_connector.dart": 50,
     "app/lib/connectors/window_controls_connector.dart": 75
   },
   "context-in-connector": {

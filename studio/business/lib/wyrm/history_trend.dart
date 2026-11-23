@@ -76,11 +76,14 @@ final class HistoryTrend {
 }
 
 /// What History's trend is made of, from the state.
-final class _Trend with Selectors {
-  _Trend(this.state);
+final class _Trend with Selectors, WaitingGiven {
+  _Trend(this.state, this.given);
 
   @override
   final AppState state;
+
+  @override
+  final Waiting given;
 
   /// The trend's range in µs: the span of `historian.range` up to the last
   /// read or the newest sample since, whichever is later (so the trend
@@ -151,14 +154,16 @@ final class _Trend with Selectors {
       step: stepDuration(step),
       minWindow: 12 * minStep.inMicroseconds,
       following: window?.end == null,
-      loading: h.seriesLoading && h.series.isEmpty,
-      refining: h.windowLoading,
+      loading: waiting.series && h.series.isEmpty,
+      refining: waiting.trendWindow,
     );
   }
 }
 
 // History's trend as functions of the state: the selectors of
 // `SelectHistorian` call them.
-TrendSpan historyRangeOf(AppState s) => _Trend(s).historyRange;
+TrendSpan historyRangeOf(AppState s) =>
+    _Trend(s, const Waiting.unasked()).historyRange;
 
-HistoryTrend? historyTrendOf(AppState s) => _Trend(s).historyTrend;
+HistoryTrend? historyTrendOf(AppState s, Waiting w) =>
+    _Trend(s, w).historyTrend;

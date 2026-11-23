@@ -160,18 +160,24 @@ final _drawer = Memo<AssistantShown>();
 /// ([assistantInputsOf]). A dispatch elsewhere in the app, or a live value
 /// of a key not on screen, gives the very same object. Nothing here reads
 /// the clock.
-AssistantShown assistantShownOf(AppState s, {required bool drawer}) =>
-    (drawer ? _drawer : _tab).of(
-      assistantInputsOf(s, drawer: drawer),
-      () => _shownOf(_Read(s), drawer: drawer),
-    );
+AssistantShown assistantShownOf(
+  AppState s,
+  Waiting w, {
+  required bool drawer,
+}) => (drawer ? _drawer : _tab).of(
+  assistantInputsOf(s, w, drawer: drawer),
+  () => _shownOf(_Read(s, w), drawer: drawer),
+);
 
 /// The state read through its selectors.
-final class _Read with Selectors {
-  _Read(this.state);
+final class _Read with Selectors, WaitingGiven {
+  _Read(this.state, this.given);
 
   @override
   final AppState state;
+
+  @override
+  final Waiting given;
 
   /// The mode under which a pick's plan may write without a person.
   AgentModeVm? get unattendedVm =>

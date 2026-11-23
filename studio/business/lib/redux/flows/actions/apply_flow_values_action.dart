@@ -39,7 +39,7 @@ class ApplyFlowValuesAction extends Action {
       }
       final version = flowSummaryOfValue(id, value.value).version;
       if (version != row.version &&
-          !state.wait.isWaiting(RetrieveFlowDefsAction.reading, ref: id)) {
+          !RetrieveFlowDefsAction.reading(store, id)) {
         _read.add(id);
       }
     }

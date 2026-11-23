@@ -18,7 +18,7 @@ sequenceDiagram
     User->>UI: submit.onSubmit
     UI->>VM: submit()
     VM->>+A1: dispatchAndWait
-    Note over A1: WaitingAction · async
+    Note over A1: async
     A1->>ST: dispatchSync(StageInvokeAction)
     A1->>ST: dispatchSync(StageValueAction.entered)
     A1-->>-VM: ActionStatus

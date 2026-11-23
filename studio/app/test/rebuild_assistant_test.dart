@@ -1,4 +1,5 @@
 import 'package:app/mappers/assistant_shown.dart';
+import 'package:business/redux/app_state.dart';
 import 'package:business/redux/assistant/actions/set_draft_action.dart';
 import 'package:business/redux/assistant/actions/set_drawer_action.dart';
 import 'package:business/redux/live/actions/set_live_values_action.dart';
@@ -87,14 +88,24 @@ void main() {
 
     // a dispatch elsewhere and a value of another key: the very same
     // object, nothing mapped again
-    final before = assistantShownOf(s.state, drawer: false);
+    final before = assistantShownOf(
+      s.state,
+      Waiting(s.isWaiting),
+      drawer: false,
+    );
     s
       ..dispatchSync(SetFilterAction('elsewhere'))
       ..dispatchSync(SetTreeFilterAction('elsewhere'))
       ..dispatchSync(
         SetLiveValuesAction({'wy/central/downstream/other/x': sample(1)}),
       );
-    expect(identical(assistantShownOf(s.state, drawer: false), before), isTrue);
+    expect(
+      identical(
+        assistantShownOf(s.state, Waiting(s.isWaiting), drawer: false),
+        before,
+      ),
+      isTrue,
+    );
 
     // a value of a key the Result card shows is mapped and drawn
     final shown = await rebuilds<AssistantPage>(
@@ -144,14 +155,24 @@ void main() {
 
     // Explorer's tree filter is in `nodes`, which the drawer reads for its
     // timeline only: the point and its history, not the filter
-    final before = assistantShownOf(s.state, drawer: true);
+    final before = assistantShownOf(
+      s.state,
+      Waiting(s.isWaiting),
+      drawer: true,
+    );
     final tree = await rebuilds<AssistantDrawer>(
       t,
       (i) => s.dispatchSync(SetTreeFilterAction('q$i')),
     );
     report('Assistant drawer, the tree filter', tree);
     expect(tree.built, 0);
-    expect(identical(assistantShownOf(s.state, drawer: true), before), isTrue);
+    expect(
+      identical(
+        assistantShownOf(s.state, Waiting(s.isWaiting), drawer: true),
+        before,
+      ),
+      isTrue,
+    );
 
     final draft = await rebuilds<AssistantDrawer>(
       t,

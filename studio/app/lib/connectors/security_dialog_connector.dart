@@ -72,7 +72,7 @@ class _Factory extends VmFactory<AppState, SecurityDialogConnector, _Vm>
       policyOn: policy.enabled,
       maxPerUser: policy.maxPerUser,
       passwordEveryDays: policy.passwordEveryDays,
-      busy: device.isSettingUnlock,
+      busy: waiting.setDeviceUnlock,
       askPassword: device.needPassword,
       passwordWrong: device.passwordRefused,
     ),

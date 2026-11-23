@@ -9,7 +9,7 @@ import '../mappers/history_mappers.dart';
 import 'node_action_dialog.dart';
 
 /// The selectors over the store's state now.
-class _Sel with Selectors {
+class _Sel with Selectors, StateAlone {
   _Sel(this.state);
 
   @override

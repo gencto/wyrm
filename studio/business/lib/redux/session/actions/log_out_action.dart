@@ -23,7 +23,6 @@ AppState loggedOut(AppState s) => AppState.initial().copyWith(
   theme: s.theme,
   language: s.language,
   connectivity: s.connectivity,
-  wait: s.wait,
   login: s.login.copyWith(password: null),
   device: s.device.copyWith(
     locked: false,
