@@ -40,7 +40,7 @@ Future<String?> putProfile(BuildContext context) async {
             id: 'name',
             label: S.current.sysProfileName,
             kind: ParamKind.text,
-            value: base.contains(':') ? base : null,
+            value: base.contains(':') ? TextValue(base) : const NoValue(),
             hint: S.current.sysProfileNameHint,
             required: true,
             onChanged: (_) {},

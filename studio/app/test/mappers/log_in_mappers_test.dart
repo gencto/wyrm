@@ -11,8 +11,7 @@ import 'package:ui/pages/log_in_data.dart';
 void main() {
   setUp(() => S.load(const Locale('en')));
 
-  String note(AnswerFault f) =>
-      FoundProblemKind.noAnswer.words('', why: f.view);
+  String note(AnswerFault f) => FoundProblemKind.noAnswer.text('', why: f.view);
 
   test('each reason in the note of a row with no answer', () {
     expect(

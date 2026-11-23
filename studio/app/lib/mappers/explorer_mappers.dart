@@ -240,7 +240,7 @@ extension ReachDisabled on Reach {
 extension TypeCodeValueType on TypeCode {
   ValueType get valueType => switch (this) {
     TypeCode.null_ => .null_,
-    TypeCode.number => .numeric,
+    TypeCode.number => .number,
     TypeCode.string => .string,
     TypeCode.bool_ => .bool_,
     TypeCode.enum_ => .enum_,
@@ -311,26 +311,29 @@ extension ExplorerChildRowVm on ExplorerChildRow {
 }
 
 extension ExplorerFieldOf on ExplorerField {
-  ExplorerFieldVm get vm => ExplorerFieldVm(
-    code: code,
-    label: label,
-    word: param?.word,
-    kind: switch (spec) {
+  ExplorerFieldVm get vm {
+    final kind = switch (spec) {
       final s? => paramField(s).kind,
       null => ParamKind.text,
-    },
-    value: switch (value) {
-      final WordOrder o => o.tag,
-      final v => v,
-    },
-    choices: spec?.choices.unlock ?? const [],
-    choiceLabels: switch (spec) {
-      final s? => choiceLabels(s.choices),
-      null => const {},
-    },
-    description: description,
-    missing: missing,
-  );
+    };
+    return ExplorerFieldVm(
+      code: code,
+      label: label,
+      word: param?.word,
+      kind: kind,
+      value: switch (value) {
+        final WordOrder o => TextValue(o.tag.text),
+        final v => heldValueOf(v, kind),
+      },
+      choices: spec?.choices.unlock ?? const [],
+      choiceLabels: switch (spec) {
+        final s? => choiceLabels(s.choices),
+        null => const {},
+      },
+      description: description,
+      missing: missing,
+    );
+  }
 }
 
 extension ExplorerSectionOf on ExplorerSection {
@@ -428,7 +431,7 @@ extension ExplorerInspectorOf on ExplorerInspector {
       key: p.key,
       fails: p.fails.vm,
       edit: p.edit?.kind,
-      editValue: p.editValue,
+      editValue: heldValueOf(p.editValue, p.edit?.kind ?? ParamKind.text),
       choices: p.choices,
       choiceLabels: choiceLabels(p.choices),
       readOnly: p.readOnly.disabled(),

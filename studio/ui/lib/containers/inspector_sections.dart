@@ -169,8 +169,8 @@ class InspectorSections extends StatelessWidget {
         ),
       ),
       AppSwitch(
-        value: f.value == true,
-        onChanged: f.enabled ? f.onChanged : null,
+        value: f.value == const FlagValue(on: true),
+        onChanged: f.enabled ? (on) => f.onChanged(FlagValue(on: on)) : null,
       ),
     ],
   );

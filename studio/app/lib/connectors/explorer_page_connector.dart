@@ -210,7 +210,7 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
       },
       onSetPoll: (s) => dispatchSync(StagePollAction(s)),
       onParam: (e) =>
-          dispatchSync(StagePointEditAction(e.node, e.param, e.value)),
+          dispatchSync(StagePointEditAction(e.node, e.param, e.value.plain)),
       onPanelWidth: (p) => dispatchSync(
         SetPanelWidthAction(WorkspacePanels.explorer.slot(p.side), p.width),
       ),

@@ -2,7 +2,7 @@
 /// it. The names are the protocol's own (`number`, `bool`), in mono.
 enum ValueType {
   null_('null', '·'),
-  numeric('number', '.0'),
+  number('number', '.0'),
   string('string', 'Aa'),
   bool_('bool', '01'),
   enum_('enum', '≡'),

@@ -34,6 +34,84 @@ enum ParamKind {
   secret,
 }
 
+/// What a field of a [ParamForm] holds. The code that builds the field
+/// decides the case once, from the parameter's declared type and editor; an
+/// editor reads its own case and shows nothing for another.
+sealed class ParamValue extends Equatable {
+  const ParamValue();
+
+  /// [s] as a text; none for null.
+  factory ParamValue.text(String? s) =>
+      s == null ? const NoValue() : TextValue(s);
+
+  /// What a typed field shows for it; null for none.
+  String? get shown => switch (this) {
+    NoValue() => null,
+    TextValue(:final text) => text,
+    NumberValue(:final value) => '$value',
+    FlagValue(:final on) => '$on',
+    FileValue(:final name) => name,
+  };
+
+  /// The value as an action's argument: a text, a number, a flag, a file's
+  /// name; null for none.
+  Object? get plain => switch (this) {
+    NoValue() => null,
+    TextValue(:final text) => text,
+    NumberValue(:final value) => value,
+    FlagValue(:final on) => on,
+    FileValue(:final name) => name,
+  };
+}
+
+/// Nothing: an empty field.
+final class NoValue extends ParamValue {
+  const NoValue();
+
+  @override
+  List<Object?> get props => const [];
+}
+
+/// A text (the text kinds, a choice, a number typed so far that is none).
+final class TextValue extends ParamValue {
+  const TextValue(this.text);
+
+  final String text;
+
+  @override
+  List<Object?> get props => [text];
+}
+
+/// A number.
+final class NumberValue extends ParamValue {
+  const NumberValue(this.value);
+
+  final num value;
+
+  @override
+  List<Object?> get props => [value];
+}
+
+/// A switch.
+final class FlagValue extends ParamValue {
+  const FlagValue({required this.on});
+
+  final bool on;
+
+  @override
+  List<Object?> get props => [on];
+}
+
+/// A file, by its name.
+final class FileValue extends ParamValue {
+  const FileValue(this.name);
+
+  final String name;
+
+  @override
+  List<Object?> get props => [name];
+}
+
 /// One parameter of an action, a link's `cfg` or a plan step, ready to draw.
 final class ParamFieldVm extends Equatable {
   const ParamFieldVm({
@@ -41,7 +119,7 @@ final class ParamFieldVm extends Equatable {
     required this.label,
     required this.kind,
     required this.onChanged,
-    this.value,
+    this.value = const NoValue(),
     this.hint,
     this.unit,
     this.choices = const [],
@@ -60,9 +138,10 @@ final class ParamFieldVm extends Equatable {
   final String label;
   final ParamKind kind;
 
-  /// String for text kinds, num for number, bool for toggle, the file name
+  /// What the field holds: a [TextValue] for the text kinds and a choice,
+  /// a [NumberValue] for number, a [FlagValue] for toggle, a [FileValue]
   /// for file.
-  final Object? value;
+  final ParamValue value;
 
   /// The placeholder (`0…255`, `https://…`).
   final String? hint;
@@ -86,7 +165,7 @@ final class ParamFieldVm extends Equatable {
   final String? description;
 
   /// Behaviour: out of [props].
-  final ValueChanged<Object?> onChanged;
+  final ValueChanged<ParamValue> onChanged;
 
   /// Opens the file picker (kind file).
   final VoidCallback? onPickFile;
@@ -171,8 +250,10 @@ class ParamField extends StatelessWidget {
         children: [
           Expanded(child: _label(c)),
           AppSwitch(
-            value: vm.value == true,
-            onChanged: vm.enabled ? vm.onChanged : null,
+            value: vm.value == const FlagValue(on: true),
+            onChanged: vm.enabled
+                ? (on) => vm.onChanged(FlagValue(on: on))
+                : null,
           ),
         ],
       );
@@ -257,8 +338,11 @@ class ParamField extends StatelessWidget {
       case .choice:
         return DropdownButtonFormField<String>(
           key: ValueKey('${vm.id}/choice'),
-          // the choice the value is; none for any other value
-          initialValue: vm.choices.where((c) => c == vm.value).firstOrNull,
+          // the choice the value names; none for any other value
+          initialValue: switch (vm.value) {
+            TextValue(:final text) when vm.choices.contains(text) => text,
+            _ => null,
+          },
           focusNode: vm.focusNode,
           isExpanded: true,
           dropdownColor: c.ground3,
@@ -276,11 +360,15 @@ class ParamField extends StatelessWidget {
                 child: Text(vm.choiceLabels[ch] ?? ch),
               ),
           ],
-          onChanged: vm.enabled ? vm.onChanged : null,
+          onChanged: vm.enabled
+              ? (ch) => vm.onChanged(ParamValue.text(ch))
+              : null,
         );
       case .file:
-        // the file's name, as the form holds it
-        final name = vm.value?.toString();
+        final name = switch (vm.value) {
+          FileValue(:final name) => name,
+          _ => null,
+        };
         return InkWell(
           onTap: vm.enabled ? vm.onPickFile : null,
           borderRadius: Radii.segment,
@@ -315,10 +403,10 @@ class ParamField extends StatelessWidget {
         // next key.
         final multi =
             vm.kind == .textarea ||
-            vm.kind == .text && '${vm.value ?? ''}'.contains('\n');
+            vm.kind == .text && (vm.value.shown ?? '').contains('\n');
         return TextFormField(
           key: ValueKey('${vm.id}/${vm.kind.name}'),
-          initialValue: vm.kind == .secret ? null : vm.value?.toString(),
+          initialValue: vm.kind == .secret ? null : vm.value.shown,
           focusNode: vm.focusNode,
           enabled: vm.enabled,
           obscureText: vm.kind == .secret,
@@ -333,10 +421,16 @@ class ParamField extends StatelessWidget {
           style: vm.kind == .number || multi ? mono(color: c.text1) : style,
           decoration: _decoration(c),
           onChanged: (s) {
-            if (vm.kind == .number) {
-              vm.onChanged(s.isEmpty ? null : (num.tryParse(s) ?? s));
+            if (s.isEmpty) {
+              vm.onChanged(const NoValue());
+            } else if (vm.kind == .number) {
+              // what is typed so far and is no number yet stays as typed
+              vm.onChanged(switch (num.tryParse(s)) {
+                final n? => NumberValue(n),
+                null => TextValue(s),
+              });
             } else {
-              vm.onChanged(s.isEmpty ? null : s);
+              vm.onChanged(TextValue(s));
             }
           },
         );

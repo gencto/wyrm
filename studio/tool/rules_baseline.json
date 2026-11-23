@@ -125,7 +125,8 @@
     "ui/lib/overlays/value_viewer.dart": 3
   },
   "untyped-wire": {
-    "business/lib/wyrm/calls.dart": 2
+    "business/lib/wyrm/calls.dart": 2,
+    "business/lib/wyrm/decode/live_value.dart": 1
   },
   "multi-dispatch": {},
   "vm-equality": {},

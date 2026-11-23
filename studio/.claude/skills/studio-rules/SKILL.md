@@ -407,7 +407,12 @@ final class FlowPermissions {
 **Check.** `untyped-wire` in `app/lib`, `business/lib` and `ui/lib` outside
 `business/lib/wyrm/decode/` and `business/lib/wyrm/mappers/values.dart`; a
 cast written as a pattern (`case final Map<String, Object?> m`) counts as the
-cast it is.
+cast it is. The helpers' names (`text(`, `number(`, …) count in a file
+that imports `values.dart`, and so does an `export` of it; the same name
+declared by a file that does not import them (`String text(…)` in `ui`) is
+no read of the wire. A file in `decode/` whose result is not typed yet is
+listed in the rule's `still` and stays counted (`decode/live_value.dart`:
+`LiveValue.value` is the plain Dart of `toDart`).
 
 ## 9. One intent, one dispatch; rebuilds are decided, not accepted
 

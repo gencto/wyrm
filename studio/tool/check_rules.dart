@@ -11,18 +11,30 @@
 import 'dart:convert';
 import 'dart:io';
 
-/// One rule: a name, the folders it covers, the folders it leaves out, and
-/// how a file is counted.
+/// One rule: a name, the folders it covers, the folders it leaves out, the
+/// files of those folders it counts all the same, and how a file is counted.
 final class Rule {
-  const Rule(this.name, this.roots, this.count, {this.except = const []});
+  const Rule(
+    this.name,
+    this.roots,
+    this.count, {
+    this.except = const [],
+    this.still = const [],
+  });
 
   final String name;
   final List<String> roots;
   final List<String> except;
+
+  /// Files inside [except] that are counted: a file that sits where the
+  /// rule's exception is (a decoder's folder) and does not yet do what the
+  /// exception is for. Its hits stay in the baseline until it does.
+  final List<String> still;
   final int Function(String text) count;
 
   bool covers(String path) =>
-      roots.any(path.startsWith) && !except.any(path.startsWith);
+      roots.any(path.startsWith) &&
+      (!except.any(path.startsWith) || still.contains(path));
 }
 
 int _matches(String text, RegExp re) => re.allMatches(text).length;
@@ -159,13 +171,23 @@ final _rules = <Rule>[
           // untyped read in another spelling (re-audit of #135)
           _matches(c, RegExp(r'\bJsonValue\.(?:of|tryOf)\(')) +
           _matches(c, RegExp(r'\btoDart\(')) +
-          // the loose readers of values.dart, outside a decoder
-          _matches(
-            c,
-            RegExp(
-              r'(?<![\w.])(?:str|text|integer|number|boolean|strings|time)\(',
-            ),
-          ) +
+          // the loose readers of values.dart, outside a decoder: their
+          // names, in a file that imports them. A file that does not import
+          // `values.dart` cannot call them (`ui` does not depend on
+          // `business` at all), so `String text(…)` of its own or an enum
+          // value `number(…)` there is no read of the wire (audit of #172).
+          (_wireHelpersImport.hasMatch(c)
+              ? _matches(
+                  c,
+                  RegExp(
+                    r'(?<![\w.])'
+                    r'(?:str|text|integer|number|boolean|strings|time)\(',
+                  ),
+                )
+              : 0) +
+          // handing the readers on to the files that import this one opens
+          // them to code this rule would no longer see
+          _matches(c, _wireHelpersExport) +
           // a wire Value taken apart by hand, outside a decoder
           _matches(
             c,
@@ -176,6 +198,10 @@ final _rules = <Rule>[
       'business/lib/wyrm/decode/',
       'business/lib/wyrm/mappers/values.dart',
     ],
+    // `liveValueOf` is where a sample enters, but what it makes is not
+    // typed yet: `LiveValue.value` is the plain Dart of `toDart`, read
+    // again by its readers. It is counted until that value has a type.
+    still: ['business/lib/wyrm/decode/live_value.dart'],
   ),
   // 9. one intent, one dispatch
   const Rule('multi-dispatch', [
@@ -242,6 +268,21 @@ final _rules = <Rule>[
     ],
   ),
 ];
+
+/// An import of the loose readers (`business/lib/wyrm/mappers/values.dart`),
+/// by any path: `'values.dart'` beside it, `'../mappers/values.dart'`,
+/// `'package:business/wyrm/mappers/values.dart'`, with or without `show`.
+/// A file named `live_values.dart` is another file.
+final _wireHelpersImport = RegExp(
+  r"""^\s*import\s+['"](?:[^'"]*/)?values\.dart['"]""",
+  multiLine: true,
+);
+
+/// The same file handed on by an `export`.
+final _wireHelpersExport = RegExp(
+  r"""^\s*export\s+['"](?:[^'"]*/)?values\.dart['"]""",
+  multiLine: true,
+);
 
 /// The argument list of each call of [head] in [code] (`head` is a regular
 /// expression that ends before the `(`).
@@ -689,6 +730,30 @@ class D implements TasksServiceListener {
 /// forms it must leave alone (each sample not at all): the forms an audit
 /// found a rule blind to stay seen.
 const _forms = <String, ({List<String> counted, List<String> left})>{
+  'untyped-wire': (
+    counted: [
+      // the loose readers, in a file that imports them (by any path)
+      "import '../mappers/values.dart';\nfinal name = text(m['name']);",
+      "import 'values.dart';\nString _text(Value v) => text(v) ?? '';",
+      "import 'package:business/wyrm/mappers/values.dart';\n"
+          "final n = integer(m['n']);",
+      "import '../mappers/values.dart' show number;\nfinal x = number(v);",
+      "export '../mappers/values.dart';",
+      'final name = vm.value as String?;',
+      'value: toDart(s.v),',
+      'return const VNull();',
+    ],
+    left: [
+      // the same names declared or called where the readers are not
+      // imported: no value of the wire is read
+      '  String text(String site, UnlockMethod method) => switch (this) {',
+      "enum ValueType {\n  number('number', '.0'),\n}",
+      'Widget _copyButton(String Function() text) => Button(\n'
+          '  onPressed: () => _copy(id, text()),\n);',
+      "import '../decode/live_values.dart';\nfinal s = p.text(r.detail);",
+      "import 'live_values.dart';\nString text(String detail) => detail;",
+    ],
+  ),
   'number-literal': (
     counted: [
       'padding: const EdgeInsets.all(12),',
