@@ -1047,7 +1047,8 @@ pub async fn follow_with(
         too_large: Default::default(),
     };
     let storage = retry_open(|| {
-        wyrm_storage::Store::open(&cfg.data_dir.join("storage")).map_err(Error::from)
+        wyrm_storage::Store::open(&cfg.data_dir.join("storage"))
+            .map_err(|e| Error::from(crate::OpenError::named(e)))
     })
     .await?;
     let mut storage_at = (0u64, 0u64);
