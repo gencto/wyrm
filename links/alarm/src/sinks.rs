@@ -5,7 +5,7 @@
 use wyrm_core::Value;
 use wyrm_link_api::{AppError, Host};
 
-use crate::model::{get_str, get_u64, invalid, Map};
+use crate::model::{invalid, stored_str, stored_u64, Map};
 use crate::store::{self, SINKS};
 use crate::Micros;
 
@@ -53,29 +53,18 @@ pub fn valid_name(field: &str, s: &str) -> Result<(), AppError> {
     Ok(())
 }
 
-/// `classes` from an action: a comma separated text or an array; `None` when absent.
-pub fn classes_arg(m: &Map, k: &str) -> Result<Option<Vec<String>>, AppError> {
-    let list = match m.get(k) {
-        None | Some(Value::Null) => return Ok(None),
-        Some(Value::Str(s)) => s
-            .split(',')
-            .map(str::trim)
-            .filter(|x| !x.is_empty())
-            .map(str::to_owned)
-            .collect::<Vec<_>>(),
-        Some(Value::Array(a)) => a
-            .iter()
-            .map(|v| match v {
-                Value::Str(s) => Ok(s.trim().to_owned()),
-                _ => Err(invalid(k, "class ids")),
-            })
-            .collect::<Result<Vec<_>, _>>()?,
-        Some(_) => return Err(invalid(k, "class ids, comma separated")),
-    };
+/// The class ids of `classes` (an action's text, comma separated).
+pub fn class_list(text: &str) -> Result<Vec<String>, AppError> {
+    let list: Vec<String> = text
+        .split(',')
+        .map(str::trim)
+        .filter(|x| !x.is_empty())
+        .map(str::to_owned)
+        .collect();
     for c in &list {
-        crate::model::valid_id(c).map_err(|e| invalid(k, e.msg))?;
+        crate::model::valid_id(c).map_err(|e| invalid("classes", e.msg))?;
     }
-    Ok(Some(list))
+    Ok(list)
 }
 
 fn sink_to_value(s: &SinkDef) -> Value {
@@ -103,10 +92,10 @@ fn sink_from_value(v: &Value) -> Option<SinkDef> {
         _ => Vec::new(),
     };
     Some(SinkDef {
-        name: get_str(m, "name").ok()??,
-        link: get_str(m, "link").ok()??,
+        name: stored_str(m, "name").ok()??,
+        link: stored_str(m, "link").ok()??,
         classes,
-        cursor: get_u64(m, "cursor").ok()??,
+        cursor: stored_u64(m, "cursor").ok()??,
     })
 }
 

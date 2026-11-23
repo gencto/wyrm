@@ -17,6 +17,7 @@
 //! (100 000): closed records older than the retention, or beyond the maximum, are purged
 //! daily by whole pages.
 
+mod actions;
 pub mod algo;
 pub mod limits;
 pub mod model;
@@ -30,7 +31,11 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use wyrm_core::{Quality, Sample, Status, Value};
 use wyrm_link_api::{App, AppError, Host, Level, Rights, SubId, TimerId, Who};
 
-use algo::{render, Algorithm, Judged};
+use actions::{
+    AddClass, AddNote, AddSink, AddWatch, AlarmState, ClassArgs, EditSink, EditWatch, GetAlarms,
+    Import, Normal, Purge, Raise, RecordArg, ResetSink, SinkFrom, SinkNext, WatchArgs,
+};
+use algo::{render, Algorithm, AlgorithmName, Judged};
 use limits::{
     Counted, CLOCK_STEP_MS, DEFAULT_BATCH_ROWS, DEFAULT_MAX_RECORDS, DEFAULT_RETENTION_DAYS,
     DEFAULT_ROWS, JOURNAL_PAGE, MAX_BATCH_BYTES, MAX_BATCH_ROWS, MAX_CLASSES, MAX_JOURNAL_PAGES,
@@ -40,9 +45,9 @@ use limits::{
     STATS_NODES, TABLE_ROWS, WATCHDOG_MS,
 };
 use model::{
-    enum_arg, escalation, get_bool, get_str, get_u64, inhibit, invalid, parse_instant,
-    parse_source, parse_timerange, record_value, req_str, valid_id, value_from_json, value_to_json,
-    AlarmType, ClassDef, Map, Note, Record, WatchDef,
+    escalation, inhibit, invalid, parse_instant, parse_source, parse_timerange, record_value,
+    stored_u64, valid_id, value_from_json, value_to_json, AlarmType, ClassDef, Map, Note, Record,
+    WatchDef,
 };
 use sinks::{Sink, SinkDef};
 use store::Meta;
@@ -53,10 +58,6 @@ pub use model::{CLASS_FORMAT, RECORD_FORMAT};
 
 /// Instants: microseconds since the Unix epoch, UTC.
 pub type Micros = i64;
-
-/// `get_alarms` `state` and a sink's `from`, by enum index through an action.
-pub const STATES: [&str; 5] = ["open", "active", "unacked", "closed", "all"];
-pub const FROMS: [&str; 2] = ["start", "now"];
 
 const DAY_US: Micros = 86_400_000_000;
 /// Commands a raised record costs at most: its page, `open`, the journal page, `meta`, the
@@ -97,14 +98,6 @@ fn no_sample() -> (Value, Quality) {
     (Value::Null, Quality::Bad)
 }
 
-fn args_of(args: Value) -> Result<Map, AppError> {
-    match args {
-        Value::Map(m) => Ok(m),
-        Value::Null => Ok(Map::new()),
-        _ => Err(invalid("args", "a map")),
-    }
-}
-
 fn secs_us(s: u64) -> Micros {
     i64::try_from(s.saturating_mul(1_000_000)).unwrap_or(Micros::MAX)
 }
@@ -123,14 +116,20 @@ fn author_rights(who: &Who) -> Result<Rights, AppError> {
     })
 }
 
-/// A reader (or an acknowledger) must be able to read the record's source; a caller whose
-/// rights are unknown is refused.
-fn reader_may(who: &Who, source: &str) -> Result<(), AppError> {
+/// A caller whose rights are unknown (its token carries no `auth`, spec 04) reads no record.
+fn known_rights(who: &Who) -> Result<(), AppError> {
     if who.authority.is_none() {
         return Err(denied(
             "the caller's rights are unknown (its token carries no auth)",
         ));
     }
+    Ok(())
+}
+
+/// A reader (or an acknowledger) must be able to read the record's source; a caller whose
+/// rights are unknown is refused.
+fn reader_may(who: &Who, source: &str) -> Result<(), AppError> {
+    known_rights(who)?;
     if !who.may_for(source, wyrm_core::Perm::Read) {
         return Err(denied(""));
     }
@@ -159,14 +158,14 @@ fn params(config: &Value) -> Result<Params, AppError> {
             return Err(invalid(&format!("params.{k}"), "unknown"));
         }
     }
-    let retention_days = get_u64(&m, "retention_days")?.unwrap_or(DEFAULT_RETENTION_DAYS);
+    let retention_days = stored_u64(&m, "retention_days")?.unwrap_or(DEFAULT_RETENTION_DAYS);
     if !(1..=MAX_RETENTION_DAYS).contains(&retention_days) {
         return Err(invalid(
             "params.retention_days",
             format!("1 to {MAX_RETENTION_DAYS}"),
         ));
     }
-    let max_records = get_u64(&m, "max_records")?.unwrap_or(DEFAULT_MAX_RECORDS);
+    let max_records = stored_u64(&m, "max_records")?.unwrap_or(DEFAULT_MAX_RECORDS);
     if !(PAGE..=MAX_MAX_RECORDS).contains(&max_records) {
         return Err(invalid(
             "params.max_records",
@@ -488,7 +487,7 @@ impl Alarm {
         }
         cx.log(
             Level::Info,
-            &format!("record {id} raised in {class} ({})", ty.as_str()),
+            &format!("record {id} raised in {class} ({})", ty.name()),
         );
         Ok(id)
     }
@@ -1191,11 +1190,11 @@ impl Alarm {
     fn add_class(
         &mut self,
         cx: &mut Counted,
-        m: &Map,
+        a: AddClass,
         who: &Who,
         now: Micros,
     ) -> Result<Value, AppError> {
-        let id = req_str(m, "id")?;
+        let id = a.id;
         valid_id(&id)?;
         if self.index.contains(&id) {
             return Err(invalid("id", format!("{id} exists")));
@@ -1204,9 +1203,9 @@ impl Alarm {
             return Err(exhausted(format!("at most {MAX_CLASSES} classes")));
         }
         let def = ClassDef {
-            display: get_str(m, "display")?.unwrap_or_else(|| id.clone()),
-            escalation1_s: escalation(m, "escalation1_s")?.unwrap_or(0),
-            escalation2_s: escalation(m, "escalation2_s")?.unwrap_or(0),
+            display: a.class.display.unwrap_or_else(|| id.clone()),
+            escalation1_s: escalation("escalation1_s", a.class.escalation1_s)?.unwrap_or(0),
+            escalation2_s: escalation("escalation2_s", a.class.escalation2_s)?.unwrap_or(0),
             created_by: subject(who),
             id,
             watches: Vec::new(),
@@ -1237,15 +1236,15 @@ impl Alarm {
         Ok(())
     }
 
-    fn edit_class(&mut self, cx: &mut Counted, cid: &str, m: &Map) -> Result<Value, AppError> {
+    fn edit_class(&mut self, cx: &mut Counted, cid: &str, a: ClassArgs) -> Result<Value, AppError> {
         let mut def = self.class(cid)?.def.clone();
-        if let Some(d) = get_str(m, "display")? {
+        if let Some(d) = a.display {
             def.display = d;
         }
-        if let Some(e) = escalation(m, "escalation1_s")? {
+        if let Some(e) = escalation("escalation1_s", a.escalation1_s)? {
             def.escalation1_s = e;
         }
-        if let Some(e) = escalation(m, "escalation2_s")? {
+        if let Some(e) = escalation("escalation2_s", a.escalation2_s)? {
             def.escalation2_s = e;
         }
         def.validate()?;
@@ -1296,20 +1295,25 @@ impl Alarm {
         )])))
     }
 
+    /// Every class of the store is loaded and declared: an import waits for it.
+    fn loaded(&self) -> Result<(), AppError> {
+        if !self.pending.is_empty() || !self.pending_watches.is_empty() {
+            return Err(AppError::new(Status::Busy, "classes are still loading"));
+        }
+        Ok(())
+    }
+
     /// A class's export, with the importer's rights on its watches.
     fn import(
         &mut self,
         cx: &mut Counted,
-        m: &Map,
+        a: Import,
         who: &Who,
         now: Micros,
     ) -> Result<Value, AppError> {
-        if !self.pending.is_empty() || !self.pending_watches.is_empty() {
-            return Err(AppError::new(Status::Busy, "classes are still loading"));
-        }
-        let json = req_str(m, "json")?;
-        let overwrite = get_bool(m, "overwrite")?.unwrap_or(false);
-        let parsed: serde_json::Value = serde_json::from_str(&json)
+        self.loaded()?;
+        let overwrite = a.overwrite;
+        let parsed: serde_json::Value = serde_json::from_str(&a.json)
             .map_err(|e| invalid("json", format!("not valid JSON: {e}")))?;
         let mut def = ClassDef::from_value(&value_from_json(&parsed))?;
         def.validate()?;
@@ -1373,34 +1377,39 @@ impl Alarm {
 
     // ---------- actions: watches ----------
 
-    /// A watch from the args of `add_watch` (`base` none) or a watch's `edit` over `base`.
+    /// A watch from the arguments of `add_watch` (`base` none) or of a watch's `edit` over
+    /// `base`: `source` and `algorithm` are there for a new watch, and an edit keeps what it
+    /// does not give.
     fn watch_from(
         &self,
         id: String,
-        m: &Map,
+        source: Option<String>,
+        algorithm: Option<AlgorithmName>,
+        a: WatchArgs,
         base: Option<&WatchDef>,
         who: &Who,
     ) -> Result<WatchDef, AppError> {
-        let (source, subtree) = match get_str(m, "source")? {
+        let new_source = source.is_some();
+        let (source, subtree) = match source {
             Some(s) => parse_source(&s)?,
             None => match base {
                 Some(b) => (b.source.clone(), b.subtree),
                 None => return Err(invalid("source", "required")),
             },
         };
-        let name = match enum_arg(m, "algorithm", &Algorithm::NAMES)? {
-            Some(n) => n,
+        let kind = match algorithm {
+            Some(k) => k,
             None => match base {
-                Some(b) => b.algorithm.name().to_owned(),
+                Some(b) => b.algorithm.kind(),
                 None => return Err(invalid("algorithm", "required")),
             },
         };
-        let algorithm = Algorithm::from_args(&name, m, base.map(|b| &b.algorithm))?;
-        let message = match get_str(m, "message")? {
+        let algorithm = Algorithm::build(kind, &a.algorithm, base.map(|b| &b.algorithm))?;
+        let message = match a.message {
             Some(t) if t.trim().is_empty() => algorithm.default_message().to_owned(),
             Some(t) => t,
             None => match base {
-                Some(b) if b.algorithm.name() == name => b.message.clone(),
+                Some(b) if b.algorithm.kind() == kind => b.message.clone(),
                 _ => algorithm.default_message().to_owned(),
             },
         };
@@ -1412,7 +1421,7 @@ impl Alarm {
         }
         let rights = match base {
             // an edit keeps the author's rights unless the source changes
-            Some(b) if m.get("source").is_none() && b.rights.is_some() => b.rights.clone(),
+            Some(b) if !new_source && b.rights.is_some() => b.rights.clone(),
             _ => Some(author_rights(who)?),
         };
         // a subtree is checked as its pattern: the author may read some of it (the keys they
@@ -1435,28 +1444,22 @@ impl Alarm {
             source,
             subtree,
             algorithm,
-            ty: AlarmType::from_args(m, "type")?
-                .or(base.map(|b| b.ty))
-                .unwrap_or(AlarmType::Alert),
+            ty: a.ty.or(base.map(|b| b.ty)).unwrap_or(AlarmType::Alert),
             message,
-            to_alarm_s: inhibit(m, "to_alarm_s")?.unwrap_or(base.map_or(0, |b| b.to_alarm_s)),
-            to_normal_s: inhibit(m, "to_normal_s")?.unwrap_or(base.map_or(0, |b| b.to_normal_s)),
-            enabled: get_bool(m, "enabled")?.unwrap_or(base.is_none_or(|b| b.enabled)),
+            to_alarm_s: inhibit("to_alarm_s", a.to_alarm_s)?
+                .unwrap_or(base.map_or(0, |b| b.to_alarm_s)),
+            to_normal_s: inhibit("to_normal_s", a.to_normal_s)?
+                .unwrap_or(base.map_or(0, |b| b.to_normal_s)),
+            enabled: a.enabled.unwrap_or(base.is_none_or(|b| b.enabled)),
             created_by: base.map_or_else(|| subject(who), |b| b.created_by.clone()),
             rights,
         })
     }
 
-    fn add_watch(
-        &mut self,
-        cx: &mut Counted,
-        cid: &str,
-        m: &Map,
-        who: &Who,
-        now: Micros,
-    ) -> Result<Value, AppError> {
-        let mut def = self.class(cid)?.def.clone();
-        if def.watches.len() >= MAX_WATCHES_PER_CLASS {
+    /// The class `cid` is there and one more watch fits: in the class, in the link and in
+    /// the tree.
+    fn room_for_watch(&self, cid: &str) -> Result<(), AppError> {
+        if self.class(cid)?.def.watches.len() >= MAX_WATCHES_PER_CLASS {
             return Err(exhausted(format!(
                 "at most {MAX_WATCHES_PER_CLASS} watches per class"
             )));
@@ -1464,9 +1467,28 @@ impl Alarm {
         if self.watches_total() >= MAX_WATCHES {
             return Err(exhausted(format!("at most {MAX_WATCHES} watches")));
         }
-        self.check_nodes(1, 0)?;
+        self.check_nodes(1, 0)
+    }
+
+    fn add_watch(
+        &mut self,
+        cx: &mut Counted,
+        cid: &str,
+        a: AddWatch,
+        who: &Who,
+        now: Micros,
+    ) -> Result<Value, AppError> {
+        self.room_for_watch(cid)?;
+        let mut def = self.class(cid)?.def.clone();
         let wid = format!("w{}", def.next_watch);
-        let w = self.watch_from(wid.clone(), m, None, who)?;
+        let w = self.watch_from(
+            wid.clone(),
+            Some(a.source),
+            Some(a.algorithm),
+            a.watch,
+            None,
+            who,
+        )?;
         def.watches.push(w);
         def.next_watch = def.next_watch.saturating_add(1);
         self.save_class(cx, def)?;
@@ -1486,14 +1508,21 @@ impl Alarm {
         cx: &mut Counted,
         cid: &str,
         wid: &str,
-        m: &Map,
+        a: EditWatch,
         who: &Who,
         now: Micros,
     ) -> Result<Value, AppError> {
         let i = self.class(cid)?.watch_at(wid)?;
         let mut def = self.class(cid)?.def.clone();
         let old = def.watches[i].clone();
-        let new = self.watch_from(wid.to_owned(), m, Some(&old), who)?;
+        let new = self.watch_from(
+            wid.to_owned(),
+            a.source,
+            a.algorithm,
+            a.watch,
+            Some(&old),
+            who,
+        )?;
         let resubscribe =
             new.source != old.source || new.subtree != old.subtree || new.enabled != old.enabled;
         def.watches[i] = new;
@@ -1579,18 +1608,19 @@ impl Alarm {
     fn raise_action(
         &mut self,
         cx: &mut Counted,
-        m: &Map,
+        a: Raise,
         who: &Who,
         now: Micros,
     ) -> Result<Value, AppError> {
-        let class = req_str(m, "class")?;
+        let class = a.class;
         self.class(&class)?;
-        let (source, subtree) = parse_source(&req_str(m, "source")?)?;
+        let (source, subtree) = parse_source(&a.source)?;
         if subtree {
             return Err(invalid("source", "one key, not a subtree"));
         }
-        let ty = AlarmType::from_args(m, "type")?.unwrap_or(AlarmType::Alert);
-        let message = get_str(m, "message")?
+        let ty = a.ty.unwrap_or(AlarmType::Alert);
+        let message = a
+            .message
             .unwrap_or_else(|| source.rsplit('/').next().unwrap_or(&source).to_owned());
         if message.len() > MAX_MESSAGE_LEN {
             return Err(invalid(
@@ -1612,25 +1642,34 @@ impl Alarm {
         Ok(Value::Map(Map::from([("id".to_owned(), Value::UInt(id))])))
     }
 
-    /// `id`: a number, or its decimal text (a scenario or a CLI passes text).
-    fn record_id(m: &Map) -> Result<u64, AppError> {
-        if let Some(Value::Str(s)) = m.get("id") {
-            return s.trim().parse().map_err(|_| invalid("id", "a record id"));
+    /// A record's `id` (a `dynamic` argument): a number, or its decimal text (a scenario or
+    /// a CLI passes text). A `null` is no id.
+    fn record_id(id: &Value) -> Result<u64, AppError> {
+        match id {
+            Value::Null => Err(invalid("id", "required")),
+            Value::Str(s) => s
+                .trim()
+                .parse()
+                .ok()
+                .ok_or_else(|| invalid("id", "a record id")),
+            number => number
+                .to_int()
+                .ok()
+                .ok_or_else(|| invalid("id", "must be a whole number from 0")),
         }
-        get_u64(m, "id")?.ok_or_else(|| invalid("id", "required"))
     }
 
     fn acknowledge_action(
         &mut self,
         cx: &mut Counted,
-        m: &Map,
+        a: actions::Acknowledge,
         who: &Who,
         now: Micros,
     ) -> Result<Value, AppError> {
-        let id = Self::record_id(m)?;
+        let id = Self::record_id(&a.id)?;
         let r = self.record(cx, id)?;
         reader_may(who, &r.source)?;
-        self.acknowledge(cx, id, subject(who), get_str(m, "note")?, now)?;
+        self.acknowledge(cx, id, subject(who), a.note, now)?;
         Ok(Value::Null)
     }
 
@@ -1638,11 +1677,11 @@ impl Alarm {
     fn normal_action(
         &mut self,
         cx: &mut Counted,
-        m: &Map,
+        a: Normal,
         who: &Who,
         now: Micros,
     ) -> Result<Value, AppError> {
-        let id = Self::record_id(m)?;
+        let id = Self::record_id(&a.id)?;
         let r = self.record(cx, id)?;
         reader_may(who, &r.source)?;
         if r.watch.is_some() {
@@ -1658,12 +1697,12 @@ impl Alarm {
     fn add_note_action(
         &mut self,
         cx: &mut Counted,
-        m: &Map,
+        a: AddNote,
         who: &Who,
         now: Micros,
     ) -> Result<Value, AppError> {
-        let id = Self::record_id(m)?;
-        let text = req_str(m, "note")?;
+        let id = Self::record_id(&a.id)?;
+        let text = a.note;
         if text.trim().is_empty() {
             return Err(invalid("note", "required"));
         }
@@ -1684,11 +1723,7 @@ impl Alarm {
         if let Some(c) = class {
             self.class(c)?;
         }
-        if who.authority.is_none() {
-            return Err(denied(
-                "the caller's rights are unknown (its token carries no auth)",
-            ));
-        }
+        known_rights(who)?;
         let ids: Vec<u64> = self
             .open
             .values()
@@ -1713,14 +1748,14 @@ impl Alarm {
         )])))
     }
 
-    fn get_alarm(&self, cx: &dyn Host, m: &Map, who: &Who) -> Result<Value, AppError> {
-        let r = self.record(cx, Self::record_id(m)?)?;
+    fn get_alarm(&self, cx: &dyn Host, a: RecordArg, who: &Who) -> Result<Value, AppError> {
+        let r = self.record(cx, Self::record_id(&a.id)?)?;
         reader_may(who, &r.source)?;
         Ok(r.to_value(true))
     }
 
-    fn get_notes(&self, cx: &dyn Host, m: &Map, who: &Who) -> Result<Value, AppError> {
-        let r = self.record(cx, Self::record_id(m)?)?;
+    fn get_notes(&self, cx: &dyn Host, a: RecordArg, who: &Who) -> Result<Value, AppError> {
+        let r = self.record(cx, Self::record_id(&a.id)?)?;
         reader_may(who, &r.source)?;
         let Value::Map(mut v) = r.to_value(true) else {
             return Ok(Value::Array(Vec::new()));
@@ -1733,21 +1768,18 @@ impl Alarm {
         store::load_page(cx, n).first().map(|r| r.created)
     }
 
-    fn get_alarms(&self, cx: &dyn Host, m: &Map, who: &Who) -> Result<Value, AppError> {
-        if who.authority.is_none() {
-            return Err(denied(
-                "the caller's rights are unknown (its token carries no auth)",
-            ));
-        }
-        let range = get_str(m, "timerange")?
+    fn get_alarms(&self, cx: &dyn Host, a: GetAlarms, who: &Who) -> Result<Value, AppError> {
+        known_rights(who)?;
+        let range = a
+            .timerange
             .filter(|t| !t.trim().is_empty())
             .map(|t| parse_timerange(&t))
             .transpose()?;
-        let class = get_str(m, "class")?.filter(|c| !c.is_empty());
-        let source = get_str(m, "source")?.filter(|s| !s.is_empty());
-        let state = enum_arg(m, "state", &STATES)?.unwrap_or_else(|| "open".into());
-        let ty = AlarmType::from_args(m, "type")?;
-        let limit = match get_u64(m, "limit")? {
+        let class = a.class.filter(|c| !c.is_empty());
+        let source = a.source.filter(|s| !s.is_empty());
+        let state = a.state.unwrap_or(AlarmState::Open);
+        let ty = a.ty;
+        let limit = match a.limit {
             None => DEFAULT_ROWS,
             Some(n) if (1..=MAX_ROWS as u64).contains(&n) => n as usize,
             Some(_) => return Err(invalid("limit", format!("must be 1 to {MAX_ROWS}"))),
@@ -1763,19 +1795,22 @@ impl Alarm {
                 })
                 && ty.is_none_or(|t| r.ty == t)
                 && range.is_none_or(|(from, to)| r.created >= from && r.created < to)
-                && match state.as_str() {
-                    "open" => r.is_open(),
-                    "active" => r.is_active(),
-                    "unacked" => !r.is_acked(),
-                    "closed" => !r.is_open(),
-                    _ => true,
+                && match state {
+                    AlarmState::Open => r.is_open(),
+                    AlarmState::Active => r.is_active(),
+                    AlarmState::Unacked => !r.is_acked(),
+                    AlarmState::Closed => !r.is_open(),
+                    AlarmState::All => true,
                 }
                 && who.may_for(&r.source, wyrm_core::Perm::Read)
         };
         let mut rows = Vec::new();
         let mut complete = true;
         let mut scanned_to: Option<Micros> = None;
-        if matches!(state.as_str(), "open" | "active" | "unacked") {
+        if matches!(
+            state,
+            AlarmState::Open | AlarmState::Active | AlarmState::Unacked
+        ) {
             for r in self.open.values().rev() {
                 if rows.len() >= limit {
                     complete = false;
@@ -1836,8 +1871,8 @@ impl Alarm {
         Ok(answer(rows, complete, scanned_to))
     }
 
-    fn purge_action(&mut self, cx: &mut Counted, m: &Map, now: Micros) -> Result<Value, AppError> {
-        let before = parse_instant(&req_str(m, "before")?)
+    fn purge_action(&mut self, cx: &mut Counted, a: Purge, now: Micros) -> Result<Value, AppError> {
+        let before = parse_instant(&a.before)
             .ok_or_else(|| invalid("before", "an RFC 3339 instant or a date"))?;
         let n = self.purge_pages(cx, Some(before), now);
         Ok(Value::Map(Map::from([(
@@ -1853,16 +1888,31 @@ impl Alarm {
     }
 
     /// The cursor `from` names: the oldest journal entry kept, or the newest.
-    fn cursor_from(&self, from: Option<&str>) -> Result<u64, AppError> {
-        Ok(match from.unwrap_or("start") {
-            "start" => self.meta.first_jpage * JOURNAL_PAGE,
-            "now" => self.next_seq() - 1,
-            _ => return Err(invalid("from", "start or now")),
-        })
+    fn cursor_from(&self, from: SinkFrom) -> u64 {
+        match from {
+            SinkFrom::Start => self.meta.first_jpage * JOURNAL_PAGE,
+            SinkFrom::Now => self.next_seq() - 1,
+        }
     }
 
-    fn add_sink(&mut self, cx: &mut Counted, m: &Map) -> Result<Value, AppError> {
-        let name = req_str(m, "name")?;
+    fn sink(&self, name: &str) -> Result<&Sink, AppError> {
+        self.sinks
+            .get(name)
+            .ok_or_else(|| not_found(format!("sinks/{name}")))
+    }
+
+    /// The sink `name` is there and the caller is its link: nobody else moves its cursor (a
+    /// person who ran `next` would confirm rows the database never got).
+    fn sink_reader(&self, name: &str, who: &Who) -> Result<(), AppError> {
+        let s = self.sink(name)?;
+        if who.subject.as_deref() != Some(&format!("link:{}", s.def.link)) {
+            return Err(denied(""));
+        }
+        Ok(())
+    }
+
+    fn add_sink(&mut self, cx: &mut Counted, a: AddSink) -> Result<Value, AppError> {
+        let name = a.name;
         sinks::valid_name("name", &name)?;
         if self.sinks.contains_key(&name) {
             return Err(invalid("name", format!("{name} exists")));
@@ -1871,10 +1921,15 @@ impl Alarm {
             return Err(exhausted(format!("at most {MAX_SINKS} sinks")));
         }
         self.check_nodes(1, 0)?;
-        let link = req_str(m, "link")?;
+        let link = a.link;
         sinks::valid_name("link", &link)?;
-        let classes = sinks::classes_arg(m, "classes")?.unwrap_or_default();
-        let cursor = self.cursor_from(enum_arg(m, "from", &FROMS)?.as_deref())?;
+        let classes = a
+            .classes
+            .as_deref()
+            .map(sinks::class_list)
+            .transpose()?
+            .unwrap_or_default();
+        let cursor = self.cursor_from(a.from.unwrap_or(SinkFrom::Start));
         let def = SinkDef {
             name: name.clone(),
             link,
@@ -1891,18 +1946,14 @@ impl Alarm {
         Ok(Value::Null)
     }
 
-    fn edit_sink(&mut self, cx: &mut Counted, name: &str, m: &Map) -> Result<Value, AppError> {
-        let s = self
-            .sinks
-            .get(name)
-            .ok_or_else(|| not_found(format!("sinks/{name}")))?;
-        let mut def = s.def.clone();
-        if let Some(l) = get_str(m, "link")? {
+    fn edit_sink(&mut self, cx: &mut Counted, name: &str, a: EditSink) -> Result<Value, AppError> {
+        let mut def = self.sink(name)?.def.clone();
+        if let Some(l) = a.link {
             sinks::valid_name("link", &l)?;
             def.link = l;
         }
-        if let Some(c) = sinks::classes_arg(m, "classes")? {
-            def.classes = c;
+        if let Some(c) = a.classes {
+            def.classes = sinks::class_list(&c)?;
         }
         let Some(s) = self.sinks.get_mut(name) else {
             return Err(not_found(format!("sinks/{name}")));
@@ -1918,12 +1969,14 @@ impl Alarm {
         Ok(Value::Null)
     }
 
-    fn reset_sink(&mut self, cx: &mut Counted, name: &str, m: &Map) -> Result<Value, AppError> {
-        if !self.sinks.contains_key(name) {
-            return Err(not_found(format!("sinks/{name}")));
-        }
-        let from = enum_arg(m, "from", &FROMS)?.ok_or_else(|| invalid("from", "required"))?;
-        let cursor = self.cursor_from(Some(&from))?;
+    fn reset_sink(
+        &mut self,
+        cx: &mut Counted,
+        name: &str,
+        a: ResetSink,
+    ) -> Result<Value, AppError> {
+        self.sink(name)?;
+        let cursor = self.cursor_from(a.from);
         let Some(s) = self.sinks.get_mut(name) else {
             return Err(not_found(format!("sinks/{name}")));
         };
@@ -1957,32 +2010,28 @@ impl Alarm {
         &mut self,
         cx: &mut Counted,
         name: &str,
-        m: &Map,
+        a: SinkNext,
         who: &Who,
         now: Micros,
     ) -> Result<Value, AppError> {
         let next_seq = self.next_seq();
+        self.sink_reader(name, who)?;
         let Some(s) = self.sinks.get_mut(name) else {
             return Err(not_found(format!("sinks/{name}")));
         };
-        // nobody else moves its cursor: a person who ran it would confirm rows the database
-        // never got
-        if who.subject.as_deref() != Some(&format!("link:{}", s.def.link)) {
-            return Err(denied(""));
-        }
-        if let Some(a) = get_u64(m, "after")? {
-            if a >= next_seq {
+        if let Some(after) = a.after {
+            if after >= next_seq {
                 return Err(invalid(
                     "after",
-                    format!("{a}: beyond the last journal entry"),
+                    format!("{after}: beyond the last journal entry"),
                 ));
             }
-            if a != s.def.cursor {
-                s.def.cursor = a;
+            if after != s.def.cursor {
+                s.def.cursor = after;
                 self.save_sinks(cx)?;
             }
         }
-        let max = match get_u64(m, "max")? {
+        let max = match a.max {
             None => DEFAULT_BATCH_ROWS,
             Some(n) if n >= 1 => (n as usize).min(MAX_BATCH_ROWS),
             Some(_) => return Err(invalid("max", format!("1 to {MAX_BATCH_ROWS}"))),
@@ -2063,59 +2112,6 @@ impl Alarm {
             ("rows".to_owned(), Value::Array(rows)),
             ("next".to_owned(), Value::UInt(last)),
         ])))
-    }
-
-    // ---------- dispatch ----------
-
-    fn invoke(
-        &mut self,
-        cx: &mut Counted,
-        path: &str,
-        action: &str,
-        m: &Map,
-        who: &Who,
-    ) -> Result<Value, AppError> {
-        let now = now_of(cx);
-        let unknown = || AppError::new(Status::NotSupported, format!("{path:?}: no {action}"));
-        let parts: Vec<&str> = if path.is_empty() {
-            Vec::new()
-        } else {
-            path.split('/').collect()
-        };
-        match (parts.as_slice(), action) {
-            ([], "add_class") => self.add_class(cx, m, who, now),
-            ([], "raise") => self.raise_action(cx, m, who, now),
-            ([], "acknowledge") => self.acknowledge_action(cx, m, who, now),
-            ([], "normal") => self.normal_action(cx, m, who, now),
-            ([], "add_note") => self.add_note_action(cx, m, who, now),
-            ([], "ack_all") => {
-                let class = get_str(m, "class")?.filter(|c| !c.is_empty());
-                self.ack_all(cx, class.as_deref(), who, now)
-            }
-            ([], "get_alarm") => self.get_alarm(cx, m, who),
-            ([], "get_notes") => self.get_notes(cx, m, who),
-            ([], "get_alarms") => self.get_alarms(cx, m, who),
-            ([], "import") => self.import(cx, m, who, now),
-            ([], "purge") => self.purge_action(cx, m, now),
-            ([], "add_sink") => self.add_sink(cx, m),
-            (["sinks", s], "next") => self.sink_next(cx, s, m, who, now),
-            (["sinks", s], "edit") => self.edit_sink(cx, s, m),
-            (["sinks", s], "reset") => self.reset_sink(cx, s, m),
-            (["sinks", s], "remove") => self.remove_sink(cx, s),
-            ([c], "add_watch") => self.add_watch(cx, c, m, who, now),
-            ([c], "edit") => self.edit_class(cx, c, m),
-            ([c], "remove") => self.remove_class(cx, c),
-            ([c], "ack_all") => {
-                let c = (*c).to_owned();
-                self.ack_all(cx, Some(&c), who, now)
-            }
-            ([c], "export") => self.export(c),
-            ([c, "watches", w], "edit") => self.edit_watch(cx, c, w, m, who, now),
-            ([c, "watches", w], "enable") => self.enable_watch(cx, c, w, true, now),
-            ([c, "watches", w], "disable") => self.enable_watch(cx, c, w, false, now),
-            ([c, "watches", w], "remove") => self.remove_watch(cx, c, w, now),
-            _ => Err(unknown()),
-        }
     }
 
     /// The open records (for tests and benchmarks).
@@ -2268,10 +2264,9 @@ impl App for Alarm {
         args: Value,
         who: &Who,
     ) -> Result<Value, AppError> {
-        let m = args_of(args)?;
         let mut cx = Counted::new(host);
         self.check_clock(&mut cx);
-        let r = self.invoke(&mut cx, path, action, &m, who);
+        let r = actions::invoke(self, &mut cx, path, action, args, who);
         self.arm(&mut cx);
         r
     }

@@ -21,6 +21,21 @@ use wyrm_link_api::Who;
 
 const PLC: &str = "wy/s/downstream/plc";
 
+// An `enum` argument as the SDK lets it through to the link: the index into the list `~meta`
+// declares (a name is refused before the link sees it, "expected enum index").
+const BOOLEAN: Value = Value::UInt(0);
+const OUT_OF_RANGE: Value = Value::UInt(1);
+const STALENESS: Value = Value::UInt(2);
+const QUALITY: Value = Value::UInt(3);
+const WARNING: Value = Value::UInt(1);
+const FAULT: Value = Value::UInt(2);
+const ACTIVE: Value = Value::UInt(1);
+const UNACKED: Value = Value::UInt(2);
+const CLOSED: Value = Value::UInt(3);
+const ALL: Value = Value::UInt(4);
+const FROM_START: Value = Value::UInt(0);
+const FROM_NOW: Value = Value::UInt(1);
+
 fn fault() -> String {
     format!("{PLC}/fault")
 }
@@ -41,8 +56,8 @@ fn class_with_watch(h: &mut SimHost, args: Value) -> String {
 fn boolean_args(source: &str) -> Value {
     map([
         ("source", text(source)),
-        ("algorithm", text("boolean")),
-        ("type", text("fault")),
+        ("algorithm", BOOLEAN),
+        ("type", FAULT),
     ])
 }
 
@@ -113,7 +128,7 @@ fn boolean_watch_raises_acknowledges_and_closes() {
     assert_eq!(h.value("c/watches/w1"), Some(text("normal")));
     let rows = open_alarms(&mut h);
     assert_eq!(rows[0]["state"], text("normal"));
-    assert!(alarms(&mut h, map([("state", text("active"))])).is_empty());
+    assert!(alarms(&mut h, map([("state", ACTIVE)])).is_empty());
     // acknowledged: closed, gone from the open set, found on its page
     h.invoke(
         "",
@@ -122,7 +137,7 @@ fn boolean_watch_raises_acknowledges_and_closes() {
     )
     .unwrap();
     assert!(open_alarms(&mut h).is_empty());
-    let closed = alarms(&mut h, map([("state", text("closed"))]));
+    let closed = alarms(&mut h, map([("state", CLOSED)]));
     assert_eq!(closed.len(), 1);
     assert_eq!(closed[0]["ack_by"], text("user:test"));
     assert_eq!(closed[0]["notes"], Value::UInt(1));
@@ -150,7 +165,7 @@ fn out_of_range_with_inhibits_and_deadband() {
         &mut h,
         map([
             ("source", text(temp())),
-            ("algorithm", text("out_of_range")),
+            ("algorithm", OUT_OF_RANGE),
             ("max", Value::UInt(25)),
             ("deadband", Value::UInt(2)),
             ("to_alarm_s", Value::UInt(5)),
@@ -202,7 +217,7 @@ fn staleness_and_quality() {
         "add_watch",
         map([
             ("source", text(temp())),
-            ("algorithm", text("staleness")),
+            ("algorithm", STALENESS),
             ("stale_s", Value::UInt(10)),
         ]),
     )
@@ -212,8 +227,8 @@ fn staleness_and_quality() {
         "add_watch",
         map([
             ("source", text(fault())),
-            ("algorithm", text("quality")),
-            ("type", text("warning")),
+            ("algorithm", QUALITY),
+            ("type", WARNING),
         ]),
     )
     .unwrap();
@@ -239,12 +254,12 @@ fn staleness_and_quality() {
     assert_eq!(h.value("c/watches/w2"), Some(text("normal")));
     h.deliver_q(&fault(), Value::Null, Quality::Bad);
     assert_eq!(h.value("c/watches/w2"), Some(text("alarm")));
-    let rows = alarms(&mut h, map([("state", text("active"))]));
+    let rows = alarms(&mut h, map([("state", ACTIVE)]));
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0]["message"], text("fault: quality bad"));
     assert_eq!(rows[0]["type"], text("warning"));
     h.deliver_q(&fault(), Value::Null, Quality::Good);
-    assert!(alarms(&mut h, map([("state", text("active"))])).is_empty());
+    assert!(alarms(&mut h, map([("state", ACTIVE)])).is_empty());
 }
 
 /// A staleness record is made when no sample came: its `{quality}` is `bad`, never `good`
@@ -258,7 +273,7 @@ fn a_stale_record_is_never_of_good_quality() {
         "add_watch",
         map([
             ("source", text(temp())),
-            ("algorithm", text("staleness")),
+            ("algorithm", STALENESS),
             ("stale_s", Value::UInt(10)),
             ("message", text("{name}: {value} ({quality})")),
         ]),
@@ -273,7 +288,7 @@ fn a_stale_record_is_never_of_good_quality() {
     h.deliver(&temp(), Value::UInt(7));
     assert_eq!(open_alarms(&mut h)[0]["state"], text("normal"));
     h.advance(10_100);
-    let rows = alarms(&mut h, map([("state", text("active"))]));
+    let rows = alarms(&mut h, map([("state", ACTIVE)]));
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0]["message"], text("temp: null (bad)"));
 }
@@ -392,7 +407,7 @@ fn raise_notes_normal_and_ack_all() {
     .unwrap();
     let r = h.invoke("c", "ack_all", Value::Null).unwrap();
     assert_eq!(r, map([("acknowledged", Value::UInt(2))]));
-    assert!(alarms(&mut h, map([("state", text("unacked"))])).is_empty());
+    assert!(alarms(&mut h, map([("state", UNACKED)])).is_empty());
     assert_eq!(open_alarms(&mut h).len(), 2, "still active");
     h.invoke("", "normal", map([("id", Value::UInt(id))]))
         .unwrap();
@@ -442,14 +457,14 @@ fn restart_keeps_open_records_and_the_first_sample_decides() {
     assert_eq!(h.attr("c/watches/w1", "last_record"), Value::UInt(id));
     // the same alarm again makes no second record; the first normal sample closes it
     h.deliver(&fault(), Value::Bool(true));
-    assert_eq!(alarms(&mut h, map([("state", text("active"))])).len(), 2);
+    assert_eq!(alarms(&mut h, map([("state", ACTIVE)])).len(), 2);
     h.deliver(&fault(), Value::Bool(false));
-    let rows = alarms(&mut h, map([("state", text("active"))]));
+    let rows = alarms(&mut h, map([("state", ACTIVE)]));
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0]["source"], text(temp()));
     // a third record after the restart gets the next id
     h.deliver(&fault(), Value::Bool(true));
-    let rows = alarms(&mut h, map([("state", text("active"))]));
+    let rows = alarms(&mut h, map([("state", ACTIVE)]));
     assert_eq!(rows.iter().map(id_of).max(), Some(id + 2));
     h.advance(600);
     assert_eq!(h.value("stats/open"), Some(Value::UInt(3)));
@@ -598,10 +613,10 @@ fn sinks_hand_out_records_to_their_link_only() {
         "entries it does not take are passed"
     );
     // `from: now` starts after what exists; reset to start goes back
-    h.invoke("sinks/other", "reset", map([("from", text("now"))]))
+    h.invoke("sinks/other", "reset", map([("from", FROM_NOW)]))
         .unwrap();
     assert_eq!(h.value("sinks/other"), Some(Value::UInt(2)));
-    h.invoke("sinks/other", "reset", map([("from", text("start"))]))
+    h.invoke("sinks/other", "reset", map([("from", FROM_START)]))
         .unwrap();
     assert_eq!(h.value("sinks/other"), Some(Value::UInt(0)));
     // the sinks survive a restart with their cursors
@@ -636,7 +651,7 @@ fn pages_journal_time_ranges_and_purge() {
             "",
             "get_alarms",
             map([
-                ("state", text("all")),
+                ("state", ALL),
                 (
                     "timerange",
                     text(format!(
@@ -662,7 +677,7 @@ fn pages_journal_time_ranges_and_purge() {
     let rows = rows_of(h.invoke(
         "",
         "get_alarms",
-        map([("state", text("all")), ("limit", Value::UInt(7))]),
+        map([("state", ALL), ("limit", Value::UInt(7))]),
     ));
     assert_eq!(rows.len(), 7);
     assert_eq!(id_of(&rows[0]), n - 1);
@@ -686,7 +701,7 @@ fn pages_journal_time_ranges_and_purge() {
     let rows = rows_of(h.invoke(
         "",
         "get_alarms",
-        map([("state", text("closed")), ("limit", Value::UInt(5000))]),
+        map([("state", CLOSED), ("limit", Value::UInt(5000))]),
     ));
     assert_eq!(rows.len() as u64, n - 2 * PAGE);
     h.advance(600);
@@ -727,10 +742,7 @@ fn watches_edit_disable_remove_and_the_class_goes_last() {
     h.invoke(
         "c/watches/w1",
         "edit",
-        map([
-            ("algorithm", text("boolean")),
-            ("alarm_value", Value::Bool(false)),
-        ]),
+        map([("algorithm", BOOLEAN), ("alarm_value", Value::Bool(false))]),
     )
     .unwrap();
     assert_eq!(h.subscribed(&fault()), 1);
@@ -812,7 +824,7 @@ fn a_backward_clock_step_moves_the_waits() {
         &mut h,
         map([
             ("source", text(fault())),
-            ("algorithm", text("boolean")),
+            ("algorithm", BOOLEAN),
             ("to_alarm_s", Value::UInt(10)),
         ]),
     );
@@ -833,7 +845,7 @@ fn a_backward_clock_step_moves_the_waits() {
     h.advance(2_000);
     assert_eq!(open_alarms(&mut h).len(), 1, "an event sees the step first");
     h.advance(3_000 + 30_000);
-    assert_eq!(alarms(&mut h, map([("state", text("active"))])).len(), 1);
+    assert_eq!(alarms(&mut h, map([("state", ACTIVE)])).len(), 1);
 }
 
 #[test]
@@ -885,10 +897,276 @@ fn open_records_are_bounded() {
             .any(|r| r.source == format!("{PLC}/k0")),
         "the normal one was acknowledged by overflow"
     );
-    let closed = alarms(&mut h, map([("state", text("closed"))]));
+    let closed = alarms(&mut h, map([("state", CLOSED)]));
     assert_eq!(closed.len(), 1);
     assert_eq!(closed[0]["ack_by"], text("system:overflow"));
     // the rows of an answer are bounded
     assert_eq!(open_alarms(&mut h).len(), 500);
     assert!(h.max_cmds <= 800, "{}", h.max_cmds);
+}
+
+fn refused(h: &mut SimHost, path: &str, action: &str, args: Value) -> String {
+    let (st, msg) = status(h.invoke(path, action, args));
+    assert_eq!(st, Status::InvalidParameter, "{path} ▸ {action}: {msg}");
+    msg
+}
+
+/// What `add_class`, `add_watch` and a watch's `edit` refuse of their arguments: a required
+/// one that is absent or `null`, a value of another type, a name they do not declare. Nothing
+/// is done on a refusal.
+#[test]
+fn refused_arguments_of_classes_and_watches_change_nothing() {
+    let mut h = started();
+    assert_eq!(
+        refused(&mut h, "", "add_class", Value::Null),
+        "id: required"
+    );
+    assert_eq!(
+        refused(&mut h, "", "add_class", map([("id", Value::Null)])),
+        "id: required"
+    );
+    assert_eq!(
+        refused(&mut h, "", "add_class", map([("id", Value::UInt(1))])),
+        "id: expected text"
+    );
+    assert_eq!(
+        refused(
+            &mut h,
+            "",
+            "add_class",
+            map([("id", text("c")), ("escalation1_s", text("60"))])
+        ),
+        "escalation1_s: expected a number"
+    );
+    assert_eq!(
+        refused(
+            &mut h,
+            "",
+            "add_class",
+            map([("id", text("c")), ("colour", text("red"))])
+        ),
+        "colour: unknown argument"
+    );
+    assert!(
+        !h.nodes.contains_key("c"),
+        "a refused add_class made a class"
+    );
+    h.invoke("", "add_class", map([("id", text("c"))])).unwrap();
+
+    let src = || ("source", text(fault()));
+    assert_eq!(
+        refused(&mut h, "c", "add_watch", map([src()])),
+        "algorithm: required"
+    );
+    assert_eq!(
+        refused(&mut h, "c", "add_watch", map([("algorithm", BOOLEAN)])),
+        "source: required"
+    );
+    assert_eq!(
+        refused(
+            &mut h,
+            "c",
+            "add_watch",
+            map([src(), ("algorithm", Value::Null)])
+        ),
+        "algorithm: required"
+    );
+    assert_eq!(
+        refused(
+            &mut h,
+            "c",
+            "add_watch",
+            map([src(), ("algorithm", text("boolean"))])
+        ),
+        "algorithm: expected an index"
+    );
+    assert_eq!(
+        refused(
+            &mut h,
+            "c",
+            "add_watch",
+            map([src(), ("algorithm", BOOLEAN), ("enabled", Value::UInt(1))])
+        ),
+        "enabled: expected true or false"
+    );
+    assert!(!h.nodes.contains_key("c/watches/w1"));
+    let w = h
+        .invoke("c", "add_watch", map([src(), ("algorithm", BOOLEAN)]))
+        .unwrap();
+    assert_eq!(w, map([("id", text("w1"))]));
+
+    // an optional argument that is null is not there: the edit keeps the watch as it is
+    let before = h.nodes["c/watches/w1"].meta.clone();
+    h.invoke(
+        "c/watches/w1",
+        "edit",
+        map([("message", Value::Null), ("to_alarm_s", Value::Null)]),
+    )
+    .unwrap();
+    assert_eq!(h.nodes["c/watches/w1"].meta, before);
+    assert!(refused(
+        &mut h,
+        "c/watches/w1",
+        "edit",
+        map([("to_alarm_s", Value::Float(1.5))])
+    )
+    .starts_with("to_alarm_s: expected a whole number"));
+    assert_eq!(h.nodes["c/watches/w1"].meta, before);
+
+    // what the action is about comes first: a class or a watch that is not there
+    for (path, action) in [
+        ("nope", "edit"),
+        ("nope", "add_watch"),
+        ("c/watches/w9", "edit"),
+    ] {
+        let (st, _) = status(h.invoke(path, action, map([("x", Value::UInt(1))])));
+        assert_eq!(st, Status::NotFound, "{path} ▸ {action}");
+    }
+    // an action without parameters takes none
+    assert_eq!(
+        refused(&mut h, "c", "export", map([("x", Value::UInt(1))])),
+        "x: unknown argument"
+    );
+}
+
+/// The same for `raise`, the actions on a record and the sinks. A record's `id` is dynamic:
+/// a `null` that is there is taken, and is no id.
+#[test]
+fn refused_arguments_of_records_and_sinks_change_nothing() {
+    let mut h = started();
+    h.invoke("", "add_class", map([("id", text("c"))])).unwrap();
+    assert_eq!(
+        refused(&mut h, "", "raise", map([("class", text("c"))])),
+        "source: required"
+    );
+    assert_eq!(
+        refused(
+            &mut h,
+            "",
+            "raise",
+            map([("class", text("c")), ("source", Value::Null)])
+        ),
+        "source: required"
+    );
+    assert_eq!(
+        refused(
+            &mut h,
+            "",
+            "raise",
+            map([("class", Value::Bool(true)), ("source", text(fault()))])
+        ),
+        "class: expected text"
+    );
+    assert!(
+        open_alarms(&mut h).is_empty(),
+        "a refused raise made a record"
+    );
+    let r = h
+        .invoke(
+            "",
+            "raise",
+            map([
+                ("class", text("c")),
+                ("source", text(fault())),
+                ("message", Value::Null),
+            ]),
+        )
+        .unwrap();
+    let Value::Map(r) = r else { panic!("{r:?}") };
+    let id = id_of(&r);
+
+    for action in ["acknowledge", "normal", "add_note"] {
+        assert_eq!(
+            refused(&mut h, "", action, Value::Null),
+            "id: required",
+            "{action}"
+        );
+        let null_id = if action == "add_note" {
+            map([("id", Value::Null), ("note", text("n"))])
+        } else {
+            map([("id", Value::Null)])
+        };
+        assert_eq!(
+            refused(&mut h, "", action, null_id),
+            "id: required",
+            "{action}"
+        );
+    }
+    assert_eq!(
+        refused(&mut h, "", "acknowledge", map([("id", Value::Bool(true))])),
+        "id: must be a whole number from 0"
+    );
+    assert_eq!(
+        refused(
+            &mut h,
+            "",
+            "acknowledge",
+            map([("id", Value::UInt(id)), ("note", Value::UInt(7))])
+        ),
+        "note: expected text"
+    );
+    assert_eq!(
+        refused(&mut h, "", "add_note", map([("id", Value::UInt(id))])),
+        "note: required"
+    );
+    assert_eq!(
+        refused(
+            &mut h,
+            "",
+            "add_note",
+            map([("id", Value::UInt(id)), ("note", Value::Null)])
+        ),
+        "note: required"
+    );
+    let rows = open_alarms(&mut h);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0]["state"], text("active"));
+    assert_eq!(rows[0]["notes"], Value::UInt(0));
+    // the id as decimal text, and as a float without a fraction
+    h.invoke("", "acknowledge", map([("id", text(id.to_string()))]))
+        .unwrap();
+    h.invoke("", "normal", map([("id", Value::Float(id as f64))]))
+        .unwrap();
+    assert!(open_alarms(&mut h).is_empty());
+
+    assert_eq!(
+        refused(&mut h, "", "add_sink", map([("name", text("s"))])),
+        "link: required"
+    );
+    assert_eq!(
+        refused(
+            &mut h,
+            "",
+            "add_sink",
+            map([
+                ("name", text("s")),
+                ("link", text("pg")),
+                ("classes", Value::Array(vec![]))
+            ])
+        ),
+        "classes: expected text"
+    );
+    assert!(!h.nodes.contains_key("sinks/s"));
+    h.invoke(
+        "",
+        "add_sink",
+        map([("name", text("s")), ("link", text("pg"))]),
+    )
+    .unwrap();
+    assert_eq!(
+        refused(&mut h, "sinks/s", "reset", Value::Null),
+        "from: required"
+    );
+    assert_eq!(
+        refused(&mut h, "sinks/s", "reset", map([("from", Value::Null)])),
+        "from: required"
+    );
+    assert_eq!(
+        refused(&mut h, "sinks/s", "reset", map([("from", Value::UInt(2))])),
+        "from: index 2 is out of the list of 2"
+    );
+    for (path, action) in [("sinks/nope", "reset"), ("sinks/nope", "next")] {
+        let (st, _) = status(h.invoke(path, action, map([("x", Value::UInt(1))])));
+        assert_eq!(st, Status::NotFound, "{path} ▸ {action}");
+    }
 }
