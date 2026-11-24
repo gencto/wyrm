@@ -42,9 +42,59 @@ const PART_TRIES: u32 = 3;
 /// How long the store may take to commit the file.
 const COMMIT_TIMEOUT: Duration = Duration::from_secs(1800);
 
+/// Why the broker has no backup sender key.
+#[derive(Debug, thiserror::Error)]
+pub enum SenderKeyError {
+    #[error("{0}")]
+    Random(#[source] wyrm_core::rand::NoRandomness),
+    /// The new key was not written to the secret store.
+    #[error("{0}")]
+    Store(#[source] crate::secret::Error),
+}
+
+/// A `folder` of `backups.send_links` that is no relative path of plain
+/// names; holds the folder as the host wrote it.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("folder {0:?}: a relative path of plain names (no `..`, no empty segment)")]
+pub struct FolderError(pub String);
+
+/// Why a backup that began its way to a file store did not arrive. The text
+/// is the job's `send_error` and the detail of its audit record.
+#[derive(Debug, thiserror::Error)]
+pub enum SendError {
+    /// An action of the file-store link failed.
+    #[error("{action}: {source}")]
+    Call {
+        action: &'static str,
+        #[source]
+        source: wyrm_client::ClientError,
+    },
+    /// The task that read a part of the backup's file ended.
+    #[error("{0}")]
+    Join(#[source] tokio::task::JoinError),
+    /// The part was not read from the backup's file.
+    #[error(transparent)]
+    Read(#[from] super::backups::PartError),
+    /// The link took the part on none of the tries; `source` is the last one.
+    #[error("part {index}: {source}")]
+    Part {
+        index: u64,
+        #[source]
+        source: Box<SendError>,
+    },
+    /// `upload_status` named a state that is none of ADR 0028.
+    #[error("the store answered upload state {0:?}")]
+    UnknownState(String),
+    /// The store's commit failed; holds the error the link gave.
+    #[error("the store refused it: {0}")]
+    Refused(String),
+    #[error("the store did not take the file in time")]
+    CommitTimeout,
+}
+
 impl Control {
     /// The backup sender key, made once.
-    fn sender_seed(&self) -> Result<SigningKey, String> {
+    fn sender_seed(&self) -> Result<SigningKey, SenderKeyError> {
         let stored = self.secrets.for_link(SENDER_STORE);
         if let Some(seed) = stored
             .get(SENDER_KEY)
@@ -53,10 +103,10 @@ impl Control {
             return Ok(SigningKey::from_bytes(&seed));
         }
         let mut seed = zeroize::Zeroizing::new([0u8; 32]);
-        wyrm_core::rand::fill(&mut seed[..]).map_err(|e| e.to_string())?;
+        wyrm_core::rand::fill(&mut seed[..]).map_err(SenderKeyError::Random)?;
         self.secrets
             .set(SENDER_STORE, SENDER_KEY, &seed[..])
-            .map_err(|e| e.to_string())?;
+            .map_err(SenderKeyError::Store)?;
         info!("backup sender key created");
         Ok(SigningKey::from_bytes(&seed))
     }
@@ -141,13 +191,11 @@ fn plain(seg: &str) -> bool {
 }
 
 /// A `folder` of `backups.send_links`: plain segments, relative.
-pub fn check_folder(folder: &str) -> Result<(), String> {
+pub fn check_folder(folder: &str) -> Result<(), FolderError> {
     if folder.split('/').all(plain) {
         Ok(())
     } else {
-        Err(format!(
-            "folder {folder:?}: a relative path of plain names (no `..`, no empty segment)"
-        ))
+        Err(FolderError(folder.to_owned()))
     }
 }
 
@@ -248,9 +296,9 @@ wyrm_core::name_enum! {
 
 /// The state an `upload_status` answer names; any other answer ends the send (it was
 /// waited on until the timeout, as if the commit were still running).
-fn upload_state(st: &Option<Value>) -> Result<UploadState, String> {
+fn upload_state(st: &Option<Value>) -> Result<UploadState, SendError> {
     let name = text(st, "state");
-    UploadState::from_name(&name).ok_or_else(|| format!("the store answered upload state {name:?}"))
+    UploadState::from_name(&name).ok_or(SendError::UnknownState(name))
 }
 
 fn text(v: &Option<Value>, name: &str) -> String {
@@ -284,15 +332,15 @@ impl Sending {
         )
     }
 
-    async fn call(&self, action: &str, request: Value) -> Result<Option<Value>, String> {
+    async fn call(&self, action: &'static str, request: Value) -> Result<Option<Value>, SendError> {
         self.client
             .invoke_one(&self.conn_node(), action, request)
             .await
-            .map_err(|e| format!("{action}: {e}"))
+            .map_err(|source| SendError::Call { action, source })
     }
 
     /// Every part, then the commit; `Ok` when the store has the file.
-    async fn run(&self) -> Result<(), String> {
+    async fn run(&self) -> Result<(), SendError> {
         let parts = self.size.div_ceil(PART);
         for index in 0..parts {
             let offset = index * PART;
@@ -300,8 +348,7 @@ impl Sending {
             let (ctl, id) = (self.ctl.clone(), self.id.clone());
             let (data, _) = tokio::task::spawn_blocking(move || ctl.backup_part(&id, offset, len))
                 .await
-                .map_err(|e| e.to_string())?
-                .map_err(|e| e.to_string())?;
+                .map_err(SendError::Join)??;
             let mut tries = 0;
             loop {
                 tries += 1;
@@ -312,7 +359,12 @@ impl Sending {
                 ]);
                 match self.call("upload_part", part).await {
                     Ok(_) => break,
-                    Err(e) if tries >= PART_TRIES => return Err(format!("part {index}: {e}")),
+                    Err(e) if tries >= PART_TRIES => {
+                        return Err(SendError::Part {
+                            index,
+                            source: Box::new(e),
+                        })
+                    }
                     Err(_) => tokio::time::sleep(Duration::from_secs(1)).await,
                 }
             }
@@ -328,12 +380,8 @@ impl Sending {
             let st = self.call("upload_status", upload()).await?;
             match upload_state(&st)? {
                 UploadState::Done => return Ok(()),
-                UploadState::Failed => {
-                    return Err(format!("the store refused it: {}", text(&st, "error")))
-                }
-                _ if tokio::time::Instant::now() > until => {
-                    return Err("the store did not take the file in time".into())
-                }
+                UploadState::Failed => return Err(SendError::Refused(text(&st, "error"))),
+                _ if tokio::time::Instant::now() > until => return Err(SendError::CommitTimeout),
                 UploadState::Receiving | UploadState::Committing => {
                     tokio::time::sleep(Duration::from_millis(500)).await
                 }
@@ -359,7 +407,7 @@ impl Sending {
             }
             Err(e) => {
                 j.send_status = Some(SendStatus::Failed);
-                j.send_error = e.clone();
+                j.send_error = e.to_string();
             }
         });
         if let Some(j) = ctl.backups().get(&self.id) {
@@ -410,7 +458,9 @@ pub(super) async fn send(
     if !ctl.registry().links.contains_key(&to.link) {
         return Err(LinkError::not_found(format!("link {}", to.link)));
     }
-    let key = ctl.sender_seed().map_err(LinkError::internal)?;
+    let key = ctl
+        .sender_seed()
+        .map_err(|e| LinkError::internal(e.to_string()))?;
     let scope = format!("wy/{}/downstream/{}", ctl.cfg.site, to.link);
     // good for the host's folder and the connection's upload actions only
     let tokens = wyrm_client::SigningTokens::new(key, ctl.cfg.site.clone())
@@ -515,6 +565,54 @@ pub(super) async fn declare(ctx: &LinkCtx, path: &str) -> wyrm_link_sdk::Result<
 mod tests {
     use super::*;
 
+    /// Every text of this file's errors, byte for byte as before they had a
+    /// type (`send_error`, the audit detail, the config error of `wyrmd`).
+    #[test]
+    fn errors_read_as_before() {
+        use super::super::backups::PartError;
+        use std::error::Error as _;
+        assert_eq!(
+            FolderError("a//b".into()).to_string(),
+            "folder \"a//b\": a relative path of plain names (no `..`, no empty segment)"
+        );
+        assert_eq!(check_folder("../x"), Err(FolderError("../x".into())));
+        let call = || SendError::Call {
+            action: "upload_part",
+            source: wyrm_client::ClientError::new(Status::Timeout, "no answer"),
+        };
+        assert_eq!(call().to_string(), "upload_part: timeout: no answer");
+        assert!(call().source().is_some());
+        assert_eq!(
+            SendError::Part {
+                index: 3,
+                source: Box::new(call()),
+            }
+            .to_string(),
+            "part 3: upload_part: timeout: no answer"
+        );
+        assert_eq!(
+            SendError::Read(PartError::Offset { offset: 9, size: 4 }).to_string(),
+            "offset 9: the file has 4 bytes"
+        );
+        assert_eq!(
+            SendError::UnknownState("ok".into()).to_string(),
+            "the store answered upload state \"ok\""
+        );
+        assert_eq!(
+            SendError::Refused("disk full".into()).to_string(),
+            "the store refused it: disk full"
+        );
+        assert_eq!(
+            SendError::CommitTimeout.to_string(),
+            "the store did not take the file in time"
+        );
+        let store = || -> crate::secret::Error { "secrets.bin: read-only".into() };
+        assert_eq!(
+            SenderKeyError::Store(store()).to_string(),
+            "secrets.bin: read-only"
+        );
+    }
+
     /// `send`'s arguments decoded, then checked against the host's list.
     fn target(j: &Job, args: &Value, send_links: &[SendLink]) -> Result<Target, LinkError> {
         let a = SendBackup::decode(args.clone())?;
@@ -532,15 +630,24 @@ mod tests {
                     .collect(),
             ))
         };
-        assert_eq!(upload_state(&st(Some("done"))), Ok(UploadState::Done));
-        assert_eq!(
+        assert!(matches!(
+            upload_state(&st(Some("done"))),
+            Ok(UploadState::Done)
+        ));
+        assert!(matches!(
             upload_state(&st(Some("committing"))),
             Ok(UploadState::Committing)
-        );
+        ));
         for bad in [Some("Done"), Some("ok"), Some(""), None] {
-            assert!(upload_state(&st(bad)).is_err(), "{bad:?}");
+            assert!(
+                matches!(upload_state(&st(bad)), Err(SendError::UnknownState(_))),
+                "{bad:?}"
+            );
         }
-        assert!(upload_state(&None).is_err());
+        assert!(matches!(
+            upload_state(&None),
+            Err(SendError::UnknownState(n)) if n.is_empty()
+        ));
     }
     use crate::backup::How;
     use crate::control::backups::JobKind;

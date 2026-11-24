@@ -3813,7 +3813,8 @@ impl Link for Admin {
                     .ok_or_else(|| LinkError::invalid_parameter(format!("level {l:?}")))?,
                 None => LogLevel::Info,
             };
-            lc.set_level(level).map_err(LinkError::invalid_parameter)?;
+            lc.set_level(level)
+                .map_err(|e| LinkError::invalid_parameter(e.to_string()))?;
             self.ctl
                 .apply(Op::SetLogLevel {
                     link: None,
@@ -5972,7 +5973,7 @@ impl Admin {
             Mode::Embedded => {
                 if let Some(lc) = crate::logs::global() {
                     lc.set_link_level(id, level)
-                        .map_err(LinkError::invalid_parameter)?;
+                        .map_err(|e| LinkError::invalid_parameter(e.to_string()))?;
                 }
             }
             Mode::Process => {

@@ -281,7 +281,19 @@ where
     }
 }
 
-type Reload = Box<dyn Fn(&str) -> Result<(), String> + Send + Sync>;
+/// Why a log level was not put into effect. The level is kept all the same
+/// (as before the error had a type): the next change applies it.
+#[derive(Debug, thiserror::Error)]
+pub enum LogError {
+    /// The filter directive made from the levels was refused by the filter.
+    #[error("{0}")]
+    Directive(#[source] tracing_subscriber::filter::ParseError),
+    /// The subscriber that holds the filter is gone.
+    #[error("{0}")]
+    Reload(#[source] tracing_subscriber::reload::Error),
+}
+
+type Reload = Box<dyn Fn(&str) -> Result<(), LogError> + Send + Sync>;
 
 /// The broker's log: its ring and its levels.
 pub struct LogControl {
@@ -346,8 +358,8 @@ fn build(stdout: bool) -> Arc<LogControl> {
     Arc::new(LogControl {
         ring,
         reload: Box::new(move |d| {
-            let f = EnvFilter::try_new(d).map_err(|e| e.to_string())?;
-            handle.reload(f).map_err(|e| e.to_string())
+            let f = EnvFilter::try_new(d).map_err(LogError::Directive)?;
+            handle.reload(f).map_err(LogError::Reload)
         }),
         levels,
     })
@@ -386,7 +398,7 @@ impl LogControl {
     }
 
     /// Set the broker's level; replaces the directives `RUST_LOG` gave.
-    pub fn set_level(&self, level: LogLevel) -> Result<(), String> {
+    pub fn set_level(&self, level: LogLevel) -> Result<(), LogError> {
         self.levels
             .write()
             .unwrap_or_else(|p| p.into_inner())
@@ -395,7 +407,7 @@ impl LogControl {
     }
 
     /// Set (or, with `None`, clear) the level of one embedded link.
-    pub fn set_link_level(&self, link: &str, level: Option<LogLevel>) -> Result<(), String> {
+    pub fn set_link_level(&self, link: &str, level: Option<LogLevel>) -> Result<(), LogError> {
         {
             let mut levels = self.levels.write().unwrap_or_else(|p| p.into_inner());
             match level {
@@ -412,7 +424,7 @@ impl LogControl {
 
     /// The `EnvFilter` opens the most verbose level wanted; [`LinkFilter`]
     /// narrows each event.
-    fn apply(&self) -> Result<(), String> {
+    fn apply(&self) -> Result<(), LogError> {
         let most = {
             let l = self.levels.read().unwrap_or_else(|p| p.into_inner());
             l.links.values().copied().fold(l.broker, std::cmp::max)
@@ -431,6 +443,34 @@ impl LogControl {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A `LogError` reads as its cause did when it was `to_string()`ed at the
+    /// call site, and keeps the cause as `source`.
+    #[test]
+    fn log_errors_read_as_their_cause() {
+        use std::error::Error as _;
+        use tracing_subscriber::{reload, EnvFilter, Registry};
+        let parse = || EnvFilter::try_new("a=b=c").map(|_| ());
+        let text = parse().unwrap_err().to_string();
+        let e = parse().map_err(LogError::Directive).unwrap_err();
+        assert!(matches!(e, LogError::Directive(_)));
+        assert_eq!(e.to_string(), text);
+        assert!(e.source().is_some());
+
+        let (layer, handle) = reload::Layer::<EnvFilter, Registry>::new(EnvFilter::new("info"));
+        drop(layer);
+        let text = handle
+            .reload(EnvFilter::new("warn"))
+            .unwrap_err()
+            .to_string();
+        let e = handle
+            .reload(EnvFilter::new("warn"))
+            .map_err(LogError::Reload)
+            .unwrap_err();
+        assert!(matches!(e, LogError::Reload(_)));
+        assert_eq!(e.to_string(), text);
+        assert!(e.source().is_some());
+    }
 
     fn line(level: Level, msg: &str, link: Option<&str>) -> LogLine {
         LogLine {
