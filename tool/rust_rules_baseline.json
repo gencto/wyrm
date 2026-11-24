@@ -487,6 +487,7 @@
     "crates/wyrm-filestore/src/parts.rs": 1,
     "crates/wyrm-filestore/src/testkit.rs": 1,
     "crates/wyrm-flow/src/runtime.rs": 2,
+    "crates/wyrm-flow/src/script.rs": 2,
     "crates/wyrm-gateway/src/devices.rs": 3,
     "crates/wyrm-gateway/src/session.rs": 1,
     "crates/wyrm-history-sync/src/testkit.rs": 1,

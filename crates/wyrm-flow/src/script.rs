@@ -96,13 +96,13 @@ impl Vars {
 
     /// The variable `state` as the scope holds it.
     fn state_var(&self) -> Option<&Dynamic> {
-        let name = STATE;
-        self.scope.get(name)
+        // rust-rules: allow(C4) a variable of a rhai `Scope` by its name, not a field of a `Value` map
+        self.scope.get(STATE)
     }
 
     fn state_var_mut(&mut self) -> Option<&mut Dynamic> {
-        let name = STATE;
-        self.scope.get_mut(name)
+        // rust-rules: allow(C4) a variable of a rhai `Scope` by its name, not a field of a `Value` map
+        self.scope.get_mut(STATE)
     }
 
     /// `state` as a value; `None` while it is empty.
