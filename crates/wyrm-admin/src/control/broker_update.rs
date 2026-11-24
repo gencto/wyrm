@@ -386,7 +386,7 @@ pub fn state_copy(data_dir: &Path, dest: &Path) -> Result<(), String> {
     if dest.symlink_metadata().is_ok() {
         std::fs::remove_dir_all(dest).map_err(|e| io(dest, e))?;
     }
-    super::backups::make_private_dir(dest)?;
+    super::backups::make_private_dir(dest).map_err(|e| e.to_string())?;
     for (dir, key_file) in STATE_STORES {
         let src = data_dir.join(dir);
         if !src.is_dir() {
@@ -1227,7 +1227,7 @@ async fn run(
             std::fs::remove_dir_all(&dir)
                 .or_else(wyrm_core::files::gone_ok)
                 .map_err(|e| super::backups::io_err(&dir, e))?;
-            super::backups::make_private_dir(&dir)?;
+            super::backups::make_private_dir(&dir).map_err(|e| e.to_string())?;
             let path = dir.join(ORDER_ARCHIVE);
             let p2 = path.clone();
             tokio::task::spawn_blocking(move || secret::write_private(&p2, &bytes))
@@ -1428,7 +1428,7 @@ async fn stage_for_standby(ctl: &Arc<Control>, plan: &Plan, archive: &Path) -> R
         std::fs::remove_dir_all(&dir2)
             .or_else(wyrm_core::files::gone_ok)
             .map_err(|e| super::backups::io_err(&dir2, e))?;
-        super::backups::make_private_dir(&dir2)?;
+        super::backups::make_private_dir(&dir2).map_err(|e| e.to_string())?;
         let to = dir2.join(ORDER_ARCHIVE);
         std::fs::copy(&archive, &to).map_err(|e| io(&to, e))?;
         secret::write_private(&dir2.join(ORDER_RELEASE), &release_bytes)

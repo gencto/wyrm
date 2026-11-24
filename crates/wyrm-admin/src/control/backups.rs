@@ -42,6 +42,305 @@ const MAX_JOBS: usize = 200;
 /// How often kept backups are checked against `keep_days` and `max_mb`.
 const PRUNE_EVERY: Duration = Duration::from_secs(600);
 
+/// A file or a directory of the broker that could not be read, made or removed.
+#[derive(Debug, thiserror::Error)]
+#[error("{}: {source}", .path.display())]
+pub struct FileError {
+    pub path: PathBuf,
+    #[source]
+    pub source: std::io::Error,
+}
+
+impl FileError {
+    pub(super) fn new(path: &Path, source: std::io::Error) -> Self {
+        Self {
+            path: path.to_owned(),
+            source,
+        }
+    }
+}
+
+/// Why a stage directory was not made ([`StageDir::new`]).
+#[derive(Debug, thiserror::Error)]
+pub enum StageError {
+    /// No random name for it.
+    #[error("{0}")]
+    NoRandomness(#[source] wyrm_core::rand::NoRandomness),
+    #[error(transparent)]
+    Dir(#[from] FileError),
+}
+
+/// The secrets a rule about leaving the site names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Exported {
+    /// The `keys` section: the site's keys and secrets.
+    Keys,
+    /// Secrets sealed with a passphrase the caller picked: they open anywhere.
+    Passphrase,
+}
+
+impl Exported {
+    /// As a request is refused for them: the field, then what it holds.
+    fn asked(self) -> &'static str {
+        match self {
+            Exported::Keys => "keys: the site's keys and secrets",
+            Exported::Passphrase => "passphrase: secrets sealed with a passphrase",
+        }
+    }
+
+    /// As a kept backup is said to hold them.
+    fn held(self) -> &'static str {
+        match self {
+            Exported::Keys => "this site's keys",
+            Exported::Passphrase => "secrets sealed with a passphrase",
+        }
+    }
+}
+
+/// Why a request for a backup is refused before anything is made
+/// (`Control::check_request`). Every one is `invalid_parameter` to a caller.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum RequestError {
+    /// A section that a backup of this kind does not have.
+    #[error(
+        "sections: no section {section} in a {} backup (one of {})",
+        .kind.name(),
+        format::section_names(.kind.sections())
+    )]
+    Section { section: SectionName, kind: Kind },
+    #[error("passphrase: at least {} characters", crate::keys::MIN_PASSPHRASE)]
+    ShortPassphrase,
+    /// `backups.export_secrets` is false: no secret leaves this broker.
+    #[error(
+        "{} do not leave this broker: backups.export_secrets is false in \
+         wyrmd.json5 (set it on the host to allow it). Without a passphrase, link \
+         secrets and private data are sealed for this site and open only on a \
+         broker that holds its keys",
+        .0.asked()
+    )]
+    ExportOff(Exported),
+    /// The caller's authority comes from an upstream.
+    #[error(
+        "{} never travel to another site: make this backup on the broker's \
+         own gateway, not through its upstream",
+        .0.asked()
+    )]
+    Remote(Exported),
+    #[error("keys: the keys and secrets need a passphrase")]
+    KeysUnsealed,
+    /// A link of `links` that the broker does not have.
+    #[error("links: no link {0}")]
+    NoLinkOfLinks(String),
+    #[error("config: this broker was not started from a file")]
+    NoConfig,
+    /// A link backup without its link.
+    #[error("link: required")]
+    LinkRequired,
+    #[error("no link {0}")]
+    NoLink(String),
+    #[error("data: an external link keeps its data on its own host, not here")]
+    ExternalData,
+    #[error("package: {link} runs the built-in driver {driver}, not a package")]
+    BuiltIn { link: String, driver: String },
+}
+
+/// Why a backup was not made (`Control::write_backup`, [`Control::link_backup_to`]).
+/// No variant holds a passphrase, a key or a byte of a file.
+#[derive(Debug, thiserror::Error)]
+pub enum BackupError {
+    #[error(transparent)]
+    Request(#[from] RequestError),
+    #[error(transparent)]
+    File(#[from] FileError),
+    #[error(transparent)]
+    Stage(#[from] StageError),
+    /// A path that no backup holds.
+    #[error(transparent)]
+    Path(#[from] format::PathError),
+    /// A file with secrets, and the backup has no key to seal it with.
+    #[error("{path}: holds secrets; the backup needs a passphrase")]
+    NoKey { path: String },
+    /// The file `path` of the backup was not sealed.
+    #[error("{path}: {source}")]
+    Seal {
+        path: String,
+        #[source]
+        source: std::io::Error,
+    },
+    /// The broker's file `src` was not staged sealed.
+    #[error("{}: {source}", .src.display())]
+    SealedFile {
+        src: PathBuf,
+        #[source]
+        source: Box<BackupError>,
+    },
+    /// A key file of the broker (`secrets.key`, `state.key`) does not load.
+    #[error("{file}: {source}")]
+    KeyFile {
+        file: &'static str,
+        #[source]
+        source: secret::Error,
+    },
+    #[error(transparent)]
+    Key(#[from] format::KeyError),
+    #[error(transparent)]
+    Write(#[from] format::WriteError),
+    /// A control-plane WAL was not copied.
+    #[error("{store}: {source}")]
+    Wal {
+        store: &'static str,
+        #[source]
+        source: StateError,
+    },
+    /// A key the `keys` section must hold.
+    #[error("keys: {file} not found in the data_dir")]
+    KeyMissing { file: &'static str },
+    #[error("storage: not open")]
+    StorageClosed,
+    #[error("storage: {0}")]
+    StorageEncode(#[source] wyrm_core::codec::CodecError),
+    #[error("{0}")]
+    History(#[source] wyrm_history::store::Error),
+    #[error("{0}")]
+    HistoryEncode(#[source] wyrm_core::codec::CodecError),
+    /// A link's definition was not encoded.
+    #[error("{link}: {source}")]
+    LinkEncode {
+        link: String,
+        #[source]
+        source: minicbor::encode::Error<std::convert::Infallible>,
+    },
+    /// A link's secrets were not encoded.
+    #[error("{link}: {source}")]
+    SecretsEncode {
+        link: String,
+        #[source]
+        source: wyrm_core::codec::CodecError,
+    },
+    /// A file of a link's private directory was not staged.
+    #[error("link {link}: {source}")]
+    LinkFile {
+        link: String,
+        #[source]
+        source: Box<BackupError>,
+    },
+    /// A link's private directory was not read ([`crate::nofollow::walk_files`]).
+    #[error("link {link}: {why}")]
+    LinkData { link: String, why: String },
+    #[error("package {name} {version}: no files under {}", .dir.display())]
+    PackageEmpty {
+        name: String,
+        version: String,
+        dir: PathBuf,
+    },
+    #[error("package: {link} does not run a package")]
+    NoPackage { link: String },
+    /// A section that the staging of this kind does not make.
+    #[error("no section {section} in a {} backup", .kind.name())]
+    NotStaged { section: SectionName, kind: Kind },
+    /// A link backup larger than a restore takes.
+    #[error(
+        "the link's private data is over {} GiB",
+        super::restore::MAX_LINK_BACKUP >> 30
+    )]
+    LinkTooLarge,
+}
+
+/// Why no backup job was started ([`Control::backup_start`]). To a caller:
+/// [`StartError::status`].
+#[derive(Debug, thiserror::Error)]
+pub enum StartError {
+    #[error(transparent)]
+    Request(#[from] RequestError),
+    /// MiB the backup needs (staged once and written once) and MiB free.
+    #[error(
+        "the backup needs about {want:.0} MiB on the disk of data_dir, {free:.0} MiB are free"
+    )]
+    DiskFull { want: f64, free: f64 },
+    #[error("a backup is being made; one at a time")]
+    Running,
+    /// A link whose data the backup would copy is being updated or restored:
+    /// the refusal of `Control::link_busy`, as it is.
+    #[error("{}", .0.message)]
+    LinkBusy(LinkError),
+}
+
+impl StartError {
+    pub fn status(&self) -> Status {
+        match self {
+            StartError::Request(_) => Status::InvalidParameter,
+            StartError::DiskFull { .. } => Status::ResourceExhausted,
+            StartError::Running => Status::Busy,
+            StartError::LinkBusy(e) => e.status,
+        }
+    }
+}
+
+impl From<StartError> for LinkError {
+    fn from(e: StartError) -> Self {
+        match e {
+            StartError::LinkBusy(e) => e,
+            other => LinkError::new(other.status(), other.to_string()),
+        }
+    }
+}
+
+/// Why `Control::backup_now` gave no backup.
+#[derive(Debug, thiserror::Error)]
+pub enum NowError {
+    #[error(transparent)]
+    Refused(#[from] StartError),
+    /// The job ran and failed: its `error`, as the job keeps it.
+    #[error("{0}")]
+    Failed(String),
+    #[error("the backup is gone")]
+    Gone,
+}
+
+/// Why no part of a kept backup is given ([`Control::backup_part`]). To a
+/// caller: [`PartError::status`].
+#[derive(Debug, thiserror::Error)]
+pub enum PartError {
+    #[error("backup {0}")]
+    NotFound(String),
+    /// It holds secrets that never travel to another site, and the caller's
+    /// authority comes from an upstream.
+    #[error(
+        "backup {id} holds {}: it never travels to another site. Download it on the \
+         broker's own gateway, not through its upstream",
+        .what.held()
+    )]
+    Remote { id: String, what: Exported },
+    /// Not `done`: running or failed.
+    #[error("backup {id} is {status}")]
+    NotDone { id: String, status: JobStatus },
+    #[error("len: 1 to {} bytes", MAX_PART)]
+    Len,
+    #[error("offset {offset}: the file has {size} bytes")]
+    Offset { offset: u64, size: u64 },
+    #[error(transparent)]
+    File(#[from] FileError),
+}
+
+impl PartError {
+    pub fn status(&self) -> Status {
+        match self {
+            PartError::NotFound(_) => Status::NotFound,
+            PartError::Remote { .. } => Status::PermissionDenied,
+            PartError::NotDone { .. } => Status::Busy,
+            PartError::Len => Status::InvalidParameter,
+            PartError::Offset { .. } => Status::OutOfRange,
+            PartError::File(_) => Status::InternalError,
+        }
+    }
+}
+
+impl From<PartError> for LinkError {
+    fn from(e: PartError) -> Self {
+        LinkError::new(e.status(), e.to_string())
+    }
+}
+
 /// `backups` in `wyrmd.json5`, and what `wyrmd` knows that the admin does not.
 #[derive(Debug, Clone)]
 pub struct BackupConfig {
@@ -427,9 +726,9 @@ pub(super) fn io_err(path: &Path, e: std::io::Error) -> String {
 pub(super) struct StageDir(pub(super) PathBuf);
 
 impl StageDir {
-    pub(super) fn new(backups: &Path) -> Result<Self, String> {
+    pub(super) fn new(backups: &Path) -> Result<Self, StageError> {
         let mut r = [0u8; 8];
-        wyrm_core::rand::fill(&mut r).map_err(|e| e.to_string())?;
+        wyrm_core::rand::fill(&mut r).map_err(StageError::NoRandomness)?;
         let dir = backups.join(format!(".stage-{}", hex::encode(r)));
         make_private_dir(&dir)?;
         Ok(Self(dir))
@@ -444,10 +743,10 @@ impl Drop for StageDir {
 
 /// A directory only its owner enters (an existing one is made so too; a
 /// symlink is refused): `secret::private_dir_of`.
-pub(super) fn make_private_dir(dir: &Path) -> Result<(), String> {
+pub(super) fn make_private_dir(dir: &Path) -> Result<(), FileError> {
     crate::secret::private_dir_of(dir)
         .map(drop)
-        .map_err(|e| io_err(dir, e))
+        .map_err(|e| FileError::new(dir, e))
 }
 
 /// Puts files of one backup into its stage directory.
@@ -457,24 +756,25 @@ struct Stager<'a> {
 }
 
 impl Stager<'_> {
-    fn place(&self, path: &str) -> Result<PathBuf, String> {
-        format::check_path(path).map_err(|e| e.to_string())?;
+    fn place(&self, path: &str) -> Result<PathBuf, BackupError> {
+        format::check_path(path)?;
         let p = self.dir.join(path);
         if let Some(d) = p.parent() {
-            std::fs::create_dir_all(d).map_err(|e| io_err(d, e))?;
+            std::fs::create_dir_all(d).map_err(|e| FileError::new(d, e))?;
         }
         Ok(p)
     }
 
-    fn key(&self, path: &str) -> Result<&MasterKey, String> {
-        self.key
-            .ok_or_else(|| format!("{path}: holds secrets; the backup needs a passphrase"))
+    fn key(&self, path: &str) -> Result<&MasterKey, BackupError> {
+        self.key.ok_or_else(|| BackupError::NoKey {
+            path: path.to_owned(),
+        })
     }
 
     /// `bytes` as the plain file `path`.
-    fn bytes(&self, path: &str, bytes: &[u8]) -> Result<Staged, String> {
+    fn bytes(&self, path: &str, bytes: &[u8]) -> Result<Staged, BackupError> {
         let p = self.place(path)?;
-        std::fs::write(&p, bytes).map_err(|e| io_err(&p, e))?;
+        std::fs::write(&p, bytes).map_err(|e| FileError::new(&p, e))?;
         Ok(Staged {
             path: path.to_owned(),
             source: p,
@@ -484,11 +784,14 @@ impl Stager<'_> {
     }
 
     /// `bytes` as the sealed file `path`.
-    fn sealed_bytes(&self, path: &str, bytes: &[u8]) -> Result<Staged, String> {
+    fn sealed_bytes(&self, path: &str, bytes: &[u8]) -> Result<Staged, BackupError> {
         let key = self.key(path)?;
         let p = self.place(path)?;
-        let sealed = format::seal_bytes(key, path, bytes).map_err(|e| format!("{path}: {e}"))?;
-        std::fs::write(&p, sealed).map_err(|e| io_err(&p, e))?;
+        let sealed = format::seal_bytes(key, path, bytes).map_err(|source| BackupError::Seal {
+            path: path.to_owned(),
+            source,
+        })?;
+        std::fs::write(&p, sealed).map_err(|e| FileError::new(&p, e))?;
         Ok(Staged {
             path: path.to_owned(),
             source: p,
@@ -500,19 +803,26 @@ impl Stager<'_> {
     /// The file `src` as the sealed file `path`. For files the broker owns
     /// (its keys); a link's private data is read through
     /// [`Self::sealed_from`], from a handle that followed no symlink.
-    fn sealed_file(&self, path: &str, src: &Path) -> Result<Staged, String> {
-        let from = std::fs::File::open(src).map_err(|e| io_err(src, e))?;
+    fn sealed_file(&self, path: &str, src: &Path) -> Result<Staged, BackupError> {
+        let from = std::fs::File::open(src).map_err(|e| FileError::new(src, e))?;
         self.sealed_from(path, from)
-            .map_err(|e| format!("{}: {e}", src.display()))
+            .map_err(|e| BackupError::SealedFile {
+                src: src.to_owned(),
+                source: Box::new(e),
+            })
     }
 
     /// What the open file `from` holds as the sealed file `path`.
-    fn sealed_from(&self, path: &str, from: std::fs::File) -> Result<Staged, String> {
+    fn sealed_from(&self, path: &str, from: std::fs::File) -> Result<Staged, BackupError> {
         let key = self.key(path)?;
         let p = self.place(path)?;
         let from = std::io::BufReader::new(from);
-        let to = std::io::BufWriter::new(std::fs::File::create(&p).map_err(|e| io_err(&p, e))?);
-        format::seal_stream(key, path, from, to).map_err(|e| format!("{path}: {e}"))?;
+        let to =
+            std::io::BufWriter::new(std::fs::File::create(&p).map_err(|e| FileError::new(&p, e))?);
+        format::seal_stream(key, path, from, to).map_err(|source| BackupError::Seal {
+            path: path.to_owned(),
+            source,
+        })?;
         Ok(Staged {
             path: path.to_owned(),
             source: p,
@@ -523,8 +833,8 @@ impl Stager<'_> {
 
     /// The file `src` itself as the plain file `path` (not copied: the
     /// writer fails the backup if it changes meanwhile).
-    fn direct(&self, path: &str, src: PathBuf, exec: bool) -> Result<Staged, String> {
-        format::check_path(path).map_err(|e| e.to_string())?;
+    fn direct(&self, path: &str, src: PathBuf, exec: bool) -> Result<Staged, BackupError> {
+        format::check_path(path)?;
         Ok(Staged {
             path: path.to_owned(),
             source: src,
@@ -599,14 +909,13 @@ impl Control {
     /// Check a request before a job is made for it: section names, links,
     /// the passphrase, what needs sealing. The canonical section list is
     /// returned (the order of the format, the always-made one included).
-    fn check_request(&self, req: &BackupRequest) -> Result<Vec<SectionName>, String> {
+    fn check_request(&self, req: &BackupRequest) -> Result<Vec<SectionName>, RequestError> {
         let all = req.kind.sections();
         if let Some(s) = req.sections.iter().find(|s| !all.contains(s)) {
-            return Err(format!(
-                "sections: no section {s} in a {} backup (one of {})",
-                req.kind.name(),
-                format::section_names(all)
-            ));
+            return Err(RequestError::Section {
+                section: *s,
+                kind: req.kind,
+            });
         }
         let always = match req.kind {
             Kind::Broker => SectionName::Control,
@@ -619,10 +928,7 @@ impl Control {
             .collect();
         if let SealWith::Passphrase(p) = &req.seal {
             if p.len() < crate::keys::MIN_PASSPHRASE {
-                return Err(format!(
-                    "passphrase: at least {} characters",
-                    crate::keys::MIN_PASSPHRASE
-                ));
+                return Err(RequestError::ShortPassphrase);
             }
         }
         let has = |s: SectionName| chosen.contains(&s);
@@ -631,30 +937,22 @@ impl Control {
         let passphrase = matches!(req.seal, SealWith::Passphrase(_));
         if passphrase || (has(SectionName::Keys) && !req.estimate) {
             let what = if has(SectionName::Keys) {
-                "keys: the site's keys and secrets"
+                Exported::Keys
             } else {
-                "passphrase: secrets sealed with a passphrase"
+                Exported::Passphrase
             };
             if !self.cfg.backups.export_secrets {
-                return Err(format!(
-                    "{what} do not leave this broker: backups.export_secrets is false in \
-                     wyrmd.json5 (set it on the host to allow it). Without a passphrase, link \
-                     secrets and private data are sealed for this site and open only on a \
-                     broker that holds its keys"
-                ));
+                return Err(RequestError::ExportOff(what));
             }
             if req.remote {
-                return Err(format!(
-                    "{what} never travel to another site: make this backup on the broker's \
-                     own gateway, not through its upstream"
-                ));
+                return Err(RequestError::Remote(what));
             }
         }
         let reg = self.registry();
         match req.kind {
             Kind::Broker => {
                 if has(SectionName::Keys) && !passphrase && !req.estimate {
-                    return Err("keys: the keys and secrets need a passphrase".into());
+                    return Err(RequestError::KeysUnsealed);
                 }
                 if let Some(l) = req
                     .links
@@ -662,25 +960,26 @@ impl Control {
                     .flatten()
                     .find(|l| !reg.links.contains_key(*l))
                 {
-                    return Err(format!("links: no link {l}"));
+                    return Err(RequestError::NoLinkOfLinks(l.clone()));
                 }
                 if has(SectionName::Config) && self.cfg.backups.config.is_none() {
-                    return Err("config: this broker was not started from a file".into());
+                    return Err(RequestError::NoConfig);
                 }
             }
             Kind::Link => {
-                let id = req.link.as_deref().ok_or("link: required")?;
-                let def = reg.links.get(id).ok_or_else(|| format!("no link {id}"))?;
+                let id = req.link.as_deref().ok_or(RequestError::LinkRequired)?;
+                let def = reg
+                    .links
+                    .get(id)
+                    .ok_or_else(|| RequestError::NoLink(id.to_owned()))?;
                 if has(SectionName::Data) && def.mode == Mode::External {
-                    return Err(
-                        "data: an external link keeps its data on its own host, not here".into(),
-                    );
+                    return Err(RequestError::ExternalData);
                 }
                 if has(SectionName::Package) && self.package_of(def).is_none() {
-                    return Err(format!(
-                        "package: {id} runs the built-in driver {}, not a package",
-                        def.driver
-                    ));
+                    return Err(RequestError::BuiltIn {
+                        link: id.to_owned(),
+                        driver: def.driver.clone(),
+                    });
                 }
             }
         }
@@ -688,7 +987,10 @@ impl Control {
     }
 
     /// Bytes each section of `req` would take, before compression.
-    pub fn backup_estimate(&self, req: &BackupRequest) -> Result<BTreeMap<String, u64>, String> {
+    pub fn backup_estimate(
+        &self,
+        req: &BackupRequest,
+    ) -> Result<BTreeMap<String, u64>, RequestError> {
         let chosen = self.check_request(req)?;
         let d = &self.cfg.data_dir;
         let len = |p: PathBuf| std::fs::metadata(p).map_or(0, |m| m.len());
@@ -767,7 +1069,7 @@ impl Control {
         req: &BackupRequest,
         out: &Path,
         progress: &dyn Fn(&str, u8),
-    ) -> Result<format::Written, String> {
+    ) -> Result<format::Written, BackupError> {
         let chosen = self.check_request(req)?;
         let backups = self.backups_dir();
         make_private_dir(&backups)?;
@@ -782,11 +1084,14 @@ impl Control {
             SealWith::Passphrase(p) => format::Sealing::Passphrase(p),
             SealWith::None | SealWith::Broker => {
                 secrets_key = secret::load_or_create_key(&self.cfg.data_dir.join("secrets.key"))
-                    .map_err(|e| format!("secrets.key: {e}"))?;
+                    .map_err(|source| BackupError::KeyFile {
+                        file: "secrets.key",
+                        source,
+                    })?;
                 format::Sealing::Broker(&secrets_key)
             }
         };
-        let (sealed, key) = sealing.start().map_err(|e| e.to_string())?;
+        let (sealed, key) = sealing.start()?;
         let st = Stager {
             dir: &stage.0,
             key: key.as_ref(),
@@ -814,7 +1119,10 @@ impl Control {
                     };
                     let mut s = StagedSection::new(SectionName::Links);
                     for id in ids {
-                        let def = reg.links.get(&id).ok_or_else(|| format!("no link {id}"))?;
+                        let def = reg
+                            .links
+                            .get(&id)
+                            .ok_or_else(|| RequestError::NoLink(id.clone()))?;
                         let base = format!("links/{id}");
                         s.files.extend(self.stage_link_settings(&st, def, &base)?);
                         // an external link keeps its data on its own host
@@ -845,7 +1153,7 @@ impl Control {
                         .backups
                         .config
                         .as_ref()
-                        .ok_or("config: this broker was not started from a file")?;
+                        .ok_or(RequestError::NoConfig)?;
                     StagedSection {
                         name: SectionName::Config,
                         info: json_map([("restored", false.into()), ("secrets", "masked".into())]),
@@ -853,8 +1161,11 @@ impl Control {
                     }
                 }
                 (Kind::Link, section) => {
-                    let id = req.link.as_deref().ok_or("link: required")?;
-                    let def = reg.links.get(id).ok_or_else(|| format!("no link {id}"))?;
+                    let id = req.link.as_deref().ok_or(RequestError::LinkRequired)?;
+                    let def = reg
+                        .links
+                        .get(id)
+                        .ok_or_else(|| RequestError::NoLink(id.to_owned()))?;
                     let package = self.package_of(def);
                     link.get_or_insert_with(|| LinkInfo {
                         id: def.id.clone(),
@@ -889,8 +1200,9 @@ impl Control {
                             }
                         }
                         SectionName::Package => {
-                            let p = package
-                                .ok_or_else(|| format!("package: {id} does not run a package"))?;
+                            let p = package.ok_or_else(|| BackupError::NoPackage {
+                                link: id.to_owned(),
+                            })?;
                             let mut s = self.stage_packages(&st, &[p], true)?;
                             s.name = SectionName::Package;
                             s
@@ -898,10 +1210,20 @@ impl Control {
                         SectionName::History => {
                             self.stage_link_history(&st, id, req.history_days)?
                         }
-                        other => return Err(format!("no section {other} in a link backup")),
+                        other => {
+                            return Err(BackupError::NotStaged {
+                                section: other,
+                                kind: Kind::Link,
+                            })
+                        }
                     }
                 }
-                (_, other) => return Err(format!("no section {other} in a broker backup")),
+                (Kind::Broker, other) => {
+                    return Err(BackupError::NotStaged {
+                        section: other,
+                        kind: Kind::Broker,
+                    })
+                }
             };
             sections.push(s);
         }
@@ -931,15 +1253,20 @@ impl Control {
             link,
         };
         progress("writing", 50);
-        format::write(out, head, sections, key.as_ref(), |done, total| {
-            let pct = 50 + (done.saturating_mul(50) / total.max(1)).min(50);
-            progress("writing", pct as u8);
-        })
-        .map_err(|e| e.to_string())
+        Ok(format::write(
+            out,
+            head,
+            sections,
+            key.as_ref(),
+            |done, total| {
+                let pct = 50 + (done.saturating_mul(50) / total.max(1)).min(50);
+                progress("writing", pct as u8);
+            },
+        )?)
     }
 
     /// `control`: each control-plane WAL as of one sequence number.
-    fn stage_control(&self, st: &Stager) -> Result<StagedSection, String> {
+    fn stage_control(&self, st: &Stager) -> Result<StagedSection, BackupError> {
         let d = &self.cfg.data_dir;
         let mut s = StagedSection::new(SectionName::Control);
         for (name, dir, key_file, _) in wal_stores() {
@@ -947,14 +1274,22 @@ impl Control {
             if !src.is_dir() {
                 continue;
             }
-            let key = secret::load_or_create_key(&d.join(key_file))
-                .map_err(|e| format!("{key_file}: {e}"))?;
+            let key = secret::load_or_create_key(&d.join(key_file)).map_err(|source| {
+                BackupError::KeyFile {
+                    file: key_file,
+                    source,
+                }
+            })?;
             let dest = st.dir.join("control").join(name);
-            let head = wyrm_state::replicate::copy_to(&src, &key, &dest)
-                .map_err(|e| format!("{name}: {e}"))?;
+            let head = wyrm_state::replicate::copy_to(&src, &key, &dest).map_err(|source| {
+                BackupError::Wal {
+                    store: name,
+                    source,
+                }
+            })?;
             s.info.insert(name.to_owned(), head.lsn.into());
-            for e in std::fs::read_dir(&dest).map_err(|e| io_err(&dest, e))? {
-                let e = e.map_err(|e| io_err(&dest, e))?;
+            for e in std::fs::read_dir(&dest).map_err(|e| FileError::new(&dest, e))? {
+                let e = e.map_err(|e| FileError::new(&dest, e))?;
                 let file = e.file_name().to_string_lossy().into_owned();
                 s.files
                     .push(st.direct(&format!("control/{name}/{file}"), e.path(), false)?);
@@ -965,7 +1300,7 @@ impl Control {
     }
 
     /// `keys`: the key files, `secrets.bin` and the link tokens, all sealed.
-    fn stage_keys(&self, st: &Stager) -> Result<StagedSection, String> {
+    fn stage_keys(&self, st: &Stager) -> Result<StagedSection, BackupError> {
         let d = &self.cfg.data_dir;
         let mut names: Vec<String> = key_files().into_iter().map(str::to_owned).collect();
         names.push("secrets.bin".into());
@@ -990,7 +1325,7 @@ impl Control {
         }
         for must in ["pki/ca.key", "state.key", "secrets.key"] {
             if !s.files.iter().any(|f| f.path == format!("keys/{must}")) {
-                return Err(format!("keys: {must} not found in the data_dir"));
+                return Err(BackupError::KeyMissing { file: must });
             }
         }
         Ok(s)
@@ -998,7 +1333,7 @@ impl Control {
 
     /// `dataflows`: the flow engine's artifacts. Its store is the WAL
     /// `control/flows`, which every backup holds.
-    fn stage_dataflows(&self, st: &Stager) -> Result<StagedSection, String> {
+    fn stage_dataflows(&self, st: &Stager) -> Result<StagedSection, BackupError> {
         let root = self.cfg.data_dir.join("flows");
         let mut found = Vec::new();
         replication::walk(&root, "artifacts", &mut found);
@@ -1016,12 +1351,12 @@ impl Control {
 
     /// `storage`: the whole tree at one revision, as the standby gets it,
     /// and as the JSON of the storage's own `export`.
-    fn stage_storage(&self, st: &Stager) -> Result<StagedSection, String> {
-        let store = self.storage().ok_or("storage: not open")?;
+    fn stage_storage(&self, st: &Stager) -> Result<StagedSection, BackupError> {
+        let store = self.storage().ok_or(BackupError::StorageClosed)?;
         // epoch 0 is never the store's: the answer is the whole tree
         let tree = store.changes_since(0, 0, 1);
         let bytes = wyrm_core::codec::to_vec(&replication::changes_value(&tree))
-            .map_err(|e| format!("storage: {e}"))?;
+            .map_err(BackupError::StorageEncode)?;
         let mut s = StagedSection {
             name: SectionName::Storage,
             info: json_map([("rev", tree.rev.into()), ("nodes", tree.put.len().into())]),
@@ -1043,7 +1378,7 @@ impl Control {
 
     /// `history`: the day files of the range, then the index, each a copy
     /// from inside one read transaction.
-    fn stage_history(&self, st: &Stager, days: Option<u32>) -> Result<StagedSection, String> {
+    fn stage_history(&self, st: &Stager, days: Option<u32>) -> Result<StagedSection, BackupError> {
         let store = self.history.store();
         let chosen = history_days(store, days);
         let mut s = StagedSection::new(SectionName::History);
@@ -1053,7 +1388,7 @@ impl Control {
             let name = wyrm_history::time::day_name(day);
             let path = format!("history/days/{name}.redb");
             let dest = st.place(&path)?;
-            match store.copy_day(day, &dest).map_err(|e| e.to_string())? {
+            match store.copy_day(day, &dest).map_err(BackupError::History)? {
                 Some(n) => rows += n,
                 None => continue,
             }
@@ -1061,7 +1396,7 @@ impl Control {
             s.files.push(st.direct(&path, dest, false)?);
         }
         let dest = st.place("history/index.redb")?;
-        store.copy_index(&dest).map_err(|e| e.to_string())?;
+        store.copy_index(&dest).map_err(BackupError::History)?;
         s.files.push(st.direct("history/index.redb", dest, false)?);
         s.info = json_map([
             ("days", names.into()),
@@ -1078,10 +1413,13 @@ impl Control {
         st: &Stager,
         def: &LinkDef,
         base: &str,
-    ) -> Result<Vec<Staged>, String> {
+    ) -> Result<Vec<Staged>, BackupError> {
         let mut def = def.clone();
         def.token_hash.clear();
-        let bytes = minicbor::to_vec(&def).map_err(|e| format!("{}: {e}", def.id))?;
+        let bytes = minicbor::to_vec(&def).map_err(|source| BackupError::LinkEncode {
+            link: def.id.clone(),
+            source,
+        })?;
         Ok(vec![st.bytes(&format!("{base}/link.cbor"), &bytes)?])
     }
 
@@ -1099,7 +1437,7 @@ impl Control {
         st: &Stager,
         def: &LinkDef,
         base: &str,
-    ) -> Result<(Vec<Staged>, u32), String> {
+    ) -> Result<(Vec<Staged>, u32), BackupError> {
         let secrets = Zeroizing::new(
             wyrm_core::codec::to_vec(&Value::Map(
                 exported_secrets(self.secrets.for_link(&def.id))
@@ -1107,7 +1445,10 @@ impl Control {
                     .map(|(k, v)| (k, Value::Bytes(v.to_vec())))
                     .collect(),
             ))
-            .map_err(|e| format!("{}: {e}", def.id))?,
+            .map_err(|source| BackupError::SecretsEncode {
+                link: def.id.clone(),
+                source,
+            })?,
         );
         let mut out = vec![st.sealed_bytes(&format!("{base}/secrets"), &secrets)?];
         let data = self.cfg.data_dir.join("links").join(&def.id).join("data");
@@ -1115,12 +1456,35 @@ impl Control {
             scratch: &replication::skipped,
             max_files: replication::MAX_FILES,
         };
-        let seen = crate::nofollow::walk_files(&data, &rules, &mut |rel, file, _| {
-            out.push(st.sealed_from(&format!("{base}/files/{rel}"), file)?);
-            Ok(())
-        })
-        .map_err(|e| format!("link {}: {e}", def.id))?;
-        Ok((out, seen.skipped))
+        // the walk speaks text (its own slice of the typed errors): the error of a
+        // file that was not staged is kept here, and the walk carries its text
+        let mut not_staged = None;
+        let walked = crate::nofollow::walk_files(&data, &rules, &mut |rel, file, _| match st
+            .sealed_from(&format!("{base}/files/{rel}"), file)
+        {
+            Ok(staged) => {
+                out.push(staged);
+                Ok(())
+            }
+            Err(e) => {
+                let text = e.to_string();
+                not_staged = Some(e);
+                Err(text)
+            }
+        });
+        let link = def.id.clone();
+        match (walked, not_staged) {
+            (Ok(seen), _) => Ok((out, seen.skipped)),
+            (Err(why), None) => Err(BackupError::LinkData { link, why }),
+            // `why` is the text of `source`: the walk ends with what its callback said
+            (Err(why), Some(source)) => {
+                debug_assert_eq!(why, source.to_string());
+                Err(BackupError::LinkFile {
+                    link,
+                    source: Box::new(source),
+                })
+            }
+        }
     }
 
     /// Packages as `packages/<name>/files/**`, or the one of a link backup
@@ -1133,7 +1497,7 @@ impl Control {
         st: &Stager,
         defs: &[PackageDef],
         single: bool,
-    ) -> Result<StagedSection, String> {
+    ) -> Result<StagedSection, BackupError> {
         let root = self.packages_root();
         let files = replication::files_of(&self.cfg.data_dir);
         let mut s = StagedSection::new(SectionName::Packages);
@@ -1153,12 +1517,11 @@ impl Control {
                 n += 1;
             }
             if n == 0 {
-                return Err(format!(
-                    "package {} {}: no files under {}",
-                    def.name,
-                    def.version,
-                    packages::dir(&root, def).display()
-                ));
+                return Err(BackupError::PackageEmpty {
+                    name: def.name.clone(),
+                    version: def.version.clone(),
+                    dir: packages::dir(&root, def),
+                });
             }
             s.info.insert(
                 def.name.clone(),
@@ -1175,7 +1538,7 @@ impl Control {
         st: &Stager,
         id: &str,
         days: Option<u32>,
-    ) -> Result<StagedSection, String> {
+    ) -> Result<StagedSection, BackupError> {
         let store = self.history.store();
         let prefix = link_prefix(&self.cfg.site, id);
         let from = match days {
@@ -1188,12 +1551,12 @@ impl Control {
         let mut s = StagedSection::new(SectionName::History);
         let mut page: Vec<Value> = Vec::new();
         let mut total = 0u64;
-        let flush = |page: &mut Vec<Value>, s: &mut StagedSection| -> Result<(), String> {
+        let flush = |page: &mut Vec<Value>, s: &mut StagedSection| -> Result<(), BackupError> {
             if page.is_empty() {
                 return Ok(());
             }
             let bytes = wyrm_core::codec::to_vec(&Value::Array(std::mem::take(page)))
-                .map_err(|e| e.to_string())?;
+                .map_err(BackupError::HistoryEncode)?;
             let path = format!("history/rows-{:05}.cbor", s.files.len());
             s.files.push(st.bytes(&path, &bytes)?);
             Ok(())
@@ -1207,7 +1570,7 @@ impl Control {
                     rows.push(r);
                     true
                 })
-                .map_err(|e| e.to_string())?;
+                .map_err(BackupError::History)?;
             for r in rows {
                 page.push(Value::Array(vec![
                     Value::from(rel.clone()),
@@ -1233,7 +1596,7 @@ impl Control {
     /// opens it. Blocking: call it off the async runtime. The link is not
     /// stopped. `path` is written whole or not at all (`<path>.part`
     /// meanwhile); its directory must exist.
-    pub fn link_backup_to(&self, id: &str, path: &Path) -> Result<LinkBackup, String> {
+    pub fn link_backup_to(&self, id: &str, path: &Path) -> Result<LinkBackup, BackupError> {
         self.link_backup_with(id, path, true)
     }
 
@@ -1241,7 +1604,7 @@ impl Control {
     /// [`Self::link_backup_to`] without the package. A restore point gives
     /// a link its private data and secrets back; the package it ran is kept
     /// as the package's `previous` version (§1.4), not once more per link.
-    pub fn link_restore_point_to(&self, id: &str, path: &Path) -> Result<LinkBackup, String> {
+    pub fn link_restore_point_to(&self, id: &str, path: &Path) -> Result<LinkBackup, BackupError> {
         self.link_backup_with(id, path, false)
     }
 
@@ -1250,13 +1613,13 @@ impl Control {
         id: &str,
         path: &Path,
         with_package: bool,
-    ) -> Result<LinkBackup, String> {
+    ) -> Result<LinkBackup, BackupError> {
         let def = self
             .registry()
             .links
             .get(id)
             .cloned()
-            .ok_or_else(|| format!("no link {id}"))?;
+            .ok_or_else(|| RequestError::NoLink(id.to_owned()))?;
         let mut sections = vec![SectionName::Settings];
         if def.mode != Mode::External {
             sections.push(SectionName::Data);
@@ -1282,10 +1645,7 @@ impl Control {
         // restore point that cannot be applied
         if w.manifest.size() > super::restore::MAX_LINK_BACKUP {
             wyrm_core::files::discard(path);
-            return Err(format!(
-                "the link's private data is over {} GiB",
-                super::restore::MAX_LINK_BACKUP >> 30
-            ));
+            return Err(BackupError::LinkTooLarge);
         }
         let skipped = w
             .manifest
@@ -1358,7 +1718,7 @@ impl Control {
     /// Remove a job's files, then forget it. `Err`: a file stays, and so does the
     /// job (listed, and tried again by the next prune); the archive goes first,
     /// its record last, so a record never names an archive that is gone.
-    fn drop_backup(&self, id: &str) -> Result<Option<Job>, String> {
+    fn drop_backup(&self, id: &str) -> Result<Option<Job>, FileError> {
         let Some(file) = self.backups.lock().get(id).map(|j| j.file.clone()) else {
             return Ok(None);
         };
@@ -1367,7 +1727,7 @@ impl Control {
             for p in [dir.join(&file), dir.join(format!("{file}.json"))] {
                 std::fs::remove_file(&p)
                     .or_else(wyrm_core::files::gone_ok)
-                    .map_err(|e| io_err(&p, e))?;
+                    .map_err(|e| FileError::new(&p, e))?;
             }
         }
         let job = self.backups.lock().remove(id);
@@ -1396,7 +1756,7 @@ impl Control {
         self: &Arc<Self>,
         req: BackupRequest,
         sub: &str,
-    ) -> Result<String, LinkError> {
+    ) -> Result<String, StartError> {
         self.backup_launch(req, sub, false)
     }
 
@@ -1406,12 +1766,12 @@ impl Control {
         self: &Arc<Self>,
         req: BackupRequest,
         sub: &str,
-    ) -> Result<Job, String> {
-        let id = self.backup_launch(req, sub, true).map_err(|e| e.message)?;
+    ) -> Result<Job, NowError> {
+        let id = self.backup_launch(req, sub, true)?;
         match self.backups.get(&id) {
             Some(j) if j.status == JobStatus::Done => Ok(j),
-            Some(j) => Err(j.error),
-            None => Err("the backup is gone".into()),
+            Some(j) => Err(NowError::Failed(j.error)),
+            None => Err(NowError::Gone),
         }
     }
 
@@ -1420,32 +1780,18 @@ impl Control {
         req: BackupRequest,
         sub: &str,
         wait: bool,
-    ) -> Result<String, LinkError> {
-        let chosen = self
-            .check_request(&req)
-            .map_err(LinkError::invalid_parameter)?;
-        let need: u64 = self
-            .backup_estimate(&req)
-            .map_err(LinkError::invalid_parameter)?
-            .values()
-            .sum();
+    ) -> Result<String, StartError> {
+        let chosen = self.check_request(&req)?;
+        let need: u64 = self.backup_estimate(&req)?.values().sum();
         if let Some(free) = disk_free_mib(&self.cfg.data_dir) {
             // staged once and written once
             let want = (need.saturating_mul(2) + KEEP_FREE) as f64 / f64::from(1 << 20);
             if free < want {
-                return Err(LinkError::new(
-                    Status::ResourceExhausted,
-                    format!(
-                        "the backup needs about {want:.0} MiB on the disk of data_dir, {free:.0} MiB are free"
-                    ),
-                ));
+                return Err(StartError::DiskFull { want, free });
             }
         }
         if self.backups.running.swap(true, Ordering::SeqCst) {
-            return Err(LinkError::new(
-                Status::Busy,
-                "a backup is being made; one at a time",
-            ));
+            return Err(StartError::Running);
         }
         let mut running = RunningJob {
             ctl: self.clone(),
@@ -1470,7 +1816,7 @@ impl Control {
             .lock()
             .unwrap_or_else(|p| p.into_inner()) = copies.clone();
         if let Some(e) = copies.iter().find_map(|l| self.link_busy(l)) {
-            return Err(e);
+            return Err(StartError::LinkBusy(e));
         }
         let now = now_s();
         let (id, file) = {
@@ -1579,6 +1925,8 @@ impl Control {
                     info!(backup = %job_id, size = w.size, "backup made");
                 }
                 Err(e) => {
+                    // as text from here on: the log, the audit journal, the job's record
+                    let e = e.to_string();
                     warn!(backup = %job_id, "backup failed: {e}");
                     wyrm_core::files::discard(&out);
                     ctl.record(
@@ -1612,31 +1960,29 @@ impl Control {
         id: &str,
         offset: u64,
         len: u64,
-    ) -> Result<(Vec<u8>, u64), LinkError> {
+    ) -> Result<(Vec<u8>, u64), PartError> {
         use std::io::{Read, Seek, SeekFrom};
         let job = self
             .backups
             .get(id)
-            .ok_or_else(|| LinkError::not_found(format!("backup {id}")))?;
+            .ok_or_else(|| PartError::NotFound(id.to_owned()))?;
         if job.status != JobStatus::Done {
-            return Err(LinkError::new(
-                Status::Busy,
-                format!("backup {id} is {}", job.status),
-            ));
+            return Err(PartError::NotDone {
+                id: id.to_owned(),
+                status: job.status,
+            });
         }
         if len == 0 || len > MAX_PART {
-            return Err(LinkError::invalid_parameter(format!(
-                "len: 1 to {MAX_PART} bytes"
-            )));
+            return Err(PartError::Len);
         }
         if offset > job.size {
-            return Err(LinkError::new(
-                Status::OutOfRange,
-                format!("offset {offset}: the file has {} bytes", job.size),
-            ));
+            return Err(PartError::Offset {
+                offset,
+                size: job.size,
+            });
         }
         let path = self.backups_dir().join(&job.file);
-        let internal = |e: std::io::Error| LinkError::internal(io_err(&path, e));
+        let internal = |e: std::io::Error| FileError::new(&path, e);
         let mut f = std::fs::File::open(&path).map_err(internal)?;
         f.seek(SeekFrom::Start(offset)).map_err(internal)?;
         let want = len.min(job.size - offset) as usize;
@@ -2029,22 +2375,17 @@ pub(super) async fn show_job(ctx: &LinkCtx, ctl: &Control, id: &str) {
 /// authority comes from an upstream (`remote`) is refused (ADR 0048 §3.4,
 /// §4). One sealed for this broker, or without secrets, opens nowhere else
 /// and may go.
-fn may_download(job: &Job, remote: bool) -> Result<(), LinkError> {
+fn may_download(job: &Job, remote: bool) -> Result<(), PartError> {
     let keys = job.sections.contains(&SectionName::Keys);
     if remote && (keys || job.sealed == Some(How::Passphrase)) {
-        return Err(LinkError::new(
-            Status::PermissionDenied,
-            format!(
-                "backup {} holds {}: it never travels to another site. Download it on the \
-                 broker's own gateway, not through its upstream",
-                job.id,
-                if keys {
-                    "this site's keys"
-                } else {
-                    "secrets sealed with a passphrase"
-                }
-            ),
-        ));
+        return Err(PartError::Remote {
+            id: job.id.clone(),
+            what: if keys {
+                Exported::Keys
+            } else {
+                Exported::Passphrase
+            },
+        });
     }
     Ok(())
 }
@@ -2080,7 +2421,8 @@ pub(super) async fn invoke(
             let sizes = tokio::task::spawn_blocking(move || ctl2.backup_estimate(&req))
                 .await
                 .map_err(|e| LinkError::internal(e.to_string()))?
-                .map_err(LinkError::invalid_parameter)?;
+                // every refusal of a request is `invalid_parameter`
+                .map_err(|e| LinkError::invalid_parameter(e.to_string()))?;
             let total: u64 = sizes.values().sum();
             Ok(Some(Value::Map(BTreeMap::from([
                 (
@@ -2100,7 +2442,7 @@ pub(super) async fn invoke(
             let job = ctl
                 .backups
                 .get(id)
-                .ok_or_else(|| LinkError::not_found(format!("backup {id}")))?;
+                .ok_or_else(|| PartError::NotFound((*id).to_owned()))?;
             may_download(&job, remote)?;
             let a = DownloadPart::decode(args)?;
             let (offset, len) = (a.offset, a.len.unwrap_or(DEFAULT_PART));
@@ -2145,6 +2487,7 @@ pub(super) async fn invoke(
                 Ok(Some(j)) => ctl.record(sub, AuditOp::BackupRemove, id, Status::Ok, &j.file),
                 Ok(None) => {}
                 Err(e) => {
+                    let e = e.to_string();
                     ctl.record(sub, AuditOp::BackupRemove, id, Status::InternalError, &e);
                     return Err(LinkError::internal(format!("backup {id} stays: {e}")));
                 }
@@ -2594,8 +2937,16 @@ mod tests {
         }
         for j in [&with_keys, &exported] {
             let e = may_download(j, true).unwrap_err();
-            assert_eq!(e.status, Status::PermissionDenied);
-            assert!(e.message.contains("never travels"), "{}", e.message);
+            let what = if j.sections.contains(&SectionName::Keys) {
+                Exported::Keys
+            } else {
+                Exported::Passphrase
+            };
+            assert!(
+                matches!(&e, PartError::Remote { id, what: w } if *id == j.id && *w == what),
+                "{e}"
+            );
+            assert_eq!(LinkError::from(e).status, Status::PermissionDenied);
         }
         may_download(&for_site, true).unwrap();
         may_download(&plain, true).unwrap();
@@ -2693,8 +3044,11 @@ mod tests {
             estimate: false,
         };
         let e = ctl.backup_launch(req(), "user:a", true).unwrap_err();
-        assert_eq!(e.status, Status::Busy);
-        assert!(e.message.contains("being restored"), "{}", e.message);
+        assert!(
+            matches!(&e, StartError::LinkBusy(l) if l.message.contains("being restored")),
+            "{e}"
+        );
+        assert_eq!(e.status(), Status::Busy);
         assert!(
             !ctl.backups.running.load(Ordering::SeqCst),
             "the slot is free"
@@ -2769,6 +3123,718 @@ mod tests {
                 "round {round}: done, and l1 is still being copied"
             );
         }
+    }
+
+    fn said(e: &dyn std::error::Error, want: &str) {
+        assert_eq!(e.to_string(), want);
+    }
+
+    /// Review T7: the errors of this file were `String`s. Each variant says, byte
+    /// for byte, what the text said: these lines reach an action's refusal, the
+    /// `error` value of a job, the audit journal and the log.
+    #[test]
+    fn every_error_says_what_its_text_said() {
+        let io = || std::io::Error::other("no");
+        let file = || FileError::new(Path::new("/d/f"), io());
+        said(&file(), "/d/f: no");
+        said(&StageError::Dir(file()), "/d/f: no");
+        // `StageError::NoRandomness` shows its cause alone, as `e.to_string()` did;
+        // the cause is made by `wyrm_core::rand` only
+
+        use RequestError as R;
+        said(
+            &R::Section {
+                section: SectionName::Settings,
+                kind: Kind::Broker,
+            },
+            "sections: no section settings in a broker backup (one of control, keys, \
+             dataflows, storage, history, links, packages, config)",
+        );
+        said(
+            &R::Section {
+                section: SectionName::Keys,
+                kind: Kind::Link,
+            },
+            "sections: no section keys in a link backup (one of settings, data, package, history)",
+        );
+        said(&R::ShortPassphrase, "passphrase: at least 12 characters");
+        said(
+            &R::ExportOff(Exported::Keys),
+            "keys: the site's keys and secrets do not leave this broker: \
+             backups.export_secrets is false in wyrmd.json5 (set it on the host to allow it). \
+             Without a passphrase, link secrets and private data are sealed for this site and \
+             open only on a broker that holds its keys",
+        );
+        said(
+            &R::ExportOff(Exported::Passphrase),
+            "passphrase: secrets sealed with a passphrase do not leave this broker: \
+             backups.export_secrets is false in wyrmd.json5 (set it on the host to allow it). \
+             Without a passphrase, link secrets and private data are sealed for this site and \
+             open only on a broker that holds its keys",
+        );
+        said(
+            &R::Remote(Exported::Keys),
+            "keys: the site's keys and secrets never travel to another site: make this \
+             backup on the broker's own gateway, not through its upstream",
+        );
+        said(
+            &R::Remote(Exported::Passphrase),
+            "passphrase: secrets sealed with a passphrase never travel to another site: make \
+             this backup on the broker's own gateway, not through its upstream",
+        );
+        said(
+            &R::KeysUnsealed,
+            "keys: the keys and secrets need a passphrase",
+        );
+        said(&R::NoLinkOfLinks("plc".into()), "links: no link plc");
+        said(
+            &R::NoConfig,
+            "config: this broker was not started from a file",
+        );
+        said(&R::LinkRequired, "link: required");
+        said(&R::NoLink("plc".into()), "no link plc");
+        said(
+            &R::ExternalData,
+            "data: an external link keeps its data on its own host, not here",
+        );
+        said(
+            &R::BuiltIn {
+                link: "plc".into(),
+                driver: "modbus".into(),
+            },
+            "package: plc runs the built-in driver modbus, not a package",
+        );
+
+        use BackupError as B;
+        let codec = || wyrm_core::codec::CodecError::Encode("no".into());
+        said(&B::Request(R::LinkRequired), "link: required");
+        said(&B::File(file()), "/d/f: no");
+        said(&B::Stage(StageError::Dir(file())), "/d/f: no");
+        said(
+            &B::Path(format::check_path("a/../b").unwrap_err()),
+            r#"path "a/../b": empty, `.` or `..` segment"#,
+        );
+        said(
+            &B::NoKey {
+                path: "keys/a".into(),
+            },
+            "keys/a: holds secrets; the backup needs a passphrase",
+        );
+        said(
+            &B::Seal {
+                path: "keys/a".into(),
+                source: io(),
+            },
+            "keys/a: no",
+        );
+        said(
+            &B::SealedFile {
+                src: "/d/state.key".into(),
+                source: Box::new(B::NoKey {
+                    path: "keys/state.key".into(),
+                }),
+            },
+            "/d/state.key: keys/state.key: holds secrets; the backup needs a passphrase",
+        );
+        said(
+            &B::KeyFile {
+                file: "secrets.key",
+                source: "Odd number of digits".into(),
+            },
+            "secrets.key: Odd number of digits",
+        );
+        said(
+            &B::Key(format::KeyError::WrongPassphrase),
+            "wrong passphrase",
+        );
+        said(&B::Write(format::WriteError::Flush(io())), "no");
+        said(
+            &B::Wal {
+                store: "state",
+                source: StateError::Rejected("no".into()),
+            },
+            "state: operation rejected: no",
+        );
+        said(
+            &B::KeyMissing { file: "pki/ca.key" },
+            "keys: pki/ca.key not found in the data_dir",
+        );
+        said(&B::StorageClosed, "storage: not open");
+        said(&B::StorageEncode(codec()), "storage: cbor encode: no");
+        said(
+            &B::History(wyrm_history::store::Error::Db("no".into())),
+            "history store: no",
+        );
+        said(&B::HistoryEncode(codec()), "cbor encode: no");
+        let cbor = minicbor::encode::Error::<std::convert::Infallible>::message("no");
+        let cbor_text = cbor.to_string();
+        said(
+            &B::LinkEncode {
+                link: "plc".into(),
+                source: cbor,
+            },
+            &format!("plc: {cbor_text}"),
+        );
+        said(
+            &B::SecretsEncode {
+                link: "plc".into(),
+                source: codec(),
+            },
+            "plc: cbor encode: no",
+        );
+        said(
+            &B::LinkFile {
+                link: "plc".into(),
+                source: Box::new(B::Seal {
+                    path: "data/files/a".into(),
+                    source: io(),
+                }),
+            },
+            "link plc: data/files/a: no",
+        );
+        said(
+            &B::LinkData {
+                link: "plc".into(),
+                why: "more than 5 files".into(),
+            },
+            "link plc: more than 5 files",
+        );
+        said(
+            &B::PackageEmpty {
+                name: "snmp".into(),
+                version: "1.2.0".into(),
+                dir: "/d/packages/snmp/1.2.0".into(),
+            },
+            "package snmp 1.2.0: no files under /d/packages/snmp/1.2.0",
+        );
+        said(
+            &B::NoPackage { link: "plc".into() },
+            "package: plc does not run a package",
+        );
+        said(
+            &B::NotStaged {
+                section: SectionName::Keys,
+                kind: Kind::Link,
+            },
+            "no section keys in a link backup",
+        );
+        said(
+            &B::NotStaged {
+                section: SectionName::Settings,
+                kind: Kind::Broker,
+            },
+            "no section settings in a broker backup",
+        );
+        said(&B::LinkTooLarge, "the link's private data is over 8 GiB");
+
+        use StartError as S;
+        said(&S::Request(R::LinkRequired), "link: required");
+        said(
+            &S::DiskFull {
+                want: 1234.4,
+                free: 99.6,
+            },
+            "the backup needs about 1234 MiB on the disk of data_dir, 100 MiB are free",
+        );
+        said(&S::Running, "a backup is being made; one at a time");
+        said(
+            &S::LinkBusy(LinkError::new(Status::Busy, "link plc is being restored")),
+            "link plc is being restored",
+        );
+
+        use NowError as N;
+        said(
+            &N::Refused(S::Running),
+            "a backup is being made; one at a time",
+        );
+        said(&N::Failed("storage: not open".into()), "storage: not open");
+        said(&N::Gone, "the backup is gone");
+
+        use PartError as P;
+        said(&P::NotFound("b1".into()), "backup b1");
+        said(
+            &P::Remote {
+                id: "b1".into(),
+                what: Exported::Keys,
+            },
+            "backup b1 holds this site's keys: it never travels to another site. Download it \
+             on the broker's own gateway, not through its upstream",
+        );
+        said(
+            &P::Remote {
+                id: "b1".into(),
+                what: Exported::Passphrase,
+            },
+            "backup b1 holds secrets sealed with a passphrase: it never travels to another \
+             site. Download it on the broker's own gateway, not through its upstream",
+        );
+        said(
+            &P::NotDone {
+                id: "b1".into(),
+                status: JobStatus::Running,
+            },
+            "backup b1 is running",
+        );
+        said(&P::Len, "len: 1 to 16777216 bytes");
+        said(
+            &P::Offset { offset: 9, size: 8 },
+            "offset 9: the file has 8 bytes",
+        );
+        said(&P::File(file()), "/d/f: no");
+    }
+
+    /// The status of every refusal is the one the place in the code gave it
+    /// before the errors were typed, and the message is the error's text.
+    #[test]
+    fn every_refusal_keeps_its_status() {
+        use {PartError as P, RequestError as R, StartError as S};
+        let file = || FileError::new(Path::new("/d/f"), std::io::Error::other("no"));
+        for (e, status) in [
+            (
+                S::Request(R::ExportOff(Exported::Keys)),
+                Status::InvalidParameter,
+            ),
+            (
+                S::Request(R::Remote(Exported::Keys)),
+                Status::InvalidParameter,
+            ),
+            (
+                S::Request(R::NoLink("plc".into())),
+                Status::InvalidParameter,
+            ),
+            (
+                S::DiskFull {
+                    want: 2.0,
+                    free: 1.0,
+                },
+                Status::ResourceExhausted,
+            ),
+            (S::Running, Status::Busy),
+        ] {
+            let text = e.to_string();
+            assert_eq!(e.status(), status, "{text}");
+            assert_eq!(LinkError::from(e), LinkError::new(status, text));
+        }
+        // the refusal of a busy link goes on as it came, whatever its status is
+        for status in [Status::Busy, Status::NotFound] {
+            let busy = LinkError::new(status, "link plc is being updated");
+            assert_eq!(S::LinkBusy(busy.clone()).status(), status);
+            assert_eq!(LinkError::from(S::LinkBusy(busy.clone())), busy);
+        }
+        for (e, status) in [
+            (P::NotFound("b1".into()), Status::NotFound),
+            (
+                P::Remote {
+                    id: "b1".into(),
+                    what: Exported::Keys,
+                },
+                Status::PermissionDenied,
+            ),
+            (
+                P::NotDone {
+                    id: "b1".into(),
+                    status: JobStatus::Failed,
+                },
+                Status::Busy,
+            ),
+            (P::Len, Status::InvalidParameter),
+            (P::Offset { offset: 9, size: 8 }, Status::OutOfRange),
+            (P::File(file()), Status::InternalError),
+        ] {
+            let text = e.to_string();
+            assert_eq!(e.status(), status, "{text}");
+            assert_eq!(LinkError::from(e), LinkError::new(status, text));
+        }
+    }
+
+    fn link_def(id: &str) -> LinkDef {
+        LinkDef {
+            id: id.into(),
+            driver: "mockdev".into(),
+            mode: Mode::Embedded,
+            params: Vec::new(),
+            token_hash: String::new(),
+            rev: 1,
+            origin: Origin::Runtime,
+            created: 1,
+            display: None,
+            granted: None,
+            log_level: None,
+            grants: Vec::new(),
+        }
+    }
+
+    fn request(kind: Kind, sections: &[SectionName], seal: SealWith) -> BackupRequest {
+        BackupRequest {
+            kind,
+            sections: sections.to_vec(),
+            links: None,
+            link: None,
+            history_days: None,
+            seal,
+            label: JobKind::Full,
+            pinned: false,
+            remote: false,
+            estimate: false,
+        }
+    }
+
+    const PASSPHRASE: &str = "correct horse battery staple";
+
+    fn passphrase(p: &str) -> SealWith {
+        SealWith::Passphrase(Zeroizing::new(p.as_bytes().to_vec()))
+    }
+
+    /// The whole of an error as anyone can read it: its text, its `Debug`, and
+    /// those of every cause below it.
+    fn all_of(e: &dyn std::error::Error) -> String {
+        let mut out = format!("{e} {e:?}");
+        let mut at = e.source();
+        while let Some(s) = at {
+            out.push_str(&format!(" {s} {s:?}"));
+            at = s.source();
+        }
+        out
+    }
+
+    /// ADR 0048 §3.4, §4: the rules of a request, each told apart by its type, in
+    /// the order they are judged; and no refusal repeats the passphrase.
+    #[test]
+    fn a_request_is_refused_by_its_rule() {
+        use {Exported as X, RequestError as R, SectionName as S};
+        let off = super::super::tests::control("backup-rules-off", false, |_| {});
+        let on = super::super::tests::control_tweaked("backup-rules-on", |c| {
+            c.backups.export_secrets = true;
+        });
+        for c in [&off, &on] {
+            c.apply(Op::Install(link_def("l1"))).unwrap();
+        }
+        let broker = |sections: &[S], seal| request(Kind::Broker, sections, seal);
+        let remote = |mut r: BackupRequest| {
+            r.remote = true;
+            r
+        };
+        let of_link = |mut r: BackupRequest, id: &str| {
+            r.kind = Kind::Link;
+            r.link = Some(id.to_owned());
+            r
+        };
+        let pass = || passphrase(PASSPHRASE);
+        let cases: Vec<(&str, &Arc<Control>, BackupRequest, R)> = vec![
+            (
+                "a section of the other kind",
+                &on,
+                broker(&[S::Data], SealWith::None),
+                R::Section {
+                    section: S::Data,
+                    kind: Kind::Broker,
+                },
+            ),
+            (
+                "a short passphrase",
+                &on,
+                broker(&[], passphrase("short")),
+                R::ShortPassphrase,
+            ),
+            (
+                "keys while export_secrets is off",
+                &off,
+                broker(&[S::Keys], pass()),
+                R::ExportOff(X::Keys),
+            ),
+            (
+                "keys without a passphrase while it is off: the same rule first",
+                &off,
+                broker(&[S::Keys], SealWith::None),
+                R::ExportOff(X::Keys),
+            ),
+            (
+                "a passphrase while it is off",
+                &off,
+                broker(&[S::Links], pass()),
+                R::ExportOff(X::Passphrase),
+            ),
+            (
+                "a link backup with a passphrase while it is off",
+                &off,
+                of_link(broker(&[S::Data], pass()), "l1"),
+                R::ExportOff(X::Passphrase),
+            ),
+            (
+                "export_secrets is judged before the caller's site",
+                &off,
+                remote(broker(&[S::Keys], pass())),
+                R::ExportOff(X::Keys),
+            ),
+            (
+                "keys for a caller from an upstream",
+                &on,
+                remote(broker(&[S::Keys], pass())),
+                R::Remote(X::Keys),
+            ),
+            (
+                "a passphrase for a caller from an upstream",
+                &on,
+                remote(broker(&[S::Storage], pass())),
+                R::Remote(X::Passphrase),
+            ),
+            (
+                "keys without a passphrase",
+                &on,
+                broker(&[S::Keys], SealWith::None),
+                R::KeysUnsealed,
+            ),
+            (
+                "keys sealed for the broker only",
+                &on,
+                broker(&[S::Keys], SealWith::Broker),
+                R::KeysUnsealed,
+            ),
+            (
+                "a link the broker does not have",
+                &on,
+                {
+                    let mut r = broker(&[S::Links], SealWith::None);
+                    r.links = Some(vec!["l1".into(), "nope".into()]);
+                    r
+                },
+                R::NoLinkOfLinks("nope".into()),
+            ),
+            (
+                "config of a broker started without a file",
+                &on,
+                broker(&[S::Config], SealWith::None),
+                R::NoConfig,
+            ),
+            (
+                "a link backup without its link",
+                &on,
+                {
+                    let mut r = broker(&[], SealWith::None);
+                    r.kind = Kind::Link;
+                    r
+                },
+                R::LinkRequired,
+            ),
+            (
+                "a link backup of no link",
+                &on,
+                of_link(broker(&[], SealWith::None), "nope"),
+                R::NoLink("nope".into()),
+            ),
+            (
+                "the package of a built-in driver",
+                &on,
+                of_link(broker(&[S::Package], SealWith::None), "l1"),
+                R::BuiltIn {
+                    link: "l1".into(),
+                    driver: "mockdev".into(),
+                },
+            ),
+        ];
+        for (name, ctl, req, want) in cases {
+            let e = ctl.check_request(&req).unwrap_err();
+            assert_eq!(e, want, "{name}");
+            assert!(!all_of(&e).contains(PASSPHRASE), "{name}: {e:?}");
+            // the same refusal wherever the request enters, and nothing is made
+            assert_eq!(ctl.backup_estimate(&req).unwrap_err(), want, "{name}");
+            let out = ctl.cfg.data_dir.join("refused.wyrm-backup");
+            let written = ctl.write_backup(&req, &out, &|_, _| {}).map(|_| ());
+            assert!(
+                matches!(&written, Err(BackupError::Request(e)) if *e == want),
+                "{name}: {written:?}"
+            );
+            assert!(!out.exists(), "{name}");
+            let started = ctl.backup_launch(req, "user:a", true);
+            assert!(
+                matches!(&started, Err(StartError::Request(e)) if *e == want),
+                "{name}: {started:?}"
+            );
+            assert!(ctl.backups.list().is_empty(), "{name}: no job");
+            assert!(!ctl.backups.running.load(Ordering::SeqCst), "{name}");
+        }
+        // only sizes are asked for: nothing is made, so nothing is gated
+        let mut sizes = broker(&[S::Keys], SealWith::Broker);
+        sizes.estimate = true;
+        assert!(off.backup_estimate(&remote(sizes)).is_ok());
+    }
+
+    /// What fails while a backup is made is told apart by its type and keeps its
+    /// cause; the job keeps the text; no error holds the passphrase.
+    #[test]
+    fn a_backup_that_fails_says_why_by_its_type() {
+        let ctl = super::super::tests::control_tweaked("backup-typed-fail", |c| {
+            c.backups.export_secrets = true;
+        });
+        ctl.apply(Op::Install(link_def("l1"))).unwrap();
+        let d = ctl.cfg.data_dir.clone();
+        // no storage in this broker
+        let req = request(
+            Kind::Broker,
+            &[SectionName::Storage],
+            passphrase(PASSPHRASE),
+        );
+        let e = ctl
+            .write_backup(&req, &d.join("a"), &|_, _| {})
+            .unwrap_err();
+        assert!(matches!(e, BackupError::StorageClosed), "{e:?}");
+        let e = ctl.backup_now(req, "user:a").unwrap_err();
+        assert!(
+            matches!(&e, NowError::Failed(text) if text == "storage: not open"),
+            "{e:?}"
+        );
+        let job = ctl.backups.list().pop().unwrap();
+        assert_eq!(
+            (job.status, job.error.as_str()),
+            (JobStatus::Failed, "storage: not open")
+        );
+        // a link nobody installed
+        let e = ctl.link_backup_to("nope", &d.join("b")).unwrap_err();
+        assert!(
+            matches!(&e, BackupError::Request(RequestError::NoLink(l)) if l == "nope"),
+            "{e:?}"
+        );
+        // the directory of the file is not there: the writer's error, with its cause
+        let e = ctl
+            .link_backup_to("l1", &d.join("missing").join("c"))
+            .unwrap_err();
+        assert!(
+            matches!(&e, BackupError::Write(format::WriteError::Io { .. })),
+            "{e:?}"
+        );
+        let cause = std::error::Error::source(&e)
+            .and_then(|s| s.downcast_ref::<std::io::Error>())
+            .map(std::io::Error::kind);
+        assert_eq!(cause, Some(std::io::ErrorKind::NotFound));
+        // a key file that is not a key: the error names the file and keeps the cause,
+        // whose text is what it was
+        let state_key = d.join("state.key");
+        let kept = std::fs::read(&state_key).unwrap();
+        std::fs::write(&state_key, b"not hex").unwrap();
+        let req = request(Kind::Broker, &[], passphrase(PASSPHRASE));
+        let e = ctl
+            .write_backup(&req, &d.join("e"), &|_, _| {})
+            .unwrap_err();
+        assert!(
+            matches!(
+                &e,
+                BackupError::KeyFile {
+                    file: "state.key",
+                    ..
+                }
+            ),
+            "{e:?}"
+        );
+        assert!(std::error::Error::source(&e).is_some());
+        assert!(!all_of(&e).contains(PASSPHRASE), "{e:?}");
+        std::fs::write(&state_key, kept).unwrap();
+        // a file with secrets and no key to seal it with
+        let stage = d.join("stage");
+        make_private_dir(&stage).unwrap();
+        let st = Stager {
+            dir: &stage,
+            key: None,
+        };
+        let e = st.sealed_file("keys/state.key", &state_key).unwrap_err();
+        assert!(
+            matches!(
+                &e,
+                BackupError::SealedFile { src, source }
+                    if *src == state_key && matches!(&**source, BackupError::NoKey { path } if path == "keys/state.key")
+            ),
+            "{e:?}"
+        );
+        let e = st.bytes("../a", b"x").unwrap_err();
+        assert!(matches!(e, BackupError::Path(_)), "{e:?}");
+        // a file of the link's private directory with a name no backup holds: the
+        // error of that file, below the link's
+        #[cfg(unix)]
+        {
+            let data = d.join("links").join("l1").join("data");
+            std::fs::create_dir_all(&data).unwrap();
+            std::fs::write(data.join("a:b"), b"x").unwrap();
+            let e = ctl.link_backup_to("l1", &d.join("g")).unwrap_err();
+            assert!(
+                matches!(
+                    &e,
+                    BackupError::LinkFile { link, source }
+                        if link == "l1" && matches!(&**source, BackupError::Path(_))
+                ),
+                "{e:?}"
+            );
+            assert_eq!(
+                e.to_string(),
+                "link l1: path \"data/files/a:b\": `\\`, `:` or a control character"
+            );
+            assert!(!d.join("g").exists());
+        }
+        // the link's private directory is a symlink: nothing is read through it
+        #[cfg(unix)]
+        {
+            let data = d.join("links").join("l1").join("data");
+            let _ = std::fs::remove_dir_all(&data);
+            std::fs::create_dir_all(data.parent().unwrap()).unwrap();
+            std::os::unix::fs::symlink(&d, &data).unwrap();
+            let e = ctl.link_backup_to("l1", &d.join("f")).unwrap_err();
+            assert!(
+                matches!(&e, BackupError::LinkData { link, .. } if link == "l1"),
+                "{e:?}"
+            );
+            assert!(!d.join("f").exists());
+        }
+        // a stage directory below a file
+        std::fs::write(d.join("file"), b"x").unwrap();
+        assert!(matches!(
+            StageDir::new(&d.join("file")).map(|_| ()),
+            Err(StageError::Dir(_))
+        ));
+    }
+
+    /// A part of a kept backup: each refusal by its type.
+    #[test]
+    fn a_part_is_refused_by_its_rule() {
+        let ctl = super::super::tests::control("backup-part-typed", false, |_| {});
+        let job = ctl
+            .backup_now(request(Kind::Broker, &[], SealWith::None), "user:a")
+            .unwrap();
+        let (data, size) = ctl.backup_part(&job.id, 0, 16).unwrap();
+        assert_eq!((data.len(), size), (16, job.size));
+        assert!(ctl.backup_part(&job.id, job.size, 16).unwrap().0.is_empty());
+        let part = |id: &str, offset, len| ctl.backup_part(id, offset, len).unwrap_err();
+        assert!(matches!(part("nope", 0, 1), PartError::NotFound(id) if id == "nope"));
+        assert!(matches!(part(&job.id, 0, 0), PartError::Len));
+        assert!(matches!(part(&job.id, 0, MAX_PART + 1), PartError::Len));
+        assert!(matches!(
+            part(&job.id, job.size + 1, 1),
+            PartError::Offset { offset, size } if offset == job.size + 1 && size == job.size
+        ));
+        ctl.backups
+            .update(&job.id, |j| j.status = JobStatus::Failed);
+        assert!(matches!(
+            part(&job.id, 0, 1),
+            PartError::NotDone {
+                status: JobStatus::Failed,
+                ..
+            }
+        ));
+        ctl.backups.update(&job.id, |j| j.status = JobStatus::Done);
+        std::fs::remove_file(ctl.backups_dir().join(&job.file)).unwrap();
+        let e = part(&job.id, 0, 1);
+        assert!(
+            matches!(&e, PartError::File(f) if f.source.kind() == std::io::ErrorKind::NotFound),
+            "{e:?}"
+        );
+        // one job at a time
+        ctl.backups.running.store(true, Ordering::SeqCst);
+        let e = ctl
+            .backup_start(request(Kind::Broker, &[], SealWith::None), "user:a")
+            .unwrap_err();
+        assert!(matches!(e, StartError::Running), "{e:?}");
+        let e = ctl
+            .backup_now(request(Kind::Broker, &[], SealWith::None), "user:a")
+            .unwrap_err();
+        assert!(matches!(e, NowError::Refused(StartError::Running)), "{e:?}");
+        ctl.backups.running.store(false, Ordering::SeqCst);
     }
 
     #[test]

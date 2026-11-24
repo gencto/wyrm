@@ -909,7 +909,9 @@ impl Control {
             keys,
             now_s(),
             |path| {
-                let made = self.link_restore_point_to(link, path)?;
+                let made = self
+                    .link_restore_point_to(link, path)
+                    .map_err(|e| e.to_string())?;
                 Ok((made.size, made.skipped))
             },
         )

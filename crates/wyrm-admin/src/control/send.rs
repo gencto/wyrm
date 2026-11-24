@@ -301,7 +301,7 @@ impl Sending {
             let (data, _) = tokio::task::spawn_blocking(move || ctl.backup_part(&id, offset, len))
                 .await
                 .map_err(|e| e.to_string())?
-                .map_err(|e| e.message)?;
+                .map_err(|e| e.to_string())?;
             let mut tries = 0;
             loop {
                 tries += 1;

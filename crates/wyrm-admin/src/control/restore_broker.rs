@@ -799,7 +799,8 @@ impl Control {
             }
         }
         // does the registry of the backup open with the key in place here?
-        let scratch = super::backups::StageDir::new(&self.backups_dir())?;
+        let scratch =
+            super::backups::StageDir::new(&self.backups_dir()).map_err(|e| e.to_string())?;
         let mut wal_opens_here = true;
         let mut any = false;
         for f in &manifest
@@ -957,7 +958,7 @@ impl Control {
                 .filter(|s| chosen.contains(&s.name) || s.name == SectionName::Control)
                 .flat_map(|s| &s.files),
         ))?;
-        make_private_dir(&tmp)?;
+        make_private_dir(&tmp).map_err(|e| e.to_string())?;
         let staged = self.stage_sections(r, c, chosen, accept, by, &tmp);
         let plan = match staged {
             Ok(plan) => plan,
@@ -1435,24 +1436,26 @@ impl Admin {
             if before.contains(&SectionName::History) && ctl.history.store().days().is_empty() {
                 before.retain(|s| *s != SectionName::History);
             }
-            let job = ctl.backup_now(
-                BackupRequest {
-                    kind: Kind::Broker,
-                    sections: before,
-                    links: None,
-                    link: None,
-                    history_days: None,
-                    seal: match (new_keys, pass) {
-                        (true, Some(p)) => SealWith::Passphrase(Zeroizing::new(p.to_vec())),
-                        _ => SealWith::None,
+            let job = ctl
+                .backup_now(
+                    BackupRequest {
+                        kind: Kind::Broker,
+                        sections: before,
+                        links: None,
+                        link: None,
+                        history_days: None,
+                        seal: match (new_keys, pass) {
+                            (true, Some(p)) => SealWith::Passphrase(Zeroizing::new(p.to_vec())),
+                            _ => SealWith::None,
+                        },
+                        label: super::backups::JobKind::PreRestore,
+                        pinned: false,
+                        remote: false,
+                        estimate: false,
                     },
-                    label: super::backups::JobKind::PreRestore,
-                    pinned: false,
-                    remote: false,
-                    estimate: false,
-                },
-                &sub2,
-            )?;
+                    &sub2,
+                )
+                .map_err(|e| e.to_string())?;
             info!(backup = %job.id, "what the restore replaces is backed up");
             ctl.stage_replace(&mut r, &c, &chosen2, accept, &sub2)
         })
