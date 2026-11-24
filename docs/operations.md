@@ -500,8 +500,19 @@ verified, the refusal names the file, and the log has an error line with
 it. `wyrmd install-layout` refuses to write such a file again, because it
 would lose the versions the file named. To recover, as root: look at the
 file; put it back from a copy, or remove it and run
-`wyrmd install-layout <prefix>` with the binary of each version that was
-put there by hand (a version with a signed release needs no entry).
+`<prefix>/versions/<v>/wyrmd install-layout <prefix>` with the binary of
+each version that was put there by hand (a version with a signed release
+needs no entry).
+
+CAUTION: each such run also makes its own version the current one and
+puts its own binary in place of the guard. Do it with the broker stopped
+and not during a trial. Run the version that must stay current last. If
+the current version has a signed release and so needs no entry, note
+where `current` points before you start and put it back afterwards
+(`ln -sfn versions/<v> <prefix>/current.new && mv -T <prefix>/current.new
+<prefix>/current`); the unit's `guard-refresh` step then makes the guard
+the binary of that version again at the next start. A wrong order starts
+an older binary on the data of a newer one at the next restart.
 
 The pre-update backup is sealed for this broker (`how: broker`): the guard
 checks its manifest with the key of `secrets.key`, every file against the
