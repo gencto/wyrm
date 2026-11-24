@@ -238,6 +238,9 @@ pub(super) struct Scripts {
     engine: rhai::Engine,
     expr: Option<rhai::AST>,
     columns: Vec<(String, From)>,
+    /// The variables of every script of the block (`row`, `index`), used again for each row
+    /// and each table.
+    vars: script::Vars,
 }
 
 /// Where a mapped column comes from.
@@ -331,6 +334,7 @@ pub(super) fn scripts(op: Op, cfg: &crate::def::Map) -> Result<Option<Scripts>, 
                 engine,
                 expr: Some(ast),
                 columns: Vec::new(),
+                vars: script::Vars::new(ROW_VARS),
             }))
         }
         Op::MapColumns => {
@@ -357,6 +361,7 @@ pub(super) fn scripts(op: Op, cfg: &crate::def::Map) -> Result<Option<Scripts>, 
                 engine,
                 expr: None,
                 columns,
+                vars: script::Vars::new(ROW_VARS),
             }))
         }
         _ => Ok(None),
@@ -407,15 +412,29 @@ fn clean(v: Value) -> Value {
 }
 
 /// Run `ast` on each row; `None` and the reason when a script fails or the table's budget ends.
+/// The rows of one table share `state`; it starts empty and nothing of it stays after.
 fn per_row<T>(
-    sc: &Scripts,
+    engine: &rhai::Engine,
+    vars: &mut script::Vars,
+    ast: &rhai::AST,
+    t: &Table,
+    each: impl FnMut(usize, Value) -> T,
+) -> Result<Vec<T>, String> {
+    vars.clear_state();
+    let out = rows(engine, vars, ast, t, each);
+    vars.clear_state();
+    out
+}
+
+fn rows<T>(
+    engine: &rhai::Engine,
+    vars: &mut script::Vars,
     ast: &rhai::AST,
     t: &Table,
     mut each: impl FnMut(usize, Value) -> T,
 ) -> Result<Vec<T>, String> {
     // one thread runs every row: the budget is read on the thread that started it
     let budget = crate::cpu_clock::Budget::start(SCRIPT_BUDGET);
-    let mut state = rhai::Map::new();
     let mut out = Vec::with_capacity(t.rows.len());
     for (i, r) in t.rows.iter().enumerate() {
         if budget.spent() {
@@ -424,19 +443,25 @@ fn per_row<T>(
                 SCRIPT_BUDGET.as_millis()
             ));
         }
-        let row = Value::Map(r.clone());
-        let vars = vec![
-            ("row".to_owned(), script::to_dynamic(&row)),
-            ("index".to_owned(), rhai::Dynamic::from_int(i as i64)),
-        ];
-        let d =
-            script::eval(&sc.engine, ast, vars, &mut state).map_err(|e| format!("row {i}: {e}"))?;
+        // the row straight into the map the row before left there: no copy of the row, and
+        // for rows of the same columns no new map
+        if let Some(row) = vars.var(0) {
+            script::set_map(
+                row,
+                r.keys().map(String::as_str),
+                r.values().map(script::to_dynamic),
+            );
+        }
+        if let Some(index) = vars.var(1) {
+            *index = rhai::Dynamic::from_int(i as i64);
+        }
+        let d = script::eval(engine, ast, vars).map_err(|e| format!("row {i}: {e}"))?;
         out.push(each(i, clean(script::from_dynamic(&d))));
     }
     Ok(out)
 }
 
-pub(super) fn calc(op: Op, v: &View, sc: Option<&Scripts>) -> Outs {
+pub(super) fn calc(op: Op, v: &View, sc: Option<&mut Scripts>) -> Outs {
     let one = |(val, bad): (Value, bool)| vec![("out", val, bad)];
     let nul = || vec![("out", Value::Null, false)];
     match op {
@@ -536,7 +561,13 @@ pub(super) fn calc(op: Op, v: &View, sc: Option<&Scripts>) -> Outs {
             } else {
                 vec![BTreeMap::new(); t.rows.len()]
             };
-            for (name, how) in &sc.columns {
+            let Scripts {
+                engine,
+                columns,
+                vars,
+                ..
+            } = sc;
+            for (name, how) in columns.iter() {
                 let cells: Result<Vec<Value>, String> = match how {
                     From::Column(c) => Ok(t
                         .rows
@@ -544,7 +575,7 @@ pub(super) fn calc(op: Op, v: &View, sc: Option<&Scripts>) -> Outs {
                         .map(|r| r.get(c).cloned().unwrap_or(Value::Null))
                         .collect()),
                     From::Nothing => Ok(vec![Value::Null; t.rows.len()]),
-                    From::Expr(ast, kind) => per_row(sc, ast, &t, |_, x| match kind {
+                    From::Expr(ast, kind) => per_row(engine, vars, ast, &t, |_, x| match kind {
                         '+' => num(&x).map_or(Value::Null, N::value),
                         '&' => Value::Bool(truth(&x, false)),
                         _ => x,
@@ -591,10 +622,13 @@ pub(super) fn calc(op: Op, v: &View, sc: Option<&Scripts>) -> Outs {
             let (Some(t), Some(sc)) = (input_table(v), sc) else {
                 return vec![("out", Value::Null, false), ("error", Value::Null, false)];
             };
-            let Some(ast) = sc.expr.as_ref() else {
+            let Scripts {
+                engine, expr, vars, ..
+            } = sc;
+            let Some(ast) = expr.as_ref() else {
                 return nul();
             };
-            match per_row(sc, ast, &t, |_, x| truth(&x, false)) {
+            match per_row(engine, vars, ast, &t, |_, x| truth(&x, false)) {
                 Ok(keep) => {
                     let remove = op == Op::RemoveRows;
                     let rows = t
@@ -617,7 +651,10 @@ pub(super) fn calc(op: Op, v: &View, sc: Option<&Scripts>) -> Outs {
             let (Some(mut t), Some(sc)) = (input_table(v), sc) else {
                 return vec![("out", Value::Null, false), ("error", Value::Null, false)];
             };
-            let Some(ast) = sc.expr.as_ref() else {
+            let Scripts {
+                engine, expr, vars, ..
+            } = sc;
+            let Some(ast) = expr.as_ref() else {
                 return nul();
             };
             let Value::Map(cells) = v.p("cells") else {
@@ -626,7 +663,7 @@ pub(super) fn calc(op: Op, v: &View, sc: Option<&Scripts>) -> Outs {
                     ("error", Value::Null, false),
                 ];
             };
-            match per_row(sc, ast, &t, |_, x| truth(&x, false)) {
+            match per_row(engine, vars, ast, &t, |_, x| truth(&x, false)) {
                 Ok(hit) => {
                     for (r, h) in t.rows.iter_mut().zip(hit) {
                         if h {
@@ -1608,6 +1645,7 @@ mod tests {
             engine,
             expr: Some(ast),
             columns: Vec::new(),
+            vars: script::Vars::new(ROW_VARS),
         }
     }
 
@@ -1625,17 +1663,23 @@ mod tests {
                 .map(|i| map(&[("i", Value::from(i as i64))]))
                 .collect(),
         };
-        let sc = timed_scripts("off_core(30); true");
+        let mut sc = timed_scripts("off_core(30); true");
         let ast = sc.expr.clone().unwrap();
         let started = std::time::Instant::now();
-        let kept = per_row(&sc, &ast, &rows(5), |_, x| truth(&x, false)).expect("not a timeout");
+        let kept = per_row(&sc.engine, &mut sc.vars, &ast, &rows(5), |_, x| {
+            truth(&x, false)
+        })
+        .expect("not a timeout");
         assert!(started.elapsed() > SCRIPT_BUDGET, "{:?}", started.elapsed());
         assert_eq!(kept, [true; 5]);
         // scripts that do use their 100 ms still end the table (8 ms a row, under the 10 ms
         // of one call)
-        let sc = timed_scripts("burn(8); true");
+        let mut sc = timed_scripts("burn(8); true");
         let ast = sc.expr.clone().unwrap();
-        let e = per_row(&sc, &ast, &rows(40), |_, x| truth(&x, false)).unwrap_err();
+        let e = per_row(&sc.engine, &mut sc.vars, &ast, &rows(40), |_, x| {
+            truth(&x, false)
+        })
+        .unwrap_err();
         assert!(e.contains("longer than 100 ms"), "{e}");
     }
 
@@ -1661,7 +1705,7 @@ mod tests {
             .map(|p| (p.name.to_owned(), p.default))
             .collect();
         cfg.extend(kv.iter().map(|(k, v)| ((*k).to_owned(), v.clone())));
-        let sc = scripts(op, &cfg).unwrap();
+        let mut sc = scripts(op, &cfg).unwrap();
         let insm: BTreeMap<String, crate::nodes::Payload> = ins
             .iter()
             .map(|(k, v)| ((*k).to_owned(), v.clone().into()))
@@ -1674,7 +1718,7 @@ mod tests {
                 now_us: 0,
                 ins: &insm,
             },
-            sc.as_ref(),
+            sc.as_mut(),
         )
     }
 

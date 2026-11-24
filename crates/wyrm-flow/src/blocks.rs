@@ -1432,7 +1432,11 @@ impl Block {
             Kind::Recorder => self.record(changed, q, t, out),
             Kind::Table(tables::Op::Page) => self.page(changed, q, t, out),
             Kind::Table(op) => {
-                let outs = tables::calc(op, &self.view(), self.scripts.as_ref());
+                // the scripts keep their variables between calls: out of the block for the
+                // call, which reads the rest of it
+                let mut scripts = self.scripts.take();
+                let outs = tables::calc(op, &self.view(), scripts.as_mut());
+                self.scripts = scripts;
                 self.send_all(outs, q, t, out);
             }
             Kind::Add => {

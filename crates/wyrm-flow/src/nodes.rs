@@ -498,7 +498,7 @@ pub fn check_script(ty: &str, cfg: &Map) -> Result<(), String> {
                 .map(|_| ())
                 .map_err(|m| format!("expr: {m}"))
         }
-        "filter" => script::compile(&e, req_s(cfg, "expr")?, &["v", "q", "t"])
+        "filter" => script::compile(&e, req_s(cfg, "expr")?, &FILTER_VARS)
             .map(|_| ())
             .map_err(|m| format!("expr: {m}")),
         _ => Ok(()),
@@ -689,9 +689,13 @@ struct Expression {
     fresh: BTreeMap<String, bool>,
     all: bool,
     quality: QualityMode,
-    state: rhai::Map,
+    /// The script's variables, one per input in the order of `inputs`, and its `state`.
+    vars: script::Vars,
     errors: u64,
 }
+
+/// The keys of the map a script sees for one input, in the order of a map's keys.
+const INPUT_KEYS: [&str; 4] = ["age_ms", "q", "t", "v"];
 
 impl Expression {
     fn worst(&self) -> Quality {
@@ -726,24 +730,21 @@ impl Node for Expression {
             *v = false;
         }
         let now = now_us();
-        let vars = self
-            .inputs
-            .iter()
-            .map(|n| {
-                let m = &self.last[n];
-                let mut map = rhai::Map::new();
-                map.insert("v".into(), script::to_dynamic(&m.v));
-                map.insert("q".into(), rhai::Dynamic::from_int(i64::from(m.q.code())));
-                map.insert("t".into(), rhai::Dynamic::from_int(m.t as i64));
-                map.insert(
-                    "age_ms".into(),
-                    rhai::Dynamic::from_int((now.saturating_sub(m.t) / 1000) as i64),
-                );
-                (n.clone(), rhai::Dynamic::from_map(map))
-            })
-            .collect();
+        // every input's variable anew, in the map the call before left there
+        for (i, n) in self.inputs.iter().enumerate() {
+            let (Some(m), Some(var)) = (self.last.get(n), self.vars.var(i)) else {
+                continue;
+            };
+            let values = [
+                rhai::Dynamic::from_int((now.saturating_sub(m.t) / 1000) as i64),
+                rhai::Dynamic::from_int(i64::from(m.q.code())),
+                rhai::Dynamic::from_int(m.t as i64),
+                script::to_dynamic(&m.v),
+            ];
+            script::set_map(var, INPUT_KEYS.iter().copied(), values.into_iter());
+        }
         let t = self.last.values().map(|m| m.t).max().unwrap_or(now);
-        let r = match script::eval(&self.engine, &self.ast, vars, &mut self.state) {
+        let r = match script::eval(&self.engine, &self.ast, &mut self.vars) {
             Ok(r) => r,
             Err(e) => {
                 self.errors += 1;
@@ -772,13 +773,12 @@ impl Node for Expression {
     }
 
     fn state(&self) -> Option<Value> {
-        (!self.state.is_empty())
-            .then(|| script::from_dynamic(&rhai::Dynamic::from_map(self.state.clone())))
+        self.vars.state()
     }
 
     fn restore(&mut self, st: &Value) {
         if let Some(m) = script::to_dynamic(st).try_cast::<rhai::Map>() {
-            self.state = m;
+            self.vars.set_state(m);
         }
     }
 }
@@ -1214,20 +1214,28 @@ impl Node for Delay {
 struct Filter {
     engine: rhai::Engine,
     ast: rhai::AST,
+    /// The script's variables: `v`, `q`, `t`.
+    vars: script::Vars,
 }
+
+/// The variables of a `filter` script.
+const FILTER_VARS: [&str; 3] = ["v", "q", "t"];
 
 impl Node for Filter {
     fn input(&mut self, _p: &str, m: Msg, _io: &Io, out: &mut Out) {
-        let vars = vec![
-            ("v".to_owned(), script::to_dynamic(&m.v)),
-            (
-                "q".to_owned(),
-                rhai::Dynamic::from_int(i64::from(m.q.code())),
-            ),
-            ("t".to_owned(), rhai::Dynamic::from_int(m.t as i64)),
+        let values = [
+            script::to_dynamic(&m.v),
+            rhai::Dynamic::from_int(i64::from(m.q.code())),
+            rhai::Dynamic::from_int(m.t as i64),
         ];
-        let mut st = rhai::Map::new();
-        if let Ok(r) = script::eval(&self.engine, &self.ast, vars, &mut st) {
+        for (i, v) in values.into_iter().enumerate() {
+            if let Some(var) = self.vars.var(i) {
+                *var = v;
+            }
+        }
+        // a filter keeps nothing from one sample to the next
+        self.vars.clear_state();
+        if let Ok(r) = script::eval(&self.engine, &self.ast, &mut self.vars) {
             if r.as_bool().unwrap_or(false) {
                 out.emit("out", m);
             }
@@ -1390,6 +1398,7 @@ pub fn build_with(
             let engine = script::engine();
             let refs: Vec<&str> = inputs.iter().map(String::as_str).collect();
             let ast = script::compile(&engine, req_s(cfg, "expr")?, &refs)?;
+            let vars = script::Vars::new(&refs);
             Box::new(Expression {
                 engine,
                 ast,
@@ -1398,7 +1407,7 @@ pub fn build_with(
                 fresh: BTreeMap::new(),
                 all: pick_of(cfg, "trigger", Trigger::Any)? == Trigger::All,
                 quality: pick_of(cfg, "quality", QualityMode::Worst)?,
-                state: rhai::Map::new(),
+                vars,
                 errors: 0,
             })
         }
@@ -1446,8 +1455,12 @@ pub fn build_with(
         }),
         "filter" => {
             let engine = script::engine();
-            let ast = script::compile(&engine, req_s(cfg, "expr")?, &["v", "q", "t"])?;
-            Box::new(Filter { engine, ast })
+            let ast = script::compile(&engine, req_s(cfg, "expr")?, &FILTER_VARS)?;
+            Box::new(Filter {
+                engine,
+                ast,
+                vars: script::Vars::new(&FILTER_VARS),
+            })
         }
         "publish" => Box::new(Publish {
             path: format!("{flow}/nodes/{}", req_s(cfg, "node")?),

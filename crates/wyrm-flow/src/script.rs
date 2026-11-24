@@ -139,10 +139,7 @@ impl Vars {
         if plain {
             return;
         }
-        let state = self
-            .scope
-            .get_value::<rhai::Map>(STATE)
-            .unwrap_or_default();
+        let state = self.scope.get_value::<rhai::Map>(STATE).unwrap_or_default();
         self.scope.rewind(base);
         self.set_state(state);
     }
@@ -179,7 +176,8 @@ pub fn set_map<'a>(
     // a map that a closure holds, or one with a tag, is not ours alone: a new one
     if !slot.is_shared() && slot.tag() == 0 {
         if let Ok(mut m) = slot.as_map_mut() {
-            let same = m.len() == keys.len() && m.keys().zip(keys.clone()).all(|(a, b)| a == b);
+            let same =
+                m.len() == keys.len() && m.keys().zip(keys.clone()).all(|(a, b)| a.as_str() == b);
             if same {
                 for (cell, v) in m.values_mut().zip(values) {
                     *cell = v;
@@ -202,7 +200,7 @@ pub fn to_dynamic(v: &Value) -> Dynamic {
         },
         Value::Float(f) => Dynamic::from_float(*f),
         // from the text itself: no copy of the `String` on the way
-        Value::Str(s) => Dynamic::from(s.as_str()),
+        Value::Str(s) => Dynamic::from(rhai::ImmutableString::from(s.as_str())),
         Value::Bytes(b) => Dynamic::from_blob(b.clone()),
         Value::Array(a) => Dynamic::from_array(a.iter().map(to_dynamic).collect()),
         Value::Map(m) => Dynamic::from_map(
@@ -262,20 +260,188 @@ mod tests {
         assert!(err.contains('c'), "{err}");
         assert!(compile(&e, "eval(\"1\")", &[]).is_err());
         let ast = compile(&e, "loop { }", &[]).unwrap();
-        let mut st = rhai::Map::new();
-        assert!(
-            eval(&e, &ast, vec![], &mut st).is_err(),
-            "endless loop stops"
-        );
+        let mut st = Vars::new(&[]);
+        assert!(eval(&e, &ast, &mut st).is_err(), "endless loop stops");
         let ast = compile(&e, "state.n = (state.n ?? 0) + 1; state.n", &[]).unwrap();
         for i in 1..=3 {
-            let r = eval(&e, &ast, vec![], &mut st).unwrap();
+            let r = eval(&e, &ast, &mut st).unwrap();
             assert_eq!(r.as_int().unwrap(), i);
         }
         assert_eq!(
             from_dynamic(&to_dynamic(&Value::Float(2.5))),
             Value::Float(2.5)
         );
+    }
+
+    fn int(vars: &mut Vars, i: usize, x: i64) {
+        *vars.var(i).unwrap() = Dynamic::from_int(x);
+    }
+
+    /// The variables are kept between calls, and nothing of one call reaches the next but
+    /// `state`: a variable a script declares is gone, also one that hides an input or `state`.
+    #[test]
+    fn a_variable_of_one_call_is_not_seen_by_the_next() {
+        let e = engine();
+        let mut vars = Vars::new(&["a"]);
+        // `let` in one call; the next call's script cannot even be compiled to read it, and a
+        // script that declares it again starts from nothing
+        let set = compile(&e, "let leaked = a + 1; leaked", &["a"]).unwrap();
+        int(&mut vars, 0, 41);
+        assert_eq!(eval(&e, &set, &mut vars).unwrap().as_int().unwrap(), 42);
+        assert_eq!(vars.scope.len(), 2, "only a and state stay");
+        assert!(!vars.scope.contains("leaked"));
+        assert!(compile(&e, "leaked", &["a"]).is_err());
+        // a `let` that hides the input: the next call reads the input it was given
+        let hide = compile(&e, "let a = 1000; a", &["a"]).unwrap();
+        int(&mut vars, 0, 1);
+        assert_eq!(eval(&e, &hide, &mut vars).unwrap().as_int().unwrap(), 1000);
+        let read = compile(&e, "a", &["a"]).unwrap();
+        int(&mut vars, 0, 7);
+        assert_eq!(eval(&e, &read, &mut vars).unwrap().as_int().unwrap(), 7);
+        // an assignment to the input does not outlive the call either: the caller sets it
+        let assign = compile(&e, "a = 99; a", &["a"]).unwrap();
+        int(&mut vars, 0, 2);
+        assert_eq!(eval(&e, &assign, &mut vars).unwrap().as_int().unwrap(), 99);
+        int(&mut vars, 0, 3);
+        assert_eq!(eval(&e, &read, &mut vars).unwrap().as_int().unwrap(), 3);
+        assert_eq!(vars.state(), None, "no state was written");
+    }
+
+    /// A call that fails leaves nothing behind but what it wrote into `state` before it
+    /// failed, as before: the variables it declared are gone.
+    #[test]
+    fn a_call_that_fails_leaves_nothing_behind() {
+        let e = engine();
+        let mut vars = Vars::new(&["a"]);
+        let fail = compile(&e, "let x = 5; let y = [1, 2]; throw \"no\"", &["a"]).unwrap();
+        int(&mut vars, 0, 1);
+        let err = eval(&e, &fail, &mut vars).unwrap_err();
+        assert!(err.contains("no"), "{err}");
+        assert_eq!(vars.scope.len(), 2);
+        assert!(!vars.scope.contains("x") && !vars.scope.contains("y"));
+        assert_eq!(vars.state(), None);
+        // an endless loop that declared variables on its way
+        let spin = compile(&e, "let z = 1; loop { let w = z; }", &["a"]).unwrap();
+        assert!(eval(&e, &spin, &mut vars).is_err());
+        assert_eq!(vars.scope.len(), 2);
+        // the next call is as the first
+        let read = compile(&e, "a * 2", &["a"]).unwrap();
+        int(&mut vars, 0, 21);
+        assert_eq!(eval(&e, &read, &mut vars).unwrap().as_int().unwrap(), 42);
+        // what a failed call wrote into state before it failed stays (as with a scope per
+        // call, which read the state back after an error too)
+        let half = compile(&e, "state.n = 1; throw \"late\"", &["a"]).unwrap();
+        assert!(eval(&e, &half, &mut vars).is_err());
+        assert_eq!(
+            vars.state(),
+            Some(Value::Map([("n".to_owned(), Value::UInt(1))].into()))
+        );
+    }
+
+    /// `state` after a call is what a scope per call gave: a `let state` that is a map
+    /// becomes the state, one that is no map empties it, and the variable itself is gone.
+    #[test]
+    fn a_script_that_hides_state_keeps_the_old_rules() {
+        let e = engine();
+        let mut vars = Vars::new(&[]);
+        let count = compile(&e, "state.n = (state.n ?? 0) + 1; state.n", &[]).unwrap();
+        assert_eq!(eval(&e, &count, &mut vars).unwrap().as_int().unwrap(), 1);
+        let map = compile(&e, "let state = #{n: 10}; 0", &[]).unwrap();
+        assert!(eval(&e, &map, &mut vars).is_ok());
+        assert_eq!(vars.scope.len(), 1);
+        assert_eq!(eval(&e, &count, &mut vars).unwrap().as_int().unwrap(), 11);
+        let no_map = compile(&e, "let state = 5; 0", &[]).unwrap();
+        assert!(eval(&e, &no_map, &mut vars).is_ok());
+        assert_eq!(vars.scope.len(), 1);
+        assert_eq!(vars.state(), None);
+        assert_eq!(eval(&e, &count, &mut vars).unwrap().as_int().unwrap(), 1);
+        // state assigned something that is no map: an empty state for the next call
+        let assign = compile(&e, "state = 5; 0", &[]).unwrap();
+        assert!(eval(&e, &assign, &mut vars).is_ok());
+        assert_eq!(vars.state(), None);
+        assert_eq!(eval(&e, &count, &mut vars).unwrap().as_int().unwrap(), 1);
+        vars.clear_state();
+        assert_eq!(vars.state(), None);
+    }
+
+    /// `set_map` uses the map of the call before only for the same keys, and replaces every
+    /// value: what a script added, removed or changed in it is gone.
+    #[test]
+    fn a_variable_map_is_whole_again_for_every_call() {
+        let e = engine();
+        let mut vars = Vars::new(&["row"]);
+        let set = |vars: &mut Vars, kv: &[(&str, i64)]| {
+            set_map(
+                vars.var(0).unwrap(),
+                kv.iter().map(|(k, _)| *k),
+                kv.iter().map(|(_, v)| Dynamic::from_int(*v)),
+            );
+        };
+        let dirty = compile(
+            &e,
+            "row.extra = 1; row.a = -1; row.remove(\"b\"); 0",
+            &["row"],
+        )
+        .unwrap();
+        let read = compile(&e, "row", &["row"]).unwrap();
+        let seen = |vars: &mut Vars| from_dynamic(&eval(&e, &read, vars).unwrap());
+        let want = |kv: &[(&str, i64)]| {
+            Value::Map(
+                kv.iter()
+                    .map(|(k, v)| ((*k).to_owned(), Value::from(*v)))
+                    .collect(),
+            )
+        };
+        set(&mut vars, &[("a", 1), ("b", 2)]);
+        assert!(eval(&e, &dirty, &mut vars).is_ok());
+        set(&mut vars, &[("a", 3), ("b", 4)]);
+        assert_eq!(seen(&mut vars), want(&[("a", 3), ("b", 4)]));
+        // same keys: the values alone are replaced
+        set(&mut vars, &[("a", 5), ("b", 6)]);
+        assert_eq!(seen(&mut vars), want(&[("a", 5), ("b", 6)]));
+        // other keys, fewer keys, more keys
+        set(&mut vars, &[("a", 7), ("c", 8)]);
+        assert_eq!(seen(&mut vars), want(&[("a", 7), ("c", 8)]));
+        set(&mut vars, &[("a", 9)]);
+        assert_eq!(seen(&mut vars), want(&[("a", 9)]));
+        set(&mut vars, &[("a", 1), ("b", 2), ("c", 3)]);
+        assert_eq!(seen(&mut vars), want(&[("a", 1), ("b", 2), ("c", 3)]));
+        // a variable a script made something else
+        let other = compile(&e, "row = 5; 0", &["row"]).unwrap();
+        assert!(eval(&e, &other, &mut vars).is_ok());
+        set(&mut vars, &[("a", 1)]);
+        assert_eq!(seen(&mut vars), want(&[("a", 1)]));
+    }
+
+    /// The conversions read in place and give what they gave: every kind of value there and
+    /// back.
+    #[test]
+    fn values_go_there_and_back() {
+        let v = Value::Map(
+            [
+                ("b".to_owned(), Value::Bool(true)),
+                ("f".to_owned(), Value::Float(2.5)),
+                ("i".to_owned(), Value::Int(-3)),
+                ("n".to_owned(), Value::Null),
+                ("s".to_owned(), Value::Str("text".into())),
+                ("y".to_owned(), Value::Bytes(vec![1, 2, 3])),
+                (
+                    "a".to_owned(),
+                    Value::Array(vec![Value::UInt(1), Value::Str("x".into())]),
+                ),
+            ]
+            .into(),
+        );
+        assert_eq!(from_dynamic(&to_dynamic(&v)), v);
+        assert_eq!(from_dynamic(&to_dynamic(&Value::Int(7))), Value::UInt(7));
+        assert_eq!(
+            from_dynamic(&to_dynamic(&Value::UInt(u64::MAX))),
+            Value::Float(u64::MAX as f64)
+        );
+        assert_eq!(from_dynamic(&Dynamic::from('c')), Value::Str("c".into()));
+        // a value a closure holds
+        let shared = to_dynamic(&v).into_shared();
+        assert_eq!(from_dynamic(&shared), v);
     }
 
     /// A thread that the host keeps off its core is not a slow script: the limit counts
@@ -290,14 +456,14 @@ mod tests {
         // stands for a preemption: wall time goes by, the thread uses no CPU
         e.register_fn("off_core", || std::thread::sleep(TIMEOUT * 3));
         let ast = compile(&e, "off_core(); 1 + 2", &[]).unwrap();
-        let mut st = rhai::Map::new();
-        let r = eval(&e, &ast, vec![], &mut st).expect("not a timeout");
+        let mut st = Vars::new(&[]);
+        let r = eval(&e, &ast, &mut st).expect("not a timeout");
         assert_eq!(r.as_int().unwrap(), 3);
         // a script that does use its 10 ms still ends
         let ast = compile(&e, "off_core(); loop { }", &[]).unwrap();
         e.set_max_operations(0);
         let from = std::time::Instant::now();
-        let err = eval(&e, &ast, vec![], &mut st).unwrap_err();
+        let err = eval(&e, &ast, &mut st).unwrap_err();
         assert!(err.contains("terminated"), "{err}");
         assert!(from.elapsed() < Duration::from_secs(5));
     }
