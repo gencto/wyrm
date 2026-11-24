@@ -3659,6 +3659,77 @@ mod tests {
         assert!(off.backup_estimate(&remote(sizes)).is_ok());
     }
 
+    /// Issue #195: asking for sizes is no way around the rules of the section
+    /// `keys`. Whatever the request says, `backup_start` and `backup_now` judge
+    /// it in full, for a local caller and for one from an upstream.
+    #[test]
+    fn a_backup_with_keys_is_judged_in_full_however_it_is_asked() {
+        use {Exported as X, RequestError as R, SectionName as S};
+        let off = super::super::tests::control("backup-keys-off", false, |_| {});
+        let on = super::super::tests::control_tweaked("backup-keys-on", |c| {
+            c.backups.export_secrets = true;
+        });
+        let cases: Vec<(&str, &Arc<Control>, bool, fn() -> SealWith, R)> = vec![
+            (
+                "off, local",
+                &off,
+                false,
+                || SealWith::Broker,
+                R::ExportOff(X::Keys),
+            ),
+            (
+                "off, from an upstream",
+                &off,
+                true,
+                || SealWith::Broker,
+                R::ExportOff(X::Keys),
+            ),
+            (
+                "on, from an upstream",
+                &on,
+                true,
+                || SealWith::Broker,
+                R::Remote(X::Keys),
+            ),
+            (
+                "on, local, sealed for the broker only",
+                &on,
+                false,
+                || SealWith::Broker,
+                R::KeysUnsealed,
+            ),
+            (
+                "on, local, not sealed",
+                &on,
+                false,
+                || SealWith::None,
+                R::KeysUnsealed,
+            ),
+        ];
+        for (name, ctl, remote, seal, want) in cases {
+            let req = || {
+                let mut r = request(Kind::Broker, &[S::Keys], seal());
+                r.remote = remote;
+                r.estimate = true;
+                r
+            };
+            let made = ctl
+                .backup_now(req(), "user:a")
+                .map(|j| (j.status, j.sections, j.sealed));
+            assert!(
+                matches!(&made, Err(NowError::Refused(StartError::Request(e))) if *e == want),
+                "{name}: backup_now: {made:?}"
+            );
+            let started = ctl.backup_start(req(), "user:a");
+            assert!(
+                matches!(&started, Err(StartError::Request(e)) if *e == want),
+                "{name}: backup_start: {started:?}"
+            );
+            assert!(ctl.backups.list().is_empty(), "{name}: no job");
+            assert!(!ctl.backups.running.load(Ordering::SeqCst), "{name}");
+        }
+    }
+
     /// What fails while a backup is made is told apart by its type and keeps its
     /// cause; the job keeps the text; no error holds the passphrase.
     #[test]
