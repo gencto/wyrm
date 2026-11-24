@@ -4257,7 +4257,8 @@ impl Link for Admin {
             (["links"], "install_backup") => {
                 let _busy = self.ctl.busy()?;
                 let a = restore::InstallBackup::decode(args)?;
-                Ok(Some(outcome(self.install_backup(a, &sub).await)))
+                let done = self.install_backup(a, &sub).await;
+                Ok(Some(outcome(done.map_err(|e| e.to_string()))))
             }
             (["links", id], "backup") => {
                 // the link must exist before anything is said about it

@@ -922,6 +922,7 @@ impl Control {
     pub(super) fn restore_point_apply(&self, link: &str, id: &str) -> Result<(), String> {
         let file = restore::file(&self.restore_root(), link, id)?;
         self.link_restore_data(link, &file)
+            .map_err(|e| e.to_string())
     }
 
     /// `packages.keep_previous_days` in seconds (1 to 365 days).

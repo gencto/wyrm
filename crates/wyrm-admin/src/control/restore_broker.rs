@@ -21,9 +21,10 @@
 //! only where its section defines a place ([`place_of`]).
 
 use super::backups::{
-    broker_made_secret, io_err, key_files, make_private_dir, wal_stores, BackupRequest, SealWith,
+    broker_made_secret, key_files, make_private_dir, wal_stores, BackupRequest, FileError,
+    NowError, SealWith, StartError,
 };
-use super::restore::{LinkLayout, MAX_UPLOAD};
+use super::restore::{LinkLayout, RestoreError, MAX_UPLOAD};
 use super::*;
 use crate::backup::{self as format, Kind, Manifest, MasterKey, SectionName};
 use serde::{Deserialize, Serialize};
@@ -122,9 +123,353 @@ pub struct Applied {
     pub sections: Vec<SectionName>,
 }
 
+/// A file of a broker backup that no section defines ([`place_of`]): the
+/// whole backup is refused.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error(
+    "the backup lists {path:?}, a file no section defines: nothing of this backup is \
+     restored"
+)]
+pub struct NoPlace {
+    pub path: String,
+}
+
+/// A name that is no plain file name, or a path without one
+/// ([`plain_segment`], [`plain_rel`]).
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+enum NotPlain {
+    #[error("{0:?} is no file name")]
+    Segment(String),
+    #[error("a path without a file name")]
+    NoName,
+}
+
+/// A gate of `mode: replace` that is closed ([`replace_gates`]), in the order
+/// they are judged. `KeysDiffer` names key files, never their content.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum GateError {
+    /// The caller's authority comes from an upstream.
+    #[error(
+        "mode replace is not run through an upstream: it replaces this site's state. Do it \
+         on the broker's own gateway (mode add works from above)"
+    )]
+    Remote,
+    /// `backups.export_secrets` is false and the `keys` section was chosen.
+    #[error(
+        "restoring the keys section needs backups.export_secrets: true in wyrmd.json5 (set \
+         on the host)"
+    )]
+    ExportOff,
+    /// The `keys` section without the passphrase.
+    #[error("passphrase: required to restore the keys section")]
+    NoPassphrase,
+    /// Key files that are not byte for byte this broker's, without
+    /// `replace_keys`.
+    #[error(
+        "the keys of the backup differ from this broker's ({}): they are put in place only \
+         with replace_keys: true{}",
+        .differ.join(", "),
+        if .differ.iter().any(|f| f == CA_FILE) {
+            " (another CA: links, operators and peer brokers enrol again)"
+        } else {
+            ""
+        }
+    )]
+    KeysDiffer { differ: Vec<String> },
+}
+
+/// What stands in the way of every `replace` of a backup, as `restore_check`
+/// lists it (`problems`) and `restore_apply` refuses it.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum Problem {
+    #[error(
+        "the backup is of site {backup}, this broker is {here}: a site is restored under its own \
+         name (set `site` in wyrmd.json5)"
+    )]
+    OtherSite { backup: String, here: String },
+    #[error(
+        "the {store} store of the backup has schema {backup}, this broker reads up to {here}: \
+         update the broker first"
+    )]
+    NewerSchema {
+        store: String,
+        backup: u32,
+        here: u32,
+    },
+}
+
+/// Why the plan of a staged restore is not taken ([`read_plan`]).
+#[derive(Debug, thiserror::Error)]
+pub enum PlanError {
+    #[error(transparent)]
+    File(#[from] FileError),
+    /// Not a plan, or one with a section this build does not know.
+    #[error("plan.json: {0}")]
+    Json(#[source] serde_json::Error),
+    /// A path that would leave the `data_dir`.
+    #[error("restore.pending: {0}")]
+    Path(#[source] format::PathError),
+    /// A package name of `components` that is no name.
+    #[error("{0}")]
+    Component(#[source] wyrm_core::keyspace::KeyError),
+}
+
+/// Why the link secrets a restore staged do not read ([`parse_link_secrets`]).
+/// No variant holds a secret: a link's id and a secret's name only.
+#[derive(Debug, thiserror::Error)]
+pub enum LinkSecretsError {
+    #[error("link secrets: {0}")]
+    Decode(#[source] wyrm_core::codec::CodecError),
+    #[error("link secrets: not a map")]
+    NotMap,
+    /// A link id that is none (`registry::validate_link_id`, as it says it).
+    #[error("{0}")]
+    LinkId(String),
+    #[error("link secrets: {link}: not a map")]
+    LinkNotMap { link: String },
+    #[error("link secrets: {link}/{name}: not bytes")]
+    NotBytes { link: String, name: String },
+}
+
+/// Why the storage of a backup was not built from its tree ([`build_storage`]).
+#[derive(Debug, thiserror::Error)]
+pub enum StorageError {
+    #[error(transparent)]
+    File(#[from] FileError),
+    /// The tree is no CBOR.
+    #[error("storage tree: unreadable")]
+    TreeDecode(#[source] wyrm_core::codec::CodecError),
+    /// The tree is CBOR and no list of storage nodes.
+    #[error("storage tree: unreadable")]
+    TreeShape,
+    /// The new store did not open or did not take the nodes.
+    #[error("{0}")]
+    Store(#[source] wyrm_storage::Error),
+}
+
+/// Why a staged restore was not put in place and the state before it could
+/// not be put back either ([`apply_pending`], [`undo_pending`]); also every
+/// failure of the plan itself, whose text is the `error.txt` of
+/// `restore.failed` when the state before it is back.
+#[derive(Debug, thiserror::Error)]
+pub enum PendingError {
+    #[error(transparent)]
+    Plan(#[from] PlanError),
+    /// The plan does not read and the restore had begun: nothing says what
+    /// to put back.
+    #[error("{0}; the restore had begun: see restore.pending")]
+    Begun(#[source] PlanError),
+    #[error(transparent)]
+    File(#[from] FileError),
+    /// `before.json` (what was there before the first change) does not read.
+    #[error("before.json: {0}")]
+    Before(#[source] serde_json::Error),
+    #[error("{0}")]
+    BeforeEncode(#[source] serde_json::Error),
+    #[error(transparent)]
+    Storage(#[from] StorageError),
+    #[error(transparent)]
+    LinkSecrets(#[from] LinkSecretsError),
+    /// The secret store in place did not open or did not take a link's secret.
+    #[error("{0}")]
+    SecretStore(#[source] secret::Error),
+}
+
+/// Why `restore_check` or `restore_apply` is refused. To a caller:
+/// [`BrokerRestoreError::status`]. No variant holds a passphrase, a key, a
+/// secret or a byte of a file of the backup.
+#[derive(Debug, thiserror::Error)]
+pub enum BrokerRestoreError {
+    /// The file does not read as a backup, its key is not given, the disk has
+    /// no room: what a link backup is refused for too.
+    #[error(transparent)]
+    Restore(#[from] RestoreError),
+    #[error("a link backup: install it with Add a link, From backup")]
+    LinkBackup,
+    #[error(transparent)]
+    Place(#[from] NoPlace),
+    /// A `keys` section without the CA certificate.
+    #[error("the keys section holds no pki/ca.pem")]
+    NoCa,
+    /// A key file of this broker (`state.key`, the key of a WAL store) does
+    /// not load.
+    #[error("{0}")]
+    KeyLoad(#[source] secret::Error),
+    /// A section the mode does not restore.
+    #[error(
+        "sections: {section} is not restored with mode {mode} (of {})",
+        format::section_names(.mode.sections())
+    )]
+    Section {
+        section: SectionName,
+        mode: RestoreMode,
+    },
+    #[error("sections: none chosen")]
+    NoSections,
+    #[error(transparent)]
+    Problem(#[from] Problem),
+    /// A chosen section that the backup does not have.
+    #[error("sections: the backup has no section {0}")]
+    MissingSection(SectionName),
+    /// `control` with `state_anchor_dir` set.
+    #[error(
+        "state_anchor_dir is set: restore the control plane offline, then run \
+         `wyrmd init-anchors` (docs/operations.md §3)"
+    )]
+    Anchored,
+    #[error(transparent)]
+    Gate(#[from] GateError),
+    /// `control` under other keys than this broker's, without new keys.
+    #[error(
+        "the control plane of the backup is under other keys than this broker's: \
+         restore it together with the keys section (replace_keys: true)"
+    )]
+    ControlKeys,
+    /// Another replace is staged, or an operation holds a package or a link
+    /// (`Control::replacing`).
+    #[error("{}", .0.message)]
+    Busy(LinkError),
+    /// No backup of what the restore replaces.
+    #[error(transparent)]
+    PreBackup(#[from] NowError),
+    /// The task that read or staged the backup ended without an answer.
+    #[error("{0}")]
+    Task(#[source] tokio::task::JoinError),
+    /// A WAL store of the backup does not open with the key that will be in
+    /// place.
+    #[error(
+        "{store}: the store of the backup does not open with the keys that will \
+         be in place ({source}): restore it together with the keys section"
+    )]
+    WalKeys {
+        store: &'static str,
+        #[source]
+        source: StateError,
+    },
+    #[error("the history of the backup does not open: {0}")]
+    History(#[source] wyrm_history::store::Error),
+    #[error(transparent)]
+    Storage(#[from] StorageError),
+    #[error(transparent)]
+    LinkSecrets(#[from] LinkSecretsError),
+    /// The link secrets were not encoded for the start that applies them.
+    #[error("{0}")]
+    SecretsEncode(#[source] wyrm_core::codec::CodecError),
+    /// A package of the backup does not pass the validator of an install
+    /// (`packages::unpack`, as it says it).
+    #[error("package {name} of the backup: {why}")]
+    PackageInvalid { name: String, why: String },
+    /// The folder `packages/<dir>` holds a package of another name.
+    #[error("packages/{dir} holds package {holds}")]
+    PackageName { dir: String, holds: String },
+    /// A package version that is no path segment.
+    #[error("{0}")]
+    PackageVersion(#[source] wyrm_core::keyspace::KeyError),
+    /// What the packages of the backup ask for was not accepted.
+    #[error(
+        "the packages of the backup ask for: {}. Nothing is restored: read them, then \
+         restore again with Accept Requested Rights",
+        .asks.join("; ")
+    )]
+    Asks { asks: Vec<String> },
+    /// The secret store of the backup does not open with the key that comes
+    /// with it.
+    #[error("the secret store of the backup: {0}")]
+    SecretStore(#[source] secret::Error),
+    #[error("{0}")]
+    PlanEncode(#[source] serde_json::Error),
+    /// The plan just written does not read as the start will read it.
+    #[error(transparent)]
+    Plan(#[from] PlanError),
+    /// The staging failed (`error`) and the half-staged folder `path`, which
+    /// may hold opened secrets, could not be removed.
+    #[error("{error}; {} stays: {source}", .path.display())]
+    Stays {
+        error: Box<BrokerRestoreError>,
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    /// `mode: add` of `storage` on a broker without its storage.
+    #[error("storage: not open")]
+    StorageClosed,
+    #[error("the backup has no storage tree")]
+    NoStorageTree,
+    /// The storage did not take the new nodes.
+    #[error("{0}")]
+    StorageApply(#[source] wyrm_storage::Error),
+}
+
+impl BrokerRestoreError {
+    /// The status of the refusal. `busy` is a reason to try again: another
+    /// restore, backup, update or install runs. Everything else is
+    /// `invalid_parameter`, as the handler answered before the refusals had
+    /// types (it told `busy` by the words of the message).
+    pub fn status(&self) -> Status {
+        match self {
+            BrokerRestoreError::Busy(_) => Status::Busy,
+            BrokerRestoreError::PreBackup(NowError::Refused(
+                StartError::Running | StartError::LinkBusy(_),
+            )) => Status::Busy,
+            BrokerRestoreError::Stays { error, .. } => error.status(),
+            BrokerRestoreError::PreBackup(
+                NowError::Refused(StartError::Request(_) | StartError::DiskFull { .. })
+                | NowError::Failed(_)
+                | NowError::Gone,
+            )
+            | BrokerRestoreError::Restore(_)
+            | BrokerRestoreError::LinkBackup
+            | BrokerRestoreError::Place(_)
+            | BrokerRestoreError::NoCa
+            | BrokerRestoreError::KeyLoad(_)
+            | BrokerRestoreError::Section { .. }
+            | BrokerRestoreError::NoSections
+            | BrokerRestoreError::Problem(_)
+            | BrokerRestoreError::MissingSection(_)
+            | BrokerRestoreError::Anchored
+            | BrokerRestoreError::Gate(_)
+            | BrokerRestoreError::ControlKeys
+            | BrokerRestoreError::Task(_)
+            | BrokerRestoreError::WalKeys { .. }
+            | BrokerRestoreError::History(_)
+            | BrokerRestoreError::Storage(_)
+            | BrokerRestoreError::LinkSecrets(_)
+            | BrokerRestoreError::SecretsEncode(_)
+            | BrokerRestoreError::PackageInvalid { .. }
+            | BrokerRestoreError::PackageName { .. }
+            | BrokerRestoreError::PackageVersion(_)
+            | BrokerRestoreError::Asks { .. }
+            | BrokerRestoreError::SecretStore(_)
+            | BrokerRestoreError::PlanEncode(_)
+            | BrokerRestoreError::Plan(_)
+            | BrokerRestoreError::StorageClosed
+            | BrokerRestoreError::NoStorageTree
+            | BrokerRestoreError::StorageApply(_) => Status::InvalidParameter,
+        }
+    }
+}
+
+impl From<BrokerRestoreError> for LinkError {
+    fn from(e: BrokerRestoreError) -> Self {
+        LinkError::new(e.status(), e.to_string())
+    }
+}
+
+impl From<format::ReadError> for BrokerRestoreError {
+    fn from(e: format::ReadError) -> Self {
+        Self::Restore(e.into())
+    }
+}
+
+impl From<FileError> for BrokerRestoreError {
+    fn from(e: FileError) -> Self {
+        Self::Restore(e.into())
+    }
+}
+
 /// A path of a plan: relative, plain segments.
-fn plan_path(p: &str) -> Result<(), String> {
-    format::check_path(p).map_err(|e| format!("restore.pending: {e}"))
+fn plan_path(p: &str) -> Result<(), PlanError> {
+    format::check_path(p).map_err(PlanError::Path)
 }
 
 /// What one file of a broker backup is, and so where a restore may put it.
@@ -161,22 +506,22 @@ enum Place {
 }
 
 /// One segment of a destination: a plain file name.
-fn plain_segment(s: &str) -> Result<&str, String> {
+fn plain_segment(s: &str) -> Result<&str, NotPlain> {
     let bad = s.is_empty()
         || s == "."
         || s == ".."
         || s.chars()
             .any(|c| matches!(c, '/' | '\\' | ':') || c.is_control());
     if bad {
-        return Err(format!("{s:?} is no file name"));
+        return Err(NotPlain::Segment(s.to_owned()));
     }
     Ok(s)
 }
 
 /// A relative path built from checked segments (at least one).
-fn plain_rel(segs: &[&str]) -> Result<PathBuf, String> {
+fn plain_rel(segs: &[&str]) -> Result<PathBuf, NotPlain> {
     if segs.is_empty() {
-        return Err("a path without a file name".into());
+        return Err(NotPlain::NoName);
     }
     let mut out = PathBuf::new();
     for s in segs {
@@ -187,14 +532,11 @@ fn plain_rel(segs: &[&str]) -> Result<PathBuf, String> {
 
 /// The place of the file `path` of a broker backup: `Err` for a path that
 /// no section defines (ADR 0048 §3.6, the allowlist of a restore).
-fn place_of(path: &str) -> Result<Place, String> {
-    let refuse = || {
-        format!(
-            "the backup lists {path:?}, a file no section defines: nothing of this backup is \
-             restored"
-        )
+fn place_of(path: &str) -> Result<Place, NoPlace> {
+    let refuse = || NoPlace {
+        path: path.to_owned(),
     };
-    let link = |id: &str| -> Result<String, String> {
+    let link = |id: &str| -> Result<String, NoPlace> {
         crate::registry::validate_link_id(id).map_err(|_| refuse())?;
         Ok(id.to_owned())
     };
@@ -264,39 +606,23 @@ struct Gates<'a> {
 /// anything of this site. Every restore of `keys` needs the host's
 /// `backups.export_secrets` and the passphrase, whatever the keys are; keys
 /// that differ from this broker's in any file also need `replace_keys`.
-fn replace_gates(g: &Gates) -> Result<(), String> {
+fn replace_gates(g: &Gates) -> Result<(), GateError> {
     if g.remote {
-        return Err(
-            "mode replace is not run through an upstream: it replaces this site's state. Do it \
-             on the broker's own gateway (mode add works from above)"
-                .into(),
-        );
+        return Err(GateError::Remote);
     }
     if !g.keys {
         return Ok(());
     }
     if !g.export_secrets {
-        return Err(
-            "restoring the keys section needs backups.export_secrets: true in wyrmd.json5 (set \
-             on the host)"
-                .into(),
-        );
+        return Err(GateError::ExportOff);
     }
     if !g.passphrase {
-        return Err("passphrase: required to restore the keys section".into());
+        return Err(GateError::NoPassphrase);
     }
     if !g.differ.is_empty() && !g.replace_keys {
-        let ca = g.differ.iter().any(|f| f == CA_FILE);
-        return Err(format!(
-            "the keys of the backup differ from this broker's ({}): they are put in place only \
-             with replace_keys: true{}",
-            g.differ.join(", "),
-            if ca {
-                " (another CA: links, operators and peer brokers enrol again)"
-            } else {
-                ""
-            }
-        ));
+        return Err(GateError::KeysDiffer {
+            differ: g.differ.to_vec(),
+        });
     }
     Ok(())
 }
@@ -328,11 +654,11 @@ fn is_there(p: &Path) -> bool {
     std::fs::symlink_metadata(p).is_ok()
 }
 
-fn move_to(from: &Path, to: &Path) -> Result<(), String> {
+fn move_to(from: &Path, to: &Path) -> Result<(), FileError> {
     if let Some(d) = to.parent() {
-        std::fs::create_dir_all(d).map_err(|e| io_err(d, e))?;
+        std::fs::create_dir_all(d).map_err(|e| FileError::new(d, e))?;
     }
-    std::fs::rename(from, to).map_err(|e| io_err(to, e))
+    std::fs::rename(from, to).map_err(|e| FileError::new(to, e))
 }
 
 fn component_target(name: &str) -> String {
@@ -340,15 +666,16 @@ fn component_target(name: &str) -> String {
 }
 
 /// The plan of the folder, checked: every path relative and plain.
-fn read_plan(pending: &Path) -> Result<Plan, String> {
-    let text = std::fs::read(pending.join(PLAN)).map_err(|e| io_err(&pending.join(PLAN), e))?;
-    let plan: Plan = serde_json::from_slice(&text).map_err(|e| format!("{PLAN}: {e}"))?;
+fn read_plan(pending: &Path) -> Result<Plan, PlanError> {
+    let text =
+        std::fs::read(pending.join(PLAN)).map_err(|e| FileError::new(&pending.join(PLAN), e))?;
+    let plan: Plan = serde_json::from_slice(&text).map_err(PlanError::Json)?;
     for p in plan.remove.iter().chain(&plan.dirs).chain(&plan.files) {
         plan_path(p)?;
     }
     for (name, entry) in &plan.components {
         plan_path(entry)?;
-        wyrm_core::keyspace::validate_segment(name).map_err(|e| e.to_string())?;
+        wyrm_core::keyspace::validate_segment(name).map_err(PlanError::Component)?;
     }
     Ok(plan)
 }
@@ -410,11 +737,16 @@ fn look_before(data_dir: &Path, pending: &Path, plan: &Plan) -> Before {
 
 /// Do the plan. Every step may run again after a start that stopped in it.
 /// What a step replaces or removes goes to `old/` first, never away.
-fn forward(data_dir: &Path, pending: &Path, plan: &Plan, before: &Before) -> Result<(), String> {
+fn forward(
+    data_dir: &Path,
+    pending: &Path,
+    plan: &Plan,
+    before: &Before,
+) -> Result<(), PendingError> {
     let (staged, old) = (pending.join("data"), pending.join(OLD));
     let existed = |p: &str| before.existed.iter().any(|e| e == p);
     // what is at `p` goes aside, once; a leftover of an earlier try goes
-    let aside = |p: &str| -> Result<(), String> {
+    let aside = |p: &str| -> Result<(), FileError> {
         let (to, keep) = (data_dir.join(p), old.join(p));
         if !is_there(&to) {
             return Ok(());
@@ -422,7 +754,7 @@ fn forward(data_dir: &Path, pending: &Path, plan: &Plan, before: &Before) -> Res
         if existed(p) && !is_there(&keep) {
             move_to(&to, &keep)
         } else {
-            crate::nofollow::remove_any(&to).map_err(|e| io_err(&to, e))
+            crate::nofollow::remove_any(&to).map_err(|e| FileError::new(&to, e))
         }
     };
     for m in &before.moved {
@@ -437,7 +769,7 @@ fn forward(data_dir: &Path, pending: &Path, plan: &Plan, before: &Before) -> Res
     let mut dirs = plan.dirs.clone();
     if tree.is_file() {
         let built = staged.join("storage");
-        crate::nofollow::remove_any(&built).map_err(|e| io_err(&built, e))?;
+        crate::nofollow::remove_any(&built).map_err(|e| FileError::new(&built, e))?;
         build_storage(&tree, &built)?;
         if !dirs.iter().any(|d| d == "storage") {
             dirs.push("storage".into());
@@ -457,9 +789,9 @@ fn forward(data_dir: &Path, pending: &Path, plan: &Plan, before: &Before) -> Res
         aside(&target)?;
         let to = data_dir.join(&target);
         if let Some(d) = to.parent() {
-            std::fs::create_dir_all(d).map_err(|e| io_err(d, e))?;
+            std::fs::create_dir_all(d).map_err(|e| FileError::new(d, e))?;
         }
-        std::fs::copy(data_dir.join(entry), &to).map_err(|e| io_err(&to, e))?;
+        std::fs::copy(data_dir.join(entry), &to).map_err(|e| FileError::new(&to, e))?;
     }
     // link secrets go into the store that is in place now; the store as it
     // was is kept first
@@ -467,15 +799,19 @@ fn forward(data_dir: &Path, pending: &Path, plan: &Plan, before: &Before) -> Res
     if secrets.is_file() {
         let (at, keep) = (data_dir.join(SECRETS_BIN), old.join(SECRETS_BIN));
         if existed(SECRETS_BIN) && !is_there(&keep) {
-            let bytes = Zeroizing::new(std::fs::read(&at).map_err(|e| io_err(&at, e))?);
-            secret::write_private(&keep, &bytes).map_err(|e| io_err(&keep, e))?;
+            let bytes = Zeroizing::new(std::fs::read(&at).map_err(|e| FileError::new(&at, e))?);
+            secret::write_private(&keep, &bytes).map_err(|e| FileError::new(&keep, e))?;
         }
-        let bytes = Zeroizing::new(std::fs::read(&secrets).map_err(|e| io_err(&secrets, e))?);
+        let bytes =
+            Zeroizing::new(std::fs::read(&secrets).map_err(|e| FileError::new(&secrets, e))?);
         let links = parse_link_secrets(&bytes)?;
-        let store = crate::secrets::SecretStore::open(data_dir).map_err(|e| e.to_string())?;
+        let store =
+            crate::secrets::SecretStore::open(data_dir).map_err(PendingError::SecretStore)?;
         for (link, m) in links {
             for (name, b) in m {
-                store.set(&link, &name, &b).map_err(|e| e.to_string())?;
+                store
+                    .set(&link, &name, &b)
+                    .map_err(PendingError::SecretStore)?;
             }
         }
     }
@@ -487,17 +823,17 @@ type LinkSecrets = BTreeMap<String, BTreeMap<String, Zeroizing<Vec<u8>>>>;
 
 /// The link secrets a restore staged: `{link: {name: bytes}}`, without the
 /// ones a broker makes for a link's identity (never taken from a backup).
-fn parse_link_secrets(bytes: &[u8]) -> Result<LinkSecrets, String> {
+fn parse_link_secrets(bytes: &[u8]) -> Result<LinkSecrets, LinkSecretsError> {
     let Value::Map(links) =
-        wyrm_core::codec::from_slice::<Value>(bytes).map_err(|e| format!("link secrets: {e}"))?
+        wyrm_core::codec::from_slice::<Value>(bytes).map_err(LinkSecretsError::Decode)?
     else {
-        return Err("link secrets: not a map".into());
+        return Err(LinkSecretsError::NotMap);
     };
     let mut out = BTreeMap::new();
     for (link, v) in links {
-        crate::registry::validate_link_id(&link)?;
+        crate::registry::validate_link_id(&link).map_err(LinkSecretsError::LinkId)?;
         let Value::Map(m) = v else {
-            return Err(format!("link secrets: {link}: not a map"));
+            return Err(LinkSecretsError::LinkNotMap { link });
         };
         let mut of_link = BTreeMap::new();
         for (name, v) in m {
@@ -505,7 +841,7 @@ fn parse_link_secrets(bytes: &[u8]) -> Result<LinkSecrets, String> {
                 continue;
             }
             let Value::Bytes(b) = v else {
-                return Err(format!("link secrets: {link}/{name}: not bytes"));
+                return Err(LinkSecretsError::NotBytes { link, name });
             };
             of_link.insert(name, Zeroizing::new(b));
         }
@@ -515,45 +851,43 @@ fn parse_link_secrets(bytes: &[u8]) -> Result<LinkSecrets, String> {
 }
 
 /// The storage of a backup (`storage/tree.cbor`) as a new store at `dir`.
-fn build_storage(tree: &Path, dir: &Path) -> Result<(), String> {
-    let bytes = std::fs::read(tree).map_err(|e| io_err(tree, e))?;
-    let changes = wyrm_core::codec::from_slice(&bytes)
-        .ok()
-        .and_then(replication::parse_changes)
-        .ok_or("storage tree: unreadable")?;
-    let store = wyrm_storage::Store::open(dir).map_err(|e| e.to_string())?;
+fn build_storage(tree: &Path, dir: &Path) -> Result<(), StorageError> {
+    let bytes = std::fs::read(tree).map_err(|e| FileError::new(tree, e))?;
+    let value = wyrm_core::codec::from_slice(&bytes).map_err(StorageError::TreeDecode)?;
+    let changes = replication::parse_changes(value).ok_or(StorageError::TreeShape)?;
+    let store = wyrm_storage::Store::open(dir).map_err(StorageError::Store)?;
     store
         .apply(changes.put, Vec::new())
-        .map_err(|e| e.to_string())?;
+        .map_err(StorageError::Store)?;
     Ok(())
 }
 
 /// Put back what [`forward`] replaced or removed, then keep the folder as
 /// `restore.failed` with `why`. Every step may run again. `Err`: something
 /// could not be put back (the state is then neither the old nor the new).
-fn undo(data_dir: &Path, pending: &Path, before: &Before, why: &str) -> Result<(), String> {
+fn undo(data_dir: &Path, pending: &Path, before: &Before, why: &str) -> Result<(), FileError> {
     let old = pending.join(OLD);
     if !pending.join(UNDO).exists() {
         secret::write_private(&pending.join(UNDO), why.as_bytes())
-            .map_err(|e| io_err(pending, e))?;
+            .map_err(|e| FileError::new(pending, e))?;
     }
     for p in before.placed.iter().rev() {
         let (to, keep) = (data_dir.join(p), old.join(p));
         if before.existed.contains(p) {
             // not set aside: never touched, or back already
             if is_there(&keep) {
-                crate::nofollow::remove_any(&to).map_err(|e| io_err(&to, e))?;
+                crate::nofollow::remove_any(&to).map_err(|e| FileError::new(&to, e))?;
                 move_to(&keep, &to)?;
             }
         } else {
             // placed by the restore: what it put there goes, or the undo is not done
-            crate::nofollow::remove_any(&to).map_err(|e| io_err(&to, e))?;
+            crate::nofollow::remove_any(&to).map_err(|e| FileError::new(&to, e))?;
         }
     }
     for m in before.moved.iter().rev() {
         let (at, keep) = (data_dir.join(m), old.join(m));
         if is_there(&keep) {
-            crate::nofollow::remove_any(&at).map_err(|e| io_err(&at, e))?;
+            crate::nofollow::remove_any(&at).map_err(|e| FileError::new(&at, e))?;
             move_to(&keep, &at)?;
         }
     }
@@ -562,7 +896,7 @@ fn undo(data_dir: &Path, pending: &Path, before: &Before, why: &str) -> Result<(
 
 /// The folder becomes `restore.failed`: its plan and the reason stay,
 /// everything else (opened keys and secrets among it) goes.
-fn set_failed(data_dir: &Path, pending: &Path, why: &str) -> Result<(), String> {
+fn set_failed(data_dir: &Path, pending: &Path, why: &str) -> Result<(), FileError> {
     // The state is the old one here; what is left of the folder is the broker's own
     // private directory (0700). A part that does not go (opened keys and secrets among
     // them) is named in the log, as in `apply_pending`, and never stops the start that
@@ -576,7 +910,8 @@ fn set_failed(data_dir: &Path, pending: &Path, why: &str) -> Result<(), String> 
         let p = pending.join(name);
         left(&p, crate::nofollow::remove_any(&p));
     }
-    secret::write_private(&pending.join(ERROR), why.as_bytes()).map_err(|e| io_err(pending, e))?;
+    secret::write_private(&pending.join(ERROR), why.as_bytes())
+        .map_err(|e| FileError::new(pending, e))?;
     // moved with the folder when it stays; a folder that is not moved is undone again
     // at the next start, which is safe (every step may run again)
     let undo_mark = pending.join(UNDO);
@@ -586,7 +921,7 @@ fn set_failed(data_dir: &Path, pending: &Path, why: &str) -> Result<(), String> 
     );
     let failed = data_dir.join(FAILED);
     left(&failed, crate::nofollow::remove_any(&failed));
-    std::fs::rename(pending, &failed).map_err(|e| io_err(&failed, e))
+    std::fs::rename(pending, &failed).map_err(|e| FileError::new(&failed, e))
 }
 
 /// Put a restore staged in `data_dir/restore.pending` in place. Call it
@@ -600,7 +935,7 @@ fn set_failed(data_dir: &Path, pending: &Path, why: &str) -> Result<(), String> 
 /// `restore.failed` and [`take_failure`] says why, and the broker starts
 /// with the state it had. `Err`: the state before could not be put back
 /// either. A start that stopped halfway is taken up again by the next one.
-pub fn apply_pending(data_dir: &Path) -> Result<Option<Applied>, String> {
+pub fn apply_pending(data_dir: &Path) -> Result<Option<Applied>, PendingError> {
     // a staging that never finished; a restore that was committed. Both may hold
     // opened secrets; one that stays is named, and the next start tries again
     for left in [PENDING_TMP, DONE] {
@@ -617,23 +952,28 @@ pub fn apply_pending(data_dir: &Path) -> Result<Option<Applied>, String> {
     let plan = match read_plan(&pending) {
         Ok(plan) => plan,
         // nothing was changed yet: the folder is set aside
-        Err(e) if !started => return set_failed(data_dir, &pending, &e).map(|()| None),
-        Err(e) => return Err(format!("{e}; the restore had begun: see {PENDING}")),
+        Err(e) if !started => {
+            set_failed(data_dir, &pending, &e.to_string())?;
+            return Ok(None);
+        }
+        Err(e) => return Err(PendingError::Begun(e)),
     };
     let before: Before = if started {
-        let text =
-            std::fs::read(pending.join(BEFORE)).map_err(|e| io_err(&pending.join(BEFORE), e))?;
-        serde_json::from_slice(&text).map_err(|e| format!("{BEFORE}: {e}"))?
+        let text = std::fs::read(pending.join(BEFORE))
+            .map_err(|e| FileError::new(&pending.join(BEFORE), e))?;
+        serde_json::from_slice(&text).map_err(PendingError::Before)?
     } else {
         let b = look_before(data_dir, &pending, &plan);
-        let text = serde_json::to_vec(&b).map_err(|e| e.to_string())?;
-        secret::write_private(&pending.join(BEFORE), &text).map_err(|e| io_err(&pending, e))?;
+        let text = serde_json::to_vec(&b).map_err(PendingError::BeforeEncode)?;
+        secret::write_private(&pending.join(BEFORE), &text)
+            .map_err(|e| FileError::new(&pending, e))?;
         b
     };
     // an undo that a start stopped in goes on
     if pending.join(UNDO).exists() {
         let why = std::fs::read_to_string(pending.join(UNDO)).unwrap_or_default();
-        return undo(data_dir, &pending, &before, &why).map(|()| None);
+        undo(data_dir, &pending, &before, &why)?;
+        return Ok(None);
     }
     match forward(data_dir, &pending, &plan, &before) {
         Ok(()) => Ok(Some(Applied {
@@ -641,7 +981,10 @@ pub fn apply_pending(data_dir: &Path) -> Result<Option<Applied>, String> {
             backup: plan.backup,
             sections: plan.sections,
         })),
-        Err(e) => undo(data_dir, &pending, &before, &e).map(|()| None),
+        Err(e) => {
+            undo(data_dir, &pending, &before, &e.to_string())?;
+            Ok(None)
+        }
     }
 }
 
@@ -670,14 +1013,15 @@ pub fn commit_pending(data_dir: &Path) {
 /// The stores did not open on what [`apply_pending`] put in place (`why`):
 /// everything goes back as it was before the restore, and the folder is
 /// kept as `restore.failed`. The next start runs on the old state.
-pub fn undo_pending(data_dir: &Path, why: &str) -> Result<(), String> {
+pub fn undo_pending(data_dir: &Path, why: &str) -> Result<(), PendingError> {
     let pending = data_dir.join(PENDING);
     if !pending.is_dir() {
         return Ok(());
     }
-    let text = std::fs::read(pending.join(BEFORE)).map_err(|e| io_err(&pending.join(BEFORE), e))?;
-    let before: Before = serde_json::from_slice(&text).map_err(|e| format!("{BEFORE}: {e}"))?;
-    undo(data_dir, &pending, &before, why)
+    let text = std::fs::read(pending.join(BEFORE))
+        .map_err(|e| FileError::new(&pending.join(BEFORE), e))?;
+    let before: Before = serde_json::from_slice(&text).map_err(PendingError::Before)?;
+    Ok(undo(data_dir, &pending, &before, why)?)
 }
 
 /// A restore that was not applied and was not reported yet: reported once
@@ -715,7 +1059,7 @@ struct Checked {
     /// The registry WAL of the backup opens with this broker's `state.key`.
     wal_opens_here: bool,
     /// What stands in the way of a `replace`.
-    problems: Vec<String>,
+    problems: Vec<Problem>,
     notes: Vec<String>,
 }
 
@@ -735,35 +1079,34 @@ impl Control {
         &self,
         r: &mut format::Reader,
         passphrase: Option<&[u8]>,
-    ) -> Result<Checked, String> {
+    ) -> Result<Checked, BrokerRestoreError> {
         let manifest = r.manifest().clone();
         if manifest.kind != Kind::Broker {
-            return Err("a link backup: install it with Add a link, From backup".into());
+            return Err(BrokerRestoreError::LinkBackup);
         }
         // every file has a place a section defines, or nothing is restored
         let mut places = Vec::new();
         for f in manifest.sections.iter().flat_map(|s| &s.files) {
             places.push((f.path.clone(), place_of(&f.path)?));
         }
-        r.verify(|_, _| {}).map_err(|e| e.to_string())?;
+        r.verify(|_, _| {})?;
         let key = self.backup_key(&manifest, passphrase)?;
         let mut problems = Vec::new();
         let mut notes = Vec::new();
         if manifest.site != self.cfg.site {
-            problems.push(format!(
-                "the backup is of site {}, this broker is {}: a site is restored under its own \
-                 name (set `site` in wyrmd.json5)",
-                manifest.site, self.cfg.site
-            ));
+            problems.push(Problem::OtherSite {
+                backup: manifest.site.clone(),
+                here: self.cfg.site.clone(),
+            });
         }
         let here = self.schemas();
         for (name, v) in &manifest.schemas {
-            if here.get(name).is_some_and(|h| v > h) {
-                problems.push(format!(
-                    "the {name} store of the backup has schema {v}, this broker reads up to {}: \
-                     update the broker first",
-                    here[name]
-                ));
+            if let Some(h) = here.get(name).filter(|h| v > *h) {
+                problems.push(Problem::NewerSchema {
+                    store: name.clone(),
+                    backup: *v,
+                    here: *h,
+                });
             }
         }
         let d = &self.cfg.data_dir;
@@ -771,13 +1114,11 @@ impl Control {
         let mut keys_differ = Vec::new();
         if manifest.section(SectionName::Keys).is_some() {
             if !places.iter().any(|(_, p)| *p == Place::Key(CA_FILE.into())) {
-                return Err(format!("the keys section holds no {CA_FILE}"));
+                return Err(BrokerRestoreError::NoCa);
             }
             for (path, place) in &places {
                 let Place::Key(rel) = place else { continue };
-                let theirs = r
-                    .read_plain(path, key.as_ref())
-                    .map_err(|e| e.to_string())?;
+                let theirs = r.read_plain(path, key.as_ref())?;
                 let own = Zeroizing::new(std::fs::read(d.join(rel)).unwrap_or_default());
                 if theirs.as_slice() != own.as_slice() {
                     keys_differ.push(rel.clone());
@@ -800,7 +1141,7 @@ impl Control {
         }
         // does the registry of the backup open with the key in place here?
         let scratch =
-            super::backups::StageDir::new(&self.backups_dir()).map_err(|e| e.to_string())?;
+            super::backups::StageDir::new(&self.backups_dir()).map_err(RestoreError::from)?;
         let mut wal_opens_here = true;
         let mut any = false;
         for f in &manifest
@@ -809,14 +1150,13 @@ impl Control {
             .unwrap_or_default()
         {
             if let Some(file) = f.path.strip_prefix("control/state/") {
-                r.extract(&f.path, &scratch.0.join("state").join(file), None)
-                    .map_err(|e| e.to_string())?;
+                r.extract(&f.path, &scratch.0.join("state").join(file), None)?;
                 any = true;
             }
         }
         if any {
-            let state_key =
-                secret::load_or_create_key(&d.join("state.key")).map_err(|e| e.to_string())?;
+            let state_key = secret::load_or_create_key(&d.join("state.key"))
+                .map_err(BrokerRestoreError::KeyLoad)?;
             wal_opens_here = wyrm_state::replicate::copy_to(
                 &scratch.0.join("state"),
                 &state_key,
@@ -927,7 +1267,15 @@ impl Control {
                 Value::Bool(c.wal_opens_here),
             ),
             ("links".to_owned(), Value::Map(links)),
-            ("problems".to_owned(), strs(&c.problems)),
+            (
+                "problems".to_owned(),
+                Value::Array(
+                    c.problems
+                        .iter()
+                        .map(|p| Value::from(p.to_string()))
+                        .collect(),
+                ),
+            ),
             ("notes".to_owned(), strs(&c.notes)),
             ("restart".to_owned(), Value::from("replace")),
         ]))
@@ -945,11 +1293,11 @@ impl Control {
         chosen: &[SectionName],
         accept: bool,
         by: &str,
-    ) -> Result<Plan, String> {
+    ) -> Result<Plan, BrokerRestoreError> {
         let d = &self.cfg.data_dir;
         let tmp = d.join(PENDING_TMP);
         // an earlier staging (it may hold opened secrets) goes before this one
-        crate::nofollow::remove_any(&tmp).map_err(|e| io_err(&tmp, e))?;
+        crate::nofollow::remove_any(&tmp).map_err(|e| FileError::new(&tmp, e))?;
         // what the chosen sections open into must fit, before any of it is
         self.room_for(super::restore::extract_need(
             c.manifest
@@ -958,7 +1306,7 @@ impl Control {
                 .filter(|s| chosen.contains(&s.name) || s.name == SectionName::Control)
                 .flat_map(|s| &s.files),
         ))?;
-        make_private_dir(&tmp).map_err(|e| e.to_string())?;
+        make_private_dir(&tmp)?;
         let staged = self.stage_sections(r, c, chosen, accept, by, &tmp);
         let plan = match staged {
             Ok(plan) => plan,
@@ -966,17 +1314,21 @@ impl Control {
                 // nothing half staged stays (it may hold opened secrets)
                 if let Err(r) = crate::nofollow::remove_any(&tmp) {
                     tracing::error!("{} stays: {r}", tmp.display());
-                    return Err(format!("{e}; {} stays: {r}", tmp.display()));
+                    return Err(BrokerRestoreError::Stays {
+                        error: Box::new(e),
+                        path: tmp,
+                        source: r,
+                    });
                 }
                 return Err(e);
             }
         };
         let pending = d.join(PENDING);
-        crate::nofollow::remove_any(&pending).map_err(|e| io_err(&pending, e))?;
+        crate::nofollow::remove_any(&pending).map_err(|e| FileError::new(&pending, e))?;
         // an earlier restore that was not applied is forgotten
         let failed = d.join(FAILED);
-        crate::nofollow::remove_any(&failed).map_err(|e| io_err(&failed, e))?;
-        std::fs::rename(&tmp, &pending).map_err(|e| io_err(&pending, e))?;
+        crate::nofollow::remove_any(&failed).map_err(|e| FileError::new(&failed, e))?;
+        std::fs::rename(&tmp, &pending).map_err(|e| FileError::new(&pending, e))?;
         Ok(plan)
     }
 
@@ -989,7 +1341,7 @@ impl Control {
         accept: bool,
         by: &str,
         tmp: &Path,
-    ) -> Result<Plan, String> {
+    ) -> Result<Plan, BrokerRestoreError> {
         let d = &self.cfg.data_dir;
         let data = tmp.join("data");
         let key = c.key.as_ref();
@@ -1004,8 +1356,7 @@ impl Control {
         if keys {
             for (p, place) in &c.places {
                 let Place::Key(rel) = place else { continue };
-                r.extract(p, &data.join(rel), key)
-                    .map_err(|e| e.to_string())?;
+                r.extract(p, &data.join(rel), key)?;
                 plan.files.push(rel.clone());
             }
             if c.keys_other {
@@ -1035,8 +1386,7 @@ impl Control {
                 continue;
             }
             for (p, file) in files {
-                r.extract(p, &data.join(dir).join(file), None)
-                    .map_err(|e| e.to_string())?;
+                r.extract(p, &data.join(dir).join(file), None)?;
             }
             // with the key that will be in place
             let staged_key = data.join(key_file);
@@ -1045,28 +1395,26 @@ impl Control {
             } else {
                 d.join(key_file)
             };
-            let wal_key = secret::load_or_create_key(&key_path).map_err(|e| e.to_string())?;
+            let wal_key =
+                secret::load_or_create_key(&key_path).map_err(BrokerRestoreError::KeyLoad)?;
             wyrm_state::replicate::copy_to(
                 &data.join(dir),
                 &wal_key,
                 &tmp.join("verify").join(name),
             )
-            .map_err(|e| {
-                format!(
-                    "{name}: the store of the backup does not open with the keys that will \
-                         be in place ({e}): restore it together with the keys section"
-                )
+            .map_err(|source| BrokerRestoreError::WalKeys {
+                store: name,
+                source,
             })?;
             plan.dirs.push(dir.to_owned());
         }
         wyrm_core::files::discard_dir(&tmp.join("verify"));
         if has(SectionName::Dataflows) {
             let dir = data.join("flows").join("artifacts");
-            std::fs::create_dir_all(&dir).map_err(|e| io_err(&dir, e))?;
+            std::fs::create_dir_all(&dir).map_err(|e| FileError::new(&dir, e))?;
             for (p, place) in &c.places {
                 if let Place::Artifact(rel) = place {
-                    r.extract(p, &dir.join(rel), None)
-                        .map_err(|e| e.to_string())?;
+                    r.extract(p, &dir.join(rel), None)?;
                 }
             }
             plan.dirs.push("flows/artifacts".into());
@@ -1075,30 +1423,25 @@ impl Control {
             // the store is built here, from the tree: a tree that does not
             // read refuses the restore now, not the start that applies it
             let tree = tmp.join(STORAGE_TREE);
-            r.extract("storage/tree.cbor", &tree, None)
-                .map_err(|e| e.to_string())?;
+            r.extract("storage/tree.cbor", &tree, None)?;
             build_storage(&tree, &data.join("storage"))?;
-            std::fs::remove_file(&tree).map_err(|e| io_err(&tree, e))?;
+            std::fs::remove_file(&tree).map_err(|e| FileError::new(&tree, e))?;
             plan.dirs.push("storage".into());
         }
         if has(SectionName::History) && c.manifest.section(SectionName::History).is_some() {
             let dir = data.join("history");
-            std::fs::create_dir_all(dir.join("days")).map_err(|e| io_err(&dir, e))?;
+            std::fs::create_dir_all(dir.join("days")).map_err(|e| FileError::new(&dir, e))?;
             for (p, place) in &c.places {
                 match place {
-                    Place::HistoryIndex => r
-                        .extract(p, &dir.join("index.redb"), None)
-                        .map_err(|e| e.to_string())?,
-                    Place::HistoryDay(day) => r
-                        .extract(p, &dir.join("days").join(day), None)
-                        .map_err(|e| e.to_string())?,
+                    Place::HistoryIndex => r.extract(p, &dir.join("index.redb"), None)?,
+                    Place::HistoryDay(day) => r.extract(p, &dir.join("days").join(day), None)?,
                     _ => continue,
                 };
             }
             // files that do not open would stop every start after the restore
             wyrm_history::Store::open(&dir)
                 .map(drop)
-                .map_err(|e| format!("the history of the backup does not open: {e}"))?;
+                .map_err(BrokerRestoreError::History)?;
             plan.dirs.push("history".into());
         }
         if has(SectionName::Links) {
@@ -1119,12 +1462,11 @@ impl Control {
                     continue;
                 }
                 let dir = data.join("links").join(id).join("data");
-                std::fs::create_dir_all(&dir).map_err(|e| io_err(&dir, e))?;
+                std::fs::create_dir_all(&dir).map_err(|e| FileError::new(&dir, e))?;
                 for (p, place) in &c.places {
                     match place {
                         Place::LinkFile(l, rel) if l == id => {
-                            r.extract(p, &dir.join(rel), key)
-                                .map_err(|e| e.to_string())?;
+                            r.extract(p, &dir.join(rel), key)?;
                         }
                         _ => {}
                     }
@@ -1137,13 +1479,14 @@ impl Control {
                 // Without `keys`, a link's secrets go into this broker's
                 // store, and a broker-made one is never taken from a file.
                 if !keys {
-                    let plain = r
-                        .read_plain(&format!("links/{id}/secrets"), key)
-                        .map_err(|e| e.to_string())?;
-                    let Value::Map(m) =
-                        wyrm_core::codec::from_slice::<Value>(&plain).map_err(|e| e.to_string())?
+                    let plain = r.read_plain(&format!("links/{id}/secrets"), key)?;
+                    let Value::Map(m) = wyrm_core::codec::from_slice::<Value>(&plain)
+                        .map_err(RestoreError::SecretsDecode)?
                     else {
-                        return Err(format!("links/{id}/secrets: not a map"));
+                        return Err(RestoreError::SecretsNotMap {
+                            path: format!("links/{id}/secrets"),
+                        }
+                        .into());
                     };
                     let kept: BTreeMap<String, Value> = m
                         .into_iter()
@@ -1154,12 +1497,13 @@ impl Control {
             }
             if !secrets.is_empty() {
                 let bytes = Zeroizing::new(
-                    wyrm_core::codec::to_vec(&Value::Map(secrets)).map_err(|e| e.to_string())?,
+                    wyrm_core::codec::to_vec(&Value::Map(secrets))
+                        .map_err(BrokerRestoreError::SecretsEncode)?,
                 );
                 // as the start that applies it will read it
                 parse_link_secrets(&bytes)?;
                 secret::write_private(&tmp.join(LINK_SECRETS), &bytes)
-                    .map_err(|e| io_err(tmp, e))?;
+                    .map_err(|e| FileError::new(tmp, e))?;
             }
         }
         if has(SectionName::Packages) {
@@ -1178,8 +1522,7 @@ impl Control {
                 for (p, place) in &c.places {
                     match place {
                         Place::PackageFile(n, rel) if n == name => {
-                            r.extract(p, &scratch.join(rel), None)
-                                .map_err(|e| e.to_string())?;
+                            r.extract(p, &scratch.join(rel), None)?;
                         }
                         _ => {}
                     }
@@ -1187,14 +1530,21 @@ impl Control {
                 // through the validator of every install; its record names
                 // the version and the entry
                 let source = format!("backup {}", c.manifest.site);
-                let zip = packages::repack(&scratch)?;
+                let zip = packages::repack(&scratch).map_err(RestoreError::Repack)?;
                 let checked = packages::unpack(&zip, &tmp.join("unpacked"), &source, now_s())
-                    .map_err(|e| format!("package {name} of the backup: {e}"))?;
+                    .map_err(|why| BrokerRestoreError::PackageInvalid {
+                        name: name.clone(),
+                        why,
+                    })?;
                 let def = checked.def.clone();
                 if def.name != *name {
-                    return Err(format!("packages/{name} holds package {}", def.name));
+                    return Err(BrokerRestoreError::PackageName {
+                        dir: name.clone(),
+                        holds: def.name,
+                    });
                 }
-                wyrm_core::keyspace::validate_segment(&def.version).map_err(|e| e.to_string())?;
+                wyrm_core::keyspace::validate_segment(&def.version)
+                    .map_err(BrokerRestoreError::PackageVersion)?;
                 let rel = format!("packages/{}/{}", def.name, def.version);
                 // what it asks for was accepted here only if this broker
                 // has the same version with the same files
@@ -1207,9 +1557,9 @@ impl Control {
                 }
                 let to = data.join(&rel);
                 if let Some(parent) = to.parent() {
-                    std::fs::create_dir_all(parent).map_err(|e| io_err(parent, e))?;
+                    std::fs::create_dir_all(parent).map_err(|e| FileError::new(parent, e))?;
                 }
-                std::fs::rename(&scratch, &to).map_err(|e| io_err(&to, e))?;
+                std::fs::rename(&scratch, &to).map_err(|e| FileError::new(&to, e))?;
                 if def.kind == PackageKind::Wasm {
                     plan.components
                         .push((def.name.clone(), format!("{rel}/{}", def.entry)));
@@ -1219,21 +1569,17 @@ impl Control {
             wyrm_core::files::discard_dir(&tmp.join("package"));
             wyrm_core::files::discard_dir(&tmp.join("unpacked"));
             if !asks.is_empty() && !accept {
-                return Err(format!(
-                    "the packages of the backup ask for: {}. Nothing is restored: read them, \
-                     then restore again with Accept Requested Rights",
-                    asks.join("; ")
-                ));
+                return Err(BrokerRestoreError::Asks { asks });
             }
         }
         // the secret store of the backup opens with the key that comes with it
         if keys && data.join(SECRETS_BIN).is_file() && data.join("secrets.key").is_file() {
             crate::secrets::SecretStore::open(&data)
                 .map(drop)
-                .map_err(|e| format!("the secret store of the backup: {e}"))?;
+                .map_err(BrokerRestoreError::SecretStore)?;
         }
-        let text = serde_json::to_vec_pretty(&plan).map_err(|e| e.to_string())?;
-        secret::write_private(&tmp.join(PLAN), &text).map_err(|e| io_err(tmp, e))?;
+        let text = serde_json::to_vec_pretty(&plan).map_err(BrokerRestoreError::PlanEncode)?;
+        secret::write_private(&tmp.join(PLAN), &text).map_err(|e| FileError::new(tmp, e))?;
         // as the start that applies it will read it
         read_plan(tmp)?;
         Ok(plan)
@@ -1316,30 +1662,25 @@ impl Admin {
         // replace took it
         let used = matches!(&r, Ok((_, true)));
         ctl.upload_release(&upload, used);
-        r.map(|(v, _)| Some(v)).map_err(|m| {
-            // a rebuild or a backup in flight is a reason to try again
-            if m.contains("try again") || m.contains("one at a time") {
-                LinkError::new(Status::Busy, m)
-            } else {
-                LinkError::invalid_parameter(m)
-            }
-        })
+        // a restore, a backup, an update or an install in flight is a reason to
+        // try again: `BrokerRestoreError::status`
+        r.map(|(v, _)| Some(v)).map_err(LinkError::from)
     }
 
     async fn restore_check(
         &self,
         path: &Path,
         passphrase: Option<Zeroizing<Vec<u8>>>,
-    ) -> Result<(Value, bool), String> {
+    ) -> Result<(Value, bool), BrokerRestoreError> {
         let (ctl, path) = (self.ctl.clone(), path.to_owned());
-        tokio::task::spawn_blocking(move || {
+        tokio::task::spawn_blocking(move || -> Result<(Value, bool), BrokerRestoreError> {
             let size = std::fs::metadata(&path).map_or(0, |m| m.len());
-            let mut r = format::Reader::open(&path, MAX_UPLOAD).map_err(|e| e.to_string())?;
+            let mut r = format::Reader::open(&path, MAX_UPLOAD)?;
             let c = ctl.check_broker_backup(&mut r, passphrase.as_deref().map(|p| &p[..]))?;
             Ok((ctl.check_report(&c, size), false))
         })
         .await
-        .map_err(|e| e.to_string())?
+        .map_err(BrokerRestoreError::Task)?
     }
 
     async fn restore_apply(
@@ -1349,18 +1690,15 @@ impl Admin {
         passphrase: Option<Zeroizing<Vec<u8>>>,
         sub: &str,
         remote: bool,
-    ) -> Result<(Value, bool), String> {
+    ) -> Result<(Value, bool), BrokerRestoreError> {
         let ctl = &self.ctl;
         let (chosen, mode) = (how.sections, how.mode);
         let allowed = mode.sections();
         if let Some(s) = chosen.iter().find(|s| !allowed.contains(s)) {
-            return Err(format!(
-                "sections: {s} is not restored with mode {mode} (of {})",
-                format::section_names(allowed)
-            ));
+            return Err(BrokerRestoreError::Section { section: *s, mode });
         }
         if chosen.is_empty() {
-            return Err("sections: none chosen".into());
+            return Err(BrokerRestoreError::NoSections);
         }
         if mode == RestoreMode::Add {
             return self
@@ -1382,27 +1720,23 @@ impl Admin {
         }
         // nothing else changes a package or a link while this is staged
         // (ADR 0048 §1.9); the flag stays until the broker stops
-        ctl.replacing(true).map_err(|e| e.message)?;
+        ctl.replacing(true).map_err(BrokerRestoreError::Busy)?;
         let (ctl2, path2, sub2, chosen2) =
             (ctl.clone(), path.to_owned(), sub.to_owned(), chosen.clone());
-        let staged = tokio::task::spawn_blocking(move || -> Result<Plan, String> {
+        let staged = tokio::task::spawn_blocking(move || -> Result<Plan, BrokerRestoreError> {
             let ctl = ctl2;
             let has = |s: SectionName| chosen2.contains(&s);
             let pass = passphrase.as_deref().map(|p| &p[..]);
-            let mut r = format::Reader::open(&path2, MAX_UPLOAD).map_err(|e| e.to_string())?;
+            let mut r = format::Reader::open(&path2, MAX_UPLOAD)?;
             let c = ctl.check_broker_backup(&mut r, pass)?;
             if let Some(p) = c.problems.first() {
-                return Err(p.clone());
+                return Err(p.clone().into());
             }
             if let Some(s) = chosen2.iter().find(|s| c.manifest.section(**s).is_none()) {
-                return Err(format!("sections: the backup has no section {s}"));
+                return Err(BrokerRestoreError::MissingSection(*s));
             }
             if has(SectionName::Control) && ctl.cfg.anchor_dir.is_some() {
-                return Err(
-                    "state_anchor_dir is set: restore the control plane offline, then run \
-                     `wyrmd init-anchors` (docs/operations.md §3)"
-                        .into(),
-                );
+                return Err(BrokerRestoreError::Anchored);
             }
             // Every restore of `keys` passes the gates, whatever the CA: the
             // host allowed secrets to move, the caller is of this site and
@@ -1419,11 +1753,7 @@ impl Admin {
             // keys of the backup that replace other ones
             let new_keys = has(SectionName::Keys) && !c.keys_differ.is_empty();
             if has(SectionName::Control) && !c.wal_opens_here && !new_keys {
-                return Err(
-                    "the control plane of the backup is under other keys than this broker's: \
-                     restore it together with the keys section (replace_keys: true)"
-                        .into(),
-                );
+                return Err(BrokerRestoreError::ControlKeys);
             }
             // a backup of what is replaced, first. Keys go into it only
             // when they are replaced, under the passphrase of this restore
@@ -1436,30 +1766,28 @@ impl Admin {
             if before.contains(&SectionName::History) && ctl.history.store().days().is_empty() {
                 before.retain(|s| *s != SectionName::History);
             }
-            let job = ctl
-                .backup_now(
-                    BackupRequest {
-                        kind: Kind::Broker,
-                        sections: before,
-                        links: None,
-                        link: None,
-                        history_days: None,
-                        seal: match (new_keys, pass) {
-                            (true, Some(p)) => SealWith::Passphrase(Zeroizing::new(p.to_vec())),
-                            _ => SealWith::None,
-                        },
-                        label: super::backups::JobKind::PreRestore,
-                        pinned: false,
-                        remote: false,
+            let job = ctl.backup_now(
+                BackupRequest {
+                    kind: Kind::Broker,
+                    sections: before,
+                    links: None,
+                    link: None,
+                    history_days: None,
+                    seal: match (new_keys, pass) {
+                        (true, Some(p)) => SealWith::Passphrase(Zeroizing::new(p.to_vec())),
+                        _ => SealWith::None,
                     },
-                    &sub2,
-                )
-                .map_err(|e| e.to_string())?;
+                    label: super::backups::JobKind::PreRestore,
+                    pinned: false,
+                    remote: false,
+                },
+                &sub2,
+            )?;
             info!(backup = %job.id, "what the restore replaces is backed up");
             ctl.stage_replace(&mut r, &c, &chosen2, accept, &sub2)
         })
         .await
-        .map_err(|e| e.to_string())
+        .map_err(BrokerRestoreError::Task)
         .and_then(|r| r);
         let plan = match staged {
             Ok(plan) => plan,
@@ -1504,7 +1832,7 @@ impl Admin {
         passphrase: Option<Zeroizing<Vec<u8>>>,
         accept: bool,
         sub: &str,
-    ) -> Result<Value, String> {
+    ) -> Result<Value, BrokerRestoreError> {
         let ctl = &self.ctl;
         let has = |s: SectionName| chosen.contains(&s);
         let mut done: Vec<String> = Vec::new();
@@ -1514,16 +1842,16 @@ impl Admin {
         // the key is derived once (Argon2id for a passphrase) and goes on
         // to every link of the file
         let (manifest, tree, key) = tokio::task::spawn_blocking(move || {
-            let mut r = format::Reader::open(&path2, MAX_UPLOAD).map_err(|e| e.to_string())?;
+            let mut r = format::Reader::open(&path2, MAX_UPLOAD)?;
             let c = ctl2.check_broker_backup(&mut r, pass2.as_deref().map(|p| &p[..]))?;
             let tree = match c.manifest.section(SectionName::Storage) {
-                Some(_) => Some(r.read("storage/tree.cbor").map_err(|e| e.to_string())?),
+                Some(_) => Some(r.read("storage/tree.cbor")?),
                 None => None,
             };
-            Ok::<_, String>((c.manifest, tree, c.key))
+            Ok::<_, BrokerRestoreError>((c.manifest, tree, c.key))
         })
         .await
-        .map_err(|e| e.to_string())??;
+        .map_err(BrokerRestoreError::Task)??;
         if has(SectionName::Dataflows) {
             skipped.push(
                 "dataflows: a flow is deployed with proofs of its deployer; restore them with \
@@ -1532,11 +1860,11 @@ impl Admin {
             );
         }
         if has(SectionName::Storage) {
-            let store = ctl.storage().ok_or("storage: not open")?;
+            let store = ctl.storage().ok_or(BrokerRestoreError::StorageClosed)?;
             let changes = tree
                 .and_then(|b| wyrm_core::codec::from_slice(&b).ok())
                 .and_then(replication::parse_changes)
-                .ok_or("the backup has no storage tree")?;
+                .ok_or(BrokerRestoreError::NoStorageTree)?;
             let put: Vec<_> = changes
                 .put
                 .into_iter()
@@ -1546,8 +1874,8 @@ impl Admin {
             if n > 0 {
                 tokio::task::spawn_blocking(move || store.apply(put, Vec::new()))
                     .await
-                    .map_err(|e| e.to_string())?
-                    .map_err(|e| e.to_string())?;
+                    .map_err(BrokerRestoreError::Task)?
+                    .map_err(BrokerRestoreError::StorageApply)?;
                 // the storage link reads its store again
                 ctl.schedule_reload();
             }
@@ -1566,21 +1894,22 @@ impl Admin {
                 let (ctl2, path2, key, id2) =
                     (ctl.clone(), path.to_owned(), key.clone(), id.clone());
                 let read = tokio::task::spawn_blocking(move || {
-                    let mut r =
-                        format::Reader::open(&path2, MAX_UPLOAD).map_err(|e| e.to_string())?;
+                    let mut r = format::Reader::open(&path2, MAX_UPLOAD)?;
                     let m = r.manifest().clone();
                     // the package the link names, if the backup holds it
-                    let def: LinkDef = minicbor::decode(
-                        &r.read(&format!("links/{id2}/link.cbor"))
-                            .map_err(|e| e.to_string())?,
-                    )
-                    .map_err(|e| format!("links/{id2}/link.cbor: {e}"))?;
+                    let settings = format!("links/{id2}/link.cbor");
+                    let def: LinkDef = minicbor::decode(&r.read(&settings)?).map_err(|source| {
+                        RestoreError::Settings {
+                            path: settings,
+                            source,
+                        }
+                    })?;
                     let package = def.driver.strip_prefix(packages::DRIVER_PREFIX);
                     let lay = LinkLayout::in_broker(&m, &id2, package);
                     ctl2.read_link_parts(&mut r, key.as_ref(), &lay)
                 })
                 .await
-                .map_err(|e| e.to_string())?;
+                .map_err(BrokerRestoreError::Task)?;
                 let r = match read {
                     Ok(r) => r,
                     Err(e) => {
@@ -1993,7 +2322,8 @@ mod tests {
             "other/x",
         ] {
             let e = place_of(bad).expect_err(bad);
-            assert!(e.contains("no section defines"), "{bad}: {e}");
+            assert_eq!(e.path, bad);
+            assert!(e.to_string().contains("no section defines"), "{bad}: {e}");
         }
     }
 
@@ -2014,19 +2344,24 @@ mod tests {
         };
         // a caller from an upstream: never, with or without keys
         let e = g(true, false, &[], true, true, true).unwrap_err();
-        assert!(e.contains("upstream"), "{e}");
-        assert!(g(true, true, &[], true, true, true).is_err());
+        assert_eq!(e, GateError::Remote);
+        assert!(e.to_string().contains("upstream"), "{e}");
+        assert_eq!(g(true, true, &[], true, true, true), Err(GateError::Remote));
         // without keys: no gate for a caller of this site
         assert!(g(false, false, &[], false, false, false).is_ok());
         // keys byte for byte this broker's: still the host's switch and the
         // passphrase, no replace_keys
         let e = g(false, true, &[], false, true, true).unwrap_err();
-        assert!(e.contains("export_secrets"), "{e}");
+        assert_eq!(e, GateError::ExportOff);
+        assert!(e.to_string().contains("export_secrets"), "{e}");
         let e = g(false, true, &[], true, false, true).unwrap_err();
-        assert!(e.contains("passphrase"), "{e}");
+        assert_eq!(e, GateError::NoPassphrase);
+        assert!(e.to_string().contains("passphrase"), "{e}");
         assert!(g(false, true, &[], true, true, false).is_ok());
         // the same CA, another key file: replace_keys, and it is named
         let e = g(false, true, &differ, true, true, false).unwrap_err();
+        assert!(matches!(&e, GateError::KeysDiffer { differ: d } if *d == differ));
+        let e = e.to_string();
         assert!(
             e.contains("replace_keys") && e.contains("secrets.bin"),
             "{e}"
@@ -2035,7 +2370,9 @@ mod tests {
         assert!(g(false, true, &differ, true, false, true).is_err());
         assert!(g(false, true, &differ, true, true, true).is_ok());
         // another CA
-        let e = g(false, true, &ca, true, true, false).unwrap_err();
+        let e = g(false, true, &ca, true, true, false)
+            .unwrap_err()
+            .to_string();
         assert!(e.contains("another CA"), "{e}");
         assert!(g(false, true, &ca, true, true, true).is_ok());
     }
@@ -2114,7 +2451,11 @@ mod tests {
                 .check_broker_backup(&mut r, Some(PASS))
                 .err()
                 .expect(stray);
-            assert!(e.contains("no section defines"), "{stray}: {e}");
+            assert!(
+                matches!(&e, BrokerRestoreError::Place(p) if p.path == stray),
+                "{e:?}"
+            );
+            assert!(e.to_string().contains("no section defines"), "{stray}: {e}");
         }
         assert!(!d.join("links/a").exists() && !d.join(PENDING).exists());
         assert!(!d.join(PENDING_TMP).exists() && !d.join("wyrmd.json5").exists());
@@ -2294,9 +2635,15 @@ mod tests {
         };
         // an entry outside the package: the validator of every install
         let e = stage(&manifest("../../../../bin/sh"), true).unwrap_err();
-        assert!(e.contains("package demo of the backup"), "{e}");
+        assert!(
+            matches!(e, BrokerRestoreError::PackageInvalid { .. }),
+            "{e:?}"
+        );
+        assert!(e.to_string().contains("package demo of the backup"), "{e}");
         // its grant is shown and nothing is staged without accept
         let e = stage(&manifest("bin/run"), false).unwrap_err();
+        assert!(matches!(e, BrokerRestoreError::Asks { .. }), "{e:?}");
+        let e = e.to_string();
         assert!(
             e.contains("write on wy/{site}/downstream/plc1") && e.contains("Accept"),
             "{e}"
@@ -2326,7 +2673,9 @@ mod tests {
         let p = d.join(PENDING);
         put(&p, "data/x", b"x");
         std::fs::write(p.join(PLAN), serde_json::to_vec(&v).unwrap()).unwrap();
-        assert!(read_plan(&p).unwrap_err().contains("backup section"));
+        let e = read_plan(&p).unwrap_err();
+        assert!(matches!(e, PlanError::Json(_)), "{e:?}");
+        assert!(e.to_string().contains("backup section"));
         assert_eq!(apply_pending(&d).unwrap(), None);
         assert!(!p.exists() && d.join(FAILED).is_dir());
         assert!(!d.join("x").exists());
@@ -2356,5 +2705,526 @@ mod tests {
                 assert!(!d.join("x").exists(), "{bad}");
             }
         }
+    }
+
+    fn said(e: &dyn std::fmt::Display, text: &str) {
+        assert_eq!(e.to_string(), text);
+    }
+
+    fn cancelled() -> tokio::task::JoinError {
+        tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap()
+            .block_on(async {
+                let task = tokio::spawn(std::future::pending::<()>());
+                task.abort();
+                task.await.unwrap_err()
+            })
+    }
+
+    /// One of every variant of [`BrokerRestoreError`], with the status it has
+    /// to a caller.
+    fn every_refusal() -> Vec<(BrokerRestoreError, Status)> {
+        use BrokerRestoreError as B;
+        use Status::{Busy, InvalidParameter as Invalid};
+        let io = || std::io::Error::other("no");
+        let boxed = || -> secret::Error { "no".into() };
+        let codec = || wyrm_core::codec::CodecError::Encode("no".into());
+        let json = || serde_json::from_str::<u8>("x").unwrap_err();
+        let segment = || wyrm_core::keyspace::validate_segment("").unwrap_err();
+        let busy = |m: &str| LinkError::new(Status::Busy, m);
+        vec![
+            (B::Restore(RestoreError::BrokerBackup), Invalid),
+            (
+                B::Restore(RestoreError::Key(format::KeyError::WrongPassphrase)),
+                Invalid,
+            ),
+            (B::LinkBackup, Invalid),
+            (
+                B::Place(NoPlace {
+                    path: "keys/x".into(),
+                }),
+                Invalid,
+            ),
+            (B::NoCa, Invalid),
+            (B::KeyLoad(boxed()), Invalid),
+            (
+                B::Section {
+                    section: SectionName::Keys,
+                    mode: RestoreMode::Add,
+                },
+                Invalid,
+            ),
+            (B::NoSections, Invalid),
+            (
+                B::Problem(Problem::OtherSite {
+                    backup: "plant".into(),
+                    here: "s".into(),
+                }),
+                Invalid,
+            ),
+            (
+                B::Problem(Problem::NewerSchema {
+                    store: "registry".into(),
+                    backup: 99,
+                    here: 20,
+                }),
+                Invalid,
+            ),
+            (B::MissingSection(SectionName::History), Invalid),
+            (B::Anchored, Invalid),
+            (B::Gate(GateError::Remote), Invalid),
+            (B::Gate(GateError::ExportOff), Invalid),
+            (B::Gate(GateError::NoPassphrase), Invalid),
+            (
+                B::Gate(GateError::KeysDiffer {
+                    differ: vec!["state.key".into()],
+                }),
+                Invalid,
+            ),
+            (B::ControlKeys, Invalid),
+            // the two refusals of `Control::replacing`
+            (
+                B::Busy(busy("a restore is being staged; one at a time")),
+                Busy,
+            ),
+            (
+                B::Busy(busy(
+                    "a package or a link is being installed, updated, rolled back or restored; \
+                     try again when it ends",
+                )),
+                Busy,
+            ),
+            (B::PreBackup(NowError::Refused(StartError::Running)), Busy),
+            (
+                B::PreBackup(NowError::Refused(StartError::LinkBusy(busy(
+                    "link plc is being restored; try again when it ends",
+                )))),
+                Busy,
+            ),
+            (
+                B::PreBackup(NowError::Refused(StartError::Request(
+                    super::super::backups::RequestError::NoConfig,
+                ))),
+                Invalid,
+            ),
+            (
+                B::PreBackup(NowError::Refused(StartError::DiskFull {
+                    want: 2.0,
+                    free: 1.0,
+                })),
+                Invalid,
+            ),
+            (B::PreBackup(NowError::Failed("no".into())), Invalid),
+            (B::PreBackup(NowError::Gone), Invalid),
+            (B::Task(cancelled()), Invalid),
+            (
+                B::WalKeys {
+                    store: "state",
+                    source: StateError::Rejected("no".into()),
+                },
+                Invalid,
+            ),
+            (
+                B::History(wyrm_history::store::Error::Db("no".into())),
+                Invalid,
+            ),
+            (B::Storage(StorageError::TreeShape), Invalid),
+            (B::LinkSecrets(LinkSecretsError::NotMap), Invalid),
+            (B::SecretsEncode(codec()), Invalid),
+            (
+                B::PackageInvalid {
+                    name: "demo".into(),
+                    why: "no".into(),
+                },
+                Invalid,
+            ),
+            (
+                B::PackageName {
+                    dir: "demo".into(),
+                    holds: "other".into(),
+                },
+                Invalid,
+            ),
+            (B::PackageVersion(segment()), Invalid),
+            (
+                B::Asks {
+                    asks: vec!["package demo: network a:1".into()],
+                },
+                Invalid,
+            ),
+            (B::SecretStore(boxed()), Invalid),
+            (B::PlanEncode(json()), Invalid),
+            (B::Plan(PlanError::Json(json())), Invalid),
+            (
+                B::Stays {
+                    error: Box::new(B::NoCa),
+                    path: PathBuf::from("/d/restore.pending.tmp"),
+                    source: io(),
+                },
+                Invalid,
+            ),
+            (B::StorageClosed, Invalid),
+            (B::NoStorageTree, Invalid),
+            (B::StorageApply(wyrm_storage::Error::Io(io())), Invalid),
+        ]
+    }
+
+    /// The status of every refusal of `restore_check` and `restore_apply` is the
+    /// one the handler gave before the refusals had a type. It told `busy` by
+    /// the words of the message then (`by_words`, the rule as it was); the type
+    /// tells it now, with the same answer for every refusal the broker makes.
+    #[test]
+    fn a_broker_restore_is_refused_with_its_status() {
+        let by_words = |m: &str| {
+            if m.contains("try again") || m.contains("one at a time") {
+                Status::Busy
+            } else {
+                Status::InvalidParameter
+            }
+        };
+        for (e, status) in every_refusal() {
+            let text = e.to_string();
+            assert_eq!(e.status(), status, "{text}");
+            assert_eq!(by_words(&text), status, "{text}");
+            let l = LinkError::from(e);
+            assert_eq!((l.status, l.message.as_str()), (status, text.as_str()));
+        }
+        // What a backup says cannot make a refusal `busy` any more: a path, a
+        // package's manifest or a job's error with those words in it.
+        for e in [
+            BrokerRestoreError::Place(NoPlace {
+                path: "keys/try again".into(),
+            }),
+            BrokerRestoreError::Asks {
+                asks: vec!["package demo: network one at a time".into()],
+            },
+            BrokerRestoreError::PreBackup(NowError::Failed("try again".into())),
+        ] {
+            assert_eq!(by_words(&e.to_string()), Status::Busy);
+            assert_eq!(e.status(), Status::InvalidParameter, "{e}");
+        }
+        // a staging that failed and left its folder keeps the status of the failure
+        let stays = |error: BrokerRestoreError| BrokerRestoreError::Stays {
+            error: Box::new(error),
+            path: PathBuf::from("/d/t"),
+            source: std::io::Error::other("no"),
+        };
+        assert_eq!(
+            stays(BrokerRestoreError::NoCa).status(),
+            Status::InvalidParameter
+        );
+        assert_eq!(
+            stays(BrokerRestoreError::Busy(LinkError::new(Status::Busy, "x"))).status(),
+            Status::Busy
+        );
+    }
+
+    /// Rule 8 (audit T7): every refusal says, byte for byte, what it said when
+    /// it was a `String`. The texts reach the answers of `restore_check` and
+    /// `restore_apply`, `error.txt` of `restore.failed` (and so the audit
+    /// journal) and the start-up output of `wyrmd`.
+    #[test]
+    fn every_error_says_what_its_text_said() {
+        let io = || std::io::Error::other("no");
+        let file = || FileError::new(Path::new("/d/f"), io());
+        let boxed = || -> secret::Error { "no".into() };
+        let codec = || wyrm_core::codec::CodecError::Decode("no".into());
+        let json = || serde_json::from_str::<u8>("x").unwrap_err();
+        let json_text = "expected value at line 1 column 1";
+        let segment = || wyrm_core::keyspace::validate_segment("").unwrap_err();
+
+        said(
+            &NoPlace {
+                path: "keys/x y".into(),
+            },
+            "the backup lists \"keys/x y\", a file no section defines: nothing of this backup \
+             is restored",
+        );
+        said(&NotPlain::Segment("a/b".into()), "\"a/b\" is no file name");
+        said(&NotPlain::NoName, "a path without a file name");
+
+        use GateError as G;
+        said(
+            &G::Remote,
+            "mode replace is not run through an upstream: it replaces this site's state. Do it \
+             on the broker's own gateway (mode add works from above)",
+        );
+        said(
+            &G::ExportOff,
+            "restoring the keys section needs backups.export_secrets: true in wyrmd.json5 (set \
+             on the host)",
+        );
+        said(
+            &G::NoPassphrase,
+            "passphrase: required to restore the keys section",
+        );
+        said(
+            &G::KeysDiffer {
+                differ: vec!["state.key".into(), "secrets.bin".into()],
+            },
+            "the keys of the backup differ from this broker's (state.key, secrets.bin): they \
+             are put in place only with replace_keys: true",
+        );
+        said(
+            &G::KeysDiffer {
+                differ: vec!["pki/ca.pem".into()],
+            },
+            "the keys of the backup differ from this broker's (pki/ca.pem): they are put in \
+             place only with replace_keys: true (another CA: links, operators and peer brokers \
+             enrol again)",
+        );
+
+        said(
+            &Problem::OtherSite {
+                backup: "plant".into(),
+                here: "s".into(),
+            },
+            "the backup is of site plant, this broker is s: a site is restored under its own \
+             name (set `site` in wyrmd.json5)",
+        );
+        said(
+            &Problem::NewerSchema {
+                store: "registry".into(),
+                backup: 99,
+                here: 20,
+            },
+            "the registry store of the backup has schema 99, this broker reads up to 20: \
+             update the broker first",
+        );
+
+        use PlanError as P;
+        said(&P::File(file()), "/d/f: no");
+        said(&P::Json(json()), &format!("plan.json: {json_text}"));
+        said(
+            &P::Path(format::check_path("../x").unwrap_err()),
+            "restore.pending: path \"../x\": empty, `.` or `..` segment",
+        );
+        said(&P::Component(segment()), "empty segment");
+
+        use LinkSecretsError as L;
+        said(&L::Decode(codec()), "link secrets: cbor decode: no");
+        said(&L::NotMap, "link secrets: not a map");
+        said(&L::LinkId("link id: no".into()), "link id: no");
+        said(
+            &L::LinkNotMap { link: "plc".into() },
+            "link secrets: plc: not a map",
+        );
+        said(
+            &L::NotBytes {
+                link: "plc".into(),
+                name: "password".into(),
+            },
+            "link secrets: plc/password: not bytes",
+        );
+
+        use StorageError as S;
+        said(&S::File(file()), "/d/f: no");
+        said(&S::TreeDecode(codec()), "storage tree: unreadable");
+        said(&S::TreeShape, "storage tree: unreadable");
+        said(&S::Store(wyrm_storage::Error::Io(io())), "storage: no");
+
+        use PendingError as N;
+        said(
+            &N::Plan(P::Json(json())),
+            &format!("plan.json: {json_text}"),
+        );
+        said(
+            &N::Begun(P::Json(json())),
+            &format!("plan.json: {json_text}; the restore had begun: see restore.pending"),
+        );
+        said(&N::File(file()), "/d/f: no");
+        said(&N::Before(json()), &format!("before.json: {json_text}"));
+        said(&N::BeforeEncode(json()), json_text);
+        said(&N::Storage(S::TreeShape), "storage tree: unreadable");
+        said(&N::LinkSecrets(L::NotMap), "link secrets: not a map");
+        said(&N::SecretStore(boxed()), "no");
+        // the names of the files in the texts are the constants the code uses
+        assert_eq!(
+            (PLAN, BEFORE, PENDING),
+            ("plan.json", "before.json", "restore.pending")
+        );
+        assert_eq!(CA_FILE, "pki/ca.pem");
+
+        use BrokerRestoreError as B;
+        said(
+            &B::Restore(RestoreError::BrokerBackup),
+            "a broker backup: restore it from System, not as a link",
+        );
+        said(
+            &B::from(format::ReadError::ManifestTooLarge),
+            "manifest: too large",
+        );
+        said(&B::from(file()), "/d/f: no");
+        said(
+            &B::LinkBackup,
+            "a link backup: install it with Add a link, From backup",
+        );
+        said(
+            &B::Place(NoPlace { path: "x".into() }),
+            "the backup lists \"x\", a file no section defines: nothing of this backup is \
+             restored",
+        );
+        said(&B::NoCa, "the keys section holds no pki/ca.pem");
+        said(&B::KeyLoad(boxed()), "no");
+        said(
+            &B::Section {
+                section: SectionName::Keys,
+                mode: RestoreMode::Add,
+            },
+            "sections: keys is not restored with mode add (of links, storage, dataflows)",
+        );
+        said(
+            &B::Section {
+                section: SectionName::Config,
+                mode: RestoreMode::Replace,
+            },
+            "sections: config is not restored with mode replace (of control, keys, dataflows, \
+             storage, history, links, packages)",
+        );
+        said(&B::NoSections, "sections: none chosen");
+        said(
+            &B::Problem(Problem::OtherSite {
+                backup: "plant".into(),
+                here: "s".into(),
+            }),
+            "the backup is of site plant, this broker is s: a site is restored under its own \
+             name (set `site` in wyrmd.json5)",
+        );
+        said(
+            &B::MissingSection(SectionName::History),
+            "sections: the backup has no section history",
+        );
+        said(
+            &B::Anchored,
+            "state_anchor_dir is set: restore the control plane offline, then run `wyrmd \
+             init-anchors` (docs/operations.md §3)",
+        );
+        said(
+            &B::Gate(G::NoPassphrase),
+            "passphrase: required to restore the keys section",
+        );
+        said(
+            &B::ControlKeys,
+            "the control plane of the backup is under other keys than this broker's: restore \
+             it together with the keys section (replace_keys: true)",
+        );
+        said(
+            &B::Busy(LinkError::new(
+                Status::Busy,
+                "a restore is being staged; one at a time",
+            )),
+            "a restore is being staged; one at a time",
+        );
+        said(
+            &B::PreBackup(NowError::Refused(StartError::Running)),
+            "a backup is being made; one at a time",
+        );
+        said(&B::PreBackup(NowError::Failed("no".into())), "no");
+        said(&B::PreBackup(NowError::Gone), "the backup is gone");
+        let join = cancelled();
+        let text = join.to_string();
+        said(&B::Task(join), &text);
+        said(
+            &B::WalKeys {
+                store: "state",
+                source: StateError::Rejected("no".into()),
+            },
+            "state: the store of the backup does not open with the keys that will be in place \
+             (operation rejected: no): restore it together with the keys section",
+        );
+        said(
+            &B::History(wyrm_history::store::Error::Db("no".into())),
+            "the history of the backup does not open: history store: no",
+        );
+        said(&B::Storage(S::TreeShape), "storage tree: unreadable");
+        said(&B::LinkSecrets(L::NotMap), "link secrets: not a map");
+        said(&B::SecretsEncode(codec()), "cbor decode: no");
+        said(
+            &B::PackageInvalid {
+                name: "demo".into(),
+                why: "no".into(),
+            },
+            "package demo of the backup: no",
+        );
+        said(
+            &B::PackageName {
+                dir: "demo".into(),
+                holds: "other".into(),
+            },
+            "packages/demo holds package other",
+        );
+        said(&B::PackageVersion(segment()), "empty segment");
+        said(
+            &B::Asks {
+                asks: vec![
+                    "package demo: network a:1".into(),
+                    "package demo: write on wy/{site}/downstream/plc1".into(),
+                ],
+            },
+            "the packages of the backup ask for: package demo: network a:1; package demo: \
+             write on wy/{site}/downstream/plc1. Nothing is restored: read them, then restore \
+             again with Accept Requested Rights",
+        );
+        said(
+            &B::SecretStore(boxed()),
+            "the secret store of the backup: no",
+        );
+        said(&B::PlanEncode(json()), json_text);
+        said(
+            &B::Plan(P::Json(json())),
+            &format!("plan.json: {json_text}"),
+        );
+        said(
+            &B::Stays {
+                error: Box::new(B::NoCa),
+                path: PathBuf::from("/d/restore.pending.tmp"),
+                source: io(),
+            },
+            "the keys section holds no pki/ca.pem; /d/restore.pending.tmp stays: no",
+        );
+        said(&B::StorageClosed, "storage: not open");
+        said(&B::NoStorageTree, "the backup has no storage tree");
+        said(
+            &B::StorageApply(wyrm_storage::Error::Io(io())),
+            "storage: no",
+        );
+    }
+
+    /// The start-up side keeps its outcomes: a plan that does not read before
+    /// anything changed is set aside with its text; one that does not read
+    /// after the restore began stops the start, and nothing is touched.
+    #[test]
+    fn a_pending_restore_fails_by_its_type() {
+        let (d, p) = staged("pending-types");
+        std::fs::write(p.join(PLAN), b"{ nope").unwrap();
+        assert_eq!(apply_pending(&d).unwrap(), None);
+        let f = take_failure(&d).unwrap();
+        assert!(f.error.starts_with("plan.json: "), "{}", f.error);
+        assert!(!p.exists() && d.join(FAILED).is_dir());
+
+        let (d, p) = staged("pending-types-begun");
+        assert!(apply_pending(&d).unwrap().is_some());
+        let before = tree_of(&d);
+        std::fs::write(p.join(PLAN), b"{ nope").unwrap();
+        let e = apply_pending(&d).unwrap_err();
+        assert!(
+            matches!(e, PendingError::Begun(PlanError::Json(_))),
+            "{e:?}"
+        );
+        assert!(e
+            .to_string()
+            .ends_with("; the restore had begun: see restore.pending"));
+        assert_eq!(tree_of(&d), before, "nothing is touched");
+        assert!(p.is_dir() && !d.join(FAILED).exists());
+
+        let (d, p) = staged("pending-types-before");
+        std::fs::write(p.join(BEFORE), b"{ nope").unwrap();
+        assert!(matches!(apply_pending(&d), Err(PendingError::Before(_))));
+        assert!(matches!(
+            undo_pending(&d, "why"),
+            Err(PendingError::Before(_))
+        ));
+        assert!(p.is_dir() && !d.join(FAILED).exists());
     }
 }
