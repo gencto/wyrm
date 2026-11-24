@@ -774,7 +774,7 @@ impl Control {
                         ("offset".to_owned(), Value::UInt(offset)),
                         ("data".to_owned(), Value::Bytes(part)),
                     ])),
-                    Err(e) => error_value(&e),
+                    Err(e) => error_value(&e.to_string()),
                 }
             }
             ["files"] => files_value(&files_of(d)),

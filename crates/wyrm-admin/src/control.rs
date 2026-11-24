@@ -153,14 +153,183 @@ pub trait RoleGrants: Send + Sync {
     /// `(role, key expression, level)`, each role's grants in match order.
     fn grants(&self) -> Vec<(String, String, Perm)>;
     /// Add or change (above `none`) or remove (`none`) one grant of `role`.
-    fn set_grant(&self, role: &str, key: &str, level: Perm) -> Result<(), String>;
+    fn set_grant(&self, role: &str, key: &str, level: Perm) -> Result<(), RoleGrantsError>;
     /// Remove the grants on exactly one of `keys` that widen their role's
     /// access to `probe`; returns `(role, key, level)` of each.
     fn revoke_widening(
         &self,
         keys: &[String],
         probe: &str,
-    ) -> Result<Vec<(String, String, Perm)>, String>;
+    ) -> Result<Vec<(String, String, Perm)>, RoleGrantsError>;
+}
+
+/// Why the user gateway did not change a role's grants: the gateway's own
+/// error, said as it says it.
+#[derive(Debug, thiserror::Error)]
+#[error("{0}")]
+pub struct RoleGrantsError(#[source] pub Box<dyn std::error::Error + Send + Sync>);
+
+/// Why a `wasm` package's entry was not put into the component store.
+#[derive(Debug, thiserror::Error)]
+pub enum ComponentError {
+    /// The entry was not read from the package's directory.
+    #[error(transparent)]
+    Read(backups::FileError),
+    /// The component store was not made or written.
+    #[error("{0}")]
+    Store(#[source] std::io::Error),
+}
+
+/// Why a PEM text is not the CA certificate of an upstream site.
+#[derive(Debug, thiserror::Error)]
+pub enum CaPemError {
+    #[error("CA certificate: larger than 16 KiB")]
+    TooLarge,
+    #[error("CA certificate: {0}")]
+    Pem(#[source] x509_parser::nom::Err<x509_parser::error::PEMError>),
+    /// Another PEM block, or more than one.
+    #[error("CA certificate: expected exactly one PEM CERTIFICATE")]
+    NotOne,
+    #[error("CA certificate: {0}")]
+    Parse(#[source] x509_parser::nom::Err<x509_parser::error::X509Error>),
+    #[error("not a CA certificate (no CA basic constraint)")]
+    NotCa,
+}
+
+/// Why an upstream site gave no answer to an enrollment request, or one
+/// that is not taken. The text is `sys/upstream/<site>/status`. No variant
+/// holds the key or the token.
+#[derive(Debug, thiserror::Error)]
+pub enum EnrollError {
+    #[error("no key for this upstream site: add it again")]
+    NoKey,
+    /// The certificate request was not made from the key.
+    #[error("{0}")]
+    Csr(#[source] Error),
+    /// The upstream site's CA was not written for the TLS client.
+    #[error("{0}")]
+    CaFile(#[source] std::io::Error),
+    /// The client's configuration was refused.
+    #[error("{0}")]
+    Config(#[source] Error),
+    #[error("unreachable: {enroll}: {source}")]
+    Open {
+        enroll: String,
+        #[source]
+        source: zenoh::Error,
+    },
+    #[error("no answer")]
+    NoAnswer,
+    #[error("unreachable: {0}")]
+    Call(#[source] wyrm_client::ClientError),
+    #[error("bad answer: no certificate")]
+    NoCertificate,
+    #[error("bad answer: certificate: {0}")]
+    CertPem(#[source] x509_parser::nom::Err<x509_parser::error::PEMError>),
+    #[error("bad answer: certificate: {0}")]
+    CertParse(#[source] x509_parser::nom::Err<x509_parser::error::X509Error>),
+    /// The certificate names another subject; holds its CN (`?` for none).
+    #[error("bad answer: certificate for {0}")]
+    CertFor(String),
+    #[error("bad answer: certificate for another key")]
+    CertKey,
+    #[error("bad answer: no port")]
+    NoPort,
+    /// No status this broker knows.
+    #[error("bad answer")]
+    BadAnswer,
+}
+
+/// Why the sites a downstream broker relays are not free here.
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+pub enum ViaError {
+    #[error("via: {0}")]
+    Segment(#[source] wyrm_core::keyspace::KeyError),
+    /// This site, the broker itself, a peer, a site a peer relays, or named
+    /// twice; holds the site.
+    #[error("via {0}: this broker, a peer or already relayed")]
+    Taken(String),
+}
+
+/// Why a package or its link was not installed. The text is the `message`
+/// of the install result (`success: false`).
+#[derive(Debug, thiserror::Error)]
+pub enum InstallError {
+    #[error(transparent)]
+    LinkId(#[from] crate::registry::LinkIdError),
+    /// The task that unpacked the package ended.
+    #[error("{0}")]
+    Join(#[source] tokio::task::JoinError),
+    /// The zip is no package, or its files were not put in place.
+    #[error(transparent)]
+    Package(#[from] packages::PackageError),
+    #[error("process links need a tls/ listener on the broker")]
+    NoListener,
+    /// Another operation holds the package.
+    #[error("{}", .0.message)]
+    Claimed(LinkError),
+    /// The link is there and runs another driver.
+    #[error("link {link} exists and runs {driver}")]
+    OtherDriver { link: String, driver: String },
+    /// Rights the package asks for and the caller did not accept.
+    #[error(
+        "{name} {version} asks for: {}. Nothing is installed: read them, then install again \
+         with Accept Requested Rights",
+        .asks.join("; ")
+    )]
+    Asks {
+        name: String,
+        version: String,
+        asks: Vec<String>,
+    },
+    #[error("{name} {version} is installed with other content")]
+    OtherContent { name: String, version: String },
+    #[error(transparent)]
+    Component(#[from] ComponentError),
+    #[error(transparent)]
+    Update(#[from] updates::UpdateError),
+    /// What an earlier install left in the version's place was not removed.
+    #[error(transparent)]
+    Left(backups::FileError),
+    /// The registry did not take the package.
+    #[error("{0}")]
+    Registry(#[source] StateError),
+    /// The package's node was not declared.
+    #[error("{0}")]
+    Declare(#[source] LinkError),
+    /// The link was not installed.
+    #[error("{0}")]
+    Link(#[source] LinkError),
+    /// A grant the package asks for was not set.
+    #[error("{0}")]
+    Grant(#[source] LinkError),
+    /// The link did not start again with its grants.
+    #[error("{0}")]
+    Restart(#[source] LinkError),
+    #[error("no packages.repository")]
+    NoRepository,
+    /// The index was not read; holds why, as the catalogue shows it.
+    #[error("repository unreachable: {0}")]
+    RepoUnreachable(String),
+    #[error("the repository index is still loading")]
+    RepoLoading,
+    #[error("no package {0} in the repository")]
+    NotInRepo(String),
+    #[error("{package}: no build for this host ({host})")]
+    NoBuild { package: String, host: String },
+    /// The asset's URL does not resolve against the index's (as
+    /// `wyrm_link_sdk::package::resolve` says it).
+    #[error("{0}")]
+    AssetUrl(String),
+    #[error(transparent)]
+    Fetch(#[from] crate::fetch::FetchError),
+    #[error(transparent)]
+    Git(#[from] crate::git::GitError),
+    /// The zip is not the one the index names; holds what was fetched.
+    #[error("{package}: sha256 {got} does not match the index")]
+    Sha { package: String, got: String },
+    #[error(transparent)]
+    NoUpdate(#[from] updates::NoUpdate),
 }
 
 /// Driver name of the AI agent link (ADR 0005): its signing key is a link
@@ -680,32 +849,28 @@ fn unshadowed(config: &acl::Peers, peers: impl Iterator<Item = PeerDef>) -> Vec<
 }
 
 /// One CA certificate in PEM: parsed, with the CA basic constraint.
-fn check_ca_pem(pem: &str) -> Result<(), String> {
+fn check_ca_pem(pem: &str) -> Result<(), CaPemError> {
     if pem.len() > MAX_CA_PEM {
-        return Err("CA certificate: larger than 16 KiB".into());
+        return Err(CaPemError::TooLarge);
     }
-    let (rest, block) = x509_parser::pem::parse_x509_pem(pem.trim().as_bytes())
-        .map_err(|e| format!("CA certificate: {e}"))?;
+    let (rest, block) =
+        x509_parser::pem::parse_x509_pem(pem.trim().as_bytes()).map_err(CaPemError::Pem)?;
     if block.label != "CERTIFICATE" || !rest.iter().all(u8::is_ascii_whitespace) {
-        return Err("CA certificate: expected exactly one PEM CERTIFICATE".into());
+        return Err(CaPemError::NotOne);
     }
-    let cert = block
-        .parse_x509()
-        .map_err(|e| format!("CA certificate: {e}"))?;
+    let cert = block.parse_x509().map_err(CaPemError::Parse)?;
     if !cert.is_ca() {
-        return Err("not a CA certificate (no CA basic constraint)".into());
+        return Err(CaPemError::NotCa);
     }
     Ok(())
 }
 
 /// The certificate an upstream site sent: for `broker:<own site>` and for
 /// our key (SHA-256 of its public key).
-fn check_issued_cert(pem: &str, own: &str, key_sha256: &str) -> Result<(), String> {
-    let (_, block) = x509_parser::pem::parse_x509_pem(pem.trim().as_bytes())
-        .map_err(|e| format!("bad answer: certificate: {e}"))?;
-    let cert = block
-        .parse_x509()
-        .map_err(|e| format!("bad answer: certificate: {e}"))?;
+fn check_issued_cert(pem: &str, own: &str, key_sha256: &str) -> Result<(), EnrollError> {
+    let (_, block) =
+        x509_parser::pem::parse_x509_pem(pem.trim().as_bytes()).map_err(EnrollError::CertPem)?;
+    let cert = block.parse_x509().map_err(EnrollError::CertParse)?;
     let want = crate::registry::broker_cn(own);
     let cn = cert
         .subject()
@@ -713,10 +878,10 @@ fn check_issued_cert(pem: &str, own: &str, key_sha256: &str) -> Result<(), Strin
         .next()
         .and_then(|a| a.as_str().ok());
     if cn != Some(want.as_str()) {
-        return Err(format!("bad answer: certificate for {}", cn.unwrap_or("?")));
+        return Err(EnrollError::CertFor(cn.unwrap_or("?").to_owned()));
     }
     if wyrm_core::hex::sha256_hex(cert.public_key().raw) != key_sha256 {
-        return Err("bad answer: certificate for another key".into());
+        return Err(EnrollError::CertKey);
     }
     Ok(())
 }
@@ -1797,14 +1962,16 @@ impl Control {
     }
 
     /// Put a `wasm` package's entry into the component store, in one rename.
-    fn publish_component(&self, def: &PackageDef) -> Result<(), String> {
+    fn publish_component(&self, def: &PackageDef) -> Result<(), ComponentError> {
         let src = packages::dir(&self.packages_root(), def).join(&def.entry);
-        let bytes = std::fs::read(&src).map_err(|e| format!("{}: {e}", src.display()))?;
+        let bytes = std::fs::read(&src)
+            .map_err(|e| ComponentError::Read(backups::FileError::new(&src, e)))?;
         let store = self.component_store();
-        std::fs::create_dir_all(&store).map_err(|e| e.to_string())?;
+        std::fs::create_dir_all(&store).map_err(ComponentError::Store)?;
         let tmp = store.join(format!(".{}.tmp", def.name));
-        std::fs::write(&tmp, bytes).map_err(|e| e.to_string())?;
-        std::fs::rename(&tmp, store.join(format!("{}.wasm", def.name))).map_err(|e| e.to_string())
+        std::fs::write(&tmp, bytes).map_err(ComponentError::Store)?;
+        std::fs::rename(&tmp, store.join(format!("{}.wasm", def.name)))
+            .map_err(ComponentError::Store)
     }
 
     /// Files of a runtime upstream site (written from the registry and the
@@ -3228,7 +3395,7 @@ async fn enroll_upstreams(ctl: Arc<Control>, ctx: LinkCtx) {
                     let n = failures.entry(def.site.clone()).or_default();
                     *n = n.saturating_add(1);
                     let wait = Duration::from_secs(1 << (*n).min(6)).min(ENROLL_BACKOFF);
-                    (e, Some(wait))
+                    (e.to_string(), Some(wait))
                 }
             };
             let k = format!("upstream/{}/status", def.site);
@@ -3297,18 +3464,18 @@ async fn expire_enrollments(ctl: Arc<Control>, ctx: LinkCtx) {
 /// One enrollment request to an upstream site over its enrollment
 /// endpoint (server-auth TLS with that site's CA, no client certificate):
 /// its answer, or why there is none (unreachable, a bad answer).
-async fn ask_certificate(ctl: &Control, def: &PeerDef) -> Result<Answer, String> {
+async fn ask_certificate(ctl: &Control, def: &PeerDef) -> Result<Answer, EnrollError> {
     let sealed = ctl.secrets.for_link(&peer_secret(&def.site));
     let key = sealed
         .get(PEER_KEY)
         .and_then(|k| std::str::from_utf8(k).ok())
-        .ok_or("no key for this upstream site: add it again")?;
-    let csr = secret::broker_csr(&ctl.cfg.site, key).map_err(|e| e.to_string())?;
+        .ok_or(EnrollError::NoKey)?;
+    let csr = secret::broker_csr(&ctl.cfg.site, key).map_err(EnrollError::Csr)?;
     let ca = ctl.peer_ca_path(&def.site);
     if let Some(dir) = ca.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        std::fs::create_dir_all(dir).map_err(EnrollError::CaFile)?;
     }
-    std::fs::write(&ca, &def.ca_pem).map_err(|e| e.to_string())?;
+    std::fs::write(&ca, &def.ca_pem).map_err(EnrollError::CaFile)?;
     let mut zc = zenoh::Config::default();
     let tls = serde_json::json!({ "root_ca_certificate": ca, "enable_mtls": false });
     for (k, v) in [
@@ -3321,11 +3488,12 @@ async fn ask_certificate(ctl: &Control, def: &PeerDef) -> Result<Answer, String>
         ("connect/timeout_ms", "5000".to_owned()),
         ("transport/link/tls", tls.to_string()),
     ] {
-        zc.insert_json5(k, &v).map_err(|e| e.to_string())?;
+        zc.insert_json5(k, &v).map_err(EnrollError::Config)?;
     }
-    let session = zenoh::open(zc)
-        .await
-        .map_err(|e| format!("unreachable: {}: {e}", def.enroll))?;
+    let session = zenoh::open(zc).await.map_err(|source| EnrollError::Open {
+        enroll: def.enroll.clone(),
+        source,
+    })?;
     let mut request = BTreeMap::from([
         ("site".to_owned(), Value::Str(ctl.cfg.site.clone())),
         ("csr".to_owned(), Value::Str(csr)),
@@ -3357,8 +3525,8 @@ async fn ask_certificate(ctl: &Control, def: &PeerDef) -> Result<Answer, String>
     let _ = session.close().await;
     let m = match answer {
         Ok(Some(Value::Map(m))) => m,
-        Ok(_) => return Err("no answer".into()),
-        Err(e) => return Err(format!("unreachable: {e}")),
+        Ok(_) => return Err(EnrollError::NoAnswer),
+        Err(e) => return Err(EnrollError::Call(e)),
     };
     match m.get("status") {
         Some(Value::Str(s)) if s == "pending" => Ok(Answer::Pending),
@@ -3369,17 +3537,17 @@ async fn ask_certificate(ctl: &Control, def: &PeerDef) -> Result<Answer, String>
         Some(Value::Str(s)) if s == "issued" => {
             let cert = match m.get("certificate") {
                 Some(Value::Str(c)) => c.clone(),
-                _ => return Err("bad answer: no certificate".into()),
+                _ => return Err(EnrollError::NoCertificate),
             };
             check_issued_cert(&cert, &ctl.cfg.site, &def.key_sha256)?;
             let port = m
                 .get("port")
                 .and_then(|p| p.to_int::<u16>().ok())
                 .filter(|p| *p != 0)
-                .ok_or("bad answer: no port")?;
+                .ok_or(EnrollError::NoPort)?;
             Ok(Answer::Issued { cert, port })
         }
-        _ => Err("bad answer".into()),
+        _ => Err(EnrollError::BadAnswer),
     }
 }
 
@@ -3583,10 +3751,10 @@ async fn load_repository(ctl: Arc<Control>, ctx: LinkCtx) {
 }
 
 /// DSA-style install result: two output rows.
-fn outcome(r: Result<String, String>) -> Value {
+fn outcome<E: std::fmt::Display>(r: Result<String, E>) -> Value {
     let (ok, message) = match r {
         Ok(m) => (true, m),
-        Err(m) => (false, m),
+        Err(m) => (false, m.to_string()),
     };
     Value::Map(BTreeMap::from([
         ("success".to_owned(), Value::Bool(ok)),
@@ -3814,7 +3982,8 @@ impl Link for Admin {
                     .ok_or_else(|| LinkError::invalid_parameter(format!("level {l:?}")))?,
                 None => LogLevel::Info,
             };
-            lc.set_level(level).map_err(LinkError::invalid_parameter)?;
+            lc.set_level(level)
+                .map_err(|e| LinkError::invalid_parameter(e.to_string()))?;
             self.ctl
                 .apply(Op::SetLogLevel {
                     link: None,
@@ -3936,7 +4105,7 @@ impl Link for Admin {
                         self.install_package(&a.link.name, zip, "wasm".into(), &sub, a.opts)
                             .await
                     }
-                    Err(e) => Err(e.to_string()),
+                    Err(e) => Err(e.into()),
                 };
                 Ok(Some(outcome(r)))
             }
@@ -3949,7 +4118,7 @@ impl Link for Admin {
                         self.install_package(&a.link.name, zip, source, &sub, a.opts)
                             .await
                     }
-                    Err(e) => Err(e.to_string()),
+                    Err(e) => Err(e.into()),
                 };
                 Ok(Some(outcome(r)))
             }
@@ -3965,7 +4134,7 @@ impl Link for Admin {
                         self.install_package(&a.link.name, zip, source, &sub, a.opts)
                             .await
                     }
-                    Err(e) => Err(e.to_string()),
+                    Err(e) => Err(e.into()),
                 };
                 Ok(Some(outcome(r)))
             }
@@ -4196,7 +4365,7 @@ impl Link for Admin {
                 let (role, path, level) = (a.role.as_str(), a.path.as_str(), a.level);
                 roles
                     .set_grant(role, path, level)
-                    .map_err(LinkError::invalid_parameter)?;
+                    .map_err(|e| LinkError::invalid_parameter(e.to_string()))?;
                 self.ctl.record(
                     &sub,
                     AuditOp::UpdatePermissions,
@@ -4259,7 +4428,7 @@ impl Link for Admin {
                 let _busy = self.ctl.busy()?;
                 let a = restore::InstallBackup::decode(args)?;
                 let done = self.install_backup(a, &sub).await;
-                Ok(Some(outcome(done.map_err(|e| e.to_string()))))
+                Ok(Some(outcome(done)))
             }
             (["links", id], "backup") => {
                 // the link must exist before anything is said about it
@@ -4468,7 +4637,7 @@ impl Admin {
         source: String,
         sub: &str,
         opts: updates::UpdateOpts,
-    ) -> Result<String, String> {
+    ) -> Result<String, InstallError> {
         let accept = opts.accept;
         crate::registry::validate_link_id(link)?;
         let root = self.ctl.packages_root();
@@ -4477,22 +4646,27 @@ impl Admin {
             let root = root.clone();
             tokio::task::spawn_blocking(move || packages::unpack(&zip, &root, &source, now))
                 .await
-                .map_err(|e| e.to_string())?
-                .map_err(|e| e.to_string())?
+                .map_err(InstallError::Join)??
         };
         let def = unpacked.def.clone();
         let app = unpacked.app.clone();
         if def.kind == PackageKind::Process && self.ctl.cfg.link_endpoint.is_none() {
-            return Err("process links need a tls/ listener on the broker".into());
+            return Err(InstallError::NoListener);
         }
         // one operation on a package at a time, from here to the end of this
         // install or, for an update, of its health check (ADR 0048 §1.9)
-        let claim = self.ctl.claim_package(&def.name).map_err(|e| e.message)?;
+        let claim = self
+            .ctl
+            .claim_package(&def.name)
+            .map_err(InstallError::Claimed)?;
         let reg = self.ctl.registry();
         let driver = format!("{}{}", packages::DRIVER_PREFIX, def.name);
         if let Some(l) = reg.links.get(link) {
             if l.driver != driver {
-                return Err(format!("link {link} exists and runs {}", l.driver));
+                return Err(InstallError::OtherDriver {
+                    link: link.to_owned(),
+                    driver: l.driver.clone(),
+                });
             }
         }
         // A new link gets the package's network allowlist and grants: only when the installer
@@ -4507,22 +4681,20 @@ impl Admin {
                 asks.push(format!("{} on {}", g.perm.name(), g.path));
             }
             if !asks.is_empty() {
-                return Err(format!(
-                    "{} {} asks for: {}. Nothing is installed: read them, then install again \
-                     with Accept Requested Rights",
-                    def.name,
-                    def.version,
-                    asks.join("; ")
-                ));
+                return Err(InstallError::Asks {
+                    name: def.name,
+                    version: def.version,
+                    asks,
+                });
             }
         }
         let mut message = match reg.packages.get(&def.name) {
             Some(old) if old.version == def.version => {
                 if old.sha256 != def.sha256 {
-                    return Err(format!(
-                        "{} {} is installed with other content",
-                        def.name, def.version
-                    ));
+                    return Err(InstallError::OtherContent {
+                        name: def.name,
+                        version: def.version,
+                    });
                 }
                 if def.kind == PackageKind::Wasm {
                     self.ctl.publish_component(&def)?;
@@ -4539,14 +4711,14 @@ impl Admin {
                 // an install that ended before its registry record left
                 let left = packages::dir(&root, &def);
                 crate::nofollow::remove_any(&left)
-                    .map_err(|e| format!("{}: {e}", left.display()))?;
-                unpacked.commit(&root).map_err(|e| e.to_string())?;
+                    .map_err(|e| InstallError::Left(backups::FileError::new(&left, e)))?;
+                unpacked.commit(&root)?;
                 if def.kind == PackageKind::Wasm {
                     self.ctl.publish_component(&def)?;
                 }
                 self.ctl
                     .apply(Op::PutPackage(def.clone()))
-                    .map_err(|e| e.to_string())?;
+                    .map_err(InstallError::Registry)?;
                 self.ctl.record(
                     sub,
                     AuditOp::PackageInstall,
@@ -4556,7 +4728,7 @@ impl Admin {
                 );
                 declare_package(&self.ctx, &self.ctl, &def)
                     .await
-                    .map_err(|e| e.to_string())?;
+                    .map_err(InstallError::Declare)?;
                 format!("package {} {} installed", def.name, def.version)
             }
         };
@@ -4576,7 +4748,7 @@ impl Admin {
             };
             self.install_link(link.to_owned(), driver, Some(mode), params, sub)
                 .await
-                .map_err(|e| e.to_string())?;
+                .map_err(InstallError::Link)?;
             message.push_str(&format!("; link {link} installed"));
             // what the app link may use, shown (ADR 0023)
             if let Some(c) = &app {
@@ -4587,13 +4759,13 @@ impl Admin {
             for g in &def.requester {
                 changed |= self
                     .set_grant(link, &g.path, g.perm, sub)
-                    .map_err(|e| e.to_string())?;
+                    .map_err(InstallError::Grant)?;
                 message.push_str(&format!("; grant {} {}", g.path, g.perm.name()));
             }
             if changed {
                 self.restart_for_grants(link, sub)
                     .await
-                    .map_err(|e| e.to_string())?;
+                    .map_err(InstallError::Restart)?;
             }
             if !def.requester.is_empty() {
                 self.ctl.schedule_reload();
@@ -4652,13 +4824,13 @@ impl Admin {
         package: &str,
         sub: &str,
         opts: updates::UpdateOpts,
-    ) -> Result<String, String> {
+    ) -> Result<String, InstallError> {
         let index = self
             .ctl
             .cfg
             .repository
             .clone()
-            .ok_or("no packages.repository")?;
+            .ok_or(InstallError::NoRepository)?;
         let state = self
             .ctl
             .repo
@@ -4667,25 +4839,28 @@ impl Admin {
             .clone();
         let list = match state {
             Some(Ok(list)) => list,
-            Some(Err(e)) => return Err(format!("repository unreachable: {e}")),
-            None => return Err("the repository index is still loading".into()),
+            Some(Err(e)) => return Err(InstallError::RepoUnreachable(e)),
+            None => return Err(InstallError::RepoLoading),
         };
         let e = list
             .into_iter()
             .find(|e| e.name == package)
-            .ok_or_else(|| format!("no package {package} in the repository"))?;
+            .ok_or_else(|| InstallError::NotInRepo(package.to_owned()))?;
         // this host's file (ADR 0021); a relative url is in the repository
         let host = packages::platform();
-        let a = e
-            .asset(&host)
-            .ok_or_else(|| format!("{package}: no build for this host ({host})"))?;
-        let url = wyrm_link_sdk::package::resolve(&index, &a.url)?;
-        let zip = crate::fetch::get(&url, packages::MAX_ZIP, FETCH_TIMEOUT)
-            .await
-            .map_err(|e| e.to_string())?;
+        let a = e.asset(&host).ok_or_else(|| InstallError::NoBuild {
+            package: package.to_owned(),
+            host: host.clone(),
+        })?;
+        let url =
+            wyrm_link_sdk::package::resolve(&index, &a.url).map_err(InstallError::AssetUrl)?;
+        let zip = crate::fetch::get(&url, packages::MAX_ZIP, FETCH_TIMEOUT).await?;
         let got = wyrm_core::hex::sha256_hex(&zip);
         if !got.eq_ignore_ascii_case(&a.sha256) {
-            return Err(format!("{package}: sha256 {got} does not match the index"));
+            return Err(InstallError::Sha {
+                package: package.to_owned(),
+                got,
+            });
         }
         self.install_package(link, zip, format!("repository {index}"), sub, opts)
             .await
@@ -5310,7 +5485,7 @@ impl Admin {
                 "site {site} was a downstream broker of ours: its certificate stays valid"
             )));
         }
-        check_ca_pem(ca_pem).map_err(LinkError::invalid_parameter)?;
+        check_ca_pem(ca_pem).map_err(|e| LinkError::invalid_parameter(e.to_string()))?;
         let url = a.url.as_str();
         if !url.starts_with("quic/") || url.contains(['#', '?', ';']) || url.len() > 256 {
             return Err(LinkError::invalid_parameter(format!(
@@ -5440,10 +5615,10 @@ impl Admin {
 
     /// The sites a downstream broker relays (`via`) are free here: none is
     /// this site, the broker itself, a peer or a site a peer relays.
-    fn via_free(&self, site: &str, via: &[String]) -> Result<(), String> {
+    fn via_free(&self, site: &str, via: &[String]) -> Result<(), ViaError> {
         let all = self.ctl.peers();
         for v in via {
-            wyrm_core::keyspace::validate_segment(v).map_err(|e| format!("via: {e}"))?;
+            wyrm_core::keyspace::validate_segment(v).map_err(ViaError::Segment)?;
             if *v == self.ctl.cfg.site
                 || *v == site
                 || all.upstream.contains(v)
@@ -5451,7 +5626,7 @@ impl Admin {
                 || all.reachable().contains(v)
                 || via.iter().filter(|x| *x == v).count() > 1
             {
-                return Err(format!("via {v}: this broker, a peer or already relayed"));
+                return Err(ViaError::Taken(v.clone()));
             }
         }
         Ok(())
@@ -5477,7 +5652,7 @@ impl Admin {
             )));
         }
         self.via_free(site, &via)
-            .map_err(LinkError::invalid_parameter)?;
+            .map_err(|e| LinkError::invalid_parameter(e.to_string()))?;
         self.ctl
             .apply(Op::AdmitBroker {
                 site: site.to_owned(),
@@ -5894,7 +6069,8 @@ impl Admin {
         };
         let before = sorted(self.def(id)?.grants);
         if level != Perm::None {
-            crate::registry::check_grant(path, level).map_err(LinkError::invalid_parameter)?;
+            crate::registry::check_grant(path, level)
+                .map_err(|e| LinkError::invalid_parameter(e.to_string()))?;
         }
         self.ctl
             .apply(Op::SetLinkGrant {
@@ -5976,7 +6152,7 @@ impl Admin {
             Mode::Embedded => {
                 if let Some(lc) = crate::logs::global() {
                     lc.set_link_level(id, level)
-                        .map_err(LinkError::invalid_parameter)?;
+                        .map_err(|e| LinkError::invalid_parameter(e.to_string()))?;
                 }
             }
             Mode::Process => {
@@ -6888,6 +7064,184 @@ mod schema_snapshot;
 mod tests {
     use std::collections::HashSet;
     use std::sync::Arc;
+
+    /// Every text of this file's errors, byte for byte as before they had a
+    /// type: the `message` of an install result, `sys/upstream/<site>/status`
+    /// and the answers of `sys/upstream ▸ add` and Authorize.
+    #[test]
+    fn errors_read_as_before() {
+        use super::{CaPemError, ComponentError, EnrollError, InstallError, ViaError};
+        use std::error::Error as _;
+        use x509_parser::error::{PEMError, X509Error};
+        use x509_parser::nom::Err as Nom;
+        let said = |e: &dyn std::error::Error, text: &str| assert_eq!(e.to_string(), text);
+        let io = || std::io::Error::other("no");
+        let file = || super::backups::FileError::new(std::path::Path::new("/d/x"), io());
+        let refused = || super::LinkError::new(super::Status::Busy, "said");
+        let s = |t: &str| t.to_owned();
+        let pem = || Nom::Error(PEMError::MissingHeader);
+        let x509 = || Nom::Error(X509Error::InvalidVersion);
+
+        said(&super::RoleGrantsError(Box::new(io())), "no");
+        assert!(super::RoleGrantsError(Box::new(io())).source().is_some());
+        said(&ComponentError::Read(file()), "/d/x: no");
+        said(&ComponentError::Store(io()), "no");
+
+        said(&CaPemError::TooLarge, "CA certificate: larger than 16 KiB");
+        said(
+            &CaPemError::Pem(pem()),
+            &format!("CA certificate: {}", pem()),
+        );
+        said(
+            &CaPemError::NotOne,
+            "CA certificate: expected exactly one PEM CERTIFICATE",
+        );
+        said(
+            &CaPemError::Parse(x509()),
+            &format!("CA certificate: {}", x509()),
+        );
+        said(
+            &CaPemError::NotCa,
+            "not a CA certificate (no CA basic constraint)",
+        );
+
+        use EnrollError as E;
+        said(&E::NoKey, "no key for this upstream site: add it again");
+        said(&E::Csr("bad key".into()), "bad key");
+        said(&E::CaFile(io()), "no");
+        said(&E::Config("bad json5".into()), "bad json5");
+        said(
+            &E::Open {
+                enroll: s("tls/hq:7448"),
+                source: "refused".into(),
+            },
+            "unreachable: tls/hq:7448: refused",
+        );
+        said(&E::NoAnswer, "no answer");
+        said(
+            &E::Call(wyrm_client::ClientError::new(
+                super::Status::Timeout,
+                "no reply",
+            )),
+            "unreachable: timeout: no reply",
+        );
+        said(&E::NoCertificate, "bad answer: no certificate");
+        said(
+            &E::CertPem(pem()),
+            &format!("bad answer: certificate: {}", pem()),
+        );
+        said(
+            &E::CertParse(x509()),
+            &format!("bad answer: certificate: {}", x509()),
+        );
+        said(&E::CertFor(s("?")), "bad answer: certificate for ?");
+        said(&E::CertKey, "bad answer: certificate for another key");
+        said(&E::NoPort, "bad answer: no port");
+        said(&E::BadAnswer, "bad answer");
+
+        let seg = wyrm_core::keyspace::validate_segment("").unwrap_err();
+        let seg_text = seg.to_string();
+        said(&ViaError::Segment(seg), &format!("via: {seg_text}"));
+        said(
+            &ViaError::Taken(s("edge")),
+            "via edge: this broker, a peer or already relayed",
+        );
+
+        use InstallError as I;
+        said(
+            &I::LinkId(crate::registry::LinkIdError::Reserved(s("admin"))),
+            "link id \"admin\" is reserved",
+        );
+        said(
+            &I::NoListener,
+            "process links need a tls/ listener on the broker",
+        );
+        said(&I::Claimed(refused()), "said");
+        said(
+            &I::OtherDriver {
+                link: s("l1"),
+                driver: s("modbus"),
+            },
+            "link l1 exists and runs modbus",
+        );
+        said(
+            &I::Asks {
+                name: s("pkg"),
+                version: s("1.0.0"),
+                asks: vec![s("network a:1"), s("write on wy/{site}/downstream/x")],
+            },
+            "pkg 1.0.0 asks for: network a:1; write on wy/{site}/downstream/x. Nothing is \
+             installed: read them, then install again with Accept Requested Rights",
+        );
+        said(
+            &I::OtherContent {
+                name: s("pkg"),
+                version: s("1.0.0"),
+            },
+            "pkg 1.0.0 is installed with other content",
+        );
+        said(&I::Component(ComponentError::Store(io())), "no");
+        said(
+            &I::Update(super::updates::UpdateError::OnDisk {
+                name: s("pkg"),
+                version: s("2.0.0"),
+            }),
+            "pkg 2.0.0 is on disk with other content",
+        );
+        said(&I::Left(file()), "/d/x: no");
+        said(
+            &I::Registry(wyrm_state::StateError::Rejected(s("r"))),
+            "operation rejected: r",
+        );
+        said(&I::Declare(refused()), "Busy: said");
+        said(&I::Link(refused()), "Busy: said");
+        said(&I::Grant(refused()), "Busy: said");
+        said(&I::Restart(refused()), "Busy: said");
+        said(&I::NoRepository, "no packages.repository");
+        said(
+            &I::RepoUnreachable(s("no route")),
+            "repository unreachable: no route",
+        );
+        said(&I::RepoLoading, "the repository index is still loading");
+        said(&I::NotInRepo(s("pkg")), "no package pkg in the repository");
+        said(
+            &I::NoBuild {
+                package: s("pkg"),
+                host: s("aarch64-linux"),
+            },
+            "pkg: no build for this host (aarch64-linux)",
+        );
+        said(&I::AssetUrl(s("url: no")), "url: no");
+        said(
+            &I::Fetch(crate::fetch::FetchError::Scheme),
+            "url: https:// only",
+        );
+        said(
+            &I::Sha {
+                package: s("pkg"),
+                got: s("ab"),
+            },
+            "pkg: sha256 ab does not match the index",
+        );
+        said(
+            &I::NoUpdate(super::updates::NoUpdate::NoLink(s("pkg"))),
+            "no link runs pkg: install one with Install Link ▸ from Repository",
+        );
+    }
+
+    #[test]
+    fn a_ca_pem_and_relayed_sites_are_refused_by_variant() {
+        use super::{check_ca_pem, CaPemError};
+        assert!(matches!(
+            check_ca_pem(&"x".repeat(super::MAX_CA_PEM + 1)),
+            Err(CaPemError::TooLarge)
+        ));
+        assert!(matches!(check_ca_pem("no pem"), Err(CaPemError::Pem(_))));
+        let key = "-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----\n";
+        assert!(matches!(check_ca_pem(key), Err(CaPemError::NotOne)));
+        let junk = "-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n";
+        assert!(matches!(check_ca_pem(junk), Err(CaPemError::Parse(_))));
+    }
 
     #[test]
     fn the_repository_is_read_again_after_a_failure_and_every_hour() {

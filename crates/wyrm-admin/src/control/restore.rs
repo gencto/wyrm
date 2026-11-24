@@ -179,7 +179,7 @@ pub enum RestoreError {
     /// The id of the backup's link, or the id asked for, is no link id, or
     /// one a broker keeps for itself (`crate::registry`, as it says it).
     #[error("{0}")]
-    LinkId(String),
+    LinkId(#[source] crate::registry::LinkIdError),
     /// The link's secrets do not decode.
     #[error("{0}")]
     SecretsDecode(#[source] wyrm_core::codec::CodecError),
@@ -233,7 +233,7 @@ pub enum RestoreError {
     /// A grant of the backup's link that no link may hold
     /// (`registry::check_grant`, as it says it).
     #[error("grant: {0}")]
-    Grant(String),
+    Grant(#[source] crate::registry::GrantError),
     #[error("link id {0:?} is a downstream site or an operator of this broker")]
     IdTaken(String),
     #[error(
@@ -263,7 +263,7 @@ pub enum RestoreError {
     PackageCommit(String),
     /// Its component was not published (as `Control::publish_component` says it).
     #[error("{0}")]
-    Component(String),
+    Component(#[source] super::ComponentError),
     /// The registry did not take the package or the link's params.
     #[error("{0}")]
     Registry(#[source] StateError),
@@ -273,7 +273,7 @@ pub enum RestoreError {
     /// No restore point of the link that is replaced (as
     /// `Admin::take_restore_point` says it).
     #[error("{0}")]
-    RestorePoint(String),
+    RestorePoint(#[source] super::updates::TakePointError),
     #[error("{}", .0.message)]
     Stop(LinkError),
     #[error("{}", .0.message)]
@@ -2355,7 +2355,10 @@ mod tests {
             },
             &format!("settings/link.cbor: {}", decode()),
         );
-        said(&R::LinkId("link id: no".into()), "link id: no");
+        said(
+            &R::LinkId(crate::registry::LinkIdError::Reserved("admin".into())),
+            "link id \"admin\" is reserved",
+        );
         said(&R::SecretsDecode(codec()), "cbor decode: no");
         said(
             &R::SecretsNotMap {
@@ -2398,7 +2401,10 @@ mod tests {
             "driver modbus is not built into this broker",
         );
         said(&R::DriverParams(refused()), "said by another operation");
-        said(&R::Grant("no".into()), "grant: no");
+        said(
+            &R::Grant(crate::registry::GrantError::FlowsLevel),
+            "grant: flows: at most read (flows are commanded by people)",
+        );
         said(
             &R::IdTaken("plant".into()),
             "link id \"plant\" is a downstream site or an operator of this broker",
@@ -2436,7 +2442,12 @@ mod tests {
             "process links need a tls/ listener on the broker",
         );
         said(&R::PackageCommit("no".into()), "no");
-        said(&R::Component("no".into()), "no");
+        said(
+            &R::Component(crate::control::ComponentError::Store(
+                std::io::Error::other("no"),
+            )),
+            "no",
+        );
         said(
             &R::Registry(StateError::Rejected("no".into())),
             "operation rejected: no",
@@ -2444,7 +2455,15 @@ mod tests {
         let declared = refused();
         let text = declared.to_string();
         said(&R::Declare(declared), &text);
-        said(&R::RestorePoint("no".into()), "no");
+        said(
+            &R::RestorePoint(crate::control::updates::TakePointError::Point {
+                link: "plc".into(),
+                source: crate::restore_point::MakeError::Point(
+                    crate::restore_point::PointError::Id("..".into()),
+                ),
+            }),
+            "restore point of plc: restore point \"..\"",
+        );
         said(&R::Stop(refused()), "said by another operation");
         said(&R::Start(refused()), "said by another operation");
         said(&R::Install(refused()), "said by another operation");

@@ -27,6 +27,9 @@
 //! aside ([`Control::pause_check`]) and goes on with the new router
 //! ([`resume`]), with the time it had left.
 
+use super::backups::{BackupError, FileError};
+use super::restore::RestoreError;
+use super::ComponentError;
 use super::{
     decode_params, encode_params, install_detail, now_s, outcome, packages, rejected, secret,
     Admin, BusyOwned, Control, INSTALL_TIMEOUT_MS,
@@ -37,6 +40,185 @@ use crate::registry::{
     UpdateResult, UPDATE_REPORT_KEYS,
 };
 use crate::restore_point as restore;
+
+/// Why a restore point of a link was not taken ([`Admin::take_restore_point`]).
+#[derive(Debug, thiserror::Error)]
+pub enum TakePointError {
+    /// The task that made it ended.
+    #[error("{0}")]
+    Join(#[source] tokio::task::JoinError),
+    /// It was not made; audited on the link with the cause's text.
+    #[error("restore point of {link}: {source}")]
+    Point {
+        link: String,
+        #[source]
+        source: restore::MakeError<BackupError>,
+    },
+}
+
+/// Why a link's data did not come back from a restore point.
+#[derive(Debug, thiserror::Error)]
+pub enum PointApplyError {
+    /// The rollback names no restore point for the link.
+    #[error("no restore point")]
+    None,
+    /// The point is not there.
+    #[error(transparent)]
+    Point(#[from] restore::PointError),
+    /// The point was not applied.
+    #[error(transparent)]
+    Restore(#[from] RestoreError),
+}
+
+/// Why the rights a new version asks for were not all given
+/// ([`Admin::apply_rights`]).
+#[derive(Debug, thiserror::Error)]
+pub enum RightsError {
+    #[error("{0}")]
+    Grant(#[source] LinkError),
+    /// A link's params with the new network entries were not encoded.
+    #[error("{0}")]
+    Params(#[source] LinkError),
+    /// The registry did not take the link's params.
+    #[error("{0}")]
+    Registry(#[source] wyrm_state::StateError),
+}
+
+/// Why a package was not updated ([`Admin::update_package`]): nothing is
+/// installed, the old version runs. The text is the `message` of the install
+/// result.
+#[derive(Debug, thiserror::Error)]
+pub enum UpdateError {
+    /// The new version does not read the store format of the installed one
+    /// and no restore point was asked for.
+    #[error(
+        "{name} {version} changes the store format (it reads state {reads:?}, {name} {old} \
+         wrote state {wrote}): a rollback needs a restore point. Nothing is installed: \
+         update with restore_point: true"
+    )]
+    NeedsRestorePoint {
+        name: String,
+        version: String,
+        reads: Vec<u32>,
+        old: String,
+        wrote: u32,
+    },
+    /// Rights the links lack and the caller did not accept.
+    #[error(
+        "{name} {version} asks for more than its links have: {}. Nothing is installed: read \
+         them, then update again with Accept Requested Rights",
+        .asks.join("; ")
+    )]
+    Asks {
+        name: String,
+        version: String,
+        asks: Vec<String>,
+    },
+    /// The kept version's directory holds other bytes than the package.
+    #[error("{name} {version} is on disk with other content")]
+    OnDisk { name: String, version: String },
+    /// What an earlier install left in the version's place was not removed.
+    #[error(transparent)]
+    Left(FileError),
+    #[error(transparent)]
+    Point(#[from] TakePointError),
+    /// The new files were not put beside the old ones.
+    #[error(transparent)]
+    Commit(crate::packages::PackageError),
+    #[error(transparent)]
+    Component(#[from] ComponentError),
+    /// The registry did not take the new version.
+    #[error("{0}")]
+    Registry(#[source] wyrm_state::StateError),
+}
+
+/// Why a package did not go back to its kept version. Nothing changed, but
+/// for [`RollbackError::Moved`] and [`RollbackError::NoPackage`] out of
+/// `finish_rollback`, which also end the record of the rollback.
+#[derive(Debug, thiserror::Error)]
+pub enum RollbackError {
+    #[error("no package {0}")]
+    NoPackage(String),
+    #[error("{0}: no previous version is kept")]
+    NoPrevious(String),
+    /// `to` names another version than the kept one.
+    #[error("{name}: the kept version is {kept}, not {to}")]
+    KeptIs {
+        name: String,
+        kept: String,
+        to: String,
+    },
+    #[error("{name} {version}: its kept directory is gone")]
+    KeptGone { name: String, version: String },
+    /// The update changed the store format and `restore_data` was not said.
+    #[error(
+        "the update to {cur} changed the store format: {prev} cannot read the data the \
+         links have now. Roll back with restore_data: true (what was configured \
+         since the update is lost), or keep {cur}"
+    )]
+    StoreFormat { cur: String, prev: String },
+    /// The update changed the store format and a link has no restore point.
+    #[error(
+        "the update to {cur} changed the store format and link {link} has no restore \
+         point of {prev}: {prev} could not read its data. Nothing is rolled back"
+    )]
+    NoPoint {
+        cur: String,
+        link: String,
+        prev: String,
+    },
+    /// The record of the rollback was not written.
+    #[error(transparent)]
+    Record(FileError),
+    #[error("{0}")]
+    Encode(#[source] minicbor::encode::Error<std::convert::Infallible>),
+    #[error("{0}")]
+    Join(#[source] tokio::task::JoinError),
+    #[error(transparent)]
+    Component(#[from] ComponentError),
+    /// The registry did not take the kept version.
+    #[error("{0}")]
+    Registry(#[source] wyrm_state::StateError),
+    /// The package is at neither version of the rollback.
+    #[error("{name} is at {at} now, not at {from}")]
+    Moved {
+        name: String,
+        at: String,
+        from: String,
+    },
+}
+
+/// Why `sys/packages/<name> ▸ update` does not ask the repository for the
+/// package; the text is the `message` of the result.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum NoUpdate {
+    #[error(
+        "{0} is not in the repository: update it with Install Link ▸ from \
+         ZIP, URL or Git and a package of the same name"
+    )]
+    NotListed(String),
+    /// The index names one version, and another was asked for.
+    #[error("the repository has {name} {has}, not {wanted}")]
+    Has {
+        name: String,
+        has: String,
+        wanted: String,
+    },
+    #[error("{name} {version} is installed already")]
+    Installed { name: String, version: String },
+    /// The repository's version is not newer and none was named.
+    #[error(
+        "{name} {installed} is installed and the repository has {has}: name that version \
+         to install it all the same"
+    )]
+    NotNewer {
+        name: String,
+        installed: String,
+        has: String,
+    },
+    #[error("no link runs {0}: install one with Install Link ▸ from Repository")]
+    NoLink(String),
+}
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -752,12 +934,12 @@ impl Control {
     /// rolled-back version, and a restore point applies to whatever is
     /// there. `Err`: the registry was not written and nothing changed.
     /// Blocking.
-    pub(super) fn finish_rollback(&self, p: &PendingRollback) -> Result<RolledBack, String> {
+    pub(super) fn finish_rollback(&self, p: &PendingRollback) -> Result<RolledBack, RollbackError> {
         let current = self.registry().packages.get(&p.name).cloned();
         match &current {
             None => {
                 self.clear_rollback(&p.name);
-                return Err(format!("no package {}", p.name));
+                return Err(RollbackError::NoPackage(p.name.clone()));
             }
             Some(c) if c.version == p.to.version => {}
             Some(c) if c.version == p.from => {
@@ -768,15 +950,16 @@ impl Control {
                     if c.kind == PackageKind::Wasm {
                         let _ = self.publish_component(c);
                     }
-                    return Err(e.to_string());
+                    return Err(RollbackError::Registry(e));
                 }
             }
             Some(c) => {
                 self.clear_rollback(&p.name);
-                return Err(format!(
-                    "{} is at {} now, not at {}",
-                    p.name, c.version, p.from
-                ));
+                return Err(RollbackError::Moved {
+                    name: p.name.clone(),
+                    at: c.version.clone(),
+                    from: p.from.clone(),
+                });
             }
         }
         let mut out = RolledBack::default();
@@ -787,7 +970,7 @@ impl Control {
             }
             let applied = match point {
                 Some(pid) => self.restore_point_apply(id, pid).map(|()| pid.clone()),
-                None => Err("no restore point".to_owned()),
+                None => Err(PointApplyError::None),
             };
             match applied {
                 Ok(pid) => {
@@ -830,12 +1013,14 @@ impl Control {
         Ok(out)
     }
 
-    fn write_rollback(&self, p: &PendingRollback) -> Result<(), String> {
+    fn write_rollback(&self, p: &PendingRollback) -> Result<(), RollbackError> {
         let dir = self.rollback_dir();
-        std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-        let bytes = minicbor::to_vec(p).map_err(|e| e.to_string())?;
+        std::fs::create_dir_all(&dir)
+            .map_err(|e| RollbackError::Record(FileError::new(&dir, e)))?;
+        let bytes = minicbor::to_vec(p).map_err(RollbackError::Encode)?;
         let path = self.rollback_file(&p.name);
-        secret::write_private(&path, &bytes).map_err(|e| format!("{}: {e}", path.display()))
+        secret::write_private(&path, &bytes)
+            .map_err(|e| RollbackError::Record(FileError::new(&path, e)))
     }
 
     fn clear_rollback(&self, name: &str) {
@@ -900,7 +1085,7 @@ impl Control {
         package: &str,
         version: &str,
         keys: Option<Vec<String>>,
-    ) -> Result<restore::Point, String> {
+    ) -> Result<restore::Point, restore::MakeError<BackupError>> {
         restore::make(
             &self.restore_root(),
             link,
@@ -909,21 +1094,17 @@ impl Control {
             keys,
             now_s(),
             |path| {
-                let made = self
-                    .link_restore_point_to(link, path)
-                    .map_err(|e| e.to_string())?;
-                Ok::<_, String>((made.size, made.skipped))
+                let made = self.link_restore_point_to(link, path)?;
+                Ok::<_, BackupError>((made.size, made.skipped))
             },
         )
-        .map_err(|e| e.to_string())
     }
 
     /// Give the stopped link `link` the private data and secrets of its
     /// restore point `id` back. Blocking.
-    pub(super) fn restore_point_apply(&self, link: &str, id: &str) -> Result<(), String> {
-        let file = restore::file(&self.restore_root(), link, id).map_err(|e| e.to_string())?;
-        self.link_restore_data(link, &file)
-            .map_err(|e| e.to_string())
+    pub(super) fn restore_point_apply(&self, link: &str, id: &str) -> Result<(), PointApplyError> {
+        let file = restore::file(&self.restore_root(), link, id)?;
+        Ok(self.link_restore_data(link, &file)?)
     }
 
     /// `packages.keep_previous_days` in seconds (1 to 365 days).
@@ -1253,12 +1434,12 @@ impl Admin {
         version: &str,
         keys: Option<Vec<String>>,
         sub: &str,
-    ) -> Result<restore::Point, String> {
+    ) -> Result<restore::Point, TakePointError> {
         let ctl = self.ctl.clone();
         let (l, p, v) = (link.to_owned(), package.to_owned(), version.to_owned());
         let made = tokio::task::spawn_blocking(move || ctl.restore_point_now(&l, &p, &v, keys))
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(TakePointError::Join)?;
         match &made {
             Ok(p) => self.ctl.record(
                 sub,
@@ -1275,12 +1456,19 @@ impl Admin {
                     }
                 ),
             ),
-            Err(e) => self
-                .ctl
-                .record(sub, AuditOp::RestorePoint, link, Status::InternalError, e),
+            Err(e) => self.ctl.record(
+                sub,
+                AuditOp::RestorePoint,
+                link,
+                Status::InternalError,
+                &e.to_string(),
+            ),
         }
         publish_restore_points(&self.ctx, &self.ctl, link).await;
-        made.map_err(|e| format!("restore point of {link}: {e}"))
+        made.map_err(|source| TakePointError::Point {
+            link: link.to_owned(),
+            source,
+        })
     }
 
     /// Give the links of the package what the new version asks for and they
@@ -1293,14 +1481,14 @@ impl Admin {
         new: &PackageDef,
         app: Option<&Capabilities>,
         sub: &str,
-    ) -> Result<bool, String> {
+    ) -> Result<bool, RightsError> {
         let (mut granted, mut params_changed) = (false, false);
         for l in links {
             let (grants, net) = missing_rights(l, new, app);
             for g in grants {
                 granted |= self
                     .set_grant(&l.id, &g.path, g.perm, sub)
-                    .map_err(|e| e.to_string())?;
+                    .map_err(RightsError::Grant)?;
             }
             if net.is_empty() {
                 continue;
@@ -1326,9 +1514,9 @@ impl Admin {
                 .apply(Op::Update {
                     id: l.id.clone(),
                     mode: l.mode,
-                    params: encode_params(&Value::Map(params)).map_err(|e| e.to_string())?,
+                    params: encode_params(&Value::Map(params)).map_err(RightsError::Params)?,
                 })
-                .map_err(|e| e.to_string())?;
+                .map_err(RightsError::Registry)?;
             self.ctl.record(
                 sub,
                 AuditOp::Update,
@@ -1356,7 +1544,7 @@ impl Admin {
         opts: UpdateOpts,
         sub: &str,
         claim: PackageClaim,
-    ) -> Result<String, String> {
+    ) -> Result<String, UpdateError> {
         let ctl = &self.ctl;
         let accept = opts.accept;
         let def = unpacked.def.clone();
@@ -1364,16 +1552,13 @@ impl Admin {
         let root = ctl.packages_root();
         let changes_state = !unpacked.reads_state.contains(&old.state());
         if changes_state && !opts.restore_point {
-            return Err(format!(
-                "{name} {} changes the store format (it reads state {:?}, {} {} wrote state \
-                 {}): a rollback needs a restore point. Nothing is installed: update with \
-                 restore_point: true",
-                def.version,
-                unpacked.reads_state,
+            return Err(UpdateError::NeedsRestorePoint {
                 name,
-                old.version,
-                old.state()
-            ));
+                version: def.version,
+                reads: unpacked.reads_state.clone(),
+                old: old.version.clone(),
+                wrote: old.state(),
+            });
         }
         let links = links_of(ctl, &name);
         // new rights only when the installer saw them and said so (as an install)
@@ -1386,12 +1571,11 @@ impl Admin {
             asks.extend(net.into_iter().map(|e| format!("network {e}")));
         }
         if !asks.is_empty() && !accept {
-            return Err(format!(
-                "{name} {} asks for more than its links have: {}. Nothing is installed: read \
-                 them, then update again with Accept Requested Rights",
-                def.version,
-                asks.into_iter().collect::<Vec<_>>().join("; ")
-            ));
+            return Err(UpdateError::Asks {
+                name,
+                version: def.version,
+                asks: asks.into_iter().collect(),
+            });
         }
         // the kept version again (same bytes): its directory is there already
         let reuse = old
@@ -1404,16 +1588,17 @@ impl Admin {
                 .as_deref()
                 .is_some_and(|p| p.def.version == def.version)
             {
-                return Err(format!(
-                    "{name} {} is on disk with other content",
-                    def.version
-                ));
+                return Err(UpdateError::OnDisk {
+                    name,
+                    version: def.version,
+                });
             }
             // neither the installed version nor the kept one: what an
             // install that ended before its registry record left behind; the new
             // files go in its place, never beside what it holds
             let left = packages::dir(&root, &def);
-            crate::nofollow::remove_any(&left).map_err(|e| format!("{}: {e}", left.display()))?;
+            crate::nofollow::remove_any(&left)
+                .map_err(|e| UpdateError::Left(FileError::new(&left, e)))?;
         }
 
         // Before anything stops: each link's keys.
@@ -1454,7 +1639,7 @@ impl Admin {
                         point_ids.push((l.id.clone(), p.id));
                     }
                     Err(e) => {
-                        taken = Err(e);
+                        taken = Err(UpdateError::Point(e));
                         break;
                     }
                 }
@@ -1469,7 +1654,7 @@ impl Admin {
                 unpacked
                     .commit(&root)
                     .map(|_| ())
-                    .map_err(|e| e.to_string())
+                    .map_err(UpdateError::Commit)
             }
         });
         if let Err(e) = placed {
@@ -1513,7 +1698,7 @@ impl Admin {
                 ctl.publish_component(&def)?;
             }
             ctl.apply(Op::PutPackage(new.clone()))
-                .map_err(|e| e.to_string())
+                .map_err(UpdateError::Registry)
         })();
         if let Err(e) = put {
             // as before the update: the old version is the installed one
@@ -1755,37 +1940,35 @@ impl Admin {
         reason: &str,
         mut report: UpdateReport,
         restore_data: Option<bool>,
-    ) -> Result<String, String> {
+    ) -> Result<String, RollbackError> {
         let ctl = &self.ctl;
         let cur = ctl
             .registry()
             .packages
             .get(name)
             .cloned()
-            .ok_or_else(|| format!("no package {name}"))?;
+            .ok_or_else(|| RollbackError::NoPackage(name.to_owned()))?;
         let prev = cur
             .previous
             .clone()
-            .ok_or_else(|| format!("{name}: no previous version is kept"))?;
+            .ok_or_else(|| RollbackError::NoPrevious(name.to_owned()))?;
         let root = ctl.packages_root();
         if !packages::dir(&root, &prev.def)
             .join(&prev.def.entry)
             .is_file()
         {
-            return Err(format!(
-                "{name} {}: its kept directory is gone",
-                prev.def.version
-            ));
+            return Err(RollbackError::KeptGone {
+                name: name.to_owned(),
+                version: prev.def.version.clone(),
+            });
         }
         let links = links_of(ctl, name);
         let restore_data =
             restores_data(restore_data, prev.changes_state, &report).map_err(|()| {
-                format!(
-                    "the update to {} changed the store format: {} cannot read the data the \
-                     links have now. Roll back with restore_data: true (what was configured \
-                     since the update is lost), or keep {}",
-                    cur.version, prev.def.version, cur.version
-                )
+                RollbackError::StoreFormat {
+                    cur: cur.version.clone(),
+                    prev: prev.def.version.clone(),
+                }
             })?;
         let restore_root = ctl.restore_root();
         let mut points = Vec::new();
@@ -1796,11 +1979,11 @@ impl Admin {
             }
             let p = point_for(&restore_root, &l.id, name, &prev);
             if p.is_none() && prev.changes_state {
-                return Err(format!(
-                    "the update to {} changed the store format and link {} has no restore \
-                     point of {}: {} could not read its data. Nothing is rolled back",
-                    cur.version, l.id, prev.def.version, prev.def.version
-                ));
+                return Err(RollbackError::NoPoint {
+                    cur: cur.version.clone(),
+                    link: l.id.clone(),
+                    prev: prev.def.version.clone(),
+                });
             }
             points.push((l.id.clone(), p.map(|p| p.id)));
         }
@@ -1835,7 +2018,7 @@ impl Admin {
             let c = ctl.clone();
             tokio::task::spawn_blocking(move || c.finish_rollback(&pending))
                 .await
-                .map_err(|e| e.to_string())
+                .map_err(RollbackError::Join)
                 .and_then(|r| r)
         };
         let done = match done {
@@ -1896,37 +2079,38 @@ impl Admin {
         let _busy = self.ctl.busy()?;
         self.ctl.not_updating(name)?;
         let wanted = a.version.as_deref();
-        let check = || -> Result<String, String> {
-            let e = index_entry(&self.ctl, name).ok_or_else(|| {
-                format!(
-                    "{name} is not in the repository: update it with Install Link ▸ from \
-                     ZIP, URL or Git and a package of the same name"
-                )
-            })?;
+        let check = || -> Result<String, NoUpdate> {
+            let e =
+                index_entry(&self.ctl, name).ok_or_else(|| NoUpdate::NotListed(name.to_owned()))?;
             // an index names one version of a package
             if let Some(v) = wanted.filter(|v| *v != e.version) {
-                return Err(format!("the repository has {name} {}, not {v}", e.version));
+                return Err(NoUpdate::Has {
+                    name: name.to_owned(),
+                    has: e.version,
+                    wanted: v.to_owned(),
+                });
             }
             if e.version == def.version {
-                return Err(format!("{name} {} is installed already", def.version));
+                return Err(NoUpdate::Installed {
+                    name: name.to_owned(),
+                    version: def.version.clone(),
+                });
             }
             if wanted.is_none() && !newer(&e.version, &def.version) {
-                return Err(format!(
-                    "{name} {} is installed and the repository has {}: name that version \
-                     to install it all the same",
-                    def.version, e.version
-                ));
+                return Err(NoUpdate::NotNewer {
+                    name: name.to_owned(),
+                    installed: def.version.clone(),
+                    has: e.version,
+                });
             }
             links_of(&self.ctl, name)
                 .first()
                 .map(|l| l.id.clone())
-                .ok_or_else(|| {
-                    format!("no link runs {name}: install one with Install Link ▸ from Repository")
-                })
+                .ok_or_else(|| NoUpdate::NoLink(name.to_owned()))
         };
         let r = match check() {
             Ok(link) => self.install_from_repo(&link, name, sub, opts).await,
-            Err(e) => Err(e),
+            Err(e) => Err(e.into()),
         };
         Ok(Some(outcome(r)))
     }
@@ -1945,19 +2129,20 @@ impl Admin {
         let prev = match def.previous.as_deref() {
             Some(p) => p,
             None => {
-                return Ok(Some(outcome(Err(format!(
-                    "{name}: no previous version is kept"
+                return Ok(Some(outcome(Err::<String, _>(RollbackError::NoPrevious(
+                    name.to_owned(),
                 )))))
             }
         };
         if let Some(to) = a.to.as_deref().filter(|v| *v != prev.def.version) {
-            return Ok(Some(outcome(Err(format!(
-                "{name}: the kept version is {}, not {to}",
-                prev.def.version
-            )))));
+            return Ok(Some(outcome(Err::<String, _>(RollbackError::KeptIs {
+                name: name.to_owned(),
+                kept: prev.def.version.clone(),
+                to: to.to_owned(),
+            }))));
         }
         if self.ctl.request_update_stop(name, sub) {
-            return Ok(Some(outcome(Ok(format!(
+            return Ok(Some(outcome(Ok::<_, RollbackError>(format!(
                 "the update of {name} to {} stops and rolls back to {}: \
                  sys/packages/{name}/last_update",
                 def.version, prev.def.version
@@ -2434,6 +2619,188 @@ mod tests {
         ctl.complete_rollbacks();
         assert_eq!(ctl.registry().packages["pkg"].version, "2.0.0");
         assert!(ctl.pending_rollbacks().is_empty());
+        // the same, told by its type; the record goes each time
+        ctl.write_rollback(&pending(&point.id)).unwrap();
+        assert!(matches!(
+            ctl.finish_rollback(&pending(&point.id)),
+            Err(RollbackError::Moved { at, from, .. }) if at == "2.0.0" && from == "1.1.0"
+        ));
+        assert!(ctl.pending_rollbacks().is_empty());
+        let mut gone = pending(&point.id);
+        gone.name = "other".into();
+        assert!(matches!(
+            ctl.finish_rollback(&gone),
+            Err(RollbackError::NoPackage(n)) if n == "other"
+        ));
+        // a restore point that is not there, and an id that is none
+        assert!(matches!(
+            ctl.restore_point_apply("l1", "19700101T000000Z"),
+            Err(PointApplyError::Point(restore::PointError::NotFound { .. }))
+        ));
+        assert!(matches!(
+            ctl.restore_point_apply("l1", "../x"),
+            Err(PointApplyError::Point(restore::PointError::Id(_)))
+        ));
+    }
+
+    /// Every text of this file's errors, byte for byte as before they had a
+    /// type: the `message` of an install, update or rollback result,
+    /// `last_update.reason`, a link's hold and the audit detail.
+    #[test]
+    fn errors_read_as_before() {
+        use std::error::Error as _;
+        let said = |e: &dyn std::error::Error, text: &str| assert_eq!(e.to_string(), text);
+        let io = || std::io::Error::other("no");
+        let file = || FileError::new(std::path::Path::new("/d/x"), io());
+        let refused = || LinkError::new(Status::Busy, "said");
+        let state = || wyrm_state::StateError::Rejected("r".into());
+        let (s, v) = (
+            |t: &str| t.to_owned(),
+            |t: &[&str]| -> Vec<String> { t.iter().map(|x| (*x).to_owned()).collect() },
+        );
+
+        let point = || TakePointError::Point {
+            link: s("plc"),
+            source: restore::MakeError::Point(restore::PointError::Id(s(".."))),
+        };
+        said(&point(), "restore point of plc: restore point \"..\"");
+        assert!(point().source().is_some());
+
+        said(&PointApplyError::None, "no restore point");
+        said(
+            &PointApplyError::Point(restore::PointError::NotFound {
+                id: s("p1"),
+                link: s("plc"),
+            }),
+            "restore point p1 of plc: not found",
+        );
+        said(
+            &PointApplyError::Restore(RestoreError::NoListener),
+            "process links need a tls/ listener on the broker",
+        );
+
+        said(&RightsError::Grant(refused()), "Busy: said");
+        said(&RightsError::Params(refused()), "Busy: said");
+        said(&RightsError::Registry(state()), "operation rejected: r");
+
+        said(
+            &UpdateError::NeedsRestorePoint {
+                name: s("pkg"),
+                version: s("2.0.0"),
+                reads: vec![2, 3],
+                old: s("1.0.0"),
+                wrote: 1,
+            },
+            "pkg 2.0.0 changes the store format (it reads state [2, 3], pkg 1.0.0 wrote state \
+             1): a rollback needs a restore point. Nothing is installed: update with \
+             restore_point: true",
+        );
+        said(
+            &UpdateError::Asks {
+                name: s("pkg"),
+                version: s("2.0.0"),
+                asks: v(&["network a:1", "write on wy/{site}/downstream/x"]),
+            },
+            "pkg 2.0.0 asks for more than its links have: network a:1; write on \
+             wy/{site}/downstream/x. Nothing is installed: read them, then update again with \
+             Accept Requested Rights",
+        );
+        said(
+            &UpdateError::OnDisk {
+                name: s("pkg"),
+                version: s("2.0.0"),
+            },
+            "pkg 2.0.0 is on disk with other content",
+        );
+        said(&UpdateError::Left(file()), "/d/x: no");
+        said(
+            &UpdateError::Point(point()),
+            "restore point of plc: restore point \"..\"",
+        );
+        said(&UpdateError::Component(ComponentError::Store(io())), "no");
+        said(&UpdateError::Registry(state()), "operation rejected: r");
+
+        use RollbackError as R;
+        said(&R::NoPackage(s("pkg")), "no package pkg");
+        said(&R::NoPrevious(s("pkg")), "pkg: no previous version is kept");
+        said(
+            &R::KeptIs {
+                name: s("pkg"),
+                kept: s("1.0.0"),
+                to: s("0.9.0"),
+            },
+            "pkg: the kept version is 1.0.0, not 0.9.0",
+        );
+        said(
+            &R::KeptGone {
+                name: s("pkg"),
+                version: s("1.0.0"),
+            },
+            "pkg 1.0.0: its kept directory is gone",
+        );
+        said(
+            &R::StoreFormat {
+                cur: s("2.0.0"),
+                prev: s("1.0.0"),
+            },
+            "the update to 2.0.0 changed the store format: 1.0.0 cannot read the data the \
+             links have now. Roll back with restore_data: true (what was configured since the \
+             update is lost), or keep 2.0.0",
+        );
+        said(
+            &R::NoPoint {
+                cur: s("2.0.0"),
+                link: s("plc"),
+                prev: s("1.0.0"),
+            },
+            "the update to 2.0.0 changed the store format and link plc has no restore point \
+             of 1.0.0: 1.0.0 could not read its data. Nothing is rolled back",
+        );
+        said(&R::Record(file()), "/d/x: no");
+        said(&R::Component(ComponentError::Read(file())), "/d/x: no");
+        said(&R::Registry(state()), "operation rejected: r");
+        said(
+            &R::Moved {
+                name: s("pkg"),
+                at: s("3.0.0"),
+                from: s("2.0.0"),
+            },
+            "pkg is at 3.0.0 now, not at 2.0.0",
+        );
+
+        said(
+            &NoUpdate::NotListed(s("pkg")),
+            "pkg is not in the repository: update it with Install Link ▸ from ZIP, URL or Git \
+             and a package of the same name",
+        );
+        said(
+            &NoUpdate::Has {
+                name: s("pkg"),
+                has: s("2.0.0"),
+                wanted: s("2.1.0"),
+            },
+            "the repository has pkg 2.0.0, not 2.1.0",
+        );
+        said(
+            &NoUpdate::Installed {
+                name: s("pkg"),
+                version: s("2.0.0"),
+            },
+            "pkg 2.0.0 is installed already",
+        );
+        said(
+            &NoUpdate::NotNewer {
+                name: s("pkg"),
+                installed: s("2.0.0"),
+                has: s("1.0.0"),
+            },
+            "pkg 2.0.0 is installed and the repository has 1.0.0: name that version to \
+             install it all the same",
+        );
+        said(
+            &NoUpdate::NoLink(s("pkg")),
+            "no link runs pkg: install one with Install Link ▸ from Repository",
+        );
     }
 
     /// Review of PR 72: a rollback by hand, days after an update that ended

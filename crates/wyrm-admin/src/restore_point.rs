@@ -107,7 +107,7 @@ fn private_dir(dir: &Path) -> Result<(), PointError> {
 }
 
 fn link_dir(root: &Path, link: &str) -> Result<PathBuf, PointError> {
-    crate::registry::validate_link_id(link).map_err(PointError::Link)?;
+    crate::registry::validate_link_id(link).map_err(|e| PointError::Link(e.to_string()))?;
     Ok(root.join(link))
 }
 

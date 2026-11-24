@@ -2123,20 +2123,25 @@ impl wyrm_admin::control::RoleGrants for GatewayRoles {
             .collect()
     }
 
-    fn set_grant(&self, role: &str, key: &str, level: wyrm_core::Perm) -> Result<(), String> {
+    fn set_grant(
+        &self,
+        role: &str,
+        key: &str,
+        level: wyrm_core::Perm,
+    ) -> Result<(), wyrm_admin::control::RoleGrantsError> {
         self.0
             .set_grant(role, key, level)
-            .map_err(|e| e.to_string())
+            .map_err(|e| wyrm_admin::control::RoleGrantsError(Box::new(e)))
     }
 
     fn revoke_widening(
         &self,
         keys: &[String],
         probe: &str,
-    ) -> Result<Vec<(String, String, wyrm_core::Perm)>, String> {
+    ) -> Result<Vec<(String, String, wyrm_core::Perm)>, wyrm_admin::control::RoleGrantsError> {
         self.0
             .revoke_widening(keys, probe)
-            .map_err(|e| e.to_string())
+            .map_err(|e| wyrm_admin::control::RoleGrantsError(Box::new(e)))
     }
 }
 

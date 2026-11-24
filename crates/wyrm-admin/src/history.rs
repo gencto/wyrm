@@ -571,7 +571,7 @@ fn watch_key(ctl: &Control, path: &str) -> Result<String> {
     // key of the site it ends in
     let below = ctl.peers().reachable();
     let key = wyrm_core::keyspace::route_key(&key, |s| below.iter().any(|d| d == s));
-    check_watch_key(&key).map_err(LinkError::invalid_parameter)?;
+    check_watch_key(&key).map_err(|e| LinkError::invalid_parameter(e.to_string()))?;
     let s = key.split('/').nth(1).unwrap_or_default();
     if s != site && !below.iter().any(|d| d == s) {
         return Err(LinkError::invalid_parameter(format!(
