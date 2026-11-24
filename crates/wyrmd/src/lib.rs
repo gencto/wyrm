@@ -1965,12 +1965,9 @@ fn read_key(path: &std::path::Path) -> Result<zeroize::Zeroizing<Vec<u8>>, KeyFi
         path: path.to_path_buf(),
         source,
     })?;
-    let k = zeroize::Zeroizing::new(hex::decode(text.trim()).map_err(|source| {
-        KeyFileError::NotHex {
-            path: path.to_path_buf(),
-            source,
-        }
-    })?);
+    let k = zeroize::Zeroizing::new(
+        hex::decode(text.trim()).map_err(|_| KeyFileError::NotHex(path.to_path_buf()))?,
+    );
     if k.len() != 32 {
         return Err(KeyFileError::Length(path.to_path_buf()));
     }
@@ -1986,12 +1983,10 @@ pub enum KeyFileError {
         #[source]
         source: std::io::Error,
     },
-    #[error("{}: not hex", .path.display())]
-    NotHex {
-        path: PathBuf,
-        #[source]
-        source: hex::FromHexError,
-    },
+    /// The decoder's own error is not kept: it names a character of the
+    /// file, and the file holds a key.
+    #[error("{}: not hex", .0.display())]
+    NotHex(PathBuf),
     #[error("{}: expected 32 bytes", .0.display())]
     Length(PathBuf),
 }
@@ -3627,7 +3622,6 @@ mod tests {
         let id = || wyrm_admin::registry::validate_link_id("A B").unwrap_err();
         let folder = || wyrm_admin::control::send::check_folder("../x").unwrap_err();
         let io = || std::io::Error::other("cause");
-        let hex = || hex::decode("zz").unwrap_err();
         for (e, want) in [
             (
                 SendLinksError::Link(id()).to_string(),
@@ -3655,11 +3649,7 @@ mod tests {
                 "/d/state.key: cause",
             ),
             (
-                KeyFileError::NotHex {
-                    path: "/d/state.key".into(),
-                    source: hex(),
-                }
-                .to_string(),
+                KeyFileError::NotHex("/d/state.key".into()).to_string(),
                 "/d/state.key: not hex",
             ),
             (
@@ -3711,7 +3701,8 @@ mod tests {
         ));
     }
 
-    /// A key file is refused by variant, with the cause kept.
+    /// A key file is refused by variant; a file that is not read keeps its
+    /// cause.
     #[test]
     fn key_files_are_refused_by_variant() {
         let d = std::env::temp_dir().join(format!("wyrmd-keyfile-{}", std::process::id()));
@@ -3724,7 +3715,7 @@ mod tests {
         std::fs::write(d.join("k"), "zz").unwrap();
         assert!(matches!(
             read_key(&d.join("k")),
-            Err(KeyFileError::NotHex { .. })
+            Err(KeyFileError::NotHex(_))
         ));
         std::fs::write(d.join("k"), "abcd").unwrap();
         assert!(matches!(
