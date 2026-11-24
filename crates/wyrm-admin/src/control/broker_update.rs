@@ -691,7 +691,9 @@ impl Control {
         // one file holds the index and its signature: a reader never has one
         // without the other
         let r = async {
-            let bytes = crate::fetch::get(channel, release::MAX_CHANNEL, FETCH_TIMEOUT).await?;
+            let bytes = crate::fetch::get(channel, release::MAX_CHANNEL, FETCH_TIMEOUT)
+                .await
+                .map_err(|e| e.to_string())?;
             let index = release::read_channel(&bytes, &u.keys).map_err(|e| e.to_string())?;
             // an older index than one read before was put back
             release::note_sequence(&self.cfg.data_dir, index.sequence)
@@ -1221,7 +1223,9 @@ async fn run(
     let archive = match (archive, &plan.source) {
         (Some(p), _) => p,
         (None, Source::Url(url)) => {
-            let bytes = crate::fetch::get(url, plan.asset.size as usize, ARCHIVE_TIMEOUT).await?;
+            let bytes = crate::fetch::get(url, plan.asset.size as usize, ARCHIVE_TIMEOUT)
+                .await
+                .map_err(|e| e.to_string())?;
             let dir = d.join("update.fetch");
             // a fresh directory: nothing an earlier fetch left goes with this one
             std::fs::remove_dir_all(&dir)

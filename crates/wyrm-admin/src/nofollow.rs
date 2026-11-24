@@ -14,6 +14,86 @@
 use std::fs::File;
 use std::path::{Path, PathBuf};
 
+/// Why a path of a link's data was not read or made. Every refusal names the
+/// path and, where the system said why, carries its error as the source.
+#[derive(Debug, thiserror::Error)]
+pub enum NofollowError {
+    /// A directory was not opened, listed or made.
+    #[error("{}: {source}", .path.display())]
+    Io {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    /// A name that is not `/`-separated plain segments (empty, `.`, `..`).
+    #[error("{0}: not a plain path")]
+    NotPlain(String),
+    /// A listed entry did not open without following a link: a symlink took
+    /// its name, or it is not what the listing said.
+    #[error(
+        "{}: not opened without following links ({source}); the link's data changed while it was copied",
+        .path.display()
+    )]
+    EntryNotOpened {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    /// The open entry's type and size were not read from its handle.
+    #[error("{}: {source}; the link's data changed while it was copied", .path.display())]
+    EntryNotRead {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    /// What opened is not the kind of entry that was listed.
+    #[error(
+        "{}: not the file or directory that was listed; the link's data changed while it was copied",
+        .0.display()
+    )]
+    EntrySwapped(PathBuf),
+    /// What opened through the path is not an entry of the held directory:
+    /// a directory on the way was swapped.
+    #[error(
+        "{}: not an entry of the directory that was listed; the link's data changed while it was copied",
+        .0.display()
+    )]
+    EntryMoved(PathBuf),
+    /// One file more than the walk's bound.
+    #[error("more than {0} files")]
+    TooManyFiles(usize),
+    /// The root of a walk did not open without following a link.
+    #[error("{}: not opened without following links ({source})", .path.display())]
+    RootNotOpened {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    /// A symlink or something else that is no directory where one must be.
+    #[error("{}: not a directory", .0.display())]
+    NotDirectory(PathBuf),
+    /// A relative path with a part that is no plain name (`..`, a root).
+    #[error("unsafe path {}", .0.display())]
+    UnsafePath(PathBuf),
+    /// The new directory was not made its owner's alone.
+    #[error("{source}")]
+    NotPrivate {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+}
+
+/// Why [`walk_files`] ended: its own refusal, or what the caller's function
+/// answered for a file (`E`, as the caller said it).
+#[derive(Debug, thiserror::Error)]
+pub enum WalkError<E> {
+    #[error(transparent)]
+    Walk(#[from] NofollowError),
+    #[error("{0}")]
+    Emit(E),
+}
+
 /// Open `path` for reading without following a symlink in its last
 /// component, and without waiting on a FIFO. `dir`: it must be a directory.
 #[cfg(unix)]
@@ -89,30 +169,23 @@ fn open_entry(
     parent_path: &Path,
     name: &std::ffi::OsStr,
     dir: bool,
-) -> Result<Option<Entry>, String> {
+) -> Result<Option<Entry>, NofollowError> {
     let path = parent_path.join(name);
-    let refused = |why: &str| {
-        format!(
-            "{}: {why}; the link's data changed while it was copied",
-            path.display()
-        )
-    };
     let file = match open_nofollow(&path, dir) {
         Ok(f) => f,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(e) => {
-            return Err(refused(&format!(
-                "not opened without following links ({e})"
-            )))
-        }
+        Err(source) => return Err(NofollowError::EntryNotOpened { path, source }),
     };
-    let meta = file.metadata().map_err(|e| refused(&e.to_string()))?;
+    let meta = match file.metadata() {
+        Ok(m) => m,
+        Err(source) => return Err(NofollowError::EntryNotRead { path, source }),
+    };
     let kind = meta.file_type();
     if kind.is_symlink() || (dir && !kind.is_dir()) || (!dir && !kind.is_file()) {
-        return Err(refused("not the file or directory that was listed"));
+        return Err(NofollowError::EntrySwapped(path));
     }
     if !same_entry(parent, name, &file) {
-        return Err(refused("not an entry of the directory that was listed"));
+        return Err(NofollowError::EntryMoved(path));
     }
     Ok(Some(Entry { file, meta }))
 }
@@ -123,13 +196,16 @@ fn open_entry(
 /// opened once with `O_NOFOLLOW` and checked against the held handle of
 /// their parent. `Ok(None)`: it is not there. For a file whose name came
 /// from a listing made earlier (the standby asks for it by name).
-pub fn open_under(root: &Path, rel: &str) -> Result<Option<File>, String> {
-    let mut dir = open_nofollow(root, true).map_err(|e| format!("{}: {e}", root.display()))?;
+pub fn open_under(root: &Path, rel: &str) -> Result<Option<File>, NofollowError> {
+    let mut dir = open_nofollow(root, true).map_err(|source| NofollowError::Io {
+        path: root.to_owned(),
+        source,
+    })?;
     let mut path = root.to_owned();
     let segs: Vec<&str> = rel.split('/').collect();
     for (i, seg) in segs.iter().enumerate() {
         if seg.is_empty() || *seg == "." || *seg == ".." {
-            return Err(format!("{rel}: not a plain path"));
+            return Err(NofollowError::NotPlain(rel.to_owned()));
         }
         let last = i + 1 == segs.len();
         let Some(e) = open_entry(&dir, &path, std::ffi::OsStr::new(seg), !last)? else {
@@ -141,7 +217,7 @@ pub fn open_under(root: &Path, rel: &str) -> Result<Option<File>, String> {
         dir = e.file;
         path.push(seg);
     }
-    Err(format!("{rel}: not a plain path"))
+    Err(NofollowError::NotPlain(rel.to_owned()))
 }
 
 /// What a walk found beside what it handed out.
@@ -163,18 +239,22 @@ pub struct Rules<'a> {
 }
 
 /// The file handed to the caller of [`walk_files`]: its path relative to
-/// the root (`/` separators), the open handle, the handle's metadata.
-pub type Emit<'a> = dyn FnMut(&str, File, &std::fs::Metadata) -> Result<(), String> + 'a;
+/// the root (`/` separators), the open handle, the handle's metadata. Its
+/// error `E` ends the walk as [`WalkError::Emit`].
+pub type Emit<'a, E> = dyn FnMut(&str, File, &std::fs::Metadata) -> Result<(), E> + 'a;
 
-fn walk(
+fn walk<E>(
     dir: &File,
     path: &Path,
     rel: &str,
     rules: &Rules,
     seen: &mut Walked,
-    emit: &mut Emit,
-) -> Result<(), String> {
-    let rd = std::fs::read_dir(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    emit: &mut Emit<E>,
+) -> Result<(), WalkError<E>> {
+    let rd = std::fs::read_dir(path).map_err(|source| NofollowError::Io {
+        path: path.to_owned(),
+        source,
+    })?;
     let mut entries: Vec<_> = rd.flatten().collect();
     entries.sort_by_key(|e| e.file_name());
     for e in entries {
@@ -193,7 +273,10 @@ fn walk(
                 continue;
             }
             Err(x) if x.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(x) => return Err(format!("{}: {x}", e.path().display())),
+            Err(source) => {
+                let path = e.path();
+                return Err(NofollowError::Io { path, source }.into());
+            }
         };
         let Some(entry) = open_entry(dir, path, &os_name, is_dir)? else {
             continue;
@@ -208,9 +291,9 @@ fn walk(
         } else {
             seen.files += 1;
             if seen.files > rules.max_files {
-                return Err(format!("more than {} files", rules.max_files));
+                return Err(NofollowError::TooManyFiles(rules.max_files).into());
             }
-            emit(&child, entry.file, &entry.meta)?;
+            emit(&child, entry.file, &entry.meta).map_err(WalkError::Emit)?;
         }
     }
     Ok(())
@@ -220,24 +303,30 @@ fn walk(
 /// `emit` as an open handle. A missing `root` is an empty one; a `root`
 /// that is a symlink or no directory is refused. See the module
 /// documentation for what is never followed.
-pub fn walk_files(root: &Path, rules: &Rules, emit: &mut Emit) -> Result<Walked, String> {
+pub fn walk_files<E>(
+    root: &Path,
+    rules: &Rules,
+    emit: &mut Emit<E>,
+) -> Result<Walked, WalkError<E>> {
     let mut seen = Walked::default();
+    let path = || root.to_owned();
     let dir = match open_nofollow(root, true) {
         Ok(d) => d,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(seen),
-        Err(e) => {
-            return Err(format!(
-                "{}: not opened without following links ({e})",
-                root.display()
-            ))
+        Err(source) => {
+            let path = path();
+            return Err(NofollowError::RootNotOpened { path, source }.into());
         }
     };
     let kind = dir
         .metadata()
-        .map_err(|e| format!("{}: {e}", root.display()))?
+        .map_err(|source| {
+            let path = path();
+            NofollowError::Io { path, source }
+        })?
         .file_type();
     if kind.is_symlink() || !kind.is_dir() {
-        return Err(format!("{}: not a directory", root.display()));
+        return Err(NofollowError::NotDirectory(path()).into());
     }
     walk(&dir, root, "", rules, &mut seen, emit)?;
     Ok(seen)
@@ -261,11 +350,11 @@ pub fn create_new(path: &Path, mode: Option<u32>) -> std::io::Result<File> {
 
 /// The directories of `rel` under `root`, made one by one: one that is
 /// there must be a real directory (never a symlink to follow).
-pub fn make_dirs(root: &Path, rel: &Path) -> Result<PathBuf, String> {
+pub fn make_dirs(root: &Path, rel: &Path) -> Result<PathBuf, NofollowError> {
     let mut dir = root.to_path_buf();
     for c in rel.components() {
         let std::path::Component::Normal(c) = c else {
-            return Err(format!("unsafe path {}", rel.display()));
+            return Err(NofollowError::UnsafePath(rel.to_owned()));
         };
         dir.push(c);
         match std::fs::create_dir(&dir) {
@@ -273,10 +362,10 @@ pub fn make_dirs(root: &Path, rel: &Path) -> Result<PathBuf, String> {
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
                 let real = std::fs::symlink_metadata(&dir).is_ok_and(|m| m.is_dir());
                 if !real {
-                    return Err(format!("{}: not a directory", dir.display()));
+                    return Err(NofollowError::NotDirectory(dir));
                 }
             }
-            Err(e) => return Err(format!("{}: {e}", dir.display())),
+            Err(source) => return Err(NofollowError::Io { path: dir, source }),
         }
     }
     Ok(dir)
@@ -284,15 +373,20 @@ pub fn make_dirs(root: &Path, rel: &Path) -> Result<PathBuf, String> {
 
 /// A new directory only its owner enters: refused when the name is taken
 /// (a symlink there too), then checked and set as `secret::private_dir_of`.
-pub fn new_private_dir(dir: &Path) -> Result<(), String> {
+pub fn new_private_dir(dir: &Path) -> Result<(), NofollowError> {
     let mut b = std::fs::DirBuilder::new();
     #[cfg(unix)]
     std::os::unix::fs::DirBuilderExt::mode(&mut b, 0o700);
-    b.create(dir)
-        .map_err(|e| format!("{}: {e}", dir.display()))?;
+    b.create(dir).map_err(|source| NofollowError::Io {
+        path: dir.to_owned(),
+        source,
+    })?;
     crate::secret::private_dir_of(dir)
         .map(drop)
-        .map_err(|e| e.to_string())
+        .map_err(|source| NofollowError::NotPrivate {
+            path: dir.to_owned(),
+            source,
+        })
 }
 
 /// Remove what is at `path` as what it is: a directory with its content, a
@@ -322,7 +416,7 @@ mod tests {
         let root = d.join("root");
         write(&root.join("links/l1/data/store/p0"), b"page");
         write(&d.join("outside/secret"), b"BROKER-SECRET");
-        let read = |rel: &str| -> Result<Option<Vec<u8>>, String> {
+        let read = |rel: &str| -> Result<Option<Vec<u8>>, NofollowError> {
             Ok(match open_under(&root, rel)? {
                 Some(mut f) => {
                     let mut b = Vec::new();
@@ -335,17 +429,29 @@ mod tests {
         assert_eq!(read("links/l1/data/store/p0").unwrap().unwrap(), b"page");
         assert_eq!(read("links/l1/data/store/none").unwrap(), None);
         assert_eq!(read("links/l2/data/x").unwrap(), None);
-        assert!(read("links/l1/data/../../../outside/secret").is_err());
+        assert!(matches!(
+            read("links/l1/data/../../../outside/secret"),
+            Err(NofollowError::NotPlain(_))
+        ));
         assert!(
-            read("links/l1/data/store").is_err(),
+            matches!(
+                read("links/l1/data/store"),
+                Err(NofollowError::EntrySwapped(_))
+            ),
             "a directory is no file"
         );
         // the file is a symlink
         symlink(d.join("outside/secret"), root.join("links/l1/data/leak")).unwrap();
-        assert!(read("links/l1/data/leak").is_err());
+        assert!(matches!(
+            read("links/l1/data/leak"),
+            Err(NofollowError::EntryNotOpened { .. })
+        ));
         // a directory on the way is one
         symlink(d.join("outside"), root.join("links/l1/data/dir")).unwrap();
-        assert!(read("links/l1/data/dir/secret").is_err());
+        assert!(matches!(
+            read("links/l1/data/dir/secret"),
+            Err(NofollowError::EntryNotOpened { .. })
+        ));
         // the listed directory was swapped for one
         std::fs::rename(
             root.join("links/l1/data/store"),
@@ -353,7 +459,77 @@ mod tests {
         )
         .unwrap();
         symlink(d.join("outside"), root.join("links/l1/data/store")).unwrap();
-        assert!(read("links/l1/data/store/secret").is_err());
+        assert!(matches!(
+            read("links/l1/data/store/secret"),
+            Err(NofollowError::EntryNotOpened { .. })
+        ));
+    }
+
+    /// Every refusal says what it said as text: these reach the answers of
+    /// backups, restores and the replication to a standby.
+    #[test]
+    fn refusals_read_as_before() {
+        fn said(e: &dyn std::fmt::Display, text: &str) {
+            assert_eq!(e.to_string(), text);
+        }
+        let io = || std::io::Error::other("no");
+        let p = || PathBuf::from("/d/f");
+        type E = NofollowError;
+        said(
+            &E::Io {
+                path: p(),
+                source: io(),
+            },
+            "/d/f: no",
+        );
+        said(&E::NotPlain("a/../b".into()), "a/../b: not a plain path");
+        said(
+            &E::EntryNotOpened {
+                path: p(),
+                source: io(),
+            },
+            "/d/f: not opened without following links (no); the link's data changed while it was copied",
+        );
+        said(
+            &E::EntryNotRead {
+                path: p(),
+                source: io(),
+            },
+            "/d/f: no; the link's data changed while it was copied",
+        );
+        said(
+            &E::EntrySwapped(p()),
+            "/d/f: not the file or directory that was listed; the link's data changed while it was copied",
+        );
+        said(
+            &E::EntryMoved(p()),
+            "/d/f: not an entry of the directory that was listed; the link's data changed while it was copied",
+        );
+        said(&E::TooManyFiles(7), "more than 7 files");
+        said(
+            &E::RootNotOpened {
+                path: p(),
+                source: io(),
+            },
+            "/d/f: not opened without following links (no)",
+        );
+        said(&E::NotDirectory(p()), "/d/f: not a directory");
+        said(&E::UnsafePath("../x".into()), "unsafe path ../x");
+        said(
+            &E::NotPrivate {
+                path: p(),
+                source: io(),
+            },
+            "no",
+        );
+        said(
+            &WalkError::<String>::Walk(E::TooManyFiles(7)),
+            "more than 7 files",
+        );
+        said(
+            &WalkError::Emit("as the caller said it"),
+            "as the caller said it",
+        );
     }
 
     fn tmp(name: &str) -> PathBuf {
@@ -371,7 +547,10 @@ mod tests {
     /// `(relative path, content)` of every file a walk hands out.
     type Files = Vec<(String, Vec<u8>)>;
 
-    fn collect(root: &Path, max_files: usize) -> Result<(Files, Walked), String> {
+    fn collect(
+        root: &Path,
+        max_files: usize,
+    ) -> Result<(Files, Walked), WalkError<std::io::Error>> {
         let mut out = Vec::new();
         let scratch = |n: &str| n == "uploads" || n.ends_with(".tmp");
         let rules = Rules {
@@ -380,7 +559,7 @@ mod tests {
         };
         let seen = walk_files(root, &rules, &mut |rel, mut f, _| {
             let mut b = Vec::new();
-            f.read_to_end(&mut b).map_err(|e| e.to_string())?;
+            f.read_to_end(&mut b)?;
             out.push((rel.to_owned(), b));
             Ok(())
         })?;
@@ -411,7 +590,22 @@ mod tests {
                 skipped: 0
             }
         );
-        assert!(collect(&data, 1).unwrap_err().contains("more than 1"));
+        assert!(matches!(
+            collect(&data, 1),
+            Err(WalkError::Walk(NofollowError::TooManyFiles(1)))
+        ));
+        // what the caller's function answers ends the walk as it said it
+        let rules = Rules {
+            scratch: &|_| false,
+            max_files: 10,
+        };
+        let mut handed = Vec::new();
+        let end = walk_files(&data, &rules, &mut |rel, _, _| {
+            handed.push(rel.to_owned());
+            Err(7u8)
+        });
+        assert!(matches!(end, Err(WalkError::Emit(7))), "{end:?}");
+        assert_eq!(handed, ["a/x"], "nothing is handed out after a refusal");
     }
 
     /// Security review of the restore point (commit 0784257), now for every
@@ -449,11 +643,11 @@ mod tests {
         let dir = open_nofollow(&data, true).unwrap();
         let leak = std::ffi::OsStr::new("leak");
         let err = open_entry(&dir, &data, leak, false).err().unwrap();
-        assert!(err.contains("changed while it was copied"), "{err}");
+        assert!(matches!(err, NofollowError::EntryNotOpened { .. }), "{err}");
         let err = open_entry(&dir, &data, std::ffi::OsStr::new("leakdir"), true)
             .err()
             .unwrap();
-        assert!(err.contains("changed while it was copied"), "{err}");
+        assert!(matches!(err, NofollowError::EntryNotOpened { .. }), "{err}");
         // a directory on the way swapped for a symlink: what opens through
         // the path is not an entry of the directory the walk holds
         let sub = open_nofollow(&data.join("sub"), true).unwrap();
@@ -467,7 +661,7 @@ mod tests {
         )
         .err()
         .unwrap();
-        assert!(err.contains("not an entry of the directory"), "{err}");
+        assert!(matches!(err, NofollowError::EntryMoved(_)), "{err}");
         // the real entry of the held directory still opens
         std::fs::remove_file(data.join("sub")).unwrap();
         std::fs::rename(data.join("sub.real"), data.join("sub")).unwrap();
@@ -482,7 +676,10 @@ mod tests {
         let fake = d.join("links/l2/data");
         std::fs::create_dir_all(fake.parent().unwrap()).unwrap();
         symlink(&outside, &fake).unwrap();
-        assert!(collect(&fake, 100).is_err());
+        assert!(matches!(
+            collect(&fake, 100),
+            Err(WalkError::Walk(NofollowError::RootNotOpened { .. }))
+        ));
 
         // the write side: a directory name taken by a symlink is refused,
         // a file name taken by one is not written through
@@ -490,8 +687,11 @@ mod tests {
         std::fs::create_dir_all(&target).unwrap();
         symlink(&outside, target.join("sub")).unwrap();
         let err = make_dirs(&target, Path::new("sub")).unwrap_err();
-        assert!(err.contains("not a directory"), "{err}");
-        assert!(make_dirs(&target, Path::new("../x")).is_err());
+        assert!(matches!(err, NofollowError::NotDirectory(_)), "{err}");
+        assert!(matches!(
+            make_dirs(&target, Path::new("../x")),
+            Err(NofollowError::UnsafePath(_))
+        ));
         symlink(outside.join("secret"), target.join("own")).unwrap();
         assert!(create_new(&target.join("own"), None).is_err());
         assert!(create_new(&target.join("new"), None).is_ok());

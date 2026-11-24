@@ -912,15 +912,16 @@ impl Control {
                 let made = self
                     .link_restore_point_to(link, path)
                     .map_err(|e| e.to_string())?;
-                Ok((made.size, made.skipped))
+                Ok::<_, String>((made.size, made.skipped))
             },
         )
+        .map_err(|e| e.to_string())
     }
 
     /// Give the stopped link `link` the private data and secrets of its
     /// restore point `id` back. Blocking.
     pub(super) fn restore_point_apply(&self, link: &str, id: &str) -> Result<(), String> {
-        let file = restore::file(&self.restore_root(), link, id)?;
+        let file = restore::file(&self.restore_root(), link, id).map_err(|e| e.to_string())?;
         self.link_restore_data(link, &file)
             .map_err(|e| e.to_string())
     }
@@ -1465,7 +1466,10 @@ impl Admin {
                 drop(unpacked);
                 Ok(())
             } else {
-                unpacked.commit(&root).map(|_| ())
+                unpacked
+                    .commit(&root)
+                    .map(|_| ())
+                    .map_err(|e| e.to_string())
             }
         });
         if let Err(e) = placed {
@@ -2242,8 +2246,8 @@ mod tests {
         let _ = std::fs::remove_dir_all(&d);
         let mk = |link: &str, version: &str, at: u64| {
             restore::make(&d, link, "pkg", version, None, at, |path| {
-                std::fs::write(path, b"x").map_err(|e| e.to_string())?;
-                Ok((1, 0))
+                std::fs::write(path, b"x")?;
+                Ok::<_, std::io::Error>((1, 0))
             })
             .unwrap()
         };
