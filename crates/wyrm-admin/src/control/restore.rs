@@ -14,7 +14,9 @@
 //! manifest, and nothing sealed without the key that proves the manifest
 //! authentic (`wyrm_admin::backup`).
 
-use super::backups::{broker_made_secret, io_err, link_prefix, make_private_dir, StageDir};
+use super::backups::{
+    broker_made_secret, link_prefix, make_private_dir, FileError, StageDir, StageError,
+};
 use super::*;
 use crate::backup::{self as format, Kind, Manifest, SectionName};
 use zeroize::Zeroizing;
@@ -32,6 +34,285 @@ const UPLOAD_STALE_S: u64 = 3600;
 const RESTORING: &str = "data.restoring";
 const REPLACED: &str = "data.replaced";
 const DONE: &str = "data.done";
+
+/// Why an upload is refused (`restore_begin`, `restore_part`, and a restore
+/// that takes the file). To a caller: [`UploadError::status`].
+#[derive(Debug, thiserror::Error)]
+pub enum UploadError {
+    #[error("size: 1 to {} bytes", MAX_UPLOAD)]
+    Size,
+    /// MiB the file needs (itself, and what is opened out of it) and MiB free.
+    #[error("the file needs about {want:.0} MiB on the disk of data_dir, {free:.0} MiB are free")]
+    DiskFull { want: f64, free: f64 },
+    /// No random id for it.
+    #[error("{0}")]
+    NoRandomness(#[source] wyrm_core::rand::NoRandomness),
+    #[error("{} uploads are open; finish or abort one", MAX_UPLOADS)]
+    TooMany,
+    #[error("data: 1 to {} bytes", backups::MAX_PART)]
+    PartSize,
+    #[error("upload {0}")]
+    NotFound(String),
+    /// A part that does not start where the last one ended.
+    #[error("offset {offset}: the next part starts at {next}")]
+    OutOfOrder { offset: u64, next: u64 },
+    /// A part that ends beyond the size `restore_begin` was given.
+    #[error("more than the {size} bytes of restore_begin")]
+    TooLong { size: u64 },
+    /// Taken for a restore before its last part came.
+    #[error("upload {id}: {received} of {size} bytes received")]
+    Incomplete {
+        id: String,
+        received: u64,
+        size: u64,
+    },
+    /// A restore reads it now.
+    #[error("the upload is in use")]
+    InUse,
+    /// The directory of the uploads or the file of this one.
+    #[error(transparent)]
+    File(#[from] FileError),
+}
+
+impl UploadError {
+    pub fn status(&self) -> Status {
+        match self {
+            UploadError::Size | UploadError::PartSize | UploadError::Incomplete { .. } => {
+                Status::InvalidParameter
+            }
+            UploadError::DiskFull { .. } => Status::ResourceExhausted,
+            UploadError::TooMany | UploadError::InUse => Status::Busy,
+            UploadError::NotFound(_) => Status::NotFound,
+            UploadError::OutOfOrder { .. } | UploadError::TooLong { .. } => Status::OutOfRange,
+            UploadError::NoRandomness(_) | UploadError::File(_) => Status::InternalError,
+        }
+    }
+}
+
+impl From<UploadError> for LinkError {
+    fn from(e: UploadError) -> Self {
+        LinkError::new(e.status(), e.to_string())
+    }
+}
+
+/// Why the history rows of a link backup were not written
+/// (`Control::place_link_history`). The link is restored without them.
+#[derive(Debug, thiserror::Error)]
+pub enum HistoryError {
+    /// A page of the stage directory.
+    #[error(transparent)]
+    File(#[from] FileError),
+    #[error("{0}")]
+    Page(#[source] wyrm_core::codec::CodecError),
+    #[error("history: a page is not a list")]
+    PageNotList,
+    #[error("history: a row is not a list")]
+    RowNotList,
+    #[error("history: a row of 4 fields")]
+    RowLength,
+    #[error("history: a row is [key, t, v, q]")]
+    RowShape,
+    /// A row's key is no path under its link.
+    #[error("history: key {key:?}: {source}")]
+    Key {
+        key: String,
+        #[source]
+        source: wyrm_core::keyspace::KeyError,
+    },
+    /// A quality code that is none (the code).
+    #[error("history: quality")]
+    Quality(u64),
+    #[error("{0}")]
+    Store(#[source] wyrm_history::store::Error),
+    #[error("history: no series")]
+    NoSeries,
+}
+
+/// Why a backup file was not read as a link's, or the link of one was not
+/// installed or given its data back (`install_backup`, the links of
+/// `restore_apply {mode: add}`, [`Control::link_restore_data`]). A refusal of
+/// another operation of the broker is kept as the `LinkError` it gave. No
+/// variant holds a passphrase, a key, a secret or a byte of a file.
+#[derive(Debug, thiserror::Error)]
+pub enum RestoreError {
+    /// `install_backup` without `file` and without `upload`.
+    #[error("file or upload: required")]
+    NoFile,
+    #[error(transparent)]
+    Upload(#[from] UploadError),
+    /// The file is no backup, or a file of it is not what its manifest says.
+    #[error(transparent)]
+    Read(#[from] format::ReadError),
+    /// No key for it: the passphrase is missing or wrong, the backup is
+    /// sealed for another broker, or its manifest was changed.
+    #[error(transparent)]
+    Key(#[from] format::KeyError),
+    /// A key file of this broker does not load.
+    #[error("{file}: {source}")]
+    KeyFile {
+        file: &'static str,
+        #[source]
+        source: secret::Error,
+    },
+    #[error("a broker backup: restore it from System, not as a link")]
+    BrokerBackup,
+    /// MiB the files open into and MiB free.
+    #[error(
+        "the backup opens into about {want:.0} MiB on the disk of data_dir, {free:.0} MiB \
+         are free: nothing of it is opened"
+    )]
+    NoRoom { want: f64, free: f64 },
+    #[error(transparent)]
+    File(#[from] FileError),
+    #[error(transparent)]
+    Stage(#[from] StageError),
+    /// The task that read or placed the files ended without an answer.
+    #[error("{0}")]
+    Task(#[source] tokio::task::JoinError),
+    /// The link's definition (`link.cbor` at `path`) does not decode.
+    #[error("{path}: {source}")]
+    Settings {
+        path: String,
+        #[source]
+        source: minicbor::decode::Error,
+    },
+    /// The id of the backup's link, or the id asked for, is no link id, or
+    /// one a broker keeps for itself (`crate::registry`, as it says it).
+    #[error("{0}")]
+    LinkId(String),
+    /// The link's secrets do not decode.
+    #[error("{0}")]
+    SecretsDecode(#[source] wyrm_core::codec::CodecError),
+    #[error("{path}: not a map")]
+    SecretsNotMap { path: String },
+    /// The package files of the backup were not packed again
+    /// (`packages::repack`, as it says it).
+    #[error("{0}")]
+    Repack(String),
+    /// The package of the backup does not pass the validator of an install
+    /// (`packages::unpack`, as it says it).
+    #[error("the package of the backup: {0}")]
+    PackageInvalid(String),
+    /// The link or its package is held by another operation (`busy`).
+    #[error("{}", .0.message)]
+    Busy(LinkError),
+    /// What the link and the package it brings ask for was not accepted.
+    #[error(
+        "the link {link} of the backup asks for: {}. Nothing is installed: read them, then \
+         install again with Accept Requested Rights",
+        .asks.join("; ")
+    )]
+    Asks { link: String, asks: Vec<String> },
+    #[error("link {0} is defined in wyrmd.json5: not replaced")]
+    ConfigLink(String),
+    /// The link exists with another driver or mode than the backup's.
+    #[error(
+        "link {id} exists and runs {here} ({}); the backup is of {backup} ({})",
+        .here_mode.name(),
+        .backup_mode.name()
+    )]
+    OtherLink {
+        id: String,
+        here: String,
+        here_mode: Mode,
+        backup: String,
+        backup_mode: Mode,
+    },
+    /// The params of the backup hold a secret (`secrets::lint_params`, as it
+    /// says it).
+    #[error("{0}")]
+    Params(String),
+    /// An agent link whose params name what they may not.
+    #[error("{}", .0.message)]
+    AgentRefs(LinkError),
+    #[error("driver {0} is not built into this broker")]
+    NoDriver(String),
+    /// The driver refuses the params of the backup.
+    #[error("{}", .0.message)]
+    DriverParams(LinkError),
+    /// A grant of the backup's link that no link may hold
+    /// (`registry::check_grant`, as it says it).
+    #[error("grant: {0}")]
+    Grant(String),
+    #[error("link id {0:?} is a downstream site or an operator of this broker")]
+    IdTaken(String),
+    #[error(
+        "package {name} {version} is installed here with other content than the \
+         backup holds"
+    )]
+    PackageContent { name: String, version: String },
+    #[error(
+        "package {name} {here} is installed here; the backup holds {backup}. One version per \
+         package: update or roll back the package first, or restore the backup \
+         without its package section"
+    )]
+    PackageVersion {
+        name: String,
+        here: String,
+        backup: String,
+    },
+    #[error("package {0} is not installed here and the backup does not hold it")]
+    PackageMissing(String),
+    #[error("the backup holds package {holds}, the link runs {runs}")]
+    PackageOther { holds: String, runs: String },
+    #[error("process links need a tls/ listener on the broker")]
+    NoListener,
+    /// The package was not put beside the installed ones
+    /// (`packages::Unpacked::commit`, as it says it).
+    #[error("{0}")]
+    PackageCommit(String),
+    /// Its component was not published (as `Control::publish_component` says it).
+    #[error("{0}")]
+    Component(String),
+    /// The registry did not take the package or the link's params.
+    #[error("{0}")]
+    Registry(#[source] StateError),
+    /// The package's node was not declared.
+    #[error("{0}")]
+    Declare(LinkError),
+    /// No restore point of the link that is replaced (as
+    /// `Admin::take_restore_point` says it).
+    #[error("{0}")]
+    RestorePoint(String),
+    #[error("{}", .0.message)]
+    Stop(LinkError),
+    #[error("{}", .0.message)]
+    Start(LinkError),
+    /// The new link was not installed.
+    #[error("{}", .0.message)]
+    Install(LinkError),
+    #[error("{}", .0.message)]
+    SetGrant(LinkError),
+    /// Fails closed: the key of the old `api_base` would stay with the new one.
+    #[error(
+        "the agent's API key for the old api_base cannot be dropped ({0}); \
+         nothing is restored"
+    )]
+    AgentKey(#[source] secret::Error),
+    /// The link has no private directory (its id is no link id).
+    #[error("{}", .0.message)]
+    DataDir(LinkError),
+    #[error("{}: no parent", .0.display())]
+    NoParent(PathBuf),
+    /// A directory of the new data was not made without following a link
+    /// (`crate::nofollow`, as it says it).
+    #[error("{0}")]
+    Dir(String),
+    /// A file of the backup's data without a file name.
+    #[error("unsafe path {0}")]
+    UnsafePath(String),
+    #[error("the backup holds a framework tree without its store key")]
+    NoStoreKey,
+    #[error("the framework tree of the backup: {0}")]
+    Rebind(#[source] wyrm_link_sdk::driver::persist::RebindError),
+    /// The secret store did not take the link's secrets.
+    #[error("secrets: {0}")]
+    Secrets(#[source] secret::Error),
+    #[error("no link {0}")]
+    NoLink(String),
+    #[error("{}: no private data in it", .0.display())]
+    NoData(PathBuf),
+}
 
 /// The steps of the swap of a restore ([`Control::swap_link_data`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -73,13 +354,10 @@ pub(super) fn extract_need<'a>(files: impl Iterator<Item = &'a format::FileEntry
 
 /// `Err` when `need` bytes do not fit into `free_mib` (`None`: unknown on
 /// this host, nothing is refused).
-fn room(free_mib: Option<f64>, need: u64) -> Result<(), String> {
+fn room(free_mib: Option<f64>, need: u64) -> Result<(), RestoreError> {
     let want = need as f64 / f64::from(1 << 20);
     match free_mib {
-        Some(free) if free < want => Err(format!(
-            "the backup opens into about {want:.0} MiB on the disk of data_dir, {free:.0} MiB \
-             are free: nothing of it is opened"
-        )),
+        Some(free) if free < want => Err(RestoreError::NoRoom { want, free }),
         _ => Ok(()),
     }
 }
@@ -167,35 +445,27 @@ impl Control {
     }
 
     /// Start an upload of `size` bytes; its id.
-    fn upload_begin(&self, size: u64) -> Result<String, LinkError> {
+    fn upload_begin(&self, size: u64) -> Result<String, UploadError> {
         if size == 0 || size > MAX_UPLOAD {
-            return Err(LinkError::invalid_parameter(format!(
-                "size: 1 to {MAX_UPLOAD} bytes"
-            )));
+            return Err(UploadError::Size);
         }
         if let Some(free) = disk_free_mib(&self.cfg.data_dir) {
             // the file, and what is opened out of it
             let want = (size.saturating_mul(2) + (64 << 20)) as f64 / f64::from(1 << 20);
             if free < want {
-                return Err(LinkError::new(
-                    Status::ResourceExhausted,
-                    format!("the file needs about {want:.0} MiB on the disk of data_dir, {free:.0} MiB are free"),
-                ));
+                return Err(UploadError::DiskFull { want, free });
             }
         }
-        make_private_dir(&self.backups_dir()).map_err(|e| LinkError::internal(e.to_string()))?;
+        make_private_dir(&self.backups_dir())?;
         let mut r = [0u8; 8];
-        wyrm_core::rand::fill(&mut r).map_err(|e| LinkError::internal(e.to_string()))?;
+        wyrm_core::rand::fill(&mut r).map_err(UploadError::NoRandomness)?;
         let id = hex::encode(r);
         let mut ups = self.uploads();
         if ups.len() >= MAX_UPLOADS {
-            return Err(LinkError::new(
-                Status::Busy,
-                format!("{MAX_UPLOADS} uploads are open; finish or abort one"),
-            ));
+            return Err(UploadError::TooMany);
         }
         let path = self.upload_path(&id);
-        secret::write_private(&path, &[]).map_err(|e| LinkError::internal(io_err(&path, e)))?;
+        secret::write_private(&path, &[]).map_err(|e| FileError::new(&path, e))?;
         ups.insert(
             id.clone(),
             Upload {
@@ -209,32 +479,26 @@ impl Control {
     }
 
     /// The next part of an upload; the bytes held after it.
-    fn upload_part(&self, id: &str, offset: u64, data: &[u8]) -> Result<u64, LinkError> {
+    fn upload_part(&self, id: &str, offset: u64, data: &[u8]) -> Result<u64, UploadError> {
         use std::io::Write;
         if data.is_empty() || data.len() as u64 > backups::MAX_PART {
-            return Err(LinkError::invalid_parameter(format!(
-                "data: 1 to {} bytes",
-                backups::MAX_PART
-            )));
+            return Err(UploadError::PartSize);
         }
         let mut ups = self.uploads();
         let up = ups
             .get_mut(id)
-            .ok_or_else(|| LinkError::not_found(format!("upload {id}")))?;
+            .ok_or_else(|| UploadError::NotFound(id.to_owned()))?;
         if offset != up.received {
-            return Err(LinkError::new(
-                Status::OutOfRange,
-                format!("offset {offset}: the next part starts at {}", up.received),
-            ));
+            return Err(UploadError::OutOfOrder {
+                offset,
+                next: up.received,
+            });
         }
         if up.received + data.len() as u64 > up.size {
-            return Err(LinkError::new(
-                Status::OutOfRange,
-                format!("more than the {} bytes of restore_begin", up.size),
-            ));
+            return Err(UploadError::TooLong { size: up.size });
         }
         let path = self.upload_path(id);
-        let internal = |e: std::io::Error| LinkError::internal(io_err(&path, e));
+        let internal = |e: std::io::Error| FileError::new(&path, e);
         let mut f = std::fs::OpenOptions::new()
             .append(true)
             .open(&path)
@@ -247,19 +511,20 @@ impl Control {
     }
 
     /// The file of a complete upload, marked in use.
-    pub(super) fn upload_take(&self, id: &str) -> Result<PathBuf, LinkError> {
+    pub(super) fn upload_take(&self, id: &str) -> Result<PathBuf, UploadError> {
         let mut ups = self.uploads();
         let up = ups
             .get_mut(id)
-            .ok_or_else(|| LinkError::not_found(format!("upload {id}")))?;
+            .ok_or_else(|| UploadError::NotFound(id.to_owned()))?;
         if up.received != up.size {
-            return Err(LinkError::invalid_parameter(format!(
-                "upload {id}: {} of {} bytes received",
-                up.received, up.size
-            )));
+            return Err(UploadError::Incomplete {
+                id: id.to_owned(),
+                received: up.received,
+                size: up.size,
+            });
         }
         if up.busy {
-            return Err(LinkError::new(Status::Busy, "the upload is in use"));
+            return Err(UploadError::InUse);
         }
         up.busy = true;
         up.touched = now_s();
@@ -296,7 +561,7 @@ impl Control {
     /// Before any file of a backup is opened: `need` bytes
     /// ([`extract_need`]) must fit on the disk of `data_dir`. The upload
     /// was checked against its own size only, and its content is larger.
-    pub(super) fn room_for(&self, need: u64) -> Result<(), String> {
+    pub(super) fn room_for(&self, need: u64) -> Result<(), RestoreError> {
         room(disk_free_mib(&self.cfg.data_dir), need)
     }
 
@@ -305,16 +570,16 @@ impl Control {
         &self,
         manifest: &Manifest,
         passphrase: Option<&[u8]>,
-    ) -> Result<Option<format::MasterKey>, String> {
+    ) -> Result<Option<format::MasterKey>, RestoreError> {
         if manifest.sealed.how == crate::backup::How::None {
             return Ok(None);
         }
         let secrets_key = secret::load_or_create_key(&self.cfg.data_dir.join("secrets.key"))
-            .map_err(|e| format!("secrets.key: {e}"))?;
-        manifest
-            .key(passphrase, Some(&secrets_key))
-            .map(Some)
-            .map_err(|e| e.to_string())
+            .map_err(|source| RestoreError::KeyFile {
+                file: "secrets.key",
+                source,
+            })?;
+        Ok(Some(manifest.key(passphrase, Some(&secrets_key))?))
     }
 
     /// Read the link backup at `path`: every file checked, the manifest
@@ -324,13 +589,13 @@ impl Control {
         &self,
         path: &Path,
         passphrase: Option<&[u8]>,
-    ) -> Result<LinkRestore, String> {
-        let mut r = format::Reader::open(path, MAX_LINK_BACKUP).map_err(|e| e.to_string())?;
+    ) -> Result<LinkRestore, RestoreError> {
+        let mut r = format::Reader::open(path, MAX_LINK_BACKUP)?;
         let manifest = r.manifest().clone();
         if manifest.kind != Kind::Link {
-            return Err("a broker backup: restore it from System, not as a link".into());
+            return Err(RestoreError::BrokerBackup);
         }
-        r.verify(|_, _| {}).map_err(|e| e.to_string())?;
+        r.verify(|_, _| {})?;
         let key = self.backup_key(&manifest, passphrase)?;
         let key = key.as_ref();
         self.read_link_parts(&mut r, key, &LinkLayout::link(&manifest))
@@ -343,16 +608,19 @@ impl Control {
         r: &mut format::Reader<R>,
         key: Option<&format::MasterKey>,
         lay: &LinkLayout,
-    ) -> Result<LinkRestore, String> {
+    ) -> Result<LinkRestore, RestoreError> {
         let manifest = r.manifest().clone();
         let paths: Vec<String> = manifest
             .sections
             .iter()
             .flat_map(|s| s.files.iter().map(|f| f.path.clone()))
             .collect();
-        let def: LinkDef = minicbor::decode(&r.read(&lay.settings).map_err(|e| e.to_string())?)
-            .map_err(|e| format!("{}: {e}", lay.settings))?;
-        crate::registry::validate_link_id(&def.id)?;
+        let def: LinkDef =
+            minicbor::decode(&r.read(&lay.settings)?).map_err(|source| RestoreError::Settings {
+                path: lay.settings.clone(),
+                source,
+            })?;
+        crate::registry::validate_link_id(&def.id).map_err(RestoreError::LinkId)?;
         // what this link's parts open into must fit, before any of it is
         let prefixes: Vec<String> = [&lay.data, &lay.package]
             .into_iter()
@@ -368,8 +636,8 @@ impl Control {
                 .filter(|f| prefixes.iter().any(|p| f.path.starts_with(p))),
         ))?;
         let backups = self.backups_dir();
-        make_private_dir(&backups).map_err(|e| e.to_string())?;
-        let stage = StageDir::new(&backups).map_err(|e| e.to_string())?;
+        make_private_dir(&backups)?;
+        let stage = StageDir::new(&backups)?;
         let mut out = LinkRestore {
             manifest: manifest.clone(),
             def,
@@ -383,11 +651,11 @@ impl Control {
         if let Some(base) = &lay.data {
             out.has_data = true;
             let secrets = format!("{base}/secrets");
-            let plain = r.read_plain(&secrets, key).map_err(|e| e.to_string())?;
-            let Value::Map(m) =
-                wyrm_core::codec::from_slice::<Value>(&plain).map_err(|e| e.to_string())?
+            let plain = r.read_plain(&secrets, key)?;
+            let Value::Map(m) = wyrm_core::codec::from_slice::<Value>(&plain)
+                .map_err(RestoreError::SecretsDecode)?
             else {
-                return Err(format!("{secrets}: not a map"));
+                return Err(RestoreError::SecretsNotMap { path: secrets });
             };
             for (name, v) in m {
                 if let (Value::Bytes(b), false) = (v, broker_made_secret(&name)) {
@@ -397,8 +665,7 @@ impl Control {
             let prefix = format!("{base}/files/");
             for path in &paths {
                 if let Some(rel) = path.strip_prefix(&prefix) {
-                    r.extract(path, &out.files_dir().join(rel), key)
-                        .map_err(|e| e.to_string())?;
+                    r.extract(path, &out.files_dir().join(rel), key)?;
                     out.files.push(rel.to_owned());
                 }
             }
@@ -407,8 +674,7 @@ impl Control {
             let prefix = format!("{base}/files/");
             for path in &paths {
                 if let Some(rel) = path.strip_prefix(&prefix) {
-                    r.extract(path, &out.package_dir().join(rel), None)
-                        .map_err(|e| e.to_string())?;
+                    r.extract(path, &out.package_dir().join(rel), None)?;
                 }
             }
             // Nothing of the backup says what the package is: its files go
@@ -425,7 +691,7 @@ impl Control {
         if let Some(prefix) = &lay.history {
             for (i, path) in paths.iter().filter(|p| p.starts_with(prefix)).enumerate() {
                 let dest = out.stage.0.join("history").join(format!("{i:05}.cbor"));
-                r.extract(path, &dest, None).map_err(|e| e.to_string())?;
+                r.extract(path, &dest, None)?;
                 out.history.push(dest);
             }
         }
@@ -438,11 +704,16 @@ impl Control {
     /// are). All of it or nothing: on an error, and after a broker that
     /// ended in the middle ([`Self::recover_link`]), the link has the data
     /// and the secrets it had before.
-    fn place_link_data(&self, id: &str, r: &LinkRestore) -> Result<(), String> {
+    fn place_link_data(&self, id: &str, r: &LinkRestore) -> Result<(), RestoreError> {
         self.place_link_data_upto(id, r, Swap::Done)
     }
 
-    fn place_link_data_upto(&self, id: &str, r: &LinkRestore, upto: Swap) -> Result<(), String> {
+    fn place_link_data_upto(
+        &self,
+        id: &str,
+        r: &LinkRestore,
+        upto: Swap,
+    ) -> Result<(), RestoreError> {
         if !r.has_data {
             return Ok(());
         }
@@ -452,28 +723,30 @@ impl Control {
         // and file is made new and no symlink is followed
         // (`crate::nofollow`): what the link left under these names is
         // removed as what it is, never written through.
-        let data = self.link_data_dir(id).map_err(|e| e.message)?;
+        let data = self.link_data_dir(id).map_err(RestoreError::DataDir)?;
         let parent = data
             .parent()
-            .ok_or_else(|| format!("{}: no parent", data.display()))?;
+            .ok_or_else(|| RestoreError::NoParent(data.clone()))?;
         let fresh = parent.join(RESTORING);
-        crate::nofollow::new_private_dir(&fresh)?;
+        crate::nofollow::new_private_dir(&fresh).map_err(RestoreError::Dir)?;
         let filled = (|| {
             for rel in &r.files {
                 let rel_path = Path::new(rel);
                 let name = rel_path
                     .file_name()
-                    .ok_or_else(|| format!("unsafe path {rel}"))?;
+                    .ok_or_else(|| RestoreError::UnsafePath(rel.clone()))?;
                 let dir =
-                    crate::nofollow::make_dirs(&fresh, rel_path.parent().unwrap_or(Path::new("")))?;
+                    crate::nofollow::make_dirs(&fresh, rel_path.parent().unwrap_or(Path::new("")))
+                        .map_err(RestoreError::Dir)?;
                 let (from, to) = (r.files_dir().join(rel), dir.join(name));
                 // the stage is on the same disk; a copy when it is not
                 if std::fs::rename(&from, &to).is_err() {
-                    let mut src = std::fs::File::open(&from).map_err(|e| io_err(&from, e))?;
-                    let mut dst =
-                        crate::nofollow::create_new(&to, None).map_err(|e| io_err(&to, e))?;
-                    std::io::copy(&mut src, &mut dst).map_err(|e| io_err(&to, e))?;
-                    dst.sync_all().map_err(|e| io_err(&to, e))?;
+                    let mut src =
+                        std::fs::File::open(&from).map_err(|e| FileError::new(&from, e))?;
+                    let mut dst = crate::nofollow::create_new(&to, None)
+                        .map_err(|e| FileError::new(&to, e))?;
+                    std::io::copy(&mut src, &mut dst).map_err(|e| FileError::new(&to, e))?;
+                    dst.sync_all().map_err(|e| FileError::new(&to, e))?;
                 }
             }
             // the framework tree is bound to its link's id: under a new id
@@ -486,13 +759,13 @@ impl Control {
                     .get(wyrm_link_sdk::driver::persist::STORE_KEY)
                     .and_then(|k| <[u8; 32]>::try_from(&k[..]).ok())
                     .map(Zeroizing::new)
-                    .ok_or("the backup holds a framework tree without its store key")?;
-                let sealed = std::fs::read(&tree).map_err(|e| io_err(&tree, e))?;
+                    .ok_or(RestoreError::NoStoreKey)?;
+                let sealed = std::fs::read(&tree).map_err(|e| FileError::new(&tree, e))?;
                 let bound = wyrm_link_sdk::driver::persist::rebind(&sealed, &key, &r.def.id, id)
-                    .map_err(|e| format!("the framework tree of the backup: {e}"))?;
-                secret::write_private(&tree, &bound).map_err(|e| io_err(&tree, e))?;
+                    .map_err(RestoreError::Rebind)?;
+                secret::write_private(&tree, &bound).map_err(|e| FileError::new(&tree, e))?;
             }
-            Ok::<(), String>(())
+            Ok::<(), RestoreError>(())
         })();
         if let Err(e) = filled {
             // what was opened into it is the link's data in the clear
@@ -531,24 +804,24 @@ impl Control {
         parent: &Path,
         secrets: &BTreeMap<String, Zeroizing<Vec<u8>>>,
         upto: Swap,
-    ) -> Result<(), String> {
+    ) -> Result<(), RestoreError> {
         let (data, fresh) = (parent.join("data"), parent.join(RESTORING));
         let (old, done) = (parent.join(REPLACED), parent.join(DONE));
-        std::fs::rename(&data, &old).map_err(|e| io_err(&data, e))?;
+        std::fs::rename(&data, &old).map_err(|e| FileError::new(&data, e))?;
         if upto == Swap::Aside {
             return Ok(());
         }
-        std::fs::rename(&fresh, &data).map_err(|e| io_err(&data, e))?;
+        std::fs::rename(&fresh, &data).map_err(|e| FileError::new(&data, e))?;
         if upto == Swap::InPlace {
             return Ok(());
         }
         self.secrets
             .replace_stashed(id, secrets)
-            .map_err(|e| format!("secrets: {e}"))?;
+            .map_err(RestoreError::Secrets)?;
         if upto == Swap::Secrets {
             return Ok(());
         }
-        std::fs::rename(&old, &done).map_err(|e| io_err(&old, e))?;
+        std::fs::rename(&old, &done).map_err(|e| FileError::new(&old, e))?;
         if upto == Swap::Committed {
             return Ok(());
         }
@@ -618,56 +891,58 @@ impl Control {
     /// sealed for it): what a package rollback needs (ADR 0048 §1.6). The
     /// link's definition, grants and package are not touched. Blocking; the
     /// caller stops the link before and starts it after.
-    pub fn link_restore_data(&self, id: &str, path: &Path) -> Result<(), String> {
+    pub fn link_restore_data(&self, id: &str, path: &Path) -> Result<(), RestoreError> {
         if !self.registry().links.contains_key(id) {
-            return Err(format!("no link {id}"));
+            return Err(RestoreError::NoLink(id.to_owned()));
         }
         let r = self.read_link_backup(path, None)?;
         if !r.has_data {
-            return Err(format!("{}: no private data in it", path.display()));
+            return Err(RestoreError::NoData(path.to_owned()));
         }
         self.place_link_data(id, &r)
     }
 
     /// Write the history rows of a link backup under the link `id`. Returns
     /// the rows written.
-    fn place_link_history(&self, id: &str, r: &LinkRestore) -> Result<u64, String> {
+    fn place_link_history(&self, id: &str, r: &LinkRestore) -> Result<u64, HistoryError> {
         let store = self.history.store();
         let prefix = link_prefix(&self.cfg.site, id);
         let mut total = 0u64;
         for page in &r.history {
-            let bytes = std::fs::read(page).map_err(|e| io_err(page, e))?;
+            let bytes = std::fs::read(page).map_err(|e| FileError::new(page, e))?;
             let Value::Array(rows) =
-                wyrm_core::codec::from_slice::<Value>(&bytes).map_err(|e| e.to_string())?
+                wyrm_core::codec::from_slice::<Value>(&bytes).map_err(HistoryError::Page)?
             else {
-                return Err("history: a page is not a list".into());
+                return Err(HistoryError::PageNotList);
             };
             let mut batch = Vec::with_capacity(rows.len());
             for row in rows {
                 let Value::Array(mut f) = row else {
-                    return Err("history: a row is not a list".into());
+                    return Err(HistoryError::RowNotList);
                 };
                 if f.len() != 4 {
-                    return Err("history: a row of 4 fields".into());
+                    return Err(HistoryError::RowLength);
                 }
                 let (Some(Value::UInt(q)), Some(v), Some(Value::UInt(t)), Some(Value::Str(rel))) =
                     (f.pop(), f.pop(), f.pop(), f.pop())
                 else {
-                    return Err("history: a row is [key, t, v, q]".into());
+                    return Err(HistoryError::RowShape);
                 };
-                wyrm_core::keyspace::validate_path(&rel)
-                    .map_err(|e| format!("history: key {rel:?}: {e}"))?;
+                wyrm_core::keyspace::validate_path(&rel).map_err(|source| HistoryError::Key {
+                    key: rel.clone(),
+                    source,
+                })?;
                 let q = u8::try_from(q)
                     .ok()
                     .and_then(|q| Quality::try_from(q).ok())
-                    .ok_or("history: quality")?;
+                    .ok_or(HistoryError::Quality(q))?;
                 let series = store
                     .series_id(&format!("{prefix}{rel}"), true)
-                    .map_err(|e| e.to_string())?
-                    .ok_or("history: no series")?;
+                    .map_err(HistoryError::Store)?
+                    .ok_or(HistoryError::NoSeries)?;
                 batch.push((series, t, wyrm_history::encode_row(&v, q)));
             }
-            total += store.write(&batch).map_err(|e| e.to_string())? as u64;
+            total += store.write(&batch).map_err(HistoryError::Store)? as u64;
         }
         Ok(total)
     }
@@ -676,10 +951,13 @@ impl Control {
 /// The files of a package that came in a backup, through the validator of
 /// every install ([`packages::unpack`]): packed again as a zip, then checked
 /// and unpacked beside the installed packages of `root`.
-fn checked_package(dir: &Path, root: &Path, source: &str) -> Result<packages::Unpacked, String> {
-    let zip = packages::repack(dir)?;
-    packages::unpack(&zip, root, source, now_s())
-        .map_err(|e| format!("the package of the backup: {e}"))
+fn checked_package(
+    dir: &Path,
+    root: &Path,
+    source: &str,
+) -> Result<packages::Unpacked, RestoreError> {
+    let zip = packages::repack(dir).map_err(RestoreError::Repack)?;
+    packages::unpack(&zip, root, source, now_s()).map_err(RestoreError::PackageInvalid)
 }
 
 /// What a package of a backup asks for, as `install_*` shows it: the
@@ -726,26 +1004,27 @@ fn asks_of(def: &LinkDef, package: Option<&packages::Unpacked>) -> Vec<String> {
 }
 
 impl Admin {
-    /// `sys/links/~act/install_backup`: `Err` is the message of `success: false`.
+    /// `sys/links/~act/install_backup`: the text of `Err` is the message of
+    /// `success: false`.
     pub(super) async fn install_backup(
         &self,
         a: InstallBackup,
         sub: &str,
-    ) -> Result<String, String> {
+    ) -> Result<String, RestoreError> {
         let ctl = &self.ctl;
         let passphrase = backups::passphrase_bytes(a.passphrase);
         let upload = a.upload.as_deref();
         // the file: an upload in parts, or the bytes themselves
         let (path, _tmp) = match (upload, &a.file) {
-            (Some(id), _) => (ctl.upload_take(id).map_err(|e| e.message)?, None),
+            (Some(id), _) => (ctl.upload_take(id)?, None),
             (None, Some(b)) => {
-                make_private_dir(&ctl.backups_dir()).map_err(|e| e.to_string())?;
-                let tmp = StageDir::new(&ctl.backups_dir()).map_err(|e| e.to_string())?;
+                make_private_dir(&ctl.backups_dir())?;
+                let tmp = StageDir::new(&ctl.backups_dir())?;
                 let p = tmp.0.join("file");
-                std::fs::write(&p, b).map_err(|e| io_err(&p, e))?;
+                std::fs::write(&p, b).map_err(|e| FileError::new(&p, e))?;
                 (p, Some(tmp))
             }
-            _ => return Err("file or upload: required".into()),
+            _ => return Err(RestoreError::NoFile),
         };
         let r = self
             .install_backup_from(&path, a.id.as_deref(), a.opts.accept, passphrase, sub)
@@ -764,7 +1043,7 @@ impl Admin {
         accept: bool,
         passphrase: Option<Zeroizing<Vec<u8>>>,
         sub: &str,
-    ) -> Result<String, String> {
+    ) -> Result<String, RestoreError> {
         let ctl = &self.ctl;
         let r = {
             let (ctl, path) = (ctl.clone(), path.to_owned());
@@ -772,7 +1051,7 @@ impl Admin {
                 ctl.read_link_backup(&path, passphrase.as_deref().map(|p| &p[..]))
             })
             .await
-            .map_err(|e| e.to_string())??
+            .map_err(RestoreError::Task)??
         };
         let id = match id {
             Some(i) => i.to_owned(),
@@ -789,21 +1068,21 @@ impl Admin {
         id: String,
         accept: bool,
         sub: &str,
-    ) -> Result<String, String> {
+    ) -> Result<String, RestoreError> {
         let ctl = &self.ctl;
-        crate::registry::validate_link_id(&id)?;
+        crate::registry::validate_link_id(&id).map_err(RestoreError::LinkId)?;
         // The link and its package are this restore's from here to its end
         // (ADR 0048 §1.9): no update, rollback, backup or other restore of
         // them runs meanwhile.
-        let _link = ctl.claim_link(&id).map_err(|e| e.message)?;
+        let _link = ctl.claim_link(&id).map_err(RestoreError::Busy)?;
         let _package = match r.def.driver.strip_prefix(packages::DRIVER_PREFIX) {
-            Some(name) => Some(ctl.claim_package(name).map_err(|e| e.message)?),
+            Some(name) => Some(ctl.claim_package(name).map_err(RestoreError::Busy)?),
             None => None,
         };
         let existing = ctl.registry().links.get(&id).cloned();
         if existing.is_none() {
             // a new link: the ids a broker keeps for itself are refused
-            crate::registry::validate_new_link_id(&id)?;
+            crate::registry::validate_new_link_id(&id).map_err(RestoreError::LinkId)?;
         }
         // what the package asks for counts when this install brings it, or
         // makes a new link of it
@@ -813,55 +1092,48 @@ impl Admin {
             .filter(|p| existing.is_none() || !ctl.registry().packages.contains_key(&p.def.name));
         let asks = asks_of(&r.def, brings);
         if !asks.is_empty() && !accept {
-            return Err(format!(
-                "the link {} of the backup asks for: {}. Nothing is installed: read them, then \
-                 install again with Accept Requested Rights",
-                r.def.id,
-                asks.join("; ")
-            ));
+            return Err(RestoreError::Asks {
+                link: r.def.id.clone(),
+                asks,
+            });
         }
         let from = format!("{}@{} of {}", r.def.id, r.manifest.site, r.manifest.created);
         if let Some(old) = &existing {
             if old.origin == Origin::Config {
-                return Err(format!("link {id} is defined in wyrmd.json5: not replaced"));
+                return Err(RestoreError::ConfigLink(id));
             }
             if old.driver != r.def.driver || old.mode != r.def.mode {
-                return Err(format!(
-                    "link {id} exists and runs {} ({}); the backup is of {} ({})",
-                    old.driver,
-                    old.mode.name(),
-                    r.def.driver,
-                    r.def.mode.name()
-                ));
+                return Err(RestoreError::OtherLink {
+                    id,
+                    here: old.driver.clone(),
+                    here_mode: old.mode,
+                    backup: r.def.driver.clone(),
+                    backup_mode: r.def.mode,
+                });
             }
         }
         // The definition of the backup is checked as a new link's is, before
         // anything is stopped or written: params (no secret in them, the
         // driver takes them), every grant (`check_grant`), the id.
         let params = decode_params(&r.def.params);
-        crate::secrets::lint_params(&params, "params")?;
+        crate::secrets::lint_params(&params, "params").map_err(RestoreError::Params)?;
         if r.def.driver == AGENT_DRIVER {
-            check_agent_refs(&params).map_err(|e| e.message)?;
+            check_agent_refs(&params).map_err(RestoreError::AgentRefs)?;
         }
         let packaged = r.def.driver.starts_with(packages::DRIVER_PREFIX);
         if r.def.mode != Mode::External && !packaged {
             if !ctl.host.drivers().contains(&r.def.driver.as_str()) {
-                return Err(format!(
-                    "driver {} is not built into this broker",
-                    r.def.driver
-                ));
+                return Err(RestoreError::NoDriver(r.def.driver.clone()));
             }
             ctl.host
                 .validate(&r.def.driver, &params)
-                .map_err(|e| e.message)?;
+                .map_err(RestoreError::DriverParams)?;
         }
         for g in &r.def.grants {
-            crate::registry::check_grant(&g.path, g.perm).map_err(|e| format!("grant: {e}"))?;
+            crate::registry::check_grant(&g.path, g.perm).map_err(RestoreError::Grant)?;
         }
         if ctl.peers().downstream.contains(&id) || ctl.cfg.operators.contains(&id) {
-            return Err(format!(
-                "link id {id:?} is a downstream site or an operator of this broker"
-            ));
+            return Err(RestoreError::IdTaken(id));
         }
         // Review AI-3 holds for a restore as for an edit: when the backup's params move an
         // existing agent link to another `api_base` or `api_key_ref`, its API key does not
@@ -898,10 +1170,11 @@ impl Admin {
                 };
                 let point = self
                     .take_restore_point(&id, &package, &version, None, sub)
-                    .await?;
+                    .await
+                    .map_err(RestoreError::RestorePoint)?;
                 message.push_str(&format!("restore point {}; ", point.id));
                 if old.mode != Mode::External {
-                    self.stop_link(&id, sub).await.map_err(|e| e.message)?;
+                    self.stop_link(&id, sub).await.map_err(RestoreError::Stop)?;
                 }
                 if !agent_keys.is_empty() {
                     let dropped = ctl.drop_agent_key_on_new_base(
@@ -917,10 +1190,7 @@ impl Admin {
                                 warn!(link = %id, "not started again after a refused restore: {}", s.message);
                             }
                         }
-                        return Err(format!(
-                            "the agent's API key for the old api_base cannot be dropped ({e}); \
-                             nothing is restored"
-                        ));
+                        return Err(RestoreError::AgentKey(e));
                     }
                 }
             }
@@ -934,7 +1204,7 @@ impl Admin {
                         sub,
                     )
                     .await
-                    .map_err(|e| e.message)?;
+                    .map_err(RestoreError::Install)?;
                 if let Some(Value::Map(m)) = reply {
                     // an external link: its token is shown once, here
                     if let Some(Value::Str(t)) = m.get("token") {
@@ -942,7 +1212,7 @@ impl Admin {
                     }
                 }
                 if r.def.mode != Mode::External && r.has_data {
-                    self.stop_link(&id, sub).await.map_err(|e| e.message)?;
+                    self.stop_link(&id, sub).await.map_err(RestoreError::Stop)?;
                 }
             }
         }
@@ -958,7 +1228,7 @@ impl Admin {
                 (placed.map(|()| r), rows)
             })
             .await
-            .map_err(|e| e.to_string())?
+            .map_err(RestoreError::Task)?
         };
         let r = match placed {
             Ok(r) => r,
@@ -978,16 +1248,18 @@ impl Admin {
                 mode: old.mode,
                 params: r.def.params.clone(),
             })
-            .map_err(|e| e.to_string())?;
+            .map_err(RestoreError::Registry)?;
         }
         let mut grants = false;
         for g in &r.def.grants {
             grants |= self
                 .set_grant(&id, &g.path, g.perm, sub)
-                .map_err(|e| e.message)?;
+                .map_err(RestoreError::SetGrant)?;
         }
         if r.def.mode != Mode::External && (existing.is_some() || r.has_data) {
-            self.start_link(&id, sub).await.map_err(|e| e.message)?;
+            self.start_link(&id, sub)
+                .await
+                .map_err(RestoreError::Start)?;
         }
         // an agent's `allowed_prefixes` scope its key in every link's trust list, as on an edit
         let agent_params = existing
@@ -1026,15 +1298,12 @@ impl Admin {
         &self,
         r: &mut LinkRestore,
         sub: &str,
-    ) -> Result<Option<String>, String> {
+    ) -> Result<Option<String>, RestoreError> {
         let ctl = &self.ctl;
         let Some(name) = r.def.driver.strip_prefix(packages::DRIVER_PREFIX) else {
             if r.def.mode != Mode::External && !ctl.host.drivers().contains(&r.def.driver.as_str())
             {
-                return Err(format!(
-                    "driver {} is not built into this broker",
-                    r.def.driver
-                ));
+                return Err(RestoreError::NoDriver(r.def.driver.clone()));
             }
             return Ok(None);
         };
@@ -1044,48 +1313,46 @@ impl Admin {
         match (installed, r.package.take()) {
             (Some(i), Some(p)) if i.version == p.def.version => {
                 // the same files as the installed ones, or it is another package
-                let here = packages::repack(&packages::dir(&root, &i))?;
+                let here =
+                    packages::repack(&packages::dir(&root, &i)).map_err(RestoreError::Repack)?;
                 if wyrm_link_sdk::package::sha256_hex(&here) != p.def.sha256 {
-                    return Err(format!(
-                        "package {name} {} is installed here with other content than the \
-                         backup holds",
-                        i.version
-                    ));
+                    return Err(RestoreError::PackageContent {
+                        name,
+                        version: i.version,
+                    });
                 }
                 Ok(None)
             }
-            (Some(i), Some(p)) => Err(format!(
-                "package {name} {} is installed here; the backup holds {}. One version per \
-                 package: update or roll back the package first, or restore the backup \
-                 without its package section",
-                i.version, p.def.version
-            )),
+            (Some(i), Some(p)) => Err(RestoreError::PackageVersion {
+                name,
+                here: i.version,
+                backup: p.def.version.clone(),
+            }),
             (Some(i), None) => Ok(Some(format!(
                 "package {name} {} of this broker is used",
                 i.version
             ))),
-            (None, None) => Err(format!(
-                "package {name} is not installed here and the backup does not hold it"
-            )),
+            (None, None) => Err(RestoreError::PackageMissing(name)),
             (None, Some(p)) => {
                 // as `install_package` does with a package that came as a
                 // zip: the record is the validator's, never the backup's
                 let (def, app) = (p.def.clone(), p.app.clone());
                 if def.name != name {
-                    return Err(format!(
-                        "the backup holds package {}, the link runs {name}",
-                        def.name
-                    ));
+                    return Err(RestoreError::PackageOther {
+                        holds: def.name,
+                        runs: name,
+                    });
                 }
                 if def.kind == PackageKind::Process && ctl.cfg.link_endpoint.is_none() {
-                    return Err("process links need a tls/ listener on the broker".into());
+                    return Err(RestoreError::NoListener);
                 }
-                p.commit(&root)?;
+                p.commit(&root).map_err(RestoreError::PackageCommit)?;
                 if def.kind == PackageKind::Wasm {
-                    ctl.publish_component(&def)?;
+                    ctl.publish_component(&def)
+                        .map_err(RestoreError::Component)?;
                 }
                 ctl.apply(Op::PutPackage(def.clone()))
-                    .map_err(|e| e.to_string())?;
+                    .map_err(RestoreError::Registry)?;
                 ctl.record(
                     sub,
                     AuditOp::PackageInstall,
@@ -1095,7 +1362,7 @@ impl Admin {
                 );
                 declare_package(&self.ctx, ctl, &def)
                     .await
-                    .map_err(|e| e.to_string())?;
+                    .map_err(RestoreError::Declare)?;
                 Ok(Some(format!(
                     "package {} {} installed from the backup",
                     def.name, def.version
@@ -1241,7 +1508,7 @@ pub(super) async fn invoke(
             let a = UploadId::decode(args)?;
             let id = a.upload.as_str();
             if ctl.uploads().get(id).is_some_and(|u| u.busy) {
-                return Err(LinkError::new(Status::Busy, "the upload is in use"));
+                return Err(UploadError::InUse.into());
             }
             ctl.upload_release(id, true);
             Ok(None)
@@ -1468,7 +1735,8 @@ mod tests {
         let e = ctl
             .swap_link_data("l1", &parent, &r.secrets, Swap::Done)
             .unwrap_err();
-        assert!(e.contains("data"), "{e}");
+        assert!(matches!(e, RestoreError::File(_)), "{e:?}");
+        assert!(e.to_string().contains("data"), "{e}");
         ctl.recover_link("l1");
         assert_eq!(tree(), b"TREE-now");
         assert_eq!(secret("password").unwrap(), b"pw-now");
@@ -1500,6 +1768,8 @@ mod tests {
 
         assert!(room(Some(200.0), 150 << 20).is_ok());
         let e = room(Some(100.0), 150 << 20).unwrap_err();
+        assert!(matches!(e, RestoreError::NoRoom { .. }), "{e:?}");
+        let e = e.to_string();
         assert!(e.contains("150 MiB") && e.contains("100 MiB"), "{e}");
         assert!(room(Some(1e9), u64::MAX).is_err());
         assert!(room(None, u64::MAX).is_ok(), "unknown on this host");
@@ -1636,6 +1906,8 @@ mod tests {
         let e = checked_package(&d.join("pkg"), &d.join("root"), "s")
             .err()
             .unwrap();
+        assert!(matches!(e, RestoreError::PackageInvalid(_)), "{e:?}");
+        let e = e.to_string();
         assert!(e.contains("not a file of the package"), "{e}");
         // an entry that is not among the files
         let d = package_dir(
@@ -1657,12 +1929,352 @@ mod tests {
             );
             let e = checked_package(&d.join("pkg"), &d.join("root"), "s")
                 .err()
-                .unwrap();
+                .unwrap()
+                .to_string();
             assert!(e.contains("requester"), "{bad}: {e}");
         }
         // no manifest at all: files alone are no package
         let d = package_dir("bare", none, &[("bin/run", b"x")]);
         std::fs::remove_file(d.join("pkg").join(packages::MANIFEST)).unwrap();
         assert!(checked_package(&d.join("pkg"), &d.join("root"), "s").is_err());
+    }
+
+    fn said(e: &dyn std::fmt::Display, text: &str) {
+        assert_eq!(e.to_string(), text);
+    }
+
+    fn cancelled() -> tokio::task::JoinError {
+        tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap()
+            .block_on(async {
+                let task = tokio::spawn(std::future::pending::<()>());
+                task.abort();
+                task.await.unwrap_err()
+            })
+    }
+
+    /// Rule 8 (audit T7): every refusal says, byte for byte, what it said when
+    /// it was a `String`. The texts reach an action's answer (`install_backup`
+    /// `message`, `restore_apply` `skipped`), the audit journal and the log.
+    #[test]
+    fn every_error_says_what_its_text_said() {
+        let io = || std::io::Error::other("no");
+        let file = || FileError::new(Path::new("/d/f"), io());
+        let boxed = || -> secret::Error { "no".into() };
+        let refused = || LinkError::new(Status::Busy, "said by another operation");
+        let codec = || wyrm_core::codec::CodecError::Decode("no".into());
+
+        use UploadError as U;
+        said(&U::Size, "size: 1 to 68719476736 bytes");
+        said(
+            &U::DiskFull {
+                want: 150.4,
+                free: 99.6,
+            },
+            "the file needs about 150 MiB on the disk of data_dir, 100 MiB are free",
+        );
+        said(&U::TooMany, "2 uploads are open; finish or abort one");
+        said(&U::PartSize, "data: 1 to 16777216 bytes");
+        said(&U::NotFound("u1".into()), "upload u1");
+        said(
+            &U::OutOfOrder { offset: 4, next: 0 },
+            "offset 4: the next part starts at 0",
+        );
+        said(
+            &U::TooLong { size: 10 },
+            "more than the 10 bytes of restore_begin",
+        );
+        said(
+            &U::Incomplete {
+                id: "u1".into(),
+                received: 4,
+                size: 10,
+            },
+            "upload u1: 4 of 10 bytes received",
+        );
+        said(&U::InUse, "the upload is in use");
+        said(&U::File(file()), "/d/f: no");
+        // `UploadError::NoRandomness` shows its cause alone, as `e.to_string()`
+        // did; the cause is made by `wyrm_core::rand` only
+
+        use HistoryError as H;
+        said(&H::File(file()), "/d/f: no");
+        said(&H::Page(codec()), "cbor decode: no");
+        said(&H::PageNotList, "history: a page is not a list");
+        said(&H::RowNotList, "history: a row is not a list");
+        said(&H::RowLength, "history: a row of 4 fields");
+        said(&H::RowShape, "history: a row is [key, t, v, q]");
+        said(
+            &H::Key {
+                key: "a//b".into(),
+                source: wyrm_core::keyspace::validate_path("a//b").unwrap_err(),
+            },
+            "history: key \"a//b\": empty segment",
+        );
+        said(&H::Quality(250), "history: quality");
+        said(
+            &H::Store(wyrm_history::store::Error::Db("no".into())),
+            "history store: no",
+        );
+        said(&H::NoSeries, "history: no series");
+
+        use RestoreError as R;
+        said(&R::NoFile, "file or upload: required");
+        said(&R::Upload(U::InUse), "the upload is in use");
+        said(
+            &R::Read(format::ReadError::ManifestTooLarge),
+            "manifest: too large",
+        );
+        said(
+            &R::Key(format::KeyError::WrongPassphrase),
+            "wrong passphrase",
+        );
+        said(
+            &R::Key(format::KeyError::PassphraseRequired),
+            "passphrase: required, the backup is sealed with one",
+        );
+        said(
+            &R::KeyFile {
+                file: "secrets.key",
+                source: boxed(),
+            },
+            "secrets.key: no",
+        );
+        said(
+            &R::BrokerBackup,
+            "a broker backup: restore it from System, not as a link",
+        );
+        said(
+            &R::NoRoom {
+                want: 150.4,
+                free: 99.6,
+            },
+            "the backup opens into about 150 MiB on the disk of data_dir, 100 MiB are free: \
+             nothing of it is opened",
+        );
+        said(&R::File(file()), "/d/f: no");
+        said(&R::Stage(StageError::Dir(file())), "/d/f: no");
+        let join = cancelled();
+        let text = join.to_string();
+        said(&R::Task(join), &text);
+        let decode = || minicbor::decode::Error::message("no");
+        said(
+            &R::Settings {
+                path: "settings/link.cbor".into(),
+                source: decode(),
+            },
+            &format!("settings/link.cbor: {}", decode()),
+        );
+        said(&R::LinkId("link id: no".into()), "link id: no");
+        said(&R::SecretsDecode(codec()), "cbor decode: no");
+        said(
+            &R::SecretsNotMap {
+                path: "data/secrets".into(),
+            },
+            "data/secrets: not a map",
+        );
+        said(&R::Repack("no".into()), "no");
+        said(
+            &R::PackageInvalid("no".into()),
+            "the package of the backup: no",
+        );
+        said(&R::Busy(refused()), "said by another operation");
+        said(
+            &R::Asks {
+                link: "plc".into(),
+                asks: vec!["network a:1".into(), "write on wy/s/downstream/b".into()],
+            },
+            "the link plc of the backup asks for: network a:1; write on wy/s/downstream/b. \
+             Nothing is installed: read them, then install again with Accept Requested Rights",
+        );
+        said(
+            &R::ConfigLink("plc".into()),
+            "link plc is defined in wyrmd.json5: not replaced",
+        );
+        said(
+            &R::OtherLink {
+                id: "plc".into(),
+                here: "modbus".into(),
+                here_mode: Mode::Embedded,
+                backup: "pkg:demo".into(),
+                backup_mode: Mode::Process,
+            },
+            "link plc exists and runs modbus (embedded); the backup is of pkg:demo (process)",
+        );
+        said(&R::Params("no".into()), "no");
+        said(&R::AgentRefs(refused()), "said by another operation");
+        said(
+            &R::NoDriver("modbus".into()),
+            "driver modbus is not built into this broker",
+        );
+        said(&R::DriverParams(refused()), "said by another operation");
+        said(&R::Grant("no".into()), "grant: no");
+        said(
+            &R::IdTaken("plant".into()),
+            "link id \"plant\" is a downstream site or an operator of this broker",
+        );
+        said(
+            &R::PackageContent {
+                name: "demo".into(),
+                version: "1.0.0".into(),
+            },
+            "package demo 1.0.0 is installed here with other content than the backup holds",
+        );
+        said(
+            &R::PackageVersion {
+                name: "demo".into(),
+                here: "1.0.0".into(),
+                backup: "2.0.0".into(),
+            },
+            "package demo 1.0.0 is installed here; the backup holds 2.0.0. One version per \
+             package: update or roll back the package first, or restore the backup without \
+             its package section",
+        );
+        said(
+            &R::PackageMissing("demo".into()),
+            "package demo is not installed here and the backup does not hold it",
+        );
+        said(
+            &R::PackageOther {
+                holds: "other".into(),
+                runs: "demo".into(),
+            },
+            "the backup holds package other, the link runs demo",
+        );
+        said(
+            &R::NoListener,
+            "process links need a tls/ listener on the broker",
+        );
+        said(&R::PackageCommit("no".into()), "no");
+        said(&R::Component("no".into()), "no");
+        said(
+            &R::Registry(StateError::Rejected("no".into())),
+            "operation rejected: no",
+        );
+        let declared = refused();
+        let text = declared.to_string();
+        said(&R::Declare(declared), &text);
+        said(&R::RestorePoint("no".into()), "no");
+        said(&R::Stop(refused()), "said by another operation");
+        said(&R::Start(refused()), "said by another operation");
+        said(&R::Install(refused()), "said by another operation");
+        said(&R::SetGrant(refused()), "said by another operation");
+        said(
+            &R::AgentKey(boxed()),
+            "the agent's API key for the old api_base cannot be dropped (no); nothing is restored",
+        );
+        said(&R::DataDir(refused()), "said by another operation");
+        said(&R::NoParent(PathBuf::from("/d")), "/d: no parent");
+        said(&R::Dir("no".into()), "no");
+        said(&R::UnsafePath("..".into()), "unsafe path ..");
+        said(
+            &R::NoStoreKey,
+            "the backup holds a framework tree without its store key",
+        );
+        said(
+            &R::Rebind(wyrm_link_sdk::driver::persist::RebindError::Open),
+            "the framework tree of the backup: does not open with its store key",
+        );
+        said(&R::Secrets(boxed()), "secrets: no");
+        said(&R::NoLink("plc".into()), "no link plc");
+        said(
+            &R::NoData(PathBuf::from("/d/f")),
+            "/d/f: no private data in it",
+        );
+    }
+
+    /// The status of every refusal of an upload, as the handlers gave it
+    /// before the refusals had a type; the message is the text.
+    #[test]
+    fn an_upload_is_refused_with_its_status() {
+        use UploadError as U;
+        let file = || FileError::new(Path::new("/d/f"), std::io::Error::other("no"));
+        for (e, status) in [
+            (U::Size, Status::InvalidParameter),
+            (
+                U::DiskFull {
+                    want: 2.0,
+                    free: 1.0,
+                },
+                Status::ResourceExhausted,
+            ),
+            (U::TooMany, Status::Busy),
+            (U::PartSize, Status::InvalidParameter),
+            (U::NotFound("u".into()), Status::NotFound),
+            (U::OutOfOrder { offset: 1, next: 0 }, Status::OutOfRange),
+            (U::TooLong { size: 1 }, Status::OutOfRange),
+            (
+                U::Incomplete {
+                    id: "u".into(),
+                    received: 0,
+                    size: 1,
+                },
+                Status::InvalidParameter,
+            ),
+            (U::InUse, Status::Busy),
+            (U::File(file()), Status::InternalError),
+        ] {
+            let text = e.to_string();
+            assert_eq!(e.status(), status, "{text}");
+            let l = LinkError::from(e);
+            assert_eq!((l.status, l.message.as_str()), (status, text.as_str()));
+        }
+        // through the functions: the order of the checks
+        let ctl = super::super::tests::control("upload-status", false, |_| {});
+        let st = |e: UploadError| e.status();
+        assert_eq!(
+            ctl.upload_begin(0).map_err(st),
+            Err(Status::InvalidParameter)
+        );
+        let u = ctl.upload_begin(4).unwrap();
+        ctl.upload_begin(4).unwrap();
+        assert_eq!(ctl.upload_begin(4).map_err(st), Err(Status::Busy));
+        assert!(matches!(
+            ctl.upload_part(&u, 1, b"x"),
+            Err(U::OutOfOrder { offset: 1, next: 0 })
+        ));
+        assert!(matches!(
+            ctl.upload_part(&u, 0, b"12345"),
+            Err(U::TooLong { size: 4 })
+        ));
+        assert!(matches!(
+            ctl.upload_part("nope", 0, b"x"),
+            Err(U::NotFound(_))
+        ));
+        assert!(matches!(ctl.upload_part(&u, 0, b""), Err(U::PartSize)));
+        assert!(matches!(
+            ctl.upload_take(&u),
+            Err(U::Incomplete {
+                received: 0,
+                size: 4,
+                ..
+            })
+        ));
+        assert_eq!(ctl.upload_part(&u, 0, b"1234").unwrap(), 4);
+        ctl.upload_take(&u).unwrap();
+        assert!(matches!(ctl.upload_take(&u), Err(U::InUse)));
+    }
+
+    /// A caller tells the refusals of a backup file apart by their type: a
+    /// missing or a wrong passphrase, a backup of the other kind, a file that
+    /// is no backup.
+    #[test]
+    fn a_link_backup_is_refused_by_its_type() {
+        let ctl = super::super::tests::control("restore-types", false, |_| {});
+        let d = ctl.cfg.data_dir.clone();
+        std::fs::write(d.join("garbage"), b"not a zip").unwrap();
+        assert!(matches!(
+            ctl.read_link_backup(&d.join("garbage"), None),
+            Err(RestoreError::Read(format::ReadError::NotZip(_)))
+        ));
+        assert!(matches!(
+            ctl.read_link_backup(&d.join("nope"), None),
+            Err(RestoreError::Read(format::ReadError::File { .. }))
+        ));
+        assert!(matches!(
+            ctl.link_restore_data("nolink", &d.join("garbage")),
+            Err(RestoreError::NoLink(id)) if id == "nolink"
+        ));
     }
 }

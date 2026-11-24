@@ -1144,7 +1144,7 @@ pub(super) async fn update(
                     let _ = ctl.replacing(false);
                 }
                 ctl.update.running.store(false, Ordering::SeqCst);
-                return Err(e);
+                return Err(e.into());
             }
         },
         Source::Url(_) => None,
