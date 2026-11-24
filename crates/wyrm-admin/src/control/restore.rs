@@ -786,7 +786,7 @@ impl Control {
             .parent()
             .ok_or_else(|| RestoreError::NoParent(data.clone()))?;
         let fresh = parent.join(RESTORING);
-        crate::nofollow::new_private_dir(&fresh).map_err(RestoreError::Dir)?;
+        crate::nofollow::new_private_dir(&fresh).map_err(|e| RestoreError::Dir(e.to_string()))?;
         let filled = (|| {
             for rel in &r.files {
                 let rel_path = Path::new(rel);
@@ -795,7 +795,7 @@ impl Control {
                     .ok_or_else(|| RestoreError::UnsafePath(rel.clone()))?;
                 let dir =
                     crate::nofollow::make_dirs(&fresh, rel_path.parent().unwrap_or(Path::new("")))
-                        .map_err(RestoreError::Dir)?;
+                        .map_err(|e| RestoreError::Dir(e.to_string()))?;
                 let (from, to) = (r.files_dir().join(rel), dir.join(name));
                 // the stage is on the same disk; a copy when it is not
                 if std::fs::rename(&from, &to).is_err() {
@@ -1014,8 +1014,9 @@ fn checked_package(
     root: &Path,
     source: &str,
 ) -> Result<packages::Unpacked, RestoreError> {
-    let zip = packages::repack(dir).map_err(RestoreError::Repack)?;
-    packages::unpack(&zip, root, source, now_s()).map_err(RestoreError::PackageInvalid)
+    let zip = packages::repack(dir).map_err(|e| RestoreError::Repack(e.to_string()))?;
+    packages::unpack(&zip, root, source, now_s())
+        .map_err(|e| RestoreError::PackageInvalid(e.to_string()))
 }
 
 /// What a package of a backup asks for, as `install_*` shows it: the
@@ -1428,8 +1429,8 @@ impl Admin {
         match (installed, r.package.take()) {
             (Some(i), Some(p)) if i.version == p.def.version => {
                 // the same files as the installed ones, or it is another package
-                let here =
-                    packages::repack(&packages::dir(&root, &i)).map_err(RestoreError::Repack)?;
+                let here = packages::repack(&packages::dir(&root, &i))
+                    .map_err(|e| RestoreError::Repack(e.to_string()))?;
                 if wyrm_link_sdk::package::sha256_hex(&here) != p.def.sha256 {
                     return Err(RestoreError::PackageContent {
                         name,
@@ -1461,7 +1462,8 @@ impl Admin {
                 if def.kind == PackageKind::Process && ctl.cfg.link_endpoint.is_none() {
                     return Err(RestoreError::NoListener);
                 }
-                p.commit(&root).map_err(RestoreError::PackageCommit)?;
+                p.commit(&root)
+                    .map_err(|e| RestoreError::PackageCommit(e.to_string()))?;
                 if def.kind == PackageKind::Wasm {
                     ctl.publish_component(&def)
                         .map_err(RestoreError::Component)?;

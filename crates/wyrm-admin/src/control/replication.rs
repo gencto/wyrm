@@ -583,8 +583,9 @@ type Part = (u64, Vec<u8>, Option<Vec<u8>>);
 /// since the listing is refused, never sent to the standby as link data.
 fn read_part(data_dir: &Path, name: &str, offset: u64, len: u64) -> Result<Part, String> {
     use std::io::{Read, Seek, SeekFrom};
-    let mut f =
-        crate::nofollow::open_under(data_dir, name)?.ok_or_else(|| format!("{name}: not found"))?;
+    let mut f = crate::nofollow::open_under(data_dir, name)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("{name}: not found"))?;
     let total = f.metadata().map_err(|e| e.to_string())?.len();
     if total > MAX_FILE_LEN {
         return Err("file too large to replicate".into());

@@ -28,21 +28,153 @@ const MAX_FILES: usize = 1000;
 /// Driver name of a link that runs a package: `pkg:<package>`.
 pub const DRIVER_PREFIX: &str = "pkg:";
 
+/// Why a package or a repository index is refused, or was not packed,
+/// unpacked or put in place. Where the text is another module's (the SDK's
+/// format rules, the registry's name and grant rules), the variant says
+/// which rule and carries that text.
+#[derive(Debug, thiserror::Error)]
+pub enum PackageError {
+    /// The repository index breaks the SDK's rules; as the SDK says it.
+    #[error("{0}")]
+    Index(String),
+    /// A package of the index has a name no link may take.
+    #[error("index: {0}")]
+    IndexName(String),
+    /// The component is larger than a package zip may be (MiB).
+    #[error("component larger than {0} MiB")]
+    ComponentTooLarge(usize),
+    /// The component was not packed; as the SDK says it.
+    #[error("{0}")]
+    Pack(String),
+    /// The zip is larger than a package zip may be (MiB).
+    #[error("zip larger than {0} MiB")]
+    ZipTooLarge(usize),
+    /// More files than a package may have.
+    #[error("more than {0} files")]
+    TooManyFiles(usize),
+    /// The files of a directory are larger in all than a package may be (MiB).
+    #[error("package over {0} MiB")]
+    PackageTooLarge(u64),
+    /// The files of the zip are larger unpacked than a package may be (MiB).
+    #[error("unpacked size over {0} MiB")]
+    UnpackedTooLarge(u64),
+    /// The zip does not read as one.
+    #[error("zip: {0}")]
+    Zip(#[source] zip::result::ZipError),
+    /// The zip of a directory was not written.
+    #[error("{0}")]
+    ZipWrite(#[source] zip::result::ZipError),
+    #[error("{0}")]
+    ZipWriteIo(#[source] std::io::Error),
+    /// A name in the zip that leaves the package's directory; the name as
+    /// the archive reader shows it.
+    #[error("unsafe path {0}")]
+    UnsafePath(String),
+    #[error("{}: symlinks are not allowed", .0.display())]
+    Symlink(PathBuf),
+    /// A socket, a FIFO, a device, or (in a directory) a symlink.
+    #[error("{}: not a regular file", .0.display())]
+    NotRegular(PathBuf),
+    /// A file or directory was not read or written; the text names it.
+    #[error("{}: {source}", .path.display())]
+    File {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    /// A file or directory was not read, made or moved; the text is the
+    /// system's alone.
+    #[error("{source}")]
+    Io {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("{0}")]
+    Random(#[source] wyrm_core::rand::NoRandomness),
+    #[error("no {MANIFEST} at the zip root")]
+    NoManifest(#[source] std::io::Error),
+    /// The manifest is no JSON of a manifest.
+    #[error("{MANIFEST}: {0}")]
+    ManifestJson(#[source] serde_json::Error),
+    /// The package's name is one no link may take.
+    #[error("name: {0}")]
+    Name(String),
+    /// The manifest breaks the SDK's rules (link protocol, version, state
+    /// formats, capabilities); as the SDK says it.
+    #[error("{0}")]
+    Manifest(String),
+    /// A process package with no entry for this host's platform.
+    #[error("no entry for this host ({0})")]
+    NoEntryForHost(String),
+    #[error("a wasm package needs `entry`")]
+    NoWasmEntry,
+    /// The entry names no regular file inside the package.
+    #[error("entry {0}: not a file of the package")]
+    EntryNotFile(String),
+    #[error("{entry}: {source}")]
+    EntryNotRead {
+        entry: String,
+        #[source]
+        source: std::io::Error,
+    },
+    /// The entry of a `wasm` package is no component this broker runs.
+    #[error("{entry}: {source}")]
+    Component {
+        entry: String,
+        #[source]
+        source: wyrm_wasm_host::Error,
+    },
+    /// An app component of a `wyrm:app/host` version no package names.
+    #[error("{entry}: wyrm:app@{version}: not a world a package names")]
+    AppVersion {
+        entry: String,
+        version: &'static str,
+    },
+    /// The manifest names another world than the component's (`actual` as
+    /// the manifest would say it: with the version when it names one).
+    #[error(
+        "invalid_parameter: the manifest says world \"{said}\", the component is \"{actual}\""
+    )]
+    World {
+        said: PackageWorld,
+        actual: PackageWorld,
+    },
+    #[error(
+        "invalid_parameter: capabilities: only an app component has them, this one is \"{0}\""
+    )]
+    CapabilitiesNotApp(PackageWorld),
+    /// `capabilities.net` does not parse as the link will parse it.
+    #[error("invalid_parameter: capabilities.net: {0}")]
+    Net(String),
+    /// A requested grant with no level; the level's name.
+    #[error("requester level {0:?}: list, read or write")]
+    RequesterLevel(String),
+    /// A requested grant the registry refuses (never `sys`, at most write).
+    #[error("requester: {0}")]
+    Requester(String),
+    /// A requested grant on a whole root.
+    #[error("requester {0}: name a link or flow under it (a whole root needs Grant access)")]
+    RequesterRoot(String),
+    #[error("{name} {version} is already installed")]
+    AlreadyInstalled { name: String, version: String },
+}
+
 /// Parse and check a repository index (the SDK's rules), with names a
 /// link may take here.
-pub fn parse_index(bytes: &[u8]) -> Result<Vec<RepoEntry>, String> {
-    let list = wyrm_link_sdk::package::parse_index(bytes)?;
+pub fn parse_index(bytes: &[u8]) -> Result<Vec<RepoEntry>, PackageError> {
+    let list = wyrm_link_sdk::package::parse_index(bytes).map_err(PackageError::Index)?;
     for e in &list {
-        crate::registry::validate_link_id(&e.name).map_err(|x| format!("index: {x}"))?;
+        crate::registry::validate_link_id(&e.name).map_err(PackageError::IndexName)?;
     }
     Ok(list)
 }
 
 /// "Install Link ▸ from WASM": one component as a `wasm` package named
 /// `name` (version `0+<sha256 prefix>`), so it takes the same path as a zip.
-pub fn wrap_component(name: &str, wasm: &[u8]) -> Result<Vec<u8>, String> {
+pub fn wrap_component(name: &str, wasm: &[u8]) -> Result<Vec<u8>, PackageError> {
     if wasm.len() > MAX_ZIP {
-        return Err(format!("component larger than {} MiB", MAX_ZIP >> 20));
+        return Err(PackageError::ComponentTooLarge(MAX_ZIP >> 20));
     }
     let sha = wyrm_link_sdk::package::sha256_hex(wasm);
     let manifest = Manifest {
@@ -68,6 +200,7 @@ pub fn wrap_component(name: &str, wasm: &[u8]) -> Result<Vec<u8>, String> {
             mode: 0o644,
         }],
     )
+    .map_err(PackageError::Pack)
 }
 
 /// The files of a package directory as a zip again: the same bytes for
@@ -76,29 +209,32 @@ pub fn wrap_component(name: &str, wasm: &[u8]) -> Result<Vec<u8>, String> {
 /// A package that arrives in a backup as files (ADR 0048 §3.5) is packed
 /// with this and then goes through [`unpack`], the validator of every
 /// install; two directories with the same files give the same SHA-256.
-pub fn repack(dir: &Path) -> Result<Vec<u8>, String> {
+pub fn repack(dir: &Path) -> Result<Vec<u8>, PackageError> {
     use std::io::Write;
     use zip::write::SimpleFileOptions;
-    fn walk(root: &Path, rel: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
+    fn walk(root: &Path, rel: &Path, out: &mut Vec<PathBuf>) -> Result<(), PackageError> {
         let at = root.join(rel);
-        let mut entries: Vec<_> = std::fs::read_dir(&at)
-            .map_err(|e| format!("{}: {e}", at.display()))?
-            .flatten()
-            .collect();
+        let mut entries: Vec<_> = match std::fs::read_dir(&at) {
+            Ok(rd) => rd.flatten().collect(),
+            Err(source) => return Err(PackageError::File { path: at, source }),
+        };
         entries.sort_by_key(|e| e.file_name());
         for e in entries {
             let path = rel.join(e.file_name());
             // not followed: a link out of the directory is no file of it
-            let meta = e.metadata().map_err(|e| e.to_string())?;
+            let meta = match e.metadata() {
+                Ok(m) => m,
+                Err(source) => return Err(PackageError::Io { path, source }),
+            };
             if meta.is_dir() {
                 walk(root, &path, out)?;
             } else if meta.is_file() {
                 out.push(path);
             } else {
-                return Err(format!("{}: not a regular file", path.display()));
+                return Err(PackageError::NotRegular(path));
             }
             if out.len() > MAX_FILES {
-                return Err(format!("more than {MAX_FILES} files"));
+                return Err(PackageError::TooManyFiles(MAX_FILES));
             }
         }
         Ok(())
@@ -109,10 +245,13 @@ pub fn repack(dir: &Path) -> Result<Vec<u8>, String> {
     let mut total = 0u64;
     for rel in files {
         let path = dir.join(&rel);
-        let meta = std::fs::metadata(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let meta = match std::fs::metadata(&path) {
+            Ok(m) => m,
+            Err(source) => return Err(PackageError::File { path, source }),
+        };
         total += meta.len();
         if total > MAX_UNPACKED {
-            return Err(format!("package over {} MiB", MAX_UNPACKED >> 20));
+            return Err(PackageError::PackageTooLarge(MAX_UNPACKED >> 20));
         }
         #[cfg(unix)]
         let exec = std::os::unix::fs::PermissionsExt::mode(&meta.permissions()) & 0o100 != 0;
@@ -127,13 +266,16 @@ pub fn repack(dir: &Path) -> Result<Vec<u8>, String> {
             .compression_method(zip::CompressionMethod::Deflated)
             .last_modified_time(zip::DateTime::default())
             .unix_permissions(if exec { 0o755 } else { 0o644 });
-        w.start_file(name, opt).map_err(|e| e.to_string())?;
-        let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-        w.write_all(&bytes).map_err(|e| e.to_string())?;
+        w.start_file(name, opt).map_err(PackageError::ZipWrite)?;
+        let bytes = match std::fs::read(&path) {
+            Ok(b) => b,
+            Err(source) => return Err(PackageError::File { path, source }),
+        };
+        w.write_all(&bytes).map_err(PackageError::ZipWriteIo)?;
     }
-    let zip = w.finish().map_err(|e| e.to_string())?.into_inner();
+    let zip = w.finish().map_err(PackageError::ZipWrite)?.into_inner();
     if zip.len() > MAX_ZIP {
-        return Err(format!("zip larger than {} MiB", MAX_ZIP >> 20));
+        return Err(PackageError::ZipTooLarge(MAX_ZIP >> 20));
     }
     Ok(zip)
 }
@@ -242,16 +384,24 @@ pub fn link_params(name: &str, kind: PackageKind, app: Option<&Capabilities>) ->
 
 impl Unpacked {
     /// Move into `<root>/<name>/<version>`; an installed version is refused.
-    pub fn commit(self, root: &Path) -> Result<PathBuf, String> {
+    pub fn commit(self, root: &Path) -> Result<PathBuf, PackageError> {
         let to = dir(root, &self.def);
         if to.exists() {
-            return Err(format!(
-                "{} {} is already installed",
-                self.def.name, self.def.version
-            ));
+            return Err(PackageError::AlreadyInstalled {
+                name: self.def.name.clone(),
+                version: self.def.version.clone(),
+            });
         }
-        std::fs::create_dir_all(root.join(&self.def.name)).map_err(|e| e.to_string())?;
-        std::fs::rename(&self.tmp, &to).map_err(|e| e.to_string())?;
+        let parent = root.join(&self.def.name);
+        if let Err(source) = std::fs::create_dir_all(&parent) {
+            return Err(PackageError::Io {
+                path: parent,
+                source,
+            });
+        }
+        if let Err(source) = std::fs::rename(&self.tmp, &to) {
+            return Err(PackageError::Io { path: to, source });
+        }
         Ok(to)
     }
 }
@@ -267,15 +417,28 @@ impl Drop for Unpacked {
 /// in the manifest must be the component's (`wyrm:app@<v>`: also its version,
 /// ADR 0030; plain `app`: any version); capabilities belong to an app and
 /// their `net` must parse as the link will parse it.
-fn wasm_world(m: &Manifest, path: &Path, entry: &str) -> Result<Option<Capabilities>, String> {
-    let bytes = std::fs::read(path).map_err(|e| format!("{entry}: {e}"))?;
-    let world = wyrm_wasm_host::component_world(&bytes).map_err(|e| format!("{entry}: {e}"))?;
+fn wasm_world(
+    m: &Manifest,
+    path: &Path,
+    entry: &str,
+) -> Result<Option<Capabilities>, PackageError> {
+    let component = |source| PackageError::Component {
+        entry: entry.to_owned(),
+        source,
+    };
+    let bytes = std::fs::read(path).map_err(|source| PackageError::EntryNotRead {
+        entry: entry.to_owned(),
+        source,
+    })?;
+    let world = wyrm_wasm_host::component_world(&bytes).map_err(component)?;
     let actual = match world {
         // a `wyrm:app/host` version this broker does not run is refused here
         ComponentWorld::App => {
-            let v = wyrm_wasm_host::app_version(&bytes).map_err(|e| format!("{entry}: {e}"))?;
-            PackageWorld::of_app_version(v)
-                .ok_or_else(|| format!("{entry}: wyrm:app@{v}: not a world a package names"))?
+            let v = wyrm_wasm_host::app_version(&bytes).map_err(component)?;
+            PackageWorld::of_app_version(v).ok_or_else(|| PackageError::AppVersion {
+                entry: entry.to_owned(),
+                version: v,
+            })?
         }
         ComponentWorld::Driver => PackageWorld::Driver,
         ComponentWorld::Point => PackageWorld::Point,
@@ -287,15 +450,14 @@ fn wasm_world(m: &Manifest, path: &Path, entry: &str) -> Result<Option<Capabilit
         } else {
             actual.plain()
         };
-        return Err(format!(
-            "invalid_parameter: the manifest says world \"{w}\", the component is \"{shown}\""
-        ));
+        return Err(PackageError::World {
+            said: w,
+            actual: shown,
+        });
     }
     if world != ComponentWorld::App {
         if m.capabilities.is_some() {
-            return Err(format!(
-                "invalid_parameter: capabilities: only an app component has them, this one is \"{actual}\""
-            ));
+            return Err(PackageError::CapabilitiesNotApp(actual));
         }
         return Ok(None);
     }
@@ -305,29 +467,36 @@ fn wasm_world(m: &Manifest, path: &Path, entry: &str) -> Result<Option<Capabilit
 }
 
 /// `capabilities.net` parses as the link will parse it.
-fn check_net(caps: &Capabilities) -> Result<(), String> {
+fn check_net(caps: &Capabilities) -> Result<(), PackageError> {
     wyrm_wasm_host::NetPolicy::parse(&caps.net.join(","))
         .map(|_| ())
-        .map_err(|e| format!("invalid_parameter: capabilities.net: {e}"))
+        .map_err(PackageError::Net)
 }
 
 /// Unpack `zip` into a new temp directory under `root` and check it: size
 /// and file limits, safe relative paths, no symlinks, a manifest for this
 /// link protocol, and an entry for this host. `source` and `now` go into
 /// the returned [`PackageDef`].
-pub fn unpack(zip: &[u8], root: &Path, source: &str, now: u64) -> Result<Unpacked, String> {
+pub fn unpack(zip: &[u8], root: &Path, source: &str, now: u64) -> Result<Unpacked, PackageError> {
+    /// A failure the text does not name the path of.
+    fn io(path: &Path) -> impl FnOnce(std::io::Error) -> PackageError + '_ {
+        move |source| PackageError::Io {
+            path: path.to_owned(),
+            source,
+        }
+    }
     if zip.len() > MAX_ZIP {
-        return Err(format!("zip larger than {} MiB", MAX_ZIP >> 20));
+        return Err(PackageError::ZipTooLarge(MAX_ZIP >> 20));
     }
-    let mut archive = zip::ZipArchive::new(Cursor::new(zip)).map_err(|e| format!("zip: {e}"))?;
+    let mut archive = zip::ZipArchive::new(Cursor::new(zip)).map_err(PackageError::Zip)?;
     if archive.len() > MAX_FILES {
-        return Err(format!("more than {MAX_FILES} files"));
+        return Err(PackageError::TooManyFiles(MAX_FILES));
     }
-    std::fs::create_dir_all(root).map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(root).map_err(io(root))?;
     let mut rnd = [0u8; 8];
-    wyrm_core::rand::fill(&mut rnd).map_err(|e| e.to_string())?;
+    wyrm_core::rand::fill(&mut rnd).map_err(PackageError::Random)?;
     let tmp = root.join(format!(".tmp-{}", hex::encode(rnd)));
-    std::fs::create_dir(&tmp).map_err(|e| e.to_string())?;
+    std::fs::create_dir(&tmp).map_err(io(&tmp))?;
     // From here on, Drop cleans up.
     let mut out = Unpacked {
         def: PackageDef {
@@ -351,53 +520,53 @@ pub fn unpack(zip: &[u8], root: &Path, source: &str, now: u64) -> Result<Unpacke
     };
     let mut total = 0u64;
     for i in 0..archive.len() {
-        let mut f = archive.by_index(i).map_err(|e| format!("zip: {e}"))?;
+        let mut f = archive.by_index(i).map_err(PackageError::Zip)?;
         let rel = f
             .enclosed_name()
-            .ok_or_else(|| format!("unsafe path {:?}", f.name()))?;
+            .ok_or_else(|| PackageError::UnsafePath(format!("{:?}", f.name())))?;
         if f.is_symlink() {
-            return Err(format!("{}: symlinks are not allowed", rel.display()));
+            return Err(PackageError::Symlink(rel));
         }
         let path = out.tmp.join(&rel);
         if f.is_dir() {
-            std::fs::create_dir_all(&path).map_err(|e| e.to_string())?;
+            std::fs::create_dir_all(&path).map_err(io(&path))?;
             continue;
         }
         if !f.is_file() {
-            return Err(format!("{}: not a regular file", rel.display()));
+            return Err(PackageError::NotRegular(rel));
         }
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            std::fs::create_dir_all(parent).map_err(io(parent))?;
         }
-        let mut w = std::fs::File::create(&path).map_err(|e| e.to_string())?;
+        let mut w = std::fs::File::create(&path).map_err(io(&path))?;
         let left = MAX_UNPACKED - total;
         // Read one byte past the budget to tell "fits" from "too big".
         let mut limited = (&mut f).take(left + 1);
-        let n =
-            std::io::copy(&mut limited, &mut w).map_err(|e| format!("{}: {e}", rel.display()))?;
+        let n = match std::io::copy(&mut limited, &mut w) {
+            Ok(n) => n,
+            Err(source) => return Err(PackageError::File { path: rel, source }),
+        };
         if n > left {
-            return Err(format!("unpacked size over {} MiB", MAX_UNPACKED >> 20));
+            return Err(PackageError::UnpackedTooLarge(MAX_UNPACKED >> 20));
         }
         total += n;
-        w.flush().map_err(|e| e.to_string())?;
+        w.flush().map_err(io(&path))?;
     }
-    let text = std::fs::read_to_string(out.tmp.join(MANIFEST))
-        .map_err(|_| format!("no {MANIFEST} at the zip root"))?;
-    let m: Manifest = serde_json::from_str(&text).map_err(|e| format!("{MANIFEST}: {e}"))?;
-    crate::registry::validate_link_id(&m.name).map_err(|e| format!("name: {e}"))?;
-    m.check()?;
+    let text = std::fs::read_to_string(out.tmp.join(MANIFEST)).map_err(PackageError::NoManifest)?;
+    let m: Manifest = serde_json::from_str(&text).map_err(PackageError::ManifestJson)?;
+    crate::registry::validate_link_id(&m.name).map_err(PackageError::Name)?;
+    m.check().map_err(PackageError::Manifest)?;
     let (kind, entry) = match m.kind {
         PackageForm::Process => {
             let p = platform();
-            let e = m
-                .entries
-                .get(&p)
-                .ok_or_else(|| format!("no entry for this host ({p})"))?;
+            let Some(e) = m.entries.get(&p) else {
+                return Err(PackageError::NoEntryForHost(p));
+            };
             (PackageKind::Process, e.clone())
         }
         PackageForm::Wasm => (
             PackageKind::Wasm,
-            m.entry.clone().ok_or("a wasm package needs `entry`")?,
+            m.entry.clone().ok_or(PackageError::NoWasmEntry)?,
         ),
     };
     // The entry must be one of the unpacked regular files.
@@ -406,7 +575,7 @@ pub fn unpack(zip: &[u8], root: &Path, source: &str, now: u64) -> Result<Unpacke
         .components()
         .all(|c| matches!(c, std::path::Component::Normal(_)));
     if !inside || !entry_path.is_file() {
-        return Err(format!("entry {entry}: not a file of the package"));
+        return Err(PackageError::EntryNotFile(entry));
     }
     if kind == PackageKind::Wasm {
         out.app = wasm_world(&m, &entry_path, &entry)?;
@@ -418,23 +587,20 @@ pub fn unpack(zip: &[u8], root: &Path, source: &str, now: u64) -> Result<Unpacke
     if kind == PackageKind::Process {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&entry_path, std::fs::Permissions::from_mode(0o755))
-            .map_err(|e| e.to_string())?;
+            .map_err(io(&entry_path))?;
     }
     for g in &m.requester {
         let level = Some(g.level)
             .filter(|p| *p != wyrm_core::Perm::None)
-            .ok_or_else(|| format!("requester level {:?}: list, read or write", g.level.name()))?;
-        crate::registry::check_grant(&g.path, level).map_err(|e| format!("requester: {e}"))?;
+            .ok_or_else(|| PackageError::RequesterLevel(g.level.name().to_owned()))?;
+        crate::registry::check_grant(&g.path, level).map_err(PackageError::Requester)?;
         // A package names the branches it needs; a whole root (every link,
         // every flow) only an operator grants, with Grant access.
         if matches!(
             g.path.as_str(),
             "wy/{site}/downstream" | "wy/{site}/dataflows"
         ) {
-            return Err(format!(
-                "requester {}: name a link or flow under it (a whole root needs Grant access)",
-                g.path
-            ));
+            return Err(PackageError::RequesterRoot(g.path.clone()));
         }
         out.def
             .requester
@@ -574,7 +740,11 @@ pub(crate) mod tests {
         }
         // the same version again is refused; no temp dir is left
         let again = unpack(&z, &root, "zip", 8).unwrap();
-        assert!(again.commit(&root).is_err());
+        assert!(matches!(
+            again.commit(&root),
+            Err(PackageError::AlreadyInstalled { name, version })
+                if name == "demo" && version == "1.0.0"
+        ));
         let left: Vec<_> = std::fs::read_dir(&root)
             .unwrap()
             .filter_map(|e| e.ok())
@@ -673,37 +843,205 @@ pub(crate) mod tests {
         let u = unpack(&zip, &root, "wasm", 0).unwrap();
         assert_eq!(u.app, Some(Default::default()));
         // refused: a world that lies, capabilities on a driver, a bad net entry, no component
-        for (zip, why) in [
-            (
-                wasm_zip(&driver_component(), r#", "world": "app""#),
-                r#"world "app", the component is "driver""#,
-            ),
-            (
-                wasm_zip(&app_component(), r#", "world": "point""#),
-                r#"world "point", the component is "app""#,
-            ),
+        use PackageWorld as W;
+        type Is = fn(&PackageError) -> bool;
+        let cases: [(Vec<u8>, Is); 7] = [
+            (wasm_zip(&driver_component(), r#", "world": "app""#), |e| {
+                matches!(
+                    e,
+                    PackageError::World {
+                        said: W::App,
+                        actual: W::Driver
+                    }
+                )
+            }),
+            // the component is said as the manifest says a world: without a version
+            (wasm_zip(&app_component(), r#", "world": "point""#), |e| {
+                matches!(
+                    e,
+                    PackageError::World {
+                        said: W::Point,
+                        actual: W::App
+                    }
+                )
+            }),
             // a versioned app world must be the component's version (ADR 0030)
             (
                 wasm_zip(&app_component(), r#", "world": "wyrm:app@0.3.0""#),
-                r#"world "wyrm:app@0.3.0", the component is "wyrm:app@0.1.0""#,
+                |e| {
+                    matches!(
+                        e,
+                        PackageError::World {
+                            said: W::App030,
+                            actual: W::App010
+                        }
+                    )
+                },
             ),
             (
                 wasm_zip(&driver_component(), r#", "world": "wyrm:app@0.3.0""#),
-                r#"world "wyrm:app@0.3.0", the component is "driver""#,
+                |e| {
+                    matches!(
+                        e,
+                        PackageError::World {
+                            said: W::App030,
+                            actual: W::Driver
+                        }
+                    )
+                },
             ),
             (
                 wasm_zip(&driver_component(), r#", "capabilities": {}"#),
-                "capabilities: only an app component",
+                |e| matches!(e, PackageError::CapabilitiesNotApp(W::Driver)),
             ),
+            // the SDK's check of the manifest refuses it first, in its own words
             (
                 wasm_zip(&app_component(), r#", "capabilities": { "net": ["host"] }"#),
-                "capabilities.net",
+                |e| matches!(e, PackageError::Manifest(why) if why.starts_with("capabilities.net")),
             ),
-            (wasm_zip(b"junk", ""), "demo.wasm:"),
-        ] {
-            let err = unpack(&zip, &root, "zip", 0).err().unwrap_or_default();
-            assert!(err.contains(why), "{why}: got {err:?}");
+            (wasm_zip(b"junk", ""), |e| {
+                matches!(
+                    e,
+                    PackageError::Component { entry, source: wyrm_wasm_host::Error::Invalid(_) }
+                        if entry == "demo.wasm"
+                )
+            }),
+        ];
+        for (i, (zip, is)) in cases.into_iter().enumerate() {
+            let err = unpack(&zip, &root, "zip", 0).err().expect("refused");
+            assert!(is(&err), "case {i}: got {err:?}");
         }
+    }
+
+    /// Every refusal says what it said as text: these are the answers of the
+    /// install actions (`{success, message}`), of a package update and of a
+    /// restore, and the lines of the repository index in the log.
+    #[test]
+    fn refusals_read_as_before() {
+        fn said(e: &PackageError, text: &str) {
+            assert_eq!(e.to_string(), text);
+        }
+        type E = PackageError;
+        let io = || std::io::Error::other("no");
+        let p = || PathBuf::from("bin/run");
+        let zip = || zip::result::ZipError::FileNotFound;
+        said(&E::Index("index: m twice".into()), "index: m twice");
+        said(
+            &E::IndexName("link id: empty segment".into()),
+            "index: link id: empty segment",
+        );
+        said(
+            &E::ComponentTooLarge(MAX_ZIP >> 20),
+            "component larger than 64 MiB",
+        );
+        said(&E::Pack("no".into()), "no");
+        said(&E::ZipTooLarge(MAX_ZIP >> 20), "zip larger than 64 MiB");
+        said(&E::TooManyFiles(MAX_FILES), "more than 1000 files");
+        said(
+            &E::PackageTooLarge(MAX_UNPACKED >> 20),
+            "package over 256 MiB",
+        );
+        said(
+            &E::UnpackedTooLarge(MAX_UNPACKED >> 20),
+            "unpacked size over 256 MiB",
+        );
+        said(&E::Zip(zip()), "zip: specified file not found in archive");
+        said(&E::ZipWrite(zip()), "specified file not found in archive");
+        said(&E::ZipWriteIo(io()), "no");
+        said(
+            &E::UnsafePath(r#"Ok("../evil")"#.into()),
+            r#"unsafe path Ok("../evil")"#,
+        );
+        said(&E::Symlink(p()), "bin/run: symlinks are not allowed");
+        said(&E::NotRegular(p()), "bin/run: not a regular file");
+        said(
+            &E::File {
+                path: p(),
+                source: io(),
+            },
+            "bin/run: no",
+        );
+        said(
+            &E::Io {
+                path: p(),
+                source: io(),
+            },
+            "no",
+        );
+        // `E::Random` shows its cause alone, as `e.to_string()` did; the cause
+        // is made only by `wyrm_core::rand`
+        said(&E::NoManifest(io()), "no wyrm-link.json at the zip root");
+        let json = serde_json::from_str::<u8>("x").unwrap_err();
+        said(
+            &E::ManifestJson(json),
+            "wyrm-link.json: expected value at line 1 column 1",
+        );
+        said(
+            &E::Name("link id: empty segment".into()),
+            "name: link id: empty segment",
+        );
+        said(&E::Manifest("no".into()), "no");
+        said(
+            &E::NoEntryForHost("linux-x86_64".into()),
+            "no entry for this host (linux-x86_64)",
+        );
+        said(&E::NoWasmEntry, "a wasm package needs `entry`");
+        said(
+            &E::EntryNotFile("bin/run".into()),
+            "entry bin/run: not a file of the package",
+        );
+        said(
+            &E::EntryNotRead {
+                entry: "demo.wasm".into(),
+                source: io(),
+            },
+            "demo.wasm: no",
+        );
+        said(
+            &E::Component {
+                entry: "demo.wasm".into(),
+                source: wyrm_wasm_host::Error::Invalid("no".into()),
+            },
+            "demo.wasm: invalid component: no",
+        );
+        said(
+            &E::AppVersion {
+                entry: "demo.wasm".into(),
+                version: "0.9.0",
+            },
+            "demo.wasm: wyrm:app@0.9.0: not a world a package names",
+        );
+        said(
+            &E::World {
+                said: PackageWorld::App030,
+                actual: PackageWorld::Driver,
+            },
+            r#"invalid_parameter: the manifest says world "wyrm:app@0.3.0", the component is "driver""#,
+        );
+        said(
+            &E::CapabilitiesNotApp(PackageWorld::Point),
+            r#"invalid_parameter: capabilities: only an app component has them, this one is "point""#,
+        );
+        said(
+            &E::Net("no".into()),
+            "invalid_parameter: capabilities.net: no",
+        );
+        said(
+            &E::RequesterLevel("none".into()),
+            r#"requester level "none": list, read or write"#,
+        );
+        said(&E::Requester("no".into()), "requester: no");
+        said(
+            &E::RequesterRoot("wy/{site}/downstream".into()),
+            "requester wy/{site}/downstream: name a link or flow under it (a whole root needs Grant access)",
+        );
+        said(
+            &E::AlreadyInstalled {
+                name: "demo".into(),
+                version: "1.0.0".into(),
+            },
+            "demo 1.0.0 is already installed",
+        );
     }
 
     /// A process package may carry capabilities (a portable app run as a
@@ -746,8 +1084,11 @@ pub(crate) mod tests {
             0,
         )
         .err()
-        .unwrap_or_default();
-        assert!(err.contains("capabilities.net"), "{err}");
+        .expect("refused");
+        assert!(
+            matches!(&err, PackageError::Manifest(why) if why.starts_with("capabilities.net")),
+            "{err:?}"
+        );
     }
 
     #[test]
@@ -772,18 +1113,19 @@ pub(crate) mod tests {
     fn bad_packages_are_refused() {
         let root = root("bad");
         let run: (&str, &[u8], u32) = ("bin/run", b"x", 0o644);
-        let cases: Vec<(Vec<u8>, &str)> = vec![
-            (zip_of(&[run]), "no wyrm-link.json"),
+        type Is = fn(&PackageError) -> bool;
+        let cases: Vec<(Vec<u8>, Is)> = vec![
+            (zip_of(&[run]), |e| matches!(e, PackageError::NoManifest(_))),
             (
                 zip_of(&[(MANIFEST, br#"{"name":"demo"}"#, 0o644), run]),
-                "wyrm-link.json:",
+                |e| matches!(e, PackageError::ManifestJson(_)),
             ),
             (
                 zip_of(&[
                     (MANIFEST, &manifest(""), 0o644),
                     ("../evil", b"x", 0o644),
                 ]),
-                "unsafe path",
+                |e| matches!(e, PackageError::UnsafePath(name) if name.contains("../evil")),
             ),
             (
                 zip_of(&[(
@@ -791,10 +1133,12 @@ pub(crate) mod tests {
                     br#"{ "name": "demo", "version": "1", "wyrm_link": 999, "kind": "process", "entries": {} }"#,
                     0o644,
                 )]),
-                "link protocol",
+                |e| matches!(e, PackageError::Manifest(why) if why.contains("link protocol")),
             ),
-            (zip_of(&[(MANIFEST, &manifest(""), 0o644)]), "not a file of the package"),
-            (b"not a zip".to_vec(), "zip:"),
+            (zip_of(&[(MANIFEST, &manifest(""), 0o644)]), |e| {
+                matches!(e, PackageError::EntryNotFile(entry) if entry == "bin/run")
+            }),
+            (b"not a zip".to_vec(), |e| matches!(e, PackageError::Zip(_))),
         ];
         // Requested grants: a whole root, sys and config are refused.
         let grant = |path: &str, level: &str| {
@@ -803,25 +1147,36 @@ pub(crate) mod tests {
             ));
             zip_of(&[(MANIFEST, &m, 0o644), ("bin/run", b"x", 0o755)])
         };
-        let cases = cases.into_iter().chain([
+        let more: [(Vec<u8>, Is); 5] = [
             (
                 grant("wy/{site}/downstream", "read"),
-                "a whole root needs Grant access",
+                |e| matches!(e, PackageError::RequesterRoot(path) if path == "wy/{site}/downstream"),
             ),
             (
                 grant("wy/{site}/dataflows", "list"),
-                "a whole root needs Grant access",
+                |e| matches!(e, PackageError::RequesterRoot(path) if path == "wy/{site}/dataflows"),
             ),
-            (grant("wy/{site}/sys", "read"), "never sys"),
+            // the registry's rules of a grant, in its own words
+            (
+                grant("wy/{site}/sys", "read"),
+                |e| matches!(e, PackageError::Requester(why) if why.contains("never sys")),
+            ),
             (
                 grant("wy/{site}/downstream/mock", "config"),
-                "at most write",
+                |e| matches!(e, PackageError::Requester(why) if why.contains("at most write")),
             ),
-        ]);
-        for (z, why) in cases {
-            let err = unpack(&z, &root, "zip", 0).err().unwrap_or_default();
-            assert!(err.contains(why), "{why}: got {err:?}");
+            (
+                grant("wy/{site}/downstream/mock", "none"),
+                |e| matches!(e, PackageError::RequesterLevel(level) if level == "none"),
+            ),
+        ];
+        for (i, (z, is)) in cases.into_iter().chain(more).enumerate() {
+            let err = unpack(&z, &root, "zip", 0).err().expect("refused");
+            assert!(is(&err), "case {i}: got {err:?}");
         }
+        // nothing of a refused package stays
+        let left = std::fs::read_dir(&root).unwrap().count();
+        assert_eq!(left, 0, "temp directories removed");
         let symlink = {
             let mut w = zip::ZipWriter::new(Cursor::new(Vec::new()));
             w.start_file(MANIFEST, SimpleFileOptions::default())
@@ -831,7 +1186,10 @@ pub(crate) mod tests {
                 .unwrap();
             w.finish().unwrap().into_inner()
         };
-        let err = unpack(&symlink, &root, "zip", 0).err().unwrap_or_default();
-        assert!(err.contains("symlink"), "{err}");
+        let err = unpack(&symlink, &root, "zip", 0).err().expect("refused");
+        assert!(
+            matches!(&err, PackageError::Symlink(p) if p == Path::new("bin/run")),
+            "{err:?}"
+        );
     }
 }

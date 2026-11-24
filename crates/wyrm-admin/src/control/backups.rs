@@ -1516,7 +1516,7 @@ impl Control {
             }
         });
         let link = def.id.clone();
-        match (walked, not_staged) {
+        match (walked.map_err(|e| e.to_string()), not_staged) {
             (Ok(seen), _) => Ok((out, seen.skipped)),
             (Err(why), None) => Err(BackupError::LinkData { link, why }),
             // `why` is the text of `source`: the walk ends with what its callback said

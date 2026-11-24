@@ -3543,7 +3543,8 @@ async fn load_repository(ctl: Arc<Control>, ctx: LinkCtx) {
     loop {
         let r = crate::fetch::get(&url, packages::MAX_INDEX, Duration::from_secs(15))
             .await
-            .and_then(|b| packages::parse_index(&b));
+            .map_err(|e| e.to_string())
+            .and_then(|b| packages::parse_index(&b).map_err(|e| e.to_string()));
         let changed = {
             let mut repo = ctl.repo.lock().unwrap_or_else(|p| p.into_inner());
             match (&r, repo.as_ref()) {
@@ -3935,7 +3936,7 @@ impl Link for Admin {
                         self.install_package(&a.link.name, zip, "wasm".into(), &sub, a.opts)
                             .await
                     }
-                    Err(e) => Err(e),
+                    Err(e) => Err(e.to_string()),
                 };
                 Ok(Some(outcome(r)))
             }
@@ -3948,7 +3949,7 @@ impl Link for Admin {
                         self.install_package(&a.link.name, zip, source, &sub, a.opts)
                             .await
                     }
-                    Err(e) => Err(e),
+                    Err(e) => Err(e.to_string()),
                 };
                 Ok(Some(outcome(r)))
             }
@@ -3964,7 +3965,7 @@ impl Link for Admin {
                         self.install_package(&a.link.name, zip, source, &sub, a.opts)
                             .await
                     }
-                    Err(e) => Err(e),
+                    Err(e) => Err(e.to_string()),
                 };
                 Ok(Some(outcome(r)))
             }
@@ -4476,7 +4477,8 @@ impl Admin {
             let root = root.clone();
             tokio::task::spawn_blocking(move || packages::unpack(&zip, &root, &source, now))
                 .await
-                .map_err(|e| e.to_string())??
+                .map_err(|e| e.to_string())?
+                .map_err(|e| e.to_string())?
         };
         let def = unpacked.def.clone();
         let app = unpacked.app.clone();
@@ -4538,7 +4540,7 @@ impl Admin {
                 let left = packages::dir(&root, &def);
                 crate::nofollow::remove_any(&left)
                     .map_err(|e| format!("{}: {e}", left.display()))?;
-                unpacked.commit(&root)?;
+                unpacked.commit(&root).map_err(|e| e.to_string())?;
                 if def.kind == PackageKind::Wasm {
                     self.ctl.publish_component(&def)?;
                 }
@@ -4678,7 +4680,9 @@ impl Admin {
             .asset(&host)
             .ok_or_else(|| format!("{package}: no build for this host ({host})"))?;
         let url = wyrm_link_sdk::package::resolve(&index, &a.url)?;
-        let zip = crate::fetch::get(&url, packages::MAX_ZIP, FETCH_TIMEOUT).await?;
+        let zip = crate::fetch::get(&url, packages::MAX_ZIP, FETCH_TIMEOUT)
+            .await
+            .map_err(|e| e.to_string())?;
         let got = wyrm_core::hex::sha256_hex(&zip);
         if !got.eq_ignore_ascii_case(&a.sha256) {
             return Err(format!("{package}: sha256 {got} does not match the index"));
