@@ -459,8 +459,16 @@ pub struct BackupRequest {
     /// The caller's authority comes from another site (an upstream with
     /// `allow_config`, ADR 0018): this site's secrets never travel up.
     pub remote: bool,
-    /// Only sizes are asked for: nothing is made, so nothing is gated.
-    pub estimate: bool,
+}
+
+/// What a request is judged for ([`Control::check_request`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Judged {
+    /// A backup is made: every rule.
+    Backup,
+    /// Only sizes are asked for ([`Control::backup_estimate`]): nothing is
+    /// made, so the rules of the section `keys` do not apply.
+    Sizes,
 }
 
 /// One backup job, kept beside its file as `<file>.json`.
@@ -909,7 +917,12 @@ impl Control {
     /// Check a request before a job is made for it: section names, links,
     /// the passphrase, what needs sealing. The canonical section list is
     /// returned (the order of the format, the always-made one included).
-    fn check_request(&self, req: &BackupRequest) -> Result<Vec<SectionName>, RequestError> {
+    /// Whoever makes a backup judges it as [`Judged::Backup`].
+    fn check_request(
+        &self,
+        req: &BackupRequest,
+        judged: Judged,
+    ) -> Result<Vec<SectionName>, RequestError> {
         let all = req.kind.sections();
         if let Some(s) = req.sections.iter().find(|s| !all.contains(s)) {
             return Err(RequestError::Section {
@@ -935,7 +948,8 @@ impl Control {
         // Secrets leave the site only when the host said so, and never
         // towards an upstream (ADR 0048 §3.4, §4).
         let passphrase = matches!(req.seal, SealWith::Passphrase(_));
-        if passphrase || (has(SectionName::Keys) && !req.estimate) {
+        let making = judged == Judged::Backup;
+        if passphrase || (has(SectionName::Keys) && making) {
             let what = if has(SectionName::Keys) {
                 Exported::Keys
             } else {
@@ -951,7 +965,7 @@ impl Control {
         let reg = self.registry();
         match req.kind {
             Kind::Broker => {
-                if has(SectionName::Keys) && !passphrase && !req.estimate {
+                if has(SectionName::Keys) && !passphrase && making {
                     return Err(RequestError::KeysUnsealed);
                 }
                 if let Some(l) = req
@@ -986,12 +1000,19 @@ impl Control {
         Ok(chosen)
     }
 
-    /// Bytes each section of `req` would take, before compression.
+    /// Bytes each section of `req` would take, before compression. Nothing
+    /// is made, so a request with `keys` that no backup may be made of is
+    /// answered too.
     pub fn backup_estimate(
         &self,
         req: &BackupRequest,
     ) -> Result<BTreeMap<String, u64>, RequestError> {
-        let chosen = self.check_request(req)?;
+        let chosen = self.check_request(req, Judged::Sizes)?;
+        Ok(self.section_sizes(req, &chosen))
+    }
+
+    /// Bytes of each of the sections `chosen` of a request that was checked.
+    fn section_sizes(&self, req: &BackupRequest, chosen: &[SectionName]) -> BTreeMap<String, u64> {
         let d = &self.cfg.data_dir;
         let len = |p: PathBuf| std::fs::metadata(p).map_or(0, |m| m.len());
         let files = replication::files_of(d);
@@ -1059,7 +1080,7 @@ impl Control {
             };
             out.insert(s.name().to_owned(), bytes);
         }
-        Ok(out)
+        out
     }
 
     /// Make the backup of `req` at `out` (blocking; call it off the async
@@ -1070,7 +1091,7 @@ impl Control {
         out: &Path,
         progress: &dyn Fn(&str, u8),
     ) -> Result<format::Written, BackupError> {
-        let chosen = self.check_request(req)?;
+        let chosen = self.check_request(req, Judged::Backup)?;
         let backups = self.backups_dir();
         make_private_dir(&backups)?;
         let stage = StageDir::new(&backups)?;
@@ -1638,7 +1659,6 @@ impl Control {
             label: JobKind::Link,
             pinned: false,
             remote: false,
-            estimate: false,
         };
         let w = self.write_backup(&req, path, &|_, _| {})?;
         // what the reader of a link backup takes: a larger one would be a
@@ -1781,8 +1801,9 @@ impl Control {
         sub: &str,
         wait: bool,
     ) -> Result<String, StartError> {
-        let chosen = self.check_request(&req)?;
-        let need: u64 = self.backup_estimate(&req)?.values().sum();
+        // judged once: the sizes are those of the sections this check chose
+        let chosen = self.check_request(&req, Judged::Backup)?;
+        let need: u64 = self.section_sizes(&req, &chosen).values().sum();
         if let Some(free) = disk_free_mib(&self.cfg.data_dir) {
             // staged once and written once
             let want = (need.saturating_mul(2) + KEEP_FREE) as f64 / f64::from(1 << 20);
@@ -2105,7 +2126,6 @@ pub(super) fn broker_request(what: BrokerBackup, seal: Passphrase, remote: bool)
         label: JobKind::Full,
         pinned: false,
         remote,
-        estimate: false,
     }
 }
 
@@ -2124,7 +2144,6 @@ pub(super) fn link_request(a: BackupLink, link: &str, remote: bool) -> BackupReq
         label: JobKind::Link,
         pinned: false,
         remote,
-        estimate: false,
     }
 }
 
@@ -2416,7 +2435,6 @@ pub(super) async fn invoke(
             let what = BrokerBackup::decode(args)?;
             let mut req = broker_request(what, Passphrase::default(), false);
             req.seal = SealWith::Broker;
-            req.estimate = true;
             let ctl2 = ctl.clone();
             let sizes = tokio::task::spawn_blocking(move || ctl2.backup_estimate(&req))
                 .await
@@ -3041,7 +3059,6 @@ mod tests {
             label: JobKind::Link,
             pinned: false,
             remote: false,
-            estimate: false,
         };
         let e = ctl.backup_launch(req(), "user:a", true).unwrap_err();
         assert!(
@@ -3090,7 +3107,6 @@ mod tests {
             label: JobKind::Link,
             pinned: false,
             remote: false,
-            estimate: false,
         };
         for round in 1..=20 {
             let reader = {
@@ -3475,7 +3491,6 @@ mod tests {
             label: JobKind::Full,
             pinned: false,
             remote: false,
-            estimate: false,
         }
     }
 
@@ -3633,11 +3648,20 @@ mod tests {
             ),
         ];
         for (name, ctl, req, want) in cases {
-            let e = ctl.check_request(&req).unwrap_err();
+            let e = ctl.check_request(&req, Judged::Backup).unwrap_err();
             assert_eq!(e, want, "{name}");
             assert!(!all_of(&e).contains(PASSPHRASE), "{name}: {e:?}");
             // the same refusal wherever the request enters, and nothing is made
-            assert_eq!(ctl.backup_estimate(&req).unwrap_err(), want, "{name}");
+            // sizes alone are refused by the same rules, but for those of
+            // `keys`: nothing is made
+            let sizes = ctl.check_request(&req, Judged::Sizes);
+            match &want {
+                R::KeysUnsealed => assert!(sizes.is_ok(), "{name}"),
+                R::ExportOff(X::Keys) if !matches!(req.seal, SealWith::Passphrase(_)) => {
+                    assert!(sizes.is_ok(), "{name}")
+                }
+                _ => assert_eq!(sizes.unwrap_err(), want, "{name}"),
+            }
             let out = ctl.cfg.data_dir.join("refused.wyrm-backup");
             let written = ctl.write_backup(&req, &out, &|_, _| {}).map(|_| ());
             assert!(
@@ -3654,9 +3678,82 @@ mod tests {
             assert!(!ctl.backups.running.load(Ordering::SeqCst), "{name}");
         }
         // only sizes are asked for: nothing is made, so nothing is gated
-        let mut sizes = broker(&[S::Keys], SealWith::Broker);
-        sizes.estimate = true;
+        let sizes = broker(&[S::Keys], SealWith::Broker);
         assert!(off.backup_estimate(&remote(sizes)).is_ok());
+    }
+
+    /// Issue #195: asking for sizes is no way around the rules of the section
+    /// `keys`. A request cannot say "sizes only": `backup_estimate` alone
+    /// judges it so, and `backup_start` and `backup_now` judge the same
+    /// request in full, for a local caller and for one from an upstream.
+    #[test]
+    fn a_backup_with_keys_is_judged_in_full_however_it_is_asked() {
+        use {Exported as X, RequestError as R, SectionName as S};
+        let off = super::super::tests::control("backup-keys-off", false, |_| {});
+        let on = super::super::tests::control_tweaked("backup-keys-on", |c| {
+            c.backups.export_secrets = true;
+        });
+        // name, broker, from an upstream, sealing, the refusal
+        type Case<'a> = (&'a str, &'a Arc<Control>, bool, fn() -> SealWith, R);
+        let cases: Vec<Case> = vec![
+            (
+                "off, local",
+                &off,
+                false,
+                || SealWith::Broker,
+                R::ExportOff(X::Keys),
+            ),
+            (
+                "off, from an upstream",
+                &off,
+                true,
+                || SealWith::Broker,
+                R::ExportOff(X::Keys),
+            ),
+            (
+                "on, from an upstream",
+                &on,
+                true,
+                || SealWith::Broker,
+                R::Remote(X::Keys),
+            ),
+            (
+                "on, local, sealed for the broker only",
+                &on,
+                false,
+                || SealWith::Broker,
+                R::KeysUnsealed,
+            ),
+            (
+                "on, local, not sealed",
+                &on,
+                false,
+                || SealWith::None,
+                R::KeysUnsealed,
+            ),
+        ];
+        for (name, ctl, remote, seal, want) in cases {
+            let req = || {
+                let mut r = request(Kind::Broker, &[S::Keys], seal());
+                r.remote = remote;
+                r
+            };
+            assert!(ctl.backup_estimate(&req()).is_ok(), "{name}: sizes");
+            let made = ctl
+                .backup_now(req(), "user:a")
+                .map(|j| (j.status, j.sections, j.sealed));
+            assert!(
+                matches!(&made, Err(NowError::Refused(StartError::Request(e))) if *e == want),
+                "{name}: backup_now: {made:?}"
+            );
+            let started = ctl.backup_start(req(), "user:a");
+            assert!(
+                matches!(&started, Err(StartError::Request(e)) if *e == want),
+                "{name}: backup_start: {started:?}"
+            );
+            assert!(ctl.backups.list().is_empty(), "{name}: no job");
+            assert!(!ctl.backups.running.load(Ordering::SeqCst), "{name}");
+        }
     }
 
     /// What fails while a backup is made is told apart by its type and keeps its

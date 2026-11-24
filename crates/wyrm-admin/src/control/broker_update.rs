@@ -1279,7 +1279,6 @@ async fn run(
                 label: super::backups::JobKind::PreUpdate,
                 pinned: true,
                 remote: false,
-                estimate: false,
             },
             &by2,
         )
@@ -2307,7 +2306,6 @@ mod tests {
                     label: super::backups::JobKind::PreUpdate,
                     pinned: true,
                     remote: false,
-                    estimate: false,
                 },
                 "user:ann",
             )
