@@ -1673,3 +1673,45 @@ impl Node for Wasm {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// What a `wasm` node's log says of the emits it does not take (audit T7: the texts these
+    /// errors had as a `String`).
+    #[test]
+    fn refused_emits_keep_their_texts() {
+        let said = |b: &[u8]| match decode_emits(b) {
+            Ok(_) => panic!("{b:02x?}: taken"),
+            Err(e) => e.to_string(),
+        };
+        // an array with no length
+        assert_eq!(said(&[0x9f, 0xff]), "emits: indefinite array");
+        // 257 items
+        assert_eq!(said(&[0x99, 0x01, 0x01]), "emits: more than 256");
+        // an item that is no pair
+        assert_eq!(
+            said(&[0x81, 0x01]),
+            "unexpected type u8 at position 1: expected array"
+        );
+        assert_eq!(said(&[0x81, 0x81, 0x01]), "emits: expected [port, sample]");
+        // a port that is no text, a sample that is none
+        assert_eq!(
+            said(&[0x81, 0x82, 0x01, 0x01]),
+            "unexpected type u8 at position 2: expected text (definite length)"
+        );
+        assert_eq!(
+            said(&[0x81, 0x82, 0x61, 0x61, 0x01]),
+            "unexpected type u8 at position 4: expected map"
+        );
+        // no array at all, and nothing
+        assert_eq!(
+            said(&[0x01]),
+            "unexpected type u8 at position 0: expected array"
+        );
+        assert_eq!(said(&[]), "end of input bytes");
+        // bytes after the array
+        assert_eq!(said(&[0x80, 0x00]), "emits: trailing bytes");
+    }
+}

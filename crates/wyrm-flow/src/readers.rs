@@ -817,6 +817,21 @@ mod tests {
                 "{bad:?}"
             );
         }
+        // what only the query says (the config check and the port refuse these before it):
+        // the texts these errors had as a `String` (audit T7)
+        let said = |k: &str, v: &str| {
+            history_query(&params(&[(k, v.into())]), T)
+                .map(|_| ())
+                .map_err(|e| e.to_string())
+        };
+        assert_eq!(
+            said("rollup", "median"),
+            Err("rollup: median is no rollup".to_owned())
+        );
+        assert_eq!(
+            said("window", "4000000000w"),
+            Err("history: window is <n>s, m, h, d or w, more than zero".to_owned())
+        );
         // the config check gives the reason at compile time
         let cfg = |kv: &[(&str, Value)]| -> Map {
             kv.iter()

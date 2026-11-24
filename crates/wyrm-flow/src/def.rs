@@ -1043,3 +1043,21 @@ pub fn compile(v: &Value) -> Result<(FlowDef, BTreeMap<String, Ports>)> {
     let ports = check(&def)?;
     Ok((def, ports))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A constant for an inner node that is not there (the compiler checks the node first, so
+    /// only this function says it). Audit T7: the text it had as a `String`.
+    #[test]
+    fn a_constant_for_no_inner_node_keeps_its_text() {
+        let mut inner = BTreeMap::new();
+        let to = Endpoint {
+            node: "gone".into(),
+            port: "in".into(),
+        };
+        let e = constant_into(&mut inner, &to, &Value::UInt(1)).map_err(|e| e.to_string());
+        assert_eq!(e, Err("no inner node gone".to_owned()));
+    }
+}

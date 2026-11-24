@@ -1,0 +1,270 @@
+ports timer {"period_ms": Str("x")} => period_ms: expected a finite number
+ports timer {"period_ms": Float(NaN)} => period_ms: expected a finite number
+ports publish {"node": UInt(1)} => node: expected a string
+ports filter {} => expr: required
+ports set {"allow_bad": UInt(1), "path": Str("a")} => allow_bad: expected true or false
+ports timer {"x": UInt(1)} => x: unknown field
+ports subscribe {} => key: required (or key_scope, with in.key wired)
+ports liveliness {"key": UInt(1)} => key: expected a string
+ports subscribe {"key_scope": UInt(1)} => key_scope: expected a string
+ports timer {} => period_ms: required
+ports timer {"period_ms": UInt(5)} => period_ms: at least 10
+ports const {} => value: required
+ports expression {"inputs": Array([Str("a")])} => expr: required
+ports expression {"expr": UInt(1), "inputs": Array([Str("a")])} => expr: expected a string
+ports expression {"expr": Str("1")} => inputs: required non-empty array
+ports expression {"expr": Str("1"), "inputs": Array([])} => inputs: required non-empty array
+ports expression {"expr": Str("1"), "inputs": Array([Str("a b")])} => inputs: names must be [A-Za-z0-9_]+
+ports expression {"expr": Str("1"), "inputs": Array([UInt(1)])} => inputs: names must be [A-Za-z0-9_]+
+ports expression {"expr": Str("1"), "inputs": Array([Str("a")]), "trigger": Str("x")} => trigger: one of ["any", "all"]
+ports expression {"expr": Str("1"), "inputs": Array([Str("a")]), "trigger": UInt(1)} => trigger: expected a string
+ports expression {"expr": Str("1"), "inputs": Array([Str("a")]), "quality": Str("x")} => quality: one of ["worst", "ignore", "custom"]
+ports scale {"k": Str("x")} => k: expected a finite number
+ports scale {"input_min": Str("x")} => input_min: expected a finite number
+ports scale {"gain": UInt(1)} => gain: unknown field
+ports deadband {} => abs or pct: required
+ports deadband {"abs": Str("x")} => abs: expected a finite number
+ports window {"kind": Str("x"), "size_s": UInt(1)} => kind: one of ["tumbling", "sliding"]
+ports window {"fn": Str("x"), "size_s": UInt(1)} => fn: one of ["avg", "min", "max", "sum", "count", "rate"]
+ports window {"max_samples": UInt(0), "size_s": UInt(1)} => max_samples: integer 1..=100000
+ports window {"max_samples": Str("x"), "size_s": UInt(1)} => max_samples: integer 1..=100000
+ports window {} => size_s: required
+ports window {"size_s": UInt(0)} => size_s: must be > 0
+ports alarm {} => high or low: required
+ports alarm {"high": UInt(1), "hysteresis": Str("x")} => hysteresis: expected a finite number
+ports alarm {"delay_s": Str("x"), "high": UInt(1)} => delay_s: expected a finite number
+ports alarm {"high": UInt(1), "return_delay_s": Str("x")} => return_delay_s: expected a finite number
+ports alarm {"high": UInt(1), "on_bad": Str("x")} => on_bad: one of ["hold", "clear", "raise"]
+ports latch {"reset": Str("x")} => reset: one of ["manual", "auto"]
+ports delay {} => ms: required
+ports filter {"expr": UInt(1)} => expr: expected a string
+ports publish {} => node: required
+ports publish {"node": Str("")} => node: empty segment
+ports publish {"node": Str("~x")} => node: segment starts with '~' (reserved): ~x
+ports publish {"node": Str("a/b")} => node: illegal character '/' in segment a/b
+ports publish {"meta": UInt(1), "node": Str("a")} => meta: expected a map
+ports nope {} => type: unknown node type nope
+ports wasm {} => artifact: required
+ports wasm {"artifact": Str("zz")} => artifact: 64 lowercase hex characters (SHA-256)
+ports wasm {"artifact": Str("0000000000000000000000000000000000000000000000000000000000000000"), "oops": UInt(1)} => oops: unknown field
+ports wasm {"artifact": Str("0000000000000000000000000000000000000000000000000000000000000000"), "fuel": UInt(1)} => fuel: integer 1000..=1000000000
+ports wasm {"artifact": Str("0000000000000000000000000000000000000000000000000000000000000000"), "memory_mb": UInt(0)} => memory_mb: integer 1..=256
+ports wasm {"artifact": Str("0000000000000000000000000000000000000000000000000000000000000000"), "inputs": Array([])} => inputs: 1..=16 port names
+ports wasm {"artifact": Str("0000000000000000000000000000000000000000000000000000000000000000"), "inputs": UInt(1)} => inputs: 1..=16 port names
+ports wasm {"artifact": Str("0000000000000000000000000000000000000000000000000000000000000000"), "inputs": Array([Str("a"), Str("a"… => inputs: unique names [A-Za-z0-9_]+
+ports wasm {"artifact": Str("0000000000000000000000000000000000000000000000000000000000000000"), "outputs": Array([Str("__a")])} => outputs: unique names [A-Za-z0-9_]+
+WasmCfg::parse {} => artifact: required
+max_samples 100001 => max_samples: integer 1..=100000
+ports invoke {} => path: required
+ports invoke {"path": UInt(1)} => path: expected a string
+ports invoke {"auto_run": UInt(1), "path": Str("a")} => auto_run: expected true or false
+ports invoke {"enabled": UInt(1), "path": Str("a")} => enabled: expected true or false
+ports invoke {"path": Str("a"), "run_on_start": UInt(1)} => run_on_start: expected true or false
+ports invoke {"interval_ms": UInt(5), "path": Str("a")} => interval_ms: 0 (off) or 100..=86400000
+ports invoke {"interval_ms": Str("x"), "path": Str("a")} => interval_ms: expected a finite number
+ports invoke {"oops": UInt(1), "path": Str("a")} => oops: unknown field
+ports invoke {"action": Str("a"), "on": Str("x"), "path": Str("a")} => on: one of ["any", "rising", "falling", "change"]
+ports set {} => path: required
+ports set {"path": UInt(1)} => path: expected a string
+ports set {"auto_run": UInt(1), "path": Str("a")} => auto_run: expected true or false
+ports set {"enabled": UInt(1), "path": Str("a")} => enabled: expected true or false
+ports set {"path": Str("a"), "run_on_start": UInt(1)} => run_on_start: expected true or false
+ports set {"interval_ms": UInt(5), "path": Str("a")} => interval_ms: 0 (off) or 100..=86400000
+ports set {"interval_ms": Str("x"), "path": Str("a")} => interval_ms: expected a finite number
+ports set {"oops": UInt(1), "path": Str("a")} => oops: unknown field
+ports set {"action": Str("a"), "on": Str("x"), "path": Str("a")} => action: unknown field
+ports invoke {"path": Str("a")} => action: required
+ports invoke {"action": Str("go"), "args": UInt(1), "path": Str("a")} => args: expected a map {<argument>: <value>}
+ports invoke {"action": Str("go"), "args": Map({"__x": Null}), "path": Str("a")} => args.__x: a name of 1..=128 bytes, not __…
+ports invoke {"action": Str("go"), "args": Map({"": Null}), "path": Str("a")} => args.: a name of 1..=128 bytes, not __…
+ports invoke {"action": Str("go"), "args": Map({"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa… => args.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: a name of 1..=128 bytes, not __…
+ports invoke {"action": Str("go"), "args": Map({"a0": Null, "a1": Null, "a10": Null, "a11": Null, "a12": Null, "a13": Null, "a14": Nu… => args: at most 64
+ports set {"deadband": Str("x"), "path": Str("a")} => deadband: expected a finite number
+ports load_value {} => key: required (or key_scope, with in.key wired)
+ports load_value {"oops": UInt(1)} => oops: unknown field
+ports list_children {} => path: required (or path_scope, with in.path wired)
+ports list_children {"oops": UInt(1)} => oops: unknown field
+ports load_history {} => key: required (or key_scope, with in.key wired)
+ports load_history {"oops": UInt(1)} => oops: unknown field
+ports get_node {} => key: required (or key_scope, with in.key wired)
+ports get_node {"oops": UInt(1)} => oops: unknown field
+ports load_value {"auto_run": UInt(1), "key": Str("downstream/m/p0")} => auto_run: expected true or false
+ports load_value {"enabled": UInt(1), "key": Str("downstream/m/p0")} => enabled: expected true or false
+ports load_value {"interval_ms": UInt(5), "key": Str("downstream/m/p0")} => interval_ms: 0 (off) or 100..=86400000
+ports load_value {"interval_ms": Str("x"), "key": Str("downstream/m/p0")} => interval_ms: expected a finite number
+ports load_history {"key": Str("downstream/m/p0"), "time_range": UInt(1)} => time_range: expected a string
+ports load_history {"key": Str("downstream/m/p0"), "rollup": UInt(1)} => rollup: expected a string
+ports load_history {"key": Str("downstream/m/p0"), "window": UInt(1)} => window: expected a string
+ports load_history {"key": Str("downstream/m/p0"), "time_zone": UInt(1)} => time_zone: expected a string
+ports load_history {"key": Str("downstream/m/p0"), "rollup": Str("median")} => rollup: one of ["none", "avg", "min", "max", "sum", "count", "first", "last", "delta", "and", "or"]
+ports load_history {"key": Str("downstream/m/p0"), "limit": UInt(0)} => limit: 1..=10000
+ports load_history {"key": Str("downstream/m/p0"), "limit": UInt(10001)} => limit: 1..=10000
+ports load_history {"key": Str("downstream/m/p0"), "limit": Float(2.5)} => limit: 1..=10000
+ports load_history {"key": Str("downstream/m/p0"), "time_zone": Str("Nowhere/City")} => time_zone: no such zone
+ports load_history {"key": Str("downstream/m/p0"), "time_range": Str("soon")} => time_range: soon is no range
+ports load_history {"key": Str("downstream/m/p0"), "window": Str("5x")} => window: 5x is not <n>s, m, h, d or w
+ports load_history {"key": Str("downstream/m/p0"), "window": Str("0m")} => window: 0m is not <n>s, m, h, d or w
+ports load_history {"key": Str("downstream/m/p0"), "time_range": Str("1960-01-01T00:00:00/1960-01-02T00:00:00")} => time_range: -315619200000000 is before 1970 (number too small to fit in target type)
+ports add {"oops": UInt(1)} => oops: unknown field
+ports add {"inputs": Array([Str("a"), Str("a")])} => inputs: a twice
+ports add {"inputs": Array([])} => inputs: required non-empty array
+ports add {"inputs": Array([Str("a b")])} => inputs: names must be [A-Za-z0-9_]+
+ports if {"inputs": Array([Str("then"), Str("b")])} => inputs: then is the name of a parameter
+ports add {"inputs": Array([Str("0"), Str("1"), Str("2"), Str("3"), Str("4"), Str("5"), Str("6"), Str("7"), Str("8"), Str("9"), St… => inputs: at most 64
+ports if {"op": Str("xor")} => op: one of ["=", "!=", "and", "or", ">", "<", ">=", "<=", "contains", "starts_with", "ends_with"]
+ports if {"op": UInt(1)} => op: expected a string
+ports case {"op": Str("and")} => op: one of ["=", "!=", ">", "<", ">=", "<=", "contains", "starts_with", "ends_with", "regexp"]
+ports case {"op": UInt(1)} => op: expected a string
+ports router {"op": Str("and")} => op: one of ["=", "!=", ">", "<", ">=", "<=", "contains", "starts_with", "ends_with", "regexp"]
+ports add {"values": UInt(1)} => values: expected a map {<input>: <value>}
+ports add {"values": Map({"in.7": UInt(1)})} => values.in.7: not an operand input of add (in, in.<inputs>)
+ports round {"values": Map({"in.precision": UInt(1)})} => values.in.precision: not an operand input of round (in, in.<inputs>)
+ports stopwatch {"values": Map({"reset": UInt(1)})} => values: unknown field
+ports number {"values": Map({"in": UInt(1)})} => values: unknown field
+ports now {"interval_ms": UInt(5)} => interval_ms: 0 (only on in) or 100..=86400000
+ports now {"interval_ms": Str("x")} => interval_ms: 0 (only on in) or 100..=86400000
+build add {"oops": UInt(1)} => oops: unknown field
+build if {"op": Str("xor")} => op: one of ["=", "!=", "and", "or", ">", "<", ">=", "<=", "contains", "starts_with", "ends_with"]
+build add {"values": Map({"in.7": UInt(1)})} => values.in.7: not an operand input of add (in, in.<inputs>)
+check_script table_group_by {"aggregates": UInt(1)} => aggregates: a list of {column, method, as}
+check_script table_group_by {"aggregates": Array([Map({"column": Str("a")}), Map({"column": Str("a")}), Map({"column": Str("a")}), Map({"column": St… => aggregates: at most 128
+check_script table_group_by {"aggregates": Array([UInt(1)])} => aggregates: each item is {column, method, as}
+check_script table_group_by {"aggregates": Array([Map({})])} => aggregates: column required
+check_script table_group_by {"aggregates": Array([Map({"column": Str("")})])} => aggregates: column required
+check_script table_group_by {"aggregates": Array([Map({"column": Str("a"), "method": Str("x")})])} => aggregates: method one of ["first", "last", "count", "sum", "average", "min", "max", "median", "mode", "std_deviation", "variance", "concat", "concat_unique"]
+check_script table_rollup {"aggregates": UInt(1)} => aggregates: a list of {column, method, as}
+check_script table_rollup {"aggregates": Array([Map({"column": Str("a")}), Map({"column": Str("a")}), Map({"column": Str("a")}), Map({"column": St… => aggregates: at most 128
+check_script table_rollup {"aggregates": Array([UInt(1)])} => aggregates: each item is {column, method, as}
+check_script table_rollup {"aggregates": Array([Map({})])} => aggregates: column required
+check_script table_rollup {"aggregates": Array([Map({"column": Str("")})])} => aggregates: column required
+check_script table_rollup {"aggregates": Array([Map({"column": Str("a"), "method": Str("x")})])} => aggregates: method one of ["first", "last", "count", "sum", "average", "min", "max", "median", "mode", "std_deviation", "variance", "concat", "concat_unique"]
+check_script table_filter {"expr": UInt(1)} => expr: a rhai expression over row and index
+check_script table_filter {"expr": Str("row.a +")} => expr: Script is incomplete (line 1, position 8)
+check_script table_filter {"expr": Str("nope > 1")} => expr: Undefined variable: nope (line 1, position 1)
+build table_filter {"expr": UInt(1)} => expr: a rhai expression over row and index
+build table_filter {"expr": Str("row.a +")} => expr: Script is incomplete (line 1, position 8)
+check_script table_remove_rows {"expr": UInt(1)} => expr: a rhai expression over row and index
+check_script table_remove_rows {"expr": Str("row.a +")} => expr: Script is incomplete (line 1, position 8)
+check_script table_remove_rows {"expr": Str("nope > 1")} => expr: Undefined variable: nope (line 1, position 1)
+build table_remove_rows {"expr": UInt(1)} => expr: a rhai expression over row and index
+build table_remove_rows {"expr": Str("row.a +")} => expr: Script is incomplete (line 1, position 8)
+check_script table_edit_rows {"expr": UInt(1)} => expr: a rhai expression over row and index
+check_script table_edit_rows {"expr": Str("row.a +")} => expr: Script is incomplete (line 1, position 8)
+check_script table_edit_rows {"expr": Str("nope > 1")} => expr: Undefined variable: nope (line 1, position 1)
+build table_edit_rows {"expr": UInt(1)} => expr: a rhai expression over row and index
+build table_edit_rows {"expr": Str("row.a +")} => expr: Script is incomplete (line 1, position 8)
+check_script table_map_columns {"mapping": UInt(1)} => mapping: a list of {name, from}
+check_script table_map_columns {"mapping": Array([Map({"from": Str("b"), "name": Str("a")}), Map({"from": Str("b"), "name": Str("a")}), Map({"from": St… => mapping: at most 128
+check_script table_map_columns {"mapping": Array([UInt(1)])} => mapping: each item is {name, from}
+check_script table_map_columns {"mapping": Array([Map({"name": Str("a")})])} => mapping: each item is {name, from} with texts
+check_script table_map_columns {"mapping": Array([Map({"from": Str("b"), "name": Str("")})])} => mapping: each item is {name, from} with texts
+check_script table_map_columns {"mapping": Array([Map({"from": Str("b"), "name": Str("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa… => mapping: each item is {name, from} with texts
+check_script table_map_columns {"mapping": Array([Map({"from": Str("= row.a +"), "name": Str("c")})])} => mapping.c: Script is incomplete (line 1, position 9)
+build table_map_columns {"mapping": Array([Map({"from": Str("= row.a +"), "name": Str("c")})])} => mapping.c: Script is incomplete (line 1, position 9)
+build table_map_columns {"mapping": UInt(1)} => mapping: a list of {name, from}
+check_script expression {"expr": Str("a.v +"), "inputs": Array([Str("a")])} => expr: Script is incomplete (line 1, position 6)
+check_script expression {"expr": Str("b.v + 1"), "inputs": Array([Str("a")])} => expr: Undefined variable: b (line 1, position 1)
+check_script expression {"inputs": Array([Str("a")])} => expr: required
+check_script expression {"expr": Str("1")} => inputs: required non-empty array
+check_script filter {"expr": Str("v >")} => expr: Script is incomplete (line 1, position 4)
+check_script filter {"expr": Str("w > 1")} => expr: Undefined variable: w (line 1, position 1)
+check_script filter {} => expr: required
+build expression {"expr": Str("a.v +"), "inputs": Array([Str("a")])} => Script is incomplete (line 1, position 6)
+build expression {"inputs": Array([Str("a")])} => expr: required
+build expression {"expr": Str("1")} => inputs: required non-empty array
+build expression {"expr": Str("1"), "inputs": Array([Str("a")]), "trigger": Str("x")} => trigger: one of ["any", "all"]
+build expression {"expr": Str("1"), "inputs": Array([Str("a")]), "quality": Str("x")} => quality: one of ["worst", "ignore", "custom"]
+build filter {"expr": Str("v >")} => Script is incomplete (line 1, position 4)
+build filter {} => expr: required
+script::compile "1 +" => Script is incomplete (line 1, position 4)
+script::compile "x +" => Script is incomplete (line 1, position 4)
+script::compile "y" => Undefined variable: y (line 1, position 1)
+script::compile "let" => Expecting name of a variable (line 1, position 4)
+script::compile "\"open" => Open string is not terminated (line 1, position 1)
+script::eval "throw \"stop\"" => Runtime error: stop (line 1, position 1)
+script::eval "x.nope()" => Function not found: nope (()) (line 1, position 3)
+script::eval "1 / 0" => Division by zero: 1 / 0
+script::eval "x + 1" => Function not found: + ((), i64) (line 1, position 3)
+script::eval "let a = []; a[3]" => Array index 3 out of bounds: array is empty (line 1, position 15)
+script::eval "loop { }" => Too many operations (line 1, position 6)
+build nope {} => n: unknown node type nope
+build wasm {"artifact": Str("0000000000000000000000000000000000000000000000000000000000000000")} => wasm: no artifact store
+build wasm {} => wasm: no artifact store
+build timer {"period_ms": Str("x")} => period_ms: expected a finite number
+build scale {"k": Str("x")} => k: expected a finite number
+build deadband {"abs": Str("x")} => abs: expected a finite number
+build window {"kind": Str("x")} => kind: one of ["tumbling", "sliding"]
+build window {"fn": Str("x")} => fn: one of ["avg", "min", "max", "sum", "count", "rate"]
+build window {"max_samples": UInt(0)} => max_samples: integer 1..=100000
+build window {"size_s": Str("x")} => size_s: expected a finite number
+build alarm {"on_bad": Str("x")} => on_bad: one of ["hold", "clear", "raise"]
+build alarm {"high": Str("x")} => high: expected a finite number
+build latch {"reset": Str("x")} => reset: one of ["manual", "auto"]
+build delay {"ms": Str("x")} => ms: expected a finite number
+build publish {} => node: required
+build invoke {} => path: required
+build set {"on": Str("x"), "path": Str("a")} => on: one of ["change", "any"]
+build load_value {} => key: required (or key_scope, with in.key wired)
+build load_history {"key": Str("a"), "window": Str("5x")} => window: 5x is not <n>s, m, h, d or w
+build_with wasm, no such artifact => artifact: no artifact 0000000000000000000000000000000000000000000000000000000000000000
+WasmCfg::check, no such artifact => artifact: no artifact 0000000000000000000000000000000000000000000000000000000000000000
+Scope::new "sys/**" => a scope lies in this site's downstream, dataflows or storage (wy/s/downstream/…), not wy/s/sys/**
+Scope::new "wy/other/downstream/**" => a scope lies in this site's downstream, dataflows or storage (wy/s/downstream/…), not wy/other/downstream/**
+Scope::new "upstream/x" => a scope lies in this site's downstream, dataflows or storage (wy/s/downstream/…), not wy/s/upstream/x
+Scope::new "downstreams/x" => a scope lies in this site's downstream, dataflows or storage (wy/s/downstream/…), not wy/s/downstreams/x
+Scope::new "downstream//x" => not a key expression: Invalid Key Expr `wy/s/downstream//x`: empty chunks are forbidden, as well as leading and trailing slashes at <zenoh source>
+Scope::new "downstream/a**" => not a key expression: Invalid Key Expr `wy/s/downstream/a**`: `*` may only be preceded by `/` or `$` at <zenoh source>
+Scope::new "downstream/a b#" => not a key expression: Invalid Key Expr `wy/s/downstream/a b#`: `#` and `?` are forbidden characters at <zenoh source>
+Scope::new "downstream/x/" => not a key expression: Invalid Key Expr `wy/s/downstream/x/`: empty chunks are forbidden, as well as leading and trailing slashes at <zenoh source>
+admit {"key": UInt(1)} => the key is not a text
+admit {"key": Null} => the key is not a text
+admit {"key": Str("")} => the key is empty
+admit {"key": Str("downstream/modbus/line1/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa… => the key is longer than 512 bytes
+admit {"key": Str("downstream/modbus/line1/~val")} => not a concrete key: segment starts with '~' (reserved): ~val
+admit {"key": Str("downstream/modbus/line1//x")} => not a concrete key: empty segment
+admit {"key": Str("downstream/modbus/line1/*")} => not a concrete key: illegal character '*' in segment *
+admit {"key": Str("downstream/modbus/line1/a b")} => not a concrete key: illegal character ' ' in segment a b
+admit {"key": Str("sys/audit")} => the key is outside this site's downstream, dataflows and storage
+admit {"key": Str("wy/other/downstream/modbus/line1/x")} => the key is outside this site's downstream, dataflows and storage
+admit {"key": Str("downstream/modbus/line2/x")} => the key is outside the scope downstream/modbus/line1/**
+admit {"key": Str("downstream/modbus")} => the key is outside the scope downstream/modbus/line1/**
+compile a node config => nodes.t: period_ms: at least 10
+compile a node type => nodes.t: type: unknown node type nope
+compile a script => nodes.x.expr: Script is incomplete (line 1, position 6)
+compile a table script => nodes.x.expr: Script is incomplete (line 1, position 8)
+compile a constant an inner input does not take => nodes.u.values.x: f.in takes no constant: wire the input instead
+compile a constant into values that is no map => nodes.u.values.x: f.values: expected a map
+compile a constant into args that is no map => nodes.u.values.x: f.args: expected a map
+command_targets, no definition => ~def: expected a map
+command_targets, a node without a type => nodes.t.type: required string
+run table_filter {"expr": Str("if row.i == 1 { throw \"one\" } true")} => row 1: Runtime error: one (line 1, position 17)
+run table_remove_rows {"expr": Str("row.nope.x()")} => row 0: Function not found: x (()) (line 1, position 10)
+run table_edit_rows {"cells": Map({"a": UInt(1)}), "expr": Str("row.i / 0 > 1")} => row 0: Division by zero: 0 / 0
+run table_map_columns {"mapping": Array([Map({"from": Str("= row.i + nope()"), "name": Str("c")})])} => row 0: Function not found: nope () (line 1, position 10)
+run table_filter {"expr": Str("let n = 0; while n < 1000000 { n += 1 } true")} => row 0: Too many operations (line 1, position 18)
+run table_filter, 10000 rows of a slow script => the scripts took longer than 100 ms for the table
+run subscribe without a scope, a key on in.key => the node has no scope for a key from a port
+run subscribe with the scope sys/**, a key on in.key => a scope lies in this site's downstream, dataflows or storage (wy/test/downstream/…), not wy/test/sys/**
+run subscribe with the scope downstream/m/*, a number on in.key => the key is not a text
+run subscribe with the scope downstream/m/*, an empty text on in.key => the key is empty
+run subscribe with the scope downstream/m/*, a key outside on in.key => the key is outside the scope downstream/m/*
+run subscribe with the scope downstream/m/*, a pattern on in.key => not a concrete key: illegal character '*' in segment *
+run subscribe with the scope downstream/m/*, another section on in.key => the key is outside this site's downstream, dataflows and storage
+run liveliness without a scope, a key on in.key => the node has no scope for a key from a port
+run liveliness with the scope sys/**, a key on in.key => a scope lies in this site's downstream, dataflows or storage (wy/test/downstream/…), not wy/test/sys/**
+run liveliness with the scope downstream/m/*, a number on in.key => the key is not a text
+run liveliness with the scope downstream/m/*, an empty text on in.key => the key is empty
+run liveliness with the scope downstream/m/*, a key outside on in.key => the key is outside the scope downstream/m/*
+run liveliness with the scope downstream/m/*, a pattern on in.key => not a concrete key: illegal character '*' in segment *
+run liveliness with the scope downstream/m/*, another section on in.key => the key is outside this site's downstream, dataflows and storage
+run load_value without a scope, a key on in.key => code UInt(35), message Str("the node has no scope for a key from a port")
+run load_value with the scope downstream/m/*, a key outside on in.key => code UInt(35), message Str("the key is outside the scope downstream/m/*")
+run list_children without a scope, a key on in.path => code UInt(35), message Str("the node has no scope for a key from a port")
+run list_children with the scope downstream/m/*, a key outside on in.path => code UInt(35), message Str("the key is outside the scope downstream/m/*")
+run load_history without a scope, a key on in.key => code UInt(35), message Str("the node has no scope for a key from a port")
+run load_history with the scope downstream/m/*, a key outside on in.key => code UInt(35), message Str("the key is outside the scope downstream/m/*")
+run get_node without a scope, a key on in.key => code UInt(35), message Str("the node has no scope for a key from a port")
+run get_node with the scope downstream/m/*, a key outside on in.key => code UInt(35), message Str("the key is outside the scope downstream/m/*")
+run load_history, a bad time_range from its port, then trigger => code UInt(35), message Str("time_range: soon is no range")
+run load_history, a bad window from its port, then trigger => code UInt(35), message Str("window: 5x is not <n>s, m, h, d or w")
+run load_history, a bad time_zone from its port, then trigger => code UInt(35), message Str("time_zone: no such zone")
