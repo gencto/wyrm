@@ -4580,7 +4580,8 @@ async fn chain_of_three_brokers() {
             .invoke_one(backups, "restore_apply", apply("replace"))
             .await
             .expect_err("replace from above");
-        assert!(e.is(wyrm_core::Status::InvalidParameter), "{e}");
+        // a refusal by rights, not a wrong argument (owner decision 2026-11-24)
+        assert!(e.is(wyrm_core::Status::PermissionDenied), "{e}");
         assert!(e.message.contains("upstream"), "{e}");
         let e = ce
             .invoke_one(backups, "restore_apply", apply("add"))
