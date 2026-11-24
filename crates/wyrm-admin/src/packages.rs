@@ -165,7 +165,8 @@ pub enum PackageError {
 pub fn parse_index(bytes: &[u8]) -> Result<Vec<RepoEntry>, PackageError> {
     let list = wyrm_link_sdk::package::parse_index(bytes).map_err(PackageError::Index)?;
     for e in &list {
-        crate::registry::validate_link_id(&e.name).map_err(PackageError::IndexName)?;
+        crate::registry::validate_link_id(&e.name)
+            .map_err(|e| PackageError::IndexName(e.to_string()))?;
     }
     Ok(list)
 }
@@ -554,7 +555,7 @@ pub fn unpack(zip: &[u8], root: &Path, source: &str, now: u64) -> Result<Unpacke
     }
     let text = std::fs::read_to_string(out.tmp.join(MANIFEST)).map_err(PackageError::NoManifest)?;
     let m: Manifest = serde_json::from_str(&text).map_err(PackageError::ManifestJson)?;
-    crate::registry::validate_link_id(&m.name).map_err(PackageError::Name)?;
+    crate::registry::validate_link_id(&m.name).map_err(|e| PackageError::Name(e.to_string()))?;
     m.check().map_err(PackageError::Manifest)?;
     let (kind, entry) = match m.kind {
         PackageForm::Process => {
@@ -593,7 +594,8 @@ pub fn unpack(zip: &[u8], root: &Path, source: &str, now: u64) -> Result<Unpacke
         let level = Some(g.level)
             .filter(|p| *p != wyrm_core::Perm::None)
             .ok_or_else(|| PackageError::RequesterLevel(g.level.name().to_owned()))?;
-        crate::registry::check_grant(&g.path, level).map_err(PackageError::Requester)?;
+        crate::registry::check_grant(&g.path, level)
+            .map_err(|e| PackageError::Requester(e.to_string()))?;
         // A package names the branches it needs; a whole root (every link,
         // every flow) only an operator grants, with Grant access.
         if matches!(
