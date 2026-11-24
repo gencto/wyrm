@@ -311,7 +311,10 @@ impl Control {
         }
         let secrets_key = secret::load_or_create_key(&self.cfg.data_dir.join("secrets.key"))
             .map_err(|e| format!("secrets.key: {e}"))?;
-        manifest.key(passphrase, Some(&secrets_key)).map(Some)
+        manifest
+            .key(passphrase, Some(&secrets_key))
+            .map(Some)
+            .map_err(|e| e.to_string())
     }
 
     /// Read the link backup at `path`: every file checked, the manifest
@@ -322,12 +325,12 @@ impl Control {
         path: &Path,
         passphrase: Option<&[u8]>,
     ) -> Result<LinkRestore, String> {
-        let mut r = format::Reader::open(path, MAX_LINK_BACKUP)?;
+        let mut r = format::Reader::open(path, MAX_LINK_BACKUP).map_err(|e| e.to_string())?;
         let manifest = r.manifest().clone();
         if manifest.kind != Kind::Link {
             return Err("a broker backup: restore it from System, not as a link".into());
         }
-        r.verify(|_, _| {})?;
+        r.verify(|_, _| {}).map_err(|e| e.to_string())?;
         let key = self.backup_key(&manifest, passphrase)?;
         let key = key.as_ref();
         self.read_link_parts(&mut r, key, &LinkLayout::link(&manifest))
@@ -347,7 +350,7 @@ impl Control {
             .iter()
             .flat_map(|s| s.files.iter().map(|f| f.path.clone()))
             .collect();
-        let def: LinkDef = minicbor::decode(&r.read(&lay.settings)?)
+        let def: LinkDef = minicbor::decode(&r.read(&lay.settings).map_err(|e| e.to_string())?)
             .map_err(|e| format!("{}: {e}", lay.settings))?;
         crate::registry::validate_link_id(&def.id)?;
         // what this link's parts open into must fit, before any of it is
@@ -380,7 +383,7 @@ impl Control {
         if let Some(base) = &lay.data {
             out.has_data = true;
             let secrets = format!("{base}/secrets");
-            let plain = r.read_plain(&secrets, key)?;
+            let plain = r.read_plain(&secrets, key).map_err(|e| e.to_string())?;
             let Value::Map(m) =
                 wyrm_core::codec::from_slice::<Value>(&plain).map_err(|e| e.to_string())?
             else {
@@ -394,7 +397,8 @@ impl Control {
             let prefix = format!("{base}/files/");
             for path in &paths {
                 if let Some(rel) = path.strip_prefix(&prefix) {
-                    r.extract(path, &out.files_dir().join(rel), key)?;
+                    r.extract(path, &out.files_dir().join(rel), key)
+                        .map_err(|e| e.to_string())?;
                     out.files.push(rel.to_owned());
                 }
             }
@@ -403,7 +407,8 @@ impl Control {
             let prefix = format!("{base}/files/");
             for path in &paths {
                 if let Some(rel) = path.strip_prefix(&prefix) {
-                    r.extract(path, &out.package_dir().join(rel), None)?;
+                    r.extract(path, &out.package_dir().join(rel), None)
+                        .map_err(|e| e.to_string())?;
                 }
             }
             // Nothing of the backup says what the package is: its files go
@@ -420,7 +425,7 @@ impl Control {
         if let Some(prefix) = &lay.history {
             for (i, path) in paths.iter().filter(|p| p.starts_with(prefix)).enumerate() {
                 let dest = out.stage.0.join("history").join(format!("{i:05}.cbor"));
-                r.extract(path, &dest, None)?;
+                r.extract(path, &dest, None).map_err(|e| e.to_string())?;
                 out.history.push(dest);
             }
         }

@@ -36,6 +36,14 @@
 //! size and the sum of sizes are bounded and checked against the manifest
 //! before a byte is written anywhere, and each file is hashed as it is read.
 //!
+//! Errors are types by what failed (audit T7): [`ManifestError`] for what a
+//! manifest says alone, [`KeyError`] for the way to the master key (a wrong
+//! passphrase, another broker's file and a changed manifest are three
+//! variants), [`SealedError`] for a sealed file that does not open,
+//! [`ReadError`] and [`WriteError`] for a backup file as a whole, with a file
+//! of the host that failed as a variant of its own. A caller that shows one
+//! to a person turns it to text; the texts are pinned by a test.
+//!
 //! `serde_json` is used here because a backup is a user file (principle 5).
 
 use serde::{Deserialize, Serialize};
@@ -90,6 +98,333 @@ pub const MAX_LINK_DATA: u64 = 8 << 30;
 pub const MAX_KDF_KIB: u32 = 128 << 10;
 pub const MAX_KDF_T: u32 = 4;
 pub const MAX_KDF_P: u32 = 4;
+
+/// What is wrong with the path of an entry ([`check_path`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum PathFault {
+    /// Empty, or longer than [`MAX_PATH`].
+    #[error("empty or too long")]
+    Length,
+    /// [`MANIFEST`]: a file may not take the manifest's place.
+    #[error("the manifest's name")]
+    ManifestName,
+    /// A segment that is empty, `.` or `..`: the path would leave its place.
+    #[error("empty, `.` or `..` segment")]
+    Segment,
+    #[error("`\\`, `:` or a control character")]
+    Character,
+    /// More than [`MAX_DEPTH`] segments.
+    #[error("too deep")]
+    Depth,
+}
+
+/// A path that is no path of an entry ([`check_path`]).
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("path {path:?}: {fault}")]
+pub struct PathError {
+    pub path: String,
+    pub fault: PathFault,
+}
+
+/// A part of a backup with a bound of its own ([`Manifest::caps`]). The
+/// order is the order the parts are judged in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Part {
+    /// The private data of one link: [`MAX_LINK_DATA`].
+    LinkData,
+    /// One package: [`MAX_PACKAGE`].
+    Package,
+}
+
+impl Part {
+    /// The most stored bytes of one such part.
+    pub fn cap(self) -> u64 {
+        match self {
+            Part::LinkData => MAX_LINK_DATA,
+            Part::Package => MAX_PACKAGE,
+        }
+    }
+}
+
+impl std::fmt::Display for Part {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Part::LinkData => "link data",
+            Part::Package => "package",
+        })
+    }
+}
+
+/// Why a manifest is refused by what it says alone ([`Manifest::check`],
+/// [`Manifest::caps`]): no key and no file content is needed to tell.
+#[derive(Debug, thiserror::Error)]
+pub enum ManifestError {
+    #[error("wyrm_backup {found}: this broker reads version {}", VERSION)]
+    Version { found: u32 },
+    #[error("manifest: site: {0}")]
+    Site(#[source] wyrm_core::keyspace::KeyError),
+    /// `sealed.kdf` without `how: passphrase`, or the other way round.
+    #[error("manifest: sealed.kdf goes with how: passphrase")]
+    KdfAndHow,
+    /// A sealed backup without its id, check or MAC: nothing would
+    /// authenticate the manifest.
+    #[error(
+        "manifest: a sealed backup carries sealed.id, sealed.check and sealed.mac; \
+         this one is not authenticated"
+    )]
+    NotAuthenticated,
+    /// An unsealed backup that carries an id or a MAC no key stands behind.
+    #[error("manifest: sealed.id and sealed.mac go with a sealed backup")]
+    AuthenticationWithoutSealing,
+    /// `link` without `kind: link`, or the other way round.
+    #[error("manifest: link goes with kind: link")]
+    LinkAndKind,
+    #[error("manifest: no section {section:?} in a {} backup", .kind.name())]
+    SectionOfOtherKind { section: SectionName, kind: Kind },
+    #[error("manifest: section {0} twice")]
+    SectionTwice(SectionName),
+    #[error("manifest: more than {} files", MAX_ENTRIES)]
+    TooManyFiles,
+    #[error(transparent)]
+    Path(#[from] PathError),
+    /// A file listed in a section whose folder its path is not in.
+    #[error("manifest: {path} is not under section {section}")]
+    OutsideSection { path: String, section: SectionName },
+    /// `sha256` is not 64 hex digits.
+    #[error("manifest: {path}: sha256")]
+    Digest { path: String },
+    #[error("manifest: {path}: {size} bytes (at most {} a file)", MAX_FILE)]
+    FileTooLarge { path: String, size: u64 },
+    /// The sizes do not fit in a `u64`.
+    #[error("manifest: the sizes of its files do not add up")]
+    SizesOverflow,
+    /// A file the reader holds for secret ([`must_be_sealed`]) is listed as
+    /// not sealed.
+    #[error("manifest: {path} holds secrets and is not sealed")]
+    SecretNotSealed { path: String },
+    /// A sealed file in a backup with `how: none`.
+    #[error("manifest: {path} is sealed, the backup says none")]
+    SealedWithoutSealing { path: String },
+    #[error("manifest: {path} twice")]
+    PathTwice { path: String },
+    /// A flow artifact over [`MAX_ARTIFACT`].
+    #[error("{path}: {size} bytes (a flow artifact has at most {})", MAX_ARTIFACT)]
+    ArtifactTooLarge { path: String, size: u64 },
+    /// One package or one link's data over its bound.
+    #[error("the {part} {name} of the backup holds {size} bytes (at most {})", .part.cap())]
+    PartTooLarge { part: Part, name: String, size: u64 },
+}
+
+/// Why a backup gives no master key ([`Manifest::key`]) or a new one is not
+/// sealed ([`Sealing::start`]). No variant holds a byte of a passphrase, a
+/// key or sealed content; the hex causes quote the manifest's own fields.
+#[derive(Debug, thiserror::Error)]
+pub enum KeyError {
+    #[error("passphrase: at least {} characters", crate::keys::MIN_PASSPHRASE)]
+    PassphraseTooShort,
+    /// The manifest asks for another function, or for more work than
+    /// [`MAX_KDF_KIB`], [`MAX_KDF_T`], [`MAX_KDF_P`].
+    #[error(
+        "sealed.kdf: not Argon2id within {} MiB, {} passes, {} lanes",
+        MAX_KDF_KIB >> 10,
+        MAX_KDF_T,
+        MAX_KDF_P
+    )]
+    KdfBounds,
+    #[error("sealed.kdf.salt: hex")]
+    SaltHex(#[source] hex::FromHexError),
+    /// Argon2 refuses the parameters (it carries no input, only which).
+    #[error("sealed.kdf: {0}")]
+    KdfParams(argon2::Error),
+    #[error("key derivation: {0}")]
+    Derivation(argon2::Error),
+    #[error("manifest: sealed.id: hex")]
+    IdHex(#[source] hex::FromHexError),
+    #[error("manifest: sealed.id: 16 bytes")]
+    IdLength,
+    #[error("passphrase: required, the backup is sealed with one")]
+    PassphraseRequired,
+    /// `how: broker` and the caller has no `secrets.key` to try.
+    #[error("the backup is sealed for the broker that made it")]
+    BrokerKeyRequired,
+    /// `how: none`: there is no key to give.
+    #[error("the backup has no sealed files")]
+    NotSealed,
+    /// `sealed.check` does not open under the key of this passphrase.
+    #[error("wrong passphrase")]
+    WrongPassphrase,
+    /// `sealed.check` does not open under the key of this `secrets.key`.
+    #[error("the backup is sealed for another broker (its secrets.key differs)")]
+    AnotherBroker,
+    #[error("manifest: sealed.mac: hex")]
+    MacHex(#[source] hex::FromHexError),
+    /// The key is the right one and the manifest's MAC does not match: a
+    /// path, size, digest, flag or `info` was changed.
+    #[error("the manifest was changed after the backup was made (its MAC does not match)")]
+    ManifestChanged,
+    /// The manifest does not serialize for its MAC.
+    #[error("{0}")]
+    Encode(#[source] serde_json::Error),
+    /// No salt or id for a new backup.
+    #[error("{0}")]
+    NoRandomness(#[source] wyrm_core::rand::NoRandomness),
+    /// The check text of a new backup does not seal.
+    #[error("{0}")]
+    Seal(#[source] wyrm_link_sdk::seal::SealError),
+}
+
+/// Why a sealed file does not open ([`open_stream`], [`open_bytes`]). Each
+/// names the file; none holds a byte of it.
+#[derive(Debug, thiserror::Error)]
+pub enum SealedError {
+    /// The stream could not be read or the plain bytes not written.
+    #[error("{path}: {source}")]
+    Io {
+        path: String,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("{path}: not a sealed file")]
+    NotSealed { path: String },
+    /// The stream ends before its last part.
+    #[error("{path}: sealed file cut short")]
+    CutShort {
+        path: String,
+        #[source]
+        source: std::io::Error,
+    },
+    /// A part says it is longer than a part may be.
+    #[error("{path}: sealed part of {len} bytes")]
+    PartTooLarge { path: String, len: usize },
+    /// A part is not sealed under this key for this path of this backup, or
+    /// was changed.
+    #[error("{path}: does not open (wrong key, or changed)")]
+    DoesNotOpen { path: String },
+    /// An authentic part at another place of its file.
+    #[error("{path}: sealed parts out of order")]
+    OutOfOrder { path: String },
+    #[error("{path}: bytes after the last sealed part")]
+    Trailing { path: String },
+}
+
+/// Why a backup was not written ([`write`]).
+#[derive(Debug, thiserror::Error)]
+pub enum WriteError {
+    /// A staged file or the backup file itself.
+    #[error("{}: {source}", .path.display())]
+    Io {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    /// The key's id is not `sealed.id` of the head.
+    #[error("the key is of another backup")]
+    KeyOfAnotherBackup,
+    /// A sealed head without a key, or a key with `how: none`.
+    #[error("a sealed backup is written with its key, an unsealed one without")]
+    KeyAndSealing,
+    /// What was staged makes a manifest no reader would take.
+    #[error(transparent)]
+    Manifest(#[from] ManifestError),
+    #[error("manifest: too large")]
+    ManifestTooLarge,
+    #[error("{0}")]
+    Encode(#[source] serde_json::Error),
+    #[error("{0}")]
+    Zip(#[source] zip::result::ZipError),
+    /// The last bytes did not reach the file.
+    #[error("{0}")]
+    Flush(#[source] std::io::Error),
+    /// A staged file is not the bytes the manifest was made from.
+    #[error("{}: changed while it was read", .path.display())]
+    SourceChanged { path: PathBuf },
+}
+
+/// Why a backup was not opened or a file of it not read ([`Reader`]).
+#[derive(Debug, thiserror::Error)]
+pub enum ReadError {
+    /// The backup file, or the file an entry is written to.
+    #[error("{}: {source}", .path.display())]
+    File {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("not a backup: {0}")]
+    Seek(#[source] std::io::Error),
+    #[error("not a backup: {0}")]
+    NotZip(#[source] zip::result::ZipError),
+    #[error("not a backup: {found} entries (1 to {})", MAX_ENTRIES)]
+    EntryCount { found: usize },
+    #[error("not a backup: the first entry is not {}", MANIFEST)]
+    ManifestNotFirst,
+    /// Over [`MAX_MANIFEST`].
+    #[error("manifest: too large")]
+    ManifestTooLarge,
+    #[error("manifest: {0}")]
+    ManifestRead(#[source] std::io::Error),
+    #[error("manifest: {0}")]
+    ManifestJson(#[source] serde_json::Error),
+    #[error(transparent)]
+    Manifest(#[from] ManifestError),
+    /// More stored bytes than the caller takes.
+    #[error("the backup holds {size} bytes; at most {max} are taken here")]
+    OverLimit { size: u64, max: u64 },
+    /// More than [`MAX_RATIO`] times the file's own size, beyond
+    /// [`RATIO_SLACK`].
+    #[error(
+        "the backup is a file of {len} bytes that says it holds {size}: more than \
+         {} times its size, it is not opened",
+        MAX_RATIO
+    )]
+    Ratio { len: u64, size: u64 },
+    #[error("the backup has {entries} entries, its manifest lists {listed}")]
+    EntriesAndManifest { entries: usize, listed: usize },
+    #[error("zip: {0}")]
+    Zip(#[source] zip::result::ZipError),
+    #[error("entry {name:?} is not in the manifest")]
+    UnlistedEntry { name: String },
+    /// A directory, a symlink or a file of another size.
+    #[error("entry {path}: not the file of {size} bytes the manifest lists")]
+    EntryNotAsListed { path: String, size: u64 },
+    #[error("{path}: not in the backup")]
+    NotInBackup { path: String },
+    #[error("{path}: {source}")]
+    Entry {
+        path: String,
+        #[source]
+        source: zip::result::ZipError,
+    },
+    /// The stored bytes of an entry could not be read.
+    #[error("{path}: {source}")]
+    Stored {
+        path: String,
+        #[source]
+        source: std::io::Error,
+    },
+    /// The bytes read could not be written where they go.
+    #[error("{path}: {source}")]
+    Output {
+        path: String,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("{path}: longer than the manifest lists")]
+    Longer { path: String },
+    #[error("{path}: size or SHA-256 differs from the manifest")]
+    Differs { path: String },
+    /// Over [`MAX_IN_MEMORY`].
+    #[error("{path}: {size} bytes, too large to read in memory")]
+    TooLargeInMemory { path: String, size: u64 },
+    /// A sealed file asked for without a key.
+    #[error("{path}: sealed, no key")]
+    NoKey { path: String },
+    #[error(transparent)]
+    Sealed(#[from] SealedError),
+    /// The last bytes did not reach the extracted file.
+    #[error("{0}")]
+    Flush(#[source] std::io::Error),
+}
 
 /// `true` for a path whose file holds secrets and so must be sealed in a
 /// backup of `kind`, whatever its manifest says: all of `keys`; in `links`
@@ -316,27 +651,30 @@ impl Manifest {
     }
 
     /// The bytes the MAC covers: this manifest with `sealed.mac` empty.
-    fn mac_text(&self) -> Result<Vec<u8>, String> {
+    fn mac_text(&self) -> Result<Vec<u8>, serde_json::Error> {
         let mut m = self.clone();
         m.sealed.mac.clear();
-        serde_json::to_vec(&m).map_err(|e| e.to_string())
+        serde_json::to_vec(&m)
     }
 
     /// The master key of this backup's sealed files: from `passphrase`
     /// (`how: passphrase`) or from this broker's `secrets_key` (`how:
-    /// broker`). `Err` for a wrong passphrase, another broker's file, or a
-    /// manifest changed since the backup was made (any path, size, digest
-    /// or flag): the key is handed out only for an authentic manifest.
+    /// broker`). `Err` for a wrong passphrase ([`KeyError::WrongPassphrase`]),
+    /// another broker's file ([`KeyError::AnotherBroker`]), or a manifest
+    /// changed since the backup was made (any path, size, digest or flag;
+    /// [`KeyError::ManifestChanged`]): the key is handed out only for an
+    /// authentic manifest.
     pub fn key(
         &self,
         passphrase: Option<&[u8]>,
         secrets_key: Option<&[u8]>,
-    ) -> Result<MasterKey, String> {
+    ) -> Result<MasterKey, KeyError> {
         let key = self.sealed.master(passphrase, secrets_key)?;
-        let mac = hex::decode(&self.sealed.mac).map_err(|_| "manifest: sealed.mac: hex")?;
-        ring::hmac::verify(&key.mac_key(), &self.mac_text()?, &mac).map_err(|_| {
-            "the manifest was changed after the backup was made (its MAC does not match)".to_owned()
-        })?;
+        let mac = hex::decode(&self.sealed.mac).map_err(KeyError::MacHex)?;
+        let text = self.mac_text().map_err(KeyError::Encode)?;
+        // ring's error is a unit: it says only that the MAC does not match
+        ring::hmac::verify(&key.mac_key(), &text, &mac)
+            .map_err(|ring::error::Unspecified| KeyError::ManifestChanged)?;
         Ok(key)
     }
 
@@ -344,21 +682,21 @@ impl Manifest {
     /// a byte is extracted (ADR 0048 §3.1): each package, each flow
     /// artifact, each link's private data. A sealed file is a little longer
     /// than its content, so each bound has that much room.
-    pub fn caps(&self) -> Result<(), String> {
+    pub fn caps(&self) -> Result<(), ManifestError> {
         let room = |cap: u64| cap + cap / 1024 + 4096;
-        let mut groups: BTreeMap<(&str, &str), u64> = BTreeMap::new();
+        let mut groups: BTreeMap<(Part, &str), u64> = BTreeMap::new();
         for f in self.sections.iter().flat_map(|s| &s.files) {
             let segs: Vec<&str> = f.path.split('/').collect();
             let group = match (self.kind, segs.as_slice()) {
-                (Kind::Broker, ["packages", name, ..]) => ("package", *name),
-                (Kind::Broker, ["links", id, "files", ..]) => ("link data", *id),
-                (Kind::Link, ["package", ..]) => ("package", ""),
+                (Kind::Broker, ["packages", name, ..]) => (Part::Package, *name),
+                (Kind::Broker, ["links", id, "files", ..]) => (Part::LinkData, *id),
+                (Kind::Link, ["package", ..]) => (Part::Package, ""),
                 (Kind::Broker, ["dataflows", "artifacts", ..]) => {
                     if f.size > room(MAX_ARTIFACT) {
-                        return Err(format!(
-                            "{}: {} bytes (a flow artifact has at most {MAX_ARTIFACT})",
-                            f.path, f.size
-                        ));
+                        return Err(ManifestError::ArtifactTooLarge {
+                            path: f.path.clone(),
+                            size: f.size,
+                        });
                     }
                     continue;
                 }
@@ -367,15 +705,13 @@ impl Manifest {
             let sum = groups.entry(group).or_default();
             *sum = sum.saturating_add(f.size);
         }
-        for ((what, name), size) in groups {
-            let cap = match what {
-                "package" => MAX_PACKAGE,
-                _ => MAX_LINK_DATA,
-            };
-            if size > room(cap) {
-                return Err(format!(
-                    "the {what} {name} of the backup holds {size} bytes (at most {cap})"
-                ));
+        for ((part, name), size) in groups {
+            if size > room(part.cap()) {
+                return Err(ManifestError::PartTooLarge {
+                    part,
+                    name: name.to_owned(),
+                    size,
+                });
             }
         }
         Ok(())
@@ -384,17 +720,15 @@ impl Manifest {
     /// Check what a manifest alone can show: version, section names of its
     /// kind (each once), every path under its section and well formed, no
     /// path twice, digests that are digests, bounded counts.
-    pub fn check(&self) -> Result<(), String> {
+    pub fn check(&self) -> Result<(), ManifestError> {
         if self.wyrm_backup != VERSION {
-            return Err(format!(
-                "wyrm_backup {}: this broker reads version {VERSION}",
-                self.wyrm_backup
-            ));
+            return Err(ManifestError::Version {
+                found: self.wyrm_backup,
+            });
         }
-        wyrm_core::keyspace::validate_segment(&self.site)
-            .map_err(|e| format!("manifest: site: {e}"))?;
+        wyrm_core::keyspace::validate_segment(&self.site).map_err(ManifestError::Site)?;
         if (self.sealed.how == How::Passphrase) != self.sealed.kdf.is_some() {
-            return Err("manifest: sealed.kdf goes with how: passphrase".into());
+            return Err(ManifestError::KdfAndHow);
         }
         let keyed = self.sealed.how != How::None;
         if keyed
@@ -402,17 +736,13 @@ impl Manifest {
                 && wyrm_core::hex::is_hex(&self.sealed.mac, 32)
                 && !self.sealed.check.is_empty())
         {
-            return Err(
-                "manifest: a sealed backup carries sealed.id, sealed.check and sealed.mac; \
-                 this one is not authenticated"
-                    .into(),
-            );
+            return Err(ManifestError::NotAuthenticated);
         }
         if !keyed && !(self.sealed.id.is_empty() && self.sealed.mac.is_empty()) {
-            return Err("manifest: sealed.id and sealed.mac go with a sealed backup".into());
+            return Err(ManifestError::AuthenticationWithoutSealing);
         }
         if (self.kind == Kind::Link) != self.link.is_some() {
-            return Err("manifest: link goes with kind: link".into());
+            return Err(ManifestError::LinkAndKind);
         }
         let mut names = BTreeSet::new();
         let mut paths = BTreeSet::new();
@@ -420,55 +750,56 @@ impl Manifest {
         let mut total = 0u64;
         for s in &self.sections {
             if !self.kind.sections().contains(&s.name) {
-                return Err(format!(
-                    "manifest: no section {:?} in a {} backup",
-                    s.name,
-                    self.kind.name()
-                ));
+                return Err(ManifestError::SectionOfOtherKind {
+                    section: s.name,
+                    kind: self.kind,
+                });
             }
             if !names.insert(s.name.name()) {
-                return Err(format!("manifest: section {} twice", s.name));
+                return Err(ManifestError::SectionTwice(s.name));
             }
             count += s.files.len();
             if count >= MAX_ENTRIES {
-                return Err(format!("manifest: more than {MAX_ENTRIES} files"));
+                return Err(ManifestError::TooManyFiles);
             }
             for f in &s.files {
                 check_path(&f.path)?;
                 if f.path.split('/').next().and_then(SectionName::from_name) != Some(s.name)
                     || !f.path.contains('/')
                 {
-                    return Err(format!(
-                        "manifest: {} is not under section {}",
-                        f.path, s.name
-                    ));
+                    return Err(ManifestError::OutsideSection {
+                        path: f.path.clone(),
+                        section: s.name,
+                    });
                 }
                 if f.sha256.len() != 64 || !f.sha256.bytes().all(|b| b.is_ascii_hexdigit()) {
-                    return Err(format!("manifest: {}: sha256", f.path));
+                    return Err(ManifestError::Digest {
+                        path: f.path.clone(),
+                    });
                 }
                 if f.size > MAX_FILE {
-                    return Err(format!(
-                        "manifest: {}: {} bytes (at most {MAX_FILE} a file)",
-                        f.path, f.size
-                    ));
+                    return Err(ManifestError::FileTooLarge {
+                        path: f.path.clone(),
+                        size: f.size,
+                    });
                 }
                 total = total
                     .checked_add(f.size)
-                    .ok_or("manifest: the sizes of its files do not add up")?;
+                    .ok_or(ManifestError::SizesOverflow)?;
                 if must_be_sealed(self.kind, &f.path) && !f.sealed {
-                    return Err(format!(
-                        "manifest: {} holds secrets and is not sealed",
-                        f.path
-                    ));
+                    return Err(ManifestError::SecretNotSealed {
+                        path: f.path.clone(),
+                    });
                 }
                 if f.sealed && self.sealed.how == How::None {
-                    return Err(format!(
-                        "manifest: {} is sealed, the backup says none",
-                        f.path
-                    ));
+                    return Err(ManifestError::SealedWithoutSealing {
+                        path: f.path.clone(),
+                    });
                 }
                 if !paths.insert(f.path.as_str()) {
-                    return Err(format!("manifest: {} twice", f.path));
+                    return Err(ManifestError::PathTwice {
+                        path: f.path.clone(),
+                    });
                 }
             }
         }
@@ -478,26 +809,31 @@ impl Manifest {
 
 /// A path of an entry: relative, `/` separators, plain segments (no empty
 /// one, no `.` or `..`, no `\`, `:` or control character), bounded.
-pub fn check_path(path: &str) -> Result<(), String> {
-    let bad = |why: &str| Err(format!("path {path:?}: {why}"));
+pub fn check_path(path: &str) -> Result<(), PathError> {
+    let bad = |fault: PathFault| {
+        Err(PathError {
+            path: path.to_owned(),
+            fault,
+        })
+    };
     if path.is_empty() || path.len() > MAX_PATH {
-        return bad("empty or too long");
+        return bad(PathFault::Length);
     }
     if path == MANIFEST {
-        return bad("the manifest's name");
+        return bad(PathFault::ManifestName);
     }
     let mut depth = 0;
     for seg in path.split('/') {
         depth += 1;
         if seg.is_empty() || seg == "." || seg == ".." {
-            return bad("empty, `.` or `..` segment");
+            return bad(PathFault::Segment);
         }
         if seg.chars().any(|c| c == '\\' || c == ':' || c.is_control()) {
-            return bad("`\\`, `:` or a control character");
+            return bad(PathFault::Character);
         }
     }
     if depth > MAX_DEPTH {
-        return bad("too deep");
+        return bad(PathFault::Depth);
     }
     Ok(())
 }
@@ -531,14 +867,14 @@ impl MasterKey {
     }
 
     /// The MAC of `manifest` (hex) for its `sealed.mac`.
-    fn mac_of(&self, manifest: &Manifest) -> Result<String, String> {
+    fn mac_of(&self, manifest: &Manifest) -> Result<String, serde_json::Error> {
         Ok(hex::encode(
             ring::hmac::sign(&self.mac_key(), &manifest.mac_text()?).as_ref(),
         ))
     }
 
-    fn check(&self) -> Result<String, String> {
-        let sealed = wyrm_link_sdk::seal::seal(&self.key, CHECK_TEXT).map_err(|e| e.to_string())?;
+    fn check(&self) -> Result<String, wyrm_link_sdk::seal::SealError> {
+        let sealed = wyrm_link_sdk::seal::seal(&self.key, CHECK_TEXT)?;
         Ok(hex::encode(sealed))
     }
 
@@ -560,27 +896,21 @@ fn broker_key(secrets_key: &[u8], id: Vec<u8>) -> MasterKey {
     }
 }
 
-fn argon2(kdf: &Kdf, passphrase: &[u8], id: Vec<u8>) -> Result<MasterKey, String> {
+fn argon2(kdf: &Kdf, passphrase: &[u8], id: Vec<u8>) -> Result<MasterKey, KeyError> {
     if passphrase.len() < crate::keys::MIN_PASSPHRASE {
-        return Err(format!(
-            "passphrase: at least {} characters",
-            crate::keys::MIN_PASSPHRASE
-        ));
+        return Err(KeyError::PassphraseTooShort);
     }
     // a manifest is not trusted with this host's memory and time
     if kdf.name != "argon2id" || kdf.m_kib > MAX_KDF_KIB || kdf.t > MAX_KDF_T || kdf.p > MAX_KDF_P {
-        return Err(format!(
-            "sealed.kdf: not Argon2id within {} MiB, {MAX_KDF_T} passes, {MAX_KDF_P} lanes",
-            MAX_KDF_KIB >> 10
-        ));
+        return Err(KeyError::KdfBounds);
     }
-    let salt = hex::decode(&kdf.salt).map_err(|_| "sealed.kdf.salt: hex")?;
-    let params = argon2::Params::new(kdf.m_kib, kdf.t, kdf.p, Some(32))
-        .map_err(|e| format!("sealed.kdf: {e}"))?;
+    let salt = hex::decode(&kdf.salt).map_err(KeyError::SaltHex)?;
+    let params =
+        argon2::Params::new(kdf.m_kib, kdf.t, kdf.p, Some(32)).map_err(KeyError::KdfParams)?;
     let mut key = Zeroizing::new([0u8; 32]);
     argon2::Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params)
         .hash_password_into(passphrase, &salt, key.as_mut())
-        .map_err(|e| format!("key derivation: {e}"))?;
+        .map_err(KeyError::Derivation)?;
     Ok(MasterKey { key, id })
 }
 
@@ -594,16 +924,16 @@ pub enum Sealing<'a> {
     Broker(&'a [u8]),
 }
 
-fn new_id() -> Result<Vec<u8>, String> {
+fn new_id() -> Result<Vec<u8>, KeyError> {
     let mut id = [0u8; ID_LEN];
-    wyrm_core::rand::fill(&mut id).map_err(|e| e.to_string())?;
+    wyrm_core::rand::fill(&mut id).map_err(KeyError::NoRandomness)?;
     Ok(id.to_vec())
 }
 
 impl Sealing<'_> {
     /// The `sealed` of the manifest (its `mac` is set by [`write`]) and the
     /// master key (none for `None`), with a fresh id of the backup.
-    pub fn start(&self) -> Result<(Sealed, Option<MasterKey>), String> {
+    pub fn start(&self) -> Result<(Sealed, Option<MasterKey>), KeyError> {
         match self {
             Sealing::None => Ok((
                 Sealed {
@@ -617,7 +947,7 @@ impl Sealing<'_> {
             )),
             Sealing::Passphrase(p) => {
                 let mut salt = [0u8; SALT_LEN];
-                wyrm_core::rand::fill(&mut salt).map_err(|e| e.to_string())?;
+                wyrm_core::rand::fill(&mut salt).map_err(KeyError::NoRandomness)?;
                 let d = argon2::Params::default();
                 let kdf = Kdf {
                     name: "argon2id".into(),
@@ -630,7 +960,7 @@ impl Sealing<'_> {
                 Ok((
                     Sealed {
                         how: How::Passphrase,
-                        check: key.check()?,
+                        check: key.check().map_err(KeyError::Seal)?,
                         kdf: Some(kdf),
                         id: hex::encode(&key.id),
                         mac: String::new(),
@@ -644,7 +974,7 @@ impl Sealing<'_> {
                     Sealed {
                         how: How::Broker,
                         kdf: None,
-                        check: key.check()?,
+                        check: key.check().map_err(KeyError::Seal)?,
                         id: hex::encode(&key.id),
                         mac: String::new(),
                     },
@@ -662,27 +992,22 @@ impl Sealed {
         &self,
         passphrase: Option<&[u8]>,
         secrets_key: Option<&[u8]>,
-    ) -> Result<MasterKey, String> {
-        let id = hex::decode(&self.id).map_err(|_| "manifest: sealed.id: hex")?;
+    ) -> Result<MasterKey, KeyError> {
+        let id = hex::decode(&self.id).map_err(KeyError::IdHex)?;
         if id.len() != ID_LEN {
-            return Err("manifest: sealed.id: 16 bytes".into());
+            return Err(KeyError::IdLength);
         }
         let key = match (self.how, &self.kdf) {
-            (How::Passphrase, Some(kdf)) => argon2(
-                kdf,
-                passphrase.ok_or("passphrase: required, the backup is sealed with one")?,
-                id,
-            )?,
-            (How::Broker, _) => broker_key(
-                secrets_key.ok_or("the backup is sealed for the broker that made it")?,
-                id,
-            ),
-            _ => return Err("the backup has no sealed files".into()),
+            (How::Passphrase, Some(kdf)) => {
+                argon2(kdf, passphrase.ok_or(KeyError::PassphraseRequired)?, id)?
+            }
+            (How::Broker, _) => broker_key(secrets_key.ok_or(KeyError::BrokerKeyRequired)?, id),
+            _ => return Err(KeyError::NotSealed),
         };
         if !key.opens(&self.check) {
             return Err(match self.how {
-                How::Passphrase => "wrong passphrase".into(),
-                _ => "the backup is sealed for another broker (its secrets.key differs)".into(),
+                How::Passphrase => KeyError::WrongPassphrase,
+                _ => KeyError::AnotherBroker,
             });
         }
         Ok(key)
@@ -757,33 +1082,46 @@ pub fn open_stream(
     path: &str,
     mut src: impl Read,
     mut dst: impl Write,
-) -> Result<u64, String> {
+) -> Result<u64, SealedError> {
     let fk = key.file_key(path);
-    let io = |e: std::io::Error| format!("{path}: {e}");
+    let io = |source: std::io::Error| SealedError::Io {
+        path: path.to_owned(),
+        source,
+    };
+    let cut = |source: std::io::Error| SealedError::CutShort {
+        path: path.to_owned(),
+        source,
+    };
     let mut magic = [0u8; 5];
     src.read_exact(&mut magic).map_err(io)?;
     if &magic != SEAL_MAGIC {
-        return Err(format!("{path}: not a sealed file"));
+        return Err(SealedError::NotSealed {
+            path: path.to_owned(),
+        });
     }
     let mut total = 0u64;
     let mut index = 0u64;
     loop {
         let mut len = [0u8; 4];
-        src.read_exact(&mut len)
-            .map_err(|_| format!("{path}: sealed file cut short"))?;
+        src.read_exact(&mut len).map_err(cut)?;
         let len = u32::from_be_bytes(len) as usize;
         if len > SEAL_PART + 64 {
-            return Err(format!("{path}: sealed part of {len} bytes"));
+            return Err(SealedError::PartTooLarge {
+                path: path.to_owned(),
+                len,
+            });
         }
         let mut sealed = vec![0u8; len];
-        src.read_exact(&mut sealed)
-            .map_err(|_| format!("{path}: sealed file cut short"))?;
-        let plain = Zeroizing::new(
-            wyrm_link_sdk::seal::open(&fk, &sealed)
-                .ok_or_else(|| format!("{path}: does not open (wrong key, or changed)"))?,
-        );
+        src.read_exact(&mut sealed).map_err(cut)?;
+        let plain = Zeroizing::new(wyrm_link_sdk::seal::open(&fk, &sealed).ok_or_else(|| {
+            SealedError::DoesNotOpen {
+                path: path.to_owned(),
+            }
+        })?);
         if plain.len() < 9 || plain[..8] != index.to_be_bytes() {
-            return Err(format!("{path}: sealed parts out of order"));
+            return Err(SealedError::OutOfOrder {
+                path: path.to_owned(),
+            });
         }
         dst.write_all(&plain[9..]).map_err(io)?;
         total += (plain.len() - 9) as u64;
@@ -794,7 +1132,9 @@ pub fn open_stream(
     }
     let mut rest = [0u8; 1];
     if src.read(&mut rest).map_err(io)? != 0 {
-        return Err(format!("{path}: bytes after the last sealed part"));
+        return Err(SealedError::Trailing {
+            path: path.to_owned(),
+        });
     }
     dst.flush().map_err(io)?;
     Ok(total)
@@ -823,7 +1163,7 @@ pub fn open_bytes(
     key: &MasterKey,
     path: &str,
     sealed: &[u8],
-) -> Result<Zeroizing<Vec<u8>>, String> {
+) -> Result<Zeroizing<Vec<u8>>, SealedError> {
     let mut out = Zeroizing::new(Vec::new());
     open_stream(key, path, sealed, &mut *out)?;
     Ok(out)
@@ -898,9 +1238,12 @@ pub fn write(
     sections: Vec<StagedSection>,
     key: Option<&MasterKey>,
     mut progress: impl FnMut(u64, u64),
-) -> Result<Written, String> {
+) -> Result<Written, WriteError> {
     use zip::write::SimpleFileOptions;
-    let io = |what: &Path, e: std::io::Error| format!("{}: {e}", what.display());
+    let io = |what: &Path, source: std::io::Error| WriteError::Io {
+        path: what.to_owned(),
+        source,
+    };
     let mut manifest = Manifest {
         wyrm_backup: VERSION,
         kind: head.kind,
@@ -933,18 +1276,18 @@ pub fn write(
     match key {
         Some(k) if manifest.sealed.how != How::None => {
             if hex::encode(&k.id) != manifest.sealed.id {
-                return Err("the key is of another backup".into());
+                return Err(WriteError::KeyOfAnotherBackup);
             }
-            manifest.sealed.mac = k.mac_of(&manifest)?;
+            manifest.sealed.mac = k.mac_of(&manifest).map_err(WriteError::Encode)?;
         }
         None if manifest.sealed.how == How::None => {}
-        _ => return Err("a sealed backup is written with its key, an unsealed one without".into()),
+        _ => return Err(WriteError::KeyAndSealing),
     }
     manifest.check()?;
     let total = manifest.size();
-    let text = serde_json::to_vec_pretty(&manifest).map_err(|e| e.to_string())?;
+    let text = serde_json::to_vec_pretty(&manifest).map_err(WriteError::Encode)?;
     if text.len() as u64 > MAX_MANIFEST {
-        return Err("manifest: too large".into());
+        return Err(WriteError::ManifestTooLarge);
     }
     let part = out.with_extension(format!(
         "{}.part",
@@ -972,14 +1315,14 @@ pub fn write(
                 .large_file(size >= u32::MAX as u64)
         };
         w.start_file(MANIFEST, opt(false, text.len() as u64))
-            .map_err(|e| e.to_string())?;
+            .map_err(WriteError::Zip)?;
         w.write_all(&text).map_err(|e| io(&part, e))?;
         let mut done = 0u64;
         let mut buf = vec![0u8; 256 << 10];
         for (s, m) in sections.iter().zip(&manifest.sections) {
             for (f, e) in s.files.iter().zip(&m.files) {
                 w.start_file(e.path.as_str(), opt(e.sealed, e.size))
-                    .map_err(|e| e.to_string())?;
+                    .map_err(WriteError::Zip)?;
                 let mut src = File::open(&f.source).map_err(|e| io(&f.source, e))?;
                 // hashed again as it goes in: a source that changed since the
                 // manifest was made fails the backup instead of spoiling it
@@ -989,7 +1332,9 @@ pub fn write(
                     let want = buf.len().min(left as usize);
                     let n = src.read(&mut buf[..want]).map_err(|e| io(&f.source, e))?;
                     if n == 0 {
-                        return Err(format!("{}: changed while it was read", f.source.display()));
+                        return Err(WriteError::SourceChanged {
+                            path: f.source.clone(),
+                        });
                     }
                     h.update(&buf[..n]);
                     w.write_all(&buf[..n]).map_err(|e| io(&part, e))?;
@@ -998,12 +1343,16 @@ pub fn write(
                     progress(done, total);
                 }
                 if h.finish_hex() != e.sha256 {
-                    return Err(format!("{}: changed while it was read", f.source.display()));
+                    return Err(WriteError::SourceChanged {
+                        path: f.source.clone(),
+                    });
                 }
             }
         }
-        let inner = w.finish().map_err(|e| e.to_string())?;
-        let file = inner.into_inner().map_err(|e| e.to_string())?;
+        let inner = w.finish().map_err(WriteError::Zip)?;
+        let file = inner
+            .into_inner()
+            .map_err(|e| WriteError::Flush(e.into_error()))?;
         file.sync_all().map_err(|e| io(&part, e))?;
         Ok(())
     })();
@@ -1032,57 +1381,56 @@ pub struct Reader<R: Read + Seek = File> {
 impl Reader<File> {
     /// Open the backup at `path`; its files may hold `max_total` stored
     /// bytes in all.
-    pub fn open(path: &Path, max_total: u64) -> Result<Self, String> {
-        let f = File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    pub fn open(path: &Path, max_total: u64) -> Result<Self, ReadError> {
+        let f = File::open(path).map_err(|source| ReadError::File {
+            path: path.to_owned(),
+            source,
+        })?;
         Self::new(f, max_total)
     }
 }
 
 impl<R: Read + Seek> Reader<R> {
-    pub fn new(mut src: R, max_total: u64) -> Result<Self, String> {
+    pub fn new(mut src: R, max_total: u64) -> Result<Self, ReadError> {
         let len = src
             .seek(std::io::SeekFrom::End(0))
-            .map_err(|e| format!("not a backup: {e}"))?;
-        let mut zip = zip::ZipArchive::new(src).map_err(|e| format!("not a backup: {e}"))?;
+            .map_err(ReadError::Seek)?;
+        let mut zip = zip::ZipArchive::new(src).map_err(ReadError::NotZip)?;
         if zip.is_empty() || zip.len() > MAX_ENTRIES {
-            return Err(format!(
-                "not a backup: {} entries (1 to {MAX_ENTRIES})",
-                zip.len()
-            ));
+            return Err(ReadError::EntryCount { found: zip.len() });
         }
         let manifest: Manifest = {
-            let first = zip.by_index(0).map_err(|e| format!("not a backup: {e}"))?;
+            let first = zip.by_index(0).map_err(ReadError::NotZip)?;
             if first.name().ok().as_deref() != Some(MANIFEST) {
-                return Err(format!("not a backup: the first entry is not {MANIFEST}"));
+                return Err(ReadError::ManifestNotFirst);
             }
             if first.size() > MAX_MANIFEST {
-                return Err("manifest: too large".into());
+                return Err(ReadError::ManifestTooLarge);
             }
             let mut text = Vec::new();
             first
                 .take(MAX_MANIFEST + 1)
                 .read_to_end(&mut text)
-                .map_err(|e| format!("manifest: {e}"))?;
+                .map_err(ReadError::ManifestRead)?;
             if text.len() as u64 > MAX_MANIFEST {
-                return Err("manifest: too large".into());
+                return Err(ReadError::ManifestTooLarge);
             }
-            serde_json::from_slice(&text).map_err(|e| format!("manifest: {e}"))?
+            serde_json::from_slice(&text).map_err(ReadError::ManifestJson)?
         };
         manifest.check()?;
         if manifest.size() > max_total {
-            return Err(format!(
-                "the backup holds {} bytes; at most {max_total} are taken here",
-                manifest.size()
-            ));
+            return Err(ReadError::OverLimit {
+                size: manifest.size(),
+                max: max_total,
+            });
         }
         // before anything is extracted: what the file says it opens into
         // is bounded by its own size and by what each part may be
         if manifest.size() > len.saturating_mul(MAX_RATIO).saturating_add(RATIO_SLACK) {
-            return Err(format!(
-                "the backup is a file of {len} bytes that says it holds {}: more than \
-                 {MAX_RATIO} times its size, it is not opened",
-                manifest.size()
-            ));
+            return Err(ReadError::Ratio {
+                len,
+                size: manifest.size(),
+            });
         }
         manifest.caps()?;
         let files: BTreeMap<String, FileEntry> = manifest
@@ -1092,23 +1440,24 @@ impl<R: Read + Seek> Reader<R> {
             .map(|f| (f.path.clone(), f.clone()))
             .collect();
         if zip.len() != files.len() + 1 {
-            return Err(format!(
-                "the backup has {} entries, its manifest lists {}",
-                zip.len() - 1,
-                files.len()
-            ));
+            return Err(ReadError::EntriesAndManifest {
+                entries: zip.len() - 1,
+                listed: files.len(),
+            });
         }
         for i in 1..zip.len() {
-            let e = zip.by_index(i).map_err(|e| format!("zip: {e}"))?;
-            let name = e.name().map_err(|e| format!("zip: {e}"))?;
+            let e = zip.by_index(i).map_err(ReadError::Zip)?;
+            let name = e.name().map_err(ReadError::Zip)?;
             let Some(f) = files.get(name.as_ref()) else {
-                return Err(format!("entry {name:?} is not in the manifest"));
+                return Err(ReadError::UnlistedEntry {
+                    name: name.into_owned(),
+                });
             };
             if e.is_dir() || e.is_symlink() || e.size() != f.size {
-                return Err(format!(
-                    "entry {}: not the file of {} bytes the manifest lists",
-                    f.path, f.size
-                ));
+                return Err(ReadError::EntryNotAsListed {
+                    path: f.path.clone(),
+                    size: f.size,
+                });
             }
         }
         Ok(Self {
@@ -1122,40 +1471,56 @@ impl<R: Read + Seek> Reader<R> {
         &self.manifest
     }
 
+    /// What the manifest lists for `path`.
+    fn listed(&self, path: &str) -> Result<&FileEntry, ReadError> {
+        self.files.get(path).ok_or_else(|| ReadError::NotInBackup {
+            path: path.to_owned(),
+        })
+    }
+
     /// Copy the stored bytes of `path` into `dst`, checking size and SHA-256.
-    fn copy(&mut self, path: &str, dst: &mut dyn Write) -> Result<u64, String> {
-        let f = self
-            .files
-            .get(path)
-            .ok_or_else(|| format!("{path}: not in the backup"))?
-            .clone();
-        let e = self.zip.by_name(path).map_err(|e| format!("{path}: {e}"))?;
+    fn copy(&mut self, path: &str, dst: &mut dyn Write) -> Result<u64, ReadError> {
+        let f = self.listed(path)?.clone();
+        let e = self.zip.by_name(path).map_err(|source| ReadError::Entry {
+            path: path.to_owned(),
+            source,
+        })?;
         // one byte more than listed shows a longer entry (a zip bomb)
         let mut src = e.take(f.size + 1);
         let mut h = wyrm_core::hex::Sha256Stream::new();
         let mut buf = vec![0u8; 256 << 10];
         let mut n = 0u64;
         loop {
-            let k = src.read(&mut buf).map_err(|e| format!("{path}: {e}"))?;
+            let k = src.read(&mut buf).map_err(|source| ReadError::Stored {
+                path: path.to_owned(),
+                source,
+            })?;
             if k == 0 {
                 break;
             }
             n += k as u64;
             if n > f.size {
-                return Err(format!("{path}: longer than the manifest lists"));
+                return Err(ReadError::Longer {
+                    path: path.to_owned(),
+                });
             }
             h.update(&buf[..k]);
             dst.write_all(&buf[..k])
-                .map_err(|e| format!("{path}: {e}"))?;
+                .map_err(|source| ReadError::Output {
+                    path: path.to_owned(),
+                    source,
+                })?;
         }
         if n != f.size || !h.finish_hex().eq_ignore_ascii_case(&f.sha256) {
-            return Err(format!("{path}: size or SHA-256 differs from the manifest"));
+            return Err(ReadError::Differs {
+                path: path.to_owned(),
+            });
         }
         Ok(n)
     }
 
     /// Read every file and check it. `progress(done, total)` in stored bytes.
-    pub fn verify(&mut self, mut progress: impl FnMut(u64, u64)) -> Result<(), String> {
+    pub fn verify(&mut self, mut progress: impl FnMut(u64, u64)) -> Result<(), ReadError> {
         let total = self.manifest.size();
         let mut done = 0;
         let paths: Vec<String> = self.files.keys().cloned().collect();
@@ -1167,14 +1532,13 @@ impl<R: Read + Seek> Reader<R> {
     }
 
     /// The stored bytes of `path` (at most [`MAX_IN_MEMORY`]), checked.
-    pub fn read(&mut self, path: &str) -> Result<Vec<u8>, String> {
-        let size = self
-            .files
-            .get(path)
-            .ok_or_else(|| format!("{path}: not in the backup"))?
-            .size;
+    pub fn read(&mut self, path: &str) -> Result<Vec<u8>, ReadError> {
+        let size = self.listed(path)?.size;
         if size > MAX_IN_MEMORY {
-            return Err(format!("{path}: {size} bytes, too large to read in memory"));
+            return Err(ReadError::TooLargeInMemory {
+                path: path.to_owned(),
+                size,
+            });
         }
         let mut out = Vec::with_capacity(size as usize);
         self.copy(path, &mut out)?;
@@ -1186,7 +1550,7 @@ impl<R: Read + Seek> Reader<R> {
         &mut self,
         path: &str,
         key: Option<&MasterKey>,
-    ) -> Result<Zeroizing<Vec<u8>>, String> {
+    ) -> Result<Zeroizing<Vec<u8>>, ReadError> {
         // the reader decides what must be sealed, not the file's flag
         // (`Manifest::check` refused a secret file listed as plain)
         let sealed = self.files.get(path).is_some_and(|f| f.sealed)
@@ -1195,8 +1559,10 @@ impl<R: Read + Seek> Reader<R> {
         if !sealed {
             return Ok(stored);
         }
-        let key = key.ok_or_else(|| format!("{path}: sealed, no key"))?;
-        open_bytes(key, path, &stored)
+        let key = key.ok_or_else(|| ReadError::NoKey {
+            path: path.to_owned(),
+        })?;
+        Ok(open_bytes(key, path, &stored)?)
     }
 
     /// Write the plain content of `path` to the new file `dest` (parents
@@ -1207,13 +1573,12 @@ impl<R: Read + Seek> Reader<R> {
         path: &str,
         dest: &Path,
         key: Option<&MasterKey>,
-    ) -> Result<u64, String> {
-        let f = self
-            .files
-            .get(path)
-            .ok_or_else(|| format!("{path}: not in the backup"))?
-            .clone();
-        let io = |e: std::io::Error| format!("{}: {e}", dest.display());
+    ) -> Result<u64, ReadError> {
+        let f = self.listed(path)?.clone();
+        let io = |source: std::io::Error| ReadError::File {
+            path: dest.to_owned(),
+            source,
+        };
         if let Some(dir) = dest.parent() {
             std::fs::create_dir_all(dir).map_err(io)?;
         }
@@ -1228,7 +1593,9 @@ impl<R: Read + Seek> Reader<R> {
         let r = (|| {
             let mut out = std::io::BufWriter::new(out);
             let n = if f.sealed || must_be_sealed(self.manifest.kind, path) {
-                let key = key.ok_or_else(|| format!("{path}: sealed, no key"))?;
+                let key = key.ok_or_else(|| ReadError::NoKey {
+                    path: path.to_owned(),
+                })?;
                 // sealed files are checked whole first, then opened part by part
                 let stored = dest.with_extension("sealed-part");
                 let r = (|| {
@@ -1236,16 +1603,18 @@ impl<R: Read + Seek> Reader<R> {
                     self.copy(path, &mut tmp)?;
                     drop(tmp);
                     let src = std::io::BufReader::new(File::open(&stored).map_err(io)?);
-                    open_stream(key, path, src, &mut out)
+                    Ok::<_, ReadError>(open_stream(key, path, src, &mut out)?)
                 })();
                 wyrm_core::files::discard(&stored);
                 r?
             } else {
                 self.copy(path, &mut out)?
             };
-            let file = out.into_inner().map_err(|e| e.to_string())?;
+            let file = out
+                .into_inner()
+                .map_err(|e| ReadError::Flush(e.into_error()))?;
             file.sync_all().map_err(io)?;
-            Ok(n)
+            Ok::<_, ReadError>(n)
         })();
         if r.is_err() {
             // what was written of it: never a whole file
@@ -1256,7 +1625,7 @@ impl<R: Read + Seek> Reader<R> {
 }
 
 /// The manifest of the backup at `path` without checking its files' content.
-pub fn read_manifest(path: &Path) -> Result<Manifest, String> {
+pub fn read_manifest(path: &Path) -> Result<Manifest, ReadError> {
     Reader::open(path, u64::MAX).map(|r| r.manifest)
 }
 
@@ -1414,21 +1783,27 @@ mod tests {
         // the sealed file is not its content, and opens only with the passphrase
         let stored = r.read("keys/pki/ca.key").unwrap();
         assert!(!stored.windows(16).any(|w| w == [7u8; 16]));
-        assert!(r.read_plain("keys/pki/ca.key", None).is_err());
+        assert!(matches!(
+            r.read_plain("keys/pki/ca.key", None),
+            Err(ReadError::NoKey { path }) if path == "keys/pki/ca.key"
+        ));
         let key = r.manifest().key(Some(PASS), None).unwrap();
         assert_eq!(
             r.read_plain("keys/pki/ca.key", Some(&key)).unwrap().len(),
             SEAL_PART + 10
         );
-        assert_eq!(
-            r.manifest()
-                .key(Some(b"wrong passphrase!"), None)
-                .err()
-                .as_deref(),
-            Some("wrong passphrase")
-        );
-        assert!(r.manifest().key(Some(b"short"), None).is_err());
-        assert!(r.manifest().key(None, Some(b"k")).is_err());
+        assert!(matches!(
+            r.manifest().key(Some(b"wrong passphrase!"), None),
+            Err(KeyError::WrongPassphrase)
+        ));
+        assert!(matches!(
+            r.manifest().key(Some(b"short"), None),
+            Err(KeyError::PassphraseTooShort)
+        ));
+        assert!(matches!(
+            r.manifest().key(None, Some(b"k")),
+            Err(KeyError::PassphraseRequired)
+        ));
         // extracted: content, owner-only, never over a file
         let dest = d.join("out/pki/ca.key");
         assert_eq!(
@@ -1436,7 +1811,23 @@ mod tests {
             (SEAL_PART + 10) as u64
         );
         assert_eq!(std::fs::read(&dest).unwrap(), vec![7u8; SEAL_PART + 10]);
-        assert!(r.extract("keys/pki/ca.key", &dest, Some(&key)).is_err());
+        assert!(matches!(
+            r.extract("keys/pki/ca.key", &dest, Some(&key)),
+            Err(ReadError::File { path, source })
+                if path == dest && source.kind() == std::io::ErrorKind::AlreadyExists
+        ));
+        assert_eq!(std::fs::read(&dest).unwrap(), vec![7u8; SEAL_PART + 10]);
+        // a sealed file without its key leaves nothing behind
+        let bare = d.join("out/pki/bare.key");
+        assert!(matches!(
+            r.extract("keys/pki/ca.key", &bare, None),
+            Err(ReadError::NoKey { .. })
+        ));
+        assert!(!bare.exists());
+        assert!(matches!(
+            r.read("keys/none"),
+            Err(ReadError::NotInBackup { path }) if path == "keys/none"
+        ));
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -1444,8 +1835,15 @@ mod tests {
             assert_eq!(mode & 0o777, 0o600);
         }
         // the size bound of the reader
-        assert!(Reader::open(&path, 100).is_err());
+        assert!(matches!(
+            Reader::open(&path, 100),
+            Err(ReadError::OverLimit { max: 100, .. })
+        ));
         assert_eq!(read_manifest(&path).unwrap(), w.manifest);
+        assert!(matches!(
+            Reader::open(&d.join("none.wyrm-backup"), 1 << 30),
+            Err(ReadError::File { source, .. }) if source.kind() == std::io::ErrorKind::NotFound
+        ));
     }
 
     /// A manifest of one plain file, sealed as `sealing` says and signed.
@@ -1484,7 +1882,7 @@ mod tests {
             });
             let started = std::time::Instant::now();
             let e = s.master(Some(pass), None).err().unwrap();
-            assert!(e.contains("sealed.kdf"), "{e}");
+            assert!(matches!(e, KeyError::KdfBounds), "{e}");
             assert!(
                 started.elapsed() < std::time::Duration::from_millis(200),
                 "refused before any work"
@@ -1503,10 +1901,27 @@ mod tests {
         );
         let k2 = m.key(None, Some(b"secrets key")).unwrap();
         assert!(open_bytes(&k2, "data/x", &s).is_ok());
-        assert!(m.key(None, Some(b"another key")).is_err());
-        assert!(m.key(Some(PASS), None).is_err());
+        assert!(matches!(
+            m.key(None, Some(b"another key")),
+            Err(KeyError::AnotherBroker)
+        ));
+        assert!(matches!(
+            m.key(Some(PASS), None),
+            Err(KeyError::BrokerKeyRequired)
+        ));
         let (none, k) = Sealing::None.start().unwrap();
-        assert!(k.is_none() && none.master(Some(PASS), None).is_err());
+        assert!(k.is_none());
+        assert!(matches!(
+            none.master(Some(PASS), None),
+            Err(KeyError::IdLength)
+        ));
+        // `how: none` with an id (a manifest `check` refuses) still gives no key
+        let mut odd = none.clone();
+        odd.id = m.sealed.id.clone();
+        assert!(matches!(
+            odd.master(Some(PASS), Some(b"secrets key")),
+            Err(KeyError::NotSealed)
+        ));
     }
 
     #[test]
@@ -1518,7 +1933,7 @@ mod tests {
             f(&mut e);
             e.key(None, Some(b"secrets key")).err()
         };
-        let changed = |e: Option<String>| e.is_some_and(|e| e.contains("changed"));
+        let changed = |e: Option<KeyError>| matches!(e, Some(KeyError::ManifestChanged));
         // a digest, a size, a path, a flag, what a section says, the site
         assert!(changed(edited(
             &|m| m.sections[0].files[0].sha256 = "0".repeat(64)
@@ -1537,14 +1952,29 @@ mod tests {
         // a sealed backup without its MAC or id is not read at all
         let mut bare = m.clone();
         bare.sealed.mac.clear();
-        assert!(bare.check().unwrap_err().contains("not authenticated"));
+        assert!(matches!(bare.check(), Err(ManifestError::NotAuthenticated)));
         let mut bare = m.clone();
         bare.sealed.id.clear();
-        assert!(bare.check().is_err());
+        assert!(matches!(bare.check(), Err(ManifestError::NotAuthenticated)));
+        // a MAC or an id that is not hex is told from a changed manifest
+        let mut odd = m.clone();
+        odd.sealed.mac = "zz".repeat(32);
+        assert!(matches!(
+            odd.key(None, Some(b"secrets key")),
+            Err(KeyError::MacHex(_))
+        ));
+        odd.sealed.id = "zz".repeat(16);
+        assert!(matches!(
+            odd.key(None, Some(b"secrets key")),
+            Err(KeyError::IdHex(_))
+        ));
         // and an unsealed one cannot claim to be authenticated
         let mut plain = manifest_with(&[("control/a", 3, b"abc")]);
         plain.sealed.mac = m.sealed.mac.clone();
-        assert!(plain.check().is_err());
+        assert!(matches!(
+            plain.check(),
+            Err(ManifestError::AuthenticationWithoutSealing)
+        ));
         // the writer signs only with the key of that backup
         let (_, other) = signed(Sealing::Broker(b"secrets key"));
         let d = dir("wrongkey");
@@ -1552,15 +1982,21 @@ mod tests {
             sealed: m.sealed.clone(),
             ..head(m.sealed.clone())
         };
-        assert!(write(
-            &d.join("x.wyrm-backup"),
-            head.clone(),
-            vec![],
-            Some(&other),
-            |_, _| {}
-        )
-        .is_err());
-        assert!(write(&d.join("x.wyrm-backup"), head, vec![], None, |_, _| {}).is_err());
+        assert!(matches!(
+            write(
+                &d.join("x.wyrm-backup"),
+                head.clone(),
+                vec![],
+                Some(&other),
+                |_, _| {}
+            ),
+            Err(WriteError::KeyOfAnotherBackup)
+        ));
+        assert!(matches!(
+            write(&d.join("x.wyrm-backup"), head, vec![], None, |_, _| {}),
+            Err(WriteError::KeyAndSealing)
+        ));
+        assert!(!d.join("x.wyrm-backup").exists());
     }
 
     #[test]
@@ -1571,16 +2007,25 @@ mod tests {
         m.sections[0].files[1].size = 2;
         assert_eq!(m.size(), u64::MAX, "never a small number");
         assert_eq!(m.sections[0].size(), u64::MAX);
-        assert!(m.check().is_err());
+        assert!(matches!(
+            m.check(),
+            Err(ManifestError::FileTooLarge { size: u64::MAX, .. })
+        ));
         // within one file's bound each, still more than u64 in all
         let mut m = manifest_with(&[("control/a", 3, b"abc")]);
         m.sections[0].files[0].size = MAX_FILE + 1;
-        assert!(m.check().unwrap_err().contains("at most"));
+        assert!(matches!(
+            m.check(),
+            Err(ManifestError::FileTooLarge { path, size }) if path == "control/a" && size == MAX_FILE + 1
+        ));
         m.sections[0].files[0].size = MAX_FILE;
         m.check().unwrap();
         // the reader's bound holds for the sum
         let zip = zip_of(&serde_json::to_vec(&m).unwrap(), &[("control/a", b"abc")]);
-        assert!(Reader::new(Cursor::new(zip), 1 << 30).is_err());
+        assert!(matches!(
+            Reader::new(Cursor::new(zip), 1 << 30),
+            Err(ReadError::OverLimit { size: MAX_FILE, max }) if max == 1 << 30
+        ));
     }
 
     #[test]
@@ -1616,7 +2061,10 @@ mod tests {
         f.sealed = false;
         f.size = 6;
         f.sha256 = wyrm_core::hex::sha256_hex(b"forged");
-        assert!(m.check().unwrap_err().contains("not sealed"));
+        assert!(matches!(
+            m.check(),
+            Err(ManifestError::SecretNotSealed { path }) if path == "keys/pki/ca.key"
+        ));
         let wal = std::fs::read(d.join("wal")).unwrap();
         let zip = zip_of(
             &serde_json::to_vec(&m).unwrap(),
@@ -1625,14 +2073,23 @@ mod tests {
                 ("keys/pki/ca.key", b"forged"),
             ],
         );
-        assert!(Reader::new(Cursor::new(zip), 1 << 30).is_err());
+        assert!(matches!(
+            Reader::new(Cursor::new(zip), 1 << 30),
+            Err(ReadError::Manifest(ManifestError::SecretNotSealed { .. }))
+        ));
         // with `how: none` there is no sealed file, so no secret file at all
         let mut m = manifest_with(&[("control/a", 3, b"abc")]);
         m.sections[0].name = SectionName::Keys;
         m.sections[0].files[0].path = "keys/state.key".into();
-        assert!(m.check().is_err());
+        assert!(matches!(
+            m.check(),
+            Err(ManifestError::SecretNotSealed { .. })
+        ));
         m.sections[0].files[0].sealed = true;
-        assert!(m.check().is_err());
+        assert!(matches!(
+            m.check(),
+            Err(ManifestError::SealedWithoutSealing { path }) if path == "keys/state.key"
+        ));
         let _ = path;
     }
 
@@ -1648,7 +2105,10 @@ mod tests {
             b"the key of a"
         );
         // the whole file, and one part, moved from b into a
-        assert!(open_bytes(&a, "keys/state.key", &in_b).is_err());
+        assert!(matches!(
+            open_bytes(&a, "keys/state.key", &in_b),
+            Err(SealedError::DoesNotOpen { path }) if path == "keys/state.key"
+        ));
         let plain = vec![3u8; SEAL_PART + 1];
         let (long_a, long_b) = (
             seal_bytes(&a, "keys/x", &plain).unwrap(),
@@ -1657,7 +2117,10 @@ mod tests {
         let part = 4 + SEAL_PART + 9 + 28;
         let mut mixed = long_a[..5 + part].to_vec();
         mixed.extend_from_slice(&long_b[5 + part..]);
-        assert!(open_bytes(&a, "keys/x", &mixed).is_err());
+        assert!(matches!(
+            open_bytes(&a, "keys/x", &mixed),
+            Err(SealedError::DoesNotOpen { .. })
+        ));
         assert!(open_bytes(&a, "keys/x", &long_a).is_ok());
     }
 
@@ -1668,23 +2131,57 @@ mod tests {
         let sealed = seal_bytes(&key, "data/a", &plain).unwrap();
         assert_eq!(*open_bytes(&key, "data/a", &sealed).unwrap(), plain);
         // another path
-        assert!(open_bytes(&key, "data/b", &sealed).is_err());
+        assert!(matches!(
+            open_bytes(&key, "data/b", &sealed),
+            Err(SealedError::DoesNotOpen { path }) if path == "data/b"
+        ));
         // a changed byte
         let mut bad = sealed.clone();
         bad[100] ^= 1;
-        assert!(open_bytes(&key, "data/a", &bad).is_err());
+        assert!(matches!(
+            open_bytes(&key, "data/a", &bad),
+            Err(SealedError::DoesNotOpen { .. })
+        ));
         // the last part cut off, and the first two parts swapped
         let part = 4 + SEAL_PART + 9 + 28;
-        assert!(open_bytes(&key, "data/a", &sealed[..5 + 2 * part]).is_err());
+        assert!(matches!(
+            open_bytes(&key, "data/a", &sealed[..5 + 2 * part]),
+            Err(SealedError::CutShort { .. })
+        ));
+        assert!(matches!(
+            open_bytes(&key, "data/a", &sealed[..5 + 2 * part + 10]),
+            Err(SealedError::CutShort { .. })
+        ));
         let mut swapped = sealed[..5].to_vec();
         swapped.extend_from_slice(&sealed[5 + part..5 + 2 * part]);
         swapped.extend_from_slice(&sealed[5..5 + part]);
         swapped.extend_from_slice(&sealed[5 + 2 * part..]);
-        assert!(open_bytes(&key, "data/a", &swapped).is_err());
+        assert!(matches!(
+            open_bytes(&key, "data/a", &swapped),
+            Err(SealedError::OutOfOrder { .. })
+        ));
         // bytes after the end
         let mut longer = sealed.clone();
         longer.push(0);
-        assert!(open_bytes(&key, "data/a", &longer).is_err());
+        assert!(matches!(
+            open_bytes(&key, "data/a", &longer),
+            Err(SealedError::Trailing { .. })
+        ));
+        // not a sealed file at all, and a part that says it is too long
+        assert!(matches!(
+            open_bytes(&key, "data/a", b"plain bytes"),
+            Err(SealedError::NotSealed { .. })
+        ));
+        assert!(matches!(
+            open_bytes(&key, "data/a", b"WY"),
+            Err(SealedError::Io { .. })
+        ));
+        let mut huge = sealed[..5].to_vec();
+        huge.extend_from_slice(&u32::MAX.to_be_bytes());
+        assert!(matches!(
+            open_bytes(&key, "data/a", &huge),
+            Err(SealedError::PartTooLarge { len, .. }) if len == u32::MAX as usize
+        ));
         // exactly one part: the next read is empty, the part is the last
         let one = vec![1u8; SEAL_PART];
         let s = seal_bytes(&key, "data/a", &one).unwrap();
@@ -1716,22 +2213,27 @@ mod tests {
 
     #[test]
     fn paths_that_leave_the_backup_are_refused() {
-        for p in [
-            "",
-            "/etc/passwd",
-            "control/../../x",
-            "control/./x",
-            "control//x",
-            "control\\x",
-            "c:/x",
-            "control/x\n",
-            "manifest.json",
-            "control/",
+        use PathFault as F;
+        let deep = format!("control/{}a", "a/".repeat(30));
+        let long = "a".repeat(MAX_PATH + 1);
+        for (p, fault) in [
+            ("", F::Length),
+            ("/etc/passwd", F::Segment),
+            ("control/../../x", F::Segment),
+            ("control/./x", F::Segment),
+            ("control//x", F::Segment),
+            ("control\\x", F::Character),
+            ("c:/x", F::Character),
+            ("control/x\n", F::Character),
+            ("manifest.json", F::ManifestName),
+            ("control/", F::Segment),
+            (deep.as_str(), F::Depth),
+            (long.as_str(), F::Length),
         ] {
-            assert!(check_path(p).is_err(), "{p:?}");
+            let e = check_path(p).unwrap_err();
+            assert_eq!((e.path.as_str(), e.fault), (p, fault));
         }
         assert!(check_path(&format!("control/{}", "a/".repeat(30))).is_err());
-        assert!(check_path(&"a".repeat(MAX_PATH + 1)).is_err());
         assert!(check_path("links/plc1/data/store/00ff").is_ok());
     }
 
@@ -1814,7 +2316,7 @@ mod tests {
         }
     }
 
-    fn open(m: &Manifest, entries: &[(&str, &[u8])]) -> Result<Reader<Cursor<Vec<u8>>>, String> {
+    fn open(m: &Manifest, entries: &[(&str, &[u8])]) -> Result<Reader<Cursor<Vec<u8>>>, ReadError> {
         let zip = zip_of(&serde_json::to_vec(m).unwrap(), entries);
         Reader::new(Cursor::new(zip), 1 << 20)
     }
@@ -1825,18 +2327,66 @@ mod tests {
         let mut r = open(&good, &[("control/a", b"abc")]).unwrap();
         r.verify(|_, _| {}).unwrap();
         // an entry more, an entry less, another name
-        assert!(open(&good, &[("control/a", b"abc"), ("control/b", b"x")]).is_err());
-        assert!(open(&good, &[]).is_err());
-        assert!(open(&good, &[("control/b", b"abc")]).is_err());
+        assert!(matches!(
+            open(&good, &[("control/a", b"abc"), ("control/b", b"x")]),
+            Err(ReadError::EntriesAndManifest {
+                entries: 2,
+                listed: 1
+            })
+        ));
+        assert!(matches!(
+            open(&good, &[]),
+            Err(ReadError::EntriesAndManifest {
+                entries: 0,
+                listed: 1
+            })
+        ));
+        assert!(matches!(
+            open(&good, &[("control/b", b"abc")]),
+            Err(ReadError::UnlistedEntry { name }) if name == "control/b"
+        ));
         // another size is seen at open, other content at read
-        assert!(open(&good, &[("control/a", b"abcd")]).is_err());
+        assert!(matches!(
+            open(&good, &[("control/a", b"abcd")]),
+            Err(ReadError::EntryNotAsListed { path, size: 3 }) if path == "control/a"
+        ));
         let mut r = open(&good, &[("control/a", b"abd")]).unwrap();
-        assert!(r.verify(|_, _| {}).is_err());
-        assert!(r.read("control/a").is_err());
+        assert!(matches!(
+            r.verify(|_, _| {}),
+            Err(ReadError::Differs { path }) if path == "control/a"
+        ));
+        assert!(matches!(
+            r.read("control/a"),
+            Err(ReadError::Differs { .. })
+        ));
         // a manifest that is not first, or is not a manifest
         let zip = zip_of(b"{}", &[]);
-        assert!(Reader::new(Cursor::new(zip), 1 << 20).is_err());
-        assert!(Reader::new(Cursor::new(b"not a zip".to_vec()), 1 << 20).is_err());
+        assert!(matches!(
+            Reader::new(Cursor::new(zip), 1 << 20),
+            Err(ReadError::ManifestJson(_))
+        ));
+        assert!(matches!(
+            Reader::new(Cursor::new(b"not a zip".to_vec()), 1 << 20),
+            Err(ReadError::NotZip(_))
+        ));
+        let mut w = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        let opts = zip::write::SimpleFileOptions::default();
+        w.start_file("control/a", opts).unwrap();
+        w.write_all(b"abc").unwrap();
+        w.start_file(MANIFEST, opts).unwrap();
+        w.write_all(&serde_json::to_vec(&good).unwrap()).unwrap();
+        let zip = w.finish().unwrap().into_inner();
+        assert!(matches!(
+            Reader::new(Cursor::new(zip), 1 << 20),
+            Err(ReadError::ManifestNotFirst)
+        ));
+        // a manifest the reader refuses is told from a file that is no backup
+        let mut bad = good.clone();
+        bad.wyrm_backup = 2;
+        assert!(matches!(
+            open(&bad, &[("control/a", b"abc")]),
+            Err(ReadError::Manifest(ManifestError::Version { found: 2 }))
+        ));
     }
 
     /// Review of PR 72, item 5: what a backup opens into is bounded before
@@ -1850,7 +2400,10 @@ mod tests {
         let zip = zip_of(&serde_json::to_vec(&m).unwrap(), &[("control/a", &zeros)]);
         assert!(zip.len() < 1 << 20, "{} bytes", zip.len());
         let e = Reader::new(Cursor::new(zip), 1 << 40).err().unwrap();
-        assert!(e.contains("times its size"), "{e}");
+        assert!(
+            matches!(e, ReadError::Ratio { size, .. } if size == 96 << 20),
+            "{e}"
+        );
         // within the slack a compressible file is taken (a fresh redb file)
         let small = vec![0u8; 8 << 20];
         let m = manifest_with(&[("control/a", small.len() as u64, &small)]);
@@ -1883,7 +2436,10 @@ mod tests {
                 entry("packages/p/files/b", half),
             ],
         );
-        assert!(m.caps().unwrap_err().contains("package p"));
+        assert!(matches!(
+            m.caps(),
+            Err(ManifestError::PartTooLarge { part: Part::Package, name, .. }) if name == "p"
+        ));
         let m = with(
             "packages",
             vec![
@@ -1896,7 +2452,10 @@ mod tests {
             "dataflows",
             vec![entry("dataflows/artifacts/ab/cd", MAX_ARTIFACT + (1 << 20))],
         );
-        assert!(m.caps().unwrap_err().contains("flow artifact"));
+        assert!(matches!(
+            m.caps(),
+            Err(ManifestError::ArtifactTooLarge { path, .. }) if path == "dataflows/artifacts/ab/cd"
+        ));
         let m = with(
             "links",
             vec![
@@ -1904,12 +2463,42 @@ mod tests {
                 entry("links/l1/files/b", MAX_LINK_DATA / 512),
             ],
         );
-        assert!(m.caps().unwrap_err().contains("link data l1"));
+        assert!(matches!(
+            m.caps(),
+            Err(ManifestError::PartTooLarge { part: Part::LinkData, name, .. }) if name == "l1"
+        ));
         let m = with("links", vec![entry("links/l1/files/a", MAX_LINK_DATA)]);
         m.caps().unwrap();
         let mut m = with("package", vec![entry("package/files/bin", MAX_PACKAGE * 2)]);
         m.kind = Kind::Link;
-        assert!(m.caps().unwrap_err().contains("package"));
+        assert!(matches!(
+            m.caps(),
+            Err(ManifestError::PartTooLarge { part: Part::Package, name, .. }) if name.is_empty()
+        ));
+        // a link's data over its bound is named before a package over its own,
+        // as it was when the parts were sorted by their names
+        let mut m = with(
+            "packages",
+            vec![
+                entry("packages/p/files/a", half),
+                entry("packages/p/files/b", half),
+            ],
+        );
+        m.sections.push(Section {
+            name: SectionName::Links,
+            info: Default::default(),
+            files: vec![
+                entry("links/l1/files/a", MAX_LINK_DATA),
+                entry("links/l1/files/b", MAX_LINK_DATA / 512),
+            ],
+        });
+        assert!(matches!(
+            m.caps(),
+            Err(ManifestError::PartTooLarge {
+                part: Part::LinkData,
+                ..
+            })
+        ));
     }
 
     #[test]
@@ -1921,30 +2510,66 @@ mod tests {
             f(&mut m);
             m.check()
         };
-        assert!(with(&|m| m.wyrm_backup = 2).is_err());
-        assert!(with(&|m| m.site = "a/b".into()).is_err());
+        use ManifestError as E;
+        assert!(matches!(
+            with(&|m| m.wyrm_backup = 2),
+            Err(E::Version { found: 2 })
+        ));
+        assert!(matches!(with(&|m| m.site = "a/b".into()), Err(E::Site(_))));
         // a section of the other kind of backup
-        assert!(with(&|m| m.sections[0].name = SectionName::Settings).is_err());
-        assert!(with(&|m| m.sections[0].files[0].path = "keys/a".into()).is_err());
-        assert!(with(&|m| m.sections[0].files[0].path = "control".into()).is_err());
-        assert!(with(&|m| m.sections[0].files[0].path = "control/../a".into()).is_err());
-        assert!(with(&|m| m.sections[0].files[0].sha256 = "xyz".into()).is_err());
-        assert!(with(&|m| m.sections[0].files[0].sealed = true).is_err());
-        assert!(with(&|m| {
-            let f = m.sections[0].files[0].clone();
-            m.sections[0].files.push(f)
-        })
-        .is_err());
-        assert!(with(&|m| {
-            let s = m.sections[0].clone();
-            m.sections.push(s)
-        })
-        .is_err());
+        assert!(matches!(
+            with(&|m| m.sections[0].name = SectionName::Settings),
+            Err(E::SectionOfOtherKind {
+                section: SectionName::Settings,
+                kind: Kind::Broker
+            })
+        ));
+        // a file outside the folder of its section
+        assert!(matches!(
+            with(&|m| m.sections[0].files[0].path = "keys/a".into()),
+            Err(E::OutsideSection { path, section: SectionName::Control }) if path == "keys/a"
+        ));
+        assert!(matches!(
+            with(&|m| m.sections[0].files[0].path = "control".into()),
+            Err(E::OutsideSection { .. })
+        ));
+        assert!(matches!(
+            with(&|m| m.sections[0].files[0].path = "control/../a".into()),
+            Err(E::Path(PathError {
+                fault: PathFault::Segment,
+                ..
+            }))
+        ));
+        assert!(matches!(
+            with(&|m| m.sections[0].files[0].sha256 = "xyz".into()),
+            Err(E::Digest { .. })
+        ));
+        assert!(matches!(
+            with(&|m| m.sections[0].files[0].sealed = true),
+            Err(E::SealedWithoutSealing { .. })
+        ));
+        assert!(matches!(
+            with(&|m| {
+                let f = m.sections[0].files[0].clone();
+                m.sections[0].files.push(f)
+            }),
+            Err(E::PathTwice { path }) if path == "control/a"
+        ));
+        assert!(matches!(
+            with(&|m| {
+                let s = m.sections[0].clone();
+                m.sections.push(s)
+            }),
+            Err(E::SectionTwice(SectionName::Control))
+        ));
         assert!(
-            with(&|m| m.kind = Kind::Link).is_err(),
+            matches!(with(&|m| m.kind = Kind::Link), Err(E::LinkAndKind)),
             "a link backup names its link"
         );
-        assert!(with(&|m| m.sealed.how = How::Passphrase).is_err());
+        assert!(matches!(
+            with(&|m| m.sealed.how = How::Passphrase),
+            Err(E::KdfAndHow)
+        ));
         // a link backup has link sections
         let mut link = ok.clone();
         link.kind = Kind::Link;
@@ -1955,9 +2580,395 @@ mod tests {
             package: String::new(),
             version: String::new(),
         });
-        assert!(link.check().is_err());
+        assert!(matches!(
+            link.check(),
+            Err(E::SectionOfOtherKind {
+                section: SectionName::Control,
+                kind: Kind::Link
+            })
+        ));
         link.sections[0].name = SectionName::Settings;
         link.sections[0].files[0].path = "settings/link.cbor".into();
         link.check().unwrap();
+    }
+
+    /// What was staged is checked as a reader checks it: the writer's error
+    /// carries the manifest's, and no file is left.
+    #[test]
+    fn the_writer_refuses_a_manifest_no_reader_takes() {
+        let d = dir("badstage");
+        std::fs::write(d.join("a"), b"abc").unwrap();
+        let (sealed, _) = Sealing::None.start().unwrap();
+        let staged = |path: &str, source: &str| {
+            vec![StagedSection {
+                name: SectionName::Control,
+                info: Default::default(),
+                files: vec![Staged {
+                    path: path.into(),
+                    source: d.join(source),
+                    sealed: false,
+                    exec: false,
+                }],
+            }]
+        };
+        let out = d.join("x.wyrm-backup");
+        assert!(matches!(
+            write(
+                &out,
+                head(sealed.clone()),
+                staged("keys/a", "a"),
+                None,
+                |_, _| {}
+            ),
+            Err(WriteError::Manifest(ManifestError::OutsideSection { .. }))
+        ));
+        assert!(matches!(
+            write(&out, head(sealed), staged("control/a", "none"), None, |_, _| {}),
+            Err(WriteError::Io { path, source })
+                if path == d.join("none") && source.kind() == std::io::ErrorKind::NotFound
+        ));
+        assert!(!out.exists() && !d.join("x.wyrm-backup.part").exists());
+    }
+
+    /// Audit T7: the errors of this module were text. Each variant says, byte
+    /// for byte, what the text said: these lines reach an action's refusal, a
+    /// `sys` value, a CLI line and the audit journal.
+    #[test]
+    fn every_error_says_what_its_text_said() {
+        fn said(e: &dyn std::error::Error, want: &str) {
+            assert_eq!(e.to_string(), want);
+        }
+        let io = || std::io::Error::other("no");
+        let json = || <serde_json::Error as serde::de::Error>::custom("no");
+        let zip = || zip::result::ZipError::FileNotFound;
+        let hex = hex::FromHexError::OddLength;
+        let p = || "keys/a".to_owned();
+
+        use PathFault as F;
+        let path = |fault| PathError {
+            path: "a/../b".into(),
+            fault,
+        };
+        said(&path(F::Length), r#"path "a/../b": empty or too long"#);
+        said(
+            &path(F::ManifestName),
+            r#"path "a/../b": the manifest's name"#,
+        );
+        said(
+            &path(F::Segment),
+            r#"path "a/../b": empty, `.` or `..` segment"#,
+        );
+        said(
+            &path(F::Character),
+            r#"path "a/../b": `\`, `:` or a control character"#,
+        );
+        said(&path(F::Depth), r#"path "a/../b": too deep"#);
+
+        use ManifestError as M;
+        said(
+            &M::Version { found: 2 },
+            "wyrm_backup 2: this broker reads version 1",
+        );
+        said(
+            &M::Site(wyrm_core::keyspace::KeyError::Empty),
+            "manifest: site: empty segment",
+        );
+        said(
+            &M::KdfAndHow,
+            "manifest: sealed.kdf goes with how: passphrase",
+        );
+        said(
+            &M::NotAuthenticated,
+            "manifest: a sealed backup carries sealed.id, sealed.check and sealed.mac; \
+             this one is not authenticated",
+        );
+        said(
+            &M::AuthenticationWithoutSealing,
+            "manifest: sealed.id and sealed.mac go with a sealed backup",
+        );
+        said(&M::LinkAndKind, "manifest: link goes with kind: link");
+        said(
+            &M::SectionOfOtherKind {
+                section: SectionName::Settings,
+                kind: Kind::Broker,
+            },
+            "manifest: no section Settings in a broker backup",
+        );
+        said(
+            &M::SectionTwice(SectionName::Keys),
+            "manifest: section keys twice",
+        );
+        said(&M::TooManyFiles, "manifest: more than 100000 files");
+        said(&M::Path(path(F::Depth)), r#"path "a/../b": too deep"#);
+        said(
+            &M::OutsideSection {
+                path: p(),
+                section: SectionName::Control,
+            },
+            "manifest: keys/a is not under section control",
+        );
+        said(&M::Digest { path: p() }, "manifest: keys/a: sha256");
+        said(
+            &M::FileTooLarge { path: p(), size: 7 },
+            "manifest: keys/a: 7 bytes (at most 1099511627776 a file)",
+        );
+        said(
+            &M::SizesOverflow,
+            "manifest: the sizes of its files do not add up",
+        );
+        said(
+            &M::SecretNotSealed { path: p() },
+            "manifest: keys/a holds secrets and is not sealed",
+        );
+        said(
+            &M::SealedWithoutSealing { path: p() },
+            "manifest: keys/a is sealed, the backup says none",
+        );
+        said(&M::PathTwice { path: p() }, "manifest: keys/a twice");
+        said(
+            &M::ArtifactTooLarge { path: p(), size: 7 },
+            "keys/a: 7 bytes (a flow artifact has at most 67108864)",
+        );
+        said(
+            &M::PartTooLarge {
+                part: Part::Package,
+                name: "p".into(),
+                size: 7,
+            },
+            "the package p of the backup holds 7 bytes (at most 268435456)",
+        );
+        said(
+            &M::PartTooLarge {
+                part: Part::LinkData,
+                name: "l1".into(),
+                size: 7,
+            },
+            "the link data l1 of the backup holds 7 bytes (at most 8589934592)",
+        );
+
+        use KeyError as K;
+        said(&K::PassphraseTooShort, "passphrase: at least 12 characters");
+        said(
+            &K::KdfBounds,
+            "sealed.kdf: not Argon2id within 128 MiB, 4 passes, 4 lanes",
+        );
+        said(&K::SaltHex(hex), "sealed.kdf.salt: hex");
+        said(
+            &K::KdfParams(argon2::Error::MemoryTooLittle),
+            "sealed.kdf: memory cost is too small",
+        );
+        said(
+            &K::Derivation(argon2::Error::OutputTooShort),
+            "key derivation: output is too short",
+        );
+        said(&K::IdHex(hex), "manifest: sealed.id: hex");
+        said(&K::IdLength, "manifest: sealed.id: 16 bytes");
+        said(
+            &K::PassphraseRequired,
+            "passphrase: required, the backup is sealed with one",
+        );
+        said(
+            &K::BrokerKeyRequired,
+            "the backup is sealed for the broker that made it",
+        );
+        said(&K::NotSealed, "the backup has no sealed files");
+        said(&K::WrongPassphrase, "wrong passphrase");
+        said(
+            &K::AnotherBroker,
+            "the backup is sealed for another broker (its secrets.key differs)",
+        );
+        said(&K::MacHex(hex), "manifest: sealed.mac: hex");
+        said(
+            &K::ManifestChanged,
+            "the manifest was changed after the backup was made (its MAC does not match)",
+        );
+        said(&K::Encode(json()), "no");
+        // `K::NoRandomness` shows its cause alone, as `e.to_string()` did; the
+        // cause is made only by `wyrm_core::rand`
+        said(
+            &K::Seal(wyrm_link_sdk::seal::SealError),
+            "seal: no randomness for the nonce, or the cipher refused",
+        );
+
+        use SealedError as S;
+        said(
+            &S::Io {
+                path: p(),
+                source: io(),
+            },
+            "keys/a: no",
+        );
+        said(&S::NotSealed { path: p() }, "keys/a: not a sealed file");
+        said(
+            &S::CutShort {
+                path: p(),
+                source: io(),
+            },
+            "keys/a: sealed file cut short",
+        );
+        said(
+            &S::PartTooLarge { path: p(), len: 7 },
+            "keys/a: sealed part of 7 bytes",
+        );
+        said(
+            &S::DoesNotOpen { path: p() },
+            "keys/a: does not open (wrong key, or changed)",
+        );
+        said(
+            &S::OutOfOrder { path: p() },
+            "keys/a: sealed parts out of order",
+        );
+        said(
+            &S::Trailing { path: p() },
+            "keys/a: bytes after the last sealed part",
+        );
+
+        use WriteError as W;
+        said(
+            &W::Io {
+                path: "/b/x".into(),
+                source: io(),
+            },
+            "/b/x: no",
+        );
+        said(&W::KeyOfAnotherBackup, "the key is of another backup");
+        said(
+            &W::KeyAndSealing,
+            "a sealed backup is written with its key, an unsealed one without",
+        );
+        said(
+            &W::Manifest(M::LinkAndKind),
+            "manifest: link goes with kind: link",
+        );
+        said(&W::ManifestTooLarge, "manifest: too large");
+        said(&W::Encode(json()), "no");
+        said(&W::Zip(zip()), "specified file not found in archive");
+        said(&W::Flush(io()), "no");
+        said(
+            &W::SourceChanged {
+                path: "/b/x".into(),
+            },
+            "/b/x: changed while it was read",
+        );
+
+        use ReadError as R;
+        said(
+            &R::File {
+                path: "/b/x".into(),
+                source: io(),
+            },
+            "/b/x: no",
+        );
+        said(&R::Seek(io()), "not a backup: no");
+        said(
+            &R::NotZip(zip()),
+            "not a backup: specified file not found in archive",
+        );
+        said(
+            &R::EntryCount { found: 0 },
+            "not a backup: 0 entries (1 to 100000)",
+        );
+        said(
+            &R::ManifestNotFirst,
+            "not a backup: the first entry is not manifest.json",
+        );
+        said(&R::ManifestTooLarge, "manifest: too large");
+        said(&R::ManifestRead(io()), "manifest: no");
+        said(&R::ManifestJson(json()), "manifest: no");
+        said(
+            &R::Manifest(M::LinkAndKind),
+            "manifest: link goes with kind: link",
+        );
+        said(
+            &R::OverLimit { size: 9, max: 7 },
+            "the backup holds 9 bytes; at most 7 are taken here",
+        );
+        said(
+            &R::Ratio { len: 3, size: 9 },
+            "the backup is a file of 3 bytes that says it holds 9: more than \
+             200 times its size, it is not opened",
+        );
+        said(
+            &R::EntriesAndManifest {
+                entries: 2,
+                listed: 1,
+            },
+            "the backup has 2 entries, its manifest lists 1",
+        );
+        said(&R::Zip(zip()), "zip: specified file not found in archive");
+        said(
+            &R::UnlistedEntry {
+                name: "a\"b".into(),
+            },
+            r#"entry "a\"b" is not in the manifest"#,
+        );
+        said(
+            &R::EntryNotAsListed { path: p(), size: 7 },
+            "entry keys/a: not the file of 7 bytes the manifest lists",
+        );
+        said(&R::NotInBackup { path: p() }, "keys/a: not in the backup");
+        said(
+            &R::Entry {
+                path: p(),
+                source: zip(),
+            },
+            "keys/a: specified file not found in archive",
+        );
+        said(
+            &R::Stored {
+                path: p(),
+                source: io(),
+            },
+            "keys/a: no",
+        );
+        said(
+            &R::Output {
+                path: p(),
+                source: io(),
+            },
+            "keys/a: no",
+        );
+        said(
+            &R::Longer { path: p() },
+            "keys/a: longer than the manifest lists",
+        );
+        said(
+            &R::Differs { path: p() },
+            "keys/a: size or SHA-256 differs from the manifest",
+        );
+        said(
+            &R::TooLargeInMemory { path: p(), size: 7 },
+            "keys/a: 7 bytes, too large to read in memory",
+        );
+        said(&R::NoKey { path: p() }, "keys/a: sealed, no key");
+        said(
+            &R::Sealed(S::NotSealed { path: p() }),
+            "keys/a: not a sealed file",
+        );
+        said(&R::Flush(io()), "no");
+    }
+
+    /// An error of a key or of a sealed file shows nothing of what was tried:
+    /// not the passphrase, not the key, not a byte of the file.
+    #[test]
+    fn errors_show_no_secret_input() {
+        let (m, key) = signed(Sealing::Passphrase(PASS));
+        let wrong = b"zebra-zebra-zebra";
+        let e = m.key(Some(wrong), None).err().unwrap();
+        let shown = format!("{e} {e:?}");
+        assert!(!shown.contains("zebra"), "{shown}");
+        let e = m.key(Some(b"zebra"), None).err().unwrap();
+        let shown = format!("{e} {e:?}");
+        assert!(!shown.contains("zebra"), "{shown}");
+        let (b, _) = signed(Sealing::Broker(b"zebra-secrets-key"));
+        let e = b.key(None, Some(b"zebra-other-key")).err().unwrap();
+        let shown = format!("{e} {e:?}");
+        assert!(!shown.contains("zebra"), "{shown}");
+        // a sealed file that does not open: its bytes are not in the error
+        let mut sealed = seal_bytes(&key, "data/a", b"zebra").unwrap();
+        let last = sealed.len() - 1;
+        sealed[last] ^= 1;
+        let e = open_bytes(&key, "data/a", &sealed).unwrap_err();
+        assert_eq!(format!("{e:?}"), r#"DoesNotOpen { path: "data/a" }"#);
     }
 }

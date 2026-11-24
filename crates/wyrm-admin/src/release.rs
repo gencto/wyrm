@@ -2336,7 +2336,8 @@ pub fn restore_control(
     existed: &[String],
 ) -> Result<(), RestoreError> {
     use crate::backup as format;
-    let mut r = format::Reader::open(backup, 8 << 30).map_err(RestoreError::Backup)?;
+    let mut r =
+        format::Reader::open(backup, 8 << 30).map_err(|e| RestoreError::Backup(e.to_string()))?;
     if r.manifest().kind != format::Kind::Broker {
         return Err(RestoreError::NotBroker);
     }
@@ -2354,7 +2355,7 @@ pub fn restore_control(
     // the manifest is authentic: every path, size and digest in it
     r.manifest()
         .key(None, Some(&secrets_key))
-        .map_err(RestoreError::Manifest)?;
+        .map_err(|e| RestoreError::Manifest(e.to_string()))?;
     let listed: Vec<String> = r
         .manifest()
         .section(crate::backup::SectionName::Control)
@@ -2387,7 +2388,7 @@ pub fn restore_control(
                 return Err(RestoreError::NotWalFile(path.clone()));
             }
             r.extract(path, &stage.join(name).join(file), None)
-                .map_err(RestoreError::Backup)?;
+                .map_err(|e| RestoreError::Backup(e.to_string()))?;
             n += 1;
         }
         if n == 0 {
