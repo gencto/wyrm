@@ -814,7 +814,9 @@ pub fn ports(ty: &str, cfg: &Map) -> Option<Result<Ports, ConfigError>> {
 /// `aggregates`; other types have none.
 pub fn check_scripts(ty: &str, cfg: &Map) -> Result<(), ConfigError> {
     match kind(ty) {
-        Some(Kind::Table(op)) => Ok(tables::scripts(op, cfg).map(|_| ())?),
+        Some(Kind::Table(op)) => tables::scripts(op, cfg)
+            .map(|_| ())
+            .map_err(ConfigError::Table),
         _ => Ok(()),
     }
 }
