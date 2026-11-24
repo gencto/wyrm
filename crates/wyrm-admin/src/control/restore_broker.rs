@@ -745,7 +745,7 @@ impl Control {
         for f in manifest.sections.iter().flat_map(|s| &s.files) {
             places.push((f.path.clone(), place_of(&f.path)?));
         }
-        r.verify(|_, _| {})?;
+        r.verify(|_, _| {}).map_err(|e| e.to_string())?;
         let key = self.backup_key(&manifest, passphrase)?;
         let mut problems = Vec::new();
         let mut notes = Vec::new();
@@ -775,7 +775,9 @@ impl Control {
             }
             for (path, place) in &places {
                 let Place::Key(rel) = place else { continue };
-                let theirs = r.read_plain(path, key.as_ref())?;
+                let theirs = r
+                    .read_plain(path, key.as_ref())
+                    .map_err(|e| e.to_string())?;
                 let own = Zeroizing::new(std::fs::read(d.join(rel)).unwrap_or_default());
                 if theirs.as_slice() != own.as_slice() {
                     keys_differ.push(rel.clone());
@@ -806,7 +808,8 @@ impl Control {
             .unwrap_or_default()
         {
             if let Some(file) = f.path.strip_prefix("control/state/") {
-                r.extract(&f.path, &scratch.0.join("state").join(file), None)?;
+                r.extract(&f.path, &scratch.0.join("state").join(file), None)
+                    .map_err(|e| e.to_string())?;
                 any = true;
             }
         }
@@ -1000,7 +1003,8 @@ impl Control {
         if keys {
             for (p, place) in &c.places {
                 let Place::Key(rel) = place else { continue };
-                r.extract(p, &data.join(rel), key)?;
+                r.extract(p, &data.join(rel), key)
+                    .map_err(|e| e.to_string())?;
                 plan.files.push(rel.clone());
             }
             if c.keys_other {
@@ -1030,7 +1034,8 @@ impl Control {
                 continue;
             }
             for (p, file) in files {
-                r.extract(p, &data.join(dir).join(file), None)?;
+                r.extract(p, &data.join(dir).join(file), None)
+                    .map_err(|e| e.to_string())?;
             }
             // with the key that will be in place
             let staged_key = data.join(key_file);
@@ -1059,7 +1064,8 @@ impl Control {
             std::fs::create_dir_all(&dir).map_err(|e| io_err(&dir, e))?;
             for (p, place) in &c.places {
                 if let Place::Artifact(rel) = place {
-                    r.extract(p, &dir.join(rel), None)?;
+                    r.extract(p, &dir.join(rel), None)
+                        .map_err(|e| e.to_string())?;
                 }
             }
             plan.dirs.push("flows/artifacts".into());
@@ -1068,7 +1074,8 @@ impl Control {
             // the store is built here, from the tree: a tree that does not
             // read refuses the restore now, not the start that applies it
             let tree = tmp.join(STORAGE_TREE);
-            r.extract("storage/tree.cbor", &tree, None)?;
+            r.extract("storage/tree.cbor", &tree, None)
+                .map_err(|e| e.to_string())?;
             build_storage(&tree, &data.join("storage"))?;
             std::fs::remove_file(&tree).map_err(|e| io_err(&tree, e))?;
             plan.dirs.push("storage".into());
@@ -1078,8 +1085,12 @@ impl Control {
             std::fs::create_dir_all(dir.join("days")).map_err(|e| io_err(&dir, e))?;
             for (p, place) in &c.places {
                 match place {
-                    Place::HistoryIndex => r.extract(p, &dir.join("index.redb"), None)?,
-                    Place::HistoryDay(day) => r.extract(p, &dir.join("days").join(day), None)?,
+                    Place::HistoryIndex => r
+                        .extract(p, &dir.join("index.redb"), None)
+                        .map_err(|e| e.to_string())?,
+                    Place::HistoryDay(day) => r
+                        .extract(p, &dir.join("days").join(day), None)
+                        .map_err(|e| e.to_string())?,
                     _ => continue,
                 };
             }
@@ -1111,7 +1122,8 @@ impl Control {
                 for (p, place) in &c.places {
                     match place {
                         Place::LinkFile(l, rel) if l == id => {
-                            r.extract(p, &dir.join(rel), key)?;
+                            r.extract(p, &dir.join(rel), key)
+                                .map_err(|e| e.to_string())?;
                         }
                         _ => {}
                     }
@@ -1124,7 +1136,9 @@ impl Control {
                 // Without `keys`, a link's secrets go into this broker's
                 // store, and a broker-made one is never taken from a file.
                 if !keys {
-                    let plain = r.read_plain(&format!("links/{id}/secrets"), key)?;
+                    let plain = r
+                        .read_plain(&format!("links/{id}/secrets"), key)
+                        .map_err(|e| e.to_string())?;
                     let Value::Map(m) =
                         wyrm_core::codec::from_slice::<Value>(&plain).map_err(|e| e.to_string())?
                     else {
@@ -1163,7 +1177,8 @@ impl Control {
                 for (p, place) in &c.places {
                     match place {
                         Place::PackageFile(n, rel) if n == name => {
-                            r.extract(p, &scratch.join(rel), None)?;
+                            r.extract(p, &scratch.join(rel), None)
+                                .map_err(|e| e.to_string())?;
                         }
                         _ => {}
                     }
@@ -1318,7 +1333,7 @@ impl Admin {
         let (ctl, path) = (self.ctl.clone(), path.to_owned());
         tokio::task::spawn_blocking(move || {
             let size = std::fs::metadata(&path).map_or(0, |m| m.len());
-            let mut r = format::Reader::open(&path, MAX_UPLOAD)?;
+            let mut r = format::Reader::open(&path, MAX_UPLOAD).map_err(|e| e.to_string())?;
             let c = ctl.check_broker_backup(&mut r, passphrase.as_deref().map(|p| &p[..]))?;
             Ok((ctl.check_report(&c, size), false))
         })
@@ -1373,7 +1388,7 @@ impl Admin {
             let ctl = ctl2;
             let has = |s: SectionName| chosen2.contains(&s);
             let pass = passphrase.as_deref().map(|p| &p[..]);
-            let mut r = format::Reader::open(&path2, MAX_UPLOAD)?;
+            let mut r = format::Reader::open(&path2, MAX_UPLOAD).map_err(|e| e.to_string())?;
             let c = ctl.check_broker_backup(&mut r, pass)?;
             if let Some(p) = c.problems.first() {
                 return Err(p.clone());
@@ -1497,10 +1512,10 @@ impl Admin {
         // the key is derived once (Argon2id for a passphrase) and goes on
         // to every link of the file
         let (manifest, tree, key) = tokio::task::spawn_blocking(move || {
-            let mut r = format::Reader::open(&path2, MAX_UPLOAD)?;
+            let mut r = format::Reader::open(&path2, MAX_UPLOAD).map_err(|e| e.to_string())?;
             let c = ctl2.check_broker_backup(&mut r, pass2.as_deref().map(|p| &p[..]))?;
             let tree = match c.manifest.section(SectionName::Storage) {
-                Some(_) => Some(r.read("storage/tree.cbor")?),
+                Some(_) => Some(r.read("storage/tree.cbor").map_err(|e| e.to_string())?),
                 None => None,
             };
             Ok::<_, String>((c.manifest, tree, c.key))
@@ -1549,12 +1564,15 @@ impl Admin {
                 let (ctl2, path2, key, id2) =
                     (ctl.clone(), path.to_owned(), key.clone(), id.clone());
                 let read = tokio::task::spawn_blocking(move || {
-                    let mut r = format::Reader::open(&path2, MAX_UPLOAD)?;
+                    let mut r =
+                        format::Reader::open(&path2, MAX_UPLOAD).map_err(|e| e.to_string())?;
                     let m = r.manifest().clone();
                     // the package the link names, if the backup holds it
-                    let def: LinkDef =
-                        minicbor::decode(&r.read(&format!("links/{id2}/link.cbor"))?)
-                            .map_err(|e| format!("links/{id2}/link.cbor: {e}"))?;
+                    let def: LinkDef = minicbor::decode(
+                        &r.read(&format!("links/{id2}/link.cbor"))
+                            .map_err(|e| e.to_string())?,
+                    )
+                    .map_err(|e| format!("links/{id2}/link.cbor: {e}"))?;
                     let package = def.driver.strip_prefix(packages::DRIVER_PREFIX);
                     let lay = LinkLayout::in_broker(&m, &id2, package);
                     ctl2.read_link_parts(&mut r, key.as_ref(), &lay)

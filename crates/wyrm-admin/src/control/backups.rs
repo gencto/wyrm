@@ -458,7 +458,7 @@ struct Stager<'a> {
 
 impl Stager<'_> {
     fn place(&self, path: &str) -> Result<PathBuf, String> {
-        format::check_path(path)?;
+        format::check_path(path).map_err(|e| e.to_string())?;
         let p = self.dir.join(path);
         if let Some(d) = p.parent() {
             std::fs::create_dir_all(d).map_err(|e| io_err(d, e))?;
@@ -524,7 +524,7 @@ impl Stager<'_> {
     /// The file `src` itself as the plain file `path` (not copied: the
     /// writer fails the backup if it changes meanwhile).
     fn direct(&self, path: &str, src: PathBuf, exec: bool) -> Result<Staged, String> {
-        format::check_path(path)?;
+        format::check_path(path).map_err(|e| e.to_string())?;
         Ok(Staged {
             path: path.to_owned(),
             source: src,
@@ -786,7 +786,7 @@ impl Control {
                 format::Sealing::Broker(&secrets_key)
             }
         };
-        let (sealed, key) = sealing.start()?;
+        let (sealed, key) = sealing.start().map_err(|e| e.to_string())?;
         let st = Stager {
             dir: &stage.0,
             key: key.as_ref(),
@@ -935,6 +935,7 @@ impl Control {
             let pct = 50 + (done.saturating_mul(50) / total.max(1)).min(50);
             progress("writing", pct as u8);
         })
+        .map_err(|e| e.to_string())
     }
 
     /// `control`: each control-plane WAL as of one sequence number.
