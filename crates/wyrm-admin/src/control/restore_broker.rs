@@ -402,11 +402,18 @@ pub enum BrokerRestoreError {
 
 impl BrokerRestoreError {
     /// The status of the refusal. `busy` is a reason to try again: another
-    /// restore, backup, update or install runs. Everything else is
-    /// `invalid_parameter`, as the handler answered before the refusals had
-    /// types (it told `busy` by the words of the message).
+    /// restore, backup, update or install runs. A gate closed by the caller's
+    /// rights is `permission_denied` (owner decision 2026-11-24, issue #198
+    /// item 3): the caller comes from an upstream, or the host keeps secrets
+    /// on the site, as `sys/backups ▸ create` and `download_part` answer the
+    /// same rule. Everything else is `invalid_parameter`, as the handler
+    /// answered before the refusals had types (it told `busy` by the words of
+    /// the message).
     pub fn status(&self) -> Status {
         match self {
+            BrokerRestoreError::Gate(GateError::Remote | GateError::ExportOff) => {
+                Status::PermissionDenied
+            }
             BrokerRestoreError::Busy(_) => Status::Busy,
             BrokerRestoreError::PreBackup(NowError::Refused(
                 StartError::Running | StartError::LinkBusy(_),
@@ -427,7 +434,7 @@ impl BrokerRestoreError {
             | BrokerRestoreError::Problem(_)
             | BrokerRestoreError::MissingSection(_)
             | BrokerRestoreError::Anchored
-            | BrokerRestoreError::Gate(_)
+            | BrokerRestoreError::Gate(GateError::NoPassphrase | GateError::KeysDiffer { .. })
             | BrokerRestoreError::ControlKeys
             | BrokerRestoreError::Task(_)
             | BrokerRestoreError::WalKeys { .. }
@@ -2726,7 +2733,7 @@ mod tests {
     /// to a caller.
     fn every_refusal() -> Vec<(BrokerRestoreError, Status)> {
         use BrokerRestoreError as B;
-        use Status::{Busy, InvalidParameter as Invalid};
+        use Status::{Busy, InvalidParameter as Invalid, PermissionDenied as Denied};
         let io = || std::io::Error::other("no");
         let boxed = || -> secret::Error { "no".into() };
         let codec = || wyrm_core::codec::CodecError::Encode("no".into());
@@ -2773,8 +2780,9 @@ mod tests {
             ),
             (B::MissingSection(SectionName::History), Invalid),
             (B::Anchored, Invalid),
-            (B::Gate(GateError::Remote), Invalid),
-            (B::Gate(GateError::ExportOff), Invalid),
+            // refused by the caller's rights, not by an argument
+            (B::Gate(GateError::Remote), Denied),
+            (B::Gate(GateError::ExportOff), Denied),
             (B::Gate(GateError::NoPassphrase), Invalid),
             (
                 B::Gate(GateError::KeysDiffer {
@@ -2873,7 +2881,10 @@ mod tests {
     /// The status of every refusal of `restore_check` and `restore_apply` is the
     /// one the handler gave before the refusals had a type. It told `busy` by
     /// the words of the message then (`by_words`, the rule as it was); the type
-    /// tells it now, with the same answer for every refusal the broker makes.
+    /// tells it now, with the same answer for every refusal the broker makes,
+    /// but for the two gates closed by the caller's rights. Those differ from
+    /// the old rule on purpose (owner decision 2026-11-24, issue #198 item 3):
+    /// `permission_denied` where the old rule said `invalid_parameter`.
     #[test]
     fn a_broker_restore_is_refused_with_its_status() {
         let by_words = |m: &str| {
@@ -2883,12 +2894,39 @@ mod tests {
                 Status::InvalidParameter
             }
         };
+        let by_rights = |e: &BrokerRestoreError| {
+            matches!(
+                e,
+                BrokerRestoreError::Gate(GateError::Remote | GateError::ExportOff)
+            )
+        };
+        let mut denied = 0;
         for (e, status) in every_refusal() {
             let text = e.to_string();
             assert_eq!(e.status(), status, "{text}");
-            assert_eq!(by_words(&text), status, "{text}");
+            if by_rights(&e) {
+                denied += 1;
+                assert_eq!(status, Status::PermissionDenied, "{text}");
+                assert_eq!(by_words(&text), Status::InvalidParameter, "{text}");
+            } else {
+                assert_ne!(status, Status::PermissionDenied, "{text}");
+                assert_eq!(by_words(&text), status, "{text}");
+            }
             let l = LinkError::from(e);
             assert_eq!((l.status, l.message.as_str()), (status, text.as_str()));
+        }
+        assert_eq!(denied, 2, "exactly the two gates of rights");
+        // a missing passphrase and keys that differ are wrong arguments
+        for e in [
+            GateError::NoPassphrase,
+            GateError::KeysDiffer {
+                differ: vec!["state.key".into()],
+            },
+        ] {
+            assert_eq!(
+                BrokerRestoreError::Gate(e).status(),
+                Status::InvalidParameter
+            );
         }
         // What a backup says cannot make a refusal `busy` any more: a path, a
         // package's manifest or a job's error with those words in it.
