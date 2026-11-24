@@ -467,7 +467,8 @@ async fn standby_apply(
         },
         &asset,
     )
-    .await?;
+    .await
+    .map_err(|e| e.to_string())?;
     wyrm_core::files::discard_dir(&dir);
     let now = release::now_s();
     let u = UpdateFile {

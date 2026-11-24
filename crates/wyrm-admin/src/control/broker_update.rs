@@ -268,6 +268,198 @@ impl BrokerUpdate {
     }
 }
 
+/// A file or a directory of an update that was not read, written, copied or
+/// removed, said as `<path>: <cause>`.
+#[derive(Debug, thiserror::Error)]
+#[error("{}: {source}", .path.display())]
+pub struct PathError {
+    pub path: PathBuf,
+    #[source]
+    pub source: std::io::Error,
+}
+
+impl PathError {
+    fn at(path: &Path) -> impl FnOnce(std::io::Error) -> Self + '_ {
+        move |source| Self {
+            path: path.to_owned(),
+            source,
+        }
+    }
+}
+
+/// `updates.channel` does not say where the archive of a release is
+/// ([`asset_url`]).
+#[derive(Debug, thiserror::Error)]
+pub enum ChannelUrlError {
+    #[error("updates.channel: the URL of a file ({0})")]
+    Url(#[source] wyrm_core::weburl::UrlError),
+    /// The URL has no path.
+    #[error("updates.channel: the URL of a file")]
+    NoFile,
+}
+
+/// Why there is no copy of the control plane ([`state_copy`]). No variant
+/// holds a key: a key file is named by its path only.
+#[derive(Debug, thiserror::Error)]
+pub enum StateCopyError {
+    #[error(transparent)]
+    File(#[from] PathError),
+    /// The private directory of the copy was not made.
+    #[error(transparent)]
+    Dir(#[from] super::backups::FileError),
+    /// A key file that is no hex text; holds its name in `data_dir`.
+    #[error("{0}: not a key")]
+    NotKey(&'static str),
+    /// A store was not copied as of one sequence number.
+    #[error("{dir}: {source}")]
+    Store {
+        dir: &'static str,
+        #[source]
+        source: wyrm_state::StateError,
+    },
+}
+
+/// Why a version was not staged ([`stage`]): the archive, or what the binary
+/// in it said of itself and of this broker's configuration and state.
+#[derive(Debug, thiserror::Error)]
+pub enum StageError {
+    #[error("this broker was not started from a configuration file")]
+    NoConfig,
+    /// The release is the version that runs.
+    #[error("wyrmd {0} is the version that runs")]
+    Runs(String),
+    /// The archive is not the one of the release, or does not unpack.
+    #[error(transparent)]
+    Archive(#[from] release::ArchiveError),
+    /// The signed release was not kept beside the binary; the version
+    /// directory was removed again.
+    #[error(transparent)]
+    Keep(release::LayoutError),
+    #[error("{0}")]
+    Join(#[source] tokio::task::JoinError),
+    /// `release-info` of the new binary did not run.
+    #[error(transparent)]
+    Info(release::RunError),
+    #[error("release-info of the new binary: {0}")]
+    Identity(#[source] serde_json::Error),
+    /// The binary is not what the signed release says.
+    #[error(
+        "the binary in the archive says it is wyrmd {} for {} (schemas {:?}, \
+         replication {}); the signed release says {} (schemas {:?}, replication {})",
+        .said.version, .said.target, .said.schemas, .said.replication,
+        .signed.version, .signed.schemas, .signed.replication
+    )]
+    Mismatch {
+        said: Box<Identity>,
+        /// What the signed release says; its `target` is this host's.
+        signed: Box<Identity>,
+    },
+    #[error(transparent)]
+    StateCopy(#[from] StateCopyError),
+    /// `check --state` of the new binary failed.
+    #[error("the new version refuses this broker's configuration or state: {0}")]
+    Refused(#[source] release::RunError),
+}
+
+/// Why the releases index was not read ([`Control::poll_index`]). The text
+/// is `releases index: <this>` in `sys/update_hint` and in the answers of
+/// `update` and `check_updates`.
+#[derive(Debug, thiserror::Error)]
+pub enum IndexError {
+    #[error("no updates.channel")]
+    NoChannel,
+    /// The channel file was not fetched.
+    #[error(transparent)]
+    Fetch(#[from] crate::fetch::FetchError),
+    /// The file is not a signed index, or an older one than was read before.
+    #[error(transparent)]
+    Release(#[from] release::ReleaseError),
+}
+
+/// Why the standby gets no part of the archive staged for it.
+#[derive(Debug, thiserror::Error)]
+pub enum OrderPartError {
+    #[error("no update is staged for the standby")]
+    NoOrder,
+    #[error("offset: beyond the archive")]
+    Offset,
+    #[error(transparent)]
+    File(#[from] PathError),
+}
+
+/// Why an update that was begun did not reach its restart ([`run`]). The
+/// text is the `reason` of `sys/update_last` and the detail of the audit
+/// record. Nothing was switched when one of these is returned.
+#[derive(Debug, thiserror::Error)]
+pub enum UpdateRunError {
+    /// The archive was not fetched.
+    #[error(transparent)]
+    Fetch(#[from] crate::fetch::FetchError),
+    #[error(transparent)]
+    File(#[from] PathError),
+    /// A private directory was not made.
+    #[error(transparent)]
+    Dir(#[from] super::backups::FileError),
+    #[error("{0}")]
+    Join(#[source] tokio::task::JoinError),
+    #[error("the upload is gone")]
+    UploadGone,
+    /// The broker does not run from the install layout.
+    #[error(transparent)]
+    Layout(release::LayoutError),
+    #[error(transparent)]
+    Stage(#[from] StageError),
+    /// The control plane was not backed up; the staged version was removed.
+    #[error("pre-update backup: {0}")]
+    Backup(#[source] super::backups::NowError),
+    /// Another job began meanwhile; holds it in words.
+    #[error("{0}")]
+    OtherJob(String),
+    /// The standby is not where it must be before the active updates.
+    #[error("{}", .0.message)]
+    Standby(LinkError),
+    /// `update.json` was not written.
+    #[error(transparent)]
+    Save(release::LayoutError),
+    /// `current` was not switched; `update.json` was removed again.
+    #[error(transparent)]
+    Switch(release::LayoutError),
+    /// `current` was not switched and `update.json` stays.
+    #[error("{switch}; {} stays: {source}", .state.display())]
+    SwitchLeft {
+        switch: release::LayoutError,
+        state: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    /// The archive brought for the standby is not the one the release names.
+    #[error("the archive is not the one of the release (size or SHA-256)")]
+    NotTheArchive,
+    #[error(transparent)]
+    Sha(#[from] release::FileError),
+    /// The order for the standby was not written as JSON.
+    #[error("{0}")]
+    Order(#[source] serde_json::Error),
+}
+
+/// What a new version in its trial lacks ([`healthy`]); the text is `failed`
+/// of `update.json` and the reason the trial is given up with.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum Unhealthy {
+    #[error("the admin does not answer on sys")]
+    Admin,
+    #[error("the gateway does not listen on {0}")]
+    Gateway(SocketAddr),
+    /// Links that ran before the update and are not back: how many, of how
+    /// many, and the first ten.
+    #[error("{missing} of {of} links are not back: {}", .shown.join(", "))]
+    Links {
+        missing: usize,
+        of: usize,
+        shown: Vec<String>,
+    },
+}
+
 /// Why `update` cannot run now, from what does not depend on the release.
 struct Gate<'a> {
     mode: UpdateMode,
@@ -276,7 +468,7 @@ struct Gate<'a> {
     /// Another job (a backup, a restore, a package update, an update).
     other_job: Option<String>,
     /// The install layout of this broker, or what is missing.
-    layout: Result<(), String>,
+    layout: Result<(), release::LayoutError>,
     /// The guard ran before this start.
     guard_ran: bool,
     /// An update is in its trial.
@@ -302,7 +494,7 @@ fn gates(g: &Gate) -> Result<(), LinkError> {
         )));
     }
     if let Err(e) = &g.layout {
-        return Err(LinkError::not_supported(e.clone()));
+        return Err(LinkError::not_supported(e.to_string()));
     }
     if !g.guard_ran {
         return Err(LinkError::not_supported(
@@ -350,18 +542,17 @@ fn external_hint(latest: &str) -> String {
 
 /// Where the archive of `asset` is: its own URL, or the file beside the
 /// index.
-fn asset_url(channel: &str, asset: &Asset) -> Result<String, String> {
+fn asset_url(channel: &str, asset: &Asset) -> Result<String, ChannelUrlError> {
     if !asset.url.is_empty() {
         return Ok(asset.url.clone());
     }
     // the channel's directory: its scheme, authority and path up to the last `/`
-    let u = wyrm_core::weburl::Url::parse(channel)
-        .map_err(|e| format!("updates.channel: the URL of a file ({e})"))?;
+    let u = wyrm_core::weburl::Url::parse(channel).map_err(ChannelUrlError::Url)?;
     let dir = u
         .path
         .rsplit_once('/')
         .map(|(d, _)| d)
-        .ok_or("updates.channel: the URL of a file")?;
+        .ok_or(ChannelUrlError::NoFile)?;
     Ok(format!(
         "{}://{}{dir}/{}",
         u.scheme, u.authority, asset.file
@@ -381,30 +572,29 @@ pub const STATE_STORES: [(&str, &str); 4] = [
 /// ([`wyrm_state::replicate::copy_to`]) and the key file it is checked
 /// with. It is what the new binary's `check --state` opens: the live
 /// stores are never written.
-pub fn state_copy(data_dir: &Path, dest: &Path) -> Result<(), String> {
-    let io = |p: &Path, e: std::io::Error| format!("{}: {e}", p.display());
+pub fn state_copy(data_dir: &Path, dest: &Path) -> Result<(), StateCopyError> {
     if dest.symlink_metadata().is_ok() {
-        std::fs::remove_dir_all(dest).map_err(|e| io(dest, e))?;
+        std::fs::remove_dir_all(dest).map_err(PathError::at(dest))?;
     }
-    super::backups::make_private_dir(dest).map_err(|e| e.to_string())?;
+    super::backups::make_private_dir(dest)?;
     for (dir, key_file) in STATE_STORES {
         let src = data_dir.join(dir);
         if !src.is_dir() {
             continue;
         }
         let key_path = data_dir.join(key_file);
-        let text = Zeroizing::new(std::fs::read(&key_path).map_err(|e| io(&key_path, e))?);
+        let text = Zeroizing::new(std::fs::read(&key_path).map_err(PathError::at(&key_path))?);
         let key = Zeroizing::new(
             std::str::from_utf8(&text)
                 .ok()
                 .and_then(|t| hex::decode(t.trim()).ok())
-                .ok_or_else(|| format!("{key_file}: not a key"))?,
+                .ok_or(StateCopyError::NotKey(key_file))?,
         );
         wyrm_state::replicate::copy_to(&src, &key, &dest.join(dir))
-            .map_err(|e| format!("{dir}: {e}"))?;
+            .map_err(|source| StateCopyError::Store { dir, source })?;
         let to = dest.join(key_file);
         if !to.exists() {
-            secret::write_private(&to, &text).map_err(|e| io(&to, e))?;
+            secret::write_private(&to, &text).map_err(PathError::at(&to))?;
         }
     }
     Ok(())
@@ -432,14 +622,12 @@ pub async fn stage(
     archive: &Path,
     signed: &release::Signed,
     asset: &Asset,
-) -> Result<PathBuf, String> {
+) -> Result<PathBuf, StageError> {
     let (release, document, signature) = (&signed.release, &signed.document, &signed.signature);
-    let config = config_file
-        .ok_or("this broker was not started from a configuration file")?
-        .to_owned();
+    let config = config_file.ok_or(StageError::NoConfig)?.to_owned();
     let (versions, version) = (layout.versions(), release.version.clone());
     if layout.current_version().as_deref() == Some(version.as_str()) {
-        return Err(format!("wyrmd {version} is the version that runs"));
+        return Err(StageError::Runs(version));
     }
     let (a, asset2, v2, vs2) = (
         archive.to_owned(),
@@ -449,46 +637,43 @@ pub async fn stage(
     );
     let (doc2, sig2) = (document.to_vec(), signature.to_owned());
     let bin = tokio::task::spawn_blocking(move || {
-        let bin = release::unpack(&a, &asset2, &vs2, &v2).map_err(|e| e.to_string())?;
+        let bin = release::unpack(&a, &asset2, &vs2, &v2)?;
         // the signed release stays with the binary: the guard and the
         // broker check the binary against it before every start
         if let Err(e) = release::keep_release(&vs2, &v2, &doc2, &sig2) {
             // a version without its signed release: the guard never starts it
             remove_version(&vs2.join(&v2));
-            return Err(e.to_string());
+            return Err(StageError::Keep(e));
         }
-        Ok::<_, String>(bin)
+        Ok::<_, StageError>(bin)
     })
     .await
-    .map_err(|e| e.to_string())??;
+    .map_err(StageError::Join)??;
     let proved = async {
         let said = release::run_binary(&bin, &["release-info".into()], BINARY_TIMEOUT)
             .await
-            .map_err(|e| e.to_string())?;
-        let id: Identity = serde_json::from_str(said.trim())
-            .map_err(|e| format!("release-info of the new binary: {e}"))?;
+            .map_err(StageError::Info)?;
+        let id: Identity = serde_json::from_str(said.trim()).map_err(StageError::Identity)?;
         if id.version != release.version
             || id.schemas != release.schemas
             || id.replication != release.replication
             || id.target != release::identity().target
         {
-            return Err(format!(
-                "the binary in the archive says it is wyrmd {} for {} (schemas {:?}, \
-                 replication {}); the signed release says {} (schemas {:?}, replication {})",
-                id.version,
-                id.target,
-                id.schemas,
-                id.replication,
-                release.version,
-                release.schemas,
-                release.replication
-            ));
+            return Err(StageError::Mismatch {
+                said: Box::new(id),
+                signed: Box::new(Identity {
+                    version: release.version.clone(),
+                    target: release::identity().target.clone(),
+                    schemas: release.schemas.clone(),
+                    replication: release.replication,
+                }),
+            });
         }
         let copy = Scratch(data_dir.join("update.check"));
         let (d, c) = (data_dir.to_owned(), copy.0.clone());
         tokio::task::spawn_blocking(move || state_copy(&d, &c))
             .await
-            .map_err(|e| e.to_string())??;
+            .map_err(StageError::Join)??;
         let argv: Vec<std::ffi::OsString> = vec![
             "-c".into(),
             config.into_os_string(),
@@ -498,10 +683,8 @@ pub async fn stage(
         ];
         release::run_binary(&bin, &argv, BINARY_TIMEOUT)
             .await
-            .map_err(|e| {
-                format!("the new version refuses this broker's configuration or state: {e}")
-            })?;
-        Ok(())
+            .map_err(StageError::Refused)?;
+        Ok::<_, StageError>(())
     }
     .await;
     if let Err(e) = proved {
@@ -573,9 +756,8 @@ impl Control {
         }
     }
 
-    fn layout(&self) -> Result<Layout, String> {
+    fn layout(&self) -> Result<Layout, release::LayoutError> {
         Layout::of_broker(&self.cfg.link_exe, &release::identity().version)
-            .map_err(|e| e.to_string())
     }
 
     fn guard_ran(&self) -> bool {
@@ -667,7 +849,7 @@ impl Control {
             UpdateMode::SelfUpdate => {
                 let index_error = lock(&self.update.index_error).clone();
                 match self.layout() {
-                    Err(e) => e,
+                    Err(e) => e.to_string(),
                     Ok(_) if !self.guard_ran() => "the guard did not run before this start: \
                                                    update is refused (docs/operations.md §2)"
                         .into(),
@@ -683,22 +865,19 @@ impl Control {
     }
 
     /// Read the releases index of `updates.channel` now.
-    async fn poll_index(&self) -> Result<(), String> {
+    async fn poll_index(&self) -> Result<(), IndexError> {
         let u = &self.cfg.updates;
         let Some(channel) = u.channel.as_deref().filter(|_| u.mode != UpdateMode::Off) else {
-            return Err("no updates.channel".into());
+            return Err(IndexError::NoChannel);
         };
         // one file holds the index and its signature: a reader never has one
         // without the other
         let r = async {
-            let bytes = crate::fetch::get(channel, release::MAX_CHANNEL, FETCH_TIMEOUT)
-                .await
-                .map_err(|e| e.to_string())?;
-            let index = release::read_channel(&bytes, &u.keys).map_err(|e| e.to_string())?;
+            let bytes = crate::fetch::get(channel, release::MAX_CHANNEL, FETCH_TIMEOUT).await?;
+            let index = release::read_channel(&bytes, &u.keys)?;
             // an older index than one read before was put back
-            release::note_sequence(&self.cfg.data_dir, index.sequence)
-                .map_err(|e| e.to_string())?;
-            Ok::<_, String>(index)
+            release::note_sequence(&self.cfg.data_dir, index.sequence)?;
+            Ok::<_, IndexError>(index)
         }
         .await;
         let out = match r {
@@ -710,7 +889,7 @@ impl Control {
             Err(e) => {
                 debug!("releases index: {e}");
                 // the index read before stays; the read is tried again soon
-                lock(&self.update.index_error).clone_from(&e);
+                *lock(&self.update.index_error) = e.to_string();
                 Err(e)
             }
         };
@@ -884,21 +1063,25 @@ impl Control {
     }
 
     /// One part of the archive staged for the standby.
-    pub(super) fn standby_update_part(&self, offset: u64, len: u64) -> Result<Vec<u8>, String> {
+    pub(super) fn standby_update_part(
+        &self,
+        offset: u64,
+        len: u64,
+    ) -> Result<Vec<u8>, OrderPartError> {
         use std::io::{Read, Seek, SeekFrom};
         let order = lock(&self.update.order)
             .clone()
-            .ok_or("no update is staged for the standby")?;
+            .ok_or(OrderPartError::NoOrder)?;
         if offset > order.size {
-            return Err("offset: beyond the archive".into());
+            return Err(OrderPartError::Offset);
         }
         let path = self.cfg.data_dir.join(ORDER_DIR).join(ORDER_ARCHIVE);
-        let io = |e: std::io::Error| format!("{}: {e}", path.display());
-        let mut f = std::fs::File::open(&path).map_err(io)?;
-        f.seek(SeekFrom::Start(offset)).map_err(io)?;
+        let mut f = std::fs::File::open(&path).map_err(PathError::at(&path))?;
+        f.seek(SeekFrom::Start(offset))
+            .map_err(PathError::at(&path))?;
         let want = len.clamp(1, ORDER_PART).min(order.size - offset) as usize;
         let mut buf = vec![0u8; want];
-        f.read_exact(&mut buf).map_err(io)?;
+        f.read_exact(&mut buf).map_err(PathError::at(&path))?;
         Ok(buf)
     }
 
@@ -1022,7 +1205,8 @@ async fn plan_of(
             .targets
             .get(&release::identity().target)
             .ok_or_else(|| LinkError::not_found("no build for this host"))?;
-        let url = asset_url(&channel, asset).map_err(LinkError::invalid_parameter)?;
+        let url =
+            asset_url(&channel, asset).map_err(|e| LinkError::invalid_parameter(e.to_string()))?;
         (
             signed.release,
             signed.document,
@@ -1185,6 +1369,7 @@ pub(super) async fn update(
                 }
                 warn!(to = %to, "broker update: {e}");
                 let key = if standby { "standby" } else { to.as_str() };
+                let e = e.to_string();
                 ctl2.record(&by, AuditOp::UpdateStart, key, Status::InternalError, &e);
                 *lock(&ctl2.update.failed) = Some(BTreeMap::from([
                     ("to".to_owned(), Value::from(to)),
@@ -1215,7 +1400,7 @@ async fn run(
     plan: Plan,
     archive: Option<PathBuf>,
     without_standby: bool,
-) -> Result<(), String> {
+) -> Result<(), UpdateRunError> {
     let d = ctl.cfg.data_dir.clone();
     let me = release::identity();
     // 1. the archive
@@ -1223,31 +1408,29 @@ async fn run(
     let archive = match (archive, &plan.source) {
         (Some(p), _) => p,
         (None, Source::Url(url)) => {
-            let bytes = crate::fetch::get(url, plan.asset.size as usize, ARCHIVE_TIMEOUT)
-                .await
-                .map_err(|e| e.to_string())?;
+            let bytes = crate::fetch::get(url, plan.asset.size as usize, ARCHIVE_TIMEOUT).await?;
             let dir = d.join("update.fetch");
             // a fresh directory: nothing an earlier fetch left goes with this one
             std::fs::remove_dir_all(&dir)
                 .or_else(wyrm_core::files::gone_ok)
-                .map_err(|e| super::backups::io_err(&dir, e))?;
-            super::backups::make_private_dir(&dir).map_err(|e| e.to_string())?;
+                .map_err(PathError::at(&dir))?;
+            super::backups::make_private_dir(&dir)?;
             let path = dir.join(ORDER_ARCHIVE);
             let p2 = path.clone();
             tokio::task::spawn_blocking(move || secret::write_private(&p2, &bytes))
                 .await
-                .map_err(|e| e.to_string())?
-                .map_err(|e| format!("{}: {e}", path.display()))?;
+                .map_err(UpdateRunError::Join)?
+                .map_err(PathError::at(&path))?;
             path
         }
-        (None, Source::Upload(_)) => return Err("the upload is gone".into()),
+        (None, Source::Upload(_)) => return Err(UpdateRunError::UploadGone),
     };
     if plan.for_standby {
         return stage_for_standby(ctl, &plan, &archive).await;
     }
     // 2. unpack and prove the binary
     ctl.update.set_step("checking");
-    let layout = ctl.layout()?;
+    let layout = ctl.layout().map_err(UpdateRunError::Layout)?;
     let bin = stage(
         &d,
         ctl.cfg.updates.config_file.as_deref(),
@@ -1262,7 +1445,7 @@ async fn run(
     )
     .await?;
     ctl.update.set_step("staged");
-    let undo = |e: String| {
+    let undo = |e: UpdateRunError| {
         remove_version(&layout.versions().join(&plan.release.version));
         e
     };
@@ -1288,14 +1471,14 @@ async fn run(
         )
     })
     .await
-    .map_err(|e| e.to_string())?
-    .map_err(|e| undo(format!("pre-update backup: {e}")))?;
+    .map_err(UpdateRunError::Join)?
+    .map_err(|e| undo(UpdateRunError::Backup(e)))?;
     // nothing else may have started meanwhile, and the standby is where it was
     if let Some(job) = other_job_but_update(ctl) {
-        return Err(undo(job));
+        return Err(undo(UpdateRunError::OtherJob(job)));
     }
     ctl.standby_first(&plan.release, without_standby)
-        .map_err(|e| undo(e.message))?;
+        .map_err(|e| undo(UpdateRunError::Standby(e)))?;
     // 4. commit: the guard is the version that runs, then the state, then
     //    the switch
     ctl.update.set_step("staged");
@@ -1331,7 +1514,7 @@ async fn run(
     };
     let exe = ctl.cfg.link_exe.clone();
     let (layout2, u2, d2) = (layout.clone(), u.clone(), d.clone());
-    tokio::task::spawn_blocking(move || -> Result<(), String> {
+    tokio::task::spawn_blocking(move || -> Result<(), UpdateRunError> {
         if !layout2.guard_is(&exe) {
             // a unit that keeps `bin/` from the broker's user refreshes the
             // guard itself (`guard-refresh`): it is then one start behind
@@ -1339,22 +1522,26 @@ async fn run(
                 warn!("broker update: the guard is not replaced: {e}");
             }
         }
-        u2.save(&d2).map_err(|e| e.to_string())?;
+        u2.save(&d2).map_err(UpdateRunError::Save)?;
         if let Err(e) = layout2.switch(&u2.to) {
             // a state file that stayed would start a trial of a version not switched to
             let state = d2.join(release::STATE_FILE);
             if let Err(r) = std::fs::remove_file(&state).or_else(wyrm_core::files::gone_ok) {
                 tracing::error!("{} stays: {r}", state.display());
-                return Err(format!("{e}; {} stays: {r}", state.display()));
+                return Err(UpdateRunError::SwitchLeft {
+                    switch: e,
+                    state,
+                    source: r,
+                });
             }
-            return Err(e.to_string());
+            return Err(UpdateRunError::Switch(e));
         }
         // the version before the one that runs can no longer be gone back to
         layout2.prune(&[u2.from.as_str(), u2.to.as_str()]);
         Ok(())
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(UpdateRunError::Join)?
     .map_err(|e| {
         // the backup of an update that never began is an ordinary one
         ctl.backups().update(&job.id, |j| j.pinned = false);
@@ -1409,7 +1596,11 @@ fn other_job_but_update(ctl: &Control) -> Option<String> {
 }
 
 /// Keep the checked archive and its release for the standby to fetch.
-async fn stage_for_standby(ctl: &Arc<Control>, plan: &Plan, archive: &Path) -> Result<(), String> {
+async fn stage_for_standby(
+    ctl: &Arc<Control>,
+    plan: &Plan,
+    archive: &Path,
+) -> Result<(), UpdateRunError> {
     ctl.update.set_step("staging for the standby");
     let dir = ctl.cfg.data_dir.join(ORDER_DIR);
     let (archive, asset, dir2) = (archive.to_owned(), plan.asset.clone(), dir.clone());
@@ -1422,25 +1613,26 @@ async fn stage_for_standby(ctl: &Arc<Control>, plan: &Plan, archive: &Path) -> R
         by: plan.by.clone(),
     };
     let order2 = order.clone();
-    tokio::task::spawn_blocking(move || -> Result<(), String> {
-        let io = |p: &Path, e: std::io::Error| format!("{}: {e}", p.display());
-        let (sha, size) = release::sha256_file(&archive).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || -> Result<(), UpdateRunError> {
+        let (sha, size) = release::sha256_file(&archive)?;
         if size != asset.size || sha != asset.sha256 {
-            return Err("the archive is not the one of the release (size or SHA-256)".into());
+            return Err(UpdateRunError::NotTheArchive);
         }
         std::fs::remove_dir_all(&dir2)
             .or_else(wyrm_core::files::gone_ok)
-            .map_err(|e| super::backups::io_err(&dir2, e))?;
-        super::backups::make_private_dir(&dir2).map_err(|e| e.to_string())?;
+            .map_err(PathError::at(&dir2))?;
+        super::backups::make_private_dir(&dir2)?;
         let to = dir2.join(ORDER_ARCHIVE);
-        std::fs::copy(&archive, &to).map_err(|e| io(&to, e))?;
+        std::fs::copy(&archive, &to).map_err(PathError::at(&to))?;
+        // said with the directory, as before these errors had a type
         secret::write_private(&dir2.join(ORDER_RELEASE), &release_bytes)
-            .map_err(|e| io(&dir2, e))?;
-        let text = serde_json::to_vec_pretty(&order2).map_err(|e| e.to_string())?;
-        secret::write_private(&dir2.join(ORDER_FILE), &text).map_err(|e| io(&dir2, e))
+            .map_err(PathError::at(&dir2))?;
+        let text = serde_json::to_vec_pretty(&order2).map_err(UpdateRunError::Order)?;
+        secret::write_private(&dir2.join(ORDER_FILE), &text).map_err(PathError::at(&dir2))?;
+        Ok(())
     })
     .await
-    .map_err(|e| e.to_string())??;
+    .map_err(UpdateRunError::Join)??;
     *lock(&ctl.update.order_result) = String::new();
     *lock(&ctl.update.order) = Some(order.clone());
     ctl.record(
@@ -1495,7 +1687,9 @@ pub(super) async fn rollback(
     })?;
     // while the old version and the backup are kept: the clock alone does
     // not end it (see `UpdateFile::expire`)
-    let layout = ctl.layout().map_err(LinkError::not_supported)?;
+    let layout = ctl
+        .layout()
+        .map_err(|e| LinkError::not_supported(e.to_string()))?;
     if !layout.bin_of(&u.from).is_file() {
         return Err(LinkError::not_found(format!(
             "wyrmd {} is no longer kept (updates.keep_days are over)",
@@ -1706,7 +1900,7 @@ async fn publish(ctx: &LinkCtx, ctl: &Control) {
 }
 
 /// Is the new version healthy? `Err` says what is missing.
-async fn healthy(ctl: &Control, session: &Session, u: &UpdateFile) -> Result<(), String> {
+async fn healthy(ctl: &Control, session: &Session, u: &UpdateFile) -> Result<(), Unhealthy> {
     let site = &ctl.cfg.site;
     // the admin answers through the router
     let key = format!("wy/{site}/sys/version/~val");
@@ -1720,7 +1914,7 @@ async fn healthy(ctl: &Control, session: &Session, u: &UpdateFile) -> Result<(),
     }
     .await;
     if answered.is_none() {
-        return Err("the admin does not answer on sys".into());
+        return Err(Unhealthy::Admin);
     }
     if let Some(addr) = ctl.cfg.updates.gateway {
         let addr = if addr.ip().is_unspecified() {
@@ -1732,7 +1926,7 @@ async fn healthy(ctl: &Control, session: &Session, u: &UpdateFile) -> Result<(),
             .await
             .is_ok_and(|r| r.is_ok());
         if !up {
-            return Err(format!("the gateway does not listen on {addr}"));
+            return Err(Unhealthy::Gateway(addr));
         }
     }
     let reg = ctl.registry();
@@ -1743,13 +1937,11 @@ async fn healthy(ctl: &Control, session: &Session, u: &UpdateFile) -> Result<(),
         .filter(|id| reg.links.contains_key(*id) && !live.contains(*id))
         .collect();
     if !missing.is_empty() {
-        let shown: Vec<&str> = missing.iter().take(10).map(|s| s.as_str()).collect();
-        return Err(format!(
-            "{} of {} links are not back: {}",
-            missing.len(),
-            u.links.len(),
-            shown.join(", ")
-        ));
+        return Err(Unhealthy::Links {
+            missing: missing.len(),
+            of: u.links.len(),
+            shown: missing.iter().take(10).map(|s| (*s).clone()).collect(),
+        });
     }
     Ok(())
 }
@@ -1858,7 +2050,7 @@ async fn trial(ctl: &Arc<Control>, session: &Session) {
             // the guard is now this version
             let (layout, exe) = (ctl.layout(), ctl.cfg.link_exe.clone());
             let r = tokio::task::spawn_blocking(move || match layout {
-                Ok(l) if !l.guard_is(&exe) => l.refresh_guard(&exe).map_err(|e| e.to_string()),
+                Ok(l) if !l.guard_is(&exe) => l.refresh_guard(&exe),
                 Ok(_) => Ok(()),
                 Err(e) => Err(e),
             })
@@ -1869,7 +2061,7 @@ async fn trial(ctl: &Arc<Control>, session: &Session) {
             ctl.update.notify();
         }
         Err(why) => {
-            u.failed = why.clone();
+            u.failed = why.to_string();
             if let Err(e) = u.save(d) {
                 warn!("update.json: {e}");
             }
@@ -2028,7 +2220,10 @@ mod tests {
         );
         refused(
             Gate {
-                layout: Err("this broker runs /usr/local/bin/wyrmd, not <prefix>".into()),
+                layout: Err(release::LayoutError::NotInLayout {
+                    exe: "/usr/local/bin/wyrmd".into(),
+                    version: "0.1.0".into(),
+                }),
                 ..gate()
             },
             Status::NotSupported,
@@ -2461,7 +2656,196 @@ mod tests {
             .unwrap(),
             "https://cdn.example/a.tar.gz"
         );
-        assert!(asset_url("https://dl.example", &asset("")).is_err());
+        assert!(matches!(
+            asset_url("https://dl.example", &asset("")),
+            Err(ChannelUrlError::NoFile)
+        ));
+        assert!(matches!(
+            asset_url("dl.example/releases.json", &asset("")),
+            Err(ChannelUrlError::Url(_))
+        ));
+    }
+
+    /// Every text of this file's errors, byte for byte as before they had a
+    /// type: `sys/update_last.reason`, `sys/update_hint`, `update.json`
+    /// `failed`, the audit detail and the answers of the actions.
+    #[test]
+    fn errors_read_as_before() {
+        use std::error::Error as _;
+        let io = || std::io::Error::other("no");
+        let said = |e: &dyn std::error::Error, text: &str| assert_eq!(e.to_string(), text);
+        let file = || PathError::at(Path::new("/d/x"))(io());
+        said(&file(), "/d/x: no");
+        assert!(file().source().is_some());
+
+        let url = wyrm_core::weburl::UrlError::NoHost;
+        said(
+            &ChannelUrlError::Url(url),
+            "updates.channel: the URL of a file (no host)",
+        );
+        said(
+            &ChannelUrlError::NoFile,
+            "updates.channel: the URL of a file",
+        );
+
+        said(&StateCopyError::File(file()), "/d/x: no");
+        said(
+            &StateCopyError::Dir(super::super::backups::FileError::new(
+                Path::new("/d/c"),
+                io(),
+            )),
+            "/d/c: no",
+        );
+        said(&StateCopyError::NotKey("state.key"), "state.key: not a key");
+        said(
+            &StateCopyError::Store {
+                dir: "audit",
+                source: wyrm_state::StateError::Rejected("r".into()),
+            },
+            "audit: operation rejected: r",
+        );
+
+        let run = || release::RunError::Timeout {
+            bin: "/p/wyrmd".into(),
+            secs: 120,
+            source: tokio::runtime::Builder::new_current_thread()
+                .enable_time()
+                .build()
+                .unwrap()
+                .block_on(async {
+                    tokio::time::timeout(Duration::ZERO, std::future::pending::<()>()).await
+                })
+                .unwrap_err(),
+        };
+        let json = || serde_json::from_str::<Identity>("x").unwrap_err();
+        said(
+            &StageError::NoConfig,
+            "this broker was not started from a configuration file",
+        );
+        said(
+            &StageError::Runs("0.2.0".into()),
+            "wyrmd 0.2.0 is the version that runs",
+        );
+        said(
+            &StageError::Archive(release::ArchiveError::HashMismatch),
+            "the archive's SHA-256 is not the one of the release",
+        );
+        said(
+            &StageError::Keep(release::LayoutError::Unsupported),
+            "updates.mode \"self\" works on Linux and macOS only",
+        );
+        said(&StageError::Info(run()), "/p/wyrmd: no answer in 120 s");
+        said(
+            &StageError::Identity(json()),
+            &format!("release-info of the new binary: {}", json()),
+        );
+        let id = |version: &str, replication| {
+            Box::new(Identity {
+                version: version.into(),
+                target: "x86_64-linux".into(),
+                schemas: BTreeMap::from([("registry".to_owned(), 20)]),
+                replication,
+            })
+        };
+        said(
+            &StageError::Mismatch {
+                said: id("0.3.0", 2),
+                signed: id("0.2.0", 1),
+            },
+            "the binary in the archive says it is wyrmd 0.3.0 for x86_64-linux (schemas \
+             {\"registry\": 20}, replication 2); the signed release says 0.2.0 (schemas \
+             {\"registry\": 20}, replication 1)",
+        );
+        said(
+            &StageError::StateCopy(StateCopyError::NotKey("flows.key")),
+            "flows.key: not a key",
+        );
+        said(
+            &StageError::Refused(run()),
+            "the new version refuses this broker's configuration or state: /p/wyrmd: no \
+             answer in 120 s",
+        );
+        assert!(StageError::Refused(run()).source().is_some());
+
+        said(&IndexError::NoChannel, "no updates.channel");
+        said(
+            &IndexError::Fetch(crate::fetch::FetchError::Scheme),
+            "url: https:// only",
+        );
+        said(
+            &IndexError::Release(release::ReleaseError::NoPinnedKey),
+            &release::ReleaseError::NoPinnedKey.to_string(),
+        );
+
+        said(
+            &OrderPartError::NoOrder,
+            "no update is staged for the standby",
+        );
+        said(&OrderPartError::Offset, "offset: beyond the archive");
+        said(&OrderPartError::File(file()), "/d/x: no");
+
+        use UpdateRunError as U;
+        said(
+            &U::Fetch(crate::fetch::FetchError::Credentials),
+            "url: no credentials in the URL",
+        );
+        said(&U::File(file()), "/d/x: no");
+        said(&U::UploadGone, "the upload is gone");
+        said(
+            &U::Layout(release::LayoutError::Unsupported),
+            "updates.mode \"self\" works on Linux and macOS only",
+        );
+        said(
+            &U::Stage(StageError::NoConfig),
+            "this broker was not started from a configuration file",
+        );
+        said(
+            &U::Backup(super::super::backups::NowError::Gone),
+            "pre-update backup: the backup is gone",
+        );
+        said(
+            &U::OtherJob("a backup is being made".into()),
+            "a backup is being made",
+        );
+        said(
+            &U::Standby(LinkError::new(Status::Busy, "the standby is away")),
+            "the standby is away",
+        );
+        said(
+            &U::Save(release::LayoutError::NoPrefix("/x".into())),
+            "/x: no prefix",
+        );
+        said(
+            &U::Switch(release::LayoutError::NoSuchVersion("/p/versions/9".into())),
+            "/p/versions/9: no such version",
+        );
+        said(
+            &U::SwitchLeft {
+                switch: release::LayoutError::NoSuchVersion("/p/versions/9".into()),
+                state: "/d/update.json".into(),
+                source: io(),
+            },
+            "/p/versions/9: no such version; /d/update.json stays: no",
+        );
+        said(
+            &U::NotTheArchive,
+            "the archive is not the one of the release (size or SHA-256)",
+        );
+        said(&U::Order(json()), &json().to_string());
+
+        said(&Unhealthy::Admin, "the admin does not answer on sys");
+        said(
+            &Unhealthy::Gateway(SocketAddr::from(([127, 0, 0, 1], 8443))),
+            "the gateway does not listen on 127.0.0.1:8443",
+        );
+        said(
+            &Unhealthy::Links {
+                missing: 2,
+                of: 5,
+                shown: vec!["plc1".into(), "plc2".into()],
+            },
+            "2 of 5 links are not back: plc1, plc2",
+        );
     }
 
     #[test]

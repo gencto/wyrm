@@ -748,10 +748,6 @@ fn json_map<const N: usize>(
     pairs.into_iter().map(|(k, v)| (k.to_owned(), v)).collect()
 }
 
-pub(super) fn io_err(path: &Path, e: std::io::Error) -> String {
-    format!("{}: {e}", path.display())
-}
-
 /// The stage directory of one job, removed when the job ends.
 pub(super) struct StageDir(pub(super) PathBuf);
 
