@@ -27,6 +27,11 @@
 //! The allocation counts do not move with the machine's load; the times do.
 //!
 //! One `PERF` line per figure (`tool/perf.sh flow`).
+//!
+//! Three checks run with the other tests: `a_script_call_allocates_nothing` (it writes its
+//! `PERF` lines `flow/script/check*` to stderr past the harness's capture, so a passing run
+//! shows the figures in the CI log), `a_block_keeps_nothing_of_a_call_but_state` and
+//! `a_table_script_keeps_nothing_of_a_row_but_state`.
 
 #![allow(
     clippy::unwrap_used,
@@ -38,6 +43,7 @@
 )]
 
 use std::collections::BTreeMap;
+use std::io::Write as _;
 use std::sync::Arc;
 use std::time::Instant;
 use wyrm_bench::{Allocs, Perf};
@@ -475,4 +481,358 @@ fn stages() {
             drop(std::hint::black_box(script::to_dynamic(&as_value)));
         },
     );
+}
+
+/// A call of a script block allocates nothing once the block has run: its variables, their
+/// maps and `state` are kept between calls, and a number holds no heap. (Before: 10 to 18
+/// allocations per call.) A table's script allocates nothing per row of numbers; what is
+/// left per row is the table block's own (the parse of its input). The bounds leave room for
+/// what the idle session's threads allocate meanwhile.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_script_call_allocates_nothing() {
+    let _one = ONE_AT_A_TIME.lock().await;
+    let env = env().await;
+    let io = &env.io;
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    let count = 20_000u64;
+    let mut out = Out::default();
+    let mut e = node(
+        "expression",
+        &[
+            ("inputs", Value::Array(vec![s("a"), s("b")])),
+            ("expr", s("state.n = (state.n ?? 0) + 1; a.v + b.v * 2.0")),
+        ],
+    );
+    let r = measure(1, count, |i| {
+        out.0.clear();
+        let port = if i % 2 == 0 { "in.a" } else { "in.b" };
+        e.input(
+            port,
+            Msg::new(Value::Float(i as f64), Quality::Good, i),
+            io,
+            &mut out,
+        );
+    });
+    let mut f = node("filter", &[("expr", s("v > 10.0 && q == 0"))]);
+    let rf = measure(1, count, |i| {
+        out.0.clear();
+        f.input(
+            "in",
+            Msg::new(Value::Float(i as f64), Quality::Good, i),
+            io,
+            &mut out,
+        );
+    });
+    // the table: what `table_sort` (no script) allocates for it is the block's own
+    let tables = 4u64;
+    let mut made: Vec<Value> = (0..2 * (16 + tables))
+        .map(|i| table(i % 8, false))
+        .collect();
+    let mut sort = node("table_sort", &[("column", s("n"))]);
+    let rs = measure(1, tables, |i| {
+        out.0.clear();
+        sort.input(
+            "in",
+            Msg::new(made.pop().unwrap(), Quality::Good, i),
+            io,
+            &mut out,
+        );
+    });
+    // every row stays, so the result is as large as the sort's
+    let mut filter = node("table_filter", &[("expr", s("row.v >= 0.0"))]);
+    let rt = measure(1, tables, |i| {
+        out.0.clear();
+        filter.input(
+            "in",
+            Msg::new(made.pop().unwrap(), Quality::Good, i),
+            io,
+            &mut out,
+        );
+        assert!(
+            matches!(sent(&out, "out"), Some(Value::Map(_))),
+            "{out:?}",
+            out = out.0.len()
+        );
+    });
+    let per_row = (rt[0].allocs - rs[0].allocs) / ROWS as f64;
+    let mut err = std::io::stderr().lock();
+    for (name, r, note) in [
+        (
+            "flow/script/check",
+            &r,
+            "the check: one expression over two inputs with state",
+        ),
+        ("flow/script/check_filter", &rf, "the check: one filter"),
+        (
+            "flow/script/check_table",
+            &rt,
+            "the check: a 10000-row table of numbers through table_filter",
+        ),
+    ] {
+        let mut l = line(
+            name,
+            if name.ends_with("table") {
+                tables
+            } else {
+                count
+            },
+            r,
+            note,
+        );
+        if name.ends_with("table") {
+            l = l.num("allocs_row_script", per_row);
+        }
+        let _ = writeln!(err, "{l}");
+    }
+    drop(err);
+    assert!(
+        r[0].allocs < 1.0,
+        "{} allocations per expression call",
+        r[0].allocs
+    );
+    assert!(
+        rf[0].allocs < 1.0,
+        "{} allocations per filter call",
+        rf[0].allocs
+    );
+    assert!(
+        per_row < 0.5,
+        "{per_row} allocations per row for the script"
+    );
+}
+
+/// One number on `port`; what the block sent on `out`, if anything.
+fn call(io: &Io, n: &mut Box<dyn Node>, port: &str, v: Value) -> Option<Value> {
+    let mut out = Out::default();
+    n.input(port, Msg::new(v, Quality::Good, 1), io, &mut out);
+    sent(&out, "out").cloned()
+}
+
+/// A script's variables are kept between calls (no allocation), and still nothing of one
+/// call reaches the next but `state`: not a variable it declared, not a change of its
+/// input's map, not what a failed call left.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_block_keeps_nothing_of_a_call_but_state() {
+    let _one = ONE_AT_A_TIME.lock().await;
+    let env = env().await;
+    let io = &env.io;
+    let expr = |e: &str| {
+        node(
+            "expression",
+            &[("inputs", Value::Array(vec![s("x")])), ("expr", s(e))],
+        )
+    };
+    // a script that reads a variable an earlier call would have left does not compile: the
+    // names are checked at compile, and a call cannot add one
+    let cfg = map(&[("inputs", Value::Array(vec![s("x")])), ("expr", s("leak"))]);
+    assert!(nodes::build("expression", "f", "n", &cfg).is_err());
+    // a variable declared by a call starts from nothing in the next: with the scope kept, a
+    // second `let leak` would otherwise still see the first through nothing; the count of
+    // what the script sees proves it: `leak` is 1 in every call
+    let mut n = expr("let leak = 0; leak += 1; x.extra = 5; x.v = -1.0; leak");
+    for _ in 0..3 {
+        assert_eq!(
+            call(io, &mut n, "in.x", Value::Float(2.0)),
+            Some(Value::UInt(1))
+        );
+    }
+    // what a call did to its input's map is gone: the next call sees the sample alone
+    let mut n = expr(
+        "let had = \"extra\" in x; let v = x.v; x.extra = 5; x.v = -1.0; x.remove(\"q\"); \
+         if had { -100.0 } else { v + x.len() }",
+    );
+    for i in 0..3 {
+        // v, then 3 keys left of {age_ms, q, t, v} + extra − q = 4
+        assert_eq!(
+            call(io, &mut n, "in.x", Value::Float(i as f64)),
+            Some(Value::Float(i as f64 + 4.0)),
+            "call {i}"
+        );
+    }
+    // a call that fails: its variables are gone, and the next call is as the first
+    let mut n = expr("let a = x.v; if a < 0.0 { let b = 7; throw \"negative\" } a * 2.0");
+    assert_eq!(
+        call(io, &mut n, "in.x", Value::Float(1.0)),
+        Some(Value::Float(2.0))
+    );
+    assert_eq!(
+        call(io, &mut n, "in.x", Value::Float(-1.0)),
+        None,
+        "the call failed"
+    );
+    assert_eq!(n.state(), None, "nothing kept");
+    assert_eq!(
+        call(io, &mut n, "in.x", Value::Float(3.0)),
+        Some(Value::Float(6.0))
+    );
+    // a script that runs out of operations after it declared variables
+    let mut n = expr("let a = x.v; if a < 0.0 { loop { let c = a; } } a + 1.0");
+    assert_eq!(
+        call(io, &mut n, "in.x", Value::Float(-1.0)),
+        None,
+        "ended by the limit"
+    );
+    assert_eq!(n.state(), None);
+    assert_eq!(
+        call(io, &mut n, "in.x", Value::Float(1.0)),
+        Some(Value::Float(2.0))
+    );
+    // state is the one thing kept, and it is saved and restored as before
+    let mut n = expr("state.n = (state.n ?? 0) + 1; state.n");
+    assert_eq!(n.state(), None);
+    assert_eq!(
+        call(io, &mut n, "in.x", Value::Float(0.0)),
+        Some(Value::UInt(1))
+    );
+    assert_eq!(
+        call(io, &mut n, "in.x", Value::Float(0.0)),
+        Some(Value::UInt(2))
+    );
+    let saved = n.state().unwrap();
+    assert_eq!(saved, Value::Map(map(&[("n", Value::UInt(2))])));
+    let mut again = expr("state.n = (state.n ?? 0) + 1; state.n");
+    again.restore(&saved);
+    assert_eq!(
+        call(io, &mut again, "in.x", Value::Float(0.0)),
+        Some(Value::UInt(3))
+    );
+    // a filter keeps no state at all from one sample to the next
+    let mut f = node(
+        "filter",
+        &[(
+            "expr",
+            s("state.n = (state.n ?? 0) + 1; let w = v; v = 0.0; state.n == 1 && w > 0.0"),
+        )],
+    );
+    for _ in 0..3 {
+        assert_eq!(
+            call(io, &mut f, "in", Value::Float(1.0)),
+            Some(Value::Float(1.0))
+        );
+    }
+    assert_eq!(call(io, &mut f, "in", Value::Float(-1.0)), None);
+}
+
+/// A small table `{i, k}` of `n` rows; the last row has one more cell when `ragged`. Every
+/// table differs from the one before in `k` (a block sends a result only when it differs).
+fn small(n: u64, ragged: bool) -> Value {
+    static MADE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let made = MADE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    Value::Map(map(&[
+        ("columns", Value::Array(vec![s("i"), s("k")])),
+        (
+            "rows",
+            Value::Array(
+                (0..n)
+                    .map(|i| {
+                        let mut r =
+                            map(&[("i", Value::UInt(i)), ("k", s(&format!("k{i}-{made}")))]);
+                        if ragged && i == n - 1 {
+                            r.insert("z".into(), Value::UInt(9));
+                        }
+                        Value::Map(r)
+                    })
+                    .collect(),
+            ),
+        ),
+    ]))
+}
+
+fn rows_of(v: Option<Value>) -> Vec<Value> {
+    let Some(Value::Map(t)) = v else {
+        panic!("no table: {v:?}")
+    };
+    let Some(Value::Array(rows)) = t.get("rows") else {
+        panic!("no rows")
+    };
+    rows.clone()
+}
+
+/// The per-row scripts of a table use one set of variables for every row and every table.
+/// The rows of one table share `state` (as before); nothing else of a row reaches the next,
+/// and nothing of a table, also one whose scripts failed, reaches the next table.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_table_script_keeps_nothing_of_a_row_but_state() {
+    let _one = ONE_AT_A_TIME.lock().await;
+    let env = env().await;
+    let io = &env.io;
+    // a row's map changed by its script, and a variable it declared: the next row sees its
+    // own cells alone (3 cells would be the row before's `extra`)
+    let mut n = node(
+        "table_filter",
+        &[(
+            "expr",
+            s("let seen = row.len(); row.extra = 1; row.i = -1; let index = 100; seen == 2"),
+        )],
+    );
+    assert_eq!(rows_of(call(io, &mut n, "in", small(5, false))).len(), 5);
+    // a row with one more cell, then a table of plain rows again
+    assert_eq!(rows_of(call(io, &mut n, "in", small(5, true))).len(), 4);
+    assert_eq!(rows_of(call(io, &mut n, "in", small(3, false))).len(), 3);
+    // `index` is the row's own in every row, whatever a script before did to it
+    let mut n = node(
+        "table_filter",
+        &[("expr", s("let i = index; index = 0; i == row.i"))],
+    );
+    assert_eq!(rows_of(call(io, &mut n, "in", small(6, false))).len(), 6);
+    // state is shared by the rows of one table and starts empty for every table
+    let mut n = node(
+        "table_filter",
+        &[("expr", s("state.n = (state.n ?? 0) + 1; state.n <= 2"))],
+    );
+    for _ in 0..3 {
+        assert_eq!(rows_of(call(io, &mut n, "in", small(5, false))).len(), 2);
+    }
+    // a table whose script fails at a row leaves nothing: the next table starts empty
+    let mut n = node(
+        "table_filter",
+        &[(
+            "expr",
+            s("state.n = (state.n ?? 0) + 1; let tmp = 1; if row.i == 7 { throw \"seven\" } state.n <= 2"),
+        )],
+    );
+    let mut out = Out::default();
+    n.input(
+        "in",
+        Msg::new(small(9, false), Quality::Good, 1),
+        io,
+        &mut out,
+    );
+    assert_eq!(sent(&out, "out"), Some(&Value::Null));
+    let Some(Value::Str(e)) = sent(&out, "error") else {
+        panic!("no error")
+    };
+    assert!(e.starts_with("row 7: ") && e.contains("seven"), "{e}");
+    assert_eq!(rows_of(call(io, &mut n, "in", small(5, false))).len(), 2);
+    // the computed columns of one block share the variables too: each starts empty
+    let mut n = node(
+        "table_map_columns",
+        &[(
+            "mapping",
+            Value::Array(vec![
+                Value::Map(map(&[
+                    ("name", s("a")),
+                    (
+                        "from",
+                        s("+ state.n = (state.n ?? 0) + 1; row.gone = 1; state.n"),
+                    ),
+                ])),
+                Value::Map(map(&[
+                    ("name", s("b")),
+                    (
+                        "from",
+                        s("+ state.n = (state.n ?? 0) + 10; state.n + row.len()"),
+                    ),
+                ])),
+            ]),
+        )],
+    );
+    // a table of two rows, then one of three: the second starts from nothing
+    for len in [2u64, 3] {
+        let rows = rows_of(call(io, &mut n, "in", small(len, false)));
+        let want: Vec<Value> = (1..=len as i64)
+            .map(|k| Value::Map(map(&[("a", Value::Int(k)), ("b", Value::Int(10 * k + 2))])))
+            .collect();
+        assert_eq!(rows, want);
+    }
 }

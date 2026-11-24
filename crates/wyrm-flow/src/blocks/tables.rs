@@ -631,17 +631,15 @@ pub(super) fn calc(op: Op, v: &View, sc: Option<&mut Scripts>) -> Outs {
             match per_row(engine, vars, ast, &t, |_, x| truth(&x, false)) {
                 Ok(keep) => {
                     let remove = op == Op::RemoveRows;
-                    let rows = t
-                        .rows
-                        .iter()
+                    // the rows that stay are moved out of the parsed table, not copied
+                    let Table { columns, rows } = t;
+                    let rows = rows
+                        .into_iter()
                         .zip(keep)
                         .filter(|(_, k)| *k != remove)
-                        .map(|(r, _)| r.clone())
+                        .map(|(r, _)| r)
                         .collect();
-                    let (val, bad) = table_out(Table {
-                        columns: t.columns.clone(),
-                        rows,
-                    });
+                    let (val, bad) = table_out(Table { columns, rows });
                     vec![("out", val, bad), ("error", Value::Null, false)]
                 }
                 Err(e) => vec![("out", Value::Null, false), ("error", Value::Str(e), false)],
