@@ -1530,11 +1530,12 @@ impl Control {
                 // through the validator of every install; its record names
                 // the version and the entry
                 let source = format!("backup {}", c.manifest.site);
-                let zip = packages::repack(&scratch).map_err(RestoreError::Repack)?;
+                let zip =
+                    packages::repack(&scratch).map_err(|e| RestoreError::Repack(e.to_string()))?;
                 let checked = packages::unpack(&zip, &tmp.join("unpacked"), &source, now_s())
                     .map_err(|why| BrokerRestoreError::PackageInvalid {
                         name: name.clone(),
-                        why,
+                        why: why.to_string(),
                     })?;
                 let def = checked.def.clone();
                 if def.name != *name {

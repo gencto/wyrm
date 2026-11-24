@@ -20,6 +20,42 @@ const META: &str = "meta";
 /// ended: removed by [`prune`] after this long.
 const PART_STALE_S: u64 = 3600;
 
+/// Why a restore point was not made or not found.
+#[derive(Debug, thiserror::Error)]
+pub enum PointError {
+    /// The link's name is no link id (it would leave the directory); as
+    /// `registry::validate_link_id` says it.
+    #[error("{0}")]
+    Link(String),
+    /// The link's directory of restore points was not made its owner's alone.
+    #[error("{0}")]
+    Dir(#[source] std::io::Error),
+    #[error("{0}")]
+    Encode(#[source] minicbor::encode::Error<std::convert::Infallible>),
+    /// The description was not written; the archive was removed again.
+    #[error("restore point {id}: {source}")]
+    Description {
+        id: String,
+        #[source]
+        source: std::io::Error,
+    },
+    /// An id that is no name of a restore point (empty, or with `/`, `\`, `.`).
+    #[error("restore point {0:?}")]
+    Id(String),
+    #[error("restore point {id} of {link}: not found")]
+    NotFound { id: String, link: String },
+}
+
+/// Why [`make`] made no restore point: its own refusal, or what the function
+/// that writes the archive answered (`E`, as the caller said it).
+#[derive(Debug, thiserror::Error)]
+pub enum MakeError<E> {
+    #[error(transparent)]
+    Point(#[from] PointError),
+    #[error("{0}")]
+    Archive(E),
+}
+
 /// One restore point of a link, as its `.meta` file (CBOR) says.
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
 pub struct Point {
@@ -64,14 +100,14 @@ pub fn stamp(secs: u64) -> String {
 }
 
 /// A directory only its owner enters (an existing one is made so too).
-fn private_dir(dir: &Path) -> Result<(), String> {
+fn private_dir(dir: &Path) -> Result<(), PointError> {
     crate::secret::private_dir_of(dir)
         .map(drop)
-        .map_err(|e| e.to_string())
+        .map_err(PointError::Dir)
 }
 
-fn link_dir(root: &Path, link: &str) -> Result<PathBuf, String> {
-    crate::registry::validate_link_id(link)?;
+fn link_dir(root: &Path, link: &str) -> Result<PathBuf, PointError> {
+    crate::registry::validate_link_id(link).map_err(PointError::Link)?;
     Ok(root.join(link))
 }
 
@@ -86,15 +122,15 @@ pub fn dir_of_link(root: &Path, link: &str) -> Option<PathBuf> {
 /// entries of the link's data it skipped (not files); `keys` is the link's
 /// key list (`None`: the link did not answer). Nothing of the link is
 /// touched. `root` is `data_dir/restore`.
-pub fn make(
+pub fn make<E>(
     root: &Path,
     link: &str,
     package: &str,
     version: &str,
     keys: Option<Vec<String>>,
     now: u64,
-    write: impl FnOnce(&Path) -> Result<(u64, u32), String>,
-) -> Result<Point, String> {
+    write: impl FnOnce(&Path) -> Result<(u64, u32), E>,
+) -> Result<Point, MakeError<E>> {
     let dir = link_dir(root, link)?;
     private_dir(&dir)?;
     // two points in one second: the later one gets a suffix
@@ -106,7 +142,7 @@ pub fn make(
         id = format!("{}-{n}", stamp(now));
     }
     let archive = dir.join(format!("{id}.{ARCHIVE}"));
-    let (size, skipped) = write(&archive)?;
+    let (size, skipped) = write(&archive).map_err(MakeError::Archive)?;
     let point = Point {
         id: id.clone(),
         at: now,
@@ -118,24 +154,27 @@ pub fn make(
         keys: keys.unwrap_or_default(),
     };
     // the description last: a point without it is not listed
-    let meta = minicbor::to_vec(&point).map_err(|e| e.to_string())?;
-    if let Err(e) = crate::secret::write_private(&dir.join(format!("{id}.{META}")), &meta) {
+    let meta = minicbor::to_vec(&point).map_err(PointError::Encode)?;
+    if let Err(source) = crate::secret::write_private(&dir.join(format!("{id}.{META}")), &meta) {
         // without its description the archive is no point; the start removes it too
         wyrm_core::files::discard(&archive);
-        return Err(format!("restore point {id}: {e}"));
+        return Err(PointError::Description { id, source }.into());
     }
     Ok(point)
 }
 
 /// The archive of the restore point `id` of `link`.
-pub fn file(root: &Path, link: &str, id: &str) -> Result<PathBuf, String> {
+pub fn file(root: &Path, link: &str, id: &str) -> Result<PathBuf, PointError> {
     let dir = link_dir(root, link)?;
     if id.is_empty() || id.contains(['/', '\\', '.']) {
-        return Err(format!("restore point {id:?}"));
+        return Err(PointError::Id(id.to_owned()));
     }
     let archive = dir.join(format!("{id}.{ARCHIVE}"));
     if !archive.is_file() {
-        return Err(format!("restore point {id} of {link}: not found"));
+        return Err(PointError::NotFound {
+            id: id.to_owned(),
+            link: link.to_owned(),
+        });
     }
     Ok(archive)
 }
@@ -249,11 +288,51 @@ mod tests {
     fn archive(
         bytes: &'static [u8],
         skipped: u32,
-    ) -> impl FnOnce(&Path) -> Result<(u64, u32), String> {
+    ) -> impl FnOnce(&Path) -> std::io::Result<(u64, u32)> {
         move |path| {
-            std::fs::write(path, bytes).map_err(|e| e.to_string())?;
+            std::fs::write(path, bytes)?;
             Ok((bytes.len() as u64, skipped))
         }
+    }
+
+    /// Every refusal says what it said as text: these reach the answers of a
+    /// package update and of a rollback.
+    #[test]
+    fn refusals_read_as_before() {
+        fn said(e: &dyn std::fmt::Display, text: &str) {
+            assert_eq!(e.to_string(), text);
+        }
+        type E = PointError;
+        let io = || std::io::Error::other("no");
+        said(
+            &E::Link("link id: empty segment".into()),
+            "link id: empty segment",
+        );
+        said(&E::Dir(io()), "no");
+        said(&E::Encode(minicbor::encode::Error::message("no")), "no");
+        said(
+            &E::Description {
+                id: "20261113T101502Z".into(),
+                source: io(),
+            },
+            "restore point 20261113T101502Z: no",
+        );
+        said(&E::Id("../x".into()), "restore point \"../x\"");
+        said(
+            &E::NotFound {
+                id: "20261113T101502Z".into(),
+                link: "l1".into(),
+            },
+            "restore point 20261113T101502Z of l1: not found",
+        );
+        said(
+            &MakeError::<String>::Point(E::Id(String::new())),
+            "restore point \"\"",
+        );
+        said(
+            &MakeError::Archive("as the caller said it"),
+            "as the caller said it",
+        );
     }
 
     #[test]
@@ -290,14 +369,47 @@ mod tests {
         let q = make(&root, "l1", "pkg", "1", None, 200, archive(b"x", 0)).unwrap();
         assert!(!q.keys_known && q.keys.is_empty());
         // an archive that was not written leaves no point
-        let e = make(&root, "l1", "pkg", "1", None, 300, |_| Err("disk".into())).unwrap_err();
-        assert_eq!(e, "disk");
+        let e = make(&root, "l1", "pkg", "1", None, 300, |_| Err("disk")).unwrap_err();
+        assert!(matches!(e, MakeError::Archive("disk")), "{e:?}");
         assert_eq!(list(&root, "l1").len(), 2);
         // a name that would leave the directory
-        assert!(file(&root, "l1", "../x").is_err());
-        assert!(file(&root, "..", &p.id).is_err());
-        assert!(file(&root, "l1", "19700101T000000Z").is_err(), "not there");
-        assert!(make(&root, "..", "pkg", "1", None, 1, archive(b"x", 0)).is_err());
+        assert!(matches!(
+            file(&root, "l1", "../x"),
+            Err(PointError::Id(id)) if id == "../x"
+        ));
+        assert!(matches!(file(&root, "..", &p.id), Err(PointError::Link(_))));
+        assert!(
+            matches!(
+                file(&root, "l1", "19700101T000000Z"),
+                Err(PointError::NotFound { .. })
+            ),
+            "not there"
+        );
+        let e = make(&root, "..", "pkg", "1", None, 1, archive(b"x", 0)).unwrap_err();
+        assert!(matches!(e, MakeError::Point(PointError::Link(_))), "{e:?}");
+    }
+
+    /// A description that is not written leaves no archive: the point is
+    /// refused whole.
+    #[test]
+    fn a_point_without_its_description_is_no_point() {
+        let d = tmp("nodesc");
+        let root = d.join("restore");
+        let mut written = None;
+        let e = make(&root, "l1", "pkg", "1", None, 400, |path: &Path| {
+            // the description's name is taken while the archive is written
+            std::fs::write(path, b"x")?;
+            std::fs::create_dir_all(path.with_extension(META).join("x"))?;
+            written = Some(path.to_owned());
+            Ok::<_, std::io::Error>((1, 0))
+        })
+        .unwrap_err();
+        assert!(
+            matches!(&e, MakeError::Point(PointError::Description { id, .. }) if id == &stamp(400)),
+            "{e:?}"
+        );
+        assert!(!written.unwrap().exists(), "the archive is removed again");
+        assert!(list(&root, "l1").is_empty());
     }
 
     #[test]
