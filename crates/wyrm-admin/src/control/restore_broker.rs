@@ -1451,7 +1451,6 @@ impl Admin {
                         label: super::backups::JobKind::PreRestore,
                         pinned: false,
                         remote: false,
-                        estimate: false,
                     },
                     &sub2,
                 )
