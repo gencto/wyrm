@@ -176,23 +176,72 @@ fn parse_request(v: Value) -> Option<(String, String, Duration)> {
     ok.then(|| (op, holder, Duration::from_millis(ttl)))
 }
 
-async fn read_frame<R: AsyncReadExt + Unpin>(r: &mut R) -> Result<Value, String> {
-    let n = r.read_u32().await.map_err(|e| e.to_string())?;
-    if n > MAX_FRAME {
-        return Err(format!("frame of {n} bytes"));
-    }
-    let mut buf = vec![0u8; n as usize];
-    r.read_exact(&mut buf).await.map_err(|e| e.to_string())?;
-    wyrm_core::codec::from_slice(&buf).map_err(|e| e.to_string())
+/// A frame that was not read or written.
+#[derive(Debug, thiserror::Error)]
+enum FrameError {
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+    /// Longer than [`MAX_FRAME`].
+    #[error("frame of {0} bytes")]
+    TooLarge(u32),
+    #[error(transparent)]
+    Codec(#[from] wyrm_core::codec::CodecError),
 }
 
-async fn write_frame<W: AsyncWriteExt + Unpin>(w: &mut W, v: &Value) -> Result<(), String> {
-    let bytes = wyrm_core::codec::to_vec(v).map_err(|e| e.to_string())?;
-    w.write_u32(bytes.len() as u32)
-        .await
-        .map_err(|e| e.to_string())?;
-    w.write_all(&bytes).await.map_err(|e| e.to_string())?;
-    w.flush().await.map_err(|e| e.to_string())
+/// Why the arbiter did not answer a request (its debug log).
+#[derive(Debug, thiserror::Error)]
+enum ServeError {
+    /// The TLS handshake.
+    #[error(transparent)]
+    Accept(std::io::Error),
+    /// The caller's certificate is not the site's standby certificate.
+    #[error("certificate {cn:?}: not {want}")]
+    Certificate { cn: Option<String>, want: String },
+    #[error(transparent)]
+    Frame(#[from] FrameError),
+    #[error("bad request")]
+    BadRequest,
+    #[error("op {0:?}")]
+    Op(String),
+}
+
+/// Why one arbiter gave a broker no answer (said once when none answers).
+#[derive(Debug, thiserror::Error)]
+enum AskError {
+    #[error("no port")]
+    NoPort,
+    #[error(transparent)]
+    Name(#[from] rustls_pki_types::InvalidDnsNameError),
+    #[error(transparent)]
+    Connect(std::io::Error),
+    #[error("tls: {0}")]
+    Tls(#[source] std::io::Error),
+    /// The server's certificate is not the site's arbiter certificate.
+    #[error("certificate {cn:?}: not {want}")]
+    Certificate { cn: Option<String>, want: String },
+    #[error(transparent)]
+    Frame(#[from] FrameError),
+    #[error("bad answer")]
+    BadAnswer,
+    #[error("no answer within 1 s")]
+    Timeout(#[source] tokio::time::error::Elapsed),
+}
+
+async fn read_frame<R: AsyncReadExt + Unpin>(r: &mut R) -> Result<Value, FrameError> {
+    let n = r.read_u32().await?;
+    if n > MAX_FRAME {
+        return Err(FrameError::TooLarge(n));
+    }
+    let mut buf = vec![0u8; n as usize];
+    r.read_exact(&mut buf).await?;
+    Ok(wyrm_core::codec::from_slice(&buf)?)
+}
+
+async fn write_frame<W: AsyncWriteExt + Unpin>(w: &mut W, v: &Value) -> Result<(), FrameError> {
+    let bytes = wyrm_core::codec::to_vec(v)?;
+    w.write_u32(bytes.len() as u32).await?;
+    w.write_all(&bytes).await?;
+    Ok(w.flush().await?)
 }
 
 fn certs(path: &Path) -> Result<Vec<CertificateDer<'static>>, Error> {
@@ -335,7 +384,7 @@ pub async fn serve_with(
         let (acceptor, lease, want) = (acceptor.clone(), lease.clone(), want.clone());
         tokio::spawn(async move {
             let r = tokio::time::timeout(TIMEOUT * 3, async {
-                let mut s = acceptor.accept(tcp).await.map_err(|e| e.to_string())?;
+                let mut s = acceptor.accept(tcp).await.map_err(ServeError::Accept)?;
                 let cn = s
                     .get_ref()
                     .1
@@ -343,16 +392,16 @@ pub async fn serve_with(
                     .and_then(|c| c.first())
                     .and_then(|c| common_name(c));
                 if cn.as_deref() != Some(want.as_str()) {
-                    return Err(format!("certificate {cn:?}: not {want}"));
+                    return Err(ServeError::Certificate { cn, want });
                 }
                 let (op, holder, ttl) =
-                    parse_request(read_frame(&mut s).await?).ok_or("bad request")?;
+                    parse_request(read_frame(&mut s).await?).ok_or(ServeError::BadRequest)?;
                 let a = {
                     let mut l = lease.lock().unwrap_or_else(|p| p.into_inner());
                     match op.as_str() {
                         "hold" => l.hold(Instant::now(), &holder, ttl),
                         "release" => l.release(&holder),
-                        _ => return Err(format!("op {op:?}")),
+                        _ => return Err(ServeError::Op(op)),
                     }
                 };
                 if !matches!(a, Answer::Granted { .. }) || op != "hold" {
@@ -360,7 +409,7 @@ pub async fn serve_with(
                 }
                 write_frame(&mut s, &answer_value(&a)).await?;
                 let _ = s.shutdown().await;
-                Ok::<(), String>(())
+                Ok::<(), ServeError>(())
             })
             .await;
             match r {
@@ -455,22 +504,19 @@ impl Arbiters {
         tls: &tokio_rustls::TlsConnector,
         addr: &str,
         op: &str,
-    ) -> Result<Answer, String> {
+    ) -> Result<Answer, AskError> {
         let host = addr
             .rsplit_once(':')
-            .ok_or("no port")?
+            .ok_or(AskError::NoPort)?
             .0
             .trim_start_matches('[')
             .trim_end_matches(']');
-        let name = ServerName::try_from(host.to_owned()).map_err(|e| e.to_string())?;
+        let name = ServerName::try_from(host.to_owned())?;
         tokio::time::timeout(TIMEOUT, async {
             let tcp = tokio::net::TcpStream::connect(addr)
                 .await
-                .map_err(|e| e.to_string())?;
-            let mut s = tls
-                .connect(name, tcp)
-                .await
-                .map_err(|e| format!("tls: {e}"))?;
+                .map_err(AskError::Connect)?;
+            let mut s = tls.connect(name, tcp).await.map_err(AskError::Tls)?;
             // the site CA signs more than arbiters (links, brokers below):
             // only an `arbiter:<site>` certificate answers for the lease
             let cn = s
@@ -480,13 +526,16 @@ impl Arbiters {
                 .and_then(|c| c.first())
                 .and_then(|c| common_name(c));
             if cn.as_deref() != Some(self.server_cn.as_str()) {
-                return Err(format!("certificate {cn:?}: not {}", self.server_cn));
+                return Err(AskError::Certificate {
+                    cn,
+                    want: self.server_cn.clone(),
+                });
             }
             write_frame(&mut s, &request_value(op, &self.holder, self.ttl)).await?;
-            parse_answer(read_frame(&mut s).await?).ok_or_else(|| "bad answer".to_owned())
+            parse_answer(read_frame(&mut s).await?).ok_or(AskError::BadAnswer)
         })
         .await
-        .map_err(|_| "no answer within 1 s".to_owned())?
+        .map_err(AskError::Timeout)?
     }
 
     async fn all(&self, op: &str) -> Vec<Option<Answer>> {
@@ -738,5 +787,97 @@ mod tests {
             "two: both are needed"
         );
         assert_eq!(tally(&[g, None]), Verdict::Unknown);
+    }
+
+    /// Every refusal reads as it did when these errors were strings.
+    #[tokio::test]
+    async fn errors_read_as_before() {
+        let io = || std::io::Error::other("cause");
+        let cn = || Some("standby:other".to_owned());
+        let codec = || wyrm_core::codec::CodecError::Decode("end of input bytes".into());
+        for (e, want) in [
+            (FrameError::Io(io()).to_string(), "cause"),
+            (
+                FrameError::TooLarge(4097).to_string(),
+                "frame of 4097 bytes",
+            ),
+            (
+                FrameError::Codec(codec()).to_string(),
+                "cbor decode: end of input bytes",
+            ),
+            (ServeError::Accept(io()).to_string(), "cause"),
+            (
+                ServeError::Certificate {
+                    cn: cn(),
+                    want: "standby:s".into(),
+                }
+                .to_string(),
+                "certificate Some(\"standby:other\"): not standby:s",
+            ),
+            (
+                ServeError::Certificate {
+                    cn: None,
+                    want: "standby:s".into(),
+                }
+                .to_string(),
+                "certificate None: not standby:s",
+            ),
+            (
+                ServeError::Frame(FrameError::TooLarge(5000)).to_string(),
+                "frame of 5000 bytes",
+            ),
+            (ServeError::BadRequest.to_string(), "bad request"),
+            (ServeError::Op("take".into()).to_string(), "op \"take\""),
+            (AskError::NoPort.to_string(), "no port"),
+            (AskError::Connect(io()).to_string(), "cause"),
+            (AskError::Tls(io()).to_string(), "tls: cause"),
+            (
+                AskError::Certificate {
+                    cn: cn(),
+                    want: "arbiter:s".into(),
+                }
+                .to_string(),
+                "certificate Some(\"standby:other\"): not arbiter:s",
+            ),
+            (
+                AskError::Frame(FrameError::Codec(codec())).to_string(),
+                "cbor decode: end of input bytes",
+            ),
+            (AskError::BadAnswer.to_string(), "bad answer"),
+        ] {
+            assert_eq!(e, want);
+        }
+        let name = ServerName::try_from("bad host".to_owned()).unwrap_err();
+        assert_eq!(AskError::Name(name).to_string(), "invalid dns name");
+        let late = tokio::time::timeout(Duration::ZERO, std::future::pending::<()>())
+            .await
+            .unwrap_err();
+        assert_eq!(AskError::Timeout(late).to_string(), "no answer within 1 s");
+    }
+
+    /// A frame is refused by its length before its body is read, and a
+    /// short or damaged one by its cause.
+    #[tokio::test]
+    async fn frames_are_refused_by_variant() {
+        let too_large = (MAX_FRAME + 1).to_be_bytes();
+        let mut r: &[u8] = &too_large;
+        assert!(matches!(
+            read_frame(&mut r).await,
+            Err(FrameError::TooLarge(n)) if n == MAX_FRAME + 1
+        ));
+        let mut r: &[u8] = &[0, 0];
+        assert!(matches!(read_frame(&mut r).await, Err(FrameError::Io(_))));
+        let mut r: &[u8] = &[0, 0, 0, 9, 1];
+        assert!(matches!(read_frame(&mut r).await, Err(FrameError::Io(_))));
+        let mut r: &[u8] = &[0, 0, 0, 1, 0xff];
+        assert!(matches!(
+            read_frame(&mut r).await,
+            Err(FrameError::Codec(_))
+        ));
+        let mut out = Vec::new();
+        let v = request_value("hold", "ab12", MIN_TTL);
+        write_frame(&mut out, &v).await.unwrap();
+        let mut r: &[u8] = &out;
+        assert_eq!(read_frame(&mut r).await.unwrap(), v);
     }
 }
