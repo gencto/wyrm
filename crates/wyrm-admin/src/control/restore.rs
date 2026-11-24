@@ -183,7 +183,7 @@ impl Control {
                 ));
             }
         }
-        make_private_dir(&self.backups_dir()).map_err(LinkError::internal)?;
+        make_private_dir(&self.backups_dir()).map_err(|e| LinkError::internal(e.to_string()))?;
         let mut r = [0u8; 8];
         wyrm_core::rand::fill(&mut r).map_err(|e| LinkError::internal(e.to_string()))?;
         let id = hex::encode(r);
@@ -368,8 +368,8 @@ impl Control {
                 .filter(|f| prefixes.iter().any(|p| f.path.starts_with(p))),
         ))?;
         let backups = self.backups_dir();
-        make_private_dir(&backups)?;
-        let stage = StageDir::new(&backups)?;
+        make_private_dir(&backups).map_err(|e| e.to_string())?;
+        let stage = StageDir::new(&backups).map_err(|e| e.to_string())?;
         let mut out = LinkRestore {
             manifest: manifest.clone(),
             def,
@@ -739,8 +739,8 @@ impl Admin {
         let (path, _tmp) = match (upload, &a.file) {
             (Some(id), _) => (ctl.upload_take(id).map_err(|e| e.message)?, None),
             (None, Some(b)) => {
-                make_private_dir(&ctl.backups_dir())?;
-                let tmp = StageDir::new(&ctl.backups_dir())?;
+                make_private_dir(&ctl.backups_dir()).map_err(|e| e.to_string())?;
+                let tmp = StageDir::new(&ctl.backups_dir()).map_err(|e| e.to_string())?;
                 let p = tmp.0.join("file");
                 std::fs::write(&p, b).map_err(|e| io_err(&p, e))?;
                 (p, Some(tmp))
