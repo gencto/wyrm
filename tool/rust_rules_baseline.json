@@ -237,12 +237,6 @@
     "tools/wyrm-mcp/src/server.rs": 4
   },
   "C5-string-error": {
-    "crates/wyrm-admin/src/control.rs": 2,
-    "crates/wyrm-admin/src/control/broker_update.rs": 3,
-    "crates/wyrm-admin/src/control/send.rs": 1,
-    "crates/wyrm-admin/src/control/updates.rs": 5,
-    "crates/wyrm-admin/src/logs.rs": 2,
-    "crates/wyrm-admin/src/registry.rs": 5,
     "crates/wyrm-admin/src/secrets.rs": 1,
     "crates/wyrm-client/src/endpoint.rs": 2,
     "crates/wyrm-core/src/display.rs": 1,
@@ -804,7 +798,6 @@
   "clippy::map_err_ignore": {
     "crates/wyrm-admin/src/control.rs": 1,
     "crates/wyrm-admin/src/control/restore_broker.rs": 7,
-    "crates/wyrm-admin/src/registry.rs": 1,
     "crates/wyrm-admin/src/secrets.rs": 4,
     "crates/wyrm-client/src/streams.rs": 1,
     "crates/wyrm-core/src/attachment.rs": 1,
