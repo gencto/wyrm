@@ -494,6 +494,29 @@ for a version put there by hand. A binary that fails is never started.
 The guard makes the other version of the update current if that one
 verifies; else it ends with code 1 and the journal says why.
 
+A `bin/trusted.json` that cannot be read (damaged, not a plain file, more
+than 1 MiB) trusts nothing: a version put there by hand is then not
+verified, the refusal names the file, and the log has an error line with
+it. `wyrmd install-layout` refuses to write such a file again, because it
+would lose the versions the file named. To recover, as root: look at the
+file; put it back from a copy, or remove it and run
+`<prefix>/versions/<v>/wyrmd install-layout <prefix>` with the binary of
+each version that was put there by hand (a version with a signed release
+needs no entry).
+
+CAUTION: each such run also makes its own version the current one and
+puts its own binary in place of the guard. Do it with the broker stopped
+and not during a trial. Run the version that must stay current last. If
+the current version has a signed release and so needs no entry, note
+where `current` points before you start and put it back afterwards
+(`ln -sfn versions/<v> <prefix>/current.new && mv -T <prefix>/current.new
+<prefix>/current`); the unit's `guard-refresh` step then makes the guard
+the binary of that version again at the next start. A wrong order starts
+an older binary on the data of a newer one at the next restart. In the
+layout of step 2, set the owners again afterwards (`chown -R wyrm:wyrm
+<prefix>/versions`, `chown -h wyrm:wyrm <prefix>/current`): what root made
+the broker cannot replace at its next update.
+
 The pre-update backup is sealed for this broker (`how: broker`): the guard
 checks its manifest with the key of `secrets.key`, every file against the
 manifest, and the file's SHA-256 against `update.json`.
@@ -602,6 +625,26 @@ carries a sequence number: a broker refuses an index older than one it
 has read (`data_dir/update.seen`), so an old index that is put back hides
 no release. A read that fails is tried again after 5 minutes; the index
 read before stays in use.
+
+`update.seen` holds that sequence as one decimal number. A host that has
+no such file starts at 0. A file that is there and cannot be told (not
+readable by the broker's user, not a plain file, more than 32 bytes, not
+a number) refuses every index: the broker does not guess 0, because then
+any old index would pass. `sys/update_hint` and the answer of
+`check_updates` name the file (`releases index: … update.seen …`). The
+broker runs on, an index read before in this run stays in use, and a
+signed archive brought by hand is still taken. To recover:
+
+1. Look at the file: `ls -l <data_dir>/update.seen` and its content. It
+   must be a plain file of the broker's user, mode 0600, with one number.
+2. If only the owner or the mode is wrong, set them right.
+3. If the content is lost, write the sequence of the index that the
+   channel serves now (the `sequence` in its `index` text), when you
+   trust that the channel is current. Then run `check_updates`.
+4. Or remove the file. **Removing it drops this guard once:** the next
+   index that verifies is taken whatever its sequence, also an old one
+   that was put back, and the broker counts from there. Before you
+   remove it, check that the channel serves the newest index.
 
 #### Without a releases index
 

@@ -211,6 +211,31 @@ pub enum ReleaseError {
     /// `update.seen` could not be written.
     #[error(transparent)]
     File(#[from] FileError),
+    /// `update.seen` is there and is not a small plain file this broker
+    /// reads: the sequence read before is not known, and it is not taken
+    /// for 0 ([`seen_sequence`]).
+    #[error("{0}: the sequence read before is not known, no index is taken ({help})", help = LAYOUT_HELP)]
+    SeenNotRead(#[source] PlainFileError),
+    /// `update.seen` is not text.
+    #[error(
+        "{}: not a sequence number, no index is taken ({help})",
+        .path.display(), help = LAYOUT_HELP
+    )]
+    SeenNotText {
+        path: PathBuf,
+        #[source]
+        source: std::str::Utf8Error,
+    },
+    /// `update.seen` is text and no `u64`.
+    #[error(
+        "{}: not a sequence number ({source}), no index is taken ({help})",
+        .path.display(), help = LAYOUT_HELP
+    )]
+    SeenNotNumber {
+        path: PathBuf,
+        #[source]
+        source: std::num::ParseIntError,
+    },
 }
 
 /// Why a broker may not update to a release ([`Release::compatible`]). The
@@ -391,6 +416,29 @@ pub enum Unverified {
     /// The release is good and names another binary than the one on disk.
     #[error("the binary is not the one its signed release names")]
     BinaryMismatch,
+    /// No signed release names the binary (`release`), and whether it was
+    /// put there by hand cannot be told: `bin/trusted.json` is not read.
+    #[error("{release}; and {trusted}: no version put there by hand is trusted")]
+    TrustedNotRead {
+        trusted: TrustedError,
+        #[source]
+        release: Box<Unverified>,
+    },
+}
+
+/// `bin/trusted.json` is there and is not the list of versions put there by
+/// hand ([`Layout::trusted_list`]).
+#[derive(Debug, thiserror::Error)]
+pub enum TrustedError {
+    /// Not readable, a link, a directory, or over 1 MiB.
+    #[error(transparent)]
+    File(#[from] PlainFileError),
+    #[error("{}: not a list of versions with the SHA-256 of each binary: {source}", .path.display())]
+    Json {
+        path: PathBuf,
+        #[source]
+        source: serde_json::Error,
+    },
 }
 
 /// Why the install layout, a version in it, `update.json` or the guard is
@@ -449,6 +497,10 @@ pub enum LayoutError {
     /// `update.json` or `trusted.json` could not be written as JSON.
     #[error("{0}")]
     Encode(#[source] serde_json::Error),
+    /// `bin/trusted.json` is there and cannot be read: [`Layout::trust`]
+    /// does not write it again without the versions it named.
+    #[error("{0}: it is not written again, it may name other versions ({help})", help = LAYOUT_HELP)]
+    TrustedNotRead(#[source] TrustedError),
     /// The guard starts nothing: the current version is not verified
     /// (the cause) and no other version of the update is.
     #[error(
@@ -1100,17 +1152,35 @@ pub fn read_channel(bytes: &[u8], keys: &[VerifyingKey]) -> Result<Index, Releas
 }
 
 /// The highest index sequence this host has read (`data_dir/update.seen`).
-pub fn seen_sequence(data_dir: &Path) -> u64 {
-    std::fs::read_to_string(data_dir.join(SEEN_FILE))
-        .ok()
-        .and_then(|t| t.trim().parse().ok())
-        .unwrap_or(0)
+///
+/// Only a host that has no such file starts at 0. A file that is there and
+/// cannot be told (not readable, not a plain file, over [`MAX_SEEN`] bytes,
+/// not a `u64`) is an error: taken for 0, it would let any old index in.
+pub fn seen_sequence(data_dir: &Path) -> Result<u64, ReleaseError> {
+    let path = data_dir.join(SEEN_FILE);
+    match path.symlink_metadata() {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        // anything else is said by the read below
+        Err(_) | Ok(_) => {}
+    }
+    let bytes = read_plain_file(&path, MAX_SEEN).map_err(ReleaseError::SeenNotRead)?;
+    let text = match std::str::from_utf8(&bytes) {
+        Ok(t) => t,
+        Err(source) => return Err(ReleaseError::SeenNotText { path, source }),
+    };
+    text.trim()
+        .parse()
+        .map_err(|source| ReleaseError::SeenNotNumber { path, source })
 }
 
+/// Largest `update.seen`: a `u64` in decimal has 20 digits.
+const MAX_SEEN: u64 = 32;
+
 /// Take the index of sequence `sequence`: refused when this host has read
-/// a later one; remembered when it is later than all before.
+/// a later one, or when what it has read cannot be told
+/// ([`seen_sequence`]); remembered when it is later than all before.
 pub fn note_sequence(data_dir: &Path, sequence: u64) -> Result<(), ReleaseError> {
-    let seen = seen_sequence(data_dir);
+    let seen = seen_sequence(data_dir)?;
     if sequence < seen {
         return Err(ReleaseError::SequenceWentBack { sequence, seen });
     }
@@ -1118,6 +1188,9 @@ pub fn note_sequence(data_dir: &Path, sequence: u64) -> Result<(), ReleaseError>
         let path = data_dir.join(SEEN_FILE);
         crate::secret::write_private(&path, sequence.to_string().as_bytes())
             .map_err(|e| io(&path, e))?;
+        // the rename is not on disk before its directory is: without this a
+        // power loss brings the older number back
+        sync_dir(data_dir)?;
     }
     Ok(())
 }
@@ -1448,11 +1521,19 @@ impl Layout {
         self.prefix.join("bin").join(TRUSTED)
     }
 
-    fn trusted_list(&self) -> BTreeMap<String, String> {
-        read_plain_file(&self.trusted(), 1 << 20)
-            .ok()
-            .and_then(|b| serde_json::from_slice(&b).ok())
-            .unwrap_or_default()
+    /// The versions put there by hand, each with the SHA-256 of its binary.
+    /// No file is an empty list. A file that is there and cannot be read
+    /// as that list is an error: read as empty, the next [`Self::trust`]
+    /// would write it again without the versions it named.
+    fn trusted_list(&self) -> Result<BTreeMap<String, String>, TrustedError> {
+        let path = self.trusted();
+        match path.symlink_metadata() {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(BTreeMap::new()),
+            // anything else is said by the read below
+            Err(_) | Ok(_) => {}
+        }
+        let bytes = read_plain_file(&path, 1 << 20)?;
+        serde_json::from_slice(&bytes).map_err(|source| TrustedError::Json { path, source })
     }
 
     /// Is `sha256` the binary of `version` as this host may run it? Either
@@ -1468,9 +1549,19 @@ impl Layout {
         keys: &[VerifyingKey],
     ) -> Result<(), LayoutError> {
         check_version(version)?;
-        if self.trusted_list().get(version).map(String::as_str) == Some(sha256) {
-            return Ok(());
-        }
+        // a list that cannot be read trusts nothing, and that is said: in
+        // the log here, and in the refusal when no signed release names the
+        // binary either
+        let unread = match self.trusted_list() {
+            Ok(list) if list.get(version).map(String::as_str) == Some(sha256) => return Ok(()),
+            Ok(_) => None,
+            Err(e) => {
+                tracing::error!(
+                    "{e}: no version put there by hand is trusted (docs/operations.md §2)"
+                );
+                Some(e)
+            }
+        };
         let dir = self.versions().join(version);
         let found = (|| -> Result<(), Unverified> {
             let doc = read_plain_file(&dir.join(RELEASE_DOC), MAX_RELEASE as u64)?;
@@ -1489,7 +1580,13 @@ impl Layout {
         found.map_err(|why| LayoutError::NotVerified {
             version: version.to_owned(),
             dir,
-            why: Box::new(why),
+            why: Box::new(match unread {
+                Some(trusted) => Unverified::TrustedNotRead {
+                    trusted,
+                    release: Box::new(why),
+                },
+                None => why,
+            }),
         })
     }
 
@@ -1511,7 +1608,9 @@ impl Layout {
     /// Name `version` with the hash of its binary in `bin/trusted.json`: a
     /// version put there by hand has no signed release.
     fn trust(&self, version: &str, sha256: &str) -> Result<(), LayoutError> {
-        let mut list = self.trusted_list();
+        // a list that cannot be read is not written over: it may name
+        // other versions
+        let mut list = self.trusted_list().map_err(LayoutError::TrustedNotRead)?;
         list.insert(version.to_owned(), sha256.to_owned());
         let path = self.trusted();
         let dir = path.parent().unwrap_or(&self.prefix).to_owned();
@@ -2751,6 +2850,33 @@ mod tests {
              read 9): an old index was put back",
         );
         said(&R::File(file()), "/p/f: no");
+        // issue 184: `update.seen` that is there and cannot be told
+        said(
+            &R::SeenNotRead(PlainFileError::File(file())),
+            "/p/f: no: the sequence read before is not known, no index is taken \
+             (docs/operations.md §2 \"A broker that updates itself\")",
+        );
+        said(
+            &R::SeenNotRead(PlainFileError::NotPlain { path: p(), max: 32 }),
+            "/p/f: not a plain file of at most 32 bytes: the sequence read before is not \
+             known, no index is taken (docs/operations.md §2 \"A broker that updates itself\")",
+        );
+        said(
+            &R::SeenNotText {
+                path: p(),
+                source: not_text().utf8_error(),
+            },
+            "/p/f: not a sequence number, no index is taken \
+             (docs/operations.md §2 \"A broker that updates itself\")",
+        );
+        said(
+            &R::SeenNotNumber {
+                path: p(),
+                source: "nine".parse::<u64>().unwrap_err(),
+            },
+            "/p/f: not a sequence number (invalid digit found in string), no index is taken \
+             (docs/operations.md §2 \"A broker that updates itself\")",
+        );
 
         let v = || "0.2.0".to_owned();
         said(
@@ -2992,6 +3118,33 @@ mod tests {
             "/p/f: another binary of version 0.2.0 is there",
         );
         said(&L::Encode(json()), &json_said);
+        // issue 184: `bin/trusted.json` that is there and cannot be read
+        let trusted_json = || TrustedError::Json {
+            path: p(),
+            source: json(),
+        };
+        said(
+            &trusted_json(),
+            &format!("/p/f: not a list of versions with the SHA-256 of each binary: {json_said}"),
+        );
+        said(
+            &TrustedError::File(not_plain()),
+            "/p/f: not a plain file of at most 4096 bytes",
+        );
+        said(
+            &L::TrustedNotRead(TrustedError::File(not_plain())),
+            "/p/f: not a plain file of at most 4096 bytes: it is not written again, it may \
+             name other versions (docs/operations.md §2 \"A broker that updates itself\")",
+        );
+        said(
+            &not_verified(Unverified::TrustedNotRead {
+                trusted: TrustedError::File(not_plain()),
+                release: Box::new(Unverified::NoBuild),
+            }),
+            "wyrmd 0.2.0 in /opt/versions/0.2.0 is not verified: its release has no build \
+             for this host; and /p/f: not a plain file of at most 4096 bytes: no version put \
+             there by hand is trusted",
+        );
         said(
             &L::NothingVerified(Box::new(not_verified(Unverified::BinaryMismatch))),
             "wyrmd 0.2.0 in /opt/versions/0.2.0 is not verified: the binary is not the one \
@@ -3281,11 +3434,11 @@ mod tests {
             Err(ReleaseError::IndexHeader)
         ));
         // what a host has read
-        assert_eq!(seen_sequence(&d), 0);
+        assert_eq!(seen_sequence(&d).unwrap(), 0);
         note_sequence(&d, 7).unwrap();
         note_sequence(&d, 7).unwrap();
         note_sequence(&d, 9).unwrap();
-        assert_eq!(seen_sequence(&d), 9);
+        assert_eq!(seen_sequence(&d).unwrap(), 9);
         let err = note_sequence(&d, 8).unwrap_err();
         assert!(
             matches!(
@@ -3297,7 +3450,199 @@ mod tests {
             ),
             "{err}"
         );
-        assert_eq!(seen_sequence(&d), 9);
+        assert_eq!(seen_sequence(&d).unwrap(), 9);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// `update.seen` that is there and cannot be told refuses every index
+    /// (issue 184): only a host that has no file starts at 0.
+    #[test]
+    fn a_damaged_seen_file_refuses_the_index() {
+        let d = scratch("seen-damaged");
+        let path = d.join(SEEN_FILE);
+        // no file: a fresh host
+        note_sequence(&d, 3).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "3");
+        // a file as this broker wrote it, and one an operator wrote by hand
+        note_sequence(&d, 3).unwrap();
+        std::fs::write(&path, "5\n").unwrap();
+        note_sequence(&d, 5).unwrap();
+        assert!(note_sequence(&d, 4).is_err());
+        for (case, bytes) in [
+            ("empty", &b""[..]),
+            ("not a number", b"nine"),
+            ("negative", b"-1"),
+            ("over u64", b"18446744073709551616"),
+            ("not text", &[0xff, 0xfe]),
+            ("oversized", &[b'1'; 4096]),
+        ] {
+            std::fs::write(&path, bytes).unwrap();
+            // a lower sequence, the same and a higher one: none is taken
+            for sequence in [1, 5, 1 << 40] {
+                let err = note_sequence(&d, sequence).unwrap_err();
+                let typed = match case {
+                    "empty" | "not a number" | "negative" | "over u64" => {
+                        matches!(err, ReleaseError::SeenNotNumber { .. })
+                    }
+                    "not text" => matches!(err, ReleaseError::SeenNotText { .. }),
+                    _ => matches!(
+                        err,
+                        ReleaseError::SeenNotRead(PlainFileError::NotPlain { max: 32, .. })
+                    ),
+                };
+                assert!(typed, "{case}: {sequence}: {err:?}");
+                // the refusal names the file
+                assert!(err.to_string().contains(SEEN_FILE), "{case}: {err}");
+            }
+            assert!(seen_sequence(&d).is_err(), "{case}");
+            // and the file is not written over
+            assert_eq!(std::fs::read(&path).unwrap(), bytes, "{case}");
+        }
+        // not a plain file
+        std::fs::remove_file(&path).unwrap();
+        std::fs::create_dir(&path).unwrap();
+        for sequence in [1, 9] {
+            let err = note_sequence(&d, sequence).unwrap_err();
+            assert!(
+                matches!(
+                    err,
+                    ReleaseError::SeenNotRead(PlainFileError::NotPlain { .. })
+                ),
+                "{err:?}"
+            );
+        }
+        std::fs::remove_dir(&path).unwrap();
+        #[cfg(unix)]
+        {
+            // a link, also one to a good file
+            std::fs::write(d.join("other"), "2").unwrap();
+            std::os::unix::fs::symlink(d.join("other"), &path).unwrap();
+            for sequence in [1, 9] {
+                let err = note_sequence(&d, sequence).unwrap_err();
+                assert!(
+                    matches!(
+                        err,
+                        ReleaseError::SeenNotRead(PlainFileError::NotPlain { .. })
+                    ),
+                    "{err:?}"
+                );
+            }
+            assert_eq!(std::fs::read_to_string(d.join("other")).unwrap(), "2");
+            std::fs::remove_file(&path).unwrap();
+        }
+        // the operator removed the file: the guard starts again, once
+        note_sequence(&d, 1).unwrap();
+        assert!(matches!(
+            note_sequence(&d, 0),
+            Err(ReleaseError::SequenceWentBack {
+                sequence: 0,
+                seen: 1
+            })
+        ));
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// `update.seen` that this user may not read refuses every index.
+    #[cfg(unix)]
+    #[test]
+    fn an_unreadable_seen_file_refuses_the_index() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = scratch("seen-unreadable");
+        let path = d.join(SEEN_FILE);
+        std::fs::write(&path, "9").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
+        if std::fs::read(&path).is_ok() {
+            // root reads every file: the case cannot be made
+            let _ = std::fs::remove_dir_all(&d);
+            return;
+        }
+        for sequence in [8, 9, 10] {
+            let err = note_sequence(&d, sequence).unwrap_err();
+            assert!(
+                matches!(
+                    err,
+                    ReleaseError::SeenNotRead(PlainFileError::File(ref f))
+                        if f.path == path
+                            && f.source.kind() == std::io::ErrorKind::PermissionDenied
+                ),
+                "{sequence}: {err:?}"
+            );
+        }
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "9");
+        assert!(matches!(
+            note_sequence(&d, 8),
+            Err(ReleaseError::SequenceWentBack { .. })
+        ));
+        note_sequence(&d, 10).unwrap();
+        assert_eq!(seen_sequence(&d).unwrap(), 10);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// `bin/trusted.json` that cannot be read is not written again without
+    /// the versions it named (issue 184), and trusts nothing meanwhile.
+    #[cfg(unix)]
+    #[test]
+    fn a_damaged_trusted_list_is_not_written_over() {
+        let d = scratch("trusted-damaged");
+        let exe = d.join("built");
+        std::fs::write(&exe, b"v1").unwrap();
+        let l = Layout::install(&d.join("opt"), &exe, "0.1.0").unwrap();
+        let pinned = [key(1).verifying_key()];
+        l.verify("0.1.0", &pinned).unwrap();
+        let good = std::fs::read(l.trusted()).unwrap();
+        let next = d.join("next");
+        std::fs::write(&next, b"v2").unwrap();
+        for (case, bytes) in [
+            ("cut off", &good[..good.len() / 2]),
+            ("empty", &b""[..]),
+            ("another document", b"[1, 2]"),
+        ] {
+            std::fs::write(l.trusted(), bytes).unwrap();
+            // nothing is trusted by it
+            let err = l.verify("0.1.0", &pinned).unwrap_err();
+            assert!(
+                matches!(
+                    unverified(&err),
+                    Some(Unverified::TrustedNotRead {
+                        trusted: TrustedError::Json { .. },
+                        ..
+                    })
+                ),
+                "{case}: {err:?}"
+            );
+            assert!(err.to_string().contains(TRUSTED), "{case}: {err}");
+            // and a version put there by hand does not replace it
+            let err = Layout::install(&l.prefix, &next, "0.2.0").unwrap_err();
+            assert!(
+                matches!(err, LayoutError::TrustedNotRead(TrustedError::Json { .. })),
+                "{case}: {err:?}"
+            );
+            assert_eq!(std::fs::read(l.trusted()).unwrap(), bytes, "{case}");
+        }
+        // not a plain file
+        std::fs::remove_file(l.trusted()).unwrap();
+        std::fs::write(d.join("other.json"), &good).unwrap();
+        std::os::unix::fs::symlink(d.join("other.json"), l.trusted()).unwrap();
+        assert!(l.verify("0.1.0", &pinned).is_err());
+        assert!(matches!(
+            Layout::install(&l.prefix, &next, "0.2.0"),
+            Err(LayoutError::TrustedNotRead(TrustedError::File(
+                PlainFileError::NotPlain { .. }
+            )))
+        ));
+        assert_eq!(std::fs::read(d.join("other.json")).unwrap(), good);
+        std::fs::remove_file(l.trusted()).unwrap();
+        // the file put back: the old entry is kept beside the new one
+        std::fs::write(l.trusted(), &good).unwrap();
+        Layout::install(&l.prefix, &next, "0.2.0").unwrap();
+        l.verify("0.1.0", &pinned).unwrap();
+        l.verify("0.2.0", &pinned).unwrap();
+        // no file: an empty list, as on a new prefix
+        std::fs::remove_file(l.trusted()).unwrap();
+        assert!(l.verify("0.1.0", &pinned).is_err());
+        Layout::install(&l.prefix, &next, "0.2.0").unwrap();
+        l.verify("0.2.0", &pinned).unwrap();
         let _ = std::fs::remove_dir_all(&d);
     }
 
