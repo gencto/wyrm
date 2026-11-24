@@ -1568,6 +1568,7 @@ impl<R: Read + Seek> Reader<R> {
     /// Write the plain content of `path` to the new file `dest` (parents
     /// created; 0600, or 0700 for an `exec` entry; refused when it exists).
     /// A sealed file is opened with `key`. On an error `dest` is removed.
+    /// No other path is written: `dest` is the only file this makes.
     pub fn extract(
         &mut self,
         path: &str,
@@ -1596,17 +1597,16 @@ impl<R: Read + Seek> Reader<R> {
                 let key = key.ok_or_else(|| ReadError::NoKey {
                     path: path.to_owned(),
                 })?;
-                // sealed files are checked whole first, then opened part by part
-                let stored = dest.with_extension("sealed-part");
-                let r = (|| {
-                    let mut tmp = File::create(&stored).map_err(io)?;
-                    self.copy(path, &mut tmp)?;
-                    drop(tmp);
-                    let src = std::io::BufReader::new(File::open(&stored).map_err(io)?);
-                    Ok::<_, ReadError>(open_stream(key, path, src, &mut out)?)
-                })();
-                wyrm_core::files::discard(&stored);
-                r?
+                // sealed files are checked whole first, then opened part by part:
+                // the entry is read twice from the backup itself, and its stored
+                // bytes are kept in no file (a path beside `dest` can be another
+                // entry's, somebody's file or a symlink)
+                self.copy(path, &mut std::io::sink())?;
+                let src = self.zip.by_name(path).map_err(|source| ReadError::Entry {
+                    path: path.to_owned(),
+                    source,
+                })?;
+                open_stream(key, path, src, &mut out)?
             } else {
                 self.copy(path, &mut out)?
             };
@@ -1844,6 +1844,131 @@ mod tests {
             Reader::open(&d.join("none.wyrm-backup"), 1 << 30),
             Err(ReadError::File { source, .. }) if source.kind() == std::io::ErrorKind::NotFound
         ));
+    }
+
+    /// A backup whose `keys` section holds one sealed file per name in
+    /// `names` (all in `keys/pki`); the content of `<name>` is [`secret_of`].
+    fn sealed_files(d: &Path, names: &[&str]) -> (PathBuf, MasterKey) {
+        let (sealed, key) = Sealing::Passphrase(PASS).start().unwrap();
+        let key = key.unwrap();
+        let mut files = Vec::new();
+        for (i, name) in names.iter().enumerate() {
+            let path = format!("keys/pki/{name}");
+            let source = d.join(format!("staged-{i}"));
+            let mut out = File::create(&source).unwrap();
+            seal_stream(&key, &path, secret_of(name).as_slice(), &mut out).unwrap();
+            files.push(Staged {
+                path,
+                source,
+                sealed: true,
+                exec: false,
+            });
+        }
+        let sections = vec![StagedSection {
+            name: SectionName::Keys,
+            info: Default::default(),
+            files,
+        }];
+        let out = d.join("b.wyrm-backup");
+        write(&out, head(sealed), sections, Some(&key), |_, _| {}).unwrap();
+        (out, key)
+    }
+
+    /// More than one sealed part, and different for every name.
+    fn secret_of(name: &str) -> Vec<u8> {
+        let mut v = vec![name.len() as u8; SEAL_PART + 10];
+        v.extend_from_slice(name.as_bytes());
+        v
+    }
+
+    /// Issue #190: the stored bytes of a sealed file were kept in
+    /// `dest.with_extension("sealed-part")`. For an entry of that extension
+    /// the path was `dest` itself: written over, then removed, with `Ok`.
+    #[test]
+    fn a_sealed_file_named_as_the_old_temporary_file_is_extracted() {
+        let d = dir("extract-own-name");
+        let (path, key) = sealed_files(&d, &["a.sealed-part"]);
+        let mut r = Reader::open(&path, 1 << 30).unwrap();
+        let dest = d.join("out/pki/a.sealed-part");
+        let want = secret_of("a.sealed-part");
+        assert_eq!(
+            r.extract("keys/pki/a.sealed-part", &dest, Some(&key))
+                .unwrap(),
+            want.len() as u64
+        );
+        assert!(dest.exists(), "the extracted file is there");
+        assert_eq!(std::fs::read(&dest).unwrap(), want);
+    }
+
+    /// Issue #190: `x.sealed-part` extracted first was the temporary file of
+    /// `x.bin` after it, so it was written over and removed.
+    #[test]
+    fn two_sealed_files_of_one_folder_are_both_extracted() {
+        let d = dir("extract-pair");
+        let (path, key) = sealed_files(&d, &["x.sealed-part", "x.bin"]);
+        let mut r = Reader::open(&path, 1 << 30).unwrap();
+        for name in ["x.sealed-part", "x.bin"] {
+            let dest = d.join("out/pki").join(name);
+            r.extract(&format!("keys/pki/{name}"), &dest, Some(&key))
+                .unwrap();
+        }
+        for name in ["x.sealed-part", "x.bin"] {
+            let dest = d.join("out/pki").join(name);
+            assert!(dest.exists(), "{name} is there");
+            assert_eq!(std::fs::read(&dest).unwrap(), secret_of(name), "{name}");
+        }
+        // and nothing else is left in the folder
+        let mut left: Vec<_> = std::fs::read_dir(d.join("out/pki"))
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .collect();
+        left.sort();
+        assert_eq!(left, ["x.bin", "x.sealed-part"]);
+    }
+
+    /// Issue #190: the temporary file was opened with `File::create`, which
+    /// follows a symlink: the file it named was written over with the stored
+    /// bytes and the link removed.
+    #[cfg(unix)]
+    #[test]
+    fn extract_follows_no_symlink_beside_the_destination() {
+        let d = dir("extract-symlink");
+        let (path, key) = sealed_files(&d, &["x.bin"]);
+        let mut r = Reader::open(&path, 1 << 30).unwrap();
+        let victim = d.join("victim");
+        std::fs::write(&victim, b"not a backup's business").unwrap();
+        std::fs::create_dir_all(d.join("out/pki")).unwrap();
+        let link = d.join("out/pki/x.sealed-part");
+        std::os::unix::fs::symlink(&victim, &link).unwrap();
+        let dest = d.join("out/pki/x.bin");
+        r.extract("keys/pki/x.bin", &dest, Some(&key)).unwrap();
+        assert_eq!(std::fs::read(&dest).unwrap(), secret_of("x.bin"));
+        assert_eq!(std::fs::read(&victim).unwrap(), b"not a backup's business");
+        assert_eq!(std::fs::read_link(&link).unwrap(), victim);
+    }
+
+    /// Issue #190: a file that was there at the temporary path was truncated
+    /// and removed.
+    #[test]
+    fn extract_leaves_the_files_beside_the_destination() {
+        let d = dir("extract-neighbour");
+        let (path, key) = sealed_files(&d, &["x.bin"]);
+        let mut r = Reader::open(&path, 1 << 30).unwrap();
+        std::fs::create_dir_all(d.join("out/pki")).unwrap();
+        let other = d.join("out/pki/x.sealed-part");
+        std::fs::write(&other, b"somebody's file").unwrap();
+        let dest = d.join("out/pki/x.bin");
+        r.extract("keys/pki/x.bin", &dest, Some(&key)).unwrap();
+        assert_eq!(std::fs::read(&dest).unwrap(), secret_of("x.bin"));
+        assert_eq!(std::fs::read(&other).unwrap(), b"somebody's file");
+        // an extract that fails leaves them too, and no file of its own
+        let bare = d.join("out/pki/x.other");
+        assert!(matches!(
+            r.extract("keys/pki/x.bin", &bare, None),
+            Err(ReadError::NoKey { .. })
+        ));
+        assert!(!bare.exists());
+        assert_eq!(std::fs::read(&other).unwrap(), b"somebody's file");
     }
 
     /// A manifest of one plain file, sealed as `sealing` says and signed.

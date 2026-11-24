@@ -522,7 +522,7 @@
   },
   "A2-short-reason": {},
   "A3-scratch-discard": {
-    "crates/wyrm-admin/src/backup.rs": 4,
+    "crates/wyrm-admin/src/backup.rs": 3,
     "crates/wyrm-admin/src/control/backups.rs": 7,
     "crates/wyrm-admin/src/control/broker_update.rs": 3,
     "crates/wyrm-admin/src/control/restore.rs": 2,
