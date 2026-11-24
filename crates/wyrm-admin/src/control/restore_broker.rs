@@ -178,6 +178,58 @@ pub enum GateError {
     KeysDiffer { differ: Vec<String> },
 }
 
+/// A `control` section that no broker makes ([`Control::stage_control`]: for
+/// each store one WAL segment with every record, and the number of the last
+/// one in the section's `info`). Restored, the store would open without the
+/// records the backup claims: an emptied control plane (issue #198).
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ControlError {
+    /// A file a store does not read its records from.
+    #[error(
+        "{path} is no segment of a WAL (wal.<first lsn>.wyw): a store is restored from its \
+         segments alone. Nothing of this backup is restored"
+    )]
+    NotSegment { path: String },
+    /// The section without the registry.
+    #[error(
+        "the control section of the backup holds no segment of the registry (control/state). \
+         Nothing of this backup is restored"
+    )]
+    NoRegistry,
+    /// The manifest does not say where the store ends.
+    #[error(
+        "the backup does not say how many records its {store} store holds. Nothing of this \
+         backup is restored"
+    )]
+    NoHead { store: &'static str },
+    /// The store opens with other records than the backup says it holds.
+    #[error(
+        "the {store} store of the backup opens with {found} records, the backup says it holds \
+         {said}. Nothing of this backup is restored"
+    )]
+    Head {
+        store: &'static str,
+        said: u64,
+        found: u64,
+    },
+}
+
+/// The head of the store `store` as the `control` section of `manifest` says
+/// it, checked against the head `found` that the store opens with. A store
+/// without records is a real one (a broker backed up before anything was
+/// installed): it says 0 and opens with 0.
+fn head_as_said(manifest: &Manifest, store: &'static str, found: u64) -> Result<(), ControlError> {
+    let said = manifest
+        .section(SectionName::Control)
+        .and_then(|s| s.info.get(store))
+        .and_then(|said| said.as_u64())
+        .ok_or(ControlError::NoHead { store })?;
+    if said != found {
+        return Err(ControlError::Head { store, said, found });
+    }
+    Ok(())
+}
+
 /// What stands in the way of every `replace` of a backup, as `restore_check`
 /// lists it (`problems`) and `restore_apply` refuses it.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -319,6 +371,9 @@ pub enum BrokerRestoreError {
     Anchored,
     #[error(transparent)]
     Gate(#[from] GateError),
+    /// A `control` section that is not what a broker makes.
+    #[error(transparent)]
+    Control(#[from] ControlError),
     /// `control` under other keys than this broker's, without new keys.
     #[error(
         "the control plane of the backup is under other keys than this broker's: \
@@ -402,11 +457,18 @@ pub enum BrokerRestoreError {
 
 impl BrokerRestoreError {
     /// The status of the refusal. `busy` is a reason to try again: another
-    /// restore, backup, update or install runs. Everything else is
-    /// `invalid_parameter`, as the handler answered before the refusals had
-    /// types (it told `busy` by the words of the message).
+    /// restore, backup, update or install runs. A gate closed by the caller's
+    /// rights is `permission_denied` (owner decision 2026-11-24, issue #198
+    /// item 3): the caller comes from an upstream, or the host keeps secrets
+    /// on the site, as `sys/backups ▸ create` and `download_part` answer the
+    /// same rule. Everything else is `invalid_parameter`, as the handler
+    /// answered before the refusals had types (it told `busy` by the words of
+    /// the message).
     pub fn status(&self) -> Status {
         match self {
+            BrokerRestoreError::Gate(GateError::Remote | GateError::ExportOff) => {
+                Status::PermissionDenied
+            }
             BrokerRestoreError::Busy(_) => Status::Busy,
             BrokerRestoreError::PreBackup(NowError::Refused(
                 StartError::Running | StartError::LinkBusy(_),
@@ -427,7 +489,8 @@ impl BrokerRestoreError {
             | BrokerRestoreError::Problem(_)
             | BrokerRestoreError::MissingSection(_)
             | BrokerRestoreError::Anchored
-            | BrokerRestoreError::Gate(_)
+            | BrokerRestoreError::Gate(GateError::NoPassphrase | GateError::KeysDiffer { .. })
+            | BrokerRestoreError::Control(_)
             | BrokerRestoreError::ControlKeys
             | BrokerRestoreError::Task(_)
             | BrokerRestoreError::WalKeys { .. }
@@ -1139,6 +1202,25 @@ impl Control {
                 ));
             }
         }
+        // A control section is what a broker makes of its stores: segments
+        // alone, the registry among them. A file a store does not read (a
+        // segment under another name) would be put in place and the store
+        // would open without a record.
+        if manifest.section(SectionName::Control).is_some() {
+            let mut registry = false;
+            for (path, place) in &places {
+                let Place::Wal { name, file, .. } = place else {
+                    continue;
+                };
+                if wyrm_state::segment_first_lsn(file).is_none() {
+                    return Err(ControlError::NotSegment { path: path.clone() }.into());
+                }
+                registry |= *name == "state";
+            }
+            if !registry {
+                return Err(ControlError::NoRegistry.into());
+            }
+        }
         // does the registry of the backup open with the key in place here?
         let scratch =
             super::backups::StageDir::new(&self.backups_dir()).map_err(RestoreError::from)?;
@@ -1157,12 +1239,18 @@ impl Control {
         if any {
             let state_key = secret::load_or_create_key(&d.join("state.key"))
                 .map_err(BrokerRestoreError::KeyLoad)?;
-            wal_opens_here = wyrm_state::replicate::copy_to(
+            let opened = wyrm_state::replicate::copy_to(
                 &scratch.0.join("state"),
                 &state_key,
                 &scratch.0.join("verify"),
-            )
-            .is_ok();
+            );
+            // Under this broker's key the records can be counted now. Under
+            // other keys they are counted when the restore is staged, with
+            // the key that will be in place (`stage_replace`).
+            if let Ok(head) = &opened {
+                head_as_said(&manifest, "state", head.lsn)?;
+            }
+            wal_opens_here = opened.is_ok();
         }
         if !wal_opens_here {
             notes.push(
@@ -1397,7 +1485,7 @@ impl Control {
             };
             let wal_key =
                 secret::load_or_create_key(&key_path).map_err(BrokerRestoreError::KeyLoad)?;
-            wyrm_state::replicate::copy_to(
+            let head = wyrm_state::replicate::copy_to(
                 &data.join(dir),
                 &wal_key,
                 &tmp.join("verify").join(name),
@@ -1406,6 +1494,8 @@ impl Control {
                 store: name,
                 source,
             })?;
+            // every record the backup says it holds, or nothing is staged
+            head_as_said(&c.manifest, name, head.lsn)?;
             plan.dirs.push(dir.to_owned());
         }
         wyrm_core::files::discard_dir(&tmp.join("verify"));
@@ -2386,6 +2476,12 @@ mod tests {
     /// A broker backup of site `s` under [`PASS`] made of `files`
     /// (`path`, content, sealed), each in the section its path names.
     fn crafted(dir: &Path, files: &[(&str, &[u8], bool)]) -> PathBuf {
+        crafted_saying(dir, files, &[])
+    }
+
+    /// [`crafted`] whose `control` section says the heads `heads` (store,
+    /// last LSN) in its `info`, as a broker's backup does.
+    fn crafted_saying(dir: &Path, files: &[(&str, &[u8], bool)], heads: &[(&str, u64)]) -> PathBuf {
         let (sealed, key) = format::Sealing::Passphrase(PASS).start().unwrap();
         let key = key.unwrap();
         let src = dir.join("crafted-src");
@@ -2413,6 +2509,11 @@ mod tests {
                     info: Default::default(),
                     files: vec![staged],
                 }),
+            }
+        }
+        if let Some(s) = sections.iter_mut().find(|s| s.name == SectionName::Control) {
+            for (store, lsn) in heads {
+                s.info.insert((*store).to_owned(), (*lsn).into());
             }
         }
         let head = format::Head {
@@ -2459,6 +2560,174 @@ mod tests {
         }
         assert!(!d.join("links/a").exists() && !d.join(PENDING).exists());
         assert!(!d.join(PENDING_TMP).exists() && !d.join("wyrmd.json5").exists());
+    }
+
+    /// A broker backup of `sections`, not sealed, as the broker makes it.
+    fn made(ctl: &Control, name: &str, sections: &[SectionName]) -> PathBuf {
+        let out = ctl.cfg.data_dir.join(name);
+        let req = BackupRequest {
+            kind: Kind::Broker,
+            sections: sections.to_vec(),
+            links: None,
+            link: None,
+            history_days: None,
+            seal: SealWith::None,
+            label: super::super::backups::JobKind::PreRestore,
+            pinned: false,
+            remote: false,
+        };
+        ctl.write_backup(&req, &out, &|_, _| {}).unwrap();
+        out
+    }
+
+    /// Issue #198 item 2: a `control` section whose files are no WAL segments
+    /// (`control/state/wal.1`) passed the check and the staging, no segment
+    /// was seen, and `replace` put an EMPTY control state in place at the next
+    /// start. It is refused whole now, by the check and so by every mode, and
+    /// so is a store that opens with other records than the backup says.
+    #[test]
+    fn a_control_section_that_would_empty_the_control_plane_is_refused() {
+        let ctl = exporting("restore-empty-control");
+        let d = ctl.cfg.data_dir.clone();
+        let segment = "control/state/wal.00000000000000000001.wyw";
+        let check = |path: &Path| {
+            let mut r = format::Reader::open(path, MAX_UPLOAD).unwrap();
+            ctl.check_broker_backup(&mut r, Some(PASS)).map(|_| ())
+        };
+        let refused = |path: &Path, want: ControlError| {
+            let e = check(path).unwrap_err();
+            assert!(
+                matches!(&e, BrokerRestoreError::Control(c) if *c == want),
+                "{e:?}"
+            );
+            assert_eq!(e.status(), Status::InvalidParameter);
+            assert!(!d.join(PENDING).exists() && !d.join(PENDING_TMP).exists());
+        };
+        // files that are no segments: the store would open without a record
+        for stray in [
+            "control/state/wal.1",
+            "control/state/wal.00000000000000000001",
+            "control/state/snapshot.00000000000000000001.wys",
+            "control/users/CURRENT",
+        ] {
+            let path = crafted_saying(
+                &d,
+                &[(segment, b"", false), (stray, b"x", false)],
+                &[("state", 0)],
+            );
+            refused(&path, ControlError::NotSegment { path: stray.into() });
+        }
+        // the example of the issue: nothing but a file that is no segment
+        let path = crafted(&d, &[("control/state/wal.1", b"records", false)]);
+        refused(
+            &path,
+            ControlError::NotSegment {
+                path: "control/state/wal.1".into(),
+            },
+        );
+        // a control section without the registry
+        let path = crafted_saying(
+            &d,
+            &[("control/users/wal.00000000000000000001.wyw", b"", false)],
+            &[("users", 0)],
+        );
+        refused(&path, ControlError::NoRegistry);
+        // an empty segment where the backup says the registry has records,
+        // and one that does not say
+        let path = crafted_saying(&d, &[(segment, b"", false)], &[("state", 7)]);
+        refused(
+            &path,
+            ControlError::Head {
+                store: "state",
+                said: 7,
+                found: 0,
+            },
+        );
+        let path = crafted(&d, &[(segment, b"", false)]);
+        refused(&path, ControlError::NoHead { store: "state" });
+
+        // The staging holds the same for every store it puts in place, with
+        // the key that will be there: the registry is as it says, the users
+        // store is short of the records the backup says it holds.
+        let path = crafted_saying(
+            &d,
+            &[
+                (segment, b"", false),
+                ("control/users/wal.00000000000000000001.wyw", b"", false),
+            ],
+            &[("state", 0), ("users", 3)],
+        );
+        let mut r = format::Reader::open(&path, MAX_UPLOAD).unwrap();
+        let c = ctl.check_broker_backup(&mut r, Some(PASS)).unwrap();
+        let e = ctl
+            .stage_replace(&mut r, &c, &[SectionName::Control], false, "user:a")
+            .unwrap_err();
+        let want = ControlError::Head {
+            store: "users",
+            said: 3,
+            found: 0,
+        };
+        assert!(
+            matches!(&e, BrokerRestoreError::Control(c) if *c == want),
+            "{e:?}"
+        );
+    }
+
+    /// What a broker makes still restores, also when its control plane is
+    /// empty. A broker backed up before anything was installed has a
+    /// registry without a record: `Control::stage_control` writes one segment
+    /// of 0 bytes for it and says head 0. (A store never comes as a snapshot
+    /// alone: the WAL is never deleted and a backup copies records, not the
+    /// snapshot, `wyrm_state::replicate::copy_to`.) So "head 0" is no reason
+    /// to refuse; "other than the backup says" is.
+    #[test]
+    fn a_backup_of_an_empty_control_plane_is_restored() {
+        let ctl = exporting("restore-fresh-control");
+        let d = ctl.cfg.data_dir.clone();
+        let staged = |name: &str, lsn: u64| {
+            let path = made(&ctl, name, &[SectionName::Control]);
+            let mut r = format::Reader::open(&path, MAX_UPLOAD).unwrap();
+            let section = r.manifest().section(SectionName::Control).unwrap().clone();
+            assert_eq!(section.info.get("state"), Some(&lsn.into()), "{name}");
+            let files: Vec<&str> = section.files.iter().map(|f| f.path.as_str()).collect();
+            assert!(
+                files.contains(&"control/state/wal.00000000000000000001.wyw"),
+                "{files:?}"
+            );
+            assert!(
+                files.iter().all(
+                    |f| wyrm_state::segment_first_lsn(f.rsplit('/').next().unwrap()).is_some()
+                ),
+                "segments alone: {files:?}"
+            );
+            let c = ctl.check_broker_backup(&mut r, None).unwrap();
+            assert!(c.wal_opens_here && c.problems.is_empty(), "{name}");
+            let plan = ctl
+                .stage_replace(&mut r, &c, &[SectionName::Control], false, "user:a")
+                .unwrap();
+            assert!(plan.dirs.contains(&"state".to_owned()), "{name}");
+            std::fs::remove_dir_all(d.join(PENDING)).unwrap();
+        };
+        // right after the first start: no record in the registry
+        assert_eq!(ctl.registry().links.len(), 0);
+        staged("fresh.wyrm-backup", 0);
+        // and with records
+        ctl.apply(Op::Install(LinkDef {
+            id: "a".into(),
+            driver: "mockdev".into(),
+            mode: Mode::Embedded,
+            params: Vec::new(),
+            token_hash: String::new(),
+            rev: 1,
+            origin: Origin::Runtime,
+            created: 1,
+            display: None,
+            granted: None,
+            log_level: None,
+            grants: Vec::new(),
+        }))
+        .unwrap();
+        staged("one.wyrm-backup", 1);
     }
 
     /// Finding 1: keys of the same CA that differ in another file are told
@@ -2726,7 +2995,7 @@ mod tests {
     /// to a caller.
     fn every_refusal() -> Vec<(BrokerRestoreError, Status)> {
         use BrokerRestoreError as B;
-        use Status::{Busy, InvalidParameter as Invalid};
+        use Status::{Busy, InvalidParameter as Invalid, PermissionDenied as Denied};
         let io = || std::io::Error::other("no");
         let boxed = || -> secret::Error { "no".into() };
         let codec = || wyrm_core::codec::CodecError::Encode("no".into());
@@ -2773,12 +3042,29 @@ mod tests {
             ),
             (B::MissingSection(SectionName::History), Invalid),
             (B::Anchored, Invalid),
-            (B::Gate(GateError::Remote), Invalid),
-            (B::Gate(GateError::ExportOff), Invalid),
+            // refused by the caller's rights, not by an argument
+            (B::Gate(GateError::Remote), Denied),
+            (B::Gate(GateError::ExportOff), Denied),
             (B::Gate(GateError::NoPassphrase), Invalid),
             (
                 B::Gate(GateError::KeysDiffer {
                     differ: vec!["state.key".into()],
+                }),
+                Invalid,
+            ),
+            (
+                B::Control(ControlError::NotSegment {
+                    path: "control/state/wal.1".into(),
+                }),
+                Invalid,
+            ),
+            (B::Control(ControlError::NoRegistry), Invalid),
+            (B::Control(ControlError::NoHead { store: "state" }), Invalid),
+            (
+                B::Control(ControlError::Head {
+                    store: "state",
+                    said: 7,
+                    found: 0,
                 }),
                 Invalid,
             ),
@@ -2873,7 +3159,10 @@ mod tests {
     /// The status of every refusal of `restore_check` and `restore_apply` is the
     /// one the handler gave before the refusals had a type. It told `busy` by
     /// the words of the message then (`by_words`, the rule as it was); the type
-    /// tells it now, with the same answer for every refusal the broker makes.
+    /// tells it now, with the same answer for every refusal the broker makes,
+    /// but for the two gates closed by the caller's rights. Those differ from
+    /// the old rule on purpose (owner decision 2026-11-24, issue #198 item 3):
+    /// `permission_denied` where the old rule said `invalid_parameter`.
     #[test]
     fn a_broker_restore_is_refused_with_its_status() {
         let by_words = |m: &str| {
@@ -2883,12 +3172,39 @@ mod tests {
                 Status::InvalidParameter
             }
         };
+        let by_rights = |e: &BrokerRestoreError| {
+            matches!(
+                e,
+                BrokerRestoreError::Gate(GateError::Remote | GateError::ExportOff)
+            )
+        };
+        let mut denied = 0;
         for (e, status) in every_refusal() {
             let text = e.to_string();
             assert_eq!(e.status(), status, "{text}");
-            assert_eq!(by_words(&text), status, "{text}");
+            if by_rights(&e) {
+                denied += 1;
+                assert_eq!(status, Status::PermissionDenied, "{text}");
+                assert_eq!(by_words(&text), Status::InvalidParameter, "{text}");
+            } else {
+                assert_ne!(status, Status::PermissionDenied, "{text}");
+                assert_eq!(by_words(&text), status, "{text}");
+            }
             let l = LinkError::from(e);
             assert_eq!((l.status, l.message.as_str()), (status, text.as_str()));
+        }
+        assert_eq!(denied, 2, "exactly the two gates of rights");
+        // a missing passphrase and keys that differ are wrong arguments
+        for e in [
+            GateError::NoPassphrase,
+            GateError::KeysDiffer {
+                differ: vec!["state.key".into()],
+            },
+        ] {
+            assert_eq!(
+                BrokerRestoreError::Gate(e).status(),
+                Status::InvalidParameter
+            );
         }
         // What a backup says cannot make a refusal `busy` any more: a path, a
         // package's manifest or a job's error with those words in it.
@@ -2944,6 +3260,33 @@ mod tests {
         said(&NotPlain::Segment("a/b".into()), "\"a/b\" is no file name");
         said(&NotPlain::NoName, "a path without a file name");
 
+        use ControlError as C;
+        said(
+            &C::NotSegment {
+                path: "control/state/wal.1".into(),
+            },
+            "control/state/wal.1 is no segment of a WAL (wal.<first lsn>.wyw): a store is \
+             restored from its segments alone. Nothing of this backup is restored",
+        );
+        said(
+            &C::NoRegistry,
+            "the control section of the backup holds no segment of the registry \
+             (control/state). Nothing of this backup is restored",
+        );
+        said(
+            &C::NoHead { store: "users" },
+            "the backup does not say how many records its users store holds. Nothing of this \
+             backup is restored",
+        );
+        said(
+            &C::Head {
+                store: "state",
+                said: 7,
+                found: 0,
+            },
+            "the state store of the backup opens with 0 records, the backup says it holds 7. \
+             Nothing of this backup is restored",
+        );
         use GateError as G;
         said(
             &G::Remote,

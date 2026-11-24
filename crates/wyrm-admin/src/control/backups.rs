@@ -98,7 +98,7 @@ impl Exported {
 }
 
 /// Why a request for a backup is refused before anything is made
-/// (`Control::check_request`). Every one is `invalid_parameter` to a caller.
+/// (`Control::check_request`). To a caller: [`RequestError::status`].
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum RequestError {
     /// A section that a backup of this kind does not have.
@@ -142,6 +142,28 @@ pub enum RequestError {
     ExternalData,
     #[error("package: {link} runs the built-in driver {driver}, not a package")]
     BuiltIn { link: String, driver: String },
+}
+
+impl RequestError {
+    /// A refusal by the caller's rights is `permission_denied`, as the same
+    /// rule answers in `download_part` ([`PartError::Remote`]): the host keeps
+    /// secrets on the site (`ExportOff`) or the caller's authority comes from
+    /// an upstream (`Remote`). No other argument of this caller would pass.
+    /// Every other refusal is a wrong argument: `invalid_parameter`.
+    pub fn status(&self) -> Status {
+        match self {
+            RequestError::ExportOff(_) | RequestError::Remote(_) => Status::PermissionDenied,
+            RequestError::Section { .. }
+            | RequestError::ShortPassphrase
+            | RequestError::KeysUnsealed
+            | RequestError::NoLinkOfLinks(_)
+            | RequestError::NoConfig
+            | RequestError::LinkRequired
+            | RequestError::NoLink(_)
+            | RequestError::ExternalData
+            | RequestError::BuiltIn { .. } => Status::InvalidParameter,
+        }
+    }
 }
 
 /// Why a backup was not made (`Control::write_backup`, [`Control::link_backup_to`]).
@@ -268,7 +290,7 @@ pub enum StartError {
 impl StartError {
     pub fn status(&self) -> Status {
         match self {
-            StartError::Request(_) => Status::InvalidParameter,
+            StartError::Request(e) => e.status(),
             StartError::DiskFull { .. } => Status::ResourceExhausted,
             StartError::Running => Status::Busy,
             StartError::LinkBusy(e) => e.status,
@@ -2439,8 +2461,9 @@ pub(super) async fn invoke(
             let sizes = tokio::task::spawn_blocking(move || ctl2.backup_estimate(&req))
                 .await
                 .map_err(|e| LinkError::internal(e.to_string()))?
-                // every refusal of a request is `invalid_parameter`
-                .map_err(|e| LinkError::invalid_parameter(e.to_string()))?;
+                // sizes are asked with no passphrase and as a caller of this
+                // site, so no refusal by rights is among these
+                .map_err(|e| LinkError::new(e.status(), e.to_string()))?;
             let total: u64 = sizes.values().sum();
             Ok(Some(Value::Map(BTreeMap::from([
                 (
@@ -3400,7 +3423,10 @@ mod tests {
     }
 
     /// The status of every refusal is the one the place in the code gave it
-    /// before the errors were typed, and the message is the error's text.
+    /// before the errors were typed, and the message is the error's text. The
+    /// two refusals by rights are the exception (owner decision 2026-11-24,
+    /// issue #195): `permission_denied`, as `download_part` answers the same
+    /// rule, where they were `invalid_parameter`.
     #[test]
     fn every_refusal_keeps_its_status() {
         use {PartError as P, RequestError as R, StartError as S};
@@ -3408,12 +3434,23 @@ mod tests {
         for (e, status) in [
             (
                 S::Request(R::ExportOff(Exported::Keys)),
-                Status::InvalidParameter,
+                Status::PermissionDenied,
+            ),
+            (
+                S::Request(R::ExportOff(Exported::Passphrase)),
+                Status::PermissionDenied,
             ),
             (
                 S::Request(R::Remote(Exported::Keys)),
-                Status::InvalidParameter,
+                Status::PermissionDenied,
             ),
+            (
+                S::Request(R::Remote(Exported::Passphrase)),
+                Status::PermissionDenied,
+            ),
+            // wrong arguments stay what they were
+            (S::Request(R::KeysUnsealed), Status::InvalidParameter),
+            (S::Request(R::ShortPassphrase), Status::InvalidParameter),
             (
                 S::Request(R::NoLink("plc".into())),
                 Status::InvalidParameter,
