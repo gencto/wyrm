@@ -51,38 +51,144 @@ pub fn engine() -> Engine {
     e
 }
 
+/// The variable a script keeps its own values in between its calls.
+const STATE: &str = "state";
+
+/// The variables of a script, kept between its calls: the declared names in their order, then
+/// `state`, as [`compile`] declares them. A scope made anew for every call cost eight
+/// allocations (its lists, a name each, the state's box in and out); this one is made once.
+///
+/// Nothing of one call reaches the next but `state`: the caller gives every variable its
+/// value before a call ([`Vars::var`]), and [`eval`] takes away what the script declared and
+/// brings `state` back to a plain map.
+pub struct Vars {
+    scope: Scope<'static>,
+    /// The declared names in their order; `None` for one that a later name or `state` hides
+    /// (a script can never read it).
+    names: Vec<Option<String>>,
+}
+
+impl Vars {
+    /// The variables `names` (and `state`), each `()` until it is set.
+    pub fn new(names: &[&str]) -> Self {
+        let mut scope = Scope::new();
+        for n in names {
+            scope.push_dynamic(*n, Dynamic::UNIT);
+        }
+        scope.push_dynamic(STATE, Dynamic::from_map(rhai::Map::new()));
+        let names = names
+            .iter()
+            .enumerate()
+            .map(|(i, n)| {
+                let hidden = *n == STATE || names.iter().skip(i + 1).any(|later| later == n);
+                (!hidden).then(|| (*n).to_owned())
+            })
+            .collect();
+        Self { scope, names }
+    }
+
+    /// The variable declared at place `i`, to be given its value for the next call; `None`
+    /// for a name that another hides.
+    pub fn var(&mut self, i: usize) -> Option<&mut Dynamic> {
+        let name = self.names.get(i)?.as_deref()?;
+        self.scope.get_mut(name)
+    }
+
+    /// `state` as a value; `None` while it is empty.
+    pub fn state(&self) -> Option<Value> {
+        let st = self.scope.get(STATE)?;
+        let empty = st.as_map_ref().map_or(true, |m| m.is_empty());
+        (!empty).then(|| from_dynamic(st))
+    }
+
+    /// Replaces `state`.
+    pub fn set_state(&mut self, state: rhai::Map) {
+        if let Some(st) = self.scope.get_mut(STATE) {
+            *st = Dynamic::from_map(state);
+        }
+    }
+
+    /// Empties `state`: for a script whose calls share nothing.
+    pub fn clear_state(&mut self) {
+        let Some(st) = self.scope.get_mut(STATE) else {
+            return;
+        };
+        if let Ok(mut m) = st.as_map_mut() {
+            if !m.is_empty() {
+                m.clear();
+            }
+        }
+    }
+
+    /// How many variables every call starts with.
+    fn base(&self) -> usize {
+        self.names.len() + 1
+    }
+
+    /// After a call: the variables the script declared go, and `state` is a plain map again.
+    /// What the script left under the name `state` is the state when it is a map (also one
+    /// that a `let state` or a closure holds), and an empty map otherwise, as it was when
+    /// every call had a scope of its own.
+    fn settle(&mut self) {
+        let base = self.base();
+        let plain = self.scope.len() == base
+            && self
+                .scope
+                .get(STATE)
+                .is_some_and(|st| st.is_map() && !st.is_shared() && st.tag() == 0);
+        if plain {
+            return;
+        }
+        let state = self
+            .scope
+            .get_value::<rhai::Map>(STATE)
+            .unwrap_or_default();
+        self.scope.rewind(base);
+        self.set_state(state);
+    }
+}
+
 /// Compile `expr` with only `names` (and `state`) defined.
 pub fn compile(engine: &Engine, expr: &str, names: &[&str]) -> Result<AST, String> {
-    let mut scope = Scope::new();
-    for n in names {
-        scope.push_dynamic(*n, Dynamic::UNIT);
-    }
-    scope.push_dynamic("state", Dynamic::from_map(rhai::Map::new()));
     engine
-        .compile_with_scope(&scope, expr)
+        .compile_with_scope(&Vars::new(names).scope, expr)
         .map_err(|e| e.to_string())
 }
 
-/// Evaluate within [`TIMEOUT`] of the thread's CPU time. `vars` become variables; `state` is
-/// read and written back.
-pub fn eval(
-    engine: &Engine,
-    ast: &AST,
-    vars: Vec<(String, Dynamic)>,
-    state: &mut rhai::Map,
-) -> Result<Dynamic, String> {
-    let mut scope = Scope::new();
-    for (k, v) in vars {
-        scope.push_dynamic(k, v);
-    }
-    scope.push_dynamic("state", Dynamic::from_map(std::mem::take(state)));
+/// Evaluate within [`TIMEOUT`] of the thread's CPU time, over `vars` (made by [`Vars::new`]
+/// with the names `ast` was compiled with). `state` is read and written in place; a variable
+/// the script declares is gone after the call, also when the call fails.
+pub fn eval(engine: &Engine, ast: &AST, vars: &mut Vars) -> Result<Dynamic, String> {
     STARTED.with(|s| s.set(Some(Budget::start(TIMEOUT))));
-    let r = engine.eval_ast_with_scope::<Dynamic>(&mut scope, ast);
+    let r = engine.eval_ast_with_scope::<Dynamic>(&mut vars.scope, ast);
     STARTED.with(|s| s.set(None));
-    if let Some(m) = scope.get_value::<rhai::Map>("state") {
-        *state = m;
-    }
+    vars.settle();
     r.map_err(|e| e.to_string())
+}
+
+/// Makes `slot` the map of `keys` and `values` (as many, in the same order). When `slot`
+/// already is a plain map of exactly these keys in this order (the order of a map's keys),
+/// only its values are replaced: the map of the call before is used again and nothing is
+/// allocated for it. Every value is replaced either way, so nothing a script did to the map
+/// stays.
+pub fn set_map<'a>(
+    slot: &mut Dynamic,
+    keys: impl ExactSizeIterator<Item = &'a str> + Clone,
+    values: impl Iterator<Item = Dynamic>,
+) {
+    // a map that a closure holds, or one with a tag, is not ours alone: a new one
+    if !slot.is_shared() && slot.tag() == 0 {
+        if let Ok(mut m) = slot.as_map_mut() {
+            let same = m.len() == keys.len() && m.keys().zip(keys.clone()).all(|(a, b)| a == b);
+            if same {
+                for (cell, v) in m.values_mut().zip(values) {
+                    *cell = v;
+                }
+                return;
+            }
+        }
+    }
+    *slot = Dynamic::from_map(keys.zip(values).map(|(k, v)| (k.into(), v)).collect());
 }
 
 pub fn to_dynamic(v: &Value) -> Dynamic {
@@ -95,7 +201,8 @@ pub fn to_dynamic(v: &Value) -> Dynamic {
             Err(_) => Dynamic::from_float(*u as f64),
         },
         Value::Float(f) => Dynamic::from_float(*f),
-        Value::Str(s) => Dynamic::from(s.clone()),
+        // from the text itself: no copy of the `String` on the way
+        Value::Str(s) => Dynamic::from(s.as_str()),
         Value::Bytes(b) => Dynamic::from_blob(b.clone()),
         Value::Array(a) => Dynamic::from_array(a.iter().map(to_dynamic).collect()),
         Value::Map(m) => Dynamic::from_map(
@@ -110,28 +217,33 @@ pub fn from_dynamic(d: &Dynamic) -> Value {
     if d.is_unit() {
         return Value::Null;
     }
-    if let Some(b) = d.clone().try_cast::<bool>() {
-        return Value::Bool(b);
+    // a value a closure holds is read as a copy, so no lock is held while its items are read
+    if d.is_shared() {
+        return from_dynamic(&d.flatten_clone());
     }
-    if let Some(i) = d.clone().try_cast::<i64>() {
-        return Value::from(i);
+    // read in place: no copy of a list or a map before its items are converted
+    if let Some(b) = d.read_lock::<bool>() {
+        return Value::Bool(*b);
     }
-    if let Some(f) = d.clone().try_cast::<f64>() {
-        return Value::Float(f);
+    if let Some(i) = d.read_lock::<i64>() {
+        return Value::from(*i);
     }
-    if let Some(s) = d.clone().try_cast::<rhai::ImmutableString>() {
-        return Value::Str(s.to_string());
+    if let Some(f) = d.read_lock::<f64>() {
+        return Value::Float(*f);
     }
-    if let Some(b) = d.clone().try_cast::<rhai::Blob>() {
-        return Value::Bytes(b);
+    if let Some(s) = d.read_lock::<rhai::ImmutableString>() {
+        return Value::Str(s.as_str().to_owned());
     }
-    if let Some(a) = d.clone().try_cast::<rhai::Array>() {
+    if let Some(b) = d.read_lock::<rhai::Blob>() {
+        return Value::Bytes(b.clone());
+    }
+    if let Some(a) = d.read_lock::<rhai::Array>() {
         return Value::Array(a.iter().map(from_dynamic).collect());
     }
-    if let Some(m) = d.clone().try_cast::<rhai::Map>() {
+    if let Some(m) = d.read_lock::<rhai::Map>() {
         return Value::Map(
             m.iter()
-                .map(|(k, v)| (k.to_string(), from_dynamic(v)))
+                .map(|(k, v)| (k.as_str().to_owned(), from_dynamic(v)))
                 .collect::<BTreeMap<_, _>>(),
         );
     }
