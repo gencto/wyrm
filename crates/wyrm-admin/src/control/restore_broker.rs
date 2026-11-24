@@ -276,7 +276,7 @@ pub enum LinkSecretsError {
     NotMap,
     /// A link id that is none (`registry::validate_link_id`, as it says it).
     #[error("{0}")]
-    LinkId(String),
+    LinkId(#[source] crate::registry::LinkIdError),
     #[error("link secrets: {link}: not a map")]
     LinkNotMap { link: String },
     #[error("link secrets: {link}/{name}: not bytes")]
@@ -3348,7 +3348,10 @@ mod tests {
         use LinkSecretsError as L;
         said(&L::Decode(codec()), "link secrets: cbor decode: no");
         said(&L::NotMap, "link secrets: not a map");
-        said(&L::LinkId("link id: no".into()), "link id: no");
+        said(
+            &L::LinkId(crate::registry::LinkIdError::Dot(".x".into())),
+            "link id \".x\" may not start with '.'",
+        );
         said(
             &L::LinkNotMap { link: "plc".into() },
             "link secrets: plc: not a map",

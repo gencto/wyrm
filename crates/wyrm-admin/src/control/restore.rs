@@ -179,7 +179,7 @@ pub enum RestoreError {
     /// The id of the backup's link, or the id asked for, is no link id, or
     /// one a broker keeps for itself (`crate::registry`, as it says it).
     #[error("{0}")]
-    LinkId(String),
+    LinkId(#[source] crate::registry::LinkIdError),
     /// The link's secrets do not decode.
     #[error("{0}")]
     SecretsDecode(#[source] wyrm_core::codec::CodecError),
@@ -233,7 +233,7 @@ pub enum RestoreError {
     /// A grant of the backup's link that no link may hold
     /// (`registry::check_grant`, as it says it).
     #[error("grant: {0}")]
-    Grant(String),
+    Grant(#[source] crate::registry::GrantError),
     #[error("link id {0:?} is a downstream site or an operator of this broker")]
     IdTaken(String),
     #[error(
@@ -2353,7 +2353,10 @@ mod tests {
             },
             &format!("settings/link.cbor: {}", decode()),
         );
-        said(&R::LinkId("link id: no".into()), "link id: no");
+        said(
+            &R::LinkId(crate::registry::LinkIdError::Reserved("admin".into())),
+            "link id \"admin\" is reserved",
+        );
         said(&R::SecretsDecode(codec()), "cbor decode: no");
         said(
             &R::SecretsNotMap {
@@ -2396,7 +2399,10 @@ mod tests {
             "driver modbus is not built into this broker",
         );
         said(&R::DriverParams(refused()), "said by another operation");
-        said(&R::Grant("no".into()), "grant: no");
+        said(
+            &R::Grant(crate::registry::GrantError::FlowsLevel),
+            "grant: flows: at most read (flows are commanded by people)",
+        );
         said(
             &R::IdTaken("plant".into()),
             "link id \"plant\" is a downstream site or an operator of this broker",

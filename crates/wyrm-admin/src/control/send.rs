@@ -238,7 +238,7 @@ fn target_of(j: &Job, a: &SendBackup, send_links: &[SendLink]) -> Result<Target,
         ));
     }
     let link = a.link.as_str();
-    crate::registry::validate_link_id(link).map_err(|e| bad(&e))?;
+    crate::registry::validate_link_id(link).map_err(|e| bad(&e.to_string()))?;
     let Some(entry) = send_links.iter().find(|l| l.link == link) else {
         return Err(bad(&format!(
             "link {link} is not one the broker sends backups through: name it in \

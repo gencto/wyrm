@@ -7,15 +7,39 @@ use std::collections::{BTreeMap, BTreeSet};
 use wyrm_core::keyspace::{self, validate_segment};
 use wyrm_core::profile::{self, ProfileDef};
 
+/// Why a name is no link id. The text is shown as it is by many callers, in
+/// this crate and outside it (`wyrmd.json5` errors, package manifests,
+/// action answers).
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+pub enum LinkIdError {
+    /// No key segment.
+    #[error("link id: {0}")]
+    Segment(#[source] keyspace::KeyError),
+    /// `.`, `..` or a hidden directory name; holds the id.
+    #[error("link id {0:?} may not start with '.'")]
+    Dot(String),
+    /// A name the broker keeps for itself; holds the id.
+    #[error("link id {0:?} is reserved")]
+    Reserved(String),
+}
+
+/// For the callers whose own error is text: `validate_link_id(id)?` reads as
+/// before.
+impl From<LinkIdError> for String {
+    fn from(e: LinkIdError) -> Self {
+        e.to_string()
+    }
+}
+
 /// A link id is a key segment, a certificate CN and a directory name under
 /// `data_dir/links`: no leading `.` (rejects `.` and `..`), no reserved names.
-pub fn validate_link_id(id: &str) -> Result<(), String> {
-    validate_segment(id).map_err(|e| format!("link id: {e}"))?;
+pub fn validate_link_id(id: &str) -> Result<(), LinkIdError> {
+    validate_segment(id).map_err(LinkIdError::Segment)?;
     if id.starts_with('.') {
-        return Err(format!("link id {id:?} may not start with '.'"));
+        return Err(LinkIdError::Dot(id.to_owned()));
     }
     if matches!(id, "admin" | "broker" | "dataflows") {
-        return Err(format!("link id {id:?} is reserved"));
+        return Err(LinkIdError::Reserved(id.to_owned()));
     }
     Ok(())
 }
@@ -33,10 +57,10 @@ const RESERVED_NEW: [&str; 5] = [
 ];
 
 /// [`validate_link_id`] for a link that does not exist yet.
-pub fn validate_new_link_id(id: &str) -> Result<(), String> {
+pub fn validate_new_link_id(id: &str) -> Result<(), LinkIdError> {
     validate_link_id(id)?;
     if RESERVED_NEW.contains(&id) {
-        return Err(format!("link id {id:?} is reserved"));
+        return Err(LinkIdError::Reserved(id.to_owned()));
     }
     Ok(())
 }
@@ -206,41 +230,71 @@ impl<'de> Deserialize<'de> for LinkGrant {
 /// Highest level a link grant gives: `config` stays with people.
 pub const MAX_LINK_GRANT: wyrm_core::Perm = wyrm_core::Perm::Write;
 
+/// Why a link may not hold a grant. A path variant holds the path as given.
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+pub enum GrantError {
+    /// The path does not begin with `wy/{site}/`.
+    #[error(
+        "{0}: starts with wy/{{site}}/downstream, wy/{{site}}/dataflows or wy/{{site}}/storage"
+    )]
+    Root(String),
+    /// A section no link is granted (`sys`, `upstream`, …).
+    #[error("{0}: only downstream, dataflows or storage (never sys)")]
+    Section(String),
+    /// A part of the path is no key segment (a wildcard, an empty one).
+    #[error("{path}: {source}")]
+    Segment {
+        path: String,
+        #[source]
+        source: keyspace::KeyError,
+    },
+    /// The path names a `~` suffix, not a node.
+    #[error("{0}: a node path, no suffix")]
+    Suffix(String),
+    /// Above [`MAX_LINK_GRANT`].
+    #[error("level {}: at most write", .0.name())]
+    Level(wyrm_core::Perm),
+    /// More than `read` on `dataflows`.
+    #[error("flows: at most read (flows are commanded by people)")]
+    FlowsLevel,
+    /// More than `read` on the whole of the site's storage (ADR 0046).
+    #[error("{0}: write on storage needs a folder below it (wy/{{site}}/storage/<folder>)")]
+    StorageRoot(String),
+}
+
 /// A link grant path: `wy/{site}/downstream[/…]` or `wy/{site}/dataflows[/…]`, plain
 /// segments (no wildcards, no suffixes). `dataflows` grants stop at `read`.
-pub fn check_grant(path: &str, level: wyrm_core::Perm) -> Result<(), String> {
+pub fn check_grant(path: &str, level: wyrm_core::Perm) -> Result<(), GrantError> {
     use wyrm_core::Perm;
-    const ROOTS: &str = "wy/{site}/downstream, wy/{site}/dataflows or wy/{site}/storage";
     let rest = path
         .strip_prefix("wy/{site}/")
-        .ok_or_else(|| format!("{path}: starts with {ROOTS}"))?;
+        .ok_or_else(|| GrantError::Root(path.to_owned()))?;
     let mut segs = rest.split('/');
     let root = segs.next().unwrap_or_default();
     if !matches!(root, "downstream" | "dataflows" | "storage") {
-        return Err(format!(
-            "{path}: only downstream, dataflows or storage (never sys)"
-        ));
+        return Err(GrantError::Section(path.to_owned()));
     }
     let mut depth = 0;
     for seg in segs {
-        validate_segment(seg).map_err(|e| format!("{path}: {e}"))?;
+        validate_segment(seg).map_err(|source| GrantError::Segment {
+            path: path.to_owned(),
+            source,
+        })?;
         if seg.starts_with('~') {
-            return Err(format!("{path}: a node path, no suffix"));
+            return Err(GrantError::Suffix(path.to_owned()));
         }
         depth += 1;
     }
     if level > MAX_LINK_GRANT {
-        return Err(format!("level {}: at most write", level.name()));
+        return Err(GrantError::Level(level));
     }
     if root == "dataflows" && level > Perm::Read {
-        return Err("flows: at most read (flows are commanded by people)".into());
+        return Err(GrantError::FlowsLevel);
     }
     // ADR 0046: the site's storage is shared; a link writes only into a folder
     // of its own grant, never over the whole of it.
     if root == "storage" && level > Perm::Read && depth == 0 {
-        return Err(format!(
-            "{path}: write on storage needs a folder below it (wy/{{site}}/storage/<folder>)"
-        ));
+        return Err(GrantError::StorageRoot(path.to_owned()));
     }
     Ok(())
 }
@@ -547,25 +601,53 @@ pub const MAX_SIGNER_KEYS: usize = 8;
 /// Signing keys as an upstream publishes them: valid site names, at most
 /// [`MAX_SIGNER_SITES`] sites of at most [`MAX_SIGNER_KEYS`] Ed25519 keys
 /// (hex), each a valid point.
-pub fn check_signers(keys: &BTreeMap<String, Vec<String>>) -> Result<(), String> {
+pub fn check_signers(keys: &BTreeMap<String, Vec<String>>) -> Result<(), SignersError> {
     if keys.len() > MAX_SIGNER_SITES {
-        return Err(format!("more than {MAX_SIGNER_SITES} signing sites"));
+        return Err(SignersError::Sites);
     }
     for (site, ks) in keys {
-        validate_segment(site).map_err(|e| format!("signing site: {e}"))?;
+        validate_segment(site).map_err(SignersError::Site)?;
         if ks.is_empty() || ks.len() > MAX_SIGNER_KEYS {
-            return Err(format!("{site}: 1 to {MAX_SIGNER_KEYS} keys"));
+            return Err(SignersError::Keys { site: site.clone() });
         }
         for k in ks {
             let raw: [u8; 32] = hex::decode(k)
                 .ok()
                 .and_then(|b| b.try_into().ok())
-                .ok_or_else(|| format!("{site}: a key is not 32 bytes of hex"))?;
-            ed25519_dalek::VerifyingKey::from_bytes(&raw)
-                .map_err(|_| format!("{site}: not an Ed25519 key"))?;
+                .ok_or_else(|| SignersError::KeyHex(site.clone()))?;
+            ed25519_dalek::VerifyingKey::from_bytes(&raw).map_err(|source| {
+                SignersError::KeyPoint {
+                    site: site.clone(),
+                    source,
+                }
+            })?;
         }
     }
     Ok(())
+}
+
+/// Why the signing keys an upstream published are not taken. The keys are
+/// public; none is in an error.
+#[derive(Debug, thiserror::Error)]
+pub enum SignersError {
+    #[error("more than {} signing sites", MAX_SIGNER_SITES)]
+    Sites,
+    /// A site name that is no key segment.
+    #[error("signing site: {0}")]
+    Site(#[source] keyspace::KeyError),
+    /// No key or too many for the site named.
+    #[error("{site}: 1 to {} keys", MAX_SIGNER_KEYS)]
+    Keys { site: String },
+    /// A key of the site named is no hex of 32 bytes.
+    #[error("{0}: a key is not 32 bytes of hex")]
+    KeyHex(String),
+    /// 32 bytes that are no point of the curve.
+    #[error("{site}: not an Ed25519 key")]
+    KeyPoint {
+        site: String,
+        #[source]
+        source: ed25519_dalek::SignatureError,
+    },
 }
 
 /// How a package's links run (ADR 0011).
@@ -821,23 +903,44 @@ pub const FLUSH_MS: std::ops::RangeInclusive<u64> = 100..=600_000;
 /// A watch key: `wy/<site>/downstream/<link>[/…]`, `wy/<site>/dataflows/<flow>[/…]`
 /// or `wy/<site>/storage/<node>[/…]`, plain segments (no wildcards, no `~`
 /// suffixes). Which sites are allowed is the caller's check.
-pub fn check_watch_key(key: &str) -> Result<(), String> {
+pub fn check_watch_key(key: &str) -> Result<(), WatchKeyError> {
     let segs: Vec<&str> = key.split('/').collect();
     if segs.len() < 4
         || segs[0] != "wy"
         || !matches!(segs[2], "downstream" | "dataflows" | "storage")
     {
-        return Err(format!(
-            "{key}: a point under wy/<site>/downstream/<link>, wy/<site>/dataflows/<flow> or wy/<site>/storage"
-        ));
+        return Err(WatchKeyError::Place(key.to_owned()));
     }
     for s in &segs[1..] {
-        validate_segment(s).map_err(|e| format!("{key}: {e}"))?;
+        validate_segment(s).map_err(|source| WatchKeyError::Segment {
+            key: key.to_owned(),
+            source,
+        })?;
         if s.starts_with('~') {
-            return Err(format!("{key}: a node key, no suffix"));
+            return Err(WatchKeyError::Suffix(key.to_owned()));
         }
     }
     Ok(())
+}
+
+/// Why a key is not watched by the historian; each holds the key as given.
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+pub enum WatchKeyError {
+    /// Not below a link, a flow or the storage of a site.
+    #[error(
+        "{0}: a point under wy/<site>/downstream/<link>, wy/<site>/dataflows/<flow> or wy/<site>/storage"
+    )]
+    Place(String),
+    /// A part of the key is no key segment (a wildcard, an empty one).
+    #[error("{key}: {source}")]
+    Segment {
+        key: String,
+        #[source]
+        source: keyspace::KeyError,
+    },
+    /// The key names a `~` suffix, not a node.
+    #[error("{0}: a node key, no suffix")]
+    Suffix(String),
 }
 
 /// Which side a peer broker is on (ADR 0007).
@@ -1051,6 +1154,8 @@ impl Registry {
             .and_then(|b| wyrm_core::codec::from_slice(b).ok())
     }
 
+    /// Why a profile is not put; a text of the registry's own refusals (the
+    /// error of [`wyrm_state::State::apply`] is text by that trait).
     fn check_profile(&self, name: &str, def: &ProfileDef) -> Result<(), String> {
         profile::validate_name(name)?;
         if profile::builtins().iter().any(|(n, _)| *n == name) {
@@ -1237,7 +1342,7 @@ impl wyrm_state::State for Registry {
                     .ok_or_else(|| format!("no link {id}"))?;
                 def.grants.retain(|g| &g.path != path);
                 if level != wyrm_core::Perm::None {
-                    check_grant(path, level)?;
+                    check_grant(path, level).map_err(|e| e.to_string())?;
                     def.grants.push(LinkGrant::new(path.clone(), level));
                     def.grants.sort();
                 }
@@ -1327,7 +1432,7 @@ impl wyrm_state::State for Registry {
                 self.historian.keep_after_sync_days = *days;
             }
             Op::SetWatchKey { group, id, key } => {
-                check_watch_key(key)?;
+                check_watch_key(key).map_err(|e| e.to_string())?;
                 let g = self
                     .historian
                     .groups
@@ -1342,7 +1447,7 @@ impl wyrm_state::State for Registry {
                     .key = key.clone();
             }
             Op::AddWatch { group, key } => {
-                check_watch_key(key)?;
+                check_watch_key(key).map_err(|e| e.to_string())?;
                 let total: usize = self
                     .historian
                     .groups
@@ -1697,8 +1802,8 @@ impl wyrm_state::State for Registry {
                 config,
             } => {
                 validate_segment(upstream).map_err(|e| format!("upstream: {e}"))?;
-                check_signers(keys)?;
-                check_signers(config)?;
+                check_signers(keys).map_err(|e| e.to_string())?;
+                check_signers(config).map_err(|e| e.to_string())?;
                 for (map, v) in [
                     (&mut self.signers, keys),
                     (&mut self.config_signers, config),
@@ -1942,13 +2047,224 @@ mod tests {
     #[test]
     fn link_ids() {
         assert!(validate_link_id("plc1").is_ok());
-        for bad in [".", "..", ".hidden", "a/b", "admin", "broker", "~x", ""] {
-            assert!(validate_link_id(bad).is_err(), "{bad:?}");
+        for bad in [".", "..", ".hidden"] {
+            assert_eq!(
+                validate_link_id(bad),
+                Err(LinkIdError::Dot(bad.into())),
+                "{bad:?}"
+            );
         }
-        assert!(validate_link_id("storage").is_ok(), "replays");
-        assert!(validate_new_link_id("storage").is_err());
-        assert!(validate_link_id("scheduler").is_ok(), "replays");
-        assert!(validate_new_link_id("scheduler").is_err());
+        for bad in ["a/b", "~x", ""] {
+            assert!(
+                matches!(validate_link_id(bad), Err(LinkIdError::Segment(_))),
+                "{bad:?}"
+            );
+        }
+        for bad in ["admin", "broker", "dataflows"] {
+            assert_eq!(
+                validate_link_id(bad),
+                Err(LinkIdError::Reserved(bad.into())),
+                "{bad:?}"
+            );
+        }
+        for kept in RESERVED_NEW {
+            assert!(validate_link_id(kept).is_ok(), "{kept} replays");
+            assert_eq!(
+                validate_new_link_id(kept),
+                Err(LinkIdError::Reserved(kept.into()))
+            );
+        }
+        assert!(validate_new_link_id("plc1").is_ok());
+        assert_eq!(
+            validate_new_link_id(".x"),
+            Err(LinkIdError::Dot(".x".into()))
+        );
+    }
+
+    /// Every text of the validators, byte for byte as before they had a type:
+    /// each is shown as it is by callers in this crate and outside it.
+    #[test]
+    fn validator_errors_read_as_before() {
+        use std::error::Error as _;
+        use wyrm_core::Perm;
+        let seg = || validate_segment("").unwrap_err();
+        let seg_text = seg().to_string();
+        let said = |e: &dyn std::error::Error, text: &str| assert_eq!(e.to_string(), text);
+
+        said(
+            &LinkIdError::Segment(seg()),
+            &format!("link id: {seg_text}"),
+        );
+        assert!(LinkIdError::Segment(seg()).source().is_some());
+        said(
+            &LinkIdError::Dot("..".into()),
+            "link id \"..\" may not start with '.'",
+        );
+        said(
+            &LinkIdError::Reserved("admin".into()),
+            "link id \"admin\" is reserved",
+        );
+        assert_eq!(
+            String::from(LinkIdError::Reserved("dql".into())),
+            "link id \"dql\" is reserved"
+        );
+
+        said(
+            &GrantError::Root("x/y".into()),
+            "x/y: starts with wy/{site}/downstream, wy/{site}/dataflows or wy/{site}/storage",
+        );
+        said(
+            &GrantError::Section("wy/{site}/sys".into()),
+            "wy/{site}/sys: only downstream, dataflows or storage (never sys)",
+        );
+        said(
+            &GrantError::Segment {
+                path: "wy/{site}/downstream/".into(),
+                source: seg(),
+            },
+            &format!("wy/{{site}}/downstream/: {seg_text}"),
+        );
+        said(
+            &GrantError::Suffix("wy/{site}/downstream/a/~val".into()),
+            "wy/{site}/downstream/a/~val: a node path, no suffix",
+        );
+        said(
+            &GrantError::Level(Perm::Config),
+            "level config: at most write",
+        );
+        said(
+            &GrantError::FlowsLevel,
+            "flows: at most read (flows are commanded by people)",
+        );
+        said(
+            &GrantError::StorageRoot("wy/{site}/storage".into()),
+            "wy/{site}/storage: write on storage needs a folder below it \
+             (wy/{site}/storage/<folder>)",
+        );
+
+        said(&SignersError::Sites, "more than 16 signing sites");
+        said(
+            &SignersError::Site(seg()),
+            &format!("signing site: {seg_text}"),
+        );
+        said(&SignersError::Keys { site: "hq".into() }, "hq: 1 to 8 keys");
+        said(
+            &SignersError::KeyHex("hq".into()),
+            "hq: a key is not 32 bytes of hex",
+        );
+
+        said(
+            &WatchKeyError::Place("a/b".into()),
+            "a/b: a point under wy/<site>/downstream/<link>, wy/<site>/dataflows/<flow> or \
+             wy/<site>/storage",
+        );
+        said(
+            &WatchKeyError::Segment {
+                key: "wy/s/downstream/".into(),
+                source: seg(),
+            },
+            &format!("wy/s/downstream/: {seg_text}"),
+        );
+        said(
+            &WatchKeyError::Suffix("wy/s/downstream/l/~val".into()),
+            "wy/s/downstream/l/~val: a node key, no suffix",
+        );
+    }
+
+    /// Each refusal of the validators is its own variant, in the order the
+    /// checks run.
+    #[test]
+    fn validators_refuse_by_variant() {
+        use wyrm_core::Perm;
+        let g = |p: &str, l| check_grant(p, l);
+        assert_eq!(
+            g("wy/s/downstream", Perm::Read),
+            Err(GrantError::Root("wy/s/downstream".into()))
+        );
+        assert_eq!(
+            g("wy/{site}/sys", Perm::Read),
+            Err(GrantError::Section("wy/{site}/sys".into()))
+        );
+        assert!(matches!(
+            g("wy/{site}/downstream/*", Perm::Read),
+            Err(GrantError::Segment { .. })
+        ));
+        assert!(matches!(
+            g("wy/{site}/downstream//a", Perm::Read),
+            Err(GrantError::Segment { .. })
+        ));
+        // the path is checked before the level
+        assert_eq!(
+            g("wy/{site}/sys", Perm::Config),
+            Err(GrantError::Section("wy/{site}/sys".into()))
+        );
+        assert_eq!(
+            g("wy/{site}/downstream/a", Perm::Config),
+            Err(GrantError::Level(Perm::Config))
+        );
+        assert_eq!(
+            g("wy/{site}/dataflows/f", Perm::Write),
+            Err(GrantError::FlowsLevel)
+        );
+        assert_eq!(
+            g("wy/{site}/storage", Perm::Write),
+            Err(GrantError::StorageRoot("wy/{site}/storage".into()))
+        );
+        assert_eq!(g("wy/{site}/storage", Perm::Read), Ok(()));
+        assert_eq!(g("wy/{site}/storage/own", Perm::Write), Ok(()));
+
+        let w = check_watch_key;
+        assert_eq!(
+            w("wy/s/sys/x"),
+            Err(WatchKeyError::Place("wy/s/sys/x".into()))
+        );
+        assert_eq!(
+            w("wy/s/downstream"),
+            Err(WatchKeyError::Place("wy/s/downstream".into()))
+        );
+        assert!(matches!(
+            w("wy/s/downstream/*"),
+            Err(WatchKeyError::Segment { .. })
+        ));
+        assert_eq!(w("wy/s/downstream/l/p"), Ok(()));
+
+        let keys = |site: &str, ks: &[&str]| {
+            BTreeMap::from([(
+                site.to_owned(),
+                ks.iter().map(|k| (*k).to_owned()).collect::<Vec<_>>(),
+            )])
+        };
+        let good = hex::encode(
+            ed25519_dalek::SigningKey::from_bytes(&[7; 32])
+                .verifying_key()
+                .to_bytes(),
+        );
+        assert!(check_signers(&keys("hq", &[&good])).is_ok());
+        assert!(matches!(
+            check_signers(&keys("h/q", &[&good])),
+            Err(SignersError::Site(_))
+        ));
+        assert!(matches!(
+            check_signers(&keys("hq", &[])),
+            Err(SignersError::Keys { site }) if site == "hq"
+        ));
+        assert!(matches!(
+            check_signers(&keys("hq", &[good.as_str(); 9])),
+            Err(SignersError::Keys { .. })
+        ));
+        for bad in ["zz", "00", &good[2..]] {
+            assert!(
+                matches!(
+                    check_signers(&keys("hq", &[bad])),
+                    Err(SignersError::KeyHex(site)) if site == "hq"
+                ),
+                "{bad}"
+            );
+        }
+        let many: BTreeMap<String, Vec<String>> = (0..=MAX_SIGNER_SITES)
+            .map(|i| (format!("s{i}"), vec![good.clone()]))
+            .collect();
+        assert!(matches!(check_signers(&many), Err(SignersError::Sites)));
     }
 
     #[test]

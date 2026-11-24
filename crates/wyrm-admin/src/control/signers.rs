@@ -193,6 +193,7 @@ pub(super) async fn follow_signers(ctl: Arc<Control>, ctx: LinkCtx) {
                 continue;
             };
             if let Err(e) = check_signers(&got.write).and_then(|_| check_signers(&got.config)) {
+                let e = e.to_string();
                 if refused.insert(u.clone(), e.clone()).as_ref() != Some(&e) {
                     warn!(site = %u, "upstream signing keys refused: {e}");
                 }

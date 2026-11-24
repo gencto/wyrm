@@ -5891,7 +5891,8 @@ impl Admin {
         };
         let before = sorted(self.def(id)?.grants);
         if level != Perm::None {
-            crate::registry::check_grant(path, level).map_err(LinkError::invalid_parameter)?;
+            crate::registry::check_grant(path, level)
+                .map_err(|e| LinkError::invalid_parameter(e.to_string()))?;
         }
         self.ctl
             .apply(Op::SetLinkGrant {
