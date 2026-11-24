@@ -283,6 +283,24 @@ pub enum RestoreError {
     Install(LinkError),
     #[error("{}", .0.message)]
     SetGrant(LinkError),
+    /// A step after the install of a new link failed (`error`), and the link
+    /// was removed again as `sys/links ▸ remove` removes one.
+    #[error("{error}; link {id}, which this restore installed, is removed again")]
+    TakenBack {
+        id: String,
+        error: Box<RestoreError>,
+    },
+    /// A step after the install of a new link failed (`error`), and the link
+    /// stays.
+    #[error(
+        "{error}; link {id}, which this restore installed, stays without what the backup \
+         holds for it beyond its settings: {why}"
+    )]
+    LinkStays {
+        id: String,
+        error: Box<RestoreError>,
+        why: Kept,
+    },
     /// Fails closed: the key of the old `api_base` would stay with the new one.
     #[error(
         "the agent's API key for the old api_base cannot be dropped ({0}); \
@@ -359,6 +377,46 @@ fn room(free_mib: Option<f64>, need: u64) -> Result<(), RestoreError> {
     match free_mib {
         Some(free) if free < want => Err(RestoreError::NoRoom { want, free }),
         _ => Ok(()),
+    }
+}
+
+/// Why a new link that a failed restore installed is not removed again, and
+/// how to go on ([`RestoreError::LinkStays`]).
+#[derive(Debug, thiserror::Error)]
+pub enum Kept {
+    /// A link with a certificate that the broker runs (a process link).
+    #[error(
+        "it has a certificate, and the id of a link removed with one is never used again, \
+         so the broker does not remove it on its own. Install its link backup again with \
+         sys/links ▸ install_backup (an existing link is replaced in place), or remove it \
+         and restore it under another id"
+    )]
+    Certificate,
+    /// An external link: its token went nowhere with the failed answer.
+    #[error(
+        "it has a certificate, and the id of a link removed with one is never used again, \
+         so the broker does not remove it on its own. Its token was shown to nobody and \
+         nothing connects as it: remove it and restore it under another id"
+    )]
+    External,
+    /// The removal failed, as it says it.
+    #[error(
+        "it was not removed ({}). Remove it with sys/links ▸ remove, then restore again",
+        .0.message
+    )]
+    NotRemoved(LinkError),
+}
+
+/// A link whose removal would retire its id (`Registry`, `Op::Remove`: it is
+/// remote, or was once and still has its token): a failed restore leaves it
+/// to the operator. `None`: its id comes back with a removal, and a failed
+/// restore removes it.
+fn kept_with_its_id(def: &LinkDef) -> Option<Kept> {
+    match def.mode {
+        Mode::External => Some(Kept::External),
+        Mode::Process => Some(Kept::Certificate),
+        Mode::Embedded if !def.token_hash.is_empty() => Some(Kept::Certificate),
+        Mode::Embedded => None,
     }
 }
 
@@ -1213,12 +1271,18 @@ impl Admin {
                     }
                 }
                 if r.def.mode != Mode::External && r.has_data {
-                    self.stop_link(&id, sub).await.map_err(RestoreError::Stop)?;
+                    if let Err(e) = self.stop_link(&id, sub).await {
+                        return Err(self.take_back(&id, RestoreError::Stop(e), sub).await);
+                    }
                 }
             }
         }
+        // From here a new link is installed: every failure below takes it
+        // back ([`Self::take_back`]), so a restore that failed leaves no link
+        // without its data behind (issue #198).
+        let new = existing.is_none();
         // the private data and secrets while the link is stopped
-        let (placed, rows) = {
+        let joined = {
             let (ctl, id2) = (ctl.clone(), id.clone());
             tokio::task::spawn_blocking(move || {
                 let placed = ctl.place_link_data(&id2, &r);
@@ -1229,12 +1293,19 @@ impl Admin {
                 (placed.map(|()| r), rows)
             })
             .await
-            .map_err(RestoreError::Task)?
+        };
+        let (placed, rows) = match joined {
+            Ok(done) => done,
+            Err(e) if new => return Err(self.take_back(&id, RestoreError::Task(e), sub).await),
+            Err(e) => return Err(RestoreError::Task(e)),
         };
         let r = match placed {
             Ok(r) => r,
+            Err(e) if new => return Err(self.take_back(&id, e, sub).await),
             Err(e) => {
-                // nothing was replaced: the link runs again as it was
+                // an existing link: its data and secrets are as before
+                // (`place_link_data` is all or nothing) and it is started
+                // again as it was
                 if existing.as_ref().is_some_and(|o| o.mode != Mode::External) {
                     let _ = self.start_link(&id, sub).await;
                 }
@@ -1253,14 +1324,22 @@ impl Admin {
         }
         let mut grants = false;
         for g in &r.def.grants {
-            grants |= self
-                .set_grant(&id, &g.path, g.perm, sub)
-                .map_err(RestoreError::SetGrant)?;
+            match self.set_grant(&id, &g.path, g.perm, sub) {
+                Ok(changed) => grants |= changed,
+                Err(e) if new => {
+                    return Err(self.take_back(&id, RestoreError::SetGrant(e), sub).await)
+                }
+                Err(e) => return Err(RestoreError::SetGrant(e)),
+            }
         }
         if r.def.mode != Mode::External && (existing.is_some() || r.has_data) {
-            self.start_link(&id, sub)
-                .await
-                .map_err(RestoreError::Start)?;
+            match self.start_link(&id, sub).await {
+                Ok(()) => {}
+                Err(e) if new => {
+                    return Err(self.take_back(&id, RestoreError::Start(e), sub).await)
+                }
+                Err(e) => return Err(RestoreError::Start(e)),
+            }
         }
         // an agent's `allowed_prefixes` scope its key in every link's trust list, as on an edit
         let agent_params = existing
@@ -1291,6 +1370,42 @@ impl Admin {
             Err(e) => message.push_str(&format!("; history not restored: {e}")),
         }
         Ok(message)
+    }
+
+    /// A step of a restore failed with `error` after the restore installed the
+    /// NEW link `id`: the link is removed again, as `sys/links ▸ remove`
+    /// removes one ([`Admin::remove`]: stopped, its secrets, its registry
+    /// entry, its directory, its node, and the rebuild of the router scheduled
+    /// when its rules were in the ACL), and the error says so. The caller
+    /// holds the claim of the link, as it did for the install; no lock is held
+    /// across the removal that the install did not hold.
+    ///
+    /// A link with a certificate stays ([`kept_with_its_id`]): the registry
+    /// retires the id of such a link when it is removed, and that is the
+    /// operator's choice, not a side effect of a failed restore. The error
+    /// names what stays and how to go on ([`Kept`]). So does a removal that
+    /// failed. A package this restore installed stays too: it runs nothing
+    /// without a link, and the next restore of the backup uses it.
+    async fn take_back(&self, id: &str, error: RestoreError, sub: &str) -> RestoreError {
+        let (id, error) = (id.to_owned(), Box::new(error));
+        let Some(def) = self.ctl.registry().links.get(&id).cloned() else {
+            return *error;
+        };
+        if let Some(why) = kept_with_its_id(&def) {
+            warn!(link = %id, "a restore failed and its new link stays: {error}");
+            return RestoreError::LinkStays { id, error, why };
+        }
+        match self.remove(&id, sub).await {
+            Ok(()) => RestoreError::TakenBack { id, error },
+            Err(e) => {
+                warn!(link = %id, "a restore failed and its new link was not removed: {}", e.message);
+                RestoreError::LinkStays {
+                    id,
+                    error,
+                    why: Kept::NotRemoved(e),
+                }
+            }
+        }
     }
 
     /// The package of a link backup on this broker: the installed one when
@@ -1956,6 +2071,178 @@ mod tests {
             })
     }
 
+    /// A host with the one driver `mockdev`, whose links start and stop and do
+    /// nothing.
+    struct OneDriver;
+
+    struct Runs;
+
+    impl super::super::RunningLink for Runs {
+        fn stop(self: Box<Self>) -> super::super::BoxFut<'static, ()> {
+            Box::pin(async {})
+        }
+    }
+
+    impl super::super::EmbeddedHost for OneDriver {
+        fn drivers(&self) -> Vec<&'static str> {
+            vec!["mockdev"]
+        }
+        fn validate(&self, _: &str, _: &Value) -> Result<(), LinkError> {
+            Ok(())
+        }
+        fn start(
+            &self,
+            _: zenoh::Session,
+            _: wyrm_link_sdk::LinkConfig,
+            _: String,
+            _: Value,
+        ) -> super::super::BoxFut<'static, Result<Box<dyn super::super::RunningLink>, LinkError>>
+        {
+            Box::pin(async { Ok(Box::new(Runs) as Box<dyn super::super::RunningLink>) })
+        }
+    }
+
+    /// Issue #198 item 1: a restore that installs a NEW link and then fails
+    /// (here its data: a framework tree that does not open under the store key
+    /// of the backup, restored under another id) leaves no link behind. On
+    /// main the link stayed registered, stopped and without data, and the
+    /// next restore said it exists.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_new_link_whose_restore_fails_is_removed_again() {
+        use wyrm_link_sdk::TestHarness;
+        let ctl = super::super::tests::control_hosted("restore-undo", Arc::new(OneDriver));
+        let d = ctl.cfg.data_dir.clone();
+        ctl.apply(Op::Install(LinkDef {
+            id: "l1".into(),
+            driver: "mockdev".into(),
+            mode: Mode::Embedded,
+            params: wyrm_core::codec::to_vec(&Value::Map(Default::default())).unwrap(),
+            token_hash: String::new(),
+            rev: 1,
+            origin: Origin::Runtime,
+            created: 1,
+            display: None,
+            granted: None,
+            log_level: None,
+            grants: Vec::new(),
+        }))
+        .unwrap();
+        let store_key = wyrm_link_sdk::driver::persist::STORE_KEY;
+        let data = d.join("links/l1/data");
+        std::fs::create_dir_all(&data).unwrap();
+        // no tree the store key opens: it cannot be bound to another id
+        std::fs::write(data.join("framework.tree"), b"no sealed tree").unwrap();
+        ctl.secrets.set("l1", store_key, &[1u8; 32]).unwrap();
+        let file = d.join("l1.wyrm-link");
+        ctl.link_backup_to("l1", &file).unwrap();
+        let bytes = std::fs::read(&file).unwrap();
+
+        let h = TestHarness::<Admin>::start_with(
+            super::super::AdminStart {
+                ctl: ctl.clone(),
+                embedded: Arc::new(tokio::sync::Mutex::new(Default::default())),
+            },
+            |c| {
+                c.root = Some("wy/s/sys".into());
+                c.open_actions = vec!["hello".into(), "enroll".into()];
+                c.overlays = false;
+                c.audit = false;
+            },
+        )
+        .await;
+        let install = |id: &'static str| {
+            let (h, bytes) = (&h, bytes.clone());
+            async move {
+                let args = Value::Map(BTreeMap::from([
+                    ("file".to_owned(), Value::Bytes(bytes)),
+                    ("id".to_owned(), Value::Str(id.to_owned())),
+                ]));
+                let r = h
+                    .invoke("links", "install_backup", args, Some(h.ptok(Perm::Config)))
+                    .await;
+                let Some(Value::Map(m)) = r.first().and_then(|r| r.value()) else {
+                    panic!("no answer: {r:?}");
+                };
+                match (m.get("success"), m.get("message")) {
+                    (Some(Value::Bool(ok)), Some(Value::Str(text))) => (*ok, text.clone()),
+                    other => panic!("{other:?}"),
+                }
+            }
+        };
+
+        let (ok, first) = install("l2").await;
+        assert!(!ok, "{first}");
+        assert!(
+            first.starts_with("the framework tree of the backup: "),
+            "the cause first: {first}"
+        );
+        assert!(
+            first.ends_with("; link l2, which this restore installed, is removed again"),
+            "{first}"
+        );
+        // the registry, the files, the secrets and the tree agree: no link l2
+        assert!(!ctl.registry().links.contains_key("l2"));
+        assert!(!ctl.registry().retired.contains("l2"), "the id is free");
+        assert!(!d.join("links/l2").exists());
+        assert!(ctl.secrets.for_link("l2").is_empty());
+        assert!(h.meta("links/l2").await.1.is_none(), "no node of it");
+        // so the same restore answers the same again, never "exists"
+        let (ok, second) = install("l2").await;
+        assert!(!ok && second == first, "{second}");
+        // an existing link behaves as before: nothing of it is removed
+        let (ok, m) = install("l1").await;
+        assert!(ok, "{m}");
+        assert!(ctl.registry().links.contains_key("l1"));
+        h.stop().await;
+    }
+
+    /// A link that has a certificate is not removed by the broker on its own:
+    /// its id would be retired with it (`Registry`, `Op::Remove`).
+    #[test]
+    fn a_new_link_with_a_certificate_is_not_taken_back() {
+        let def = |mode: Mode, token_hash: &str| LinkDef {
+            id: "l".into(),
+            driver: "x".into(),
+            mode,
+            params: Vec::new(),
+            token_hash: token_hash.into(),
+            rev: 1,
+            origin: Origin::Runtime,
+            created: 1,
+            display: None,
+            granted: None,
+            log_level: None,
+            grants: Vec::new(),
+        };
+        assert!(kept_with_its_id(&def(Mode::Embedded, "")).is_none());
+        assert!(matches!(
+            kept_with_its_id(&def(Mode::Process, "h")),
+            Some(Kept::Certificate)
+        ));
+        assert!(matches!(
+            kept_with_its_id(&def(Mode::External, "h")),
+            Some(Kept::External)
+        ));
+        // once remote, switched to embedded: the certificate still exists
+        assert!(matches!(
+            kept_with_its_id(&def(Mode::Embedded, "h")),
+            Some(Kept::Certificate)
+        ));
+        // the rule is the registry's own: such a removal retires the id
+        for (d, retires) in [
+            (def(Mode::Embedded, ""), false),
+            (def(Mode::Process, "h"), true),
+            (def(Mode::External, "h"), true),
+            (def(Mode::Embedded, "h"), true),
+        ] {
+            let mut r = crate::registry::Registry::default();
+            wyrm_state::State::apply(&mut r, &Op::Install(d.clone())).unwrap();
+            wyrm_state::State::apply(&mut r, &Op::Remove("l".into())).unwrap();
+            assert_eq!(r.retired.contains("l"), retires, "{:?}", d.mode);
+            assert_eq!(kept_with_its_id(&d).is_some(), retires, "{:?}", d.mode);
+        }
+    }
+
     /// Rule 8 (audit T7): every refusal says, byte for byte, what it said when
     /// it was a `String`. The texts reach an action's answer (`install_backup`
     /// `message`, `restore_apply` `skipped`), the audit journal and the log.
@@ -2173,6 +2460,43 @@ mod tests {
         said(
             &R::NoStoreKey,
             "the backup holds a framework tree without its store key",
+        );
+        said(
+            &R::TakenBack {
+                id: "l2".into(),
+                error: Box::new(R::NoStoreKey),
+            },
+            "the backup holds a framework tree without its store key; link l2, which this \
+             restore installed, is removed again",
+        );
+        let stays = |why: Kept| R::LinkStays {
+            id: "l2".into(),
+            error: Box::new(R::NoStoreKey),
+            why,
+        };
+        said(
+            &stays(Kept::Certificate),
+            "the backup holds a framework tree without its store key; link l2, which this \
+             restore installed, stays without what the backup holds for it beyond its \
+             settings: it has a certificate, and the id of a link removed with one is never \
+             used again, so the broker does not remove it on its own. Install its link backup \
+             again with sys/links ▸ install_backup (an existing link is replaced in place), \
+             or remove it and restore it under another id",
+        );
+        said(
+            &stays(Kept::External),
+            "the backup holds a framework tree without its store key; link l2, which this \
+             restore installed, stays without what the backup holds for it beyond its \
+             settings: it has a certificate, and the id of a link removed with one is never \
+             used again, so the broker does not remove it on its own. Its token was shown to \
+             nobody and nothing connects as it: remove it and restore it under another id",
+        );
+        said(
+            &stays(Kept::NotRemoved(LinkError::internal("no"))),
+            "the backup holds a framework tree without its store key; link l2, which this \
+             restore installed, stays without what the backup holds for it beyond its \
+             settings: it was not removed (no). Remove it with sys/links ▸ remove, then \
+             restore again",
         );
         said(
             &R::Rebind(wyrm_link_sdk::driver::persist::RebindError::Open),

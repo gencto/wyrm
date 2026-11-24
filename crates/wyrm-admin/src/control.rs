@@ -6958,6 +6958,24 @@ mod tests {
         control_keys: Vec<ed25519_dalek::VerifyingKey>,
         tweak: impl FnOnce(&mut ControlConfig),
     ) -> Arc<Control> {
+        let host = Arc::new(NoDrivers);
+        control_on(name, scheduler, prep, link_keys, control_keys, tweak, host)
+    }
+
+    /// [`control`] with the embedded drivers of `host`.
+    pub(super) fn control_hosted(name: &str, host: Arc<dyn super::EmbeddedHost>) -> Arc<Control> {
+        control_on(name, false, |_| {}, Vec::new(), Vec::new(), |_| {}, host)
+    }
+
+    fn control_on(
+        name: &str,
+        scheduler: bool,
+        prep: impl FnOnce(&std::path::Path),
+        link_keys: Vec<wyrm_link_sdk::LimitedKey>,
+        control_keys: Vec<ed25519_dalek::VerifyingKey>,
+        tweak: impl FnOnce(&mut ControlConfig),
+        host: Arc<dyn super::EmbeddedHost>,
+    ) -> Arc<Control> {
         let dir = std::env::temp_dir().join(format!("wyrm-ctl-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -6989,7 +7007,7 @@ mod tests {
             updates: Default::default(),
         };
         tweak(&mut cfg);
-        Control::open(cfg, Arc::new(NoDrivers)).unwrap().0
+        Control::open(cfg, host).unwrap().0
     }
 
     fn scheduler_subject(k: &wyrm_link_sdk::LimitedKey) -> bool {

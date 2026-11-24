@@ -164,18 +164,23 @@ fn sync_dir(dir: &Path) -> Result<()> {
     Ok(())
 }
 
+/// The first LSN in the name of a WAL segment (`wal.<first_lsn>.wyw`); `None`
+/// for any other file name. A store reads the files this names and no other
+/// for its records.
+pub fn segment_first_lsn(name: &str) -> Option<u64> {
+    name.strip_prefix("wal.")?
+        .strip_suffix(".wyw")?
+        .parse()
+        .ok()
+}
+
 fn segments(dir: &Path) -> Result<Vec<(u64, PathBuf)>> {
     let mut out = Vec::new();
     for e in fs::read_dir(dir)? {
         let p = e?.path();
         let name = p.file_name().and_then(|n| n.to_str()).unwrap_or_default();
-        if let Some(n) = name
-            .strip_prefix("wal.")
-            .and_then(|n| n.strip_suffix(".wyw"))
-        {
-            if let Ok(first) = n.parse::<u64>() {
-                out.push((first, p));
-            }
+        if let Some(first) = segment_first_lsn(name) {
+            out.push((first, p));
         }
     }
     out.sort();

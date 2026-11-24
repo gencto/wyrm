@@ -4580,7 +4580,8 @@ async fn chain_of_three_brokers() {
             .invoke_one(backups, "restore_apply", apply("replace"))
             .await
             .expect_err("replace from above");
-        assert!(e.is(wyrm_core::Status::InvalidParameter), "{e}");
+        // a refusal by rights, not a wrong argument (owner decision 2026-11-24)
+        assert!(e.is(wyrm_core::Status::PermissionDenied), "{e}");
         assert!(e.message.contains("upstream"), "{e}");
         let e = ce
             .invoke_one(backups, "restore_apply", apply("add"))
@@ -12014,6 +12015,8 @@ async fn backup_while_writing() {
     ] {
         let e = c.invoke_one(&backups, "create", args).await.unwrap_err();
         assert!(e.message.contains("export_secrets"), "{e}");
+        // refused by rights, not by an argument (issue #195)
+        assert!(e.is(wyrm_core::Status::PermissionDenied), "{e}");
     }
     let meta = c.meta(&backups).await.unwrap();
     assert_eq!(
@@ -12037,6 +12040,7 @@ async fn backup_while_writing() {
             .await
             .unwrap_err();
         assert!(e.message.contains("export_secrets"), "{e}");
+        assert!(e.is(wyrm_core::Status::PermissionDenied), "{e}");
         assert!(!dir.join("restore.pending").exists());
     }
     assert_eq!(env.ctl.backups().get(&id), Some(job.clone()));
