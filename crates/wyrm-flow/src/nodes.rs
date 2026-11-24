@@ -498,7 +498,7 @@ pub fn check_script(ty: &str, cfg: &Map) -> Result<(), String> {
                 .map(|_| ())
                 .map_err(|m| format!("expr: {m}"))
         }
-        "filter" => script::compile(&e, req_s(cfg, "expr")?, &FILTER_VARS)
+        "filter" => filter_script(&e, req_s(cfg, "expr")?)
             .map(|_| ())
             .map_err(|m| format!("expr: {m}")),
         _ => Ok(()),
@@ -694,9 +694,6 @@ struct Expression {
     errors: u64,
 }
 
-/// The keys of the map a script sees for one input, in the order of a map's keys.
-const INPUT_KEYS: [&str; 4] = ["age_ms", "q", "t", "v"];
-
 impl Expression {
     fn worst(&self) -> Quality {
         self.last
@@ -735,13 +732,15 @@ impl Node for Expression {
             let (Some(m), Some(var)) = (self.last.get(n), self.vars.var(i)) else {
                 continue;
             };
+            // what a script sees of one input, in the order of a map's keys
+            let keys = ["age_ms", "q", "t", "v"];
             let values = [
                 rhai::Dynamic::from_int((now.saturating_sub(m.t) / 1000) as i64),
                 rhai::Dynamic::from_int(i64::from(m.q.code())),
                 rhai::Dynamic::from_int(m.t as i64),
                 script::to_dynamic(&m.v),
             ];
-            script::set_map(var, INPUT_KEYS.iter().copied(), values.into_iter());
+            script::set_map(var, keys.into_iter(), values.into_iter());
         }
         let t = self.last.values().map(|m| m.t).max().unwrap_or(now);
         let r = match script::eval(&self.engine, &self.ast, &mut self.vars) {
@@ -1218,8 +1217,13 @@ struct Filter {
     vars: script::Vars,
 }
 
-/// The variables of a `filter` script.
-const FILTER_VARS: [&str; 3] = ["v", "q", "t"];
+/// A `filter` script compiled over its variables `v`, `q`, `t`, and those variables in
+/// that order.
+fn filter_script(engine: &rhai::Engine, expr: &str) -> Result<(rhai::AST, script::Vars), String> {
+    let names = ["v", "q", "t"];
+    let ast = script::compile(engine, expr, &names)?;
+    Ok((ast, script::Vars::new(&names)))
+}
 
 impl Node for Filter {
     fn input(&mut self, _p: &str, m: Msg, _io: &Io, out: &mut Out) {
@@ -1455,12 +1459,8 @@ pub fn build_with(
         }),
         "filter" => {
             let engine = script::engine();
-            let ast = script::compile(&engine, req_s(cfg, "expr")?, &FILTER_VARS)?;
-            Box::new(Filter {
-                engine,
-                ast,
-                vars: script::Vars::new(&FILTER_VARS),
-            })
+            let (ast, vars) = filter_script(&engine, req_s(cfg, "expr")?)?;
+            Box::new(Filter { engine, ast, vars })
         }
         "publish" => Box::new(Publish {
             path: format!("{flow}/nodes/{}", req_s(cfg, "node")?),

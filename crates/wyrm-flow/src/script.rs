@@ -94,23 +94,34 @@ impl Vars {
         self.scope.get_mut(name)
     }
 
+    /// The variable `state` as the scope holds it.
+    fn state_var(&self) -> Option<&Dynamic> {
+        let name = STATE;
+        self.scope.get(name)
+    }
+
+    fn state_var_mut(&mut self) -> Option<&mut Dynamic> {
+        let name = STATE;
+        self.scope.get_mut(name)
+    }
+
     /// `state` as a value; `None` while it is empty.
     pub fn state(&self) -> Option<Value> {
-        let st = self.scope.get(STATE)?;
+        let st = self.state_var()?;
         let empty = st.as_map_ref().map_or(true, |m| m.is_empty());
         (!empty).then(|| from_dynamic(st))
     }
 
     /// Replaces `state`.
     pub fn set_state(&mut self, state: rhai::Map) {
-        if let Some(st) = self.scope.get_mut(STATE) {
+        if let Some(st) = self.state_var_mut() {
             *st = Dynamic::from_map(state);
         }
     }
 
     /// Empties `state`: for a script whose calls share nothing.
     pub fn clear_state(&mut self) {
-        let Some(st) = self.scope.get_mut(STATE) else {
+        let Some(st) = self.state_var_mut() else {
             return;
         };
         if let Ok(mut m) = st.as_map_mut() {
@@ -133,8 +144,7 @@ impl Vars {
         let base = self.base();
         let plain = self.scope.len() == base
             && self
-                .scope
-                .get(STATE)
+                .state_var()
                 .is_some_and(|st| st.is_map() && !st.is_shared() && st.tag() == 0);
         if plain {
             return;
