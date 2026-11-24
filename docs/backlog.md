@@ -546,6 +546,7 @@ measured.
 | sdk | `cargo bench -p wyrm-link-sdk --bench tree` | 4, 5, 17 | declare 1k/10k/30k points (time, `~meta` puts and bytes, the parent's apart, bytes kept, peak RSS; pure `NodeTree` with one parent put per child, and through `LinkCtx` over Zenoh; `TREE_DECLARE_ONLY=<n>` runs one size in a process of its own); a wildcard `get` that hits one node of 10k; `view=list` of 1000 children with and without a profile name |
 | flow | `cargo test --release -p wyrm-flow --test throughput -- --ignored --nocapture` | 7–10 | `subscribe → (scale, add) × n → publish`, a paced rate ladder on one key and on 1000 keys, default and deep inbox; allocations per hop (9 hops minus 3); 10 000-row tables through `table_sort` ×1/×3 and `table_filter` + `table_aggregate` |
 | flow | `cargo test --release -p wyrm-flow --test copies -- --ignored --nocapture` | flow copies | the runtime started directly, no session and no `publish`: samples pushed into the first node's inbox, the end read from the flow's counters; a chain of 10 pure blocks, one output with 16 edges, one `expression` (rhai), a 1000-row table of 3 columns through 3 `table_sort`, through 3 `hub`s and through one `table_sort` with 4 edges into `hub`s; median of 7 rounds: samples/s, CPU per sample, allocations and bytes per sample, and for a table the copies (allocations over one `Value::clone`) |
+| flow | `cargo test --release -p wyrm-flow --test script_calls -- --ignored --nocapture --test-threads=1` | flow rhai calls | one call of a script block alone (a node built by `nodes::build`, its `input` called on the test's thread; no runtime, no inbox, no edge): `expression` with one input, with three and with `state`, `filter`, a 10 000-row table of three cells through `table_filter`, `table_map_columns` and, for scale, `table_sort`; test `stages`: where the allocations of one call are, on rhai itself; median round: time, allocations and bytes per call, and per row for a table |
 | broker | `cargo test --release -p wyrmd --test perf -- --ignored --nocapture --exact <test>` | 1, 2, 12, 13, gateway | an in-process broker with the embedded mock: (a) base rate, (b) a client that subscribes `wy/<site>/downstream/**` in a loop and one `wy/**`, (c) the mock at `trace`, (d) the historian on 10 000 points, (e) 1000 invokes one after another, then 2000 from 50 subjects at once: latency, audit records/s, batches, and how late a 1 ms timer of the broker's runtime fires, (f) 10 gateway WebSocket clients × 1000 points × 10 Hz, (g) a steady pattern consumer of 1000 points × 50 Hz, raw and through the client |
 | broker | `cargo test --release -p wyrm-gateway --test frame_path -- --ignored --nocapture` | gateway | the value path of one `subscribe` with no socket and no session: the client's value stream fed by hand with the gateway's read filter in its callback, the pump, the connection's queue, the writer task and a sink that counts frames and flushes; a value event to its frame, one rights check, the stream alone, the whole path on one thread, and 10 connections × 1000 points × 10 Hz on two workers beside the producer's own cost |
 | broker | `cargo test --release -p wyrm-client --test fan_in -- --ignored --nocapture` | pattern consumer | the client's value stream with no session: handler + read on one thread, and 1000 samples every 20 ms read by a task |
@@ -1080,9 +1081,11 @@ Not done:
 - rhai: 11 allocations per call are left (the variables' map and scope, the
   `state` map boxed and read back, the evaluation itself). A value that is a
   map or a list is converted to `Dynamic` and back on every call; a scope
-  kept between calls was not tried;
+  kept between calls was not tried. Done (issue #160 item 2,
+  `perf/flow-rhai-calls`, below);
 - the per-row scripts of `table_filter` and the other row blocks (a row
-  converted to a rhai map per row) and `flow/table/filter_sum`, which still
+  converted to a rhai map per row; the copy of the row is gone,
+  `perf/flow-rhai-calls`, below) and `flow/table/filter_sum`, which still
   loses tables to its 100 ms script budget;
 - what is left of a hop, about 0.7 µs of CPU per sample, was not profiled.
   It is not an allocation. In the code of a hop: a wake-up of the next
@@ -1273,7 +1276,89 @@ Not done:
   they are equal (no allocation; the CPU of a walk over the table);
 - a text and bytes are not shared: a long text sent on many edges is copied
   per edge, as before;
-- rhai (issue #160 item 2), the reference board and a quiet machine.
+- rhai (issue #160 item 2; done, below), the reference board and a quiet
+  machine.
+
+**Done: no allocation per rhai call (2026-11-25, `perf/flow-rhai-calls`,
+issue #160 items 2 and 4).** A script block (`expression`, `filter`, the
+per-row scripts of `table_filter`, `table_remove_rows`, `table_update_rows`
+and `table_map_columns`) made everything for a call anew: the list of
+variables with a name each, a rhai `Scope`, the `state` map boxed into the
+scope and read back, and for a table block a copy of the row before it was
+converted. 11 allocations per call were left after the flow copies (above).
+
+What changed (`crates/wyrm-flow/src/script.rs`, `nodes.rs`,
+`blocks/tables.rs`):
+
+- `script::Vars` holds the rhai `Scope` of a block between its calls: the
+  declared names in their order, then `state`. The caller gives every
+  variable its value before a call (`Vars::var`), and `eval` rolls the scope
+  back after it (`settle`): what the script declared is gone, also when the
+  call failed, and `state` is a plain map again. Nothing of one call reaches
+  the next but `state`, as when every call had a scope of its own.
+- an input of `expression` is the map `{age_ms, q, t, v}`: `script::set_map`
+  writes the new values into the map the call before left in the scope when
+  it still is a plain map of exactly these keys, and makes a new one
+  otherwise (a script may have changed it, or a closure may hold it).
+- a table row goes into the script from the parsed row itself (`set_map`
+  over its keys and cells), with no copy of the row first; rows of the same
+  columns use one map for the whole table. The rows of one table share
+  `state`; it is emptied before the first row and after the last.
+- `from_dynamic` reads a list or a map in place instead of copying it before
+  its items are converted.
+- `table_filter` and `table_remove_rows` move the rows they keep out of the
+  parsed table instead of copying them.
+
+No sample, order, mark, error text or counter changes; `spec/` did not
+change.
+
+Measurement: `tests/script_calls.rs` (new): a node built by `nodes::build`
+and its `input` called on the test's thread, the counting allocator, the
+samples built before the round; test `stages` measures the same steps on
+rhai itself. M4 Max, release, 2026-11-24, the median of 3 runs of each
+binary, load 13–22 (other agents' builds; rough). The allocation counts do
+not move with the load; the times do and are to be taken again on a quiet
+machine.
+
+| Figure | Before | After |
+|---|---|---|
+| `expression` (`x.v * 2.0 + 1.0`), one call | 10 allocations, 741 ns | 0 allocations, 465 ns |
+| `expression` over three inputs (`a.v + b.v * c.v`), one call | 18 allocations, 1 241 ns | 0 allocations, 751 ns |
+| `expression` that counts in `state`, one call | 11 allocations, 1 075 ns | 0 allocations, 772 ns |
+| `filter` (`v > 10.0`), one call | 12 allocations, 458 ns | 0 allocations, 270 ns |
+| `table_filter` (`row.v > 600.0`), a 10 000-row table of 3 cells | 276 035 allocations, 11.4 ms per table | 60 024 allocations, 7.1 ms |
+| `table_map_columns` (one computed column, the columns kept), the same table | 310 031 allocations, 12.5 ms per table | 120 031 allocations, 8.2 ms |
+
+What is left per row of a table block is not the script's: the parse of the
+block's input into rows (5 allocations per row of 3 cells: the row's map
+and its keys), a text cell copied into the script and back, and for
+`table_map_columns` the output row.
+
+Checks that run with the other tests: `a_script_call_allocates_nothing`
+(`tests/script_calls.rs`; it writes its `PERF` lines `flow/script/check*`
+to stderr past the harness's capture, so a passing run shows the figures
+in the CI log), `a_block_keeps_nothing_of_a_call_but_state` and
+`a_table_script_keeps_nothing_of_a_row_but_state` (the same file: a
+variable a script declared, a change of its input's map, a call that
+failed or ran out of operations, a table whose last row has one more cell),
+and in `script.rs` `a_variable_of_one_call_is_not_seen_by_the_next` and
+`a_call_that_fails_leaves_nothing_behind` with their neighbours.
+
+Issue #160 item 4: `expansion_bombs_are_refused_quickly` had a 50 ms
+wall-clock bound that failed on a loaded machine. It is now
+`expansion_bombs_are_refused_after_bounded_work` in a test binary of its
+own (`tests/expansion_bombs.rs`) and judges the refusal by what it
+allocates, which does not move with the load.
+
+Not done, by design:
+
+- the parse of a table block's input into rows (5 allocations per row): a
+  block that reads the table in place would remove it, block by block;
+- text cells are not shared between the table and the script: a text is
+  copied in and, when it is the result, out;
+- `flow/table/filter_sum` and its 100 ms script budget were not measured
+  again;
+- the times on a quiet machine and the reference board.
 
 Not covered yet:
 
