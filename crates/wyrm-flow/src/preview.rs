@@ -93,7 +93,7 @@ pub fn start(
         // a draft has no `~val`: its counters are never published
         Arc::new(runtime::FlowStats::default()),
     )
-    .map_err(LinkError::invalid_parameter)?;
+    .map_err(|e| LinkError::invalid_parameter(e.to_string()))?;
     Ok(Preview {
         run,
         probe,

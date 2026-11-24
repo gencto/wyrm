@@ -352,7 +352,7 @@ fn the_action_block_names_its_ports() {
     let bad = |args: Value| {
         let mut c = cfg.clone();
         c.insert("args".into(), args);
-        nodes::ports("invoke", &c).unwrap_err()
+        nodes::ports("invoke", &c).unwrap_err().to_string()
     };
     assert!(bad(Value::UInt(1)).contains("args"));
     assert!(bad(map(&[("__x", Value::Null)])).contains("args.__x"));

@@ -14,7 +14,8 @@
 use crate::commands::{is_event, MAX_INTERVAL_MS, MIN_INTERVAL_MS};
 use crate::def::Map;
 use crate::nodes::{
-    b, f, only, read_field, truthy, Io, Msg, Node, Out, Payload, PortType, Ports, Tasks,
+    b, f, only, read_field, truthy, ConfigError, Io, Msg, Node, Out, Payload, PortType, Ports,
+    Tasks,
 };
 use crate::scope;
 use crate::sources::{DynKey, Switch};
@@ -78,31 +79,58 @@ fn limit_ok(x: usize) -> bool {
     (1..=MAX_HISTORY_ROWS).contains(&x)
 }
 
+/// Why `load_history`'s parameters make no history query: at the config check, and at a read
+/// when a port brought the parameter (then it is the `error` event's message).
+#[derive(Debug, thiserror::Error)]
+pub enum QueryError {
+    #[error("time_zone: no such zone")]
+    Zone,
+    /// Holds the text.
+    #[error("time_range: {0} is no range")]
+    Range(String),
+    /// An end of the range, in microseconds, is before the epoch.
+    #[error("time_range: {us} is before 1970 ({source})")]
+    Before1970 {
+        us: i64,
+        #[source]
+        source: std::num::TryFromIntError,
+    },
+    /// Holds the text.
+    #[error("window: {0} is not <n>s, m, h, d or w")]
+    Window(String),
+    /// Holds the text.
+    #[error("rollup: {0} is no rollup")]
+    Rollup(String),
+    /// A window the history read itself refuses.
+    #[error(transparent)]
+    Param(#[from] wyrm_client::HistoryParamError),
+}
+
 /// The history query of `load_history`'s parameters at `now`: `None` with the reason when a
 /// parameter is no good.
 fn history_query(
     p: &BTreeMap<String, Value>,
     now: i64,
-) -> Result<wyrm_client::HistoryQuery, String> {
+) -> Result<wyrm_client::HistoryQuery, QueryError> {
     let text = |k: &str| match p.get(k) {
         Some(Value::Str(s)) => s.trim().to_owned(),
         _ => String::new(),
     };
     let tz = crate::blocks::date::zone(p.get("time_zone").unwrap_or(&Value::Null))
-        .ok_or("time_zone: no such zone")?;
+        .ok_or(QueryError::Zone)?;
     let range = text("time_range");
     let r =
         crate::blocks::date::range(if range.is_empty() { "today" } else { &range }, now, &tz, 0)
-            .ok_or_else(|| format!("time_range: {range} is no range"))?;
+            .ok_or_else(|| QueryError::Range(range.clone()))?;
     let at = |us: i64| {
         u64::try_from(us)
             .map(wyrm_client::TimeUs)
-            .map_err(|e| format!("time_range: {us} is before 1970 ({e})"))
+            .map_err(|source| QueryError::Before1970 { us, source })
     };
     let rollup = text("rollup");
     let window = text("window");
     if !window_ok(&window) {
-        return Err(format!("window: {window} is not <n>s, m, h, d or w"));
+        return Err(QueryError::Window(window));
     }
     let limit = p
         .get("limit")
@@ -113,8 +141,8 @@ fn history_query(
         from: at(r.start)?,
         to: Some(at(r.end)?),
         rollup: wyrm_client::Rollup::parse(&rollup)
-            .ok_or_else(|| format!("rollup: {rollup} is no rollup"))?,
-        window: wyrm_client::Window::parse(&window).map_err(|e| e.to_string())?,
+            .ok_or_else(|| QueryError::Rollup(rollup.clone()))?,
+        window: wyrm_client::Window::parse(&window)?,
         limit: std::num::NonZeroUsize::new(limit),
     })
 }
@@ -124,7 +152,7 @@ fn interval_ok(x: f64) -> bool {
 }
 
 /// Ports and config check of `load_value` and `list_children`.
-pub(crate) fn ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
+pub(crate) fn ports(ty: &str, cfg: &Map) -> Result<Ports, ConfigError> {
     use PortType::*;
     let (key, key_scope) = field(ty);
     let mut known = vec![key, key_scope, "interval_ms", "auto_run", "enabled"];
@@ -139,7 +167,10 @@ pub(crate) fn ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
         }
         if let Some(Value::Str(r)) = cfg.get("rollup") {
             if !ROLLUPS.contains(&r.as_str()) {
-                return Err(format!("rollup: one of {ROLLUPS:?}"));
+                return Err(ConfigError::OneOf {
+                    field: "rollup".to_owned(),
+                    names: ROLLUPS,
+                });
             }
         }
         // a whole number of rows: `2.5` was accepted here and read as 2
@@ -147,7 +178,7 @@ pub(crate) fn ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
             .get("limit")
             .is_some_and(|v| !v.to_int::<usize>().is_ok_and(limit_ok))
         {
-            return Err(format!("limit: 1..={MAX_HISTORY_ROWS}"));
+            return Err(ConfigError::Limit);
         }
         let p = crate::catalog::effective_params(ty, cfg);
         history_query(&p, now_us() as i64)?;
@@ -155,9 +186,7 @@ pub(crate) fn ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
     b(cfg, "auto_run", true)?;
     b(cfg, "enabled", true)?;
     if !interval_ok(f(cfg, "interval_ms")?.unwrap_or(0.0)) {
-        return Err(format!(
-            "interval_ms: 0 (off) or {MIN_INTERVAL_MS}..={MAX_INTERVAL_MS}"
-        ));
+        return Err(ConfigError::Interval);
     }
     let mut inputs: Vec<(String, PortType)> = vec![
         ("trigger".into(), Any),
@@ -214,7 +243,7 @@ pub(crate) struct Reader {
     tasks: Tasks,
 }
 
-pub(crate) fn build(ty: &str, cfg: &Map) -> Result<Box<dyn Node>, String> {
+pub(crate) fn build(ty: &str, cfg: &Map) -> Result<Box<dyn Node>, ConfigError> {
     ports(ty, cfg)?;
     let (key, key_scope) = field(ty);
     Ok(Box::new(Reader {
@@ -507,7 +536,7 @@ impl Reader {
             match history_query(&self.params, now_us() as i64) {
                 Ok(q) => Some(q),
                 Err(why) => {
-                    self.failed(Status::InvalidParameter, &why, out);
+                    self.failed(Status::InvalidParameter, &why.to_string(), out);
                     return;
                 }
             }

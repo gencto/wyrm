@@ -253,17 +253,68 @@ enum From {
 /// The variables a per-row script sees: the row as a map, its index.
 const ROW_VARS: &[&str] = &["row", "index"];
 
+/// Why the config of a table block was refused (`mapping`, `aggregates`, `expr`).
+#[derive(Debug, thiserror::Error)]
+pub enum TableConfigError {
+    #[error("mapping: a list of {{name, from}}")]
+    MappingList,
+    #[error("mapping: at most {}", MAX_COLUMNS)]
+    MappingMany,
+    #[error("mapping: each item is {{name, from}} with texts")]
+    MappingTexts,
+    #[error("mapping: each item is {{name, from}}")]
+    MappingItem,
+    /// The script of a computed column does not compile; holds the column.
+    #[error("mapping.{name}: {source}")]
+    Mapping {
+        name: String,
+        #[source]
+        source: script::CompileError,
+    },
+    #[error("aggregates: a list of {{column, method, as}}")]
+    AggregatesList,
+    #[error("aggregates: at most {}", MAX_COLUMNS)]
+    AggregatesMany,
+    #[error("aggregates: each item is {{column, method, as}}")]
+    AggregatesItem,
+    #[error("aggregates: column required")]
+    NoColumn,
+    #[error("aggregates: method one of {:?}", METHODS)]
+    Method,
+    #[error("expr: a rhai expression over row and index")]
+    ExprNotText,
+    #[error("expr: {0}")]
+    Expr(#[source] script::CompileError),
+}
+
+/// Why the per-row scripts of a table gave no result: what the block sends on `error`.
+#[derive(Debug, thiserror::Error)]
+enum RowError {
+    #[error(
+        "the scripts took longer than {} ms for the table",
+        SCRIPT_BUDGET.as_millis()
+    )]
+    Budget,
+    /// The script failed at this row.
+    #[error("row {row}: {source}")]
+    Script {
+        row: usize,
+        #[source]
+        source: script::EvalError,
+    },
+}
+
 /// `mapping` of `table_map_columns`: `[{name, from}, …]`; `from` is a column, or `= expr`
 /// (any value), `+ expr` (a number), `& expr` (a bool).
-fn mapping(v: Option<&Value>) -> Result<Vec<(String, String)>, String> {
+fn mapping(v: Option<&Value>) -> Result<Vec<(String, String)>, TableConfigError> {
     let Some(v) = v.filter(|v| **v != Value::Null) else {
         return Ok(Vec::new());
     };
     let Value::Array(a) = v else {
-        return Err("mapping: a list of {name, from}".into());
+        return Err(TableConfigError::MappingList);
     };
     if a.len() > MAX_COLUMNS {
-        return Err(format!("mapping: at most {MAX_COLUMNS}"));
+        return Err(TableConfigError::MappingMany);
     }
     a.iter()
         .map(|m| match m {
@@ -273,28 +324,28 @@ fn mapping(v: Option<&Value>) -> Result<Vec<(String, String)>, String> {
                 {
                     Ok((n.clone(), f.clone()))
                 }
-                _ => Err("mapping: each item is {name, from} with texts".into()),
+                _ => Err(TableConfigError::MappingTexts),
             },
-            _ => Err("mapping: each item is {name, from}".into()),
+            _ => Err(TableConfigError::MappingItem),
         })
         .collect()
 }
 
 /// `aggregates` of `table_group_by` and `table_rollup`: `[{column, method, as}, …]`.
-fn aggregates(v: Option<&Value>) -> Result<Vec<(String, String, String)>, String> {
+fn aggregates(v: Option<&Value>) -> Result<Vec<(String, String, String)>, TableConfigError> {
     let Some(v) = v.filter(|v| **v != Value::Null) else {
         return Ok(Vec::new());
     };
     let Value::Array(a) = v else {
-        return Err("aggregates: a list of {column, method, as}".into());
+        return Err(TableConfigError::AggregatesList);
     };
     if a.len() > MAX_COLUMNS {
-        return Err(format!("aggregates: at most {MAX_COLUMNS}"));
+        return Err(TableConfigError::AggregatesMany);
     }
     a.iter()
         .map(|m| {
             let Value::Map(m) = m else {
-                return Err("aggregates: each item is {column, method, as}".to_owned());
+                return Err(TableConfigError::AggregatesItem);
             };
             let t = |k: &str| match m.get(k) {
                 Some(Value::Str(x)) => Some(x.clone()),
@@ -302,10 +353,10 @@ fn aggregates(v: Option<&Value>) -> Result<Vec<(String, String, String)>, String
             };
             let column = t("column")
                 .filter(|c| !c.is_empty())
-                .ok_or("aggregates: column required")?;
+                .ok_or(TableConfigError::NoColumn)?;
             let method = t("method").unwrap_or_else(|| "first".into());
             if !METHODS.contains(&method.as_str()) {
-                return Err(format!("aggregates: method one of {METHODS:?}"));
+                return Err(TableConfigError::Method);
             }
             let name = t("as")
                 .filter(|a| !a.is_empty())
@@ -316,7 +367,7 @@ fn aggregates(v: Option<&Value>) -> Result<Vec<(String, String, String)>, String
 }
 
 /// The config check and the scripts of a table block.
-pub(super) fn scripts(op: Op, cfg: &crate::def::Map) -> Result<Option<Scripts>, String> {
+pub(super) fn scripts(op: Op, cfg: &crate::def::Map) -> Result<Option<Scripts>, TableConfigError> {
     match op {
         Op::GroupBy | Op::Rollup => {
             aggregates(cfg.get("aggregates"))?;
@@ -326,10 +377,10 @@ pub(super) fn scripts(op: Op, cfg: &crate::def::Map) -> Result<Option<Scripts>, 
             let src = match cfg.get("expr") {
                 None => "true",
                 Some(Value::Str(x)) => x.as_str(),
-                Some(_) => return Err("expr: a rhai expression over row and index".into()),
+                Some(_) => return Err(TableConfigError::ExprNotText),
             };
             let engine = script::engine();
-            let ast = script::compile(&engine, src, ROW_VARS).map_err(|e| format!("expr: {e}"))?;
+            let ast = script::compile(&engine, src, ROW_VARS).map_err(TableConfigError::Expr)?;
             Ok(Some(Scripts {
                 engine,
                 expr: Some(ast),
@@ -347,11 +398,10 @@ pub(super) fn scripts(op: Op, cfg: &crate::def::Map) -> Result<Option<Scripts>, 
                     _ => None,
                 };
                 let how = match src {
-                    Some((c, e)) => From::Expr(
-                        script::compile(&engine, &e, ROW_VARS)
-                            .map_err(|e| format!("mapping.{name}: {e}"))?,
-                        c,
-                    ),
+                    Some((c, e)) => match script::compile(&engine, &e, ROW_VARS) {
+                        Ok(ast) => From::Expr(ast, c),
+                        Err(source) => return Err(TableConfigError::Mapping { name, source }),
+                    },
                     None if f.is_empty() => From::Nothing,
                     None => From::Column(from.clone()),
                 };
@@ -419,7 +469,7 @@ fn per_row<T>(
     ast: &rhai::AST,
     t: &Table,
     each: impl FnMut(usize, Value) -> T,
-) -> Result<Vec<T>, String> {
+) -> Result<Vec<T>, RowError> {
     vars.clear_state();
     let out = rows(engine, vars, ast, t, each);
     vars.clear_state();
@@ -432,16 +482,13 @@ fn rows<T>(
     ast: &rhai::AST,
     t: &Table,
     mut each: impl FnMut(usize, Value) -> T,
-) -> Result<Vec<T>, String> {
+) -> Result<Vec<T>, RowError> {
     // one thread runs every row: the budget is read on the thread that started it
     let budget = crate::cpu_clock::Budget::start(SCRIPT_BUDGET);
     let mut out = Vec::with_capacity(t.rows.len());
     for (i, r) in t.rows.iter().enumerate() {
         if budget.spent() {
-            return Err(format!(
-                "the scripts took longer than {} ms for the table",
-                SCRIPT_BUDGET.as_millis()
-            ));
+            return Err(RowError::Budget);
         }
         // the row straight into the map the row before left there: no copy of the row, and
         // for rows of the same columns no new map
@@ -455,7 +502,8 @@ fn rows<T>(
         if let Some(index) = vars.var(1) {
             *index = rhai::Dynamic::from_int(i as i64);
         }
-        let d = script::eval(engine, ast, vars).map_err(|e| format!("row {i}: {e}"))?;
+        let d = script::eval(engine, ast, vars)
+            .map_err(|source| RowError::Script { row: i, source })?;
         out.push(each(i, clean(script::from_dynamic(&d))));
     }
     Ok(out)
@@ -568,7 +616,7 @@ pub(super) fn calc(op: Op, v: &View, sc: Option<&mut Scripts>) -> Outs {
                 ..
             } = sc;
             for (name, how) in columns.iter() {
-                let cells: Result<Vec<Value>, String> = match how {
+                let cells: Result<Vec<Value>, RowError> = match how {
                     From::Column(c) => Ok(t
                         .rows
                         .iter()
@@ -588,7 +636,10 @@ pub(super) fn calc(op: Op, v: &View, sc: Option<&mut Scripts>) -> Outs {
                         }
                     }
                     Err(e) => {
-                        return vec![("out", Value::Null, false), ("error", Value::Str(e), false)]
+                        return vec![
+                            ("out", Value::Null, false),
+                            ("error", Value::Str(e.to_string()), false),
+                        ]
                     }
                 }
                 if !cols.contains(name) {
@@ -642,7 +693,10 @@ pub(super) fn calc(op: Op, v: &View, sc: Option<&mut Scripts>) -> Outs {
                     let (val, bad) = table_out(Table { columns, rows });
                     vec![("out", val, bad), ("error", Value::Null, false)]
                 }
-                Err(e) => vec![("out", Value::Null, false), ("error", Value::Str(e), false)],
+                Err(e) => vec![
+                    ("out", Value::Null, false),
+                    ("error", Value::Str(e.to_string()), false),
+                ],
             }
         }
         Op::EditRows => {
@@ -676,7 +730,10 @@ pub(super) fn calc(op: Op, v: &View, sc: Option<&mut Scripts>) -> Outs {
                     let (val, bad) = table_out(t);
                     vec![("out", val, bad), ("error", Value::Null, false)]
                 }
-                Err(e) => vec![("out", Value::Null, false), ("error", Value::Str(e), false)],
+                Err(e) => vec![
+                    ("out", Value::Null, false),
+                    ("error", Value::Str(e.to_string()), false),
+                ],
             }
         }
         Op::GroupBy => {
@@ -1678,7 +1735,8 @@ mod tests {
             truth(&x, false)
         })
         .unwrap_err();
-        assert!(e.contains("longer than 100 ms"), "{e}");
+        assert!(matches!(e, RowError::Budget), "{e:?}");
+        assert!(e.to_string().contains("longer than 100 ms"), "{e}");
     }
 
     fn t2() -> Table {
