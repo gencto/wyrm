@@ -263,7 +263,7 @@ pub enum RestoreError {
     PackageCommit(String),
     /// Its component was not published (as `Control::publish_component` says it).
     #[error("{0}")]
-    Component(String),
+    Component(#[source] super::ComponentError),
     /// The registry did not take the package or the link's params.
     #[error("{0}")]
     Registry(#[source] StateError),
@@ -273,7 +273,7 @@ pub enum RestoreError {
     /// No restore point of the link that is replaced (as
     /// `Admin::take_restore_point` says it).
     #[error("{0}")]
-    RestorePoint(String),
+    RestorePoint(#[source] super::updates::TakePointError),
     #[error("{}", .0.message)]
     Stop(LinkError),
     #[error("{}", .0.message)]
@@ -2442,7 +2442,12 @@ mod tests {
             "process links need a tls/ listener on the broker",
         );
         said(&R::PackageCommit("no".into()), "no");
-        said(&R::Component("no".into()), "no");
+        said(
+            &R::Component(crate::control::ComponentError::Store(
+                std::io::Error::other("no"),
+            )),
+            "no",
+        );
         said(
             &R::Registry(StateError::Rejected("no".into())),
             "operation rejected: no",
@@ -2450,7 +2455,15 @@ mod tests {
         let declared = refused();
         let text = declared.to_string();
         said(&R::Declare(declared), &text);
-        said(&R::RestorePoint("no".into()), "no");
+        said(
+            &R::RestorePoint(crate::control::updates::TakePointError::Point {
+                link: "plc".into(),
+                source: crate::restore_point::MakeError::Point(
+                    crate::restore_point::PointError::Id("..".into()),
+                ),
+            }),
+            "restore point of plc: restore point \"..\"",
+        );
         said(&R::Stop(refused()), "said by another operation");
         said(&R::Start(refused()), "said by another operation");
         said(&R::Install(refused()), "said by another operation");

@@ -25,14 +25,14 @@ impl RoleGrants for Roles {
     fn grants(&self) -> Vec<(String, String, Perm)> {
         vec![("operator".into(), "wy/s/downstream/**".into(), Perm::Write)]
     }
-    fn set_grant(&self, _: &str, _: &str, _: Perm) -> Result<(), String> {
+    fn set_grant(&self, _: &str, _: &str, _: Perm) -> Result<(), RoleGrantsError> {
         Ok(())
     }
     fn revoke_widening(
         &self,
         _: &[String],
         _: &str,
-    ) -> Result<Vec<(String, String, Perm)>, String> {
+    ) -> Result<Vec<(String, String, Perm)>, RoleGrantsError> {
         Ok(Vec::new())
     }
 }

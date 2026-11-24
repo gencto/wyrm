@@ -14,7 +14,7 @@
 //! The format, the unpack, the layout and the guard are in
 //! [`crate::release`]; this module is what a running broker does.
 
-use super::backups::{BackupRequest, SealWith};
+use super::backups::{BackupRequest, FileError, SealWith};
 use super::*;
 use crate::backup::Kind;
 use crate::release::{self, Asset, Identity, Layout, Release, UpdateFile};
@@ -269,22 +269,9 @@ impl BrokerUpdate {
 }
 
 /// A file or a directory of an update that was not read, written, copied or
-/// removed, said as `<path>: <cause>`.
-#[derive(Debug, thiserror::Error)]
-#[error("{}: {source}", .path.display())]
-pub struct PathError {
-    pub path: PathBuf,
-    #[source]
-    pub source: std::io::Error,
-}
-
-impl PathError {
-    fn at(path: &Path) -> impl FnOnce(std::io::Error) -> Self + '_ {
-        move |source| Self {
-            path: path.to_owned(),
-            source,
-        }
-    }
+/// removed: `<path>: <cause>`.
+fn at(path: &Path) -> impl FnOnce(std::io::Error) -> FileError + '_ {
+    move |source| FileError::new(path, source)
 }
 
 /// `updates.channel` does not say where the archive of a release is
@@ -302,11 +289,9 @@ pub enum ChannelUrlError {
 /// holds a key: a key file is named by its path only.
 #[derive(Debug, thiserror::Error)]
 pub enum StateCopyError {
+    /// A file or directory of the copy, or a key file, by its path.
     #[error(transparent)]
-    File(#[from] PathError),
-    /// The private directory of the copy was not made.
-    #[error(transparent)]
-    Dir(#[from] super::backups::FileError),
+    File(#[from] FileError),
     /// A key file that is no hex text; holds its name in `data_dir`.
     #[error("{0}: not a key")]
     NotKey(&'static str),
@@ -384,7 +369,7 @@ pub enum OrderPartError {
     #[error("offset: beyond the archive")]
     Offset,
     #[error(transparent)]
-    File(#[from] PathError),
+    File(#[from] FileError),
 }
 
 /// Why an update that was begun did not reach its restart ([`run`]). The
@@ -396,10 +381,7 @@ pub enum UpdateRunError {
     #[error(transparent)]
     Fetch(#[from] crate::fetch::FetchError),
     #[error(transparent)]
-    File(#[from] PathError),
-    /// A private directory was not made.
-    #[error(transparent)]
-    Dir(#[from] super::backups::FileError),
+    File(#[from] FileError),
     #[error("{0}")]
     Join(#[source] tokio::task::JoinError),
     #[error("the upload is gone")]
@@ -574,7 +556,7 @@ pub const STATE_STORES: [(&str, &str); 4] = [
 /// stores are never written.
 pub fn state_copy(data_dir: &Path, dest: &Path) -> Result<(), StateCopyError> {
     if dest.symlink_metadata().is_ok() {
-        std::fs::remove_dir_all(dest).map_err(PathError::at(dest))?;
+        std::fs::remove_dir_all(dest).map_err(at(dest))?;
     }
     super::backups::make_private_dir(dest)?;
     for (dir, key_file) in STATE_STORES {
@@ -583,7 +565,7 @@ pub fn state_copy(data_dir: &Path, dest: &Path) -> Result<(), StateCopyError> {
             continue;
         }
         let key_path = data_dir.join(key_file);
-        let text = Zeroizing::new(std::fs::read(&key_path).map_err(PathError::at(&key_path))?);
+        let text = Zeroizing::new(std::fs::read(&key_path).map_err(at(&key_path))?);
         let key = Zeroizing::new(
             std::str::from_utf8(&text)
                 .ok()
@@ -594,7 +576,7 @@ pub fn state_copy(data_dir: &Path, dest: &Path) -> Result<(), StateCopyError> {
             .map_err(|source| StateCopyError::Store { dir, source })?;
         let to = dest.join(key_file);
         if !to.exists() {
-            secret::write_private(&to, &text).map_err(PathError::at(&to))?;
+            secret::write_private(&to, &text).map_err(at(&to))?;
         }
     }
     Ok(())
@@ -1076,12 +1058,11 @@ impl Control {
             return Err(OrderPartError::Offset);
         }
         let path = self.cfg.data_dir.join(ORDER_DIR).join(ORDER_ARCHIVE);
-        let mut f = std::fs::File::open(&path).map_err(PathError::at(&path))?;
-        f.seek(SeekFrom::Start(offset))
-            .map_err(PathError::at(&path))?;
+        let mut f = std::fs::File::open(&path).map_err(at(&path))?;
+        f.seek(SeekFrom::Start(offset)).map_err(at(&path))?;
         let want = len.clamp(1, ORDER_PART).min(order.size - offset) as usize;
         let mut buf = vec![0u8; want];
-        f.read_exact(&mut buf).map_err(PathError::at(&path))?;
+        f.read_exact(&mut buf).map_err(at(&path))?;
         Ok(buf)
     }
 
@@ -1413,14 +1394,14 @@ async fn run(
             // a fresh directory: nothing an earlier fetch left goes with this one
             std::fs::remove_dir_all(&dir)
                 .or_else(wyrm_core::files::gone_ok)
-                .map_err(PathError::at(&dir))?;
+                .map_err(at(&dir))?;
             super::backups::make_private_dir(&dir)?;
             let path = dir.join(ORDER_ARCHIVE);
             let p2 = path.clone();
             tokio::task::spawn_blocking(move || secret::write_private(&p2, &bytes))
                 .await
                 .map_err(UpdateRunError::Join)?
-                .map_err(PathError::at(&path))?;
+                .map_err(at(&path))?;
             path
         }
         (None, Source::Upload(_)) => return Err(UpdateRunError::UploadGone),
@@ -1620,15 +1601,14 @@ async fn stage_for_standby(
         }
         std::fs::remove_dir_all(&dir2)
             .or_else(wyrm_core::files::gone_ok)
-            .map_err(PathError::at(&dir2))?;
+            .map_err(at(&dir2))?;
         super::backups::make_private_dir(&dir2)?;
         let to = dir2.join(ORDER_ARCHIVE);
-        std::fs::copy(&archive, &to).map_err(PathError::at(&to))?;
+        std::fs::copy(&archive, &to).map_err(at(&to))?;
         // said with the directory, as before these errors had a type
-        secret::write_private(&dir2.join(ORDER_RELEASE), &release_bytes)
-            .map_err(PathError::at(&dir2))?;
+        secret::write_private(&dir2.join(ORDER_RELEASE), &release_bytes).map_err(at(&dir2))?;
         let text = serde_json::to_vec_pretty(&order2).map_err(UpdateRunError::Order)?;
-        secret::write_private(&dir2.join(ORDER_FILE), &text).map_err(PathError::at(&dir2))?;
+        secret::write_private(&dir2.join(ORDER_FILE), &text).map_err(at(&dir2))?;
         Ok(())
     })
     .await
@@ -2674,7 +2654,7 @@ mod tests {
         use std::error::Error as _;
         let io = || std::io::Error::other("no");
         let said = |e: &dyn std::error::Error, text: &str| assert_eq!(e.to_string(), text);
-        let file = || PathError::at(Path::new("/d/x"))(io());
+        let file = || at(Path::new("/d/x"))(io());
         said(&file(), "/d/x: no");
         assert!(file().source().is_some());
 
@@ -2689,13 +2669,6 @@ mod tests {
         );
 
         said(&StateCopyError::File(file()), "/d/x: no");
-        said(
-            &StateCopyError::Dir(super::super::backups::FileError::new(
-                Path::new("/d/c"),
-                io(),
-            )),
-            "/d/c: no",
-        );
         said(&StateCopyError::NotKey("state.key"), "state.key: not a key");
         said(
             &StateCopyError::Store {
