@@ -512,7 +512,10 @@ where `current` points before you start and put it back afterwards
 (`ln -sfn versions/<v> <prefix>/current.new && mv -T <prefix>/current.new
 <prefix>/current`); the unit's `guard-refresh` step then makes the guard
 the binary of that version again at the next start. A wrong order starts
-an older binary on the data of a newer one at the next restart.
+an older binary on the data of a newer one at the next restart. In the
+layout of step 2, set the owners again afterwards (`chown -R wyrm:wyrm
+<prefix>/versions`, `chown -h wyrm:wyrm <prefix>/current`): what root made
+the broker cannot replace at its next update.
 
 The pre-update backup is sealed for this broker (`how: broker`): the guard
 checks its manifest with the key of `secrets.key`, every file against the
