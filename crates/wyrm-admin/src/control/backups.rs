@@ -429,6 +429,22 @@ impl SealWith {
             SealWith::Broker => How::Broker,
         }
     }
+
+    /// How a backup of `chosen` sealed with this is sealed: without a
+    /// passphrase, one that holds link secrets (`links`, `data`) is sealed
+    /// for this site.
+    fn how_for(&self, chosen: &[SectionName]) -> How {
+        match self {
+            SealWith::None
+                if chosen
+                    .iter()
+                    .any(|c| matches!(c, SectionName::Links | SectionName::Data)) =>
+            {
+                How::Broker
+            }
+            s => s.how(),
+        }
+    }
 }
 
 wyrm_core::name_enum! {
@@ -732,6 +748,23 @@ pub(super) fn key_files() -> Vec<&'static str> {
     let mut v = crate::keys::FILES.to_vec();
     v.push("flows/flow.key");
     v
+}
+
+/// The audit detail of the backup `id` of `req`: what it holds and how it
+/// is sealed, never the passphrase.
+fn backup_detail(id: &str, req: &BackupRequest, chosen: &[SectionName]) -> String {
+    let has = |s: SectionName| chosen.contains(&s);
+    let exported = matches!(req.seal, SealWith::Passphrase(_));
+    format!(
+        "{id}: sections {}; sealed {}; keys: {}; secrets: {}{}",
+        format::section_names(chosen),
+        req.seal.how_for(chosen),
+        has(SectionName::Keys),
+        exported && (has(SectionName::Keys) || has(SectionName::Links) || has(SectionName::Data)),
+        req.history_days
+            .map(|d| format!("; history {d} days"))
+            .unwrap_or_default()
+    )
 }
 
 fn id_of(secs: u64) -> String {
@@ -1152,110 +1185,15 @@ impl Control {
                     self.stage_history(&st, req.history_days)?
                 }
                 (Kind::Broker, SectionName::Links) => {
-                    let ids: Vec<String> = match &req.links {
-                        Some(l) => l.clone(),
-                        None => reg.links.keys().cloned().collect(),
-                    };
-                    let mut s = StagedSection::new(SectionName::Links);
-                    for id in ids {
-                        let def = reg
-                            .links
-                            .get(&id)
-                            .ok_or_else(|| RequestError::NoLink(id.clone()))?;
-                        let base = format!("links/{id}");
-                        s.files.extend(self.stage_link_settings(&st, def, &base)?);
-                        // an external link keeps its data on its own host
-                        let data = def.mode != Mode::External;
-                        let mut skipped = 0;
-                        if data {
-                            let (files, n) = self.stage_link_data(&st, def, &base)?;
-                            s.files.extend(files);
-                            skipped = n;
-                        }
-                        if let Some(p) = self.package_of(def) {
-                            link_packages.insert(p.name);
-                        }
-                        s.info.insert(
-                            id.clone(),
-                            serde_json::json!({"driver": def.driver, "mode": def.mode.name(), "data": data, "skipped": skipped}),
-                        );
-                    }
-                    s
+                    self.stage_broker_links(&st, &reg, req, &mut link_packages)?
                 }
                 (Kind::Broker, SectionName::Packages) => {
                     let all: Vec<PackageDef> = reg.packages.values().cloned().collect();
                     self.stage_packages(&st, &all, false)?
                 }
-                (Kind::Broker, SectionName::Config) => {
-                    let text = self
-                        .cfg
-                        .backups
-                        .config
-                        .as_ref()
-                        .ok_or(RequestError::NoConfig)?;
-                    StagedSection {
-                        name: SectionName::Config,
-                        info: json_map([("restored", false.into()), ("secrets", "masked".into())]),
-                        files: vec![st.bytes("config/wyrmd.json", text.as_bytes())?],
-                    }
-                }
+                (Kind::Broker, SectionName::Config) => self.stage_config(&st)?,
                 (Kind::Link, section) => {
-                    let id = req.link.as_deref().ok_or(RequestError::LinkRequired)?;
-                    let def = reg
-                        .links
-                        .get(id)
-                        .ok_or_else(|| RequestError::NoLink(id.to_owned()))?;
-                    let package = self.package_of(def);
-                    link.get_or_insert_with(|| LinkInfo {
-                        id: def.id.clone(),
-                        driver: def.driver.clone(),
-                        mode: def.mode,
-                        package: package.as_ref().map(|p| p.name.clone()).unwrap_or_default(),
-                        version: package
-                            .as_ref()
-                            .map(|p| p.version.clone())
-                            .unwrap_or_default(),
-                    });
-                    match section {
-                        SectionName::Settings => StagedSection {
-                            name: SectionName::Settings,
-                            info: json_map([
-                                ("driver", def.driver.clone().into()),
-                                ("mode", def.mode.name().into()),
-                                ("rev", def.rev.into()),
-                            ]),
-                            files: self.stage_link_settings(&st, def, "settings")?,
-                        },
-                        SectionName::Data => {
-                            let (files, skipped) = self.stage_link_data(&st, def, "data")?;
-                            StagedSection {
-                                name: SectionName::Data,
-                                info: json_map([
-                                    ("files", (files.len().saturating_sub(1)).into()),
-                                    // entries that are not files: not copied
-                                    ("skipped", skipped.into()),
-                                ]),
-                                files,
-                            }
-                        }
-                        SectionName::Package => {
-                            let p = package.ok_or_else(|| BackupError::NoPackage {
-                                link: id.to_owned(),
-                            })?;
-                            let mut s = self.stage_packages(&st, &[p], true)?;
-                            s.name = SectionName::Package;
-                            s
-                        }
-                        SectionName::History => {
-                            self.stage_link_history(&st, id, req.history_days)?
-                        }
-                        other => {
-                            return Err(BackupError::NotStaged {
-                                section: other,
-                                kind: Kind::Link,
-                            })
-                        }
-                    }
+                    self.stage_link_section(&st, &reg, req, section, &mut link)?
                 }
                 (Kind::Broker, other) => {
                     return Err(BackupError::NotStaged {
@@ -1267,20 +1205,7 @@ impl Control {
             sections.push(s);
         }
         if req.kind == Kind::Broker && !chosen.contains(&SectionName::Packages) {
-            let defs: Vec<PackageDef> = link_packages
-                .iter()
-                .filter_map(|n| reg.packages.get(n).cloned())
-                .collect();
-            if !defs.is_empty() {
-                let mut s = self.stage_packages(&st, &defs, false)?;
-                s.info.insert("only_of_links".into(), true.into());
-                // in the order of the format: after `links`
-                let at = sections
-                    .iter()
-                    .position(|x: &StagedSection| x.name == SectionName::Config)
-                    .unwrap_or(sections.len());
-                sections.insert(at, s);
-            }
+            self.stage_link_packages(&st, &reg, &link_packages, &mut sections)?;
         }
         let head = Head {
             kind: req.kind,
@@ -1302,6 +1227,156 @@ impl Control {
                 progress("writing", pct as u8);
             },
         )?)
+    }
+
+    /// `links` of a broker backup: the settings of each link of `req`
+    /// (all of them when it names none) and, unless it is external, its
+    /// private data; the packages they run are added to `link_packages`.
+    fn stage_broker_links(
+        &self,
+        st: &Stager,
+        reg: &Registry,
+        req: &BackupRequest,
+        link_packages: &mut BTreeSet<String>,
+    ) -> Result<StagedSection, BackupError> {
+        let ids: Vec<String> = match &req.links {
+            Some(l) => l.clone(),
+            None => reg.links.keys().cloned().collect(),
+        };
+        let mut s = StagedSection::new(SectionName::Links);
+        for id in ids {
+            let def = reg
+                .links
+                .get(&id)
+                .ok_or_else(|| RequestError::NoLink(id.clone()))?;
+            let base = format!("links/{id}");
+            s.files.extend(self.stage_link_settings(st, def, &base)?);
+            // an external link keeps its data on its own host
+            let data = def.mode != Mode::External;
+            let mut skipped = 0;
+            if data {
+                let (files, n) = self.stage_link_data(st, def, &base)?;
+                s.files.extend(files);
+                skipped = n;
+            }
+            if let Some(p) = self.package_of(def) {
+                link_packages.insert(p.name);
+            }
+            s.info.insert(
+                id.clone(),
+                serde_json::json!({"driver": def.driver, "mode": def.mode.name(), "data": data, "skipped": skipped}),
+            );
+        }
+        Ok(s)
+    }
+
+    /// `config`: the configuration text this broker keeps for its backups
+    /// (`backups.config`).
+    fn stage_config(&self, st: &Stager) -> Result<StagedSection, BackupError> {
+        let text = self
+            .cfg
+            .backups
+            .config
+            .as_ref()
+            .ok_or(RequestError::NoConfig)?;
+        Ok(StagedSection {
+            name: SectionName::Config,
+            info: json_map([("restored", false.into()), ("secrets", "masked".into())]),
+            files: vec![st.bytes("config/wyrmd.json", text.as_bytes())?],
+        })
+    }
+
+    /// `section` of the backup of the one link of `req`; the first one
+    /// fills `link`, what the manifest says of that link.
+    fn stage_link_section(
+        &self,
+        st: &Stager,
+        reg: &Registry,
+        req: &BackupRequest,
+        section: SectionName,
+        link: &mut Option<LinkInfo>,
+    ) -> Result<StagedSection, BackupError> {
+        let id = req.link.as_deref().ok_or(RequestError::LinkRequired)?;
+        let def = reg
+            .links
+            .get(id)
+            .ok_or_else(|| RequestError::NoLink(id.to_owned()))?;
+        let package = self.package_of(def);
+        link.get_or_insert_with(|| LinkInfo {
+            id: def.id.clone(),
+            driver: def.driver.clone(),
+            mode: def.mode,
+            package: package.as_ref().map(|p| p.name.clone()).unwrap_or_default(),
+            version: package
+                .as_ref()
+                .map(|p| p.version.clone())
+                .unwrap_or_default(),
+        });
+        Ok(match section {
+            SectionName::Settings => StagedSection {
+                name: SectionName::Settings,
+                info: json_map([
+                    ("driver", def.driver.clone().into()),
+                    ("mode", def.mode.name().into()),
+                    ("rev", def.rev.into()),
+                ]),
+                files: self.stage_link_settings(st, def, "settings")?,
+            },
+            SectionName::Data => {
+                let (files, skipped) = self.stage_link_data(st, def, "data")?;
+                StagedSection {
+                    name: SectionName::Data,
+                    info: json_map([
+                        ("files", (files.len().saturating_sub(1)).into()),
+                        // entries that are not files: not copied
+                        ("skipped", skipped.into()),
+                    ]),
+                    files,
+                }
+            }
+            SectionName::Package => {
+                let p = package.ok_or_else(|| BackupError::NoPackage {
+                    link: id.to_owned(),
+                })?;
+                let mut s = self.stage_packages(st, &[p], true)?;
+                s.name = SectionName::Package;
+                s
+            }
+            SectionName::History => self.stage_link_history(st, id, req.history_days)?,
+            other => {
+                return Err(BackupError::NotStaged {
+                    section: other,
+                    kind: Kind::Link,
+                })
+            }
+        })
+    }
+
+    /// The packages of the links a broker backup holds, when `packages`
+    /// (all of them) was not asked for: one more section, in the order of
+    /// the format (after `links`).
+    fn stage_link_packages(
+        &self,
+        st: &Stager,
+        reg: &Registry,
+        link_packages: &BTreeSet<String>,
+        sections: &mut Vec<StagedSection>,
+    ) -> Result<(), BackupError> {
+        let defs: Vec<PackageDef> = link_packages
+            .iter()
+            .filter_map(|n| reg.packages.get(n).cloned())
+            .collect();
+        if !defs.is_empty() {
+            let mut s = self.stage_packages(st, &defs, false)?;
+            s.info.insert("only_of_links".into(), true.into());
+            // in the order of the format: after `links`
+            let at = sections
+                .iter()
+                .position(|x: &StagedSection| x.name == SectionName::Config)
+                .unwrap_or(sections.len());
+            sections.insert(at, s);
+        }
+        Ok(())
     }
 
     /// `control`: each control-plane WAL as of one sequence number.
@@ -1813,6 +1888,54 @@ impl Control {
         }
     }
 
+    /// The links whose private data the backup of `req` copies.
+    fn copied_links(&self, req: &BackupRequest, chosen: &[SectionName]) -> BTreeSet<String> {
+        let has_section = |s: SectionName| chosen.contains(&s);
+        match req.kind {
+            Kind::Link if has_section(SectionName::Data) => req.link.iter().cloned().collect(),
+            Kind::Broker if has_section(SectionName::Links) => match &req.links {
+                Some(l) => l.iter().cloned().collect(),
+                None => self.registry().links.keys().cloned().collect(),
+            },
+            _ => BTreeSet::new(),
+        }
+    }
+
+    /// The record of the new job `id` of `req`, running, made at `now`
+    /// into `file`.
+    fn new_job(
+        &self,
+        req: &BackupRequest,
+        chosen: &[SectionName],
+        id: &str,
+        file: &str,
+        sub: &str,
+        now: u64,
+    ) -> Job {
+        Job {
+            id: id.to_owned(),
+            kind: req.label,
+            link: req.link.clone().unwrap_or_default(),
+            sections: chosen.to_vec(),
+            status: JobStatus::Running,
+            progress: 0,
+            step: String::new(),
+            size: 0,
+            sha256: String::new(),
+            created: now,
+            expires: now + u64::from(self.cfg.backups.keep_days.max(1)) * 86_400,
+            error: String::new(),
+            file: file.to_owned(),
+            sealed: Some(req.seal.how_for(chosen)),
+            by: sub.to_owned(),
+            pinned: req.pinned,
+            sent_to: String::new(),
+            send_status: None,
+            send_progress: 0,
+            send_error: String::new(),
+        }
+    }
+
     fn backup_launch(
         self: &Arc<Self>,
         req: BackupRequest,
@@ -1840,15 +1963,7 @@ impl Control {
         // The links whose private data this job copies: shown first, then
         // looked, so either this job sees an operation on one of them or
         // the operation sees this job.
-        let has_section = |s: SectionName| chosen.contains(&s);
-        let copies: BTreeSet<String> = match req.kind {
-            Kind::Link if has_section(SectionName::Data) => req.link.iter().cloned().collect(),
-            Kind::Broker if has_section(SectionName::Links) => match &req.links {
-                Some(l) => l.iter().cloned().collect(),
-                None => self.registry().links.keys().cloned().collect(),
-            },
-            _ => BTreeSet::new(),
-        };
+        let copies = self.copied_links(&req, &chosen);
         *self
             .backups
             .copying
@@ -1872,37 +1987,7 @@ impl Control {
             };
             jobs.insert(
                 id.clone(),
-                Job {
-                    id: id.clone(),
-                    kind: req.label,
-                    link: req.link.clone().unwrap_or_default(),
-                    sections: chosen.clone(),
-                    status: JobStatus::Running,
-                    progress: 0,
-                    step: String::new(),
-                    size: 0,
-                    sha256: String::new(),
-                    created: now,
-                    expires: now + u64::from(self.cfg.backups.keep_days.max(1)) * 86_400,
-                    error: String::new(),
-                    file: file.clone(),
-                    sealed: Some(match &req.seal {
-                        SealWith::None
-                            if chosen
-                                .iter()
-                                .any(|c| matches!(c, SectionName::Links | SectionName::Data)) =>
-                        {
-                            How::Broker
-                        }
-                        s => s.how(),
-                    }),
-                    by: sub.to_owned(),
-                    pinned: req.pinned,
-                    sent_to: String::new(),
-                    send_status: None,
-                    send_progress: 0,
-                    send_error: String::new(),
-                },
+                self.new_job(&req, &chosen, &id, &file, sub, now),
             );
             (id, file)
         };
@@ -1913,29 +1998,14 @@ impl Control {
             None => (AuditOp::BackupCreate, id.clone()),
         };
         // the request as it is audited: never the passphrase
-        let has = |s: SectionName| chosen.contains(&s);
-        let exported = matches!(req.seal, SealWith::Passphrase(_));
-        if exported {
+        if matches!(req.seal, SealWith::Passphrase(_)) {
             warn!(
-                backup = %id, by = sub, keys = has(SectionName::Keys),
+                backup = %id, by = sub, keys = chosen.contains(&SectionName::Keys),
                 "a backup with secrets sealed by a passphrase is being made: with that \
                  passphrase it opens anywhere (backups.export_secrets)"
             );
         }
-        let detail = format!(
-            "{id}: sections {}; sealed {}; keys: {}; secrets: {}{}",
-            format::section_names(&chosen),
-            match &req.seal {
-                SealWith::None if has(SectionName::Links) || has(SectionName::Data) => How::Broker,
-                s => s.how(),
-            },
-            has(SectionName::Keys),
-            exported
-                && (has(SectionName::Keys) || has(SectionName::Links) || has(SectionName::Data)),
-            req.history_days
-                .map(|d| format!("; history {d} days"))
-                .unwrap_or_default()
-        );
+        let detail = backup_detail(&id, &req, &chosen);
         self.record(sub, op, &key, Status::Ok, &detail);
         let ctl = self.clone();
         let (sub, job_id) = (sub.to_owned(), id.clone());
