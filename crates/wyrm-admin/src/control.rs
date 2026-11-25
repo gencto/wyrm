@@ -5870,45 +5870,13 @@ impl Admin {
     /// certificate, port}` or `{status: pending}`; a refusal is an error.
     async fn enroll(&self, a: Enroll) -> wyrm_link_sdk::Result<Option<Value>> {
         let (site, csr) = (a.site, a.csr);
-        let via: Vec<String> = a
-            .via
-            .unwrap_or_default()
-            .iter()
-            .map(|v| v.trim().to_owned())
-            .filter(|v| !v.is_empty())
-            .collect();
-        wyrm_core::keyspace::validate_segment(&site)
-            .map_err(|e| LinkError::invalid_parameter(format!("site: {e}")))?;
-        // the request is anonymous: bounded before anything is kept (review ADM-2)
-        if via.len() > MAX_VIA {
-            return Err(LinkError::invalid_parameter(format!(
-                "via: at most {MAX_VIA} sites"
-            )));
-        }
-        for v in &via {
-            wyrm_core::keyspace::validate_segment(v)
-                .map_err(|e| LinkError::invalid_parameter(format!("via: {e}")))?;
-        }
-        // a refusal is an answer, with its reason, for the asking broker
-        let refused = |why: &str| -> wyrm_link_sdk::Result<Option<Value>> {
-            Ok(Some(Value::Map(BTreeMap::from([
-                ("status".to_owned(), Value::from("refused")),
-                ("reason".to_owned(), Value::from(why)),
-            ]))))
-        };
+        let via = enroll_via(&site, a.via)?;
         let cfg = self.ctl.config_peers();
         let port = cfg
             .listen_port
             .ok_or_else(|| LinkError::not_supported("no peers.listen"))?;
         let key = secret::broker_csr_key(&site, &csr)
             .map_err(|e| LinkError::invalid_parameter(e.to_string()))?;
-        let issued = |cert: String| {
-            Ok(Some(Value::Map(BTreeMap::from([
-                ("status".to_owned(), Value::from("issued")),
-                ("certificate".to_owned(), Value::Str(cert)),
-                ("port".to_owned(), Value::UInt(port.into())),
-            ]))))
-        };
         let reg = self.ctl.registry();
         let cn = crate::registry::broker_cn(&site);
         // one reason for every name it cannot have: the endpoint is open,
@@ -5919,7 +5887,7 @@ impl Admin {
             // ends soon (security review D-1)
             if p.dir == PeerDir::Downstream && p.key_sha256 == key && !p.cert_pem.is_empty() {
                 if !secret::cert_due(&p.cert_pem) {
-                    return issued(p.cert_pem.clone());
+                    return enroll_issued(p.cert_pem.clone(), port);
                 }
                 let cert = self
                     .ctl
@@ -5935,9 +5903,9 @@ impl Admin {
                 self.ctl
                     .record(&cn, AuditOp::Renew, &cn, Status::Ok, &cert_summary(&cert));
                 info!(site = %site, "downstream broker certificate renewed");
-                return issued(cert);
+                return enroll_issued(cert, port);
             }
-            return refused(NOT_HERE);
+            return enroll_refused(NOT_HERE);
         }
         if cfg.peers.downstream.contains(&site)
             || self.check_new_site(&site).is_err()
@@ -5946,14 +5914,8 @@ impl Admin {
             || BUILTIN_LINKS.contains(&site.as_str())
             || reg.blocklist.contains(&cn)
         {
-            return refused(NOT_HERE);
+            return enroll_refused(NOT_HERE);
         }
-        let pending = || {
-            Ok(Some(Value::Map(BTreeMap::from([(
-                "status".to_owned(),
-                Value::from("pending"),
-            )]))))
-        };
         let wait = |ctl: &Control| -> wyrm_link_sdk::Result<()> {
             ctl.apply(Op::EnrollRequest {
                 site: site.clone(),
@@ -5981,7 +5943,7 @@ impl Admin {
                 );
             }
             refresh_quarantine(&self.ctx, &self.ctl).await?;
-            return refused(NOT_HERE);
+            return enroll_refused(NOT_HERE);
         }
         let opts = self.ctl.options();
         // A token or allow_all_links admits the broker itself, never the sites it says it
@@ -6017,11 +5979,11 @@ impl Admin {
                     how,
                 )
                 .await?;
-                return issued(cert);
+                return enroll_issued(cert, port);
             }
         }
         if !opts.enable_quarantine && !reg.held.contains(&cn) {
-            return refused("not admitted (quarantine is off)");
+            return enroll_refused("not admitted (quarantine is off)");
         }
         // Written only when it changes (a new name, key or via, or the
         // first request of a held broker); a poll every 10 s writes nothing.
@@ -6045,7 +6007,7 @@ impl Admin {
         } else {
             self.ctl.enroll_touch(&site, false);
         }
-        pending()
+        enroll_pending()
     }
 
     /// `sys/tokens ▸ Add Token {count, hours}` (as DSA's `/sys/tokens`): a
@@ -6328,6 +6290,57 @@ impl Admin {
             .remove_node(&format!("quarantine/{}", quarantine_node(cn)))
             .await
     }
+}
+
+/// The sites a downstream broker says it relays, trimmed, without empty
+/// names; `site` and each of them must be one segment.
+fn enroll_via(site: &str, via: Option<Vec<String>>) -> wyrm_link_sdk::Result<Vec<String>> {
+    let via: Vec<String> = via
+        .unwrap_or_default()
+        .iter()
+        .map(|v| v.trim().to_owned())
+        .filter(|v| !v.is_empty())
+        .collect();
+    wyrm_core::keyspace::validate_segment(site)
+        .map_err(|e| LinkError::invalid_parameter(format!("site: {e}")))?;
+    // the request is anonymous: bounded before anything is kept (review ADM-2)
+    if via.len() > MAX_VIA {
+        return Err(LinkError::invalid_parameter(format!(
+            "via: at most {MAX_VIA} sites"
+        )));
+    }
+    for v in &via {
+        wyrm_core::keyspace::validate_segment(v)
+            .map_err(|e| LinkError::invalid_parameter(format!("via: {e}")))?;
+    }
+    Ok(via)
+}
+
+/// The answer to an enrollment that is refused: a refusal is an answer,
+/// with its reason, for the asking broker.
+fn enroll_refused(why: &str) -> wyrm_link_sdk::Result<Option<Value>> {
+    Ok(Some(Value::Map(BTreeMap::from([
+        ("status".to_owned(), Value::from("refused")),
+        ("reason".to_owned(), Value::from(why)),
+    ]))))
+}
+
+/// The answer to an enrollment that is admitted: its certificate and the
+/// port of `peers.listen`.
+fn enroll_issued(cert: String, port: u16) -> wyrm_link_sdk::Result<Option<Value>> {
+    Ok(Some(Value::Map(BTreeMap::from([
+        ("status".to_owned(), Value::from("issued")),
+        ("certificate".to_owned(), Value::Str(cert)),
+        ("port".to_owned(), Value::UInt(port.into())),
+    ]))))
+}
+
+/// The answer to an enrollment that waits in quarantine.
+fn enroll_pending() -> wyrm_link_sdk::Result<Option<Value>> {
+    Ok(Some(Value::Map(BTreeMap::from([(
+        "status".to_owned(),
+        Value::from("pending"),
+    )]))))
 }
 
 /// What an admitted CN becomes: its driver name, params, display name and
