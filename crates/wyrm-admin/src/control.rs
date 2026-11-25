@@ -4078,8 +4078,20 @@ impl Link for Admin {
         let sub = sub_of(who);
         let segs: Vec<&str> = path.split('/').collect();
         let result = match (segs.as_slice(), action) {
-            (["links"], "install") => self.install(Install::decode(args)?, &sub).await,
-            ([""], "enroll") => self.enroll(Enroll::decode(args)?).await,
+            (["links"], _) => links_actions::invoke(self, path, action, args, &sub).await,
+            (["links", id], _) => {
+                link_actions::invoke(self, path, id, action, args, who, &sub).await
+            }
+            (["packages", name], _) => {
+                package_actions::invoke(self, path, name, action, args, &sub).await
+            }
+            (["quarantine", rest @ ..], _) => {
+                quarantine_actions::invoke(self, path, rest, action, args, &sub).await
+            }
+            ([""], _) => broker_actions::invoke(self, path, action, args, who, &sub).await,
+            (["backups", rest @ ..], _) => {
+                backup_actions::invoke(self, rest, action, args, who, &sub).await
+            }
             (["tokens"], "add") => self.add_token(AddToken::decode(args)?, &sub).await,
             (["tokens", id], "remove") => {
                 // the token first, as `main` answered (`no token …`)
@@ -4089,222 +4101,6 @@ impl Link for Admin {
                 <()>::decode(args)?;
                 self.remove_token(id, &sub).await
             }
-            (["links"], "install_zip") => {
-                let _busy = self.ctl.busy()?;
-                let a = InstallZip::decode(args)?;
-                let r = self
-                    .install_package(&a.link.name, a.zip, "zip".into(), &sub, a.opts)
-                    .await;
-                Ok(Some(outcome(r)))
-            }
-            (["links"], "install_wasm") => {
-                let _busy = self.ctl.busy()?;
-                let a = InstallWasm::decode(args)?;
-                let r = match packages::wrap_component(&a.link.name, &a.wasm) {
-                    Ok(zip) => {
-                        self.install_package(&a.link.name, zip, "wasm".into(), &sub, a.opts)
-                            .await
-                    }
-                    Err(e) => Err(e.into()),
-                };
-                Ok(Some(outcome(r)))
-            }
-            (["links"], "install_url") => {
-                let _busy = self.ctl.busy()?;
-                let a = InstallUrl::decode(args)?;
-                let r = match crate::fetch::get(&a.url, packages::MAX_ZIP, FETCH_TIMEOUT).await {
-                    Ok(zip) => {
-                        let source = format!("url {}", a.url);
-                        self.install_package(&a.link.name, zip, source, &sub, a.opts)
-                            .await
-                    }
-                    Err(e) => Err(e.into()),
-                };
-                Ok(Some(outcome(r)))
-            }
-            (["links"], "install_git") => {
-                let _busy = self.ctl.busy()?;
-                let a = InstallGit::decode(args)?;
-                let (url, git_ref) = (&a.url, &a.git_ref);
-                let root = self.ctl.packages_root();
-                // file:// only in the dev profile (tests, a local checkout)
-                let r = match crate::git::clone_zip(url, git_ref, self.ctl.cfg.dev, &root).await {
-                    Ok((zip, commit)) => {
-                        let source = format!("git {url} {git_ref} {commit}");
-                        self.install_package(&a.link.name, zip, source, &sub, a.opts)
-                            .await
-                    }
-                    Err(e) => Err(e.into()),
-                };
-                Ok(Some(outcome(r)))
-            }
-            (["links"], "install_repo") => {
-                let _busy = self.ctl.busy()?;
-                let a = InstallRepo::decode(args)?;
-                Ok(Some(outcome(
-                    self.install_from_repo(&a.link.name, &a.package, &sub, a.opts)
-                        .await,
-                )))
-            }
-            // a package's actions: the package first, whatever the arguments are
-            (["packages", name], _) if self.package(name).is_err() => {
-                Err(LinkError::not_found((*name).to_owned()))
-            }
-            (["packages", name], "remove") => {
-                <()>::decode(args)?;
-                match self.ctl.claim_package(name) {
-                    Ok(_claim) => self.remove_package(name, &sub).await,
-                    Err(e) => Err(e),
-                }
-            }
-            // the package must exist before its arguments are read
-            (["packages", name], "update") => {
-                self.package(name)?;
-                self.update_action(name, updates::UpdatePackage::decode(args)?, &sub)
-                    .await
-            }
-            (["packages", name], "rollback") => {
-                self.package(name)?;
-                self.rollback_action(name, updates::RollbackPackage::decode(args)?, &sub)
-                    .await
-            }
-            (["links", id], "hello") => self.hello(id, Hello::decode(args)?).await,
-            // a link's actions: the link first, whatever the arguments are
-            // (`hello` answers for itself: an unknown id is a refused handshake)
-            (["links", id], _) if self.def(id).is_err() => {
-                Err(LinkError::not_found((*id).to_owned()))
-            }
-            // a link that an operation holds (an update of its package with
-            // its check, a rollback, a restore of the link) is that
-            // operation's to stop and start (ADR 0048 §1.9): `busy` until it ends
-            (["links", id], "start" | "stop" | "remove" | "update" | "rollback")
-                if self.ctl.link_busy(id).is_some() =>
-            {
-                Err(self.ctl.link_busy(id).unwrap_or_else(|| {
-                    LinkError::new(Status::Busy, "the link is being updated or restored")
-                }))
-            }
-            (["links", id], "start") => {
-                let a = Start::decode(args)?;
-                // a link held after a rollback that did not restore its data
-                // starts only when the operator says so (ADR 0048 §1.6)
-                if a.force && self.ctl.release_hold(id) {
-                    self.ctl.record(
-                        &sub,
-                        AuditOp::Start,
-                        id,
-                        Status::Ok,
-                        "forced: the hold is lifted",
-                    );
-                }
-                self.start_link(id, &sub).await.map(|_| None)
-            }
-            (["links", id], "stop") => {
-                <()>::decode(args)?;
-                self.stop_link(id, &sub).await.map(|_| None)
-            }
-            (["links", id], "remove") => {
-                <()>::decode(args)?;
-                self.remove(id, &sub).await.map(|_| None)
-            }
-            (["links", id], "update") => {
-                let a = UpdateParams::decode(args)?;
-                self.update_params(id, Value::Map(a.params), &sub, AuditOp::Update)
-                    .await
-            }
-            (["links", id], "history") => {
-                <()>::decode(args)?;
-                self.params_history(id)
-            }
-            (["links", id], "grant") => {
-                let a = Grant::decode(args)?;
-                self.grant(id, &a.path, a.level.perm(), &sub)
-                    .await
-                    .map(|_| None)
-            }
-            (["links", id], "get_log") => {
-                let a = GetLog::decode(args)?;
-                let (n, level, filter) = (a.lines(), a.level(), a.filter);
-                let def = self.def(id)?;
-                let lines = match def.mode {
-                    Mode::Process => self.ctl.supervisor.log_tail(id, n, level, &filter),
-                    Mode::Embedded => crate::logs::global()
-                        .map(|lc| lc.tail(n, level, &filter, Some(id)))
-                        .unwrap_or_default(),
-                    Mode::External => {
-                        return Err(LinkError::not_supported(
-                            "an external link logs on its own host",
-                        ))
-                    }
-                };
-                Ok(Some(log_rows(lines)))
-            }
-            ([""], "get_log") => {
-                let a = GetBrokerLog::decode(args)?;
-                let lc = crate::logs::global()
-                    .ok_or_else(|| LinkError::not_supported("no log control"))?;
-                let lines = lc.tail(
-                    a.log.lines(),
-                    a.log.level(),
-                    &a.log.filter,
-                    a.link.as_deref(),
-                );
-                Ok(Some(log_rows(lines)))
-            }
-            (["links", id], "rollback") => {
-                let rev = Rollback::decode(args)?.rev;
-                let old = self
-                    .ctl
-                    .registry()
-                    .history
-                    .get(*id)
-                    .and_then(|h| h.iter().find(|(r, _)| *r == rev).cloned())
-                    .ok_or_else(|| LinkError::not_found(format!("{id} rev {rev}")))?;
-                self.update_params(id, decode_params(&old.1), &sub, AuditOp::Rollback)
-                    .await
-            }
-            // the link must exist before its arguments are read
-            (["links", id], "set_secret") => self.set_secret(id, SetSecret::decode(args)?, &sub),
-            (["links", id], "delete_secret") => {
-                self.delete_secret(id, DeleteSecret::decode(args)?, &sub)
-            }
-            (["links", id], "secrets") => {
-                <()>::decode(args)?;
-                Ok(Some(self.secret_names(id)))
-            }
-            (["quarantine", node], "approve") => {
-                let cn = self.quarantine_key(node);
-                // it must be in quarantine before its arguments are read
-                if !self.ctl.registry().quarantine.contains_key(&cn) {
-                    return Err(LinkError::not_found(cn));
-                }
-                // a downstream broker declares only its key and the sites it relays
-                let how = if crate::registry::broker_site(&cn).is_some() {
-                    ApproveBroker::decode(args)?.into()
-                } else {
-                    Approve::decode(args)?
-                };
-                self.approve(&cn, how, &sub).await
-            }
-            (["quarantine"], "authorize") => {
-                let a = Authorize::decode(args)?;
-                self.approve(&a.dsid, a.how, &sub).await
-            }
-            (["quarantine"], "deauthorize") => {
-                let a = Deauthorize::decode(args)?;
-                self.deauthorize(&a.link, &sub).await
-            }
-            (["quarantine", node], "reject") => {
-                let cn = self.quarantine_key(node);
-                // in quarantine first, as `main` answered
-                if !self.ctl.registry().quarantine.contains_key(&cn) {
-                    return Err(LinkError::invalid_parameter(format!(
-                        "{cn} is not in quarantine"
-                    )));
-                }
-                <()>::decode(args)?;
-                self.reject(&cn, &sub).await.map(|_| None)
-            }
             (["profiles"], "put") => self
                 .put_profile(PutProfile::decode(args)?, &sub)
                 .await
@@ -4313,135 +4109,15 @@ impl Link for Admin {
                 .remove_profile(RemoveProfile::decode(args)?, &sub)
                 .await
                 .map(|_| None),
-            ([""], "clear_conns") => {
-                <()>::decode(args)?;
-                self.clear_conns(&sub).await
-            }
-            ([""], "update") => {
-                let a = broker_update::Update::decode(args)?;
-                broker_update::update(&self.ctl, &self.ctx, a, &sub).await
-            }
-            ([""], "rollback_update") => {
-                // who may do it first: a caller from an upstream is told so,
-                // whatever its arguments are
-                broker_update::rollback_is_local(who.signer.is_some())?;
-                let a = broker_update::RollbackUpdate::decode(args)?;
-                broker_update::rollback(&self.ctl, a, &sub).await
-            }
-            ([""], "check_updates") => {
-                <()>::decode(args)?;
-                broker_update::check_updates(&self.ctl).await
-            }
             (["upstream"], "add") => self.add_upstream(AddUpstream::decode(args)?, &sub).await,
             (["upstream", site], "remove") => {
                 self.runtime_upstream(site)?;
                 <()>::decode(args)?;
                 self.remove_upstream(site, &sub).await
             }
-            ([""], "get_permissions") => {
-                <()>::decode(args)?;
-                let mut rows: Vec<Value> = self
-                    .ctl
-                    .role_grants()
-                    .map(|r| r.grants())
-                    .unwrap_or_default()
-                    .into_iter()
-                    .map(|(role, key, p)| perm_row("gateway", &role, &key, p.name()))
-                    .collect();
-                for d in self.ctl.registry().links.values() {
-                    for g in &d.grants {
-                        rows.push(perm_row("link", &d.id, &g.path, g.perm.name()));
-                    }
-                }
-                rows.extend(acl_rows(&self.ctl.acl()));
-                Ok(Some(Value::Array(rows)))
-            }
-            ([""], "update_permissions") => {
-                let roles = self
-                    .ctl
-                    .role_grants()
-                    .ok_or_else(|| LinkError::not_supported("no user gateway"))?;
-                let a = UpdatePermissions::decode(args)?;
-                let (role, path, level) = (a.role.as_str(), a.path.as_str(), a.level);
-                roles
-                    .set_grant(role, path, level)
-                    .map_err(|e| LinkError::invalid_parameter(e.to_string()))?;
-                self.ctl.record(
-                    &sub,
-                    AuditOp::UpdatePermissions,
-                    role,
-                    Status::Ok,
-                    &format!("{path} {}", level.name()),
-                );
-                Ok(None)
-            }
             (["audit"], "tail") => {
                 let n = AuditTail::decode(args)?.n.unwrap_or(50);
-                Ok(Some(Value::Array(
-                    self.ctl
-                        .audit_tail(n.min(1000))
-                        .into_iter()
-                        .map(|r| {
-                            let mut m = BTreeMap::new();
-                            m.insert("t".into(), Value::UInt(r.t));
-                            m.insert("sub".into(), Value::Str(r.sub));
-                            m.insert("op".into(), Value::Str(r.op.name().to_owned()));
-                            m.insert("key".into(), Value::Str(r.key));
-                            m.insert("status".into(), Value::UInt(r.status.into()));
-                            m.insert("detail".into(), Value::Str(r.detail));
-                            Value::Map(m)
-                        })
-                        .collect(),
-                )))
-            }
-            // A check reads the whole file and `add` installs links: a rebuild
-            // of the router waits for both, as for `replace` and any install,
-            // and neither starts on a broker that is closing for one. `busy`
-            // comes before the arguments, as for every install.
-            (["backups"], "restore_check") => {
-                let _busy = self.ctl.busy()?;
-                let file = restore_broker::RestoreCheck::decode(args)?;
-                self.restore_broker(file, None, &sub, who.signer.is_some())
-                    .await
-            }
-            (["backups"], "restore_apply") => {
-                let _busy = self.ctl.busy()?;
-                let a = restore_broker::RestoreApply::decode(args)?;
-                self.restore_broker(a.file, Some(a.how), &sub, who.signer.is_some())
-                    .await
-            }
-            (["backups", id], "send") => {
-                let _busy = self.ctl.busy()?;
-                // the backup first, whatever the arguments are
-                if self.ctl.backups().get(id).is_none() {
-                    return Err(LinkError::not_found(format!("backup {id}")));
-                }
-                let a = send::SendBackup::decode(args)?;
-                send::send(&self.ctl, &self.ctx, id, a, &sub).await
-            }
-            (["backups", rest @ ..], _) => {
-                // a limited key signed it: an upstream site with allow_config
-                let remote = who.signer.is_some();
-                backups::invoke(&self.ctl, &self.ctx, rest, action, args, &sub, remote).await
-            }
-            (["links"], "install_backup") => {
-                let _busy = self.ctl.busy()?;
-                let a = restore::InstallBackup::decode(args)?;
-                let done = self.install_backup(a, &sub).await;
-                Ok(Some(outcome(done)))
-            }
-            (["links", id], "backup") => {
-                // the link must exist before anything is said about it
-                self.def(id)?;
-                let a = backups::BackupLink::decode(args)?;
-                let job = self
-                    .ctl
-                    .backup_start(backups::link_request(a, id, who.signer.is_some()), &sub)?;
-                backups::show_job(&self.ctx, &self.ctl, &job).await;
-                Ok(Some(Value::Map(BTreeMap::from([(
-                    "id".to_owned(),
-                    Value::Str(job),
-                )]))))
+                Ok(Some(self.audit_rows(n)))
             }
             (["history", rest @ ..], _) => {
                 let r =
@@ -4483,7 +4159,470 @@ impl Link for Admin {
     }
 }
 
+/// `sys/links ▸ install…`: the actions of the links root, each from its own
+/// source of a link (a driver, a package from a zip, a component, a URL, a
+/// Git repository, the package repository, a backup).
+mod links_actions {
+    use super::*;
+
+    pub(super) async fn invoke(
+        admin: &Admin,
+        path: &str,
+        action: &str,
+        args: Value,
+        sub: &str,
+    ) -> wyrm_link_sdk::Result<Option<Value>> {
+        match action {
+            "install" => admin.install(Install::decode(args)?, sub).await,
+            "install_zip" => {
+                let _busy = admin.ctl.busy()?;
+                let a = InstallZip::decode(args)?;
+                let r = admin
+                    .install_package(&a.link.name, a.zip, "zip".into(), sub, a.opts)
+                    .await;
+                Ok(Some(outcome(r)))
+            }
+            "install_wasm" => {
+                let _busy = admin.ctl.busy()?;
+                let a = InstallWasm::decode(args)?;
+                let r = match packages::wrap_component(&a.link.name, &a.wasm) {
+                    Ok(zip) => {
+                        admin
+                            .install_package(&a.link.name, zip, "wasm".into(), sub, a.opts)
+                            .await
+                    }
+                    Err(e) => Err(e.into()),
+                };
+                Ok(Some(outcome(r)))
+            }
+            "install_url" => {
+                let _busy = admin.ctl.busy()?;
+                let a = InstallUrl::decode(args)?;
+                let r = match crate::fetch::get(&a.url, packages::MAX_ZIP, FETCH_TIMEOUT).await {
+                    Ok(zip) => {
+                        let source = format!("url {}", a.url);
+                        admin
+                            .install_package(&a.link.name, zip, source, sub, a.opts)
+                            .await
+                    }
+                    Err(e) => Err(e.into()),
+                };
+                Ok(Some(outcome(r)))
+            }
+            "install_git" => {
+                let _busy = admin.ctl.busy()?;
+                let a = InstallGit::decode(args)?;
+                let (url, git_ref) = (&a.url, &a.git_ref);
+                let root = admin.ctl.packages_root();
+                // file:// only in the dev profile (tests, a local checkout)
+                let r = match crate::git::clone_zip(url, git_ref, admin.ctl.cfg.dev, &root).await {
+                    Ok((zip, commit)) => {
+                        let source = format!("git {url} {git_ref} {commit}");
+                        admin
+                            .install_package(&a.link.name, zip, source, sub, a.opts)
+                            .await
+                    }
+                    Err(e) => Err(e.into()),
+                };
+                Ok(Some(outcome(r)))
+            }
+            "install_repo" => {
+                let _busy = admin.ctl.busy()?;
+                let a = InstallRepo::decode(args)?;
+                Ok(Some(outcome(
+                    admin
+                        .install_from_repo(&a.link.name, &a.package, sub, a.opts)
+                        .await,
+                )))
+            }
+            "install_backup" => {
+                let _busy = admin.ctl.busy()?;
+                let a = restore::InstallBackup::decode(args)?;
+                let done = admin.install_backup(a, sub).await;
+                Ok(Some(outcome(done)))
+            }
+            _ => Err(LinkError::not_supported(format!("{path}/~act/{action}"))),
+        }
+    }
+}
+
+/// `sys/links/<id> ▸ …`: the actions of one link. The link must exist
+/// before anything else is said about it, whatever the arguments are
+/// (`hello` answers for itself: an unknown id is a refused handshake).
+mod link_actions {
+    use super::*;
+
+    pub(super) async fn invoke(
+        admin: &Admin,
+        path: &str,
+        id: &str,
+        action: &str,
+        args: Value,
+        who: &Caller,
+        sub: &str,
+    ) -> wyrm_link_sdk::Result<Option<Value>> {
+        match action {
+            "hello" => admin.hello(id, Hello::decode(args)?).await,
+            // a link's actions: the link first, whatever the arguments are
+            // (`hello` answers for itself: an unknown id is a refused handshake)
+            _ if admin.def(id).is_err() => Err(LinkError::not_found(id.to_owned())),
+            // a link that an operation holds (an update of its package with
+            // its check, a rollback, a restore of the link) is that
+            // operation's to stop and start (ADR 0048 §1.9): `busy` until it ends
+            "start" | "stop" | "remove" | "update" | "rollback"
+                if admin.ctl.link_busy(id).is_some() =>
+            {
+                Err(admin.ctl.link_busy(id).unwrap_or_else(|| {
+                    LinkError::new(Status::Busy, "the link is being updated or restored")
+                }))
+            }
+            "start" => {
+                let a = Start::decode(args)?;
+                // a link held after a rollback that did not restore its data
+                // starts only when the operator says so (ADR 0048 §1.6)
+                if a.force && admin.ctl.release_hold(id) {
+                    admin.ctl.record(
+                        sub,
+                        AuditOp::Start,
+                        id,
+                        Status::Ok,
+                        "forced: the hold is lifted",
+                    );
+                }
+                admin.start_link(id, sub).await.map(|_| None)
+            }
+            "stop" => {
+                <()>::decode(args)?;
+                admin.stop_link(id, sub).await.map(|_| None)
+            }
+            "remove" => {
+                <()>::decode(args)?;
+                admin.remove(id, sub).await.map(|_| None)
+            }
+            "update" => {
+                let a = UpdateParams::decode(args)?;
+                admin
+                    .update_params(id, Value::Map(a.params), sub, AuditOp::Update)
+                    .await
+            }
+            "history" => {
+                <()>::decode(args)?;
+                admin.params_history(id)
+            }
+            "grant" => {
+                let a = Grant::decode(args)?;
+                admin
+                    .grant(id, &a.path, a.level.perm(), sub)
+                    .await
+                    .map(|_| None)
+            }
+            "get_log" => admin.link_log(id, GetLog::decode(args)?),
+            "rollback" => {
+                let rev = Rollback::decode(args)?.rev;
+                let old = admin
+                    .ctl
+                    .registry()
+                    .history
+                    .get(id)
+                    .and_then(|h| h.iter().find(|(r, _)| *r == rev).cloned())
+                    .ok_or_else(|| LinkError::not_found(format!("{id} rev {rev}")))?;
+                admin
+                    .update_params(id, decode_params(&old.1), sub, AuditOp::Rollback)
+                    .await
+            }
+            // the link must exist before its arguments are read
+            "set_secret" => admin.set_secret(id, SetSecret::decode(args)?, sub),
+            "delete_secret" => admin.delete_secret(id, DeleteSecret::decode(args)?, sub),
+            "secrets" => {
+                <()>::decode(args)?;
+                Ok(Some(admin.secret_names(id)))
+            }
+            "backup" => {
+                // the link must exist before anything is said about it
+                admin.def(id)?;
+                let a = backups::BackupLink::decode(args)?;
+                let job = admin
+                    .ctl
+                    .backup_start(backups::link_request(a, id, who.signer.is_some()), sub)?;
+                backups::show_job(&admin.ctx, &admin.ctl, &job).await;
+                Ok(Some(Value::Map(BTreeMap::from([(
+                    "id".to_owned(),
+                    Value::Str(job),
+                )]))))
+            }
+            _ => Err(LinkError::not_supported(format!("{path}/~act/{action}"))),
+        }
+    }
+}
+
+/// `sys/packages/<name> ▸ …`: the package first, whatever the arguments are.
+mod package_actions {
+    use super::*;
+
+    pub(super) async fn invoke(
+        admin: &Admin,
+        path: &str,
+        name: &str,
+        action: &str,
+        args: Value,
+        sub: &str,
+    ) -> wyrm_link_sdk::Result<Option<Value>> {
+        match action {
+            // a package's actions: the package first, whatever the arguments are
+            _ if admin.package(name).is_err() => Err(LinkError::not_found(name.to_owned())),
+            "remove" => {
+                <()>::decode(args)?;
+                match admin.ctl.claim_package(name) {
+                    Ok(_claim) => admin.remove_package(name, sub).await,
+                    Err(e) => Err(e),
+                }
+            }
+            // the package must exist before its arguments are read
+            "update" => {
+                admin.package(name)?;
+                admin
+                    .update_action(name, updates::UpdatePackage::decode(args)?, sub)
+                    .await
+            }
+            "rollback" => {
+                admin.package(name)?;
+                admin
+                    .rollback_action(name, updates::RollbackPackage::decode(args)?, sub)
+                    .await
+            }
+            _ => Err(LinkError::not_supported(format!("{path}/~act/{action}"))),
+        }
+    }
+}
+
+/// `sys/quarantine ▸ authorize | deauthorize` and `sys/quarantine/<node> ▸
+/// approve | reject`: who waits there, admitted or refused.
+mod quarantine_actions {
+    use super::*;
+
+    pub(super) async fn invoke(
+        admin: &Admin,
+        path: &str,
+        rest: &[&str],
+        action: &str,
+        args: Value,
+        sub: &str,
+    ) -> wyrm_link_sdk::Result<Option<Value>> {
+        match (rest, action) {
+            ([node], "approve") => {
+                let cn = admin.quarantine_key(node);
+                // it must be in quarantine before its arguments are read
+                if !admin.ctl.registry().quarantine.contains_key(&cn) {
+                    return Err(LinkError::not_found(cn));
+                }
+                // a downstream broker declares only its key and the sites it relays
+                let how = if crate::registry::broker_site(&cn).is_some() {
+                    ApproveBroker::decode(args)?.into()
+                } else {
+                    Approve::decode(args)?
+                };
+                admin.approve(&cn, how, sub).await
+            }
+            ([], "authorize") => {
+                let a = Authorize::decode(args)?;
+                admin.approve(&a.dsid, a.how, sub).await
+            }
+            ([], "deauthorize") => {
+                let a = Deauthorize::decode(args)?;
+                admin.deauthorize(&a.link, sub).await
+            }
+            ([node], "reject") => {
+                let cn = admin.quarantine_key(node);
+                // in quarantine first, as `main` answered
+                if !admin.ctl.registry().quarantine.contains_key(&cn) {
+                    return Err(LinkError::invalid_parameter(format!(
+                        "{cn} is not in quarantine"
+                    )));
+                }
+                <()>::decode(args)?;
+                admin.reject(&cn, sub).await.map(|_| None)
+            }
+            _ => Err(LinkError::not_supported(format!("{path}/~act/{action}"))),
+        }
+    }
+}
+
+/// `sys ▸ …`: the actions of the broker itself.
+mod broker_actions {
+    use super::*;
+
+    pub(super) async fn invoke(
+        admin: &Admin,
+        path: &str,
+        action: &str,
+        args: Value,
+        who: &Caller,
+        sub: &str,
+    ) -> wyrm_link_sdk::Result<Option<Value>> {
+        match action {
+            "enroll" => admin.enroll(Enroll::decode(args)?).await,
+            "get_log" => {
+                let a = GetBrokerLog::decode(args)?;
+                let lc = crate::logs::global()
+                    .ok_or_else(|| LinkError::not_supported("no log control"))?;
+                let lines = lc.tail(
+                    a.log.lines(),
+                    a.log.level(),
+                    &a.log.filter,
+                    a.link.as_deref(),
+                );
+                Ok(Some(log_rows(lines)))
+            }
+            "clear_conns" => {
+                <()>::decode(args)?;
+                admin.clear_conns(sub).await
+            }
+            "update" => {
+                let a = broker_update::Update::decode(args)?;
+                broker_update::update(&admin.ctl, &admin.ctx, a, sub).await
+            }
+            "rollback_update" => {
+                // who may do it first: a caller from an upstream is told so,
+                // whatever its arguments are
+                broker_update::rollback_is_local(who.signer.is_some())?;
+                let a = broker_update::RollbackUpdate::decode(args)?;
+                broker_update::rollback(&admin.ctl, a, sub).await
+            }
+            "check_updates" => {
+                <()>::decode(args)?;
+                broker_update::check_updates(&admin.ctl).await
+            }
+            "get_permissions" => {
+                <()>::decode(args)?;
+                Ok(Some(admin.permission_rows()))
+            }
+            "update_permissions" => {
+                let roles = admin
+                    .ctl
+                    .role_grants()
+                    .ok_or_else(|| LinkError::not_supported("no user gateway"))?;
+                let a = UpdatePermissions::decode(args)?;
+                let (role, path, level) = (a.role.as_str(), a.path.as_str(), a.level);
+                roles
+                    .set_grant(role, path, level)
+                    .map_err(|e| LinkError::invalid_parameter(e.to_string()))?;
+                admin.ctl.record(
+                    sub,
+                    AuditOp::UpdatePermissions,
+                    role,
+                    Status::Ok,
+                    &format!("{path} {}", level.name()),
+                );
+                Ok(None)
+            }
+            _ => Err(LinkError::not_supported(format!("{path}/~act/{action}"))),
+        }
+    }
+}
+
+/// `sys/backups/** ▸ …`: the restores of a broker backup and the sending
+/// of one here; every other backup action is [`backups::invoke`]'s.
+mod backup_actions {
+    use super::*;
+
+    pub(super) async fn invoke(
+        admin: &Admin,
+        rest: &[&str],
+        action: &str,
+        args: Value,
+        who: &Caller,
+        sub: &str,
+    ) -> wyrm_link_sdk::Result<Option<Value>> {
+        // a limited key signed it: an upstream site with allow_config
+        let remote = who.signer.is_some();
+        match (rest, action) {
+            // A check reads the whole file and `add` installs links: a rebuild
+            // of the router waits for both, as for `replace` and any install,
+            // and neither starts on a broker that is closing for one. `busy`
+            // comes before the arguments, as for every install.
+            ([], "restore_check") => {
+                let _busy = admin.ctl.busy()?;
+                let file = restore_broker::RestoreCheck::decode(args)?;
+                admin.restore_broker(file, None, sub, remote).await
+            }
+            ([], "restore_apply") => {
+                let _busy = admin.ctl.busy()?;
+                let a = restore_broker::RestoreApply::decode(args)?;
+                admin.restore_broker(a.file, Some(a.how), sub, remote).await
+            }
+            ([id], "send") => {
+                let _busy = admin.ctl.busy()?;
+                // the backup first, whatever the arguments are
+                if admin.ctl.backups().get(id).is_none() {
+                    return Err(LinkError::not_found(format!("backup {id}")));
+                }
+                let a = send::SendBackup::decode(args)?;
+                send::send(&admin.ctl, &admin.ctx, id, a, sub).await
+            }
+            _ => backups::invoke(&admin.ctl, &admin.ctx, rest, action, args, sub, remote).await,
+        }
+    }
+}
+
 impl Admin {
+    /// `audit ▸ tail`: the last `n` audit records (at most 1000) as rows.
+    fn audit_rows(&self, n: usize) -> Value {
+        Value::Array(
+            self.ctl
+                .audit_tail(n.min(1000))
+                .into_iter()
+                .map(|r| {
+                    let mut m = BTreeMap::new();
+                    m.insert("t".into(), Value::UInt(r.t));
+                    m.insert("sub".into(), Value::Str(r.sub));
+                    m.insert("op".into(), Value::Str(r.op.name().to_owned()));
+                    m.insert("key".into(), Value::Str(r.key));
+                    m.insert("status".into(), Value::UInt(r.status.into()));
+                    m.insert("detail".into(), Value::Str(r.detail));
+                    Value::Map(m)
+                })
+                .collect(),
+        )
+    }
+
+    /// `sys ▸ get_permissions`: the gateway roles' grants, the links' grants
+    /// and the rules of the router ACL, as rows.
+    fn permission_rows(&self) -> Value {
+        let mut rows: Vec<Value> = self
+            .ctl
+            .role_grants()
+            .map(|r| r.grants())
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(role, key, p)| perm_row("gateway", &role, &key, p.name()))
+            .collect();
+        for d in self.ctl.registry().links.values() {
+            for g in &d.grants {
+                rows.push(perm_row("link", &d.id, &g.path, g.perm.name()));
+            }
+        }
+        rows.extend(acl_rows(&self.ctl.acl()));
+        Value::Array(rows)
+    }
+
+    /// `links/<id> ▸ get_log`: the last lines a link logged, as rows; an
+    /// external link logs on its own host.
+    fn link_log(&self, id: &str, a: GetLog) -> wyrm_link_sdk::Result<Option<Value>> {
+        let (n, level, filter) = (a.lines(), a.level(), a.filter);
+        let def = self.def(id)?;
+        let lines = match def.mode {
+            Mode::Process => self.ctl.supervisor.log_tail(id, n, level, &filter),
+            Mode::Embedded => crate::logs::global()
+                .map(|lc| lc.tail(n, level, &filter, Some(id)))
+                .unwrap_or_default(),
+            Mode::External => {
+                return Err(LinkError::not_supported(
+                    "an external link logs on its own host",
+                ))
+            }
+        };
+        Ok(Some(log_rows(lines)))
+    }
     /// `links ▸ install`.
     async fn install(&self, a: Install, sub: &str) -> wyrm_link_sdk::Result<Option<Value>> {
         let params = Value::Map(a.params.unwrap_or_default());
@@ -5731,45 +5870,13 @@ impl Admin {
     /// certificate, port}` or `{status: pending}`; a refusal is an error.
     async fn enroll(&self, a: Enroll) -> wyrm_link_sdk::Result<Option<Value>> {
         let (site, csr) = (a.site, a.csr);
-        let via: Vec<String> = a
-            .via
-            .unwrap_or_default()
-            .iter()
-            .map(|v| v.trim().to_owned())
-            .filter(|v| !v.is_empty())
-            .collect();
-        wyrm_core::keyspace::validate_segment(&site)
-            .map_err(|e| LinkError::invalid_parameter(format!("site: {e}")))?;
-        // the request is anonymous: bounded before anything is kept (review ADM-2)
-        if via.len() > MAX_VIA {
-            return Err(LinkError::invalid_parameter(format!(
-                "via: at most {MAX_VIA} sites"
-            )));
-        }
-        for v in &via {
-            wyrm_core::keyspace::validate_segment(v)
-                .map_err(|e| LinkError::invalid_parameter(format!("via: {e}")))?;
-        }
-        // a refusal is an answer, with its reason, for the asking broker
-        let refused = |why: &str| -> wyrm_link_sdk::Result<Option<Value>> {
-            Ok(Some(Value::Map(BTreeMap::from([
-                ("status".to_owned(), Value::from("refused")),
-                ("reason".to_owned(), Value::from(why)),
-            ]))))
-        };
+        let via = enroll_via(&site, a.via)?;
         let cfg = self.ctl.config_peers();
         let port = cfg
             .listen_port
             .ok_or_else(|| LinkError::not_supported("no peers.listen"))?;
         let key = secret::broker_csr_key(&site, &csr)
             .map_err(|e| LinkError::invalid_parameter(e.to_string()))?;
-        let issued = |cert: String| {
-            Ok(Some(Value::Map(BTreeMap::from([
-                ("status".to_owned(), Value::from("issued")),
-                ("certificate".to_owned(), Value::Str(cert)),
-                ("port".to_owned(), Value::UInt(port.into())),
-            ]))))
-        };
         let reg = self.ctl.registry();
         let cn = crate::registry::broker_cn(&site);
         // one reason for every name it cannot have: the endpoint is open,
@@ -5780,7 +5887,7 @@ impl Admin {
             // ends soon (security review D-1)
             if p.dir == PeerDir::Downstream && p.key_sha256 == key && !p.cert_pem.is_empty() {
                 if !secret::cert_due(&p.cert_pem) {
-                    return issued(p.cert_pem.clone());
+                    return enroll_issued(p.cert_pem.clone(), port);
                 }
                 let cert = self
                     .ctl
@@ -5796,9 +5903,9 @@ impl Admin {
                 self.ctl
                     .record(&cn, AuditOp::Renew, &cn, Status::Ok, &cert_summary(&cert));
                 info!(site = %site, "downstream broker certificate renewed");
-                return issued(cert);
+                return enroll_issued(cert, port);
             }
-            return refused(NOT_HERE);
+            return enroll_refused(NOT_HERE);
         }
         if cfg.peers.downstream.contains(&site)
             || self.check_new_site(&site).is_err()
@@ -5807,14 +5914,8 @@ impl Admin {
             || BUILTIN_LINKS.contains(&site.as_str())
             || reg.blocklist.contains(&cn)
         {
-            return refused(NOT_HERE);
+            return enroll_refused(NOT_HERE);
         }
-        let pending = || {
-            Ok(Some(Value::Map(BTreeMap::from([(
-                "status".to_owned(),
-                Value::from("pending"),
-            )]))))
-        };
         let wait = |ctl: &Control| -> wyrm_link_sdk::Result<()> {
             ctl.apply(Op::EnrollRequest {
                 site: site.clone(),
@@ -5842,7 +5943,7 @@ impl Admin {
                 );
             }
             refresh_quarantine(&self.ctx, &self.ctl).await?;
-            return refused(NOT_HERE);
+            return enroll_refused(NOT_HERE);
         }
         let opts = self.ctl.options();
         // A token or allow_all_links admits the broker itself, never the sites it says it
@@ -5878,11 +5979,11 @@ impl Admin {
                     how,
                 )
                 .await?;
-                return issued(cert);
+                return enroll_issued(cert, port);
             }
         }
         if !opts.enable_quarantine && !reg.held.contains(&cn) {
-            return refused("not admitted (quarantine is off)");
+            return enroll_refused("not admitted (quarantine is off)");
         }
         // Written only when it changes (a new name, key or via, or the
         // first request of a held broker); a poll every 10 s writes nothing.
@@ -5906,7 +6007,7 @@ impl Admin {
         } else {
             self.ctl.enroll_touch(&site, false);
         }
-        pending()
+        enroll_pending()
     }
 
     /// `sys/tokens ▸ Add Token {count, hours}` (as DSA's `/sys/tokens`): a
@@ -6189,6 +6290,57 @@ impl Admin {
             .remove_node(&format!("quarantine/{}", quarantine_node(cn)))
             .await
     }
+}
+
+/// The sites a downstream broker says it relays, trimmed, without empty
+/// names; `site` and each of them must be one segment.
+fn enroll_via(site: &str, via: Option<Vec<String>>) -> wyrm_link_sdk::Result<Vec<String>> {
+    let via: Vec<String> = via
+        .unwrap_or_default()
+        .iter()
+        .map(|v| v.trim().to_owned())
+        .filter(|v| !v.is_empty())
+        .collect();
+    wyrm_core::keyspace::validate_segment(site)
+        .map_err(|e| LinkError::invalid_parameter(format!("site: {e}")))?;
+    // the request is anonymous: bounded before anything is kept (review ADM-2)
+    if via.len() > MAX_VIA {
+        return Err(LinkError::invalid_parameter(format!(
+            "via: at most {MAX_VIA} sites"
+        )));
+    }
+    for v in &via {
+        wyrm_core::keyspace::validate_segment(v)
+            .map_err(|e| LinkError::invalid_parameter(format!("via: {e}")))?;
+    }
+    Ok(via)
+}
+
+/// The answer to an enrollment that is refused: a refusal is an answer,
+/// with its reason, for the asking broker.
+fn enroll_refused(why: &str) -> wyrm_link_sdk::Result<Option<Value>> {
+    Ok(Some(Value::Map(BTreeMap::from([
+        ("status".to_owned(), Value::from("refused")),
+        ("reason".to_owned(), Value::from(why)),
+    ]))))
+}
+
+/// The answer to an enrollment that is admitted: its certificate and the
+/// port of `peers.listen`.
+fn enroll_issued(cert: String, port: u16) -> wyrm_link_sdk::Result<Option<Value>> {
+    Ok(Some(Value::Map(BTreeMap::from([
+        ("status".to_owned(), Value::from("issued")),
+        ("certificate".to_owned(), Value::Str(cert)),
+        ("port".to_owned(), Value::UInt(port.into())),
+    ]))))
+}
+
+/// The answer to an enrollment that waits in quarantine.
+fn enroll_pending() -> wyrm_link_sdk::Result<Option<Value>> {
+    Ok(Some(Value::Map(BTreeMap::from([(
+        "status".to_owned(),
+        Value::from("pending"),
+    )]))))
 }
 
 /// What an admitted CN becomes: its driver name, params, display name and

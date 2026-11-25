@@ -1431,36 +1431,106 @@ impl Control {
         tmp: &Path,
     ) -> Result<Plan, BrokerRestoreError> {
         let d = &self.cfg.data_dir;
-        let data = tmp.join("data");
-        let key = c.key.as_ref();
-        let has = |s: SectionName| chosen.contains(&s);
-        let mut plan = Plan {
-            by: by.to_owned(),
-            backup: format!("{} {}", c.manifest.site, c.manifest.created),
-            sections: chosen.to_vec(),
-            ..Default::default()
+        let mut st = Staging {
+            r,
+            c,
+            chosen,
+            tmp,
+            data: tmp.join("data"),
+            plan: Plan {
+                by: by.to_owned(),
+                backup: format!("{} {}", c.manifest.site, c.manifest.created),
+                sections: chosen.to_vec(),
+                ..Default::default()
+            },
         };
-        let keys = has(SectionName::Keys) && c.manifest.section(SectionName::Keys).is_some();
+        let keys = st.has(SectionName::Keys) && c.manifest.section(SectionName::Keys).is_some();
         if keys {
-            for (p, place) in &c.places {
-                let Place::Key(rel) = place else { continue };
-                r.extract(p, &data.join(rel), key)?;
-                plan.files.push(rel.clone());
-            }
-            if c.keys_other {
-                // everything the replaced CA issued
-                plan.remove = vec!["pki".into(), "operators".into(), "peers".into()];
-                plan.strip_link_certs = true;
-            }
+            st.key_files()?;
         }
-        // WALs: the registry, users (and the audit when its key is replaced)
-        // with `control`; the flow store with `control` or `dataflows`
+        st.wals(d, keys)?;
+        if st.has(SectionName::Dataflows) {
+            st.artifacts()?;
+        }
+        if st.has(SectionName::Storage) && c.manifest.section(SectionName::Storage).is_some() {
+            st.storage()?;
+        }
+        if st.has(SectionName::History) && c.manifest.section(SectionName::History).is_some() {
+            st.history()?;
+        }
+        if st.has(SectionName::Links) {
+            // with `control` every link of the backup is in the registry
+            // that will be in place; without it, the links this broker has
+            st.links(&self.registry(), keys)?;
+        }
+        if st.has(SectionName::Packages) {
+            st.packages(&self.registry(), d, accept)?;
+        }
+        let Staging { data, plan, .. } = st;
+        // the secret store of the backup opens with the key that comes with it
+        if keys && data.join(SECRETS_BIN).is_file() && data.join("secrets.key").is_file() {
+            crate::secrets::SecretStore::open(&data)
+                .map(drop)
+                .map_err(BrokerRestoreError::SecretStore)?;
+        }
+        let text = serde_json::to_vec_pretty(&plan).map_err(BrokerRestoreError::PlanEncode)?;
+        secret::write_private(&tmp.join(PLAN), &text).map_err(|e| FileError::new(tmp, e))?;
+        // as the start that applies it will read it
+        read_plan(tmp)?;
+        Ok(plan)
+    }
+}
+
+/// A `replace` being staged ([`Control::stage_sections`]): the reader of the
+/// backup and what its check found, the sections chosen, the directory it
+/// stages into (`data` under it holds what goes to `data_dir`) and the plan
+/// that the start which applies it follows. One method per section, called
+/// in the order of the format.
+struct Staging<'a> {
+    r: &'a mut format::Reader,
+    c: &'a Checked,
+    chosen: &'a [SectionName],
+    tmp: &'a Path,
+    data: PathBuf,
+    plan: Plan,
+}
+
+impl Staging<'_> {
+    fn has(&self, s: SectionName) -> bool {
+        self.chosen.contains(&s)
+    }
+
+    /// `keys`: every key file of the backup; when they are of another CA,
+    /// everything the replaced CA issued goes.
+    fn key_files(&mut self) -> Result<(), BrokerRestoreError> {
+        let c = self.c;
+        let key = c.key.as_ref();
+        for (p, place) in &c.places {
+            let Place::Key(rel) = place else { continue };
+            self.r.extract(p, &self.data.join(rel), key)?;
+            self.plan.files.push(rel.clone());
+        }
+        if c.keys_other {
+            // everything the replaced CA issued
+            self.plan.remove = vec!["pki".into(), "operators".into(), "peers".into()];
+            self.plan.strip_link_certs = true;
+        }
+        Ok(())
+    }
+
+    /// The WALs: the registry, users (and the audit when its key is
+    /// replaced) with `control`; the flow store with `control` or
+    /// `dataflows`. Each is read through with the key that will be in place
+    /// and must hold every record the backup says it holds.
+    fn wals(&mut self, d: &Path, keys: bool) -> Result<(), BrokerRestoreError> {
+        let c = self.c;
+        let (data, tmp) = (&self.data, self.tmp);
         let state_key_replaced = keys && c.keys_differ.iter().any(|f| f == "state.key");
         for (name, dir, key_file, _) in wal_stores() {
             let wanted = match name {
-                "flows" => has(SectionName::Control) || has(SectionName::Dataflows),
-                "audit" => has(SectionName::Control) && state_key_replaced,
-                _ => has(SectionName::Control),
+                "flows" => self.has(SectionName::Control) || self.has(SectionName::Dataflows),
+                "audit" => self.has(SectionName::Control) && state_key_replaced,
+                _ => self.has(SectionName::Control),
             };
             let files: Vec<(&String, &String)> = c
                 .places
@@ -1474,7 +1544,7 @@ impl Control {
                 continue;
             }
             for (p, file) in files {
-                r.extract(p, &data.join(dir).join(file), None)?;
+                self.r.extract(p, &data.join(dir).join(file), None)?;
             }
             // with the key that will be in place
             let staged_key = data.join(key_file);
@@ -1496,184 +1566,200 @@ impl Control {
             })?;
             // every record the backup says it holds, or nothing is staged
             head_as_said(&c.manifest, name, head.lsn)?;
-            plan.dirs.push(dir.to_owned());
+            self.plan.dirs.push(dir.to_owned());
         }
         wyrm_core::files::discard_dir(&tmp.join("verify"));
-        if has(SectionName::Dataflows) {
-            let dir = data.join("flows").join("artifacts");
+        Ok(())
+    }
+
+    /// `dataflows`: the artifacts of the flows.
+    fn artifacts(&mut self) -> Result<(), BrokerRestoreError> {
+        let dir = self.data.join("flows").join("artifacts");
+        std::fs::create_dir_all(&dir).map_err(|e| FileError::new(&dir, e))?;
+        for (p, place) in &self.c.places {
+            if let Place::Artifact(rel) = place {
+                self.r.extract(p, &dir.join(rel), None)?;
+            }
+        }
+        self.plan.dirs.push("flows/artifacts".into());
+        Ok(())
+    }
+
+    /// `storage`: the store is built here, from the tree: a tree that does
+    /// not read refuses the restore now, not the start that applies it.
+    fn storage(&mut self) -> Result<(), BrokerRestoreError> {
+        let tree = self.tmp.join(STORAGE_TREE);
+        self.r.extract("storage/tree.cbor", &tree, None)?;
+        build_storage(&tree, &self.data.join("storage"))?;
+        std::fs::remove_file(&tree).map_err(|e| FileError::new(&tree, e))?;
+        self.plan.dirs.push("storage".into());
+        Ok(())
+    }
+
+    /// `history`: its index and day files, which must open.
+    fn history(&mut self) -> Result<(), BrokerRestoreError> {
+        let dir = self.data.join("history");
+        std::fs::create_dir_all(dir.join("days")).map_err(|e| FileError::new(&dir, e))?;
+        for (p, place) in &self.c.places {
+            match place {
+                Place::HistoryIndex => self.r.extract(p, &dir.join("index.redb"), None)?,
+                Place::HistoryDay(day) => self.r.extract(p, &dir.join("days").join(day), None)?,
+                _ => continue,
+            };
+        }
+        // files that do not open would stop every start after the restore
+        wyrm_history::Store::open(&dir)
+            .map(drop)
+            .map_err(BrokerRestoreError::History)?;
+        self.plan.dirs.push("history".into());
+        Ok(())
+    }
+
+    /// `links`: the private data of each link of the backup that will be in
+    /// the registry (`reg` when `control` is not restored) and, without
+    /// `keys`, its secrets.
+    fn links(&mut self, reg: &Registry, keys: bool) -> Result<(), BrokerRestoreError> {
+        let c = self.c;
+        let key = c.key.as_ref();
+        let mut secrets: BTreeMap<String, Value> = BTreeMap::new();
+        let ids: BTreeSet<&String> = c
+            .places
+            .iter()
+            .filter_map(|(_, place)| match place {
+                Place::LinkSecrets(id) => Some(id),
+                _ => None,
+            })
+            .collect();
+        for id in ids {
+            if !self.has(SectionName::Control) && !reg.links.contains_key(id) {
+                continue;
+            }
+            let dir = self.data.join("links").join(id).join("data");
             std::fs::create_dir_all(&dir).map_err(|e| FileError::new(&dir, e))?;
             for (p, place) in &c.places {
-                if let Place::Artifact(rel) = place {
-                    r.extract(p, &dir.join(rel), None)?;
+                match place {
+                    Place::LinkFile(l, rel) if l == id => {
+                        self.r.extract(p, &dir.join(rel), key)?;
+                    }
+                    _ => {}
                 }
             }
-            plan.dirs.push("flows/artifacts".into());
+            self.plan.dirs.push(format!("links/{id}/data"));
+            // With `keys`, the `secrets.bin` of the backup holds them
+            // already: the store comes back whole, the secrets the
+            // broker made for its links among them (they are that
+            // site's own, restored under the gates of the keys).
+            // Without `keys`, a link's secrets go into this broker's
+            // store, and a broker-made one is never taken from a file.
+            if !keys {
+                let plain = self.r.read_plain(&format!("links/{id}/secrets"), key)?;
+                let Value::Map(m) = wyrm_core::codec::from_slice::<Value>(&plain)
+                    .map_err(RestoreError::SecretsDecode)?
+                else {
+                    return Err(RestoreError::SecretsNotMap {
+                        path: format!("links/{id}/secrets"),
+                    }
+                    .into());
+                };
+                let kept: BTreeMap<String, Value> = m
+                    .into_iter()
+                    .filter(|(name, _)| !broker_made_secret(name))
+                    .collect();
+                secrets.insert(id.clone(), Value::Map(kept));
+            }
         }
-        if has(SectionName::Storage) && c.manifest.section(SectionName::Storage).is_some() {
-            // the store is built here, from the tree: a tree that does not
-            // read refuses the restore now, not the start that applies it
-            let tree = tmp.join(STORAGE_TREE);
-            r.extract("storage/tree.cbor", &tree, None)?;
-            build_storage(&tree, &data.join("storage"))?;
-            std::fs::remove_file(&tree).map_err(|e| FileError::new(&tree, e))?;
-            plan.dirs.push("storage".into());
+        if !secrets.is_empty() {
+            let bytes = Zeroizing::new(
+                wyrm_core::codec::to_vec(&Value::Map(secrets))
+                    .map_err(BrokerRestoreError::SecretsEncode)?,
+            );
+            // as the start that applies it will read it
+            parse_link_secrets(&bytes)?;
+            secret::write_private(&self.tmp.join(LINK_SECRETS), &bytes)
+                .map_err(|e| FileError::new(self.tmp, e))?;
         }
-        if has(SectionName::History) && c.manifest.section(SectionName::History).is_some() {
-            let dir = data.join("history");
-            std::fs::create_dir_all(dir.join("days")).map_err(|e| FileError::new(&dir, e))?;
+        Ok(())
+    }
+
+    /// `packages`: each package of the backup, through the validator of
+    /// every install; what one asks for counts (refused without `accept`)
+    /// unless this broker (`reg`, `d`) has the same version with the same
+    /// files.
+    fn packages(
+        &mut self,
+        reg: &Registry,
+        d: &Path,
+        accept: bool,
+    ) -> Result<(), BrokerRestoreError> {
+        let c = self.c;
+        let (data, tmp) = (&self.data, self.tmp);
+        let names: BTreeSet<&String> = c
+            .places
+            .iter()
+            .filter_map(|(_, place)| match place {
+                Place::PackageFile(name, _) => Some(name),
+                _ => None,
+            })
+            .collect();
+        let mut asks = Vec::new();
+        for name in names {
+            let scratch = tmp.join("package").join(name);
             for (p, place) in &c.places {
                 match place {
-                    Place::HistoryIndex => r.extract(p, &dir.join("index.redb"), None)?,
-                    Place::HistoryDay(day) => r.extract(p, &dir.join("days").join(day), None)?,
-                    _ => continue,
-                };
-            }
-            // files that do not open would stop every start after the restore
-            wyrm_history::Store::open(&dir)
-                .map(drop)
-                .map_err(BrokerRestoreError::History)?;
-            plan.dirs.push("history".into());
-        }
-        if has(SectionName::Links) {
-            // with `control` every link of the backup is in the registry
-            // that will be in place; without it, the links this broker has
-            let reg = self.registry();
-            let mut secrets: BTreeMap<String, Value> = BTreeMap::new();
-            let ids: BTreeSet<&String> = c
-                .places
-                .iter()
-                .filter_map(|(_, place)| match place {
-                    Place::LinkSecrets(id) => Some(id),
-                    _ => None,
-                })
-                .collect();
-            for id in ids {
-                if !has(SectionName::Control) && !reg.links.contains_key(id) {
-                    continue;
-                }
-                let dir = data.join("links").join(id).join("data");
-                std::fs::create_dir_all(&dir).map_err(|e| FileError::new(&dir, e))?;
-                for (p, place) in &c.places {
-                    match place {
-                        Place::LinkFile(l, rel) if l == id => {
-                            r.extract(p, &dir.join(rel), key)?;
-                        }
-                        _ => {}
+                    Place::PackageFile(n, rel) if n == name => {
+                        self.r.extract(p, &scratch.join(rel), None)?;
                     }
-                }
-                plan.dirs.push(format!("links/{id}/data"));
-                // With `keys`, the `secrets.bin` of the backup holds them
-                // already: the store comes back whole, the secrets the
-                // broker made for its links among them (they are that
-                // site's own, restored under the gates of the keys).
-                // Without `keys`, a link's secrets go into this broker's
-                // store, and a broker-made one is never taken from a file.
-                if !keys {
-                    let plain = r.read_plain(&format!("links/{id}/secrets"), key)?;
-                    let Value::Map(m) = wyrm_core::codec::from_slice::<Value>(&plain)
-                        .map_err(RestoreError::SecretsDecode)?
-                    else {
-                        return Err(RestoreError::SecretsNotMap {
-                            path: format!("links/{id}/secrets"),
-                        }
-                        .into());
-                    };
-                    let kept: BTreeMap<String, Value> = m
-                        .into_iter()
-                        .filter(|(name, _)| !broker_made_secret(name))
-                        .collect();
-                    secrets.insert(id.clone(), Value::Map(kept));
+                    _ => {}
                 }
             }
-            if !secrets.is_empty() {
-                let bytes = Zeroizing::new(
-                    wyrm_core::codec::to_vec(&Value::Map(secrets))
-                        .map_err(BrokerRestoreError::SecretsEncode)?,
-                );
-                // as the start that applies it will read it
-                parse_link_secrets(&bytes)?;
-                secret::write_private(&tmp.join(LINK_SECRETS), &bytes)
-                    .map_err(|e| FileError::new(tmp, e))?;
-            }
-        }
-        if has(SectionName::Packages) {
-            let names: BTreeSet<&String> = c
-                .places
-                .iter()
-                .filter_map(|(_, place)| match place {
-                    Place::PackageFile(name, _) => Some(name),
-                    _ => None,
-                })
-                .collect();
-            let reg = self.registry();
-            let mut asks = Vec::new();
-            for name in names {
-                let scratch = tmp.join("package").join(name);
-                for (p, place) in &c.places {
-                    match place {
-                        Place::PackageFile(n, rel) if n == name => {
-                            r.extract(p, &scratch.join(rel), None)?;
-                        }
-                        _ => {}
-                    }
-                }
-                // through the validator of every install; its record names
-                // the version and the entry
-                let source = format!("backup {}", c.manifest.site);
-                let zip =
-                    packages::repack(&scratch).map_err(|e| RestoreError::Repack(e.to_string()))?;
-                let checked = packages::unpack(&zip, &tmp.join("unpacked"), &source, now_s())
-                    .map_err(|why| BrokerRestoreError::PackageInvalid {
+            // through the validator of every install; its record names
+            // the version and the entry
+            let source = format!("backup {}", c.manifest.site);
+            let zip =
+                packages::repack(&scratch).map_err(|e| RestoreError::Repack(e.to_string()))?;
+            let checked =
+                packages::unpack(&zip, &tmp.join("unpacked"), &source, now_s()).map_err(|why| {
+                    BrokerRestoreError::PackageInvalid {
                         name: name.clone(),
                         why: why.to_string(),
-                    })?;
-                let def = checked.def.clone();
-                if def.name != *name {
-                    return Err(BrokerRestoreError::PackageName {
-                        dir: name.clone(),
-                        holds: def.name,
-                    });
-                }
-                wyrm_core::keyspace::validate_segment(&def.version)
-                    .map_err(BrokerRestoreError::PackageVersion)?;
-                let rel = format!("packages/{}/{}", def.name, def.version);
-                // what it asks for was accepted here only if this broker
-                // has the same version with the same files
-                let here = reg.packages.get(&def.name).is_some_and(|p| {
-                    p.version == def.version
-                        && packages::repack(&d.join(&rel)).is_ok_and(|z| z == zip)
+                    }
+                })?;
+            let def = checked.def.clone();
+            if def.name != *name {
+                return Err(BrokerRestoreError::PackageName {
+                    dir: name.clone(),
+                    holds: def.name,
                 });
-                if !here {
-                    asks.extend(super::restore::package_asks(&checked));
-                }
-                let to = data.join(&rel);
-                if let Some(parent) = to.parent() {
-                    std::fs::create_dir_all(parent).map_err(|e| FileError::new(parent, e))?;
-                }
-                std::fs::rename(&scratch, &to).map_err(|e| FileError::new(&to, e))?;
-                if def.kind == PackageKind::Wasm {
-                    plan.components
-                        .push((def.name.clone(), format!("{rel}/{}", def.entry)));
-                }
-                plan.dirs.push(rel);
             }
-            wyrm_core::files::discard_dir(&tmp.join("package"));
-            wyrm_core::files::discard_dir(&tmp.join("unpacked"));
-            if !asks.is_empty() && !accept {
-                return Err(BrokerRestoreError::Asks { asks });
+            wyrm_core::keyspace::validate_segment(&def.version)
+                .map_err(BrokerRestoreError::PackageVersion)?;
+            let rel = format!("packages/{}/{}", def.name, def.version);
+            // what it asks for was accepted here only if this broker
+            // has the same version with the same files
+            let here = reg.packages.get(&def.name).is_some_and(|p| {
+                p.version == def.version && packages::repack(&d.join(&rel)).is_ok_and(|z| z == zip)
+            });
+            if !here {
+                asks.extend(super::restore::package_asks(&checked));
             }
+            let to = data.join(&rel);
+            if let Some(parent) = to.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| FileError::new(parent, e))?;
+            }
+            std::fs::rename(&scratch, &to).map_err(|e| FileError::new(&to, e))?;
+            if def.kind == PackageKind::Wasm {
+                self.plan
+                    .components
+                    .push((def.name.clone(), format!("{rel}/{}", def.entry)));
+            }
+            self.plan.dirs.push(rel);
         }
-        // the secret store of the backup opens with the key that comes with it
-        if keys && data.join(SECRETS_BIN).is_file() && data.join("secrets.key").is_file() {
-            crate::secrets::SecretStore::open(&data)
-                .map(drop)
-                .map_err(BrokerRestoreError::SecretStore)?;
+        wyrm_core::files::discard_dir(&tmp.join("package"));
+        wyrm_core::files::discard_dir(&tmp.join("unpacked"));
+        if !asks.is_empty() && !accept {
+            return Err(BrokerRestoreError::Asks { asks });
         }
-        let text = serde_json::to_vec_pretty(&plan).map_err(BrokerRestoreError::PlanEncode)?;
-        secret::write_private(&tmp.join(PLAN), &text).map_err(|e| FileError::new(tmp, e))?;
-        // as the start that applies it will read it
-        read_plan(tmp)?;
-        Ok(plan)
+        Ok(())
     }
 }
 

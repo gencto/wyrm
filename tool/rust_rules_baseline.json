@@ -85,7 +85,7 @@
   "C3-string-closed-set": {},
   "C4-value-field-read": {
     "crates/wyrm-admin/src/acl.rs": 71,
-    "crates/wyrm-admin/src/control.rs": 83,
+    "crates/wyrm-admin/src/control.rs": 64,
     "crates/wyrm-admin/src/control/backups.rs": 5,
     "crates/wyrm-admin/src/control/broker_update.rs": 3,
     "crates/wyrm-admin/src/control/replication.rs": 72,
@@ -715,7 +715,7 @@
     "crates/wyrm-admin/src/control/restore.rs": 1,
     "crates/wyrm-admin/src/control/restore_broker.rs": 1,
     "crates/wyrm-admin/src/control/send.rs": 1,
-    "crates/wyrm-admin/src/control/updates.rs": 6,
+    "crates/wyrm-admin/src/control/updates.rs": 5,
     "crates/wyrm-admin/src/fetch.rs": 1,
     "crates/wyrm-admin/src/history.rs": 6,
     "crates/wyrm-admin/src/history/sinks.rs": 1,
@@ -879,14 +879,6 @@
     "tools/wyrm-mcp/src/server.rs": 1
   },
   "clippy::too_many_lines": {
-    "crates/wyrm-admin/src/control.rs": 2,
-    "crates/wyrm-admin/src/control/backups.rs": 2,
-    "crates/wyrm-admin/src/control/broker_update.rs": 1,
-    "crates/wyrm-admin/src/control/restore.rs": 1,
-    "crates/wyrm-admin/src/control/restore_broker.rs": 1,
-    "crates/wyrm-admin/src/control/updates.rs": 1,
-    "crates/wyrm-admin/src/history.rs": 1,
-    "crates/wyrm-admin/src/registry.rs": 1,
     "crates/wyrm-filestore/src/testkit.rs": 2,
     "crates/wyrm-link-sdk-derive/src/lib.rs": 1,
     "crates/wyrm-link-sdk/src/driver/framework.rs": 3,
