@@ -491,6 +491,36 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// `wyrmd user …` opens the gateway without bootstrap: it reads the certificate a
+    /// running broker owns and never issues one in its place (the broker's watch would race
+    /// it from another process); it issues only when there is none.
+    #[test]
+    fn a_user_command_leaves_the_certificate_alone() {
+        let dir = std::env::temp_dir().join(format!("wyrmd-gwtls-user-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let data = dir.join("data");
+        let cfg = Config::from_json5(&format!(
+            r#"{{ site: "plant", data_dir: {data:?},
+                  gateway: {{ listen: "127.0.0.1:0", tls: "site_ca" }} }}"#
+        ))
+        .unwrap();
+        // names other than the ones of this host now: a bootstrap would issue again
+        let (cert, key) = issue(&cfg, &["elsewhere.local".to_owned()]).unwrap();
+        let (pem, key_pem) = (std::fs::read(&cert).unwrap(), std::fs::read(&key).unwrap());
+        let gw = crate::open_gateway(&cfg, cfg.gateway.as_ref().unwrap(), false).unwrap();
+        assert_eq!(gw.tls_names(), ["elsewhere.local"]);
+        drop(gw);
+        assert_eq!(std::fs::read(&cert).unwrap(), pem, "not issued again");
+        assert_eq!(std::fs::read(&key).unwrap(), key_pem);
+        // nothing there: issued, as the gateway cannot open without it
+        std::fs::remove_file(&key).unwrap();
+        let gw = crate::open_gateway(&cfg, cfg.gateway.as_ref().unwrap(), false).unwrap();
+        assert!(gw.tls_names().contains(&"wyrm-plant.local".to_owned()));
+        drop(gw);
+        assert_ne!(std::fs::read(&cert).unwrap(), pem);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// The certificate from the site CA: kept while its names stay, issued again when
     /// they change; one CA all along.
     #[test]

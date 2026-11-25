@@ -2248,13 +2248,21 @@ impl UserAdmin {
     }
 }
 
+/// The certificate or key of `gateway.tls: "site_ca"` is not there yet.
+fn site_ca_files_missing(cfg: &Config) -> bool {
+    let (cert, key) = gateway_tls::files(&cfg.data_dir);
+    !(cert.is_file() && key.is_file())
+}
+
 fn open_gateway(cfg: &Config, g: &GatewaySection, bootstrap: bool) -> Result<Arc<Gateway>, Error> {
     let dir = cfg.data_dir.join("gateway");
     std::fs::create_dir_all(&dir)?;
     let hmac = wyrm_admin::secret::load_or_create_key(&dir.join("hmac.key"))?;
-    if g.tls == Some(GatewayTls::SiteCa) {
+    if g.tls == Some(GatewayTls::SiteCa) && (bootstrap || site_ca_files_missing(cfg)) {
         // before `gateway_ca` and `Gateway::open` read the files; the CA is the one
-        // `Control::open` opens later (made here on a first start)
+        // `Control::open` opens later (made here on a first start). `wyrmd user …`
+        // (no bootstrap) issues only when there is nothing to read: a running broker's
+        // watch owns the files, and the lock of one issue holds in one process only
         let names = gateway_tls::names_now(cfg, g.listen);
         gateway_tls::issue(cfg, &names)?;
         tracing::info!(?names, "gateway: certificate from the site CA");
