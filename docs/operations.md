@@ -257,8 +257,9 @@ from a one-time setup code; the image holds only the code's hash.
 - A warm standby (ADR 0036) does not receive `data_dir/gateway/setup.hash`:
   a pending setup belongs to its host. Make each host of a pair from an
   image with its own `setup_file`. Users replicate, so once the first admin
-  exists on the active, the setup of the other host is void (it is dropped
-  at its next start, as above).
+  exists on the active, the setup of the other host is void. A following
+  standby does not read its `setup_file`; the file is dropped when that
+  host's broker opens as an active (at its promotion), as above.
 
 ### Seed packages (ADR 0051 §1)
 
