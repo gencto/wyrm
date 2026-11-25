@@ -1,0 +1,3 @@
+/* The docs use the fonts of the home site (/assets/fonts.css, linked by
+   theme/head.hbs). This file takes the place of the font sheet of mdBook, so
+   its own fonts are not copied into the site. */
