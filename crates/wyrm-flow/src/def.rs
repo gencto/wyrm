@@ -295,14 +295,14 @@ impl DefError {
         Self::NodeId { at: at.into() }
     }
 
-    fn nodes(at: impl Into<String>, count: usize) -> Self {
+    fn too_many_nodes(at: impl Into<String>, count: usize) -> Self {
         Self::Nodes {
             at: at.into(),
             count,
         }
     }
 
-    fn edges(at: impl Into<String>, count: usize) -> Self {
+    fn too_many_edges(at: impl Into<String>, count: usize) -> Self {
         Self::Edges {
             at: at.into(),
             count,
@@ -601,7 +601,7 @@ pub fn parse_block(name: &str, v: &Value) -> Result<BlockDef> {
         }
     }
     if nodes.len() > MAX_NODES {
-        return Err(DefError::nodes(format!("{at}.nodes"), nodes.len()));
+        return Err(DefError::too_many_nodes(format!("{at}.nodes"), nodes.len()));
     }
     let uses = nodes
         .values()
@@ -615,27 +615,57 @@ pub fn parse_block(name: &str, v: &Value) -> Result<BlockDef> {
     }
     let edges = parse_edges(m.get("edges"), &format!("{at}.edges"))?;
     if edges.len() > MAX_EDGES {
-        return Err(DefError::edges(format!("{at}.edges"), edges.len()));
+        return Err(DefError::too_many_edges(format!("{at}.edges"), edges.len()));
     }
     check_layout(m.get("layout"), &format!("{at}.layout"))?;
-    let inner = |e: &Endpoint, path: &str| -> Result<()> {
-        if nodes.contains_key(&e.node) {
+    let block = BlockShape {
+        name,
+        at: &at,
+        m,
+        nodes: &nodes,
+    };
+    for (i, e) in edges.iter().enumerate() {
+        block.inner(&e.from, &format!("{at}.edges[{i}]"))?;
+        block.inner(&e.to, &format!("{at}.edges[{i}]"))?;
+    }
+    let inputs = block.block_inputs()?;
+    let outputs = block.block_outputs(&inputs)?;
+    Ok(BlockDef {
+        description: text(m.get("description"), &format!("{at}.description"))?,
+        inputs,
+        outputs,
+        nodes,
+        edges,
+    })
+}
+
+/// A custom block being read: its name, its path in `~def`, its fields and its inner nodes.
+struct BlockShape<'a> {
+    name: &'a str,
+    at: &'a str,
+    m: &'a Map,
+    nodes: &'a BTreeMap<String, RawNode>,
+}
+
+impl<'a> BlockShape<'a> {
+    /// That an endpoint names an inner node of the block.
+    fn inner(&self, e: &Endpoint, path: &str) -> Result<()> {
+        if self.nodes.contains_key(&e.node) {
             Ok(())
         } else {
             Err(DefError::NoInnerNode {
                 at: path.into(),
-                block: name.into(),
+                block: self.name.into(),
                 node: e.node.clone(),
             })
         }
-    };
-    for (i, e) in edges.iter().enumerate() {
-        inner(&e.from, &format!("{at}.edges[{i}]"))?;
-        inner(&e.to, &format!("{at}.edges[{i}]"))?;
     }
-    // inputs and outputs: lists, so an editor draws them in their order
-    let ports = |key: &str| -> Result<Vec<(String, &Map, String)>> {
-        let list = match m.get(key) {
+
+    /// `inputs` or `outputs`: lists, so an editor draws them in their order. Each item with
+    /// its name, its map and its path.
+    fn ports(&self, key: &str) -> Result<Vec<(String, &'a Map, String)>> {
+        let at = self.at;
+        let list = match self.m.get(key) {
             None => return Ok(Vec::new()),
             Some(Value::Array(a)) => a,
             Some(_) => return Err(DefError::not_array(format!("{at}.{key}"))),
@@ -663,64 +693,67 @@ pub fn parse_block(name: &str, v: &Value) -> Result<BlockDef> {
             out.push((pname, pm, path));
         }
         Ok(out)
-    };
-    let mut inputs = Vec::new();
-    for (pname, pm, path) in ports("inputs")? {
-        if let Some(k) = pm
-            .keys()
-            .find(|k| !["name", "to", "default", "description"].contains(&k.as_str()))
-        {
-            return Err(DefError::unknown_field(format!("{path}.{k}")));
-        }
-        let to_at = format!("{path}.to");
-        let to: Vec<Endpoint> = match pm.get("to") {
-            Some(Value::Str(one)) => vec![endpoint(one, &to_at)?],
-            Some(Value::Array(a)) if !a.is_empty() && a.len() <= MAX_BLOCK_FANOUT => a
-                .iter()
-                .map(|v| match v {
-                    Value::Str(x) => endpoint(x, &to_at),
-                    _ => Err(DefError::InnerInput { at: to_at.clone() }),
-                })
-                .collect::<Result<_>>()?,
-            _ => return Err(DefError::InnerInputs { at: to_at }),
-        };
-        for t in &to {
-            inner(t, &to_at)?;
-        }
-        inputs.push(BlockInput {
-            name: pname,
-            to,
-            default: pm.get("default").filter(|v| **v != Value::Null).cloned(),
-        });
     }
-    let mut outputs = Vec::new();
-    for (pname, pm, path) in ports("outputs")? {
-        if let Some(k) = pm
-            .keys()
-            .find(|k| !["name", "from", "description"].contains(&k.as_str()))
-        {
-            return Err(DefError::unknown_field(format!("{path}.{k}")));
-        }
-        if inputs.iter().any(|i| i.name == pname) {
-            return Err(DefError::OutputIsInput {
-                at: path,
+
+    /// `inputs`: each one's name, the inner inputs it feeds and its default.
+    fn block_inputs(&self) -> Result<Vec<BlockInput>> {
+        let mut inputs = Vec::new();
+        for (pname, pm, path) in self.ports("inputs")? {
+            if let Some(k) = pm
+                .keys()
+                .find(|k| !["name", "to", "default", "description"].contains(&k.as_str()))
+            {
+                return Err(DefError::unknown_field(format!("{path}.{k}")));
+            }
+            let to_at = format!("{path}.to");
+            let to: Vec<Endpoint> = match pm.get("to") {
+                Some(Value::Str(one)) => vec![endpoint(one, &to_at)?],
+                Some(Value::Array(a)) if !a.is_empty() && a.len() <= MAX_BLOCK_FANOUT => a
+                    .iter()
+                    .map(|v| match v {
+                        Value::Str(x) => endpoint(x, &to_at),
+                        _ => Err(DefError::InnerInput { at: to_at.clone() }),
+                    })
+                    .collect::<Result<_>>()?,
+                _ => return Err(DefError::InnerInputs { at: to_at }),
+            };
+            for t in &to {
+                self.inner(t, &to_at)?;
+            }
+            inputs.push(BlockInput {
                 name: pname,
+                to,
+                default: pm.get("default").filter(|v| **v != Value::Null).cloned(),
             });
         }
-        let from = match pm.get("from") {
-            Some(Value::Str(x)) => endpoint(x, &format!("{path}.from"))?,
-            _ => return Err(DefError::OutputFrom { at: path }),
-        };
-        inner(&from, &format!("{path}.from"))?;
-        outputs.push(BlockOutput { name: pname, from });
+        Ok(inputs)
     }
-    Ok(BlockDef {
-        description: text(m.get("description"), &format!("{at}.description"))?,
-        inputs,
-        outputs,
-        nodes,
-        edges,
-    })
+
+    /// `outputs`: each one's name and the inner output it comes from; no name of an input.
+    fn block_outputs(&self, inputs: &[BlockInput]) -> Result<Vec<BlockOutput>> {
+        let mut outputs = Vec::new();
+        for (pname, pm, path) in self.ports("outputs")? {
+            if let Some(k) = pm
+                .keys()
+                .find(|k| !["name", "from", "description"].contains(&k.as_str()))
+            {
+                return Err(DefError::unknown_field(format!("{path}.{k}")));
+            }
+            if inputs.iter().any(|i| i.name == pname) {
+                return Err(DefError::OutputIsInput {
+                    at: path,
+                    name: pname,
+                });
+            }
+            let from = match pm.get("from") {
+                Some(Value::Str(x)) => endpoint(x, &format!("{path}.from"))?,
+                _ => return Err(DefError::OutputFrom { at: path }),
+            };
+            self.inner(&from, &format!("{path}.from"))?;
+            outputs.push(BlockOutput { name: pname, from });
+        }
+        Ok(outputs)
+    }
 }
 
 impl BlockDef {
@@ -1080,11 +1113,11 @@ pub fn parse(v: &Value) -> Result<FlowDef> {
     let top = parse_nodes(m.get("nodes"), "nodes")?;
     // step 8's limits, taken here already: nothing is expanded beyond them
     if top.len() > MAX_NODES {
-        return Err(DefError::nodes("nodes", top.len()));
+        return Err(DefError::too_many_nodes("nodes", top.len()));
     }
     let top_edges = parse_edges(m.get("edges"), "edges")?;
     if top_edges.len() > MAX_EDGES {
-        return Err(DefError::edges("edges", top_edges.len()));
+        return Err(DefError::too_many_edges("edges", top_edges.len()));
     }
     let mut x = Expander {
         blocks: &blocks,
@@ -1121,6 +1154,25 @@ pub fn parse(v: &Value) -> Result<FlowDef> {
             (nid, NodeDef { ty, cfg, hash })
         })
         .collect();
+    let policy = parse_policy(m)?;
+    let maxperm = parse_permissions(m)?;
+    Ok(FlowDef {
+        id,
+        version,
+        enabled,
+        description,
+        nodes,
+        edges,
+        edge_at,
+        instances,
+        policy,
+        maxperm,
+        raw: v.clone(),
+    })
+}
+
+/// `policy` (spec 06): how a flow queues samples, flushes its state and restarts.
+fn parse_policy(m: &Map) -> Result<Policy> {
     let mut policy = Policy::default();
     if let Some(pv) = m.get("policy") {
         let pm = as_map(pv, "policy")?;
@@ -1153,6 +1205,11 @@ pub fn parse(v: &Value) -> Result<FlowDef> {
             }
         }
     }
+    Ok(policy)
+}
+
+/// `permissions` (spec 06): the most a flow may do, never more than `write`.
+fn parse_permissions(m: &Map) -> Result<Perm> {
     let mut maxperm = Perm::Read;
     if let Some(pv) = m.get("permissions") {
         let pm = as_map(pv, "permissions")?;
@@ -1170,19 +1227,7 @@ pub fn parse(v: &Value) -> Result<FlowDef> {
             }
         }
     }
-    Ok(FlowDef {
-        id,
-        version,
-        enabled,
-        description,
-        nodes,
-        edges,
-        edge_at,
-        instances,
-        policy,
-        maxperm,
-        raw: v.clone(),
-    })
+    Ok(maxperm)
 }
 
 /// Steps 2–8. Returns the port map of every node.
@@ -1315,7 +1360,7 @@ pub fn check(def: &FlowDef) -> Result<BTreeMap<String, Ports>> {
     }
     // 8. memory limits
     if def.nodes.len() > MAX_NODES {
-        return Err(DefError::nodes("nodes", def.nodes.len()));
+        return Err(DefError::too_many_nodes("nodes", def.nodes.len()));
     }
     let samples: u64 = def
         .nodes
