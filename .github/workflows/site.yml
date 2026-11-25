@@ -1,6 +1,7 @@
 name: site
-# The home site https://wyrm.gencto.uk, built from docs/, spec/ and
-# links/official.json by tool/site/build.py and mdBook (site/README.md).
+# The home site https://wyrm.gencto.uk (site/README.md): the designed pages
+# `/` and `/install/` from the templates in site/, and the docs `/docs/` from
+# docs/, spec/ and links/official.json, built by tool/site/build.py and mdBook.
 # A pull request builds and checks it; a push to main also deploys it.
 on:
   push:
@@ -9,6 +10,9 @@ on:
       - "docs/**"
       - "spec/**"
       - "links/official.json"
+      # facts the designed pages show: versions and the number of link crates
+      - "Cargo.toml"
+      - "links/*/Cargo.toml"
       - "site/**"
       - "tool/site/**"
       - "README*"
@@ -18,6 +22,9 @@ on:
       - "docs/**"
       - "spec/**"
       - "links/official.json"
+      # facts the designed pages show: versions and the number of link crates
+      - "Cargo.toml"
+      - "links/*/Cargo.toml"
       - "site/**"
       - "tool/site/**"
       - "README*"
@@ -51,15 +58,19 @@ jobs:
           tar -xzf mdbook.tar.gz -C "$RUNNER_TEMP/bin"
           rm mdbook.tar.gz
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
-      - name: Generate site/src
+      # site/dist: the designed pages, /assets, CNAME, 404.html; and site/src
+      - name: Generate the pages and the docs source
         run: python3 tool/site/build.py
-      - name: Build
+      # site/dist/docs
+      - name: Build the docs
         run: mdbook build site
-      - name: Check links
-        run: python3 tool/site/build.py --check site/book
+      - name: Check the site
+        run: python3 tool/site/build.py --check site/dist
+      - name: List the site root
+        run: ls -la site/dist && du -sh site/dist
       - if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
-        with: { path: site/book }
+        with: { path: site/dist }
   deploy:
     if: github.event_name != 'pull_request'
     needs: build
