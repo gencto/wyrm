@@ -1157,43 +1157,7 @@ impl Admin {
             });
         }
         let from = format!("{}@{} of {}", r.def.id, r.manifest.site, r.manifest.created);
-        if let Some(old) = &existing {
-            if old.origin == Origin::Config {
-                return Err(RestoreError::ConfigLink(id));
-            }
-            if old.driver != r.def.driver || old.mode != r.def.mode {
-                return Err(RestoreError::OtherLink {
-                    id,
-                    here: old.driver.clone(),
-                    here_mode: old.mode,
-                    backup: r.def.driver.clone(),
-                    backup_mode: r.def.mode,
-                });
-            }
-        }
-        // The definition of the backup is checked as a new link's is, before
-        // anything is stopped or written: params (no secret in them, the
-        // driver takes them), every grant (`check_grant`), the id.
-        let params = decode_params(&r.def.params);
-        crate::secrets::lint_params(&params, "params").map_err(RestoreError::Params)?;
-        if r.def.driver == AGENT_DRIVER {
-            check_agent_refs(&params).map_err(RestoreError::AgentRefs)?;
-        }
-        let packaged = r.def.driver.starts_with(packages::DRIVER_PREFIX);
-        if r.def.mode != Mode::External && !packaged {
-            if !ctl.host.drivers().contains(&r.def.driver.as_str()) {
-                return Err(RestoreError::NoDriver(r.def.driver.clone()));
-            }
-            ctl.host
-                .validate(&r.def.driver, &params)
-                .map_err(RestoreError::DriverParams)?;
-        }
-        for g in &r.def.grants {
-            crate::registry::check_grant(&g.path, g.perm).map_err(RestoreError::Grant)?;
-        }
-        if ctl.peers().downstream.contains(&id) || ctl.cfg.operators.contains(&id) {
-            return Err(RestoreError::IdTaken(id));
-        }
+        let params = self.check_restored(&r, &id, existing.as_ref())?;
         // Review AI-3 holds for a restore as for an edit: when the backup's params move an
         // existing agent link to another `api_base` or `api_key_ref`, its API key does not
         // stay. The old secrets go before the backup's are placed (those are added to what
@@ -1212,69 +1176,14 @@ impl Admin {
         };
         match &existing {
             Some(old) => {
-                // a way back first (ADR 0048 §3.5): a restore point like the
-                // one of a package update, listed and pruned with them. The
-                // link was not asked for its keys: a restore has no health
-                // check.
-                let (package, version) = match old.driver.strip_prefix(packages::DRIVER_PREFIX) {
-                    Some(name) => (
-                        name.to_owned(),
-                        ctl.registry()
-                            .packages
-                            .get(name)
-                            .map(|p| p.version.clone())
-                            .unwrap_or_default(),
-                    ),
-                    None => (String::new(), String::new()),
-                };
-                let point = self
-                    .take_restore_point(&id, &package, &version, None, sub)
-                    .await
-                    .map_err(RestoreError::RestorePoint)?;
-                message.push_str(&format!("restore point {}; ", point.id));
-                if old.mode != Mode::External {
-                    self.stop_link(&id, sub).await.map_err(RestoreError::Stop)?;
-                }
-                if !agent_keys.is_empty() {
-                    let dropped = ctl.drop_agent_key_on_new_base(
-                        &id,
-                        &decode_params(&old.params),
-                        &params,
-                        sub,
-                    );
-                    if let Err(e) = dropped {
-                        // nothing was replaced: the link runs again as it was, key and all
-                        if old.mode != Mode::External {
-                            if let Err(s) = self.start_link(&id, sub).await {
-                                warn!(link = %id, "not started again after a refused restore: {}", s.message);
-                            }
-                        }
-                        return Err(RestoreError::AgentKey(e));
-                    }
-                }
+                let made = self
+                    .make_way_for_restore(&id, old, &params, &agent_keys, sub)
+                    .await?;
+                message.push_str(&made);
             }
             None => {
-                let reply = self
-                    .install_link(
-                        id.clone(),
-                        r.def.driver.clone(),
-                        Some(r.def.mode),
-                        params,
-                        sub,
-                    )
-                    .await
-                    .map_err(RestoreError::Install)?;
-                if let Some(Value::Map(m)) = reply {
-                    // an external link: its token is shown once, here
-                    if let Some(Value::Str(t)) = m.get("token") {
-                        message.push_str(&format!("token {t}; "));
-                    }
-                }
-                if r.def.mode != Mode::External && r.has_data {
-                    if let Err(e) = self.stop_link(&id, sub).await {
-                        return Err(self.take_back(&id, RestoreError::Stop(e), sub).await);
-                    }
-                }
+                let made = self.install_for_restore(&id, &r, params, sub).await?;
+                message.push_str(&made);
             }
         }
         // From here a new link is installed: every failure below takes it
@@ -1368,6 +1277,145 @@ impl Admin {
             Ok(0) => {}
             Ok(n) => message.push_str(&format!("; {n} history rows")),
             Err(e) => message.push_str(&format!("; history not restored: {e}")),
+        }
+        Ok(message)
+    }
+
+    /// The definition of the backup `r`, to be link `id` (`existing` when
+    /// there is one), checked as a new link's is, before anything is
+    /// stopped or written: the same driver and mode as the link it replaces,
+    /// params (no secret in them, the driver takes them), every grant
+    /// (`check_grant`), the id. Returns its params.
+    fn check_restored(
+        &self,
+        r: &LinkRestore,
+        id: &String,
+        existing: Option<&LinkDef>,
+    ) -> Result<Value, RestoreError> {
+        let ctl = &self.ctl;
+        if let Some(old) = existing {
+            if old.origin == Origin::Config {
+                return Err(RestoreError::ConfigLink(id.clone()));
+            }
+            if old.driver != r.def.driver || old.mode != r.def.mode {
+                return Err(RestoreError::OtherLink {
+                    id: id.clone(),
+                    here: old.driver.clone(),
+                    here_mode: old.mode,
+                    backup: r.def.driver.clone(),
+                    backup_mode: r.def.mode,
+                });
+            }
+        }
+        // The definition of the backup is checked as a new link's is, before
+        // anything is stopped or written: params (no secret in them, the
+        // driver takes them), every grant (`check_grant`), the id.
+        let params = decode_params(&r.def.params);
+        crate::secrets::lint_params(&params, "params").map_err(RestoreError::Params)?;
+        if r.def.driver == AGENT_DRIVER {
+            check_agent_refs(&params).map_err(RestoreError::AgentRefs)?;
+        }
+        let packaged = r.def.driver.starts_with(packages::DRIVER_PREFIX);
+        if r.def.mode != Mode::External && !packaged {
+            if !ctl.host.drivers().contains(&r.def.driver.as_str()) {
+                return Err(RestoreError::NoDriver(r.def.driver.clone()));
+            }
+            ctl.host
+                .validate(&r.def.driver, &params)
+                .map_err(RestoreError::DriverParams)?;
+        }
+        for g in &r.def.grants {
+            crate::registry::check_grant(&g.path, g.perm).map_err(RestoreError::Grant)?;
+        }
+        if ctl.peers().downstream.contains(id) || ctl.cfg.operators.contains(id) {
+            return Err(RestoreError::IdTaken(id.clone()));
+        }
+        Ok(params)
+    }
+
+    /// Before the existing link `old` (`id`) is replaced from a backup with
+    /// `params`: its restore point, then the link stops, and an agent's API
+    /// key that does not stay for its new base (`agent_keys`) goes. Returns
+    /// what the result says of it.
+    async fn make_way_for_restore(
+        &self,
+        id: &str,
+        old: &LinkDef,
+        params: &Value,
+        agent_keys: &[String],
+        sub: &str,
+    ) -> Result<String, RestoreError> {
+        let ctl = &self.ctl;
+        // a way back first (ADR 0048 §3.5): a restore point like the
+        // one of a package update, listed and pruned with them. The
+        // link was not asked for its keys: a restore has no health
+        // check.
+        let (package, version) = match old.driver.strip_prefix(packages::DRIVER_PREFIX) {
+            Some(name) => (
+                name.to_owned(),
+                ctl.registry()
+                    .packages
+                    .get(name)
+                    .map(|p| p.version.clone())
+                    .unwrap_or_default(),
+            ),
+            None => (String::new(), String::new()),
+        };
+        let point = self
+            .take_restore_point(id, &package, &version, None, sub)
+            .await
+            .map_err(RestoreError::RestorePoint)?;
+        if old.mode != Mode::External {
+            self.stop_link(id, sub).await.map_err(RestoreError::Stop)?;
+        }
+        if !agent_keys.is_empty() {
+            let dropped =
+                ctl.drop_agent_key_on_new_base(id, &decode_params(&old.params), params, sub);
+            if let Err(e) = dropped {
+                // nothing was replaced: the link runs again as it was, key and all
+                if old.mode != Mode::External {
+                    if let Err(s) = self.start_link(id, sub).await {
+                        warn!(link = %id, "not started again after a refused restore: {}", s.message);
+                    }
+                }
+                return Err(RestoreError::AgentKey(e));
+            }
+        }
+        Ok(format!("restore point {}; ", point.id))
+    }
+
+    /// The new link `id` of the backup `r`, installed with `params` and,
+    /// when its data comes from the backup, stopped for it (taken back when
+    /// it does not stop). Returns what the result says of it: an external
+    /// link's token, shown once, here.
+    async fn install_for_restore(
+        &self,
+        id: &str,
+        r: &LinkRestore,
+        params: Value,
+        sub: &str,
+    ) -> Result<String, RestoreError> {
+        let mut message = String::new();
+        let reply = self
+            .install_link(
+                id.to_owned(),
+                r.def.driver.clone(),
+                Some(r.def.mode),
+                params,
+                sub,
+            )
+            .await
+            .map_err(RestoreError::Install)?;
+        if let Some(Value::Map(m)) = reply {
+            // an external link: its token is shown once, here
+            if let Some(Value::Str(t)) = m.get("token") {
+                message.push_str(&format!("token {t}; "));
+            }
+        }
+        if r.def.mode != Mode::External && r.has_data {
+            if let Err(e) = self.stop_link(id, sub).await {
+                return Err(self.take_back(id, RestoreError::Stop(e), sub).await);
+            }
         }
         Ok(message)
     }

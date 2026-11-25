@@ -1214,6 +1214,610 @@ fn renamed_keys(op: &Op) -> Option<Op> {
     }
 }
 
+/// The steps of [`wyrm_state::State::apply`] that check more than one thing:
+/// one per op, each with the op's own refusals in the order `apply` had them.
+impl Registry {
+    /// `Op::Install`: a new link under an id that no peer, retired link or
+    /// installed link has.
+    fn install_link(&mut self, def: &LinkDef) -> Result<(), String> {
+        validate_link_id(&def.id)?;
+        if self
+            .peers
+            .get(&def.id)
+            .is_some_and(|p| p.dir == PeerDir::Downstream)
+        {
+            return Err(format!("{} is a downstream site", def.id));
+        }
+        if self.retired.contains(&def.id) {
+            return Err(format!(
+                "link id {} was removed before; its certificate may still be valid, choose a new id",
+                def.id
+            ));
+        }
+        if self.links.contains_key(&def.id) {
+            return Err(format!("link {} already installed", def.id));
+        }
+        if def.mode.is_remote() && def.token_hash.is_empty() {
+            return Err(format!("{} link needs a token", def.mode.name()));
+        }
+        if let Some(p) = def.driver.strip_prefix("pkg:") {
+            if !self.packages.contains_key(p) {
+                return Err(format!("no package {p}"));
+            }
+        }
+        self.quarantine.remove(&def.id);
+        self.held.remove(&def.id);
+        self.links.insert(def.id.clone(), def.clone());
+        Ok(())
+    }
+
+    /// `Op::Remove`: the link, its params history and its sinks; an id that
+    /// had a certificate is retired.
+    fn remove_link(&mut self, id: &str) -> Result<(), String> {
+        self.history.remove(id);
+        // its sinks read for a link that is gone
+        self.historian.sinks.retain(|_, s| s.link != *id);
+        let def = self
+            .links
+            .remove(id)
+            .ok_or_else(|| format!("no link {id}"))?;
+        // A token hash exists iff the link was ever remote, i.e. a
+        // certificate was issued (Update to embedded keeps it).
+        if def.mode.is_remote() || !def.token_hash.is_empty() {
+            self.retired.insert(id.to_owned());
+        }
+        Ok(())
+    }
+
+    /// `Op::Update`: new mode and params; the replaced params go to the
+    /// link's history.
+    fn update_link(&mut self, id: &str, mode: Mode, params: &Vec<u8>) -> Result<(), String> {
+        let def = self
+            .links
+            .get_mut(id)
+            .ok_or_else(|| format!("no link {id}"))?;
+        if mode.is_remote() && def.token_hash.is_empty() {
+            return Err(format!("{} link needs a token", mode.name()));
+        }
+        let h = self.history.entry(id.to_owned()).or_default();
+        h.push((def.rev, def.params.clone()));
+        if h.len() > LINK_HISTORY {
+            h.remove(0);
+        }
+        def.mode = mode;
+        def.params.clone_from(params);
+        def.rev += 1;
+        Ok(())
+    }
+
+    /// `Op::Quarantine`: an unknown CN seen once more.
+    fn quarantine_seen(&mut self, cn: &str, seen: u64) -> Result<(), String> {
+        match broker_site(cn) {
+            Some(site) if self.peers.contains_key(site) => {
+                return Err(format!("{site} is a peer"));
+            }
+            Some(_) => {}
+            None => validate_link_id(cn)?,
+        }
+        if self.links.contains_key(cn) || self.blocklist.contains(cn) || self.retired.contains(cn) {
+            return Err(format!("{cn} is known"));
+        }
+        let e = self
+            .quarantine
+            .entry(cn.to_owned())
+            .or_insert(QuarantineEntry {
+                first_seen: seen,
+                ..Default::default()
+            });
+        e.last_seen = seen;
+        e.attempts += 1;
+        Ok(())
+    }
+
+    /// `Op::Reject`: out of quarantine onto the blocklist.
+    fn reject(&mut self, cn: &str) -> Result<(), String> {
+        self.quarantine
+            .remove(cn)
+            .ok_or_else(|| format!("{cn} is not in quarantine"))?;
+        self.held.remove(cn);
+        if let Some(site) = broker_site(cn) {
+            self.enrollments.remove(site);
+        }
+        self.blocklist.insert(cn.to_owned());
+        Ok(())
+    }
+
+    /// `Op::SetLinkGrant`: one grant of a link set, or taken away by `none`.
+    fn set_link_grant(&mut self, id: &str, path: &str, level: u8) -> Result<(), String> {
+        let level = wyrm_core::Perm::try_from(level).map_err(|c| format!("bad level code {c}"))?;
+        let def = self
+            .links
+            .get_mut(id)
+            .ok_or_else(|| format!("no link {id}"))?;
+        def.grants.retain(|g| g.path != path);
+        if level != wyrm_core::Perm::None {
+            check_grant(path, level).map_err(|e| e.to_string())?;
+            def.grants.push(LinkGrant::new(path.to_owned(), level));
+            def.grants.sort();
+        }
+        Ok(())
+    }
+
+    /// `Op::PutWatchGroup`: a new watch group, or new settings of one.
+    fn put_watch_group(
+        &mut self,
+        name: &str,
+        logging: u8,
+        interval_ms: u64,
+        flush_ms: u64,
+    ) -> Result<(), String> {
+        validate_segment(name).map_err(|e| format!("group: {e}"))?;
+        if name.starts_with('.') || name.starts_with('~') {
+            return Err(format!("group {name:?}: starts with a letter or digit"));
+        }
+        if wyrm_history::Logging::try_from(logging).is_err() {
+            return Err(format!("logging code {logging}?"));
+        }
+        if !INTERVAL_MS.contains(&interval_ms) || !FLUSH_MS.contains(&flush_ms) {
+            return Err(format!(
+                "interval {interval_ms} ms (100 ms to 1 day), flush {flush_ms} ms (100 ms to 10 min)"
+            ));
+        }
+        let h = &mut self.historian;
+        if !h.groups.contains_key(name) && h.groups.len() >= MAX_WATCH_GROUPS {
+            return Err(format!("at most {MAX_WATCH_GROUPS} watch groups"));
+        }
+        let g = h.groups.entry(name.to_owned()).or_insert(WatchGroupDef {
+            logging,
+            interval_ms,
+            flush_ms,
+            watches: BTreeMap::new(),
+        });
+        g.logging = logging;
+        g.interval_ms = interval_ms;
+        g.flush_ms = flush_ms;
+        Ok(())
+    }
+
+    /// `Op::PutSink`: a history sink of a link over existing watch groups.
+    fn put_sink(&mut self, name: &str, link: &str, groups: &[String]) -> Result<(), String> {
+        validate_segment(name).map_err(|e| format!("sink: {e}"))?;
+        if name.starts_with('.') || name.starts_with('~') {
+            return Err(format!("sink {name:?}: starts with a letter or digit"));
+        }
+        if !self.links.contains_key(link) {
+            return Err(format!("no link {link}"));
+        }
+        let h = &mut self.historian;
+        if let Some(g) = groups.iter().find(|g| !h.groups.contains_key(*g)) {
+            return Err(format!("no watch group {g}"));
+        }
+        if !h.sinks.contains_key(name) && h.sinks.len() >= MAX_SINKS {
+            return Err(format!("at most {MAX_SINKS} sinks"));
+        }
+        let mut groups = groups.to_vec();
+        groups.sort();
+        groups.dedup();
+        h.sinks.insert(
+            name.to_owned(),
+            SinkDef {
+                link: link.to_owned(),
+                groups,
+            },
+        );
+        Ok(())
+    }
+
+    /// `Op::SetWatchKey`: a watch follows another key, which no other watch
+    /// of its group follows.
+    fn set_watch_key(&mut self, group: &str, id: &str, key: &str) -> Result<(), String> {
+        check_watch_key(key).map_err(|e| e.to_string())?;
+        let g = self
+            .historian
+            .groups
+            .get_mut(group)
+            .ok_or_else(|| format!("no watch group {group}"))?;
+        if g.watches.iter().any(|(i, w)| i != id && w.key == *key) {
+            return Err(format!("{key} is watched in {group}"));
+        }
+        g.watches
+            .get_mut(id)
+            .ok_or_else(|| format!("no watch {group}/{id}"))?
+            .key = key.to_owned();
+        Ok(())
+    }
+
+    /// `Op::AddWatch`: a new watch `w<n>` of a group, within the bound of
+    /// all watches.
+    fn add_watch(&mut self, group: &str, key: &str) -> Result<(), String> {
+        check_watch_key(key).map_err(|e| e.to_string())?;
+        let total: usize = self
+            .historian
+            .groups
+            .values()
+            .map(|g| g.watches.len())
+            .sum();
+        if total >= MAX_WATCHES {
+            return Err(format!("at most {MAX_WATCHES} watches"));
+        }
+        let g = self
+            .historian
+            .groups
+            .get_mut(group)
+            .ok_or_else(|| format!("no watch group {group}"))?;
+        if g.watches.values().any(|w| w.key == *key) {
+            return Err(format!("{key} is watched in {group}"));
+        }
+        let next = g
+            .watches
+            .keys()
+            .filter_map(|id| id.strip_prefix('w')?.parse::<u32>().ok())
+            .max()
+            .unwrap_or(0)
+            + 1;
+        g.watches.insert(
+            format!("w{next}"),
+            WatchDef {
+                key: key.to_owned(),
+                enabled: true,
+            },
+        );
+        Ok(())
+    }
+
+    /// `Op::Deauthorize`: an external link installed at runtime goes back
+    /// to quarantine, held.
+    fn deauthorize(&mut self, id: &str, seen: u64) -> Result<(), String> {
+        let def = self.links.get(id).ok_or_else(|| format!("no link {id}"))?;
+        if def.mode != Mode::External || def.origin != Origin::Runtime {
+            return Err(format!(
+                "{id} is not an authorized external link (installed at runtime)"
+            ));
+        }
+        self.links.remove(id);
+        self.history.remove(id);
+        // a link that is no longer admitted reads no history
+        self.historian.sinks.retain(|_, s| s.link != *id);
+        self.quarantine.insert(
+            id.to_owned(),
+            QuarantineEntry {
+                first_seen: seen,
+                last_seen: seen,
+                attempts: 0,
+            },
+        );
+        self.held.insert(id.to_owned());
+        Ok(())
+    }
+
+    /// `Op::RemoveProfile`: a stored profile that no other one extends.
+    fn remove_profile(&mut self, name: &str) -> Result<(), String> {
+        if !self.profiles.contains_key(name) {
+            return Err(format!("no profile {name}"));
+        }
+        let child = self.profiles.iter().find(|(n, b)| {
+            *n != name
+                && wyrm_core::codec::from_slice::<ProfileDef>(b)
+                    .is_ok_and(|p| p.extends.as_deref() == Some(name))
+        });
+        if let Some((c, _)) = child {
+            return Err(format!("profile {c} extends {name}"));
+        }
+        self.profiles.remove(name);
+        Ok(())
+    }
+
+    /// Why `via` cannot be the sites that `site` relays: a name that is no
+    /// segment, `site` itself, a peer site, a site another peer relays, or
+    /// one named twice; checked name by name.
+    fn check_via(&self, site: &str, via: &[String]) -> Result<(), String> {
+        for v in via {
+            validate_segment(v).map_err(|e| format!("via: {e}"))?;
+            let taken = v == site
+                || self
+                    .peers
+                    .values()
+                    .any(|p| p.site == *v || p.via.contains(v))
+                || via.iter().filter(|x| *x == v).count() > 1;
+            if taken {
+                return Err(format!("via {v}: already a peer site or relayed"));
+            }
+        }
+        Ok(())
+    }
+
+    /// `Op::AddPeer`: an upstream with an endpoint, or a downstream without
+    /// one that may relay sites.
+    fn add_peer(&mut self, def: &PeerDef) -> Result<(), String> {
+        validate_segment(&def.site).map_err(|e| format!("site: {e}"))?;
+        if self.peers.contains_key(&def.site) {
+            return Err(format!("peer {} exists", def.site));
+        }
+        if self.peers.values().any(|p| p.via.contains(&def.site)) {
+            return Err(format!("{} is relayed by another peer", def.site));
+        }
+        if def.dir == PeerDir::Downstream && self.links.contains_key(&def.site) {
+            return Err(format!(
+                "{} is a link id (downstream/{} would be both)",
+                def.site, def.site
+            ));
+        }
+        let reach = !def.endpoint.is_empty() || !def.enroll.is_empty();
+        if (def.dir == PeerDir::Upstream) != reach {
+            return Err("an upstream peer needs an endpoint, a downstream one none".into());
+        }
+        if def.dir == PeerDir::Upstream && !def.via.is_empty() {
+            return Err("only a downstream peer relays sites".into());
+        }
+        // its certificate would match this upstream's ACL subject
+        if def.dir == PeerDir::Upstream && self.issued_brokers.contains(&def.site) {
+            return Err(format!(
+                "{} was a downstream broker of ours (its certificate stays valid)",
+                def.site
+            ));
+        }
+        self.check_via(&def.site, &def.via)?;
+        self.peers.insert(def.site.clone(), def.clone());
+        Ok(())
+    }
+
+    /// `Op::HoldBroker`: a downstream broker goes back to quarantine, held,
+    /// with what Authorize gives back.
+    fn hold_broker(&mut self, site: &str, seen: u64) -> Result<(), String> {
+        let def = match self.peers.get(site) {
+            Some(p) if p.dir == PeerDir::Downstream => p.clone(),
+            _ => return Err(format!("{site} is not a runtime downstream broker")),
+        };
+        self.peers.remove(site);
+        // what Authorize gives back: the same key and certificate
+        self.enrollments.insert(
+            site.to_owned(),
+            Enrollment {
+                key_sha256: def.key_sha256,
+                via: def.via,
+                cert_pem: def.cert_pem,
+                ..Default::default()
+            },
+        );
+        let cn = broker_cn(site);
+        self.quarantine.insert(
+            cn.clone(),
+            QuarantineEntry {
+                first_seen: seen,
+                last_seen: seen,
+                attempts: 0,
+            },
+        );
+        self.held.insert(cn);
+        Ok(())
+    }
+
+    /// `Op::EnrollRequest`: a downstream broker's request waits; another key
+    /// for the same name is counted as a conflict.
+    fn enroll_request(
+        &mut self,
+        site: &str,
+        csr_pem: &str,
+        key_sha256: &str,
+        via: &[String],
+        seen: u64,
+    ) -> Result<(), String> {
+        validate_segment(site).map_err(|e| format!("site: {e}"))?;
+        let cn = broker_cn(site);
+        if self.peers.contains_key(site) {
+            return Err(format!("{site} is a peer"));
+        }
+        if self.blocklist.contains(&cn) || self.links.contains_key(site) {
+            return Err(format!("{site} is refused here"));
+        }
+        if !self.enrollments.contains_key(site) && self.enrollments.len() >= MAX_ENROLLMENTS {
+            return Err(format!("at most {MAX_ENROLLMENTS} brokers wait"));
+        }
+        let e = self.enrollments.entry(site.to_owned()).or_default();
+        if e.key_sha256.is_empty() || e.key_sha256 == *key_sha256 {
+            e.key_sha256 = key_sha256.to_owned();
+            e.csr_pem = csr_pem.to_owned();
+            e.via = via.to_vec();
+        } else {
+            e.conflicts += 1;
+        }
+        let q = self.quarantine.entry(cn).or_insert(QuarantineEntry {
+            first_seen: seen,
+            ..Default::default()
+        });
+        q.last_seen = seen;
+        q.attempts += 1;
+        Ok(())
+    }
+
+    /// `Op::AdmitBroker`: a downstream broker becomes a peer with the sites
+    /// it relays.
+    fn admit_broker(
+        &mut self,
+        site: &str,
+        via: &[String],
+        key_sha256: &str,
+        cert_pem: &str,
+        seen: u64,
+    ) -> Result<(), String> {
+        validate_segment(site).map_err(|e| format!("site: {e}"))?;
+        if self.peers.contains_key(site) || self.links.contains_key(site) {
+            return Err(format!("{site} is a peer or a link"));
+        }
+        self.check_via(site, via)?;
+        let cn = broker_cn(site);
+        self.quarantine.remove(&cn);
+        self.held.remove(&cn);
+        self.enrollments.remove(site);
+        self.issued_brokers.insert(site.to_owned());
+        self.peers.insert(
+            site.to_owned(),
+            PeerDef {
+                site: site.to_owned(),
+                dir: PeerDir::Downstream,
+                endpoint: String::new(),
+                ca_pem: String::new(),
+                enabled: true,
+                created: seen,
+                via: via.to_vec(),
+                cert_pem: cert_pem.to_owned(),
+                enroll: String::new(),
+                key_sha256: key_sha256.to_owned(),
+                allow_config: false,
+            },
+        );
+        Ok(())
+    }
+
+    /// `Op::UseToken`: one use of a token; its last use removes it.
+    fn use_token(&mut self, id: &str) -> Result<(), String> {
+        let t = self
+            .tokens
+            .get_mut(id)
+            .ok_or_else(|| format!("no token {id}"))?;
+        match t.uses {
+            0 => {}
+            1 => {
+                self.tokens.remove(id);
+            }
+            _ => t.uses -= 1,
+        }
+        Ok(())
+    }
+
+    /// `Op::DropEnrollment`: a waiting broker that is not held is forgotten.
+    fn drop_enrollment(&mut self, site: &str) -> Result<(), String> {
+        let cn = broker_cn(site);
+        if self.held.contains(&cn) {
+            return Err(format!("{site} is held"));
+        }
+        self.enrollments
+            .remove(site)
+            .ok_or_else(|| format!("{site} does not wait"))?;
+        self.quarantine.remove(&cn);
+        Ok(())
+    }
+
+    /// `Op::SetSigners`: the keys an upstream signs with, and those of them
+    /// that reach `config`; an empty list removes its entry.
+    fn set_signers(
+        &mut self,
+        upstream: &str,
+        keys: &BTreeMap<String, Vec<String>>,
+        config: &BTreeMap<String, Vec<String>>,
+    ) -> Result<(), String> {
+        validate_segment(upstream).map_err(|e| format!("upstream: {e}"))?;
+        check_signers(keys).map_err(|e| e.to_string())?;
+        check_signers(config).map_err(|e| e.to_string())?;
+        for (map, v) in [
+            (&mut self.signers, keys),
+            (&mut self.config_signers, config),
+        ] {
+            if v.is_empty() {
+                map.remove(upstream);
+            } else {
+                map.insert(upstream.to_owned(), v.clone());
+            }
+        }
+        Ok(())
+    }
+
+    /// `Op::SetLogLevel`: the broker's level (`None` link) or a link's.
+    fn set_log_level(&mut self, link: Option<&str>, level: Option<LogLevel>) -> Result<(), String> {
+        match link {
+            None => self.log_level = level,
+            Some(id) => {
+                self.links
+                    .get_mut(id)
+                    .ok_or_else(|| format!("no link {id}"))?
+                    .log_level = level;
+            }
+        }
+        Ok(())
+    }
+
+    /// `Op::RemovePackage`: a package that no link runs.
+    fn remove_package(&mut self, name: &str) -> Result<(), String> {
+        let driver = format!("pkg:{name}");
+        if let Some(l) = self.links.values().find(|l| l.driver == driver) {
+            return Err(format!("link {} runs package {name}", l.id));
+        }
+        self.packages
+            .remove(name)
+            .ok_or_else(|| format!("no package {name}"))?;
+        Ok(())
+    }
+
+    /// `Op::PutProfile`: a profile that decodes and passes its checks.
+    fn put_profile(&mut self, name: &str, cbor: &[u8]) -> Result<(), String> {
+        let def: ProfileDef =
+            wyrm_core::codec::from_slice(cbor).map_err(|e| format!("profile {name}: {e}"))?;
+        self.check_profile(name, &def)?;
+        self.profiles.insert(name.to_owned(), cbor.to_vec());
+        Ok(())
+    }
+
+    /// `Op::IssueBroker`: a site our CA issued a broker certificate for;
+    /// never an upstream site.
+    fn issue_broker(&mut self, site: &str) -> Result<(), String> {
+        validate_segment(site).map_err(|e| format!("site: {e}"))?;
+        if self
+            .peers
+            .get(site)
+            .is_some_and(|p| p.dir == PeerDir::Upstream)
+        {
+            return Err(format!("{site} is an upstream site"));
+        }
+        self.issued_brokers.insert(site.to_owned());
+        Ok(())
+    }
+
+    /// `Op::RenewBroker`: a downstream peer's new certificate.
+    fn renew_broker(&mut self, site: &str, cert_pem: &str) -> Result<(), String> {
+        let p = self
+            .peers
+            .get_mut(site)
+            .filter(|p| p.dir == PeerDir::Downstream)
+            .ok_or_else(|| format!("no downstream peer {site}"))?;
+        p.cert_pem = cert_pem.to_owned();
+        Ok(())
+    }
+
+    /// `Op::SetPeerCert`: an upstream peer's endpoint and our certificate
+    /// from it.
+    fn set_peer_cert(&mut self, site: &str, endpoint: &str, cert_pem: &str) -> Result<(), String> {
+        let p = self
+            .peers
+            .get_mut(site)
+            .filter(|p| p.dir == PeerDir::Upstream)
+            .ok_or_else(|| format!("no upstream peer {site}"))?;
+        p.endpoint = endpoint.to_owned();
+        p.cert_pem = cert_pem.to_owned();
+        Ok(())
+    }
+
+    /// `Op::SetPeerAllowConfig`: whether an upstream peer reaches `config`.
+    fn set_peer_allow_config(&mut self, site: &str, on: bool) -> Result<(), String> {
+        let p = self
+            .peers
+            .get_mut(site)
+            .filter(|p| p.dir == PeerDir::Upstream)
+            .ok_or_else(|| format!("no upstream peer {site}"))?;
+        p.allow_config = on;
+        Ok(())
+    }
+
+    /// `Op::AddToken`: a new admission token under an id no token has.
+    fn add_token(&mut self, id: &str, def: &TokenDef) -> Result<(), String> {
+        validate_segment(id).map_err(|e| format!("token id: {e}"))?;
+        if self.tokens.contains_key(id) {
+            return Err(format!("token {id} exists"));
+        }
+        self.tokens.insert(id.to_owned(), def.clone());
+        Ok(())
+    }
+}
+
 impl wyrm_state::State for Registry {
     // 14: keys renamed by spec 0.2.0 (snapshots rebuilt through `renamed_keys`);
     // 15: `PeerDef::cert_pem`; 16: enrollments and tokens (ADR 0015);
@@ -1226,260 +1830,52 @@ impl wyrm_state::State for Registry {
     fn apply(&mut self, op: &Op) -> Result<(), String> {
         let renamed = renamed_keys(op);
         match renamed.as_ref().unwrap_or(op) {
-            Op::Install(def) => {
-                validate_link_id(&def.id)?;
-                if self
-                    .peers
-                    .get(&def.id)
-                    .is_some_and(|p| p.dir == PeerDir::Downstream)
-                {
-                    return Err(format!("{} is a downstream site", def.id));
-                }
-                if self.retired.contains(&def.id) {
-                    return Err(format!(
-                        "link id {} was removed before; its certificate may still be valid, choose a new id",
-                        def.id
-                    ));
-                }
-                if self.links.contains_key(&def.id) {
-                    return Err(format!("link {} already installed", def.id));
-                }
-                if def.mode.is_remote() && def.token_hash.is_empty() {
-                    return Err(format!("{} link needs a token", def.mode.name()));
-                }
-                if let Some(p) = def.driver.strip_prefix("pkg:") {
-                    if !self.packages.contains_key(p) {
-                        return Err(format!("no package {p}"));
-                    }
-                }
-                self.quarantine.remove(&def.id);
-                self.held.remove(&def.id);
-                self.links.insert(def.id.clone(), def.clone());
-            }
-            Op::Remove(id) => {
-                self.history.remove(id);
-                // its sinks read for a link that is gone
-                self.historian.sinks.retain(|_, s| s.link != *id);
-                let def = self
-                    .links
-                    .remove(id)
-                    .ok_or_else(|| format!("no link {id}"))?;
-                // A token hash exists iff the link was ever remote, i.e. a
-                // certificate was issued (Update to embedded keeps it).
-                if def.mode.is_remote() || !def.token_hash.is_empty() {
-                    self.retired.insert(id.clone());
-                }
-            }
-            Op::Update { id, mode, params } => {
-                let def = self
-                    .links
-                    .get_mut(id)
-                    .ok_or_else(|| format!("no link {id}"))?;
-                if mode.is_remote() && def.token_hash.is_empty() {
-                    return Err(format!("{} link needs a token", mode.name()));
-                }
-                let h = self.history.entry(id.clone()).or_default();
-                h.push((def.rev, def.params.clone()));
-                if h.len() > LINK_HISTORY {
-                    h.remove(0);
-                }
-                def.mode = *mode;
-                def.params.clone_from(params);
-                def.rev += 1;
-            }
+            Op::Install(def) => self.install_link(def)?,
+            Op::Remove(id) => self.remove_link(id)?,
+            Op::Update { id, mode, params } => self.update_link(id, *mode, params)?,
             Op::SetTokenHash { id, hash } => {
                 self.links
                     .get_mut(id)
                     .ok_or_else(|| format!("no link {id}"))?
                     .token_hash = hash.clone();
             }
-            Op::Quarantine { cn, seen } => {
-                match broker_site(cn) {
-                    Some(site) if self.peers.contains_key(site) => {
-                        return Err(format!("{site} is a peer"));
-                    }
-                    Some(_) => {}
-                    None => validate_link_id(cn)?,
-                }
-                if self.links.contains_key(cn)
-                    || self.blocklist.contains(cn)
-                    || self.retired.contains(cn)
-                {
-                    return Err(format!("{cn} is known"));
-                }
-                let e = self
-                    .quarantine
-                    .entry(cn.clone())
-                    .or_insert(QuarantineEntry {
-                        first_seen: *seen,
-                        ..Default::default()
-                    });
-                e.last_seen = *seen;
-                e.attempts += 1;
-            }
+            Op::Quarantine { cn, seen } => self.quarantine_seen(cn, *seen)?,
             Op::Approve(cn) => {
                 self.held.remove(cn);
                 self.quarantine
                     .remove(cn)
                     .ok_or_else(|| format!("{cn} is not in quarantine"))?;
             }
-            Op::Reject(cn) => {
-                self.quarantine
-                    .remove(cn)
-                    .ok_or_else(|| format!("{cn} is not in quarantine"))?;
-                self.held.remove(cn);
-                if let Some(site) = broker_site(cn) {
-                    self.enrollments.remove(site);
-                }
-                self.blocklist.insert(cn.clone());
-            }
-            Op::SetLinkGrant { id, path, level } => {
-                let level =
-                    wyrm_core::Perm::try_from(*level).map_err(|c| format!("bad level code {c}"))?;
-                let def = self
-                    .links
-                    .get_mut(id)
-                    .ok_or_else(|| format!("no link {id}"))?;
-                def.grants.retain(|g| &g.path != path);
-                if level != wyrm_core::Perm::None {
-                    check_grant(path, level).map_err(|e| e.to_string())?;
-                    def.grants.push(LinkGrant::new(path.clone(), level));
-                    def.grants.sort();
-                }
-            }
+            Op::Reject(cn) => self.reject(cn)?,
+            Op::SetLinkGrant { id, path, level } => self.set_link_grant(id, path, *level)?,
             Op::PutWatchGroup {
                 name,
                 logging,
                 interval_ms,
                 flush_ms,
-            } => {
-                validate_segment(name).map_err(|e| format!("group: {e}"))?;
-                if name.starts_with('.') || name.starts_with('~') {
-                    return Err(format!("group {name:?}: starts with a letter or digit"));
-                }
-                if wyrm_history::Logging::try_from(*logging).is_err() {
-                    return Err(format!("logging code {logging}?"));
-                }
-                if !INTERVAL_MS.contains(interval_ms) || !FLUSH_MS.contains(flush_ms) {
-                    return Err(format!(
-                        "interval {interval_ms} ms (100 ms to 1 day), flush {flush_ms} ms (100 ms to 10 min)"
-                    ));
-                }
-                let h = &mut self.historian;
-                if !h.groups.contains_key(name) && h.groups.len() >= MAX_WATCH_GROUPS {
-                    return Err(format!("at most {MAX_WATCH_GROUPS} watch groups"));
-                }
-                let g = h.groups.entry(name.clone()).or_insert(WatchGroupDef {
-                    logging: *logging,
-                    interval_ms: *interval_ms,
-                    flush_ms: *flush_ms,
-                    watches: BTreeMap::new(),
-                });
-                g.logging = *logging;
-                g.interval_ms = *interval_ms;
-                g.flush_ms = *flush_ms;
-            }
+            } => self.put_watch_group(name, *logging, *interval_ms, *flush_ms)?,
             Op::RemoveWatchGroup(name) => {
                 self.historian
                     .groups
                     .remove(name)
                     .ok_or_else(|| format!("no watch group {name}"))?;
             }
-            Op::PutSink { name, link, groups } => {
-                validate_segment(name).map_err(|e| format!("sink: {e}"))?;
-                if name.starts_with('.') || name.starts_with('~') {
-                    return Err(format!("sink {name:?}: starts with a letter or digit"));
-                }
-                if !self.links.contains_key(link) {
-                    return Err(format!("no link {link}"));
-                }
-                let h = &mut self.historian;
-                if let Some(g) = groups.iter().find(|g| !h.groups.contains_key(*g)) {
-                    return Err(format!("no watch group {g}"));
-                }
-                if !h.sinks.contains_key(name) && h.sinks.len() >= MAX_SINKS {
-                    return Err(format!("at most {MAX_SINKS} sinks"));
-                }
-                let mut groups = groups.clone();
-                groups.sort();
-                groups.dedup();
-                h.sinks.insert(
-                    name.clone(),
-                    SinkDef {
-                        link: link.clone(),
-                        groups,
-                    },
-                );
-            }
+            Op::PutSink { name, link, groups } => self.put_sink(name, link, groups)?,
             Op::RemoveSink(name) => {
                 self.historian
                     .sinks
                     .remove(name)
                     .ok_or_else(|| format!("no sink {name}"))?;
             }
-            Op::RenewBroker { site, cert_pem } => {
-                let p = self
-                    .peers
-                    .get_mut(site)
-                    .filter(|p| p.dir == PeerDir::Downstream)
-                    .ok_or_else(|| format!("no downstream peer {site}"))?;
-                p.cert_pem = cert_pem.clone();
-            }
+            Op::RenewBroker { site, cert_pem } => self.renew_broker(site, cert_pem)?,
             Op::SetKeepAfterSync(days) => {
                 if days.is_some_and(|d| d > 36_500) {
                     return Err("keep_after_sync_days: 0 to 36500".into());
                 }
                 self.historian.keep_after_sync_days = *days;
             }
-            Op::SetWatchKey { group, id, key } => {
-                check_watch_key(key).map_err(|e| e.to_string())?;
-                let g = self
-                    .historian
-                    .groups
-                    .get_mut(group)
-                    .ok_or_else(|| format!("no watch group {group}"))?;
-                if g.watches.iter().any(|(i, w)| i != id && w.key == *key) {
-                    return Err(format!("{key} is watched in {group}"));
-                }
-                g.watches
-                    .get_mut(id)
-                    .ok_or_else(|| format!("no watch {group}/{id}"))?
-                    .key = key.clone();
-            }
-            Op::AddWatch { group, key } => {
-                check_watch_key(key).map_err(|e| e.to_string())?;
-                let total: usize = self
-                    .historian
-                    .groups
-                    .values()
-                    .map(|g| g.watches.len())
-                    .sum();
-                if total >= MAX_WATCHES {
-                    return Err(format!("at most {MAX_WATCHES} watches"));
-                }
-                let g = self
-                    .historian
-                    .groups
-                    .get_mut(group)
-                    .ok_or_else(|| format!("no watch group {group}"))?;
-                if g.watches.values().any(|w| w.key == *key) {
-                    return Err(format!("{key} is watched in {group}"));
-                }
-                let next = g
-                    .watches
-                    .keys()
-                    .filter_map(|id| id.strip_prefix('w')?.parse::<u32>().ok())
-                    .max()
-                    .unwrap_or(0)
-                    + 1;
-                g.watches.insert(
-                    format!("w{next}"),
-                    WatchDef {
-                        key: key.clone(),
-                        enabled: true,
-                    },
-                );
-            }
+            Op::SetWatchKey { group, id, key } => self.set_watch_key(group, id, key)?,
+            Op::AddWatch { group, key } => self.add_watch(group, key)?,
             Op::SetWatchEnabled { group, id, on } => {
                 self.historian
                     .groups
@@ -1505,111 +1901,16 @@ impl wyrm_state::State for Registry {
                 h.keep_free_mib = *keep_free_mib;
                 h.retention_days = *retention_days;
             }
-            Op::SetLogLevel { link, level } => match link {
-                None => self.log_level = *level,
-                Some(id) => {
-                    self.links
-                        .get_mut(id)
-                        .ok_or_else(|| format!("no link {id}"))?
-                        .log_level = *level;
-                }
-            },
+            Op::SetLogLevel { link, level } => self.set_log_level(link.as_deref(), *level)?,
             Op::PutPackage(def) => {
                 validate_link_id(&def.name).map_err(|e| format!("package {e}"))?;
                 self.packages.insert(def.name.clone(), def.clone());
             }
-            Op::RemovePackage(name) => {
-                let driver = format!("pkg:{name}");
-                if let Some(l) = self.links.values().find(|l| l.driver == driver) {
-                    return Err(format!("link {} runs package {name}", l.id));
-                }
-                self.packages
-                    .remove(name)
-                    .ok_or_else(|| format!("no package {name}"))?;
-            }
-            Op::Deauthorize { id, seen } => {
-                let def = self.links.get(id).ok_or_else(|| format!("no link {id}"))?;
-                if def.mode != Mode::External || def.origin != Origin::Runtime {
-                    return Err(format!(
-                        "{id} is not an authorized external link (installed at runtime)"
-                    ));
-                }
-                self.links.remove(id);
-                self.history.remove(id);
-                // a link that is no longer admitted reads no history
-                self.historian.sinks.retain(|_, s| s.link != *id);
-                self.quarantine.insert(
-                    id.clone(),
-                    QuarantineEntry {
-                        first_seen: *seen,
-                        last_seen: *seen,
-                        attempts: 0,
-                    },
-                );
-                self.held.insert(id.clone());
-            }
-            Op::PutProfile { name, cbor } => {
-                let def: ProfileDef = wyrm_core::codec::from_slice(cbor)
-                    .map_err(|e| format!("profile {name}: {e}"))?;
-                self.check_profile(name, &def)?;
-                self.profiles.insert(name.clone(), cbor.clone());
-            }
-            Op::RemoveProfile(name) => {
-                if !self.profiles.contains_key(name) {
-                    return Err(format!("no profile {name}"));
-                }
-                let child = self.profiles.iter().find(|(n, b)| {
-                    *n != name
-                        && wyrm_core::codec::from_slice::<ProfileDef>(b)
-                            .is_ok_and(|p| p.extends.as_deref() == Some(name.as_str()))
-                });
-                if let Some((c, _)) = child {
-                    return Err(format!("profile {c} extends {name}"));
-                }
-                self.profiles.remove(name);
-            }
-            Op::AddPeer(def) => {
-                validate_segment(&def.site).map_err(|e| format!("site: {e}"))?;
-                if self.peers.contains_key(&def.site) {
-                    return Err(format!("peer {} exists", def.site));
-                }
-                if self.peers.values().any(|p| p.via.contains(&def.site)) {
-                    return Err(format!("{} is relayed by another peer", def.site));
-                }
-                if def.dir == PeerDir::Downstream && self.links.contains_key(&def.site) {
-                    return Err(format!(
-                        "{} is a link id (downstream/{} would be both)",
-                        def.site, def.site
-                    ));
-                }
-                let reach = !def.endpoint.is_empty() || !def.enroll.is_empty();
-                if (def.dir == PeerDir::Upstream) != reach {
-                    return Err("an upstream peer needs an endpoint, a downstream one none".into());
-                }
-                if def.dir == PeerDir::Upstream && !def.via.is_empty() {
-                    return Err("only a downstream peer relays sites".into());
-                }
-                // its certificate would match this upstream's ACL subject
-                if def.dir == PeerDir::Upstream && self.issued_brokers.contains(&def.site) {
-                    return Err(format!(
-                        "{} was a downstream broker of ours (its certificate stays valid)",
-                        def.site
-                    ));
-                }
-                for v in &def.via {
-                    validate_segment(v).map_err(|e| format!("via: {e}"))?;
-                    let taken = *v == def.site
-                        || self
-                            .peers
-                            .values()
-                            .any(|p| p.site == *v || p.via.contains(v))
-                        || def.via.iter().filter(|x| *x == v).count() > 1;
-                    if taken {
-                        return Err(format!("via {v}: already a peer site or relayed"));
-                    }
-                }
-                self.peers.insert(def.site.clone(), def.clone());
-            }
+            Op::RemovePackage(name) => self.remove_package(name)?,
+            Op::Deauthorize { id, seen } => self.deauthorize(id, *seen)?,
+            Op::PutProfile { name, cbor } => self.put_profile(name, cbor)?,
+            Op::RemoveProfile(name) => self.remove_profile(name)?,
+            Op::AddPeer(def) => self.add_peer(def)?,
             Op::RemovePeer(site) => {
                 self.peers
                     .remove(site)
@@ -1617,166 +1918,30 @@ impl wyrm_state::State for Registry {
                 self.signers.remove(site);
                 self.config_signers.remove(site);
             }
-            Op::IssueBroker(site) => {
-                validate_segment(site).map_err(|e| format!("site: {e}"))?;
-                if self
-                    .peers
-                    .get(site)
-                    .is_some_and(|p| p.dir == PeerDir::Upstream)
-                {
-                    return Err(format!("{site} is an upstream site"));
-                }
-                self.issued_brokers.insert(site.clone());
-            }
-            Op::HoldBroker { site, seen } => {
-                let def = match self.peers.get(site) {
-                    Some(p) if p.dir == PeerDir::Downstream => p.clone(),
-                    _ => return Err(format!("{site} is not a runtime downstream broker")),
-                };
-                self.peers.remove(site);
-                // what Authorize gives back: the same key and certificate
-                self.enrollments.insert(
-                    site.clone(),
-                    Enrollment {
-                        key_sha256: def.key_sha256,
-                        via: def.via,
-                        cert_pem: def.cert_pem,
-                        ..Default::default()
-                    },
-                );
-                let cn = broker_cn(site);
-                self.quarantine.insert(
-                    cn.clone(),
-                    QuarantineEntry {
-                        first_seen: *seen,
-                        last_seen: *seen,
-                        attempts: 0,
-                    },
-                );
-                self.held.insert(cn);
-            }
+            Op::IssueBroker(site) => self.issue_broker(site)?,
+            Op::HoldBroker { site, seen } => self.hold_broker(site, *seen)?,
             Op::EnrollRequest {
                 site,
                 csr_pem,
                 key_sha256,
                 via,
                 seen,
-            } => {
-                validate_segment(site).map_err(|e| format!("site: {e}"))?;
-                let cn = broker_cn(site);
-                if self.peers.contains_key(site) {
-                    return Err(format!("{site} is a peer"));
-                }
-                if self.blocklist.contains(&cn) || self.links.contains_key(site) {
-                    return Err(format!("{site} is refused here"));
-                }
-                if !self.enrollments.contains_key(site) && self.enrollments.len() >= MAX_ENROLLMENTS
-                {
-                    return Err(format!("at most {MAX_ENROLLMENTS} brokers wait"));
-                }
-                let e = self.enrollments.entry(site.clone()).or_default();
-                if e.key_sha256.is_empty() || e.key_sha256 == *key_sha256 {
-                    e.key_sha256 = key_sha256.clone();
-                    e.csr_pem = csr_pem.clone();
-                    e.via = via.clone();
-                } else {
-                    e.conflicts += 1;
-                }
-                let q = self.quarantine.entry(cn).or_insert(QuarantineEntry {
-                    first_seen: *seen,
-                    ..Default::default()
-                });
-                q.last_seen = *seen;
-                q.attempts += 1;
-            }
+            } => self.enroll_request(site, csr_pem, key_sha256, via, *seen)?,
             Op::AdmitBroker {
                 site,
                 via,
                 key_sha256,
                 cert_pem,
                 seen,
-            } => {
-                validate_segment(site).map_err(|e| format!("site: {e}"))?;
-                if self.peers.contains_key(site) || self.links.contains_key(site) {
-                    return Err(format!("{site} is a peer or a link"));
-                }
-                for v in via {
-                    validate_segment(v).map_err(|e| format!("via: {e}"))?;
-                    let taken = v == site
-                        || self
-                            .peers
-                            .values()
-                            .any(|p| p.site == *v || p.via.contains(v))
-                        || via.iter().filter(|x| *x == v).count() > 1;
-                    if taken {
-                        return Err(format!("via {v}: already a peer site or relayed"));
-                    }
-                }
-                let cn = broker_cn(site);
-                self.quarantine.remove(&cn);
-                self.held.remove(&cn);
-                self.enrollments.remove(site);
-                self.issued_brokers.insert(site.clone());
-                self.peers.insert(
-                    site.clone(),
-                    PeerDef {
-                        site: site.clone(),
-                        dir: PeerDir::Downstream,
-                        endpoint: String::new(),
-                        ca_pem: String::new(),
-                        enabled: true,
-                        created: *seen,
-                        via: via.clone(),
-                        cert_pem: cert_pem.clone(),
-                        enroll: String::new(),
-                        key_sha256: key_sha256.clone(),
-                        allow_config: false,
-                    },
-                );
-            }
+            } => self.admit_broker(site, via, key_sha256, cert_pem, *seen)?,
             Op::SetPeerCert {
                 site,
                 endpoint,
                 cert_pem,
-            } => {
-                let p = self
-                    .peers
-                    .get_mut(site)
-                    .filter(|p| p.dir == PeerDir::Upstream)
-                    .ok_or_else(|| format!("no upstream peer {site}"))?;
-                p.endpoint = endpoint.clone();
-                p.cert_pem = cert_pem.clone();
-            }
-            Op::AddToken { id, def } => {
-                validate_segment(id).map_err(|e| format!("token id: {e}"))?;
-                if self.tokens.contains_key(id) {
-                    return Err(format!("token {id} exists"));
-                }
-                self.tokens.insert(id.clone(), def.clone());
-            }
-            Op::UseToken(id) => {
-                let t = self
-                    .tokens
-                    .get_mut(id)
-                    .ok_or_else(|| format!("no token {id}"))?;
-                match t.uses {
-                    0 => {}
-                    1 => {
-                        self.tokens.remove(id);
-                    }
-                    _ => t.uses -= 1,
-                }
-            }
-            Op::DropEnrollment(site) => {
-                let cn = broker_cn(site);
-                if self.held.contains(&cn) {
-                    return Err(format!("{site} is held"));
-                }
-                self.enrollments
-                    .remove(site)
-                    .ok_or_else(|| format!("{site} does not wait"))?;
-                self.quarantine.remove(&cn);
-            }
+            } => self.set_peer_cert(site, endpoint, cert_pem)?,
+            Op::AddToken { id, def } => self.add_token(id, def)?,
+            Op::UseToken(id) => self.use_token(id)?,
+            Op::DropEnrollment(site) => self.drop_enrollment(site)?,
             Op::RemoveToken(id) => {
                 self.tokens
                     .remove(id)
@@ -1788,33 +1953,12 @@ impl wyrm_state::State for Registry {
                     .ok_or_else(|| format!("no peer {site}"))?
                     .enabled = *on;
             }
-            Op::SetPeerAllowConfig { site, on } => {
-                let p = self
-                    .peers
-                    .get_mut(site)
-                    .filter(|p| p.dir == PeerDir::Upstream)
-                    .ok_or_else(|| format!("no upstream peer {site}"))?;
-                p.allow_config = *on;
-            }
+            Op::SetPeerAllowConfig { site, on } => self.set_peer_allow_config(site, *on)?,
             Op::SetSigners {
                 upstream,
                 keys,
                 config,
-            } => {
-                validate_segment(upstream).map_err(|e| format!("upstream: {e}"))?;
-                check_signers(keys).map_err(|e| e.to_string())?;
-                check_signers(config).map_err(|e| e.to_string())?;
-                for (map, v) in [
-                    (&mut self.signers, keys),
-                    (&mut self.config_signers, config),
-                ] {
-                    if v.is_empty() {
-                        map.remove(upstream);
-                    } else {
-                        map.insert(upstream.clone(), v.clone());
-                    }
-                }
-            }
+            } => self.set_signers(upstream, keys, config)?,
             Op::SetOption { name, on } => self.options.set(*name, *on),
         }
         Ok(())

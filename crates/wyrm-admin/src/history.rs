@@ -751,33 +751,7 @@ pub(crate) async fn invoke(
     match (rest, action) {
         ([SINKS, rest @ ..], _) => sinks::invoke(ctl, ctx, rest, action, args, sub).await,
         ([], "add_watch_group") => {
-            let a = AddWatchGroup::decode(args)?;
-            let (name, set) = (a.name.as_str(), a.settings);
-            if reserved(name) {
-                return Err(LinkError::invalid_parameter(format!(
-                    "{name}: a value of history has that name"
-                )));
-            }
-            if ctl.registry().historian.groups.contains_key(name) {
-                return Err(LinkError::invalid_parameter(format!(
-                    "watch group {name} exists; use its Edit"
-                )));
-            }
-            let logging = set.logging_type.unwrap_or(Logging::AllData);
-            ctl.apply(Op::PutWatchGroup {
-                name: name.to_owned(),
-                logging: logging.code(),
-                interval_ms: ms_of("interval", set.interval, 60_000)?,
-                // 0 = as soon as possible (DSA): the shortest flush
-                flush_ms: ms_of("buffer_flush_time", set.buffer_flush_time, 5_000)?
-                    .max(*FLUSH_MS.start()),
-            })
-            .map_err(rejected)?;
-            ctl.record(sub, AuditOp::HistoryGroup, name, Status::Ok, logging.name());
-            let g = ctl.registry().historian.groups[name].clone();
-            declare_group(ctx, name, &g).await?;
-            apply_groups(ctl);
-            Ok(None)
+            add_watch_group(ctl, ctx, AddWatchGroup::decode(args)?, sub).await
         }
         ([], "purge") => {
             let (from, to) = TimeRange::decode(args)?.us()?;
@@ -794,105 +768,19 @@ pub(crate) async fn invoke(
         }
         ([group], "edit") => {
             // the group must exist before its arguments are read
-            let g = ctl
-                .registry()
-                .historian
-                .groups
-                .get(*group)
-                .cloned()
-                .ok_or_else(|| LinkError::not_found(format!("watch group {group}")))?;
-            let set = GroupSettings::decode(args)?;
-            let logging = set
-                .logging_type
-                .or(Logging::try_from(g.logging).ok())
-                .unwrap_or(Logging::None);
-            ctl.apply(Op::PutWatchGroup {
-                name: (*group).to_owned(),
-                logging: logging.code(),
-                interval_ms: ms_of("interval", set.interval, g.interval_ms)?,
-                flush_ms: ms_of("buffer_flush_time", set.buffer_flush_time, g.flush_ms)?
-                    .max(*FLUSH_MS.start()),
-            })
-            .map_err(rejected)?;
-            ctl.record(
-                sub,
-                AuditOp::HistoryGroup,
-                group,
-                Status::Ok,
-                logging.name(),
-            );
-            let g = ctl.registry().historian.groups[*group].clone();
-            group_values(ctx, group, &g).await?;
-            apply_groups(ctl);
-            Ok(None)
+            let g = group_def(ctl, group)?;
+            edit_group(ctl, ctx, group, &g, GroupSettings::decode(args)?, sub).await
         }
         ([group], "add_watch_path") => {
             // the group first, whatever the arguments are
             if !ctl.registry().historian.groups.contains_key(*group) {
                 return Err(LinkError::not_found(format!("watch group {group}")));
             }
-            let a = AddWatchPath::decode(args)?;
-            let key = watch_key(ctl, &a.path)?;
-            let before: Vec<String> = ctl
-                .registry()
-                .historian
-                .groups
-                .get(*group)
-                .map(|g| g.watches.keys().cloned().collect())
-                .unwrap_or_default();
-            ctl.apply(Op::AddWatch {
-                group: (*group).to_owned(),
-                key: key.clone(),
-            })
-            .map_err(rejected)?;
-            ctl.record(
-                sub,
-                AuditOp::HistoryWatch,
-                group,
-                Status::Ok,
-                &format!("add {key}"),
-            );
-            let reg = ctl.registry();
-            if let Some((id, w)) = reg.historian.groups[*group]
-                .watches
-                .iter()
-                .find(|(id, _)| !before.contains(id))
-            {
-                declare_watch(ctx, group, id, w).await?;
-                refresh_dates(ctl, ctx, group, id, &w.key).await;
-            }
-            apply_groups(ctl);
-            crate::control::publish_overlays(ctx, ctl).await?;
-            Ok(None)
+            add_watch_path(ctl, ctx, group, AddWatchPath::decode(args)?, sub).await
         }
         ([group], "remove") => {
-            let g = ctl
-                .registry()
-                .historian
-                .groups
-                .get(*group)
-                .cloned()
-                .ok_or_else(|| LinkError::not_found(format!("watch group {group}")))?;
-            let a = RemoveGroup::decode(args)?;
-            ctl.apply(Op::RemoveWatchGroup((*group).to_owned()))
-                .map_err(rejected)?;
-            apply_groups(ctl);
-            crate::control::publish_overlays(ctx, ctl).await?;
-            let mut n = 0;
-            if a.purge {
-                for w in g.watches.values() {
-                    n += purge(ctl, Some(&w.key), 0, u64::MAX).await?;
-                }
-            }
-            ctl.record(
-                sub,
-                AuditOp::HistoryGroup,
-                group,
-                Status::Ok,
-                &format!("removed; {n} rows purged"),
-            );
-            ctx.remove_node(&format!("{ROOT}/{group}")).await?;
-            Ok(None)
+            let g = group_def(ctl, group)?;
+            remove_group(ctl, ctx, group, &g, RemoveGroup::decode(args)?, sub).await
         }
         ([group, id], "get_history") => {
             // the watch must exist before its arguments are read
@@ -924,33 +812,200 @@ pub(crate) async fn invoke(
         ([group, id], "unsubscribe" | "unsubscribe_purge") => {
             let w = watch_def(ctl, group, id)?;
             <()>::decode(args)?;
-            ctl.apply(Op::RemoveWatch {
-                group: (*group).to_owned(),
-                id: (*id).to_owned(),
-            })
-            .map_err(rejected)?;
-            apply_groups(ctl);
-            crate::control::publish_overlays(ctx, ctl).await?;
-            let n = if action == "unsubscribe_purge" {
-                purge(ctl, Some(&w.key), 0, u64::MAX).await?
-            } else {
-                0
-            };
-            ctl.record(
-                sub,
-                AuditOp::HistoryWatch,
-                group,
-                Status::Ok,
-                &format!("remove {}; {n} rows purged", w.key),
-            );
-            ctx.remove_node(&format!("{ROOT}/{group}/{id}")).await?;
-            Ok((action == "unsubscribe_purge").then(|| deleted(n)))
+            let purged = action == "unsubscribe_purge";
+            unsubscribe(ctl, ctx, (group, id), &w, purged, sub).await
         }
         _ => Err(LinkError::not_supported(format!(
             "{ROOT}/{}/~act/{action}",
             rest.join("/")
         ))),
     }
+}
+
+/// `history ▸ add_watch_group`: a new watch group with its settings.
+async fn add_watch_group(
+    ctl: &Control,
+    ctx: &LinkCtx,
+    a: AddWatchGroup,
+    sub: &str,
+) -> Result<Option<Value>> {
+    let (name, set) = (a.name.as_str(), a.settings);
+    if reserved(name) {
+        return Err(LinkError::invalid_parameter(format!(
+            "{name}: a value of history has that name"
+        )));
+    }
+    if ctl.registry().historian.groups.contains_key(name) {
+        return Err(LinkError::invalid_parameter(format!(
+            "watch group {name} exists; use its Edit"
+        )));
+    }
+    let logging = set.logging_type.unwrap_or(Logging::AllData);
+    ctl.apply(Op::PutWatchGroup {
+        name: name.to_owned(),
+        logging: logging.code(),
+        interval_ms: ms_of("interval", set.interval, 60_000)?,
+        // 0 = as soon as possible (DSA): the shortest flush
+        flush_ms: ms_of("buffer_flush_time", set.buffer_flush_time, 5_000)?.max(*FLUSH_MS.start()),
+    })
+    .map_err(rejected)?;
+    ctl.record(sub, AuditOp::HistoryGroup, name, Status::Ok, logging.name());
+    let g = ctl.registry().historian.groups[name].clone();
+    declare_group(ctx, name, &g).await?;
+    apply_groups(ctl);
+    Ok(None)
+}
+
+/// `history/<group> ▸ edit`: new settings of a watch group; what is not
+/// given stays.
+async fn edit_group(
+    ctl: &Control,
+    ctx: &LinkCtx,
+    group: &str,
+    g: &WatchGroupDef,
+    set: GroupSettings,
+    sub: &str,
+) -> Result<Option<Value>> {
+    let logging = set
+        .logging_type
+        .or(Logging::try_from(g.logging).ok())
+        .unwrap_or(Logging::None);
+    ctl.apply(Op::PutWatchGroup {
+        name: group.to_owned(),
+        logging: logging.code(),
+        interval_ms: ms_of("interval", set.interval, g.interval_ms)?,
+        flush_ms: ms_of("buffer_flush_time", set.buffer_flush_time, g.flush_ms)?
+            .max(*FLUSH_MS.start()),
+    })
+    .map_err(rejected)?;
+    ctl.record(
+        sub,
+        AuditOp::HistoryGroup,
+        group,
+        Status::Ok,
+        logging.name(),
+    );
+    let g = ctl.registry().historian.groups[group].clone();
+    group_values(ctx, group, &g).await?;
+    apply_groups(ctl);
+    Ok(None)
+}
+
+/// `history/<group> ▸ add_watch_path`: a new watch of a group, declared
+/// with its dates.
+async fn add_watch_path(
+    ctl: &Control,
+    ctx: &LinkCtx,
+    group: &str,
+    a: AddWatchPath,
+    sub: &str,
+) -> Result<Option<Value>> {
+    let key = watch_key(ctl, &a.path)?;
+    let before: Vec<String> = ctl
+        .registry()
+        .historian
+        .groups
+        .get(group)
+        .map(|g| g.watches.keys().cloned().collect())
+        .unwrap_or_default();
+    ctl.apply(Op::AddWatch {
+        group: group.to_owned(),
+        key: key.clone(),
+    })
+    .map_err(rejected)?;
+    ctl.record(
+        sub,
+        AuditOp::HistoryWatch,
+        group,
+        Status::Ok,
+        &format!("add {key}"),
+    );
+    let reg = ctl.registry();
+    if let Some((id, w)) = reg.historian.groups[group]
+        .watches
+        .iter()
+        .find(|(id, _)| !before.contains(id))
+    {
+        declare_watch(ctx, group, id, w).await?;
+        refresh_dates(ctl, ctx, group, id, &w.key).await;
+    }
+    apply_groups(ctl);
+    crate::control::publish_overlays(ctx, ctl).await?;
+    Ok(None)
+}
+
+/// The definition of watch group `group`; `not_found` when there is none.
+fn group_def(ctl: &Control, group: &str) -> Result<WatchGroupDef> {
+    ctl.registry()
+        .historian
+        .groups
+        .get(group)
+        .cloned()
+        .ok_or_else(|| LinkError::not_found(format!("watch group {group}")))
+}
+
+/// `history/<group> ▸ remove`: the group `g`, and with `purge` the rows of
+/// its watches.
+async fn remove_group(
+    ctl: &Control,
+    ctx: &LinkCtx,
+    group: &str,
+    g: &WatchGroupDef,
+    a: RemoveGroup,
+    sub: &str,
+) -> Result<Option<Value>> {
+    ctl.apply(Op::RemoveWatchGroup(group.to_owned()))
+        .map_err(rejected)?;
+    apply_groups(ctl);
+    crate::control::publish_overlays(ctx, ctl).await?;
+    let mut n = 0;
+    if a.purge {
+        for w in g.watches.values() {
+            n += purge(ctl, Some(&w.key), 0, u64::MAX).await?;
+        }
+    }
+    ctl.record(
+        sub,
+        AuditOp::HistoryGroup,
+        group,
+        Status::Ok,
+        &format!("removed; {n} rows purged"),
+    );
+    ctx.remove_node(&format!("{ROOT}/{group}")).await?;
+    Ok(None)
+}
+
+/// `history/<group>/<id> ▸ unsubscribe | unsubscribe_purge`: the watch
+/// `w`, and with `purged` (`unsubscribe_purge`) its rows.
+async fn unsubscribe(
+    ctl: &Control,
+    ctx: &LinkCtx,
+    (group, id): (&str, &str),
+    w: &WatchDef,
+    purged: bool,
+    sub: &str,
+) -> Result<Option<Value>> {
+    ctl.apply(Op::RemoveWatch {
+        group: group.to_owned(),
+        id: id.to_owned(),
+    })
+    .map_err(rejected)?;
+    apply_groups(ctl);
+    crate::control::publish_overlays(ctx, ctl).await?;
+    let n = if purged {
+        purge(ctl, Some(&w.key), 0, u64::MAX).await?
+    } else {
+        0
+    };
+    ctl.record(
+        sub,
+        AuditOp::HistoryWatch,
+        group,
+        Status::Ok,
+        &format!("remove {}; {n} rows purged", w.key),
+    );
+    ctx.remove_node(&format!("{ROOT}/{group}/{id}")).await?;
+    Ok(purged.then(|| deleted(n)))
 }
 
 /// Rows of `key` in `[from, to]` as table records: `time`, `value` and,

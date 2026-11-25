@@ -436,6 +436,170 @@ fn package_driver(name: &str) -> String {
     format!("{}{name}", packages::DRIVER_PREFIX)
 }
 
+/// The restore points an update took: as its result shows them, and by
+/// link (`PreviousDef::points`).
+#[derive(Default)]
+struct TakenPoints {
+    shown: Vec<String>,
+    ids: Vec<(String, String)>,
+}
+
+/// What the new version `def` asks for beyond what `links` have: grants
+/// and network places, in words.
+fn rights_asked(
+    links: &[LinkDef],
+    def: &PackageDef,
+    app: Option<&Capabilities>,
+) -> BTreeSet<String> {
+    let mut asks = BTreeSet::new();
+    for l in links {
+        let (grants, net) = missing_rights(l, def, app);
+        for g in grants {
+            asks.insert(format!("{} on {}", g.perm.name(), g.path));
+        }
+        asks.extend(net.into_iter().map(|e| format!("network {e}")));
+    }
+    asks
+}
+
+/// Whether the directory of the new version `def` under `root` is there
+/// already, as the kept version of `old` (the same bytes: reused). One that
+/// is the kept version with other bytes refuses the update; one that is
+/// neither is what an install that ended before its registry record left
+/// behind, and goes.
+fn version_dir(
+    old: &PackageDef,
+    def: &PackageDef,
+    root: &std::path::Path,
+) -> Result<bool, UpdateError> {
+    // the kept version again (same bytes): its directory is there already
+    let reuse = old
+        .previous
+        .as_deref()
+        .is_some_and(|p| p.def.version == def.version && p.def.sha256 == def.sha256);
+    if !reuse && packages::dir(root, def).exists() {
+        if old
+            .previous
+            .as_deref()
+            .is_some_and(|p| p.def.version == def.version)
+        {
+            return Err(UpdateError::OnDisk {
+                name: def.name.clone(),
+                version: def.version.clone(),
+            });
+        }
+        // neither the installed version nor the kept one: what an
+        // install that ended before its registry record left behind; the new
+        // files go in its place, never beside what it holds
+        let left = packages::dir(root, def);
+        crate::nofollow::remove_any(&left)
+            .map_err(|e| UpdateError::Left(FileError::new(&left, e)))?;
+    }
+    Ok(reuse)
+}
+
+/// The report of an update from `old` to `def` that started at `now`:
+/// checking while it has `links`.
+fn started_report(
+    old: &PackageDef,
+    def: &PackageDef,
+    links: &[LinkDef],
+    changes_state: bool,
+    restore_point: bool,
+    now: u64,
+) -> UpdateReport {
+    UpdateReport {
+        from: old.version.clone(),
+        to: def.version.clone(),
+        at: now,
+        result: if links.is_empty() {
+            UpdateResult::Ok
+        } else {
+            UpdateResult::Checking
+        },
+        links: links.iter().map(|l| l.id.clone()).collect(),
+        changes_state,
+        restore_point,
+        ..UpdateReport::default()
+    }
+}
+
+/// The audit detail of the start of the update of `report`.
+fn update_detail(
+    old: &PackageDef,
+    def: &PackageDef,
+    report: &UpdateReport,
+    opts: &UpdateOpts,
+) -> String {
+    format!(
+        "{} → {} started; links {}; restore point {}; auto rollback {} s{}",
+        old.version,
+        def.version,
+        report.links.join(","),
+        if opts.restore_point { "yes" } else { "no" },
+        opts.auto_rollback_s,
+        if report.changes_state {
+            "; changes the store format"
+        } else {
+            ""
+        }
+    )
+}
+
+/// The registry's record of the new version `def` of `old` once the
+/// update of `report` started: `old` is kept until `keep_until`, with the
+/// restore points of its links (`points`).
+fn updated_def(
+    def: &PackageDef,
+    old: &PackageDef,
+    report: &UpdateReport,
+    points: Vec<(String, String)>,
+    keep_until: u64,
+) -> PackageDef {
+    let mut new = def.clone();
+    new.previous = Some(Box::new(PreviousDef {
+        def: old.bare(),
+        keep_until,
+        replaced: report.at,
+        changes_state: report.changes_state,
+        points,
+    }));
+    new.last_update = Some(report.clone());
+    new
+}
+
+/// One version is kept: the one before `old` goes (unless it is `def`
+/// again).
+fn drop_older_version(old: &PackageDef, def: &PackageDef, root: &std::path::Path) {
+    if let Some(pp) = old.previous.as_deref() {
+        if pp.def.version != def.version {
+            wyrm_core::files::discard_dir(&packages::dir(root, &pp.def));
+        }
+    }
+}
+
+/// What the result of an update of package `name` says of its check, which
+/// goes on by itself.
+fn checking_message(name: &str, auto_rollback_s: u32) -> String {
+    match auto_rollback_s {
+        0 => format!("; the links are being checked: sys/packages/{name}/last_update"),
+        s => format!(
+            "; the links are being checked (rolled back by itself when they are not \
+             back with every node in {s} s): sys/packages/{name}/last_update"
+        ),
+    }
+}
+
+/// The new version `def` is the installed one: its component published (a
+/// WASM package), then its record `new` in the registry.
+fn register_version(ctl: &Control, def: &PackageDef, new: &PackageDef) -> Result<(), UpdateError> {
+    if def.kind == PackageKind::Wasm {
+        ctl.publish_component(def)?;
+    }
+    ctl.apply(Op::PutPackage(new.clone()))
+        .map_err(UpdateError::Registry)
+}
+
 fn links_of(ctl: &Control, name: &str) -> Vec<LinkDef> {
     let driver = package_driver(name);
     ctl.registry()
@@ -1533,6 +1697,84 @@ impl Admin {
         Ok(params_changed)
     }
 
+    /// Each of `links` with its keys, read before anything stops.
+    async fn links_before(&self, links: &[LinkDef]) -> Vec<LinkBefore> {
+        let mut before = Vec::new();
+        for l in links {
+            before.push(LinkBefore {
+                id: l.id.clone(),
+                keys: self.link_keys(&l.id).await,
+            });
+        }
+        before
+    }
+
+    /// The restore point of each of `links` (with the keys it had,
+    /// `before`) for the update of package `name` from version `old`, taken
+    /// one by one until one fails: the points taken, and that failure.
+    async fn take_points(
+        &self,
+        links: &[LinkDef],
+        before: &[LinkBefore],
+        name: &str,
+        old: &str,
+        sub: &str,
+    ) -> (TakenPoints, Result<(), UpdateError>) {
+        let mut points = TakenPoints::default();
+        let mut taken = Ok(());
+        for (l, b) in links.iter().zip(before) {
+            let listed = b.keys.as_ref().map(|k| k.iter().cloned().collect());
+            match self.take_restore_point(&l.id, name, old, listed, sub).await {
+                Ok(p) => {
+                    points.shown.push(format!("{} ({} B)", l.id, p.size));
+                    points.ids.push((l.id.clone(), p.id));
+                }
+                Err(e) => {
+                    taken = Err(UpdateError::Point(e));
+                    break;
+                }
+            }
+        }
+        (points, taken)
+    }
+
+    /// `links`, stopped for their restore points, started again on the old
+    /// version after an update that did not go on.
+    async fn start_again(&self, links: &[LinkDef], sub: &str) {
+        for l in links {
+            let _ = self.start_link(&l.id, sub).await;
+        }
+    }
+
+    /// The links of an update on the new version `def`: the rights the
+    /// installer accepted, then a start (a hot start where it may) of each.
+    /// What did not go is added to the result `m`; returns whether a link
+    /// was hot started.
+    async fn links_on_new_version(
+        &self,
+        links: &[LinkDef],
+        def: &PackageDef,
+        app: Option<&Capabilities>,
+        sub: &str,
+        m: &mut String,
+    ) -> bool {
+        let params_changed = match self.apply_rights(links, def, app, sub) {
+            Ok(changed) => changed,
+            Err(e) => {
+                m.push_str(&format!("; the accepted rights were not all applied: {e}"));
+                true
+            }
+        };
+        // a link whose params changed reads them at a start, not a hot start
+        let (failed, hot) = self
+            .upgrade_links(def, app.is_some() && !params_changed, sub)
+            .await;
+        if !failed.is_empty() {
+            m.push_str(&format!("; not restarted: {}", failed.join(", ")));
+        }
+        hot
+    }
+
     /// Replace the installed version `old` of a package by the unpacked one
     /// (ADR 0048 §1.2–1.5); returns the message of the install result. The
     /// health check goes on after this returns.
@@ -1562,14 +1804,7 @@ impl Admin {
         }
         let links = links_of(ctl, &name);
         // new rights only when the installer saw them and said so (as an install)
-        let mut asks = BTreeSet::new();
-        for l in &links {
-            let (grants, net) = missing_rights(l, &def, app);
-            for g in grants {
-                asks.insert(format!("{} on {}", g.perm.name(), g.path));
-            }
-            asks.extend(net.into_iter().map(|e| format!("network {e}")));
-        }
+        let asks = rights_asked(&links, &def, app);
         if !asks.is_empty() && !accept {
             return Err(UpdateError::Asks {
                 name,
@@ -1577,38 +1812,10 @@ impl Admin {
                 asks: asks.into_iter().collect(),
             });
         }
-        // the kept version again (same bytes): its directory is there already
-        let reuse = old
-            .previous
-            .as_deref()
-            .is_some_and(|p| p.def.version == def.version && p.def.sha256 == def.sha256);
-        if !reuse && packages::dir(&root, &def).exists() {
-            if old
-                .previous
-                .as_deref()
-                .is_some_and(|p| p.def.version == def.version)
-            {
-                return Err(UpdateError::OnDisk {
-                    name,
-                    version: def.version,
-                });
-            }
-            // neither the installed version nor the kept one: what an
-            // install that ended before its registry record left behind; the new
-            // files go in its place, never beside what it holds
-            let left = packages::dir(&root, &def);
-            crate::nofollow::remove_any(&left)
-                .map_err(|e| UpdateError::Left(FileError::new(&left, e)))?;
-        }
+        let reuse = version_dir(old, &def, &root)?;
 
         // Before anything stops: each link's keys.
-        let mut before = Vec::new();
-        for l in &links {
-            before.push(LinkBefore {
-                id: l.id.clone(),
-                keys: self.link_keys(&l.id).await,
-            });
-        }
+        let before = self.links_before(&links).await;
         // Each link's restore point. A point is a copy file by file: every
         // file is whole (the stores write by rename), but the files of a
         // link that runs are not of one moment. When the update changes the
@@ -1624,27 +1831,18 @@ impl Admin {
                 }
             }
         }
-        let mut points = Vec::new();
-        let mut point_ids = Vec::new();
-        let mut taken = Ok(());
-        if opts.restore_point {
-            for (l, b) in links.iter().zip(&before) {
-                let listed = b.keys.as_ref().map(|k| k.iter().cloned().collect());
-                match self
-                    .take_restore_point(&l.id, &name, &old.version, listed, sub)
-                    .await
-                {
-                    Ok(p) => {
-                        points.push(format!("{} ({} B)", l.id, p.size));
-                        point_ids.push((l.id.clone(), p.id));
-                    }
-                    Err(e) => {
-                        taken = Err(UpdateError::Point(e));
-                        break;
-                    }
-                }
-            }
-        }
+        let (
+            TakenPoints {
+                shown: points,
+                ids: point_ids,
+            },
+            taken,
+        ) = if opts.restore_point {
+            self.take_points(&links, &before, &name, &old.version, sub)
+                .await
+        } else {
+            (TakenPoints::default(), Ok(()))
+        };
         // The new files beside the old ones.
         let placed = taken.and_then(|()| {
             if reuse {
@@ -1659,9 +1857,7 @@ impl Admin {
         });
         if let Err(e) = placed {
             if stopped {
-                for l in &links {
-                    let _ = self.start_link(&l.id, sub).await;
-                }
+                self.start_again(&links, sub).await;
             }
             return Err(e);
         }
@@ -1670,36 +1866,9 @@ impl Admin {
         // are named in `previous.points` too: a rollback applies those).
         let now = now_s();
         // Then the registry.
-        let report = UpdateReport {
-            from: old.version.clone(),
-            to: def.version.clone(),
-            at: now,
-            result: if links.is_empty() {
-                UpdateResult::Ok
-            } else {
-                UpdateResult::Checking
-            },
-            links: links.iter().map(|l| l.id.clone()).collect(),
-            changes_state,
-            restore_point: opts.restore_point,
-            ..UpdateReport::default()
-        };
-        let mut new = def.clone();
-        new.previous = Some(Box::new(PreviousDef {
-            def: old.bare(),
-            keep_until: now + ctl.keep_previous_s(),
-            replaced: now,
-            changes_state,
-            points: point_ids,
-        }));
-        new.last_update = Some(report.clone());
-        let put = (|| {
-            if def.kind == PackageKind::Wasm {
-                ctl.publish_component(&def)?;
-            }
-            ctl.apply(Op::PutPackage(new.clone()))
-                .map_err(UpdateError::Registry)
-        })();
+        let report = started_report(old, &def, &links, changes_state, opts.restore_point, now);
+        let new = updated_def(&def, old, &report, point_ids, now + ctl.keep_previous_s());
+        let put = register_version(ctl, &def, &new);
         if let Err(e) = put {
             // as before the update: the old version is the installed one
             if !reuse {
@@ -1709,18 +1878,11 @@ impl Admin {
                 let _ = ctl.publish_component(old);
             }
             if stopped {
-                for l in &links {
-                    let _ = self.start_link(&l.id, sub).await;
-                }
+                self.start_again(&links, sub).await;
             }
             return Err(e);
         }
-        // one version is kept: the one before `old` goes
-        if let Some(pp) = old.previous.as_deref() {
-            if pp.def.version != def.version {
-                wyrm_core::files::discard_dir(&packages::dir(&root, &pp.def));
-            }
-        }
+        drop_older_version(old, &def, &root);
         ctl.record(
             sub,
             AuditOp::PackageInstall,
@@ -1733,19 +1895,7 @@ impl Admin {
             AuditOp::PackageUpdate,
             &name,
             Status::Ok,
-            &format!(
-                "{} → {} started; links {}; restore point {}; auto rollback {} s{}",
-                old.version,
-                def.version,
-                report.links.join(","),
-                if opts.restore_point { "yes" } else { "no" },
-                opts.auto_rollback_s,
-                if changes_state {
-                    "; changes the store format"
-                } else {
-                    ""
-                }
-            ),
+            &update_detail(old, &def, &report, &opts),
         );
         // From here the new version is the installed one: what fails below
         // is told, and the links still start and are checked.
@@ -1753,20 +1903,9 @@ impl Admin {
             debug!(package = %name, "values after the update: {e}");
         }
         let mut m = format!("package {name} {} → {}", old.version, def.version);
-        let params_changed = match self.apply_rights(&links, &def, app, sub) {
-            Ok(changed) => changed,
-            Err(e) => {
-                m.push_str(&format!("; the accepted rights were not all applied: {e}"));
-                true
-            }
-        };
-        // a link whose params changed reads them at a start, not a hot start
-        let (failed, hot) = self
-            .upgrade_links(&def, app.is_some() && !params_changed, sub)
+        let hot = self
+            .links_on_new_version(&links, &def, app, sub, &mut m)
             .await;
-        if !failed.is_empty() {
-            m.push_str(&format!("; not restarted: {}", failed.join(", ")));
-        }
         if !points.is_empty() {
             m.push_str(&format!("; restore points: {}", points.join(", ")));
         }
@@ -1788,13 +1927,7 @@ impl Admin {
         plan.left = Duration::from_secs(plan.wait_s().into());
         let worker = self.worker();
         tokio::spawn(async move { worker.check_update(plan).await });
-        m.push_str(&match opts.auto_rollback_s {
-            0 => format!("; the links are being checked: sys/packages/{name}/last_update"),
-            s => format!(
-                "; the links are being checked (rolled back by itself when they are not \
-                 back with every node in {s} s): sys/packages/{name}/last_update"
-            ),
-        });
+        m.push_str(&checking_message(&name, opts.auto_rollback_s));
         Ok(m)
     }
 

@@ -1386,26 +1386,7 @@ async fn run(
     let me = release::identity();
     // 1. the archive
     ctl.update.set_step("fetching");
-    let archive = match (archive, &plan.source) {
-        (Some(p), _) => p,
-        (None, Source::Url(url)) => {
-            let bytes = crate::fetch::get(url, plan.asset.size as usize, ARCHIVE_TIMEOUT).await?;
-            let dir = d.join("update.fetch");
-            // a fresh directory: nothing an earlier fetch left goes with this one
-            std::fs::remove_dir_all(&dir)
-                .or_else(wyrm_core::files::gone_ok)
-                .map_err(at(&dir))?;
-            super::backups::make_private_dir(&dir)?;
-            let path = dir.join(ORDER_ARCHIVE);
-            let p2 = path.clone();
-            tokio::task::spawn_blocking(move || secret::write_private(&p2, &bytes))
-                .await
-                .map_err(UpdateRunError::Join)?
-                .map_err(at(&path))?;
-            path
-        }
-        (None, Source::Upload(_)) => return Err(UpdateRunError::UploadGone),
-    };
+    let archive = fetch_archive(&d, &plan, archive).await?;
     if plan.for_standby {
         return stage_for_standby(ctl, &plan, &archive).await;
     }
@@ -1433,27 +1414,10 @@ async fn run(
     // 3. the pre-update backup: the control plane as it is now
     ctl.update.set_step("backup");
     let (ctl2, by2) = (ctl.clone(), plan.by.clone());
-    let job = tokio::task::spawn_blocking(move || {
-        ctl2.backup_now(
-            BackupRequest {
-                kind: Kind::Broker,
-                sections: Vec::new(),
-                links: None,
-                link: None,
-                history_days: None,
-                // sealed for this broker: the guard checks the manifest
-                // with the key of secrets.key before it restores from it
-                seal: SealWith::Broker,
-                label: super::backups::JobKind::PreUpdate,
-                pinned: true,
-                remote: false,
-            },
-            &by2,
-        )
-    })
-    .await
-    .map_err(UpdateRunError::Join)?
-    .map_err(|e| undo(UpdateRunError::Backup(e)))?;
+    let job = tokio::task::spawn_blocking(move || ctl2.backup_now(pre_update_request(), &by2))
+        .await
+        .map_err(UpdateRunError::Join)?
+        .map_err(|e| undo(UpdateRunError::Backup(e)))?;
     // nothing else may have started meanwhile, and the standby is where it was
     if let Some(job) = other_job_but_update(ctl) {
         return Err(undo(UpdateRunError::OtherJob(job)));
@@ -1473,7 +1437,100 @@ async fn run(
         .collect();
     let now = now_s();
     let previous = UpdateFile::load(&d);
-    let u = UpdateFile {
+    let u = trial_file(ctl, &plan, me, &job, links, now);
+    let exe = ctl.cfg.link_exe.clone();
+    let (layout2, u2, d2) = (layout.clone(), u.clone(), d.clone());
+    tokio::task::spawn_blocking(move || commit_switch(&layout2, &u2, &d2, &exe))
+        .await
+        .map_err(UpdateRunError::Join)?
+        .map_err(|e| {
+            // the backup of an update that never began is an ordinary one
+            ctl.backups().update(&job.id, |j| j.pinned = false);
+            undo(e)
+        })?;
+    unpin_previous(ctl, previous, &job.id);
+    // `update.json` says trial from here on: the journal writes what the version
+    // that may run next, whichever it is, can open
+    ctl.audit_follows_update();
+    debug!(bin = %bin.display(), "broker update: staged");
+    ctl.record(
+        &plan.by,
+        AuditOp::UpdateStart,
+        &u.to,
+        Status::Ok,
+        &start_detail(&u, &plan, &job.id, ctl.cfg.updates.trial_s),
+    );
+    warn!(from = %u.from, to = %u.to, by = %plan.by, "broker update: stopping for wyrmd {}", u.to);
+    // a standby must not take the restart for an absence
+    if ctl.cfg.updates.standby {
+        ctl.hold_standby(STANDBY_HOLD);
+        if ctl.standby_recent(Duration::from_secs(5)) {
+            tokio::time::sleep(Duration::from_millis(2500)).await;
+        }
+    }
+    ctl.request_stop();
+    Ok(())
+}
+
+/// Step 1 of [`run`]: the archive of the update, as uploaded or fetched
+/// from the release's URL into a fresh `update.fetch`.
+async fn fetch_archive(
+    d: &Path,
+    plan: &Plan,
+    archive: Option<PathBuf>,
+) -> Result<PathBuf, UpdateRunError> {
+    Ok(match (archive, &plan.source) {
+        (Some(p), _) => p,
+        (None, Source::Url(url)) => {
+            let bytes = crate::fetch::get(url, plan.asset.size as usize, ARCHIVE_TIMEOUT).await?;
+            let dir = d.join("update.fetch");
+            // a fresh directory: nothing an earlier fetch left goes with this one
+            std::fs::remove_dir_all(&dir)
+                .or_else(wyrm_core::files::gone_ok)
+                .map_err(at(&dir))?;
+            super::backups::make_private_dir(&dir)?;
+            let path = dir.join(ORDER_ARCHIVE);
+            let p2 = path.clone();
+            tokio::task::spawn_blocking(move || secret::write_private(&p2, &bytes))
+                .await
+                .map_err(UpdateRunError::Join)?
+                .map_err(at(&path))?;
+            path
+        }
+        (None, Source::Upload(_)) => return Err(UpdateRunError::UploadGone),
+    })
+}
+
+/// The pre-update backup: the control plane as it is now, pinned.
+fn pre_update_request() -> BackupRequest {
+    BackupRequest {
+        kind: Kind::Broker,
+        sections: Vec::new(),
+        links: None,
+        link: None,
+        history_days: None,
+        // sealed for this broker: the guard checks the manifest
+        // with the key of secrets.key before it restores from it
+        seal: SealWith::Broker,
+        label: super::backups::JobKind::PreUpdate,
+        pinned: true,
+        remote: false,
+    }
+}
+
+/// The `update.json` of the trial of `plan`: from `me`, the version that
+/// runs, to the new one, with the pre-update backup `job` and the `links` that are
+/// back now.
+fn trial_file(
+    ctl: &Control,
+    plan: &Plan,
+    me: &Identity,
+    job: &super::backups::Job,
+    links: Vec<String>,
+    now: u64,
+) -> UpdateFile {
+    let d = &ctl.cfg.data_dir;
+    UpdateFile {
         from: me.version.clone(),
         to: plan.release.version.clone(),
         state: release::UpdateState::Trial,
@@ -1486,87 +1543,75 @@ async fn run(
         backup_sha256: job.sha256.clone(),
         from_schemas: me.schemas.clone(),
         to_schemas: plan.release.schemas.clone(),
-        stores: release::stores_of(&d),
+        stores: release::stores_of(d),
         links,
         by: plan.by.clone(),
         started: now,
         role: Some(release::UpdateRole::Active),
         ..Default::default()
-    };
-    let exe = ctl.cfg.link_exe.clone();
-    let (layout2, u2, d2) = (layout.clone(), u.clone(), d.clone());
-    tokio::task::spawn_blocking(move || -> Result<(), UpdateRunError> {
-        if !layout2.guard_is(&exe) {
-            // a unit that keeps `bin/` from the broker's user refreshes the
-            // guard itself (`guard-refresh`): it is then one start behind
-            if let Err(e) = layout2.refresh_guard(&exe) {
-                warn!("broker update: the guard is not replaced: {e}");
-            }
+    }
+}
+
+/// Step 4 of [`run`] (blocking): the guard is the version that runs, then
+/// the state `u` is saved, then the switch; a switch that fails takes the
+/// state file away again.
+fn commit_switch(
+    layout: &Layout,
+    u: &UpdateFile,
+    d: &Path,
+    exe: &Path,
+) -> Result<(), UpdateRunError> {
+    if !layout.guard_is(exe) {
+        // a unit that keeps `bin/` from the broker's user refreshes the
+        // guard itself (`guard-refresh`): it is then one start behind
+        if let Err(e) = layout.refresh_guard(exe) {
+            warn!("broker update: the guard is not replaced: {e}");
         }
-        u2.save(&d2).map_err(UpdateRunError::Save)?;
-        if let Err(e) = layout2.switch(&u2.to) {
-            // a state file that stayed would start a trial of a version not switched to
-            let state = d2.join(release::STATE_FILE);
-            if let Err(r) = std::fs::remove_file(&state).or_else(wyrm_core::files::gone_ok) {
-                tracing::error!("{} stays: {r}", state.display());
-                return Err(UpdateRunError::SwitchLeft {
-                    switch: e,
-                    state,
-                    source: r,
-                });
-            }
-            return Err(UpdateRunError::Switch(e));
+    }
+    u.save(d).map_err(UpdateRunError::Save)?;
+    if let Err(e) = layout.switch(&u.to) {
+        // a state file that stayed would start a trial of a version not switched to
+        let state = d.join(release::STATE_FILE);
+        if let Err(r) = std::fs::remove_file(&state).or_else(wyrm_core::files::gone_ok) {
+            tracing::error!("{} stays: {r}", state.display());
+            return Err(UpdateRunError::SwitchLeft {
+                switch: e,
+                state,
+                source: r,
+            });
         }
-        // the version before the one that runs can no longer be gone back to
-        layout2.prune(&[u2.from.as_str(), u2.to.as_str()]);
-        Ok(())
-    })
-    .await
-    .map_err(UpdateRunError::Join)?
-    .map_err(|e| {
-        // the backup of an update that never began is an ordinary one
-        ctl.backups().update(&job.id, |j| j.pinned = false);
-        undo(e)
-    })?;
-    // the backup of the update before this one is no longer needed
-    if let Some(p) = previous.filter(|p| !p.backup_id.is_empty() && p.backup_id != job.id) {
+        return Err(UpdateRunError::Switch(e));
+    }
+    // the version before the one that runs can no longer be gone back to
+    layout.prune(&[u.from.as_str(), u.to.as_str()]);
+    Ok(())
+}
+
+/// The backup of the update before this one is no longer needed: it is no
+/// longer pinned (unless it is `job`, this update's own).
+fn unpin_previous(ctl: &Control, previous: Option<UpdateFile>, job: &str) {
+    if let Some(p) = previous.filter(|p| !p.backup_id.is_empty() && p.backup_id != job) {
         ctl.backups().update(&p.backup_id, |j| j.pinned = false);
         if let Some(j) = ctl.backups().get(&p.backup_id) {
             ctl.save_job(&j);
         }
     }
-    // `update.json` says trial from here on: the journal writes what the version
-    // that may run next, whichever it is, can open
-    ctl.audit_follows_update();
-    debug!(bin = %bin.display(), "broker update: staged");
-    ctl.record(
-        &plan.by,
-        AuditOp::UpdateStart,
-        &u.to,
-        Status::Ok,
-        &format!(
-            "{} to {}; archive sha256 {}; pre-update backup {}; SCHEMA moved: {}; trial {} s",
-            u.from,
-            u.to,
-            plan.asset.sha256,
-            job.id,
-            match u.moved() {
-                m if m.is_empty() => "none".to_owned(),
-                m => m.join(", "),
-            },
-            ctl.cfg.updates.trial_s
-        ),
-    );
-    warn!(from = %u.from, to = %u.to, by = %plan.by, "broker update: stopping for wyrmd {}", u.to);
-    // a standby must not take the restart for an absence
-    if ctl.cfg.updates.standby {
-        ctl.hold_standby(STANDBY_HOLD);
-        if ctl.standby_recent(Duration::from_secs(5)) {
-            tokio::time::sleep(Duration::from_millis(2500)).await;
-        }
-    }
-    ctl.request_stop();
-    Ok(())
+}
+
+/// The audit detail of the start of the update `u`.
+fn start_detail(u: &UpdateFile, plan: &Plan, job: &str, trial_s: u64) -> String {
+    format!(
+        "{} to {}; archive sha256 {}; pre-update backup {}; SCHEMA moved: {}; trial {} s",
+        u.from,
+        u.to,
+        plan.asset.sha256,
+        job,
+        match u.moved() {
+            m if m.is_empty() => "none".to_owned(),
+            m => m.join(", "),
+        },
+        trial_s
+    )
 }
 
 fn other_job_but_update(ctl: &Control) -> Option<String> {
