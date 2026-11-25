@@ -9,21 +9,35 @@
 //!
 //! A package cannot be put into `data_dir/packages` when the image is built:
 //! `data_dir` is made at the first start, and [`super::Control::open`] removes
-//! every package directory without a registry record. So on its first start
-//! the admin installs each entry through [`Admin::install_package`], the path
-//! of `sys/links ▸ install_zip`, with every check it makes for a new link, as
+//! every package directory without a registry record. So the admin installs
+//! each entry through [`Admin::install_package`], the path of
+//! `sys/links ▸ install_zip`, with every check it makes for a new link, as
 //! the subject `broker:seed`. One entry that fails does not stop the others.
 //! When every entry was tried, `data_dir/seed.done` records the outcome of
-//! each and the time, and the seed never runs again.
+//! each and the time, and the seed never runs again. It runs at the first
+//! start that finds `seed.json` without `seed.done`: normally the first
+//! start, or the start after an image update that added a seed.
 //!
-//! A run that ends before the marker (a crash, a power cut, the broker
-//! stopped or rebuilt meanwhile) runs again at the next start of the admin,
-//! and so does a promoted standby (`seed.done` is not replicated). That is
-//! safe: an entry whose link exists is skipped before its file is read, so a
-//! package installed by the first run is neither installed again nor
-//! updated, and only the entries left are tried. A `seed.json` that is
-//! missing or cannot be read installs nothing and writes no marker: it is
-//! tried again at every start, with a warning.
+//! Each install is one long operation of its own ([`super::Control::busy`]):
+//! a router rebuild waits for it, never for the whole seed. Before an
+//! install, `data_dir/seed.progress.json` records that the entry started;
+//! after it, the outcome. Both files are written whole (a new file renamed
+//! into place) and replicated to a warm standby, with `seed.done`.
+//!
+//! A run that stops before the marker (a rebuild, a stop, a crash, a power
+//! cut) goes on at the next start of the admin, on this broker or on a
+//! promoted standby, from the progress file:
+//! * an entry with an outcome keeps it and is not tried again;
+//! * an entry that started and has no outcome was cut short during its
+//!   install: it is reported as [`NOT_FINISHED`] (a warning and the marker)
+//!   and not installed again; its link or package may be half made, and the
+//!   operator decides (nothing repairs it on its own);
+//! * an entry whose link exists (a restored backup) is skipped before its
+//!   file is read, so the seed never updates that link's package;
+//! * the other entries are tried.
+//!
+//! A `seed.json` that is missing or cannot be read installs nothing and
+//! writes no marker: it is tried again at every start, with a warning.
 
 use super::updates::UpdateOpts;
 use super::{iso_utc, Admin, Busy, InstallError};
@@ -43,16 +57,23 @@ pub const SEED_FILE: &str = "seed.json";
 pub const SEED_FORMAT: &str = "wyrm-seed/1";
 /// The marker in `data_dir`: the seed has run.
 pub const SEED_DONE: &str = "seed.done";
+/// In `data_dir` while the seed runs: per link, started and the outcome.
+pub const SEED_PROGRESS: &str = "seed.progress.json";
 /// Who installs the seed, in the audit journal.
 pub const SEED_SUBJECT: &str = "broker:seed";
 /// What the marker says of a link that was there before the seed.
 const SKIPPED: &str = "skipped: the link exists";
+/// What the marker says of an entry whose install was cut short.
+pub const NOT_FINISHED: &str = "started and not finished: the broker stopped during its install; \
+     check the link and its package (install it again with install_zip, or remove it)";
 /// The largest `seed.json`.
 const MAX_SEED_FILE: usize = 64 << 10;
+/// The largest `seed.progress.json` (256 entries with long messages).
+const MAX_PROGRESS_FILE: usize = 1 << 20;
 /// The most entries of one seed.
 const MAX_ENTRIES: usize = 256;
-/// How long the seed waits for a router rebuild to end before it gives up
-/// for this start.
+/// How long the seed waits for a router rebuild to end before it stops
+/// for this router.
 const BUSY_WAIT: Duration = Duration::from_secs(60);
 const BUSY_RETRY: Duration = Duration::from_millis(500);
 
@@ -82,18 +103,38 @@ struct SeedEntry {
 #[derive(Debug, Serialize)]
 struct SeedDone<'a> {
     time: String,
-    /// Per link: `ok`, [`SKIPPED`] or the message of `success: false`.
+    /// Per link: `ok`, [`SKIPPED`], [`NOT_FINISHED`] or the message of
+    /// `success: false`.
     links: &'a BTreeMap<String, String>,
 }
 
-/// Why the seed or one of its entries did not install.
+/// `seed.progress.json`: what a run that has not ended did so far.
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Progress {
+    links: BTreeMap<String, Step>,
+}
+
+/// One entry of [`Progress`].
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Step {
+    /// When its install started (ISO 8601 UTC).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    started: Option<String>,
+    /// As in the marker.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    outcome: Option<String>,
+}
+
+/// Why the seed or one of its entries did not install. Each message holds
+/// its cause: the marker keeps the text.
 #[derive(Debug, thiserror::Error)]
 pub enum SeedError {
     /// The seed directory was not resolved.
     #[error("seed directory {}: {source}", .path.display())]
     Dir {
         path: PathBuf,
-        #[source]
         source: std::io::Error,
     },
     /// A file did not open inside the seed directory without following a
@@ -103,13 +144,15 @@ pub enum SeedError {
     #[error("{name}: {source}")]
     Read {
         name: String,
-        #[source]
         source: std::io::Error,
     },
-    #[error("{name}: larger than {max_mib} MiB")]
-    TooLarge { name: String, max_mib: usize },
-    #[error("{SEED_FILE}: {0}")]
-    Parse(#[source] serde_json::Error),
+    #[error("{name}: larger than {max} bytes")]
+    TooLarge { name: String, max: usize },
+    #[error("{name}: {source}")]
+    Parse {
+        name: &'static str,
+        source: serde_json::Error,
+    },
     #[error("{SEED_FILE}: format {0:?}, expected {SEED_FORMAT:?}")]
     Format(String),
     #[error("{SEED_FILE}: link {0:?} is listed twice")]
@@ -124,31 +167,35 @@ pub enum SeedError {
     #[error(transparent)]
     Install(#[from] InstallError),
     /// A task that read files ended.
-    #[error("{0}")]
-    Join(#[source] tokio::task::JoinError),
+    #[error("a task of the seed ended: {0}")]
+    Join(tokio::task::JoinError),
+    /// `seed.done` or `seed.progress.json` was not written or read.
     #[error("{}: {source}", .path.display())]
-    Marker {
+    State {
         path: PathBuf,
-        #[source]
         source: std::io::Error,
     },
-    #[error("{SEED_DONE}: {0}")]
-    Encode(#[source] serde_json::Error),
+    #[error("{name}: {source}")]
+    Encode {
+        name: &'static str,
+        source: serde_json::Error,
+    },
 }
 
-/// What one entry did.
-enum Seeded {
-    /// Installed; holds the install's message.
-    Installed(String),
-    /// Its link was there.
-    Skipped,
+/// Why a run stopped before its marker; the next start goes on.
+enum Stopped {
+    /// The broker is closing (a rebuild, a stop).
+    Busy,
+    /// The progress file was not written.
+    Progress(SeedError),
 }
 
 impl Admin {
     /// Install the seed in `dir` once (see the module): nothing when
-    /// `seed.done` is there; else each entry, then the marker.
+    /// `seed.done` is there; else each entry left, then the marker.
     pub(super) async fn apply_seed(&self, dir: &Path) {
-        let marker = self.ctl.cfg.data_dir.join(SEED_DONE);
+        let data = &self.ctl.cfg.data_dir;
+        let marker = data.join(SEED_DONE);
         if marker.symlink_metadata().is_ok() {
             debug!("seed: done before ({})", marker.display());
             return;
@@ -171,34 +218,119 @@ impl Admin {
                 return;
             }
         };
-        // one operation for the whole seed: a router rebuild that one of
-        // its process links asks for waits until the marker is written
-        let Some(_busy) = self.wait_busy().await else {
-            warn!("seed: the broker stays busy; tried again at its next start");
-            return;
+        let progress_path = data.join(SEED_PROGRESS);
+        let mut progress = match read_progress(&progress_path) {
+            Ok(p) => p,
+            Err(e) => {
+                warn!("seed: {e}; nothing installed, tried again at the next start");
+                return;
+            }
         };
-        let mut links = BTreeMap::new();
         for e in &seed.links {
-            let outcome = match self.seed_entry(dir, e).await {
-                Ok(Seeded::Installed(message)) => {
-                    info!(link = %e.link, "seed: link {} installed: {message}", e.link);
-                    "ok".to_owned()
+            match self.run_entry(dir, e, &mut progress, &progress_path).await {
+                Ok(()) => {}
+                Err(Stopped::Busy) => {
+                    info!("seed: the broker is closing; the seed goes on at its next start");
+                    return;
                 }
-                Ok(Seeded::Skipped) => {
-                    info!(link = %e.link, "seed: link {} skipped (exists)", e.link);
-                    SKIPPED.to_owned()
+                Err(Stopped::Progress(err)) => {
+                    warn!("seed: {err}; the seed goes on at the next start");
+                    return;
                 }
+            }
+        }
+        let links: BTreeMap<String, String> = seed
+            .links
+            .iter()
+            .map(|e| {
+                let outcome = progress
+                    .links
+                    .get(&e.link)
+                    .and_then(|s| s.outcome.clone())
+                    .unwrap_or_else(|| NOT_FINISHED.to_owned());
+                (e.link.clone(), outcome)
+            })
+            .collect();
+        if let Err(e) = write_json(
+            &marker,
+            SEED_DONE,
+            &SeedDone {
+                time: iso_utc(now_s()),
+                links: &links,
+            },
+        ) {
+            warn!("seed: {e}; the seed goes on at the next start");
+            return;
+        }
+        info!("seed: done, {} links ({})", links.len(), marker.display());
+        // the marker says all of it now
+        if let Err(e) = std::fs::remove_file(&progress_path).or_else(wyrm_core::files::gone_ok) {
+            warn!(
+                "seed: {}: {e}; it stays, the marker is in force",
+                progress_path.display()
+            );
+        }
+    }
+
+    /// One entry of the seed, its outcome recorded in `progress`. Stops
+    /// (without an outcome) only while the broker closes or when the progress
+    /// file is not written.
+    async fn run_entry(
+        &self,
+        dir: &Path,
+        e: &SeedEntry,
+        progress: &mut Progress,
+        path: &Path,
+    ) -> Result<(), Stopped> {
+        let id = e.link.as_str();
+        let step = progress.links.entry(e.link.clone()).or_default();
+        if step.outcome.is_some() {
+            // an earlier run of this seed tried it
+            return Ok(());
+        }
+        let outcome = if step.started.is_some() {
+            warn!(link = %id, "seed: link {id}: {NOT_FINISHED}");
+            NOT_FINISHED.to_owned()
+        } else if self.ctl.registry().links.contains_key(id) {
+            // a restored backup: its link is not touched, its file not read
+            info!(link = %id, "seed: link {id} skipped (exists)");
+            SKIPPED.to_owned()
+        } else {
+            match self.read_entry(dir, e).await {
                 Err(err) => {
-                    warn!(link = %e.link, "seed: link {} not installed: {err}", e.link);
+                    warn!(link = %id, "seed: link {id} not installed: {err}");
                     err.to_string()
                 }
-            };
-            links.insert(e.link.clone(), outcome);
-        }
-        match write_marker(&marker, &links) {
-            Ok(()) => info!("seed: done, {} links ({})", links.len(), marker.display()),
-            Err(e) => warn!("seed: {e}; the seed runs again at the next start"),
-        }
+                Ok(zip) => {
+                    // one long operation per install: a rebuild waits for it
+                    let Some(_busy) = self.wait_busy().await else {
+                        return Err(Stopped::Busy);
+                    };
+                    step.started = Some(iso_utc(now_s()));
+                    write_json(path, SEED_PROGRESS, progress).map_err(Stopped::Progress)?;
+                    let opts = UpdateOpts {
+                        accept: e.accept,
+                        ..UpdateOpts::default()
+                    };
+                    let source = format!("seed:{}", e.file);
+                    match self
+                        .install_package(id, zip, source, SEED_SUBJECT, opts)
+                        .await
+                    {
+                        Ok(message) => {
+                            info!(link = %id, "seed: link {id} installed: {message}");
+                            "ok".to_owned()
+                        }
+                        Err(err) => {
+                            warn!(link = %id, "seed: link {id} not installed: {err}");
+                            err.to_string()
+                        }
+                    }
+                }
+            }
+        };
+        progress.links.entry(e.link.clone()).or_default().outcome = Some(outcome);
+        write_json(path, SEED_PROGRESS, progress).map_err(Stopped::Progress)
     }
 
     /// One long operation, once no router rebuild holds the broker: `None`
@@ -220,29 +352,32 @@ impl Admin {
         }
     }
 
-    /// Install entry `e`, unless its link is there: then its file is not
-    /// even read (a restored backup is not updated by the seed).
-    async fn seed_entry(&self, dir: &Path, e: &SeedEntry) -> Result<Seeded, SeedError> {
-        if self.ctl.registry().links.contains_key(&e.link) {
-            return Ok(Seeded::Skipped);
-        }
+    /// The package of entry `e`: a plain file name of the seed directory.
+    async fn read_entry(&self, dir: &Path, e: &SeedEntry) -> Result<Vec<u8>, SeedError> {
         let name = plain_name(&e.file)?.to_owned();
-        let zip = {
-            let dir = dir.to_owned();
-            tokio::task::spawn_blocking(move || read_zip(&dir, &name))
-                .await
-                .map_err(SeedError::Join)??
-        };
-        let opts = UpdateOpts {
-            accept: e.accept,
-            ..UpdateOpts::default()
-        };
-        let source = format!("seed:{}", e.file);
-        let message = self
-            .install_package(&e.link, zip, source, SEED_SUBJECT, opts)
-            .await?;
-        Ok(Seeded::Installed(message))
+        let dir = dir.to_owned();
+        tokio::task::spawn_blocking(move || read_zip(&dir, &name))
+            .await
+            .map_err(SeedError::Join)?
     }
+}
+
+/// `seed.progress.json` at `path`; empty when it is not there.
+fn read_progress(path: &Path) -> Result<Progress, SeedError> {
+    let state = |source| SeedError::State {
+        path: path.to_owned(),
+        source,
+    };
+    let file = match std::fs::File::open(path) {
+        Ok(f) => f,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Progress::default()),
+        Err(e) => return Err(state(e)),
+    };
+    let bytes = read_bounded(file, SEED_PROGRESS, MAX_PROGRESS_FILE)?;
+    serde_json::from_slice(&bytes).map_err(|source| SeedError::Parse {
+        name: SEED_PROGRESS,
+        source,
+    })
 }
 
 /// `seed.json` of `dir`; `None` when the directory or the file is not
@@ -255,7 +390,10 @@ fn read_seed(dir: &Path) -> Result<Option<SeedFile>, SeedError> {
         return Ok(None);
     };
     let bytes = read_bounded(file, SEED_FILE, MAX_SEED_FILE)?;
-    let seed: SeedFile = serde_json::from_slice(&bytes).map_err(SeedError::Parse)?;
+    let seed: SeedFile = serde_json::from_slice(&bytes).map_err(|source| SeedError::Parse {
+        name: SEED_FILE,
+        source,
+    })?;
     if seed.format != SEED_FORMAT {
         return Err(SeedError::Format(seed.format));
     }
@@ -297,7 +435,7 @@ fn resolve(dir: &Path) -> Result<Option<PathBuf>, SeedError> {
 fn read_bounded(file: std::fs::File, name: &str, max: usize) -> Result<Vec<u8>, SeedError> {
     let too_large = || SeedError::TooLarge {
         name: name.to_owned(),
-        max_mib: max >> 20,
+        max,
     };
     let read = |source| SeedError::Read {
         name: name.to_owned(),
@@ -331,15 +469,12 @@ fn plain_name(file: &str) -> Result<&str, SeedError> {
     }
 }
 
-/// `seed.done` with `links` and the time, written whole or not at all
-/// (a new file renamed into place).
-fn write_marker(path: &Path, links: &BTreeMap<String, String>) -> Result<(), SeedError> {
-    let done = SeedDone {
-        time: iso_utc(now_s()),
-        links,
-    };
-    let bytes = serde_json::to_vec_pretty(&done).map_err(SeedError::Encode)?;
-    crate::secret::write_private(path, &bytes).map_err(|source| SeedError::Marker {
+/// `value` as JSON into `path` (`seed.done`, `seed.progress.json`), written
+/// whole or not at all: a new file renamed into place.
+fn write_json<T: Serialize>(path: &Path, name: &'static str, value: &T) -> Result<(), SeedError> {
+    let bytes =
+        serde_json::to_vec_pretty(value).map_err(|source| SeedError::Encode { name, source })?;
+    crate::secret::write_private(path, &bytes).map_err(|source| SeedError::State {
         path: path.to_owned(),
         source,
     })
@@ -393,11 +528,17 @@ mod tests {
         ));
         assert!(matches!(
             read(r#"{"format": "wyrm-seed/1", "links": [], "more": 1}"#),
-            Err(SeedError::Parse(_))
+            Err(SeedError::Parse {
+                name: SEED_FILE,
+                ..
+            })
         ));
         assert!(matches!(
             read(r#"{"format": "wyrm-seed/1", "links": [{"link": "a", "file": "a.zip", "x": 1}]}"#),
-            Err(SeedError::Parse(_))
+            Err(SeedError::Parse {
+                name: SEED_FILE,
+                ..
+            })
         ));
         assert!(matches!(
             read(
@@ -407,7 +548,10 @@ mod tests {
             Err(SeedError::Duplicate(l)) if l == "a"
         ));
         std::fs::write(d.join(SEED_FILE), vec![b' '; MAX_SEED_FILE + 1]).unwrap();
-        assert!(matches!(read_seed(&d), Err(SeedError::TooLarge { .. })));
+        let e = read_seed(&d).unwrap_err();
+        assert!(matches!(e, SeedError::TooLarge { .. }));
+        // the bound in a unit that is not zero
+        assert_eq!(e.to_string(), "seed.json: larger than 65536 bytes");
     }
 
     #[test]
@@ -448,11 +592,62 @@ mod tests {
             ("a".to_owned(), "ok".to_owned()),
             ("b".to_owned(), SKIPPED.to_owned()),
         ]);
-        write_marker(&d.join(SEED_DONE), &links).unwrap();
+        let done = SeedDone {
+            time: iso_utc(now_s()),
+            links: &links,
+        };
+        write_json(&d.join(SEED_DONE), SEED_DONE, &done).unwrap();
         let v: serde_json::Value =
             serde_json::from_slice(&std::fs::read(d.join(SEED_DONE)).unwrap()).unwrap();
         assert_eq!(v["links"]["a"], "ok");
         assert_eq!(v["links"]["b"], SKIPPED);
         assert!(v["time"].as_str().unwrap().ends_with('Z'));
+    }
+
+    #[test]
+    fn progress_is_kept_between_runs() {
+        let d = dir("progress");
+        let path = d.join(SEED_PROGRESS);
+        assert!(read_progress(&path).unwrap().links.is_empty());
+        let mut p = Progress::default();
+        p.links.insert(
+            "a".into(),
+            Step {
+                started: Some("2026-11-25T00:00:00Z".into()),
+                outcome: Some("ok".into()),
+            },
+        );
+        p.links.insert(
+            "b".into(),
+            Step {
+                started: Some("2026-11-25T00:00:01Z".into()),
+                outcome: None,
+            },
+        );
+        write_json(&path, SEED_PROGRESS, &p).unwrap();
+        let back = read_progress(&path).unwrap();
+        assert_eq!(back.links["a"].outcome.as_deref(), Some("ok"));
+        assert!(back.links["b"].started.is_some() && back.links["b"].outcome.is_none());
+        std::fs::write(&path, br#"{"links": {}, "x": 1}"#).unwrap();
+        assert!(matches!(
+            read_progress(&path),
+            Err(SeedError::Parse {
+                name: SEED_PROGRESS,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn a_join_error_is_said_once() {
+        use std::error::Error as _;
+        let e = SeedError::Join(
+            tokio::runtime::Runtime::new()
+                .unwrap()
+                .block_on(async { tokio::spawn(async { panic!("boom") }).await })
+                .unwrap_err(),
+        );
+        assert!(e.source().is_none(), "the cause is in the message only");
+        assert!(e.to_string().starts_with("a task of the seed ended: "));
     }
 }

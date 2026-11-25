@@ -1104,6 +1104,8 @@ async fn seed_installs_packages_once() {
         .iter()
         .any(|r| r.op.name() == "install" && r.key == "sb"));
     let marker = std::fs::read(data.join("seed.done")).unwrap();
+    // the marker says all of it: the progress file is gone
+    assert!(!data.join("seed.progress.json").exists());
     env.stop().await;
 
     // a restart: the marker is there, nothing is installed again
@@ -1174,10 +1176,22 @@ async fn a_broken_seed_entry_does_not_stop_the_others() {
         serde_json::json!([
             { "link": "bm", "file": "missing.zip", "accept": true },
             { "link": "bz", "file": "bad.zip", "accept": true },
+            { "link": "bn", "file": "net.zip" },
             { "link": "bg", "file": "good.zip", "accept": true },
         ]),
         &[
             ("bad.zip", b"not a zip".to_vec()),
+            // asks for a network allowlist; the entry does not accept it
+            (
+                "net.zip",
+                driver_package_with(
+                    "brokennet",
+                    "1.0.0",
+                    "asks for net",
+                    "mock",
+                    Some(serde_json::json!({ "net": ["127.0.0.1:9"] })),
+                ),
+            ),
             (
                 "good.zip",
                 driver_package("brokengood", "1.0.0", "good", "mock"),
@@ -1190,10 +1204,60 @@ async fn a_broken_seed_entry_does_not_stop_the_others() {
     assert!(msg("bm").contains("missing.zip"), "{done}");
     assert!(msg("bz").contains("zip"), "{done}");
     assert_ne!(msg("bz"), "ok", "{done}");
+    assert!(
+        msg("bn").contains("asks for: network 127.0.0.1:9"),
+        "{done}"
+    );
     assert_eq!(msg("bg"), "ok", "{done}");
     link_runs(&env, "bg").await;
     let reg = env.ctl.registry();
     assert!(!reg.links.contains_key("bm") && !reg.links.contains_key("bz"));
+    assert!(!reg.links.contains_key("bn") && !reg.packages.contains_key("brokennet"));
+    env.stop().await;
+}
+
+/// A run cut short during an install (a power cut) goes on at the next
+/// start: an entry with an outcome keeps it, an entry that started and has
+/// no outcome is reported as not finished and is not installed again, the
+/// others are tried.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_seed_cut_short_goes_on_and_reports_the_cut_entry() {
+    let base = temp_dir("seedcut");
+    let (data, seed) = (base.join("data"), base.join("seed"));
+    make_seed(
+        &seed,
+        serde_json::json!([
+            { "link": "ca", "file": "a.zip" },
+            { "link": "cb", "file": "b.zip", "accept": true },
+            { "link": "cc", "file": "c.zip", "accept": true },
+        ]),
+        &[
+            ("a.zip", driver_package("cuta", "1.0.0", "cut a", "mock")),
+            ("b.zip", driver_package("cutb", "1.0.0", "cut b", "mock")),
+            ("c.zip", driver_package("cutc", "1.0.0", "cut c", "mock")),
+        ],
+    );
+    // what the cut run left: `ca` ended (failed), `cb` started
+    std::fs::create_dir_all(&data).unwrap();
+    std::fs::write(
+        data.join("seed.progress.json"),
+        serde_json::json!({ "links": {
+            "ca": { "started": "2026-11-25T00:00:00Z", "outcome": "an earlier outcome" },
+            "cb": { "started": "2026-11-25T00:00:01Z" },
+        }})
+        .to_string(),
+    )
+    .unwrap();
+    let env = Env::start_in(&data, &seed_extra(&seed)).await;
+    let done = seed_done(&data).await;
+    assert_eq!(done["links"]["ca"], "an earlier outcome", "{done}");
+    let cb = done["links"]["cb"].as_str().unwrap_or_default();
+    assert!(cb.starts_with("started and not finished"), "{done}");
+    assert_eq!(done["links"]["cc"], "ok", "{done}");
+    link_runs(&env, "cc").await;
+    let reg = env.ctl.registry();
+    assert!(!reg.links.contains_key("ca") && !reg.links.contains_key("cb"));
+    assert!(!reg.packages.contains_key("cutb"));
     env.stop().await;
 }
 
@@ -11445,6 +11509,11 @@ async fn standby_follows_stores() {
     let bundle = wyrm_admin::keys::export(&a_dir, BUNDLE_PASS).unwrap();
     std::fs::create_dir_all(&s_dir).unwrap();
     wyrm_admin::keys::import(&s_dir, &bundle, BUNDLE_PASS).unwrap();
+    // the seed's marker and progress (ADR 0051 §1): a promoted standby never
+    // runs a finished seed again
+    let seed_marker = br#"{"time": "2026-11-25T00:00:00Z", "links": {"sa": "ok"}}"#;
+    std::fs::write(a_dir.join("seed.done"), seed_marker).unwrap();
+    std::fs::write(a_dir.join("seed.progress.json"), br#"{"links": {}}"#).unwrap();
     // a file the active does not have: gone after the first sync
     std::fs::create_dir_all(s_dir.join("packages/old/0.1")).unwrap();
     std::fs::write(s_dir.join("packages/old/0.1/run"), b"old").unwrap();
@@ -11487,6 +11556,8 @@ async fn standby_follows_stores() {
     assert!(s_dir.join("links/md/data/framework.tree").is_file());
     assert!(s_dir.join("packages/mockpkg/1.0.0").is_dir());
     assert!(s_dir.join("links/pk1/token").is_file());
+    assert_eq!(std::fs::read(s_dir.join("seed.done")).unwrap(), seed_marker);
+    assert!(s_dir.join("seed.progress.json").is_file());
     tokio::time::sleep(Duration::from_secs(3)).await; // the last storage page
     let _ = stop.send(());
     assert_eq!(

@@ -88,7 +88,7 @@
     "crates/wyrm-admin/src/control.rs": 64,
     "crates/wyrm-admin/src/control/backups.rs": 5,
     "crates/wyrm-admin/src/control/broker_update.rs": 3,
-    "crates/wyrm-admin/src/control/replication.rs": 72,
+    "crates/wyrm-admin/src/control/replication.rs": 71,
     "crates/wyrm-admin/src/control/restore.rs": 21,
     "crates/wyrm-admin/src/control/restore_broker.rs": 4,
     "crates/wyrm-admin/src/control/send.rs": 3,

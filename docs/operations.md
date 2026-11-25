@@ -288,25 +288,47 @@ packages: { seed_dir: "/usr/share/wyrm/seed" },
   entry as `sys/links ▸ install_zip` does, with the same checks, as the
   subject `broker:seed` (in the audit journal). An entry whose link exists
   already (a restored backup) is skipped before its file is read: the seed
-  never updates a package.
+  never changes that link or updates its package. A new link of a package
+  that is installed at another version is an update, as with
+  `install_zip`: the package moves to the seed's version, with every link
+  that runs it ([links.md](links.md) §5a).
 - One entry that fails does not stop the others. When every entry was
   tried, the broker writes `data_dir/seed.done` (0600, written whole) and
   never runs the seed again. The file holds the time and, per link, `ok`,
-  `skipped: the link exists`, or the message of the failure. The log says
-  `seed: link <id> installed`, `… skipped (exists)`, or a warning with the
-  message.
+  `skipped: the link exists`, `started and not finished: …` (below), or
+  the message of the failure. The log says `seed: link <id> installed`,
+  `… skipped (exists)`, or a warning with the message.
+- The seed runs at the first start that finds `seed.json` and no
+  `seed.done`. Normally that is the first start. A broker that has run
+  for a long time without a seed (a `seed_dir` with no `seed.json`) also
+  installs the links of a `seed.json` that an image update adds, at its
+  next start.
 - To run the seed again, delete `data_dir/seed.done` and restart. Links
   that exist are skipped, failed entries are tried again.
-- A start that ends before `seed.done` is written (a power cut) runs the
-  seed again at the next start. Links installed already are skipped. A
-  promoted standby does the same: `seed.done` is not replicated.
+- Each install is one operation of its own: a router rebuild (an ACL
+  change, a process link that the seed installed) waits for the install in
+  progress, not for the whole seed. While a rebuild holds the broker, the
+  seed waits (up to 60 s). If the broker closes meanwhile, the seed stops
+  without `seed.done` and goes on when the admin starts again.
+- `data_dir/seed.progress.json` (written whole) records, per link, when its
+  install started and its outcome; it goes when `seed.done` is written. A
+  run that stops before `seed.done` (a rebuild, a stop, a power cut) goes
+  on at the next start from this file:
+  - an entry with an outcome keeps it and is not tried again;
+  - an entry that started and has no outcome was cut short during its
+    install. Its link or package may be half made (a link without its
+    grants). The broker logs a warning, writes `started and not finished: …`
+    in `seed.done` and does not install it again. Check the link and its
+    package: install it again with `install_zip`, or remove it;
+  - the other entries are tried.
+- A warm standby (ADR 0036) receives `seed.done` and `seed.progress.json`
+  with the other replicated files. A promoted standby never runs a
+  finished seed again, so links that the operator removed do not come back;
+  an unfinished seed goes on where the active stopped.
 - A `seed.json` that is missing or cannot be read (bad JSON, another
   `format`, a link listed twice, more than 256 links) installs nothing and
   writes no `seed.done`. The broker logs a warning and tries again at every
-  start.
-- While a router rebuild holds the broker, the seed waits for it (up to
-  60 s, then it tries again at the next start). The rebuilds that its
-  process links ask for wait until `seed.done` is written (at most 180 s).
+  start. A `seed.progress.json` that cannot be read does the same.
 
 ### Recovery time
 
@@ -375,8 +397,9 @@ Two brokers of one site on two hosts, one active, one following. The
 standby copies the control plane (the registry, flow definitions, gateway
 users), `secrets.bin`, the link tokens, the links' private data (the
 sealed stores of the scheduler, alarm, DQL and uplink links, runtime edits
-of drivers, the agent's store), the installed packages and the broker
-storage and the historian's rows as they change, and takes over when
+of drivers, the agent's store), the installed packages, the seed's
+`seed.done` and `seed.progress.json`, and the broker storage and the
+historian's rows as they change, and takes over when
 the active is away. It runs no router and polls no device until then.
 What it does not copy: files over 64 MiB in a link's data or a package
 (they are logged and skipped), and the audit journal (it stays on the

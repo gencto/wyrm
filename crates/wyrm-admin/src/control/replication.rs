@@ -12,7 +12,8 @@
 //!
 //! Stage B, files and the broker storage:
 //! * `files`: `[{name, len, mtime}]` of every replicated file (see
-//!   [`files_of`]): `secrets.bin`, `links/<id>/token`, the links' private
+//!   [`files_of`]): `secrets.bin`, the seed's `seed.done` and
+//!   `seed.progress.json`, `links/<id>/token`, the links' private
 //!   data (`links/<id>/data/**`: portable stores, framework trees, the
 //!   agent's store) and the installed packages (`packages/**`). The list is
 //!   complete: a file not in it is gone.
@@ -45,6 +46,7 @@
 //! Each `wal/state` query tells how far the standby is: `sys/standby_connected`
 //! and `sys/standby_lag` show it.
 
+use super::seed::{SEED_DONE, SEED_PROGRESS};
 use super::*;
 use wyrm_state::replicate::records_after;
 
@@ -181,21 +183,31 @@ pub(super) fn walk(root: &Path, rel: &str, out: &mut Vec<FileEntry>) {
     }
 }
 
-/// The replicated files under `data_dir`, by name relative to it, sorted:
-/// `secrets.bin`, every `links/<id>/token` and `links/<id>/data/**`, and
-/// `packages/**`. Scratch names ([`skipped`]) are left out.
-pub fn files_of(data_dir: &Path) -> Vec<FileEntry> {
-    let mut out = Vec::new();
-    if let Ok(meta) = std::fs::metadata(data_dir.join("secrets.bin")) {
+/// The file `name` of `data_dir` itself into `out`, when it is there.
+fn top_file(data_dir: &Path, name: &str, out: &mut Vec<FileEntry>) {
+    if let Ok(meta) = std::fs::metadata(data_dir.join(name)) {
         if meta.is_file() {
             out.push(FileEntry {
-                name: "secrets.bin".to_owned(),
+                name: name.to_owned(),
                 len: meta.len(),
                 mtime: mtime_ns(&meta),
                 exec: false,
             });
         }
     }
+}
+
+/// The replicated files under `data_dir`, by name relative to it, sorted:
+/// `secrets.bin`, the seed's `seed.done` and `seed.progress.json` (ADR 0051
+/// §1: a promoted standby goes on with the seed where the active was, and
+/// never runs a finished one again), every `links/<id>/token` and
+/// `links/<id>/data/**`, and `packages/**`. Scratch names ([`skipped`])
+/// are left out.
+pub fn files_of(data_dir: &Path) -> Vec<FileEntry> {
+    let mut out = Vec::new();
+    top_file(data_dir, "secrets.bin", &mut out);
+    top_file(data_dir, SEED_DONE, &mut out);
+    top_file(data_dir, SEED_PROGRESS, &mut out);
     if let Ok(links) = std::fs::read_dir(data_dir.join("links")) {
         let mut ids: Vec<String> = links
             .flatten()
@@ -234,7 +246,7 @@ pub fn is_file_name(name: &str) -> bool {
         return false;
     }
     match segs.as_slice() {
-        ["secrets.bin"] => true,
+        ["secrets.bin" | SEED_DONE | SEED_PROGRESS] => true,
         ["links", id, "token"] => wyrm_core::keyspace::validate_segment(id).is_ok(),
         ["links", id, "data", _, ..] => wyrm_core::keyspace::validate_segment(id).is_ok(),
         ["packages", _, ..] => true,
@@ -930,6 +942,10 @@ mod tests {
         assert_eq!(back, page);
         assert!(parse_page(error_value("x")).is_none());
         assert!(is_file_name("secrets.bin"));
+        assert!(is_file_name("seed.done"));
+        assert!(is_file_name("seed.progress.json"));
+        assert!(!is_file_name("seed.tmp"));
+        assert!(!is_file_name("seed.json"));
         assert!(is_file_name("links/plc1/token"));
         assert!(is_file_name("links/plc1/data/framework.tree"));
         assert!(is_file_name("links/alarm/data/store/0a1b"));
@@ -951,6 +967,9 @@ mod tests {
         let _ = std::fs::remove_dir_all(&d);
         for p in [
             "secrets.bin",
+            "seed.done",
+            "seed.progress.json",
+            "seed.tmp",
             "state.key",
             "links/a/token",
             "links/a/cert.pem",
@@ -974,6 +993,8 @@ mod tests {
             names,
             [
                 "secrets.bin",
+                "seed.done",
+                "seed.progress.json",
                 "links/a/token",
                 "links/a/data/framework.tree",
                 "links/a/data/store/00ff",
@@ -985,7 +1006,7 @@ mod tests {
         assert!(names.iter().all(|n| is_file_name(n)));
         let v = files_value(&files_of(&d));
         let back = parse_files(v).unwrap();
-        assert_eq!(back.len(), 7);
+        assert_eq!(back.len(), 9);
         assert_eq!(back[0].len, "secrets.bin".len() as u64);
         #[cfg(unix)]
         {
