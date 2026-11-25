@@ -252,6 +252,62 @@ from a one-time setup code; the image holds only the code's hash.
 - `WYRM_GATEWAY_ADMIN_PASSWORD` still works. When it creates an admin, a
   setup file of the same start is void.
 
+### Seed packages (ADR 0051 §1)
+
+A broker made from an image can install link packages on its first start.
+The image cannot put them into `data_dir/packages`: `data_dir` is made at
+the first start, and the broker removes a package directory that its
+registry does not know. So the image carries the packages in a read-only
+directory with a list:
+
+```json5
+packages: { seed_dir: "/usr/share/wyrm/seed" },
+```
+
+`/usr/share/wyrm/seed/seed.json`:
+
+```json
+{
+  "format": "wyrm-seed/1",
+  "links": [
+    { "link": "modbus", "file": "modbus.zip", "accept": true },
+    { "link": "mqtt", "file": "mqtt.zip" }
+  ]
+}
+```
+
+- `format` must be `wyrm-seed/1`. An unknown field is an error. `link` is
+  the id of the new link. `file` is a package zip (as for `install_zip`) in the
+  same directory. `accept` (default `false`) is the
+  *Accept requested rights* of `install_zip`: without it, a package that
+  asks for a network allowlist or grants is not installed.
+- `file` is a plain name: no `/` or `\`, no leading `.`, not empty. The
+  broker opens it without following a symlink. The seed directory itself
+  may be a symlink. A zip is bounded as for `install_zip` (64 MiB).
+- On the first start, once the router listens, the broker installs each
+  entry as `sys/links ▸ install_zip` does, with the same checks, as the
+  subject `broker:seed` (in the audit journal). An entry whose link exists
+  already (a restored backup) is skipped before its file is read: the seed
+  never updates a package.
+- One entry that fails does not stop the others. When every entry was
+  tried, the broker writes `data_dir/seed.done` (0600, written whole) and
+  never runs the seed again. The file holds the time and, per link, `ok`,
+  `skipped: the link exists`, or the message of the failure. The log says
+  `seed: link <id> installed`, `… skipped (exists)`, or a warning with the
+  message.
+- To run the seed again, delete `data_dir/seed.done` and restart. Links
+  that exist are skipped, failed entries are tried again.
+- A start that ends before `seed.done` is written (a power cut) runs the
+  seed again at the next start. Links installed already are skipped. A
+  promoted standby does the same: `seed.done` is not replicated.
+- A `seed.json` that is missing or cannot be read (bad JSON, another
+  `format`, a link listed twice, more than 256 links) installs nothing and
+  writes no `seed.done`. The broker logs a warning and tries again at every
+  start.
+- While a router rebuild holds the broker, the seed waits for it (up to
+  60 s, then it tries again at the next start). The rebuilds that its
+  process links ask for wait until `seed.done` is written (at most 180 s).
+
 ### Recovery time
 
 The recovery time (RTO) of a restart is the sum of:

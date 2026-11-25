@@ -277,6 +277,7 @@ const CONFIG_SHOWN: &[&str] = &[
     "peers.downstream.site",
     "peers.downstream.via",
     "packages.repository",
+    "packages.seed_dir",
     "gateway.listen",
     "gateway.tls",
     "gateway.tls_cert",
@@ -825,6 +826,11 @@ pub struct PackagesSection {
     /// are kept for a rollback (ADR 0048); 1 to 365.
     #[serde(default = "default_keep_previous_days")]
     pub keep_previous_days: u32,
+    /// A read-only directory with `seed.json` and link packages (ADR 0051
+    /// §1): on its first start the broker installs each listed package as
+    /// `install_zip` does and writes `data_dir/seed.done`. Unset: no seed.
+    #[serde(default)]
+    pub seed_dir: Option<PathBuf>,
 }
 
 fn default_keep_previous_days() -> u32 {
@@ -836,6 +842,7 @@ impl Default for PackagesSection {
         Self {
             repository: None,
             keep_previous_days: default_keep_previous_days(),
+            seed_dir: None,
         }
     }
 }
@@ -1929,7 +1936,7 @@ impl Broker {
         // Admin and embedded links come up before the listeners open, so the
         // first remote query already finds their queryables and tokens.
         let session = zenoh::session::init(runtime.clone().into()).await?;
-        let admin = ctl.attach(session.clone()).await?;
+        let mut admin = ctl.attach(session.clone()).await?;
         if let Some(g) = gateway {
             // downstream sites may have changed at runtime (install, quarantine)
             g.set_downstream_sites(ctl.peers().reachable());
@@ -1976,6 +1983,9 @@ impl Broker {
             }
         };
         runtime.start().await?;
+        // seed packages on the first start (ADR 0051 §1), once the link
+        // endpoint listens
+        admin.start_seed();
         // a site-CA certificate follows the host's addresses while the gateway serves
         let site_ca = cfg
             .gateway
@@ -2619,6 +2629,7 @@ fn control_config(
             ]),
         },
         keep_previous_days: cfg.packages.keep_previous_days,
+        seed_dir: cfg.packages.seed_dir.clone(),
         updates: update::update_config(cfg)?,
     })
 }
@@ -3824,6 +3835,15 @@ mod tests {
         let cfg =
             Config::from_json5(r#"{ site: "s", packages: { keep_previous_days: 30 } }"#).unwrap();
         assert_eq!(cfg.packages.keep_previous_days, 30);
+        // ADR 0051 §1: no seed unless a directory is named
+        assert_eq!(cfg.packages.seed_dir, None);
+        let cfg =
+            Config::from_json5(r#"{ site: "s", packages: { seed_dir: "/usr/share/wyrm/seed" } }"#)
+                .unwrap();
+        assert_eq!(
+            cfg.packages.seed_dir.as_deref(),
+            Some(std::path::Path::new("/usr/share/wyrm/seed"))
+        );
     }
 
     #[test]

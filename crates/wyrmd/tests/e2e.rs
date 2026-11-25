@@ -1006,6 +1006,278 @@ async fn install_link_from_zip() {
     env.stop().await;
 }
 
+/// A seed directory (ADR 0051 §1) at `dir`: `seed.json` listing `entries`
+/// (`{link, file, accept}`) and the `files` beside it.
+fn make_seed(dir: &std::path::Path, entries: serde_json::Value, files: &[(&str, Vec<u8>)]) {
+    std::fs::create_dir_all(dir).unwrap();
+    let seed = serde_json::json!({ "format": "wyrm-seed/1", "links": entries });
+    std::fs::write(dir.join("seed.json"), seed.to_string()).unwrap();
+    for (name, bytes) in files {
+        std::fs::write(dir.join(name), bytes).unwrap();
+    }
+}
+
+/// The `wyrmd.json5` fields that name the seed directory `dir`.
+fn seed_extra(dir: &std::path::Path) -> String {
+    format!(r#"packages: {{ seed_dir: "{}" }},"#, dir.display())
+}
+
+/// `data_dir/seed.done` once the seed wrote it: `links` maps each link to
+/// `ok`, `skipped: the link exists` or the message of the failure.
+async fn seed_done(data: &std::path::Path) -> serde_json::Value {
+    eventually("seed.done", 90, || async {
+        let b = std::fs::read(data.join("seed.done")).ok()?;
+        serde_json::from_slice(&b).ok()
+    })
+    .await
+}
+
+/// Waits until link `id` answers with nodes of its own (across rebuilds).
+async fn link_runs(env: &Env, id: &str) {
+    eventually(&format!("{id} runs"), 60, || async {
+        let c = WyrmClient::new(env.try_session().await?).with_timeout(Duration::from_secs(3));
+        let ch = c
+            .children(&format!("wy/{SITE}/downstream/{id}"))
+            .await
+            .ok()?;
+        (!ch.is_empty()).then_some(())
+    })
+    .await;
+}
+
+/// The audit records the seed wrote (subject `broker:seed`).
+fn seed_records(env: &Env) -> Vec<wyrm_admin::audit::AuditRecord> {
+    env.ctl
+        .audit_tail(500)
+        .into_iter()
+        .filter(|r| r.sub == "broker:seed")
+        .collect()
+}
+
+/// Waits until the broker answers a client again (after a start or a rebuild).
+async fn broker_answers(env: &Env) {
+    eventually("the broker answers", 30, || async {
+        let c = WyrmClient::new(env.try_session().await?).with_timeout(Duration::from_secs(3));
+        c.children(&format!("wy/{SITE}/sys/links")).await.ok()
+    })
+    .await;
+}
+
+/// ADR 0051 §1: on its first start the broker installs each package of its
+/// seed as `install_zip` does, as `broker:seed`, and writes `seed.done`; a
+/// restart installs nothing again.
+#[tokio::test(flavor = "multi_thread")]
+async fn seed_installs_packages_once() {
+    let base = temp_dir("seedonce");
+    let (data, seed) = (base.join("data"), base.join("seed"));
+    make_seed(
+        &seed,
+        serde_json::json!([
+            { "link": "sa", "file": "a.zip", "accept": true },
+            { "link": "sb", "file": "b.zip" },
+        ]),
+        &[
+            ("a.zip", driver_package("seeda", "1.0.0", "seed a", "mock")),
+            ("b.zip", driver_package("seedb", "1.0.0", "seed b", "mock")),
+        ],
+    );
+    let env = Env::start_in(&data, &seed_extra(&seed)).await;
+    let done = seed_done(&data).await;
+    assert_eq!(done["links"]["sa"], "ok", "{done}");
+    assert_eq!(done["links"]["sb"], "ok", "{done}");
+    assert!(
+        done["time"].as_str().is_some_and(|t| t.ends_with('Z')),
+        "{done}"
+    );
+    link_runs(&env, "sa").await;
+    link_runs(&env, "sb").await;
+    let reg = env.ctl.registry();
+    assert_eq!(reg.links["sa"].driver, "pkg:seeda");
+    assert_eq!(reg.packages["seedb"].version, "1.0.0");
+    assert_eq!(reg.packages["seeda"].source, "seed:a.zip");
+    let records = seed_records(&env);
+    assert!(
+        records.iter().any(|r| r.op.name() == "package_install"),
+        "{records:?}"
+    );
+    assert!(records
+        .iter()
+        .any(|r| r.op.name() == "install" && r.key == "sb"));
+    let marker = std::fs::read(data.join("seed.done")).unwrap();
+    env.stop().await;
+
+    // a restart: the marker is there, nothing is installed again
+    let env = Env::start_in(&data, &seed_extra(&seed)).await;
+    broker_answers(&env).await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    assert!(seed_records(&env).len() <= records.len());
+    assert_eq!(std::fs::read(data.join("seed.done")).unwrap(), marker);
+    env.stop().await;
+}
+
+/// Review focus 5: the seed runs once. A seeded link that was removed stays
+/// gone after a restart, and an entry that failed is not tried again, even
+/// when its file is in place by then.
+#[tokio::test(flavor = "multi_thread")]
+async fn seed_runs_once() {
+    let base = temp_dir("seedrunsonce");
+    let (data, seed) = (base.join("data"), base.join("seed"));
+    make_seed(
+        &seed,
+        serde_json::json!([
+            { "link": "ra", "file": "a.zip", "accept": true },
+            { "link": "rb", "file": "b.zip", "accept": true },
+        ]),
+        &[("a.zip", driver_package("runa", "1.0.0", "run a", "mock"))],
+    );
+    let env = Env::start_in(&data, &seed_extra(&seed)).await;
+    let done = seed_done(&data).await;
+    assert_eq!(done["links"]["ra"], "ok", "{done}");
+    assert_ne!(done["links"]["rb"], "ok", "{done}");
+    link_runs(&env, "ra").await;
+    invoke_retry(
+        &env,
+        &format!("wy/{SITE}/sys/links/ra"),
+        "remove",
+        Value::Map(BTreeMap::new()),
+    )
+    .await;
+    eventually("ra removed", 30, || async {
+        (!env.ctl.registry().links.contains_key("ra")).then_some(())
+    })
+    .await;
+    env.stop().await;
+
+    std::fs::write(
+        seed.join("b.zip"),
+        driver_package("runb", "1.0.0", "run b", "mock"),
+    )
+    .unwrap();
+    let env = Env::start_in(&data, &seed_extra(&seed)).await;
+    broker_answers(&env).await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    let reg = env.ctl.registry();
+    assert!(!reg.links.contains_key("ra"));
+    assert!(!reg.links.contains_key("rb"));
+    assert!(!reg.packages.contains_key("runb"));
+    env.stop().await;
+}
+
+/// One entry that fails (its file is missing) does not stop the next one;
+/// the marker records why it failed.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_broken_seed_entry_does_not_stop_the_others() {
+    let base = temp_dir("seedbroken");
+    let (data, seed) = (base.join("data"), base.join("seed"));
+    make_seed(
+        &seed,
+        serde_json::json!([
+            { "link": "bm", "file": "missing.zip", "accept": true },
+            { "link": "bz", "file": "bad.zip", "accept": true },
+            { "link": "bg", "file": "good.zip", "accept": true },
+        ]),
+        &[
+            ("bad.zip", b"not a zip".to_vec()),
+            (
+                "good.zip",
+                driver_package("brokengood", "1.0.0", "good", "mock"),
+            ),
+        ],
+    );
+    let env = Env::start_in(&data, &seed_extra(&seed)).await;
+    let done = seed_done(&data).await;
+    let msg = |l: &str| done["links"][l].as_str().unwrap_or_default().to_owned();
+    assert!(msg("bm").contains("missing.zip"), "{done}");
+    assert!(msg("bz").contains("zip"), "{done}");
+    assert_ne!(msg("bz"), "ok", "{done}");
+    assert_eq!(msg("bg"), "ok", "{done}");
+    link_runs(&env, "bg").await;
+    let reg = env.ctl.registry();
+    assert!(!reg.links.contains_key("bm") && !reg.links.contains_key("bz"));
+    env.stop().await;
+}
+
+/// A seed link whose id exists (a restored backup) is skipped before its
+/// zip is read: the package installed earlier is not updated by the seed.
+#[tokio::test(flavor = "multi_thread")]
+async fn seed_skips_an_existing_link() {
+    let base = temp_dir("seedskip");
+    let (data, seed) = (base.join("data"), base.join("seed"));
+    let env = Env::start_in(&data, "").await;
+    let args = Value::Map(BTreeMap::from([
+        ("name".to_owned(), Value::from("pk1")),
+        ("zip".to_owned(), Value::Bytes(mock_package("1.0.0"))),
+        ("accept".to_owned(), Value::Bool(true)),
+    ]));
+    invoke_retry(&env, &format!("wy/{SITE}/sys/links"), "install_zip", args).await;
+    eventually("pk1 installed", 30, || async {
+        env.ctl.registry().links.contains_key("pk1").then_some(())
+    })
+    .await;
+    env.stop().await;
+
+    make_seed(
+        &seed,
+        serde_json::json!([{ "link": "pk1", "file": "new.zip", "accept": true }]),
+        &[("new.zip", mock_package("1.1.0"))],
+    );
+    let env = Env::start_in(&data, &seed_extra(&seed)).await;
+    let done = seed_done(&data).await;
+    assert_eq!(done["links"]["pk1"], "skipped: the link exists", "{done}");
+    assert_eq!(env.ctl.registry().packages["mockpkg"].version, "1.0.0");
+    env.stop().await;
+}
+
+/// A seed `file` is a plain name inside the seed directory: a path out of it,
+/// a path into a subdirectory and a symlink are refused and nothing is read.
+#[tokio::test(flavor = "multi_thread")]
+async fn seed_file_names_stay_in_the_seed_dir() {
+    let base = temp_dir("seednames");
+    let (data, seed) = (base.join("data"), base.join("seed"));
+    std::fs::create_dir_all(&base).unwrap();
+    std::fs::write(
+        base.join("x.zip"),
+        driver_package("outside", "1.0.0", "outside", "mock"),
+    )
+    .unwrap();
+    make_seed(
+        &seed,
+        serde_json::json!([
+            { "link": "up", "file": "../x.zip", "accept": true },
+            { "link": "sub", "file": "d/x.zip", "accept": true },
+            { "link": "dot", "file": ".x.zip", "accept": true },
+            { "link": "sym", "file": "link.zip", "accept": true },
+        ]),
+        &[],
+    );
+    std::fs::create_dir_all(seed.join("d")).unwrap();
+    std::fs::write(
+        seed.join("d/x.zip"),
+        driver_package("outside", "1.0.0", "outside", "mock"),
+    )
+    .unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(base.join("x.zip"), seed.join("link.zip")).unwrap();
+    let env = Env::start_in(&data, &seed_extra(&seed)).await;
+    let done = seed_done(&data).await;
+    for l in ["up", "sub", "dot"] {
+        let m = done["links"][l].as_str().unwrap_or_default();
+        assert!(m.contains("not a plain file name"), "{l}: {done}");
+    }
+    #[cfg(unix)]
+    assert_ne!(done["links"]["sym"], "ok", "{done}");
+    let reg = env.ctl.registry();
+    assert!(
+        !reg.packages.contains_key("outside"),
+        "{:?}",
+        reg.packages.keys()
+    );
+    for l in ["up", "sub", "dot", "sym"] {
+        assert!(!reg.links.contains_key(l), "{l}");
+    }
+    env.stop().await;
+}
+
 /// A tiny HTTP/1.1 server on loopback: `path → (status, extra headers, body)`.
 async fn serve_files(files: std::collections::HashMap<String, (u16, String, Vec<u8>)>) -> u16 {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
