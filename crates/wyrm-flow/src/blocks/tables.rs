@@ -509,304 +509,28 @@ fn rows<T>(
     Ok(out)
 }
 
+/// A table block's one output `out`.
+fn one((val, bad): (Value, bool)) -> Outs {
+    vec![("out", val, bad)]
+}
+
+/// `out` is `null`.
+fn nul() -> Outs {
+    vec![("out", Value::Null, false)]
+}
+
 pub(super) fn calc(op: Op, v: &View, sc: Option<&mut Scripts>) -> Outs {
-    let one = |(val, bad): (Value, bool)| vec![("out", val, bad)];
-    let nul = || vec![("out", Value::Null, false)];
     match op {
-        Op::FromCsv => {
-            let delim = ptext(v, "delimiter").chars().next().unwrap_or(',');
-            match v.inv {
-                Value::Str(s) if s.len() <= MAX_TEXT_TABLE => {
-                    match parse_csv(s, delim, truth(v.p("with_header"), true)) {
-                        Some(t) => {
-                            let (val, bad) = table_out(t);
-                            vec![
-                                ("out", val, bad),
-                                ("parse_error", Value::Bool(false), false),
-                            ]
-                        }
-                        None => vec![
-                            ("out", Value::Null, false),
-                            ("parse_error", Value::Bool(true), false),
-                        ],
-                    }
-                }
-                _ => vec![
-                    ("out", Value::Null, false),
-                    ("parse_error", Value::Bool(true), false),
-                ],
-            }
-        }
-        Op::ToCsv => match input_table(v) {
-            None => nul(),
-            Some(t) => {
-                let delim = ptext(v, "delimiter").chars().next().unwrap_or(',');
-                let csv = write_csv(&t, delim, truth(v.p("with_header"), true));
-                one(if csv.len() > MAX_TEXT_TABLE {
-                    (Value::Null, true)
-                } else {
-                    (Value::Str(csv), false)
-                })
-            }
-        },
-        Op::FromJson => {
-            let parsed = match v.inv {
-                Value::Str(s) => super::text::parse_json(s).ok(),
-                Value::Null => None,
-                x => Some(x.clone()),
-            };
-            let Some(j) = parsed else {
-                return vec![
-                    ("out", Value::Null, false),
-                    ("parse_error", Value::Bool(true), false),
-                ];
-            };
-            let at = select(&j, &ptext(v, "selector"));
-            let t = match at {
-                Some(Value::Map(m)) if m.contains_key("rows") => {
-                    Table::from_value(at.unwrap_or(&Value::Null))
-                }
-                Some(Value::Array(a)) => Some(flatten(a)),
-                Some(m @ Value::Map(_)) => Some(flatten(std::slice::from_ref(m))),
-                _ => None,
-            };
-            match t {
-                Some(t) => {
-                    let (val, bad) = table_out(t);
-                    vec![
-                        ("out", val, bad),
-                        ("parse_error", Value::Bool(false), false),
-                    ]
-                }
-                None => vec![
-                    ("out", Value::Null, false),
-                    ("parse_error", Value::Bool(at.is_none()), false),
-                ],
-            }
-        }
-        Op::ToJson => match input_table(v) {
-            None => nul(),
-            Some(t) => {
-                let rows = Value::Array(t.rows.iter().map(|r| Value::Map(r.clone())).collect());
-                let s = super::text::stringify(&rows, truth(v.p("pretty"), false));
-                one(s
-                    .filter(|s| s.len() <= MAX_TEXT_TABLE)
-                    .map_or((Value::Null, true), |s| (Value::Str(s), false)))
-            }
-        },
-        Op::MapColumns => {
-            let (Some(t), Some(sc)) = (input_table(v), sc) else {
-                return vec![("out", Value::Null, false), ("error", Value::Null, false)];
-            };
-            let mut cols: Vec<String> = if truth(v.p("retain_columns"), false) {
-                t.columns.clone()
-            } else {
-                Vec::new()
-            };
-            let mut out = Table::new(Vec::new());
-            out.rows = if truth(v.p("retain_columns"), false) {
-                t.rows.clone()
-            } else {
-                vec![BTreeMap::new(); t.rows.len()]
-            };
-            let Scripts {
-                engine,
-                columns,
-                vars,
-                ..
-            } = sc;
-            for (name, how) in columns.iter() {
-                let cells: Result<Vec<Value>, RowError> = match how {
-                    From::Column(c) => Ok(t
-                        .rows
-                        .iter()
-                        .map(|r| r.get(c).cloned().unwrap_or(Value::Null))
-                        .collect()),
-                    From::Nothing => Ok(vec![Value::Null; t.rows.len()]),
-                    From::Expr(ast, kind) => per_row(engine, vars, ast, &t, |_, x| match kind {
-                        '+' => num(&x).map_or(Value::Null, N::value),
-                        '&' => Value::Bool(truth(&x, false)),
-                        _ => x,
-                    }),
-                };
-                match cells {
-                    Ok(cells) => {
-                        for (r, c) in out.rows.iter_mut().zip(cells) {
-                            r.insert(name.clone(), c);
-                        }
-                    }
-                    Err(e) => {
-                        return vec![
-                            ("out", Value::Null, false),
-                            ("error", Value::Str(e.to_string()), false),
-                        ]
-                    }
-                }
-                if !cols.contains(name) {
-                    cols.push(name.clone());
-                }
-            }
-            out.columns = cols;
-            let (val, bad) = table_out(out);
-            vec![("out", val, bad), ("error", Value::Null, false)]
-        }
-        Op::Sort => {
-            let Some(mut t) = input_table(v) else {
-                return nul();
-            };
-            let col = ptext(v, "column");
-            if t.columns.contains(&col) {
-                let method = ptext(v, "method");
-                let desc = ptext(v, "order") == "descending";
-                t.rows.sort_by(|a, b| {
-                    order(
-                        a.get(&col).unwrap_or(&Value::Null),
-                        b.get(&col).unwrap_or(&Value::Null),
-                        &method,
-                        desc,
-                    )
-                });
-            }
-            one(table_out(t))
-        }
-        Op::Filter | Op::RemoveRows => {
-            let (Some(t), Some(sc)) = (input_table(v), sc) else {
-                return vec![("out", Value::Null, false), ("error", Value::Null, false)];
-            };
-            let Scripts {
-                engine, expr, vars, ..
-            } = sc;
-            let Some(ast) = expr.as_ref() else {
-                return nul();
-            };
-            match per_row(engine, vars, ast, &t, |_, x| truth(&x, false)) {
-                Ok(keep) => {
-                    let remove = op == Op::RemoveRows;
-                    // the rows that stay are moved out of the parsed table, not copied
-                    let Table { columns, rows } = t;
-                    let rows = rows
-                        .into_iter()
-                        .zip(keep)
-                        .filter(|(_, k)| *k != remove)
-                        .map(|(r, _)| r)
-                        .collect();
-                    let (val, bad) = table_out(Table { columns, rows });
-                    vec![("out", val, bad), ("error", Value::Null, false)]
-                }
-                Err(e) => vec![
-                    ("out", Value::Null, false),
-                    ("error", Value::Str(e.to_string()), false),
-                ],
-            }
-        }
-        Op::EditRows => {
-            let (Some(mut t), Some(sc)) = (input_table(v), sc) else {
-                return vec![("out", Value::Null, false), ("error", Value::Null, false)];
-            };
-            let Scripts {
-                engine, expr, vars, ..
-            } = sc;
-            let Some(ast) = expr.as_ref() else {
-                return nul();
-            };
-            let Value::Map(cells) = v.p("cells") else {
-                return vec![
-                    ("out", table_out(t).0, false),
-                    ("error", Value::Null, false),
-                ];
-            };
-            match per_row(engine, vars, ast, &t, |_, x| truth(&x, false)) {
-                Ok(hit) => {
-                    for (r, h) in t.rows.iter_mut().zip(hit) {
-                        if h {
-                            r.extend(cells.iter().map(|(k, x)| (k.clone(), x.clone())));
-                        }
-                    }
-                    for k in cells.keys() {
-                        if !t.columns.contains(k) {
-                            t.columns.push(k.clone());
-                        }
-                    }
-                    let (val, bad) = table_out(t);
-                    vec![("out", val, bad), ("error", Value::Null, false)]
-                }
-                Err(e) => vec![
-                    ("out", Value::Null, false),
-                    ("error", Value::Str(e.to_string()), false),
-                ],
-            }
-        }
-        Op::GroupBy => {
-            let Some(t) = input_table(v) else {
-                return nul();
-            };
-            let base = ptext(v, "column");
-            if !t.columns.contains(&base) {
-                return nul();
-            }
-            let Ok(aggs) = aggregates(match v.p("aggregates") {
-                Value::Null => None,
-                x => Some(x),
-            }) else {
-                return nul();
-            };
-            let blank = truth(v.p("include_blank"), false);
-            let mut keys: Vec<String> = Vec::new();
-            let mut groups: BTreeMap<String, Vec<usize>> = BTreeMap::new();
-            for (i, r) in t.rows.iter().enumerate() {
-                let k = match r.get(&base) {
-                    None | Some(Value::Null) => String::new(),
-                    Some(x) => bounded_text(x).unwrap_or_default(),
-                };
-                if k.is_empty() && !blank {
-                    continue;
-                }
-                if !groups.contains_key(&k) {
-                    keys.push(k.clone());
-                }
-                groups.entry(k).or_default().push(i);
-            }
-            let mut cols = vec![base.clone()];
-            cols.extend(aggs.iter().map(|(_, _, a)| a.clone()));
-            let nested = truth(v.p("nested"), false);
-            if nested {
-                cols.push("rows".into());
-            }
-            let mut out = Table::new(cols);
-            for k in keys {
-                let idx = &groups[&k];
-                let mut row = BTreeMap::from([(base.clone(), Value::Str(k))]);
-                for (c, m, a) in &aggs {
-                    let cells: Vec<&Value> = idx.iter().map(|i| t.cell(*i, c)).collect();
-                    row.insert(a.clone(), aggregate(m, &cells));
-                }
-                if nested {
-                    let sub = Table {
-                        columns: t.columns.clone(),
-                        rows: idx.iter().map(|i| t.rows[*i].clone()).collect(),
-                    };
-                    row.insert("rows".into(), sub.to_value().unwrap_or(Value::Null));
-                }
-                out.rows.push(row);
-            }
-            one(table_out(out))
-        }
-        Op::Join => {
-            let (l, r) = (
-                input_table(v),
-                v.ins.get("right").and_then(|r| Table::from_value(r)),
-            );
-            let col = ptext(v, "column");
-            let rcol = match v.p("right_column") {
-                Value::Str(c) if !c.is_empty() => c.clone(),
-                _ => col.clone(),
-            };
-            let kind = ptext(v, "join");
-            match join(l, r, &col, &rcol, &kind) {
-                Some(t) => one(table_out(t)),
-                None => nul(),
-            }
-        }
+        Op::FromCsv => from_csv(v),
+        Op::ToCsv => to_csv(v),
+        Op::FromJson => from_json(v),
+        Op::ToJson => to_json(v),
+        Op::MapColumns => map_columns(v, sc),
+        Op::Sort => sort_rows(v),
+        Op::Filter | Op::RemoveRows => filter_rows(op, v, sc),
+        Op::EditRows => edit_rows(v, sc),
+        Op::GroupBy => group_by(v),
+        Op::Join => join_right(v),
         Op::Page => nul(), // `blocks.rs` pages: it keeps the page
         Op::Rollup => {
             let Some(t) = input_table(v) else {
@@ -817,129 +541,470 @@ pub(super) fn calc(op: Op, v: &View, sc: Option<&mut Scripts>) -> Outs {
                 None => nul(),
             }
         }
-        Op::Aggregate => {
-            let Some(t) = input_table(v) else {
-                return nul();
-            };
-            let col = ptext(v, "column");
-            let m = ptext(v, "method");
-            if !t.columns.contains(&col) || !METHODS.contains(&m.as_str()) {
-                return nul();
-            }
-            let cells: Vec<&Value> = (0..t.rows.len()).map(|i| t.cell(i, &col)).collect();
-            one((aggregate(&m, &cells), false))
-        }
-        Op::SelectRows => {
-            let Some(t) = input_table(v) else {
-                return nul();
-            };
-            let idx: Vec<usize> = match v.p("indexes") {
-                Value::Array(a) => a.iter().filter_map(|x| super::whole(x, MAX_ROWS)).collect(),
-                Value::Str(s) => s
-                    .split(',')
-                    .filter_map(|x| x.trim().parse::<usize>().ok())
-                    .collect(),
-                x => super::whole(x, MAX_ROWS).into_iter().collect(),
-            };
-            let rows = idx
-                .into_iter()
-                .take(MAX_ROWS)
-                .filter_map(|i| t.rows.get(i).cloned())
-                .collect();
-            one(table_out(Table {
-                columns: t.columns.clone(),
-                rows,
-            }))
-        }
-        Op::SelectColumns => {
-            let Some(t) = input_table(v) else {
-                return nul();
-            };
-            let mut cols: Vec<String> = Vec::new();
-            for c in name_list(v.p("columns")) {
-                if t.columns.contains(&c) && !cols.contains(&c) {
-                    cols.push(c);
-                }
-            }
-            let rows = t
-                .rows
-                .iter()
-                .map(|r| {
-                    cols.iter()
-                        .map(|c| (c.clone(), r.get(c).cloned().unwrap_or(Value::Null)))
-                        .collect()
-                })
-                .collect();
-            one(table_out(Table {
-                columns: cols,
-                rows,
-            }))
-        }
-        Op::Columns => {
-            let Some(t) = input_table(v) else {
-                return nul();
-            };
-            let mut out = Table::new(vec!["name".into(), "type".into()]);
-            for c in &t.columns {
-                out.rows.push(BTreeMap::from([
-                    ("name".to_owned(), Value::Str(c.clone())),
-                    ("type".to_owned(), Value::from(column_type(&t, c))),
-                ]));
-            }
-            one(table_out(out))
-        }
-        Op::RowCells => {
-            let Some(t) = input_table(v) else {
-                return vec![("out", Value::Null, false), ("count", Value::Null, false)];
-            };
-            let row = super::whole(v.p("row"), MAX_ROWS)
-                .and_then(|i| t.rows.get(i))
-                .map(|r| {
-                    Value::Map(
-                        t.columns
-                            .iter()
-                            .map(|c| (c.clone(), r.get(c).cloned().unwrap_or(Value::Null)))
-                            .collect(),
-                    )
-                })
-                .unwrap_or(Value::Null);
-            vec![
-                ("out", row, false),
-                ("count", Value::UInt(t.rows.len() as u64), false),
-            ]
-        }
-        Op::AddRow => {
-            let Some(mut t) = input_table(v) else {
-                return nul();
-            };
-            if let Value::Map(r) = v.p("row") {
-                for k in r.keys() {
-                    if !t.columns.contains(k) {
-                        t.columns.push(k.clone());
-                    }
-                }
-                t.rows.push(r.clone());
-            }
-            one(table_out(t))
-        }
+        Op::Aggregate => aggregate_column(v),
+        Op::SelectRows => select_rows(v),
+        Op::SelectColumns => select_columns(v),
+        Op::Columns => column_list(v),
+        Op::RowCells => row_cells(v),
+        Op::AddRow => add_row(v),
         Op::Transpose => {
             let Some(t) = input_table(v) else {
                 return nul();
             };
             one(table_out(transpose(&t, v)))
         }
-        Op::FromMap => match v.inv {
-            Value::Map(m) if !m.contains_key("rows") => {
-                let t = Table {
-                    columns: m.keys().cloned().collect(),
-                    rows: vec![m.clone()],
-                };
-                one(table_out(t))
+        Op::FromMap => from_map(v),
+    }
+}
+
+/// `table_from_csv`: the table a CSV text holds, and whether it did not parse.
+fn from_csv(v: &View) -> Outs {
+    let delim = ptext(v, "delimiter").chars().next().unwrap_or(',');
+    match v.inv {
+        Value::Str(s) if s.len() <= MAX_TEXT_TABLE => {
+            match parse_csv(s, delim, truth(v.p("with_header"), true)) {
+                Some(t) => {
+                    let (val, bad) = table_out(t);
+                    vec![
+                        ("out", val, bad),
+                        ("parse_error", Value::Bool(false), false),
+                    ]
+                }
+                None => vec![
+                    ("out", Value::Null, false),
+                    ("parse_error", Value::Bool(true), false),
+                ],
             }
-            x => match Table::from_value(x) {
-                Some(t) => one(table_out(t)),
-                None => nul(),
-            },
+        }
+        _ => vec![
+            ("out", Value::Null, false),
+            ("parse_error", Value::Bool(true), false),
+        ],
+    }
+}
+
+/// `table_to_csv`: the table as CSV text.
+fn to_csv(v: &View) -> Outs {
+    match input_table(v) {
+        None => nul(),
+        Some(t) => {
+            let delim = ptext(v, "delimiter").chars().next().unwrap_or(',');
+            let csv = write_csv(&t, delim, truth(v.p("with_header"), true));
+            one(if csv.len() > MAX_TEXT_TABLE {
+                (Value::Null, true)
+            } else {
+                (Value::Str(csv), false)
+            })
+        }
+    }
+}
+
+/// `table_from_json`: the table at `selector` in a JSON text or value, and whether it did not parse.
+fn from_json(v: &View) -> Outs {
+    let parsed = match v.inv {
+        Value::Str(s) => super::text::parse_json(s).ok(),
+        Value::Null => None,
+        x => Some(x.clone()),
+    };
+    let Some(j) = parsed else {
+        return vec![
+            ("out", Value::Null, false),
+            ("parse_error", Value::Bool(true), false),
+        ];
+    };
+    let at = select(&j, &ptext(v, "selector"));
+    let t = match at {
+        Some(Value::Map(m)) if m.contains_key("rows") => {
+            Table::from_value(at.unwrap_or(&Value::Null))
+        }
+        Some(Value::Array(a)) => Some(flatten(a)),
+        Some(m @ Value::Map(_)) => Some(flatten(std::slice::from_ref(m))),
+        _ => None,
+    };
+    match t {
+        Some(t) => {
+            let (val, bad) = table_out(t);
+            vec![
+                ("out", val, bad),
+                ("parse_error", Value::Bool(false), false),
+            ]
+        }
+        None => vec![
+            ("out", Value::Null, false),
+            ("parse_error", Value::Bool(at.is_none()), false),
+        ],
+    }
+}
+
+/// `table_to_json`: the rows as a JSON text.
+fn to_json(v: &View) -> Outs {
+    match input_table(v) {
+        None => nul(),
+        Some(t) => {
+            let rows = Value::Array(t.rows.iter().map(|r| Value::Map(r.clone())).collect());
+            let s = super::text::stringify(&rows, truth(v.p("pretty"), false));
+            one(s
+                .filter(|s| s.len() <= MAX_TEXT_TABLE)
+                .map_or((Value::Null, true), |s| (Value::Str(s), false)))
+        }
+    }
+}
+
+/// `table_map_columns`: each column of `mapping` from a column, a per-row script or nothing.
+fn map_columns(v: &View, sc: Option<&mut Scripts>) -> Outs {
+    let (Some(t), Some(sc)) = (input_table(v), sc) else {
+        return vec![("out", Value::Null, false), ("error", Value::Null, false)];
+    };
+    let mut cols: Vec<String> = if truth(v.p("retain_columns"), false) {
+        t.columns.clone()
+    } else {
+        Vec::new()
+    };
+    let mut out = Table::new(Vec::new());
+    out.rows = if truth(v.p("retain_columns"), false) {
+        t.rows.clone()
+    } else {
+        vec![BTreeMap::new(); t.rows.len()]
+    };
+    let Scripts {
+        engine,
+        columns,
+        vars,
+        ..
+    } = sc;
+    for (name, how) in columns.iter() {
+        let cells: Result<Vec<Value>, RowError> = match how {
+            From::Column(c) => Ok(t
+                .rows
+                .iter()
+                .map(|r| r.get(c).cloned().unwrap_or(Value::Null))
+                .collect()),
+            From::Nothing => Ok(vec![Value::Null; t.rows.len()]),
+            From::Expr(ast, kind) => per_row(engine, vars, ast, &t, |_, x| match kind {
+                '+' => num(&x).map_or(Value::Null, N::value),
+                '&' => Value::Bool(truth(&x, false)),
+                _ => x,
+            }),
+        };
+        match cells {
+            Ok(cells) => {
+                for (r, c) in out.rows.iter_mut().zip(cells) {
+                    r.insert(name.clone(), c);
+                }
+            }
+            Err(e) => {
+                return vec![
+                    ("out", Value::Null, false),
+                    ("error", Value::Str(e.to_string()), false),
+                ]
+            }
+        }
+        if !cols.contains(name) {
+            cols.push(name.clone());
+        }
+    }
+    out.columns = cols;
+    let (val, bad) = table_out(out);
+    vec![("out", val, bad), ("error", Value::Null, false)]
+}
+
+/// `table_sort`: the rows in the order of `column`.
+fn sort_rows(v: &View) -> Outs {
+    let Some(mut t) = input_table(v) else {
+        return nul();
+    };
+    let col = ptext(v, "column");
+    if t.columns.contains(&col) {
+        let method = ptext(v, "method");
+        let desc = ptext(v, "order") == "descending";
+        t.rows.sort_by(|a, b| {
+            order(
+                a.get(&col).unwrap_or(&Value::Null),
+                b.get(&col).unwrap_or(&Value::Null),
+                &method,
+                desc,
+            )
+        });
+    }
+    one(table_out(t))
+}
+
+/// `table_filter`, `table_remove_rows`: the rows the per-row script keeps, or the others.
+fn filter_rows(op: Op, v: &View, sc: Option<&mut Scripts>) -> Outs {
+    let (Some(t), Some(sc)) = (input_table(v), sc) else {
+        return vec![("out", Value::Null, false), ("error", Value::Null, false)];
+    };
+    let Scripts {
+        engine, expr, vars, ..
+    } = sc;
+    let Some(ast) = expr.as_ref() else {
+        return nul();
+    };
+    match per_row(engine, vars, ast, &t, |_, x| truth(&x, false)) {
+        Ok(keep) => {
+            let remove = op == Op::RemoveRows;
+            // the rows that stay are moved out of the parsed table, not copied
+            let Table { columns, rows } = t;
+            let rows = rows
+                .into_iter()
+                .zip(keep)
+                .filter(|(_, k)| *k != remove)
+                .map(|(r, _)| r)
+                .collect();
+            let (val, bad) = table_out(Table { columns, rows });
+            vec![("out", val, bad), ("error", Value::Null, false)]
+        }
+        Err(e) => vec![
+            ("out", Value::Null, false),
+            ("error", Value::Str(e.to_string()), false),
+        ],
+    }
+}
+
+/// `table_edit_rows`: `cells` set in the rows the per-row script picks.
+fn edit_rows(v: &View, sc: Option<&mut Scripts>) -> Outs {
+    let (Some(mut t), Some(sc)) = (input_table(v), sc) else {
+        return vec![("out", Value::Null, false), ("error", Value::Null, false)];
+    };
+    let Scripts {
+        engine, expr, vars, ..
+    } = sc;
+    let Some(ast) = expr.as_ref() else {
+        return nul();
+    };
+    let Value::Map(cells) = v.p("cells") else {
+        return vec![
+            ("out", table_out(t).0, false),
+            ("error", Value::Null, false),
+        ];
+    };
+    match per_row(engine, vars, ast, &t, |_, x| truth(&x, false)) {
+        Ok(hit) => {
+            for (r, h) in t.rows.iter_mut().zip(hit) {
+                if h {
+                    r.extend(cells.iter().map(|(k, x)| (k.clone(), x.clone())));
+                }
+            }
+            for k in cells.keys() {
+                if !t.columns.contains(k) {
+                    t.columns.push(k.clone());
+                }
+            }
+            let (val, bad) = table_out(t);
+            vec![("out", val, bad), ("error", Value::Null, false)]
+        }
+        Err(e) => vec![
+            ("out", Value::Null, false),
+            ("error", Value::Str(e.to_string()), false),
+        ],
+    }
+}
+
+/// `table_group_by`: one row per value of `column`, with its aggregates and its rows.
+fn group_by(v: &View) -> Outs {
+    let Some(t) = input_table(v) else {
+        return nul();
+    };
+    let base = ptext(v, "column");
+    if !t.columns.contains(&base) {
+        return nul();
+    }
+    let Ok(aggs) = aggregates(match v.p("aggregates") {
+        Value::Null => None,
+        x => Some(x),
+    }) else {
+        return nul();
+    };
+    let blank = truth(v.p("include_blank"), false);
+    let mut keys: Vec<String> = Vec::new();
+    let mut groups: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+    for (i, r) in t.rows.iter().enumerate() {
+        let k = match r.get(&base) {
+            None | Some(Value::Null) => String::new(),
+            Some(x) => bounded_text(x).unwrap_or_default(),
+        };
+        if k.is_empty() && !blank {
+            continue;
+        }
+        if !groups.contains_key(&k) {
+            keys.push(k.clone());
+        }
+        groups.entry(k).or_default().push(i);
+    }
+    let mut cols = vec![base.clone()];
+    cols.extend(aggs.iter().map(|(_, _, a)| a.clone()));
+    let nested = truth(v.p("nested"), false);
+    if nested {
+        cols.push("rows".into());
+    }
+    let mut out = Table::new(cols);
+    for k in keys {
+        let idx = &groups[&k];
+        let mut row = BTreeMap::from([(base.clone(), Value::Str(k))]);
+        for (c, m, a) in &aggs {
+            let cells: Vec<&Value> = idx.iter().map(|i| t.cell(*i, c)).collect();
+            row.insert(a.clone(), aggregate(m, &cells));
+        }
+        if nested {
+            let sub = Table {
+                columns: t.columns.clone(),
+                rows: idx.iter().map(|i| t.rows[*i].clone()).collect(),
+            };
+            row.insert("rows".into(), sub.to_value().unwrap_or(Value::Null));
+        }
+        out.rows.push(row);
+    }
+    one(table_out(out))
+}
+
+/// `table_join`: `in` joined with `right`.
+fn join_right(v: &View) -> Outs {
+    let (l, r) = (
+        input_table(v),
+        v.ins.get("right").and_then(|r| Table::from_value(r)),
+    );
+    let col = ptext(v, "column");
+    let rcol = match v.p("right_column") {
+        Value::Str(c) if !c.is_empty() => c.clone(),
+        _ => col.clone(),
+    };
+    let kind = ptext(v, "join");
+    match join(l, r, &col, &rcol, &kind) {
+        Some(t) => one(table_out(t)),
+        None => nul(),
+    }
+}
+
+/// `table_aggregate`: one aggregate of a column.
+fn aggregate_column(v: &View) -> Outs {
+    let Some(t) = input_table(v) else {
+        return nul();
+    };
+    let col = ptext(v, "column");
+    let m = ptext(v, "method");
+    if !t.columns.contains(&col) || !METHODS.contains(&m.as_str()) {
+        return nul();
+    }
+    let cells: Vec<&Value> = (0..t.rows.len()).map(|i| t.cell(i, &col)).collect();
+    one((aggregate(&m, &cells), false))
+}
+
+/// `table_select_rows`: the rows at `indexes`.
+fn select_rows(v: &View) -> Outs {
+    let Some(t) = input_table(v) else {
+        return nul();
+    };
+    let idx: Vec<usize> = match v.p("indexes") {
+        Value::Array(a) => a.iter().filter_map(|x| super::whole(x, MAX_ROWS)).collect(),
+        Value::Str(s) => s
+            .split(',')
+            .filter_map(|x| x.trim().parse::<usize>().ok())
+            .collect(),
+        x => super::whole(x, MAX_ROWS).into_iter().collect(),
+    };
+    let rows = idx
+        .into_iter()
+        .take(MAX_ROWS)
+        .filter_map(|i| t.rows.get(i).cloned())
+        .collect();
+    one(table_out(Table {
+        columns: t.columns.clone(),
+        rows,
+    }))
+}
+
+/// `table_select_columns`: the columns `columns` names, in its order.
+fn select_columns(v: &View) -> Outs {
+    let Some(t) = input_table(v) else {
+        return nul();
+    };
+    let mut cols: Vec<String> = Vec::new();
+    for c in name_list(v.p("columns")) {
+        if t.columns.contains(&c) && !cols.contains(&c) {
+            cols.push(c);
+        }
+    }
+    let rows = t
+        .rows
+        .iter()
+        .map(|r| {
+            cols.iter()
+                .map(|c| (c.clone(), r.get(c).cloned().unwrap_or(Value::Null)))
+                .collect()
+        })
+        .collect();
+    one(table_out(Table {
+        columns: cols,
+        rows,
+    }))
+}
+
+/// `table_columns`: the name and the type of each column.
+fn column_list(v: &View) -> Outs {
+    let Some(t) = input_table(v) else {
+        return nul();
+    };
+    let mut out = Table::new(vec!["name".into(), "type".into()]);
+    for c in &t.columns {
+        out.rows.push(BTreeMap::from([
+            ("name".to_owned(), Value::Str(c.clone())),
+            ("type".to_owned(), Value::from(column_type(&t, c))),
+        ]));
+    }
+    one(table_out(out))
+}
+
+/// `table_row_cells`: the cells of the row at `row`, and the count of rows.
+fn row_cells(v: &View) -> Outs {
+    let Some(t) = input_table(v) else {
+        return vec![("out", Value::Null, false), ("count", Value::Null, false)];
+    };
+    let row = super::whole(v.p("row"), MAX_ROWS)
+        .and_then(|i| t.rows.get(i))
+        .map(|r| {
+            Value::Map(
+                t.columns
+                    .iter()
+                    .map(|c| (c.clone(), r.get(c).cloned().unwrap_or(Value::Null)))
+                    .collect(),
+            )
+        })
+        .unwrap_or(Value::Null);
+    vec![
+        ("out", row, false),
+        ("count", Value::UInt(t.rows.len() as u64), false),
+    ]
+}
+
+/// `table_add_row`: the table with `row` added, and its new columns.
+fn add_row(v: &View) -> Outs {
+    let Some(mut t) = input_table(v) else {
+        return nul();
+    };
+    if let Value::Map(r) = v.p("row") {
+        for k in r.keys() {
+            if !t.columns.contains(k) {
+                t.columns.push(k.clone());
+            }
+        }
+        t.rows.push(r.clone());
+    }
+    one(table_out(t))
+}
+
+/// `table_from_map`: a map as a table of one row, or a table value as it is.
+fn from_map(v: &View) -> Outs {
+    match v.inv {
+        Value::Map(m) if !m.contains_key("rows") => {
+            let t = Table {
+                columns: m.keys().cloned().collect(),
+                rows: vec![m.clone()],
+            };
+            one(table_out(t))
+        }
+        x => match Table::from_value(x) {
+            Some(t) => one(table_out(t)),
+            None => nul(),
         },
     }
 }
