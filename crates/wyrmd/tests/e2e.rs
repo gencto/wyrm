@@ -5014,6 +5014,94 @@ async fn a_live_list_from_above_never_lists_an_empty_link() {
     c_task.await.unwrap().unwrap();
 }
 
+/// `GET /api/info` over TLS from `addr`, trusting only the PEM roots in `ca`; the body
+/// decoded.
+async fn info_over_tls(addr: std::net::SocketAddr, ca: &std::path::Path) -> Value {
+    use rustls_pki_types::pem::PemObject;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let mut roots = rustls::RootCertStore::empty();
+    for c in rustls_pki_types::CertificateDer::pem_file_iter(ca).unwrap() {
+        roots.add(c.unwrap()).unwrap();
+    }
+    let cfg = rustls::ClientConfig::builder_with_provider(Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()
+    .unwrap()
+    .with_root_certificates(roots)
+    .with_no_client_auth();
+    let connector = tokio_rustls::TlsConnector::from(Arc::new(cfg));
+    let name = rustls_pki_types::ServerName::IpAddress(addr.ip().into());
+    let tcp = tokio::net::TcpStream::connect(addr).await.unwrap();
+    let mut s = tokio::time::timeout(Duration::from_secs(10), connector.connect(name, tcp))
+        .await
+        .unwrap()
+        .expect("the certificate verifies under the site CA alone");
+    s.write_all(b"GET /api/info HTTP/1.1\r\nHost: gw\r\nConnection: close\r\n\r\n")
+        .await
+        .unwrap();
+    let mut resp = Vec::new();
+    // the server may end without close_notify: what came is the answer
+    let _ = tokio::time::timeout(Duration::from_secs(10), s.read_to_end(&mut resp)).await;
+    assert!(
+        resp.starts_with(b"HTTP/1.1 200"),
+        "{}",
+        String::from_utf8_lossy(&resp)
+    );
+    let split = resp.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
+    wyrm_core::codec::from_slice::<Value>(&resp[split + 4..]).unwrap()
+}
+
+/// ADR 0051 §3: `gateway.tls: "site_ca"` serves TLS with a certificate the broker issues
+/// from its own site CA; a client that trusts that CA alone reads `/api/info`, whose
+/// `ca_fp` is the CA's code; a second start keeps the same certificate file.
+#[tokio::test(flavor = "multi_thread")]
+async fn gateway_site_ca_serves_tls() {
+    use sha2::Digest;
+    let dir = temp_dir("gateway-site-ca");
+    let extra = r#"gateway: { listen: "127.0.0.1:0", tls: "site_ca" },"#;
+    let cert = dir.join("gateway").join("tls.pem");
+    let ca = dir.join("pki").join("ca.pem");
+
+    let env_lock = GATEWAY_ENV.lock().await;
+    let env = Env::start_in(&dir, extra).await;
+    drop(env_lock);
+    let addr = env.gateway.clone().expect("gateway").local_addr().await;
+    let Value::Map(info) = info_over_tls(addr, &ca).await else {
+        panic!("info is a map")
+    };
+    let ca_der = {
+        use rustls_pki_types::pem::PemObject;
+        rustls_pki_types::CertificateDer::from_pem_file(&ca)
+            .unwrap()
+            .to_vec()
+    };
+    let fp = hex::encode(&sha2::Sha256::digest(&ca_der)[..16]);
+    assert_eq!(info.get("tls"), Some(&Value::Bool(true)));
+    assert_eq!(info.get("ca_fp"), Some(&Value::Str(fp.clone())));
+    assert_eq!(info.get("ca"), Some(&Value::Bytes(ca_der.clone())));
+    let pem = std::fs::read(&cert).unwrap();
+    let mtime = std::fs::metadata(&cert).unwrap().modified().unwrap();
+    env.stop().await;
+
+    let env_lock = GATEWAY_ENV.lock().await;
+    let env = Env::start_in(&dir, extra).await;
+    drop(env_lock);
+    assert_eq!(std::fs::read(&cert).unwrap(), pem, "the same certificate");
+    assert_eq!(
+        std::fs::metadata(&cert).unwrap().modified().unwrap(),
+        mtime,
+        "not written again"
+    );
+    let addr = env.gateway.clone().expect("gateway").local_addr().await;
+    let Value::Map(info) = info_over_tls(addr, &ca).await else {
+        panic!("info is a map")
+    };
+    assert_eq!(info.get("ca_fp"), Some(&Value::Str(fp)));
+    env.stop().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// Iteration 5: the user gateway runs in wyrmd. The first admin comes from
 /// the environment; a login is audited; the gateway's per-user tokens are
 /// accepted by links and by the admin, within each user's grants.

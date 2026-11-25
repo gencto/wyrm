@@ -10,6 +10,7 @@
 pub mod announce;
 pub mod arbiter;
 pub mod cli;
+pub mod gateway_tls;
 pub mod standby;
 pub mod update;
 
@@ -2222,6 +2223,13 @@ fn open_gateway(cfg: &Config, g: &GatewaySection, bootstrap: bool) -> Result<Arc
     let dir = cfg.data_dir.join("gateway");
     std::fs::create_dir_all(&dir)?;
     let hmac = wyrm_admin::secret::load_or_create_key(&dir.join("hmac.key"))?;
+    if g.tls == Some(GatewayTls::SiteCa) {
+        // before `gateway_ca` and `Gateway::open` read the files; the CA is the one
+        // `Control::open` opens later (made here on a first start)
+        let names = gateway_tls::names_now(cfg, g.listen);
+        gateway_tls::issue(cfg, &names)?;
+        tracing::info!(?names, "gateway: certificate from the site CA");
+    }
     let mut gc = GatewayConfig::new(cfg.site.clone(), dir, g.listen);
     // every site below this one, also through a chain
     gc.downstream_sites = cfg.peers.peer_config().peers.reachable();
@@ -2271,12 +2279,30 @@ fn open_gateway(cfg: &Config, g: &GatewaySection, bootstrap: bool) -> Result<Arc
 }
 
 /// The gateway's roles behind `sys` Get/Update Permissions.
-struct GatewayRoles(Arc<Gateway>);
+/// Weak: the gateway's audit hook holds the control plane, which holds this; a strong
+/// handle here would keep both, and the gateway's users store locked, after the daemon
+/// ends, so a second daemon in the same process could not open it.
+struct GatewayRoles(std::sync::Weak<Gateway>);
+
+/// A role change asked of a gateway that has already closed (only while the broker stops).
+#[derive(Debug, thiserror::Error)]
+#[error("the gateway has closed")]
+struct GatewayClosed;
+
+impl GatewayRoles {
+    fn gateway(&self) -> Result<Arc<Gateway>, wyrm_admin::control::RoleGrantsError> {
+        self.0
+            .upgrade()
+            .ok_or_else(|| wyrm_admin::control::RoleGrantsError(Box::new(GatewayClosed)))
+    }
+}
 
 impl wyrm_admin::control::RoleGrants for GatewayRoles {
     fn grants(&self) -> Vec<(String, String, wyrm_core::Perm)> {
-        self.0
-            .role_table()
+        let Some(gw) = self.0.upgrade() else {
+            return Vec::new();
+        };
+        gw.role_table()
             .iter()
             .flat_map(|(role, grants)| {
                 grants
@@ -2292,7 +2318,7 @@ impl wyrm_admin::control::RoleGrants for GatewayRoles {
         key: &str,
         level: wyrm_core::Perm,
     ) -> Result<(), wyrm_admin::control::RoleGrantsError> {
-        self.0
+        self.gateway()?
             .set_grant(role, key, level)
             .map_err(|e| wyrm_admin::control::RoleGrantsError(Box::new(e)))
     }
@@ -2302,7 +2328,7 @@ impl wyrm_admin::control::RoleGrants for GatewayRoles {
         keys: &[String],
         probe: &str,
     ) -> Result<Vec<(String, String, wyrm_core::Perm)>, wyrm_admin::control::RoleGrantsError> {
-        self.0
+        self.gateway()?
             .revoke_widening(keys, probe)
             .map_err(|e| wyrm_admin::control::RoleGrantsError(Box::new(e)))
     }
@@ -2728,7 +2754,7 @@ impl Daemon {
         if let Some(gw) = &gateway {
             let audit = ctl.clone();
             gw.set_audit(move |e| gateway_audit(&audit, e));
-            ctl.set_role_grants(Arc::new(GatewayRoles(gw.clone())));
+            ctl.set_role_grants(Arc::new(GatewayRoles(Arc::downgrade(gw))));
         }
         ctl.bootstrap(&cfg.config_links())?;
         record_restore(&ctl, &cfg.data_dir, restored);

@@ -160,6 +160,36 @@ Notes:
   `stop_grace_period` of 20 s so SIGTERM has time to flush. The process
   links run inside the same container.
 
+### Gateway TLS from the site CA (ADR 0051 §3)
+
+A gateway that listens beyond loopback needs TLS. Without a certificate of
+your own, let the broker issue one from its site CA:
+
+```json5
+gateway: { listen: "0.0.0.0:8445", tls: "site_ca" },
+```
+
+- At each start, before the gateway opens, the broker asks its site CA
+  (`data_dir/pki`, made on the first start) for a server certificate with
+  CN `gateway:<site>` and writes it to `data_dir/gateway/tls.pem` and
+  `tls.key` (0600).
+- The certificate names `<hostname>.local`, `wyrm-<site>.local` (the name
+  the DNS-SD announce gives) and the addresses clients use: every
+  non-loopback address of the host (IPv4, and IPv6 except link-local) when
+  `listen` is `0.0.0.0` or `[::]`, else only the listen address. The host
+  name is cut at its first dot; a host whose name cannot be read uses
+  `wyrm-<site>`.
+- A restart keeps the certificate as it is while it names the same names
+  and has more than 30 days left; otherwise the broker issues a new one
+  from the same CA. Clients pin the CA, not the certificate, so a new one
+  needs nothing on their side.
+- Clients trust `data_dir/pki/ca.pem`. `ca_fp` in `GET /api/info`, the
+  `fp` key of the DNS-SD announce and `wyrmd ca fingerprint` are the code
+  of that CA.
+- `tls` excludes `tls_cert`/`tls_key`. A certificate from a public CA (for
+  the remote MCP connector, [claude.md](claude.md)) still goes in
+  `tls_cert`/`tls_key`.
+
 ### Recovery time
 
 The recovery time (RTO) of a restart is the sum of:

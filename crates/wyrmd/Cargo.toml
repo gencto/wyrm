@@ -72,6 +72,8 @@ tokio-rustls = { workspace = true, features = ["ring", "tls12"] }
 x509-parser.workspace = true
 # the gateway's DNS-SD announce (ADR 0050 §2.1)
 mdns-sd.workspace = true
+# the host's addresses for the gateway's certificate from the site CA (ADR 0051 §3)
+if-addrs.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 wyrm-client.workspace = true
@@ -84,6 +86,10 @@ ed25519-dalek.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+
+# the host name for the gateway's certificate (`uname`, no `unsafe`)
+[target.'cfg(unix)'.dependencies]
+rustix = { workspace = true, features = ["system"] }
 
 [dev-dependencies]
 # the feature for the tests' second binary (see `[features]`)
