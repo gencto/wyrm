@@ -1,6 +1,6 @@
 # ADR 0051 — Broker images for boards, and a web image builder
 
-Status: proposed (2026-11-25, owner request). Approach D (OpenWrt) and the answers below chosen by the owner on 2026-11-25. Not built yet.
+Status: proposed (2026-11-25, owner request). Approach D (OpenWrt) and the answers below chosen by the owner on 2026-11-25. Part 1 (the three `wyrmd` features of §1 and §3) built on 2026-11-25, see "Built" below; the rest is not built yet.
 
 ## Context
 
@@ -96,6 +96,14 @@ A screen in the login flow, "New device", that drives the same build service wit
 
 - Package naming inside the feed, the exact procd script, partition layout per board (within §3), the service's language and hosting, cache size, queue limits.
 - How the page writes nothing into the image itself (all goes through the ImageBuilder's `FILES` overlay).
+
+## Built (part 1, 2026-11-25)
+
+The three features `wyrmd` needed for an image (Consequences, last line). The OpenWrt packages, `boards.json`, `wyr image build`, the build service, the page and the Studio screen are not built; the status stays `proposed` for them.
+
+- **Gateway certificate from the site CA** (§3). `gateway.tls: "site_ca"` (excludes `tls_cert`/`tls_key`): the broker issues the gateway's certificate from the site CA with the names `<hostname>.local`, `wyrm-<site>.local` and the host's non-loopback addresses (IPv4 and global IPv6), or only the listen address when `gateway.listen` is not unspecified. It reads the addresses every 30 s while the gateway serves and issues a new certificate, served from the next connection without a restart, when the names change or less than 30 days are left; a key that does not match its certificate (a torn write) makes a new pair. Files of the operator (`tls_cert`/`tls_key`) are read again at each router rebuild. `ca_fp`, the DNS-SD `fp` and `wyrmd ca fingerprint` name the site CA. Documented in `docs/operations.md` ("Gateway TLS from the site CA") and `docs/broker.md`. Tests: `certificate_follows_the_addresses`, `a_due_certificate_is_renewed` and the other tests of `crates/wyrmd/src/gateway_tls.rs`.
+- **First admin from a one-time setup code** (§3). `gateway.setup_file` names a file with the SHA-256 (`"wyrm-setup-v1\n"` ‖ the 16 code bytes, 64 hex digits) of a 128-bit code; `wyrmd setup-code` makes a code (26 base32 characters in groups) and its hash. While no user exists, the first start moves the hash into `data_dir/gateway/setup.hash` (0600, not replicated to a standby) and deletes the file; `GET /api/info` shows `setup: true`; `POST /api/setup {code, user, password}` makes that user an admin once (`204`; `409 no_setup`, `403 setup_code_wrong`, `400`, `429` from the login limiter). A setup is void once a user exists (dropped at start). `WYRM_GATEWAY_ADMIN_PASSWORD` works as before. Documented in `docs/operations.md` ("First admin from a setup code") and `docs/broker.md`. Tests: `code_is_read_as_typed`, `setup_is_void_once_a_user_exists`, `setup_is_rate_limited_like_login`.
+- **Seed packages on the first start** (§1). `packages.seed_dir` names a directory with `seed.json` (`format: "wyrm-seed/1"`, `links: [{link, file, accept}]`, ≤ 256 links) and the package zips; each entry is installed once as `install_zip` does, subject `broker:seed`, with the same checks. An existing link is skipped; a failed entry does not stop the others. `data_dir/seed.progress.json` records each install while the seed runs; `data_dir/seed.done` records the outcomes when it ends, and the seed never runs again. Both files are replicated to a standby. Documented in `docs/operations.md` ("Seed packages"), `docs/links.md` and `docs/broker.md`. Tests: `a_broken_seed_entry_does_not_stop_the_others`, `seed_runs_once`, `seed_skips_an_existing_link`.
 
 ## Answers of the owner (2026-11-25)
 

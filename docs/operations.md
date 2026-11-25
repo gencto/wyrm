@@ -232,8 +232,11 @@ from a one-time setup code; the image holds only the code's hash.
 
 - The code may be typed in lower case, with spaces or `-` between the
   groups, or with none.
-- Wrong codes count against the failed-login limit of the same user name
-  and address (5 a minute), as wrong passwords do. They are audited as
+- Wrong codes count against the failed-login limits, as wrong passwords
+  do: 5 failures per 60 s for one user name from one address, and 20
+  failures per 60 s from one address over all user names (an IPv6 address
+  counts by its /64). Logins and setup attempts share both budgets; past
+  them the gateway answers `429`. They are audited as
   failed logins with the reason `setup_code_wrong`; the first admin as a
   user added by `setup`. Neither the code nor its hash is logged.
 - Once a user exists, a setup is void. A `setup_file` is then ignored and
@@ -251,6 +254,11 @@ from a one-time setup code; the image holds only the code's hash.
   file.
 - `WYRM_GATEWAY_ADMIN_PASSWORD` still works. When it creates an admin, a
   setup file of the same start is void.
+- A warm standby (ADR 0036) does not receive `data_dir/gateway/setup.hash`:
+  a pending setup belongs to its host. Make each host of a pair from an
+  image with its own `setup_file`. Users replicate, so once the first admin
+  exists on the active, the setup of the other host is void (it is dropped
+  at its next start, as above).
 
 ### Seed packages (ADR 0051 §1)
 
@@ -303,8 +311,10 @@ packages: { seed_dir: "/usr/share/wyrm/seed" },
   for a long time without a seed (a `seed_dir` with no `seed.json`) also
   installs the links of a `seed.json` that an image update adds, at its
   next start.
-- To run the seed again, delete `data_dir/seed.done` and restart. Links
-  that exist are skipped, failed entries are tried again.
+- To run the seed again, delete both `data_dir/seed.done` and
+  `data_dir/seed.progress.json` and restart. Links that exist are skipped,
+  failed entries are tried again. With `seed.progress.json` left in place,
+  entries that have an outcome in it are not tried again.
 - Each install is one operation of its own: a router rebuild (an ACL
   change, a process link that the seed installed) waits for the install in
   progress, not for the whole seed. While a rebuild holds the broker, the
@@ -324,7 +334,15 @@ packages: { seed_dir: "/usr/share/wyrm/seed" },
 - A warm standby (ADR 0036) receives `seed.done` and `seed.progress.json`
   with the other replicated files. A promoted standby never runs a
   finished seed again, so links that the operator removed do not come back;
-  an unfinished seed goes on where the active stopped.
+  an unfinished seed goes on where the active stopped. The standby copies
+  the files and the registry WAL in separate polls, so the two can differ
+  by a poll at a failover. A link the active was installing just before
+  the failover can then show as `skipped: the link exists` (the registry
+  has the link, the copied progress file does not) or as `started and not
+  finished` on the promoted host. Check such a link as above.
+- An entry whose install succeeded but whose outcome could not be written
+  to `seed.progress.json` (a full disk) shows as `started and not finished`
+  at the next run. The link is there; check it as above.
 - A `seed.json` that is missing or cannot be read (bad JSON, another
   `format`, a link listed twice, more than 256 links) installs nothing and
   writes no `seed.done`. The broker logs a warning and tries again at every
@@ -402,8 +420,9 @@ of drivers, the agent's store), the installed packages, the seed's
 historian's rows as they change, and takes over when
 the active is away. It runs no router and polls no device until then.
 What it does not copy: files over 64 MiB in a link's data or a package
-(they are logged and skipped), and the audit journal (it stays on the
-host that wrote it).
+(they are logged and skipped), the audit journal (it stays on the
+host that wrote it), and a pending setup code (`gateway/setup.hash`,
+"First admin from a setup code" above).
 
 Set it up once:
 
