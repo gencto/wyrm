@@ -19,7 +19,7 @@ a:hover { color: #F3A766; }
 .page-install a { color: #6CC4B0; }
 .page-install a:hover { color: #F3A766; }
 /* A link inside a sentence: told from the text by more than its colour. */
-a.tl, .page-install p a, .page-install li span a, .page-install td a {
+a.tl, .page-install main a {
   color: #6CC4B0;
   text-decoration: underline;
   text-decoration-color: rgba(108, 196, 176, 0.45);

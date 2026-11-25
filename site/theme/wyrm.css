@@ -114,6 +114,8 @@ body { background: var(--wy-ground); }
 #mdbook-menu-bar { background: var(--wy-ground); border-block-end: 1px solid var(--wy-line); }
 #mdbook-menu-bar .menu-title { visibility: hidden; }
 #mdbook-theme-toggle, #mdbook-theme-list { display: none !important; }
+/* room to hit the two icons at the right with a finger */
+#mdbook-menu-bar .right-buttons a { display: inline-block; min-width: 36px; text-align: center; }
 
 /* ------------------------------------------------------------- side menu */
 .sidebar { font-size: 1.5rem; border-inline-end: 1px solid var(--wy-line); }
