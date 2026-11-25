@@ -2,7 +2,14 @@
 //! scope and of a key from a port, as the text an operator reads. The texts are in
 //! `refusal_texts.txt`, written by this test while these errors were a `String`
 //! (`WYRM_FLOW_REFUSALS_OUT=<file>` writes what the code says now, to compare two builds
-//! byte by byte). The typed errors say the same.
+//! byte by byte). The typed errors say the same. The compiler's own refusals (`def::DefError`,
+//! [`whole_definitions`]) were added to the file while that error was a newtype over a
+//! `String`.
+//!
+//! To compare two commits in one `target`, touch the sources before each build
+//! (`touch crates/wyrm-flow/src/*.rs`): after a checkout that only moves the files back to
+//! older times, cargo may reuse the test binary of the other commit and both files are then
+//! one build's.
 
 #![allow(
     clippy::unwrap_used,
@@ -561,6 +568,706 @@ fn definitions(l: &mut Lines) {
     );
 }
 
+fn edge(a: &str, b: &str) -> Value {
+    arr(&[s(a), s(b)])
+}
+
+fn edges(e: &[(&str, &str)]) -> Value {
+    arr(&e.iter().map(|(a, b)| edge(a, b)).collect::<Vec<_>>())
+}
+
+/// `n` nodes of one type, named `n0`, `n1`, …
+fn many(n: usize, ty: &str) -> Value {
+    Value::Map((0..n).map(|i| (format!("n{i}"), node(ty, &[]))).collect())
+}
+
+/// A definition whose custom blocks are `blocks`.
+fn using(nodes: &[(&str, Value)], e: &[(&str, &str)], blocks: &[(&str, Value)]) -> Value {
+    flow(nodes, &[("edges", edges(e)), ("blocks", map(blocks))])
+}
+
+/// The custom block `b` (`b_def`) alone in a definition, with one instance `u`.
+fn block_alone(b_def: Value) -> Value {
+    using(&[("u", node("block:b", &[]))], &[], &[("b", b_def)])
+}
+
+/// A block of one `not` node `n` and the extra keys `more`.
+fn block_of_n(more: &[(&str, Value)]) -> Value {
+    let mut kv = vec![("nodes", map(&[("n", node("not", &[]))]))];
+    kv.extend(more.iter().cloned());
+    map(&kv)
+}
+
+/// Every refusal of the compiler itself (`def::parse`, `def::check`, `def::parse_block`), at
+/// every place it makes one: the schema of `~def`, of `policy`, `permissions`, `layout`, of a
+/// custom block and its instances, the expansion's limits, edges, ports, types, cycles,
+/// rights and memory.
+fn whole_definitions(l: &mut Lines) {
+    // ----- the schema of ~def -----
+    l.compile("an unknown field", &flow(&[], &[("colour", u(1))]));
+    l.compile("no id", &map(&[("nodes", map(&[]))]));
+    l.compile("an id that is no text", &flow(&[], &[("id", u(1))]));
+    l.compile("an empty id", &flow(&[], &[("id", s(""))]));
+    l.compile("an id with a slash", &flow(&[], &[("id", s("a/b"))]));
+    l.compile("a version that is text", &flow(&[], &[("version", s("x"))]));
+    l.compile(
+        "a negative version",
+        &flow(&[], &[("version", Value::Int(-1))]),
+    );
+    l.compile("enabled that is no bool", &flow(&[], &[("enabled", u(1))]));
+    l.compile(
+        "a description that is no text",
+        &flow(&[], &[("description", u(1))]),
+    );
+    // layout
+    l.compile("a layout that is no map", &flow(&[], &[("layout", u(1))]));
+    let xy = || arr(&[u(0), u(0)]);
+    let wide: BTreeMap<String, Value> = (0..16_385).map(|i| (format!("k{i}"), xy())).collect();
+    l.compile(
+        "a layout too large",
+        &flow(&[], &[("layout", Value::Map(wide))]),
+    );
+    let long = BTreeMap::from([("k".repeat(257), xy())]);
+    l.compile(
+        "a layout key too long",
+        &flow(&[], &[("layout", Value::Map(long))]),
+    );
+    l.compile(
+        "a layout point that is text",
+        &flow(&[], &[("layout", map(&[("a", s("left"))]))]),
+    );
+    l.compile(
+        "a layout point of one number",
+        &flow(&[], &[("layout", map(&[("a", arr(&[u(1)]))]))]),
+    );
+    l.compile(
+        "a layout point that is not finite",
+        &flow(
+            &[],
+            &[(
+                "layout",
+                map(&[("a", arr(&[u(1), Value::Float(f64::NAN)]))]),
+            )],
+        ),
+    );
+    // nodes
+    l.compile("nodes that are no map", &flow(&[], &[("nodes", u(1))]));
+    l.compile("a node that is no map", &flow(&[("a", u(1))], &[]));
+    l.compile(
+        "a node id with a slash",
+        &flow(&[("a/b", node("not", &[]))], &[]),
+    );
+    l.compile(
+        "a node type that is no text",
+        &flow(&[("a", map(&[("type", u(1))]))], &[]),
+    );
+    l.compile(
+        "a placement that is not local",
+        &flow(&[("a", node("not", &[("placement", s("remote"))]))], &[]),
+    );
+    l.compile(
+        "a placement that is no text",
+        &flow(&[("a", node("not", &[("placement", u(1))]))], &[]),
+    );
+    l.compile(
+        "too many nodes",
+        &flow(&[], &[("nodes", many(def::MAX_NODES + 1, "not"))]),
+    );
+    // edges
+    l.compile("edges that are no array", &flow(&[], &[("edges", u(1))]));
+    l.compile(
+        "an edge that is no pair",
+        &flow(&[], &[("edges", arr(&[u(1)]))]),
+    );
+    l.compile(
+        "an edge of three",
+        &flow(
+            &[],
+            &[("edges", arr(&[arr(&[s("a.out"), s("b.in"), s("c.in")])]))],
+        ),
+    );
+    l.compile(
+        "an edge of no strings",
+        &flow(&[], &[("edges", arr(&[arr(&[u(1), u(2)])]))]),
+    );
+    l.compile(
+        "an edge from no port",
+        &flow(&[], &[("edges", edges(&[("a", "b.in")]))]),
+    );
+    l.compile(
+        "an edge into an empty port",
+        &flow(&[], &[("edges", edges(&[("a.out", "b.")]))]),
+    );
+    l.compile(
+        "an edge from an empty node",
+        &flow(&[], &[("edges", edges(&[(".out", "b.in")]))]),
+    );
+    let lots: Vec<(&str, &str)> = vec![("a.out", "b.in"); def::MAX_EDGES + 1];
+    l.compile("too many edges", &flow(&[], &[("edges", edges(&lots))]));
+    // policy
+    l.compile("a policy that is no map", &flow(&[], &[("policy", u(1))]));
+    for (k, v) in [
+        ("overflow", s("drop_all")),
+        ("overflow", u(1)),
+        ("queue", u(0)),
+        ("queue", u(65_537)),
+        ("queue", s("x")),
+        ("state_flush_s", Value::Float(1.5)),
+        ("restart", u(1)),
+        ("restart", map(&[("backoff_max_s", s("x"))])),
+        ("colour", u(1)),
+    ] {
+        let what = format!("policy {k} {v:?}");
+        l.compile(&what, &flow(&[], &[("policy", map(&[(k, v)]))]));
+    }
+    // permissions
+    l.compile(
+        "permissions that are no map",
+        &flow(&[], &[("permissions", u(1))]),
+    );
+    for (k, v) in [
+        ("maxperm", s("boss")),
+        ("maxperm", u(9)),
+        ("maxperm", u(300)),
+        ("maxperm", Value::Int(-1)),
+        ("maxperm", s("config")),
+        ("maxperm", u(4)),
+        ("colour", u(1)),
+    ] {
+        let what = format!("permissions {k} {v:?}");
+        l.compile(&what, &flow(&[], &[("permissions", map(&[(k, v)]))]));
+    }
+
+    // ----- custom blocks: their own shape (`def::parse_block`) -----
+    l.compile("blocks that are no map", &flow(&[], &[("blocks", u(1))]));
+    let lots: BTreeMap<String, Value> = (0..=def::MAX_BLOCKS)
+        .map(|i| (format!("b{i}"), map(&[])))
+        .collect();
+    l.compile(
+        "too many blocks",
+        &flow(&[], &[("blocks", Value::Map(lots))]),
+    );
+    l.compile("a block's name", &using(&[], &[], &[("a-b", map(&[]))]));
+    let what = "parse_block, a block's name";
+    l.add(what, &said(what, def::parse_block("a b", &map(&[]))));
+    let what = "parse_block, no map";
+    l.add(what, &said(what, def::parse_block("b", &u(1))));
+    let bad_blocks: Vec<(&str, Value)> = vec![
+        ("an unknown field", map(&[("colour", u(1))])),
+        ("nodes that are no map", map(&[("nodes", u(1))])),
+        (
+            "an inner node id",
+            map(&[("nodes", map(&[("x-y", node("not", &[]))]))]),
+        ),
+        (
+            "an inner node id with a slash",
+            map(&[("nodes", map(&[("x/y", node("not", &[]))]))]),
+        ),
+        (
+            "an inner node that is no map",
+            map(&[("nodes", map(&[("n", u(1))]))]),
+        ),
+        (
+            "too many inner nodes",
+            map(&[("nodes", many(def::MAX_NODES + 1, "not"))]),
+        ),
+        (
+            "too many instances",
+            map(&[("nodes", many(def::MAX_BLOCK_INSTANCES + 1, "block:c"))]),
+        ),
+        ("edges that are no array", block_of_n(&[("edges", u(1))])),
+        (
+            "too many edges",
+            block_of_n(&[("edges", edges(&vec![("n.out", "n.in"); def::MAX_EDGES + 1]))]),
+        ),
+        (
+            "a bad edge",
+            block_of_n(&[("edges", edges(&[("n", "n.in")]))]),
+        ),
+        ("a layout that is no map", block_of_n(&[("layout", u(1))])),
+        (
+            "an edge from no inner node",
+            block_of_n(&[("edges", edges(&[("m.out", "n.in")]))]),
+        ),
+        (
+            "an edge into no inner node",
+            block_of_n(&[("edges", edges(&[("n.out", "m.in")]))]),
+        ),
+        ("inputs that are no array", block_of_n(&[("inputs", u(1))])),
+        (
+            "too many inputs",
+            block_of_n(&[("inputs", arr(&vec![map(&[]); def::MAX_BLOCK_PORTS + 1]))]),
+        ),
+        (
+            "an input that is no map",
+            block_of_n(&[("inputs", arr(&[u(1)]))]),
+        ),
+        (
+            "an input without a name",
+            block_of_n(&[("inputs", arr(&[map(&[])]))]),
+        ),
+        (
+            "an input with a bad name",
+            block_of_n(&[("inputs", arr(&[map(&[("name", s("a-b"))])]))]),
+        ),
+        (
+            "an input twice",
+            block_of_n(&[(
+                "inputs",
+                arr(&[
+                    map(&[("name", s("x")), ("to", s("n.in"))]),
+                    map(&[("name", s("x")), ("to", s("n.in"))]),
+                ]),
+            )]),
+        ),
+        (
+            "an input's description that is no text",
+            block_of_n(&[(
+                "inputs",
+                arr(&[map(&[("name", s("x")), ("description", u(1))])]),
+            )]),
+        ),
+        (
+            "an input's unknown field",
+            block_of_n(&[("inputs", arr(&[map(&[("name", s("x")), ("colour", u(1))])]))]),
+        ),
+        (
+            "an input without to",
+            block_of_n(&[("inputs", arr(&[map(&[("name", s("x"))])]))]),
+        ),
+        (
+            "an input to an empty list",
+            block_of_n(&[("inputs", arr(&[map(&[("name", s("x")), ("to", arr(&[]))])]))]),
+        ),
+        (
+            "an input to too many",
+            block_of_n(&[(
+                "inputs",
+                arr(&[map(&[
+                    ("name", s("x")),
+                    ("to", arr(&vec![s("n.in"); def::MAX_BLOCK_FANOUT + 1])),
+                ])]),
+            )]),
+        ),
+        (
+            "an input to a number",
+            block_of_n(&[(
+                "inputs",
+                arr(&[map(&[("name", s("x")), ("to", arr(&[u(1)]))])]),
+            )]),
+        ),
+        (
+            "an input to no port",
+            block_of_n(&[("inputs", arr(&[map(&[("name", s("x")), ("to", s("n"))])]))]),
+        ),
+        (
+            "an input to a list with no port",
+            block_of_n(&[(
+                "inputs",
+                arr(&[map(&[("name", s("x")), ("to", arr(&[s("n")]))])]),
+            )]),
+        ),
+        (
+            "an input to no inner node",
+            block_of_n(&[(
+                "inputs",
+                arr(&[map(&[("name", s("x")), ("to", s("m.in"))])]),
+            )]),
+        ),
+        (
+            "outputs that are no array",
+            block_of_n(&[("outputs", u(1))]),
+        ),
+        (
+            "an output's unknown field",
+            block_of_n(&[(
+                "outputs",
+                arr(&[map(&[
+                    ("name", s("y")),
+                    ("from", s("n.out")),
+                    ("colour", u(1)),
+                ])]),
+            )]),
+        ),
+        (
+            "an output that is an input",
+            block_of_n(&[
+                (
+                    "inputs",
+                    arr(&[map(&[("name", s("x")), ("to", s("n.in"))])]),
+                ),
+                (
+                    "outputs",
+                    arr(&[map(&[("name", s("x")), ("from", s("n.out"))])]),
+                ),
+            ]),
+        ),
+        (
+            "an output without from",
+            block_of_n(&[("outputs", arr(&[map(&[("name", s("y"))])]))]),
+        ),
+        (
+            "an output from no port",
+            block_of_n(&[(
+                "outputs",
+                arr(&[map(&[("name", s("y")), ("from", s("n"))])]),
+            )]),
+        ),
+        (
+            "an output from no inner node",
+            block_of_n(&[(
+                "outputs",
+                arr(&[map(&[("name", s("y")), ("from", s("m.out"))])]),
+            )]),
+        ),
+        (
+            "an output twice",
+            block_of_n(&[(
+                "outputs",
+                arr(&[
+                    map(&[("name", s("y")), ("from", s("n.out"))]),
+                    map(&[("name", s("y")), ("from", s("n.out"))]),
+                ]),
+            )]),
+        ),
+        (
+            "a description that is no text",
+            block_of_n(&[("description", u(1))]),
+        ),
+    ];
+    for (what, b) in bad_blocks {
+        l.compile(&format!("a block, {what}"), &block_alone(b.clone()));
+        let what = format!("parse_block, {what}");
+        l.add(&what, &said(&what, def::parse_block("b", &b)));
+    }
+    // a block that holds itself
+    l.compile(
+        "a block in itself",
+        &using(
+            &[],
+            &[],
+            &[("r", map(&[("nodes", map(&[("me", node("block:r", &[]))]))]))],
+        ),
+    );
+    l.compile(
+        "a block in itself through another",
+        &using(
+            &[],
+            &[],
+            &[
+                ("a", map(&[("nodes", map(&[("x", node("block:b", &[]))]))])),
+                ("b", map(&[("nodes", map(&[("y", node("block:c", &[]))]))])),
+                ("c", map(&[("nodes", map(&[("z", node("block:a", &[]))]))])),
+            ],
+        ),
+    );
+
+    // ----- the instances of custom blocks, while they are expanded -----
+    l.compile(
+        "an unknown custom block",
+        &flow(&[("u", node("block:nope", &[]))], &[]),
+    );
+    let chain = |depth: usize| -> Vec<(String, Value)> {
+        let mut blocks = vec![("b0".to_owned(), block_of_n(&[]))];
+        for k in 1..=depth {
+            blocks.push((
+                format!("b{k}"),
+                map(&[(
+                    "nodes",
+                    map(&[("i", node(&format!("block:b{}", k - 1), &[]))]),
+                )]),
+            ));
+        }
+        blocks
+    };
+    let deep = chain(def::MAX_BLOCK_DEPTH + 1);
+    let deep: Vec<(&str, Value)> = deep.iter().map(|(n, v)| (n.as_str(), v.clone())).collect();
+    l.compile(
+        "custom blocks too deep",
+        &using(&[("u", node("block:b5", &[]))], &[], &deep),
+    );
+    let b = || {
+        block_of_n(&[(
+            "inputs",
+            arr(&[map(&[("name", s("x")), ("to", s("n.in"))])]),
+        )])
+    };
+    l.compile(
+        "an instance's unknown field",
+        &using(
+            &[("u", node("block:b", &[("colour", u(1))]))],
+            &[],
+            &[("b", b())],
+        ),
+    );
+    l.compile(
+        "an instance's values that are no map",
+        &using(
+            &[("u", node("block:b", &[("values", u(1))]))],
+            &[],
+            &[("b", b())],
+        ),
+    );
+    l.compile(
+        "an instance's value for no input",
+        &using(
+            &[("u", node("block:b", &[("values", map(&[("z", u(1))]))]))],
+            &[],
+            &[("b", b())],
+        ),
+    );
+    l.compile(
+        "a constant into a block instance's values that are no map",
+        &using(
+            &[("u", node("block:c", &[]))],
+            &[],
+            &[
+                ("b", b()),
+                (
+                    "c",
+                    map(&[
+                        ("nodes", map(&[("i", node("block:b", &[("values", u(1))]))])),
+                        (
+                            "inputs",
+                            arr(&[map(&[
+                                ("name", s("x")),
+                                ("to", s("i.x")),
+                                ("default", u(1)),
+                            ])]),
+                        ),
+                    ]),
+                ),
+            ],
+        ),
+    );
+    let half = map(&[("nodes", many(def::MAX_NODES / 2 + 1, "not"))]);
+    l.compile(
+        "too many nodes expanded",
+        &using(
+            &[("u1", node("block:h", &[])), ("u2", node("block:h", &[]))],
+            &[],
+            &[("h", half)],
+        ),
+    );
+    let all = block_of_n(&[("edges", edges(&vec![("n.out", "n.in"); def::MAX_EDGES]))]);
+    l.compile(
+        "too many edges expanded",
+        &using(
+            &[("u1", node("block:e", &[])), ("u2", node("block:e", &[]))],
+            &[],
+            &[("e", all)],
+        ),
+    );
+    // one input that feeds 16 inner inputs at each of four levels: 16⁴ edges of one wire
+    let mut fan = vec![(
+        "f0".to_owned(),
+        block_of_n(&[(
+            "inputs",
+            arr(&[map(&[
+                ("name", s("x")),
+                ("to", arr(&vec![s("n.in"); def::MAX_BLOCK_FANOUT])),
+            ])]),
+        )]),
+    )];
+    for k in 1..4 {
+        fan.push((
+            format!("f{k}"),
+            map(&[
+                (
+                    "nodes",
+                    map(&[("i", node(&format!("block:f{}", k - 1), &[]))]),
+                ),
+                (
+                    "inputs",
+                    arr(&[map(&[
+                        ("name", s("x")),
+                        ("to", arr(&vec![s("i.x"); def::MAX_BLOCK_FANOUT])),
+                    ])]),
+                ),
+            ]),
+        ));
+    }
+    let fan: Vec<(&str, Value)> = fan.iter().map(|(n, v)| (n.as_str(), v.clone())).collect();
+    l.compile(
+        "an input that fans out past the edges",
+        &using(
+            &[("v", node("bool", &[])), ("u", node("block:f3", &[]))],
+            &[("v.out", "u.x")],
+            &fan,
+        ),
+    );
+    let with_out = || {
+        block_of_n(&[
+            (
+                "inputs",
+                arr(&[map(&[("name", s("x")), ("to", s("n.in"))])]),
+            ),
+            (
+                "outputs",
+                arr(&[map(&[("name", s("y")), ("from", s("n.out"))])]),
+            ),
+        ])
+    };
+    l.compile(
+        "an edge from an instance's unknown output",
+        &using(
+            &[("u", node("block:b", &[])), ("o", node("not", &[]))],
+            &[("u.nope", "o.in")],
+            &[("b", with_out())],
+        ),
+    );
+    l.compile(
+        "an edge into an instance's unknown input",
+        &using(
+            &[("v", node("bool", &[])), ("u", node("block:b", &[]))],
+            &[("v.out", "u.nope")],
+            &[("b", with_out())],
+        ),
+    );
+    l.compile(
+        "an edge inside a block from an instance's unknown output",
+        &using(
+            &[("u", node("block:c", &[]))],
+            &[],
+            &[
+                ("b", with_out()),
+                (
+                    "c",
+                    map(&[
+                        (
+                            "nodes",
+                            map(&[("i", node("block:b", &[])), ("o", node("not", &[]))]),
+                        ),
+                        ("edges", edges(&[("i.nope", "o.in")])),
+                    ]),
+                ),
+            ],
+        ),
+    );
+    l.compile(
+        "an edge inside a block into a plain node's unknown input",
+        &using(
+            &[("u", node("block:c", &[]))],
+            &[],
+            &[(
+                "c",
+                map(&[
+                    (
+                        "nodes",
+                        map(&[("i", node("not", &[])), ("o", node("not", &[]))]),
+                    ),
+                    ("edges", edges(&[("i.out", "o.nope")])),
+                ]),
+            )],
+        ),
+    );
+
+    // ----- the checks of the expanded definition (`def::check`) -----
+    l.compile(
+        "a node id that is not a name",
+        &flow(&[("a-b", node("not", &[]))], &[]),
+    );
+    let two = |e: &[(&str, &str)]| {
+        flow(
+            &[
+                ("a", node("not", &[])),
+                ("b", node("window", &[("size_s", u(1))])),
+            ],
+            &[("edges", edges(e))],
+        )
+    };
+    l.compile("an edge from an unknown node", &two(&[("z.out", "a.in")]));
+    l.compile("an edge into an unknown node", &two(&[("a.out", "z.in")]));
+    l.compile(
+        "an edge from an unknown output",
+        &two(&[("a.nope", "b.in")]),
+    );
+    l.compile(
+        "an edge into an unknown input",
+        &two(&[("a.out", "b.nope")]),
+    );
+    l.compile("an edge whose types do not fit", &two(&[("a.out", "b.in")]));
+    l.compile(
+        "a wired read field without its scope",
+        &flow(
+            &[
+                ("k", node("string", &[])),
+                (
+                    "l",
+                    node("list_children", &[("path", s("downstream/mock"))]),
+                ),
+            ],
+            &[("edges", edges(&[("k.out", "l.in.path")]))],
+        ),
+    );
+    l.compile(
+        "a cycle",
+        &flow(
+            &[("x", node("not", &[])), ("y", node("not", &[]))],
+            &[("edges", edges(&[("x.out", "y.in"), ("y.out", "x.in")]))],
+        ),
+    );
+    l.compile(
+        "a cycle of one",
+        &flow(
+            &[("x", node("not", &[]))],
+            &[("edges", edges(&[("x.out", "x.in")]))],
+        ),
+    );
+    let invoke = || {
+        node(
+            "invoke",
+            &[("path", s("downstream/m/a")), ("action", s("go"))],
+        )
+    };
+    l.compile(
+        "a command above maxperm",
+        &flow(
+            &[("i", invoke())],
+            &[("permissions", map(&[("maxperm", s("read"))]))],
+        ),
+    );
+    l.compile("a command with no maxperm", &flow(&[("i", invoke())], &[]));
+    let publish = map(&[("nodes", map(&[("p", node("publish", &[("node", s("p"))]))]))]);
+    l.compile(
+        "a publish in a block used twice",
+        &using(
+            &[("u1", node("block:pb", &[])), ("u2", node("block:pb", &[]))],
+            &[],
+            &[("pb", publish)],
+        ),
+    );
+    let window = || node("window", &[("size_s", u(1)), ("max_samples", u(60_000))]);
+    l.compile(
+        "windows past the samples",
+        &flow(&[("w1", window()), ("w2", window())], &[]),
+    );
+    // a definition made by hand: what `parse` never hands `check`
+    let parsed = |d: &Value| def::parse(d).unwrap();
+    let mut d = parsed(&flow(&[("a", node("not", &[]))], &[]));
+    d.instances.insert("a".into(), "b".into());
+    let what = "check, a node and an instance share an id";
+    l.add(what, &said(what, def::check(&d)));
+    let mut d = parsed(&flow(&[("a", node("not", &[]))], &[]));
+    d.instances.insert("a/b-c".into(), "b".into());
+    let what = "check, an instance id that is not a name";
+    l.add(what, &said(what, def::check(&d)));
+    let mut d = parsed(&flow(&[("a", node("not", &[]))], &[]));
+    let a = d.nodes["a"].clone();
+    d.nodes.insert("a/".into(), a);
+    let what = "check, an id with an empty part";
+    l.add(what, &said(what, def::check(&d)));
+    let mut d = parsed(&two(&[("z.out", "a.in")]));
+    d.edge_at.clear();
+    let what = "check, an edge without its place";
+    l.add(what, &said(what, def::check(&d)));
+    let mut d = parsed(&flow(&[], &[("nodes", many(def::MAX_NODES, "not"))]));
+    let a = d.nodes["n0"].clone();
+    d.nodes.insert("extra".into(), a);
+    let what = "check, too many nodes";
+    l.add(what, &said(what, def::check(&d)));
+}
+
 struct Env {
     io: Io,
     _h: LinkHandle<Mock>,
@@ -766,6 +1473,7 @@ async fn every_refusal_says_what_it_said_as_a_string() {
     builds(&mut l);
     scopes(&mut l);
     definitions(&mut l);
+    whole_definitions(&mut l);
     at_run_time(&mut l).await;
     if let Ok(path) = std::env::var("WYRM_FLOW_REFUSALS_OUT") {
         std::fs::write(&path, &l.0).unwrap();

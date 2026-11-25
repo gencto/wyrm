@@ -1076,4 +1076,32 @@ mod tests {
         let e = constant_into(&mut inner, &to, &Value::UInt(1)).map_err(|e| e.to_string());
         assert_eq!(e, Err("no inner node gone".to_owned()));
     }
+
+    /// An edge from an instance's output that leads back to itself: the walk of
+    /// [`Expander::source`] stops after its bound. The checks before it (the depth of the
+    /// blocks, no block in itself) keep every definition from getting here, so only this test
+    /// says it. Audit T7: the text it had as a `String`.
+    #[test]
+    fn a_walk_past_the_depth_keeps_its_text() {
+        let blocks = BTreeMap::new();
+        let a = Endpoint {
+            node: "a".into(),
+            port: "o".into(),
+        };
+        let x = Expander {
+            blocks: &blocks,
+            nodes: BTreeMap::new(),
+            edges: Vec::new(),
+            instances: BTreeMap::from([(
+                "a".to_owned(),
+                Instance {
+                    block: "b".into(),
+                    inputs: BTreeMap::new(),
+                    outputs: BTreeMap::from([("o".to_owned(), a.clone())]),
+                },
+            )]),
+        };
+        let e = x.source(&a, "edges[0]").map_err(|e| e.to_string());
+        assert_eq!(e, Err("edges[0]: custom blocks nest too deep".to_owned()));
+    }
 }

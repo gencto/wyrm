@@ -2221,4 +2221,75 @@ mod tests {
         .unwrap();
         reads_sources_of(&sub, &folder, "s", "the deployer").unwrap();
     }
+
+    /// The refusals of the host's own checks in [`compile`] (sources outside the site's
+    /// sections, a scope that is none, a `wasm` node whose artifact does not load), which the
+    /// public API reaches only through a running engine. Audit T7: the texts they had as a
+    /// `String`.
+    #[test]
+    fn the_host_checks_keep_their_texts() {
+        let m = |kv: &[(&str, Value)]| {
+            Value::Map(
+                kv.iter()
+                    .map(|(k, v)| ((*k).to_owned(), v.clone()))
+                    .collect(),
+            )
+        };
+        let s = |x: &str| Value::from(x);
+        let flow =
+            |nodes: Value, edges: Value| m(&[("id", s("f")), ("nodes", nodes), ("edges", edges)]);
+        let artifacts = Artifacts::new(std::env::temp_dir().join("wyrm-flow-no-artifacts"));
+        let said = |raw: &Value| match compile(raw, &artifacts, "s") {
+            // Zenoh ends its own error with the place in its source, a path of the build host
+            Err(e) => {
+                let t = e.to_string();
+                match t.find(" at /") {
+                    Some(i) => format!("{} at <zenoh source>", &t[..i]),
+                    None => t,
+                }
+            }
+            Ok(_) => panic!("not refused: {raw:?}"),
+        };
+        let one = |n: Value| flow(m(&[("a", n)]), Value::Array(Vec::new()));
+        let sub = |kv: &[(&str, Value)]| {
+            let mut all = vec![("type", s("subscribe"))];
+            all.extend(kv.iter().cloned());
+            m(&all)
+        };
+        assert_eq!(
+            said(&one(sub(&[("key", s("sys/audit"))]))),
+            "nodes.a.key: a source reads this site's downstream, dataflows or storage only \
+             (wy/s/downstream/…), not wy/s/sys/audit"
+        );
+        assert_eq!(
+            said(&one(sub(&[("key", s("wy/other/downstream/l/p"))]))),
+            "nodes.a.key: a source reads this site's downstream, dataflows or storage only \
+             (wy/s/downstream/…), not wy/other/downstream/l/p"
+        );
+        let wired = |scope: &str| {
+            flow(
+                m(&[
+                    ("k", m(&[("type", s("string"))])),
+                    ("a", sub(&[("key_scope", s(scope))])),
+                ]),
+                Value::Array(vec![Value::Array(vec![s("k.out"), s("a.in.key")])]),
+            )
+        };
+        assert_eq!(
+            said(&wired("sys/**")),
+            "nodes.a.key_scope: a scope lies in this site's downstream, dataflows or storage \
+             (wy/s/downstream/…), not wy/s/sys/**"
+        );
+        assert_eq!(
+            said(&wired("downstream/l//p")),
+            "nodes.a.key_scope: not a key expression: Invalid Key Expr \
+             `wy/s/downstream/l//p`: empty chunks are forbidden, as well as leading and \
+             trailing slashes at <zenoh source>"
+        );
+        let wasm = m(&[("type", s("wasm")), ("artifact", s(&"0".repeat(64)))]);
+        assert_eq!(
+            said(&one(wasm)),
+            format!("nodes.a.artifact: no artifact {}", "0".repeat(64))
+        );
+    }
 }
