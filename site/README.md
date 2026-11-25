@@ -41,6 +41,15 @@ out the same way. The list is `EXCLUDED_FILES` and
 `EXCLUDED_DIRS` in the generator. A new `docs/*.md` that no section lists goes
 to Guides, and the generator prints a warning: add it to a section list.
 
+Security findings stay private, fixed ones too: the generator reads the
+finding IDs from the sources it leaves out (ADR 0031 and `docs/security/*.md`:
+the first column of a table headed `ID`, and headings `### <ID> — …`). It
+removes each ID from the pages it copies, with the wrapping that only served it
+(`(security review <ID>)` → `(security review)`), outside code blocks. A short
+ID such as a letter and one digit counts only after "audit" or "review" in its
+clause, because the same token names other things. `--check` fails if an ID is
+left in the built site.
+
 An optional local deny-list, `tool/site/denied-words.local` (git-ignored, one
 word per line), leaves out every page that holds one of its words; the build
 stops if the landing page holds one. Without the file the check is skipped.

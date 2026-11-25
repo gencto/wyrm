@@ -148,6 +148,97 @@ def summary_title(title: str) -> str:
     return title.replace("[", "\\[").replace("]", "\\]")
 
 
+# --------------------------------------------------------- security finding IDs
+
+# Security weaknesses stay private: the IDs of review findings never reach the
+# site, even for fixed ones. The IDs are read at build time from the sources
+# left out on purpose: the first column of their tables headed `ID`, and their
+# headings `### <ID> — …`.
+FINDING_SOURCES = ("docs/adr/0031-security-review-2026-10-31.md", "docs/security/")
+FINDING_ID = re.compile(r"[A-Z]+-?\d+")
+# A short ID (`T3`, `S2`) is also a name of other things (Amazon S3, an S7
+# timer): it counts as a finding ID only after "audit"/"review" in its clause.
+FINDING_CONTEXT = re.compile(r"\b(audit|review)\b|огляд", re.I)
+
+
+def finding_ids(tracked: list[str]) -> set[str]:
+    ids: set[str] = set()
+    for p in tracked:
+        if not (p == FINDING_SOURCES[0]
+                or (p.startswith(FINDING_SOURCES[1]) and p.endswith(".md"))):
+            continue
+        lines = (REPO / p).read_text(encoding="utf-8").splitlines()
+        in_ids = False
+        for i, line in enumerate(lines):
+            m = re.match(r"^#{2,4}\s+([A-Z]+-?\d+)\s+[—–-]\s", line)
+            if m:
+                ids.add(m.group(1))
+            if not line.startswith("|"):
+                in_ids = False
+                continue
+            cells = [c.strip() for c in line.strip().strip("|").split("|")]
+            if (i + 1 < len(lines) and re.match(r"^\|\s*:?-", lines[i + 1])):
+                in_ids = cells[0] == "ID"  # a table header
+                continue
+            if in_ids:
+                ids.update(t for t in re.split(r"[,\s]+", cells[0])
+                           if FINDING_ID.fullmatch(t))
+    return ids
+
+
+class Scrubber:
+    """Removes finding IDs from Markdown or text, with the wrapping that only
+    served them: `(review X-1)` → `(review)`, `(A, X-1)` → `(A)`, `(X-1)` → ``,
+    `X-1 of the review` → `review`."""
+
+    def __init__(self, ids: set[str]):
+        self.ids = ids
+        alts = "|".join(sorted((re.escape(i) for i in ids), key=len, reverse=True))
+        self.token = re.compile(rf"(?<![\w-])(?:{alts})(?![\w-])(?!\.\d)") if ids else None
+
+    def applies(self, text: str, start: int, end: int) -> bool:
+        if "-" in text[start:end]:
+            return True
+        window = text[max(0, start - 48):start]
+        window = re.split(r"[(;]|\n\s*\n", window)[-1]
+        return FINDING_CONTEXT.search(window) is not None
+
+    def find(self, text: str):
+        if not self.token:
+            return
+        for m in self.token.finditer(text):
+            if self.applies(text, m.start(), m.end()):
+                yield m.start(), m.end()
+
+    def scrub(self, text: str) -> tuple[str, int]:
+        removed = 0
+        pos = 0
+        while True:
+            hit = next((h for h in self.find(text) if h[0] >= pos), None)
+            if hit is None:
+                return text, removed
+            s, e = hit
+            before = text[:s]
+            after = text[e:]
+            b = re.search(r"[ \t]*\([ \t]*$", before)
+            if b and re.match(r"[ \t]*\)", after):  # (X-1)
+                s = b.start()
+                e += re.match(r"[ \t]*\)", after).end()
+            elif re.match(r"\s+of\s+the\s+", after):  # X-1 of the review
+                e += re.match(r"\s+of\s+the\s+", after).end()
+            elif b:  # (X-1, more
+                e += re.match(r"[ \t]*,?[ \t]*", after).end()
+            else:  # text X-1 / text, X-1
+                lead = re.search(r"[ \t]*,?[ \t]*$", before)
+                if lead and lead.start() < s and before[:lead.start()].strip():
+                    s = lead.start()
+                else:
+                    e += re.match(r"[ \t]*,?[ \t]*", after).end()
+            text = text[:s] + text[e:]
+            removed += 1
+            pos = s
+
+
 # ---------------------------------------------------------------- link rewrite
 
 FENCE = re.compile(r"^\s{0,3}(```+|~~~+)")
@@ -181,6 +272,9 @@ class Linker:
         self.broken: list[tuple[str, str]] = []
         self.to_github = 0
         self.unlinked = 0
+        self.scrubber = Scrubber(finding_ids(tracked))
+        self.ids_removed = 0
+        self.id_pages: set[str] = set()
 
     def is_excluded(self, path: str) -> bool:
         return (path in self.excluded or excluded_reason(path) is not None
@@ -276,6 +370,10 @@ class Linker:
 
         masked = REF_DEF.sub(ref, masked)
         masked = INLINE_LINK.sub(inline, masked)
+        masked, n = self.scrubber.scrub(masked)
+        if n:
+            self.ids_removed += n
+            self.id_pages.add(site_page)
         return re.sub("\0(\\d+)\0", lambda m: spans[int(m.group(1))], masked)
 
 
@@ -521,6 +619,8 @@ def build() -> int:
           f" ({len(adrs)} ADRs, {len(official.get('links', []))} official links,"
           f" {linker.to_github} links to GitHub,"
           f" {linker.unlinked} links to excluded files made plain text)")
+    print(f"site: removed {linker.ids_removed} security finding IDs"
+          f" ({len(linker.scrubber.ids)} known) from {len(linker.id_pages)} pages")
     for p, reason in excluded:
         print(f"site: excluded {p}: {reason}")
     for w in warnings:
@@ -540,8 +640,20 @@ class _Page(html.parser.HTMLParser):
         super().__init__(convert_charrefs=True)
         self.ids: set[str] = set()
         self.links: list[str] = []
+        self.text: list[str] = []  # text outside <script>, <style> and <pre>
+        self._skip = 0
+
+    def handle_endtag(self, tag):
+        if tag in ("script", "style", "pre") and self._skip:
+            self._skip -= 1
+
+    def handle_data(self, data):
+        if not self._skip:
+            self.text.append(data)
 
     def handle_starttag(self, tag, attrs):
+        if tag in ("script", "style", "pre"):
+            self._skip += 1
         for name, value in attrs:
             if value is None:
                 continue
@@ -568,7 +680,12 @@ def check(book: Path) -> int:
     errors: list[str] = []
     html_files = sorted(book.rglob("*.html"))
     checked = 0
+    scrubber = Scrubber(finding_ids(tracked_files()))
     for f in html_files:
+        text = "".join(page(f).text)
+        for s, e in scrubber.find(text):
+            errors.append(f"{f.relative_to(book).as_posix()}: a security finding ID"
+                          f" is on the page: …{text[max(0, s - 40):s]}…")
         for link in page(f).links:
             for base in (BLOB, TREE):
                 if link.startswith(base):
