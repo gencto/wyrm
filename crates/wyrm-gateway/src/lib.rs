@@ -389,11 +389,37 @@ pub struct Gateway {
     /// The TLS settings every serve takes (`None`: plain HTTP on loopback); a reload
     /// ([`Gateway::reload_tls`]) swaps them for the next connection.
     tls: Option<axum_server::tls_rustls::RustlsConfig>,
-    /// The DNS and IP names of the gateway's certificate (default device origins,
-    /// `/api/info` `names`), swapped with `tls`.
-    pub(crate) cert_names: RwLock<Vec<String>>,
+    /// What the gateway reads from its certificate: its names (default device origins,
+    /// `/api/info` `names`) and its end; swapped with `tls`.
+    served: RwLock<Served>,
     /// Upstream sites for `/api/info` (starts as `cfg.info.up`).
     up_sites: RwLock<Vec<String>>,
+}
+
+/// What the gateway reads from the certificate it serves.
+#[derive(Debug, Clone, Default)]
+struct Served {
+    /// DNS and IP subject alternative names, lower case.
+    names: Vec<String>,
+    /// `not_after`, Unix seconds; `None` when it does not parse.
+    not_after: Option<i64>,
+}
+
+impl Served {
+    fn of(pem: &[u8]) -> Self {
+        let not_after = x509_parser::pem::parse_x509_pem(pem)
+            .ok()
+            .and_then(|(_, block)| {
+                block
+                    .parse_x509()
+                    .ok()
+                    .map(|c| c.validity().not_after.timestamp())
+            });
+        Self {
+            names: devices::cert_names(pem),
+            not_after,
+        }
+    }
 }
 
 /// What one user holds over all their sockets.
@@ -493,7 +519,7 @@ impl Gateway {
             ));
         }
         let signing = load_or_create_key(&cfg.dir.join("gateway.key"))?;
-        let (tls, cert_names) = match &cfg.tls {
+        let (tls, served) = match &cfg.tls {
             Some((cert, key)) => {
                 let read = |p: &Path| {
                     std::fs::read(p).map_err(|e| Error::Config(format!("tls {}: {e}", p.display())))
@@ -505,10 +531,10 @@ impl Gateway {
                     Some(axum_server::tls_rustls::RustlsConfig::from_config(
                         Arc::new(c),
                     )),
-                    devices::cert_names(&pem),
+                    Served::of(&pem),
                 )
             }
-            None => (None, Vec::new()),
+            None => (None, Served::default()),
         };
         Ok(Arc::new(Self {
             session_key: SessionKey::derive(hmac_key),
@@ -536,7 +562,7 @@ impl Gateway {
             challenge_limit: limit::RequestLimiter::new(CHALLENGES_PER_MIN, LOGIN_WINDOW),
             info_limit: limit::RequestLimiter::new(INFO_PER_MIN, LOGIN_WINDOW),
             tls,
-            cert_names: RwLock::new(cert_names),
+            served: RwLock::new(served),
             up_sites: RwLock::new(cfg.info.up.clone()),
             cfg,
         }))
@@ -717,10 +743,20 @@ impl Gateway {
     /// The DNS and IP names of the certificate the gateway serves now (lower case); empty
     /// for plain HTTP.
     pub fn tls_names(&self) -> Vec<String> {
-        self.cert_names
+        self.served
             .read()
             .unwrap_or_else(|p| p.into_inner())
+            .names
             .clone()
+    }
+
+    /// The end (`not_after`, Unix seconds) of the certificate the gateway serves now;
+    /// `None` for plain HTTP or a certificate whose end does not parse.
+    pub fn tls_not_after(&self) -> Option<i64> {
+        self.served
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .not_after
     }
 
     /// Serve `cert_pem` (chain) with `key_pem` from the next TLS connection on, without a
@@ -735,11 +771,11 @@ impl Gateway {
             ));
         };
         let c = http::tls_config(&cert_pem, &key_pem)?;
-        let names = devices::cert_names(&cert_pem);
-        // under the names' lock: a reader sees the names of the certificate served
-        let mut held = self.cert_names.write().unwrap_or_else(|p| p.into_inner());
+        let served = Served::of(&cert_pem);
+        // under the lock of what is read from it: a reader sees the certificate served
+        let mut held = self.served.write().unwrap_or_else(|p| p.into_inner());
         tls.reload_from_config(Arc::new(c));
-        *held = names;
+        *held = served;
         Ok(())
     }
 

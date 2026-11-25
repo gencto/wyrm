@@ -174,6 +174,12 @@ async fn reloaded_certificate_is_served() {
         .unwrap();
     assert_eq!(served(addr, &roots).await, b_der);
     assert_eq!(info_names(&gw), ["localhost", "gw-b.example"]);
+    let (_, b) = x509_parser::parse_x509_certificate(&b_der).unwrap();
+    assert_eq!(
+        gw.tls_not_after(),
+        Some(b.validity().not_after.timestamp()),
+        "the end of the certificate served"
+    );
 
     let _ = stop.send(());
     tokio::time::timeout(Duration::from_secs(10), server)
@@ -192,5 +198,60 @@ async fn reloaded_certificate_is_served() {
         plain.reload_tls(a_pem.into_bytes(), a_key.into_bytes()),
         Err(wyrm_gateway::Error::Config(_))
     ));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Files of one's own (`tls_cert`/`tls_key`) are read again at each serve (a router rebuild
+/// of `wyrmd`): a renewed pair is served without a restart; a broken one leaves the
+/// certificate in force.
+#[tokio::test(flavor = "multi_thread")]
+async fn files_are_read_again_at_each_serve() {
+    let dir = std::env::temp_dir().join(format!("wyrm-gateway-reread-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let (a_pem, a_key, a_der) = self_signed(&["localhost"]);
+    let (b_pem, b_key, b_der) = self_signed(&["localhost"]);
+    let (cert, key) = (dir.join("gw.crt"), dir.join("gw.key"));
+    std::fs::write(&cert, &a_pem).unwrap();
+    std::fs::write(&key, &a_key).unwrap();
+    let mut cfg = GatewayConfig::new(SITE, dir.join("state"), "127.0.0.1:0".parse().unwrap());
+    cfg.tls = Some((cert.clone(), key.clone()));
+    let gw = Gateway::open(cfg, b"k").unwrap();
+    let roots = [a_der.as_slice(), b_der.as_slice()];
+    // one serve, as `wyrmd` runs one per router build; the certificate it serves
+    let serve_once = |gw: Arc<Gateway>| async move {
+        // the address of the serve before stays until this one binds (a new port: `:0`)
+        let before = gw.bound_addr();
+        let session = zenoh::open(isolated_config()).await.unwrap();
+        let (stop, rx) = tokio::sync::oneshot::channel::<()>();
+        let server = tokio::spawn(gw.clone().serve(session, async {
+            let _ = rx.await;
+        }));
+        let addr = loop {
+            let a = gw.local_addr().await;
+            if Some(a) != before {
+                break a;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        };
+        let der = served(addr, &roots).await;
+        let _ = stop.send(());
+        tokio::time::timeout(Duration::from_secs(10), server)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        der
+    };
+    assert_eq!(serve_once(gw.clone()).await, a_der);
+    std::fs::write(&cert, &b_pem).unwrap();
+    std::fs::write(&key, &b_key).unwrap();
+    assert_eq!(serve_once(gw.clone()).await, b_der, "renewed files: served");
+    std::fs::write(&key, &a_key).unwrap();
+    assert_eq!(
+        serve_once(gw.clone()).await,
+        b_der,
+        "a torn pair: the one in force"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }

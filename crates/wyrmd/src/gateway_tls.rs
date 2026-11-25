@@ -5,8 +5,9 @@
 //! while it names exactly the same names and has more than 30 days left, so a restart on
 //! the same host serves the same certificate and a client that pinned the CA needs nothing
 //! new. While the gateway serves, [`watch`] reads the host's addresses every 30 s and, when
-//! the names differ from the ones of the certificate served, issues one for the new names
-//! and serves it from the next connection on, without a restart.
+//! the names differ from the ones of the certificate served, or that certificate has less
+//! than 30 days left, issues one for the names and serves it from the next connection on,
+//! without a restart.
 
 use std::collections::BTreeSet;
 use std::net::{IpAddr, SocketAddr};
@@ -166,9 +167,10 @@ pub fn issue(cfg: &Config, names: &[String]) -> Result<(PathBuf, PathBuf), Gatew
 /// Follow the host's addresses while the gateway serves (`gateway.tls: "site_ca"` only;
 /// `wyrmd` runs it in the gateway's serve task, so it ends with it): every `every` the
 /// names are made again ([`names_now`]) and, when they differ from the names of the
-/// certificate the gateway serves, a certificate is issued for them ([`issue`]) and served
-/// from the next connection on ([`Gateway::reload_tls`]). A failure is logged and tried
-/// again at the next check. Never returns.
+/// certificate the gateway serves or that certificate has less than 30 days left, a
+/// certificate is issued for them ([`issue`]) and served from the next connection on
+/// ([`Gateway::reload_tls`]). The issue is awaited before the next check. A failure is
+/// logged and tried again at the next check. Never returns.
 pub async fn watch(cfg: Arc<Config>, gw: Arc<Gateway>, every: Duration) {
     watch_with(cfg, &gw, every, host_addrs).await;
 }
@@ -189,7 +191,11 @@ async fn watch_with(
         tick.tick().await;
         let names = names_from(&cfg, listen, &addrs);
         let served: BTreeSet<String> = gw.tls_names().into_iter().collect();
-        if names.iter().cloned().collect::<BTreeSet<_>>() == served {
+        // security review D-1: renewed with less than 30 days left, as at a start
+        let due = gw.tls_not_after().is_none_or(|t| {
+            t.saturating_sub(wyrm_core::clock::now_s_signed()) < wyrm_admin::secret::RENEW_BEFORE_S
+        });
+        if !due && names.iter().cloned().collect::<BTreeSet<_>>() == served {
             continue;
         }
         let job = {
@@ -279,9 +285,43 @@ mod tests {
         );
     }
 
+    /// A zenoh session that reaches nothing (the gateway's serve needs one).
+    async fn isolated_session() -> zenoh::Session {
+        let mut zc = zenoh::Config::default();
+        for (k, v) in [
+            ("mode", r#""peer""#),
+            ("listen/endpoints", "[]"),
+            ("connect/endpoints", "[]"),
+            ("scouting/multicast/enabled", "false"),
+            ("scouting/gossip/enabled", "false"),
+        ] {
+            zc.insert_json5(k, v).unwrap();
+        }
+        zenoh::open(zc).await.unwrap()
+    }
+
     /// The names of the certificate a new TLS connection to `port` on loopback is served,
     /// checked against the site CA in `data_dir` for the name `wyrm-plant.local`.
     async fn served_names(port: u16, data_dir: &Path) -> Vec<String> {
+        let der = served_cert(port, data_dir).await;
+        let (_, cert) = x509_parser::parse_x509_certificate(&der).unwrap();
+        let san = cert.subject_alternative_name().unwrap().unwrap();
+        san.value
+            .general_names
+            .iter()
+            .map(|g| match g {
+                x509_parser::extensions::GeneralName::DNSName(d) => (*d).to_owned(),
+                x509_parser::extensions::GeneralName::IPAddress(b) => {
+                    IpAddr::from(<[u8; 4]>::try_from(*b).unwrap()).to_string()
+                }
+                other => panic!("{other:?}"),
+            })
+            .collect()
+    }
+
+    /// The DER of the certificate a new TLS connection to `port` on loopback is served,
+    /// checked against the site CA in `data_dir` for the name `wyrm-plant.local`.
+    async fn served_cert(port: u16, data_dir: &Path) -> Vec<u8> {
         use rustls_pki_types::pem::PemObject;
         let ca =
             rustls_pki_types::CertificateDer::from_pem_file(data_dir.join("pki/ca.pem")).unwrap();
@@ -302,20 +342,7 @@ mod tests {
             .connect(name, tcp)
             .await
             .unwrap();
-        let der = tls.get_ref().1.peer_certificates().unwrap()[0].to_vec();
-        let (_, cert) = x509_parser::parse_x509_certificate(&der).unwrap();
-        let san = cert.subject_alternative_name().unwrap().unwrap();
-        san.value
-            .general_names
-            .iter()
-            .map(|g| match g {
-                x509_parser::extensions::GeneralName::DNSName(d) => (*d).to_owned(),
-                x509_parser::extensions::GeneralName::IPAddress(b) => {
-                    IpAddr::from(<[u8; 4]>::try_from(*b).unwrap()).to_string()
-                }
-                other => panic!("{other:?}"),
-            })
-            .collect()
+        tls.get_ref().1.peer_certificates().unwrap()[0].to_vec()
     }
 
     /// Wait (≤ 10 s) until `ok` holds.
@@ -342,17 +369,7 @@ mod tests {
         ))
         .unwrap();
         let gw = crate::open_gateway(&cfg, cfg.gateway.as_ref().unwrap(), false).unwrap();
-        let mut zc = zenoh::Config::default();
-        for (k, v) in [
-            ("mode", r#""peer""#),
-            ("listen/endpoints", "[]"),
-            ("connect/endpoints", "[]"),
-            ("scouting/multicast/enabled", "false"),
-            ("scouting/gossip/enabled", "false"),
-        ] {
-            zc.insert_json5(k, v).unwrap();
-        }
-        let session = zenoh::open(zc).await.unwrap();
+        let session = isolated_session().await;
         let (stop, rx) = tokio::sync::oneshot::channel::<()>();
         let server = tokio::spawn(gw.clone().serve(session, async {
             let _ = rx.await;
@@ -402,6 +419,67 @@ mod tests {
         step.store(2, Ordering::SeqCst);
         until("the address lost", || no_ip(&gw.tls_names())).await;
         assert!(no_ip(&served_names(port, &data).await));
+
+        watch.abort();
+        let _ = stop.send(());
+        tokio::time::timeout(Duration::from_secs(10), server)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Security review D-1: a certificate in force with less than 30 days left is issued
+    /// again while the gateway serves, its names unchanged (a board that runs for a year
+    /// without a restart). The due certificate comes from `Pki::issue_lasting` with 10 days.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_due_certificate_is_renewed() {
+        use wyrm_admin::secret::{cert_due, RENEW_BEFORE_S};
+        let dir = std::env::temp_dir().join(format!("wyrmd-gwtls-renew-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let data = dir.join("data");
+        let cfg = Config::from_json5(&format!(
+            r#"{{ site: "plant", data_dir: {data:?},
+                  gateway: {{ listen: "127.0.0.1:0", tls: "site_ca" }} }}"#
+        ))
+        .unwrap();
+        let gw = crate::open_gateway(&cfg, cfg.gateway.as_ref().unwrap(), false).unwrap();
+        let (stop, rx) = tokio::sync::oneshot::channel::<()>();
+        let server = tokio::spawn(gw.clone().serve(isolated_session().await, async {
+            let _ = rx.await;
+        }));
+        let port = gw.local_addr().await.port();
+        let names = gw.tls_names();
+
+        // a year on: the certificate in force and its files have 10 days left
+        let (cert, key) = files(&data);
+        std::fs::remove_file(&cert).unwrap();
+        std::fs::remove_file(&key).unwrap();
+        Pki::open_or_create(&data.join("pki"))
+            .unwrap()
+            .issue_lasting("gateway:plant", &names, true, &data.join(DIR), STEM, 10)
+            .unwrap();
+        gw.reload_tls(std::fs::read(&cert).unwrap(), std::fs::read(&key).unwrap())
+            .unwrap();
+        let now = wyrm_core::clock::now_s_signed();
+        assert!(gw.tls_not_after().unwrap() - now < RENEW_BEFORE_S);
+
+        let watch = {
+            let (cfg, gw) = (Arc::new(cfg.clone()), gw.clone());
+            tokio::spawn(async move {
+                watch_with(cfg, &gw, Duration::from_millis(20), Vec::new).await;
+            })
+        };
+        until("a renewed certificate", || {
+            gw.tls_not_after().is_some_and(|t| t - now > 300 * 86_400)
+        })
+        .await;
+        assert_eq!(gw.tls_names(), names, "the same names");
+        let der = served_cert(port, &data).await;
+        let (_, c) = x509_parser::parse_x509_certificate(&der).unwrap();
+        assert_eq!(Some(c.validity().not_after.timestamp()), gw.tls_not_after());
+        assert!(!cert_due(&std::fs::read_to_string(&cert).unwrap()));
 
         watch.abort();
         let _ = stop.send(());

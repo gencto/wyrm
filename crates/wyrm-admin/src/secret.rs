@@ -289,8 +289,9 @@ impl Pki {
     }
 
     /// Issue a certificate for `cn` into `out/<name>.{pem,key}`, or keep the one there while it
-    /// is for `cn` and `sans` and has more than [`RENEW_BEFORE_S`] left (security review D-1: a
-    /// certificate issued once and never renewed takes the site down after a year).
+    /// is for `cn` and `sans`, has more than [`RENEW_BEFORE_S`] left (security review D-1: a
+    /// certificate issued once and never renewed takes the site down after a year) and the key
+    /// beside it is its own. Issues in one process never interleave.
     /// `server`: TLS server auth with `sans` (IPs and DNS names).
     pub fn issue(
         &self,
@@ -353,11 +354,16 @@ impl Pki {
             cert: out.join(format!("{name}.pem")),
             key: out.join(format!("{name}.key")),
         };
-        if files.key.exists() {
-            if let Ok(pem) = std::fs::read_to_string(&files.cert) {
-                if still_good(&pem, cn, sans, terms.matching) {
-                    return Ok(files);
-                }
+        // one issue at a time in this process: two into the same directory (a rebuild's
+        // new watch while the old one still writes) would leave the key of one beside the
+        // certificate of the other
+        let _one = ISSUING.lock().unwrap_or_else(|p| p.into_inner());
+        if let (Ok(pem), Ok(key_pem)) = (
+            std::fs::read_to_string(&files.cert),
+            std::fs::read_to_string(&files.key).map(Zeroizing::new),
+        ) {
+            if still_good(&pem, cn, sans, terms.matching) && key_matches(&pem, &key_pem) {
+                return Ok(files);
             }
         }
         let key = EcKey::generate()?;
@@ -396,6 +402,25 @@ pub fn cert_not_after(pem: &str) -> Option<i64> {
 /// It has less than [`RENEW_BEFORE_S`] left, or cannot be read: time to issue it again.
 pub fn cert_due(pem: &str) -> bool {
     cert_not_after(pem).is_none_or(|t| t - now_s_signed() < RENEW_BEFORE_S)
+}
+
+/// Held while a certificate is issued or kept (see [`Pki::issue`]).
+static ISSUING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// The key in `key_pem` is the one of the certificate in `cert_pem`. Two files written one
+/// after the other can be torn apart by a power cut: such a pair is issued again.
+fn key_matches(cert_pem: &str, key_pem: &str) -> bool {
+    use rcgen::PublicKeyData;
+    let Ok(key) = EcKey::from_pem(key_pem) else {
+        return false;
+    };
+    let Ok((_, block)) = x509_parser::pem::parse_x509_pem(cert_pem.trim().as_bytes()) else {
+        return false;
+    };
+    let Ok(cert) = block.parse_x509() else {
+        return false;
+    };
+    cert.public_key().raw == key.subject_public_key_info().as_slice()
 }
 
 /// How long a new certificate lasts and how a kept one's names must match.
@@ -763,6 +788,40 @@ mod tests {
         pki.issue_exact("gateway:s", &both, true, &out, "srv")
             .unwrap();
         assert_ne!(read(), narrow, "issue_exact: a new name is issued again");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A key that is not the certificate's (a power cut between the two writes) makes a
+    /// new pair, even for the same names.
+    #[test]
+    fn a_torn_pair_is_issued_again() {
+        use rcgen::PublicKeyData;
+        let dir = std::env::temp_dir().join(format!("wyrm-pki-torn-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let pki = Pki::open_or_create(&dir).unwrap();
+        let out = dir.join("out");
+        let names = vec!["host.local".to_owned()];
+        pki.issue_exact("gateway:s", &names, true, &out, "srv")
+            .unwrap();
+        let first = std::fs::read_to_string(out.join("srv.pem")).unwrap();
+        pki.issue_exact("gateway:s", &names, true, &out, "srv")
+            .unwrap();
+        assert_eq!(std::fs::read_to_string(out.join("srv.pem")).unwrap(), first);
+        // the key of another pair beside the certificate
+        let other = EcKey::generate().unwrap();
+        std::fs::write(out.join("srv.key"), other.pem().as_bytes()).unwrap();
+        assert!(!key_matches(&first, &other.pem()));
+        pki.issue_exact("gateway:s", &names, true, &out, "srv")
+            .unwrap();
+        let cert = std::fs::read_to_string(out.join("srv.pem")).unwrap();
+        let key = std::fs::read_to_string(out.join("srv.key")).unwrap();
+        assert_ne!(cert, first, "issued again");
+        assert!(key_matches(&cert, &key), "a matching pair");
+        let key = EcKey::from_pem(&key).unwrap();
+        assert_ne!(
+            key.subject_public_key_info(),
+            other.subject_public_key_info()
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

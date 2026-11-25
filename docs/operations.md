@@ -178,7 +178,9 @@ gateway: { listen: "0.0.0.0:8445", tls: "site_ca" },
   non-loopback address of the host (IPv4, and IPv6 except link-local) when
   `listen` is `0.0.0.0` or `[::]`, else only the listen address. The host
   name is cut at its first dot; a host whose name cannot be read uses
-  `wyrm-<site>`.
+  `wyrm-<site>`. While the host has no usable address (before DHCP), the
+  certificate names only the `.local` names; it is issued again when an
+  address comes.
 - A restart keeps the certificate as it is while it names exactly the same
   names and has more than 30 days left; otherwise the broker issues a new
   one from the same CA. A certificate that names more (an address the host
@@ -186,14 +188,20 @@ gateway: { listen: "0.0.0.0:8445", tls: "site_ca" },
   certificate, so a new one needs nothing on their side.
 - While the gateway serves, the broker reads the host's addresses every
   30 s. When the names differ from the names of the certificate it serves
-  (an address from DHCP after the start, a new or lost address), it issues
-  a certificate for the new names and serves it from the next connection
-  on, without a restart. Open connections keep the old one. The log says
+  (an address from DHCP after the start, a new or lost address), or that
+  certificate has less than 30 days left, it issues a certificate for the
+  names and serves it from the next connection on, without a restart. A key
+  that is not the certificate's (a power cut between the two writes) also
+  makes a new pair. Open connections keep the old one. The log says
   `gateway: certificate issued for <n> names`. `GET /api/info` `names` and
   the device-key origins follow the new certificate at the same time.
 - Clients trust `data_dir/pki/ca.pem`. `ca_fp` in `GET /api/info`, the
   `fp` key of the DNS-SD announce and `wyrmd ca fingerprint` are the code
   of that CA.
+- Files of your own (`tls_cert`/`tls_key`) are read at the start and again
+  at each router rebuild (an ACL change): a renewed pair is served from
+  then on. A pair that cannot be read or does not match leaves the
+  certificate in force, with a warning in the log.
 - `tls` excludes `tls_cert`/`tls_key`. A certificate from a public CA (for
   the remote MCP connector, [claude.md](claude.md)) still goes in
   `tls_cert`/`tls_key`.

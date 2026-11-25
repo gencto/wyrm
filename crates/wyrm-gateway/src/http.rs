@@ -51,6 +51,17 @@ pub(crate) async fn serve(
     session: zenoh::Session,
     shutdown: impl Future + Send,
 ) -> crate::Result<()> {
+    // the files again (a router rebuild serves again): a renewed pair is served from now
+    // on; one that cannot be read or is torn leaves the certificate in force
+    if let Some((cert, key)) = &gw.cfg.tls {
+        let read = |p: &std::path::Path| {
+            std::fs::read(p).map_err(|e| Error::Config(format!("tls {}: {e}", p.display())))
+        };
+        let pair = read(cert).and_then(|c| Ok((c, read(key)?)));
+        if let Err(e) = pair.and_then(|(c, k)| gw.reload_tls(c, k)) {
+            warn!(error = %e, "gateway: the TLS files are not served; the certificate in force stays");
+        }
+    }
     // the gateway's own: a reload (`Gateway::reload_tls`) reaches every serve after it
     let tls = gw.tls.clone();
     let listener = std::net::TcpListener::bind(gw.cfg.listen)?;
