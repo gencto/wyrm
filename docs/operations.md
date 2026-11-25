@@ -206,6 +206,52 @@ gateway: { listen: "0.0.0.0:8445", tls: "site_ca" },
   the remote MCP connector, [claude.md](claude.md)) still goes in
   `tls_cert`/`tls_key`.
 
+### First admin from a setup code (ADR 0051 §3)
+
+A broker made from an image carries no password. Its first admin comes
+from a one-time setup code; the image holds only the code's hash.
+
+1. Make a code on any machine: `wyrmd setup-code`. It prints the code on
+   the first line (`ABCD-EFGH-…`, 26 base32 characters) and its hash (64
+   hex digits) on the second. It needs no `wyrmd.json5`.
+2. Write the hash line into a file and name it in the configuration:
+
+   ```json5
+   gateway: { listen: "0.0.0.0:8445", tls: "site_ca", setup_file: "/etc/wyrm/setup" },
+   ```
+
+3. Give the code to the person who sets the broker up, apart from the
+   image. Keep it secret: whoever has it makes the first admin.
+4. Start the broker. While no user exists, it moves the hash into
+   `data_dir/gateway/setup.hash` (0600) and deletes `setup_file`. The log
+   says `gateway: setup code taken in`.
+5. The person opens Studio. `GET /api/info` shows `setup: true`, and Studio
+   asks for the code, an admin name and a password
+   (`POST /api/setup {code, user, password}`). The right code makes that
+   admin, and the setup is over: the code cannot be used again.
+
+- The code may be typed in lower case, with spaces or `-` between the
+  groups, or with none.
+- Wrong codes count against the failed-login limit of the same user name
+  and address (5 a minute), as wrong passwords do. They are audited as
+  failed logins with the reason `setup_code_wrong`; the first admin as a
+  user added by `setup`. Neither the code nor its hash is logged.
+- Once a user exists, a setup is void. A `setup_file` is then ignored and
+  deleted, and a `setup.hash` (a restored backup, a crash between the new
+  admin and the removal) is deleted at the next start. `/api/setup`
+  answers `409 no_setup`.
+- A `setup_file` that is not 64 hex digits (white space around them aside)
+  stays where it is, with a warning in the log that names it. A
+  `setup_file` that cannot be deleted is a warning too; it is void once a
+  user exists.
+- A damaged `data_dir/gateway/setup.hash` with no user is logged at start
+  with its path and reason, and `/api/info` shows no `setup`. To recover,
+  stop the broker, make a new code with `wyrmd setup-code`, write its hash
+  into `setup_file`, and start again: the new hash replaces the damaged
+  file.
+- `WYRM_GATEWAY_ADMIN_PASSWORD` still works. When it creates an admin, a
+  setup file of the same start is void.
+
 ### Recovery time
 
 The recovery time (RTO) of a restart is the sum of:

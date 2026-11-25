@@ -58,6 +58,21 @@ impl Env {
     }
 
     async fn start_with(name: &str, ttl: Duration, devices: wyrm_gateway::DevicePolicy) -> Self {
+        Self::start_opts(name, ttl, devices, true).await
+    }
+
+    /// A gateway with no user yet (a new broker: ADR 0051 §3).
+    async fn start_empty(name: &str) -> Self {
+        let devices = wyrm_gateway::DevicePolicy::default();
+        Self::start_opts(name, wyrm_gateway::SESSION_TTL, devices, false).await
+    }
+
+    async fn start_opts(
+        name: &str,
+        ttl: Duration,
+        devices: wyrm_gateway::DevicePolicy,
+        admin: bool,
+    ) -> Self {
         let mut roles = RoleTable::default();
         roles.insert(
             "limited",
@@ -89,8 +104,10 @@ impl Env {
         let audit = Arc::new(Mutex::new(Vec::new()));
         let sink = audit.clone();
         gw.set_audit(move |e| sink.lock().unwrap().push(e));
-        assert!(gw.ensure_admin("root", ADMIN_PW).unwrap());
-        assert!(!gw.ensure_admin("root", "other password").unwrap());
+        if admin {
+            assert!(gw.ensure_admin("root", ADMIN_PW).unwrap());
+            assert!(!gw.ensure_admin("root", "other password").unwrap());
+        }
 
         let session = zenoh::open(isolated_config()).await.unwrap();
         let mut lc = LinkConfig::new(SITE, "mock");
@@ -209,6 +226,21 @@ impl Env {
             "/api/login",
             None,
             Some(map([
+                ("user", Value::from(user)),
+                ("password", Value::from(password)),
+            ])),
+        )
+        .await
+    }
+
+    /// `POST /api/setup {code, user, password}` (ADR 0051 §3).
+    async fn setup(&self, code: &str, user: &str, password: &str) -> (u16, Value) {
+        self.http(
+            "POST",
+            "/api/setup",
+            None,
+            Some(map([
+                ("code", Value::from(code)),
                 ("user", Value::from(user)),
                 ("password", Value::from(password)),
             ])),
@@ -413,6 +445,126 @@ async fn login_bad_password_and_rate_limit() {
         !format!("{audit:?}").contains("wrong password"),
         "no passwords in audit"
     );
+    env.stop().await;
+}
+
+const SETUP_PW: &str = "the first admin's password";
+
+/// The gateway directory of [`Env::start`]`(name)` (not emptied again).
+fn gateway_dir(name: &str) -> PathBuf {
+    std::env::temp_dir().join(format!("wyrm-gateway-{name}-{}", std::process::id()))
+}
+
+/// A new setup code imported into `gw`: the code as shown.
+fn pending_setup(gw: &Gateway) -> String {
+    let (code, hash) = wyrm_gateway::setup::new_code().unwrap();
+    assert!(gw.import_setup(&wyrm_core::hex::encode(hash)).unwrap());
+    code
+}
+
+/// ADR 0051 §3: a pending setup shows in `/api/info`; the right code, however typed, makes
+/// the first admin once; a wrong code and a refused password leave the setup pending.
+#[tokio::test(flavor = "multi_thread")]
+async fn setup_over_http() {
+    let env = Env::start_empty("setup-http").await;
+    let (st, info) = env.http("GET", "/api/info", None, None).await;
+    assert_eq!(st, 200);
+    assert!(!f_has(&info, "setup"), "{info:?}");
+    let code = pending_setup(&env.gw);
+    let (st, info) = env.http("GET", "/api/info", None, None).await;
+    assert_eq!(st, 200);
+    assert_eq!(get(&info, "setup"), &Value::Bool(true));
+
+    // a wrong code: 403 `setup_code_wrong`
+    let (other, _) = wyrm_gateway::setup::new_code().unwrap();
+    let (st, v) = env.setup(&other, "first", SETUP_PW).await;
+    assert_eq!(st, 403, "{v:?}");
+    assert_eq!(get(&v, "code"), &Value::from("setup_code_wrong"));
+    assert_eq!(err_status_body(&v), Some(Status::PermissionDenied));
+    // a password the gateway refuses: 400 with `add_user`'s text, the setup stays
+    let (st, v) = env.setup(&code, "first", "short").await;
+    assert_eq!(st, 400, "{v:?}");
+    assert_eq!(err_status_body(&v), Some(Status::InvalidParameter));
+    assert!(env.gw.setup_pending());
+
+    // the right code, as a person types it: 204, no body
+    let typed = code.to_lowercase().replace('-', " ");
+    let (st, v) = env.setup(&typed, "first", SETUP_PW).await;
+    assert_eq!((st, &v), (204, &Value::Null));
+    let tok = env.session("first", SETUP_PW).await;
+    let (st, me) = env.http("GET", "/api/me", Some(&tok), None).await;
+    assert_eq!(st, 200);
+    assert_eq!(get(&me, "roles"), &Value::Array(vec![Value::from("admin")]));
+    let (_, info) = env.http("GET", "/api/info", None, None).await;
+    assert!(!f_has(&info, "setup"), "{info:?}");
+
+    // used up
+    let (st, v) = env.setup(&code, "second", SETUP_PW).await;
+    assert_eq!(st, 409, "{v:?}");
+    assert_eq!(get(&v, "code"), &Value::from("no_setup"));
+    assert!(env.gw.user("second").is_none());
+
+    let audit = env.audit.lock().unwrap().clone();
+    assert!(audit.iter().any(|e| matches!(
+        e,
+        AuditEvent::UserChanged { by, user, change } if by == "setup" && user == "first" && *change == "add"
+    )));
+    assert!(audit.iter().any(|e| matches!(
+        e,
+        AuditEvent::LoginFailed { user, reason, .. } if user == "first" && *reason == "setup_code_wrong"
+    )));
+    let text = format!("{audit:?}");
+    assert!(
+        !text.contains(&code) && !text.contains(SETUP_PW),
+        "no secrets in audit"
+    );
+    env.stop().await;
+}
+
+/// Guessing a setup code spends the `/api/login` budget of the same user and address, and
+/// failed logins spend the setup's: one limiter, one `429`.
+#[tokio::test(flavor = "multi_thread")]
+async fn setup_is_rate_limited_like_login() {
+    let env = Env::start_empty("setup-limit").await;
+    let code = pending_setup(&env.gw);
+    let (other, _) = wyrm_gateway::setup::new_code().unwrap();
+    for _ in 0..wyrm_gateway::LOGIN_FAILURES {
+        assert_eq!(env.setup(&other, "first", SETUP_PW).await.0, 403);
+    }
+    // locked, even with the right code
+    let (st, v) = env.setup(&code, "first", SETUP_PW).await;
+    assert_eq!(st, 429, "{v:?}");
+    assert_eq!(err_status_body(&v), Some(Status::RateLimited));
+    // the same budget as a login of that user from this address
+    assert_eq!(env.login("first", SETUP_PW).await.0, 429);
+    // and the other way round: failed logins of a user lock that user's setup
+    for _ in 0..wyrm_gateway::LOGIN_FAILURES {
+        assert_eq!(env.login("second", "wrong password").await.0, 401);
+    }
+    assert_eq!(env.setup(&code, "second", SETUP_PW).await.0, 429);
+    assert!(env.gw.setup_pending());
+    assert!(env.gw.list_users().is_empty());
+    env.stop().await;
+}
+
+/// A user made after the import (a restored backup, a crash between the admin and the
+/// removal of the file) voids the setup: `409 no_setup`, the file goes, no second admin.
+#[tokio::test(flavor = "multi_thread")]
+async fn setup_is_void_once_a_user_exists() {
+    let env = Env::start_empty("setup-void").await;
+    let code = pending_setup(&env.gw);
+    let file = gateway_dir("setup-void").join(wyrm_gateway::setup::FILE);
+    assert!(file.exists());
+    env.gw
+        .add_user("op", SETUP_PW, vec!["admin".into()])
+        .unwrap();
+    let (_, info) = env.http("GET", "/api/info", None, None).await;
+    assert!(!f_has(&info, "setup"), "{info:?}");
+    let (st, v) = env.setup(&code, "first", SETUP_PW).await;
+    assert_eq!(st, 409, "{v:?}");
+    assert_eq!(get(&v, "code"), &Value::from("no_setup"));
+    assert!(env.gw.user("first").is_none());
+    assert!(!file.exists());
     env.stop().await;
 }
 

@@ -289,6 +289,33 @@ mod tests {
     }
 
     #[test]
+    fn settle_at_start() {
+        let (gw, dir) = gateway("settle");
+        let file = dir.join(FILE);
+        assert!(!gw.settle_setup().unwrap());
+        let (_, hash) = new_code().unwrap();
+        assert!(gw.import_setup(&hex(&hash)).unwrap());
+        assert!(gw.settle_setup().unwrap());
+        // damaged, no user: the error names the file, which stays for the operator
+        std::fs::write(&file, b"not a hash").unwrap();
+        let e = gw.settle_setup().unwrap_err();
+        assert!(matches!(e, SetupError::Store(_)), "{e:?}");
+        assert!(e.to_string().contains(FILE), "{e}");
+        assert!(
+            !e.to_string().contains("not a hash"),
+            "never the content: {e}"
+        );
+        assert!(file.exists());
+        assert!(!gw.setup_pending());
+        // beside a user: void and removed, damaged or not
+        gw.add_user("op", PASSWORD, vec!["admin".into()]).unwrap();
+        assert!(!gw.settle_setup().unwrap());
+        assert!(!file.exists());
+        assert!(gw.import_setup(&hex(&hash)).is_ok_and(|done| !done));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn import_takes_hex_of_32_bytes_only() {
         let (gw, dir) = gateway("import-hex");
         let (_, hash) = new_code().unwrap();

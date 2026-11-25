@@ -281,6 +281,7 @@ const CONFIG_SHOWN: &[&str] = &[
     "gateway.tls",
     "gateway.tls_cert",
     "gateway.admin_user",
+    "gateway.setup_file",
     "gateway.mcp.public_url",
     "gateway.mcp.redirect_uris",
     "gateway.tls_ca",
@@ -561,7 +562,8 @@ fn default_scheduler_store_mb() -> u32 {
 }
 
 /// The first admin's password comes from `WYRM_GATEWAY_ADMIN_PASSWORD` at
-/// start (only if the user does not exist yet), never from this file.
+/// start (only if the user does not exist yet), never from this file; or the
+/// first admin comes from a setup code whose hash `setup_file` holds (ADR 0051 §3).
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct GatewaySection {
@@ -580,6 +582,11 @@ pub struct GatewaySection {
     /// Name of the first admin user.
     #[serde(default = "default_gateway_admin")]
     pub admin_user: String,
+    /// A file with the hash of a one-time setup code (64 hex digits, `wyrmd setup-code`;
+    /// ADR 0051 §3). Read at start while no user exists: the hash becomes the pending
+    /// setup and the file is removed. Absent or missing: no setup from a file.
+    #[serde(default)]
+    pub setup_file: Option<PathBuf>,
     /// The remote MCP endpoint `/mcp` for Claude's connectors, with its
     /// OAuth 2.1 server (ADR 0041 stage B). Absent = off.
     #[serde(default)]
@@ -2287,7 +2294,68 @@ fn open_gateway(cfg: &Config, g: &GatewaySection, bootstrap: bool) -> Result<Arc
             tracing::info!(user = %g.admin_user, "gateway: first admin created");
         }
     }
+    if let Some(f) = &g.setup_file {
+        import_setup_file(&gw, f);
+    }
+    // a setup file beside a user is void (a restored backup, a crash before its
+    // removal); a damaged one is told here, once, as `/api/info` shows no `setup`
+    match gw.settle_setup() {
+        Ok(true) => tracing::info!("gateway: waiting for the first admin from the setup code"),
+        Ok(false) => {}
+        Err(e) => tracing::error!(
+            path = %pending_setup_path(cfg).display(),
+            error = %e,
+            "gateway: the pending setup cannot be read, so no setup code is taken; \
+             start again with a good gateway.setup_file (docs/operations.md)"
+        ),
+    }
     Ok(gw)
+}
+
+/// The gateway's pending setup (`data_dir/gateway/setup.hash`).
+fn pending_setup_path(cfg: &Config) -> PathBuf {
+    cfg.data_dir.join("gateway").join(wyrm_gateway::setup::FILE)
+}
+
+/// `gateway.setup_file` at start (ADR 0051 §3): its hash becomes the pending setup and
+/// the file goes. A file that is not 64 hex digits (white space around them aside) stays
+/// and is logged with its path; so does one the gateway could not store, for the next
+/// start. Never logs the content.
+fn import_setup_file(gw: &Gateway, path: &std::path::Path) {
+    let text = match std::fs::read_to_string(path) {
+        Ok(t) => zeroize::Zeroizing::new(t),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return,
+        Err(e) => {
+            tracing::warn!(path = %path.display(), error = %e, "gateway: setup file not read");
+            return;
+        }
+    };
+    let hex = text.trim();
+    if hex.len() != 64 || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+        tracing::warn!(
+            path = %path.display(),
+            "gateway: setup file is not 64 hex digits (wyrmd setup-code): not taken"
+        );
+        return;
+    }
+    match gw.import_setup(hex) {
+        Ok(true) => tracing::info!(path = %path.display(), "gateway: setup code taken in"),
+        Ok(false) => tracing::info!(
+            path = %path.display(),
+            "gateway: setup file ignored: a user exists"
+        ),
+        Err(e) => {
+            tracing::error!(path = %path.display(), error = %e, "gateway: setup file not taken");
+            return;
+        }
+    }
+    if let Err(e) = std::fs::remove_file(path) {
+        tracing::warn!(
+            path = %path.display(),
+            error = %e,
+            "gateway: setup file not removed (void once a user exists)"
+        );
+    }
 }
 
 /// The gateway's roles behind `sys` Get/Update Permissions.

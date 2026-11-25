@@ -33,6 +33,9 @@
   // Off loopback it needs TLS: tls_cert/tls_key, or a certificate the broker
   // issues from its site CA into data_dir/gateway/tls.{pem,key} (ADR 0051):
   // gateway: { listen: "0.0.0.0:8445", tls: "site_ca", admin_user: "admin" },
+  // A broker from an image: the first admin from a one-time setup code whose
+  // hash (wyrmd setup-code) is in setup_file; taken in and deleted at start.
+  // gateway: { listen: "0.0.0.0:8445", tls: "site_ca", setup_file: "/etc/wyrm/setup" },
   // The embedded scheduler at downstream/scheduler (ADR 0022); on by default.
   // scheduler: { enabled: true, store_mb: 64 },
   // Hard rlimits each process link sets on itself (0 = none; core dumps are

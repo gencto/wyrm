@@ -805,7 +805,7 @@
     "crates/wyrm-gateway-client/src/lib.rs": 8,
     "crates/wyrm-gateway/src/approve.rs": 2,
     "crates/wyrm-gateway/src/devices.rs": 1,
-    "crates/wyrm-gateway/src/http.rs": 9,
+    "crates/wyrm-gateway/src/http.rs": 6,
     "crates/wyrm-gateway/src/lib.rs": 1,
     "crates/wyrm-gateway/src/ws.rs": 1,
     "crates/wyrm-history-sync/src/scram.rs": 1,

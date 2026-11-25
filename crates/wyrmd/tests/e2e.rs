@@ -5102,6 +5102,88 @@ async fn gateway_site_ca_serves_tls() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// ADR 0051 §3: `wyrmd setup-code` prints a code and its hash, nothing else; a broker
+/// started with the hash in `gateway.setup_file` takes it in and removes the file; the code
+/// makes the first admin over `POST /api/setup`, who then logs in. At a later start a setup
+/// file beside that user is void and removed, and one that is not a hash stays.
+#[tokio::test(flavor = "multi_thread")]
+async fn first_admin_from_a_setup_file() {
+    const PW: &str = "the first admin's password";
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_wyrmd"))
+        .arg("setup-code")
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{out:?}");
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    let [code, hash] = stdout.lines().collect::<Vec<_>>()[..] else {
+        panic!("two lines: {stdout:?}")
+    };
+    assert_eq!(hash.len(), 64, "{stdout:?}");
+    assert_eq!(
+        wyrm_gateway::setup::code_hash(code).map(hex::encode),
+        Some(hash.to_owned())
+    );
+
+    let dir = temp_dir("first-admin");
+    let file = temp_dir("first-admin-setup-file");
+    std::fs::write(&file, format!("  {hash}\n")).unwrap();
+    let extra = format!(
+        r#"gateway: {{ listen: "127.0.0.1:0", setup_file: "{}" }},"#,
+        file.display()
+    );
+    let start = |extra: String| {
+        let dir = dir.clone();
+        async move {
+            // no admin from the environment of another test: it would void the setup
+            let env_lock = GATEWAY_ENV.lock().await;
+            std::env::remove_var(wyrmd::GATEWAY_ADMIN_PASSWORD_ENV);
+            let env = Env::start_in(&dir, &extra).await;
+            drop(env_lock);
+            env
+        }
+    };
+    let env = start(extra.clone()).await;
+    assert!(!file.exists(), "taken in and removed");
+    let gw = env.gateway.clone().expect("gateway");
+    assert!(gw.setup_pending());
+    let addr = gw.local_addr().await;
+    let body = |code: &str| {
+        let mut m = BTreeMap::new();
+        m.insert("code".to_owned(), Value::from(code));
+        m.insert("user".to_owned(), Value::from("first"));
+        m.insert("password".to_owned(), Value::from(PW));
+        wyrm_core::codec::to_vec(&Value::Map(m)).unwrap()
+    };
+    let (st, v) = http_post(addr, "/api/setup", "", body(code)).await;
+    assert_eq!((st, &v), (204, &Value::Null));
+    wyrm_gateway_client::Gateway::login(&format!("http://{addr}"), "first", PW)
+        .await
+        .expect("the first admin logs in");
+    let (st, _) = http_post(addr, "/api/setup", "", body(code)).await;
+    assert_eq!(st, 409, "used up");
+    // the gateway holds the users store: let it go before the next start opens it
+    drop(gw);
+    env.stop().await;
+
+    // a setup file beside a user (a restored image, a crash before the removal): void
+    std::fs::write(&file, hash).unwrap();
+    let env = start(extra.clone()).await;
+    assert!(!file.exists(), "removed");
+    let gw = env.gateway.clone().expect("gateway");
+    assert!(!gw.setup_pending());
+    assert!(!dir.join("gateway").join(wyrm_gateway::setup::FILE).exists());
+    drop(gw);
+    env.stop().await;
+
+    // not a hash: left where it is
+    std::fs::write(&file, "not a setup hash\n").unwrap();
+    let env = start(extra).await;
+    assert!(file.exists(), "kept for the operator");
+    env.stop().await;
+    let _ = std::fs::remove_file(&file);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// Iteration 5: the user gateway runs in wyrmd. The first admin comes from
 /// the environment; a login is audited; the gateway's per-user tokens are
 /// accepted by links and by the admin, within each user's grants.

@@ -53,7 +53,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 use tokio::sync::{watch, Semaphore};
-use tracing::info;
+use tracing::{info, warn};
 use users::{Op, User, UserDb};
 use wyrm_core::Perm;
 use wyrm_state::Store;
@@ -258,13 +258,15 @@ pub enum AuditEvent {
         user: String,
         ip: IpAddr,
     },
-    /// `reason`: `bad_credentials`, `disabled` or `rate_limited`.
+    /// `reason`: `bad_credentials`, `disabled`, `rate_limited` or `setup_code_wrong` (a
+    /// wrong code on `/api/setup`, ADR 0051 §3).
     LoginFailed {
         user: String,
         ip: IpAddr,
         reason: &'static str,
     },
-    /// `change`: `add`, `password`, `roles`, `disabled`, `enabled`, `remove`.
+    /// `change`: `add`, `password`, `roles`, `disabled`, `enabled`, `remove`. `by` is
+    /// `user:<name>`, or `setup` for the first admin of a setup code (ADR 0051 §3).
     UserChanged {
         by: String,
         user: String,
@@ -397,7 +399,9 @@ pub struct Gateway {
     /// Upstream sites for `/api/info` (starts as `cfg.info.up`).
     up_sites: RwLock<Vec<String>>,
     /// Held through each setup step ([`Gateway::import_setup`],
-    /// [`Gateway::complete_setup`]): two right codes at once make one admin.
+    /// [`Gateway::complete_setup`], [`Gateway::settle_setup`]): two right codes at once
+    /// make one admin. See [`Gateway::complete_setup`] for why the users store's own lock
+    /// is not needed beside it.
     setup: Mutex<()>,
 }
 
@@ -743,6 +747,10 @@ impl Gateway {
                 ),
             );
         }
+        // a new broker waits for its first admin (ADR 0051 §3): Studio asks for the code
+        if self.setup_pending() {
+            m.insert("setup".into(), Value::Bool(true));
+        }
         Value::Map(m)
     }
 
@@ -947,14 +955,89 @@ impl Gateway {
         Ok(true)
     }
 
-    /// A setup is pending: its file holds a hash and no user exists.
+    /// A setup is pending: its file holds a hash and no user exists. A file that cannot be
+    /// read is logged with its path (never its content) and is no setup; a damaged one is
+    /// [`Gateway::settle_setup`]'s to report, once at start.
     pub fn setup_pending(&self) -> bool {
-        !self.any_user() && matches!(self.pending_setup(), Ok(Some(_)))
+        if self.any_user() {
+            return false;
+        }
+        match self.pending_setup() {
+            Ok(p) => p.is_some(),
+            Err(SetupError::Store(Error::Io(e))) => {
+                warn!(
+                    path = %self.setup_file().display(),
+                    error = %e,
+                    "gateway: the setup file cannot be read"
+                );
+                false
+            }
+            Err(_) => false,
+        }
+    }
+
+    /// At start, before the gateway serves (ADR 0051 §3): `true` when a setup is pending.
+    /// A setup file beside a user (a restored backup, a crash between the admin and the
+    /// removal of the file) is void and removed, whatever it holds. With no user, a file
+    /// that is not a setup hash, or cannot be read, is the error, naming the file and
+    /// never its content: the broker logs it, and the file stays for the operator.
+    pub fn settle_setup(&self) -> Result<bool, SetupError> {
+        let _held = self.setup.lock().unwrap_or_else(|p| p.into_inner());
+        if self.any_user() {
+            self.drop_setup("a user exists");
+            return Ok(false);
+        }
+        Ok(self.pending_setup()?.is_some())
+    }
+
+    /// `POST /api/setup` from `ip`: [`Gateway::complete_setup`] within the budget of
+    /// `/api/login` for `user` and `ip` (one limiter: a wrong code is a failed login, and
+    /// failed logins lock the setup). Audited: a wrong code as a failed login
+    /// (`setup_code_wrong`), the first admin as a user added by `setup`. Blocking (argon2).
+    pub(crate) fn setup_from(
+        &self,
+        code: &str,
+        user: &str,
+        password: &str,
+        ip: IpAddr,
+    ) -> Result<(), SetupRefused> {
+        // again on this thread: requests in flight at once all passed the handler's check
+        self.check_limit(user, ip).map_err(SetupRefused::Login)?;
+        match self.complete_setup(code, user, password) {
+            Ok(()) => {
+                self.limiter.succeeded(user, ip);
+                self.audit(AuditEvent::UserChanged {
+                    by: "setup".into(),
+                    user: user.into(),
+                    change: "add",
+                });
+                Ok(())
+            }
+            Err(SetupError::WrongCode) => {
+                self.limiter.failed(user, ip);
+                self.audit(AuditEvent::LoginFailed {
+                    user: user.into(),
+                    ip,
+                    reason: "setup_code_wrong",
+                });
+                Err(SetupRefused::Setup(SetupError::WrongCode))
+            }
+            Err(e) => Err(SetupRefused::Setup(e)),
+        }
     }
 
     /// Make the first admin `user` with `password` when `code` is the pending
     /// setup code, and use the code up (ADR 0051 §3). A refused user name or
     /// password leaves the setup pending. Blocking (argon2).
+    ///
+    /// The check "no user yet" and the new admin are under the `setup` lock only, not
+    /// under the users store's lock. That is safe because no other path makes a user
+    /// without an admin while the gateway serves: the HTTP `add_user` needs an admin's
+    /// session (so a user exists, and this answers `NoSetup`), `ensure_admin` runs at
+    /// bootstrap before the gateway serves, `wyrmd user add` runs in another process that
+    /// cannot open the store this gateway holds, and a broker restore replaces the users
+    /// store only at the next start, before any store opens. A new path that makes a user
+    /// with no admin before it must take the `setup` lock.
     pub fn complete_setup(&self, code: &str, user: &str, password: &str) -> Result<(), SetupError> {
         let _held = self.setup.lock().unwrap_or_else(|p| p.into_inner());
         if self.any_user() {
@@ -1324,6 +1407,14 @@ impl Gateway {
     ) -> Result<()> {
         http::serve(self, session, shutdown).await
     }
+}
+
+/// Why `POST /api/setup` was refused: the login limiter, or the setup step itself.
+#[derive(Debug)]
+pub(crate) enum SetupRefused {
+    /// The limiter of `/api/login` (`RateLimited`).
+    Login(LoginError),
+    Setup(SetupError),
 }
 
 #[derive(Debug)]
