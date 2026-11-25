@@ -29,3 +29,5 @@ pub mod watch;
 
 pub use artifacts::ArtifactError;
 pub use engine::{command_targets, Engine, EngineStart, FlowHost, HostError};
+pub use nodes::ConfigError;
+pub use readers::QueryError;

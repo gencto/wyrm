@@ -159,42 +159,176 @@ impl Ports {
     }
 }
 
+// ---------- config errors ----------
+
+/// Why the config of a node was refused, or why the node was not built. The compiler puts the
+/// node before it (`nodes.<id>: …`, `nodes.<id>.…`); every text is the one the refusal had as
+/// a `String` (audit T7, `tests/refusal_texts.rs`).
+#[derive(Debug, thiserror::Error)]
+pub enum ConfigError {
+    // ----- a field of any type; each holds the field -----
+    #[error("{0}: expected a finite number")]
+    Number(String),
+    #[error("{0}: expected a string")]
+    Text(String),
+    #[error("{0}: required")]
+    Required(String),
+    #[error("{0}: expected true or false")]
+    Bool(String),
+    #[error("{0}: unknown field")]
+    UnknownField(String),
+    /// The value is not a name of the field's set.
+    #[error("{field}: one of {names:?}")]
+    OneOf {
+        field: String,
+        names: &'static [&'static str],
+    },
+    /// The whole number is outside `lo..=hi`.
+    #[error("{field}: integer {lo}..={hi}")]
+    Integer { field: String, lo: u64, hi: u64 },
+    // ----- the node types of this module -----
+    #[error("inputs: names must be [A-Za-z0-9_]+")]
+    InputNames,
+    #[error("inputs: required non-empty array")]
+    NoInputs,
+    #[error("max_samples: integer 1..=100000")]
+    MaxSamples,
+    /// A read field (`key`, `path`) and its scope are both left out.
+    #[error("{field}: required (or {scope}, with in.{field} wired)")]
+    NoReadField { field: String, scope: String },
+    #[error("period_ms: at least 10")]
+    ShortPeriod,
+    #[error("abs or pct: required")]
+    NoAbsOrPct,
+    #[error("size_s: must be > 0")]
+    NoSize,
+    #[error("high or low: required")]
+    NoHighOrLow,
+    /// `publish.node` is no key segment.
+    #[error("node: {0}")]
+    PublishNode(#[source] wyrm_core::keyspace::KeyError),
+    #[error("meta: expected a map")]
+    MetaNotMap,
+    /// Holds the type.
+    #[error("type: unknown node type {0}")]
+    UnknownType(String),
+    /// At build: no type `ty` for the node `id`.
+    #[error("{id}: unknown node type {ty}")]
+    UnknownNodeType { id: String, ty: String },
+    /// `expr` does not compile (the compiler's script step).
+    #[error("expr: {0}")]
+    Expr(#[source] script::CompileError),
+    /// A script does not compile, at build: the script's own text, no field before it.
+    #[error(transparent)]
+    Script(#[from] script::CompileError),
+    // ----- wasm -----
+    #[error("wasm: no artifact store")]
+    NoArtifactStore,
+    /// Holds the field (`inputs`, `outputs`).
+    #[error("{0}: unique names [A-Za-z0-9_]+")]
+    PortNames(String),
+    /// Holds the field (`inputs`, `outputs`).
+    #[error("{0}: 1..=16 port names")]
+    PortCount(String),
+    #[error("artifact: 64 lowercase hex characters (SHA-256)")]
+    ArtifactName,
+    /// The artifact store did not give the component.
+    #[error(transparent)]
+    Artifact(#[from] crate::artifacts::ArtifactError),
+    /// `config` does not encode for the guest.
+    #[error("config: {0}")]
+    WasmConfig(#[source] wyrm_core::codec::CodecError),
+    /// The component did not start, or its `init` failed.
+    #[error("artifact: {0}")]
+    WasmStart(#[source] wyrm_wasm_host::Error),
+    // ----- logic blocks (`crate::blocks`) -----
+    #[error("inputs: at most {}", crate::blocks::MAX_ITEMS)]
+    ManyInputs,
+    /// Holds the name.
+    #[error("inputs: {0} twice")]
+    InputTwice(String),
+    /// Holds the name.
+    #[error("inputs: {0} is the name of a parameter")]
+    InputIsParam(String),
+    #[error("values: expected a map {{<input>: <value>}}")]
+    ValuesNotMap,
+    /// A constant for a port that is no operand of the block type.
+    #[error("values.{port}: not an operand input of {block} (in, in.<inputs>)")]
+    NotOperand { port: String, block: &'static str },
+    #[error(
+        "interval_ms: 0 (only on in) or {}..={}",
+        crate::commands::MIN_INTERVAL_MS,
+        crate::commands::MAX_INTERVAL_MS
+    )]
+    NowInterval,
+    #[error("op: expected a string")]
+    OpNotText,
+    #[error(transparent)]
+    Op(#[from] crate::blocks::NotAnOp),
+    #[error(transparent)]
+    Table(#[from] crate::blocks::TableConfigError),
+    // ----- commands and readers -----
+    #[error("args: at most {}", crate::commands::MAX_ARGS)]
+    ManyArgs,
+    /// Holds the name.
+    #[error("args.{0}: a name of 1..=128 bytes, not __…")]
+    ArgName(String),
+    #[error("args: expected a map {{<argument>: <value>}}")]
+    ArgsNotMap,
+    #[error(
+        "interval_ms: 0 (off) or {}..={}",
+        crate::commands::MIN_INTERVAL_MS,
+        crate::commands::MAX_INTERVAL_MS
+    )]
+    Interval,
+    #[error("limit: 1..={}", crate::readers::MAX_HISTORY_ROWS)]
+    Limit,
+    #[error(transparent)]
+    Query(#[from] crate::readers::QueryError),
+}
+
+impl ConfigError {
+    pub(crate) fn required(field: &str) -> Self {
+        Self::Required(field.to_owned())
+    }
+}
+
 // ---------- config helpers ----------
 
-pub(crate) fn f(cfg: &Map, k: &str) -> Result<Option<f64>, String> {
+pub(crate) fn f(cfg: &Map, k: &str) -> Result<Option<f64>, ConfigError> {
     match cfg.get(k) {
         None => Ok(None),
         Some(v) => v
             .as_f64()
             .filter(|x| x.is_finite())
             .map(Some)
-            .ok_or_else(|| format!("{k}: expected a finite number")),
+            .ok_or_else(|| ConfigError::Number(k.to_owned())),
     }
 }
 
-pub(crate) fn s<'a>(cfg: &'a Map, k: &str) -> Result<Option<&'a str>, String> {
+pub(crate) fn s<'a>(cfg: &'a Map, k: &str) -> Result<Option<&'a str>, ConfigError> {
     match cfg.get(k) {
         None => Ok(None),
         Some(Value::Str(x)) => Ok(Some(x)),
-        Some(_) => Err(format!("{k}: expected a string")),
+        Some(_) => Err(ConfigError::Text(k.to_owned())),
     }
 }
 
-pub(crate) fn req_s<'a>(cfg: &'a Map, k: &str) -> Result<&'a str, String> {
-    s(cfg, k)?.ok_or_else(|| format!("{k}: required"))
+pub(crate) fn req_s<'a>(cfg: &'a Map, k: &str) -> Result<&'a str, ConfigError> {
+    s(cfg, k)?.ok_or_else(|| ConfigError::required(k))
 }
 
-pub(crate) fn b(cfg: &Map, k: &str, default: bool) -> Result<bool, String> {
+pub(crate) fn b(cfg: &Map, k: &str, default: bool) -> Result<bool, ConfigError> {
     match cfg.get(k) {
         None => Ok(default),
         Some(Value::Bool(x)) => Ok(*x),
-        Some(_) => Err(format!("{k}: expected true or false")),
+        Some(_) => Err(ConfigError::Bool(k.to_owned())),
     }
 }
 
-pub(crate) fn only(cfg: &Map, known: &[&str]) -> Result<(), String> {
+pub(crate) fn only(cfg: &Map, known: &[&str]) -> Result<(), ConfigError> {
     match cfg.keys().find(|k| !known.contains(&k.as_str())) {
-        Some(k) => Err(format!("{k}: unknown field")),
+        Some(k) => Err(ConfigError::UnknownField(k.clone())),
         None => Ok(()),
     }
 }
@@ -205,14 +339,17 @@ pub(crate) fn pick_of<T: wyrm_core::named::Named>(
     cfg: &Map,
     k: &str,
     default: T,
-) -> Result<T, String> {
+) -> Result<T, ConfigError> {
     match s(cfg, k)? {
         None => Ok(default),
-        Some(v) => T::from_name(v).ok_or_else(|| format!("{k}: one of {:?}", T::NAMES)),
+        Some(v) => T::from_name(v).ok_or_else(|| ConfigError::OneOf {
+            field: k.to_owned(),
+            names: T::NAMES,
+        }),
     }
 }
 
-pub(crate) fn names(cfg: &Map) -> Result<Vec<String>, String> {
+pub(crate) fn names(cfg: &Map) -> Result<Vec<String>, ConfigError> {
     match cfg.get("inputs") {
         Some(Value::Array(a)) if !a.is_empty() => a
             .iter()
@@ -223,23 +360,23 @@ pub(crate) fn names(cfg: &Map) -> Result<Vec<String>, String> {
                 {
                     Ok(n.clone())
                 }
-                _ => Err("inputs: names must be [A-Za-z0-9_]+".to_owned()),
+                _ => Err(ConfigError::InputNames),
             })
             .collect(),
-        _ => Err("inputs: required non-empty array".into()),
+        _ => Err(ConfigError::NoInputs),
     }
 }
 
 /// `window.max_samples`: an integer 1..=100 000, default 10 000. One parser
 /// for the node and for the compiler's memory check.
-pub fn max_samples(cfg: &Map) -> Result<u64, String> {
+pub fn max_samples(cfg: &Map) -> Result<u64, ConfigError> {
     match cfg.get("max_samples") {
         None => Ok(10_000),
         Some(v) => v
             .to_int::<u64>()
             .ok()
             .filter(|u| (1..=100_000).contains(u))
-            .ok_or_else(|| "max_samples: integer 1..=100000".into()),
+            .ok_or(ConfigError::MaxSamples),
     }
 }
 
@@ -272,12 +409,13 @@ pub fn read_fields(ty: &str) -> &'static [(&'static str, &'static str)] {
 
 /// Config check of a read field: the key is a text, the scope is a text, and one of them is
 /// given (a node with a scope alone reads nothing until its port brings a key).
-pub(crate) fn read_field(cfg: &Map, field: &str, scope: &str) -> Result<(), String> {
+pub(crate) fn read_field(cfg: &Map, field: &str, scope: &str) -> Result<(), ConfigError> {
     let key = s(cfg, field)?;
     if s(cfg, scope)?.is_none() && key.is_none() {
-        return Err(format!(
-            "{field}: required (or {scope}, with in.{field} wired)"
-        ));
+        return Err(ConfigError::NoReadField {
+            field: field.to_owned(),
+            scope: scope.to_owned(),
+        });
     }
     Ok(())
 }
@@ -323,13 +461,13 @@ impl Live {
 
 /// Ports and config validation of a node type (compiler step 3), with the echo outputs of its
 /// fields (ADR 0038 §1).
-pub fn ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
+pub fn ports(ty: &str, cfg: &Map) -> Result<Ports, ConfigError> {
     let mut p = declared_ports(ty, cfg)?;
     p.echoes = crate::catalog::echoes(ty, &p);
     Ok(p)
 }
 
-fn declared_ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
+fn declared_ports(ty: &str, cfg: &Map) -> Result<Ports, ConfigError> {
     use PortType::*;
     if let Some(r) = crate::blocks::ports(ty, cfg) {
         return r;
@@ -343,15 +481,16 @@ fn declared_ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
         }
         "timer" => {
             only(cfg, &["period_ms"])?;
-            let p = f(cfg, "period_ms")?.ok_or("period_ms: required")?;
+            let p = f(cfg, "period_ms")?.ok_or_else(|| ConfigError::required("period_ms"))?;
             if p < 10.0 {
-                return Err("period_ms: at least 10".into());
+                return Err(ConfigError::ShortPeriod);
             }
             Ports::new(&[("in.period_ms", Number)], &[("out", Number)])
         }
         "const" => {
             only(cfg, &["value"])?;
-            cfg.get("value").ok_or("value: required")?;
+            cfg.get("value")
+                .ok_or_else(|| ConfigError::required("value"))?;
             Ports::new(&[], &[("out", Any)])
         }
         "expression" => {
@@ -394,7 +533,7 @@ fn declared_ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
         "deadband" => {
             only(cfg, &["abs", "pct"])?;
             if f(cfg, "abs")?.is_none() && f(cfg, "pct")?.is_none() {
-                return Err("abs or pct: required".into());
+                return Err(ConfigError::NoAbsOrPct);
             }
             Ports::new(
                 &[("in", Number), ("in.abs", Number), ("in.pct", Number)],
@@ -406,9 +545,9 @@ fn declared_ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
             pick_of(cfg, "kind", WindowKind::Tumbling)?;
             pick_of(cfg, "fn", WindowFn::Avg)?;
             max_samples(cfg)?;
-            let size = f(cfg, "size_s")?.ok_or("size_s: required")?;
+            let size = f(cfg, "size_s")?.ok_or_else(|| ConfigError::required("size_s"))?;
             if size <= 0.0 {
-                return Err("size_s: must be > 0".into());
+                return Err(ConfigError::NoSize);
             }
             Ports::new(&[("in", Number), ("in.size_s", Number)], &[("out", Number)])
         }
@@ -425,7 +564,7 @@ fn declared_ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
                 ],
             )?;
             if f(cfg, "high")?.is_none() && f(cfg, "low")?.is_none() {
-                return Err("high or low: required".into());
+                return Err(ConfigError::NoHighOrLow);
             }
             f(cfg, "hysteresis")?;
             f(cfg, "delay_s")?;
@@ -446,7 +585,7 @@ fn declared_ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
         }
         "delay" => {
             only(cfg, &["ms"])?;
-            f(cfg, "ms")?.ok_or("ms: required")?;
+            f(cfg, "ms")?.ok_or_else(|| ConfigError::required("ms"))?;
             Ports::new(&[("in", Any), ("in.ms", Number)], &[("out", Any)])
         }
         "filter" => {
@@ -457,10 +596,10 @@ fn declared_ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
         "publish" => {
             only(cfg, &["node", "meta"])?;
             let n = req_s(cfg, "node")?;
-            wyrm_core::keyspace::validate_segment(n).map_err(|e| format!("node: {e}"))?;
+            wyrm_core::keyspace::validate_segment(n).map_err(ConfigError::PublishNode)?;
             if let Some(m) = cfg.get("meta") {
                 if !matches!(m, Value::Map(_)) {
-                    return Err("meta: expected a map".into());
+                    return Err(ConfigError::MetaNotMap);
                 }
             }
             Ports::new(&[("in", Any)], &[])
@@ -477,12 +616,12 @@ fn declared_ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
                 echoes: Vec::new(),
             }
         }
-        other => return Err(format!("type: unknown node type {other}")),
+        other => return Err(ConfigError::UnknownType(other.to_owned())),
     })
 }
 
 /// Compiler step 6: rhai compiles with only the declared names.
-pub fn check_script(ty: &str, cfg: &Map) -> Result<(), String> {
+pub fn check_script(ty: &str, cfg: &Map) -> Result<(), ConfigError> {
     // an engine only for the types that have a script: one per node of a 1000-node
     // definition was most of its compile time (ADR 0040 §3)
     if !matches!(ty, "expression" | "filter") {
@@ -496,11 +635,11 @@ pub fn check_script(ty: &str, cfg: &Map) -> Result<(), String> {
             let refs: Vec<&str> = n.iter().map(String::as_str).collect();
             script::compile(&e, req_s(cfg, "expr")?, &refs)
                 .map(|_| ())
-                .map_err(|m| format!("expr: {m}"))
+                .map_err(ConfigError::Expr)
         }
         "filter" => filter_script(&e, req_s(cfg, "expr")?)
             .map(|_| ())
-            .map_err(|m| format!("expr: {m}")),
+            .map_err(ConfigError::Expr),
         _ => Ok(()),
     }
 }
@@ -1219,7 +1358,10 @@ struct Filter {
 
 /// A `filter` script compiled over its variables `v`, `q`, `t`, and those variables in
 /// that order.
-fn filter_script(engine: &rhai::Engine, expr: &str) -> Result<(rhai::AST, script::Vars), String> {
+fn filter_script(
+    engine: &rhai::Engine,
+    expr: &str,
+) -> Result<(rhai::AST, script::Vars), script::CompileError> {
     let names = ["v", "q", "t"];
     let ast = script::compile(engine, expr, &names)?;
     Ok((ast, script::Vars::new(&names)))
@@ -1349,7 +1491,12 @@ impl Node for Capture {
 }
 
 /// The capture node of a `publish` in a preview; `None` for every other type.
-fn capture(ty: &str, id: &str, cfg: &Map, sb: &Sandbox) -> Result<Option<Box<dyn Node>>, String> {
+fn capture(
+    ty: &str,
+    id: &str,
+    cfg: &Map,
+    sb: &Sandbox,
+) -> Result<Option<Box<dyn Node>>, ConfigError> {
     if ty != "publish" {
         return Ok(None);
     }
@@ -1366,7 +1513,7 @@ fn capture(ty: &str, id: &str, cfg: &Map, sb: &Sandbox) -> Result<Option<Box<dyn
 }
 
 /// Build a node of a deployed flow (config already checked by [`ports`]).
-pub fn build(ty: &str, flow: &str, id: &str, cfg: &Map) -> Result<Box<dyn Node>, String> {
+pub fn build(ty: &str, flow: &str, id: &str, cfg: &Map) -> Result<Box<dyn Node>, ConfigError> {
     build_with(ty, flow, id, cfg, None, &Mode::Live)
 }
 
@@ -1379,7 +1526,7 @@ pub fn build_with(
     cfg: &Map,
     artifacts: Option<&Artifacts>,
     mode: &Mode,
-) -> Result<Box<dyn Node>, String> {
+) -> Result<Box<dyn Node>, ConfigError> {
     if let Mode::Preview(sb) = mode {
         if let Some(c) = capture(ty, id, cfg, sb)? {
             return Ok(c);
@@ -1471,10 +1618,15 @@ pub fn build_with(
             crate::readers::build(ty, cfg)?
         }
         "wasm" => {
-            let store = artifacts.ok_or("wasm: no artifact store")?;
+            let store = artifacts.ok_or(ConfigError::NoArtifactStore)?;
             Box::new(Wasm::new(WasmCfg::parse(cfg)?, store)?)
         }
-        other => return Err(format!("{id}: unknown node type {other}")),
+        other => {
+            return Err(ConfigError::UnknownNodeType {
+                id: id.to_owned(),
+                ty: other.to_owned(),
+            })
+        }
     })
 }
 
@@ -1493,7 +1645,7 @@ pub struct WasmCfg {
     pub limits: wyrm_wasm_host::Limits,
 }
 
-fn port_names(cfg: &Map, k: &str, default: &str) -> Result<Vec<String>, String> {
+fn port_names(cfg: &Map, k: &str, default: &str) -> Result<Vec<String>, ConfigError> {
     let ok = |n: &str| {
         !n.is_empty()
             && !n.starts_with("__")
@@ -1506,28 +1658,32 @@ fn port_names(cfg: &Map, k: &str, default: &str) -> Result<Vec<String>, String> 
             for v in a {
                 match v {
                     Value::Str(n) if ok(n) && !out.contains(n) => out.push(n.clone()),
-                    _ => return Err(format!("{k}: unique names [A-Za-z0-9_]+")),
+                    _ => return Err(ConfigError::PortNames(k.to_owned())),
                 }
             }
             Ok(out)
         }
-        Some(_) => Err(format!("{k}: 1..=16 port names")),
+        Some(_) => Err(ConfigError::PortCount(k.to_owned())),
     }
 }
 
-fn uint_in(cfg: &Map, k: &str, lo: u64, hi: u64, default: u64) -> Result<u64, String> {
+fn uint_in(cfg: &Map, k: &str, lo: u64, hi: u64, default: u64) -> Result<u64, ConfigError> {
     match cfg.get(k) {
         None => Ok(default),
         Some(v) => v
             .to_int::<u64>()
             .ok()
             .filter(|u| (lo..=hi).contains(u))
-            .ok_or_else(|| format!("{k}: integer {lo}..={hi}")),
+            .ok_or_else(|| ConfigError::Integer {
+                field: k.to_owned(),
+                lo,
+                hi,
+            }),
     }
 }
 
 impl WasmCfg {
-    pub fn parse(cfg: &Map) -> Result<Self, String> {
+    pub fn parse(cfg: &Map) -> Result<Self, ConfigError> {
         use wyrm_wasm_host::Limits;
         only(
             cfg,
@@ -1542,7 +1698,7 @@ impl WasmCfg {
         )?;
         let artifact = req_s(cfg, "artifact")?;
         if !wyrm_core::hex::is_lower_hex(artifact, 32) {
-            return Err("artifact: 64 lowercase hex characters (SHA-256)".into());
+            return Err(ConfigError::ArtifactName);
         }
         let d = Limits::default();
         let fuel = uint_in(cfg, "fuel", 1_000, Limits::MAX.fuel, d.fuel)?;
@@ -1568,7 +1724,7 @@ impl WasmCfg {
 
     /// Load the artifact, instantiate and run the guest's `init` (deploy
     /// check).
-    pub fn check(&self, artifacts: &Artifacts) -> Result<(), String> {
+    pub fn check(&self, artifacts: &Artifacts) -> Result<(), ConfigError> {
         Wasm::new(self.clone(), artifacts).map(|_| ())
     }
 }
@@ -1584,12 +1740,12 @@ struct Wasm {
 }
 
 impl Wasm {
-    fn new(cfg: WasmCfg, artifacts: &Artifacts) -> Result<Self, String> {
-        let art = artifacts.get(&cfg.artifact).map_err(|e| e.to_string())?;
-        let config = wyrm_core::codec::to_vec(&cfg.config).map_err(|e| format!("config: {e}"))?;
+    fn new(cfg: WasmCfg, artifacts: &Artifacts) -> Result<Self, ConfigError> {
+        let art = artifacts.get(&cfg.artifact)?;
+        let config = wyrm_core::codec::to_vec(&cfg.config).map_err(ConfigError::WasmConfig)?;
         let mut node =
             wyrm_wasm_host::FlowNode::new(wyrm_wasm_host::Slot::new(art), config, cfg.limits);
-        node.start().map_err(|e| format!("artifact: {e}"))?;
+        node.start().map_err(ConfigError::WasmStart)?;
         Ok(Self {
             node,
             outputs: cfg.outputs,
@@ -1599,27 +1755,48 @@ impl Wasm {
     }
 }
 
+/// Why the emits of a guest's call were not taken.
+#[derive(Debug, thiserror::Error)]
+enum EmitsError {
+    #[error("emits: indefinite array")]
+    Indefinite,
+    #[error("emits: more than {}", WASM_MAX_EMITS)]
+    Many,
+    #[error("emits: expected [port, sample]")]
+    NotPair,
+    #[error("emits: trailing bytes")]
+    Trailing,
+    #[error(transparent)]
+    Decode(#[from] minicbor::decode::Error),
+}
+
+/// Why a call of a `wasm` node gave no samples.
+#[derive(Debug, thiserror::Error)]
+enum WasmCallError {
+    #[error(transparent)]
+    Host(#[from] wyrm_wasm_host::Error),
+    #[error(transparent)]
+    Emits(#[from] EmitsError),
+}
+
 /// `[[port, sample], …]` from the guest.
-fn decode_emits(b: &[u8]) -> Result<Vec<(String, wyrm_core::Sample)>, String> {
+fn decode_emits(b: &[u8]) -> Result<Vec<(String, wyrm_core::Sample)>, EmitsError> {
     let mut d = minicbor::Decoder::new(b);
-    let n = d
-        .array()
-        .map_err(|e| e.to_string())?
-        .ok_or("emits: indefinite array")?;
+    let n = d.array()?.ok_or(EmitsError::Indefinite)?;
     if n > WASM_MAX_EMITS {
-        return Err(format!("emits: more than {WASM_MAX_EMITS}"));
+        return Err(EmitsError::Many);
     }
     let mut out = Vec::new();
     for _ in 0..n {
-        if d.array().map_err(|e| e.to_string())? != Some(2) {
-            return Err("emits: expected [port, sample]".into());
+        if d.array()? != Some(2) {
+            return Err(EmitsError::NotPair);
         }
-        let port = d.str().map_err(|e| e.to_string())?.to_owned();
-        let s: wyrm_core::Sample = d.decode().map_err(|e| e.to_string())?;
+        let port = d.str()?.to_owned();
+        let s: wyrm_core::Sample = d.decode()?;
         out.push((port, s));
     }
     if d.position() != b.len() {
-        return Err("emits: trailing bytes".into());
+        return Err(EmitsError::Trailing);
     }
     Ok(out)
 }
@@ -1641,7 +1818,7 @@ impl Node for Wasm {
         let r = self
             .node
             .process(port, &bytes, &self.state)
-            .map_err(|e| e.to_string())
+            .map_err(WasmCallError::Host)
             .and_then(|(emits, state)| Ok((decode_emits(&emits)?, state)));
         match r {
             Ok((emits, state)) => {
@@ -1671,5 +1848,47 @@ impl Node for Wasm {
         if let Value::Bytes(b) = state {
             self.state = b.clone();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// What a `wasm` node's log says of the emits it does not take (audit T7: the texts these
+    /// errors had as a `String`).
+    #[test]
+    fn refused_emits_keep_their_texts() {
+        let said = |b: &[u8]| match decode_emits(b) {
+            Ok(_) => panic!("{b:02x?}: taken"),
+            Err(e) => e.to_string(),
+        };
+        // an array with no length
+        assert_eq!(said(&[0x9f, 0xff]), "emits: indefinite array");
+        // 257 items
+        assert_eq!(said(&[0x99, 0x01, 0x01]), "emits: more than 256");
+        // an item that is no pair
+        assert_eq!(
+            said(&[0x81, 0x01]),
+            "unexpected type u8 at position 1: expected array"
+        );
+        assert_eq!(said(&[0x81, 0x81, 0x01]), "emits: expected [port, sample]");
+        // a port that is no text, a sample that is none
+        assert_eq!(
+            said(&[0x81, 0x82, 0x01, 0x01]),
+            "unexpected type u8 at position 2: expected text (definite length)"
+        );
+        assert_eq!(
+            said(&[0x81, 0x82, 0x61, 0x61, 0x01]),
+            "unexpected type u8 at position 4: expected map"
+        );
+        // no array at all, and nothing
+        assert_eq!(
+            said(&[0x01]),
+            "unexpected type u8 at position 0: expected array"
+        );
+        assert_eq!(said(&[]), "end of input bytes");
+        // bytes after the array
+        assert_eq!(said(&[0x80, 0x00]), "emits: trailing bytes");
     }
 }

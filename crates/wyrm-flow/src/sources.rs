@@ -29,10 +29,19 @@ pub(crate) enum Switch {
     Refused(String),
 }
 
+/// Why a node reads no key from its port at all.
+#[derive(Debug, thiserror::Error)]
+enum NoScope {
+    #[error("the node has no scope for a key from a port")]
+    Missing,
+    #[error(transparent)]
+    Bad(#[from] scope::ScopeError),
+}
+
 /// A read field that a port can change: its scope, the key in use, and the rate limit.
 pub(crate) struct DynKey {
     scope_written: Option<String>,
-    scope: Option<Result<Scope, String>>,
+    scope: Option<Result<Scope, NoScope>>,
     /// The full key in use.
     current: Option<String>,
     refused: bool,
@@ -96,15 +105,17 @@ impl DynKey {
             Value::Null => Switch::Off,
             v => {
                 let scope = self.scope.get_or_insert_with(|| match &self.scope_written {
-                    Some(w) => Scope::new(site, w),
-                    None => Err("the node has no scope for a key from a port".into()),
+                    Some(w) => Scope::new(site, w).map_err(NoScope::Bad),
+                    None => Err(NoScope::Missing),
                 });
-                match scope.as_ref().map_err(Clone::clone).and_then(|s| {
-                    let full = s.admit(v)?;
-                    Ok((full, v.clone()))
-                }) {
+                // the reason becomes text only here, where it goes out on `error`
+                let admitted = match scope {
+                    Ok(s) => s.admit(v).map_err(|e| e.to_string()),
+                    Err(e) => Err(e.to_string()),
+                };
+                match admitted.map(|full| (full, v.clone())) {
                     Ok((full, Value::Str(written))) => Switch::To { full, written },
-                    Ok(_) => Switch::Refused("the key is not a text".into()),
+                    Ok(_) => Switch::Refused(scope::AdmitError::NotText.to_string()),
                     Err(why) => Switch::Refused(why),
                 }
             }

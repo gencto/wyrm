@@ -18,7 +18,9 @@
 
 use crate::commands::{MAX_INTERVAL_MS, MIN_INTERVAL_MS};
 use crate::def::Map;
-use crate::nodes::{names, put, Io, Msg, Node, Out, Payload, PortName, PortType, Ports};
+use crate::nodes::{
+    names, put, ConfigError, Io, Msg, Node, Out, Payload, PortName, PortType, Ports,
+};
 use std::collections::BTreeMap;
 use std::time::Duration;
 use tracing::trace;
@@ -30,6 +32,8 @@ mod math;
 pub(crate) mod table;
 pub(crate) mod tables;
 mod text;
+
+pub use tables::TableConfigError;
 
 /// The block types of this module.
 pub const TYPES: &[&str] = &[
@@ -780,37 +784,39 @@ pub fn params_of(ty: &str) -> Option<Vec<(&'static str, Value, bool)>> {
 
 /// The variable inputs of a block: `inputs` (default `0`, `1`), each `[A-Za-z0-9_]+`, at most
 /// [`MAX_ITEMS`], none named like one of its parameters.
-fn items(cfg: &Map, sh: &Shape) -> Result<Vec<String>, String> {
+fn items(cfg: &Map, sh: &Shape) -> Result<Vec<String>, ConfigError> {
     let list = if cfg.contains_key("inputs") {
         names(cfg)?
     } else {
         vec!["0".into(), "1".into()]
     };
     if list.len() > MAX_ITEMS {
-        return Err(format!("inputs: at most {MAX_ITEMS}"));
+        return Err(ConfigError::ManyInputs);
     }
     for (i, n) in list.iter().enumerate() {
         if list[..i].contains(n) {
-            return Err(format!("inputs: {n} twice"));
+            return Err(ConfigError::InputTwice(n.clone()));
         }
         if sh.params.iter().any(|p| p.name == n) {
-            return Err(format!("inputs: {n} is the name of a parameter"));
+            return Err(ConfigError::InputIsParam(n.clone()));
         }
     }
     Ok(list)
 }
 
 /// Ports and config check of a block type; `None` for a type this module does not have.
-pub fn ports(ty: &str, cfg: &Map) -> Option<Result<Ports, String>> {
+pub fn ports(ty: &str, cfg: &Map) -> Option<Result<Ports, ConfigError>> {
     let k = kind(ty)?;
     Some(check(k, cfg))
 }
 
 /// The compile check of a table block's per-row scripts (`expr`, `mapping`) and its
 /// `aggregates`; other types have none.
-pub fn check_scripts(ty: &str, cfg: &Map) -> Result<(), String> {
+pub fn check_scripts(ty: &str, cfg: &Map) -> Result<(), ConfigError> {
     match kind(ty) {
-        Some(Kind::Table(op)) => tables::scripts(op, cfg).map(|_| ()),
+        Some(Kind::Table(op)) => tables::scripts(op, cfg)
+            .map(|_| ())
+            .map_err(ConfigError::Table),
         _ => Ok(()),
     }
 }
@@ -905,12 +911,12 @@ fn now_interval_ok(v: &Value) -> bool {
 
 /// The operand constants of config `values`: `{<port>: <value>}`, each port an operand input
 /// of the block (`in`, `in.<name>` of `inputs`); keyed by the input's name (`in`, `<name>`).
-fn constants(k: Kind, sh: &Shape, cfg: &Map) -> Result<BTreeMap<String, Value>, String> {
+fn constants(k: Kind, sh: &Shape, cfg: &Map) -> Result<BTreeMap<String, Value>, ConfigError> {
     let Some(v) = cfg.get("values") else {
         return Ok(BTreeMap::new());
     };
     let Value::Map(m) = v else {
-        return Err("values: expected a map {<input>: <value>}".into());
+        return Err(ConfigError::ValuesNotMap);
     };
     let items = if sh.items {
         items(cfg, sh)?
@@ -924,10 +930,10 @@ fn constants(k: Kind, sh: &Shape, cfg: &Map) -> Result<BTreeMap<String, Value>, 
             p => match p.strip_prefix("in.") {
                 Some(n) if items.iter().any(|i| i == n) => n,
                 _ => {
-                    return Err(format!(
-                        "values.{port}: not an operand input of {} (in, in.<inputs>)",
-                        kind_name(k)
-                    ))
+                    return Err(ConfigError::NotOperand {
+                        port: port.clone(),
+                        block: kind_name(k),
+                    })
                 }
             },
         };
@@ -944,7 +950,7 @@ fn kind_name(k: Kind) -> &'static str {
         .unwrap_or("block")
 }
 
-fn check(k: Kind, cfg: &Map) -> Result<Ports, String> {
+fn check(k: Kind, cfg: &Map) -> Result<Ports, ConfigError> {
     let sh = shape(k);
     let known: Vec<&str> = sh
         .params
@@ -955,14 +961,12 @@ fn check(k: Kind, cfg: &Map) -> Result<Ports, String> {
         .chain((has_operands(k, &sh) || k == Kind::Date(date::Op::Now)).then_some("values"))
         .collect();
     if let Some(x) = cfg.keys().find(|x| !known.contains(&x.as_str())) {
-        return Err(format!("{x}: unknown field"));
+        return Err(ConfigError::UnknownField(x.clone()));
     }
     if k == Kind::Date(date::Op::Now) {
         if let Some(v) = cfg.get("interval_ms") {
             if !now_interval_ok(v) {
-                return Err(format!(
-                    "interval_ms: 0 (only on in) or {MIN_INTERVAL_MS}..={MAX_INTERVAL_MS}"
-                ));
+                return Err(ConfigError::NowInterval);
             }
         }
     } else {
@@ -1073,7 +1077,7 @@ struct Ops {
 impl Ops {
     /// The operators of the config of a block of kind `k`. A name that is not an operator
     /// of the kind is an error that lists them: the flow does not compile.
-    fn of_config(k: Kind, cfg: &Map) -> Result<Self, String> {
+    fn of_config(k: Kind, cfg: &Map) -> Result<Self, ConfigError> {
         let mut ops = Self::default();
         match cfg.get("op") {
             None => Ok(ops),
@@ -1081,7 +1085,7 @@ impl Ops {
                 ops.set(k, name)?;
                 Ok(ops)
             }
-            Some(_) if Self::has(k) => Err("op: expected a string".into()),
+            Some(_) if Self::has(k) => Err(ConfigError::OpNotText),
             Some(_) => Ok(ops),
         }
     }
@@ -1094,13 +1098,13 @@ impl Ops {
     /// Take the operator `name` for a block of kind `k`. `Err` (the operators of the
     /// kind) when it is not one; the operator in use stays. A kind without `op` takes
     /// nothing and refuses nothing.
-    fn set(&mut self, k: Kind, name: &str) -> Result<(), String> {
+    fn set(&mut self, k: Kind, name: &str) -> Result<(), NotAnOp> {
         match k {
             Kind::If => {
-                self.if_op = IfOp::from_name(name).ok_or_else(|| one_of(IfOp::NAMES))?;
+                self.if_op = IfOp::from_name(name).ok_or(NotAnOp(IfOp::NAMES))?;
             }
             Kind::Case | Kind::Router => {
-                self.case_op = CaseOp::from_name(name).ok_or_else(|| one_of(CaseOp::NAMES))?;
+                self.case_op = CaseOp::from_name(name).ok_or(NotAnOp(CaseOp::NAMES))?;
             }
             _ => {}
         }
@@ -1108,9 +1112,10 @@ impl Ops {
     }
 }
 
-fn one_of(names: &[&str]) -> String {
-    format!("op: one of {names:?}")
-}
+/// `op` is not an operator of the block's kind; holds the operators of the kind.
+#[derive(Debug, thiserror::Error)]
+#[error("op: one of {0:?}")]
+pub struct NotAnOp(&'static [&'static str]);
 
 /// `x op p` for the text operators, both as text; a `null` never matches. (`case` skips an
 /// empty case text first: it matches nothing; in `if` an empty text is contained in every text.)
@@ -1196,7 +1201,12 @@ fn cached<'a>(
 }
 
 /// A block of `ty` from `cfg`; `None` for a type this module does not have.
-pub fn build(ty: &str, flow: &str, id: &str, cfg: &Map) -> Option<Result<Box<dyn Node>, String>> {
+pub fn build(
+    ty: &str,
+    flow: &str,
+    id: &str,
+    cfg: &Map,
+) -> Option<Result<Box<dyn Node>, ConfigError>> {
     let k = kind(ty)?;
     Some(check(k, cfg).and_then(|_| {
         let sh = shape(k);
@@ -2494,7 +2504,11 @@ mod ops_tests {
             (Kind::If, Value::UInt(1)),
         ] {
             let e = Ops::of_config(k, &cfg(bad.clone())).unwrap_err();
-            assert!(e.starts_with("op: "), "{bad:?}: {e}");
+            assert!(
+                matches!(e, ConfigError::Op(_) | ConfigError::OpNotText),
+                "{bad:?}: {e:?}"
+            );
+            assert!(e.to_string().starts_with("op: "), "{bad:?}: {e}");
         }
         // a sample with an unknown operator changes nothing; a known one is taken
         let mut ops = Ops::of_config(Kind::Case, &cfg(">".into())).unwrap();

@@ -671,6 +671,19 @@ impl Expander<'_> {
     }
 }
 
+/// Why a constant of a custom block's input does not go into an inner input.
+#[derive(Debug, thiserror::Error)]
+enum ConstantError {
+    /// Holds the inner node.
+    #[error("no inner node {0}")]
+    NoInner(String),
+    /// The inner node's `key` (`values`, `args`) is there and is no map.
+    #[error("{node}.{key}: expected a map")]
+    NotMap { node: String, key: String },
+    #[error("{node}.{port} takes no constant: wire the input instead")]
+    TakesNone { node: String, port: String },
+}
+
 /// Gives the inner input `t` the constant `v`: an instance's own constant (`values`), a
 /// parameter's config, an operand's constant (`values`, spec 06 0.2.19), an argument of an
 /// `invoke`, a variable's `value`.
@@ -678,10 +691,10 @@ fn constant_into(
     inner: &mut BTreeMap<String, RawNode>,
     t: &Endpoint,
     v: &Value,
-) -> core::result::Result<(), String> {
+) -> core::result::Result<(), ConstantError> {
     use crate::catalog::ConstAt;
     let Some((ty, cfg)) = inner.get_mut(&t.node) else {
-        return Err(format!("no inner node {}", t.node));
+        return Err(ConstantError::NoInner(t.node.clone()));
     };
     let mut put = |key: &str, name: &str| match cfg
         .entry(key.to_owned())
@@ -691,7 +704,10 @@ fn constant_into(
             m.insert(name.to_owned(), v.clone());
             Ok(())
         }
-        _ => Err(format!("{}.{key}: expected a map", t.node)),
+        _ => Err(ConstantError::NotMap {
+            node: t.node.clone(),
+            key: key.to_owned(),
+        }),
     };
     if ty.starts_with(BLOCK_PREFIX) {
         return put("values", &t.port);
@@ -703,10 +719,10 @@ fn constant_into(
         }
         Some(ConstAt::Operand) => put("values", &t.port),
         Some(ConstAt::Arg(a)) => put("args", &a),
-        None => Err(format!(
-            "{}.{} takes no constant: wire the input instead",
-            t.node, t.port
-        )),
+        None => Err(ConstantError::TakesNone {
+            node: t.node.clone(),
+            port: t.port.clone(),
+        }),
     }
 }
 
@@ -1042,4 +1058,22 @@ pub fn compile(v: &Value) -> Result<(FlowDef, BTreeMap<String, Ports>)> {
     let def = parse(v)?;
     let ports = check(&def)?;
     Ok((def, ports))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A constant for an inner node that is not there (the compiler checks the node first, so
+    /// only this function says it). Audit T7: the text it had as a `String`.
+    #[test]
+    fn a_constant_for_no_inner_node_keeps_its_text() {
+        let mut inner = BTreeMap::new();
+        let to = Endpoint {
+            node: "gone".into(),
+            port: "in".into(),
+        };
+        let e = constant_into(&mut inner, &to, &Value::UInt(1)).map_err(|e| e.to_string());
+        assert_eq!(e, Err("no inner node gone".to_owned()));
+    }
 }

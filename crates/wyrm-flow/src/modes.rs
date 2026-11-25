@@ -134,18 +134,24 @@ mod tests {
         let cfg = |v: Value| crate::def::Map::from([("quality".to_owned(), v)]);
         for q in QualityMode::ALL {
             assert_eq!(
-                pick_of(&cfg(Value::from(q.name())), "quality", QualityMode::Worst),
-                Ok(*q)
+                pick_of(&cfg(Value::from(q.name())), "quality", QualityMode::Worst).ok(),
+                Some(*q)
             );
         }
         assert_eq!(
-            pick_of(&crate::def::Map::new(), "quality", QualityMode::Worst),
-            Ok(QualityMode::Worst)
+            pick_of(&crate::def::Map::new(), "quality", QualityMode::Worst).ok(),
+            Some(QualityMode::Worst)
         );
         for bad in [Value::from("Custom"), Value::from(""), Value::from("good")] {
+            let e = pick_of(&cfg(bad), "quality", QualityMode::Worst).unwrap_err();
+            assert!(
+                matches!(&e, crate::nodes::ConfigError::OneOf { field, names }
+                    if field == "quality" && *names == QualityMode::NAMES),
+                "{e:?}"
+            );
             assert_eq!(
-                pick_of(&cfg(bad), "quality", QualityMode::Worst),
-                Err(r#"quality: one of ["worst", "ignore", "custom"]"#.to_owned())
+                e.to_string(),
+                r#"quality: one of ["worst", "ignore", "custom"]"#
             );
         }
         assert!(pick_of(&cfg(Value::UInt(1)), "quality", QualityMode::Worst).is_err());
