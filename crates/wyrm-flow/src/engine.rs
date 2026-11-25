@@ -1175,6 +1175,296 @@ fn def_param() -> ParamMeta {
     ParamMeta::of(TypeCode::Map).required(true)
 }
 
+/// One call of an action of the engine: its arguments, its caller and the engine's site.
+struct Call<'a> {
+    args: &'a Value,
+    who: &'a Caller,
+    site: &'a str,
+}
+
+/// The argument `def` of an action.
+fn def_arg(args: &Value) -> Result<Value, LinkError> {
+    match args {
+        Value::Map(m) => m
+            .get("def")
+            .cloned()
+            .ok_or_else(|| LinkError::invalid_parameter("def: required")),
+        _ => Err(LinkError::invalid_parameter("def: required")),
+    }
+}
+
+/// `put_block`: a block checked to work alone in a flow, with the library blocks it uses,
+/// and stored in the library. Its name and its new version.
+fn put_block(host: &FlowHost, args: &Value) -> Result<(String, u64), LinkError> {
+    let name = name_arg(args)?;
+    let block = def_arg(args)?;
+    let cbor = wyrm_core::codec::to_vec(&block)
+        .map_err(|e| LinkError::invalid_parameter(format!("def: {e}")))?;
+    if cbor.len() > MAX_BLOCK_BYTES {
+        return Err(LinkError::invalid_parameter(format!(
+            "def: larger than {MAX_BLOCK_BYTES} bytes"
+        )));
+    }
+    // it must work as a block: alone in a flow, with the library blocks it uses
+    let mut blocks = library_with(host, &name, &block)?;
+    blocks.insert(name.clone(), block);
+    let probe = Value::Map(BTreeMap::from([
+        ("id".to_owned(), Value::from("block")),
+        ("blocks".to_owned(), Value::Map(blocks)),
+        (
+            "nodes".to_owned(),
+            Value::Map(BTreeMap::from([(
+                "b".to_owned(),
+                Value::Map(BTreeMap::from([(
+                    "type".to_owned(),
+                    Value::Str(format!("{}{name}", def::BLOCK_PREFIX)),
+                )])),
+            )])),
+        ),
+    ]));
+    compile(&probe, &host.artifacts, &host.site)
+        .map_err(|e| LinkError::invalid_parameter(e.to_string()))?;
+    host.apply(Op::PutBlock {
+        name: name.clone(),
+        cbor,
+    })?;
+    let version = host
+        .store()
+        .state()
+        .blocks
+        .get(&name)
+        .map_or(0, |b| b.version);
+    Ok((name, version))
+}
+
+/// `list_blocks`: one row per block of the library, with its inputs, outputs and description.
+fn block_rows(host: &FlowHost) -> Vec<Value> {
+    let names: Vec<String> = host.store().state().blocks.keys().cloned().collect();
+    let mut rows = Vec::new();
+    for name in names {
+        let Some((version, block)) = library_block(host, &name) else {
+            continue;
+        };
+        let mut row = BTreeMap::from([
+            ("name".to_owned(), Value::Str(name.clone())),
+            ("version".to_owned(), Value::UInt(version)),
+        ]);
+        if let Ok(b) = def::parse_block(&name, &block) {
+            let names = |n: Vec<String>| Value::Array(n.into_iter().map(Value::Str).collect());
+            row.insert(
+                "inputs".into(),
+                names(b.inputs.iter().map(|i| i.name.clone()).collect()),
+            );
+            row.insert(
+                "outputs".into(),
+                names(b.outputs.iter().map(|o| o.name.clone()).collect()),
+            );
+            if let Some(d) = b.description {
+                row.insert("description".into(), Value::Str(d));
+            }
+        }
+        rows.push(Value::Map(row));
+    }
+    rows
+}
+
+/// `validate`: whether `def` compiles, and why not.
+fn validate(host: &FlowHost, args: &Value) -> Result<BTreeMap<String, Value>, LinkError> {
+    let mut m = BTreeMap::new();
+    match compile(&def_arg(args)?, &host.artifacts, &host.site) {
+        Ok(_) => {
+            m.insert("ok".into(), Value::Bool(true));
+        }
+        Err(e) => {
+            m.insert("ok".into(), Value::Bool(false));
+            m.insert("error".into(), Value::Str(e.to_string()));
+        }
+    }
+    Ok(m)
+}
+
+/// `history`: the previous definitions of flow `id` (oldest first) and the current one.
+fn definitions(host: &FlowHost, id: &str) -> Vec<Value> {
+    let mut defs: Vec<Value> = {
+        let store = host.store();
+        let state = store.state();
+        state
+            .history
+            .get(id)
+            .into_iter()
+            .flatten()
+            .chain(state.defs.get(id))
+            .filter_map(|b| wyrm_core::codec::from_slice::<Value>(b).ok())
+            .collect()
+    };
+    defs.dedup();
+    defs
+}
+
+/// The actions of the engine that run under its lock.
+impl State {
+    /// `preview`: a draft compiled as for deploy and run with the caller's rights to read.
+    fn preview(&mut self, call: &Call<'_>, out: ReplySink) -> Result<(), LinkError> {
+        // a draft: compiled as for deploy, run with the caller's rights to read, never
+        // stored; no `maxperm` or proofs, as nothing is written
+        let (def, ports) = compile(&def_arg(call.args)?, &self.host.artifacts, &self.host.site)
+            .map_err(|e| LinkError::invalid_parameter(e.to_string()))?;
+        reads_flow(&def, call.who, call.site)?;
+        let only = live::only(call.args, &def)?;
+        let period = live::period(call.args)?;
+        let subject = deployer(call.who).unwrap_or_default();
+        let ticket = self.previews.open(&subject, &subject)?;
+        let p = crate::preview::start(
+            &def,
+            &ports,
+            &self.ctx,
+            &self.host.site,
+            &self.host.artifacts,
+        )?;
+        let task = p.spawn(only, period, ticket, out);
+        self.streams.retain(|t| !t.is_finished());
+        self.streams.push(task);
+        Ok(())
+    }
+
+    /// `start`, `stop`: the flow switched on (counted from zero) or off.
+    async fn start_stop(&mut self, id: &str, on: bool, shared: &Shared) -> Result<(), LinkError> {
+        self.host.apply(Op::SetEnabled {
+            id: id.to_owned(),
+            on,
+        })?;
+        let states = self.halt(id).await;
+        if let Some(f) = self.flows.get_mut(id) {
+            f.stopped = !on;
+            f.since = now_us();
+            f.refused = None;
+            // a start counts from zero; a stopped flow keeps the totals of its run
+            if on {
+                f.stats = Arc::new(FlowStats::default());
+            }
+        }
+        if on {
+            self.launch(id, states, shared);
+        }
+        self.publish_val(id).await;
+        Ok(())
+    }
+
+    /// `rollback`: the stored definition of `version` of flow `id`, as its next version.
+    fn rollback_def(&self, id: &str, args: &Value) -> Result<Value, LinkError> {
+        let want: u64 = match args {
+            Value::Map(m) => m.get("version"),
+            _ => None,
+        }
+        .ok_or_else(|| LinkError::invalid_parameter("version: required"))?
+        .to_int()
+        .map_err(|e| LinkError::invalid_parameter(format!("version: {e}")))?;
+        let current = self
+            .flows
+            .get(id)
+            .map(|f| f.def.version)
+            .ok_or_else(|| LinkError::not_found(id.to_owned()))?;
+        let old = {
+            let store = self.host.store();
+            store
+                .state()
+                .history
+                .get(id)
+                .into_iter()
+                .flatten()
+                .filter_map(|b| wyrm_core::codec::from_slice::<Value>(b).ok())
+                .find(|v| version_of(v) == Some(want))
+        }
+        .ok_or_else(|| LinkError::not_found(format!("{id} version {want}")))?;
+        let Value::Map(mut m) = old else {
+            return Err(LinkError::internal("stored definition is not a map"));
+        };
+        m.insert("version".into(), Value::UInt(current + 1));
+        Ok(Value::Map(m))
+    }
+
+    /// `watch`, `ports`: the live values of flow `id`, a stream of rows or one row.
+    fn live(
+        &mut self,
+        id: &str,
+        action: &str,
+        call: &Call<'_>,
+        out: ReplySink,
+    ) -> Result<(), LinkError> {
+        let f = self
+            .flows
+            .get(id)
+            .ok_or_else(|| LinkError::not_found(id.to_owned()))?;
+        // the values of a flow come from its sources and its command targets
+        reads_flow(&f.def, call.who, call.site)?;
+        let only = live::only(call.args, &f.def)?;
+        let probe = f.probe.clone();
+        self.streams.retain(|t| !t.is_finished());
+        if action == "ports" {
+            self.streams.push(tokio::spawn(async move {
+                let row = live::ports(&probe, only.as_ref()).await;
+                let _ = out.reply(row).await;
+            }));
+            return Ok(());
+        }
+        let period = live::period(call.args)?;
+        let ticket = self
+            .watches
+            .open(id, &deployer(call.who).unwrap_or_default())?;
+        self.streams.push(tokio::spawn(async move {
+            let rows = out.clone();
+            let cancel = ticket.cancelled();
+            let last = live::run(probe, only, period, live::TTL, cancel, move |v| {
+                let rows = rows.clone();
+                async move { rows.reply(v).await.is_ok() }
+            })
+            .await;
+            let _ = out.done(last).await;
+            drop(ticket);
+        }));
+        Ok(())
+    }
+
+    /// `trigger`: one run of a command block of flow `id`, which must be running.
+    fn trigger(&self, id: &str, call: &Call<'_>) -> Result<(), LinkError> {
+        // ADR 0040 §2: one run of a command block of a deployed, running flow, with
+        // the rights the block's target asks of the caller itself
+        let f = self
+            .flows
+            .get(id)
+            .ok_or_else(|| LinkError::not_found(id.to_owned()))?;
+        let node = match call.args {
+            Value::Map(m) => match m.get("node") {
+                Some(Value::Str(n)) => n.clone(),
+                _ => return Err(LinkError::invalid_parameter("node: required string")),
+            },
+            _ => return Err(LinkError::invalid_parameter("node: required string")),
+        };
+        let n = f
+            .def
+            .nodes
+            .get(&node)
+            .filter(|n| crate::nodes::triggerable(&n.ty))
+            .ok_or_else(|| {
+                LinkError::invalid_parameter(format!(
+                    "node: {node} is not a block that trigger runs (invoke, set, a reader)"
+                ))
+            })?;
+        let _ = n;
+        trigger_rights(&f.def, &node, call.who, call.site)?;
+        let inbox = f
+            .run
+            .as_ref()
+            .and_then(|r| r.inboxes.get(&node))
+            .ok_or_else(|| LinkError::not_supported("the flow is not running"))?;
+        inbox.push_now(
+            "__trigger",
+            crate::nodes::Msg::new(Value::Null, Quality::Good, now_us()),
+        );
+        Ok(())
+    }
+}
+
 impl Link for Engine {
     const NAME: &'static str = "flow";
     const VERSION: &'static str = env!("CARGO_PKG_VERSION");
@@ -1322,18 +1612,16 @@ impl Link for Engine {
         who: &Caller,
         out: ReplySink,
     ) -> wyrm_link_sdk::Result<()> {
-        let def_arg = || match &args {
-            Value::Map(m) => m
-                .get("def")
-                .cloned()
-                .ok_or_else(|| LinkError::invalid_parameter("def: required")),
-            _ => Err(LinkError::invalid_parameter("def: required")),
+        let call = Call {
+            args: &args,
+            who,
+            site: &self.site,
         };
         let shared = self.shared.clone();
         let mut st = self.shared.lock().await;
         match (path, action) {
             ("", "deploy") => {
-                let raw = def_arg()?;
+                let raw = def_arg(&args)?;
                 caller_covers(&raw, who)?;
                 reads_sources(&raw, who, &self.site)?;
                 proves_targets(&raw, &args, who, &self.site, &self.verifier)?;
@@ -1359,72 +1647,13 @@ impl Link for Engine {
                 r.insert("artifact".into(), Value::Str(sha));
                 return out.reply(Value::Map(r)).await;
             }
-            ("", "preview") => {
-                // a draft: compiled as for deploy, run with the caller's rights to read, never
-                // stored; no `maxperm` or proofs, as nothing is written
-                let (def, ports) = compile(&def_arg()?, &st.host.artifacts, &st.host.site)
-                    .map_err(|e| LinkError::invalid_parameter(e.to_string()))?;
-                reads_flow(&def, who, &self.site)?;
-                let only = live::only(&args, &def)?;
-                let period = live::period(&args)?;
-                let subject = deployer(who).unwrap_or_default();
-                let ticket = st.previews.open(&subject, &subject)?;
-                let p = crate::preview::start(
-                    &def,
-                    &ports,
-                    &st.ctx,
-                    &st.host.site,
-                    &st.host.artifacts,
-                )?;
-                let task = p.spawn(only, period, ticket, out);
-                st.streams.retain(|t| !t.is_finished());
-                st.streams.push(task);
-                return Ok(());
-            }
+            ("", "preview") => return st.preview(&call, out),
             ("", "node_types") => {
                 drop(st);
                 return out.reply(crate::catalog::value()).await;
             }
             ("", "put_block") => {
-                let name = name_arg(&args)?;
-                let block = def_arg()?;
-                let cbor = wyrm_core::codec::to_vec(&block)
-                    .map_err(|e| LinkError::invalid_parameter(format!("def: {e}")))?;
-                if cbor.len() > MAX_BLOCK_BYTES {
-                    return Err(LinkError::invalid_parameter(format!(
-                        "def: larger than {MAX_BLOCK_BYTES} bytes"
-                    )));
-                }
-                // it must work as a block: alone in a flow, with the library blocks it uses
-                let mut blocks = library_with(&st.host, &name, &block)?;
-                blocks.insert(name.clone(), block);
-                let probe = Value::Map(BTreeMap::from([
-                    ("id".to_owned(), Value::from("block")),
-                    ("blocks".to_owned(), Value::Map(blocks)),
-                    (
-                        "nodes".to_owned(),
-                        Value::Map(BTreeMap::from([(
-                            "b".to_owned(),
-                            Value::Map(BTreeMap::from([(
-                                "type".to_owned(),
-                                Value::Str(format!("{}{name}", def::BLOCK_PREFIX)),
-                            )])),
-                        )])),
-                    ),
-                ]));
-                compile(&probe, &st.host.artifacts, &st.host.site)
-                    .map_err(|e| LinkError::invalid_parameter(e.to_string()))?;
-                st.host.apply(Op::PutBlock {
-                    name: name.clone(),
-                    cbor,
-                })?;
-                let version = st
-                    .host
-                    .store()
-                    .state()
-                    .blocks
-                    .get(&name)
-                    .map_or(0, |b| b.version);
+                let (name, version) = put_block(&st.host, &args)?;
                 drop(st);
                 info!(block = %name, version, "custom block stored");
                 return out
@@ -1458,71 +1687,16 @@ impl Link for Engine {
                     .await;
             }
             ("", "list_blocks") => {
-                let names: Vec<String> = st.host.store().state().blocks.keys().cloned().collect();
-                let mut rows = Vec::new();
-                for name in names {
-                    let Some((version, block)) = library_block(&st.host, &name) else {
-                        continue;
-                    };
-                    let mut row = BTreeMap::from([
-                        ("name".to_owned(), Value::Str(name.clone())),
-                        ("version".to_owned(), Value::UInt(version)),
-                    ]);
-                    if let Ok(b) = def::parse_block(&name, &block) {
-                        let names =
-                            |n: Vec<String>| Value::Array(n.into_iter().map(Value::Str).collect());
-                        row.insert(
-                            "inputs".into(),
-                            names(b.inputs.iter().map(|i| i.name.clone()).collect()),
-                        );
-                        row.insert(
-                            "outputs".into(),
-                            names(b.outputs.iter().map(|o| o.name.clone()).collect()),
-                        );
-                        if let Some(d) = b.description {
-                            row.insert("description".into(), Value::Str(d));
-                        }
-                    }
-                    rows.push(Value::Map(row));
-                }
+                let rows = block_rows(&st.host);
                 drop(st);
                 return out.reply(Value::Array(rows)).await;
             }
             ("", "validate") => {
-                let mut m = BTreeMap::new();
-                match compile(&def_arg()?, &st.host.artifacts, &st.host.site) {
-                    Ok(_) => {
-                        m.insert("ok".into(), Value::Bool(true));
-                    }
-                    Err(e) => {
-                        m.insert("ok".into(), Value::Bool(false));
-                        m.insert("error".into(), Value::Str(e.to_string()));
-                    }
-                }
+                let m = validate(&st.host, &args)?;
                 drop(st);
                 return out.reply(Value::Map(m)).await;
             }
-            (id, "start" | "stop") => {
-                let on = action == "start";
-                st.host.apply(Op::SetEnabled {
-                    id: id.to_owned(),
-                    on,
-                })?;
-                let states = st.halt(id).await;
-                if let Some(f) = st.flows.get_mut(id) {
-                    f.stopped = !on;
-                    f.since = now_us();
-                    f.refused = None;
-                    // a start counts from zero; a stopped flow keeps the totals of its run
-                    if on {
-                        f.stats = Arc::new(FlowStats::default());
-                    }
-                }
-                if on {
-                    st.launch(id, states, &shared);
-                }
-                st.publish_val(id).await;
-            }
+            (id, "start" | "stop") => st.start_stop(id, action == "start", &shared).await?,
             (id, "reload") => {
                 let states = st.halt(id).await;
                 if let Some(f) = st.flows.get_mut(id) {
@@ -1533,128 +1707,21 @@ impl Link for Engine {
                 st.publish_val(id).await;
             }
             (id, "history") => {
-                // Previous definitions (oldest first) and the current one.
-                let mut defs: Vec<Value> = {
-                    let store = st.host.store();
-                    let state = store.state();
-                    state
-                        .history
-                        .get(id)
-                        .into_iter()
-                        .flatten()
-                        .chain(state.defs.get(id))
-                        .filter_map(|b| wyrm_core::codec::from_slice::<Value>(b).ok())
-                        .collect()
-                };
-                defs.dedup();
+                let defs = definitions(&st.host, id);
                 drop(st);
                 return out.reply(Value::Array(defs)).await;
             }
             (id, "rollback") => {
                 // Deploy an earlier definition as a new version, with the
                 // same checks as `deploy` (ADR 0008).
-                let want: u64 = match &args {
-                    Value::Map(m) => m.get("version"),
-                    _ => None,
-                }
-                .ok_or_else(|| LinkError::invalid_parameter("version: required"))?
-                .to_int()
-                .map_err(|e| LinkError::invalid_parameter(format!("version: {e}")))?;
-                let current = st
-                    .flows
-                    .get(id)
-                    .map(|f| f.def.version)
-                    .ok_or_else(|| LinkError::not_found(id.to_owned()))?;
-                let old = {
-                    let store = st.host.store();
-                    store
-                        .state()
-                        .history
-                        .get(id)
-                        .into_iter()
-                        .flatten()
-                        .filter_map(|b| wyrm_core::codec::from_slice::<Value>(b).ok())
-                        .find(|v| version_of(v) == Some(want))
-                }
-                .ok_or_else(|| LinkError::not_found(format!("{id} version {want}")))?;
-                let Value::Map(mut m) = old else {
-                    return Err(LinkError::internal("stored definition is not a map"));
-                };
-                m.insert("version".into(), Value::UInt(current + 1));
-                let raw = Value::Map(m);
+                let raw = st.rollback_def(id, &args)?;
                 caller_covers(&raw, who)?;
                 reads_sources(&raw, who, &self.site)?;
                 proves_targets(&raw, &args, who, &self.site, &self.verifier)?;
                 st.deploy(raw, Some(deployer(who)), &shared).await?
             }
-            (id, "watch" | "ports") => {
-                let f = st
-                    .flows
-                    .get(id)
-                    .ok_or_else(|| LinkError::not_found(id.to_owned()))?;
-                // the values of a flow come from its sources and its command targets
-                reads_flow(&f.def, who, &self.site)?;
-                let only = live::only(&args, &f.def)?;
-                let probe = f.probe.clone();
-                st.streams.retain(|t| !t.is_finished());
-                if action == "ports" {
-                    st.streams.push(tokio::spawn(async move {
-                        let row = live::ports(&probe, only.as_ref()).await;
-                        let _ = out.reply(row).await;
-                    }));
-                    return Ok(());
-                }
-                let period = live::period(&args)?;
-                let ticket = st.watches.open(id, &deployer(who).unwrap_or_default())?;
-                st.streams.push(tokio::spawn(async move {
-                    let rows = out.clone();
-                    let cancel = ticket.cancelled();
-                    let last = live::run(probe, only, period, live::TTL, cancel, move |v| {
-                        let rows = rows.clone();
-                        async move { rows.reply(v).await.is_ok() }
-                    })
-                    .await;
-                    let _ = out.done(last).await;
-                    drop(ticket);
-                }));
-                return Ok(());
-            }
-            (id, "trigger") => {
-                // ADR 0040 §2: one run of a command block of a deployed, running flow, with
-                // the rights the block's target asks of the caller itself
-                let f = st
-                    .flows
-                    .get(id)
-                    .ok_or_else(|| LinkError::not_found(id.to_owned()))?;
-                let node = match &args {
-                    Value::Map(m) => match m.get("node") {
-                        Some(Value::Str(n)) => n.clone(),
-                        _ => return Err(LinkError::invalid_parameter("node: required string")),
-                    },
-                    _ => return Err(LinkError::invalid_parameter("node: required string")),
-                };
-                let n = f
-                    .def
-                    .nodes
-                    .get(&node)
-                    .filter(|n| crate::nodes::triggerable(&n.ty))
-                    .ok_or_else(|| {
-                        LinkError::invalid_parameter(format!(
-                            "node: {node} is not a block that trigger runs (invoke, set, a reader)"
-                        ))
-                    })?;
-                let _ = n;
-                trigger_rights(&f.def, &node, who, &self.site)?;
-                let inbox = f
-                    .run
-                    .as_ref()
-                    .and_then(|r| r.inboxes.get(&node))
-                    .ok_or_else(|| LinkError::not_supported("the flow is not running"))?;
-                inbox.push_now(
-                    "__trigger",
-                    crate::nodes::Msg::new(Value::Null, Quality::Good, now_us()),
-                );
-            }
+            (id, "watch" | "ports") => return st.live(id, action, &call, out),
+            (id, "trigger") => st.trigger(id, &call)?,
             (id, "remove") => {
                 if let Some(f) = st.flows.get(id) {
                     f.probe.end(live::End::Gone);
