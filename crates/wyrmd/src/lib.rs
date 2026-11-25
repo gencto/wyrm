@@ -277,6 +277,7 @@ const CONFIG_SHOWN: &[&str] = &[
     "peers.downstream.via",
     "packages.repository",
     "gateway.listen",
+    "gateway.tls",
     "gateway.tls_cert",
     "gateway.admin_user",
     "gateway.mcp.public_url",
@@ -564,7 +565,11 @@ fn default_scheduler_store_mb() -> u32 {
 #[serde(deny_unknown_fields)]
 pub struct GatewaySection {
     pub listen: std::net::SocketAddr,
-    /// Certificate chain and key (PEM); required off loopback.
+    /// `"site_ca"`: the broker issues the gateway's certificate from its own site CA into
+    /// `data_dir/gateway/tls.{pem,key}` (ADR 0051 §3); excludes `tls_cert` and `tls_key`.
+    #[serde(default)]
+    pub tls: Option<GatewayTls>,
+    /// Certificate chain and key (PEM); required off loopback unless `tls` is set.
     #[serde(default)]
     pub tls_cert: Option<PathBuf>,
     #[serde(default)]
@@ -590,6 +595,30 @@ pub struct GatewaySection {
     /// loopback.
     #[serde(default)]
     pub announce: Option<GatewayAnnounceSection>,
+}
+
+/// `gateway.tls`: where the gateway's certificate comes from when no files are named.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GatewayTls {
+    /// Issued by the broker from its own site CA (ADR 0051 §3).
+    SiteCa,
+}
+
+impl GatewaySection {
+    /// The certificate chain and key the gateway serves (PEM): `tls_cert` and `tls_key`
+    /// when both are set, `data_dir/gateway/tls.{pem,key}` for `tls: "site_ca"`, else
+    /// `None` (plain HTTP on loopback). The one place every reader takes them from.
+    pub fn tls_files(&self, data_dir: &std::path::Path) -> Option<(PathBuf, PathBuf)> {
+        match (&self.tls_cert, &self.tls_key, self.tls) {
+            (Some(c), Some(k), _) => Some((c.clone(), k.clone())),
+            (_, _, Some(GatewayTls::SiteCa)) => {
+                let dir = data_dir.join("gateway");
+                Some((dir.join("tls.pem"), dir.join("tls.key")))
+            }
+            _ => None,
+        }
+    }
 }
 
 /// `gateway.devices` (ADR 0050 §1.6).
@@ -709,7 +738,8 @@ pub fn gateway_ca(cfg: &Config) -> Option<Vec<u8>> {
     if let Some(ca) = &g.tls_ca {
         return certs(ca).into_iter().next();
     }
-    let chain = certs(g.tls_cert.as_ref()?);
+    let (cert, _) = g.tls_files(&cfg.data_dir)?;
+    let chain = certs(&cert);
     if chain.len() > 1 {
         return chain.last().cloned();
     }
@@ -1140,10 +1170,14 @@ impl Config {
             }
         }
         if let Some(g) = &cfg.gateway {
-            match (&g.tls_cert, &g.tls_key) {
-                (Some(_), Some(_)) => {}
-                (None, None) if g.listen.ip().is_loopback() => {}
-                (None, None) => {
+            match (&g.tls_cert, &g.tls_key, g.tls) {
+                (None, None, Some(GatewayTls::SiteCa)) => {}
+                (_, _, Some(GatewayTls::SiteCa)) => {
+                    return Err(r#"gateway: tls "site_ca" excludes tls_cert and tls_key"#.into())
+                }
+                (Some(_), Some(_), None) => {}
+                (None, None, None) if g.listen.ip().is_loopback() => {}
+                (None, None, None) => {
                     return Err(format!(
                         "gateway {}: TLS (tls_cert, tls_key) is required off loopback",
                         g.listen
@@ -2193,9 +2227,7 @@ fn open_gateway(cfg: &Config, g: &GatewaySection, bootstrap: bool) -> Result<Arc
     gc.downstream_sites = cfg.peers.peer_config().peers.reachable();
     gc.anchor = cfg.state_anchor_dir.as_ref().map(|d| d.join("users.head"));
     gc.anchor_init = cfg.init_anchors;
-    if let (Some(c), Some(k)) = (&g.tls_cert, &g.tls_key) {
-        gc.tls = Some((c.clone(), k.clone()));
-    }
+    gc.tls = g.tls_files(&cfg.data_dir);
     if let Some(s) = g.session_ttl_s {
         gc.session_ttl = Duration::from_secs(s.clamp(60, 7 * 86_400));
     }
@@ -3315,6 +3347,61 @@ mod tests {
         ] {
             assert!(p(bad).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn site_ca_is_accepted_off_loopback() {
+        let cfg = Config::from_json5(
+            r#"{ site: "s", gateway: { listen: "0.0.0.0:8445", tls: "site_ca" } }"#,
+        )
+        .unwrap();
+        assert_eq!(cfg.gateway.unwrap().tls, Some(GatewayTls::SiteCa));
+    }
+
+    #[test]
+    fn site_ca_excludes_tls_files() {
+        for files in [
+            r#"tls_cert: "/x.pem""#,
+            r#"tls_key: "/x.key""#,
+            r#"tls_cert: "/x.pem", tls_key: "/x.key""#,
+        ] {
+            let e = Config::from_json5(&format!(
+                r#"{{ site: "s", gateway: {{ listen: "0.0.0.0:8445", tls: "site_ca", {files} }} }}"#
+            ))
+            .unwrap_err();
+            assert!(
+                e.to_string()
+                    .contains(r#"gateway: tls "site_ca" excludes tls_cert and tls_key"#),
+                "{files}: {e}"
+            );
+        }
+        assert!(Config::from_json5(
+            r#"{ site: "s", gateway: { listen: "0.0.0.0:8445", tls: "acme" } }"#
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn tls_files_of_site_ca() {
+        let g = |gw: &str| {
+            Config::from_json5(&format!(r#"{{ site: "s", gateway: {gw} }}"#))
+                .unwrap()
+                .gateway
+                .unwrap()
+        };
+        let d = std::path::Path::new("/d");
+        assert_eq!(
+            g(r#"{ listen: "0.0.0.0:8445", tls: "site_ca" }"#).tls_files(d),
+            Some((
+                PathBuf::from("/d/gateway/tls.pem"),
+                PathBuf::from("/d/gateway/tls.key")
+            ))
+        );
+        assert_eq!(
+            g(r#"{ listen: "0.0.0.0:8445", tls_cert: "/x.pem", tls_key: "/x.key" }"#).tls_files(d),
+            Some((PathBuf::from("/x.pem"), PathBuf::from("/x.key")))
+        );
+        assert_eq!(g(r#"{ listen: "127.0.0.1:8445" }"#).tls_files(d), None);
     }
 
     /// The structs `wyrmd.json5` is read into, each with the key path of
