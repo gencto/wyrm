@@ -128,13 +128,60 @@ impl<S: Send + 'static> Intake<S> {
                     intake.update(|s| push(s, u));
                 }
             }),
-            done: Box::new(done),
+            done: Box::new(move |intake| intake.update(done)),
+        }
+    }
+
+    /// A [`feed_map`](Self::feed_map) for items that come in one run and
+    /// whose handler Zenoh drops right after the last one (the replies of a
+    /// consolidated `get`): prepared items are held by the feed and pushed
+    /// `chunk` at a time, in their order, under one lock and with one wake
+    /// of the reader; `done` pushes what is left first. So a run of n items
+    /// takes the lock n / `chunk` + 1 times, not n times, and wakes a reader
+    /// that keeps up as often, not once per item (docs/backlog.md §14).
+    ///
+    /// The items the feed holds (fewer than `chunk`) reach the state only
+    /// with the next ones or with `done`: never use it for items that come
+    /// spread out in time. They are dropped with the feed when the reader is
+    /// gone.
+    pub(crate) fn feed_chunks<T: 'static, U: Send + 'static>(
+        self: &Arc<Self>,
+        chunk: usize,
+        prepare: impl Fn(T) -> Option<U> + Send + Sync + 'static,
+        push: impl Fn(&mut S, U) + Send + Sync + 'static,
+        done: impl FnOnce(&mut S) + Send + Sync + 'static,
+    ) -> Feed<S, T> {
+        let held = Arc::new(Mutex::new(Vec::<U>::new()));
+        let push = Arc::new(push);
+        let (held2, push2) = (held.clone(), push.clone());
+        Feed {
+            intake: Arc::downgrade(self),
+            push: Box::new(move |intake, t| {
+                let Some(u) = prepare(t) else { return };
+                // The feed's own lock, taken by its calls alone and kept over
+                // the push: two calls at once still push in their order.
+                let mut h = held.lock().unwrap_or_else(|e| e.into_inner());
+                h.push(u);
+                if h.len() >= chunk {
+                    intake.update(|s| h.drain(..).for_each(|u| push(s, u)));
+                }
+            }),
+            // Zenoh drops the handler when no call of it runs any more. The
+            // rest is taken before the state's lock, so the two locks are
+            // never taken in the other order.
+            done: Box::new(move |intake| {
+                let rest = std::mem::take(&mut *held2.lock().unwrap_or_else(|e| e.into_inner()));
+                intake.update(|s| {
+                    rest.into_iter().for_each(|u| push2(s, u));
+                    done(s);
+                });
+            }),
         }
     }
 }
 
 type Push<S, T> = Box<dyn Fn(&Intake<S>, T) + Send + Sync>;
-type Done<S> = Box<dyn FnOnce(&mut S) + Send + Sync>;
+type Done<S> = Box<dyn FnOnce(&Intake<S>) + Send + Sync>;
 
 pub(crate) struct Feed<S, T> {
     intake: Weak<Intake<S>>,
@@ -151,7 +198,7 @@ struct OnDrop<S: Send + 'static> {
 impl<S: Send + 'static> Drop for OnDrop<S> {
     fn drop(&mut self) {
         if let (Some(done), Some(intake)) = (self.done.take(), self.intake.upgrade()) {
-            intake.update(done);
+            done(&intake);
         }
     }
 }
@@ -235,6 +282,126 @@ mod tests {
         drop(intake);
         cb.call(8); // no reader: not even prepared
         assert_eq!(prepared.load(std::sync::atomic::Ordering::Relaxed), 6);
+    }
+
+    /// A waker that counts its calls.
+    #[derive(Default)]
+    struct Wakes(std::sync::atomic::AtomicU32);
+
+    impl std::task::Wake for Wakes {
+        fn wake(self: Arc<Self>) {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+
+    /// A chunk feed pushes a full chunk at once and the rest with its end, in the order
+    /// of the items, and wakes a reader that waits once per push, not once per item.
+    #[test]
+    fn a_chunk_feed_pushes_and_wakes_per_chunk() {
+        let intake = Intake::new((Vec::<u32>::new(), false));
+        let (cb, ()) = intake
+            .feed_chunks(
+                4,
+                |t: u32| (t != 5).then_some(t * 10),
+                |s: &mut (Vec<u32>, bool), u| s.0.push(u),
+                |s| s.1 = true,
+            )
+            .into_handler();
+        let wakes = Arc::new(Wakes::default());
+        let waker = Waker::from(wakes.clone());
+        let mut cx = Context::from_waker(&waker);
+        let woken = || wakes.0.load(std::sync::atomic::Ordering::Relaxed);
+        // a reader that takes what is there and waits when there is nothing
+        let mut got = Vec::new();
+        let mut read = |got: &mut Vec<u32>| {
+            let _ = intake.poll(&mut cx, |s| {
+                got.append(&mut s.0);
+                s.1.then_some(())
+            });
+        };
+        read(&mut got);
+        for t in 0..4 {
+            cb.call(t);
+        }
+        assert_eq!(woken(), 1, "four items, one wake");
+        read(&mut got);
+        assert_eq!(got, [0, 10, 20, 30]);
+        // 5 is refused before the feed holds it: it does not count to a chunk
+        for t in 4..9 {
+            cb.call(t);
+        }
+        assert_eq!(woken(), 2);
+        read(&mut got);
+        assert_eq!(got, [0, 10, 20, 30, 40, 60, 70, 80]);
+        cb.call(9);
+        cb.call(10);
+        read(&mut got);
+        assert_eq!(
+            got.len(),
+            8,
+            "held by the feed until its chunk is full or it ends"
+        );
+        assert_eq!(woken(), 2);
+        drop(cb);
+        assert_eq!(woken(), 3, "the rest and the end: one wake");
+        read(&mut got);
+        assert_eq!(got, [0, 10, 20, 30, 40, 60, 70, 80, 90, 100]);
+        assert!(intake.with(|s| s.1), "the end comes after the rest");
+    }
+
+    #[test]
+    fn a_chunk_feed_without_its_reader_keeps_nothing() {
+        let intake = Intake::new(Vec::<u32>::new());
+        let held = Arc::new(());
+        let h2 = held.clone();
+        let (cb, ()) = intake
+            .feed_chunks(
+                4,
+                move |_: u32| Some(h2.clone()),
+                |s: &mut Vec<u32>, _| s.push(1),
+                |_| {},
+            )
+            .into_handler();
+        cb.call(1);
+        assert_eq!(Arc::strong_count(&held), 3, "one item waits in the feed");
+        drop(intake); // the reader is gone, Zenoh still holds the handler
+        for t in 0..1000 {
+            cb.call(t); // not prepared, not held
+        }
+        assert_eq!(Arc::strong_count(&held), 3);
+        drop(cb);
+        assert_eq!(Arc::strong_count(&held), 1, "freed with the feed");
+    }
+
+    /// Two threads call one chunk feed at once: every item arrives, in each thread's order.
+    #[test]
+    fn a_chunk_feed_of_two_threads_keeps_their_order() {
+        const N: u32 = 20_000;
+        let intake = Intake::new(Vec::<(u8, u32)>::new());
+        let (cb, ()) = intake
+            .feed_chunks(64, Some, |s: &mut Vec<(u8, u32)>, u| s.push(u), |_| {})
+            .into_handler();
+        let cb = Arc::new(cb);
+        let threads: Vec<_> = (0..2u8)
+            .map(|who| {
+                let cb = cb.clone();
+                std::thread::spawn(move || {
+                    for n in 0..N {
+                        cb.call((who, n));
+                    }
+                })
+            })
+            .collect();
+        for t in threads {
+            t.join().unwrap();
+        }
+        drop(cb);
+        let got = intake.with(Vec::clone);
+        assert_eq!(got.len(), 2 * N as usize);
+        for who in 0..2u8 {
+            let of: Vec<u32> = got.iter().filter(|x| x.0 == who).map(|x| x.1).collect();
+            assert!(of.iter().copied().eq(0..N), "thread {who}");
+        }
     }
 
     #[test]
