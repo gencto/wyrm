@@ -169,7 +169,7 @@ The same holds for the rows of a suggestion.
 A follow-up Ask (`parent`) of a task in `awaiting_approval` or `awaiting_answer` takes its
 place. The old task goes to `failed` with `error: "replaced by <id>"` and `replaced_by: <id>`
 in the record and in `~val`. ▸ **Approve** on it is refused (`invalid_parameter`, *task was
-replaced by <id>*), through a gateway too. A follow-up of a task that plans, runs or has ended
+replaced by \<id>*), through a gateway too. A follow-up of a task that plans, runs or has ended
 replaces nothing.
 
 Who approves decides what runs without a token:
