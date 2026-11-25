@@ -263,7 +263,7 @@ pub fn start(
     probe: Arc<Probe>,
     mode: &nodes::Mode,
     stats: Arc<FlowStats>,
-) -> Result<Running, String> {
+) -> Result<Running, nodes::ConfigError> {
     let inboxes: BTreeMap<String, Arc<Inbox>> = def
         .nodes
         .keys()

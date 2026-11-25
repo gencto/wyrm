@@ -503,7 +503,7 @@ async fn text_blocks_and_variables() {
 
 #[test]
 fn config_is_checked() {
-    let bad = |ty: &str, kv: &[(&str, Value)]| nodes::ports(ty, &cfg(kv)).unwrap_err();
+    let bad = |ty: &str, kv: &[(&str, Value)]| nodes::ports(ty, &cfg(kv)).unwrap_err().to_string();
     assert!(bad("add", &[("oops", Value::Int(1))]).contains("oops"));
     assert!(bad("add", &[("inputs", names(&["a", "a"]))]).contains("twice"));
     assert!(bad("if", &[("inputs", names(&["then", "b"]))]).contains("parameter"));
@@ -591,7 +591,9 @@ async fn operand_constants() {
     );
     // only operands: not a parameter's port, not reset, not a variable's in, not unknown
     let bad = |ty: &str, port: &str| {
-        nodes::ports(ty, &cfg(&[("values", consts(&[(port, Value::UInt(1))]))])).unwrap_err()
+        nodes::ports(ty, &cfg(&[("values", consts(&[(port, Value::UInt(1))]))]))
+            .unwrap_err()
+            .to_string()
     };
     assert!(bad("round", "in.precision").contains("values.in.precision"));
     assert!(bad("add", "in.7").contains("not an operand"));

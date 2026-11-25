@@ -29,8 +29,8 @@
 use crate::def::Map;
 use crate::modes::{InvokeOn, SetOn};
 use crate::nodes::{
-    b, command_target, f, only, pick_of, req_s, truthy, Io, Mode, Msg, Node, Out, Payload,
-    PortType, Ports, SinkOp,
+    b, command_target, f, only, pick_of, req_s, truthy, ConfigError, Io, Mode, Msg, Node, Out,
+    Payload, PortType, Ports, SinkOp,
 };
 use crate::watch::Probe;
 use std::collections::BTreeMap;
@@ -58,26 +58,26 @@ fn interval_ok(x: f64) -> bool {
 }
 
 /// The argument names of an `invoke`: the keys of `args`.
-fn arg_names(cfg: &Map) -> Result<Vec<String>, String> {
+fn arg_names(cfg: &Map) -> Result<Vec<String>, ConfigError> {
     match cfg.get("args") {
         None => Ok(Vec::new()),
         Some(Value::Map(m)) => {
             if m.len() > MAX_ARGS {
-                return Err(format!("args: at most {MAX_ARGS}"));
+                return Err(ConfigError::ManyArgs);
             }
             for k in m.keys() {
                 if k.is_empty() || k.len() > 128 || k.starts_with("__") {
-                    return Err(format!("args.{k}: a name of 1..=128 bytes, not __…"));
+                    return Err(ConfigError::ArgName(k.clone()));
                 }
             }
             Ok(m.keys().cloned().collect())
         }
-        Some(_) => Err("args: expected a map {<argument>: <value>}".into()),
+        Some(_) => Err(ConfigError::ArgsNotMap),
     }
 }
 
 /// Ports and config check of `invoke` and `set`.
-pub(crate) fn ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
+pub(crate) fn ports(ty: &str, cfg: &Map) -> Result<Ports, ConfigError> {
     use PortType::*;
     req_s(cfg, "path")?;
     b(cfg, "allow_bad", false)?;
@@ -85,9 +85,7 @@ pub(crate) fn ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
     b(cfg, "enabled", true)?;
     b(cfg, "run_on_start", false)?;
     if !interval_ok(f(cfg, "interval_ms")?.unwrap_or(0.0)) {
-        return Err(format!(
-            "interval_ms: 0 (off) or {MIN_INTERVAL_MS}..={MAX_INTERVAL_MS}"
-        ));
+        return Err(ConfigError::Interval);
     }
     let mut inputs: Vec<(String, PortType)> = vec![
         ("in".into(), Any),
@@ -234,7 +232,12 @@ pub(crate) struct Command {
 }
 
 /// An `invoke` or `set` node (config checked by [`ports`]), for a deployed flow or a preview.
-pub(crate) fn build(ty: &str, id: &str, cfg: &Map, mode: &Mode) -> Result<Box<dyn Node>, String> {
+pub(crate) fn build(
+    ty: &str,
+    id: &str,
+    cfg: &Map,
+    mode: &Mode,
+) -> Result<Box<dyn Node>, ConfigError> {
     ports(ty, cfg)?;
     let what = if ty == "invoke" {
         What::Invoke {
@@ -263,7 +266,8 @@ pub(crate) fn build(ty: &str, id: &str, cfg: &Map, mode: &Mode) -> Result<Box<dy
         Mode::Preview(sb) => Sink::Capture {
             probe: sb.probe.clone(),
             node: id.to_owned(),
-            key: sb.full_key(&command_target(ty, cfg).ok_or("path: required")?),
+            key: sb
+                .full_key(&command_target(ty, cfg).ok_or_else(|| ConfigError::required("path"))?),
         },
     };
     Ok(Box::new(Command {

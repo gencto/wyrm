@@ -37,6 +37,39 @@ pub fn in_sections(site: &str, full: &str) -> bool {
     })
 }
 
+/// Why a scope of a config is none.
+#[derive(Debug, thiserror::Error)]
+pub enum ScopeError {
+    /// It names something outside this site's sections; holds the site and the full key.
+    #[error(
+        "a scope lies in this site's downstream, dataflows or storage \
+         (wy/{site}/downstream/…), not {full}"
+    )]
+    Outside { site: String, full: String },
+    #[error("not a key expression: {0}")]
+    KeyExpr(#[source] zenoh::Error),
+}
+
+/// Why a key from a port is not read.
+#[derive(Debug, thiserror::Error)]
+pub enum AdmitError {
+    #[error("the key is not a text")]
+    NotText,
+    #[error("the key is empty")]
+    Empty,
+    #[error("the key is longer than {} bytes", MAX_KEY)]
+    Long,
+    #[error("not a concrete key: {0}")]
+    NotConcrete(#[source] wyrm_core::keyspace::KeyError),
+    #[error("the key is outside this site's downstream, dataflows and storage")]
+    OutsideSections,
+    #[error("not a key: {0}")]
+    Key(#[source] zenoh::Error),
+    /// Holds the scope as the config writes it.
+    #[error("the key is outside the scope {0}")]
+    OutsideScope(String),
+}
+
 /// The keys a dynamic field may name.
 #[derive(Debug, Clone)]
 pub struct Scope {
@@ -49,16 +82,15 @@ impl Scope {
     /// `written`: a key expression as in the config, relative to `wy/<site>/` or absolute. It
     /// must lie inside one of this site's sections: the section is literal, so no wildcard
     /// of the scope can reach `sys`, `pub`, `upstream` or another site.
-    pub fn new(site: &str, written: &str) -> Result<Self, String> {
+    pub fn new(site: &str, written: &str) -> Result<Self, ScopeError> {
         let full = full_key(site, written);
         if !in_sections(site, &full) {
-            return Err(format!(
-                "a scope lies in this site's downstream, dataflows or storage \
-                 (wy/{site}/downstream/…), not {full}"
-            ));
+            return Err(ScopeError::Outside {
+                site: site.to_owned(),
+                full,
+            });
         }
-        let pattern =
-            OwnedKeyExpr::new(full.as_str()).map_err(|e| format!("not a key expression: {e}"))?;
+        let pattern = OwnedKeyExpr::new(full.as_str()).map_err(ScopeError::KeyExpr)?;
         Ok(Self {
             site: site.to_owned(),
             written: written.to_owned(),
@@ -74,25 +106,24 @@ impl Scope {
     /// The full key that `v` names, or why it is refused. A dynamic key is a text, one
     /// concrete node key (every segment `[A-Za-z0-9_.-]+`, so no wildcard, no `~` suffix,
     /// no empty segment), inside this site's sections and inside the scope.
-    pub fn admit(&self, v: &Value) -> Result<String, String> {
+    pub fn admit(&self, v: &Value) -> Result<String, AdmitError> {
         let Value::Str(k) = v else {
-            return Err("the key is not a text".into());
+            return Err(AdmitError::NotText);
         };
         if k.is_empty() {
-            return Err("the key is empty".into());
+            return Err(AdmitError::Empty);
         }
         if k.len() > MAX_KEY {
-            return Err(format!("the key is longer than {MAX_KEY} bytes"));
+            return Err(AdmitError::Long);
         }
         let full = full_key(&self.site, k);
-        wyrm_core::keyspace::validate_path(&full)
-            .map_err(|e| format!("not a concrete key: {e}"))?;
+        wyrm_core::keyspace::validate_path(&full).map_err(AdmitError::NotConcrete)?;
         if !in_sections(&self.site, &full) {
-            return Err("the key is outside this site's downstream, dataflows and storage".into());
+            return Err(AdmitError::OutsideSections);
         }
-        let ke = keyexpr::new(full.as_str()).map_err(|e| format!("not a key: {e}"))?;
+        let ke = keyexpr::new(full.as_str()).map_err(AdmitError::Key)?;
         if !self.pattern.includes(ke) {
-            return Err(format!("the key is outside the scope {}", self.written));
+            return Err(AdmitError::OutsideScope(self.written.clone()));
         }
         Ok(full)
     }
@@ -193,7 +224,7 @@ mod tests {
             ("wy/other/downstream/modbus/line1/t1", "outside this site"),
             ("", "empty"),
         ] {
-            let e = ok(bad).unwrap_err();
+            let e = ok(bad).unwrap_err().to_string();
             assert!(e.contains(why), "{bad}: {e}");
         }
         assert!(sc.admit(&Value::UInt(1)).is_err());

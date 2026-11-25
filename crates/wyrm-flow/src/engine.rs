@@ -546,7 +546,7 @@ impl State {
                     backoff,
                 )));
             }
-            Err(e) => f.error = Some(e),
+            Err(e) => f.error = Some(e.to_string()),
         }
     }
 
@@ -751,8 +751,8 @@ async fn stats_clock(shared: Weak<AsyncMutex<State>>, every: Duration) {
 /// Full keys of every `invoke`/`set` target of `def`.
 /// Full keys of a definition's command targets (`…/~act/<a>`, `…/~set`),
 /// for which a deployer sends `proofs`.
-pub fn command_targets(raw: &Value, site: &str) -> Result<Vec<String>, String> {
-    let def = def::parse(raw).map_err(|e| e.0)?;
+pub fn command_targets(raw: &Value, site: &str) -> Result<Vec<String>, def::DefError> {
+    let def = def::parse(raw)?;
     Ok(targets(&def, site))
 }
 

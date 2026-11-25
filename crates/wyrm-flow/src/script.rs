@@ -155,22 +155,32 @@ impl Vars {
     }
 }
 
+/// Why a script did not compile: rhai's own error, and its text.
+#[derive(Debug, thiserror::Error)]
+#[error("{0}")]
+pub struct CompileError(#[source] rhai::ParseError);
+
+/// Why a call of a script failed: rhai's own error, and its text.
+#[derive(Debug, thiserror::Error)]
+#[error("{0}")]
+pub struct EvalError(#[source] Box<rhai::EvalAltResult>);
+
 /// Compile `expr` with only `names` (and `state`) defined.
-pub fn compile(engine: &Engine, expr: &str, names: &[&str]) -> Result<AST, String> {
+pub fn compile(engine: &Engine, expr: &str, names: &[&str]) -> Result<AST, CompileError> {
     engine
         .compile_with_scope(&Vars::new(names).scope, expr)
-        .map_err(|e| e.to_string())
+        .map_err(CompileError)
 }
 
 /// Evaluate within [`TIMEOUT`] of the thread's CPU time, over `vars` (made by [`Vars::new`]
 /// with the names `ast` was compiled with). `state` is read and written in place; a variable
 /// the script declares is gone after the call, also when the call fails.
-pub fn eval(engine: &Engine, ast: &AST, vars: &mut Vars) -> Result<Dynamic, String> {
+pub fn eval(engine: &Engine, ast: &AST, vars: &mut Vars) -> Result<Dynamic, EvalError> {
     STARTED.with(|s| s.set(Some(Budget::start(TIMEOUT))));
     let r = engine.eval_ast_with_scope::<Dynamic>(&mut vars.scope, ast);
     STARTED.with(|s| s.set(None));
     vars.settle();
-    r.map_err(|e| e.to_string())
+    r.map_err(EvalError)
 }
 
 /// Makes `slot` the map of `keys` and `values` (as many, in the same order). When `slot`
@@ -266,7 +276,7 @@ mod tests {
     fn strict_names_and_limits() {
         let e = engine();
         assert!(compile(&e, "a + b", &["a", "b"]).is_ok());
-        let err = compile(&e, "a + c", &["a"]).unwrap_err();
+        let err = compile(&e, "a + c", &["a"]).unwrap_err().to_string();
         assert!(err.contains('c'), "{err}");
         assert!(compile(&e, "eval(\"1\")", &[]).is_err());
         let ast = compile(&e, "loop { }", &[]).unwrap();
@@ -325,7 +335,7 @@ mod tests {
         let mut vars = Vars::new(&["a"]);
         let fail = compile(&e, "let x = 5; let y = [1, 2]; throw \"no\"", &["a"]).unwrap();
         int(&mut vars, 0, 1);
-        let err = eval(&e, &fail, &mut vars).unwrap_err();
+        let err = eval(&e, &fail, &mut vars).unwrap_err().to_string();
         assert!(err.contains("no"), "{err}");
         assert_eq!(vars.scope.len(), 2);
         assert!(!vars.scope.contains("x") && !vars.scope.contains("y"));
@@ -473,7 +483,7 @@ mod tests {
         let ast = compile(&e, "off_core(); loop { }", &[]).unwrap();
         e.set_max_operations(0);
         let from = std::time::Instant::now();
-        let err = eval(&e, &ast, &mut st).unwrap_err();
+        let err = eval(&e, &ast, &mut st).unwrap_err().to_string();
         assert!(err.contains("terminated"), "{err}");
         assert!(from.elapsed() < Duration::from_secs(5));
     }
