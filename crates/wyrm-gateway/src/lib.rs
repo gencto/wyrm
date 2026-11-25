@@ -34,6 +34,7 @@ mod overlay;
 pub mod rng;
 pub mod roles;
 pub mod session;
+pub mod setup;
 pub mod users;
 pub mod ws;
 
@@ -41,6 +42,7 @@ pub use devices::{DevicePolicy, StepUp};
 pub use oauth::McpConfig;
 pub use roles::{with_grant, Grants, RoleTable};
 pub use session::{Amr, SessionClaims};
+pub use setup::SetupError;
 
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use session::SessionKey;
@@ -394,6 +396,9 @@ pub struct Gateway {
     served: RwLock<Served>,
     /// Upstream sites for `/api/info` (starts as `cfg.info.up`).
     up_sites: RwLock<Vec<String>>,
+    /// Held through each setup step ([`Gateway::import_setup`],
+    /// [`Gateway::complete_setup`]): two right codes at once make one admin.
+    setup: Mutex<()>,
 }
 
 /// What the gateway reads from the certificate it serves.
@@ -564,6 +569,7 @@ impl Gateway {
             tls,
             served: RwLock::new(served),
             up_sites: RwLock::new(cfg.info.up.clone()),
+            setup: Mutex::new(()),
             cfg,
         }))
     }
@@ -919,6 +925,101 @@ impl Gateway {
         match roles.iter().find(|r| !table.contains(r)) {
             Some(r) => Err(Error::Rejected(format!("unknown role {r}"))),
             None => Ok(()),
+        }
+    }
+
+    /// Store the hash of a setup code (64 hex digits) as the pending setup
+    /// (ADR 0051 §3), in place of one pending before: `false`, and nothing
+    /// written, when a user exists.
+    pub fn import_setup(&self, hash_hex: &str) -> Result<bool, SetupError> {
+        let Some(hash) = setup::read_hash(hash_hex) else {
+            return Err(SetupError::Rejected(
+                "setup hash: expected 64 hex digits".into(),
+            ));
+        };
+        let _held = self.setup.lock().unwrap_or_else(|p| p.into_inner());
+        if self.any_user() {
+            return Ok(false);
+        }
+        write_private(&self.setup_file(), wyrm_core::hex::encode(hash).as_bytes())
+            .map_err(Error::Io)?;
+        info!("gateway: setup code imported");
+        Ok(true)
+    }
+
+    /// A setup is pending: its file holds a hash and no user exists.
+    pub fn setup_pending(&self) -> bool {
+        !self.any_user() && matches!(self.pending_setup(), Ok(Some(_)))
+    }
+
+    /// Make the first admin `user` with `password` when `code` is the pending
+    /// setup code, and use the code up (ADR 0051 §3). A refused user name or
+    /// password leaves the setup pending. Blocking (argon2).
+    pub fn complete_setup(&self, code: &str, user: &str, password: &str) -> Result<(), SetupError> {
+        let _held = self.setup.lock().unwrap_or_else(|p| p.into_inner());
+        if self.any_user() {
+            // a restored backup, or a crash between the admin and the removal: void,
+            // whatever the file holds
+            self.drop_setup("a user exists");
+            return Err(SetupError::NoSetup);
+        }
+        let Some(pending) = self.pending_setup()? else {
+            return Err(SetupError::NoSetup);
+        };
+        let Some(given) = setup::code_hash(code) else {
+            return Err(SetupError::WrongCode);
+        };
+        if !setup::same(&given, &pending) {
+            return Err(SetupError::WrongCode);
+        }
+        self.add_user(user, password, vec!["admin".into()])
+            .map_err(|e| match e {
+                Error::Rejected(m) | Error::State(wyrm_state::StateError::Rejected(m)) => {
+                    SetupError::Rejected(m)
+                }
+                e => SetupError::Store(e),
+            })?;
+        info!(user, "gateway: first admin made with the setup code");
+        self.drop_setup("the code is used");
+        Ok(())
+    }
+
+    fn any_user(&self) -> bool {
+        !self.store().state().users.is_empty()
+    }
+
+    fn setup_file(&self) -> PathBuf {
+        self.cfg.dir.join(setup::FILE)
+    }
+
+    /// The hash of the setup file; `None` without one.
+    fn pending_setup(&self) -> Result<Option<[u8; 32]>, SetupError> {
+        let path = self.setup_file();
+        match std::fs::read_to_string(&path) {
+            Ok(text) => setup::read_hash(&text).map(Some).ok_or_else(|| {
+                SetupError::Store(Error::Config(format!(
+                    "{}: not a setup hash",
+                    path.display()
+                )))
+            }),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(SetupError::Store(Error::Io(e))),
+        }
+    }
+
+    /// Remove the setup file. A file left is logged: it is void while a user
+    /// exists, and the next setup step removes it again.
+    fn drop_setup(&self, why: &str) {
+        let path = self.setup_file();
+        match std::fs::remove_file(&path) {
+            Ok(()) => info!(why, "gateway: setup removed"),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => tracing::error!(
+                path = %path.display(),
+                error = %e,
+                why,
+                "gateway: the setup file stays (void while a user exists)"
+            ),
         }
     }
 
