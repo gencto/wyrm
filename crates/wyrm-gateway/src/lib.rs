@@ -49,7 +49,7 @@ use session::SessionKey;
 use std::future::Future;
 use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 use tokio::sync::{watch, Semaphore};
@@ -403,6 +403,9 @@ pub struct Gateway {
     /// make one admin. See [`Gateway::complete_setup`] for why the users store's own lock
     /// is not needed beside it.
     setup: Mutex<()>,
+    /// The setup file could not be read at the last look: told once, not at every
+    /// `/api/info`, until it is read again.
+    setup_unreadable: AtomicBool,
 }
 
 /// What the gateway reads from the certificate it serves.
@@ -574,6 +577,7 @@ impl Gateway {
             served: RwLock::new(served),
             up_sites: RwLock::new(cfg.info.up.clone()),
             setup: Mutex::new(()),
+            setup_unreadable: AtomicBool::new(false),
             cfg,
         }))
     }
@@ -727,9 +731,10 @@ impl Gateway {
                 ),
             ),
         ]);
-        if let Some(ca) = self.cfg.info.ca.as_ref().filter(|_| self.cfg.tls.is_some()) {
+        let ca = self.presented_ca();
+        if let Some(ca) = ca {
             m.insert("ca_fp".into(), Value::Str(devices::ca_fingerprint(ca)));
-            m.insert("ca".into(), Value::Bytes(ca.clone()));
+            m.insert("ca".into(), Value::Bytes(ca.to_vec()));
         }
         if let Some(p) = &self.cfg.info.pair {
             m.insert("pair".into(), Value::from(p.as_str()));
@@ -747,11 +752,37 @@ impl Gateway {
                 ),
             );
         }
-        // a new broker waits for its first admin (ADR 0051 §3): Studio asks for the code
-        if self.setup_pending() {
-            m.insert("setup".into(), Value::Bool(true));
-        }
+        self.insert_setup(&mut m, ca);
         Value::Map(m)
+    }
+
+    /// A new broker waits for its first admin (ADR 0051 §3): `setup: true`, and with the CA
+    /// it presents as `ca` the proof that the server holds the setup hash
+    /// ([`setup::setup_proof`] over the same bytes): a client checks it before it sends
+    /// the code.
+    fn insert_setup(
+        &self,
+        m: &mut std::collections::BTreeMap<String, wyrm_core::Value>,
+        ca: Option<&[u8]>,
+    ) {
+        use wyrm_core::Value;
+        let Some(hash) = self.pending_now() else {
+            return;
+        };
+        m.insert("setup".into(), Value::Bool(true));
+        if let Some(ca) = ca {
+            let proof = setup::setup_proof(&hash, ca);
+            m.insert("setup_proof".into(), Value::Bytes(proof.to_vec()));
+        }
+    }
+
+    /// The DER of the CA `/api/info` presents as `ca`: the broker's, while TLS is on.
+    fn presented_ca(&self) -> Option<&[u8]> {
+        self.cfg
+            .info
+            .ca
+            .as_deref()
+            .filter(|_| self.cfg.tls.is_some())
     }
 
     /// The DNS and IP names of the certificate the gateway serves now (lower case); empty
@@ -956,23 +987,33 @@ impl Gateway {
     }
 
     /// A setup is pending: its file holds a hash and no user exists. A file that cannot be
-    /// read is logged with its path (never its content) and is no setup; a damaged one is
-    /// [`Gateway::settle_setup`]'s to report, once at start.
+    /// read is logged with its path (never its content), once until it is read again, and
+    /// is no setup; a damaged one is [`Gateway::settle_setup`]'s to report, once at start.
     pub fn setup_pending(&self) -> bool {
+        self.pending_now().is_some()
+    }
+
+    /// The pending hash as [`Gateway::setup_pending`] sees it.
+    fn pending_now(&self) -> Option<Zeroizing<[u8; 32]>> {
         if self.any_user() {
-            return false;
+            return None;
         }
         match self.pending_setup() {
-            Ok(p) => p.is_some(),
-            Err(SetupError::Store(Error::Io(e))) => {
-                warn!(
-                    path = %self.setup_file().display(),
-                    error = %e,
-                    "gateway: the setup file cannot be read"
-                );
-                false
+            Ok(p) => {
+                self.setup_unreadable.store(false, Ordering::Relaxed);
+                p.map(Zeroizing::new)
             }
-            Err(_) => false,
+            Err(SetupError::Store(Error::Io(e))) => {
+                if !self.setup_unreadable.swap(true, Ordering::Relaxed) {
+                    warn!(
+                        path = %self.setup_file().display(),
+                        error = %e,
+                        "gateway: the setup file cannot be read (told once until it is read again)"
+                    );
+                }
+                None
+            }
+            Err(_) => None,
         }
     }
 

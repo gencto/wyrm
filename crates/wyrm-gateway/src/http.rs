@@ -592,6 +592,12 @@ async fn setup(
     if code.len() > MAX_SETUP_CODE || user.len() > 64 || password.len() > MAX_PASSWORD {
         return Err(ApiError::bad("code, user or password too long"));
     }
+    // No setup (a broker with users, as most are): answered at once, without a hashing
+    // permit, a blocking thread or a file removal. `complete_setup` checks again under
+    // its lock for the calls that go on.
+    if !st.gw.setup_pending() {
+        return Err(SetupError::NoSetup.into());
+    }
     // A locked caller never waits for (or holds) a hashing permit.
     st.gw.check_limit(&user, peer.ip())?;
     let _permit = st.gw.hashing.acquire().await?;

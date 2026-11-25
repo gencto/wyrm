@@ -255,3 +255,75 @@ async fn files_are_read_again_at_each_serve() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// ADR 0051 (answer 3 of the owner): while a setup is pending, `/api/info` carries a proof
+/// that binds the CA it presents to the setup code. A client with the right code verifies
+/// it; a proof checked against another CA, or with another code, does not verify. No
+/// proof without a CA to bind, and none once the setup is used.
+#[test]
+fn setup_proof_binds_the_presented_ca() {
+    use wyrm_core::Value;
+    use wyrm_gateway::setup::{new_code, setup_proof, verify_setup_proof};
+    let dir = std::env::temp_dir().join(format!("wyrm-gateway-proof-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let (pem, key, ca) = self_signed(&["localhost"]);
+    let (_, _, other_ca) = self_signed(&["localhost"]);
+    let (cert, key_file) = (dir.join("gw.crt"), dir.join("gw.key"));
+    std::fs::write(&cert, &pem).unwrap();
+    std::fs::write(&key_file, &key).unwrap();
+    let mut cfg = GatewayConfig::new(SITE, dir.join("state"), "127.0.0.1:0".parse().unwrap());
+    cfg.tls = Some((cert, key_file));
+    cfg.info.ca = Some(ca.clone());
+    let gw = Gateway::open(cfg, b"k").unwrap();
+    let field = |gw: &Gateway, name: &str| {
+        let Value::Map(m) = gw.info() else {
+            panic!("info is a map")
+        };
+        m.get(name).cloned()
+    };
+    assert_eq!(field(&gw, "setup_proof"), None, "no setup pending");
+
+    let (code, hash) = new_code().unwrap();
+    assert!(gw.import_setup(&wyrm_core::hex::encode(hash)).unwrap());
+    assert_eq!(field(&gw, "setup"), Some(Value::Bool(true)));
+    assert_eq!(field(&gw, "ca"), Some(Value::Bytes(ca.clone())));
+    let Some(Value::Bytes(proof)) = field(&gw, "setup_proof") else {
+        panic!("a proof while the setup is pending")
+    };
+    assert_eq!(proof, setup_proof(&hash, &ca));
+    // the client: the code as typed, the CA it was shown
+    assert!(verify_setup_proof(&code.to_lowercase(), &ca, &proof));
+    // a CA put in its place: the proof is not for it, and nobody without the hash can
+    // make one that is
+    assert!(!verify_setup_proof(&code, &other_ca, &proof));
+    let (other_code, other_hash) = new_code().unwrap();
+    assert!(!verify_setup_proof(
+        &code,
+        &other_ca,
+        &setup_proof(&other_hash, &other_ca)
+    ));
+    assert!(!verify_setup_proof(&other_code, &ca, &proof));
+    assert!(!verify_setup_proof("not a code", &ca, &proof));
+    assert!(!verify_setup_proof(&code, &ca, &proof[..31]));
+    assert!(!verify_setup_proof(&code, &ca, &[]));
+
+    // used up: neither `setup` nor a proof
+    gw.complete_setup(&code, "first", "a good long password")
+        .unwrap();
+    assert_eq!(field(&gw, "setup"), None);
+    assert_eq!(field(&gw, "setup_proof"), None);
+    drop(gw);
+
+    // plain HTTP has no CA to bind: `setup` without a proof
+    let plain = Gateway::open(
+        GatewayConfig::new(SITE, dir.join("plain"), "127.0.0.1:0".parse().unwrap()),
+        b"k",
+    )
+    .unwrap();
+    let (_, hash) = new_code().unwrap();
+    assert!(plain.import_setup(&wyrm_core::hex::encode(hash)).unwrap());
+    assert_eq!(field(&plain, "setup"), Some(Value::Bool(true)));
+    assert_eq!(field(&plain, "setup_proof"), None);
+    let _ = std::fs::remove_dir_all(&dir);
+}

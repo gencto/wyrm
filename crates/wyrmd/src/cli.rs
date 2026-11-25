@@ -36,7 +36,9 @@ enum Cmd {
     /// Make a one-time setup code for the first admin (ADR 0051 §3): print the code on
     /// the first line and its hash (64 hex digits) on the second, nothing else (no
     /// wyrmd.json5). The hash goes into the file `gateway.setup_file` names; the code is
-    /// what the person types in Studio. Keep the code secret; the hash may be seen.
+    /// what the person types in Studio. Keep the code secret, and keep the hash like a
+    /// secret of the image: whoever holds it can prove a CA to a client that has the
+    /// code (`/api/info` `setup_proof`).
     SetupCode,
     /// Before every start of a broker that updates itself (the unit's
     /// ExecStartPre, run as <prefix>/bin/wyrmd-guard): take back an update

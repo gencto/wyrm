@@ -7,6 +7,14 @@
 //! [`LABEL`] and the 16 bytes. The pending hash is the file [`FILE`] in the
 //! gateway's directory (0600), as lowercase hex.
 //!
+//! The code also proves the server to the client (ADR 0051, answer 3 of the owner:
+//! the first trust goes through the code). While a setup is pending, `GET /api/info`
+//! carries [`setup_proof`]: HMAC-SHA-256 keyed with the hash over [`PROOF_LABEL`] and
+//! the DER of the CA it presents as `ca`. A client computes the hash from the typed code
+//! and checks the proof against that CA ([`verify_setup_proof`]) before it sends the
+//! code, then pins the CA. Only who holds the hash (the device, and the image it came
+//! from) can make a proof for a CA, so the hash is kept like a secret of the image.
+//!
 //! Neither the code nor its hash is ever logged.
 
 use crate::{rng, Error};
@@ -19,6 +27,8 @@ pub const CODE_BYTES: usize = 16;
 pub const CODE_CHARS: usize = 26;
 /// What the hash is taken over before the code's bytes.
 pub const LABEL: &[u8] = b"wyrm-setup-v1\n";
+/// What the setup proof is taken over before the CA's DER.
+pub const PROOF_LABEL: &[u8] = b"wyrm-setup-proof-v1\n";
 /// The pending setup in the gateway's directory: the hash as lowercase hex.
 pub const FILE: &str = "setup.hash";
 /// Longer input is no code, however it is spaced: refused before it is read.
@@ -101,6 +111,30 @@ pub(crate) fn read_hash(text: &str) -> Option<[u8; 32]> {
     wyrm_core::hex::decode_array::<32>(text.trim())
 }
 
+/// The proof `/api/info` carries while a setup is pending: HMAC-SHA-256 keyed with the
+/// setup `hash` over [`PROOF_LABEL`] and `ca_der`, the DER of the CA the gateway presents
+/// (the bytes of `info.ca`).
+pub fn setup_proof(hash: &[u8; 32], ca_der: &[u8]) -> [u8; 32] {
+    use hmac::Mac;
+    let mut m = wyrm_core::mac::hmac_sha256(hash);
+    m.update(PROOF_LABEL);
+    m.update(ca_der);
+    m.finalize().into_bytes().into()
+}
+
+/// For a client before it sends the code: `proof` (`info.setup_proof`) was made for the CA
+/// in `ca_der` (`info.ca`) by who holds the hash of `code` (typed as [`code_hash`] reads
+/// it). `false` for a code that is not one, or a proof of another length. Constant time in
+/// the proof.
+pub fn verify_setup_proof(code: &str, ca_der: &[u8], proof: &[u8]) -> bool {
+    use subtle::ConstantTimeEq;
+    let Some(hash) = code_hash(code).map(Zeroizing::new) else {
+        return false;
+    };
+    let want = setup_proof(&hash, ca_der);
+    bool::from(want[..].ct_eq(proof))
+}
+
 /// Equal hashes, compared in constant time.
 pub(crate) fn same(a: &[u8; 32], b: &[u8; 32]) -> bool {
     use subtle::ConstantTimeEq;
@@ -169,6 +203,25 @@ mod tests {
             hash,
             wyrm_core::hex::sha256_parts(&[b"wyrm-setup-v1\n", &bytes])
         );
+    }
+
+    /// The proof of the spec: HMAC-SHA-256 keyed with the hash over the label and the CA's
+    /// DER; a client verifies it from the code alone.
+    #[test]
+    fn setup_proof_is_the_spec() {
+        use hmac::Mac;
+        let (code, hash) = new_code().unwrap();
+        let ca = b"the DER of a CA".as_slice();
+        let mut m = <hmac::Hmac<sha2::Sha256> as Mac>::new_from_slice(&hash).unwrap();
+        m.update(b"wyrm-setup-proof-v1\n");
+        m.update(ca);
+        let want: [u8; 32] = m.finalize().into_bytes().into();
+        assert_eq!(setup_proof(&hash, ca), want);
+        assert!(verify_setup_proof(&code, ca, &want));
+        assert!(!verify_setup_proof(&code, b"another CA", &want));
+        let mut flipped = want;
+        flipped[0] ^= 1;
+        assert!(!verify_setup_proof(&code, ca, &flipped));
     }
 
     #[test]
@@ -285,6 +338,31 @@ mod tests {
         let e = gw.complete_setup(&code, "first", PASSWORD).unwrap_err();
         assert!(matches!(e, SetupError::NoSetup), "{e:?}");
         assert!(!dir.join(FILE).exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A setup file that cannot be read is no setup, and is told once (not at every
+    /// `/api/info`) until it is read again.
+    #[test]
+    fn an_unreadable_setup_file_is_told_once() {
+        use std::sync::atomic::Ordering;
+        let (gw, dir) = gateway("unreadable");
+        let file = dir.join(FILE);
+        // a directory where the file should be: every read fails, not as "not found"
+        std::fs::create_dir_all(&file).unwrap();
+        assert!(!gw.setup_pending());
+        assert!(gw.setup_unreadable.load(Ordering::Relaxed), "told");
+        assert!(!gw.setup_pending());
+        assert!(
+            gw.setup_unreadable.load(Ordering::Relaxed),
+            "not told again"
+        );
+        std::fs::remove_dir(&file).unwrap();
+        assert!(!gw.setup_pending());
+        assert!(
+            !gw.setup_unreadable.load(Ordering::Relaxed),
+            "read again: a later failure is told again"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -221,14 +221,38 @@ from a one-time setup code; the image holds only the code's hash.
    ```
 
 3. Give the code to the person who sets the broker up, apart from the
-   image. Keep it secret: whoever has it makes the first admin.
+   image. Keep it secret: whoever has it makes the first admin. Keep the
+   hash like a secret of the image too (the file, the image, the build
+   service): whoever holds it can prove a CA to a client that has the code.
 4. Start the broker. While no user exists, it moves the hash into
    `data_dir/gateway/setup.hash` (0600) and deletes `setup_file`. The log
    says `gateway: setup code taken in`.
 5. The person opens Studio. `GET /api/info` shows `setup: true`, and Studio
-   asks for the code, an admin name and a password
-   (`POST /api/setup {code, user, password}`). The right code makes that
-   admin, and the setup is over: the code cannot be used again.
+   asks for the code, an admin name and a password. The right code makes
+   that admin, and the setup is over: the code cannot be used again.
+
+The first contact is how the client learns which CA to trust (owner's
+answer 3 of ADR 0051), so the code proves the server to the client before
+the client proves the code to the server. A client does this, in this
+order:
+
+1. Read `GET /api/info` over TLS, accepting the certificate for now. With a
+   setup pending and TLS on, the answer holds `ca` (the DER of the CA) and
+   `setup_proof`: HMAC-SHA-256 keyed with the setup hash over
+   `"wyrm-setup-proof-v1\n"` and the bytes of `ca`.
+2. Compute the hash from the typed code and verify `setup_proof` against
+   the `ca` it was shown (`wyrm_gateway::setup::verify_setup_proof`). Check
+   that the certificate of the connection chains to that `ca`. If the proof
+   is missing or does not verify, stop: send nothing, and say that the
+   device is not the one the code belongs to.
+3. Only then send `POST /api/setup {code, user, password}` on a connection
+   that trusts that `ca` alone.
+4. Pin that `ca` for every later connection.
+
+Without the hash, nobody can make a proof for a CA of their own, so a
+device that answers in place of the broker gets neither the code nor the
+new admin's password. Over plain HTTP (loopback) there is no `ca` and no
+proof.
 
 - The code may be typed in lower case, with spaces or `-` between the
   groups, or with none.

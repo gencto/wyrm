@@ -548,7 +548,8 @@ async fn setup_is_rate_limited_like_login() {
 }
 
 /// A user made after the import (a restored backup, a crash between the admin and the
-/// removal of the file) voids the setup: `409 no_setup`, the file goes, no second admin.
+/// removal of the file) voids the setup: `409 no_setup` at once (no hashing, no file
+/// touched), no second admin; the void file goes at the next start.
 #[tokio::test(flavor = "multi_thread")]
 async fn setup_is_void_once_a_user_exists() {
     let env = Env::start_empty("setup-void").await;
@@ -564,6 +565,8 @@ async fn setup_is_void_once_a_user_exists() {
     assert_eq!(st, 409, "{v:?}");
     assert_eq!(get(&v, "code"), &Value::from("no_setup"));
     assert!(env.gw.user("first").is_none());
+    // what a start does: the void file is removed
+    assert!(!env.gw.settle_setup().unwrap());
     assert!(!file.exists());
     env.stop().await;
 }
