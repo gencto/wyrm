@@ -286,7 +286,8 @@ fn a_key_from_a_port_needs_a_scope() {
     };
     let e = def::compile(&src(&[("key", s("downstream/mock/p0"))])).unwrap_err();
     assert!(
-        e.0.contains("nodes.a.key_scope: required when in.key is wired"),
+        e.to_string()
+            .contains("nodes.a.key_scope: required when in.key is wired"),
         "{e}"
     );
     def::compile(&src(&[("key_scope", s("downstream/mock/*"))])).unwrap();
@@ -298,7 +299,7 @@ fn a_key_from_a_port_needs_a_scope() {
     .unwrap();
     // neither a key nor a scope
     let e = def::compile(&flow("f", &[("a", node("subscribe", &[]))], &[])).unwrap_err();
-    assert!(e.0.contains("nodes.a: key: required"), "{e}");
+    assert!(e.to_string().contains("nodes.a: key: required"), "{e}");
     // the same for liveliness
     let e = def::compile(&flow(
         "f",
@@ -309,7 +310,7 @@ fn a_key_from_a_port_needs_a_scope() {
         &[("k.out", "a.in.key")],
     ))
     .unwrap_err();
-    assert!(e.0.contains("nodes.a.key_scope"), "{e}");
+    assert!(e.to_string().contains("nodes.a.key_scope"), "{e}");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1047,7 +1048,7 @@ fn a_custom_block_is_replaced_by_its_inner_nodes() {
 
 #[test]
 fn custom_block_errors_name_their_place() {
-    let bad = |d: Value| def::compile(&d).unwrap_err().0;
+    let bad = |d: Value| def::compile(&d).unwrap_err().to_string();
     let one = |blocks: &[(&str, Value)], nodes: &[(&str, Value)], edges: &[(&str, &str)]| {
         with_blocks(flow("f", nodes, edges), blocks)
     };
@@ -1232,7 +1233,10 @@ fn custom_blocks_nest_four_deep_and_stay_within_the_node_limit() {
         .iter()
         .any(|e| e.from.node == "u/i/i/i/n" && e.to.node == "o"));
     let e = def::compile(&using(5, "block:b5")).unwrap_err();
-    assert!(e.0.contains("custom blocks nest at most 4 deep"), "{e}");
+    assert!(
+        e.to_string().contains("custom blocks nest at most 4 deep"),
+        "{e}"
+    );
     // a block that holds itself
     let own = map(&[("nodes", map(&[("me", node("block:r", &[]))]))]);
     let e = def::compile(&with_blocks(
@@ -1241,14 +1245,18 @@ fn custom_blocks_nest_four_deep_and_stay_within_the_node_limit() {
     ))
     .unwrap_err();
     assert!(
-        e.0.contains("blocks.r: a custom block may not contain itself (r → r)"),
+        e.to_string()
+            .contains("blocks.r: a custom block may not contain itself (r → r)"),
         "{e}"
     );
     // through another block: found on the definitions, before anything is expanded
     let a = map(&[("nodes", map(&[("x", node("block:b", &[]))]))]);
     let b = map(&[("nodes", map(&[("y", node("block:a", &[]))]))]);
     let e = def::compile(&with_blocks(flow("f", &[], &[]), &[("a", a), ("b", b)])).unwrap_err();
-    assert!(e.0.contains("may not contain itself (a → b → a)"), "{e}");
+    assert!(
+        e.to_string().contains("may not contain itself (a → b → a)"),
+        "{e}"
+    );
     // 40 nodes in a block, 26 instances: more than 1000 nodes
     let many: Vec<(String, Value)> = (0..40)
         .map(|i| (format!("n{i}"), node("not", &[])))
@@ -1260,7 +1268,7 @@ fn custom_blocks_nest_four_deep_and_stay_within_the_node_limit() {
         .collect();
     let uses: Vec<(&str, Value)> = uses.iter().map(|(n, v)| (n.as_str(), v.clone())).collect();
     let e = def::compile(&with_blocks(flow("f", &uses, &[]), &[("big", big)])).unwrap_err();
-    assert!(e.0.contains("more than 1000 nodes"), "{e}");
+    assert!(e.to_string().contains("more than 1000 nodes"), "{e}");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1710,7 +1718,8 @@ async fn a_reader_is_a_source_for_the_rights_checks() {
     };
     let e = def::compile(&wired(None)).unwrap_err();
     assert!(
-        e.0.contains("nodes.l.path_scope: required when in.path is wired"),
+        e.to_string()
+            .contains("nodes.l.path_scope: required when in.path is wired"),
         "{e}"
     );
     // a reader outside the site's sections does not compile (as a subscribe)
@@ -1792,25 +1801,36 @@ fn layout_takes_editor_keys_and_is_bounded() {
     assert_eq!(d.nodes["a"].hash, plain.nodes["a"].hash);
     // the value stays two finite numbers, for every kind of key
     let e = def::compile(&with_layout(vec![("a~pin~in".into(), Value::Bool(true))])).unwrap_err();
-    assert!(e.0.starts_with("layout.a~pin~in: expected [x, y]"), "{e}");
+    assert!(
+        e.to_string()
+            .starts_with("layout.a~pin~in: expected [x, y]"),
+        "{e}"
+    );
     // bounds: 16 384 entries, keys of 256 bytes
     let many = |n: usize| (0..n).map(|i| (format!("n{i}~pin~in"), xy(1, 0))).collect();
     def::compile(&with_layout(many(16_384))).unwrap();
     let e = def::compile(&with_layout(many(16_385))).unwrap_err();
-    assert!(e.0.starts_with("layout: 16385 entries > 16384"), "{e}");
+    assert!(
+        e.to_string().starts_with("layout: 16385 entries > 16384"),
+        "{e}"
+    );
     def::compile(&with_layout(vec![("k".repeat(256), xy(0, 0))])).unwrap();
     let e = def::compile(&with_layout(vec![("k".repeat(257), xy(0, 0))])).unwrap_err();
-    assert!(e.0.starts_with("layout: a key of 257 bytes > 256"), "{e}");
+    assert!(
+        e.to_string()
+            .starts_with("layout: a key of 257 bytes > 256"),
+        "{e}"
+    );
     // a `~` in a node id is still refused: an editor key cannot be taken for a node
     let e = def::compile(&flow("f", &[("a~pin~in", node("not", &[]))], &[])).unwrap_err();
-    assert!(e.0.contains("id must be [A-Za-z0-9_]+"), "{e}");
+    assert!(e.to_string().contains("id must be [A-Za-z0-9_]+"), "{e}");
     // a block's own layout has the same rule
     let block = map(&[
         ("nodes", map(&[("n", node("not", &[]))])),
         ("layout", map(&[("n~pin~in", Value::Bool(true))])),
     ]);
     let e = def::compile(&with_blocks(flow("f", &[], &[]), &[("b", block)])).unwrap_err();
-    assert!(e.0.starts_with("blocks.b.layout.n~pin~in"), "{e}");
+    assert!(e.to_string().starts_with("blocks.b.layout.n~pin~in"), "{e}");
 }
 
 /// Security review 2026-11-10: the rows of `list_children` show each child, so the children

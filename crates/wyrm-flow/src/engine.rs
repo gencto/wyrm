@@ -574,11 +574,11 @@ impl State {
                     if let Some(f) = self.flows.get_mut(&id) {
                         // still running: keep `run`; the error describes the draft and stays
                         // in every `~val` (the counters' too) until the next state change
-                        f.refused = Some(e.0.clone());
+                        f.refused = Some(e.to_string());
                         self.publish_val(&id).await;
                     }
                 }
-                return Err(LinkError::invalid_parameter(e.0));
+                return Err(LinkError::invalid_parameter(e.to_string()));
             }
         };
         let id = def.id.clone();
@@ -655,7 +655,10 @@ fn compile(
     for (id, n) in d.nodes.iter().filter(|(_, n)| n.ty == "wasm") {
         crate::nodes::WasmCfg::parse(&n.cfg)
             .and_then(|w| w.check(artifacts))
-            .map_err(|e| def::DefError(format!("nodes.{id}.{e}")))?;
+            .map_err(|error| def::DefError::Wasm {
+                node: id.clone(),
+                error,
+            })?;
     }
     Ok((d, p))
 }
@@ -763,19 +766,25 @@ pub fn command_targets(raw: &Value, site: &str) -> Result<Vec<String>, def::DefE
 /// at deploy, at validate and when a stored flow starts again.
 fn check_sources(def: &FlowDef, site: &str) -> def::Result<()> {
     for r in crate::scope::reads(def) {
-        let at = format!("nodes.{}.{}", r.node, r.param);
         if r.scope {
             // a scope is a key expression inside the same sections (ADR 0040 §1)
-            crate::scope::Scope::new(site, &r.key)
-                .map_err(|e| def::DefError(format!("{at}: {e}")))?;
+            if let Err(error) = crate::scope::Scope::new(site, &r.key) {
+                return Err(def::DefError::Scope {
+                    node: r.node,
+                    param: r.param,
+                    error,
+                });
+            }
             continue;
         }
         let full = crate::scope::full_key(site, &r.key);
         if !crate::scope::in_sections(site, &full) {
-            return Err(def::DefError(format!(
-                "{at}: a source reads this site's downstream, dataflows or storage only \
-                 (wy/{site}/downstream/…), not {full}"
-            )));
+            return Err(def::DefError::SourceOutside {
+                node: r.node,
+                param: r.param,
+                site: site.to_owned(),
+                full,
+            });
         }
     }
     Ok(())
@@ -1062,7 +1071,7 @@ fn library_with(
     name: &str,
     block: &Value,
 ) -> Result<BTreeMap<String, Value>, LinkError> {
-    let bad = |e: def::DefError| LinkError::invalid_parameter(e.0);
+    let bad = |e: def::DefError| LinkError::invalid_parameter(e.to_string());
     let mut found: BTreeMap<String, Value> = BTreeMap::new();
     let mut todo: Vec<String> = def::parse_block(name, block)
         .map_err(bad)?
@@ -1354,7 +1363,7 @@ impl Link for Engine {
                 // a draft: compiled as for deploy, run with the caller's rights to read, never
                 // stored; no `maxperm` or proofs, as nothing is written
                 let (def, ports) = compile(&def_arg()?, &st.host.artifacts, &st.host.site)
-                    .map_err(|e| LinkError::invalid_parameter(e.0))?;
+                    .map_err(|e| LinkError::invalid_parameter(e.to_string()))?;
                 reads_flow(&def, who, &self.site)?;
                 let only = live::only(&args, &def)?;
                 let period = live::period(&args)?;
@@ -1404,7 +1413,7 @@ impl Link for Engine {
                     ),
                 ]));
                 compile(&probe, &st.host.artifacts, &st.host.site)
-                    .map_err(|e| LinkError::invalid_parameter(e.0))?;
+                    .map_err(|e| LinkError::invalid_parameter(e.to_string()))?;
                 st.host.apply(Op::PutBlock {
                     name: name.clone(),
                     cbor,
@@ -1487,7 +1496,7 @@ impl Link for Engine {
                     }
                     Err(e) => {
                         m.insert("ok".into(), Value::Bool(false));
-                        m.insert("error".into(), Value::Str(e.0));
+                        m.insert("error".into(), Value::Str(e.to_string()));
                     }
                 }
                 drop(st);
@@ -1925,7 +1934,7 @@ mod tests {
         ]))
         .unwrap();
         let e = check_sources(&bad, "s").unwrap_err();
-        assert!(e.0.contains("nodes.a.key_scope"), "{e}");
+        assert!(e.to_string().contains("nodes.a.key_scope"), "{e}");
     }
 
     /// ADR 0040 §2 (security review): `trigger` asks of the caller what the deploy asked of
@@ -2220,5 +2229,76 @@ mod tests {
         ]))
         .unwrap();
         reads_sources_of(&sub, &folder, "s", "the deployer").unwrap();
+    }
+
+    /// The refusals of the host's own checks in [`compile`] (sources outside the site's
+    /// sections, a scope that is none, a `wasm` node whose artifact does not load), which the
+    /// public API reaches only through a running engine. Audit T7: the texts they had as a
+    /// `String`.
+    #[test]
+    fn the_host_checks_keep_their_texts() {
+        let m = |kv: &[(&str, Value)]| {
+            Value::Map(
+                kv.iter()
+                    .map(|(k, v)| ((*k).to_owned(), v.clone()))
+                    .collect(),
+            )
+        };
+        let s = |x: &str| Value::from(x);
+        let flow =
+            |nodes: Value, edges: Value| m(&[("id", s("f")), ("nodes", nodes), ("edges", edges)]);
+        let artifacts = Artifacts::new(std::env::temp_dir().join("wyrm-flow-no-artifacts"));
+        let said = |raw: &Value| match compile(raw, &artifacts, "s") {
+            // Zenoh ends its own error with the place in its source, a path of the build host
+            Err(e) => {
+                let t = e.to_string();
+                match t.find(" at /") {
+                    Some(i) => format!("{} at <zenoh source>", &t[..i]),
+                    None => t,
+                }
+            }
+            Ok(_) => panic!("not refused: {raw:?}"),
+        };
+        let one = |n: Value| flow(m(&[("a", n)]), Value::Array(Vec::new()));
+        let sub = |kv: &[(&str, Value)]| {
+            let mut all = vec![("type", s("subscribe"))];
+            all.extend(kv.iter().cloned());
+            m(&all)
+        };
+        assert_eq!(
+            said(&one(sub(&[("key", s("sys/audit"))]))),
+            "nodes.a.key: a source reads this site's downstream, dataflows or storage only \
+             (wy/s/downstream/…), not wy/s/sys/audit"
+        );
+        assert_eq!(
+            said(&one(sub(&[("key", s("wy/other/downstream/l/p"))]))),
+            "nodes.a.key: a source reads this site's downstream, dataflows or storage only \
+             (wy/s/downstream/…), not wy/other/downstream/l/p"
+        );
+        let wired = |scope: &str| {
+            flow(
+                m(&[
+                    ("k", m(&[("type", s("string"))])),
+                    ("a", sub(&[("key_scope", s(scope))])),
+                ]),
+                Value::Array(vec![Value::Array(vec![s("k.out"), s("a.in.key")])]),
+            )
+        };
+        assert_eq!(
+            said(&wired("sys/**")),
+            "nodes.a.key_scope: a scope lies in this site's downstream, dataflows or storage \
+             (wy/s/downstream/…), not wy/s/sys/**"
+        );
+        assert_eq!(
+            said(&wired("downstream/l//p")),
+            "nodes.a.key_scope: not a key expression: Invalid Key Expr \
+             `wy/s/downstream/l//p`: empty chunks are forbidden, as well as leading and \
+             trailing slashes at <zenoh source>"
+        );
+        let wasm = m(&[("type", s("wasm")), ("artifact", s(&"0".repeat(64)))]);
+        assert_eq!(
+            said(&one(wasm)),
+            format!("nodes.a.artifact: no artifact {}", "0".repeat(64))
+        );
     }
 }

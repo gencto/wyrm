@@ -258,20 +258,20 @@ fn num(s: &Sample) -> f64 {
 fn compiler_checks() {
     assert!(def::compile(&peak(1, "a.v + b.v")).is_ok());
     let e = def::compile(&peak(1, "a.v + c.v")).unwrap_err();
-    assert!(e.0.starts_with("nodes.sum.expr:"), "{e}");
+    assert!(e.to_string().starts_with("nodes.sum.expr:"), "{e}");
     // maxperm below what invoke needs
     let mut d = peak(1, "a.v + b.v");
     if let Value::Map(m) = &mut d {
         m.insert("permissions".into(), map(&[("maxperm", s("read"))]));
     }
     let e = def::compile(&d).unwrap_err();
-    assert!(e.0.starts_with("permissions.maxperm"), "{e}");
+    assert!(e.to_string().starts_with("permissions.maxperm"), "{e}");
     // flows never get config (spec 06 step 7)
     if let Value::Map(m) = &mut d {
         m.insert("permissions".into(), map(&[("maxperm", s("config"))]));
     }
     let e = def::compile(&d).unwrap_err();
-    assert!(e.0.contains("at most write"), "{e}");
+    assert!(e.to_string().contains("at most write"), "{e}");
     // cycle without delay, then through delay
     let cyc = |via_delay: bool| {
         map(&[
@@ -296,7 +296,10 @@ fn compiler_checks() {
             ),
         ])
     };
-    assert!(def::compile(&cyc(false)).unwrap_err().0.contains("cycle"));
+    assert!(def::compile(&cyc(false))
+        .unwrap_err()
+        .to_string()
+        .contains("cycle"));
     assert!(def::compile(&cyc(true)).is_ok());
     // bad port and unknown type
     let bad = map(&[
@@ -304,14 +307,17 @@ fn compiler_checks() {
         ("nodes", map(&[("x", map(&[("type", s("scale"))]))])),
         ("edges", arr(&[edge("x.nope", "x.in")])),
     ]);
-    assert!(def::compile(&bad).unwrap_err().0.contains("no output nope"));
+    assert!(def::compile(&bad)
+        .unwrap_err()
+        .to_string()
+        .contains("no output nope"));
     let unk = map(&[
         ("id", s("u")),
         ("nodes", map(&[("x", map(&[("type", s("teleport"))]))])),
     ]);
     assert!(def::compile(&unk)
         .unwrap_err()
-        .0
+        .to_string()
         .contains("unknown node type"));
     // an editor's layout (spec 06 0.2.5): checked, and not part of a node
     let with = |xy: Value| {
@@ -328,7 +334,7 @@ fn compiler_checks() {
         "moving keeps the state"
     );
     let e = def::compile(&with(s("left"))).unwrap_err();
-    assert!(e.0.starts_with("layout.sum"), "{e}");
+    assert!(e.to_string().starts_with("layout.sum"), "{e}");
     // at most MAX_NODES nodes (step 8): each is a task and an inbox
     let many = |n: usize| {
         let nodes = (0..n)
@@ -338,7 +344,7 @@ fn compiler_checks() {
     };
     assert!(def::compile(&many(def::MAX_NODES)).is_ok());
     let e = def::compile(&many(def::MAX_NODES + 1)).unwrap_err();
-    assert!(e.0.starts_with("nodes: 1001 nodes > 1000"), "{e}");
+    assert!(e.to_string().starts_with("nodes: 1001 nodes > 1000"), "{e}");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -713,7 +719,7 @@ async fn wasm_node_hot_load() {
 
 #[test]
 fn wasm_config_checks() {
-    let ok = |cfg: Value| def::compile(&cfg).map(|_| ()).map_err(|e| e.0);
+    let ok = |cfg: Value| def::compile(&cfg).map(|_| ()).map_err(|e| e.to_string());
     let a = "ab".repeat(32);
     assert!(ok(wasm_flow(1, &a, None)).is_ok());
     let e = ok(wasm_flow(1, "sha256:abc", None)).unwrap_err();

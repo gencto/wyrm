@@ -116,7 +116,7 @@ fn every_recipe_compiles() {
             readme.contains(&format!("{stem}.json")),
             "README.md: a line for {stem}.json"
         );
-        let (flow, _) = def::compile(d).unwrap_or_else(|e| panic!("{stem}.json: {}", e.0));
+        let (flow, _) = def::compile(d).unwrap_or_else(|e| panic!("{stem}.json: {e}"));
         let targets = wyrm_flow::command_targets(d, SITE).unwrap();
         // a recipe never acts at a start on its own
         for (id, n) in &flow.nodes {
