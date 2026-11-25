@@ -1610,6 +1610,266 @@ fn system_zone() -> String {
         .to_owned()
 }
 
+/// What every embedded link of one router build starts from: the in-process session, the
+/// config, the control plane and the gateway.
+struct Embed<'a> {
+    session: &'a Session,
+    cfg: &'a Config,
+    ctl: &'a Arc<Control>,
+    gateway: Option<&'a Arc<Gateway>>,
+}
+
+/// The embedded portable links of one router build, each one only where its section
+/// switches it on.
+struct Portables {
+    scheduler: Option<LinkHandle<Portable<Scheduler>>>,
+    dql: Option<LinkHandle<Portable<Dql>>>,
+    alarm: Option<LinkHandle<Portable<Alarm>>>,
+    uplink: Option<LinkHandle<Portable<Uplink>>>,
+}
+
+impl Embed<'_> {
+    /// The flow engine at `dataflows`.
+    async fn engine(&self, host: &Arc<FlowHost>) -> Result<LinkHandle<Engine>, LinkError> {
+        let (cfg, ctl) = (self.cfg, self.ctl);
+        // The engine trusts admin keys and the gateway's (user requests),
+        // never the flow key: flow tokens do not command flows.
+        let mut engine_keys = ctl.config().admin_keys.clone();
+        engine_keys.extend(self.gateway.map(|g| g.verifying_key()));
+        let mut lcfg = LinkConfig::new(cfg.site.clone(), wyrm_admin::control::FLOWS_LINK);
+        lcfg.root = Some(format!("wy/{}/dataflows", cfg.site));
+        lcfg.admin_keys = engine_keys.clone();
+        // upstream sites at write (ADR 0018); deploys need config. Their keys are also known
+        // with the scopes the links and storage give them: a request here is still only
+        // within `dataflows`, but a deployer's rights (`auth`) on the flow's sources and
+        // targets are kept as far as those sections trust the key (ADR 0033).
+        lcfg.limited_keys = [
+            ctl.upstream_trust("dataflows"),
+            ctl.upstream_trust("downstream"),
+            ctl.upstream_trust("storage"),
+        ]
+        .concat();
+        wyrm_link_sdk::spawn::<Engine>(
+            self.session.clone(),
+            lcfg,
+            EngineStart {
+                host: host.clone(),
+                admin_keys: engine_keys,
+                // a target is a link's or storage's: trusted as they trust upstream keys
+                proof_keys: [
+                    ctl.upstream_trust("downstream"),
+                    ctl.upstream_trust("storage"),
+                ]
+                .concat(),
+            },
+        )
+        .await
+    }
+
+    /// The broker storage at `storage` (ADR 0017), on `store`.
+    async fn storage(
+        &self,
+        store: &Arc<wyrm_storage::Store>,
+        flow_key: VerifyingKey,
+    ) -> Result<LinkHandle<Storage>, LinkError> {
+        let (cfg, ctl) = (self.cfg, self.ctl);
+        // Storage (ADR 0017): the admin keys, users through the gateway and
+        // flows at write, each only under `storage`; upstream sites at
+        // write (ADR 0018); a link with a grant under `storage` within it
+        // (ADR 0046; a grant change rebuilds the router, and this with it).
+        let root = format!("wy/{}/storage", cfg.site);
+        let mut lcfg = LinkConfig::new(cfg.site.clone(), STORAGE_LINK);
+        lcfg.root = Some(root.clone());
+        lcfg.admin_keys = ctl.config().admin_keys.clone();
+        lcfg.limited_keys = std::iter::once((flow_key, wyrm_core::Perm::Write))
+            .chain(
+                self.gateway
+                    .map(|g| (g.verifying_key(), wyrm_core::Perm::Config)),
+            )
+            .map(|(key, cap)| wyrm_link_sdk::LimitedKey {
+                key,
+                cap,
+                scopes: vec![root.clone()],
+                subject: None,
+            })
+            .chain(ctl.upstream_trust("storage"))
+            .chain(ctl.requester_keys_under(&root))
+            .collect();
+        wyrm_link_sdk::spawn::<Storage>(
+            self.session.clone(),
+            lcfg,
+            StorageStart {
+                store: store.clone(),
+                limits: Default::default(),
+            },
+        )
+        .await
+    }
+
+    /// The scheduler (ADR 0022): trusted as every embedded link; it signs
+    /// its writes with its own key, which links trust at write on
+    /// `downstream` (made by the admin at attach; without it the broker
+    /// runs without the scheduler, R22).
+    async fn scheduler(&self) -> Result<LinkHandle<Portable<Scheduler>>, LinkError> {
+        let cfg = self.cfg;
+        let site_down = format!("wy/{}/downstream", cfg.site);
+        match self
+            .ctl
+            .embedded_link_config(SCHEDULER_LINK, vec![(site_down, wyrm_core::Perm::Write)])
+        {
+            Ok(lcfg) => {
+                let mut params = BTreeMap::new();
+                params.insert("default_tz".to_owned(), Value::Str(system_zone()));
+                let pcfg = PortableConfig {
+                    params: Value::Map(params),
+                    store_mb: cfg.scheduler.store_mb,
+                    ..PortableConfig::default()
+                };
+                wyrm_link_sdk::spawn::<Portable<Scheduler>>(self.session.clone(), lcfg, pcfg).await
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    /// The DQL link (ADR 0025): as the scheduler. It reads this site's sections and the
+    /// sections other sites let this one read (ADR 0018, D4), and writes only its sinks,
+    /// signed with its own key, which links trust at write on `downstream`.
+    async fn dql(&self) -> Result<LinkHandle<Portable<Dql>>, LinkError> {
+        let (cfg, ctl) = (self.cfg, self.ctl);
+        match ctl.embedded_link_config(DQL_LINK, dql_grants(&cfg.site, &ctl.peers())) {
+            Ok(lcfg) => {
+                let pcfg = PortableConfig {
+                    store_mb: cfg.dql.store_mb,
+                    ..PortableConfig::default()
+                };
+                wyrm_link_sdk::spawn::<Portable<Dql>>(self.session.clone(), lcfg, pcfg).await
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    /// The alarm link (ADR 0034): as the scheduler; it only reads, so its key is trusted
+    /// by nobody.
+    async fn alarm(&self) -> Result<LinkHandle<Portable<Alarm>>, LinkError> {
+        let cfg = self.cfg;
+        match self
+            .ctl
+            .embedded_link_config(ALARM_LINK, alarm_grants(&cfg.site))
+        {
+            Ok(lcfg) => {
+                let mut params = BTreeMap::new();
+                params.insert(
+                    "retention_days".to_owned(),
+                    Value::UInt(cfg.alarm.retention_days),
+                );
+                params.insert("max_records".to_owned(), Value::UInt(cfg.alarm.max_records));
+                let pcfg = PortableConfig {
+                    params: Value::Map(params),
+                    store_mb: cfg.alarm.store_mb,
+                    ..PortableConfig::default()
+                };
+                wyrm_link_sdk::spawn::<Portable<Alarm>>(self.session.clone(), lcfg, pcfg).await
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    /// The uplink (ADR 0035): as the DQL link, reads only; its network is `uplink.net`.
+    async fn uplink(&self) -> Result<LinkHandle<Portable<Uplink>>, LinkError> {
+        let (cfg, ctl) = (self.cfg, self.ctl);
+        match ctl.embedded_link_config(UPLINK_LINK, uplink_grants(&cfg.site, &ctl.peers())) {
+            Ok(lcfg) => {
+                let net = wyrm_link_api::net::NetPolicy::parse(&cfg.uplink.net)
+                    .map_err(|e| format!("uplink.net: {e}"));
+                match net {
+                    Ok(net) => {
+                        let pcfg = PortableConfig {
+                            params: uplink_params(&cfg.site, &cfg.uplink),
+                            net,
+                            store_mb: cfg.uplink.store_mb,
+                            call_ms: 5_000,
+                            ..PortableConfig::default()
+                        };
+                        wyrm_link_sdk::spawn::<Portable<Uplink>>(self.session.clone(), lcfg, pcfg)
+                            .await
+                    }
+                    Err(e) => Err(LinkError::invalid_parameter(e)),
+                }
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    /// The scheduler, the DQL link, the alarm link and the uplink, in this order, each one
+    /// where its section switches it on. When one does not start, the ones started before it
+    /// are stopped, last first, and its error is returned.
+    async fn portables(&self) -> Result<Portables, Error> {
+        let ctl = self.ctl;
+        let scheduler = if ctl.scheduler_runs() {
+            match self.scheduler().await {
+                Ok(h) => Some(h),
+                Err(e) => return Err(format!("scheduler: {e}").into()),
+            }
+        } else {
+            None
+        };
+        let dql = if ctl.dql_runs() {
+            match self.dql().await {
+                Ok(h) => Some(h),
+                Err(e) => {
+                    if let Some(s) = scheduler {
+                        s.stop().await;
+                    }
+                    return Err(format!("dql: {e}").into());
+                }
+            }
+        } else {
+            None
+        };
+        let alarm = if ctl.alarm_runs() {
+            match self.alarm().await {
+                Ok(h) => Some(h),
+                Err(e) => {
+                    if let Some(d) = dql {
+                        d.stop().await;
+                    }
+                    if let Some(s) = scheduler {
+                        s.stop().await;
+                    }
+                    return Err(format!("alarm: {e}").into());
+                }
+            }
+        } else {
+            None
+        };
+        let uplink = if ctl.uplink_runs() {
+            match self.uplink().await {
+                Ok(h) => Some(h),
+                Err(e) => {
+                    if let Some(a) = alarm {
+                        a.stop().await;
+                    }
+                    if let Some(d) = dql {
+                        d.stop().await;
+                    }
+                    if let Some(s) = scheduler {
+                        s.stop().await;
+                    }
+                    return Err(format!("uplink: {e}").into());
+                }
+            }
+        } else {
+            None
+        };
+        Ok(Portables {
+            scheduler,
+            dql,
+            alarm,
+            uplink,
+        })
+    }
+}
+
 impl Broker {
     pub async fn start(
         cfg: &Config,
@@ -1645,75 +1905,21 @@ impl Broker {
                     .collect(),
             );
         }
-        // The engine trusts admin keys and the gateway's (user requests),
-        // never the flow key: flow tokens do not command flows.
-        let mut engine_keys = ctl.config().admin_keys.clone();
-        engine_keys.extend(gateway.map(|g| g.verifying_key()));
-        let mut lcfg = LinkConfig::new(cfg.site.clone(), wyrm_admin::control::FLOWS_LINK);
-        lcfg.root = Some(format!("wy/{}/dataflows", cfg.site));
-        lcfg.admin_keys = engine_keys.clone();
-        // upstream sites at write (ADR 0018); deploys need config. Their keys are also known
-        // with the scopes the links and storage give them: a request here is still only
-        // within `dataflows`, but a deployer's rights (`auth`) on the flow's sources and
-        // targets are kept as far as those sections trust the key (ADR 0033).
-        lcfg.limited_keys = [
-            ctl.upstream_trust("dataflows"),
-            ctl.upstream_trust("downstream"),
-            ctl.upstream_trust("storage"),
-        ]
-        .concat();
+        let embed = Embed {
+            session: &session,
+            cfg,
+            ctl,
+            gateway,
+        };
         let flow_key = flows.verifying_key();
-        let flows = match wyrm_link_sdk::spawn::<Engine>(
-            session.clone(),
-            lcfg,
-            EngineStart {
-                host: flows.clone(),
-                admin_keys: engine_keys,
-                // a target is a link's or storage's: trusted as they trust upstream keys
-                proof_keys: [
-                    ctl.upstream_trust("downstream"),
-                    ctl.upstream_trust("storage"),
-                ]
-                .concat(),
-            },
-        )
-        .await
-        {
+        let flows = match embed.engine(flows).await {
             Ok(h) => h,
             Err(e) => {
                 admin.stop().await;
                 return Err(format!("flow engine: {e}").into());
             }
         };
-        // Storage (ADR 0017): the admin keys, users through the gateway and
-        // flows at write, each only under `storage`; upstream sites at
-        // write (ADR 0018); a link with a grant under `storage` within it
-        // (ADR 0046; a grant change rebuilds the router, and this with it).
-        let root = format!("wy/{}/storage", cfg.site);
-        let mut lcfg = LinkConfig::new(cfg.site.clone(), STORAGE_LINK);
-        lcfg.root = Some(root.clone());
-        lcfg.admin_keys = ctl.config().admin_keys.clone();
-        lcfg.limited_keys = std::iter::once((flow_key, wyrm_core::Perm::Write))
-            .chain(gateway.map(|g| (g.verifying_key(), wyrm_core::Perm::Config)))
-            .map(|(key, cap)| wyrm_link_sdk::LimitedKey {
-                key,
-                cap,
-                scopes: vec![root.clone()],
-                subject: None,
-            })
-            .chain(ctl.upstream_trust("storage"))
-            .chain(ctl.requester_keys_under(&root))
-            .collect();
-        let storage = match wyrm_link_sdk::spawn::<Storage>(
-            session.clone(),
-            lcfg,
-            StorageStart {
-                store: storage.clone(),
-                limits: Default::default(),
-            },
-        )
-        .await
-        {
+        let storage = match embed.storage(storage, flow_key).await {
             Ok(h) => h,
             Err(e) => {
                 flows.stop().await;
@@ -1721,152 +1927,14 @@ impl Broker {
                 return Err(format!("storage: {e}").into());
             }
         };
-        // The scheduler (ADR 0022): trusted as every embedded link; it signs
-        // its writes with its own key, which links trust at write on
-        // `downstream` (made by the admin at attach; without it the broker
-        // runs without the scheduler, R22).
-        let scheduler = if ctl.scheduler_runs() {
-            let site_down = format!("wy/{}/downstream", cfg.site);
-            let started = match ctl
-                .embedded_link_config(SCHEDULER_LINK, vec![(site_down, wyrm_core::Perm::Write)])
-            {
-                Ok(lcfg) => {
-                    let mut params = BTreeMap::new();
-                    params.insert("default_tz".to_owned(), Value::Str(system_zone()));
-                    let pcfg = PortableConfig {
-                        params: Value::Map(params),
-                        store_mb: cfg.scheduler.store_mb,
-                        ..PortableConfig::default()
-                    };
-                    wyrm_link_sdk::spawn::<Portable<Scheduler>>(session.clone(), lcfg, pcfg).await
-                }
-                Err(e) => Err(e),
-            };
-            match started {
-                Ok(h) => Some(h),
-                Err(e) => {
-                    storage.stop().await;
-                    flows.stop().await;
-                    admin.stop().await;
-                    return Err(format!("scheduler: {e}").into());
-                }
+        let portables = match embed.portables().await {
+            Ok(p) => p,
+            Err(e) => {
+                storage.stop().await;
+                flows.stop().await;
+                admin.stop().await;
+                return Err(e);
             }
-        } else {
-            None
-        };
-        // The DQL link (ADR 0025): as the scheduler. It reads this site's sections and the
-        // sections other sites let this one read (ADR 0018, D4), and writes only its sinks,
-        // signed with its own key, which links trust at write on `downstream`.
-        let dql = if ctl.dql_runs() {
-            let started =
-                match ctl.embedded_link_config(DQL_LINK, dql_grants(&cfg.site, &ctl.peers())) {
-                    Ok(lcfg) => {
-                        let pcfg = PortableConfig {
-                            store_mb: cfg.dql.store_mb,
-                            ..PortableConfig::default()
-                        };
-                        wyrm_link_sdk::spawn::<Portable<Dql>>(session.clone(), lcfg, pcfg).await
-                    }
-                    Err(e) => Err(e),
-                };
-            match started {
-                Ok(h) => Some(h),
-                Err(e) => {
-                    if let Some(s) = scheduler {
-                        s.stop().await;
-                    }
-                    storage.stop().await;
-                    flows.stop().await;
-                    admin.stop().await;
-                    return Err(format!("dql: {e}").into());
-                }
-            }
-        } else {
-            None
-        };
-        // The alarm link (ADR 0034): as the scheduler; it only reads, so its key is trusted
-        // by nobody.
-        let alarm = if ctl.alarm_runs() {
-            let started = match ctl.embedded_link_config(ALARM_LINK, alarm_grants(&cfg.site)) {
-                Ok(lcfg) => {
-                    let mut params = BTreeMap::new();
-                    params.insert(
-                        "retention_days".to_owned(),
-                        Value::UInt(cfg.alarm.retention_days),
-                    );
-                    params.insert("max_records".to_owned(), Value::UInt(cfg.alarm.max_records));
-                    let pcfg = PortableConfig {
-                        params: Value::Map(params),
-                        store_mb: cfg.alarm.store_mb,
-                        ..PortableConfig::default()
-                    };
-                    wyrm_link_sdk::spawn::<Portable<Alarm>>(session.clone(), lcfg, pcfg).await
-                }
-                Err(e) => Err(e),
-            };
-            match started {
-                Ok(h) => Some(h),
-                Err(e) => {
-                    if let Some(d) = dql {
-                        d.stop().await;
-                    }
-                    if let Some(s) = scheduler {
-                        s.stop().await;
-                    }
-                    storage.stop().await;
-                    flows.stop().await;
-                    admin.stop().await;
-                    return Err(format!("alarm: {e}").into());
-                }
-            }
-        } else {
-            None
-        };
-        // The uplink (ADR 0035): as the DQL link, reads only; its network is `uplink.net`.
-        let uplink = if ctl.uplink_runs() {
-            let started = match ctl
-                .embedded_link_config(UPLINK_LINK, uplink_grants(&cfg.site, &ctl.peers()))
-            {
-                Ok(lcfg) => {
-                    let net = wyrm_link_api::net::NetPolicy::parse(&cfg.uplink.net)
-                        .map_err(|e| format!("uplink.net: {e}"));
-                    match net {
-                        Ok(net) => {
-                            let pcfg = PortableConfig {
-                                params: uplink_params(&cfg.site, &cfg.uplink),
-                                net,
-                                store_mb: cfg.uplink.store_mb,
-                                call_ms: 5_000,
-                                ..PortableConfig::default()
-                            };
-                            wyrm_link_sdk::spawn::<Portable<Uplink>>(session.clone(), lcfg, pcfg)
-                                .await
-                        }
-                        Err(e) => Err(LinkError::invalid_parameter(e)),
-                    }
-                }
-                Err(e) => Err(e),
-            };
-            match started {
-                Ok(h) => Some(h),
-                Err(e) => {
-                    if let Some(a) = alarm {
-                        a.stop().await;
-                    }
-                    if let Some(d) = dql {
-                        d.stop().await;
-                    }
-                    if let Some(s) = scheduler {
-                        s.stop().await;
-                    }
-                    storage.stop().await;
-                    flows.stop().await;
-                    admin.stop().await;
-                    return Err(format!("uplink: {e}").into());
-                }
-            }
-        } else {
-            None
         };
         runtime.start().await?;
         let gateway = gateway.map(|gw| {
@@ -1890,10 +1958,10 @@ impl Broker {
             admin: Some(admin),
             flows: Some(flows),
             storage: Some(storage),
-            scheduler,
-            dql,
-            alarm,
-            uplink,
+            scheduler: portables.scheduler,
+            dql: portables.dql,
+            alarm: portables.alarm,
+            uplink: portables.uplink,
             gateway,
         })
     }
@@ -2344,6 +2412,191 @@ pub struct Daemon {
     reload: tokio::sync::mpsc::UnboundedReceiver<()>,
 }
 
+/// The control plane's config: its keys (the flow key and the gateway's, at their caps),
+/// its places and the sections of `wyrmd.json5` it runs by.
+fn control_config(
+    cfg: &Config,
+    flows: &FlowHost,
+    gateway: Option<&Arc<Gateway>>,
+    link_exe: PathBuf,
+) -> Result<ControlConfig, Error> {
+    // The gateway signs one token per user request with that user's
+    // grants. Links, the flow engine and the admin trust its key; the
+    // grants decide (only the admin role reaches `sys/**`).
+    // Caps: flows never get config (spec 06); gateway tokens carry the
+    // user's grants, up to config on devices.
+    let devices = vec![format!("wy/{}/downstream", cfg.site)];
+    let mut link_keys = vec![wyrm_link_sdk::LimitedKey {
+        key: flows.verifying_key(),
+        cap: wyrm_core::Perm::Write,
+        scopes: devices.clone(),
+        subject: None,
+    }];
+    link_keys.extend(gateway.map(|g| wyrm_link_sdk::LimitedKey {
+        key: g.verifying_key(),
+        cap: wyrm_core::Perm::Config,
+        scopes: devices.clone(),
+        subject: None,
+    }));
+    Ok(ControlConfig {
+        site: cfg.site.clone(),
+        data_dir: cfg.data_dir.clone(),
+        admin_keys: cfg.admin_keys()?,
+        control_keys: gateway.map(|g| g.verifying_key()).into_iter().collect(),
+        link_keys,
+        operators: cfg.operators.clone(),
+        dev: cfg.profile == Profile::Dev,
+        link_endpoint: cfg.link_endpoint(),
+        tls_names: cfg.tls_names.clone(),
+        metrics_interval: Duration::from_millis(cfg.metrics_interval_ms.max(100)),
+        link_exe,
+        max_restarts: cfg.max_restarts,
+        per_link_router_rules: cfg.peers.upstream_val_hz.is_some(),
+        link_limits: wyrm_link_sdk::limits::Limits {
+            memory_mb: cfg.link_limits.memory_mb,
+            open_files: cfg.link_limits.open_files,
+        },
+        anchor_dir: cfg.state_anchor_dir.clone(),
+        anchor_init: cfg.init_anchors,
+        repository: wyrm_admin::official::repository_url(cfg.packages.repository.as_deref()),
+        scheduler: cfg.scheduler.enabled,
+        dql: cfg.dql.enabled,
+        alarm: cfg.alarm.enabled,
+        uplink: cfg.uplink.enabled,
+        backups: wyrm_admin::BackupConfig {
+            keep_days: cfg.backups.keep_days.clamp(1, 3650),
+            max_mb: cfg.backups.max_mb,
+            export_secrets: cfg.backups.export_secrets,
+            send_links: cfg.backups.checked_send_links()?,
+            config: cfg.config_file.as_deref().and_then(masked_config),
+            schemas: BTreeMap::from([
+                (
+                    "users".to_owned(),
+                    <wyrm_gateway::users::UserDb as wyrm_state::State>::SCHEMA,
+                ),
+                (
+                    "flows".to_owned(),
+                    <wyrm_flow::store::FlowStore as wyrm_state::State>::SCHEMA,
+                ),
+            ]),
+        },
+        keep_previous_days: cfg.packages.keep_previous_days,
+        updates: update::update_config(cfg)?,
+    })
+}
+
+/// What a start refuses in the registry: a link under the name of a downstream site, a link
+/// under the id of the storage or of an embedded link, an upstream site that was a
+/// downstream broker of this one.
+fn refuse_taken_names(cfg: &Config, ctl: &Control) -> Result<(), Error> {
+    // A link installed at runtime before its name became a downstream
+    // site would overlap `downstream/<d>` (ADR 0007): refuse to start.
+    if let Some(d) = cfg
+        .peers
+        .downstream
+        .iter()
+        .find(|d| ctl.registry().links.contains_key(&d.site))
+    {
+        return Err(format!(
+            "peers.downstream {:?}: a link with that id exists; remove the link first",
+            d.site
+        )
+        .into());
+    }
+    // The broker storage owns this id since spec 0.2.2 (ADR 0017): a link
+    // stored under it would share its audit records, overlays and logs.
+    if ctl.registry().links.contains_key(STORAGE_LINK) {
+        return Err(format!(
+            "a link with id {STORAGE_LINK:?} exists; the id belongs to the broker storage since spec 0.2.2 (ADR 0017): remove the link with the previous wyrmd first"
+        )
+        .into());
+    }
+    // The same for the embedded scheduler (ADR 0022): it would also share
+    // `downstream/scheduler`.
+    if ctl.registry().links.contains_key(SCHEDULER_LINK) {
+        return Err(format!(
+            "a link with id {SCHEDULER_LINK:?} exists; the id belongs to the embedded scheduler (ADR 0022): remove the link with the previous wyrmd first"
+        )
+        .into());
+    }
+    // And for the embedded DQL link (ADR 0025): `downstream/dql`.
+    if ctl.registry().links.contains_key(DQL_LINK) {
+        return Err(format!(
+            "a link with id {DQL_LINK:?} exists; the id belongs to the embedded DQL link (ADR 0025): remove the link with the previous wyrmd first"
+        )
+        .into());
+    }
+    // And for the embedded alarm link (ADR 0034): `downstream/alarm`.
+    if ctl.registry().links.contains_key(ALARM_LINK) {
+        return Err(format!(
+            "a link with id {ALARM_LINK:?} exists; the id belongs to the embedded alarm link (ADR 0034): remove the link with the previous wyrmd first"
+        )
+        .into());
+    }
+    // And for the embedded uplink (ADR 0035): `downstream/uplink`.
+    if ctl.registry().links.contains_key(UPLINK_LINK) {
+        return Err(format!(
+            "a link with id {UPLINK_LINK:?} exists; the id belongs to the embedded uplink (ADR 0035): remove the link with the previous wyrmd first"
+        )
+        .into());
+    }
+    // A name our CA issued `broker:<site>` for keeps a valid certificate:
+    // as an upstream site it would match that site's ACL subject.
+    if let Some(u) = cfg
+        .peers
+        .upstream
+        .iter()
+        .find(|u| ctl.registry().issued_brokers.contains(&u.site))
+    {
+        return Err(format!(
+            "peers.upstream {:?}: was a downstream broker of this site (ADR 0015)",
+            u.site
+        )
+        .into());
+    }
+    Ok(())
+}
+
+/// A restore applied at this start (`restored`), or one that was not applied: in the log
+/// and in the audit.
+fn record_restore(
+    ctl: &Control,
+    data_dir: &std::path::Path,
+    restored: Option<wyrm_admin::control::restore_broker::Applied>,
+) {
+    if let Some(r) = restored {
+        tracing::info!(sections = %wyrm_admin::backup::section_names(&r.sections), "restore applied");
+        ctl.record(
+            &r.by,
+            AuditOp::RestoreApplied,
+            &r.backup,
+            wyrm_core::Status::Ok,
+            &format!(
+                "sections {}",
+                wyrm_admin::backup::section_names(&r.sections)
+            ),
+        );
+    }
+    // a restore that was not applied: said once, where people look
+    if let Some(f) = wyrm_admin::control::restore_broker::take_failure(data_dir) {
+        tracing::error!(
+            by = %f.by, backup = %f.backup,
+            "the restore was not applied, the state before it is in place: {}", f.error
+        );
+        ctl.record(
+            &f.by,
+            AuditOp::RestoreFailed,
+            &f.backup,
+            wyrm_core::Status::InternalError,
+            &format!(
+                "sections {}; not applied, the state before it is in place: {}",
+                wyrm_admin::backup::section_names(&f.sections),
+                f.error
+            ),
+        );
+    }
+}
+
 impl Daemon {
     /// Open state and CA, apply `wyrmd.json5` links. `link_exe` hosts
     /// process links (`<link_exe> link <driver>`), normally this binary.
@@ -2428,73 +2681,7 @@ impl Daemon {
             None => None,
             Some(g) => Some(open_gateway(&cfg, g, true)?),
         };
-        // The gateway signs one token per user request with that user's
-        // grants. Links, the flow engine and the admin trust its key; the
-        // grants decide (only the admin role reaches `sys/**`).
-        // Caps: flows never get config (spec 06); gateway tokens carry the
-        // user's grants, up to config on devices.
-        let devices = vec![format!("wy/{}/downstream", cfg.site)];
-        let mut link_keys = vec![wyrm_link_sdk::LimitedKey {
-            key: flows.verifying_key(),
-            cap: wyrm_core::Perm::Write,
-            scopes: devices.clone(),
-            subject: None,
-        }];
-        link_keys.extend(gateway.as_ref().map(|g| wyrm_link_sdk::LimitedKey {
-            key: g.verifying_key(),
-            cap: wyrm_core::Perm::Config,
-            scopes: devices.clone(),
-            subject: None,
-        }));
-        let ctl_cfg = ControlConfig {
-            site: cfg.site.clone(),
-            data_dir: cfg.data_dir.clone(),
-            admin_keys: cfg.admin_keys()?,
-            control_keys: gateway
-                .as_ref()
-                .map(|g| g.verifying_key())
-                .into_iter()
-                .collect(),
-            link_keys,
-            operators: cfg.operators.clone(),
-            dev: cfg.profile == Profile::Dev,
-            link_endpoint: cfg.link_endpoint(),
-            tls_names: cfg.tls_names.clone(),
-            metrics_interval: Duration::from_millis(cfg.metrics_interval_ms.max(100)),
-            link_exe,
-            max_restarts: cfg.max_restarts,
-            per_link_router_rules: cfg.peers.upstream_val_hz.is_some(),
-            link_limits: wyrm_link_sdk::limits::Limits {
-                memory_mb: cfg.link_limits.memory_mb,
-                open_files: cfg.link_limits.open_files,
-            },
-            anchor_dir: cfg.state_anchor_dir.clone(),
-            anchor_init: cfg.init_anchors,
-            repository: wyrm_admin::official::repository_url(cfg.packages.repository.as_deref()),
-            scheduler: cfg.scheduler.enabled,
-            dql: cfg.dql.enabled,
-            alarm: cfg.alarm.enabled,
-            uplink: cfg.uplink.enabled,
-            backups: wyrm_admin::BackupConfig {
-                keep_days: cfg.backups.keep_days.clamp(1, 3650),
-                max_mb: cfg.backups.max_mb,
-                export_secrets: cfg.backups.export_secrets,
-                send_links: cfg.backups.checked_send_links()?,
-                config: cfg.config_file.as_deref().and_then(masked_config),
-                schemas: BTreeMap::from([
-                    (
-                        "users".to_owned(),
-                        <wyrm_gateway::users::UserDb as wyrm_state::State>::SCHEMA,
-                    ),
-                    (
-                        "flows".to_owned(),
-                        <wyrm_flow::store::FlowStore as wyrm_state::State>::SCHEMA,
-                    ),
-                ]),
-            },
-            keep_previous_days: cfg.packages.keep_previous_days,
-            updates: update::update_config(&cfg)?,
-        };
+        let ctl_cfg = control_config(&cfg, &flows, gateway.as_ref(), link_exe)?;
         let (ctl, reload) =
             Control::open(ctl_cfg, Arc::new(Drivers)).map_err(control_open_error)?;
         wyrm_link_wasm::set_component_root(ctl.component_store());
@@ -2504,71 +2691,7 @@ impl Daemon {
         ctl.drop_shadowed_peers();
         // watches stored with a tree route before routes resolved
         ctl.resolve_watch_routes();
-        // A link installed at runtime before its name became a downstream
-        // site would overlap `downstream/<d>` (ADR 0007): refuse to start.
-        if let Some(d) = cfg
-            .peers
-            .downstream
-            .iter()
-            .find(|d| ctl.registry().links.contains_key(&d.site))
-        {
-            return Err(format!(
-                "peers.downstream {:?}: a link with that id exists; remove the link first",
-                d.site
-            )
-            .into());
-        }
-        // The broker storage owns this id since spec 0.2.2 (ADR 0017): a link
-        // stored under it would share its audit records, overlays and logs.
-        if ctl.registry().links.contains_key(STORAGE_LINK) {
-            return Err(format!(
-                "a link with id {STORAGE_LINK:?} exists; the id belongs to the broker storage since spec 0.2.2 (ADR 0017): remove the link with the previous wyrmd first"
-            )
-            .into());
-        }
-        // The same for the embedded scheduler (ADR 0022): it would also share
-        // `downstream/scheduler`.
-        if ctl.registry().links.contains_key(SCHEDULER_LINK) {
-            return Err(format!(
-                "a link with id {SCHEDULER_LINK:?} exists; the id belongs to the embedded scheduler (ADR 0022): remove the link with the previous wyrmd first"
-            )
-            .into());
-        }
-        // And for the embedded DQL link (ADR 0025): `downstream/dql`.
-        if ctl.registry().links.contains_key(DQL_LINK) {
-            return Err(format!(
-                "a link with id {DQL_LINK:?} exists; the id belongs to the embedded DQL link (ADR 0025): remove the link with the previous wyrmd first"
-            )
-            .into());
-        }
-        // And for the embedded alarm link (ADR 0034): `downstream/alarm`.
-        if ctl.registry().links.contains_key(ALARM_LINK) {
-            return Err(format!(
-                "a link with id {ALARM_LINK:?} exists; the id belongs to the embedded alarm link (ADR 0034): remove the link with the previous wyrmd first"
-            )
-            .into());
-        }
-        // And for the embedded uplink (ADR 0035): `downstream/uplink`.
-        if ctl.registry().links.contains_key(UPLINK_LINK) {
-            return Err(format!(
-                "a link with id {UPLINK_LINK:?} exists; the id belongs to the embedded uplink (ADR 0035): remove the link with the previous wyrmd first"
-            )
-            .into());
-        }
-        // A name our CA issued `broker:<site>` for keeps a valid certificate:
-        // as an upstream site it would match that site's ACL subject.
-        if let Some(u) = cfg
-            .peers
-            .upstream
-            .iter()
-            .find(|u| ctl.registry().issued_brokers.contains(&u.site))
-        {
-            return Err(format!(
-                "peers.upstream {:?}: was a downstream broker of this site (ADR 0015)",
-                u.site
-            )
-            .into());
-        }
+        refuse_taken_names(&cfg, &ctl)?;
         ctl.issue_broker_certs()?;
         if let Some(gw) = &gateway {
             let audit = ctl.clone();
@@ -2576,37 +2699,7 @@ impl Daemon {
             ctl.set_role_grants(Arc::new(GatewayRoles(gw.clone())));
         }
         ctl.bootstrap(&cfg.config_links())?;
-        if let Some(r) = restored {
-            tracing::info!(sections = %wyrm_admin::backup::section_names(&r.sections), "restore applied");
-            ctl.record(
-                &r.by,
-                AuditOp::RestoreApplied,
-                &r.backup,
-                wyrm_core::Status::Ok,
-                &format!(
-                    "sections {}",
-                    wyrm_admin::backup::section_names(&r.sections)
-                ),
-            );
-        }
-        // a restore that was not applied: said once, where people look
-        if let Some(f) = wyrm_admin::control::restore_broker::take_failure(&cfg.data_dir) {
-            tracing::error!(
-                by = %f.by, backup = %f.backup,
-                "the restore was not applied, the state before it is in place: {}", f.error
-            );
-            ctl.record(
-                &f.by,
-                AuditOp::RestoreFailed,
-                &f.backup,
-                wyrm_core::Status::InternalError,
-                &format!(
-                    "sections {}; not applied, the state before it is in place: {}",
-                    wyrm_admin::backup::section_names(&f.sections),
-                    f.error
-                ),
-            );
-        }
+        record_restore(&ctl, &cfg.data_dir, restored);
         // an update the guard took back is recorded by the version it
         // went back to (ADR 0048 §2.6)
         ctl.update_started();
