@@ -179,10 +179,18 @@ gateway: { listen: "0.0.0.0:8445", tls: "site_ca" },
   `listen` is `0.0.0.0` or `[::]`, else only the listen address. The host
   name is cut at its first dot; a host whose name cannot be read uses
   `wyrm-<site>`.
-- A restart keeps the certificate as it is while it names the same names
-  and has more than 30 days left; otherwise the broker issues a new one
-  from the same CA. Clients pin the CA, not the certificate, so a new one
-  needs nothing on their side.
+- A restart keeps the certificate as it is while it names exactly the same
+  names and has more than 30 days left; otherwise the broker issues a new
+  one from the same CA. A certificate that names more (an address the host
+  no longer has) is issued again too. Clients pin the CA, not the
+  certificate, so a new one needs nothing on their side.
+- While the gateway serves, the broker reads the host's addresses every
+  30 s. When the names differ from the names of the certificate it serves
+  (an address from DHCP after the start, a new or lost address), it issues
+  a certificate for the new names and serves it from the next connection
+  on, without a restart. Open connections keep the old one. The log says
+  `gateway: certificate issued for <n> names`. `GET /api/info` `names` and
+  the device-key origins follow the new certificate at the same time.
 - Clients trust `data_dir/pki/ca.pem`. `ca_fp` in `GET /api/info`, the
   `fp` key of the DNS-SD announce and `wyrmd ca fingerprint` are the code
   of that CA.

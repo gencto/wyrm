@@ -51,10 +51,8 @@ pub(crate) async fn serve(
     session: zenoh::Session,
     shutdown: impl Future + Send,
 ) -> crate::Result<()> {
-    let tls = match &gw.cfg.tls {
-        Some((cert, key)) => Some(tls_config(cert, key)?),
-        None => None,
-    };
+    // the gateway's own: a reload (`Gateway::reload_tls`) reaches every serve after it
+    let tls = gw.tls.clone();
     let listener = std::net::TcpListener::bind(gw.cfg.listen)?;
     listener.set_nonblocking(true)?;
     let addr = listener.local_addr()?;
@@ -77,7 +75,6 @@ pub(crate) async fn serve(
         async move {
             match tls {
                 Some(cfg) => {
-                    let cfg = axum_server::tls_rustls::RustlsConfig::from_config(Arc::new(cfg));
                     axum_server::from_tcp_rustls(listener, cfg)?
                         .handle(handle)
                         .serve(app)
@@ -112,18 +109,19 @@ impl Drop for AbortOnDrop {
     }
 }
 
-fn tls_config(
-    cert: &std::path::Path,
-    key: &std::path::Path,
-) -> crate::Result<rustls::ServerConfig> {
+/// The server's TLS settings for a certificate chain and its key (PEM): rustls with the
+/// ring provider, HTTP/1.1. The one builder of the gateway's TLS, at open and at a reload.
+pub(crate) fn tls_config(cert: &[u8], key: &[u8]) -> crate::Result<rustls::ServerConfig> {
     use rustls_pki_types::pem::PemObject;
     use rustls_pki_types::{CertificateDer, PrivateKeyDer};
     let bad = |what: &str, e: &dyn std::fmt::Display| Error::Config(format!("tls {what}: {e}"));
-    let certs = CertificateDer::pem_file_iter(cert)
-        .map_err(|e| bad("certificate", &e))?
+    let certs = CertificateDer::pem_slice_iter(cert)
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| bad("certificate", &e))?;
-    let key = PrivateKeyDer::from_pem_file(key).map_err(|e| bad("key", &e))?;
+    if certs.is_empty() {
+        return Err(bad("certificate", &"no certificate in the PEM"));
+    }
+    let key = PrivateKeyDer::from_pem_slice(key).map_err(|e| bad("key", &e))?;
     let provider = Arc::new(rustls::crypto::ring::default_provider());
     let mut c = rustls::ServerConfig::builder_with_provider(provider)
         .with_safe_default_protocol_versions()

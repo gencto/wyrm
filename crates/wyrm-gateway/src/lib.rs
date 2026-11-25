@@ -386,8 +386,12 @@ pub struct Gateway {
     pub(crate) fresh: devices::Fresh,
     pub(crate) challenge_limit: limit::RequestLimiter,
     pub(crate) info_limit: limit::RequestLimiter,
-    /// The DNS and IP names of the gateway's certificate (default device origins).
-    pub(crate) cert_names: Vec<String>,
+    /// The TLS settings every serve takes (`None`: plain HTTP on loopback); a reload
+    /// ([`Gateway::reload_tls`]) swaps them for the next connection.
+    tls: Option<axum_server::tls_rustls::RustlsConfig>,
+    /// The DNS and IP names of the gateway's certificate (default device origins,
+    /// `/api/info` `names`), swapped with `tls`.
+    pub(crate) cert_names: RwLock<Vec<String>>,
     /// Upstream sites for `/api/info` (starts as `cfg.info.up`).
     up_sites: RwLock<Vec<String>>,
 }
@@ -489,9 +493,22 @@ impl Gateway {
             ));
         }
         let signing = load_or_create_key(&cfg.dir.join("gateway.key"))?;
-        let cert_names = match &cfg.tls {
-            Some((cert, _)) => devices::cert_names(&std::fs::read(cert)?),
-            None => Vec::new(),
+        let (tls, cert_names) = match &cfg.tls {
+            Some((cert, key)) => {
+                let read = |p: &Path| {
+                    std::fs::read(p).map_err(|e| Error::Config(format!("tls {}: {e}", p.display())))
+                };
+                let pem = read(cert)?;
+                let key = Zeroizing::new(read(key)?);
+                let c = http::tls_config(&pem, &key)?;
+                (
+                    Some(axum_server::tls_rustls::RustlsConfig::from_config(
+                        Arc::new(c),
+                    )),
+                    devices::cert_names(&pem),
+                )
+            }
+            None => (None, Vec::new()),
         };
         Ok(Arc::new(Self {
             session_key: SessionKey::derive(hmac_key),
@@ -518,7 +535,8 @@ impl Gateway {
             fresh: Default::default(),
             challenge_limit: limit::RequestLimiter::new(CHALLENGES_PER_MIN, LOGIN_WINDOW),
             info_limit: limit::RequestLimiter::new(INFO_PER_MIN, LOGIN_WINDOW),
-            cert_names,
+            tls,
+            cert_names: RwLock::new(cert_names),
             up_sites: RwLock::new(cfg.info.up.clone()),
             cfg,
         }))
@@ -686,7 +704,7 @@ impl Gateway {
             m.insert(
                 "names".into(),
                 Value::Array(
-                    self.cert_names
+                    self.tls_names()
                         .iter()
                         .map(|n| Value::from(n.as_str()))
                         .collect(),
@@ -694,6 +712,35 @@ impl Gateway {
             );
         }
         Value::Map(m)
+    }
+
+    /// The DNS and IP names of the certificate the gateway serves now (lower case); empty
+    /// for plain HTTP.
+    pub fn tls_names(&self) -> Vec<String> {
+        self.cert_names
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
+    }
+
+    /// Serve `cert_pem` (chain) with `key_pem` from the next TLS connection on, without a
+    /// restart, and read the names of the device origins and `/api/info` from it. A pair
+    /// that does not make TLS settings changes nothing. `Error::Config` when the gateway
+    /// serves plain HTTP.
+    pub fn reload_tls(&self, cert_pem: Vec<u8>, key_pem: Vec<u8>) -> Result<()> {
+        let key_pem = Zeroizing::new(key_pem);
+        let Some(tls) = &self.tls else {
+            return Err(Error::Config(
+                "the gateway serves plain HTTP: no certificate to reload".into(),
+            ));
+        };
+        let c = http::tls_config(&cert_pem, &key_pem)?;
+        let names = devices::cert_names(&cert_pem);
+        // under the names' lock: a reader sees the names of the certificate served
+        let mut held = self.cert_names.write().unwrap_or_else(|p| p.into_inner());
+        tls.reload_from_config(Arc::new(c));
+        *held = names;
+        Ok(())
     }
 
     /// Downstream sites reached through the gateway (the broker's peers).

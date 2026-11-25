@@ -613,10 +613,7 @@ impl GatewaySection {
     pub fn tls_files(&self, data_dir: &std::path::Path) -> Option<(PathBuf, PathBuf)> {
         match (&self.tls_cert, &self.tls_key, self.tls) {
             (Some(c), Some(k), _) => Some((c.clone(), k.clone())),
-            (_, _, Some(GatewayTls::SiteCa)) => {
-                let dir = data_dir.join("gateway");
-                Some((dir.join("tls.pem"), dir.join("tls.key")))
-            }
+            (_, _, Some(GatewayTls::SiteCa)) => Some(gateway_tls::files(data_dir)),
             _ => None,
         }
     }
@@ -1972,16 +1969,31 @@ impl Broker {
             }
         };
         runtime.start().await?;
+        // a site-CA certificate follows the host's addresses while the gateway serves
+        let site_ca = cfg
+            .gateway
+            .as_ref()
+            .filter(|g| g.tls == Some(GatewayTls::SiteCa))
+            .map(|_| Arc::new(cfg.clone()));
         let gateway = gateway.map(|gw| {
             let (tx, rx) = oneshot::channel::<()>();
             let (gw, s) = (gw.clone(), session.clone());
             let task = tokio::spawn(async move {
-                if let Err(e) = gw
-                    .serve(s, async {
-                        let _ = rx.await;
-                    })
-                    .await
-                {
+                let serve = gw.clone().serve(s, async {
+                    let _ = rx.await;
+                });
+                let follow = async {
+                    if let Some(cfg) = site_ca {
+                        gateway_tls::watch(cfg, gw.clone(), gateway_tls::WATCH_EVERY).await;
+                    }
+                    std::future::pending::<()>().await;
+                };
+                // the watch ends with the serve (dropped), never the other way round
+                let r = tokio::select! {
+                    r = serve => r,
+                    () = follow => Ok(()),
+                };
+                if let Err(e) = r {
                     tracing::error!("gateway: {e}");
                 }
             });

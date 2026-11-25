@@ -2,17 +2,42 @@
 //!
 //! At each start the broker asks its site CA (`data_dir/pki`) for a server certificate
 //! with CN `gateway:<site>` in `data_dir/gateway/tls.{pem,key}`. The CA keeps the one there
-//! while it names the same names and has time left, so a restart on the same host serves
-//! the same certificate and a client that pinned the CA needs nothing new.
+//! while it names exactly the same names and has more than 30 days left, so a restart on
+//! the same host serves the same certificate and a client that pinned the CA needs nothing
+//! new. While the gateway serves, [`watch`] reads the host's addresses every 30 s and, when
+//! the names differ from the ones of the certificate served, issues one for the new names
+//! and serves it from the next connection on, without a restart.
 
 use std::collections::BTreeSet;
 use std::net::{IpAddr, SocketAddr};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::Duration;
 
 use wyrm_admin::secret::Pki;
+use wyrm_gateway::Gateway;
+use zeroize::Zeroizing;
 
 use crate::announce::host_label;
 use crate::Config;
+
+/// How often [`watch`] reads the host's addresses.
+pub const WATCH_EVERY: Duration = Duration::from_secs(30);
+
+/// The directory (under `data_dir`) and the file stem of the site-CA certificate.
+const DIR: &str = "gateway";
+const STEM: &str = "tls";
+
+/// The certificate and key files of `gateway.tls: "site_ca"` under `data_dir`:
+/// `data_dir/gateway/tls.{pem,key}`. The one place the paths are made
+/// ([`crate::GatewaySection::tls_files`], [`issue`]).
+pub fn files(data_dir: &Path) -> (PathBuf, PathBuf) {
+    let dir = data_dir.join(DIR);
+    (
+        dir.join(format!("{STEM}.pem")),
+        dir.join(format!("{STEM}.key")),
+    )
+}
 
 /// The names the gateway's certificate carries: `<hostname>.local`, `wyrm-<site>.local`
 /// (the host name the DNS-SD announce gives) and the listen address, or every usable
@@ -83,9 +108,14 @@ pub fn hostname() -> Option<String> {
 /// The names for `cfg`'s gateway on this host as it is now: [`names`] of [`hostname`]
 /// (else `wyrm-<site>`) and [`host_addrs`].
 pub fn names_now(cfg: &Config, listen: SocketAddr) -> Vec<String> {
+    names_from(cfg, listen, &host_addrs)
+}
+
+/// [`names_now`] with the addresses from `addrs` (read only for an unspecified listen).
+fn names_from(cfg: &Config, listen: SocketAddr, addrs: &dyn Fn() -> Vec<IpAddr>) -> Vec<String> {
     let host = hostname().unwrap_or_else(|| format!("wyrm-{}", cfg.site));
     let addrs = if listen.ip().is_unspecified() {
-        host_addrs()
+        addrs()
     } else {
         Vec::new()
     };
@@ -107,23 +137,99 @@ pub enum GatewayTlsError {
         #[source]
         source: wyrm_admin::secret::Error,
     },
+    #[error("gateway.tls site_ca: {path}: {source}")]
+    Read {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
 }
 
 /// Issue the gateway's certificate from the site CA (`data_dir/pki`, made on the first
-/// start) into `data_dir/gateway/tls.{pem,key}`: CN `gateway:<site>`, server auth,
-/// `names` as its subject alternative names. A certificate there for the same names with
-/// time left is kept as it is. Returns the certificate and key paths.
+/// start) into [`files`]: CN `gateway:<site>`, server auth, `names` as its subject
+/// alternative names. A certificate there for exactly these names with more than 30 days
+/// left is kept as it is; one that names more (an address the host lost) is issued again.
+/// Returns the certificate and key paths.
 pub fn issue(cfg: &Config, names: &[String]) -> Result<(PathBuf, PathBuf), GatewayTlsError> {
     let pki_dir = cfg.data_dir.join("pki");
     let pki = Pki::open_or_create(&pki_dir).map_err(|source| GatewayTlsError::Ca {
         dir: pki_dir,
         source,
     })?;
-    let out = cfg.data_dir.join("gateway");
-    let files = pki
-        .issue(&format!("gateway:{}", cfg.site), names, true, &out, "tls")
+    let out = cfg.data_dir.join(DIR);
+    let issued = pki
+        .issue_exact(&format!("gateway:{}", cfg.site), names, true, &out, STEM)
         .map_err(|source| GatewayTlsError::Issue { dir: out, source })?;
-    Ok((files.cert, files.key))
+    Ok((issued.cert, issued.key))
+}
+
+/// Follow the host's addresses while the gateway serves (`gateway.tls: "site_ca"` only;
+/// `wyrmd` runs it in the gateway's serve task, so it ends with it): every `every` the
+/// names are made again ([`names_now`]) and, when they differ from the names of the
+/// certificate the gateway serves, a certificate is issued for them ([`issue`]) and served
+/// from the next connection on ([`Gateway::reload_tls`]). A failure is logged and tried
+/// again at the next check. Never returns.
+pub async fn watch(cfg: Arc<Config>, gw: Arc<Gateway>, every: Duration) {
+    watch_with(cfg, &gw, every, host_addrs).await;
+}
+
+/// [`watch`] with the host's addresses from `addrs` (tests give their own).
+async fn watch_with(
+    cfg: Arc<Config>,
+    gw: &Gateway,
+    every: Duration,
+    addrs: impl Fn() -> Vec<IpAddr>,
+) {
+    let Some(listen) = cfg.gateway.as_ref().map(|g| g.listen) else {
+        return std::future::pending().await;
+    };
+    let mut tick = tokio::time::interval(every);
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    loop {
+        tick.tick().await;
+        let names = names_from(&cfg, listen, &addrs);
+        let served: BTreeSet<String> = gw.tls_names().into_iter().collect();
+        if names.iter().cloned().collect::<BTreeSet<_>>() == served {
+            continue;
+        }
+        let job = {
+            let (cfg, names) = (cfg.clone(), names.clone());
+            // key generation and fsync: off the runtime's threads
+            tokio::task::spawn_blocking(move || issue_and_read(&cfg, &names))
+        };
+        let pair = match job.await {
+            Ok(Ok(pair)) => pair,
+            Ok(Err(e)) => {
+                tracing::warn!(error = %e, "gateway: the certificate for the new names");
+                continue;
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "gateway: the certificate task ended");
+                continue;
+            }
+        };
+        let (cert, mut key) = pair;
+        match gw.reload_tls(cert, std::mem::take(&mut *key)) {
+            Ok(()) => tracing::info!(
+                ?names,
+                "gateway: certificate issued for {} names",
+                names.len()
+            ),
+            Err(e) => tracing::warn!(error = %e, "gateway: the new certificate is not served"),
+        }
+    }
+}
+
+/// [`issue`] and read the certificate and key it gives (PEM).
+fn issue_and_read(
+    cfg: &Config,
+    names: &[String],
+) -> Result<(Vec<u8>, Zeroizing<Vec<u8>>), GatewayTlsError> {
+    let (cert, key) = issue(cfg, names)?;
+    let read = |path: PathBuf| {
+        std::fs::read(&path).map_err(|source| GatewayTlsError::Read { path, source })
+    };
+    Ok((read(cert)?, Zeroizing::new(read(key)?)))
 }
 
 #[cfg(test)]
@@ -171,6 +277,140 @@ mod tests {
             names("plant", "", "127.0.0.1:0".parse().unwrap(), &[]),
             ["127.0.0.1", "wyrm-plant.local"]
         );
+    }
+
+    /// The names of the certificate a new TLS connection to `port` on loopback is served,
+    /// checked against the site CA in `data_dir` for the name `wyrm-plant.local`.
+    async fn served_names(port: u16, data_dir: &Path) -> Vec<String> {
+        use rustls_pki_types::pem::PemObject;
+        let ca =
+            rustls_pki_types::CertificateDer::from_pem_file(data_dir.join("pki/ca.pem")).unwrap();
+        let mut roots = rustls::RootCertStore::empty();
+        roots.add(ca).unwrap();
+        let client = rustls::ClientConfig::builder_with_provider(Arc::new(
+            rustls::crypto::ring::default_provider(),
+        ))
+        .with_safe_default_protocol_versions()
+        .unwrap()
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+        let tcp = tokio::net::TcpStream::connect(("127.0.0.1", port))
+            .await
+            .unwrap();
+        let name = rustls_pki_types::ServerName::try_from("wyrm-plant.local").unwrap();
+        let tls = tokio_rustls::TlsConnector::from(Arc::new(client))
+            .connect(name, tcp)
+            .await
+            .unwrap();
+        let der = tls.get_ref().1.peer_certificates().unwrap()[0].to_vec();
+        let (_, cert) = x509_parser::parse_x509_certificate(&der).unwrap();
+        let san = cert.subject_alternative_name().unwrap().unwrap();
+        san.value
+            .general_names
+            .iter()
+            .map(|g| match g {
+                x509_parser::extensions::GeneralName::DNSName(d) => (*d).to_owned(),
+                x509_parser::extensions::GeneralName::IPAddress(b) => {
+                    IpAddr::from(<[u8; 4]>::try_from(*b).unwrap()).to_string()
+                }
+                other => panic!("{other:?}"),
+            })
+            .collect()
+    }
+
+    /// Wait (≤ 10 s) until `ok` holds.
+    async fn until(what: &str, mut ok: impl FnMut() -> bool) {
+        let end = tokio::time::Instant::now() + Duration::from_secs(10);
+        while !ok() {
+            assert!(tokio::time::Instant::now() < end, "never: {what}");
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    }
+
+    /// Review focus 4: an address that comes late (DHCP after the start) is in the
+    /// certificate the gateway serves within one check, without a restart; one the host
+    /// loses leaves it.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn certificate_follows_the_addresses() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let dir = std::env::temp_dir().join(format!("wyrmd-gwtls-follow-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let data = dir.join("data");
+        let cfg = Config::from_json5(&format!(
+            r#"{{ site: "plant", data_dir: {data:?},
+                  gateway: {{ listen: "0.0.0.0:0", tls: "site_ca" }} }}"#
+        ))
+        .unwrap();
+        let gw = crate::open_gateway(&cfg, cfg.gateway.as_ref().unwrap(), false).unwrap();
+        let mut zc = zenoh::Config::default();
+        for (k, v) in [
+            ("mode", r#""peer""#),
+            ("listen/endpoints", "[]"),
+            ("connect/endpoints", "[]"),
+            ("scouting/multicast/enabled", "false"),
+            ("scouting/gossip/enabled", "false"),
+        ] {
+            zc.insert_json5(k, v).unwrap();
+        }
+        let session = zenoh::open(zc).await.unwrap();
+        let (stop, rx) = tokio::sync::oneshot::channel::<()>();
+        let server = tokio::spawn(gw.clone().serve(session, async {
+            let _ = rx.await;
+        }));
+        let port = gw.local_addr().await.port();
+
+        // the address source: none at first (DHCP not yet), then 10.0.0.7, then none again
+        let step = Arc::new(AtomicUsize::new(0));
+        let calls = Arc::new(AtomicUsize::new(0));
+        let addrs = {
+            let (step, calls) = (step.clone(), calls.clone());
+            move || {
+                calls.fetch_add(1, Ordering::SeqCst);
+                match step.load(Ordering::SeqCst) {
+                    1 => vec!["10.0.0.7".parse().unwrap()],
+                    _ => Vec::new(),
+                }
+            }
+        };
+        let watch = {
+            let (cfg, gw) = (Arc::new(cfg.clone()), gw.clone());
+            tokio::spawn(async move {
+                watch_with(cfg, &gw, Duration::from_millis(20), addrs).await;
+            })
+        };
+        let no_ip = |names: &[String]| names.iter().all(|n| n.parse::<IpAddr>().is_err());
+        until("a check without addresses", || {
+            calls.load(Ordering::SeqCst) >= 2 && no_ip(&gw.tls_names())
+        })
+        .await;
+        let first = served_names(port, &data).await;
+        assert!(no_ip(&first), "{first:?}");
+        assert!(first.contains(&"wyrm-plant.local".to_owned()));
+
+        step.store(1, Ordering::SeqCst);
+        until("the new address", || {
+            gw.tls_names().contains(&"10.0.0.7".to_owned())
+        })
+        .await;
+        let second = served_names(port, &data).await;
+        assert!(second.contains(&"10.0.0.7".to_owned()), "{second:?}");
+        assert_eq!(second, gw.tls_names(), "served and told the same names");
+        let file = std::fs::read(files(&data).0).unwrap();
+        assert!(String::from_utf8_lossy(&file).contains("BEGIN CERTIFICATE"));
+
+        // the address is lost: a certificate without it (never one that still names it)
+        step.store(2, Ordering::SeqCst);
+        until("the address lost", || no_ip(&gw.tls_names())).await;
+        assert!(no_ip(&served_names(port, &data).await));
+
+        watch.abort();
+        let _ = stop.send(());
+        tokio::time::timeout(Duration::from_secs(10), server)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// The certificate from the site CA: kept while its names stay, issued again when
