@@ -3435,9 +3435,20 @@ mod tests {
         // tls_ca names it; a leaf no CA known issued has no code
         let mut c = cfg_of("");
         c.gateway.as_mut().unwrap().tls_ca = Some(f.cert.clone());
-        assert_ne!(gateway_ca(&c), Some(ca_der));
+        assert_ne!(gateway_ca(&c), Some(ca_der.clone()));
         let mut c = cfg_of("");
         c.data_dir = dir.join("elsewhere");
+        assert_eq!(gateway_ca(&c), None);
+        // another site CA of the same name (`CN=wyrm-ca`, a restore of other keys): the
+        // leaf of the first does not chain to it, so it has no code
+        let other = dir.join("other");
+        let other_pki = wyrm_admin::secret::Pki::open_or_create(&other.join("pki")).unwrap();
+        let other_der = rustls_pki_types::CertificateDer::from_pem_file(other_pki.ca_path())
+            .unwrap()
+            .to_vec();
+        assert_ne!(other_der, ca_der);
+        let mut c = cfg_of("");
+        c.data_dir = other;
         assert_eq!(gateway_ca(&c), None);
         let _ = std::fs::remove_dir_all(&dir);
     }

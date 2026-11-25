@@ -5438,6 +5438,105 @@ async fn gateway_site_ca_serves_tls() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// ADR 0051 §3 with ADR 0048 §3.6: a `site_ca` broker restores the keys of another site's
+/// backup; at the next start its gateway serves a certificate of the restored CA (the old
+/// one is removed with everything the replaced CA issued), and `ca_fp` names that CA.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_key_restore_gives_the_gateway_a_certificate_of_the_new_ca() {
+    use sha2::Digest;
+    let secrets_on = "backups: { export_secrets: true },";
+    let dir_a = temp_dir("restore-gw-a");
+    let a = Env::start_in(&dir_a, secrets_on).await;
+    let ca_client = a.client().await;
+    let backups = format!("wy/{SITE}/sys/backups");
+    let sections = names(&["control", "keys"]);
+    let id = backup_id(
+        ca_client
+            .invoke_one(
+                &backups,
+                "create",
+                args_map(&[
+                    ("sections", sections.clone()),
+                    ("passphrase", BACKUP_PASS.into()),
+                ]),
+            )
+            .await
+            .unwrap(),
+    );
+    backup_done(&a, &id).await;
+    let bytes = download_backup(&ca_client, &id, 16 << 20).await;
+    let ca_a = std::fs::read(dir_a.join("pki/ca.pem")).unwrap();
+    drop(ca_client);
+    a.stop().await;
+
+    // a broker of the same site name with its own CA and a gateway certificate from it
+    let dir_b = temp_dir("restore-gw-b");
+    let extra = format!(r#"{secrets_on} gateway: {{ listen: "127.0.0.1:0", tls: "site_ca" }},"#);
+    let start = |dir: std::path::PathBuf, extra: String| async move {
+        let env_lock = GATEWAY_ENV.lock().await;
+        std::env::remove_var(wyrmd::GATEWAY_ADMIN_PASSWORD_ENV);
+        let env = Env::start_in(&dir, &extra).await;
+        drop(env_lock);
+        env
+    };
+    let b = start(dir_b.clone(), extra.clone()).await;
+    let ca_b = dir_b.join("pki/ca.pem");
+    let addr = b.gateway.clone().expect("gateway").local_addr().await;
+    info_over_tls(addr, &ca_b).await;
+    let old_cert = std::fs::read(dir_b.join("gateway/tls.pem")).unwrap();
+    assert_ne!(std::fs::read(&ca_b).unwrap(), ca_a);
+
+    let cb = slow_client(&b).await;
+    let upload = upload_backup(&cb, &bytes, 64 << 10).await;
+    let args = args_map(&[
+        ("upload", upload.into()),
+        ("passphrase", BACKUP_PASS.into()),
+        ("sections", sections),
+        ("mode", "replace".into()),
+        ("replace_keys", Value::Bool(true)),
+    ]);
+    let done = eventually("the restore is staged", 40, || async {
+        match cb.invoke_one(&backups, "restore_apply", args.clone()).await {
+            Ok(v) => Some(v),
+            Err(e) if e.is(wyrm_core::Status::Busy) => None,
+            Err(e) => panic!("restore_apply: {e}"),
+        }
+    })
+    .await;
+    let Some(Value::Map(done)) = done else {
+        panic!("restore_apply replace: a map");
+    };
+    assert_eq!(done.get("restart"), Some(&Value::Bool(true)));
+    drop(cb);
+    eventually("the broker stops for the restore", 30, || async {
+        b.task.is_finished().then_some(())
+    })
+    .await;
+    b.stop().await;
+
+    // the next start applies the keys, then issues the gateway's certificate from them
+    let b = start(dir_b.clone(), extra).await;
+    assert_eq!(std::fs::read(&ca_b).unwrap(), ca_a, "the restored CA");
+    let new_cert = std::fs::read(dir_b.join("gateway/tls.pem")).unwrap();
+    assert_ne!(new_cert, old_cert, "issued again");
+    let addr = b.gateway.clone().expect("gateway").local_addr().await;
+    // the handshake verifies under the restored CA alone
+    let Value::Map(info) = info_over_tls(addr, &ca_b).await else {
+        panic!("info is a map")
+    };
+    let ca_der = {
+        use rustls_pki_types::pem::PemObject;
+        rustls_pki_types::CertificateDer::from_pem_file(&ca_b)
+            .unwrap()
+            .to_vec()
+    };
+    let fp = hex::encode(&sha2::Sha256::digest(&ca_der)[..16]);
+    assert_eq!(info.get("ca_fp"), Some(&Value::Str(fp)));
+    b.stop().await;
+    let _ = std::fs::remove_dir_all(&dir_a);
+    let _ = std::fs::remove_dir_all(&dir_b);
+}
+
 /// ADR 0051 §3: `wyrmd setup-code` prints a code and its hash, nothing else; a broker
 /// started with the hash in `gateway.setup_file` takes it in and removes the file; the code
 /// makes the first admin over `POST /api/setup`, who then logs in. At a later start a setup
