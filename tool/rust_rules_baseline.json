@@ -892,7 +892,6 @@
     "crates/wyrm-link-sdk/src/driver/framework.rs": 3,
     "crates/wyrm-messenger/src/lib.rs": 2,
     "crates/wyrmd/src/lib.rs": 2,
-    "crates/wyrmd/src/update.rs": 1,
     "links/agent/src/lib.rs": 2,
     "links/http/src/lib.rs": 1,
     "links/opcua/src/session.rs": 1,
