@@ -20,3 +20,12 @@ pub fn value_stream_filtered(
 ) -> (Callback<Sample>, EventStream<ValEvent>) {
     crate::streams::fed(std::sync::Arc::new(keep))
 }
+
+/// [`value_stream`] with its stored read in flight, as a
+/// [`subscribe`](crate::WyrmClient::subscribe) is once its subscriber is declared: the
+/// first callback is the live handler, the second the handler of the stored read (it takes
+/// the sample of each reply; dropping it ends the read, as Zenoh does after the last
+/// reply), the stream is what the consumer reads.
+pub fn value_stream_stored() -> (Callback<Sample>, Callback<Sample>, EventStream<ValEvent>) {
+    crate::streams::fed_stored()
+}

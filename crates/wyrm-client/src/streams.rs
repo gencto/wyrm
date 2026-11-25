@@ -818,9 +818,20 @@ fn stored_feed(
     keep: &KeyFilter,
     turns: Vec<tokio::sync::OwnedSemaphorePermit>,
 ) -> crate::intake::Feed<Vals, Reply> {
+    stored_feed_of(intake, keep, turns, |reply: &Reply| reply.result().ok())
+}
+
+/// [`stored_feed`] over any item that may hold a stored sample (a `Reply`; a
+/// test hands the sample itself).
+fn stored_feed_of<T: 'static>(
+    intake: &Arc<Intake<Vals>>,
+    keep: &KeyFilter,
+    turns: Vec<tokio::sync::OwnedSemaphorePermit>,
+    sample: fn(&T) -> Option<&ZSample>,
+) -> crate::intake::Feed<Vals, T> {
     let keep = keep.clone();
     intake.feed_map(
-        move |reply: Reply| to_val(reply.result().ok()?, &keep),
+        move |item: T| to_val(sample(&item)?, &keep),
         Vals::push,
         move |st| {
             drop(turns);
@@ -954,6 +965,37 @@ pub(crate) fn fed(keep: KeyFilter) -> (zenoh::handlers::Callback<ZSample>, Event
         first: None,
     };
     (cb, EventStream::new(reader, dropped))
+}
+
+/// A `subscribe` stream fed by hand with its one stored read in flight
+/// (`testkit::value_stream_stored`): the live handler, the handler of the
+/// stored read (a sample per reply; dropping it ends the read) and the stream.
+#[cfg(feature = "testkit")]
+pub(crate) fn fed_stored() -> (
+    zenoh::handlers::Callback<ZSample>,
+    zenoh::handlers::Callback<ZSample>,
+    EventStream<ValEvent>,
+) {
+    use zenoh::handlers::IntoHandler;
+    let dropped = Arc::new(AtomicU64::new(0));
+    let latest = Policy::Latest {
+        queue: VecDeque::new(),
+        pending: HashMap::new(),
+        order: VecDeque::new(),
+    };
+    let keep: KeyFilter = Arc::new(|_| true);
+    let intake = Intake::new(Vals::new(latest, 1, dropped.clone()));
+    let (live, ()) = live_feed(&intake, &keep).into_handler();
+    let (stored, ()) =
+        stored_feed_of(&intake, &keep, Vec::new(), |s: &ZSample| Some(s)).into_handler();
+    let reader = ValReader {
+        intake,
+        keep,
+        _sub: Box::new(()),
+        stored: None,
+        first: None,
+    };
+    (live, stored, EventStream::new(reader, dropped))
 }
 
 /// The event of a `…/~val` sample whose node key `keep` accepts. The filter
