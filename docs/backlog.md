@@ -550,6 +550,7 @@ measured.
 | broker | `cargo test --release -p wyrmd --test perf -- --ignored --nocapture --exact <test>` | 1, 2, 12, 13, gateway | an in-process broker with the embedded mock: (a) base rate, (b) a client that subscribes `wy/<site>/downstream/**` in a loop and one `wy/**`, (c) the mock at `trace`, (d) the historian on 10 000 points, (e) 1000 invokes one after another, then 2000 from 50 subjects at once: latency, audit records/s, batches, and how late a 1 ms timer of the broker's runtime fires, (f) 10 gateway WebSocket clients × 1000 points × 10 Hz, (g) a steady pattern consumer of 1000 points × 50 Hz, raw and through the client |
 | broker | `cargo test --release -p wyrm-gateway --test frame_path -- --ignored --nocapture` | gateway | the value path of one `subscribe` with no socket and no session: the client's value stream fed by hand with the gateway's read filter in its callback, the pump, the connection's queue, the writer task and a sink that counts frames and flushes; a value event to its frame, one rights check, the stream alone, the whole path on one thread, and 10 connections × 1000 points × 10 Hz on two workers beside the producer's own cost |
 | broker | `cargo test --release -p wyrm-client --test fan_in -- --ignored --nocapture` | pattern consumer | the client's value stream with no session: handler + read on one thread, and 1000 samples every 20 ms read by a task |
+| broker | `cargo test --release -p wyrm-client --test stored_read -- --ignored --nocapture` | 2 | the stored read of a pattern `subscribe` with no session: the handler of the read called once per reply, as Zenoh calls it when the read is final; the wake-ups of the reader for one read of 1000 replies, a new stream with its read on one thread (time and allocations per reply), and 300 reads one after another taken by a tokio task (time per read, CPU per read) |
 
 Test hooks: `wyrm-admin`'s `testkit` feature (dev only) gives the perf tests
 `Control::audit_lsn`, `Control::audit_batches` and `Control::historian`. Slice
@@ -952,6 +953,114 @@ Not done:
   twice and keep the second (build with `CARGO_PROFILE_RELEASE_STRIP=false
   CARGO_PROFILE_RELEASE_DEBUG=line-tables-only` into a target directory of
   its own).
+
+**The subscribe loop (`perf_b_wildcard`), profiled (2026-11-26,
+`perf/client-wildcard-subscribe`): the client's part done, the rest is
+Zenoh's.** The open item above and of issue #157. `perf_b_wildcard` opens
+`subscribe("wy/<site>/downstream/**")` about 280 times a second beside a
+mock at 20 000 samples/s; each one is a declaration and a stored read of
+1000 keys.
+
+*Where the time goes.* `sample`, 1 ms, 6 s, symbolized release build, the
+second run (the first stalls the process, above); M4 Max, load 19–27 from
+other builds, and the sampler slowed the loop itself to 186 subscribes/s:
+rough. 2519 samples on a CPU, of them:
+
+| Part | Samples | Share |
+|---|---|---|
+| the storage plugin's task that answers the read (Zenoh, two workers): one reply per key | 1001 | 40 % |
+| of those: the router's egress ACL check, once per reply (`EgressAclEnforcer` → `policy_decision_point`; all ACL work of the process: 428 samples, 17 %) | about 310 | 12 % |
+| Zenoh's receive threads, both ends of the loopback link: decode, routing of samples and replies | 765 | 30 % |
+| of those: the data route of every key calculated again after each declaration and undeclaration of the pattern subscriber (`get_data_route`, all threads) | 228 | 9 % |
+| the mock's 20 000 puts/s (the base load) | 389 | 15 % |
+| Zenoh's send task | 109 | 4 % |
+| the session's consolidation of the replies (one map entry per reply, all handed out at the end) | 96 + 74 | 7 %, the handler's time in it |
+| `wyrm-client` itself, everything | 196 | 8 % |
+| of those: the stream buffer's lock, taken by the handler once per reply and by the reader once per event | 83 | 3.3 % |
+| waking a parked thread (`__psynch_cvsignal`, every caller) | 70 | 2.8 % |
+| the test's own task (its set of keys, the stream's `next`) | 114 | 4.5 % |
+
+So the loop is not the client's: nine tenths of it is the router and the
+storage plugin answering 1000 keys, 3.2 of the 3.6 ms of one subscribe pass
+before the first reply reaches the client. What the client added was the way
+it took the replies. Zenoh keeps the replies of a consolidated `get` until
+the read is final and then calls the handler for each in one run. The
+handler took the buffer's lock and woke the reader for every reply: the
+reader ran beside the run, emptied the buffer, parked, and was woken again.
+Measured alone (`tests/stored_read.rs`): 1001 wake-ups for one read of 1000
+keys, and 0.62 ms of CPU for a read whose replies take 0.18 ms to decode
+and hand out on one thread.
+
+*The change.* The feed of a stored read holds the prepared replies and
+pushes 1024 at a time, in their order, under one lock and with one wake;
+the end of the read pushes the rest before it counts the read as ended
+(`Intake::feed_chunks`, `STORED_CHUNK`). The buffer's policy still runs for
+every event, so the events, the per-key rule (nothing as old as what was
+handed out), the queue, overflow mode, the reads again, the limits and
+`dropped` are what they were. The read names its consolidation (`Latest`,
+what the default resolved to), because the feed counts on that one run: a
+reply never waits in the feed for longer than the run it came in. A chunk
+is a quarter of `VALUE_BUFFER`: a read of more keys than the buffer holds
+still reaches a consumer that keeps up, chunk by chunk. All replies in one
+push were refused for that reason (10 000 keys in one lock overflow the
+buffer whatever the consumer does). Chunks of 64 and 256 were measured too:
+0.46–0.51 and 0.38–0.42 ms of CPU per read, a wake per chunk.
+
+What differs for a caller, in time only: the first stored event of a read
+of n keys comes when the first chunk is full or the read ends, not after
+the first reply is decoded (1000 keys: about 0.12 ms later, the last event
+about 0.05 ms earlier). The order of a stored value against a live event of
+the same key is, as before, the order the two handlers meet in; a chunk is
+one of the orders single replies could meet a live sample in
+(`chunks_are_an_order_the_single_replies_could_come_in`). A removal has no
+time: a stored value that is pushed after the live removal of its key is
+handed out, as it was when its reply came after the removal.
+
+*Figures.* M4 Max, release, other agents' builds running; three runs each,
+before and after in turn, the median first:
+
+| Figure | Before (load 8–29) | After (load 6–24) |
+|---|---|---|
+| wake-ups of a reader that keeps up, one stored read of 1000 keys | 1001 | 1 |
+| stored read alone, taken by a tokio task: first reply to last event, p50 / p99 | 320 µs / 448 µs (320–321; 448–567) | 186 µs / 206 µs (184–186; 201–241) |
+| the same: CPU of feeder and reader per read | 617 µs (616–638) | 206 µs (205–212) |
+| a new stream and its read on one thread, per reply | 184 ns (182–188), 2.0 allocations, 396 B | 177 ns (175–180), 2.0 allocations, 592 B (the chunk the feed holds, freed with the read) |
+| `perf_b_wildcard`: CPU of the process | 105 % (105–106) | 98.9 % (97.6–100) |
+| `perf_b_wildcard`: subscribes in 10 s | 2775 (2771–2785) | 2803 (2789–2821) |
+| `perf_b_wildcard`: CPU per subscribe, the mock's base included | 3.78 ms | 3.53 ms |
+| `perf_b_wildcard`: subscribe to its first event, p50 | 3.25 ms (3.24–3.25) | 3.36 ms (3.34–3.37) |
+| `perf_b_wildcard`: subscribe until every point came once, p50 / p99 | 3.58 / 4.99 ms (3.57–3.58; 4.93–5.03) | 3.53 / 4.99 ms (3.52–3.55; 4.95–5.07) |
+| profile of the loop: the buffer's lock; the session's hand-out at the end of a read (the handler's run) | 83; 74 of 2519 samples | 41; 20 of 2548 (load 36–41, one run: rough) |
+
+Tests that pin it: `a_stored_read_wakes_its_reader_per_chunk` (1 wake for
+1000 replies, 5 for 5000; 1001 before), `a_stored_read_allocates_per_reply_as_before`,
+`a_stored_read_in_chunks_hands_out_the_same_events` and
+`chunks_are_an_order_the_single_replies_could_come_in` (the stream against
+a feed that pushes every reply by itself: a read alone, and five recorded
+inputs with live samples, removals and reads between the replies, through
+overflow mode, reads again and both limits),
+`chunks_keep_the_order_per_key_and_the_last_value`,
+`a_chunk_feed_pushes_and_wakes_per_chunk`,
+`a_chunk_feed_of_two_threads_keeps_their_order`.
+
+Not done:
+
+- the nine tenths that are Zenoh's. Three things would move the figure,
+  none of them in the client: the egress ACL decision per reply (12 % of
+  the loop: the router asks its policy for every reply of a query), the
+  data routes thrown away by every declaration of a pattern subscriber
+  (9 %), and the storage's answer itself. They need a look at the ACL the
+  broker generates and at Zenoh's interceptor cache, with a measurement of
+  their own; audit item 2 stays open for them;
+- a wake per sample for live samples that come spread out: unchanged, and
+  for the reason above (no end of a run is told to a subscriber's handler;
+  fewer wakes need a delay). A burst already wakes the reader once per
+  time it parks, not once per sample;
+- the reader still takes the lock once per event (taking several was
+  measured in #156 with no gain, and it moves the start of overflow mode);
+- `subscribe("wy/**")` still gets no event in 15 s in `perf_b_wildcard`
+  (`got=false`, as in the first figures): not looked at here;
+- a quiet machine and the reference board.
 
 **Done (2026-11-20, `perf/ptok-verify`): one signature check per token
 (audit item 3).** A `ptok` names no key (spec 04), so the responder tried the
