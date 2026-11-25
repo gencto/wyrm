@@ -10,6 +10,7 @@
 pub mod announce;
 pub mod arbiter;
 pub mod cli;
+pub mod gateway_tls;
 pub mod standby;
 pub mod update;
 
@@ -276,9 +277,12 @@ const CONFIG_SHOWN: &[&str] = &[
     "peers.downstream.site",
     "peers.downstream.via",
     "packages.repository",
+    "packages.seed_dir",
     "gateway.listen",
+    "gateway.tls",
     "gateway.tls_cert",
     "gateway.admin_user",
+    "gateway.setup_file",
     "gateway.mcp.public_url",
     "gateway.mcp.redirect_uris",
     "gateway.tls_ca",
@@ -559,12 +563,17 @@ fn default_scheduler_store_mb() -> u32 {
 }
 
 /// The first admin's password comes from `WYRM_GATEWAY_ADMIN_PASSWORD` at
-/// start (only if the user does not exist yet), never from this file.
+/// start (only if the user does not exist yet), never from this file; or the
+/// first admin comes from a setup code whose hash `setup_file` holds (ADR 0051 §3).
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct GatewaySection {
     pub listen: std::net::SocketAddr,
-    /// Certificate chain and key (PEM); required off loopback.
+    /// `"site_ca"`: the broker issues the gateway's certificate from its own site CA into
+    /// `data_dir/gateway/tls.{pem,key}` (ADR 0051 §3); excludes `tls_cert` and `tls_key`.
+    #[serde(default)]
+    pub tls: Option<GatewayTls>,
+    /// Certificate chain and key (PEM); required off loopback unless `tls` is set.
     #[serde(default)]
     pub tls_cert: Option<PathBuf>,
     #[serde(default)]
@@ -574,6 +583,11 @@ pub struct GatewaySection {
     /// Name of the first admin user.
     #[serde(default = "default_gateway_admin")]
     pub admin_user: String,
+    /// A file with the hash of a one-time setup code (64 hex digits, `wyrmd setup-code`;
+    /// ADR 0051 §3). Read at start while no user exists: the hash becomes the pending
+    /// setup and the file is removed. Absent or missing: no setup from a file.
+    #[serde(default)]
+    pub setup_file: Option<PathBuf>,
     /// The remote MCP endpoint `/mcp` for Claude's connectors, with its
     /// OAuth 2.1 server (ADR 0041 stage B). Absent = off.
     #[serde(default)]
@@ -590,6 +604,27 @@ pub struct GatewaySection {
     /// loopback.
     #[serde(default)]
     pub announce: Option<GatewayAnnounceSection>,
+}
+
+/// `gateway.tls`: where the gateway's certificate comes from when no files are named.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GatewayTls {
+    /// Issued by the broker from its own site CA (ADR 0051 §3).
+    SiteCa,
+}
+
+impl GatewaySection {
+    /// The certificate chain and key the gateway serves (PEM): `tls_cert` and `tls_key`
+    /// when both are set, `data_dir/gateway/tls.{pem,key}` for `tls: "site_ca"`, else
+    /// `None` (plain HTTP on loopback). The one place every reader takes them from.
+    pub fn tls_files(&self, data_dir: &std::path::Path) -> Option<(PathBuf, PathBuf)> {
+        match (&self.tls_cert, &self.tls_key, self.tls) {
+            (Some(c), Some(k), _) => Some((c.clone(), k.clone())),
+            (_, _, Some(GatewayTls::SiteCa)) => Some(gateway_tls::files(data_dir)),
+            _ => None,
+        }
+    }
 }
 
 /// `gateway.devices` (ADR 0050 §1.6).
@@ -709,7 +744,8 @@ pub fn gateway_ca(cfg: &Config) -> Option<Vec<u8>> {
     if let Some(ca) = &g.tls_ca {
         return certs(ca).into_iter().next();
     }
-    let chain = certs(g.tls_cert.as_ref()?);
+    let (cert, _) = g.tls_files(&cfg.data_dir)?;
+    let chain = certs(&cert);
     if chain.len() > 1 {
         return chain.last().cloned();
     }
@@ -790,6 +826,11 @@ pub struct PackagesSection {
     /// are kept for a rollback (ADR 0048); 1 to 365.
     #[serde(default = "default_keep_previous_days")]
     pub keep_previous_days: u32,
+    /// A read-only directory with `seed.json` and link packages (ADR 0051
+    /// §1): on its first start the broker installs each listed package as
+    /// `install_zip` does and writes `data_dir/seed.done`. Unset: no seed.
+    #[serde(default)]
+    pub seed_dir: Option<PathBuf>,
 }
 
 fn default_keep_previous_days() -> u32 {
@@ -801,6 +842,7 @@ impl Default for PackagesSection {
         Self {
             repository: None,
             keep_previous_days: default_keep_previous_days(),
+            seed_dir: None,
         }
     }
 }
@@ -1140,10 +1182,14 @@ impl Config {
             }
         }
         if let Some(g) = &cfg.gateway {
-            match (&g.tls_cert, &g.tls_key) {
-                (Some(_), Some(_)) => {}
-                (None, None) if g.listen.ip().is_loopback() => {}
-                (None, None) => {
+            match (&g.tls_cert, &g.tls_key, g.tls) {
+                (None, None, Some(GatewayTls::SiteCa)) => {}
+                (_, _, Some(GatewayTls::SiteCa)) => {
+                    return Err(r#"gateway: tls "site_ca" excludes tls_cert and tls_key"#.into())
+                }
+                (Some(_), Some(_), None) => {}
+                (None, None, None) if g.listen.ip().is_loopback() => {}
+                (None, None, None) => {
                     return Err(format!(
                         "gateway {}: TLS (tls_cert, tls_key) is required off loopback",
                         g.listen
@@ -1890,7 +1936,7 @@ impl Broker {
         // Admin and embedded links come up before the listeners open, so the
         // first remote query already finds their queryables and tokens.
         let session = zenoh::session::init(runtime.clone().into()).await?;
-        let admin = ctl.attach(session.clone()).await?;
+        let mut admin = ctl.attach(session.clone()).await?;
         if let Some(g) = gateway {
             // downstream sites may have changed at runtime (install, quarantine)
             g.set_downstream_sites(ctl.peers().reachable());
@@ -1937,16 +1983,34 @@ impl Broker {
             }
         };
         runtime.start().await?;
+        // seed packages on the first start (ADR 0051 §1), once the link
+        // endpoint listens
+        admin.start_seed();
+        // a site-CA certificate follows the host's addresses while the gateway serves
+        let site_ca = cfg
+            .gateway
+            .as_ref()
+            .filter(|g| g.tls == Some(GatewayTls::SiteCa))
+            .map(|_| Arc::new(cfg.clone()));
         let gateway = gateway.map(|gw| {
             let (tx, rx) = oneshot::channel::<()>();
             let (gw, s) = (gw.clone(), session.clone());
             let task = tokio::spawn(async move {
-                if let Err(e) = gw
-                    .serve(s, async {
-                        let _ = rx.await;
-                    })
-                    .await
-                {
+                let serve = gw.clone().serve(s, async {
+                    let _ = rx.await;
+                });
+                let follow = async {
+                    if let Some(cfg) = site_ca {
+                        gateway_tls::watch(cfg, gw.clone(), gateway_tls::WATCH_EVERY).await;
+                    }
+                    std::future::pending::<()>().await;
+                };
+                // the watch ends with the serve (dropped), never the other way round
+                let r = tokio::select! {
+                    r = serve => r,
+                    () = follow => Ok(()),
+                };
+                if let Err(e) = r {
                     tracing::error!("gateway: {e}");
                 }
             });
@@ -2184,18 +2248,31 @@ impl UserAdmin {
     }
 }
 
+/// The certificate or key of `gateway.tls: "site_ca"` is not there yet.
+fn site_ca_files_missing(cfg: &Config) -> bool {
+    let (cert, key) = gateway_tls::files(&cfg.data_dir);
+    !(cert.is_file() && key.is_file())
+}
+
 fn open_gateway(cfg: &Config, g: &GatewaySection, bootstrap: bool) -> Result<Arc<Gateway>, Error> {
     let dir = cfg.data_dir.join("gateway");
     std::fs::create_dir_all(&dir)?;
     let hmac = wyrm_admin::secret::load_or_create_key(&dir.join("hmac.key"))?;
+    if g.tls == Some(GatewayTls::SiteCa) && (bootstrap || site_ca_files_missing(cfg)) {
+        // before `gateway_ca` and `Gateway::open` read the files; the CA is the one
+        // `Control::open` opens later (made here on a first start). `wyrmd user …`
+        // (no bootstrap) issues only when there is nothing to read: a running broker's
+        // watch owns the files, and the lock of one issue holds in one process only
+        let names = gateway_tls::names_now(cfg, g.listen);
+        gateway_tls::issue(cfg, &names)?;
+        tracing::info!(?names, "gateway: certificate from the site CA");
+    }
     let mut gc = GatewayConfig::new(cfg.site.clone(), dir, g.listen);
     // every site below this one, also through a chain
     gc.downstream_sites = cfg.peers.peer_config().peers.reachable();
     gc.anchor = cfg.state_anchor_dir.as_ref().map(|d| d.join("users.head"));
     gc.anchor_init = cfg.init_anchors;
-    if let (Some(c), Some(k)) = (&g.tls_cert, &g.tls_key) {
-        gc.tls = Some((c.clone(), k.clone()));
-    }
+    gc.tls = g.tls_files(&cfg.data_dir);
     if let Some(s) = g.session_ttl_s {
         gc.session_ttl = Duration::from_secs(s.clamp(60, 7 * 86_400));
     }
@@ -2235,16 +2312,95 @@ fn open_gateway(cfg: &Config, g: &GatewaySection, bootstrap: bool) -> Result<Arc
             tracing::info!(user = %g.admin_user, "gateway: first admin created");
         }
     }
+    if let Some(f) = &g.setup_file {
+        import_setup_file(&gw, f);
+    }
+    // a setup file beside a user is void (a restored backup, a crash before its
+    // removal); a damaged one is told here, once, as `/api/info` shows no `setup`
+    match gw.settle_setup() {
+        Ok(true) => tracing::info!("gateway: waiting for the first admin from the setup code"),
+        Ok(false) => {}
+        Err(e) => tracing::error!(
+            path = %pending_setup_path(cfg).display(),
+            error = %e,
+            "gateway: the pending setup cannot be read, so no setup code is taken; \
+             start again with a good gateway.setup_file (docs/operations.md)"
+        ),
+    }
     Ok(gw)
 }
 
+/// The gateway's pending setup (`data_dir/gateway/setup.hash`).
+fn pending_setup_path(cfg: &Config) -> PathBuf {
+    cfg.data_dir.join("gateway").join(wyrm_gateway::setup::FILE)
+}
+
+/// `gateway.setup_file` at start (ADR 0051 §3): its hash becomes the pending setup and
+/// the file goes. A file that is not 64 hex digits (white space around them aside) stays
+/// and is logged with its path; so does one the gateway could not store, for the next
+/// start. Never logs the content.
+fn import_setup_file(gw: &Gateway, path: &std::path::Path) {
+    let text = match std::fs::read_to_string(path) {
+        Ok(t) => zeroize::Zeroizing::new(t),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return,
+        Err(e) => {
+            tracing::warn!(path = %path.display(), error = %e, "gateway: setup file not read");
+            return;
+        }
+    };
+    let hex = text.trim();
+    if hex.len() != 64 || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+        tracing::warn!(
+            path = %path.display(),
+            "gateway: setup file is not 64 hex digits (wyrmd setup-code): not taken"
+        );
+        return;
+    }
+    match gw.import_setup(hex) {
+        Ok(true) => tracing::info!(path = %path.display(), "gateway: setup code taken in"),
+        Ok(false) => tracing::info!(
+            path = %path.display(),
+            "gateway: setup file ignored: a user exists"
+        ),
+        Err(e) => {
+            tracing::error!(path = %path.display(), error = %e, "gateway: setup file not taken");
+            return;
+        }
+    }
+    if let Err(e) = std::fs::remove_file(path) {
+        tracing::warn!(
+            path = %path.display(),
+            error = %e,
+            "gateway: setup file not removed (void once a user exists)"
+        );
+    }
+}
+
 /// The gateway's roles behind `sys` Get/Update Permissions.
-struct GatewayRoles(Arc<Gateway>);
+/// Weak: the gateway's audit hook holds the control plane, which holds this; a strong
+/// handle here would keep both, and the gateway's users store locked, after the daemon
+/// ends, so a second daemon in the same process could not open it.
+struct GatewayRoles(std::sync::Weak<Gateway>);
+
+/// A role change asked of a gateway that has already closed (only while the broker stops).
+#[derive(Debug, thiserror::Error)]
+#[error("the gateway has closed")]
+struct GatewayClosed;
+
+impl GatewayRoles {
+    fn gateway(&self) -> Result<Arc<Gateway>, wyrm_admin::control::RoleGrantsError> {
+        self.0
+            .upgrade()
+            .ok_or_else(|| wyrm_admin::control::RoleGrantsError(Box::new(GatewayClosed)))
+    }
+}
 
 impl wyrm_admin::control::RoleGrants for GatewayRoles {
     fn grants(&self) -> Vec<(String, String, wyrm_core::Perm)> {
-        self.0
-            .role_table()
+        let Some(gw) = self.0.upgrade() else {
+            return Vec::new();
+        };
+        gw.role_table()
             .iter()
             .flat_map(|(role, grants)| {
                 grants
@@ -2260,7 +2416,7 @@ impl wyrm_admin::control::RoleGrants for GatewayRoles {
         key: &str,
         level: wyrm_core::Perm,
     ) -> Result<(), wyrm_admin::control::RoleGrantsError> {
-        self.0
+        self.gateway()?
             .set_grant(role, key, level)
             .map_err(|e| wyrm_admin::control::RoleGrantsError(Box::new(e)))
     }
@@ -2270,7 +2426,7 @@ impl wyrm_admin::control::RoleGrants for GatewayRoles {
         keys: &[String],
         probe: &str,
     ) -> Result<Vec<(String, String, wyrm_core::Perm)>, wyrm_admin::control::RoleGrantsError> {
-        self.0
+        self.gateway()?
             .revoke_widening(keys, probe)
             .map_err(|e| wyrm_admin::control::RoleGrantsError(Box::new(e)))
     }
@@ -2481,6 +2637,7 @@ fn control_config(
             ]),
         },
         keep_previous_days: cfg.packages.keep_previous_days,
+        seed_dir: cfg.packages.seed_dir.clone(),
         updates: update::update_config(cfg)?,
     })
 }
@@ -2696,7 +2853,7 @@ impl Daemon {
         if let Some(gw) = &gateway {
             let audit = ctl.clone();
             gw.set_audit(move |e| gateway_audit(&audit, e));
-            ctl.set_role_grants(Arc::new(GatewayRoles(gw.clone())));
+            ctl.set_role_grants(Arc::new(GatewayRoles(Arc::downgrade(gw))));
         }
         ctl.bootstrap(&cfg.config_links())?;
         record_restore(&ctl, &cfg.data_dir, restored);
@@ -3286,9 +3443,20 @@ mod tests {
         // tls_ca names it; a leaf no CA known issued has no code
         let mut c = cfg_of("");
         c.gateway.as_mut().unwrap().tls_ca = Some(f.cert.clone());
-        assert_ne!(gateway_ca(&c), Some(ca_der));
+        assert_ne!(gateway_ca(&c), Some(ca_der.clone()));
         let mut c = cfg_of("");
         c.data_dir = dir.join("elsewhere");
+        assert_eq!(gateway_ca(&c), None);
+        // another site CA of the same name (`CN=wyrm-ca`, a restore of other keys): the
+        // leaf of the first does not chain to it, so it has no code
+        let other = dir.join("other");
+        let other_pki = wyrm_admin::secret::Pki::open_or_create(&other.join("pki")).unwrap();
+        let other_der = rustls_pki_types::CertificateDer::from_pem_file(other_pki.ca_path())
+            .unwrap()
+            .to_vec();
+        assert_ne!(other_der, ca_der);
+        let mut c = cfg_of("");
+        c.data_dir = other;
         assert_eq!(gateway_ca(&c), None);
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -3315,6 +3483,61 @@ mod tests {
         ] {
             assert!(p(bad).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn site_ca_is_accepted_off_loopback() {
+        let cfg = Config::from_json5(
+            r#"{ site: "s", gateway: { listen: "0.0.0.0:8445", tls: "site_ca" } }"#,
+        )
+        .unwrap();
+        assert_eq!(cfg.gateway.unwrap().tls, Some(GatewayTls::SiteCa));
+    }
+
+    #[test]
+    fn site_ca_excludes_tls_files() {
+        for files in [
+            r#"tls_cert: "/x.pem""#,
+            r#"tls_key: "/x.key""#,
+            r#"tls_cert: "/x.pem", tls_key: "/x.key""#,
+        ] {
+            let e = Config::from_json5(&format!(
+                r#"{{ site: "s", gateway: {{ listen: "0.0.0.0:8445", tls: "site_ca", {files} }} }}"#
+            ))
+            .unwrap_err();
+            assert!(
+                e.to_string()
+                    .contains(r#"gateway: tls "site_ca" excludes tls_cert and tls_key"#),
+                "{files}: {e}"
+            );
+        }
+        assert!(Config::from_json5(
+            r#"{ site: "s", gateway: { listen: "0.0.0.0:8445", tls: "acme" } }"#
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn tls_files_of_site_ca() {
+        let g = |gw: &str| {
+            Config::from_json5(&format!(r#"{{ site: "s", gateway: {gw} }}"#))
+                .unwrap()
+                .gateway
+                .unwrap()
+        };
+        let d = std::path::Path::new("/d");
+        assert_eq!(
+            g(r#"{ listen: "0.0.0.0:8445", tls: "site_ca" }"#).tls_files(d),
+            Some((
+                PathBuf::from("/d/gateway/tls.pem"),
+                PathBuf::from("/d/gateway/tls.key")
+            ))
+        );
+        assert_eq!(
+            g(r#"{ listen: "0.0.0.0:8445", tls_cert: "/x.pem", tls_key: "/x.key" }"#).tls_files(d),
+            Some((PathBuf::from("/x.pem"), PathBuf::from("/x.key")))
+        );
+        assert_eq!(g(r#"{ listen: "127.0.0.1:8445" }"#).tls_files(d), None);
     }
 
     /// The structs `wyrmd.json5` is read into, each with the key path of
@@ -3631,6 +3854,15 @@ mod tests {
         let cfg =
             Config::from_json5(r#"{ site: "s", packages: { keep_previous_days: 30 } }"#).unwrap();
         assert_eq!(cfg.packages.keep_previous_days, 30);
+        // ADR 0051 §1: no seed unless a directory is named
+        assert_eq!(cfg.packages.seed_dir, None);
+        let cfg =
+            Config::from_json5(r#"{ site: "s", packages: { seed_dir: "/usr/share/wyrm/seed" } }"#)
+                .unwrap();
+        assert_eq!(
+            cfg.packages.seed_dir.as_deref(),
+            Some(std::path::Path::new("/usr/share/wyrm/seed"))
+        );
     }
 
     #[test]

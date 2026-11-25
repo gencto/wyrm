@@ -33,6 +33,13 @@ enum Cmd {
     /// Print what this binary is as JSON: version, target, the SCHEMA of
     /// each control-plane store, the replication protocol (no wyrmd.json5).
     ReleaseInfo,
+    /// Make a one-time setup code for the first admin (ADR 0051 §3): print the code on
+    /// the first line and its hash (64 hex digits) on the second, nothing else (no
+    /// wyrmd.json5). The hash goes into the file `gateway.setup_file` names; the code is
+    /// what the person types in Studio. Keep the code secret, and keep the hash like a
+    /// secret of the image: whoever holds it can prove a CA to a client that has the
+    /// code (`/api/info` `setup_proof`).
+    SetupCode,
     /// Before every start of a broker that updates itself (the unit's
     /// ExecStartPre, run as <prefix>/bin/wyrmd-guard): take back an update
     /// whose trial failed (ADR 0048).
@@ -226,6 +233,14 @@ pub fn main(test: Option<crate::update::TestBuild>) -> Result<ExitCode, Error> {
                 "{}",
                 serde_json::to_string(wyrm_admin::release::identity()).map_err(|e| e.to_string())?
             );
+            return Ok(ExitCode::SUCCESS);
+        }
+        Some(Cmd::SetupCode) => {
+            // before the log subscriber: nothing but the two lines on stdout
+            let (code, hash) =
+                wyrm_gateway::setup::new_code().map_err(|e| format!("setup code: {e}"))?;
+            let code = zeroize::Zeroizing::new(code);
+            println!("{}\n{}", code.as_str(), wyrm_core::hex::encode(hash));
             return Ok(ExitCode::SUCCESS);
         }
         Some(Cmd::InstallLayout { prefix }) => {

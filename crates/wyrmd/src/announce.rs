@@ -89,7 +89,7 @@ pub fn plan(cfg: &Config, up: &[String]) -> Option<Plan> {
             .unwrap_or_default(),
         txt: txt(
             &cfg.site,
-            g.tls_cert.is_some(),
+            g.tls_files(&cfg.data_dir).is_some(),
             ca.as_deref(),
             pair_of(cfg).as_deref(),
             up,
@@ -160,7 +160,7 @@ impl Drop for Announcer {
 }
 
 /// A DNS label from a site name (`[a-z0-9-]`).
-fn host_label(site: &str) -> String {
+pub(crate) fn host_label(site: &str) -> String {
     site.chars()
         .map(|c| {
             if c.is_ascii_alphanumeric() {

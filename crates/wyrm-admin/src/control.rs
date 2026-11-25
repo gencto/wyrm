@@ -55,6 +55,7 @@ pub mod broker_update;
 pub mod replication;
 pub mod restore;
 pub mod restore_broker;
+pub mod seed;
 pub mod send;
 mod signers;
 mod updates;
@@ -145,6 +146,9 @@ pub struct ControlConfig {
     pub keep_previous_days: u32,
     /// The broker's own update (`updates` in `wyrmd.json5`, ADR 0048 §2).
     pub updates: broker_update::UpdateConfig,
+    /// The seed directory (`packages.seed_dir`, ADR 0051 §1): link packages
+    /// installed on the first start ([`seed`]). `None`: no seed.
+    pub seed_dir: Option<PathBuf>,
 }
 
 /// Role grants of the user gateway, shown and edited from `sys` (Get and
@@ -2419,6 +2423,7 @@ impl Control {
             embedded,
             tasks,
             history: self.history.clone(),
+            ctl: self.clone(),
         })
     }
 }
@@ -2433,11 +2438,31 @@ pub struct Attached {
     embedded: Running,
     tasks: Vec<JoinHandle<()>>,
     history: Arc<wyrm_history::Historian>,
+    ctl: Arc<Control>,
 }
 
 impl Attached {
     pub fn ctx(&self) -> Option<&LinkCtx> {
         self.admin.as_ref().map(|a| a.ctx())
+    }
+
+    /// Install the seed packages (`packages.seed_dir`, ADR 0051 §1) once:
+    /// called when the router listens, so a process package's link reaches
+    /// the link endpoint. A task of this router: a rebuild or a stop ends
+    /// it, and the next router starts it again ([`seed`] says why that is
+    /// safe). Nothing without a seed directory or once `seed.done` is there.
+    pub fn start_seed(&mut self) {
+        let (Some(dir), Some(admin)) = (self.ctl.cfg.seed_dir.clone(), self.admin.as_ref()) else {
+            return;
+        };
+        let worker = Admin {
+            ctx: admin.ctx().clone(),
+            ctl: self.ctl.clone(),
+            embedded: self.embedded.clone(),
+            _broker: None,
+        };
+        self.tasks
+            .push(tokio::spawn(async move { worker.apply_seed(&dir).await }));
     }
 
     /// Stop watchers, embedded links and the responder. Processes keep running.
@@ -7511,6 +7536,7 @@ mod tests {
             backups: Default::default(),
             keep_previous_days: 7,
             updates: Default::default(),
+            seed_dir: None,
         };
         tweak(&mut cfg);
         Control::open(cfg, host).unwrap().0

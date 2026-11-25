@@ -248,6 +248,8 @@ pub struct CertFiles {
 pub struct Pki {
     dir: PathBuf,
     issuer: Issuer<'static, EcKey>,
+    /// The DER of `ca.pem`: a kept certificate must verify under it.
+    ca_der: Vec<u8>,
 }
 
 impl Pki {
@@ -257,13 +259,15 @@ impl Pki {
     pub fn open_or_create(dir: &Path) -> Result<Self, Error> {
         let pd = private_dir_of(dir)?;
         let (cert_p, key_p) = (dir.join("ca.pem"), dir.join("ca.key"));
-        let issuer = match (
+        let (issuer, ca_der) = match (
             std::fs::read_to_string(&cert_p),
             std::fs::read_to_string(&key_p),
         ) {
             (Ok(cert), Ok(key)) => {
                 let key = EcKey::from_pem(&key)?;
-                Issuer::from_ca_cert_pem(&cert, key)?
+                let (_, block) = x509_parser::pem::parse_x509_pem(cert.trim().as_bytes())
+                    .map_err(|e| format!("{}: {e}", cert_p.display()))?;
+                (Issuer::from_ca_cert_pem(&cert, key)?, block.contents)
             }
             _ => {
                 let key = EcKey::generate()?;
@@ -275,12 +279,13 @@ impl Pki {
                 let cert = p.self_signed(&key)?;
                 pd.write_file("ca.key", key.pem().as_bytes(), false)?;
                 pd.write_file("ca.pem", cert.pem().as_bytes(), false)?;
-                Issuer::new(p, key)
+                (Issuer::new(p, key), cert.der().to_vec())
             }
         };
         Ok(Self {
             dir: dir.to_path_buf(),
             issuer,
+            ca_der,
         })
     }
 
@@ -289,8 +294,10 @@ impl Pki {
     }
 
     /// Issue a certificate for `cn` into `out/<name>.{pem,key}`, or keep the one there while it
-    /// is for `cn` and `sans` and has more than [`RENEW_BEFORE_S`] left (security review D-1: a
-    /// certificate issued once and never renewed takes the site down after a year).
+    /// is for `cn` and `sans`, has more than [`RENEW_BEFORE_S`] left (security review D-1: a
+    /// certificate issued once and never renewed takes the site down after a year), the key
+    /// beside it is its own and this CA signed it (a CA replaced by a restore has the same
+    /// name). Issues in one process never interleave.
     /// `server`: TLS server auth with `sans` (IPs and DNS names).
     pub fn issue(
         &self,
@@ -300,7 +307,28 @@ impl Pki {
         out: &Path,
         name: &str,
     ) -> Result<CertFiles, Error> {
-        self.issue_lasting(cn, sans, server, out, name, LEAF_DAYS)
+        let terms = Terms {
+            days: LEAF_DAYS,
+            matching: SanMatch::Covers,
+        };
+        self.issue_matching(cn, sans, server, out, name, terms)
+    }
+
+    /// As [`Pki::issue`], but the one there is kept only while it names exactly `sans`: a
+    /// name no longer asked for (an address the host lost) makes a new certificate.
+    pub fn issue_exact(
+        &self,
+        cn: &str,
+        sans: &[String],
+        server: bool,
+        out: &Path,
+        name: &str,
+    ) -> Result<CertFiles, Error> {
+        let terms = Terms {
+            days: LEAF_DAYS,
+            matching: SanMatch::Exact,
+        };
+        self.issue_matching(cn, sans, server, out, name, terms)
     }
 
     pub fn issue_lasting(
@@ -312,19 +340,43 @@ impl Pki {
         name: &str,
         days: i64,
     ) -> Result<CertFiles, Error> {
+        let terms = Terms {
+            days,
+            matching: SanMatch::Covers,
+        };
+        self.issue_matching(cn, sans, server, out, name, terms)
+    }
+
+    fn issue_matching(
+        &self,
+        cn: &str,
+        sans: &[String],
+        server: bool,
+        out: &Path,
+        name: &str,
+        terms: Terms,
+    ) -> Result<CertFiles, Error> {
         let files = CertFiles {
             cert: out.join(format!("{name}.pem")),
             key: out.join(format!("{name}.key")),
         };
-        if files.key.exists() {
-            if let Ok(pem) = std::fs::read_to_string(&files.cert) {
-                if still_good(&pem, cn, sans) {
-                    return Ok(files);
-                }
+        // one issue at a time in this process: two into the same directory (a rebuild's
+        // new watch while the old one still writes) would leave the key of one beside the
+        // certificate of the other
+        let _one = ISSUING.lock().unwrap_or_else(|p| p.into_inner());
+        if let (Ok(pem), Ok(key_pem)) = (
+            std::fs::read_to_string(&files.cert),
+            std::fs::read_to_string(&files.key).map(Zeroizing::new),
+        ) {
+            if still_good(&pem, cn, sans, terms.matching)
+                && key_matches(&pem, &key_pem)
+                && signed_by(&pem, &self.ca_der)
+            {
+                return Ok(files);
             }
         }
         let key = EcKey::generate()?;
-        let p = leaf_params(cn, sans, server, days)?;
+        let p = leaf_params(cn, sans, server, terms.days)?;
         let cert = p.signed_by(&key, &self.issuer)?;
         // `out` (`pki`, `links/<id>`, `operators`) as a private directory: never
         // through a symlink, the key written through its handle
@@ -361,8 +413,61 @@ pub fn cert_due(pem: &str) -> bool {
     cert_not_after(pem).is_none_or(|t| t - now_s_signed() < RENEW_BEFORE_S)
 }
 
-/// A kept certificate is for `cn`, names every one of `sans` and is not due.
-fn still_good(pem: &str, cn: &str, sans: &[String]) -> bool {
+/// Held while a certificate is issued or kept (see [`Pki::issue`]).
+static ISSUING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// The key in `key_pem` is the one of the certificate in `cert_pem`. Two files written one
+/// after the other can be torn apart by a power cut: such a pair is issued again.
+fn key_matches(cert_pem: &str, key_pem: &str) -> bool {
+    use rcgen::PublicKeyData;
+    let Ok(key) = EcKey::from_pem(key_pem) else {
+        return false;
+    };
+    let Ok((_, block)) = x509_parser::pem::parse_x509_pem(cert_pem.trim().as_bytes()) else {
+        return false;
+    };
+    let Ok(cert) = block.parse_x509() else {
+        return false;
+    };
+    cert.public_key().raw == key.subject_public_key_info().as_slice()
+}
+
+/// The certificate in `cert_pem` was signed by the CA whose certificate is `ca_der`: its
+/// issuer is that CA's subject and its signature verifies under that CA's key. Every site
+/// CA is `CN=wyrm-ca`, so after a restore of another site's keys only the signature tells
+/// a certificate of the old CA from one of the new.
+pub fn signed_by(cert_pem: &str, ca_der: &[u8]) -> bool {
+    let Ok((_, block)) = x509_parser::pem::parse_x509_pem(cert_pem.trim().as_bytes()) else {
+        return false;
+    };
+    let Ok(cert) = block.parse_x509() else {
+        return false;
+    };
+    let Ok((_, ca)) = x509_parser::parse_x509_certificate(ca_der) else {
+        return false;
+    };
+    cert.issuer().as_raw() == ca.subject().as_raw()
+        && cert.verify_signature(Some(ca.public_key())).is_ok()
+}
+
+/// How long a new certificate lasts and how a kept one's names must match.
+#[derive(Debug, Clone, Copy)]
+struct Terms {
+    days: i64,
+    matching: SanMatch,
+}
+
+/// How the names of a kept certificate must match the names asked for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SanMatch {
+    /// It names every one asked for, and may name more.
+    Covers,
+    /// It names the ones asked for and no other.
+    Exact,
+}
+
+/// A kept certificate is for `cn`, names `sans` as `matching` says and is not due.
+fn still_good(pem: &str, cn: &str, sans: &[String], matching: SanMatch) -> bool {
     use x509_parser::extensions::GeneralName;
     let Ok((_, block)) = x509_parser::pem::parse_x509_pem(pem.trim().as_bytes()) else {
         return false;
@@ -402,12 +507,17 @@ fn still_good(pem: &str, cn: &str, sans: &[String]) -> bool {
                 .collect()
         })
         .unwrap_or_default();
-    sans.iter().all(|s| {
-        let s = s
-            .parse::<std::net::IpAddr>()
-            .map_or(s.clone(), |ip| ip.to_string());
-        have.contains(&s)
-    })
+    let want: std::collections::BTreeSet<String> = sans
+        .iter()
+        .map(|s| {
+            s.parse::<std::net::IpAddr>()
+                .map_or(s.clone(), |ip| ip.to_string())
+        })
+        .collect();
+    match matching {
+        SanMatch::Covers => want.iter().all(|s| have.contains(s)),
+        SanMatch::Exact => want == have.into_iter().collect(),
+    }
 }
 
 /// Parameters of a leaf certificate for `cn`: `days` from today.
@@ -674,6 +784,105 @@ mod tests {
         let again = read();
         pki.issue("broker:t", &more, true, &out, "srv").unwrap();
         assert_ne!(read(), again);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// `issue` keeps a certificate that names more than asked; `issue_exact` issues one
+    /// for exactly the names asked (an address the host lost leaves the certificate), and
+    /// keeps it while they stay.
+    #[test]
+    fn exact_issue_drops_names_no_longer_asked_for() {
+        let dir = std::env::temp_dir().join(format!("wyrm-pki-exact-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let pki = Pki::open_or_create(&dir).unwrap();
+        let out = dir.join("out");
+        let read = || std::fs::read_to_string(out.join("srv.pem")).unwrap();
+        let both = vec!["10.0.0.7".to_owned(), "host.local".to_owned()];
+        let one = vec!["host.local".to_owned()];
+        pki.issue("gateway:s", &both, true, &out, "srv").unwrap();
+        let wide = read();
+        pki.issue("gateway:s", &one, true, &out, "srv").unwrap();
+        assert_eq!(read(), wide, "issue: a superset is kept");
+        let files = pki
+            .issue_exact("gateway:s", &one, true, &out, "srv")
+            .unwrap();
+        assert_eq!(files.cert, out.join("srv.pem"));
+        let narrow = read();
+        assert_ne!(narrow, wide, "issue_exact: a superset is issued again");
+        pki.issue_exact("gateway:s", &one, true, &out, "srv")
+            .unwrap();
+        assert_eq!(read(), narrow, "issue_exact: the same names are kept");
+        pki.issue_exact("gateway:s", &both, true, &out, "srv")
+            .unwrap();
+        assert_ne!(read(), narrow, "issue_exact: a new name is issued again");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A certificate another CA of the same name signed (a restore of another site's keys)
+    /// is issued again by this one; one of this CA is kept, byte for byte.
+    #[test]
+    fn a_certificate_of_another_ca_is_issued_again() {
+        let dir = std::env::temp_dir().join(format!("wyrm-pki-other-ca-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let old = Pki::open_or_create(&dir.join("old")).unwrap();
+        let new = Pki::open_or_create(&dir.join("new")).unwrap();
+        let out = dir.join("out");
+        let read = || std::fs::read_to_string(out.join("srv.pem")).unwrap();
+        let names = vec!["host.local".to_owned()];
+        old.issue_exact("gateway:s", &names, true, &out, "srv")
+            .unwrap();
+        let of_old = read();
+        assert!(signed_by(&of_old, &old.ca_der));
+        assert!(!signed_by(&of_old, &new.ca_der), "same name, other key");
+        new.issue_exact("gateway:s", &names, true, &out, "srv")
+            .unwrap();
+        let of_new = read();
+        assert_ne!(of_new, of_old, "issued again by the new CA");
+        assert!(signed_by(&of_new, &new.ca_der));
+        new.issue_exact("gateway:s", &names, true, &out, "srv")
+            .unwrap();
+        assert_eq!(read(), of_new, "kept while the CA is the same");
+        // a CA read back from its files is the same CA
+        let again = Pki::open_or_create(&dir.join("new")).unwrap();
+        assert_eq!(again.ca_der, new.ca_der);
+        again
+            .issue_exact("gateway:s", &names, true, &out, "srv")
+            .unwrap();
+        assert_eq!(read(), of_new, "kept after a restart");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A key that is not the certificate's (a power cut between the two writes) makes a
+    /// new pair, even for the same names.
+    #[test]
+    fn a_torn_pair_is_issued_again() {
+        use rcgen::PublicKeyData;
+        let dir = std::env::temp_dir().join(format!("wyrm-pki-torn-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let pki = Pki::open_or_create(&dir).unwrap();
+        let out = dir.join("out");
+        let names = vec!["host.local".to_owned()];
+        pki.issue_exact("gateway:s", &names, true, &out, "srv")
+            .unwrap();
+        let first = std::fs::read_to_string(out.join("srv.pem")).unwrap();
+        pki.issue_exact("gateway:s", &names, true, &out, "srv")
+            .unwrap();
+        assert_eq!(std::fs::read_to_string(out.join("srv.pem")).unwrap(), first);
+        // the key of another pair beside the certificate
+        let other = EcKey::generate().unwrap();
+        std::fs::write(out.join("srv.key"), other.pem().as_bytes()).unwrap();
+        assert!(!key_matches(&first, &other.pem()));
+        pki.issue_exact("gateway:s", &names, true, &out, "srv")
+            .unwrap();
+        let cert = std::fs::read_to_string(out.join("srv.pem")).unwrap();
+        let key = std::fs::read_to_string(out.join("srv.key")).unwrap();
+        assert_ne!(cert, first, "issued again");
+        assert!(key_matches(&cert, &key), "a matching pair");
+        let key = EcKey::from_pem(&key).unwrap();
+        assert_ne!(
+            key.subject_public_key_info(),
+            other.subject_public_key_info()
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

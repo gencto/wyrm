@@ -635,7 +635,7 @@ impl Gateway {
             return false;
         }
         if self.cfg.tls.is_some() {
-            scheme == "https" && self.cert_names.iter().any(|n| name_matches(n, &host))
+            scheme == "https" && self.tls_names().iter().any(|n| name_matches(n, &host))
         } else {
             scheme == "http" && matches!(host.as_str(), "127.0.0.1" | "localhost" | "::1")
         }

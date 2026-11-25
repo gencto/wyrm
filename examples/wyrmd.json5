@@ -30,6 +30,15 @@
   // peers: { upstream: [{ site: "central", endpoint: "quic/10.0.0.1:7449", ca: "central-ca.pem", cert: "broker.pem", key: "broker.key" }], upstream_val_hz: 1 },
   // User gateway; first admin password from WYRM_GATEWAY_ADMIN_PASSWORD.
   // gateway: { listen: "127.0.0.1:8080", admin_user: "admin" },
+  // Off loopback it needs TLS: tls_cert/tls_key, or a certificate the broker
+  // issues from its site CA into data_dir/gateway/tls.{pem,key} (ADR 0051):
+  // gateway: { listen: "0.0.0.0:8445", tls: "site_ca", admin_user: "admin" },
+  // A broker from an image: the first admin from a one-time setup code whose
+  // hash (wyrmd setup-code) is in setup_file; taken in and deleted at start.
+  // gateway: { listen: "0.0.0.0:8445", tls: "site_ca", setup_file: "/etc/wyrm/setup" },
+  // A broker from an image: link packages installed once, on the first start,
+  // from seed_dir/seed.json (ADR 0051; data_dir/seed.done marks it done).
+  // packages: { seed_dir: "/usr/share/wyrm/seed" },
   // The embedded scheduler at downstream/scheduler (ADR 0022); on by default.
   // scheduler: { enabled: true, store_mb: 64 },
   // Hard rlimits each process link sets on itself (0 = none; core dumps are
