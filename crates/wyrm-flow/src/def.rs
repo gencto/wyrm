@@ -8,19 +8,306 @@
 //! block's nodes under the ids `<instance>/<inner>` and rewires the edges, so the checks, the
 //! runtime, `watch` and `preview` only ever see plain nodes.
 
-use crate::nodes::{self, PortType, Ports};
+use crate::nodes::{self, ConfigError, PortType, Ports};
+use crate::scope::ScopeError;
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
+use wyrm_core::keyspace::KeyError;
+use wyrm_core::value::IntError;
 use wyrm_core::{Perm, Value};
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
-#[error("{0}")]
-pub struct DefError(pub String);
+/// Why a flow definition is refused: the compiler's steps (spec 06) and the host's own checks
+/// of it. Every text starts with the place in the definition (`nodes.sum.expr: …`). A
+/// variant that carries the refusal of another check (a node's config, a script, a scope, a
+/// key segment, a number) holds it as a typed field `error` and prints it after the place;
+/// it is not also the `source()`, so a printer of the error chain does not say it twice.
+#[derive(Debug, thiserror::Error)]
+pub enum DefError {
+    // ----- the shape of a value; `at` is its place -----
+    #[error("{at}: expected a map")]
+    NotMap { at: String },
+    #[error("{at}: expected an array")]
+    NotArray { at: String },
+    #[error("{at}: expected a string")]
+    NotText { at: String },
+    /// A string that is not there or is something else (`id`, a node's `type`).
+    #[error("{at}: required string")]
+    RequiredText { at: String },
+    #[error("{at}: unknown field")]
+    UnknownField { at: String },
+    #[error("{at}: expected a non-negative integer ({error})")]
+    NotUint { at: String, error: IntError },
+    /// A permission's name that is none.
+    #[error("{at}: unknown permission {name}")]
+    UnknownPerm { at: String, name: String },
+    /// A permission's code that is none.
+    #[error("{at}: permission out of range")]
+    PermRange { at: String },
+    /// An edge's end or an inner input that is not `<node>.<port>`; holds the text as written.
+    #[error("{at}: expected \"<node>.<port>\", got {got:?}")]
+    Endpoint { at: String, got: String },
+    /// A node id that is not `[A-Za-z0-9_]+` (in every part, for an inner node).
+    #[error("{at}: id must be [A-Za-z0-9_]+")]
+    NodeId { at: String },
+    /// `at` is the node.
+    #[error("{at}.placement: only \"local\" is supported")]
+    Placement { at: String },
+    #[error("{at}: expected two strings")]
+    EdgeNotText { at: String },
+    #[error("{at}: expected [from, to]")]
+    EdgeNotPair { at: String },
+
+    // ----- `layout` -----
+    #[error("{at}: {entries} entries > {MAX_LAYOUT}")]
+    LayoutEntries { at: String, entries: usize },
+    #[error("{at}: a key of {len} bytes > {MAX_LAYOUT_KEY}")]
+    LayoutKey { at: String, len: usize },
+    #[error("{at}: expected [x, y]")]
+    LayoutPoint { at: String },
+
+    // ----- the limits (spec 06 step 8) -----
+    #[error("{at}: {count} nodes > {MAX_NODES}")]
+    Nodes { at: String, count: usize },
+    #[error("{at}: {count} edges > {MAX_EDGES}")]
+    Edges { at: String, count: usize },
+    #[error("nodes: more than {MAX_NODES} nodes with the custom blocks expanded")]
+    ExpandedNodes,
+    #[error("edges: more than {MAX_EDGES} edges with the custom blocks expanded")]
+    ExpandedEdges,
+    #[error("blocks: at most {MAX_BLOCKS}")]
+    Blocks,
+
+    // ----- a custom block (`blocks.<name>`) -----
+    #[error("{at}: a block's name must be [A-Za-z0-9_]+")]
+    BlockName { at: String },
+    #[error("{at}: {count} instances of custom blocks > {MAX_BLOCK_INSTANCES}")]
+    Instances { at: String, count: usize },
+    /// An edge, an input or an output of the block names a node it does not have.
+    #[error("{at}: {block} has no inner node {node}")]
+    NoInnerNode {
+        at: String,
+        block: String,
+        node: String,
+    },
+    /// More inputs, or outputs, than [`MAX_BLOCK_PORTS`].
+    #[error("{at}: at most {MAX_BLOCK_PORTS}")]
+    BlockPorts { at: String },
+    /// `at` is the input or output.
+    #[error("{at}.name: required, [A-Za-z0-9_]+")]
+    PortName { at: String },
+    #[error("{at}.name: {name} twice")]
+    PortTwice { at: String, name: String },
+    /// An item of an input's `to` that is no string.
+    #[error("{at}: expected \"<node>.<port>\"")]
+    InnerInput { at: String },
+    /// An input's `to` that is none, empty or longer than [`MAX_BLOCK_FANOUT`].
+    #[error("{at}: required, 1..={MAX_BLOCK_FANOUT} inner inputs \"<node>.<port>\"")]
+    InnerInputs { at: String },
+    #[error("{at}.name: {name} is an input (an input is an output of its name already)")]
+    OutputIsInput { at: String, name: String },
+    #[error("{at}.from: required \"<node>.<port>\"")]
+    OutputFrom { at: String },
+    /// Holds the block and the loop, from the block back to it.
+    #[error("blocks.{block}: a custom block may not contain itself ({})", .lap.join(" → "))]
+    InItself { block: String, lap: Vec<String> },
+
+    // ----- an instance of a custom block; `node` is its id (`a1`, `a1/inner`) -----
+    #[error("nodes.{node}.type: unknown custom block {block} (define it in blocks)")]
+    UnknownBlock { node: String, block: String },
+    #[error(
+        "nodes.{node}: custom blocks nest at most {MAX_BLOCK_DEPTH} deep \
+         (does {block} contain itself?)"
+    )]
+    TooDeep { node: String, block: String },
+    #[error("nodes.{node}.{field}: unknown field (an instance of a custom block takes values)")]
+    InstanceField { node: String, field: String },
+    #[error("nodes.{node}.values: expected a map {{<input>: <value>}}")]
+    InstanceValues { node: String },
+    #[error("nodes.{node}.values.{input}: {block} has no input {input}")]
+    NoBlockInput {
+        node: String,
+        block: String,
+        input: String,
+    },
+    /// The constant of the input does not go into an inner input.
+    #[error("nodes.{node}.values.{input}: {error}")]
+    Constant {
+        node: String,
+        input: String,
+        error: ConstantError,
+    },
+    /// An edge from an instance's output it does not have; `at` is the edge.
+    #[error("{at}: {node} ({block}) has no output {port}")]
+    InstanceOutput {
+        at: String,
+        node: String,
+        block: String,
+        port: String,
+    },
+    /// An edge into an instance's input it does not have; `at` is the edge.
+    #[error("{at}: {node} ({block}) has no input {port}")]
+    InstanceInput {
+        at: String,
+        node: String,
+        block: String,
+        port: String,
+    },
+    /// The walk from an instance's output to a plain one went past its bound.
+    #[error("{at}: custom blocks nest too deep")]
+    Walk { at: String },
+
+    // ----- the fields of `~def` -----
+    #[error("id: {0}")]
+    Id(KeyError),
+    #[error("enabled: expected true or false")]
+    Enabled,
+    #[error("{at}: drop_oldest | drop_newest | block")]
+    Overflow { at: String },
+    #[error("{at}: 1..=65536")]
+    Queue { at: String },
+    /// `permissions.maxperm` above write (spec 06 step 7: flows never do config operations).
+    #[error("permissions.maxperm: at most write")]
+    MaxPermConfig,
+
+    // ----- the checks of the expanded definition (steps 2–8) -----
+    #[error("nodes.{node}: a node and a custom block share the id")]
+    SharedId { node: String },
+    /// A node's config is refused (step 3).
+    #[error("nodes.{node}: {error}")]
+    Node { node: String, error: ConfigError },
+    /// `at` is the edge.
+    #[error("{at}: unknown node {node}")]
+    UnknownNode { at: String, node: String },
+    #[error("{at}: {node} has no output {port}")]
+    NoOutput {
+        at: String,
+        node: String,
+        port: String,
+    },
+    #[error("{at}: {node} has no input {port}")]
+    NoInput {
+        at: String,
+        node: String,
+        port: String,
+    },
+    /// The types of an edge's two ends do not fit.
+    #[error(
+        "{at}: {}.{} ({}) does not fit {}.{} ({})",
+        .from.node, .from.port, .from_type.name(), .to.node, .to.port, .to_type.name()
+    )]
+    NoFit {
+        at: String,
+        from: Endpoint,
+        from_type: PortType,
+        to: Endpoint,
+        to_type: PortType,
+    },
+    /// A read field driven by a port without its scope (ADR 0040 §1).
+    #[error(
+        "nodes.{node}.{scope}: required when in.{field} is wired (the keys it may \
+         read, as downstream/<link>/**)"
+    )]
+    NoScope {
+        node: String,
+        field: &'static str,
+        scope: &'static str,
+    },
+    /// Holds the loop, from a node back to it (step 5).
+    #[error("edges: cycle {} (only a delay node may close a loop)", .cycle.join(" → "))]
+    Cycle { cycle: Vec<String> },
+    /// A node's script does not compile (step 6); the error names its field.
+    #[error("nodes.{node}.{error}")]
+    Script { node: String, error: ConfigError },
+    /// `maxperm` below what a command sink needs (step 7): the code and the name, as a code
+    /// read as a name (2 for write) misleads.
+    #[error(
+        "permissions.maxperm: {} ({}) < {} ({}) needed by nodes.{node} ({ty}); \
+         the codes are 0 none, 1 list, 2 read, 3 write, or give the name",
+        .maxperm.code(), .maxperm.name(), .need.code(), .need.name()
+    )]
+    MaxPerm {
+        maxperm: Perm,
+        need: Perm,
+        node: String,
+        ty: String,
+    },
+    /// A `publish` inside a custom block used more than once (ADR 0040 §3).
+    #[error(
+        "nodes.{node}.node: {name} is published by {other} too (a custom block \
+         with a publish can be used once)"
+    )]
+    PublishedTwice {
+        node: String,
+        name: String,
+        other: String,
+    },
+    #[error("nodes: window.max_samples total {total} > {MAX_WINDOW_SAMPLES}")]
+    WindowSamples { total: u64 },
+
+    // ----- the host's checks (`engine`) -----
+    /// A `wasm` node's config, or its artifact, is refused; the error names its field.
+    #[error("nodes.{node}.{error}")]
+    Wasm { node: String, error: ConfigError },
+    /// A source's scope is none; `param` is the config key (`key_scope`, …).
+    #[error("nodes.{node}.{param}: {error}")]
+    Scope {
+        node: String,
+        param: &'static str,
+        error: ScopeError,
+    },
+    /// A source names a key outside this site's sections (security review FLOW-1).
+    #[error(
+        "nodes.{node}.{param}: a source reads this site's downstream, dataflows or storage only \
+         (wy/{site}/downstream/…), not {full}"
+    )]
+    SourceOutside {
+        node: String,
+        param: &'static str,
+        site: String,
+        full: String,
+    },
+}
 
 pub type Result<T> = core::result::Result<T, DefError>;
 
-fn err<T>(msg: impl Into<String>) -> Result<T> {
-    Err(DefError(msg.into()))
+impl DefError {
+    fn not_map(at: impl Into<String>) -> Self {
+        Self::NotMap { at: at.into() }
+    }
+
+    fn not_array(at: impl Into<String>) -> Self {
+        Self::NotArray { at: at.into() }
+    }
+
+    fn not_text(at: impl Into<String>) -> Self {
+        Self::NotText { at: at.into() }
+    }
+
+    fn required_text(at: impl Into<String>) -> Self {
+        Self::RequiredText { at: at.into() }
+    }
+
+    fn unknown_field(at: impl Into<String>) -> Self {
+        Self::UnknownField { at: at.into() }
+    }
+
+    fn node_id(at: impl Into<String>) -> Self {
+        Self::NodeId { at: at.into() }
+    }
+
+    fn nodes(at: impl Into<String>, count: usize) -> Self {
+        Self::Nodes {
+            at: at.into(),
+            count,
+        }
+    }
+
+    fn edges(at: impl Into<String>, count: usize) -> Self {
+        Self::Edges {
+            at: at.into(),
+            count,
+        }
+    }
 }
 
 pub type Map = BTreeMap<String, Value>;
@@ -152,24 +439,28 @@ pub const MAX_NODES: usize = 1000;
 fn as_map<'a>(v: &'a Value, path: &str) -> Result<&'a Map> {
     match v {
         Value::Map(m) => Ok(m),
-        _ => err(format!("{path}: expected a map")),
+        _ => Err(DefError::not_map(path)),
     }
 }
 
 fn uint(v: &Value, path: &str) -> Result<u64> {
     match v.to_int() {
         Ok(n) => Ok(n),
-        Err(e) => err(format!("{path}: expected a non-negative integer ({e})")),
+        Err(error) => Err(DefError::NotUint {
+            at: path.into(),
+            error,
+        }),
     }
 }
 
 fn perm(v: &Value, path: &str) -> Result<Perm> {
     match v {
-        Value::Str(s) => {
-            Perm::from_name(s).ok_or_else(|| DefError(format!("{path}: unknown permission {s}")))
-        }
+        Value::Str(s) => Perm::from_name(s).ok_or_else(|| DefError::UnknownPerm {
+            at: path.into(),
+            name: s.clone(),
+        }),
         v => Perm::try_from(u8::try_from(uint(v, path)?).unwrap_or(u8::MAX))
-            .map_err(|_| DefError(format!("{path}: permission out of range"))),
+            .map_err(|_| DefError::PermRange { at: path.into() }),
     }
 }
 
@@ -183,7 +474,10 @@ fn endpoint(s: &str, path: &str) -> Result<Endpoint> {
             node: node.to_owned(),
             port: port.to_owned(),
         }),
-        _ => err(format!("{path}: expected \"<node>.<port>\", got {s:?}")),
+        _ => Err(DefError::Endpoint {
+            at: path.into(),
+            got: s.into(),
+        }),
     }
 }
 
@@ -194,17 +488,17 @@ fn parse_nodes(v: Option<&Value>, at: &str) -> Result<BTreeMap<String, RawNode>>
     for (nid, nv) in as_map(v, at)? {
         let path = format!("{at}.{nid}");
         if nid.contains('/') {
-            return err(format!("{path}: id must be [A-Za-z0-9_]+"));
+            return Err(DefError::node_id(path));
         }
         let mut cfg = as_map(nv, &path)?.clone();
         let ty = match cfg.remove("type") {
             Some(Value::Str(t)) => t,
-            _ => return err(format!("{path}.type: required string")),
+            _ => return Err(DefError::required_text(format!("{path}.type"))),
         };
         match cfg.remove("placement") {
             None => {}
             Some(Value::Str(p)) if p == "local" => {}
-            Some(_) => return err(format!("{path}.placement: only \"local\" is supported")),
+            Some(_) => return Err(DefError::Placement { at: path }),
         }
         nodes.insert(nid.clone(), (ty, cfg));
     }
@@ -216,7 +510,7 @@ fn parse_edges(v: Option<&Value>, at: &str) -> Result<Vec<Edge>> {
     let mut edges = Vec::new();
     let Some(ev) = v else { return Ok(edges) };
     let Value::Array(items) = ev else {
-        return err(format!("{at}: expected an array"));
+        return Err(DefError::not_array(at));
     };
     for (i, e) in items.iter().enumerate() {
         let path = format!("{at}[{i}]");
@@ -226,9 +520,9 @@ fn parse_edges(v: Option<&Value>, at: &str) -> Result<Vec<Edge>> {
                     from: endpoint(a, &path)?,
                     to: endpoint(b, &path)?,
                 }),
-                _ => return err(format!("{path}: expected two strings")),
+                _ => return Err(DefError::EdgeNotText { at: path }),
             },
-            _ => return err(format!("{path}: expected [from, to]")),
+            _ => return Err(DefError::EdgeNotPair { at: path }),
         }
     }
     Ok(edges)
@@ -247,19 +541,26 @@ fn check_layout(v: Option<&Value>, at: &str) -> Result<()> {
     let Some(l) = v else { return Ok(()) };
     let l = as_map(l, at)?;
     if l.len() > MAX_LAYOUT {
-        return err(format!("{at}: {} entries > {MAX_LAYOUT}", l.len()));
+        return Err(DefError::LayoutEntries {
+            at: at.into(),
+            entries: l.len(),
+        });
     }
     for (n, xy) in l {
         if n.len() > MAX_LAYOUT_KEY {
-            return err(format!(
-                "{at}: a key of {} bytes > {MAX_LAYOUT_KEY}",
-                n.len()
-            ));
+            return Err(DefError::LayoutKey {
+                at: at.into(),
+                len: n.len(),
+            });
         }
         match xy {
             Value::Array(a)
                 if a.len() == 2 && a.iter().all(|v| v.as_f64().is_some_and(f64::is_finite)) => {}
-            _ => return err(format!("{at}.{n}: expected [x, y]")),
+            _ => {
+                return Err(DefError::LayoutPoint {
+                    at: format!("{at}.{n}"),
+                })
+            }
         }
     }
     Ok(())
@@ -269,7 +570,7 @@ fn text(v: Option<&Value>, at: &str) -> Result<Option<String>> {
     match v {
         None => Ok(None),
         Some(Value::Str(s)) => Ok(Some(s.clone())),
-        Some(_) => err(format!("{at}: expected a string")),
+        Some(_) => Err(DefError::not_text(at)),
     }
 }
 
@@ -279,7 +580,7 @@ fn text(v: Option<&Value>, at: &str) -> Result<Option<String>> {
 pub fn parse_block(name: &str, v: &Value) -> Result<BlockDef> {
     let at = format!("blocks.{name}");
     if !node_id_ok(name) {
-        return err(format!("{at}: a block's name must be [A-Za-z0-9_]+"));
+        return Err(DefError::BlockName { at });
     }
     let m = as_map(v, &at)?;
     const KNOWN: &[&str] = &[
@@ -291,36 +592,41 @@ pub fn parse_block(name: &str, v: &Value) -> Result<BlockDef> {
         "layout",
     ];
     if let Some(k) = m.keys().find(|k| !KNOWN.contains(&k.as_str())) {
-        return err(format!("{at}.{k}: unknown field"));
+        return Err(DefError::unknown_field(format!("{at}.{k}")));
     }
     let nodes = parse_nodes(m.get("nodes"), &format!("{at}.nodes"))?;
     for id in nodes.keys() {
         if !node_id_ok(id) {
-            return err(format!("{at}.nodes.{id}: id must be [A-Za-z0-9_]+"));
+            return Err(DefError::node_id(format!("{at}.nodes.{id}")));
         }
     }
     if nodes.len() > MAX_NODES {
-        return err(format!("{at}.nodes: {} nodes > {MAX_NODES}", nodes.len()));
+        return Err(DefError::nodes(format!("{at}.nodes"), nodes.len()));
     }
     let uses = nodes
         .values()
         .filter(|(ty, _)| ty.starts_with(BLOCK_PREFIX))
         .count();
     if uses > MAX_BLOCK_INSTANCES {
-        return err(format!(
-            "{at}.nodes: {uses} instances of custom blocks > {MAX_BLOCK_INSTANCES}"
-        ));
+        return Err(DefError::Instances {
+            at: format!("{at}.nodes"),
+            count: uses,
+        });
     }
     let edges = parse_edges(m.get("edges"), &format!("{at}.edges"))?;
     if edges.len() > MAX_EDGES {
-        return err(format!("{at}.edges: {} edges > {MAX_EDGES}", edges.len()));
+        return Err(DefError::edges(format!("{at}.edges"), edges.len()));
     }
     check_layout(m.get("layout"), &format!("{at}.layout"))?;
     let inner = |e: &Endpoint, path: &str| -> Result<()> {
         if nodes.contains_key(&e.node) {
             Ok(())
         } else {
-            err(format!("{path}: {name} has no inner node {}", e.node))
+            Err(DefError::NoInnerNode {
+                at: path.into(),
+                block: name.into(),
+                node: e.node.clone(),
+            })
         }
     };
     for (i, e) in edges.iter().enumerate() {
@@ -332,10 +638,12 @@ pub fn parse_block(name: &str, v: &Value) -> Result<BlockDef> {
         let list = match m.get(key) {
             None => return Ok(Vec::new()),
             Some(Value::Array(a)) => a,
-            Some(_) => return err(format!("{at}.{key}: expected an array")),
+            Some(_) => return Err(DefError::not_array(format!("{at}.{key}"))),
         };
         if list.len() > MAX_BLOCK_PORTS {
-            return err(format!("{at}.{key}: at most {MAX_BLOCK_PORTS}"));
+            return Err(DefError::BlockPorts {
+                at: format!("{at}.{key}"),
+            });
         }
         let mut out: Vec<(String, &Map, String)> = Vec::new();
         for (i, item) in list.iter().enumerate() {
@@ -343,10 +651,13 @@ pub fn parse_block(name: &str, v: &Value) -> Result<BlockDef> {
             let pm = as_map(item, &path)?;
             let pname = match pm.get("name") {
                 Some(Value::Str(n)) if node_id_ok(n) => n.clone(),
-                _ => return err(format!("{path}.name: required, [A-Za-z0-9_]+")),
+                _ => return Err(DefError::PortName { at: path }),
             };
             if out.iter().any(|(n, _, _)| *n == pname) {
-                return err(format!("{path}.name: {pname} twice"));
+                return Err(DefError::PortTwice {
+                    at: path,
+                    name: pname,
+                });
             }
             text(pm.get("description"), &format!("{path}.description"))?;
             out.push((pname, pm, path));
@@ -359,7 +670,7 @@ pub fn parse_block(name: &str, v: &Value) -> Result<BlockDef> {
             .keys()
             .find(|k| !["name", "to", "default", "description"].contains(&k.as_str()))
         {
-            return err(format!("{path}.{k}: unknown field"));
+            return Err(DefError::unknown_field(format!("{path}.{k}")));
         }
         let to_at = format!("{path}.to");
         let to: Vec<Endpoint> = match pm.get("to") {
@@ -368,14 +679,10 @@ pub fn parse_block(name: &str, v: &Value) -> Result<BlockDef> {
                 .iter()
                 .map(|v| match v {
                     Value::Str(x) => endpoint(x, &to_at),
-                    _ => err(format!("{to_at}: expected \"<node>.<port>\"")),
+                    _ => Err(DefError::InnerInput { at: to_at.clone() }),
                 })
                 .collect::<Result<_>>()?,
-            _ => {
-                return err(format!(
-                    "{to_at}: required, 1..={MAX_BLOCK_FANOUT} inner inputs \"<node>.<port>\""
-                ))
-            }
+            _ => return Err(DefError::InnerInputs { at: to_at }),
         };
         for t in &to {
             inner(t, &to_at)?;
@@ -392,16 +699,17 @@ pub fn parse_block(name: &str, v: &Value) -> Result<BlockDef> {
             .keys()
             .find(|k| !["name", "from", "description"].contains(&k.as_str()))
         {
-            return err(format!("{path}.{k}: unknown field"));
+            return Err(DefError::unknown_field(format!("{path}.{k}")));
         }
         if inputs.iter().any(|i| i.name == pname) {
-            return err(format!(
-                "{path}.name: {pname} is an input (an input is an output of its name already)"
-            ));
+            return Err(DefError::OutputIsInput {
+                at: path,
+                name: pname,
+            });
         }
         let from = match pm.get("from") {
             Some(Value::Str(x)) => endpoint(x, &format!("{path}.from"))?,
-            _ => return err(format!("{path}.from: required \"<node>.<port>\"")),
+            _ => return Err(DefError::OutputFrom { at: path }),
         };
         inner(&from, &format!("{path}.from"))?;
         outputs.push(BlockOutput { name: pname, from });
@@ -442,18 +750,6 @@ struct Expander<'a> {
     instances: BTreeMap<String, Instance>,
 }
 
-fn too_many_nodes<T>() -> Result<T> {
-    err(format!(
-        "nodes: more than {MAX_NODES} nodes with the custom blocks expanded"
-    ))
-}
-
-fn too_many_edges<T>() -> Result<T> {
-    err(format!(
-        "edges: more than {MAX_EDGES} edges with the custom blocks expanded"
-    ))
-}
-
 /// No custom block holds itself, directly or through others: checked on the definitions,
 /// before anything is expanded. The error names the loop.
 fn check_no_recursion(blocks: &BTreeMap<String, BlockDef>) -> Result<()> {
@@ -467,12 +763,12 @@ fn check_no_recursion(blocks: &BTreeMap<String, BlockDef>) -> Result<()> {
             return Ok(());
         }
         if let Some(pos) = path.iter().position(|p| *p == name) {
-            let mut lap: Vec<&str> = path[pos..].to_vec();
-            lap.push(name);
-            return err(format!(
-                "blocks.{name}: a custom block may not contain itself ({})",
-                lap.join(" → ")
-            ));
+            let mut lap: Vec<String> = path[pos..].iter().map(|p| (*p).to_owned()).collect();
+            lap.push(name.to_owned());
+            return Err(DefError::InItself {
+                block: name.to_owned(),
+                lap,
+            });
         }
         let Some(def) = blocks.get(name) else {
             return Ok(()); // an unknown block is reported where it is used
@@ -516,43 +812,43 @@ impl Expander<'_> {
             // every node and every instance, at every depth, is charged against the limit
             // while the definition is expanded: a block that multiplies stops here
             if self.nodes.len() + self.instances.len() >= MAX_NODES {
-                return too_many_nodes();
+                return Err(DefError::ExpandedNodes);
             }
             let Some(name) = ty.strip_prefix(BLOCK_PREFIX) else {
                 self.nodes.insert(path, (ty, cfg));
                 continue;
             };
             let blocks = self.blocks;
-            let def = blocks.get(name).ok_or_else(|| {
-                DefError(format!(
-                    "nodes.{path}.type: unknown custom block {name} (define it in blocks)"
-                ))
+            let def = blocks.get(name).ok_or_else(|| DefError::UnknownBlock {
+                node: path.clone(),
+                block: name.to_owned(),
             })?;
             if depth >= MAX_BLOCK_DEPTH {
-                return err(format!(
-                    "nodes.{path}: custom blocks nest at most {MAX_BLOCK_DEPTH} deep \
-                     (does {name} contain itself?)"
-                ));
+                return Err(DefError::TooDeep {
+                    node: path,
+                    block: name.to_owned(),
+                });
             }
             if let Some(k) = cfg.keys().find(|k| *k != "values") {
-                return err(format!(
-                    "nodes.{path}.{k}: unknown field (an instance of a custom block takes values)"
-                ));
+                return Err(DefError::InstanceField {
+                    node: path,
+                    field: k.clone(),
+                });
             }
             let values = match cfg.get("values") {
                 None => Map::new(),
                 Some(Value::Map(m)) => m.clone(),
-                Some(_) => {
-                    return err(format!(
-                        "nodes.{path}.values: expected a map {{<input>: <value>}}"
-                    ))
-                }
+                Some(_) => return Err(DefError::InstanceValues { node: path }),
             };
             if let Some(k) = values
                 .keys()
                 .find(|k| def.inputs.iter().all(|i| i.name != **k))
             {
-                return err(format!("nodes.{path}.values.{k}: {name} has no input {k}"));
+                return Err(DefError::NoBlockInput {
+                    node: path,
+                    block: name.to_owned(),
+                    input: k.clone(),
+                });
             }
             // an input's constant becomes the constant of every inner input it feeds
             let mut inner = def.nodes.clone();
@@ -563,8 +859,10 @@ impl Expander<'_> {
                     .or(input.default.as_ref());
                 let Some(v) = constant else { continue };
                 for t in &input.to {
-                    constant_into(&mut inner, t, v).map_err(|e| {
-                        DefError(format!("nodes.{path}.values.{}: {e}", input.name))
+                    constant_into(&mut inner, t, v).map_err(|error| DefError::Constant {
+                        node: path.clone(),
+                        input: input.name.clone(),
+                        error,
                     })?;
                 }
             }
@@ -598,7 +896,7 @@ impl Expander<'_> {
             )?;
         }
         if self.edges.len() + edges.len() > MAX_EDGES {
-            return too_many_edges();
+            return Err(DefError::ExpandedEdges);
         }
         for (i, e) in edges.iter().enumerate() {
             let at = if prefix.is_empty() {
@@ -639,13 +937,15 @@ impl Expander<'_> {
                     });
                 }
             } else {
-                return err(format!(
-                    "{at}: {} ({}) has no output {}",
-                    e.node, inst.block, e.port
-                ));
+                return Err(DefError::InstanceOutput {
+                    at: at.into(),
+                    node: e.node,
+                    block: inst.block.clone(),
+                    port: e.port,
+                });
             }
         }
-        err(format!("{at}: custom blocks nest too deep"))
+        Err(DefError::Walk { at: at.into() })
     }
 
     /// The plain inputs an edge into `e` feeds, added to `out`. `room`: how many edges the
@@ -653,17 +953,20 @@ impl Expander<'_> {
     fn targets(&self, e: &Endpoint, at: &str, out: &mut Vec<Endpoint>, room: usize) -> Result<()> {
         let Some(inst) = self.instances.get(&e.node) else {
             if out.len() >= room {
-                return too_many_edges();
+                return Err(DefError::ExpandedEdges);
             }
             out.push(e.clone());
             return Ok(());
         };
-        let to = inst.inputs.get(&e.port).ok_or_else(|| {
-            DefError(format!(
-                "{at}: {} ({}) has no input {}",
-                e.node, inst.block, e.port
-            ))
-        })?;
+        let to = inst
+            .inputs
+            .get(&e.port)
+            .ok_or_else(|| DefError::InstanceInput {
+                at: at.into(),
+                node: e.node.clone(),
+                block: inst.block.clone(),
+                port: e.port.clone(),
+            })?;
         for t in to {
             self.targets(t, at, out, room)?;
         }
@@ -673,7 +976,7 @@ impl Expander<'_> {
 
 /// Why a constant of a custom block's input does not go into an inner input.
 #[derive(Debug, thiserror::Error)]
-enum ConstantError {
+pub enum ConstantError {
     /// Holds the inner node.
     #[error("no inner node {0}")]
     NoInner(String),
@@ -742,23 +1045,23 @@ pub fn parse(v: &Value) -> Result<FlowDef> {
         "blocks",
     ];
     if let Some(k) = m.keys().find(|k| !KNOWN.contains(&k.as_str())) {
-        return err(format!("{k}: unknown field"));
+        return Err(DefError::unknown_field(k));
     }
     let id = match m.get("id") {
         Some(Value::Str(s)) => s.clone(),
-        _ => return err("id: required string"),
+        _ => return Err(DefError::required_text("id")),
     };
-    wyrm_core::keyspace::validate_segment(&id).map_err(|e| DefError(format!("id: {e}")))?;
+    wyrm_core::keyspace::validate_segment(&id).map_err(DefError::Id)?;
     let version = uint(m.get("version").unwrap_or(&Value::UInt(0)), "version")?;
     let enabled = match m.get("enabled") {
         None => true,
         Some(Value::Bool(b)) => *b,
-        Some(_) => return err("enabled: expected true or false"),
+        Some(_) => return Err(DefError::Enabled),
     };
     let description = match m.get("description") {
         None => None,
         Some(Value::Str(s)) => Some(s.clone()),
-        Some(_) => return err("description: expected a string"),
+        Some(_) => return Err(DefError::not_text("description")),
     };
     // Where an editor draws each node (spec 06 0.2.5): `{<node>: [x, y]}`.
     // Not part of a node, so moving one keeps its state on a hot swap.
@@ -767,7 +1070,7 @@ pub fn parse(v: &Value) -> Result<FlowDef> {
     if let Some(bv) = m.get("blocks") {
         let bm = as_map(bv, "blocks")?;
         if bm.len() > MAX_BLOCKS {
-            return err(format!("blocks: at most {MAX_BLOCKS}"));
+            return Err(DefError::Blocks);
         }
         for (name, def) in bm {
             blocks.insert(name.clone(), parse_block(name, def)?);
@@ -777,11 +1080,11 @@ pub fn parse(v: &Value) -> Result<FlowDef> {
     let top = parse_nodes(m.get("nodes"), "nodes")?;
     // step 8's limits, taken here already: nothing is expanded beyond them
     if top.len() > MAX_NODES {
-        return err(format!("nodes: {} nodes > {MAX_NODES}", top.len()));
+        return Err(DefError::nodes("nodes", top.len()));
     }
     let top_edges = parse_edges(m.get("edges"), "edges")?;
     if top_edges.len() > MAX_EDGES {
-        return err(format!("edges: {} edges > {MAX_EDGES}", top_edges.len()));
+        return Err(DefError::edges("edges", top_edges.len()));
     }
     let mut x = Expander {
         blocks: &blocks,
@@ -829,14 +1132,12 @@ pub fn parse(v: &Value) -> Result<FlowDef> {
                         Value::Str(s) => Overflow::from_name(s),
                         _ => None,
                     }
-                    .ok_or_else(|| {
-                        DefError(format!("{path}: drop_oldest | drop_newest | block"))
-                    })?;
+                    .ok_or_else(|| DefError::Overflow { at: path.clone() })?;
                 }
                 "queue" => {
                     let q = uint(v, &path)?;
                     if !(1..=65_536).contains(&q) {
-                        return err(format!("{path}: 1..=65536"));
+                        return Err(DefError::Queue { at: path });
                     }
                     policy.queue = q as usize;
                 }
@@ -848,7 +1149,7 @@ pub fn parse(v: &Value) -> Result<FlowDef> {
                             Duration::from_secs(uint(b, &format!("{path}.backoff_max_s"))?.max(1));
                     }
                 }
-                _ => return err(format!("{path}: unknown field")),
+                _ => return Err(DefError::unknown_field(path)),
             }
         }
     }
@@ -861,11 +1162,11 @@ pub fn parse(v: &Value) -> Result<FlowDef> {
                     maxperm = perm(v, "permissions.maxperm")?;
                     // spec 06 step 7: flows never do config operations
                     if maxperm > Perm::Write {
-                        return err("permissions.maxperm: at most write");
+                        return Err(DefError::MaxPermConfig);
                     }
                 }
                 "token" => {}
-                _ => return err(format!("permissions.{k}: unknown field")),
+                _ => return Err(DefError::unknown_field(format!("permissions.{k}"))),
             }
         }
     }
@@ -890,18 +1191,19 @@ pub fn check(def: &FlowDef) -> Result<BTreeMap<String, Ports>> {
     // an inner node of a custom block has the id `<instance>/<inner>`
     for id in def.nodes.keys().chain(def.instances.keys()) {
         if !id.split('/').all(node_id_ok) {
-            return err(format!("nodes.{id}: id must be [A-Za-z0-9_]+"));
+            return Err(DefError::node_id(format!("nodes.{id}")));
         }
     }
     if let Some(id) = def.instances.keys().find(|i| def.nodes.contains_key(*i)) {
-        return err(format!(
-            "nodes.{id}: a node and a custom block share the id"
-        ));
+        return Err(DefError::SharedId { node: id.clone() });
     }
     // 3. types and configs
     let mut ports = BTreeMap::new();
     for (id, n) in &def.nodes {
-        let p = nodes::ports(&n.ty, &n.cfg).map_err(|e| DefError(format!("nodes.{id}: {e}")))?;
+        let p = nodes::ports(&n.ty, &n.cfg).map_err(|error| DefError::Node {
+            node: id.clone(),
+            error,
+        })?;
         ports.insert(id.clone(), p);
     }
     // 4. edges → existing ports, compatible types
@@ -913,29 +1215,34 @@ pub fn check(def: &FlowDef) -> Result<BTreeMap<String, Ports>> {
             .unwrap_or_else(|| format!("edges[{i}]"));
         let from = ports
             .get(&e.from.node)
-            .ok_or_else(|| DefError(format!("{path}: unknown node {}", e.from.node)))?;
-        let to = ports
-            .get(&e.to.node)
-            .ok_or_else(|| DefError(format!("{path}: unknown node {}", e.to.node)))?;
-        let ft = from.output(&e.from.port).ok_or_else(|| {
-            DefError(format!(
-                "{path}: {} has no output {}",
-                e.from.node, e.from.port
-            ))
+            .ok_or_else(|| DefError::UnknownNode {
+                at: path.clone(),
+                node: e.from.node.clone(),
+            })?;
+        let to = ports.get(&e.to.node).ok_or_else(|| DefError::UnknownNode {
+            at: path.clone(),
+            node: e.to.node.clone(),
         })?;
-        let tt = to
-            .input(&e.to.port)
-            .ok_or_else(|| DefError(format!("{path}: {} has no input {}", e.to.node, e.to.port)))?;
+        let ft = from
+            .output(&e.from.port)
+            .ok_or_else(|| DefError::NoOutput {
+                at: path.clone(),
+                node: e.from.node.clone(),
+                port: e.from.port.clone(),
+            })?;
+        let tt = to.input(&e.to.port).ok_or_else(|| DefError::NoInput {
+            at: path.clone(),
+            node: e.to.node.clone(),
+            port: e.to.port.clone(),
+        })?;
         if !ft.fits(tt) {
-            return err(format!(
-                "{path}: {}.{} ({}) does not fit {}.{} ({})",
-                e.from.node,
-                e.from.port,
-                ft.name(),
-                e.to.node,
-                e.to.port,
-                tt.name()
-            ));
+            return Err(DefError::NoFit {
+                at: path,
+                from: e.from.clone(),
+                from_type: ft,
+                to: e.to.clone(),
+                to_type: tt,
+            });
         }
     }
     // 4a. a read field that a port drives needs its scope (ADR 0040 §1)
@@ -943,13 +1250,13 @@ pub fn check(def: &FlowDef) -> Result<BTreeMap<String, Ports>> {
         let Some(n) = def.nodes.get(&e.to.node) else {
             continue;
         };
-        for (field, scope) in nodes::read_fields(&n.ty) {
-            if e.to.port == format!("in.{field}") && !n.cfg.contains_key(*scope) {
-                return err(format!(
-                    "nodes.{}.{scope}: required when in.{field} is wired (the keys it may \
-                     read, as downstream/<link>/**)",
-                    e.to.node
-                ));
+        for &(field, scope) in nodes::read_fields(&n.ty) {
+            if e.to.port == format!("in.{field}") && !n.cfg.contains_key(scope) {
+                return Err(DefError::NoScope {
+                    node: e.to.node.clone(),
+                    field,
+                    scope,
+                });
             }
         }
     }
@@ -967,30 +1274,26 @@ pub fn check(def: &FlowDef) -> Result<BTreeMap<String, Ports>> {
     for start in def.nodes.keys() {
         let mut path = Vec::new();
         if let Some(cycle) = find_cycle(start, &adj, &mut path, &mut done) {
-            return err(format!(
-                "edges: cycle {} (only a delay node may close a loop)",
-                cycle.join(" → ")
-            ));
+            return Err(DefError::Cycle { cycle });
         }
     }
     // 6. rhai compiles (expression, filter)
     for (id, n) in &def.nodes {
-        nodes::check_script(&n.ty, &n.cfg).map_err(|e| DefError(format!("nodes.{id}.{e}")))?;
+        nodes::check_script(&n.ty, &n.cfg).map_err(|error| DefError::Script {
+            node: id.clone(),
+            error,
+        })?;
     }
     // 7. maxperm covers every command sink
     for (id, n) in &def.nodes {
         if let Some(need) = nodes::needs_perm(&n.ty) {
             if def.maxperm < need {
-                // the code and the name: a code read as a name (2 for write) misleads
-                return err(format!(
-                    "permissions.maxperm: {} ({}) < {} ({}) needed by nodes.{id} ({}); \
-                     the codes are 0 none, 1 list, 2 read, 3 write, or give the name",
-                    def.maxperm.code(),
-                    def.maxperm.name(),
-                    need.code(),
-                    need.name(),
-                    n.ty
-                ));
+                return Err(DefError::MaxPerm {
+                    maxperm: def.maxperm,
+                    need,
+                    node: id.clone(),
+                    ty: n.ty.clone(),
+                });
             }
         }
     }
@@ -1002,16 +1305,17 @@ pub fn check(def: &FlowDef) -> Result<BTreeMap<String, Ports>> {
         };
         if let Some(other) = published.insert(name, id) {
             if id.contains('/') || other.contains('/') {
-                return err(format!(
-                    "nodes.{id}.node: {name} is published by {other} too (a custom block \
-                     with a publish can be used once)"
-                ));
+                return Err(DefError::PublishedTwice {
+                    node: id.clone(),
+                    name: name.clone(),
+                    other: (*other).to_owned(),
+                });
             }
         }
     }
     // 8. memory limits
     if def.nodes.len() > MAX_NODES {
-        return err(format!("nodes: {} nodes > {MAX_NODES}", def.nodes.len()));
+        return Err(DefError::nodes("nodes", def.nodes.len()));
     }
     let samples: u64 = def
         .nodes
@@ -1020,9 +1324,7 @@ pub fn check(def: &FlowDef) -> Result<BTreeMap<String, Ports>> {
         .map(|n| nodes::max_samples(&n.cfg).unwrap_or(u64::MAX))
         .fold(0u64, u64::saturating_add);
     if samples > MAX_WINDOW_SAMPLES {
-        return err(format!(
-            "nodes: window.max_samples total {samples} > {MAX_WINDOW_SAMPLES}"
-        ));
+        return Err(DefError::WindowSamples { total: samples });
     }
     let _ = PortType::Any;
     Ok(ports)

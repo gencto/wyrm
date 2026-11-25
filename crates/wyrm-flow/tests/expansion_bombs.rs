@@ -151,7 +151,7 @@ fn expansion_bombs_are_refused_after_bounded_work() {
                 .num("ms", took.as_secs_f64() * 1e3)
                 .note(what)
         );
-        assert!(e.0.contains(why), "{what}: {e}");
+        assert!(e.to_string().contains(why), "{what}: {e}");
         assert!(
             (a.calls as f64) < UNITS * unit,
             "{what}: {} allocations to refuse it; a definition at the limits compiles with {unit}",

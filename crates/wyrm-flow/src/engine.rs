@@ -574,11 +574,11 @@ impl State {
                     if let Some(f) = self.flows.get_mut(&id) {
                         // still running: keep `run`; the error describes the draft and stays
                         // in every `~val` (the counters' too) until the next state change
-                        f.refused = Some(e.0.clone());
+                        f.refused = Some(e.to_string());
                         self.publish_val(&id).await;
                     }
                 }
-                return Err(LinkError::invalid_parameter(e.0));
+                return Err(LinkError::invalid_parameter(e.to_string()));
             }
         };
         let id = def.id.clone();
@@ -655,7 +655,10 @@ fn compile(
     for (id, n) in d.nodes.iter().filter(|(_, n)| n.ty == "wasm") {
         crate::nodes::WasmCfg::parse(&n.cfg)
             .and_then(|w| w.check(artifacts))
-            .map_err(|e| def::DefError(format!("nodes.{id}.{e}")))?;
+            .map_err(|error| def::DefError::Wasm {
+                node: id.clone(),
+                error,
+            })?;
     }
     Ok((d, p))
 }
@@ -763,19 +766,25 @@ pub fn command_targets(raw: &Value, site: &str) -> Result<Vec<String>, def::DefE
 /// at deploy, at validate and when a stored flow starts again.
 fn check_sources(def: &FlowDef, site: &str) -> def::Result<()> {
     for r in crate::scope::reads(def) {
-        let at = format!("nodes.{}.{}", r.node, r.param);
         if r.scope {
             // a scope is a key expression inside the same sections (ADR 0040 §1)
-            crate::scope::Scope::new(site, &r.key)
-                .map_err(|e| def::DefError(format!("{at}: {e}")))?;
+            if let Err(error) = crate::scope::Scope::new(site, &r.key) {
+                return Err(def::DefError::Scope {
+                    node: r.node,
+                    param: r.param,
+                    error,
+                });
+            }
             continue;
         }
         let full = crate::scope::full_key(site, &r.key);
         if !crate::scope::in_sections(site, &full) {
-            return Err(def::DefError(format!(
-                "{at}: a source reads this site's downstream, dataflows or storage only \
-                 (wy/{site}/downstream/…), not {full}"
-            )));
+            return Err(def::DefError::SourceOutside {
+                node: r.node,
+                param: r.param,
+                site: site.to_owned(),
+                full,
+            });
         }
     }
     Ok(())
@@ -1062,7 +1071,7 @@ fn library_with(
     name: &str,
     block: &Value,
 ) -> Result<BTreeMap<String, Value>, LinkError> {
-    let bad = |e: def::DefError| LinkError::invalid_parameter(e.0);
+    let bad = |e: def::DefError| LinkError::invalid_parameter(e.to_string());
     let mut found: BTreeMap<String, Value> = BTreeMap::new();
     let mut todo: Vec<String> = def::parse_block(name, block)
         .map_err(bad)?
@@ -1354,7 +1363,7 @@ impl Link for Engine {
                 // a draft: compiled as for deploy, run with the caller's rights to read, never
                 // stored; no `maxperm` or proofs, as nothing is written
                 let (def, ports) = compile(&def_arg()?, &st.host.artifacts, &st.host.site)
-                    .map_err(|e| LinkError::invalid_parameter(e.0))?;
+                    .map_err(|e| LinkError::invalid_parameter(e.to_string()))?;
                 reads_flow(&def, who, &self.site)?;
                 let only = live::only(&args, &def)?;
                 let period = live::period(&args)?;
@@ -1404,7 +1413,7 @@ impl Link for Engine {
                     ),
                 ]));
                 compile(&probe, &st.host.artifacts, &st.host.site)
-                    .map_err(|e| LinkError::invalid_parameter(e.0))?;
+                    .map_err(|e| LinkError::invalid_parameter(e.to_string()))?;
                 st.host.apply(Op::PutBlock {
                     name: name.clone(),
                     cbor,
@@ -1487,7 +1496,7 @@ impl Link for Engine {
                     }
                     Err(e) => {
                         m.insert("ok".into(), Value::Bool(false));
-                        m.insert("error".into(), Value::Str(e.0));
+                        m.insert("error".into(), Value::Str(e.to_string()));
                     }
                 }
                 drop(st);
@@ -1925,7 +1934,7 @@ mod tests {
         ]))
         .unwrap();
         let e = check_sources(&bad, "s").unwrap_err();
-        assert!(e.0.contains("nodes.a.key_scope"), "{e}");
+        assert!(e.to_string().contains("nodes.a.key_scope"), "{e}");
     }
 
     /// ADR 0040 §2 (security review): `trigger` asks of the caller what the deploy asked of

@@ -1458,12 +1458,12 @@ mod tests {
         .unwrap();
         // a number echo does not fit a bool input
         let e = crate::def::compile(&def(&[("r.precision", "l.in")])).unwrap_err();
-        assert!(e.0.contains("does not fit"), "{e}");
+        assert!(e.to_string().contains("does not fit"), "{e}");
         // a parameter's port has no echo of its own; neither has latch's parameter reset
         let e = crate::def::compile(&def(&[("r.in.precision", "x.in")])).unwrap_err();
-        assert!(e.0.contains("has no output"), "{e}");
+        assert!(e.to_string().contains("has no output"), "{e}");
         // an echo loop is a cycle
         let e = crate::def::compile(&def(&[("b.in", "b.in")])).unwrap_err();
-        assert!(e.0.contains("cycle"), "{e}");
+        assert!(e.to_string().contains("cycle"), "{e}");
     }
 }
