@@ -65,24 +65,70 @@ impl Default for UpdatesSection {
     }
 }
 
+/// Why the `updates` section is refused when the configuration is read.
+#[derive(thiserror::Error)]
+pub enum UpdatesError {
+    /// `updates.keys` holds something that is no release key.
+    #[error(transparent)]
+    Keys(#[from] release::ReleaseError),
+    #[error("updates.trial_s {0}: 10 to 3600")]
+    TrialS(u64),
+    #[error("updates.keep_days {0}: 1 to 90")]
+    KeepDays(u32),
+    #[error(transparent)]
+    Channel(#[from] ChannelError),
+    #[error("updates.mode \"external\" needs updates.channel (where new versions are listed)")]
+    NoChannel,
+}
+
+/// Why `updates.channel` is refused ([`check_channel`]). No text repeats
+/// the URL.
+#[derive(Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ChannelError {
+    /// The text is no URL of the kind a channel is.
+    #[error("{}", CHANNEL_HELP)]
+    Url(#[source] UrlError),
+    /// A URL, but too long, without a path, or plain http to another host.
+    #[error("{}", CHANNEL_HELP)]
+    Form,
+    #[error(
+        "updates.channel: no name or password before the host (the URL is shown in sys and in \
+         backups); a channel is a public URL"
+    )]
+    Credentials,
+    #[error(
+        "updates.channel: no query string and no fragment (the URL is shown in sys and in \
+         backups); a channel is a public URL"
+    )]
+    Query,
+}
+
+const CHANNEL_HELP: &str = "updates.channel: https://<host>/<path to releases.json> \
+    (plain http only to a loopback address)";
+
+crate::debug_as_text!(
+    UpdatesError,
+    ChannelError,
+    StateCheckError,
+    VerifySelfError,
+    StandbyUpdateError,
+);
+
 impl UpdatesSection {
-    pub fn validate(&self) -> Result<(), String> {
+    pub fn validate(&self) -> Result<(), UpdatesError> {
         let mode = self.mode;
-        release::pinned_keys(&self.keys).map_err(said)?;
+        release::pinned_keys(&self.keys)?;
         if !(10..=3600).contains(&self.trial_s) {
-            return Err(format!("updates.trial_s {}: 10 to 3600", self.trial_s));
+            return Err(UpdatesError::TrialS(self.trial_s));
         }
         if !(1..=90).contains(&self.keep_days) {
-            return Err(format!("updates.keep_days {}: 1 to 90", self.keep_days));
+            return Err(UpdatesError::KeepDays(self.keep_days));
         }
         if let Some(c) = &self.channel {
             check_channel(c)?;
         }
         if mode == UpdateMode::External && self.channel.is_none() {
-            return Err(
-                "updates.mode \"external\" needs updates.channel (where new versions are listed)"
-                    .into(),
-            );
+            return Err(UpdatesError::NoChannel);
         }
         Ok(())
     }
@@ -93,41 +139,33 @@ impl UpdatesSection {
 /// password before the host and no `?query` or `#fragment`: the URL is
 /// shown in `sys` and in the config copy of a backup, so it holds no
 /// credential. The message never repeats the URL.
-pub fn check_channel(url: &str) -> Result<(), String> {
-    const HELP: &str = "updates.channel: https://<host>/<path to releases.json> \
-        (plain http only to a loopback address)";
+pub fn check_channel(url: &str) -> Result<(), ChannelError> {
     if url.len() > 1024 {
-        return Err(HELP.into());
+        return Err(ChannelError::Form);
     }
     let u = HttpUrl::parse(url, SchemeCase::Lower).map_err(|e| match e {
-        UrlError::Credentials => "updates.channel: no name or password before the host (the URL \
-             is shown in sys and in backups); a channel is a public URL"
-            .to_owned(),
-        _ => HELP.to_owned(),
+        UrlError::Credentials => ChannelError::Credentials,
+        e => ChannelError::Url(e),
     })?;
     if u.url.query.is_some() || u.url.fragment.is_some() {
-        return Err(
-            "updates.channel: no query string and no fragment (the URL is shown in sys and in \
-             backups); a channel is a public URL"
-                .into(),
-        );
+        return Err(ChannelError::Query);
     }
     if u.url.path.is_empty() {
-        return Err(HELP.into());
+        return Err(ChannelError::Form);
     }
     if !u.tls && !matches!(u.host().text().as_str(), "127.0.0.1" | "localhost" | "::1") {
-        return Err(HELP.into());
+        return Err(ChannelError::Form);
     }
     Ok(())
 }
 
 /// What the admin needs of `cfg` for the broker's update.
-pub fn update_config(cfg: &Config) -> Result<UpdateConfig, String> {
+pub fn update_config(cfg: &Config) -> Result<UpdateConfig, UpdatesError> {
     let u = &cfg.updates;
     Ok(UpdateConfig {
         mode: u.mode,
         channel: u.channel.clone(),
-        keys: release::pinned_keys(&u.keys).map_err(said)?,
+        keys: release::pinned_keys(&u.keys)?,
         trial_s: u.trial_s,
         keep_days: u.keep_days,
         // the new binary is run from another directory
@@ -182,7 +220,7 @@ pub fn identity(test: Option<&TestBuild>) -> Identity {
 /// copy laid out as a `data_dir`, made by the version that runs) with this
 /// binary's own state types: every record is decoded and applied. The live
 /// `data_dir` is not opened.
-pub fn check_state(dir: &Path) -> Result<Vec<String>, String> {
+pub fn check_state(dir: &Path) -> Result<Vec<String>, StateCheckError> {
     use wyrm_state::Store;
     let mut done = Vec::new();
     for (store, key_file) in STATE_STORES {
@@ -197,10 +235,26 @@ pub fn check_state(dir: &Path) -> Result<Vec<String>, String> {
             "flows/state" => Store::<wyrm_flow::store::FlowStore>::open(&at, &key).map(|s| s.lsn()),
             _ => Store::<wyrm_gateway::users::UserDb>::open(&at, &key).map(|s| s.lsn()),
         }
-        .map_err(|e| format!("{store}: {e}"))?;
+        .map_err(|source| StateCheckError::Store { store, source })?;
         done.push(format!("{store}: {lsn} records"));
     }
     Ok(done)
+}
+
+/// Why a copy of the control plane is not read by this binary
+/// ([`check_state`]).
+#[derive(thiserror::Error)]
+pub enum StateCheckError {
+    /// The key file of a store.
+    #[error(transparent)]
+    Key(#[from] crate::KeyFileError),
+    /// The store did not open with this binary's state type.
+    #[error("{store}: {source}")]
+    Store {
+        store: &'static str,
+        #[source]
+        source: wyrm_state::StateError,
+    },
 }
 
 /// Unix seconds this process started (set by [`trial_start`]).
@@ -237,7 +291,7 @@ pub fn trial_start(data_dir: &Path, trial_s: u64) {
 /// it lets a version start; this is the second look, for a unit without
 /// the guard. A binary outside the layout is not checked (it cannot update
 /// itself either).
-pub fn verify_self(cfg: &Config, exe: &Path) -> Result<(), String> {
+pub fn verify_self(cfg: &Config, exe: &Path) -> Result<(), VerifySelfError> {
     if cfg.updates.mode != UpdateMode::SelfUpdate {
         return Ok(());
     }
@@ -245,12 +299,21 @@ pub fn verify_self(cfg: &Config, exe: &Path) -> Result<(), String> {
     let Ok(layout) = Layout::of_broker(exe, me) else {
         return Ok(());
     };
-    let keys = release::pinned_keys(&cfg.updates.keys).map_err(said)?;
-    layout.verify(me, &keys).map_err(|e| {
-        format!(
-            "{e}. This broker does not start: updates.mode \"self\" runs only a verified binary"
-        )
-    })
+    let keys = release::pinned_keys(&cfg.updates.keys)?;
+    layout
+        .verify(me, &keys)
+        .map_err(VerifySelfError::NotVerified)
+}
+
+/// Why a broker in `updates.mode: "self"` does not start ([`verify_self`]).
+#[derive(thiserror::Error)]
+pub enum VerifySelfError {
+    /// `updates.keys` holds something that is no release key.
+    #[error(transparent)]
+    Keys(#[from] release::ReleaseError),
+    /// Its own binary is not one a signed release or the trust list names.
+    #[error("{0}. This broker does not start: updates.mode \"self\" runs only a verified binary")]
+    NotVerified(#[source] release::LayoutError),
 }
 
 /// The standby has everything the active has (a complete sync, files
@@ -337,7 +400,11 @@ fn map_get<'a>(v: &'a Value, k: &str) -> Option<&'a Value> {
 /// runs and takes the release staged for it, if there is one. `Ok(true)`:
 /// the new version is unpacked, proven and made current; the process must
 /// stop so that its supervisor starts it.
-pub async fn standby_poll(session: &Session, prefix: &str, cfg: &Config) -> Result<bool, String> {
+pub async fn standby_poll(
+    session: &Session,
+    prefix: &str,
+    cfg: &Config,
+) -> Result<bool, StandbyUpdateError> {
     let me = release::identity();
     let file =
         UpdateFile::load(&cfg.data_dir).filter(|u| u.role == Some(release::UpdateRole::Standby));
@@ -348,14 +415,14 @@ pub async fn standby_poll(session: &Session, prefix: &str, cfg: &Config) -> Resu
     let key = format!("{prefix}/update/{}/{state}/{to}", me.version);
     let answer = crate::standby::ask(session, &key)
         .await
-        .ok_or("the active does not answer")?;
+        .ok_or(StandbyUpdateError::NoAnswer)?;
     let Some(order) = map_get(&answer, "order") else {
         return Ok(false);
     };
     let Some(Value::Str(version)) = map_get(order, "version") else {
-        return Err("order: no version".into());
+        return Err(StandbyUpdateError::NoVersion);
     };
-    release::check_version(version).map_err(said)?;
+    release::check_version(version)?;
     // an order this host refused or rolled back is not tried again
     if file.is_some_and(|u| &u.to == version && u.state != release::UpdateState::Confirmed) {
         return Ok(false);
@@ -368,13 +435,13 @@ pub async fn standby_poll(session: &Session, prefix: &str, cfg: &Config) -> Resu
                 from: me.version.clone(),
                 to: version.clone(),
                 state: release::UpdateState::Failed,
-                reason: e.clone(),
+                reason: e.to_string(),
                 ended: release::now_s(),
                 role: Some(release::UpdateRole::Standby),
                 audited: true,
                 ..Default::default()
             };
-            u.save(&cfg.data_dir).map_err(said)?;
+            u.save(&cfg.data_dir)?;
             wyrm_core::files::discard_dir(&cfg.data_dir.join("update.fetch"));
             Err(e)
         }
@@ -387,69 +454,69 @@ async fn standby_apply(
     cfg: &Config,
     order: &Value,
     version: &str,
-) -> Result<(), String> {
+) -> Result<(), StandbyUpdateError> {
     let me = release::identity();
     if cfg.updates.mode != UpdateMode::SelfUpdate {
-        return Err("updates.mode is not \"self\" on the standby".into());
+        return Err(StandbyUpdateError::NotSelf);
     }
-    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    let layout = Layout::of_broker(&exe, &me.version).map_err(said)?;
+    let exe = std::env::current_exe().map_err(StandbyUpdateError::Exe)?;
+    let layout = Layout::of_broker(&exe, &me.version)?;
     let started = STARTED.load(Ordering::SeqCst);
     if !guard_fresh(release::guard_stamp(&cfg.data_dir), started) {
-        return Err("the guard did not run before the standby started".into());
+        return Err(StandbyUpdateError::NoGuard);
     }
     let (Some(Value::Bytes(doc)), Some(Value::Str(signature))) =
         (map_get(order, "release"), map_get(order, "signature"))
     else {
-        return Err("order: no release or signature".into());
+        return Err(StandbyUpdateError::NoRelease);
     };
     // under this host's own pinned keys: the active is not trusted for it
-    let keys = release::pinned_keys(&cfg.updates.keys).map_err(said)?;
-    let rel = release::read_release(doc, signature, &keys).map_err(said)?;
+    let keys = release::pinned_keys(&cfg.updates.keys)?;
+    let rel = release::read_release(doc, signature, &keys)?;
     if rel.version != version {
-        return Err(format!("order: the release is wyrmd {}", rel.version));
+        return Err(StandbyUpdateError::OtherRelease(rel.version));
     }
-    let asset = rel.compatible(me).map_err(said)?.clone();
+    let asset = rel.compatible(me)?.clone();
     if rel.replication != me.replication {
-        return Err(format!(
-            "wyrmd {} changes the replication protocol: a standby cannot go first",
-            rel.version
-        ));
+        return Err(StandbyUpdateError::Replication(rel.version));
     }
     // the archive, part by part, into a new private file
     let dir = cfg.data_dir.join("update.fetch");
+    let at = |path: &Path| {
+        let path = path.to_path_buf();
+        move |source| StandbyUpdateError::Path { path, source }
+    };
     std::fs::remove_dir_all(&dir)
         .or_else(wyrm_core::files::gone_ok)
-        .map_err(|e| format!("{}: {e}", dir.display()))?;
+        .map_err(at(&dir))?;
     let archive = dir.join("archive.tar.gz");
     {
         use std::io::Write;
         let mut b = std::fs::DirBuilder::new();
         #[cfg(unix)]
         std::os::unix::fs::DirBuilderExt::mode(&mut b, 0o700);
-        b.create(&dir)
-            .map_err(|e| format!("{}: {e}", dir.display()))?;
+        b.create(&dir).map_err(at(&dir))?;
         let mut out = std::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
             .open(&archive)
-            .map_err(|e| format!("{}: {e}", archive.display()))?;
+            .map_err(at(&archive))?;
         let mut offset = 0u64;
         while offset < asset.size {
             let key = format!("{prefix}/update_part/{offset}/{ORDER_PART}");
             let part = crate::standby::ask(session, &key)
                 .await
-                .ok_or("the active does not answer")?;
+                .ok_or(StandbyUpdateError::NoAnswer)?;
             let Some(Value::Bytes(data)) = map_get(&part, "data") else {
-                return Err("the active has no such archive any more".into());
+                return Err(StandbyUpdateError::NoArchive);
             };
             if data.is_empty() || offset + data.len() as u64 > asset.size {
-                return Err("the archive of the active is not the one of the release".into());
+                return Err(StandbyUpdateError::OtherArchive);
             }
-            out.write_all(data).map_err(|e| e.to_string())?;
+            out.write_all(data).map_err(StandbyUpdateError::Write)?;
             offset += data.len() as u64;
         }
-        out.sync_all().map_err(|e| e.to_string())?;
+        out.sync_all().map_err(StandbyUpdateError::Write)?;
     }
     let config = cfg
         .config_file
@@ -467,8 +534,7 @@ async fn standby_apply(
         },
         &asset,
     )
-    .await
-    .map_err(|e| e.to_string())?;
+    .await?;
     wyrm_core::files::discard_dir(&dir);
     let now = release::now_s();
     let u = UpdateFile {
@@ -489,18 +555,81 @@ async fn standby_apply(
             tracing::warn!("broker update: the guard is not replaced: {e}");
         }
     }
-    u.save(&cfg.data_dir).map_err(said)?;
+    u.save(&cfg.data_dir)?;
     if let Err(e) = layout.switch(&u.to) {
         // a state file that stayed would start a trial of a version not switched to
         let state = cfg.data_dir.join(release::STATE_FILE);
         if let Err(r) = std::fs::remove_file(&state).or_else(wyrm_core::files::gone_ok) {
             tracing::error!("{} stays: {r}", state.display());
-            return Err(format!("{e}; {} stays: {r}", state.display()));
+            return Err(StandbyUpdateError::SwitchAndState {
+                switch: e,
+                state,
+                source: r,
+            });
         }
-        return Err(said(e));
+        return Err(e.into());
     }
     tracing::warn!(from = %u.from, to = %u.to, "broker update: the standby stops for wyrmd {}", u.to);
     Ok(())
+}
+
+/// Why a standby did not take the update the active ordered
+/// ([`standby_poll`]). Its text is the `reason` of the standby's
+/// `update.json` and of its log line.
+#[derive(thiserror::Error)]
+pub enum StandbyUpdateError {
+    #[error("the active does not answer")]
+    NoAnswer,
+    #[error("order: no version")]
+    NoVersion,
+    #[error(transparent)]
+    Version(#[from] release::BadVersion),
+    #[error("updates.mode is not \"self\" on the standby")]
+    NotSelf,
+    /// The path of this process is not known.
+    #[error(transparent)]
+    Exe(std::io::Error),
+    /// The install layout, the state file or the switch to the new version.
+    #[error(transparent)]
+    Layout(#[from] release::LayoutError),
+    #[error("the guard did not run before the standby started")]
+    NoGuard,
+    #[error("order: no release or signature")]
+    NoRelease,
+    /// This host's pinned keys, or the release document under them.
+    #[error(transparent)]
+    Release(#[from] release::ReleaseError),
+    /// The signed release is another version than the order names.
+    #[error("order: the release is wyrmd {0}")]
+    OtherRelease(String),
+    #[error(transparent)]
+    Incompatible(#[from] release::Incompatible),
+    #[error("wyrmd {0} changes the replication protocol: a standby cannot go first")]
+    Replication(String),
+    /// The directory or the file the archive is fetched into.
+    #[error("{}: {source}", .path.display())]
+    Path {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("the active has no such archive any more")]
+    NoArchive,
+    #[error("the archive of the active is not the one of the release")]
+    OtherArchive,
+    /// A part of the archive was not written.
+    #[error(transparent)]
+    Write(std::io::Error),
+    #[error(transparent)]
+    Stage(#[from] wyrm_admin::control::broker_update::StageError),
+    /// The switch failed and the state file written for it stays.
+    #[error("{switch}; {} stays: {source}", .state.display())]
+    SwitchAndState {
+        switch: release::LayoutError,
+        state: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
 }
 
 /// `wyrmd update-guard`: see [`release::guard`]. With `updates.mode:
@@ -698,7 +827,7 @@ pub fn release_cmd(cmd: ReleaseCmd) -> Result<(), Error> {
             };
             let mut side = out.clone().into_os_string();
             side.push(".json");
-            std::fs::write(&side, pretty(&packed)?)?;
+            std::fs::write(&side, pretty(&packed).map_err(said)?)?;
             println!("{}", out.display());
         }
         ReleaseCmd::Doc {
@@ -760,7 +889,7 @@ pub fn release_cmd(cmd: ReleaseCmd) -> Result<(), Error> {
             };
             rel.check().map_err(said)?;
             let out = dir.join(format!("wyrmd-{}.release.json", rel.version));
-            std::fs::write(&out, pretty(&rel)?)?;
+            std::fs::write(&out, pretty(&rel).map_err(said)?)?;
             println!("{}", out.display());
         }
         ReleaseCmd::Index {
@@ -807,7 +936,7 @@ pub fn release_cmd(cmd: ReleaseCmd) -> Result<(), Error> {
                 .map_err(said)?;
             // not signed yet: an old signature does not cover it
             std::fs::remove_file(sig_path(&index)).or_else(wyrm_core::files::gone_ok)?;
-            std::fs::write(&index, pretty(&idx.to_file().map_err(said)?)?)?;
+            std::fs::write(&index, pretty(&idx.to_file().map_err(said)?).map_err(said)?)?;
             println!(
                 "{}: sequence {}, {} releases",
                 index.display(),
@@ -894,8 +1023,8 @@ fn said(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
 
-fn pretty<T: serde::Serialize>(v: &T) -> Result<Vec<u8>, String> {
-    serde_json::to_vec_pretty(v).map_err(|e| e.to_string())
+fn pretty<T: serde::Serialize>(v: &T) -> Result<Vec<u8>, serde_json::Error> {
+    serde_json::to_vec_pretty(v)
 }
 
 #[cfg(test)]
@@ -944,6 +1073,11 @@ mod tests {
         Ok(())
     }
 
+    /// The refusal as the text the old check gave.
+    fn text(r: Result<(), ChannelError>) -> Result<(), String> {
+        r.map_err(|e| e.to_string())
+    }
+
     /// Review S4: every channel the old check took is taken, what it refused stays
     /// refused, with the same reason.
     #[test]
@@ -956,7 +1090,7 @@ mod tests {
             "http://localhost/r.json",
             "https://dl.example/",
         ] {
-            assert_eq!(check_channel(s), old_check_channel(s), "{s}");
+            assert_eq!(text(check_channel(s)), old_check_channel(s), "{s}");
             assert!(check_channel(s).is_ok(), "{s}");
         }
         for s in [
@@ -969,7 +1103,7 @@ mod tests {
             "https://dl.example/a b",
             "HTTPS://dl.example/r.json",
         ] {
-            assert_eq!(check_channel(s), old_check_channel(s), "{s}");
+            assert_eq!(text(check_channel(s)), old_check_channel(s), "{s}");
         }
         // refused now, taken before: a bad port, a host that is no host
         for s in [
@@ -980,5 +1114,216 @@ mod tests {
             assert!(old_check_channel(s).is_ok(), "{s}");
             assert!(check_channel(s).is_err(), "{s}");
         }
+    }
+
+    /// The text `main` prints for an error it returns (`Error: …`).
+    fn printed(e: impl Into<Error>) -> String {
+        format!("{:?}", e.into())
+    }
+
+    /// Every refusal reads as it did when these errors were strings, and
+    /// `main` prints it as a text in quotes.
+    #[test]
+    fn errors_read_as_before() {
+        let io = || std::io::Error::other("cause");
+        let keys = || release::pinned_keys(&["abc".to_owned()]).unwrap_err();
+        let layout = || release::LayoutError::Version(release::BadVersion("x y".into()));
+        const HELP: &str = "updates.channel: https://<host>/<path to releases.json> \
+            (plain http only to a loopback address)";
+        const KEYS: &str = "updates.keys: an Ed25519 public key is 64 hex digits";
+        const VERSION: &str = "version \"x y\": not a version name";
+        for (e, want) in [
+            (UpdatesError::Keys(keys()).to_string(), KEYS),
+            (
+                UpdatesError::TrialS(5).to_string(),
+                "updates.trial_s 5: 10 to 3600",
+            ),
+            (
+                UpdatesError::KeepDays(91).to_string(),
+                "updates.keep_days 91: 1 to 90",
+            ),
+            (UpdatesError::Channel(ChannelError::Form).to_string(), HELP),
+            (
+                UpdatesError::NoChannel.to_string(),
+                "updates.mode \"external\" needs updates.channel (where new versions are listed)",
+            ),
+            (ChannelError::Url(UrlError::NoScheme).to_string(), HELP),
+            (ChannelError::Form.to_string(), HELP),
+            (
+                ChannelError::Credentials.to_string(),
+                "updates.channel: no name or password before the host (the URL is shown in sys \
+                 and in backups); a channel is a public URL",
+            ),
+            (
+                ChannelError::Query.to_string(),
+                "updates.channel: no query string and no fragment (the URL is shown in sys and in \
+                 backups); a channel is a public URL",
+            ),
+            (
+                StateCheckError::Key(crate::KeyFileError::Length("/d/state.key".into()))
+                    .to_string(),
+                "/d/state.key: expected 32 bytes",
+            ),
+            (
+                StateCheckError::Store {
+                    store: "flows/state",
+                    source: wyrm_state::StateError::InUse("/d/flows/state".into()),
+                }
+                .to_string(),
+                "flows/state: /d/flows/state is in use by another process",
+            ),
+            (VerifySelfError::Keys(keys()).to_string(), KEYS),
+            (
+                VerifySelfError::NotVerified(layout()).to_string(),
+                "version \"x y\": not a version name. This broker does not start: updates.mode \
+                 \"self\" runs only a verified binary",
+            ),
+            (
+                StandbyUpdateError::NoAnswer.to_string(),
+                "the active does not answer",
+            ),
+            (
+                StandbyUpdateError::NoVersion.to_string(),
+                "order: no version",
+            ),
+            (
+                StandbyUpdateError::Version(release::BadVersion("x y".into())).to_string(),
+                VERSION,
+            ),
+            (
+                StandbyUpdateError::NotSelf.to_string(),
+                "updates.mode is not \"self\" on the standby",
+            ),
+            (StandbyUpdateError::Exe(io()).to_string(), "cause"),
+            (StandbyUpdateError::Layout(layout()).to_string(), VERSION),
+            (
+                StandbyUpdateError::NoGuard.to_string(),
+                "the guard did not run before the standby started",
+            ),
+            (
+                StandbyUpdateError::NoRelease.to_string(),
+                "order: no release or signature",
+            ),
+            (StandbyUpdateError::Release(keys()).to_string(), KEYS),
+            (
+                StandbyUpdateError::OtherRelease("0.3.0".into()).to_string(),
+                "order: the release is wyrmd 0.3.0",
+            ),
+            (
+                StandbyUpdateError::Incompatible(release::Incompatible::NoBuild {
+                    version: "0.3.0".into(),
+                    target: "riscv".into(),
+                    has: "x86".into(),
+                })
+                .to_string(),
+                "wyrmd 0.3.0 has no build for riscv (it has x86)",
+            ),
+            (
+                StandbyUpdateError::Replication("0.3.0".into()).to_string(),
+                "wyrmd 0.3.0 changes the replication protocol: a standby cannot go first",
+            ),
+            (
+                StandbyUpdateError::Path {
+                    path: "/d/update.fetch".into(),
+                    source: io(),
+                }
+                .to_string(),
+                "/d/update.fetch: cause",
+            ),
+            (
+                StandbyUpdateError::NoArchive.to_string(),
+                "the active has no such archive any more",
+            ),
+            (
+                StandbyUpdateError::OtherArchive.to_string(),
+                "the archive of the active is not the one of the release",
+            ),
+            (StandbyUpdateError::Write(io()).to_string(), "cause"),
+            (
+                StandbyUpdateError::Stage(wyrm_admin::control::broker_update::StageError::NoConfig)
+                    .to_string(),
+                "this broker was not started from a configuration file",
+            ),
+            (
+                StandbyUpdateError::SwitchAndState {
+                    switch: layout(),
+                    state: "/d/update.json".into(),
+                    source: io(),
+                }
+                .to_string(),
+                "version \"x y\": not a version name; /d/update.json stays: cause",
+            ),
+        ] {
+            assert_eq!(e, want);
+        }
+        // what `wyrmd` prints when `main` returns one of them
+        assert_eq!(
+            printed(UpdatesError::TrialS(5)),
+            "\"updates.trial_s 5: 10 to 3600\""
+        );
+        assert_eq!(
+            printed(UpdatesError::NoChannel),
+            "\"updates.mode \\\"external\\\" needs updates.channel (where new versions are \
+             listed)\""
+        );
+        assert_eq!(printed(ChannelError::Form), format!("{HELP:?}"));
+        assert_eq!(printed(UpdatesError::Keys(keys())), format!("{KEYS:?}"));
+        assert_eq!(
+            printed(StateCheckError::Key(crate::KeyFileError::Length(
+                "/d/state.key".into()
+            ))),
+            "\"/d/state.key: expected 32 bytes\""
+        );
+        assert_eq!(
+            printed(VerifySelfError::NotVerified(layout())),
+            "\"version \\\"x y\\\": not a version name. This broker does not start: \
+             updates.mode \\\"self\\\" runs only a verified binary\""
+        );
+        assert_eq!(
+            printed(StandbyUpdateError::NotSelf),
+            "\"updates.mode is not \\\"self\\\" on the standby\""
+        );
+    }
+
+    /// The section and the channel are refused by variant.
+    #[test]
+    fn the_updates_section_is_refused_by_variant() {
+        let section = |trial_s, keep_days| UpdatesSection {
+            trial_s,
+            keep_days,
+            ..Default::default()
+        };
+        assert!(section(180, 7).validate().is_ok());
+        assert!(matches!(
+            section(9, 0).validate(),
+            Err(UpdatesError::TrialS(9))
+        ));
+        assert!(matches!(
+            section(10, 0).validate(),
+            Err(UpdatesError::KeepDays(0))
+        ));
+        let mut s = section(180, 7);
+        s.mode = UpdateMode::External;
+        assert!(matches!(s.validate(), Err(UpdatesError::NoChannel)));
+        s.channel = Some("https://u:p@dl.example/r.json".into());
+        assert!(matches!(
+            s.validate(),
+            Err(UpdatesError::Channel(ChannelError::Credentials))
+        ));
+        s.keys = vec!["abc".into()];
+        assert!(matches!(s.validate(), Err(UpdatesError::Keys(_))));
+        assert_eq!(
+            check_channel("ftp://dl.example/r.json"),
+            Err(ChannelError::Url(UrlError::Scheme))
+        );
+        assert_eq!(check_channel("https://dl.example"), Err(ChannelError::Form));
+        assert_eq!(
+            check_channel("http://dl.example/r.json"),
+            Err(ChannelError::Form)
+        );
+        assert_eq!(
+            check_channel("https://dl.example/r.json#f"),
+            Err(ChannelError::Query)
+        );
     }
 }

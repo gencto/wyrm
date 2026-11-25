@@ -61,6 +61,20 @@ use zenoh_plugin_storage_manager::StoragesPlugin;
 
 pub type Error = zenoh::Error;
 
+/// `Debug` of an error that `main` may return: its text in quotes, as the
+/// `String` it replaces printed (`Error: "updates.trial_s 5: 10 to 3600"`),
+/// not the name of its variant. See [`OpenError`].
+macro_rules! debug_as_text {
+    ($($t:ty),+ $(,)?) => {$(
+        impl std::fmt::Debug for $t {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                std::fmt::Debug::fmt(&self.to_string(), f)
+            }
+        }
+    )+};
+}
+pub(crate) use debug_as_text;
+
 /// A store that did not open. Its text is the line `wyrmd` printed for it
 /// when these errors were strings: the name of what the store belongs to
 /// (`gateway: …`) and the cause's text, or the cause's text alone when that
@@ -353,16 +367,36 @@ fn default_send_folder() -> String {
     "backups".to_owned()
 }
 
+/// Why `backups.send_links` is refused when the configuration is read.
+#[derive(thiserror::Error)]
+pub enum SendLinksError {
+    /// An entry's link is no link id.
+    #[error("backups.send_links: {0}")]
+    Link(#[source] wyrm_admin::registry::LinkIdError),
+    /// The folder of `link` is no plain relative path.
+    #[error("backups.send_links: link {link}: {source}")]
+    Folder {
+        link: String,
+        #[source]
+        source: wyrm_admin::control::send::FolderError,
+    },
+    /// The link is listed twice.
+    #[error("backups.send_links: link {0} twice (one folder a link)")]
+    Twice(String),
+}
+
+debug_as_text!(SendLinksError);
+
 impl SendLinkEntry {
-    fn checked(&self) -> Result<wyrm_admin::SendLink, String> {
+    fn checked(&self) -> Result<wyrm_admin::SendLink, SendLinksError> {
         let (link, folder) = match self {
             Self::Link(link) => (link.clone(), default_send_folder()),
             Self::Folder { link, folder } => (link.clone(), folder.trim_matches('/').to_owned()),
         };
-        wyrm_admin::registry::validate_link_id(&link)
-            .map_err(|e| format!("backups.send_links: {e}"))?;
-        wyrm_admin::control::send::check_folder(&folder)
-            .map_err(|e| format!("backups.send_links: link {link}: {e}"))?;
+        wyrm_admin::registry::validate_link_id(&link).map_err(SendLinksError::Link)?;
+        if let Err(source) = wyrm_admin::control::send::check_folder(&folder) {
+            return Err(SendLinksError::Folder { link, source });
+        }
         Ok(wyrm_admin::SendLink { link, folder })
     }
 }
@@ -378,15 +412,12 @@ fn default_backup_mb() -> u64 {
 impl BackupsSection {
     /// `send_links` checked: link ids, plain relative folders, one folder
     /// a link.
-    pub fn checked_send_links(&self) -> Result<Vec<wyrm_admin::SendLink>, String> {
+    pub fn checked_send_links(&self) -> Result<Vec<wyrm_admin::SendLink>, SendLinksError> {
         let mut out: Vec<wyrm_admin::SendLink> = Vec::new();
         for e in &self.send_links {
             let entry = e.checked()?;
             if out.iter().any(|o| o.link == entry.link) {
-                return Err(format!(
-                    "backups.send_links: link {} twice (one folder a link)",
-                    entry.link
-                ));
+                return Err(SendLinksError::Twice(entry.link));
             }
             out.push(entry);
         }
@@ -1917,7 +1948,7 @@ impl Broker {
 /// One store checked by [`verify_state`].
 pub struct StoreCheck {
     pub name: String,
-    pub result: Result<wyrm_state::Report, String>,
+    pub result: Result<wyrm_state::Report, VerifyError>,
 }
 
 impl StoreCheck {
@@ -1929,16 +1960,48 @@ impl StoreCheck {
 }
 
 /// Existing hex key file; never creates one.
-fn read_key(path: &std::path::Path) -> Result<zeroize::Zeroizing<Vec<u8>>, String> {
-    let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
+fn read_key(path: &std::path::Path) -> Result<zeroize::Zeroizing<Vec<u8>>, KeyFileError> {
+    let text = std::fs::read_to_string(path).map_err(|source| KeyFileError::Read {
+        path: path.to_path_buf(),
+        source,
+    })?;
     let k = zeroize::Zeroizing::new(
-        hex::decode(text.trim()).map_err(|_| format!("{}: not hex", path.display()))?,
+        hex::decode(text.trim()).map_err(|_| KeyFileError::NotHex(path.to_path_buf()))?,
     );
     if k.len() != 32 {
-        return Err(format!("{}: expected 32 bytes", path.display()));
+        return Err(KeyFileError::Length(path.to_path_buf()));
     }
     Ok(k)
 }
+
+/// A key file of a control-plane store that gives no key.
+#[derive(thiserror::Error)]
+pub enum KeyFileError {
+    #[error("{}: {source}", .path.display())]
+    Read {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    /// The decoder's own error is not kept: it names a character of the
+    /// file, and the file holds a key.
+    #[error("{}: not hex", .0.display())]
+    NotHex(PathBuf),
+    #[error("{}: expected 32 bytes", .0.display())]
+    Length(PathBuf),
+}
+
+/// Why a store did not pass [`verify_state`]: its text is the line `wyrmd
+/// verify` prints after `FAILED: `.
+#[derive(thiserror::Error)]
+pub enum VerifyError {
+    #[error(transparent)]
+    Key(#[from] KeyFileError),
+    #[error(transparent)]
+    Store(#[from] wyrm_state::StateError),
+}
+
+debug_as_text!(KeyFileError, VerifyError);
 
 /// `wyrmd verify`: every control-plane store (and each agent store) checked
 /// offline — CRC, HMAC chain, anchor — without changing anything. wyrmd
@@ -1989,8 +2052,8 @@ pub fn verify_state(cfg: &Config) -> Vec<StoreCheck> {
         .into_iter()
         .filter(|(_, dir, _, _)| dir.is_dir())
         .map(|(name, dir, key, anchor)| {
-            let result = read_key(&key).and_then(|k| {
-                wyrm_state::verify(&dir, &k, anchor.as_deref()).map_err(|e| e.to_string())
+            let result = read_key(&key).map_err(VerifyError::Key).and_then(|k| {
+                wyrm_state::verify(&dir, &k, anchor.as_deref()).map_err(VerifyError::Store)
             });
             StoreCheck { name, result }
         })
@@ -3549,5 +3612,118 @@ mod tests {
         assert!(app_component("echo", Value::Map(m.clone())).is_ok());
         m.insert("component".to_owned(), Value::Str("other".into()));
         assert!(app_component("echo", Value::Map(m)).is_err());
+    }
+
+    /// Every refusal reads as it did when these errors were strings, and
+    /// `main` prints it as a text in quotes.
+    #[test]
+    fn errors_read_as_before() {
+        let printed = |e: Error| format!("{e:?}");
+        let id = || wyrm_admin::registry::validate_link_id("A B").unwrap_err();
+        let folder = || wyrm_admin::control::send::check_folder("../x").unwrap_err();
+        let io = || std::io::Error::other("cause");
+        for (e, want) in [
+            (
+                SendLinksError::Link(id()).to_string(),
+                "backups.send_links: link id: illegal character ' ' in segment A B",
+            ),
+            (
+                SendLinksError::Folder {
+                    link: "s3".into(),
+                    source: folder(),
+                }
+                .to_string(),
+                "backups.send_links: link s3: folder \"../x\": a relative path of plain names \
+                 (no `..`, no empty segment)",
+            ),
+            (
+                SendLinksError::Twice("s3".into()).to_string(),
+                "backups.send_links: link s3 twice (one folder a link)",
+            ),
+            (
+                KeyFileError::Read {
+                    path: "/d/state.key".into(),
+                    source: io(),
+                }
+                .to_string(),
+                "/d/state.key: cause",
+            ),
+            (
+                KeyFileError::NotHex("/d/state.key".into()).to_string(),
+                "/d/state.key: not hex",
+            ),
+            (
+                KeyFileError::Length("/d/state.key".into()).to_string(),
+                "/d/state.key: expected 32 bytes",
+            ),
+            (
+                VerifyError::Key(KeyFileError::Length("/d/state.key".into())).to_string(),
+                "/d/state.key: expected 32 bytes",
+            ),
+            (
+                VerifyError::Store(wyrm_state::StateError::InUse("/d/state".into())).to_string(),
+                "/d/state is in use by another process",
+            ),
+        ] {
+            assert_eq!(e, want);
+        }
+        assert_eq!(
+            printed(SendLinksError::Twice("s3".into()).into()),
+            "\"backups.send_links: link s3 twice (one folder a link)\""
+        );
+        assert_eq!(
+            printed(KeyFileError::Length("/d/state.key".into()).into()),
+            "\"/d/state.key: expected 32 bytes\""
+        );
+        assert_eq!(
+            printed(VerifyError::Key(KeyFileError::Length("/d/state.key".into())).into()),
+            "\"/d/state.key: expected 32 bytes\""
+        );
+        // the configuration is refused with the same line
+        let e = Config::from_json5(
+            r#"{ site: "s", data_dir: "/tmp/x", backups: { send_links: ["a", "a"] } }"#,
+        )
+        .unwrap_err();
+        assert_eq!(
+            format!("{e:?}"),
+            "\"backups.send_links: link a twice (one folder a link)\""
+        );
+        assert!(matches!(
+            e.downcast_ref::<SendLinksError>(),
+            Some(SendLinksError::Twice(l)) if l == "a"
+        ));
+        let e = Config::from_json5(r#"{ site: "s", data_dir: "/tmp/x", updates: { trial_s: 5 } }"#)
+            .unwrap_err();
+        assert_eq!(format!("{e:?}"), "\"updates.trial_s 5: 10 to 3600\"");
+        assert!(matches!(
+            e.downcast_ref::<update::UpdatesError>(),
+            Some(update::UpdatesError::TrialS(5))
+        ));
+    }
+
+    /// A key file is refused by variant; a file that is not read keeps its
+    /// cause.
+    #[test]
+    fn key_files_are_refused_by_variant() {
+        let d = std::env::temp_dir().join(format!("wyrmd-keyfile-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        assert!(matches!(
+            read_key(&d.join("none")),
+            Err(KeyFileError::Read { source, .. }) if source.kind() == std::io::ErrorKind::NotFound
+        ));
+        std::fs::write(d.join("k"), "zz").unwrap();
+        assert!(matches!(
+            read_key(&d.join("k")),
+            Err(KeyFileError::NotHex(_))
+        ));
+        std::fs::write(d.join("k"), "abcd").unwrap();
+        assert!(matches!(
+            read_key(&d.join("k")),
+            Err(KeyFileError::Length(_))
+        ));
+        std::fs::write(d.join("k"), format!("{}\n", "ab".repeat(32))).unwrap();
+        assert_eq!(read_key(&d.join("k")).unwrap().len(), 32);
+        let _ = std::fs::remove_dir_all(&d);
     }
 }

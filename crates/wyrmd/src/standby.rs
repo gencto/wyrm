@@ -233,7 +233,7 @@ async fn open_session(cfg: &Config, peer: &str, files: &CertFiles) -> Result<Ses
 
 /// A session to `peer` being opened by a task of its own, which ends with
 /// this value.
-struct Opening(tokio::task::JoinHandle<Result<Session, String>>);
+struct Opening(tokio::task::JoinHandle<Result<Session, Error>>);
 
 impl Drop for Opening {
     fn drop(&mut self) {
@@ -247,10 +247,8 @@ fn open_later(cfg: &Config, peer: &str, wait: Duration) -> Opening {
     let (cfg, peer) = (cfg.clone(), peer.to_owned());
     Opening(tokio::spawn(async move {
         tokio::time::sleep(wait).await;
-        let files = standby_cert(&cfg).map_err(|e| e.to_string())?;
-        open_session(&cfg, &peer, &files)
-            .await
-            .map_err(|e| e.to_string())
+        let files = standby_cert(&cfg)?;
+        open_session(&cfg, &peer, &files).await
     }))
 }
 
@@ -354,6 +352,66 @@ async fn may_take_over(
     }
 }
 
+/// Why one poll of the active did not bring this host in line with it
+/// (`standby: the active does not answer: …`).
+#[derive(Debug, thiserror::Error)]
+enum SyncError {
+    #[error("no answer")]
+    NoAnswer,
+    #[error("bad page")]
+    BadPage,
+    /// A followed store was not moved aside after a fork.
+    #[error(transparent)]
+    Reset(wyrm_state::StateError),
+    /// A record of the active was not taken by the followed store.
+    #[error("{store}: {source}")]
+    Append {
+        store: &'static str,
+        #[source]
+        source: wyrm_state::StateError,
+    },
+    #[error("bad changes")]
+    BadChanges,
+    #[error(transparent)]
+    Storage(#[from] wyrm_storage::Error),
+    #[error("bad history page")]
+    BadHistoryPage,
+    #[error(transparent)]
+    History(#[from] wyrm_history::store::Error),
+    #[error("no history cursor")]
+    NoHistoryCursor,
+    #[error("no file list")]
+    NoFileList,
+    #[error("bad file list")]
+    BadFileList,
+    /// One replicated file was not copied.
+    #[error("{name}: {source}")]
+    File {
+        name: String,
+        #[source]
+        source: FetchError,
+    },
+}
+
+/// Why one replicated file was not copied from the active.
+#[derive(Debug, thiserror::Error)]
+enum FetchError {
+    #[error("no answer")]
+    NoAnswer,
+    #[error("bad part")]
+    BadPart,
+    #[error("changed while copied")]
+    Changed,
+    #[error("cannot open (another secrets.key?)")]
+    Sealed,
+    #[error("digest differs")]
+    Digest,
+    #[error("{0}: not a file name")]
+    NotFileName(String),
+    #[error(transparent)]
+    Write(#[from] std::io::Error),
+}
+
 /// Copy what the active has beyond us, store by store. `Err` when the
 /// active did not answer (it is away or this session is dead). `hold` gets
 /// the active's hold from its registry page.
@@ -363,7 +421,7 @@ async fn sync_wals(
     stores: &mut [Followed],
     hold: &mut Option<Instant>,
     forks: &mut Forks,
-) -> Result<(), String> {
+) -> Result<(), SyncError> {
     for s in stores.iter_mut() {
         for _ in 0..PAGES_PER_POLL {
             let key = format!(
@@ -372,16 +430,16 @@ async fn sync_wals(
                 s.follower.lsn(),
                 replication::MAX_RECORDS
             );
-            let answer = ask(session, &key).await.ok_or("no answer")?;
+            let answer = ask(session, &key).await.ok_or(SyncError::NoAnswer)?;
             if s.name == "state" {
                 *hold = hold_of(&answer);
             }
-            let page = replication::parse_page(answer).ok_or("bad page")?;
+            let page = replication::parse_page(answer).ok_or(SyncError::BadPage)?;
             if page.chain != s.follower.chain() {
                 // the active's history is not ours (ours has records of a
                 // former active that never reached it): start again
                 let had = s.follower.lsn();
-                let stale = s.follower.reset().map_err(|e| e.to_string())?;
+                let stale = s.follower.reset().map_err(SyncError::Reset)?;
                 tracing::warn!(store = s.name, records = had, moved = %stale.display(), "history forked: following from the start");
                 let n = stale
                     .extension()
@@ -398,9 +456,10 @@ async fn sync_wals(
             }
             let full = page.records.len() >= replication::MAX_RECORDS;
             for r in &page.records {
-                s.follower
-                    .append(r)
-                    .map_err(|e| format!("{}: {e}", s.name))?;
+                s.follower.append(r).map_err(|source| SyncError::Append {
+                    store: s.name,
+                    source,
+                })?;
             }
             if !full {
                 break;
@@ -664,7 +723,7 @@ async fn fetch_file(
     file_key: &[u8; 32],
     entry: &replication::FileEntry,
     aside: Option<&mut Aside>,
-) -> Result<(), String> {
+) -> Result<(), FetchError> {
     let path = data_dir.join(&entry.name);
     let mut buf: Vec<u8> = Vec::with_capacity(entry.len as usize);
     let mut digest: Option<Vec<u8>> = None;
@@ -675,10 +734,10 @@ async fn fetch_file(
             replication::PART_LEN,
             entry.name
         );
-        let part = replication::parse_part(ask(session, &key).await.ok_or("no answer")?)
-            .ok_or("bad part")?;
+        let part = replication::parse_part(ask(session, &key).await.ok_or(FetchError::NoAnswer)?)
+            .ok_or(FetchError::BadPart)?;
         if part.total != entry.len || part.name != entry.name {
-            return Err("changed while copied".into());
+            return Err(FetchError::Changed);
         }
         if offset == 0 {
             digest = part.sha256;
@@ -688,8 +747,7 @@ async fn fetch_file(
                 }
             }
         }
-        let bytes = wyrm_link_sdk::seal::open(file_key, &part.sealed)
-            .ok_or("cannot open (another secrets.key?)")?;
+        let bytes = wyrm_link_sdk::seal::open(file_key, &part.sealed).ok_or(FetchError::Sealed)?;
         offset += bytes.len() as u64;
         buf.extend(bytes);
         if offset >= part.total {
@@ -697,7 +755,7 @@ async fn fetch_file(
         }
     }
     if digest.as_deref() != Some(&wyrm_core::hex::sha256(&buf)[..]) {
-        return Err("digest differs".into());
+        return Err(FetchError::Digest);
     }
     if let Some(a) = aside {
         // the local file differs (an equal one returned above): written here
@@ -710,11 +768,9 @@ async fn fetch_file(
     // then one rename)
     let rel = Path::new(&entry.name);
     let (Some(dir), Some(file)) = (rel.parent(), rel.file_name().and_then(|f| f.to_str())) else {
-        return Err(format!("{}: not a file name", entry.name));
+        return Err(FetchError::NotFileName(entry.name.clone()));
     };
-    secret::private_dir(data_dir, dir)
-        .and_then(|d| d.write_file(file, &buf, entry.exec))
-        .map_err(|e| e.to_string())
+    Ok(secret::private_dir(data_dir, dir).and_then(|d| d.write_file(file, &buf, entry.exec))?)
 }
 
 /// Bring the replicated files in line with the active's list: fetch what
@@ -726,13 +782,13 @@ async fn sync_files(
     file_key: &[u8; 32],
     files: &mut Files,
     mut aside: Option<&mut Aside>,
-) -> Result<(), String> {
+) -> Result<(), SyncError> {
     let list = replication::parse_files(
         ask(session, &format!("{prefix}/files"))
             .await
-            .ok_or("no file list")?,
+            .ok_or(SyncError::NoFileList)?,
     )
-    .ok_or("bad file list")?;
+    .ok_or(SyncError::BadFileList)?;
     let listed: std::collections::BTreeSet<&str> = list.iter().map(|f| f.name.as_str()).collect();
     for entry in &list {
         if entry.len > replication::MAX_FILE_LEN {
@@ -755,7 +811,10 @@ async fn sync_files(
             aside.as_deref_mut().filter(|_| first),
         )
         .await
-        .map_err(|e| format!("{}: {e}", entry.name))?;
+        .map_err(|source| SyncError::File {
+            name: entry.name.clone(),
+            source,
+        })?;
         tracing::debug!(file = %entry.name, "standby: replicated");
         files
             .have
@@ -798,7 +857,7 @@ async fn sync_storage(
     storage: &wyrm_storage::Store,
     at: &mut (u64, u64),
     aside: Option<&mut Aside>,
-) -> Result<(), String> {
+) -> Result<(), SyncError> {
     let mut aside = aside;
     for _ in 0..PAGES_PER_POLL {
         let key = format!(
@@ -807,8 +866,8 @@ async fn sync_storage(
             at.1,
             replication::MAX_STORAGE_PATHS
         );
-        let c = replication::parse_changes(ask(session, &key).await.ok_or("no answer")?)
-            .ok_or("bad changes")?;
+        let c = replication::parse_changes(ask(session, &key).await.ok_or(SyncError::NoAnswer)?)
+            .ok_or(SyncError::BadChanges)?;
         let paths = c.put.len() + c.delete.len();
         if let (true, Some(a)) = (c.full, aside.take()) {
             keep_storage(storage, &c.put, a);
@@ -825,7 +884,7 @@ async fn sync_storage(
             c.delete
         };
         if !c.put.is_empty() || !delete.is_empty() {
-            storage.apply(c.put, delete).map_err(|e| e.to_string())?;
+            storage.apply(c.put, delete)?;
         }
         *at = (c.epoch, c.rev);
         if c.full || paths < replication::MAX_STORAGE_PATHS {
@@ -901,18 +960,18 @@ async fn sync_history(
     store: &wyrm_history::Store,
     at: &mut Option<HistoryAt>,
     own: &BTreeMap<String, u64>,
-) -> Result<(), String> {
+) -> Result<(), SyncError> {
     for _ in 0..PAGES_PER_POLL {
         let after = at.as_ref().map_or(0, |c| c.after);
         let key = format!("{prefix}/history/{after}/{}", replication::MAX_HISTORY_ROWS);
-        let page = replication::parse_history(ask(session, &key).await.ok_or("no answer")?)
-            .ok_or("bad history page")?;
+        let page = replication::parse_history(ask(session, &key).await.ok_or(SyncError::NoAnswer)?)
+            .ok_or(SyncError::BadHistoryPage)?;
         let sink = format!("{}{:016x}", replication::STANDBY_SINK, page.id);
         if at.as_ref().map(|c| c.id) != Some(page.id) {
             // another active store: its own cursor, from what we confirmed
             // of it before (0 for a new one); every local row so far holds
             // its rows up to there
-            let after = store.sink_seq(&sink).map_err(|e| e.to_string())?;
+            let after = store.sink_seq(&sink)?;
             *at = Some(HistoryAt {
                 id: page.id,
                 after,
@@ -924,22 +983,20 @@ async fn sync_history(
         }
         let mut rows: Vec<wyrm_history::store::NewRow> = Vec::with_capacity(page.rows.len());
         for (_, key, t, v, q) in &page.rows {
-            let Some(series) = store.series_id(key, true).map_err(|e| e.to_string())? else {
+            let Some(series) = store.series_id(key, true)? else {
                 continue;
             };
             rows.push((series, *t, wyrm_history::encode_row(v, *q)));
         }
         if !rows.is_empty() {
-            store.write(&rows).map_err(|e| e.to_string())?;
+            store.write(&rows)?;
         }
         let full = page.rows.len() >= replication::MAX_HISTORY_ROWS;
         let Some(c) = at.as_mut() else {
-            return Err("no history cursor".into());
+            return Err(SyncError::NoHistoryCursor);
         };
         if page.next != after {
-            store
-                .set_sink_seq(&sink, Some(page.next))
-                .map_err(|e| e.to_string())?;
+            store.set_sink_seq(&sink, Some(page.next))?;
             c.after = page.next;
             c.marks.insert(page.next, store.last_seq());
             while c.marks.len() > HISTORY_MARKS {
@@ -947,7 +1004,7 @@ async fn sync_history(
             }
         }
         if let Some(sinks) = &page.sinks {
-            carry_sinks(store, &c.marks, sinks, own).map_err(|e| e.to_string())?;
+            carry_sinks(store, &c.marks, sinks, own)?;
         }
         if !full {
             break;
@@ -1112,7 +1169,7 @@ pub async fn follow_with(
             }
             r = &mut task.0 => {
                 opening = None;
-                match r.unwrap_or_else(|e| Err(e.to_string())) {
+                match r.unwrap_or_else(|e| Err(e.into())) {
                     Ok(s) => {
                         // a session that ends is opened again at once
                         wait = Duration::ZERO;
@@ -1543,5 +1600,64 @@ mod tests {
         assert!(h > Instant::now() + Duration::from_secs(25));
         let far = hold_of(&page(now + 3_600_000)).unwrap();
         assert!(far <= Instant::now() + MAX_HOLD, "capped");
+    }
+
+    /// Every refusal reads as it did when these errors were strings.
+    #[test]
+    fn errors_read_as_before() {
+        let state = || wyrm_state::StateError::Rejected("record 5 does not follow 0".into());
+        let io = || std::io::Error::other("cause");
+        for (e, want) in [
+            (SyncError::NoAnswer.to_string(), "no answer"),
+            (SyncError::BadPage.to_string(), "bad page"),
+            (
+                SyncError::Reset(state()).to_string(),
+                "operation rejected: record 5 does not follow 0",
+            ),
+            (
+                SyncError::Append {
+                    store: "state",
+                    source: state(),
+                }
+                .to_string(),
+                "state: operation rejected: record 5 does not follow 0",
+            ),
+            (SyncError::BadChanges.to_string(), "bad changes"),
+            (
+                SyncError::Storage(wyrm_storage::Error::Io(io())).to_string(),
+                "storage: cause",
+            ),
+            (SyncError::BadHistoryPage.to_string(), "bad history page"),
+            (
+                SyncError::History(wyrm_history::store::Error::Db("cause".into())).to_string(),
+                "history store: cause",
+            ),
+            (SyncError::NoHistoryCursor.to_string(), "no history cursor"),
+            (SyncError::NoFileList.to_string(), "no file list"),
+            (SyncError::BadFileList.to_string(), "bad file list"),
+            (
+                SyncError::File {
+                    name: "links/a/token".into(),
+                    source: FetchError::Digest,
+                }
+                .to_string(),
+                "links/a/token: digest differs",
+            ),
+            (FetchError::NoAnswer.to_string(), "no answer"),
+            (FetchError::BadPart.to_string(), "bad part"),
+            (FetchError::Changed.to_string(), "changed while copied"),
+            (
+                FetchError::Sealed.to_string(),
+                "cannot open (another secrets.key?)",
+            ),
+            (FetchError::Digest.to_string(), "digest differs"),
+            (
+                FetchError::NotFileName("..".into()).to_string(),
+                "..: not a file name",
+            ),
+            (FetchError::Write(io()).to_string(), "cause"),
+        ] {
+            assert_eq!(e, want);
+        }
     }
 }
