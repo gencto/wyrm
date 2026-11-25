@@ -694,8 +694,8 @@ pub fn range(t: &str, now: i64, tz: &TimeZone, week_start: usize) -> Option<Rang
     if let Some(entry) = named(t) {
         return named_range(entry, today, tz, week_start);
     }
-    if let Some((prev, n, unit)) = relative(t) {
-        return relative_range(prev, n, unit, now, tz);
+    if let Some(parsed) = relative(t) {
+        return relative_range(parsed, now, tz);
     }
     let digits = |s: &str| !s.is_empty() && s.chars().all(|c| c.is_ascii_digit());
     let p: Vec<&str> = t.split('-').collect();
@@ -824,8 +824,8 @@ fn named_range(
 }
 
 /// `current<N><unit>` (the last N units up to `now`) or `previous<N><unit>` (the N units before
-/// those).
-fn relative_range(prev: bool, n: i64, unit: usize, now: i64, tz: &TimeZone) -> Option<Range> {
+/// those), as [`relative`] read it: whether it is `previous`, N and the unit.
+fn relative_range((prev, n, unit): (bool, i64, usize), now: i64, tz: &TimeZone) -> Option<Range> {
     // currentN: the last N units up to now; previousN: the N units before those
     let sp = span_of(unit, n)?;
     let nowz = ts_of(now)?.to_zoned(tz.clone());
