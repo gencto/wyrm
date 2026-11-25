@@ -497,83 +497,39 @@ fn kind(ty: &str) -> Option<Kind> {
     })
 }
 
-fn shape(k: Kind) -> Shape {
-    use PortType::*;
-    let s = |v: &str| Value::Str(v.to_owned());
-    let var = |default: Value, t: PortType| -> (Vec<Param>, PortType) {
-        (vec![param("value", default, false)], t)
-    };
-    match k {
-        Kind::Number | Kind::Text | Kind::Bool => {
-            let (params, t) = match k {
-                Kind::Number => var(Value::Int(0), Number),
-                Kind::Bool => var(Value::Bool(false), Bool),
-                _ => var(s(""), Any),
-            };
-            Shape {
-                inputs: &["in"],
-                params,
-                items: false,
-                outputs: match t {
-                    Number => &[("out", Number)],
-                    Bool => &[("out", Bool)],
-                    _ => &[("out", Any)],
-                },
-            }
+impl Shape {
+    /// The shape of a block on `in` alone.
+    fn one_in(params: Vec<Param>, outputs: &'static [(&'static str, PortType)]) -> Self {
+        Self {
+            inputs: &["in"],
+            params,
+            items: false,
+            outputs,
         }
-        Kind::Add | Kind::Subtract | Kind::Multiply | Kind::Divide | Kind::Max | Kind::Min => {
-            Shape {
-                inputs: &[],
-                params: vec![],
-                items: true,
-                outputs: &[("out", Number)],
-            }
+    }
+
+    /// The shape of a block on its variable inputs alone.
+    fn on_items(params: Vec<Param>, outputs: &'static [(&'static str, PortType)]) -> Self {
+        Self {
+            inputs: &[],
+            params,
+            items: true,
+            outputs,
         }
-        Kind::Abs => Shape {
-            inputs: &["in"],
-            params: vec![],
-            items: false,
-            outputs: &[("out", Number)],
-        },
-        Kind::Round => Shape {
-            inputs: &["in"],
-            params: vec![
-                param("precision", Value::Int(0), true),
-                // fewest places in `text`: trailing zeros beyond it go (default: precision)
-                param("min_precision", Value::Null, true),
-            ],
-            items: false,
-            outputs: &[("out", Number), ("text", Any)],
-        },
-        Kind::Modulo => Shape {
-            inputs: &["in"],
-            params: vec![param("modulo", Value::Null, true)],
-            items: false,
-            outputs: &[("quotient", Number), ("remainder", Number)],
-        },
-        Kind::Not => Shape {
-            inputs: &["in"],
-            params: vec![],
-            items: false,
-            outputs: &[("out", Bool)],
-        },
-        Kind::If => Shape {
-            inputs: &[],
-            params: vec![
-                param("op", s("="), true),
-                param("then", Value::Bool(true), true),
-                param("else", Value::Bool(false), true),
-            ],
-            items: true,
-            outputs: &[("out", Any)],
-        },
-        Kind::Hub => Shape {
-            inputs: &[],
-            params: vec![param("ignore_null", Value::Bool(true), true)],
-            items: true,
-            outputs: &[("out", Any), ("index", Number), ("on_change", Map)],
-        },
-        Kind::Stopwatch => Shape {
+    }
+
+    /// The shape of a variable (`number`, `string`, `bool`): `value` and its type on `out`.
+    fn variable(default: Value, outputs: &'static [(&'static str, PortType)]) -> Self {
+        Self::one_in(vec![param("value", default, false)], outputs)
+    }
+}
+
+/// The blocks with inputs of their own beside `in` and the variable inputs, or both.
+impl Shape {
+    /// `stopwatch`: counts on its clock; `reset` starts it again.
+    fn stopwatch() -> Self {
+        use PortType::*;
+        Shape {
             inputs: &["reset"],
             params: vec![
                 param("enabled", Value::Bool(false), true),
@@ -585,106 +541,25 @@ fn shape(k: Kind) -> Shape {
             ],
             items: false,
             outputs: &[("out", Number), ("on_loop", Map)],
-        },
-        Kind::Trace => Shape {
-            inputs: &[],
-            params: vec![
-                param("tracing", Value::Bool(true), true),
-                param("msg", s("trace"), true),
-            ],
-            items: true,
-            outputs: &[],
-        },
-        Kind::Concat => Shape {
-            inputs: &[],
-            params: vec![param("strict", Value::Bool(false), true)],
-            items: true,
-            outputs: &[("out", Any)],
-        },
-        Kind::Length => Shape {
-            inputs: &["in"],
-            params: vec![],
-            items: false,
-            outputs: &[("out", Number)],
-        },
-        // the variable inputs are pairs: in.<1st> a case value, in.<2nd> what it gives, …
-        Kind::Case => Shape {
+        }
+    }
+
+    /// `case`: `in` against the case values of its variable inputs.
+    fn case() -> Self {
+        use PortType::*;
+        let s = |v: &str| Value::Str(v.to_owned());
+        Shape {
             inputs: &["in"],
             params: vec![param("op", s("="), true), param("else", Value::Null, true)],
             items: true,
             outputs: &[("out", Any)],
-        },
-        Kind::Substring => Shape {
-            inputs: &["in"],
-            params: vec![
-                param("start", Value::Int(0), true),
-                param("length", Value::Null, true),
-                // ADR 0044: where it ends (exclusive); below 0 counts from the end
-                param("end", Value::Null, true),
-            ],
-            items: false,
-            outputs: &[("out", Any)],
-        },
-        Kind::Replace => Shape {
-            inputs: &["in"],
-            params: vec![
-                param("from", s(""), true),
-                param("to", s(""), true),
-                // ADR 0044 §6: `from` is a bounded pattern
-                param("regexp", Value::Bool(false), true),
-            ],
-            items: false,
-            outputs: &[("out", Any)],
-        },
-        Kind::Split | Kind::Join => Shape {
-            inputs: &["in"],
-            params: vec![param("separator", s(","), true)],
-            items: false,
-            outputs: &[("out", Any)],
-        },
-        Kind::MakeObject => Shape {
-            inputs: &[],
-            params: vec![],
-            items: true,
-            outputs: &[("out", Map)],
-        },
-        Kind::MakeArray => Shape {
-            inputs: &[],
-            params: vec![],
-            items: true,
-            outputs: &[("out", Any)],
-        },
-        Kind::Get => Shape {
-            inputs: &["in"],
-            params: vec![param("path", s(""), true)],
-            items: false,
-            outputs: &[("out", Any)],
-        },
-        Kind::Stats => Shape {
-            inputs: &["in"],
-            params: vec![],
-            items: false,
-            outputs: &[
-                ("min", Number),
-                ("max", Number),
-                ("avg", Number),
-                ("sum", Number),
-                ("count", Number),
-            ],
-        },
-        Kind::Changed => Shape {
-            inputs: &["in"],
-            params: vec![],
-            items: false,
-            outputs: &[("on_change", Map)],
-        },
-        Kind::RisingEdge | Kind::FallingEdge => Shape {
-            inputs: &["in"],
-            params: vec![],
-            items: false,
-            outputs: &[("on_edge", Map)],
-        },
-        Kind::Counter => Shape {
+        }
+    }
+
+    /// `counter`: counts the samples on `in`; `reset` sets it back.
+    fn counter() -> Self {
+        use PortType::*;
+        Shape {
             inputs: &["in", "reset"],
             params: vec![
                 param("step", Value::Int(1), true),
@@ -692,38 +567,36 @@ fn shape(k: Kind) -> Shape {
             ],
             items: false,
             outputs: &[("out", Number)],
-        },
-        Kind::Toggle => Shape {
+        }
+    }
+
+    /// `toggle`: flips on each sample on `in`; `reset` sets it back.
+    fn toggle() -> Self {
+        use PortType::*;
+        Shape {
             inputs: &["in", "reset"],
             params: vec![param("initial", Value::Bool(false), true)],
             items: false,
             outputs: &[("out", Bool)],
-        },
-        Kind::SampleAndHold => Shape {
+        }
+    }
+
+    /// `sample_and_hold`: sends `in` on each sample on `trigger`.
+    fn sample_and_hold() -> Self {
+        use PortType::*;
+        Shape {
             inputs: &["in", "trigger"],
             params: vec![],
             items: false,
             outputs: &[("out", Any)],
-        },
-        Kind::Select => Shape {
-            inputs: &[],
-            params: vec![param("index", Value::Int(0), true)],
-            items: true,
-            outputs: &[("out", Any)],
-        },
-        Kind::Debounce | Kind::Throttle => Shape {
-            inputs: &["in"],
-            params: vec![param("ms", Value::Int(500), true)],
-            items: false,
-            outputs: &[("out", Any)],
-        },
-        Kind::Constant => math::constant_shape(),
-        Kind::Math(op) => math::shape(op),
-        Kind::Stat(_) => math::stat_shape(),
-        Kind::Str(op) => text::shape(op),
-        Kind::Date(op) => date::shape(op),
-        // the case values are the variable inputs; each has the output `out.<name>`
-        Kind::Router => Shape {
+        }
+    }
+
+    /// `router`: sends `in` to the output of the case value `condition` matches.
+    fn router() -> Self {
+        use PortType::*;
+        let s = |v: &str| Value::Str(v.to_owned());
+        Shape {
             inputs: &["in", "condition"],
             params: vec![
                 param("op", s("="), true),
@@ -731,20 +604,25 @@ fn shape(k: Kind) -> Shape {
             ],
             items: true,
             outputs: &[("else", Any)],
-        },
-        Kind::EventGate => Shape {
+        }
+    }
+
+    /// `event_gate`: fires once every variable input changed; `reset` opens it again.
+    fn event_gate() -> Self {
+        use PortType::*;
+        let s = |v: &str| Value::Str(v.to_owned());
+        Shape {
             inputs: &["reset"],
             params: vec![param("log_order", s("none"), true)],
             items: true,
             outputs: &[("on_finish", Map), ("order", Any)],
-        },
-        Kind::TableVar => Shape {
-            inputs: &["in"],
-            params: vec![param("value", Value::Null, false)],
-            items: false,
-            outputs: &[("out", Any)],
-        },
-        Kind::Recorder => Shape {
+        }
+    }
+
+    /// `table_recorder`: records its variable inputs as rows; `reset` replaces them.
+    fn recorder() -> Self {
+        use PortType::*;
+        Shape {
             inputs: &["reset"],
             params: vec![
                 param("enabled", Value::Bool(true), true),
@@ -754,19 +632,124 @@ fn shape(k: Kind) -> Shape {
             ],
             items: true,
             outputs: &[("out", Any)],
-        },
+        }
+    }
+}
+
+fn shape(k: Kind) -> Shape {
+    use PortType::*;
+    let s = |v: &str| Value::Str(v.to_owned());
+    match k {
+        Kind::Number => Shape::variable(Value::Int(0), &[("out", Number)]),
+        Kind::Bool => Shape::variable(Value::Bool(false), &[("out", Bool)]),
+        Kind::Text => Shape::variable(s(""), &[("out", Any)]),
+        Kind::Add | Kind::Subtract | Kind::Multiply | Kind::Divide | Kind::Max | Kind::Min => {
+            Shape::on_items(vec![], &[("out", Number)])
+        }
+        Kind::Abs => Shape::one_in(vec![], &[("out", Number)]),
+        Kind::Round => Shape::one_in(
+            vec![
+                param("precision", Value::Int(0), true),
+                // fewest places in `text`: trailing zeros beyond it go (default: precision)
+                param("min_precision", Value::Null, true),
+            ],
+            &[("out", Number), ("text", Any)],
+        ),
+        Kind::Modulo => Shape::one_in(
+            vec![param("modulo", Value::Null, true)],
+            &[("quotient", Number), ("remainder", Number)],
+        ),
+        Kind::Not => Shape::one_in(vec![], &[("out", Bool)]),
+        Kind::If => Shape::on_items(
+            vec![
+                param("op", s("="), true),
+                param("then", Value::Bool(true), true),
+                param("else", Value::Bool(false), true),
+            ],
+            &[("out", Any)],
+        ),
+        Kind::Hub => Shape::on_items(
+            vec![param("ignore_null", Value::Bool(true), true)],
+            &[("out", Any), ("index", Number), ("on_change", Map)],
+        ),
+        Kind::Stopwatch => Shape::stopwatch(),
+        Kind::Trace => Shape::on_items(
+            vec![
+                param("tracing", Value::Bool(true), true),
+                param("msg", s("trace"), true),
+            ],
+            &[],
+        ),
+        Kind::Concat => Shape::on_items(
+            vec![param("strict", Value::Bool(false), true)],
+            &[("out", Any)],
+        ),
+        Kind::Length => Shape::one_in(vec![], &[("out", Number)]),
+        // the variable inputs are pairs: in.<1st> a case value, in.<2nd> what it gives, …
+        Kind::Case => Shape::case(),
+        Kind::Substring => Shape::one_in(
+            vec![
+                param("start", Value::Int(0), true),
+                param("length", Value::Null, true),
+                // ADR 0044: where it ends (exclusive); below 0 counts from the end
+                param("end", Value::Null, true),
+            ],
+            &[("out", Any)],
+        ),
+        Kind::Replace => Shape::one_in(
+            vec![
+                param("from", s(""), true),
+                param("to", s(""), true),
+                // ADR 0044 §6: `from` is a bounded pattern
+                param("regexp", Value::Bool(false), true),
+            ],
+            &[("out", Any)],
+        ),
+        Kind::Split | Kind::Join => {
+            Shape::one_in(vec![param("separator", s(","), true)], &[("out", Any)])
+        }
+        Kind::MakeObject => Shape::on_items(vec![], &[("out", Map)]),
+        Kind::MakeArray => Shape::on_items(vec![], &[("out", Any)]),
+        Kind::Get => Shape::one_in(vec![param("path", s(""), true)], &[("out", Any)]),
+        Kind::Stats => Shape::one_in(
+            vec![],
+            &[
+                ("min", Number),
+                ("max", Number),
+                ("avg", Number),
+                ("sum", Number),
+                ("count", Number),
+            ],
+        ),
+        Kind::Changed => Shape::one_in(vec![], &[("on_change", Map)]),
+        Kind::RisingEdge | Kind::FallingEdge => Shape::one_in(vec![], &[("on_edge", Map)]),
+        Kind::Counter => Shape::counter(),
+        Kind::Toggle => Shape::toggle(),
+        Kind::SampleAndHold => Shape::sample_and_hold(),
+        Kind::Select => Shape::on_items(vec![param("index", Value::Int(0), true)], &[("out", Any)]),
+        Kind::Debounce | Kind::Throttle => {
+            Shape::one_in(vec![param("ms", Value::Int(500), true)], &[("out", Any)])
+        }
+        Kind::Constant => math::constant_shape(),
+        Kind::Math(op) => math::shape(op),
+        Kind::Stat(_) => math::stat_shape(),
+        Kind::Str(op) => text::shape(op),
+        Kind::Date(op) => date::shape(op),
+        // the case values are the variable inputs; each has the output `out.<name>`
+        Kind::Router => Shape::router(),
+        Kind::EventGate => Shape::event_gate(),
+        Kind::TableVar => Shape::one_in(vec![param("value", Value::Null, false)], &[("out", Any)]),
+        Kind::Recorder => Shape::recorder(),
         Kind::Table(op) => tables::shape(op),
-        Kind::CatchError => Shape {
-            inputs: &[],
-            params: vec![],
-            items: true,
-            outputs: &[
+        Kind::CatchError => Shape::on_items(
+            vec![],
+            &[
                 ("out", Any),
                 ("code", Number),
                 ("source", Any),
                 ("on_error", Map),
             ],
-        },
+        ),
     }
 }
 
@@ -1408,509 +1391,59 @@ impl Block {
         out.emit(port, Msg::new(v, Quality::Good, t));
     }
 
+    /// The numbers of the variable inputs. An input with no value yet is `null`, which is no
+    /// number: the same as leaving it out.
+    fn nums(&self) -> impl Iterator<Item = N> + '_ {
+        self.items
+            .iter()
+            .filter_map(|n| self.values.get(n).and_then(|v| num(v)))
+    }
+
     fn calculate(&mut self, changed: &str, out: &mut Out) {
         let (q, t) = self.quality();
-        // an input with no value yet is `null`, which is no number: the same as leaving it out
-        let nums = || {
-            self.items
-                .iter()
-                .filter_map(|n| self.values.get(n).and_then(|v| num(v)))
-        };
         match self.kind {
-            Kind::Number | Kind::Text | Kind::Bool => {
-                let v = self.var_value(
-                    self.values
-                        .get("in")
-                        .map_or(self.param("value"), Payload::get),
-                );
-                self.send("out", v, q, t, out);
-            }
-            Kind::TableVar => {
-                let v = self
-                    .values
-                    .get("in")
-                    .map_or(self.param("value"), Payload::get);
-                let (v, q) = match v {
-                    Value::Null => (table::Table::default().to_value().unwrap_or(Value::Null), q),
-                    v => match table::Table::from_value(v).and_then(table::Table::into_value) {
-                        Some(t) => (t, q),
-                        None => (Value::Null, Quality::Bad),
-                    },
-                };
-                self.send("out", v, q, t, out);
-            }
+            Kind::Number | Kind::Text | Kind::Bool => self.variable(q, t, out),
+            Kind::TableVar => self.table_var(q, t, out),
             Kind::Recorder => self.record(changed, q, t, out),
             Kind::Table(tables::Op::Page) => self.page(changed, q, t, out),
-            Kind::Table(op) => {
-                // the scripts keep their variables between calls: out of the block for the
-                // call, which reads the rest of it
-                let mut scripts = self.scripts.take();
-                let outs = tables::calc(op, &self.view(), scripts.as_mut());
-                self.scripts = scripts;
-                self.send_all(outs, q, t, out);
-            }
+            Kind::Table(op) => self.table_op(op, q, t, out),
             Kind::Add => {
-                let v = nums().fold(N::I(0), |a, b| a.op(b, i64::checked_add, |x, y| x + y));
+                let v = self
+                    .nums()
+                    .fold(N::I(0), |a, b| a.op(b, i64::checked_add, |x, y| x + y));
                 self.send("out", v.value(), q, t, out);
             }
-            Kind::Subtract | Kind::Multiply | Kind::Divide => {
-                let mut xs = nums();
-                let v = xs.next().map(|first| {
-                    xs.fold(first, |a, b| match self.kind {
-                        Kind::Subtract => a.op(b, i64::checked_sub, |x, y| x - y),
-                        Kind::Multiply => a.op(b, i64::checked_mul, |x, y| x * y),
-                        _ => N::F(a.f() / b.f()),
-                    })
-                });
-                // one input alone divides nothing: still a float, as every quotient
-                let v = match (self.kind, v) {
-                    (Kind::Divide, Some(n)) => N::F(n.f()).value(),
-                    (_, v) => v.map_or(Value::Null, N::value),
-                };
-                self.send("out", v, q, t, out);
-            }
-            Kind::Max | Kind::Min => {
-                let max = self.kind == Kind::Max;
-                let v = nums().reduce(|a, b| {
-                    let better = if max { b.f() > a.f() } else { b.f() < a.f() };
-                    if better {
-                        b
-                    } else {
-                        a
-                    }
-                });
-                self.send("out", v.map_or(Value::Null, N::value), q, t, out);
-            }
-            Kind::Abs => {
-                let v = num(self.in_value()).map(|n| match n {
-                    N::I(i) => i.checked_abs().map_or(N::F((i as f64).abs()), N::I),
-                    N::F(x) => N::F(x.abs()),
-                });
-                self.send("out", v.map_or(Value::Null, N::value), q, t, out);
-            }
-            Kind::Round => {
-                let places =
-                    num(self.param("precision")).map_or(0, |n| n.f().clamp(0.0, 20.0) as i32);
-                let v = num(self.in_value()).map(|n| {
-                    if places == 0 {
-                        let r = n.f().round();
-                        if r.abs() < 9.0e15 {
-                            N::I(r as i64)
-                        } else {
-                            N::F(r)
-                        }
-                    } else {
-                        let f = 10f64.powi(places);
-                        N::F((n.f() * f).round() / f)
-                    }
-                });
-                let text = v.map_or(Value::Null, |n| {
-                    // `places` places, trailing zeros trimmed down to `min_precision`
-                    let min = num(self.param("min_precision"))
-                        .map_or(places, |m| m.f().clamp(0.0, f64::from(places)) as i32);
-                    Value::Str(fixed(n.f(), places, min))
-                });
-                self.send("out", v.map_or(Value::Null, N::value), q, t, out);
-                self.send("text", text, q, t, out);
-            }
-            Kind::Modulo => {
-                let (quot, rem) = match (num(self.in_value()), num(self.param("modulo"))) {
-                    (Some(_), Some(m)) if m.f() == 0.0 => (Value::Null, Value::Null),
-                    (Some(N::I(a)), Some(N::I(b))) => (
-                        a.checked_div(b).map_or(Value::Null, Value::Int),
-                        a.checked_rem_euclid(b).map_or(Value::Null, Value::Int),
-                    ),
-                    (Some(a), Some(b)) => {
-                        let qf = (a.f() / b.f()).trunc();
-                        let quot = if qf.abs() < 9.0e15 {
-                            Value::Int(qf as i64)
-                        } else {
-                            N::F(qf).value()
-                        };
-                        (quot, N::F(a.f().rem_euclid(b.f())).value())
-                    }
-                    _ => (Value::Null, Value::Null),
-                };
-                self.send("quotient", quot, q, t, out);
-                self.send("remainder", rem, q, t, out);
-            }
+            Kind::Subtract | Kind::Multiply | Kind::Divide => self.arithmetic(q, t, out),
+            Kind::Max | Kind::Min => self.max_min(q, t, out),
+            Kind::Abs => self.abs(q, t, out),
+            Kind::Round => self.round(q, t, out),
+            Kind::Modulo => self.modulo(q, t, out),
             Kind::Not => {
                 let v = !truth(self.in_value(), false);
                 self.send("out", Value::Bool(v), q, t, out);
             }
-            Kind::If => {
-                let vs = self.item_values();
-                let op = self.ops.if_op;
-                // each input against the next, as numbers
-                let chain = |c: NumCmp| {
-                    vs.len() > 1
-                        && vs.windows(2).all(|w| match w {
-                            [a, b] => num_op(c, a, b),
-                            _ => false,
-                        })
-                };
-                // the first input as text against any of the others
-                let any_text = |c: TextCmp| {
-                    vs.split_first().is_some_and(|(x, rest)| {
-                        let x = if *x == Value::Null {
-                            Value::Str(String::new())
-                        } else {
-                            x.clone()
-                        };
-                        rest.iter().any(|p| text_op(c, &x, p))
-                    })
-                };
-                let yes = match op {
-                    IfOp::And => vs.iter().all(|v| truth(v, false)),
-                    IfOp::Or => vs.iter().any(|v| truth(v, false)),
-                    IfOp::Gt => chain(NumCmp::Gt),
-                    IfOp::Lt => chain(NumCmp::Lt),
-                    IfOp::Ge => chain(NumCmp::Ge),
-                    IfOp::Le => chain(NumCmp::Le),
-                    // the first input against the others: none equal
-                    IfOp::Ne => vs
-                        .split_first()
-                        .is_none_or(|(x, rest)| !rest.iter().any(|v| same(x, v))),
-                    IfOp::Contains => any_text(TextCmp::Contains),
-                    IfOp::StartsWith => any_text(TextCmp::StartsWith),
-                    IfOp::EndsWith => any_text(TextCmp::EndsWith),
-                    IfOp::Eq => vs
-                        .first()
-                        .is_none_or(|first| vs.iter().all(|v| same(v, first))),
-                };
-                let v = self.param(if yes { "then" } else { "else" }).clone();
-                self.send("out", v, q, t, out);
-            }
-            Kind::Case => {
-                let x = self.in_value().clone();
-                let op = self.ops.case_op;
-                let vs = self.item_values();
-                let mut cache = self.re.take();
-                let hit = vs
-                    .as_chunks::<2>()
-                    .0
-                    .iter()
-                    .find(|[p, _]| case_match(op, &x, p, &mut cache));
-                let v = match hit {
-                    Some(pair) => pair[1].clone(),
-                    None => self.param("else").clone(),
-                };
-                self.re = cache;
-                self.send("out", v, q, t, out);
-            }
-            Kind::Hub => {
-                let Some(index) = self.items.iter().position(|n| n == changed) else {
-                    return;
-                };
-                let v = self.values.get(changed).cloned().unwrap_or_default();
-                if v == Value::Null && truth(self.param("ignore_null"), true) {
-                    return;
-                }
-                self.send("index", Value::UInt(index as u64), q, t, out);
-                // the input that changed last, even when it holds the same value as before
-                out.emit("out", Msg::new(v.clone(), q, t));
-                self.sent.insert("out".into(), (v, q));
-                self.fire("on_change", t, out);
-            }
-            Kind::Stopwatch => {
-                if changed == "reset" || self.count.is_none() {
-                    self.count = Some(num(self.param("reset_value")).unwrap_or(N::I(0)));
-                    self.elapsed_us = 0;
-                    if changed == "reset" {
-                        let v = self.count.map_or(Value::Null, N::value);
-                        self.send("out", v, q, t, out);
-                    }
-                }
-            }
-            Kind::Trace => {
-                if truth(self.param("tracing"), true) {
-                    // values: `trace` only, as every log line that holds them
-                    trace!(
-                        block = %self.name,
-                        msg = %text(self.param("msg")),
-                        values = ?self.item_values(),
-                        "trace"
-                    );
-                }
-            }
-            Kind::Concat => {
-                let vs = self.item_values();
-                let (v, q) = if truth(self.param("strict"), false) && vs.contains(&Value::Null) {
-                    (Value::Null, q)
-                } else {
-                    let mut s = String::new();
-                    if vs.iter().all(|v| push_text(&mut s, v)) {
-                        (Value::Str(s), q)
-                    } else {
-                        (Value::Null, Quality::Bad)
-                    }
-                };
-                self.send("out", v, q, t, out);
-            }
-            Kind::Substring => {
-                let v = match self.in_value() {
-                    Value::Null => Value::Null,
-                    v => {
-                        // a start below 0 or not a number is 0; a length never passes 4 KiB
-                        let start = whole(self.param("start"), usize::MAX).unwrap_or(0);
-                        let src = text(v);
-                        // `length` wins over `end`
-                        let len = match (
-                            whole(self.param("length"), MAX_TEXT),
-                            num(self.param("end")),
-                        ) {
-                            (Some(l), _) => l,
-                            (None, Some(e)) => {
-                                let n = src.chars().count() as f64;
-                                let e = e.f();
-                                let end = if e < 0.0 { (n + e).max(0.0) } else { e.min(n) };
-                                (end as usize).saturating_sub(start)
-                            }
-                            (None, None) => MAX_TEXT,
-                        };
-                        let part: String = src.chars().skip(start).take(len).collect();
-                        if part.len() > MAX_TEXT {
-                            Value::Null
-                        } else {
-                            Value::Str(part)
-                        }
-                    }
-                };
-                let q = if v == Value::Null && *self.in_value() != Value::Null {
-                    Quality::Bad
-                } else {
-                    q
-                };
-                self.send("out", v, q, t, out);
-            }
-            Kind::Replace => {
-                let (v, q) = match self.in_value() {
-                    Value::Null => (Value::Null, q),
-                    v => {
-                        let (from, to) = (text(self.param("from")), text(self.param("to")));
-                        let src = text(v);
-                        if truth(self.param("regexp"), false) {
-                            let r = self.pattern(&from).map(|re| {
-                                let hits = re.find_iter(&src).count();
-                                if src.len().saturating_add(hits.saturating_mul(to.len()))
-                                    > MAX_TEXT
-                                {
-                                    None
-                                } else {
-                                    Some(re.replace_all(&src, regex::NoExpand(&to)).into_owned())
-                                }
-                            });
-                            let (v, q) = match r {
-                                Some(Some(s)) => (Value::Str(s), q),
-                                Some(None) => (Value::Null, Quality::Bad),
-                                // a pattern that does not compile replaces nothing
-                                None => (Value::Str(src), q),
-                            };
-                            self.send("out", v, q, t, out);
-                            return;
-                        }
-                        // the result is bounded before it is built
-                        let grows = to.len().saturating_sub(from.len());
-                        let hits = if from.is_empty() {
-                            0
-                        } else {
-                            src.matches(&from).count()
-                        };
-                        if src.len().saturating_add(hits.saturating_mul(grows)) > MAX_TEXT {
-                            (Value::Null, Quality::Bad)
-                        } else if hits == 0 {
-                            (Value::Str(src), q)
-                        } else {
-                            (Value::Str(src.replace(&from, &to)), q)
-                        }
-                    }
-                };
-                self.send("out", v, q, t, out);
-            }
-            Kind::Split => {
-                let (v, q) = match self.in_value() {
-                    Value::Null => (Value::Null, q),
-                    v => {
-                        let (src, sep) = (text(v), text(self.param("separator")));
-                        if sep.is_empty() {
-                            (Value::Array(vec![Value::Str(src)]), q)
-                        } else if src.matches(&sep).count() >= MAX_LIST {
-                            (Value::Null, Quality::Bad)
-                        } else {
-                            let parts = src.split(&sep).map(|p| Value::Str(p.to_owned()));
-                            (Value::Array(parts.collect()), q)
-                        }
-                    }
-                };
-                self.send("out", v, q, t, out);
-            }
-            Kind::Join => {
-                let (v, q) = match self.in_value() {
-                    Value::Null => (Value::Null, q),
-                    Value::Array(a) => {
-                        let sep = text(self.param("separator"));
-                        let mut s = String::new();
-                        let ok = a.iter().enumerate().all(|(i, x)| {
-                            if i > 0 {
-                                s.push_str(&sep);
-                            }
-                            push_text(&mut s, x)
-                        });
-                        if ok {
-                            (Value::Str(s), q)
-                        } else {
-                            (Value::Null, Quality::Bad)
-                        }
-                    }
-                    v => (bounded_text(v).map_or(Value::Null, Value::Str), q),
-                };
-                self.send("out", v, q, t, out);
-            }
-            Kind::MakeObject => {
-                let m = self
-                    .items
-                    .iter()
-                    .cloned()
-                    .zip(self.item_values())
-                    .collect::<BTreeMap<_, _>>();
-                self.send("out", Value::Map(m), q, t, out);
-            }
+            Kind::If => self.if_then(q, t, out),
+            Kind::Case => self.case(q, t, out),
+            Kind::Hub => self.hub(changed, q, t, out),
+            Kind::Stopwatch => self.stopwatch(changed, q, t, out),
+            Kind::Trace => self.trace(),
+            Kind::Concat => self.concat(q, t, out),
+            Kind::Substring => self.substring(q, t, out),
+            Kind::Replace => self.replace(q, t, out),
+            Kind::Split => self.split(q, t, out),
+            Kind::Join => self.join(q, t, out),
+            Kind::MakeObject => self.make_object(q, t, out),
             Kind::MakeArray => {
                 let v = Value::Array(self.item_values());
                 self.send("out", v, q, t, out);
             }
-            Kind::Get => {
-                // a path longer than a text a block makes names nothing
-                let path = Some(text(self.param("path")))
-                    .filter(|p| p.len() <= MAX_TEXT)
-                    .unwrap_or_else(|| "\u{0}".to_owned());
-                let mut v = self.in_value();
-                for seg in path.split('.').filter(|s| !s.is_empty()) {
-                    v = match v {
-                        Value::Map(m) => m.get(seg).unwrap_or(&Value::Null),
-                        Value::Array(a) => seg
-                            .parse::<usize>()
-                            .ok()
-                            .and_then(|i| a.get(i))
-                            .unwrap_or(&Value::Null),
-                        _ => &Value::Null,
-                    };
-                }
-                let v = v.clone();
-                self.send("out", v, q, t, out);
-            }
-            Kind::Stats => {
-                let xs: Vec<f64> = match self.in_value() {
-                    Value::Array(a) => a.iter().filter_map(num).map(N::f).collect(),
-                    _ => Vec::new(),
-                };
-                let n = xs.len();
-                let sum: f64 = xs.iter().sum();
-                let of = |x: Option<f64>| x.map_or(Value::Null, |x| N::F(x).value());
-                let min = xs.iter().copied().reduce(f64::min);
-                let max = xs.iter().copied().reduce(f64::max);
-                self.send("min", of(min), q, t, out);
-                self.send("max", of(max), q, t, out);
-                self.send("avg", of((n > 0).then(|| sum / n as f64)), q, t, out);
-                self.send("sum", of((n > 0).then_some(sum)), q, t, out);
-                self.send("count", Value::UInt(n as u64), q, t, out);
-            }
-            Kind::Changed | Kind::RisingEdge | Kind::FallingEdge => {
-                if changed != "in" {
-                    return;
-                }
-                let v = self.in_sample().cloned().unwrap_or_default();
-                let prev = self.prev.replace(v.clone());
-                // a value born at the start is where the block starts from, not an event
-                if self.born {
-                    return;
-                }
-                let was = prev.as_ref().is_some_and(|p| truth(p, false));
-                let is = truth(&v, false);
-                let (port, hit) = match self.kind {
-                    Kind::Changed => ("on_change", prev.is_some_and(|p| p != v)),
-                    // nothing before counts as false: the first true is an edge
-                    Kind::RisingEdge => ("on_edge", is && !was),
-                    _ => ("on_edge", !is && was),
-                };
-                if hit {
-                    self.fire(port, t, out);
-                }
-            }
-            Kind::Counter | Kind::Toggle => {
-                let initial = match self.kind {
-                    Kind::Counter => num(self.param("initial")).unwrap_or(N::I(0)),
-                    _ => N::I(i64::from(truth(self.param("initial"), false))),
-                };
-                let fresh = self.count.is_none();
-                let mut n = self.count.unwrap_or(initial);
-                let hit = changed == "in" && !self.born && *self.in_value() != Value::Null;
-                if changed == "reset"
-                    && !self.born
-                    && truth(
-                        self.values.get("reset").map_or(&Value::Null, Payload::get),
-                        false,
-                    )
-                {
-                    n = initial;
-                } else if hit && self.kind == Kind::Counter {
-                    let step = num(self.param("step")).unwrap_or(N::I(1));
-                    let next = n.op(step, i64::checked_add, |x, y| x + y);
-                    // a count that would leave the finite numbers stays where it is
-                    if next.f().is_finite() {
-                        n = next;
-                    }
-                } else if hit {
-                    n = N::I(i64::from(n.f() == 0.0));
-                } else if !fresh {
-                    return;
-                }
-                self.count = Some(n);
-                let v = match self.kind {
-                    Kind::Counter => n.value(),
-                    _ => Value::Bool(n.f() != 0.0),
-                };
-                self.send("out", v, q, t, out);
-            }
-            Kind::SampleAndHold => {
-                let fired = self
-                    .values
-                    .get("trigger")
-                    .is_some_and(|v| *v != Value::Null);
-                if changed == "trigger" && !self.born && fired {
-                    let v = self.in_sample().cloned().unwrap_or_default();
-                    self.send("out", v, q, t, out);
-                }
-            }
-            Kind::Select => {
-                let v = whole(self.param("index"), MAX_ITEMS)
-                    .and_then(|i| self.items.get(i))
-                    .and_then(|name| self.values.get(name))
-                    .cloned()
-                    .unwrap_or_default();
-                self.send("out", v, q, t, out);
-            }
-            Kind::Debounce | Kind::Throttle => {
-                if changed != "in" {
-                    return;
-                }
-                let v = self.in_sample().cloned().unwrap_or_default();
-                let now = tokio::time::Instant::now();
-                let ms = self.hold();
-                if self.kind == Kind::Debounce {
-                    // the value goes out once `ms` passed without another
-                    self.held = Some(v);
-                    self.due = Some(now + ms);
-                } else if self.passed.is_none_or(|p| now >= p + ms) {
-                    self.passed = Some(now);
-                    self.held = None;
-                    self.send("out", v, q, t, out);
-                } else {
-                    // the latest value waits for the end of the period
-                    self.held = Some(v);
-                    self.due = self.passed.map(|p| p + ms);
-                }
-            }
+            Kind::Get => self.get_path(q, t, out),
+            Kind::Stats => self.stats(q, t, out),
+            Kind::Changed | Kind::RisingEdge | Kind::FallingEdge => self.edge(changed, t, out),
+            Kind::Counter | Kind::Toggle => self.counter_toggle(changed, q, t, out),
+            Kind::SampleAndHold => self.sample_and_hold(changed, q, t, out),
+            Kind::Select => self.select(q, t, out),
+            Kind::Debounce | Kind::Throttle => self.debounce_throttle(changed, q, t, out),
             Kind::Constant => {
                 let v = math::constant(self.param("name"));
                 self.send("out", v, q, t, out);
@@ -1936,106 +1469,649 @@ impl Block {
                     self.send("out", Value::Int(now as i64), q, now, out);
                 }
             }
-            Kind::Router => {
-                let x = self.values.get("condition").cloned().unwrap_or_default();
-                let op = self.ops.case_op;
-                let mut cache = self.re.take();
-                let names = self.items.clone();
-                let hit = names.iter().find(|name| {
-                    let p = self.values.get(*name).cloned().unwrap_or_default();
-                    case_match(op, &x, &p, &mut cache)
-                });
-                self.re = cache;
-                let port = hit.map_or_else(|| "else".to_owned(), |n| format!("out.{n}"));
-                let v = self.in_sample().cloned().unwrap_or_default();
-                if truth(self.param("single_output"), false) {
-                    if let Some(last) = self.route.take().filter(|l| *l != port) {
-                        self.send(last, Value::Null, q, t, out);
-                    }
-                }
-                self.route = Some(port.clone());
-                self.send(port, v, q, t, out);
-            }
-            Kind::EventGate => {
-                if changed == "reset" {
-                    let v = self.values.get("reset").map_or(&Value::Null, Payload::get);
-                    if !self.born && *v != Value::Null {
-                        self.gate.clear();
-                        self.order.clear();
-                        self.finished = false;
-                    }
-                    return;
-                }
-                if self.born || self.finished || !self.items.iter().any(|n| n == changed) {
-                    return;
-                }
-                let first = !self.gate.iter().any(|n| n == changed);
-                if first {
-                    self.gate.push(changed.to_owned());
-                }
-                match self.param("log_order") {
-                    Value::Str(m) if m == "first_occurrence" && first => {
-                        self.order.push(changed.to_owned())
-                    }
-                    Value::Str(m) if m == "last_occurrence" => {
-                        self.order.retain(|n| n != changed);
-                        self.order.push(changed.to_owned());
-                    }
-                    Value::Str(m) if m == "all" => {
-                        if self.order.len() >= MAX_LIST {
-                            self.order.remove(0);
-                        }
-                        self.order.push(changed.to_owned());
-                    }
-                    _ => {}
-                }
-                if self.gate.len() == self.items.len() {
-                    self.finished = true;
-                    let order = bounded_text(&Value::Str(self.order.join(",")))
-                        .map_or(Value::Null, Value::Str);
-                    self.send("order", order, q, t, out);
-                    self.fire("on_finish", t, out);
-                }
-            }
-            Kind::CatchError => {
-                if self.born || !self.items.iter().any(|n| n == changed) {
-                    return;
-                }
-                let v = self.values.get(changed).cloned().unwrap_or_default();
-                if v == Value::Null {
-                    return;
-                }
-                let (message, code) = match &*v {
-                    Value::Map(m) => (
-                        m.get("message").map_or_else(|| text(&v), text),
-                        m.get("code").and_then(num).map_or(Value::Null, N::value),
-                    ),
-                    v => (text(v), Value::Null),
-                };
-                let message = Some(message)
-                    .filter(|m| m.len() <= MAX_TEXT)
-                    .map_or(Value::Null, Value::Str);
-                // the same text twice is two errors: `on_error` fires every time
-                self.send("out", message, q, t, out);
-                self.send("code", code, q, t, out);
-                self.send("source", Value::Str(changed.to_owned()), q, t, out);
-                self.fire("on_error", t, out);
-            }
+            Kind::Router => self.router(q, t, out),
+            Kind::EventGate => self.event_gate(changed, q, t, out),
+            Kind::CatchError => self.catch_error(changed, q, t, out),
             Kind::Date(op) => {
                 let outs = date::calc(op, &self.view());
                 self.send_all(outs, q, t, out);
             }
-            Kind::Length => {
-                let v = match self.in_value() {
-                    Value::Str(s) => Value::UInt(s.chars().count() as u64),
-                    Value::Array(a) => Value::UInt(a.len() as u64),
-                    Value::Map(m) => Value::UInt(m.len() as u64),
-                    Value::Bytes(b) => Value::UInt(b.len() as u64),
-                    _ => Value::Null,
+            Kind::Length => self.length(q, t, out),
+        }
+    }
+
+    /// A variable: `in`, else its `value`, as its type.
+    fn variable(&mut self, q: Quality, t: u64, out: &mut Out) {
+        let v = self.var_value(
+            self.values
+                .get("in")
+                .map_or(self.param("value"), Payload::get),
+        );
+        self.send("out", v, q, t, out);
+    }
+
+    /// `table`: `in`, else its `value`, as a table; an empty one for `null`.
+    fn table_var(&mut self, q: Quality, t: u64, out: &mut Out) {
+        let v = self
+            .values
+            .get("in")
+            .map_or(self.param("value"), Payload::get);
+        let (v, q) = match v {
+            Value::Null => (table::Table::default().to_value().unwrap_or(Value::Null), q),
+            v => match table::Table::from_value(v).and_then(table::Table::into_value) {
+                Some(t) => (t, q),
+                None => (Value::Null, Quality::Bad),
+            },
+        };
+        self.send("out", v, q, t, out);
+    }
+
+    /// A table block other than `table_page`, with its per-row scripts.
+    fn table_op(&mut self, op: tables::Op, q: Quality, t: u64, out: &mut Out) {
+        // the scripts keep their variables between calls: out of the block for the
+        // call, which reads the rest of it
+        let mut scripts = self.scripts.take();
+        let outs = tables::calc(op, &self.view(), scripts.as_mut());
+        self.scripts = scripts;
+        self.send_all(outs, q, t, out);
+    }
+
+    /// `subtract`, `multiply`, `divide`: the first number by each of the others in turn.
+    fn arithmetic(&mut self, q: Quality, t: u64, out: &mut Out) {
+        let mut xs = self.nums();
+        let v = xs.next().map(|first| {
+            xs.fold(first, |a, b| match self.kind {
+                Kind::Subtract => a.op(b, i64::checked_sub, |x, y| x - y),
+                Kind::Multiply => a.op(b, i64::checked_mul, |x, y| x * y),
+                _ => N::F(a.f() / b.f()),
+            })
+        });
+        // one input alone divides nothing: still a float, as every quotient
+        let v = match (self.kind, v) {
+            (Kind::Divide, Some(n)) => N::F(n.f()).value(),
+            (_, v) => v.map_or(Value::Null, N::value),
+        };
+        self.send("out", v, q, t, out);
+    }
+
+    /// `max`, `min`: the largest or the smallest number.
+    fn max_min(&mut self, q: Quality, t: u64, out: &mut Out) {
+        let max = self.kind == Kind::Max;
+        let v = self.nums().reduce(|a, b| {
+            let better = if max { b.f() > a.f() } else { b.f() < a.f() };
+            if better {
+                b
+            } else {
+                a
+            }
+        });
+        self.send("out", v.map_or(Value::Null, N::value), q, t, out);
+    }
+
+    /// `abs`: the absolute value of `in`.
+    fn abs(&mut self, q: Quality, t: u64, out: &mut Out) {
+        let v = num(self.in_value()).map(|n| match n {
+            N::I(i) => i.checked_abs().map_or(N::F((i as f64).abs()), N::I),
+            N::F(x) => N::F(x.abs()),
+        });
+        self.send("out", v.map_or(Value::Null, N::value), q, t, out);
+    }
+
+    /// `round`: `in` to `precision` places, as a number and as text.
+    fn round(&mut self, q: Quality, t: u64, out: &mut Out) {
+        let places = num(self.param("precision")).map_or(0, |n| n.f().clamp(0.0, 20.0) as i32);
+        let v = num(self.in_value()).map(|n| {
+            if places == 0 {
+                let r = n.f().round();
+                if r.abs() < 9.0e15 {
+                    N::I(r as i64)
+                } else {
+                    N::F(r)
+                }
+            } else {
+                let f = 10f64.powi(places);
+                N::F((n.f() * f).round() / f)
+            }
+        });
+        let text = v.map_or(Value::Null, |n| {
+            // `places` places, trailing zeros trimmed down to `min_precision`
+            let min = num(self.param("min_precision"))
+                .map_or(places, |m| m.f().clamp(0.0, f64::from(places)) as i32);
+            Value::Str(fixed(n.f(), places, min))
+        });
+        self.send("out", v.map_or(Value::Null, N::value), q, t, out);
+        self.send("text", text, q, t, out);
+    }
+
+    /// `modulo`: the quotient and the remainder of `in` by `modulo`.
+    fn modulo(&mut self, q: Quality, t: u64, out: &mut Out) {
+        let (quot, rem) = match (num(self.in_value()), num(self.param("modulo"))) {
+            (Some(_), Some(m)) if m.f() == 0.0 => (Value::Null, Value::Null),
+            (Some(N::I(a)), Some(N::I(b))) => (
+                a.checked_div(b).map_or(Value::Null, Value::Int),
+                a.checked_rem_euclid(b).map_or(Value::Null, Value::Int),
+            ),
+            (Some(a), Some(b)) => {
+                let qf = (a.f() / b.f()).trunc();
+                let quot = if qf.abs() < 9.0e15 {
+                    Value::Int(qf as i64)
+                } else {
+                    N::F(qf).value()
                 };
+                (quot, N::F(a.f().rem_euclid(b.f())).value())
+            }
+            _ => (Value::Null, Value::Null),
+        };
+        self.send("quotient", quot, q, t, out);
+        self.send("remainder", rem, q, t, out);
+    }
+
+    /// `if`: `then` when the inputs pass `op`, else `else`.
+    fn if_then(&mut self, q: Quality, t: u64, out: &mut Out) {
+        let vs = self.item_values();
+        let op = self.ops.if_op;
+        // each input against the next, as numbers
+        let chain = |c: NumCmp| {
+            vs.len() > 1
+                && vs.windows(2).all(|w| match w {
+                    [a, b] => num_op(c, a, b),
+                    _ => false,
+                })
+        };
+        // the first input as text against any of the others
+        let any_text = |c: TextCmp| {
+            vs.split_first().is_some_and(|(x, rest)| {
+                let x = if *x == Value::Null {
+                    Value::Str(String::new())
+                } else {
+                    x.clone()
+                };
+                rest.iter().any(|p| text_op(c, &x, p))
+            })
+        };
+        let yes = match op {
+            IfOp::And => vs.iter().all(|v| truth(v, false)),
+            IfOp::Or => vs.iter().any(|v| truth(v, false)),
+            IfOp::Gt => chain(NumCmp::Gt),
+            IfOp::Lt => chain(NumCmp::Lt),
+            IfOp::Ge => chain(NumCmp::Ge),
+            IfOp::Le => chain(NumCmp::Le),
+            // the first input against the others: none equal
+            IfOp::Ne => vs
+                .split_first()
+                .is_none_or(|(x, rest)| !rest.iter().any(|v| same(x, v))),
+            IfOp::Contains => any_text(TextCmp::Contains),
+            IfOp::StartsWith => any_text(TextCmp::StartsWith),
+            IfOp::EndsWith => any_text(TextCmp::EndsWith),
+            IfOp::Eq => vs
+                .first()
+                .is_none_or(|first| vs.iter().all(|v| same(v, first))),
+        };
+        let v = self.param(if yes { "then" } else { "else" }).clone();
+        self.send("out", v, q, t, out);
+    }
+
+    /// `case`: what the first case value that `in` matches gives, else `else`.
+    fn case(&mut self, q: Quality, t: u64, out: &mut Out) {
+        let x = self.in_value().clone();
+        let op = self.ops.case_op;
+        let vs = self.item_values();
+        let mut cache = self.re.take();
+        let hit = vs
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .find(|[p, _]| case_match(op, &x, p, &mut cache));
+        let v = match hit {
+            Some(pair) => pair[1].clone(),
+            None => self.param("else").clone(),
+        };
+        self.re = cache;
+        self.send("out", v, q, t, out);
+    }
+
+    /// `hub`: the input that changed, its index and an event.
+    fn hub(&mut self, changed: &str, q: Quality, t: u64, out: &mut Out) {
+        let Some(index) = self.items.iter().position(|n| n == changed) else {
+            return;
+        };
+        let v = self.values.get(changed).cloned().unwrap_or_default();
+        if v == Value::Null && truth(self.param("ignore_null"), true) {
+            return;
+        }
+        self.send("index", Value::UInt(index as u64), q, t, out);
+        // the input that changed last, even when it holds the same value as before
+        out.emit("out", Msg::new(v.clone(), q, t));
+        self.sent.insert("out".into(), (v, q));
+        self.fire("on_change", t, out);
+    }
+
+    /// `stopwatch`: `reset`, or a sample before the first count, sets the count to
+    /// `reset_value` (its clock steps it, in `step`).
+    fn stopwatch(&mut self, changed: &str, q: Quality, t: u64, out: &mut Out) {
+        if changed == "reset" || self.count.is_none() {
+            self.count = Some(num(self.param("reset_value")).unwrap_or(N::I(0)));
+            self.elapsed_us = 0;
+            if changed == "reset" {
+                let v = self.count.map_or(Value::Null, N::value);
                 self.send("out", v, q, t, out);
             }
         }
+    }
+
+    /// `trace`: the inputs in the log.
+    fn trace(&self) {
+        if truth(self.param("tracing"), true) {
+            // values: `trace` only, as every log line that holds them
+            trace!(
+                block = %self.name,
+                msg = %text(self.param("msg")),
+                values = ?self.item_values(),
+                "trace"
+            );
+        }
+    }
+
+    /// `concat`: the inputs as one text.
+    fn concat(&mut self, q: Quality, t: u64, out: &mut Out) {
+        let vs = self.item_values();
+        let (v, q) = if truth(self.param("strict"), false) && vs.contains(&Value::Null) {
+            (Value::Null, q)
+        } else {
+            let mut s = String::new();
+            if vs.iter().all(|v| push_text(&mut s, v)) {
+                (Value::Str(s), q)
+            } else {
+                (Value::Null, Quality::Bad)
+            }
+        };
+        self.send("out", v, q, t, out);
+    }
+
+    /// `substring`: a part of `in` as text.
+    fn substring(&mut self, q: Quality, t: u64, out: &mut Out) {
+        let v = match self.in_value() {
+            Value::Null => Value::Null,
+            v => {
+                // a start below 0 or not a number is 0; a length never passes 4 KiB
+                let start = whole(self.param("start"), usize::MAX).unwrap_or(0);
+                let src = text(v);
+                // `length` wins over `end`
+                let len = match (
+                    whole(self.param("length"), MAX_TEXT),
+                    num(self.param("end")),
+                ) {
+                    (Some(l), _) => l,
+                    (None, Some(e)) => {
+                        let n = src.chars().count() as f64;
+                        let e = e.f();
+                        let end = if e < 0.0 { (n + e).max(0.0) } else { e.min(n) };
+                        (end as usize).saturating_sub(start)
+                    }
+                    (None, None) => MAX_TEXT,
+                };
+                let part: String = src.chars().skip(start).take(len).collect();
+                if part.len() > MAX_TEXT {
+                    Value::Null
+                } else {
+                    Value::Str(part)
+                }
+            }
+        };
+        let q = if v == Value::Null && *self.in_value() != Value::Null {
+            Quality::Bad
+        } else {
+            q
+        };
+        self.send("out", v, q, t, out);
+    }
+
+    /// `replace`: `in` as text with `from` replaced by `to`.
+    fn replace(&mut self, q: Quality, t: u64, out: &mut Out) {
+        let (v, q) = match self.in_value() {
+            Value::Null => (Value::Null, q),
+            v => {
+                let (from, to) = (text(self.param("from")), text(self.param("to")));
+                let src = text(v);
+                if truth(self.param("regexp"), false) {
+                    let r = self.pattern(&from).map(|re| {
+                        let hits = re.find_iter(&src).count();
+                        if src.len().saturating_add(hits.saturating_mul(to.len())) > MAX_TEXT {
+                            None
+                        } else {
+                            Some(re.replace_all(&src, regex::NoExpand(&to)).into_owned())
+                        }
+                    });
+                    let (v, q) = match r {
+                        Some(Some(s)) => (Value::Str(s), q),
+                        Some(None) => (Value::Null, Quality::Bad),
+                        // a pattern that does not compile replaces nothing
+                        None => (Value::Str(src), q),
+                    };
+                    self.send("out", v, q, t, out);
+                    return;
+                }
+                // the result is bounded before it is built
+                let grows = to.len().saturating_sub(from.len());
+                let hits = if from.is_empty() {
+                    0
+                } else {
+                    src.matches(&from).count()
+                };
+                if src.len().saturating_add(hits.saturating_mul(grows)) > MAX_TEXT {
+                    (Value::Null, Quality::Bad)
+                } else if hits == 0 {
+                    (Value::Str(src), q)
+                } else {
+                    (Value::Str(src.replace(&from, &to)), q)
+                }
+            }
+        };
+        self.send("out", v, q, t, out);
+    }
+
+    /// `split`: `in` as text split at `separator`.
+    fn split(&mut self, q: Quality, t: u64, out: &mut Out) {
+        let (v, q) = match self.in_value() {
+            Value::Null => (Value::Null, q),
+            v => {
+                let (src, sep) = (text(v), text(self.param("separator")));
+                if sep.is_empty() {
+                    (Value::Array(vec![Value::Str(src)]), q)
+                } else if src.matches(&sep).count() >= MAX_LIST {
+                    (Value::Null, Quality::Bad)
+                } else {
+                    let parts = src.split(&sep).map(|p| Value::Str(p.to_owned()));
+                    (Value::Array(parts.collect()), q)
+                }
+            }
+        };
+        self.send("out", v, q, t, out);
+    }
+
+    /// `join`: the items of `in` as one text with `separator` between them.
+    fn join(&mut self, q: Quality, t: u64, out: &mut Out) {
+        let (v, q) = match self.in_value() {
+            Value::Null => (Value::Null, q),
+            Value::Array(a) => {
+                let sep = text(self.param("separator"));
+                let mut s = String::new();
+                let ok = a.iter().enumerate().all(|(i, x)| {
+                    if i > 0 {
+                        s.push_str(&sep);
+                    }
+                    push_text(&mut s, x)
+                });
+                if ok {
+                    (Value::Str(s), q)
+                } else {
+                    (Value::Null, Quality::Bad)
+                }
+            }
+            v => (bounded_text(v).map_or(Value::Null, Value::Str), q),
+        };
+        self.send("out", v, q, t, out);
+    }
+
+    /// `make_object`: the inputs as a map by their names.
+    fn make_object(&mut self, q: Quality, t: u64, out: &mut Out) {
+        let m = self
+            .items
+            .iter()
+            .cloned()
+            .zip(self.item_values())
+            .collect::<BTreeMap<_, _>>();
+        self.send("out", Value::Map(m), q, t, out);
+    }
+
+    /// `get`: the value at `path` in `in`.
+    fn get_path(&mut self, q: Quality, t: u64, out: &mut Out) {
+        // a path longer than a text a block makes names nothing
+        let path = Some(text(self.param("path")))
+            .filter(|p| p.len() <= MAX_TEXT)
+            .unwrap_or_else(|| "\u{0}".to_owned());
+        let mut v = self.in_value();
+        for seg in path.split('.').filter(|s| !s.is_empty()) {
+            v = match v {
+                Value::Map(m) => m.get(seg).unwrap_or(&Value::Null),
+                Value::Array(a) => seg
+                    .parse::<usize>()
+                    .ok()
+                    .and_then(|i| a.get(i))
+                    .unwrap_or(&Value::Null),
+                _ => &Value::Null,
+            };
+        }
+        let v = v.clone();
+        self.send("out", v, q, t, out);
+    }
+
+    /// `stats`: the minimum, maximum, average, sum and count of the numbers of `in`.
+    fn stats(&mut self, q: Quality, t: u64, out: &mut Out) {
+        let xs: Vec<f64> = match self.in_value() {
+            Value::Array(a) => a.iter().filter_map(num).map(N::f).collect(),
+            _ => Vec::new(),
+        };
+        let n = xs.len();
+        let sum: f64 = xs.iter().sum();
+        let of = |x: Option<f64>| x.map_or(Value::Null, |x| N::F(x).value());
+        let min = xs.iter().copied().reduce(f64::min);
+        let max = xs.iter().copied().reduce(f64::max);
+        self.send("min", of(min), q, t, out);
+        self.send("max", of(max), q, t, out);
+        self.send("avg", of((n > 0).then(|| sum / n as f64)), q, t, out);
+        self.send("sum", of((n > 0).then_some(sum)), q, t, out);
+        self.send("count", Value::UInt(n as u64), q, t, out);
+    }
+
+    /// The edge blocks (`rising_edge` and `falling_edge`) and the block `changed`: an event
+    /// when `in` turned or changed.
+    fn edge(&mut self, changed: &str, t: u64, out: &mut Out) {
+        if changed != "in" {
+            return;
+        }
+        let v = self.in_sample().cloned().unwrap_or_default();
+        let prev = self.prev.replace(v.clone());
+        // a value born at the start is where the block starts from, not an event
+        if self.born {
+            return;
+        }
+        let was = prev.as_ref().is_some_and(|p| truth(p, false));
+        let is = truth(&v, false);
+        let (port, hit) = match self.kind {
+            Kind::Changed => ("on_change", prev.is_some_and(|p| p != v)),
+            // nothing before counts as false: the first true is an edge
+            Kind::RisingEdge => ("on_edge", is && !was),
+            _ => ("on_edge", !is && was),
+        };
+        if hit {
+            self.fire(port, t, out);
+        }
+    }
+
+    /// `counter`, `toggle`: a step on each sample on `in`, back to `initial` on `reset`.
+    fn counter_toggle(&mut self, changed: &str, q: Quality, t: u64, out: &mut Out) {
+        let initial = match self.kind {
+            Kind::Counter => num(self.param("initial")).unwrap_or(N::I(0)),
+            _ => N::I(i64::from(truth(self.param("initial"), false))),
+        };
+        let fresh = self.count.is_none();
+        let mut n = self.count.unwrap_or(initial);
+        let hit = changed == "in" && !self.born && *self.in_value() != Value::Null;
+        if changed == "reset"
+            && !self.born
+            && truth(
+                self.values.get("reset").map_or(&Value::Null, Payload::get),
+                false,
+            )
+        {
+            n = initial;
+        } else if hit && self.kind == Kind::Counter {
+            let step = num(self.param("step")).unwrap_or(N::I(1));
+            let next = n.op(step, i64::checked_add, |x, y| x + y);
+            // a count that would leave the finite numbers stays where it is
+            if next.f().is_finite() {
+                n = next;
+            }
+        } else if hit {
+            n = N::I(i64::from(n.f() == 0.0));
+        } else if !fresh {
+            return;
+        }
+        self.count = Some(n);
+        let v = match self.kind {
+            Kind::Counter => n.value(),
+            _ => Value::Bool(n.f() != 0.0),
+        };
+        self.send("out", v, q, t, out);
+    }
+
+    /// `sample_and_hold`: `in` on each sample on `trigger`.
+    fn sample_and_hold(&mut self, changed: &str, q: Quality, t: u64, out: &mut Out) {
+        let fired = self
+            .values
+            .get("trigger")
+            .is_some_and(|v| *v != Value::Null);
+        if changed == "trigger" && !self.born && fired {
+            let v = self.in_sample().cloned().unwrap_or_default();
+            self.send("out", v, q, t, out);
+        }
+    }
+
+    /// `select`: the input at `index`.
+    fn select(&mut self, q: Quality, t: u64, out: &mut Out) {
+        let v = whole(self.param("index"), MAX_ITEMS)
+            .and_then(|i| self.items.get(i))
+            .and_then(|name| self.values.get(name))
+            .cloned()
+            .unwrap_or_default();
+        self.send("out", v, q, t, out);
+    }
+
+    /// `debounce`, `throttle`: `in` held back for `ms`.
+    fn debounce_throttle(&mut self, changed: &str, q: Quality, t: u64, out: &mut Out) {
+        if changed != "in" {
+            return;
+        }
+        let v = self.in_sample().cloned().unwrap_or_default();
+        let now = tokio::time::Instant::now();
+        let ms = self.hold();
+        if self.kind == Kind::Debounce {
+            // the value goes out once `ms` passed without another
+            self.held = Some(v);
+            self.due = Some(now + ms);
+        } else if self.passed.is_none_or(|p| now >= p + ms) {
+            self.passed = Some(now);
+            self.held = None;
+            self.send("out", v, q, t, out);
+        } else {
+            // the latest value waits for the end of the period
+            self.held = Some(v);
+            self.due = self.passed.map(|p| p + ms);
+        }
+    }
+
+    /// `router`: `in` to the output of the first case value `condition` matches.
+    fn router(&mut self, q: Quality, t: u64, out: &mut Out) {
+        let x = self.values.get("condition").cloned().unwrap_or_default();
+        let op = self.ops.case_op;
+        let mut cache = self.re.take();
+        let names = self.items.clone();
+        let hit = names.iter().find(|name| {
+            let p = self.values.get(*name).cloned().unwrap_or_default();
+            case_match(op, &x, &p, &mut cache)
+        });
+        self.re = cache;
+        let port = hit.map_or_else(|| "else".to_owned(), |n| format!("out.{n}"));
+        let v = self.in_sample().cloned().unwrap_or_default();
+        if truth(self.param("single_output"), false) {
+            if let Some(last) = self.route.take().filter(|l| *l != port) {
+                self.send(last, Value::Null, q, t, out);
+            }
+        }
+        self.route = Some(port.clone());
+        self.send(port, v, q, t, out);
+    }
+
+    /// `event_gate`: an event once every input changed since the reset, and their order.
+    fn event_gate(&mut self, changed: &str, q: Quality, t: u64, out: &mut Out) {
+        if changed == "reset" {
+            let v = self.values.get("reset").map_or(&Value::Null, Payload::get);
+            if !self.born && *v != Value::Null {
+                self.gate.clear();
+                self.order.clear();
+                self.finished = false;
+            }
+            return;
+        }
+        if self.born || self.finished || !self.items.iter().any(|n| n == changed) {
+            return;
+        }
+        let first = !self.gate.iter().any(|n| n == changed);
+        if first {
+            self.gate.push(changed.to_owned());
+        }
+        match self.param("log_order") {
+            Value::Str(m) if m == "first_occurrence" && first => {
+                self.order.push(changed.to_owned())
+            }
+            Value::Str(m) if m == "last_occurrence" => {
+                self.order.retain(|n| n != changed);
+                self.order.push(changed.to_owned());
+            }
+            Value::Str(m) if m == "all" => {
+                if self.order.len() >= MAX_LIST {
+                    self.order.remove(0);
+                }
+                self.order.push(changed.to_owned());
+            }
+            _ => {}
+        }
+        if self.gate.len() == self.items.len() {
+            self.finished = true;
+            let order =
+                bounded_text(&Value::Str(self.order.join(","))).map_or(Value::Null, Value::Str);
+            self.send("order", order, q, t, out);
+            self.fire("on_finish", t, out);
+        }
+    }
+
+    /// `catch_error`: the message, code and source of an error on an input, and an event.
+    fn catch_error(&mut self, changed: &str, q: Quality, t: u64, out: &mut Out) {
+        if self.born || !self.items.iter().any(|n| n == changed) {
+            return;
+        }
+        let v = self.values.get(changed).cloned().unwrap_or_default();
+        if v == Value::Null {
+            return;
+        }
+        let (message, code) = match &*v {
+            Value::Map(m) => (
+                m.get("message").map_or_else(|| text(&v), text),
+                m.get("code").and_then(num).map_or(Value::Null, N::value),
+            ),
+            v => (text(v), Value::Null),
+        };
+        let message = Some(message)
+            .filter(|m| m.len() <= MAX_TEXT)
+            .map_or(Value::Null, Value::Str);
+        // the same text twice is two errors: `on_error` fires every time
+        self.send("out", message, q, t, out);
+        self.send("code", code, q, t, out);
+        self.send("source", Value::Str(changed.to_owned()), q, t, out);
+        self.fire("on_error", t, out);
+    }
+
+    /// `length`: the length of `in`.
+    fn length(&mut self, q: Quality, t: u64, out: &mut Out) {
+        let v = match self.in_value() {
+            Value::Str(s) => Value::UInt(s.chars().count() as u64),
+            Value::Array(a) => Value::UInt(a.len() as u64),
+            Value::Map(m) => Value::UInt(m.len() as u64),
+            Value::Bytes(b) => Value::UInt(b.len() as u64),
+            _ => Value::Null,
+        };
+        self.send("out", v, q, t, out);
     }
 
     /// `pattern` compiled, from the cache when it was the last one.

@@ -1066,6 +1066,131 @@ async fn retry_open<T>(mut open: impl FnMut() -> Result<T, Error>) -> Result<T, 
 /// Longest wait for a store held by a closing daemon.
 const OPEN_WAIT: Duration = Duration::from_secs(30);
 
+/// What a standby copies of the active, and how far each copy is: the WAL stores, the
+/// files, the broker storage and the history, with what a former active keeps aside.
+/// The fields are in the reverse order of their opening: they are dropped last opened
+/// first.
+struct Replicas {
+    forks: Forks,
+    own: BTreeMap<String, u64>,
+    aside: Option<Aside>,
+    history_at: Option<HistoryAt>,
+    history: wyrm_history::Store,
+    storage_at: (u64, u64),
+    storage: wyrm_storage::Store,
+    files: Files,
+    stores: Vec<Followed>,
+    /// The key the active's files come sealed with.
+    file_key: [u8; 32],
+}
+
+impl Replicas {
+    /// This host's copies, opened while a daemon that just stepped down lets them go.
+    async fn open(cfg: &Config, file_key: [u8; 32]) -> Result<Self, Error> {
+        // A broker that just stepped down may still close its stores for a
+        // moment (tasks that outlive its daemon): wait for them.
+        let stores = retry_open(|| open_followers(cfg)).await?;
+        let files = Files {
+            have: BTreeMap::new(),
+            local_at_start: Some(
+                replication::files_of(&cfg.data_dir)
+                    .into_iter()
+                    .map(|f| f.name)
+                    .collect(),
+            ),
+            too_large: Default::default(),
+        };
+        let storage = retry_open(|| {
+            wyrm_storage::Store::open(&cfg.data_dir.join("storage"))
+                .map_err(|e| Error::from(crate::OpenError::named(e)))
+        })
+        .await?;
+        let storage_at = (0u64, 0u64);
+        let history = retry_open(|| {
+            wyrm_history::Store::open(&cfg.data_dir.join("history"))
+                .map_err(|e| Error::from(crate::OpenError::new("history", e)))
+        })
+        .await?;
+        let history_at: Option<HistoryAt> = None;
+        // A former active (its mark is there) keeps aside what the active does
+        // not hold, and its sinks that have not confirmed its own rows keep
+        // their cursors.
+        let was_active = standby_dir(&cfg.data_dir).join(ACTIVE_MARK).exists();
+        let aside = was_active.then(|| Aside::new(&cfg.data_dir));
+        let own = own_sinks(&cfg.data_dir, was_active.then_some(&history))?;
+        let forks = Forks::load(&cfg.data_dir);
+        Ok(Self {
+            forks,
+            own,
+            aside,
+            history_at,
+            history,
+            storage_at,
+            storage,
+            files,
+            stores,
+            file_key,
+        })
+    }
+
+    /// One poll of the active: the WAL stores, the storage, the history and, on a
+    /// `complete` poll, the files. The first that fails ends it.
+    async fn sync(
+        &mut self,
+        session: &Session,
+        prefix: &str,
+        cfg: &Config,
+        hold: &mut Option<Instant>,
+        complete: bool,
+    ) -> Result<(), SyncError> {
+        sync_wals(session, prefix, &mut self.stores, hold, &mut self.forks).await?;
+        sync_storage(
+            session,
+            prefix,
+            &self.storage,
+            &mut self.storage_at,
+            self.aside.as_mut(),
+        )
+        .await?;
+        sync_history(
+            session,
+            prefix,
+            &self.history,
+            &mut self.history_at,
+            &self.own,
+        )
+        .await?;
+        if complete {
+            sync_files(
+                session,
+                prefix,
+                &cfg.data_dir,
+                &self.file_key,
+                &mut self.files,
+                self.aside.as_mut(),
+            )
+            .await
+        } else {
+            Ok(())
+        }
+    }
+
+    /// After a complete sync, files included: the former active's own sets are reported,
+    /// and it is a standby like any other.
+    fn no_longer_aside(&mut self, data_dir: &Path) {
+        if let Some(a) = self.aside.take() {
+            for f in a.forks() {
+                self.forks.push(f);
+            }
+            let mark = standby_dir(data_dir).join(ACTIVE_MARK);
+            if let Err(e) = std::fs::remove_file(&mark).or_else(wyrm_core::files::gone_ok) {
+                // tried again at the next complete sync
+                tracing::error!("standby: {} stays: {e}", mark.display());
+            }
+        }
+    }
+}
+
 /// Follow the active broker until it has been away for this host's
 /// takeover time ([`Outcome::Takeover`]) or `shutdown` resolves.
 pub async fn follow(cfg: &Config, shutdown: impl Future<Output = ()>) -> Result<Outcome, Error> {
@@ -1089,39 +1214,7 @@ pub async fn follow_with(
     };
     let secrets_key = read_key(&cfg.data_dir.join("secrets.key"))
         .ok_or("secrets.key: not found; import the site's key bundle first")?;
-    let file_key = replication::file_key(&secrets_key);
-    // A broker that just stepped down may still close its stores for a
-    // moment (tasks that outlive its daemon): wait for them.
-    let mut stores = retry_open(|| open_followers(cfg)).await?;
-    let mut files = Files {
-        have: BTreeMap::new(),
-        local_at_start: Some(
-            replication::files_of(&cfg.data_dir)
-                .into_iter()
-                .map(|f| f.name)
-                .collect(),
-        ),
-        too_large: Default::default(),
-    };
-    let storage = retry_open(|| {
-        wyrm_storage::Store::open(&cfg.data_dir.join("storage"))
-            .map_err(|e| Error::from(crate::OpenError::named(e)))
-    })
-    .await?;
-    let mut storage_at = (0u64, 0u64);
-    let history = retry_open(|| {
-        wyrm_history::Store::open(&cfg.data_dir.join("history"))
-            .map_err(|e| Error::from(crate::OpenError::new("history", e)))
-    })
-    .await?;
-    let mut history_at: Option<HistoryAt> = None;
-    // A former active (its mark is there) keeps aside what the active does
-    // not hold, and its sinks that have not confirmed its own rows keep
-    // their cursors.
-    let was_active = standby_dir(&cfg.data_dir).join(ACTIVE_MARK).exists();
-    let mut aside = was_active.then(|| Aside::new(&cfg.data_dir));
-    let own = own_sinks(&cfg.data_dir, was_active.then_some(&history))?;
-    let mut forks = Forks::load(&cfg.data_dir);
+    let mut rep = Replicas::open(cfg, replication::file_key(&secrets_key)).await?;
     let prefix = replication::replication_key(&cfg.site);
     let broker = format!("wy/{}/sys/broker", cfg.site);
     tokio::pin!(shutdown);
@@ -1222,39 +1315,14 @@ pub async fn follow_with(
                 },
                 _ = tick.tick() => {
                     polls += 1;
-                    let r = match sync_wals(&session, &prefix, &mut stores, &mut hold, &mut forks).await {
-                        Ok(()) => match sync_storage(&session, &prefix, &storage, &mut storage_at, aside.as_mut()).await {
-                            Ok(()) => match sync_history(&session, &prefix, &history, &mut history_at, &own).await {
-                                Ok(()) if polls % FILES_EVERY == 1 => sync_files(&session, &prefix, &cfg.data_dir, &file_key, &mut files, aside.as_mut()).await,
-                                r => r,
-                            },
-                            r => r,
-                        },
-                        r => r,
-                    };
-                    match r {
+                    // every FILES_EVERY-th poll is a complete sync, files included
+                    let complete = polls % FILES_EVERY == 1;
+                    match rep.sync(&session, &prefix, cfg, &mut hold, complete).await {
                         Ok(()) => {
-                            if polls % FILES_EVERY == 1 {
-                                // a complete sync, files included: the
-                                // former active's own sets are reported,
-                                // and it is a standby like any other
-                                if let Some(a) = aside.take() {
-                                    for f in a.forks() {
-                                        forks.push(f);
-                                    }
-                                    let mark = standby_dir(&cfg.data_dir).join(ACTIVE_MARK);
-                                    if let Err(e) = std::fs::remove_file(&mark)
-                                        .or_else(wyrm_core::files::gone_ok)
-                                    {
-                                        // tried again at the next complete sync
-                                        tracing::error!(
-                                            "standby: {} stays: {e}",
-                                            mark.display()
-                                        );
-                                    }
-                                }
+                            if complete {
+                                rep.no_longer_aside(&cfg.data_dir);
                             }
-                            if polls % FILES_EVERY == 1 {
+                            if complete {
                                 // the broker's own update (ADR 0048 §2.8):
                                 // a standby goes first, on the active's order
                                 crate::update::standby_synced();
@@ -1267,7 +1335,7 @@ pub async fn follow_with(
                                     Err(e) => tracing::debug!("standby: update: {e}"),
                                 }
                             }
-                            report_forks(&session, &prefix, &mut forks).await;
+                            report_forks(&session, &prefix, &mut rep.forks).await;
                             failures = 0;
                             retry_at = None;
                             no_witness_said = false;

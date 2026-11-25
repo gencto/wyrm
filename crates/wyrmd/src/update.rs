@@ -795,7 +795,6 @@ fn sig_path(file: &Path) -> PathBuf {
 )]
 pub fn release_cmd(cmd: ReleaseCmd) -> Result<(), Error> {
     use ed25519_dalek::SigningKey;
-    let read = |p: &Path| std::fs::read(p).map_err(|e| format!("{}: {e}", p.display()));
     match cmd {
         ReleaseCmd::Keygen => {
             let mut seed = zeroize::Zeroizing::new([0u8; 32]);
@@ -811,23 +810,7 @@ pub fn release_cmd(cmd: ReleaseCmd) -> Result<(), Error> {
             );
         }
         ReleaseCmd::Pack { dir } => {
-            let me = release::identity().clone();
-            std::fs::create_dir_all(&dir)?;
-            let out = dir.join(format!("wyrmd-{}-{}.tar.gz", me.version, me.target));
-            let asset = release::pack(
-                &std::env::current_exe()?,
-                &[],
-                &out,
-                flate2::Compression::best(),
-            )
-            .map_err(said)?;
-            let packed = Packed {
-                identity: me,
-                asset,
-            };
-            let mut side = out.clone().into_os_string();
-            side.push(".json");
-            std::fs::write(&side, pretty(&packed).map_err(said)?)?;
+            let out = pack_this(&dir)?;
             println!("{}", out.display());
         }
         ReleaseCmd::Doc {
@@ -837,46 +820,10 @@ pub fn release_cmd(cmd: ReleaseCmd) -> Result<(), Error> {
             min_from,
             base_url,
         } => {
-            let mut packed: Vec<Packed> = Vec::new();
-            for e in std::fs::read_dir(&dir)? {
-                let path = e?.path();
-                if path.to_string_lossy().ends_with(".tar.gz.json") {
-                    packed.push(
-                        serde_json::from_slice(&read(&path)?)
-                            .map_err(|e| format!("{}: {e}", path.display()))?,
-                    );
-                }
-            }
+            let packed = packed_in(&dir)?;
             let first = packed.first().ok_or("no packed archive in the directory")?;
             let id = first.identity.clone();
-            let mut targets = BTreeMap::new();
-            for p in &packed {
-                if p.identity.version != id.version
-                    || p.identity.schemas != id.schemas
-                    || p.identity.replication != id.replication
-                {
-                    return Err(format!(
-                        "{}: not the same version, schemas and replication as {}",
-                        p.asset.file, first.asset.file
-                    )
-                    .into());
-                }
-                // the archive beside the description is the one it describes,
-                // and the binary in it has the hash that will be signed
-                let archive = dir.join(&p.asset.file);
-                let scratch = dir.join(".doc-check");
-                wyrm_core::files::discard_dir(&scratch);
-                let checked = release::unpack(&archive, &p.asset, &scratch, &p.identity.version);
-                wyrm_core::files::discard_dir(&scratch);
-                checked.map_err(|e| format!("{}: {e}", archive.display()))?;
-                let mut asset = p.asset.clone();
-                if !base_url.is_empty() {
-                    asset.url = format!("{}/{}", base_url.trim_end_matches('/'), asset.file);
-                }
-                if targets.insert(p.identity.target.clone(), asset).is_some() {
-                    return Err(format!("target {} twice", p.identity.target).into());
-                }
-            }
+            let targets = checked_targets(&dir, &packed, first, &base_url)?;
             let rel = release::Release {
                 wyrmd_release: release::FORMAT,
                 version: id.version.clone(),
@@ -905,23 +852,7 @@ pub fn release_cmd(cmd: ReleaseCmd) -> Result<(), Error> {
             let text = |p: &Path| {
                 String::from_utf8(read(p)?).map_err(|_| format!("{}: not text", p.display()))
             };
-            let old = match (&from, new) {
-                (None, false) => {
-                    return Err("--from <channel file>, or --new to start an index".into())
-                }
-                (None, true) if index.exists() => {
-                    return Err(format!(
-                        "{} exists: --new starts an empty index and replaces none",
-                        index.display()
-                    )
-                    .into())
-                }
-                (None, true) => release::Index::default(),
-                // the published index is checked before anything is added
-                // to it: what is signed next is only what verified
-                (Some(channel), _) => release::read_channel(&read(channel)?, &keys)
-                    .map_err(|e| format!("{}: not added to: {e}", channel.display()))?,
-            };
+            let old = index_to_add_to(from.as_deref(), new, &index, &keys)?;
             // every release that exists is in it: an old index was not put back
             if let Some(missing) = have.iter().find(|v| old.get(v).is_none()) {
                 return Err(format!(
@@ -963,56 +894,174 @@ pub fn release_cmd(cmd: ReleaseCmd) -> Result<(), Error> {
             );
         }
         ReleaseCmd::Sign { file, index } => {
-            let seed = zeroize::Zeroizing::new(
-                std::env::var(RELEASE_KEY_ENV)
-                    .map_err(|_| format!("{RELEASE_KEY_ENV} is not set"))?,
-            );
-            let raw: zeroize::Zeroizing<[u8; 32]> = zeroize::Zeroizing::new(
-                hex::decode(seed.trim())
-                    .ok()
-                    .and_then(|b| b.try_into().ok())
-                    .ok_or_else(|| format!("{RELEASE_KEY_ENV}: 64 hex digits"))?,
-            );
-            let key = SigningKey::from_bytes(&raw);
-            let bytes = read(&file)?;
-            let sig = if index {
-                release::sign_index(&bytes, &key)
-            } else {
-                release::sign_release(&bytes, &key)
-            };
-            let out = sig_path(&file);
-            std::fs::write(&out, format!("{sig}\n"))?;
-            println!(
-                "{} (public key {})",
-                out.display(),
-                hex::encode(key.verifying_key().to_bytes())
-            );
+            let (out, public) = sign_file(&file, index)?;
+            println!("{} (public key {public})", out.display());
         }
         ReleaseCmd::Verify {
             file,
             index,
             channel,
             key,
-        } => {
-            let keys = release::pinned_keys(&key).map_err(said)?;
-            let bytes = read(&file)?;
-            if channel {
-                let i = release::read_channel(&bytes, &keys).map_err(said)?;
-                println!("ok: sequence {}, {} releases", i.sequence, i.releases.len());
-                return Ok(());
-            }
-            let sig =
-                String::from_utf8(read(&sig_path(&file))?).map_err(|_| "signature: not text")?;
-            if index {
-                let i = release::read_index(&bytes, &sig, &keys).map_err(said)?;
-                println!("ok: sequence {}, {} releases", i.sequence, i.releases.len());
-            } else {
-                let r = release::read_release(&bytes, &sig, &keys).map_err(said)?;
-                println!("ok: wyrmd {}", r.version);
-            }
-        }
+        } => println!("{}", verify_file(&file, index, channel, &key)?),
     }
     Ok(())
+}
+
+/// A file read, its error naming it.
+fn read(p: &Path) -> Result<Vec<u8>, String> {
+    std::fs::read(p).map_err(|e| format!("{}: {e}", p.display()))
+}
+
+/// `release pack`: this binary packed into `dir`, with the description of the archive
+/// beside it. The archive's path.
+fn pack_this(dir: &Path) -> Result<PathBuf, Error> {
+    let me = release::identity().clone();
+    std::fs::create_dir_all(dir)?;
+    let out = dir.join(format!("wyrmd-{}-{}.tar.gz", me.version, me.target));
+    let asset = release::pack(
+        &std::env::current_exe()?,
+        &[],
+        &out,
+        flate2::Compression::best(),
+    )
+    .map_err(said)?;
+    let packed = Packed {
+        identity: me,
+        asset,
+    };
+    let mut side = out.clone().into_os_string();
+    side.push(".json");
+    std::fs::write(&side, pretty(&packed).map_err(said)?)?;
+    Ok(out)
+}
+
+/// `release doc`: the descriptions of the packed archives in `dir`.
+fn packed_in(dir: &Path) -> Result<Vec<Packed>, Error> {
+    let mut packed: Vec<Packed> = Vec::new();
+    for e in std::fs::read_dir(dir)? {
+        let path = e?.path();
+        if path.to_string_lossy().ends_with(".tar.gz.json") {
+            packed.push(
+                serde_json::from_slice(&read(&path)?)
+                    .map_err(|e| format!("{}: {e}", path.display()))?,
+            );
+        }
+    }
+    Ok(packed)
+}
+
+/// `release doc`: each archive of `packed` checked (one version, schemas and replication as
+/// `first`; it unpacks to the binary it describes), as the asset of its target.
+fn checked_targets(
+    dir: &Path,
+    packed: &[Packed],
+    first: &Packed,
+    base_url: &str,
+) -> Result<BTreeMap<String, release::Asset>, Error> {
+    let id = &first.identity;
+    let mut targets = BTreeMap::new();
+    for p in packed {
+        if p.identity.version != id.version
+            || p.identity.schemas != id.schemas
+            || p.identity.replication != id.replication
+        {
+            return Err(format!(
+                "{}: not the same version, schemas and replication as {}",
+                p.asset.file, first.asset.file
+            )
+            .into());
+        }
+        // the archive beside the description is the one it describes,
+        // and the binary in it has the hash that will be signed
+        let archive = dir.join(&p.asset.file);
+        let scratch = dir.join(".doc-check");
+        wyrm_core::files::discard_dir(&scratch);
+        let checked = release::unpack(&archive, &p.asset, &scratch, &p.identity.version);
+        wyrm_core::files::discard_dir(&scratch);
+        checked.map_err(|e| format!("{}: {e}", archive.display()))?;
+        let mut asset = p.asset.clone();
+        if !base_url.is_empty() {
+            asset.url = format!("{}/{}", base_url.trim_end_matches('/'), asset.file);
+        }
+        if targets.insert(p.identity.target.clone(), asset).is_some() {
+            return Err(format!("target {} twice", p.identity.target).into());
+        }
+    }
+    Ok(targets)
+}
+
+/// `release index`: the index a release is added to, the published one (`from`, checked) or,
+/// with `new`, an empty one that replaces no `index`.
+fn index_to_add_to(
+    from: Option<&Path>,
+    new: bool,
+    index: &Path,
+    keys: &[ed25519_dalek::VerifyingKey],
+) -> Result<release::Index, Error> {
+    Ok(match (from, new) {
+        (None, false) => return Err("--from <channel file>, or --new to start an index".into()),
+        (None, true) if index.exists() => {
+            return Err(format!(
+                "{} exists: --new starts an empty index and replaces none",
+                index.display()
+            )
+            .into())
+        }
+        (None, true) => release::Index::default(),
+        // the published index is checked before anything is added
+        // to it: what is signed next is only what verified
+        (Some(channel), _) => release::read_channel(&read(channel)?, keys)
+            .map_err(|e| format!("{}: not added to: {e}", channel.display()))?,
+    })
+}
+
+/// `release sign`: `file` signed with the seed in [`RELEASE_KEY_ENV`] into `file.sig`. The
+/// signature's path and the public key, in hex.
+fn sign_file(file: &Path, index: bool) -> Result<(PathBuf, String), Error> {
+    use ed25519_dalek::SigningKey;
+    let seed = zeroize::Zeroizing::new(
+        std::env::var(RELEASE_KEY_ENV).map_err(|_| format!("{RELEASE_KEY_ENV} is not set"))?,
+    );
+    let raw: zeroize::Zeroizing<[u8; 32]> = zeroize::Zeroizing::new(
+        hex::decode(seed.trim())
+            .ok()
+            .and_then(|b| b.try_into().ok())
+            .ok_or_else(|| format!("{RELEASE_KEY_ENV}: 64 hex digits"))?,
+    );
+    let key = SigningKey::from_bytes(&raw);
+    let bytes = read(file)?;
+    let sig = if index {
+        release::sign_index(&bytes, &key)
+    } else {
+        release::sign_release(&bytes, &key)
+    };
+    let out = sig_path(file);
+    std::fs::write(&out, format!("{sig}\n"))?;
+    let public = hex::encode(key.verifying_key().to_bytes());
+    Ok((out, public))
+}
+
+/// `release verify`: what `file` (a release, an index or a channel file) holds, once it
+/// verified.
+fn verify_file(file: &Path, index: bool, channel: bool, key: &[String]) -> Result<String, Error> {
+    let keys = release::pinned_keys(key).map_err(said)?;
+    let bytes = read(file)?;
+    if channel {
+        let i = release::read_channel(&bytes, &keys).map_err(said)?;
+        return Ok(format!(
+            "ok: sequence {}, {} releases",
+            i.sequence,
+            i.releases.len()
+        ));
+    }
+    let sig = String::from_utf8(read(&sig_path(file))?).map_err(|_| "signature: not text")?;
+    Ok(if index {
+        let i = release::read_index(&bytes, &sig, &keys).map_err(said)?;
+        format!("ok: sequence {}, {} releases", i.sequence, i.releases.len())
+    } else {
+        let r = release::read_release(&bytes, &sig, &keys).map_err(said)?;
+        format!("ok: wyrmd {}", r.version)
+    })
 }
 
 /// The text of an error of [`release`], for a function whose error is text

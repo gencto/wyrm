@@ -691,85 +691,11 @@ fn iso(us: i64, tz: &TimeZone) -> String {
 /// The range a text names, at `now`, in `tz`, with weeks from `week_start` (0 = Monday).
 pub fn range(t: &str, now: i64, tz: &TimeZone, week_start: usize) -> Option<Range> {
     let today = ts_of(now)?.to_zoned(tz.clone()).date();
-    if let Some((name, next, previous)) = named(t) {
-        let (from, to) = match *name {
-            "today" => (today, today.tomorrow().ok()?),
-            "yesterday" => (today.yesterday().ok()?, today),
-            "thisWeek" | "lastWeek" => {
-                let wd = i64::from(today.weekday().to_monday_zero_offset());
-                let back = (wd - week_start as i64).rem_euclid(7);
-                let start = today.checked_sub(Span::new().days(back)).ok()?;
-                let start = if *name == "lastWeek" {
-                    start.checked_sub(Span::new().days(7)).ok()?
-                } else {
-                    start
-                };
-                (start, start.checked_add(Span::new().days(7)).ok()?)
-            }
-            "thisMonth" | "lastMonth" => {
-                let first = today.first_of_month();
-                let first = if *name == "lastMonth" {
-                    first.checked_sub(Span::new().months(1)).ok()?
-                } else {
-                    first
-                };
-                (first, first.checked_add(Span::new().months(1)).ok()?)
-            }
-            _ => {
-                let first = Date::new(today.year(), 1, 1).ok()?;
-                let first = if *name == "lastYear" {
-                    first.checked_sub(Span::new().years(1)).ok()?
-                } else {
-                    first
-                };
-                (first, first.checked_add(Span::new().years(1)).ok()?)
-            }
-        };
-        let (start, end) = days(from, to, tz)?;
-        return Some(Range {
-            start,
-            end,
-            next: (*next).into(),
-            previous: (*previous).into(),
-            special: true,
-        });
+    if let Some(entry) = named(t) {
+        return named_range(entry, today, tz, week_start);
     }
-    if let Some((prev, n, unit)) = relative(t) {
-        // currentN: the last N units up to now; previousN: the N units before those
-        let sp = span_of(unit, n)?;
-        let nowz = ts_of(now)?.to_zoned(tz.clone());
-        let a = nowz.checked_sub(sp).ok()?;
-        let (start, end) = if prev {
-            (
-                a.checked_sub(sp).ok()?.timestamp().as_microsecond(),
-                a.timestamp().as_microsecond() - 1,
-            )
-        } else {
-            (a.timestamp().as_microsecond(), now)
-        };
-        let unit_name = UNITS[unit];
-        let (next, previous) = if prev {
-            (
-                format!("current{n}{unit_name}"),
-                format!(
-                    "{}/{}",
-                    iso_shift(start, end, -1, tz),
-                    iso_end(start - 1, tz)
-                ),
-            )
-        } else {
-            (
-                format!("current{n}{unit_name}"),
-                format!("previous{n}{unit_name}"),
-            )
-        };
-        return Some(Range {
-            start,
-            end,
-            next,
-            previous,
-            special: true,
-        });
+    if let Some(parsed) = relative(t) {
+        return relative_range(parsed, now, tz);
     }
     let digits = |s: &str| !s.is_empty() && s.chars().all(|c| c.is_ascii_digit());
     let p: Vec<&str> = t.split('-').collect();
@@ -842,6 +768,98 @@ pub fn range(t: &str, now: i64, tz: &TimeZone, week_start: usize) -> Option<Rang
             iso_end(start - 1, tz)
         ),
         special: false,
+    })
+}
+
+/// A named range (`today`, `thisWeek`, `lastMonth`, …): whole days from `today` in `tz`, with
+/// the names of its neighbours.
+fn named_range(
+    entry: &(&str, &str, &str),
+    today: Date,
+    tz: &TimeZone,
+    week_start: usize,
+) -> Option<Range> {
+    let (name, next, previous) = entry;
+    let (from, to) = match *name {
+        "today" => (today, today.tomorrow().ok()?),
+        "yesterday" => (today.yesterday().ok()?, today),
+        "thisWeek" | "lastWeek" => {
+            let wd = i64::from(today.weekday().to_monday_zero_offset());
+            let back = (wd - week_start as i64).rem_euclid(7);
+            let start = today.checked_sub(Span::new().days(back)).ok()?;
+            let start = if *name == "lastWeek" {
+                start.checked_sub(Span::new().days(7)).ok()?
+            } else {
+                start
+            };
+            (start, start.checked_add(Span::new().days(7)).ok()?)
+        }
+        "thisMonth" | "lastMonth" => {
+            let first = today.first_of_month();
+            let first = if *name == "lastMonth" {
+                first.checked_sub(Span::new().months(1)).ok()?
+            } else {
+                first
+            };
+            (first, first.checked_add(Span::new().months(1)).ok()?)
+        }
+        _ => {
+            let first = Date::new(today.year(), 1, 1).ok()?;
+            let first = if *name == "lastYear" {
+                first.checked_sub(Span::new().years(1)).ok()?
+            } else {
+                first
+            };
+            (first, first.checked_add(Span::new().years(1)).ok()?)
+        }
+    };
+    let (start, end) = days(from, to, tz)?;
+    Some(Range {
+        start,
+        end,
+        next: (*next).into(),
+        previous: (*previous).into(),
+        special: true,
+    })
+}
+
+/// `current<N><unit>` (the last N units up to `now`) or `previous<N><unit>` (the N units before
+/// those), as [`relative`] read it: whether it is `previous`, N and the unit.
+fn relative_range((prev, n, unit): (bool, i64, usize), now: i64, tz: &TimeZone) -> Option<Range> {
+    // currentN: the last N units up to now; previousN: the N units before those
+    let sp = span_of(unit, n)?;
+    let nowz = ts_of(now)?.to_zoned(tz.clone());
+    let a = nowz.checked_sub(sp).ok()?;
+    let (start, end) = if prev {
+        (
+            a.checked_sub(sp).ok()?.timestamp().as_microsecond(),
+            a.timestamp().as_microsecond() - 1,
+        )
+    } else {
+        (a.timestamp().as_microsecond(), now)
+    };
+    let unit_name = UNITS[unit];
+    let (next, previous) = if prev {
+        (
+            format!("current{n}{unit_name}"),
+            format!(
+                "{}/{}",
+                iso_shift(start, end, -1, tz),
+                iso_end(start - 1, tz)
+            ),
+        )
+    } else {
+        (
+            format!("current{n}{unit_name}"),
+            format!("previous{n}{unit_name}"),
+        )
+    };
+    Some(Range {
+        start,
+        end,
+        next,
+        previous,
+        special: true,
     })
 }
 
