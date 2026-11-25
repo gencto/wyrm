@@ -307,8 +307,14 @@ mod tests {
         );
         assert!(file.exists());
         assert!(!gw.setup_pending());
+        // the recovery: a new code's hash replaces the damaged file
+        let (code, hash2) = new_code().unwrap();
+        assert!(gw.import_setup(&hex(&hash2)).unwrap());
+        assert!(gw.settle_setup().unwrap());
+        gw.complete_setup(&code, "first", PASSWORD).unwrap();
+        assert!(!file.exists());
         // beside a user: void and removed, damaged or not
-        gw.add_user("op", PASSWORD, vec!["admin".into()]).unwrap();
+        std::fs::write(&file, b"not a hash").unwrap();
         assert!(!gw.settle_setup().unwrap());
         assert!(!file.exists());
         assert!(gw.import_setup(&hex(&hash)).is_ok_and(|done| !done));

@@ -5165,13 +5165,16 @@ async fn first_admin_from_a_setup_file() {
     drop(gw);
     env.stop().await;
 
-    // a setup file beside a user (a restored image, a crash before the removal): void
+    // a setup file beside a user (a restored image, a crash before the removal): void,
+    // and so is a pending setup in the gateway's directory
     std::fs::write(&file, hash).unwrap();
+    let pending = dir.join("gateway").join(wyrm_gateway::setup::FILE);
+    std::fs::write(&pending, hash).unwrap();
     let env = start(extra.clone()).await;
     assert!(!file.exists(), "removed");
     let gw = env.gateway.clone().expect("gateway");
     assert!(!gw.setup_pending());
-    assert!(!dir.join("gateway").join(wyrm_gateway::setup::FILE).exists());
+    assert!(!pending.exists(), "dropped at start");
     drop(gw);
     env.stop().await;
 
