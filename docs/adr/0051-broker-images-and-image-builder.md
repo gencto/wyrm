@@ -76,9 +76,10 @@ A list `packaging/images/boards.json`: per board an id, a title, the OpenWrt tar
 ### 4. The builder
 
 - **Page** `wyrm.gencto.uk/start`: board, site name, network (DHCP / static address / Wi-Fi where the board has it), links (from `official.json`, with their category and summary), time zone, NTP servers. It shows the setup code and the steps to write the card. No login.
-- **Build service**: the page sends the request (board, release, package list, the config files with the setup code's hash, never the code itself) to a small service that runs OpenWrt's ImageBuilder for that target and returns the image. Every request has its own hash, so the cache keeps only the per-board base the ImageBuilder starts from, not whole images. One build at a time per target; a queue with a position shown on the page.
+- **Assembly in the browser, no build server** (owner, 2026-11-26; replaces the build service of the first draft). CI builds one **base image** per board and release with OpenWrt's ImageBuilder: OpenWrt, `wyrmd`, the guard, and every package-only link in its `wasm` form under `/usr/share/wyrm/seed/`. The image has a small reserved **config partition** (GPT label `wyrm-config`, 4 MiB, raw: a length-prefixed archive, no file system to write from JavaScript). The page downloads the base image as a static file, keeps it in the browser's storage (OPFS or the Cache API, keyed by its SHA-256 from a signed index, checked after download), writes the chosen configuration into the config partition, and hands the person the finished image. Nothing of the person's choices leaves the browser. On first boot a script reads the partition, writes `/etc/wyrm/wyrmd.json5`, the network config, `seed.json` (which of the carried links to install) and the setup hash, then wipes the partition.
+- **Static hosting.** The base images and their signed index are plain files; the host must allow the page's origin to fetch them (CORS) and serve ranges. Where they are hosted is left to the builder (the site's own origin if sizes allow, else an object store behind the same domain).
 - **Licences.** The page links each image to the source of the OpenWrt release it was built from and to the WYRM tag of its packages (GPL obligations for the kernel, busybox and board firmware). *(maintainer's call)*
-- **Offline**: every image is also reproducible without the service: `wyr image build --board <id> --config <file>` runs the same ImageBuilder steps locally (in a container) from the published feed.
+- **Offline**: `wyr image build --board <id> --config <file>` does the same assembly from a downloaded base image, and `wyr image base --board <id>` runs the ImageBuilder steps locally (in a container) from the published feed.
 - **Record**: each image carries `/etc/wyrm/image.json` (board, OpenWrt release, package versions, build date, request hash) so support can tell what is on a device.
 
 ### 5. Studio (later)
@@ -89,7 +90,7 @@ A screen in the login flow, "New device", that drives the same build service wit
 
 - New CI jobs: the feed (per release, per package architecture) and a smoke test that boots OpenWrt `armsr/armv8` in QEMU and starts `wyrmd` from a package of that target. It checks `wyrmd` on OpenWrt, not the board packages; those are checked on the boards.
 - `docs/operations.md` gains a section "OpenWrt" beside "systemd": procd script, data partition, logs through `logread`.
-- A service to run (§4). It holds no secret of any site.
+- No service to run: CI publishes base images; the page is static (§4).
 - `wyrmd` gains: the setup-code first admin, `gateway.tls: "site_ca"`, seed packages on first start (each with tests and `docs/operations.md`).
 
 ## Left to the builder
@@ -102,10 +103,9 @@ A screen in the login flow, "New device", that drives the same build service wit
 The owner accepted the maintainer's proposals ("в цілому пропозиція зрозуміла"):
 1. **Role on the network: a plain host.** DHCP client by default (static address on the page), no DHCP server, no LuCI, firewall open only for the gateway and the peer ports in the config. Root login and SSH are off unless the page is given an SSH public key; then SSH accepts that key only. A router/firewall role for the BPI-R4 (WAN ↔ equipment network) is a later option.
 2. **BPI-R4 storage: the SD card installs onto the eMMC**, the device then runs from the eMMC (OpenWrt's usual path); the data partition is on the eMMC. Both RAM variants are rows in `boards.json` (`bpi-r4` 4 GB `sdcard.img.gz`, `bpi-r4-8g` `sdcard_8g.img.gz`); the PoE variant (`bananapi_bpi-r4-poe`) is a row when someone needs it. Raspberry Pi runs from its SD card (or USB where the board boots from it).
-3. **First trust: through the setup code** in the first version. The person trusts the build service, which sees the image (not the code). Studio's first login proves the code and pins the CA the device presents in the same session. Next step (later): the page writes the setup secret into the downloaded image in the browser, so the service never sees anything of it. The CA code stays visible in Studio and in `wyrmd ca fingerprint` (console) for those who compare it.
+3. **First trust: through the setup code.** (Since the assembly moved into the browser on 2026-11-26, the setup hash is written there and no server sees it; the sentences below about trusting the build service describe the first draft.) The person trusts the build service, which sees the image (not the code). Studio's first login proves the code and pins the CA the device presents in the same session. Next step (later): the page writes the setup secret into the downloaded image in the browser, so the service never sees anything of it. The CA code stays visible in Studio and in `wyrmd ca fingerprint` (console) for those who compare it.
 
 ## Not decided here
 
-- Who hosts and pays for the build service, and its limits per address.
 - OS updates in the field (A/B, or OpenWrt's attended sysupgrade against our feed).
 - Hardware tests on the real boards: neither board has been measured yet.
