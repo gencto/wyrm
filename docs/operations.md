@@ -176,7 +176,13 @@ gateway: { listen: "0.0.0.0:8445", tls: "site_ca" },
 - The certificate names `<hostname>.local`, `wyrm-<site>.local` (the name
   the DNS-SD announce gives) and the addresses clients use: every
   non-loopback address of the host (IPv4, and IPv6 except link-local) when
-  `listen` is `0.0.0.0` or `[::]`, else only the listen address. The host
+  `listen` is `0.0.0.0` or `[::]`, else only the listen address. On Linux
+  (OpenWrt too) the broker reads `/proc/net/if_inet6` and leaves out IPv6
+  addresses that are temporary (privacy addresses, RFC 8981), deprecated,
+  tentative or failed their duplicate check. On macOS and BSD the address
+  list gives no such flags, so every global IPv6 address is named, and a
+  host with privacy addresses gets a new certificate each time one
+  rotates; to avoid that, set `listen` to one address. The host
   name is cut at its first dot; a host whose name cannot be read uses
   `wyrm-<site>`. While the host has no usable address (before DHCP), the
   certificate names only the `.local` names; it is issued again when an
@@ -200,8 +206,14 @@ gateway: { listen: "0.0.0.0:8445", tls: "site_ca" },
   of that CA.
 - Files of your own (`tls_cert`/`tls_key`) are read at the start and again
   at each router rebuild (an ACL change): a renewed pair is served from
-  then on. A pair that cannot be read or does not match leaves the
-  certificate in force, with a warning in the log.
+  then on. At the start, a pair that cannot be read or does not match
+  stops the broker: `wyrmd` does not start, and the error names the
+  gateway. Fix the files and start again. At a rebuild, such a pair leaves
+  the certificate in force, with a warning in the log.
+- A key restore from another site's backup (other keys, ADR 0048) sets
+  aside `data_dir/gateway/tls.{pem,key}` with everything else the replaced
+  CA issued, and the site CA issues the gateway's certificate again at the
+  next start. A certificate that the site CA did not sign is never kept.
 - `tls` excludes `tls_cert`/`tls_key`. A certificate from a public CA (for
   the remote MCP connector, [claude.md](claude.md)) still goes in
   `tls_cert`/`tls_key`.

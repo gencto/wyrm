@@ -482,10 +482,6 @@ fn write_json<T: Serialize>(path: &Path, name: &'static str, value: &T) -> Resul
 
 #[cfg(test)]
 mod tests {
-    #![allow(
-        clippy::unwrap_used,
-        reason = "test code: a failed step fails the test"
-    )]
     use super::*;
 
     fn dir(name: &str) -> PathBuf {

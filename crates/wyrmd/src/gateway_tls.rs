@@ -76,20 +76,65 @@ fn usable(a: &IpAddr) -> bool {
 }
 
 /// The addresses of this host a client may reach the gateway on: IPv4 and IPv6, never
-/// loopback, unspecified, multicast or link-local IPv6. Empty when the interfaces cannot
-/// be read: the certificate then names the host names only.
+/// loopback, unspecified, multicast or link-local IPv6, and on Linux never an IPv6
+/// address that is temporary (RFC 8981 privacy), deprecated, tentative or failed its
+/// duplicate check ([`unstable_v6`]): a privacy address changes every day or so, and each
+/// one in the certificate would issue it again. Empty when the interfaces cannot be read:
+/// the certificate then names the host names only.
 pub fn host_addrs() -> Vec<IpAddr> {
     match if_addrs::get_if_addrs() {
-        Ok(list) => list
-            .iter()
-            .map(if_addrs::Interface::ip)
-            .filter(usable)
-            .collect(),
+        Ok(list) => {
+            let unstable = unstable_v6();
+            list.iter()
+                .map(if_addrs::Interface::ip)
+                .filter(usable)
+                .filter(|a| !matches!(a, IpAddr::V6(v6) if unstable.contains(v6)))
+                .collect()
+        }
         Err(e) => {
             tracing::warn!(error = %e, "gateway certificate: the host's addresses cannot be read");
             Vec::new()
         }
     }
+}
+
+/// The IPv6 address flags of `/proc/net/if_inet6` (its fifth column, the low byte of the
+/// kernel's `IFA_F_*`) that keep an address out of the certificate: `TEMPORARY` 0x01,
+/// `DADFAILED` 0x08, `DEPRECATED` 0x20, `TENTATIVE` 0x40.
+#[cfg(any(target_os = "linux", test))]
+const UNSTABLE_V6_FLAGS: u8 = 0x01 | 0x08 | 0x20 | 0x40;
+
+/// The IPv6 addresses of this host that are temporary, deprecated, tentative or failed
+/// their duplicate check. Linux only (`/proc/net/if_inet6`); `if-addrs` gives no address
+/// flags, so elsewhere (macOS, BSD) the set is empty and every global address is named.
+/// A file that cannot be read gives an empty set too.
+fn unstable_v6() -> BTreeSet<std::net::Ipv6Addr> {
+    #[cfg(target_os = "linux")]
+    {
+        let Ok(text) = std::fs::read_to_string("/proc/net/if_inet6") else {
+            return BTreeSet::new();
+        };
+        unstable_in(&text)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        BTreeSet::new()
+    }
+}
+
+/// [`unstable_v6`] of the text of `/proc/net/if_inet6`: per line the address as 32 hex
+/// digits, the interface index, the prefix length, the scope and the flags (hex), then the
+/// interface name. A line that does not read so is left out.
+#[cfg(any(target_os = "linux", test))]
+fn unstable_in(text: &str) -> BTreeSet<std::net::Ipv6Addr> {
+    text.lines()
+        .filter_map(|line| {
+            let mut cols = line.split_whitespace();
+            let addr = wyrm_core::hex::decode_array::<16>(cols.next()?)?;
+            let [flags] = wyrm_core::hex::decode_array::<1>(cols.nth(3)?)?;
+            (flags & UNSTABLE_V6_FLAGS != 0).then(|| std::net::Ipv6Addr::from(addr))
+        })
+        .collect()
 }
 
 /// This host's name, `None` where it cannot be read or is not UTF-8.
@@ -282,6 +327,33 @@ mod tests {
         assert_eq!(
             names("plant", "", "127.0.0.1:0".parse().unwrap(), &[]),
             ["127.0.0.1", "wyrm-plant.local"]
+        );
+    }
+
+    /// The lines of `/proc/net/if_inet6`: a stable global address (0x00), a permanent one
+    /// (0x80), a privacy address (0x01), a deprecated one (0x20), a tentative one (0x40)
+    /// and a broken line; only the four unstable ones are found.
+    #[test]
+    fn unstable_v6_addresses_are_read_from_their_flags() {
+        let text = "\
+20010db8000000000000000000000005 02 40 00 00     eth0
+20010db8000000000000000000000006 02 40 00 80     eth0
+20010db800000000a1b2c3d4e5f60718 02 40 00 01     eth0
+20010db8000000000000000000000020 02 40 00 20     eth0
+fd000000000000000000000000000040 02 40 00 40     eth0
+fd000000000000000000000000000008 02 40 00 88     eth0
+not an address line
+fe800000000000000a0027fffe4e4c7b 02 40 20 80     eth0
+";
+        let found: Vec<String> = unstable_in(text).iter().map(|a| a.to_string()).collect();
+        assert_eq!(
+            found,
+            [
+                "2001:db8::20",
+                "2001:db8::a1b2:c3d4:e5f6:718",
+                "fd00::8",
+                "fd00::40"
+            ]
         );
     }
 
