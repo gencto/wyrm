@@ -29,6 +29,7 @@ description: Create or extend a WYRM protocol connector (driver) on the driver f
    - `poll`: one result per point; a protocol exception is `DriverError::Point` for the affected points only; a broken transport is `Transport`.
    - `write`: no optimistic update — the framework reads the point back. Refuse read-only points with `DriverError::Point`.
    - `point_meta`: type, unit, `writable`. `poll_period`, `ping_period`, `io_timeout` from the params.
+   - Actions of your own: `Driver::actions` on connections and devices, `Driver::point_actions` on points, all run by `Driver::invoke`; arguments are one `#[derive(Args)]` struct per action. An import of an engineering tool's list into a device: `Driver::device_imports` + `Driver::convert_folder` (`links/knx` `import_ets`).
    - Values found on the host for a field (serial ports): `Driver::choices`; a root `rescan` action: `Driver::RESCAN` (modbus: "Rescan For Serial Ports").
    - Make sure a late reply after a timeout cannot be taken for the next request (transaction or sequence ids).
 5. Extend the simulator (`src/sim.rs`, feature `sim`) with the device's behaviour and failure modes (exceptions, silence, disconnect), and the tests in `tests/sim.rs`: values and data types, point errors, write + read-back, silent device → `uncertain/stale` then `bad/comm_fail`, connection down → `failed` (with the `error` leaf) and children `stopped_by_parent`. Tests poll all the time (the default) and use generous waits (10 s).

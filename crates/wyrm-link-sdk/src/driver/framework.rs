@@ -49,6 +49,11 @@
 //! * Root imports ([`Driver::root_imports`]): the driver turns another
 //!   system's export into connection branches ([`Driver::convert`]); the
 //!   framework checks them all, then imports each like `import` at the root.
+//! * Device imports ([`Driver::device_imports`], with folders): the driver
+//!   turns an export into one folder of points ([`Driver::convert_folder`]),
+//!   imported like `import` of a folder into the device.
+//! * Point actions ([`Driver::point_actions`]) are declared on points and
+//!   run like the driver actions of their device.
 //! * Server kinds ([`Driver::is_server`], ADR 0024): no tickers; every
 //!   point takes `~set`, written into what the server serves and published
 //!   from it ([`Driver::take_changed`]); the owner hands each plan to the
@@ -60,8 +65,8 @@ use super::diag;
 use super::params::{all_secret_names, normalize, Kind, ParamSpec, Params};
 use super::persist::Persist;
 use super::{
-    backoff, jitter, Converted, Driver, DriverError, Level, NodeState, Outcome, PointId, Served,
-    Target, REPORT_KEYS,
+    backoff, jitter, Converted, Driver, DriverError, FolderImport, Level, NodeState, Outcome,
+    PointId, Served, Target, REPORT_KEYS,
 };
 use crate::auth::Caller;
 use crate::ctx::{now_us, LinkCtx, PointPublisher};
@@ -551,9 +556,11 @@ enum Req {
         deadline: tokio::time::Instant,
         reply: oneshot::Sender<Result<()>>,
     },
-    /// A driver action on the connection (`dev: None`) or a device.
+    /// A driver action on the connection (`dev: None`), a device or one
+    /// of its points (`point`).
     Invoke {
         dev: Option<String>,
+        point: Option<String>,
         action: String,
         args: Value,
         /// The plan generation when the call came: after a re-plan the
@@ -612,6 +619,8 @@ impl Drop for ActionReply {
 struct FoundAction {
     conn: String,
     dev: Option<String>,
+    /// The point of a point action ([`Driver::point_actions`]).
+    point: Option<String>,
     timeout_ms: Option<u32>,
     /// What it holds the action slot as: [`SLOT_READ`] or [`SLOT_HOLD`].
     slot: u8,
@@ -844,6 +853,59 @@ fn root_imports<D: Driver>() -> Vec<(&'static str, ActionMeta)> {
             (name, meta)
         })
         .collect()
+}
+
+/// [`Driver::device_imports`] (with [`Driver::FOLDERS`] only) without
+/// names of the framework; level `config` and the bound of `import` when
+/// the driver left them out.
+fn device_imports<D: Driver>() -> Vec<(&'static str, ActionMeta)> {
+    if !D::FOLDERS {
+        return Vec::new();
+    }
+    D::device_imports()
+        .into_iter()
+        .filter(|(name, _)| {
+            let ok = !framework_action(name);
+            if !ok {
+                warn!("device import {name:?} has the name of a framework action; not declared");
+            }
+            ok
+        })
+        .map(|(name, mut meta)| {
+            meta.level.get_or_insert(Perm::Config);
+            meta.timeout_ms.get_or_insert(branch::ACTION_MS);
+            (name, meta)
+        })
+        .collect()
+}
+
+/// [`Driver::point_actions`] without names of the framework; level
+/// `config` when the driver left it out.
+fn point_actions<D: Driver>(point: &D::Point) -> Vec<(&'static str, ActionMeta)> {
+    D::point_actions(point)
+        .into_iter()
+        .filter(|(name, _)| {
+            let ok = !framework_action(name);
+            if !ok {
+                warn!("point action {name:?} has the name of a framework action; not declared");
+            }
+            ok
+        })
+        .map(|(name, mut meta)| {
+            meta.level.get_or_insert(Perm::Config);
+            (name, meta)
+        })
+        .collect()
+}
+
+/// What an action holds the action slot as: a `read` action lets a set
+/// queue behind it, any other holds the connection (P32).
+fn slot_of(meta: &ActionMeta) -> u8 {
+    if meta.level.is_some_and(|l| l > Perm::Read) {
+        SLOT_HOLD
+    } else {
+        SLOT_READ
+    }
 }
 
 /// The action that adds a folder ([`Driver::FOLDERS`]).
@@ -1185,6 +1247,9 @@ impl<D: Driver> Framework<D> {
         for (id, meta) in driver_actions::<D>(server, Level::Device, &d.slot.kind) {
             self.ctx.declare_action(&base, id, meta).await?;
         }
+        for (id, meta) in device_imports::<D>() {
+            self.ctx.declare_action(&base, id, meta).await?;
+        }
         self.declare_diag(&base, |n| d.taken(&[], n)).await?;
         self.declare_run_toggle(&base, d.enabled).await
     }
@@ -1275,6 +1340,11 @@ impl<D: Driver> Framework<D> {
         self.ctx.declare_node(&path, meta).await?;
         self.declare_common(&path, &p.schema(), &shown, p.display.as_deref())
             .await?;
+        if let (false, Some(cfg)) = (server, &p.cfg) {
+            for (id, meta) in point_actions::<D>(cfg) {
+                self.ctx.declare_action(&path, id, meta).await?;
+            }
+        }
         if let Some(e) = &p.error {
             // Keep the node; show why it does not run.
             let _ = self
@@ -1657,7 +1727,7 @@ impl<D: Driver> Framework<D> {
                 Level::Device,
                 &self.conns.get(c)?.devices.get(d)?.slot.kind,
             ),
-            _ => return None,
+            _ => return self.find_point_action(parts, action),
         };
         driver_actions::<D>(server, level, kind)
             .into_iter()
@@ -1665,12 +1735,32 @@ impl<D: Driver> Framework<D> {
             .map(|(_, m)| FoundAction {
                 conn: conn.clone(),
                 dev,
+                point: None,
                 timeout_ms: m.timeout_ms,
-                slot: if m.level.is_some_and(|l| l > Perm::Read) {
-                    SLOT_HOLD
-                } else {
-                    SLOT_READ
-                },
+                slot: slot_of(&m),
+            })
+    }
+
+    /// The point action `action` of the point at `parts` (below a device,
+    /// in a folder or not), if it has one.
+    fn find_point_action(&self, parts: &[String], action: &str) -> Option<FoundAction> {
+        let Ok(At::Point(conn, dev, id)) = self.resolve(parts) else {
+            return None;
+        };
+        let c = self.conns.get(conn)?;
+        if c.server() {
+            return None;
+        }
+        let cfg = c.devices.get(dev)?.points.get(id)?.slot.cfg.as_ref()?;
+        point_actions::<D>(cfg)
+            .into_iter()
+            .find(|(n, _)| *n == action)
+            .map(|(_, m)| FoundAction {
+                conn: conn.clone(),
+                dev: Some(dev.clone()),
+                point: Some(id.clone()),
+                timeout_ms: m.timeout_ms,
+                slot: slot_of(&m),
             })
     }
 
@@ -1689,6 +1779,7 @@ impl<D: Driver> Framework<D> {
         let FoundAction {
             conn,
             dev,
+            point,
             timeout_ms,
             slot,
         } = found;
@@ -1725,6 +1816,7 @@ impl<D: Driver> Framework<D> {
         run.tx
             .try_send(Req::Invoke {
                 dev,
+                point,
                 action: action.to_owned(),
                 args,
                 gen: run.gen,
@@ -2757,6 +2849,7 @@ async fn serve<D: Driver>(
             }
             Req::Invoke {
                 dev,
+                point,
                 action,
                 args,
                 gen,
@@ -2781,19 +2874,31 @@ async fn serve<D: Driver>(
                     continue;
                 }
                 let devs = o.devs.clone();
-                let target = match &dev {
-                    None => Target::Connection,
-                    Some(id) => match devs.get(id) {
-                        Some(d) => Target::Device { id, dev: &d.cfg },
-                        None => {
-                            let e = LinkError::new(
-                                Status::Disconnected,
-                                format!("device {id} is not running"),
-                            );
-                            let _ = reply.send(Err(e));
-                            continue;
-                        }
+                let found = match (&dev, &point) {
+                    (None, _) => Ok(Target::Connection),
+                    (Some(id), point) => match (devs.get(id), point) {
+                        (Some(d), None) => Ok(Target::Device { id, dev: &d.cfg }),
+                        (Some(d), Some(pt)) => match d.points.get(pt) {
+                            Some(p) => Ok(Target::Point {
+                                device: id,
+                                dev: &d.cfg,
+                                id: pt,
+                                point: p,
+                            }),
+                            None => Err(LinkError::not_found(format!("{id}/{pt}"))),
+                        },
+                        (None, _) => Err(LinkError::new(
+                            Status::Disconnected,
+                            format!("device {id} is not running"),
+                        )),
                     },
+                };
+                let target = match found {
+                    Ok(t) => t,
+                    Err(e) => {
+                        let _ = reply.send(Err(e));
+                        continue;
+                    }
                 };
                 let bound = bound.unwrap_or(timeout).min(left);
                 let r =
@@ -2940,6 +3045,10 @@ impl<D: Driver> Link for Framework<D> {
         }
         if parts.is_empty() && root_imports::<D>().iter().any(|(n, _)| *n == action) {
             let reply = self.root_import(action, &args).await?;
+            return out.reply(reply).await;
+        }
+        if parts.len() == 2 && device_imports::<D>().iter().any(|(n, _)| *n == action) {
+            let reply = self.device_import(&parts, action, &args).await?;
             return out.reply(reply).await;
         }
         let changes =
@@ -3949,6 +4058,39 @@ impl<D: Driver> Framework<D> {
         }
         report.insert("created".into(), Value::Array(created));
         report.insert("reenter".into(), Value::Array(reenter));
+        Ok(Value::Map(report))
+    }
+
+    /// A device import ([`Driver::convert_folder`]): one folder of points
+    /// into the device at `parts`, like `import` of a folder there. Replies
+    /// the driver's report with `name` (the folder) and `created` (the key
+    /// of every new node).
+    async fn device_import(
+        &mut self,
+        parts: &[String],
+        action: &str,
+        args: &Value,
+    ) -> Result<Value> {
+        let at = self.resolve(parts)?;
+        let At::Dev(conn, dev) = &at else {
+            return Err(LinkError::not_supported(format!("{action} here")));
+        };
+        // what is not there is `not_found`, whatever the arguments are
+        self.dev_mut(conn, dev)?;
+        let FolderImport {
+            folder,
+            overwrite,
+            mut report,
+        } = D::convert_folder(action, args)?;
+        // The checks of `import` text: levels, nesting and bounds.
+        let text = branch::to_text(D::NAME, &folder)?;
+        let node = branch::parse(&text, D::NAME, D::FOLDERS, &[branch::Level::Folder])?;
+        let name = node.name.clone();
+        let mut created = Vec::new();
+        node_keys(&node, &parts.join("/"), &mut created);
+        self.import_node(&at, node, None, overwrite).await?;
+        report.insert("name".into(), Value::Str(name));
+        report.insert("created".into(), Value::Array(created));
         Ok(Value::Map(report))
     }
 

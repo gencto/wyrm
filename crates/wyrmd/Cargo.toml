@@ -39,6 +39,7 @@ wyrm-link-mqtt.workspace = true
 wyrm-link-http.workspace = true
 wyrm-link-snmp.workspace = true
 wyrm-link-bacnet.workspace = true
+wyrm-link-knx.workspace = true
 wyrm-link-opcua.workspace = true
 wyrm-link-prometheus.workspace = true
 wyrm-filestore.workspace = true

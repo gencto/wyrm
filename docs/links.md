@@ -171,6 +171,7 @@ messenger and history sync apps check the same.
 - **HTTP** (`links/http`, driver `http`): JSON REST APIs polled on the
   driver framework. Guide: [`docs/http.md`](http.md).
 - **BACnet** (`links/bacnet`): BACnet/IP devices (driver `bacnet`, package `bacnet`). Guide: [`docs/bacnet.md`](bacnet.md).
+- **KNX** (`links/knx`, driver and package `knx`): group addresses of a KNX installation over KNXnet/IP tunnelling or routing, with datapoint types and an ETS import. Guide: [`docs/knx.md`](knx.md).
 - **OPC UA client** (`links/opcua`, driver `opcua`, package `opcua`): nodes of OPC UA servers as points, with security and certificates. Guide: [`docs/opcua.md`](opcua.md).
 - **Prometheus** (`links/prometheus`, driver and package `prometheus`): scrapes Prometheus / OpenMetrics endpoints and turns series selectors into points. Guide: [`docs/prometheus.md`](prometheus.md).
 - **File stores** (`links/s3`, `links/gdrive`, `links/webdav`, `links/localfs`; drivers and packages `s3`, `gdrive`, `webdav`, `localfs`): a bucket, a Google Drive folder, a WebDAV collection or a directory of the host (disk, USB/SD, NFS/SMB mount) as a tree of folders and files, with Create Folder, Upload File, Download and Delete. Guide: [`docs/filestores.md`](filestores.md).

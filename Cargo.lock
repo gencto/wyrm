@@ -7430,6 +7430,7 @@ dependencies = [
  "wyrm-link-dql",
  "wyrm-link-gdrive",
  "wyrm-link-http",
+ "wyrm-link-knx",
  "wyrm-link-localfs",
  "wyrm-link-mock",
  "wyrm-link-modbus",

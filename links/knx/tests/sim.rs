@@ -834,7 +834,7 @@ async fn device_actions() {
         "c1/d1",
         "write_group",
         write("1/1/1", "1.001", Value::Bool(true)),
-        Perm::Write,
+        Perm::Config,
     )
     .await;
     assert_eq!(st, Some(Status::Ok), "{msg}");
@@ -847,7 +847,7 @@ async fn device_actions() {
         "c1/d1",
         "write_group",
         write("1/1/2", "5.001", Value::Float(120.0)),
-        Perm::Write,
+        Perm::Config,
     )
     .await;
     assert_eq!(st, Some(Status::InvalidParameter), "{msg}");
@@ -857,11 +857,205 @@ async fn device_actions() {
         "c1/d1",
         "write_group",
         write("1/1/1", "1.001", Value::Bool(false)),
+        Perm::Write,
+    )
+    .await;
+    // it reaches any group address, past every point's `writable`: a token
+    // that may write points may not use it
+    assert_eq!(
+        st,
+        Some(Status::PermissionDenied),
+        "write_group needs config"
+    );
+    assert_eq!(gw.table().writes.len(), 1);
+    // `light` is not writable: its own `~set` refuses the same write token
+    let a = h.set("c1/d1/light", false, Some(h.ptok(Perm::Write))).await;
+    assert_eq!(status(&a), Some(Status::NotSupported));
+    assert_eq!(gw.table().writes.len(), 1);
+    let (_, m) = h.meta("c1/d1").await;
+    let actions = m.unwrap().actions.unwrap();
+    assert_eq!(actions["write_group"].level, Some(Perm::Config));
+    assert_eq!(actions["read_group"].level, Some(Perm::Read));
+    assert_eq!(actions["import_ets"].level, Some(Perm::Config));
+    h.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_point_reads_its_address_on_request() {
+    let gw = sim::spawn("127.0.0.1:0").await.unwrap();
+    gw.set(ga("1/0/1"), Data::long(vec![0x0C, 0x33]));
+    let dev = map(&[
+        ("points", map(&[("temp", pt("1/0/1", "9.001", &[]))])),
+        (
+            "folders",
+            map(&[(
+                "f",
+                map(&[("points", map(&[("ghost", pt("7/0/1", "1.001", &[]))]))]),
+            )]),
+        ),
+    ]);
+    let h = H::start(Tree(map(&[(
+        "connections",
+        map(&[(
+            "c1",
+            map(&[
+                ("kind", "tunnel_connection".into()),
+                ("host", Value::Str(gw.addr().ip().to_string())),
+                ("port", Value::UInt(gw.addr().port().into())),
+                ("timeout_ms", Value::UInt(300)),
+                ("devices", map(&[("d1", dev)])),
+            ]),
+        )]),
+    )])))
+    .await;
+    connected(&h).await;
+    wait("device", || {
+        state(&h, "c1/d1").as_deref() == Some("connected")
+    })
+    .await;
+    let (_, m) = h.meta("c1/d1/temp").await;
+    let read = &m.unwrap().actions.unwrap()["read"];
+    assert_eq!(read.level, Some(Perm::Read));
+    assert_eq!(read.display.as_deref(), Some("Read"));
+    assert_eq!(val(&h, "temp"), None);
+    let (st, v, msg) = act(&h, "c1/d1/temp", "read", map(&[]), Perm::Read).await;
+    assert_eq!(st, Some(Status::Ok), "{msg}");
+    assert_eq!(field(&v.unwrap(), "value"), &Value::Float(21.5));
+    assert_eq!(gw.table().reads, vec![ga("1/0/1")]);
+    // the answer is a telegram like any other: the point has it
+    wait("temp", || val(&h, "temp") == Some(Value::Float(21.5))).await;
+    // a point in a folder; nothing answers its address
+    let (st, _, msg) = act(&h, "c1/d1/f/ghost", "read", map(&[]), Perm::Read).await;
+    assert_eq!(st, Some(Status::Timeout), "{msg}");
+    let (st, _, _) = act(
+        &h,
+        "c1/d1/temp",
+        "read",
+        map(&[("x", Value::UInt(1))]),
         Perm::Read,
     )
     .await;
-    assert_eq!(st, Some(Status::PermissionDenied), "a write needs write");
-    assert_eq!(gw.table().writes.len(), 1);
+    assert_eq!(st, Some(Status::InvalidParameter), "no arguments");
+    let (st, _, _) = act(&h, "c1/d1/temp", "read", map(&[]), Perm::List).await;
+    assert_eq!(st, Some(Status::PermissionDenied));
+    h.stop().await;
+}
+
+const ETS: &str = "\"Group name\";\"Address\";\"Central\";\"Unlocked\";\"Description\";\"DatapointType\";\"Security\"\r\n\
+    \"Lighting\";\"1/-/-\";\"\";\"\";\"\";\"\";\"Auto\"\r\n\
+    \"Ground floor\";\"1/1/-\";\"\";\"\";\"\";\"\";\"Auto\"\r\n\
+    \"Kitchen light\";\"1/1/1\";\"\";\"\";\"\";\"DPST-1-1\";\"Auto\"\r\n\
+    \"Kitchen blind\";\"1/1/2\";\"\";\"\";\"\";\"DPST-5-1\";\"Auto\"\r\n\
+    \"Spare\";\"1/1/3\";\"\";\"\";\"\";\"\";\"Auto\"\r\n\
+    \"Heating\";\"2/-/-\";\"\";\"\";\"\";\"\";\"Auto\"\r\n\
+    \"Rooms\";\"2/0/-\";\"\";\"\";\"\";\"\";\"Auto\"\r\n\
+    \"Living room\";\"2/0/1\";\"\";\"\";\"\";\"DPST-9-1\";\"Auto\"\r\n";
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_ets_export_becomes_a_folder_of_points() {
+    let gw = sim::spawn("127.0.0.1:0").await.unwrap();
+    gw.set(ga("2/0/1"), Data::long(vec![0x0C, 0x33]));
+    let h = H::start(tree(&gw, &[], map(&[("old", pt("9/0/1", "1.001", &[]))]))).await;
+    connected(&h).await;
+    let (st, v, msg) = act(
+        &h,
+        "c1/d1",
+        "import_ets",
+        map(&[
+            ("csv", ETS.into()),
+            ("read_on_start", Value::Bool(true)),
+            ("writable", Value::Bool(true)),
+        ]),
+        Perm::Config,
+    )
+    .await;
+    assert_eq!(st, Some(Status::Ok), "{msg}");
+    let v = v.unwrap();
+    assert_eq!(field(&v, "name"), &Value::from("ets"));
+    assert_eq!(field(&v, "points"), &Value::UInt(3));
+    assert_eq!(
+        field(&v, "without_type"),
+        &Value::Array(vec!["1/1/3".into()])
+    );
+    let Value::Array(created) = field(&v, "created") else {
+        panic!()
+    };
+    assert!(
+        created.contains(&Value::from("c1/d1/ets/1_lighting/1_ground_floor/ga_1_1_1")),
+        "{created:?}"
+    );
+    assert_eq!(created.len(), 8, "1 + 2 + 2 folders, 3 points: {created:?}");
+    // the points run at once: the start read, the name, the type
+    let living = "ets/2_heating/0_rooms/ga_2_0_1";
+    wait("start read", || val(&h, living) == Some(Value::Float(21.5))).await;
+    let (_, m) = h.meta(&format!("c1/d1/{living}")).await;
+    let m = m.unwrap();
+    assert_eq!(m.attr_value("display"), Some(&Value::from("Living room")));
+    assert_eq!(m.unit, Some(TextOrCode::Text("°C".into())));
+    let light = "ets/1_lighting/1_ground_floor/ga_1_1_1";
+    assert_eq!(
+        status(
+            &h.set(&format!("c1/d1/{light}"), true, Some(h.ptok(Perm::Write)))
+                .await
+        ),
+        Some(Status::Ok)
+    );
+    assert_eq!(gw.table().writes, vec![(ga("1/1/1"), Data::short(1))]);
+    assert_eq!(val(&h, "old"), None, "what was there stays");
+    assert!(h.meta("c1/d1/old").await.1.is_some());
+
+    // again: refused without overwrite, and nothing changes
+    let again = |overwrite: bool| {
+        map(&[
+            ("file", Value::Bytes(ETS.as_bytes().to_vec())),
+            ("overwrite", Value::Bool(overwrite)),
+        ])
+    };
+    let (st, _, msg) = act(&h, "c1/d1", "import_ets", again(false), Perm::Config).await;
+    assert_eq!(st, Some(Status::InvalidParameter), "{msg}");
+    assert!(msg.contains("exists"), "{msg}");
+    let (st, _, msg) = act(&h, "c1/d1", "import_ets", again(true), Perm::Config).await;
+    assert_eq!(st, Some(Status::Ok), "{msg}");
+    // the new points are not writable (the default)
+    let (_, m) = h.meta(&format!("c1/d1/{light}")).await;
+    assert_eq!(m.unwrap().writable, Some(wyrm_core::meta::Writable::Never));
+
+    // refusals
+    for (args, why) in [
+        (map(&[]), "one of them"),
+        (
+            map(&[("csv", ETS.into()), ("file", Value::Bytes(vec![1]))]),
+            "one of them",
+        ),
+        (map(&[("csv", "nothing here".into())]), "no group address"),
+        (
+            map(&[("csv", "a;1/0/1;;\n".into())]),
+            "no row names a datapoint type",
+        ),
+        (map(&[("csv", ETS.into()), ("folder", "a/b".into())]), ""),
+    ] {
+        let (st, _, msg) = act(&h, "c1/d1", "import_ets", args, Perm::Config).await;
+        assert_eq!(st, Some(Status::InvalidParameter), "{msg}");
+        assert!(msg.contains(why), "{msg}");
+    }
+    let (st, _, _) = act(
+        &h,
+        "c1/d1",
+        "import_ets",
+        map(&[("csv", ETS.into())]),
+        Perm::Write,
+    )
+    .await;
+    assert_eq!(st, Some(Status::PermissionDenied));
+    let (st, _, _) = act(
+        &h,
+        "c1/nope",
+        "import_ets",
+        map(&[("csv", ETS.into())]),
+        Perm::Config,
+    )
+    .await;
+    assert_eq!(st, Some(Status::NotFound));
     h.stop().await;
 }
 

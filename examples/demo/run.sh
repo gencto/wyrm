@@ -30,6 +30,7 @@ mkdir -p data
   && cargo build --release -p wyrm-link-prometheus --features bin --bin wyrm-prometheus-sim \
   && cargo build --release -p wyrm-link-s7 --features bin --bin wyrm-s7-sim \
   && cargo build --release -p wyrm-link-bacnet --features bin --bin wyrm-bacnet-sim \
+  && cargo build --release -p wyrm-link-knx --features bin --bin wyrm-knx-sim \
   && cargo build --release -p wyrm-link-opcua --features bin --bin wyrm-opcua-sim)
 
 # Each upstream site's CA, and the certificate it issues for the site below
@@ -47,9 +48,10 @@ $BIN/wyrm-modbus-sim --listen 127.0.0.1:5020 >data/modbus-sim.log 2>&1 & pids+=(
 $BIN/wyrm-http-sim --listen 127.0.0.1:18090 >data/http-sim.log 2>&1 & pids+=($!)
 $BIN/wyrm-snmp-sim --listen 127.0.0.1:1161 >data/snmp-sim.log 2>&1 & pids+=($!)
 $BIN/wyrm-prometheus-sim --listen 127.0.0.1:19101 >data/prometheus-sim.log 2>&1 & pids+=($!)
-# plant links s7, bacnet, opcua
+# plant links s7, bacnet, knx, opcua
 $BIN/wyrm-s7-sim --listen 127.0.0.1:10102 >data/s7-sim.log 2>&1 & pids+=($!)
 $BIN/wyrm-bacnet-sim --listen 127.0.0.1:47809 --instance 1234 --extra 20 >data/bacnet-sim.log 2>&1 & pids+=($!)
+$BIN/wyrm-knx-sim --listen 127.0.0.1:13671 >data/knx-sim.log 2>&1 & pids+=($!)
 $BIN/wyrm-opcua-sim --port 4840 --pki data/opcua-sim-pki >data/opcua-sim.log 2>&1 & pids+=($!)
 # The link repository of all three sites (packages.repository): every
 # official link built from this workspace plus the examples; build it first
@@ -79,9 +81,9 @@ Demo running (logs in examples/demo/data/*.log). Ctrl+C stops it.
   links:   central: mock, scheduler
            edge:  mock, mockdev, modbus (process), modbus_slave (on 127.0.0.1:15502),
                   http, snmp, prometheus, scheduler
-           plant: mock, s7, bacnet, opcua, scheduler
+           plant: mock, s7, bacnet, knx, opcua, scheduler
   sims:    modbus :5020, http :18090, snmp udp :1161, prometheus :19101, s7 :10102,
-           bacnet udp :47809, opcua :4840 (logs in data/*-sim.log)
+           bacnet udp :47809, knx udp :13671, opcua :4840 (logs in data/*-sim.log)
   chain:   plant → edge → central; from central: wy/central/downstream/edge ▸ downstream ▸
            plant, from edge: wy/edge/downstream/plant
   above:   central's users run every action on edge and plant, sys and link config

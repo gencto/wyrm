@@ -11556,6 +11556,7 @@ async fn every_action_has_a_name_people_read() {
         "snmp",
         "s7",
         "bacnet",
+        "knx",
         "opcua",
         "prometheus",
     ];

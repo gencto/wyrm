@@ -22,7 +22,8 @@ use wyrm_core::{ActionMeta, NodeMeta, Perm, Quality, Status, TypeCode, Value};
 use wyrm_link_sdk::driver::branch::{self, Level as BranchLevel};
 use wyrm_link_sdk::driver::branch::{FORMAT, MAX_BYTES, MAX_NODES, NOT_EXPORTED};
 use wyrm_link_sdk::driver::{
-    Converted, Driver, DriverError, Framework, Level, NodeState, PointId, Target, Tree,
+    Converted, Driver, DriverError, FolderImport, Framework, Level, NodeState, PointId, Target,
+    Tree,
 };
 use wyrm_link_sdk::{LinkError, Params, TestHarness};
 
@@ -207,6 +208,66 @@ impl Driver for Br {
             "import_list",
             ActionMeta::new().param("names", ParamMeta::of(TypeCode::String).required(true)),
         )]
+    }
+
+    /// `import_points {addrs, overwrite?}` on a device: the folder `imp`
+    /// with `a<addr>` at its top for every comma-separated address, and
+    /// `imp/deep/p0` when the list starts with `!` (`p0` is taken).
+    fn device_imports() -> Vec<(&'static str, ActionMeta)> {
+        vec![(
+            "import_points",
+            ActionMeta::new()
+                .param("addrs", ParamMeta::of(TypeCode::String).required(true))
+                .param("overwrite", ParamMeta::of(TypeCode::Bool)),
+        )]
+    }
+
+    fn convert_folder(_action: &str, args: &Value) -> Result<FolderImport, LinkError> {
+        let (addrs, overwrite) = match args {
+            Value::Map(m) => (
+                match m.get("addrs") {
+                    Some(Value::Str(s)) => s.clone(),
+                    _ => String::new(),
+                },
+                m.get("overwrite") == Some(&Value::Bool(true)),
+            ),
+            _ => (String::new(), false),
+        };
+        let node = |level, name: &str, addr: Option<u64>, children| branch::Node {
+            level,
+            name: name.into(),
+            params: addr
+                .map(|a| ("addr".to_owned(), Value::UInt(a)))
+                .into_iter()
+                .collect(),
+            enabled: true,
+            children,
+        };
+        let mut children = Vec::new();
+        for a in addrs.trim_start_matches('!').split(',') {
+            let addr: u64 = a
+                .parse()
+                .map_err(|_| LinkError::invalid_parameter(format!("addrs: {a:?}")))?;
+            children.push(node(
+                BranchLevel::Point,
+                &format!("a{a}"),
+                Some(addr),
+                vec![],
+            ));
+        }
+        if addrs.starts_with('!') {
+            let p0 = node(BranchLevel::Point, "p0", Some(1), vec![]);
+            children.push(node(BranchLevel::Folder, "deep", None, vec![p0]));
+        }
+        Ok(FolderImport {
+            folder: node(BranchLevel::Folder, "imp", None, children),
+            overwrite,
+            report: [
+                ("points".to_owned(), Value::UInt(1)),
+                ("name".to_owned(), Value::Null),
+            ]
+            .into(),
+        })
     }
 
     fn convert(_action: &str, args: &Value) -> Result<Converted, LinkError> {
@@ -1561,4 +1622,85 @@ async fn a_failed_save_changes_nothing() {
     assert!(exists(&h, "c9").await && exists(&h, "c1/d1/p9").await);
     h.stop().await;
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A device import (`Driver::device_imports`): the driver's folder goes into
+/// the device like `import` of a folder; everything is checked before
+/// anything changes; the reply is the driver's report under the framework's
+/// `name` and `created`.
+#[tokio::test(flavor = "multi_thread")]
+async fn device_import_brings_one_folder_of_points() {
+    let h = H::start(tree(71)).await;
+    wait("polling", || log(71).iter().any(|e| e.starts_with("poll:"))).await;
+    let acts = actions(&h, "c1/d1").await;
+    assert!(acts.contains(&"import_points".to_owned()), "{acts:?}");
+    assert!(
+        !actions(&h, "c1")
+            .await
+            .contains(&"import_points".to_owned()),
+        "on devices only"
+    );
+    let args = |addrs: &str, overwrite: bool| {
+        map(&[
+            ("addrs", addrs.into()),
+            ("overwrite", Value::Bool(overwrite)),
+        ])
+    };
+    let v = ok(&h, "c1/d1", "import_points", args("21,22", false))
+        .await
+        .unwrap();
+    assert_eq!(
+        v,
+        map(&[
+            ("points", Value::UInt(1)),
+            ("name", "imp".into()),
+            (
+                "created",
+                Value::Array(vec![
+                    "c1/d1/imp".into(),
+                    "c1/d1/imp/a21".into(),
+                    "c1/d1/imp/a22".into(),
+                ])
+            ),
+        ]),
+        "the framework's keys win over the driver's"
+    );
+    assert!(exists(&h, "c1/d1/imp/a21").await && exists(&h, "c1/d1/p0").await);
+    // the new points are polled at once (the device runs on)
+    wait("a21 polled", || {
+        h.ctx().last("c1/d1/imp/a21").map(|s| s.v) == Some(Value::Float(21.0))
+    })
+    .await;
+    assert_eq!(state(&h, "c1/d1"), is_state(NodeState::Connected));
+
+    // refused whole: the folder exists; an id taken on the device; bad params
+    let o = run(&h, "c1/d1", "import_points", args("23", false)).await;
+    assert_eq!(o.status, Some(Status::InvalidParameter), "{}", o.err);
+    assert!(o.err.contains("exists"), "{}", o.err);
+    let o = run(&h, "c1/d1", "import_points", args("!23", true)).await;
+    assert_eq!(o.status, Some(Status::InvalidParameter), "{}", o.err);
+    assert!(o.err.contains("p0"), "{}", o.err);
+    let o = run(&h, "c1/d1", "import_points", args("5000", true)).await;
+    assert_eq!(o.status, Some(Status::InvalidParameter), "{}", o.err);
+    let o = run(&h, "c1/d1", "import_points", args("x", true)).await;
+    assert_eq!(o.status, Some(Status::InvalidParameter), "{}", o.err);
+    assert!(exists(&h, "c1/d1/imp/a22").await, "nothing changed");
+    assert!(!exists(&h, "c1/d1/imp/a23").await);
+    assert!(!exists(&h, "c1/d1/imp/deep").await);
+
+    // overwrite replaces the folder with everything in it
+    ok(&h, "c1/d1", "import_points", args("24", true)).await;
+    assert!(exists(&h, "c1/d1/imp/a24").await);
+    assert!(!exists(&h, "c1/d1/imp/a21").await);
+    wait("a24 polled", || {
+        h.ctx().last("c1/d1/imp/a24").map(|s| s.v) == Some(Value::Float(24.0))
+    })
+    .await;
+    // what does not exist is not found, whatever the arguments are
+    let o = run(&h, "c1/nope", "import_points", args("x", false)).await;
+    assert_eq!(o.status, Some(Status::NotFound), "{}", o.err);
+    // it is in the export like any folder
+    let j = export(&h, "c1/d1").await;
+    assert!(children(&j).contains(&"imp".to_owned()), "{j}");
+    h.stop().await;
 }

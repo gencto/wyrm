@@ -31,7 +31,7 @@ nodes, and it is kin to the dragon on Zenoh's logo.
 - Broker storage `storage/**` for folders and typed values people create.
 
 **Links (connectors)**
-- Protocols: Modbus TCP/RTU (master and slave), BACnet/IP, OPC UA, Siemens S7, SNMP v2c/v3, MQTT and Sparkplug B, HTTP/REST JSON, Prometheus/OpenMetrics.
+- Protocols: Modbus TCP/RTU (master and slave), BACnet/IP, KNX (KNXnet/IP), OPC UA, Siemens S7, SNMP v2c/v3, MQTT and Sparkplug B, HTTP/REST JSON, Prometheus/OpenMetrics.
 - File stores: S3 and compatible stores, Google Drive, WebDAV, a local directory.
 - History sync to PostgreSQL/TimescaleDB, MySQL/MariaDB, MongoDB, InfluxDB and DynamoDB.
 - Messengers: Telegram (paired users can read and set points from a chat) and Slack.
@@ -100,7 +100,7 @@ Rules that hold everywhere ([ADR 0001–0011](docs/adr/)):
 examples/demo/run.sh          # build, then start plant → edge → central; Ctrl+C stops all
 ```
 
-1. Wait until all three sites are up. Each site runs its links against their simulators: Modbus, HTTP, SNMP, Prometheus, S7, BACnet, OPC UA and mocks.
+1. Wait until all three sites are up. Each site runs its links against their simulators: Modbus, HTTP, SNMP, Prometheus, S7, BACnet, KNX, OPC UA and mocks.
 2. Log in to a site's gateway with user `admin` and password `wyrm-demo-1` (or `$WYRM_GATEWAY_ADMIN_PASSWORD`). The gateways are central `http://127.0.0.1:8445`, edge `:8444` and plant `:8446`.
 3. Note that central reads plant through edge.
 

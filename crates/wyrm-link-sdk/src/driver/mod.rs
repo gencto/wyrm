@@ -3,10 +3,11 @@
 //! protocol I/O; [`Framework`] provides the tree, generated actions,
 //! validate-then-diff edits, typed states with parent→child cascade, the
 //! per-connection owner task, batched polling, read-back writes, the
-//! quality ladder, and (opt-in) driver actions, diagnostics counters,
-//! folders between a device and its points, root imports of another
-//! system's export, and server kinds (connections that serve the tree to
-//! remote clients, ADR 0024).
+//! quality ladder, and (opt-in) driver actions (on connections, devices and
+//! points), diagnostics counters, folders between a device and its points,
+//! imports of another system's export (connections at the root, a folder of
+//! points into a device), and server kinds (connections that serve the tree
+//! to remote clients, ADR 0024).
 
 pub mod branch;
 mod diag;
@@ -76,7 +77,17 @@ pub enum Level {
 /// The node a driver action runs on ([`Driver::invoke`]).
 pub enum Target<'a, D: Driver> {
     Connection,
-    Device { id: &'a str, dev: &'a D::Dev },
+    Device {
+        id: &'a str,
+        dev: &'a D::Dev,
+    },
+    /// A point ([`Driver::point_actions`]): its device and its id on it.
+    Point {
+        device: &'a str,
+        dev: &'a D::Dev,
+        id: &'a str,
+        point: &'a D::Point,
+    },
 }
 
 /// What a root import ([`Driver::root_imports`]) built from another
@@ -94,6 +105,20 @@ pub struct Converted {
 
 /// The keys the framework adds to the reply of a root import.
 pub const REPORT_KEYS: [&str; 2] = ["created", "reenter"];
+
+/// What a device import ([`Driver::device_imports`]) built from another
+/// system's export: one folder with the folders and points below it.
+#[derive(Debug, Clone)]
+pub struct FolderImport {
+    /// The folder, imported into the device like `import` of a folder
+    /// there.
+    pub folder: branch::Node,
+    /// Replace a folder of that name (with everything in it).
+    pub overwrite: bool,
+    /// Keys of the reply beside the framework's `name` (the folder) and
+    /// `created` (the key of every new node), which win over these.
+    pub report: BTreeMap<String, Value>,
+}
 
 /// A device of a server connection as planned ([`Driver::serve`]): enabled,
 /// with a valid config, and its valid points.
@@ -243,6 +268,14 @@ pub trait Driver: Sized + Send + Sync + 'static {
         Vec::new()
     }
 
+    /// Driver actions of a point node (a point's own "read now"): the
+    /// rules of [`Driver::actions`], and they run through
+    /// [`Driver::invoke`] with [`Target::Point`]. Never declared on the
+    /// points of a server connection. Default: none.
+    fn point_actions(_point: &Self::Point) -> Vec<(&'static str, ActionMeta)> {
+        Vec::new()
+    }
+
     /// Run a driver action on the connection's owner task, between polls
     /// (never during one). `args` passed the SDK's check against the
     /// declared params. An error with status `disconnected` means the
@@ -275,6 +308,25 @@ pub trait Driver: Sized + Send + Sync + 'static {
     /// plus `created` (the key of every new node) and `reenter`. A refusal
     /// changes nothing.
     fn convert(action: &str, _args: &Value) -> Result<Converted, LinkError> {
+        Err(LinkError::not_supported(format!("action {action}")))
+    }
+
+    /// Device actions that import another system's export as one folder
+    /// of points (an engineering tool's address list): `(name, meta)`, with
+    /// [`Driver::FOLDERS`] only. Level `config` when unset, bounded by
+    /// [`branch::ACTION_MS`] without `timeout_ms`. Names of framework
+    /// actions and `add_*` are refused.
+    fn device_imports() -> Vec<(&'static str, ActionMeta)> {
+        Vec::new()
+    }
+
+    /// Build the folder of a device import from `args` (checked against the
+    /// declared params). No I/O: it runs on the link task. The framework
+    /// imports it like `import` of a folder into the device: everything is
+    /// checked before anything changes (names, nesting, a point id once on
+    /// the device, bounds), the tree is saved, then the nodes are declared
+    /// and polled. A refusal changes nothing.
+    fn convert_folder(action: &str, _args: &Value) -> Result<FolderImport, LinkError> {
         Err(LinkError::not_supported(format!("action {action}")))
     }
 

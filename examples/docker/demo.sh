@@ -27,11 +27,12 @@ esac
 cd $SRC
 cargo build --locked --release -p wyrmd -p wyr \
   -p wyrm-link-modbus -p wyrm-link-http -p wyrm-link-snmp -p wyrm-link-prometheus \
-  -p wyrm-link-s7 -p wyrm-link-bacnet -p wyrm-link-opcua \
+  -p wyrm-link-s7 -p wyrm-link-bacnet -p wyrm-link-knx -p wyrm-link-opcua \
   --features wyrm-link-modbus/bin,wyrm-link-http/bin,wyrm-link-snmp/bin,wyrm-link-prometheus/bin \
-  --features wyrm-link-s7/bin,wyrm-link-bacnet/bin,wyrm-link-opcua/bin \
+  --features wyrm-link-s7/bin,wyrm-link-bacnet/bin,wyrm-link-knx/bin,wyrm-link-opcua/bin \
   --bin wyrmd --bin wyr --bin wyrm-modbus-sim --bin wyrm-http-sim --bin wyrm-snmp-sim \
-  --bin wyrm-prometheus-sim --bin wyrm-s7-sim --bin wyrm-bacnet-sim --bin wyrm-opcua-sim
+  --bin wyrm-prometheus-sim --bin wyrm-s7-sim --bin wyrm-bacnet-sim --bin wyrm-knx-sim \
+  --bin wyrm-opcua-sim
 cargo build --locked --release -p wyrm-link-agent --features cli --bin wyrm-agent
 
 mkdir -p $W/data $W/zips $W/repo
@@ -85,6 +86,7 @@ bg snmp-sim $BIN/wyrm-snmp-sim --listen 127.0.0.1:1161
 bg prometheus-sim $BIN/wyrm-prometheus-sim --listen 127.0.0.1:19101
 bg s7-sim $BIN/wyrm-s7-sim --listen 127.0.0.1:10102
 bg bacnet-sim $BIN/wyrm-bacnet-sim --listen 127.0.0.1:47809 --instance 1234 --extra 20
+bg knx-sim $BIN/wyrm-knx-sim --listen 127.0.0.1:13671
 bg opcua-sim $BIN/wyrm-opcua-sim --port 4840 --pki data/opcua-sim-pki
 bg packages-http python3 -m http.server 18070 --bind 127.0.0.1 --directory repo
 export RUST_LOG=info,zenoh=warn

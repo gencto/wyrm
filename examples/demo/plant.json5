@@ -71,6 +71,28 @@
         },
       },
     },
+    // KNX against wyrm-knx-sim (a tunnelling server on UDP 13671),
+    // docs/knx.md.
+    knx: {
+      driver: "knx",
+      params: {
+        connections: {
+          sim: {
+            kind: "tunnel_connection", host: "127.0.0.1", port: 13671,
+            devices: {
+              room: {
+                points: {
+                  temp: { address: "1/0/1", dpt: "9.001" },
+                  light: { address: "1/1/1", dpt: "1.001", writable: true, read_on_start: true },
+                  blind: { address: "1/1/2", dpt: "5.001", writable: true, read_on_start: true },
+                  mode: { address: "1/2/1", dpt: "20.102", writable: true, read_on_start: true },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
     // OPC UA (security None on loopback) against wyrm-opcua-sim (port 4840),
     // docs/opcua.md.
     opcua: {

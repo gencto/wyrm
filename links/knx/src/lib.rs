@@ -28,8 +28,12 @@
 //!   state request, a disconnect by the interface) is `Transport`: the
 //!   framework reconnects with backoff.
 //!
-//! Driver actions: connection `search_gateways`, `recent_telegrams`,
-//! `connection_info`; device `read_group`, `write_group`.
+//! Driver actions: connection `search_gateways` (config),
+//! `recent_telegrams` and `connection_info` (read); device `read_group`
+//! (read), `write_group` (config: it reaches any group address, past every
+//! point's `writable`) and `import_ets` (config: an ETS group address
+//! export becomes a folder of points, [`ets`]); point `read` (read: a
+//! GroupValue_Read now).
 //!
 //! Not supported: KNX IP Secure and KNX Data Secure, the bus monitor
 //! layer, device management (programming, properties), answering reads of
@@ -42,6 +46,7 @@ pub mod addr;
 pub mod bus;
 pub mod cemi;
 pub mod dpt;
+pub mod ets;
 pub mod proto;
 #[cfg(feature = "sim")]
 pub mod sim;
@@ -59,7 +64,9 @@ use wyrm_core::meta::{ActionResult, Writable};
 use wyrm_core::{ActionMeta, NodeMeta, Perm, Status, TypeCode, Value};
 use wyrm_link_sdk::driver::params::{field, ParamSpec};
 // Traits (type namespace) beside the derive macros of the same name.
-use wyrm_link_sdk::driver::{Driver, DriverError, Framework, Level, Params, PointId, Target};
+use wyrm_link_sdk::driver::{
+    Driver, DriverError, FolderImport, Framework, Level, Params, PointId, Target,
+};
 use wyrm_link_sdk::{Args, LinkError, Params};
 
 /// The `knx` link: the framework running [`KnxDriver`].
@@ -483,6 +490,86 @@ struct WriteGroup {
     value: Value,
 }
 
+/// `import_ets`.
+#[derive(Args)]
+struct ImportEts {
+    #[param(
+        display = "CSV",
+        editor = "textarea",
+        desc = "The group address export of ETS as text."
+    )]
+    csv: Option<String>,
+    #[param(
+        display = "File",
+        editor = "file",
+        desc = "The export as a file, instead of the text."
+    )]
+    file: Option<Vec<u8>>,
+    #[param(
+        display = "Folder",
+        default = String::from("ets"),
+        desc = "The folder the main groups go into."
+    )]
+    folder: String,
+    #[param(
+        display = "Read on start",
+        default = false,
+        desc = "Every imported point reads its value when the connection opens."
+    )]
+    read_on_start: bool,
+    #[param(display = "Writable", default = false)]
+    writable: bool,
+    #[param(
+        display = "Overwrite",
+        default = false,
+        desc = "Replace a folder of that name with everything in it."
+    )]
+    overwrite: bool,
+}
+
+/// The text of an export file: UTF-8, else read as ISO 8859-1 (ETS writes
+/// the system's code page when asked to).
+fn file_text(bytes: Vec<u8>) -> String {
+    match String::from_utf8(bytes) {
+        Ok(text) => text,
+        Err(e) => e.as_bytes().iter().map(|b| char::from(*b)).collect(),
+    }
+}
+
+fn import_ets(args: ImportEts) -> Result<FolderImport, LinkError> {
+    let text = match (args.csv, args.file) {
+        (Some(text), None) => text,
+        (None, Some(bytes)) => file_text(bytes),
+        _ => {
+            return Err(LinkError::invalid_parameter(
+                "csv: give the export as text (csv) or as a file (file), one of them",
+            ))
+        }
+    };
+    let extra = BTreeMap::from([
+        ("read_on_start".to_owned(), Value::Bool(args.read_on_start)),
+        ("writable".to_owned(), Value::Bool(args.writable)),
+    ]);
+    let got = ets::import(&text, &args.folder, &extra)
+        .map_err(|e| LinkError::invalid_parameter(format!("csv: {e}")))?;
+    if got.points == 0 {
+        return Err(LinkError::invalid_parameter(
+            "csv: no row names a datapoint type: export the group addresses with their types",
+        ));
+    }
+    let list = |v: Vec<String>| Value::Array(v.into_iter().map(Value::Str).collect());
+    let points = u64::try_from(got.points).unwrap_or(u64::MAX);
+    Ok(FolderImport {
+        folder: got.folder,
+        overwrite: args.overwrite,
+        report: BTreeMap::from([
+            ("points".to_owned(), Value::UInt(points)),
+            ("without_type".to_owned(), list(got.without_type)),
+            ("repeated".to_owned(), list(got.repeated)),
+        ]),
+    })
+}
+
 fn group_arg(address: &str, dpt: &str) -> Result<(GroupAddr, Dpt), LinkError> {
     let to = GroupAddr::parse(address)
         .map_err(|e| LinkError::invalid_parameter(format!("address: {e}")))?;
@@ -587,6 +674,15 @@ async fn read_group(t: &Transport, args: &ReadGroup) -> Result<Value, LinkError>
         ("unit", Value::Str(ty.unit().to_owned())),
         ("data", Value::Bytes(data.bytes)),
     ]))
+}
+
+/// Point action `read`: a GroupValue_Read of the point's address now.
+async fn read_point(t: &Transport, p: &Point) -> Result<Value, LinkError> {
+    let data = t.bus.read(p.to, t.answer).await.map_err(action_error)?;
+    let value =
+        p.ty.decode(&data)
+            .map_err(|e| LinkError::new(Status::InvalidMessage, e.to_string()))?;
+    Ok(row([("value", value), ("data", Value::Bytes(data.bytes))]))
 }
 
 async fn write_group(t: &Transport, args: &WriteGroup) -> Result<Value, LinkError> {
@@ -805,13 +901,43 @@ impl Driver for KnxDriver {
                 ),
                 (
                     "write_group",
+                    // any group address, past every point's `writable`
+                    // and type: commissioning
                     WriteGroup::action()
-                        .level(Perm::Write)
+                        .level(Perm::Config)
                         .display("Write group")
                         .timeout_ms(GROUP_MS)
                         .result(map),
                 ),
             ],
+        }
+    }
+
+    fn point_actions(_p: &Point) -> Vec<(&'static str, ActionMeta)> {
+        vec![(
+            "read",
+            <()>::action()
+                .level(Perm::Read)
+                .display("Read")
+                .timeout_ms(GROUP_MS)
+                .result(ActionResult::Type(TypeCode::Map)),
+        )]
+    }
+
+    fn device_imports() -> Vec<(&'static str, ActionMeta)> {
+        vec![(
+            "import_ets",
+            ImportEts::action()
+                .level(Perm::Config)
+                .display("Import ETS group addresses")
+                .result(ActionResult::Type(TypeCode::Map)),
+        )]
+    }
+
+    fn convert_folder(action: &str, args: &Value) -> Result<FolderImport, LinkError> {
+        match action {
+            "import_ets" => import_ets(ImportEts::decode(args.clone())?),
+            _ => Err(LinkError::not_supported(format!("action {action}"))),
         }
     }
 
@@ -838,6 +964,10 @@ impl Driver for KnxDriver {
                 Ok(connection_info(t))
             }
             (Target::Device { .. }, "read_group") => read_group(t, &ReadGroup::decode(args)?).await,
+            (Target::Point { point, .. }, "read") => {
+                <()>::decode(args)?;
+                read_point(t, point).await
+            }
             (Target::Device { .. }, "write_group") => {
                 write_group(t, &WriteGroup::decode(args)?).await
             }

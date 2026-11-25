@@ -192,6 +192,14 @@ impl Driver for Diag {
         }
     }
 
+    /// `peek` on every point; `remove` is a framework name: never declared.
+    fn point_actions(_p: &Point) -> Vec<(&'static str, ActionMeta)> {
+        vec![
+            ("peek", ActionMeta::new().level(Perm::Read)),
+            ("remove", ActionMeta::new().level(Perm::Read)),
+        ]
+    }
+
     async fn invoke(
         t: &mut Transport,
         conn: &Conn,
@@ -215,6 +223,20 @@ impl Driver for Diag {
                     ("x", x),
                 ]))
             }
+            (
+                Target::Point {
+                    device,
+                    dev,
+                    id,
+                    point,
+                },
+                "peek",
+            ) => Ok(map(&[
+                ("device", device.into()),
+                ("unit", Value::UInt(dev.unit.into())),
+                ("id", id.into()),
+                ("poll_s", Value::Float(point.poll_s)),
+            ])),
             (Target::Device { .. }, "fail") => {
                 t.outcomes.push(Outcome::Exception(MS(5)));
                 Err(LinkError::invalid_parameter("illegal address"))
@@ -723,5 +745,61 @@ async fn nodes_take_a_name_people_read() {
         )
         .await;
     assert_eq!(status(&r), Some(Status::InvalidParameter), "{r:?}");
+    h.stop().await;
+}
+
+/// Point actions (`Driver::point_actions`): declared on points with their
+/// level, run on the owner task with the point and its device, never under
+/// a framework name; a point that is gone or stopped takes none.
+#[tokio::test(flavor = "multi_thread")]
+async fn point_actions_are_declared_and_run_with_their_point() {
+    let s = seen(21);
+    let h = H::start(tree(21, two_points())).await;
+    wait("polling", Duration::from_secs(5), || {
+        s.log.lock().unwrap().len() > 3
+    })
+    .await;
+    let point = actions(&h, "c1/d1/p");
+    assert_eq!(point["peek"].level, Some(Perm::Read));
+    assert_eq!(point["peek"].display.as_deref(), Some("Peek"));
+    assert_eq!(
+        point["remove"].level,
+        Some(Perm::Config),
+        "the framework's remove, not the driver's"
+    );
+    assert!(!actions(&h, "c1/d1").contains_key("peek"), "not on devices");
+    let peek = |path: &'static str, perm: Perm| {
+        let h = &h;
+        async move { h.invoke(path, "peek", map(&[]), Some(h.ptok(perm))).await }
+    };
+    let r = peek("c1/d1/q", Perm::Read).await;
+    assert_eq!(status(&r), Some(Status::Ok));
+    assert_eq!(
+        r[0].value(),
+        Some(map(&[
+            ("device", "d1".into()),
+            ("unit", Value::UInt(1)),
+            ("id", "q".into()),
+            ("poll_s", Value::Float(0.02)),
+        ]))
+    );
+    assert!(s.log.lock().unwrap().iter().any(|e| e == "invoke:peek"));
+    assert_eq!(s.overlaps.load(Ordering::Relaxed), 0, "never during a poll");
+    // The declared level is enforced.
+    let r = peek("c1/d1/q", Perm::List).await;
+    assert_eq!(status(&r), Some(Status::PermissionDenied));
+    // No such point; and a point of a stopped device.
+    let r = peek("c1/d1/nope", Perm::Read).await;
+    assert!(
+        matches!(status(&r), Some(Status::NotFound | Status::NotSupported)),
+        "{:?}",
+        status(&r)
+    );
+    let r = h
+        .invoke("c1/d1", "stop", map(&[]), Some(h.ptok(Perm::Config)))
+        .await;
+    assert_eq!(status(&r), Some(Status::Ok));
+    let r = peek("c1/d1/q", Perm::Read).await;
+    assert_eq!(status(&r), Some(Status::Disconnected));
     h.stop().await;
 }
