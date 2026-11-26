@@ -95,7 +95,8 @@
   LINKS.forEach(function (l) { known[l.id] = true; });
   PRESETS.forEach(function (p) { p.ids = p.ids.filter(function (id) { return known[id]; }); });
 
-  var state = { path: 'archive', target: 'la64', preset: 'plant', picked: null, mode: 'inside', site: 'plant' };
+  // The page opens on a path that works today.
+  var state = { path: 'source', target: 'any', preset: 'plant', picked: null, mode: 'inside', site: 'plant' };
 
   // ------------------------------------------------------------------- DOM
   var SVG = 'http://www.w3.org/2000/svg';
@@ -145,6 +146,12 @@
 
   function mib(n) { return (Math.round(n * 10) / 10).toFixed(1) + ' MiB'; }
   function plural(n, word) { return n + ' ' + word + (n === 1 ? '' : 's'); }
+
+  // The steps of a path that is still planned: every line is a comment, so
+  // nothing in the box can be pasted and run against a file that is not there.
+  function planned(head, lines) {
+    return ['# ' + head].concat(lines.map(function (l) { return l ? '#   ' + l : '#'; })).join('\n');
+  }
 
   // ------------------------------------------------------------------ model
   function model() {
@@ -204,10 +211,17 @@
     C.push('{');
     C.push('  site: "' + site + '",');
     C.push('  data_dir: "' + (image ? '/srv/wyrm' : docker ? '/data' : './data') + '",');
+    // A link in process mode, built in or from a process package, dials the
+    // broker over TLS: `wyrmd` refuses to start one without a `tls/` listener
+    // (docs/links.md, "Process mode needs a tls/ listener").
+    var procs = sel.some(function (l) { return l.f.k === 'process' || l.f.k === 'pkgproc'; });
     if (conts.length) {
       C.push('  // plaintext on loopback only; the link containers dial TLS');
       C.push('  listen: ["tcp/127.0.0.1:7447", "tls/0.0.0.0:7448"],');
       C.push('  tls_names: ["wyrmd", "localhost", "127.0.0.1"],');
+    } else if (procs) {
+      C.push('  // the link processes dial TLS on loopback, with certificates from the site CA');
+      C.push('  listen: ["tcp/127.0.0.1:7447", "tls/127.0.0.1:7448"],');
     } else {
       C.push('  listen: ["tcp/127.0.0.1:7447"],');
     }
@@ -350,29 +364,29 @@
     var file = '', commands = '', note = '', status = '';
     if (image) {
       file = 'wyrm-' + V + '-' + tgt.id + '.img.gz';
-      commands = [
-        '# Raspberry Pi Imager: Choose OS ▸ Use custom ▸ ' + file,
-        '# balenaEtcher: Flash from file ▸ ' + file,
-        '# or from a shell (replace sdX with your card; check it with lsblk first):',
+      commands = planned('No image is published yet. When one is, you will flash it like this:', [
+        'Raspberry Pi Imager: Choose OS ▸ Use custom ▸ ' + file,
+        'balenaEtcher: Flash from file ▸ ' + file,
+        'or from a shell (replace sdX with your card; check it with lsblk first):',
         'gzip -dc ' + file + ' | sudo dd of=/dev/sdX bs=4M conv=fsync status=progress'
-      ].join('\n');
+      ]);
       note = 'Planned. No image is published yet: this panel shows the flow the image builder will run. The file name is not final.';
       status = 'planned';
     } else if (path === 'archive') {
       file = 'wyrmd-' + V + '-' + tgt.rel + '.tar.gz';
       var base = 'https://github.com/gencto/wyrm/releases/download/wyrmd-v' + V + '/';
-      commands = [
-        '# 1. Download the broker and its signed release document',
+      commands = planned('No wyrmd-v* release is published yet: these addresses do not exist today.\n# When a release is out, the steps will be:', [
+        '1. Download the broker and its signed release document',
         'curl -fLO ' + base + file,
         'curl -fLO ' + base + 'wyrmd-' + V + '.release.json',
-        '# compare with the sha256 of this file in the document:',
+        'compare with the sha256 of this file in the document:',
         (tgt.id === 'mac' ? 'shasum -a 256 ' : 'sha256sum ') + file,
         '',
-        '# 2. Unpack and start, beside wyrmd.json5 from this page',
+        '2. Unpack and start, beside wyrmd.json5 from this page',
         'tar xzf ' + file,
         "export WYRM_GATEWAY_ADMIN_PASSWORD='<a password>'",
         './wyrmd -c wyrmd.json5'
-      ].join('\n');
+      ]);
       note = 'Planned for the broker: no wyrmd-v* release is published yet.' +
         (pkgs.some(function (l) { return l.f.file; }) ? ' The link files are published today: their direct links below work now.' : '');
       status = 'planned';
@@ -620,6 +634,11 @@
       siteInput.value = siteInput.value.trim().toLowerCase();
     });
     state.site = siteInput.value.trim().toLowerCase() || state.site;
+  }
+  // For the test of the generated files (tool/site/test_install.js): a hook
+  // that only a test page defines.
+  if (typeof window.wyrmInstallTest === 'function') {
+    window.wyrmInstallTest({ state: state, model: model, render: render, PATHS: PATHS, TARGETS: TARGETS, PRESETS: PRESETS, LINKS: LINKS });
   }
   render();
 })();

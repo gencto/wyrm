@@ -68,6 +68,9 @@ jobs:
         run: mdbook build site
       - name: Check the site
         run: python3 tool/site/build.py --check site/dist
+      # every wyrmd.json5 the install page can write, against the broker's rules
+      - name: Test the install configurator
+        run: node tool/site/test_install.js
       - name: List the site root
         run: ls -la site/dist && du -sh site/dist
       - if: github.event_name != 'pull_request'

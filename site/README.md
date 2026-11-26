@@ -96,6 +96,15 @@ and merge to `main`.
    the docs. The links that `install.js` makes in the browser (the files of
    the links release) are outside this check.
 
+5. `node tool/site/test_install.js` runs `site/assets/install.js` against a DOM
+   stub with the data of the built page, over every path, target, mode and
+   set of links. It fails if a `wyrmd.json5` with a link process (a built-in
+   driver in process mode, a process package, or a link container) has no
+   `tls/` listener, if a config sets `insecure_plaintext`, if a key is not in
+   the test's list or is not a field of the broker's config, if a planned
+   path shows a command that could be run, or if the page opens on a planned
+   path. Node 18+, no dependencies.
+
 The theme (`site/theme/`) gives the book the look of the design: `wyrm.css`
 (colours, type, tables, code; every mdBook theme gets the same dark look and
 the theme menu is hidden), `header.hbs` (the top bar of the site), `head.hbs`
@@ -147,7 +156,8 @@ python3 tool/site/build.py --check site/dist
 python3 -m http.server 8000 --directory site/dist
 ```
 
-Open http://localhost:8000. Run the first line again after you change a source
+Run `node tool/site/test_install.js` after a change to `install.js`. Open
+http://localhost:8000. Run the first line again after you change a source
 file or a template. `mdbook serve site` shows the docs alone, without the top
 bar's fonts and without the designed pages.
 
@@ -161,5 +171,9 @@ bar's fonts and without the designed pages.
    gencto.github.io` with the proxy status **DNS only** (grey cloud), so GitHub
    can issue the certificate.
 4. When GitHub shows the domain as checked, turn on **Enforce HTTPS**.
-5. Run the workflow **site** once (Actions → site → Run workflow), or merge a
+5. In **Settings → Environments → github-pages**, keep **Deployment branches**
+   at `main` only, so no other branch can publish the site. The workflow
+   deploys only on a push to `main`; this setting holds the same rule on
+   GitHub's side.
+6. Run the workflow **site** once (Actions → site → Run workflow), or merge a
    change to the sources.
