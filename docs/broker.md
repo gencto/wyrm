@@ -61,7 +61,7 @@ A chain `plant → edge → central`: edge lists plant as its downstream (and li
 Demo with a chain of three sites and connectors:
 `examples/demo/run.sh` starts `central`, `edge` (`mock`, `mockdev`, `modbus`
 as a process link, `modbus_slave`, `http`, `snmp`, `prometheus`) and `plant`
-(`mock`, `s7`, `bacnet`, `opcua`; connected to edge), each link against its
+(`mock`, `s7`, `bacnet`, `knx`, `opcua`; connected to edge), each link against its
 simulator, each with a gateway (`:8445`, `:8444`, `:8446`, user
 `admin`, password `wyrm-demo-1`); central reads plant through edge. `wyrmd -c <cfg> ca` creates a site's CA
 and the certificates of the sites below it before they start. The app is

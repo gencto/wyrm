@@ -1379,6 +1379,7 @@ where
 /// `snmp` (SNMP v2c/v3), embedded or as `wyrmd link snmp`.
 /// `s7` embedded or as `wyrmd link s7`.
 /// `bacnet` (BACnet/IP client, `links/bacnet`) embedded or as `wyrmd link bacnet`.
+/// `knx` (KNXnet/IP client, `links/knx`) embedded or as `wyrmd link knx`.
 /// `opcua` (OPC UA client, `links/opcua`) embedded or as a process.
 /// `prometheus` (scrape connector), embedded or as `wyrmd link prometheus`.
 /// `s3`, `gdrive`, `webdav` and `localfs` (file stores, `wyrm-filestore`), embedded or as
@@ -1396,6 +1397,7 @@ impl EmbeddedHost for Drivers {
             Snmp::NAME,
             S7::NAME,
             wyrm_link_bacnet::Bacnet::NAME,
+            wyrm_link_knx::Knx::NAME,
             wyrm_link_opcua::Opcua::NAME,
             Prometheus::NAME,
             S3::NAME,
@@ -1419,6 +1421,7 @@ impl EmbeddedHost for Drivers {
             "snmp" => Tree::from_params(params).map(|_| ()),
             "s7" => Tree::from_params(params).map(|_| ()),
             "bacnet" => Tree::from_params(params).map(|_| ()),
+            "knx" => Tree::from_params(params).map(|_| ()),
             "opcua" => Tree::from_params(params).map(|_| ()),
             "prometheus" => Tree::from_params(params).map(|_| ()),
             "s3" => wyrm_filestore::store::validate::<wyrm_link_s3::S3Store>(params),
@@ -1484,6 +1487,7 @@ impl EmbeddedHost for Drivers {
                 "snmp" => start_boxed::<Snmp>(session, cfg, params).await,
                 "s7" => start_boxed::<S7>(session, cfg, params).await,
                 "bacnet" => start_boxed::<wyrm_link_bacnet::Bacnet>(session, cfg, params).await,
+                "knx" => start_boxed::<wyrm_link_knx::Knx>(session, cfg, params).await,
                 "opcua" => start_boxed::<wyrm_link_opcua::Opcua>(session, cfg, params).await,
                 "prometheus" => start_boxed::<Prometheus>(session, cfg, params).await,
                 "s3" => start_boxed::<S3>(session, cfg, params).await,
@@ -1547,6 +1551,7 @@ pub async fn run_link(driver: &str) -> Result<(), Error> {
         "snmp" => wyrm_link_sdk::process::run::<Snmp>().await?,
         "s7" => wyrm_link_sdk::process::run::<S7>().await?,
         "bacnet" => wyrm_link_sdk::process::run::<wyrm_link_bacnet::Bacnet>().await?,
+        "knx" => wyrm_link_sdk::process::run::<wyrm_link_knx::Knx>().await?,
         "opcua" => wyrm_link_sdk::process::run::<wyrm_link_opcua::Opcua>().await?,
         "prometheus" => wyrm_link_sdk::process::run::<Prometheus>().await?,
         "s3" => wyrm_link_sdk::process::run::<S3>().await?,

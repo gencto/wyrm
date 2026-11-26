@@ -3,10 +3,11 @@
 //! protocol I/O; [`Framework`] provides the tree, generated actions,
 //! validate-then-diff edits, typed states with parent→child cascade, the
 //! per-connection owner task, batched polling, read-back writes, the
-//! quality ladder, and (opt-in) driver actions, diagnostics counters,
-//! folders between a device and its points, root imports of another
-//! system's export, and server kinds (connections that serve the tree to
-//! remote clients, ADR 0024).
+//! quality ladder, and (opt-in) driver actions (on connections, devices and
+//! points), diagnostics counters, folders between a device and its points,
+//! imports of another system's export (connections at the root, a folder of
+//! points into a device), and server kinds (connections that serve the tree
+//! to remote clients, ADR 0024).
 
 pub mod branch;
 mod diag;
@@ -73,10 +74,33 @@ pub enum Level {
     Device,
 }
 
+/// The answer of a driver action that is waited for off the connection's
+/// owner task ([`Driver::invoke_later`]). It owns what it needs: it borrows
+/// neither the transport nor the plan.
+pub type Later = std::pin::Pin<Box<dyn Future<Output = Result<Value, LinkError>> + Send>>;
+
+impl<D: Driver> Clone for Target<'_, D> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<D: Driver> Copy for Target<'_, D> {}
+
 /// The node a driver action runs on ([`Driver::invoke`]).
 pub enum Target<'a, D: Driver> {
     Connection,
-    Device { id: &'a str, dev: &'a D::Dev },
+    Device {
+        id: &'a str,
+        dev: &'a D::Dev,
+    },
+    /// A point ([`Driver::point_actions`]): its device and its id on it.
+    Point {
+        device: &'a str,
+        dev: &'a D::Dev,
+        id: &'a str,
+        point: &'a D::Point,
+    },
 }
 
 /// What a root import ([`Driver::root_imports`]) built from another
@@ -94,6 +118,20 @@ pub struct Converted {
 
 /// The keys the framework adds to the reply of a root import.
 pub const REPORT_KEYS: [&str; 2] = ["created", "reenter"];
+
+/// What a device import ([`Driver::device_imports`]) built from another
+/// system's export: one folder with the folders and points below it.
+#[derive(Debug, Clone)]
+pub struct FolderImport {
+    /// The folder, imported into the device like `import` of a folder
+    /// there.
+    pub folder: branch::Node,
+    /// Replace a folder of that name (with everything in it).
+    pub overwrite: bool,
+    /// Keys of the reply beside the framework's `name` (the folder) and
+    /// `created` (the key of every new node), which win over these.
+    pub report: BTreeMap<String, Value>,
+}
 
 /// A device of a server connection as planned ([`Driver::serve`]): enabled,
 /// with a valid config, and its valid points.
@@ -205,6 +243,14 @@ pub trait Driver: Sized + Send + Sync + 'static {
         None
     }
 
+    /// A poll that cannot run for [`Driver::stale_misses`] periods in a row
+    /// (it waits behind an action or a write) makes its points
+    /// `uncertain/stale`: nothing read them meanwhile. `false` for a driver
+    /// whose poll reads nothing from the far side but what the transport's
+    /// own task received all along (an event-driven bus): a late poll of
+    /// such a driver loses nothing, it only publishes later.
+    const STALE_WHILE_WAITING: bool = true;
+
     /// Missed polls before `uncertain/stale` becomes `bad/comm_fail`; also
     /// the poll periods in a row a poll may wait to run (behind an action)
     /// before its points go `uncertain/stale`.
@@ -243,6 +289,36 @@ pub trait Driver: Sized + Send + Sync + 'static {
         Vec::new()
     }
 
+    /// A driver action whose answer comes later, from the far side through
+    /// a task of the transport's own (a telegram of a bus that the
+    /// connection listens to): start it here, on the owner task, without
+    /// waiting, and return the future that waits for the answer. The
+    /// framework awaits it on a task of its own, bounded like
+    /// [`Driver::invoke`], so the connection's polls, pings and writes go on
+    /// meanwhile. The action keeps the connection's action slot until it
+    /// answers (one driver action per connection; a `write` or `config`
+    /// one answers a `~set` `busy` as long). An error with status
+    /// `disconnected` does not reconnect here: the transport's next poll or
+    /// ping says so. `None` (the default): the action runs in
+    /// [`Driver::invoke`].
+    fn invoke_later(
+        _t: &mut Self::Transport,
+        _conn: &Self::Conn,
+        _target: Target<'_, Self>,
+        _action: &str,
+        _args: &Value,
+    ) -> Option<Later> {
+        None
+    }
+
+    /// Driver actions of a point node (a point's own "read now"): the
+    /// rules of [`Driver::actions`], and they run through
+    /// [`Driver::invoke`] with [`Target::Point`]. Never declared on the
+    /// points of a server connection. Default: none.
+    fn point_actions(_point: &Self::Point) -> Vec<(&'static str, ActionMeta)> {
+        Vec::new()
+    }
+
     /// Run a driver action on the connection's owner task, between polls
     /// (never during one). `args` passed the SDK's check against the
     /// declared params. An error with status `disconnected` means the
@@ -275,6 +351,25 @@ pub trait Driver: Sized + Send + Sync + 'static {
     /// plus `created` (the key of every new node) and `reenter`. A refusal
     /// changes nothing.
     fn convert(action: &str, _args: &Value) -> Result<Converted, LinkError> {
+        Err(LinkError::not_supported(format!("action {action}")))
+    }
+
+    /// Device actions that import another system's export as one folder
+    /// of points (an engineering tool's address list): `(name, meta)`, with
+    /// [`Driver::FOLDERS`] only. Level `config` when unset, bounded by
+    /// [`branch::ACTION_MS`] without `timeout_ms`. Names of framework
+    /// actions and `add_*` are refused.
+    fn device_imports() -> Vec<(&'static str, ActionMeta)> {
+        Vec::new()
+    }
+
+    /// Build the folder of a device import from `args` (checked against the
+    /// declared params). No I/O: it runs on the link task. The framework
+    /// imports it like `import` of a folder into the device: everything is
+    /// checked before anything changes (names, nesting, a point id once on
+    /// the device, bounds), the tree is saved, then the nodes are declared
+    /// and polled. A refusal changes nothing.
+    fn convert_folder(action: &str, _args: &Value) -> Result<FolderImport, LinkError> {
         Err(LinkError::not_supported(format!("action {action}")))
     }
 

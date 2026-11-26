@@ -1,0 +1,48 @@
+[package]
+name = "wyrm-link-knx"
+description = "WYRM KNXnet/IP client (tunnelling and routing) on the driver framework (ADR 0004)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[features]
+# In-process KNXnet/IP gateway simulator for tests and demos.
+sim = []
+bin = ["sim", "dep:clap", "tokio/rt-multi-thread", "tokio/signal"]
+# The link as a package binary (ADR 0021).
+process = ["wyrm-link-sdk/process"]
+
+[[bin]]
+name = "wyrm-knx-sim"
+required-features = ["bin"]
+
+[[bin]]
+name = "wyrm-link-knx"
+required-features = ["process"]
+
+[dependencies]
+wyrm-core.workspace = true
+wyrm-link-sdk.workspace = true
+tokio = { workspace = true, features = ["rt", "time", "macros", "sync", "net"] }
+tracing.workspace = true
+thiserror.workspace = true
+socket2.workspace = true
+clap = { workspace = true, optional = true }
+
+[dev-dependencies]
+wyrm-link-knx = { path = ".", features = ["sim"] }
+wyrm-link-sdk = { workspace = true, features = ["harness"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "test-util"] }
+
+# The package (ADR 0021): `wyr link pack`.
+[package.metadata.wyrm-link]
+name = "knx"
+description = "KNX installations over KNXnet/IP: tunnelling and routing, group addresses with datapoint types, ETS import"
+bin = "wyrm-link-knx"
+features = ["process"]
+
+[lints]
+workspace = true

@@ -50,6 +50,20 @@
       }
     },
     {
+      "id": "knx",
+      "crate": "wyrm-link-knx",
+      "title": "KNX",
+      "summary": "KNX installations over KNXnet/IP: tunnelling and routing, group addresses with datapoint types, ETS import",
+      "category": "Equipment",
+      "version": "0.1.0",
+      "wyrm_link": 1,
+      "min_broker": "0.1.0",
+      "forms": {
+        "builtin": "knx",
+        "process": "knx"
+      }
+    },
+    {
       "id": "s7",
       "crate": "wyrm-link-s7",
       "title": "Siemens S7",

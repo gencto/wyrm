@@ -29,6 +29,7 @@ Start with the root [README](../README.md): what WYRM is, a quick start with one
 |---|---|
 | [modbus.md](modbus.md) | Modbus TCP and RTU, as a master or as a slave |
 | [bacnet.md](bacnet.md) | BACnet/IP devices |
+| [knx.md](knx.md) | KNX installations over KNXnet/IP (tunnelling and routing) |
 | [opcua.md](opcua.md) | OPC UA servers |
 | [s7.md](s7.md) | Siemens S7 PLCs |
 | [snmp.md](snmp.md) | SNMP v2c and v3 agents |

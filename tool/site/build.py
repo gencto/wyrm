@@ -94,7 +94,7 @@ GUIDES = [
     "flow-blocks", "claude", "mcp", "agent",
 ]
 LINKS = [
-    "links", "modbus", "bacnet", "opcua", "s7", "snmp", "http", "prometheus",
+    "links", "modbus", "bacnet", "knx", "opcua", "s7", "snmp", "http", "prometheus",
     "filestores", "messenger", "telegram", "slack",
 ]
 OPERATIONS = ["operations", "backups"]
