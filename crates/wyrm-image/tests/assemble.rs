@@ -529,3 +529,219 @@ fn index_parses_and_refuses_another_format() {
         IndexError::NoName
     ));
 }
+
+#[test]
+fn index_names_are_plain_file_names() {
+    let refused = |text: &str| match Index::parse(text) {
+        Err(ImageError::Index(e)) => e,
+        other => panic!("not refused: {other:?}"),
+    };
+    // a file or a board that is a path: an assembler and a page join it to a directory
+    for bad in [
+        "../wyrm.img",
+        "a/wyrm.img",
+        "/wyrm.img",
+        "a\\wyrm.img",
+        "..",
+        "wyrm..img",
+    ] {
+        let text = INDEX.replace("wyrm-0.9.0-rpi4.img", &bad.replace('\\', "\\\\"));
+        assert!(
+            matches!(refused(&text), IndexError::BadName(name) if name == bad),
+            "file {bad}"
+        );
+        let text = INDEX.replace("\"rpi4\"", &format!("\"{}\"", bad.replace('\\', "\\\\")));
+        assert!(
+            matches!(refused(&text), IndexError::BadName(name) if name == bad),
+            "board {bad}"
+        );
+    }
+}
+
+#[test]
+fn index_download_is_optional_and_checked() {
+    // without it: `None`, and it is not written back
+    let index = Index::parse(INDEX).unwrap();
+    assert!(index.images.iter().all(|image| image.download.is_none()));
+    assert!(!serde_json::to_string(&index).unwrap().contains("download"));
+
+    let with = |download: &str| {
+        INDEX.replace(
+            "\"openwrt\": \"24.10.4\", \"wyrmd\": \"0.9.0\"},",
+            &format!("\"openwrt\": \"24.10.4\", \"wyrmd\": \"0.9.0\", \"download\": {download}}},"),
+        )
+    };
+    const GZ: &str = r#"{"file": "wyrm-0.9.0-rpi4.img.gz", "size": 41943040,
+        "sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae"}"#;
+    let index = Index::parse(&with(GZ)).unwrap();
+    let download = index.image("rpi4").unwrap().download.as_ref().unwrap();
+    assert_eq!(download.file, "wyrm-0.9.0-rpi4.img.gz");
+    assert_eq!(download.size, 41_943_040);
+    assert!(download.matches(41_943_040, &sha256(b"foo")));
+    assert!(!download.matches(41_943_041, &sha256(b"foo")));
+    assert!(!download.matches(41_943_040, &sha256(b"fop")));
+    assert!(index.image("bpi-r4").unwrap().download.is_none());
+    let again = Index::parse(&serde_json::to_string(&index).unwrap()).unwrap();
+    assert_eq!(again, index);
+
+    let refused = |text: &str| match Index::parse(text) {
+        Err(ImageError::Index(e)) => e,
+        other => panic!("not refused: {other:?}"),
+    };
+    assert!(matches!(
+        refused(&with(&GZ.replace("wyrm-0.9.0-rpi4.img.gz", "../x.gz"))),
+        IndexError::BadName(name) if name == "../x.gz"
+    ));
+    assert!(matches!(
+        refused(&with(&GZ.replace("wyrm-0.9.0-rpi4.img.gz", ""))),
+        IndexError::NoName
+    ));
+    assert!(matches!(
+        refused(&with(&GZ.replace("2c26b46b", "2C26B46B"))),
+        IndexError::BadHash(board) if board == "rpi4"
+    ));
+    assert!(matches!(
+        refused(&with(r#"{"file": "x.gz"}"#)),
+        IndexError::Json(_)
+    ));
+}
+
+/// xorshift64*: the same mutations at every run.
+struct Rng(u64);
+
+impl Rng {
+    fn next(&mut self) -> u64 {
+        self.0 ^= self.0 >> 12;
+        self.0 ^= self.0 << 25;
+        self.0 ^= self.0 >> 27;
+        self.0.wrapping_mul(0x2545_F491_4F6C_DD1D)
+    }
+
+    fn below(&mut self, n: usize) -> usize {
+        usize::try_from(self.next() % u64::try_from(n).unwrap()).unwrap()
+    }
+}
+
+/// Sets the header of a region to its payload of `len` bytes, so a mutation of the archive
+/// reaches the archive reader instead of ending at the SHA-256.
+fn reseal(region: &mut [u8], len: usize) {
+    let hash = sha256(&region[48..48 + len]);
+    region[8..16].copy_from_slice(&u64::try_from(len).unwrap().to_le_bytes());
+    region[16..48].copy_from_slice(&hash);
+}
+
+/// Sets the checksum of the ustar header at `at`, so a mutation of the header is read.
+fn fix_checksum(region: &mut [u8], at: usize) {
+    region[at + 148..at + 156].copy_from_slice(b"        ");
+    let sum: u32 = region[at..at + 512].iter().map(|b| u32::from(*b)).sum();
+    region[at + 148..at + 156].copy_from_slice(format!("{sum:06o}\0 ").as_bytes());
+}
+
+/// A reader never panics, whatever the bytes: every mutation of a good region is read to an
+/// answer. The answer itself is not judged here (the tests above do), except that a region
+/// that still reads holds a configuration `check` passes.
+#[test]
+fn mutations_never_panic() {
+    // 300 of each of the eight kinds
+    const ROUNDS: u32 = 2400;
+    let good = region(&all_files()).unwrap();
+    let len = payload_of(&good).len();
+    let headers: Vec<usize> = {
+        // the offsets of the ustar headers: each entry is its header and its data in blocks
+        let mut at = 48;
+        let mut out = Vec::new();
+        while good[at] != 0 {
+            out.push(at);
+            let size = std::str::from_utf8(&good[at + 124..at + 135]).unwrap();
+            let size = usize::from_str_radix(size, 8).unwrap();
+            at += 512 + size.div_ceil(512) * 512;
+        }
+        out
+    };
+    assert_eq!(headers.len(), 7);
+    let mut rng = Rng(0x9E37_79B9_7F4A_7C15);
+    let mut read = 0u32;
+    let mut refused = 0u32;
+    let mut go = |bytes: &[u8]| match read_region(bytes) {
+        Ok(Some(files)) => {
+            files.check().unwrap();
+            read += 1;
+        }
+        Ok(None) => read += 1,
+        Err(_) => refused += 1,
+    };
+    for round in 0..ROUNDS {
+        let mut bad = good.clone();
+        match round % 8 {
+            // a flipped bit of the header
+            0 => bad[rng.below(48)] ^= 1 << rng.below(8),
+            // a flipped bit anywhere in the used part
+            1 => bad[rng.below(48 + len + 64)] ^= 1 << rng.below(8),
+            // truncated input, from nothing to one byte short (and now and then too long)
+            2 => {
+                let to = match rng.below(4) {
+                    0 => rng.below(64),
+                    1 => 48 + rng.below(len),
+                    2 => size() - 1 - rng.below(16),
+                    _ => size() + 1 + rng.below(16),
+                };
+                bad.resize(to, 0);
+            }
+            // a lying length: any u64, or near the true one and the bounds
+            3 => {
+                let lie = match rng.below(4) {
+                    0 => rng.next(),
+                    1 => u64::try_from(len + rng.below(1024)).unwrap() - 512,
+                    2 => MAX_PAYLOAD - 8 + u64::try_from(rng.below(16)).unwrap(),
+                    _ => u64::MAX - u64::try_from(rng.below(64)).unwrap(),
+                };
+                bad[8..16].copy_from_slice(&lie.to_le_bytes());
+            }
+            // a lying length with a hash that fits it: the archive reader gets a cut archive
+            4 => {
+                let lie = rng.below(len + 2048);
+                reseal(&mut bad, lie);
+            }
+            // a damaged tar size field under a right checksum and a right hash
+            5 => {
+                let at = headers[rng.below(headers.len())];
+                let mut random = [0u8; 12];
+                random[..8].copy_from_slice(&rng.next().to_le_bytes());
+                random[8..].copy_from_slice(&rng.next().to_le_bytes()[..4]);
+                let field: &[u8; 12] = match rng.below(6) {
+                    0 => b"77777777777\0",
+                    1 => b"00000000000\0",
+                    2 => b"\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff",
+                    3 => b"\x80\0\0\0\x7f\xff\xff\xff\xff\xff\xff\xff",
+                    4 => b"           \0",
+                    _ => &random,
+                };
+                bad[at + 124..at + 136].copy_from_slice(field);
+                fix_checksum(&mut bad, at);
+                reseal(&mut bad, len);
+            }
+            // any byte of a tar header under a right checksum and a right hash
+            6 => {
+                let at = headers[rng.below(headers.len())];
+                let byte = u8::try_from(rng.below(256)).unwrap();
+                bad[at + rng.below(512)] = byte;
+                fix_checksum(&mut bad, at);
+                reseal(&mut bad, len);
+            }
+            // a run of random bytes in the archive under a right hash
+            _ => {
+                let from = 48 + rng.below(len);
+                let run = rng.below(700).min(48 + len - from);
+                for b in &mut bad[from..from + run] {
+                    *b = u8::try_from(rng.below(256)).unwrap();
+                }
+                reseal(&mut bad, len);
+            }
+        }
+        go(&bad);
+    }
+    // both happen: the mutations reach the reader behind the hash, and most are refused
+    assert_eq!(read + refused, ROUNDS);
+    assert!(refused > ROUNDS / 2, "{refused} refused");
+    assert!(read > 0, "{read} read");
+}

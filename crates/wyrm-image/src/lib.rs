@@ -32,7 +32,7 @@ mod index;
 mod region;
 mod tar;
 
-pub use index::{ImageEntry, Index, IndexError, FORMAT};
+pub use index::{Download, ImageEntry, Index, IndexError, FORMAT};
 pub use region::{
     check_slot, read_region, region, ConfigFiles, CONFIG_SIZE, HEADER_SIZE, MAGIC_EMPTY,
     MAGIC_FULL, MAX_PAYLOAD,

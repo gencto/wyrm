@@ -30,6 +30,30 @@ pub struct ImageEntry {
     pub openwrt: String,
     /// The version of `wyrmd` in the image.
     pub wyrmd: String,
+    /// The compressed file a page or a person downloads, when the image is published
+    /// compressed. `file`, `size` and `sha256` above stay those of the raw image.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub download: Option<Download>,
+}
+
+/// The compressed form of a base image, as it is published beside the index (gzip). Its size
+/// and SHA-256 are those of the compressed file: a download is checked against them before
+/// it is unpacked, and the unpacked bytes against the entry.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Download {
+    /// The file name beside the index.
+    pub file: String,
+    /// The size of the compressed file, in bytes.
+    pub size: u64,
+    /// The SHA-256 of the compressed file, 64 lower-case hex digits.
+    pub sha256: String,
+}
+
+impl Download {
+    /// A downloaded file of this size and SHA-256 is the one of this entry.
+    pub fn matches(&self, size: u64, sha256: &[u8; 32]) -> bool {
+        size == self.size && hex::encode(sha256) == self.sha256
+    }
 }
 
 impl ImageEntry {
@@ -61,15 +85,30 @@ pub enum IndexError {
     /// An entry without a board or without a file.
     #[error("an entry without a board or without a file")]
     NoName,
+    /// A board or a file whose name is not a plain file name (the text is the name): it holds
+    /// `/`, `\` or `..`. A reader joins these names to a directory or a URL.
+    #[error("`{0}` is no plain name: a board and a file are named without `/`, `\\` and `..`")]
+    BadName(String),
     /// Two entries for this board.
     #[error("board `{0}` is there twice")]
     Twice(String),
-    /// The SHA-256 of this board's image is not 64 lower-case hex digits.
-    #[error("board `{0}`: the SHA-256 is not 64 lower-case hex digits")]
+    /// A SHA-256 of this board's image (raw or compressed) is not 64 lower-case hex digits.
+    #[error("board `{0}`: a SHA-256 is not 64 lower-case hex digits")]
     BadHash(String),
     /// The config region of this board's image does not lie inside the image.
     #[error("board `{0}`: the config region does not lie inside the image")]
     Outside(String),
+}
+
+/// A name a reader may join to a directory or a URL: not empty, no separator, no `..`.
+fn plain_name(name: &str) -> Result<(), IndexError> {
+    if name.is_empty() {
+        return Err(IndexError::NoName);
+    }
+    if name.contains(['/', '\\']) || name.contains("..") {
+        return Err(IndexError::BadName(name.to_owned()));
+    }
+    Ok(())
 }
 
 impl Index {
@@ -82,20 +121,33 @@ impl Index {
     }
 
     /// Checks the index: its format, one entry per board, each with a name, a file, a SHA-256
-    /// and a config region of [`CONFIG_SIZE`] bytes inside the image.
+    /// and a config region of [`CONFIG_SIZE`] bytes inside the image. A board, a file and the
+    /// file of a `download` are plain names: not empty, without `/`, `\` and `..`. A
+    /// `download` has a SHA-256 too.
     pub fn check(&self) -> Result<(), ImageError> {
         if self.format != FORMAT {
             return Err(IndexError::Format(self.format.clone()).into());
         }
         for (i, image) in self.images.iter().enumerate() {
             let board = || image.board.clone();
-            if image.board.is_empty() || image.file.is_empty() {
-                return Err(IndexError::NoName.into());
+            let download = image.download.as_ref();
+            let names = [
+                Some(&image.board),
+                Some(&image.file),
+                download.map(|d| &d.file),
+            ];
+            for name in names.into_iter().flatten() {
+                plain_name(name)?;
             }
             if self.images.iter().take(i).any(|e| e.board == image.board) {
                 return Err(IndexError::Twice(board()).into());
             }
-            if !hex::is_lower_hex(&image.sha256, 32) {
+            let hashes = [Some(&image.sha256), download.map(|d| &d.sha256)];
+            if !hashes
+                .into_iter()
+                .flatten()
+                .all(|h| hex::is_lower_hex(h, 32))
+            {
                 return Err(IndexError::BadHash(board()).into());
             }
             let inside = image
