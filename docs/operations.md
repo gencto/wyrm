@@ -467,6 +467,36 @@ size in bytes. No content is shown, of `setup` and `authorized_keys` least
 of all. A file of another size than the index says, or with no region at
 the offset, is refused.
 
+#### On the device (OpenWrt)
+
+The image runs the broker as the procd service `wyrmd` (`logread -e wyrm`,
+`/etc/init.d/wyrmd restart`). `packaging/openwrt/README.md` describes the
+package; what an operator meets:
+
+- **First boot.** Before the network starts, the device reads the config
+  region, checks it (magic, length, SHA-256, the file names, each file),
+  puts the files in place and wipes the region. A region that is damaged
+  or holds anything else is refused as a whole and nothing is applied; the
+  console and the log say why. A power loss during the first boot is
+  harmless: the next boot applies the region again.
+- **An image without a configuration** (a base image written to the card
+  as it is) starts the broker with site `unconfigured`, on loopback only
+  and with no way to make an admin. The console says so and names `wyr
+  image build`. Assemble an image and write the card again.
+- **What your `wyrmd.json5` must say** on a board: `data_dir: "/srv/wyrm"`
+  (the data partition), `gateway: { listen: "0.0.0.0:8445", tls:
+  "site_ca", setup_file: "/etc/wyrm/setup" }` for a setup code, and
+  `packages: { seed_dir: "/usr/share/wyrm/seed" }` with `--seed`.
+- **The device is a plain host**: a DHCP client, no DHCP server, the
+  firewall closed except 8445/tcp (gateway), 7448/tcp+udp (peers and TLS
+  listeners) and mDNS. Another port needs a firewall rule on the device.
+  A `--network` file replaces `/etc/config/network`; keep the interface
+  names `lan`, `wan`, `wan6`.
+- **No login** without `--authorized-keys`: SSH is off and `root` has no
+  password. With keys, SSH takes those keys only.
+- **Time.** The first start waits up to 120 s for NTP before the broker
+  makes the site's CA, then goes on with the clock as it is.
+
 ### Recovery time
 
 The recovery time (RTO) of a restart is the sum of:

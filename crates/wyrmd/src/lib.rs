@@ -3038,6 +3038,27 @@ async fn wait_addr_free(addr: &str, deadline: std::time::Instant) -> bool {
 mod tests {
     use super::*;
 
+    /// ADR 0051, review focus 3: the configuration a board image runs with while its
+    /// config region is empty (`packaging/openwrt`) is one this broker takes, and it
+    /// is safe by what it leaves out: nothing listens beyond loopback and no first
+    /// admin can be made from the network.
+    #[test]
+    fn the_openwrt_default_listens_on_loopback_and_has_no_setup() {
+        let cfg = Config::from_json5(include_str!(
+            "../../../packaging/openwrt/wyrmd/files/etc/wyrm/wyrmd.json5"
+        ))
+        .unwrap();
+        assert_eq!(cfg.site, "unconfigured");
+        assert_eq!(cfg.data_dir, PathBuf::from("/srv/wyrm"));
+        assert_eq!(cfg.listen, ["tcp/127.0.0.1:7447"]);
+        assert!(cfg.connect.is_empty() && cfg.rest.is_none() && !cfg.insecure_plaintext);
+        assert!(cfg.peers.listen.is_none() && cfg.peers.enroll.is_none());
+        let gateway = cfg.gateway.unwrap();
+        assert!(gateway.listen.ip().is_loopback());
+        assert!(gateway.setup_file.is_none() && gateway.mcp.is_none());
+        assert_eq!(cfg.updates.mode, wyrm_admin::UpdateMode::Off);
+    }
+
     /// What `main` prints for an error it returns: the runtime writes
     /// `Error: {e:?}` to stderr.
     fn start_line(e: &Error) -> String {

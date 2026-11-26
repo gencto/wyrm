@@ -1,0 +1,384 @@
+#!/bin/sh
+# The first boot of a WYRM board image (ADR 0051 §4, "On the device").
+#
+# Reads the config region of the image, checks it, puts its files in place and wipes it.
+# The region is what the crate `wyrm-image` writes (`wyr image build`):
+#
+#   offset  size  content
+#        0     8  magic: "WYRMCFG1" (a configuration) or "WYRMCFG0" (empty)
+#        8     8  payload length, u64 little-endian
+#       16    32  SHA-256 of the payload
+#       48     n  payload: a ustar archive of regular files
+#     48+n     …  zeros, to 4 MiB
+#
+# usage: first-boot.sh                                  on the device
+#        first-boot.sh <config_dev> <stage_dir> <etc_dir>   (tests)
+#
+# Without arguments the region is the device `config_dev` of /etc/wyrm/image.json, the
+# staging directory is /tmp/wyrm-first-boot (RAM) and the files go below /etc.
+#
+# Exit codes:
+#   0  applied: every file is in place, the region is wiped, the marker is written
+#   3  the region is empty: nothing to do, nothing changed (but the marker, when a
+#      first boot lost power between its wipe and its marker)
+#   4  refused: the region is damaged or holds what is not allowed; nothing was applied
+#   5  not finished: a file could not be put or the region could not be wiped; the region
+#      is kept and the next boot applies it again
+#
+# Applying is safe to repeat. A file is written beside its place and renamed over it, and
+# the region is wiped only when every file is in place, so a power loss at any moment
+# leaves a region that the next boot applies as a whole. Nothing of the archive is
+# trusted: names are checked before it is unpacked, it is unpacked only into the staging
+# directory, links are refused, and every file is copied into a new file with the mode
+# this script gives it.
+#
+# Environment (tests): WYRM_UCI (the `uci` to call), WYRM_SEED_DIR, WYRM_ZONEINFO,
+# WYRM_IMAGE_JSON.
+
+set -u
+umask 077
+LC_ALL=C
+export LC_ALL
+
+REGION_SIZE=4194304
+HEADER_SIZE=48
+MAX_PAYLOAD=$((REGION_SIZE - HEADER_SIZE))
+MAGIC_FULL=5759524d43464731  # WYRMCFG1
+MAGIC_EMPTY=5759524d43464730 # WYRMCFG0
+NAMES="wyrmd.json5 network seed.json setup authorized_keys timezone ntp"
+DOCS=https://wyrm.gencto.uk/docs/operations.html
+
+UCI=${WYRM_UCI:-uci}
+SEED_DIR=${WYRM_SEED_DIR:-/usr/share/wyrm/seed}
+ZONEINFO=${WYRM_ZONEINFO:-/usr/share/zoneinfo}
+IMAGE_JSON=${WYRM_IMAGE_JSON:-/etc/wyrm/image.json}
+
+say() { echo "wyrm first boot: $*" >&2; }
+
+stage=
+cleanup() {
+    if [ -n "$stage" ]; then
+        rm -rf "$stage"
+    fi
+}
+refuse() {
+    say "$*"
+    say "nothing was applied"
+    cleanup
+    exit 4
+}
+unfinished() {
+    say "$*"
+    say "the config region is kept: the next boot applies it again"
+    cleanup
+    exit 5
+}
+
+case $# in
+0)
+    dev=$(jsonfilter -i "$IMAGE_JSON" -e '@.config_dev' 2> /dev/null) || dev=
+    stage_dir=/tmp/wyrm-first-boot
+    etc=/etc
+    [ -n "$dev" ] || refuse "$IMAGE_JSON names no config_dev"
+    ;;
+3)
+    dev=$1
+    stage_dir=$2
+    etc=$3
+    ;;
+*)
+    echo "usage: first-boot.sh [<config_dev> <stage_dir> <etc_dir>]" >&2
+    exit 2
+    ;;
+esac
+case $stage_dir in
+'' | /) refuse "no staging directory" ;;
+esac
+marker=$etc/wyrm/.first-boot-done
+# written when every file is in place, before the wipe: an empty region beside it is a
+# first boot that lost power between the wipe and the marker, not an image without a
+# configuration
+applied=$etc/wyrm/.first-boot-applied
+
+# range OFFSET LENGTH: these bytes of the region, to stdout. busybox `dd` counts in
+# blocks, so the part before a 4096-byte boundary and the part after the last whole
+# block are read byte by byte and the rest in blocks.
+range() {
+    r_off=$1
+    r_len=$2
+    r_head=$(((4096 - r_off % 4096) % 4096))
+    if [ "$r_head" -gt "$r_len" ]; then
+        r_head=$r_len
+    fi
+    if [ "$r_head" -gt 0 ]; then
+        dd if="$dev" bs=1 skip="$r_off" count="$r_head" 2> /dev/null
+    fi
+    r_off=$((r_off + r_head))
+    r_len=$((r_len - r_head))
+    r_blocks=$((r_len / 4096))
+    if [ "$r_blocks" -gt 0 ]; then
+        dd if="$dev" bs=4096 skip=$((r_off / 4096)) count="$r_blocks" 2> /dev/null
+    fi
+    r_off=$((r_off + r_blocks * 4096))
+    r_len=$((r_len - r_blocks * 4096))
+    if [ "$r_len" -gt 0 ]; then
+        dd if="$dev" bs=1 skip="$r_off" count="$r_len" 2> /dev/null
+    fi
+}
+hex() { hexdump -v -e '1/1 "%02x"'; }
+count() { wc -c | tr -d ' '; }
+size_of() { wc -c < "$1" | tr -d ' '; }
+# what is shown of a name the archive gave
+shown() { printf '%s' "$1" | tr -c 'A-Za-z0-9._/-' '?'; }
+no_nul() { [ "$(tr -d '\000' < "$1" | count)" -eq "$(size_of "$1")" ]; }
+
+# ---- 1. the region --------------------------------------------------------------------
+
+if [ ! -b "$dev" ] && [ ! -f "$dev" ]; then
+    refuse "no config region: $dev is no device"
+fi
+magic=$(range 0 8 | hex)
+if [ "$magic" = "$MAGIC_EMPTY" ]; then
+    # told by the magic alone: the rest of an empty region is not read
+    if [ -e "$applied" ]; then
+        if [ ! -e "$marker" ]; then
+            : > "$marker"
+            sync
+        fi
+        say "the config region is empty: its configuration was applied before"
+        exit 3
+    fi
+    say "the config region is empty: this image carries no configuration."
+    say "The broker runs with the image's default: site \`unconfigured\`, nothing"
+    say "listens beyond this device and no admin can be made."
+    say "Write a configuration into the base image and write the card again:"
+    say "  wyr image build --image <base image> --index index.json --board <board> \\"
+    say "      --config wyrmd.json5 --new-setup-code --out <image>"
+    say "Guide: $DOCS (\"Board images\")"
+    exit 3
+fi
+if [ "$magic" != "$MAGIC_FULL" ]; then
+    refuse "no config region at $dev: neither WYRMCFG1 nor WYRMCFG0"
+fi
+
+# the length: eight bytes, the lowest first; a payload fits three of them
+set -f
+# shellcheck disable=SC2046 # eight numbers, split on purpose
+set -- $(range 8 8 | hexdump -v -e '1/1 "%u "')
+if [ $# -ne 8 ] || [ "$(($4 + $5 + $6 + $7 + $8))" -ne 0 ]; then
+    refuse "the config region is damaged: its length does not fit the region"
+fi
+len=$(($1 + $2 * 256 + $3 * 65536))
+if [ "$len" -gt "$MAX_PAYLOAD" ]; then
+    refuse "the config region is damaged: its length does not fit the region"
+fi
+want_sum=$(range 16 32 | hex)
+
+rm -rf "$stage_dir"
+# a new directory of this run: `mkdir` fails when something is at the name again
+mkdir -p "$(dirname "$stage_dir")" || refuse "cannot make $stage_dir"
+mkdir "$stage_dir" || refuse "cannot make $stage_dir"
+stage=$stage_dir
+chmod 700 "$stage"
+files=$stage/files
+mkdir "$files"
+
+range "$HEADER_SIZE" "$len" > "$stage/payload.tar"
+if [ "$(size_of "$stage/payload.tar")" -ne "$len" ]; then
+    refuse "the config region cannot be read from $dev"
+fi
+sum=$(sha256sum < "$stage/payload.tar" | cut -d' ' -f1)
+if [ "$sum" != "$want_sum" ]; then
+    refuse "the config region is damaged: the SHA-256 of its payload does not match"
+fi
+rest=$((REGION_SIZE - HEADER_SIZE - len))
+if [ "$(range $((HEADER_SIZE + len)) "$rest" | tr -d '\000' | count)" -ne 0 ]; then
+    refuse "the config region is damaged: bytes after its payload"
+fi
+
+# ---- 2. the archive -------------------------------------------------------------------
+
+# names first: nothing is unpacked from an archive with a name outside the list
+list=$(tar -tf "$stage/payload.tar" 2> /dev/null) || refuse "the config archive cannot be read"
+seen=" "
+old_ifs=$IFS
+IFS='
+'
+for name in $list; do
+    case " $NAMES " in
+    *" $name "*) ;;
+    *) refuse "the config archive holds \`$(shown "$name")\`: only $NAMES are taken" ;;
+    esac
+    case $seen in
+    *" $name "*) refuse "the config archive holds \`$name\` twice" ;;
+    esac
+    seen="$seen$name "
+done
+IFS=$old_ifs
+case $seen in
+*" wyrmd.json5 "*) ;;
+*) refuse "the config archive holds no wyrmd.json5" ;;
+esac
+
+tar -xf "$stage/payload.tar" -C "$files" 2> /dev/null || refuse "the config archive cannot be unpacked"
+rm -f "$stage/payload.tar"
+
+# every listed name is now a regular file of its own: no symbolic link, no hard link
+for name in $seen; do
+    f=$files/$name
+    if [ -L "$f" ] || [ ! -f "$f" ]; then
+        refuse "\`$name\` of the config archive is no regular file"
+    fi
+    # shellcheck disable=SC2012,SC2046 # the link count is the second field of `ls -ln`
+    set -- $(ls -ln "$f")
+    if [ "$2" != 1 ]; then
+        refuse "\`$name\` of the config archive is a link"
+    fi
+    no_nul "$f" || refuse "\`$name\` of the config archive is not text"
+done
+has() {
+    case $seen in
+    *" $1 "*) return 0 ;;
+    esac
+    return 1
+}
+
+[ -s "$files/wyrmd.json5" ] || refuse "wyrmd.json5 of the config archive is empty"
+
+if has setup; then
+    # 64 hex digits and at most one newline
+    size=$(size_of "$files/setup")
+    hash=
+    IFS= read -r hash < "$files/setup" || [ -n "$hash" ] || true
+    if [ "$size" -ne 64 ] && [ "$size" -ne 65 ] || [ "${#hash}" -ne 64 ]; then
+        refuse "\`setup\` is not the SHA-256 of a setup code (64 hex digits)"
+    fi
+    case $hash in
+    *[!0-9a-fA-F]*) refuse "\`setup\` is not the SHA-256 of a setup code (64 hex digits)" ;;
+    esac
+fi
+
+if has network; then
+    $UCI -q -c "$files" show network > /dev/null 2>&1 ||
+        refuse "\`network\` of the config archive is no UCI file"
+fi
+
+tz=
+if has timezone; then
+    IFS= read -r tz < "$files/timezone" || [ -n "$tz" ] || true
+    size=$(size_of "$files/timezone")
+    if [ "$size" -ne "${#tz}" ] && [ "$size" -ne $((${#tz} + 1)) ]; then
+        refuse "\`timezone\` is not one IANA name"
+    fi
+    case $tz in
+    '' | /* | *..* | *[!A-Za-z0-9_+/-]*) refuse "\`timezone\` is not one IANA name" ;;
+    esac
+fi
+
+ntp=
+if has ntp; then
+    while IFS= read -r server || [ -n "$server" ]; do
+        case $server in
+        '' | -* | *[!A-Za-z0-9.:_-]*) refuse "\`ntp\` holds a line that is no host name or address" ;;
+        esac
+        ntp="$ntp $server"
+    done < "$files/ntp"
+    # shellcheck disable=SC2086 # the servers, split on purpose
+    set -- $ntp
+    [ $# -le 16 ] || refuse "\`ntp\` holds more than 16 servers"
+fi
+
+# ---- 3. apply -------------------------------------------------------------------------
+
+# put NAME PLACE MODE: a new file beside the place, then one rename over it
+put() {
+    p_dir=${2%/*}
+    mkdir -p "$p_dir" || return 1
+    rm -f "$2.wyrm-new"
+    cat "$files/$1" > "$2.wyrm-new" && chmod "$3" "$2.wyrm-new" && mv -f "$2.wyrm-new" "$2"
+}
+warned=0
+uci_do() {
+    if ! $UCI -q "$@"; then
+        say "warning: uci $* failed"
+        warned=1
+    fi
+}
+
+# the broker's configuration goes last: until every other file is in place, a boot
+# that cannot read the region again still finds the image's safe default
+if has setup; then
+    put setup "$etc/wyrm/setup" 600 || unfinished "cannot write $etc/wyrm/setup"
+fi
+if has seed.json; then
+    put seed.json "$SEED_DIR/seed.json" 644 || unfinished "cannot write $SEED_DIR/seed.json"
+fi
+if has network; then
+    put network "$etc/config/network" 600 || unfinished "cannot write $etc/config/network"
+fi
+if has authorized_keys && [ -s "$files/authorized_keys" ]; then
+    # SSH is on only with keys, and then for keys only
+    put authorized_keys "$etc/dropbear/authorized_keys" 600 ||
+        unfinished "cannot write $etc/dropbear/authorized_keys"
+    uci_do set "dropbear.@dropbear[0].enable=1"
+    uci_do set "dropbear.@dropbear[0].PasswordAuth=off"
+    uci_do set "dropbear.@dropbear[0].RootPasswordAuth=off"
+    uci_do commit dropbear
+    uci_do set firewall.wyrm_ssh.enabled=1
+    uci_do commit firewall
+fi
+if [ -n "$tz" ]; then
+    # OpenWrt wants the POSIX rule of the zone: it is the last line of the zone's file
+    posix=
+    if [ -f "$ZONEINFO/$tz" ]; then
+        posix=$(tail -n 1 "$ZONEINFO/$tz" | tr -d '\000')
+    fi
+    case $posix in
+    '' | *[!A-Za-z0-9\<\>+,./:-]*)
+        say "warning: this image has no data for the time zone $tz: the clock stays UTC"
+        tz=
+        ;;
+    esac
+fi
+if [ -n "$tz" ]; then
+    uci_do set "system.@system[0].zonename=$tz"
+    uci_do set "system.@system[0].timezone=$posix"
+fi
+if [ -n "$ntp" ]; then
+    $UCI -q delete system.ntp.server > /dev/null 2>&1 || true
+    for server in $ntp; do
+        uci_do add_list "system.ntp.server=$server"
+    done
+    uci_do set system.ntp.enabled=1
+fi
+if [ -n "$tz$ntp" ]; then
+    uci_do commit system
+fi
+put wyrmd.json5 "$etc/wyrm/wyrmd.json5" 640 || unfinished "cannot write $etc/wyrm/wyrmd.json5"
+: > "$applied" || unfinished "cannot write $applied"
+sync
+
+# ---- 4. wipe --------------------------------------------------------------------------
+
+# One write over the whole region: the empty magic and zeros. The setup hash is then
+# on the medium only in /etc/wyrm/setup, which the broker removes when it has taken it.
+{
+    printf 'WYRMCFG0'
+    dd if=/dev/zero bs=$((4096 - 8)) count=1 2> /dev/null
+    dd if=/dev/zero bs=4096 count=$((REGION_SIZE / 4096 - 1)) 2> /dev/null
+} | dd of="$dev" bs=4096 conv=notrunc 2> /dev/null
+sync
+if [ "$(range 0 8 | hex)" != "$MAGIC_EMPTY" ] ||
+    [ "$(range 8 $((REGION_SIZE - 8)) | tr -d '\000' | count)" -ne 0 ]; then
+    unfinished "the configuration is applied, but the config region at $dev could not be wiped"
+fi
+
+: > "$marker"
+sync
+cleanup
+if [ "$warned" -ne 0 ]; then
+    say "the configuration is applied, with the warnings above"
+else
+    say "the configuration is applied"
+fi
+exit 0

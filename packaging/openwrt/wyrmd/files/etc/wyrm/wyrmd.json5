@@ -1,0 +1,14 @@
+// The default of a WYRM board image (ADR 0051): what the broker runs with while the
+// image carries no configuration. The first boot replaces this file with the
+// `wyrmd.json5` of the config region (`wyr image build --config`).
+//
+// It is safe by what it leaves out. Nothing listens beyond this device, there is no
+// `gateway.setup_file` and no admin password, so nobody can make the first admin.
+// To set the device up, write a configuration into the base image and write the
+// card again: https://wyrm.gencto.uk/docs/operations.html ("Board images").
+{
+  site: "unconfigured",
+  data_dir: "/srv/wyrm",
+  listen: ["tcp/127.0.0.1:7447"],
+  gateway: { listen: "127.0.0.1:8445" },
+}
