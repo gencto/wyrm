@@ -1058,8 +1058,17 @@ Not done:
   time it parks, not once per sample;
 - the reader still takes the lock once per event (taking several was
   measured in #156 with no gain, and it moves the start of overflow mode);
-- `subscribe("wy/**")` still gets no event in 15 s in `perf_b_wildcard`
-  (`got=false`, as in the first figures): not looked at here;
+- `subscribe("wy/**")` gets no event in 15 s in `perf_b_wildcard`
+  (`got=false`, as in the first figures). Read, not run: it is the
+  broker's ACL, as meant. A requester may declare and query inside
+  `wy/<site>/**` of its own and its reachable sites (`requester-in`), the
+  default is deny, and Zenoh allows a declaration or a query only when a
+  rule's key includes the whole expression: `wy/**/~val` reaches outside
+  every rule, so the router drops both. What is open is the silence: the
+  client's `subscribe` returns a stream that never gives an event or an
+  error (the router ends a denied read at once with no reply, like a read
+  of nothing stored, and a denied declaration is told to nobody), and the
+  scenario prints a figure for a pattern that can never answer. For an issue of its own; nothing changed here;
 - a quiet machine and the reference board.
 
 **Done (2026-11-20, `perf/ptok-verify`): one signature check per token
