@@ -71,11 +71,14 @@ and merge to `main`.
    - the guides `docs/*.md` at the top of the book (`docs/modbus.md` is
      `/docs/modbus.html`), the ADRs under `adr/`, the spec `spec/*.md` and
      `spec/CHANGELOG.md` under `spec/` (a `README.md` becomes `index.md`);
-   - `SUMMARY.md` with the sections Start, Guides, Links (connectors),
-     Operations, Architecture decisions and Specification;
+   - the figures `docs/img/*` under `img/`;
+   - `SUMMARY.md` with the numbered sections (below);
    - the docs landing page `index.md`: the first paragraph and the status of
-     the README, the official links from `links/official.json`, the latest ADRs
-     and the latest entries of `spec/CHANGELOG.md`.
+     the README, the sections with their pages, the official links from
+     `links/official.json`, the latest ADRs and the latest entries of
+     `spec/CHANGELOG.md`;
+   - what the design's pages have and plain Markdown lacks (below): the
+     section number above each title, figures with captions, "More:" rows.
    The same run writes the rest of the site into `site/dist/` (git-ignored):
    the designed pages, `site/assets/` as `/assets/`, the files of
    `site/static/` (`CNAME`) and a redirect stub at each address a page had
@@ -105,11 +108,108 @@ and merge to `main`.
    path shows a command that could be run, or if the page opens on a planned
    path. Node 18+, no dependencies.
 
-The theme (`site/theme/`) gives the book the look of the design: `wyrm.css`
-(colours, type, tables, code; every mdBook theme gets the same dark look and
-the theme menu is hidden), `header.hbs` (the top bar of the site), `head.hbs`
-(the shared fonts) and `fonts/fonts.css` (takes the place of mdBook's own
-fonts). There is no `index.hbs` override, so an mdBook upgrade needs no merge.
+### Sections
+
+The book has nine numbered sections. The side menu shows the number before the
+name (`03 Links`) and each page shows it above its title.
+
+| | Section | Pages |
+|---|---|---|
+| 01 | Overview | the root `README.md`, `docs/README.md` (the documentation map) |
+| 02 | Architecture | the broker and the services every `wyrmd` has inside: `broker`, `history`, `scheduler`, `alarm`, `dql`, `uplink` |
+| 03 | Links | `links` and one guide per protocol or service: `modbus`, `bacnet`, `knx`, `opcua`, `s7`, `snmp`, `http`, `prometheus`, `filestores`, `messenger`, `telegram`, `slack` |
+| 04 | Dataflow | `flow-blocks` |
+| 05 | Studio and assistants | a reading list (below), `claude`, `mcp`, `agent` |
+| 06 | Security | a reading list (below) |
+| 07 | Operations | `operations`, `backups` |
+| 08 | Specification | `spec/README.md`, the spec parts, `spec/CHANGELOG.md` |
+| 09 | Decisions | the page of all decisions, and the ADRs folded under it |
+
+The list is `SECTION_GUIDES` in the generator. A new `docs/*.md` that no
+section lists goes to Architecture, and the generator prints a warning: add it
+to a section.
+
+Studio and Security have no guide in `docs/` that is on the site
+(`docs/studio.md` and `docs/security/` are left out, see below). Each opens
+with a reading list the generator writes (`TOPICS`: `/docs/topics/studio.html`,
+`/docs/topics/security.html`): one paragraph, the decisions on the subject and
+the pages to read with them. The paragraph says only what the README and the
+listed pages say. An ADR that is left out of the site is left out of the list.
+
+### What the generator adds to a page
+
+The sources stay plain Markdown that GitHub renders. The copy in the book gets:
+
+- **The section number**, a line above the title (`03 LINKS`). The first
+  paragraph under the title of a guide is set as its lead; under the title of
+  an ADR it is the status line.
+- **"More:" rows.** At the end of the intro and of each `##` section of a
+  guide, one row links the ADRs and spec parts that the section names: by a
+  link, or as `ADR 0004`, `spec 01`, `spec/01`. An ADR or a spec part gets one
+  row at its end. A row has at most eight links, in the order the text names
+  them. A name inside a code block or a code span does not count.
+- **Figures.** A paragraph that is one image, with a paragraph in italics
+  right under it, becomes a figure with that caption:
+
+  ```markdown
+  ![What the picture shows, for a reader who cannot see it](img/key-anatomy.svg)
+
+  *The caption. One or two sentences.*
+  ```
+
+### Figures
+
+The figures are SVG files in `docs/img/`, written by hand: plain shapes and
+text, no script, no font file, nothing from another host. Each one draws its
+own dark panel (`#161A1D`, a 12 px corner), so the same file reads on the site
+and on GitHub's light and dark themes. Reference one with a standard Markdown
+image, relative to the page (`img/x.svg` from `docs/x.md`, `../img/x.svg` from
+an ADR, `docs/img/x.svg` from the root README).
+
+A figure states facts. Before you add or change one, check every label against
+`spec/` and the guide it sits in, and leave out what you cannot check. The
+colours and sizes: boxes `#0E1113` with a `#3A4249` edge and a 10 px corner,
+the one box that matters with an `#E8893A` edge, labels 13 px in the system
+sans or mono stack, arrows `#8E979C` 2 px.
+
+The Mermaid chart of the root README became `docs/img/overview.svg`: mdBook
+does not draw Mermaid, and a script for it would be one more thing to load.
+
+### The docs theme
+
+The theme (`site/theme/`) gives the book the look of the design:
+
+- `wyrm.css`: colours, type, the frame (the sections as a card beside the
+  text, a drawer below 1080 px), tables, code, figures, the page links. Every
+  mdBook theme gets the same dark look and the theme menu is hidden.
+- `header.hbs`: the top bar of the site. `head.hbs`: the shared fonts.
+  `fonts/fonts.css` takes the place of mdBook's own fonts.
+- `index.hbs`: the page template, a copy of mdBook 0.5.4's with a few changes,
+  each marked `WYRM:` in a comment: the top bar above the menu and the text, a
+  real `<button>` for the menu (mdBook has a `<label>`), a skip link, the two
+  page links with titles, `defer` on the scripts, and one script at the end
+  (the button, the drawer, the fold arrows as buttons, the scroll position).
+
+`book.toml` folds the decisions under "All decisions" (`fold`), and turns the
+Rust playground off: with it, mdBook's script asks `play.rust-lang.org` for a
+list on every page that shows Rust code.
+
+**To refresh `index.hbs` for another mdBook version:**
+
+1. Make a scratch book with the new version: `mdbook init --theme /tmp/book`.
+2. Compare `/tmp/book/theme/index.hbs` with the one of the version named at
+   the top of `site/theme/index.hbs` (`git diff --no-index`, or the mdBook
+   repository's history of `crates/mdbook-html/front-end/templates/index.hbs`).
+3. Apply what changed to `site/theme/index.hbs`. Keep each block marked
+   `WYRM:`. Change the version named at the top.
+4. Change `MDBOOK_VERSION` and `MDBOOK_SHA256` in
+   `.github/workflows/site.yml`.
+5. Build, run `--check`, and try the menu button, the drawer on a narrow
+   window, the search (`/`) and the arrow keys.
+
+mdBook's own script (`book.js`) is not replaced. One line of it registers an
+`unload` handler, which the browser reports in the console as a permissions
+policy violation; that message is mdBook's.
 
 The workflow `.github/workflows/site.yml` runs these steps on each pull request
 that touches the sources (build and check only) and on each push to `main`
@@ -121,9 +221,8 @@ and ADR 0031 (security weaknesses stay private), `docs/backlog.md` (work list),
 `docs/studio.md` (the Studio build plan) and `docs/rust-rules.md` (contributor
 rules). An ADR whose main content is a list of open security weaknesses is left
 out the same way. The list is `EXCLUDED_FILES` and
-`EXCLUDED_DIRS` in the generator. A new `docs/*.md` that no section lists goes
-to Guides, and the generator prints a warning: add it to a section list. A
-designed page must not link an excluded file either, on the site or on GitHub.
+`EXCLUDED_DIRS` in the generator. A designed page must not link an excluded
+file either, on the site or on GitHub.
 
 Security findings stay private, fixed ones too: the generator reads the
 finding IDs from the sources it leaves out (ADR 0031 and `docs/security/*.md`:

@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 848 184" width="848" height="184" role="img" aria-labelledby="t d">
+<title id="t">How a task of the agent link runs</title>
+<desc id="d">Ask: a person gives a task. Plan: the model reads the tree with read-only tools and proposes steps, and the link checks every step. Approve: a person gives one token per step. Run: the link runs the stored plan with that person&#x27;s rights.</desc>
+<rect x="0.5" y="0.5" width="847" height="183" rx="12" fill="#161A1D" stroke="#252B30"/>
+<g transform="translate(24 24)">
+<rect x="0" y="12" width="170" height="92" rx="10" fill="#0E1113" stroke="#3A4249"/>
+<text x="85" y="44" text-anchor="middle" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="600" fill="#ECE9E1">ask</text>
+<text x="85" y="62" text-anchor="middle" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#ECE9E1">a task,</text>
+<text x="85" y="80" text-anchor="middle" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#ECE9E1">in plain words</text>
+<rect x="210" y="12" width="170" height="92" rx="10" fill="#0E1113" stroke="#3A4249"/>
+<text x="295" y="35" text-anchor="middle" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="600" fill="#ECE9E1">plan</text>
+<text x="295" y="53" text-anchor="middle" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#ECE9E1">read-only tools;</text>
+<text x="295" y="71" text-anchor="middle" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#ECE9E1">the link checks</text>
+<text x="295" y="89" text-anchor="middle" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#ECE9E1">every step</text>
+<path d="M170 58L200 58" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round"/>
+<polygon points="209,58 200,53.5 200,62.5" fill="#8E979C"/>
+<rect x="420" y="12" width="170" height="92" rx="10" fill="#0E1113" stroke="#E8893A"/>
+<text x="505" y="44" text-anchor="middle" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="600" fill="#ECE9E1">approve</text>
+<text x="505" y="62" text-anchor="middle" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#ECE9E1">a person: one</text>
+<text x="505" y="80" text-anchor="middle" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#ECE9E1">token per step</text>
+<path d="M380 58L410 58" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round"/>
+<polygon points="419,58 410,53.5 410,62.5" fill="#8E979C"/>
+<rect x="630" y="12" width="170" height="92" rx="10" fill="#0E1113" stroke="#3A4249"/>
+<text x="715" y="44" text-anchor="middle" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="600" fill="#ECE9E1">run</text>
+<text x="715" y="62" text-anchor="middle" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#ECE9E1">set and invoke with</text>
+<text x="715" y="80" text-anchor="middle" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#ECE9E1">that person&#x27;s rights</text>
+<path d="M590 58L620 58" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round"/>
+<polygon points="629,58 620,53.5 620,62.5" fill="#8E979C"/>
+<text x="190" y="126" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" fill="#C5CBCE">task</text>
+<text x="400" y="126" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" fill="#C5CBCE">steps</text>
+<text x="610" y="126" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" fill="#C5CBCE">tokens</text>
+</g>
+</svg>

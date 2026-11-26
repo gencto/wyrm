@@ -16,14 +16,26 @@ create-missing = false
 
 [output.html]
 site-url = "/docs/"
-git-repository-url = "https://github.com/gencto/wyrm"
-# The generator writes the pages; editing them on GitHub would edit nothing.
+# No `git-repository-url`: the top bar of the site has the link to GitHub, and
+# the generator writes the pages, so editing them on GitHub would edit nothing.
 no-section-label = true
 # One look, the design's dark one: `theme/wyrm.css` gives every mdBook theme
 # the same colours, and the theme menu is hidden.
 default-theme = "coal"
 preferred-dark-theme = "coal"
 additional-css = ["theme/wyrm.css"]
+
+# The decisions fold under "All decisions" in the side menu; the open page's
+# branch is unfolded.
+[output.html.fold]
+enable = true
+level = 0
+
+# No "Run" button on Rust code: with it, mdBook's script asks
+# play.rust-lang.org for its crate list on every page that shows Rust, and
+# the site loads nothing from another host.
+[output.html.playground]
+runnable = false
 
 [output.html.search]
 enable = true

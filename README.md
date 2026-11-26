@@ -63,28 +63,9 @@ nodes, and it is kin to the dragon on Zenoh's logo.
 
 ## How it fits together
 
-```mermaid
-flowchart TB
-  studio["WYRM Studio · wyr · MCP / Claude"] -->|"HTTPS + WebSocket"| gw
-  subgraph wyrmd["wyrmd (one site)"]
-    gw["user gateway"]
-    admin["admin · sys/**"]
-    flow["flow engine · dataflows/**"]
-    hist["historian"]
-    stor["storage/**"]
-    emb["embedded links<br/>scheduler · alarm · dql · uplink"]
-    router(("Zenoh router"))
-    gw --- router
-    admin --- router
-    flow --- router
-    hist --- router
-    stor --- router
-    emb --- router
-  end
-  router -->|"mTLS"| proc["process and WASM links<br/>modbus · opcua · bacnet · s7 · …"]
-  proc --> dev["devices and services"]
-  router <-->|"QUIC + mTLS"| peers["upstream and downstream brokers"]
-```
+![Devices, links, one wyrmd with its services and the Zenoh router, the user gateway with its clients, and an upstream site](docs/img/overview.svg)
+
+*Links poll the devices, own their branch of the tree and publish values and meta into one `wyrmd`. There the admin (`sys/**`), the flow engine (`dataflows/**`), the historian, `storage/**` and the embedded links sit beside the Zenoh router. People and tools come in through the user gateway; sites connect to each other over QUIC with mTLS.*
 
 Rules that hold everywhere ([ADR 0001–0011](docs/adr/)):
 - Zenoh is the transport; WYRM puts its meaning into the key space, a CBOR attachment, the SDKs and static plugins. It never loads dynamic Zenoh plugins.

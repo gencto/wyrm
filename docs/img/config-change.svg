@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 848 180" width="848" height="180" role="img" aria-labelledby="t d">
+<title id="t">What happens after a change that touches the ACL</title>
+<desc id="d">An edit under sys goes to the registry as a record of the write-ahead log, the ACL is generated from the registry, the router runtime is rebuilt because Zenoh 1.10 has no live ACL reload, and the clients reconnect.</desc>
+<rect x="0.5" y="0.5" width="847" height="179" rx="12" fill="#161A1D" stroke="#252B30"/>
+<g transform="translate(24 24)">
+<rect x="0" y="16" width="140" height="80" rx="10" fill="#0E1113" stroke="#3A4249"/>
+<text x="70" y="42" text-anchor="middle" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="600" fill="#ECE9E1">edit</text>
+<text x="70" y="60" text-anchor="middle" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#ECE9E1">add a link,</text>
+<text x="70" y="78" text-anchor="middle" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#ECE9E1">a grant, a peer</text>
+<text x="70" y="122" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="11" fill="#8E979C">sys/links, sys/upstream</text>
+<rect x="165" y="16" width="140" height="80" rx="10" fill="#0E1113" stroke="#3A4249"/>
+<text x="235" y="42" text-anchor="middle" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="600" fill="#ECE9E1">registry</text>
+<text x="235" y="60" text-anchor="middle" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#ECE9E1">WAL record,</text>
+<text x="235" y="78" text-anchor="middle" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#ECE9E1">HMAC chain</text>
+<text x="235" y="122" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="11" fill="#8E979C">data_dir/state</text>
+<path d="M140 56L155 56" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round"/>
+<polygon points="164,56 155,51.5 155,60.5" fill="#8E979C"/>
+<rect x="330" y="16" width="140" height="80" rx="10" fill="#0E1113" stroke="#3A4249"/>
+<text x="400" y="42" text-anchor="middle" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="600" fill="#ECE9E1">ACL</text>
+<text x="400" y="60" text-anchor="middle" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#ECE9E1">generated from</text>
+<text x="400" y="78" text-anchor="middle" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#ECE9E1">the registry</text>
+<text x="400" y="122" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="11" fill="#8E979C">links, operators, peers</text>
+<path d="M305 56L320 56" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round"/>
+<polygon points="329,56 320,51.5 320,60.5" fill="#8E979C"/>
+<rect x="495" y="16" width="140" height="80" rx="10" fill="#0E1113" stroke="#E8893A"/>
+<text x="565" y="42" text-anchor="middle" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="600" fill="#ECE9E1">rebuild</text>
+<text x="565" y="60" text-anchor="middle" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#ECE9E1">the router</text>
+<text x="565" y="78" text-anchor="middle" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#ECE9E1">runtime</text>
+<text x="565" y="122" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="11" fill="#8E979C">no live reload in 1.10</text>
+<path d="M470 56L485 56" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round"/>
+<polygon points="494,56 485,51.5 485,60.5" fill="#8E979C"/>
+<rect x="660" y="16" width="140" height="80" rx="10" fill="#0E1113" stroke="#3A4249"/>
+<text x="730" y="42" text-anchor="middle" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="600" fill="#ECE9E1">reconnect</text>
+<text x="730" y="60" text-anchor="middle" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#ECE9E1">clients reopen</text>
+<text x="730" y="78" text-anchor="middle" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#ECE9E1">their streams</text>
+<text x="730" y="122" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="11" fill="#8E979C">one reconnect</text>
+<path d="M635 56L650 56" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round"/>
+<polygon points="659,56 650,51.5 650,60.5" fill="#8E979C"/>
+</g>
+</svg>
