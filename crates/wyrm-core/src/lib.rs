@@ -23,6 +23,7 @@ pub mod ptok;
 #[cfg(feature = "rand")]
 pub mod rand;
 pub mod secret;
+pub mod setup;
 pub mod status;
 pub mod time;
 pub mod value;
