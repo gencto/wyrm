@@ -1,0 +1,258 @@
+/* The look of the WYRM docs (mdBook), after the wiki page of the site design:
+   the dark ground, IBM Plex Sans and Mono, Unbounded for titles, an ember
+   accent and teal links. The design has one look, so every mdBook theme gets
+   the same colours and the theme menu is hidden. The fonts come from
+   /assets/fonts.css (theme/head.hbs). */
+
+:root {
+    --content-max-width: 820px;
+    --mono-font: 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace;
+    --wy-ground: #0E1113;
+    --wy-panel: #161A1D;
+    --wy-raised: #1D2226;
+    --wy-chip: #22282D;
+    --wy-line: #252B30;
+    --wy-line-strong: #3A4249;
+    --wy-text: #ECE9E1;
+    --wy-body: #C5CBCE;
+    --wy-muted: #A3ABAF;
+    --wy-faint: #8E979C;
+    --wy-accent: #E8893A;
+    --wy-accent-soft: #F3A766;
+    --wy-teal: #6CC4B0;
+}
+
+html.light, html.rust, html.coal, html.navy, html.ayu {
+    --bg: var(--wy-ground);
+    --fg: var(--wy-body);
+    --sidebar-bg: var(--wy-panel);
+    --sidebar-fg: var(--wy-muted);
+    --sidebar-non-existant: #7D868B;
+    --sidebar-active: var(--wy-text);
+    --sidebar-spacer: var(--wy-line);
+    --scrollbar: var(--wy-line-strong);
+    --icons: var(--wy-faint);
+    --icons-hover: var(--wy-text);
+    --links: var(--wy-teal);
+    --inline-code-color: var(--wy-text);
+    --theme-popup-bg: var(--wy-panel);
+    --theme-popup-border: var(--wy-line-strong);
+    --theme-hover: var(--wy-chip);
+    --quote-bg: var(--wy-panel);
+    --quote-border: var(--wy-line);
+    --warning-border: var(--wy-accent);
+    --table-border-color: var(--wy-line);
+    --table-header-bg: var(--wy-panel);
+    --table-alternate-bg: transparent;
+    --searchbar-border-color: var(--wy-line-strong);
+    --searchbar-bg: var(--wy-panel);
+    --searchbar-fg: var(--wy-text);
+    --searchbar-shadow-color: transparent;
+    --searchresults-header-fg: var(--wy-faint);
+    --searchresults-border-color: var(--wy-line);
+    --searchresults-li-bg: var(--wy-panel);
+    --search-mark-bg: #5A4330;
+    --color-scheme: dark;
+    --copy-button-filter: invert(63%) sepia(9%) saturate(280%) hue-rotate(155deg) brightness(92%) contrast(88%);
+    --copy-button-filter-hover: invert(96%) sepia(6%) saturate(250%) hue-rotate(10deg) brightness(97%) contrast(90%);
+    --footnote-highlight: var(--wy-accent);
+    --overlay-bg: rgba(14, 17, 19, 0.7);
+    --blockquote-note-color: var(--wy-teal);
+    --blockquote-tip-color: var(--wy-teal);
+    --blockquote-important-color: var(--wy-accent-soft);
+    --blockquote-warning-color: var(--wy-accent);
+    --blockquote-caution-color: #E07A5F;
+    --sidebar-header-border-color: var(--wy-accent);
+    color-scheme: dark;
+}
+
+html {
+    font-family: 'IBM Plex Sans', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    scrollbar-color: var(--wy-line-strong) var(--wy-ground);
+}
+body { background: var(--wy-ground); }
+
+/* ------------------------------------------------------------- top bar */
+/* mdBook pulls `.page` up by the height of a hover area that brings back a
+   bar that is not sticky. Its bar is always sticky here, and the top bar is
+   the first thing of the page: the hover area and the pull go. */
+.page { margin-block-start: 0; }
+#mdbook-menu-bar-hover-placeholder { display: none; }
+.wy-bar {
+    margin: 0 calc(0px - var(--page-padding));
+    border-bottom: 1px solid var(--wy-line);
+    background: var(--wy-ground);
+}
+.wy-bar nav {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 14px 24px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 28px;
+    font-size: 15px;
+}
+.wy-bar a { color: var(--wy-muted); text-decoration: none; padding: 10px 0; }
+.wy-bar a:hover { color: var(--wy-accent-soft); }
+.wy-bar .wy-logo { display: flex; align-items: center; gap: 12px; margin-right: auto; color: var(--wy-text); }
+.wy-bar .wy-name { font-family: 'Unbounded', sans-serif; font-weight: 700; font-size: 20px; letter-spacing: 0.08em; }
+.wy-bar .wy-crumb { font-family: var(--mono-font); font-size: 14px; color: var(--wy-faint); }
+.wy-bar .wy-github {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 500;
+    padding: 10px 16px;
+    border: 1px solid var(--wy-line-strong);
+    border-radius: 8px;
+    color: var(--wy-text);
+}
+
+/* mdBook's own bar: the buttons stay, the title is in the top bar already */
+#mdbook-menu-bar { background: var(--wy-ground); border-block-end: 1px solid var(--wy-line); }
+#mdbook-menu-bar .menu-title { visibility: hidden; }
+#mdbook-theme-toggle, #mdbook-theme-list { display: none !important; }
+/* room to hit the two icons at the right with a finger */
+#mdbook-menu-bar .right-buttons a { display: inline-block; min-width: 36px; text-align: center; }
+
+/* ------------------------------------------------------------- side menu */
+.sidebar { font-size: 1.5rem; border-inline-end: 1px solid var(--wy-line); }
+.sidebar .sidebar-scrollbox { padding: 18px 16px; }
+.chapter li.chapter-item { line-height: 1.45; margin-block-start: 0.55em; }
+.chapter li a { color: var(--wy-muted); }
+.chapter li a:hover { color: var(--wy-accent-soft); }
+.chapter li a.active { color: var(--wy-text); font-weight: 600; }
+.chapter li.part-title {
+    margin: 26px 0 8px;
+    font-family: var(--mono-font);
+    font-size: 1.2rem;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--wy-accent);
+}
+.chapter li.header-item a { color: var(--wy-faint); }
+.chapter a.current-header { color: var(--wy-text); }
+
+/* ------------------------------------------------------------- text */
+.content main { font-size: 1.6rem; color: var(--wy-body); }
+.content p, .content ol, .content ul { line-height: 1.7; }
+.content li + li { margin-block-start: 0.25em; }
+.content strong, .content b { color: var(--wy-text); font-weight: 600; }
+.content h1, .content h2, .content h3, .content h4, .content h5 { color: var(--wy-text); }
+.content h1 {
+    margin: 0.4em 0 0.7em;
+    font-family: 'Unbounded', sans-serif;
+    font-weight: 700;
+    font-size: clamp(2.6rem, 3.4vw, 3.6rem);
+    line-height: 1.15;
+}
+.content h2 {
+    margin-block-start: 2.2em;
+    padding-block-start: 1.1em;
+    border-block-start: 1px solid var(--wy-line);
+    font-size: 2.3rem;
+    font-weight: 600;
+    line-height: 1.25;
+}
+.content h1 + h2 { border-block-start: 0; padding-block-start: 0; margin-block-start: 1.2em; }
+.content h3 { font-size: 1.9rem; font-weight: 600; margin-block-start: 1.9em; }
+.content h4 { font-size: 1.7rem; font-weight: 600; }
+.content h5, .content h6 { font-size: 1.5rem; font-weight: 600; color: var(--wy-muted); }
+.content .header:link, .content .header:visited { color: inherit; }
+.content .header:hover { text-decoration: none; color: var(--wy-accent-soft); }
+
+.content a { color: var(--wy-teal); text-decoration: underline; text-decoration-color: rgba(108, 196, 176, 0.4); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.content a:hover { color: var(--wy-accent-soft); text-decoration-color: currentColor; }
+.content hr { border: 0; border-top: 1px solid var(--wy-line); margin: 2.5em 0; }
+
+/* ------------------------------------------------------------- code */
+:not(pre) > .hljs, .content :not(pre) > code {
+    padding: 0.1em 0.38em;
+    border-radius: 5px;
+    background: var(--wy-raised);
+    color: var(--wy-text);
+}
+.content a > code, .content a > .hljs { color: inherit; }
+h1 code, h2 code, h3 code, h4 code { background: none !important; padding: 0 !important; }
+.content pre {
+    margin: 1.2em 0;
+    border: 1px solid var(--wy-line);
+    border-radius: 12px;
+    background: var(--wy-panel);
+}
+.content pre > code, .content pre > .hljs {
+    padding: 18px 22px;
+    background: transparent;
+    color: var(--wy-body);
+    font-size: 1.4rem;
+    line-height: 1.7;
+}
+/* syntax colours: the design's palette over every highlight sheet of mdBook */
+html .hljs { background: transparent; color: var(--wy-body); }
+html .hljs-comment, html .hljs-quote, html .hljs-meta { color: var(--wy-faint); font-style: normal; }
+html .hljs-keyword, html .hljs-selector-tag, html .hljs-built_in, html .hljs-type, html .hljs-doctag { color: var(--wy-accent-soft); }
+html .hljs-string, html .hljs-regexp, html .hljs-symbol, html .hljs-bullet, html .hljs-addition { color: var(--wy-teal); }
+html .hljs-number, html .hljs-literal, html .hljs-link { color: #E2C15A; }
+html .hljs-title, html .hljs-section, html .hljs-name, html .hljs-function, html .hljs-selector-id, html .hljs-selector-class { color: var(--wy-text); }
+html .hljs-attr, html .hljs-attribute, html .hljs-variable, html .hljs-template-variable, html .hljs-params, html .hljs-tag { color: #A9C7D6; }
+html .hljs-deletion { color: #E07A5F; }
+
+kbd { background: var(--wy-raised); border-color: var(--wy-line-strong); color: var(--wy-text); font-family: var(--mono-font); }
+
+/* ------------------------------------------------------------- tables */
+.content .table-wrapper { border: 1px solid var(--wy-line); border-radius: 12px; margin: 1.3em 0; }
+.content table { width: 100%; margin: 0; border-collapse: collapse; font-size: 1.5rem; }
+.content table td, .content table th { padding: 12px 16px; border: 0; text-align: left; vertical-align: top; line-height: 1.5; }
+.content table thead { background: var(--wy-panel); }
+.content table thead th {
+    font-size: 1.3rem;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--wy-faint);
+}
+.content table thead th code { text-transform: none; letter-spacing: 0; }
+.content table thead tr { border: 0; }
+.content table tbody tr { border-top: 1px solid var(--wy-line); background: transparent !important; }
+.content table tbody td:first-child { color: var(--wy-text); }
+
+/* ------------------------------------------------------------- notes */
+.content blockquote {
+    margin: 1.4em 0;
+    padding: 4px 20px;
+    border: 1px solid var(--wy-line);
+    border-inline-start: 3px solid var(--wy-accent);
+    border-radius: 0 12px 12px 0;
+    background: var(--wy-panel);
+    color: var(--wy-body);
+}
+
+/* ------------------------------------------------------------- search, paging */
+#mdbook-searchbar { border-radius: 8px; font-family: inherit; }
+ul#mdbook-searchresults li { border-radius: 8px; }
+ul#mdbook-searchresults span.teaser { color: var(--wy-muted); }
+mark { color: var(--wy-text); border-radius: 3px; }
+.nav-chapters { color: var(--wy-faint); }
+.nav-chapters:hover, .mobile-nav-chapters:hover { color: var(--wy-accent-soft); }
+.mobile-nav-chapters { background: var(--wy-panel); border: 1px solid var(--wy-line); border-radius: 10px; color: var(--wy-muted); }
+
+a:focus-visible, button:focus-visible, .icon-button:focus-visible, input:focus-visible {
+    outline: 2px solid var(--wy-teal);
+    outline-offset: 2px;
+    border-radius: 4px;
+}
+
+@media (max-width: 720px) {
+    .wy-bar nav { padding: 12px 16px; gap: 2px 20px; }
+    .wy-bar .wy-logo { flex: 1 0 100%; }
+}
+@media print {
+    .wy-bar { display: none; }
+    body, .content main { background: #fff; color: #000; }
+}
+
+/* the "on this page" entries of the side menu: 24 px to hit */
+.sidebar a.header-in-summary { display: inline-block; padding-block: 2px; }

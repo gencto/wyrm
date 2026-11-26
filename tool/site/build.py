@@ -1,15 +1,21 @@
 #!/usr/bin/env python3
-"""Build the source of the WYRM home site (mdBook) from the repository.
+"""Build the WYRM home site from the repository.
 
-    python3 tool/site/build.py                 # write site/src/ from the repo
-    python3 tool/site/build.py --check site/book   # check links of a built site
+    python3 tool/site/build.py                 # write site/src/ and site/dist/
+    mdbook build site                          # write site/dist/docs/
+    python3 tool/site/build.py --check site/dist   # check the built site
 
-The repository's `docs/`, `docs/adr/` and `spec/` are the one source of truth.
-This script copies the guides, ADRs and the spec into `site/src/` (generated,
-git-ignored), rewrites the links that leave the book to GitHub, writes
-`SUMMARY.md` and the landing page `index.md`. Only files tracked by git are
-read. `--check` parses every HTML page of a built site and fails on a link to a
-missing page or a missing `#id`. Python 3.10+, standard library only.
+The site has two parts. The designed pages (`/`, `/install/`, `404.html`) are
+the templates `site/home/index.html`, `site/install/index.html` and
+`site/404.html`: static HTML whose `{{name}}` placeholders this script fills
+with facts of the repository, so a page never goes stale. The documentation
+(`/docs/`) is an mdBook: the repository's `docs/`, `docs/adr/` and `spec/` are
+the one source of truth. This script copies the guides, ADRs and the spec into
+`site/src/` (generated, git-ignored), rewrites the links that leave the book to
+GitHub, writes `SUMMARY.md` and the docs landing page `index.md`. Only files
+tracked by git are read. `--check` parses every HTML page of a built site and
+fails on a link to a missing page or a missing `#id`, on a file loaded from
+another host and on a security finding ID. Python 3.10+, standard library only.
 """
 
 from __future__ import annotations
@@ -27,14 +33,45 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 SITE = REPO / "site"
-SRC = SITE / "src"
-STATIC = SITE / "static"  # copied as is into the book root (CNAME; room for /start)
+SRC = SITE / "src"        # the mdBook source, generated
+DIST = SITE / "dist"      # the whole site; mdBook writes DIST/docs (book.toml)
+DOCS = "docs"             # the place of the book in the site: /docs/
+STATIC = SITE / "static"  # copied as is into the site root (CNAME)
+ASSETS = SITE / "assets"  # copied as is to /assets/ (fonts, CSS, images, JS)
+ORIGIN = "https://wyrm.gencto.uk"
+# The designed pages: place in the site -> (template, path to the site root).
+# 404.html is served for any missing path, so its links start at "/".
+DESIGNED = {
+    "index.html": (SITE / "home/index.html", ""),
+    "install/index.html": (SITE / "install/index.html", "../"),
+    "404.html": (SITE / "404.html", "/"),
+}
+# The docs were at the site root for a short time. A page whose address
+# changed gets a stub at the old one (guides and ADRs kept theirs).
+MOVED = ("overview.md", "spec/")
+STUB = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Moved — WYRM</title>
+<meta name="robots" content="noindex">
+<link rel="canonical" href="{origin}/{target}">
+<meta http-equiv="refresh" content="0; url={href}">
+</head>
+<body>
+<p>This page moved to <a href="{href}">{origin}/{target}</a>.</p>
+</body>
+</html>
+"""
+# The file sizes of the links release the install page offers; see
+# site/README.md for the command that records them.
+RELEASE = SITE / "install/release.json"
 GITHUB = "https://github.com/gencto/wyrm"
 BLOB = f"{GITHUB}/blob/main/"
 TREE = f"{GITHUB}/tree/main/"
 
-# Site paths the generator never writes: kept free for later pages
-# (`/start`: the image builder of ADR 0051).
+# Paths of the site root the generator never writes: kept free for later
+# pages (`/start`: the image builder of ADR 0051).
 RESERVED = ("start",)
 
 # Files under docs/ and spec/ that are not on the site, with the reason.
@@ -70,7 +107,11 @@ SPEC_ORDER = ["README", "01-keyspace", "02-meta", "03-val", "04-attachment",
 DENY_FILE = REPO / "tool/site/denied-words.local"
 
 # The generated page of the ADR section: `docs/adr/` links land here.
-ADR_INDEX = "docs/adr/index.md"
+ADR_INDEX = "adr/index.md"
+
+# The sections of the book, in the order of SUMMARY.md.
+SECTIONS = ["Start", "Guides", "Links (connectors)", "Operations",
+            "Architecture decisions", "Specification"]
 
 # The guide of an official link without a guide of its own name.
 CATEGORY_GUIDES = {
@@ -124,10 +165,17 @@ def denied_word(text: str) -> bool:
 
 
 def site_path(repo_path: str) -> str:
-    """Where a repo file lands in the book. README.md becomes index.md so that
-    mdBook's index preprocessor and our links agree."""
+    """Where a repo file lands in the book, which is the site's `/docs/`: a
+    guide `docs/x.md` is `x.md` (`/docs/x.html`), an ADR is under `adr/`, the
+    spec under `spec/`. A README.md becomes index.md so that mdBook's index
+    preprocessor and our links agree; the two READMEs that would take the
+    book's own index get names."""
     if repo_path == "README.md":
         return "overview.md"
+    if repo_path == "docs/README.md":
+        return "map.md"
+    if repo_path.startswith("docs/"):
+        repo_path = repo_path[len("docs/"):]
     head, name = posixpath.split(repo_path)
     if name == "README.md":
         return posixpath.join(head, "index.md")
@@ -249,6 +297,9 @@ INLINE_LINK = re.compile(
     r"(!?)\[((?:[^\[\]]|\[[^\[\]]*\])*)\]\(\s*<?([^)\s>]+)>?((?:\s+\"[^\"]*\")?)\s*\)")
 REF_DEF = re.compile(r"^(\s{0,3}\[[^\]]+\]:\s*<?)(\S+?)(>?(?:[ \t]+.*)?)$", re.M)
 SCHEME = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*:")
+# A line that is only badges: [![name](https://…/badge.svg)](https://…)
+BADGE = re.compile(
+    r"^(?:\[!\[[^\]]*\]\(https?://[^)\s]+\)\]\([^)\s]+\)[ \t]*)+\n(?:[ \t]*\n)?", re.M)
 
 
 class Linker:
@@ -383,6 +434,14 @@ def md_cell(text: str) -> str:
     return text.replace("|", "\\|").replace("\n", " ").strip()
 
 
+def link_guide(link: dict, pages: dict[str, str]) -> str:
+    """The page of the book that documents an official link, or ""."""
+    guide = f"docs/{link.get('id', '')}.md"
+    if guide not in pages:
+        guide = CATEGORY_GUIDES.get(link.get("category", ""), "")
+    return pages.get(guide, "")
+
+
 def readme_intro(readme: str) -> tuple[str, str]:
     """First prose paragraph of the README and its status block quote."""
     paragraphs = re.split(r"\n\s*\n", readme)
@@ -444,8 +503,9 @@ def landing(linker: Linker, readme: str, adrs: list[tuple[str, str, str]],
     lines += [
         f"- Source code: [github.com/gencto/wyrm]({GITHUB})",
         f"- Releases: [github.com/gencto/wyrm/releases]({GITHUB}/releases)",
-        "- Read next: [Overview](overview.md) · [Documentation map](docs/index.md)"
-        " · [Specification](spec/index.md)",
+        f"- Read next: [Overview]({pages['README.md']})"
+        f" · [Documentation map]({pages['docs/README.md']})"
+        f" · [Specification]({pages['spec/README.md']})",
         "",
         "## Official links",
         "",
@@ -457,11 +517,9 @@ def landing(linker: Linker, readme: str, adrs: list[tuple[str, str, str]],
     ]
     for link in official.get("links", []):
         title = md_cell(link.get("title", link.get("id", "")))
-        guide = f"docs/{link.get('id', '')}.md"
-        if guide not in pages:
-            guide = CATEGORY_GUIDES.get(link.get("category", ""), "")
-        if guide in pages:
-            title = f"[{title}]({pages[guide]})"
+        guide = link_guide(link, pages)
+        if guide:
+            title = f"[{title}]({guide})"
         forms = ", ".join(sorted(link.get("forms", {})))
         lines.append(
             f"| {title} | {md_cell(link.get('category', ''))} |"
@@ -499,6 +557,138 @@ def landing(linker: Linker, readme: str, adrs: list[tuple[str, str, str]],
     return "\n".join(lines)
 
 
+# ------------------------------------------------------------ designed pages
+
+PLACEHOLDER = re.compile(r"\{\{([a-z0-9_]+)\}\}")
+NUMBER_WORDS = ["Zero", "One", "Two", "Three", "Four", "Five", "Six", "Seven",
+                "Eight", "Nine", "Ten", "Eleven", "Twelve"]
+# The chips of the home page, in the inline style of the design.
+CHIP = ('<a href="{href}" style="padding: 8px 12px; border-radius: 6px;'
+        ' background: #22282D">{text}</a>')
+CHIP_PLAIN = ('<span style="padding: 8px 12px; border-radius: 6px;'
+              ' background: #22282D">{text}</span>')
+SECTION_CHIP = ('<span style="padding: 6px 10px; border-radius: 6px;'
+                ' background: #1D2226">{text}</span>')
+
+
+def esc(text: str) -> str:
+    return html.escape(text, quote=True)
+
+
+def slug(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
+
+
+def repo_fact(path: str, pattern: str, what: str) -> str:
+    """One fact read from a tracked file; a missing one stops the build, so a
+    page never shows a number nobody can trace."""
+    m = re.search(pattern, (REPO / path).read_text(encoding="utf-8"), re.M)
+    if not m:
+        raise BuildError(f"{path}: cannot read {what}")
+    return m.group(1)
+
+
+def site_facts(tracked: list[str], texts: dict[str, str],
+               adrs: list[tuple[str, str, str, str]], official: dict,
+               pages: dict[str, str]) -> dict[str, str]:
+    """The values of the `{{name}}` placeholders, except `root`. A value is
+    HTML: text from the repository is escaped here. A link into the book is
+    written as `{{root}}docs/...` and filled with the page's own root."""
+    zenoh = repo_fact("Cargo.toml", r'^zenoh\s*=\s*\{\s*version\s*=\s*"=?([\d.]+)"',
+                      "the Zenoh version")
+    version = repo_fact("Cargo.toml", r'^version\s*=\s*"([\d.]+)"',
+                        "the workspace version")
+    blocks = repo_fact("README.md", r"\b(\d+) block types\b",
+                       "the number of block types")
+    # the measured row of the Modbus link image: binary, image, idle memory
+    modbus = re.search(
+        r"^\| `wyrm/link-modbus` \| ([\d.]+) \| ([\d.]+) \| (\d+ MiB) \|",
+        (REPO / "deploy/docker/README.md").read_text(encoding="utf-8"), re.M)
+    if not modbus:
+        raise BuildError("deploy/docker/README.md: cannot read the measured"
+                         " row of wyrm/link-modbus")
+    changes = changelog_entries(texts["spec/CHANGELOG.md"])
+    if not changes or not adrs:
+        raise BuildError("no spec changelog entry or no ADR to name")
+    parts = sum(1 for p in tracked if re.fullmatch(r"spec/\d\d-[^/]+\.md", p))
+    fixtures = sum(1 for p in tracked
+                   if re.fullmatch(r"spec/fixtures/[^/]+\.cbor\.hex", p))
+    crates = sum(1 for p in tracked if re.fullmatch(r"links/[^/]+/Cargo\.toml", p))
+    number, _, title, _ = adrs[-1]
+    short = re.sub(r"^ADR\s+\d+\s*[—–:-]\s*", "", title).rstrip(".")
+    links = official.get("links", [])
+
+    facts = {
+        "version": esc(version),
+        "zenoh_version": esc(zenoh),
+        "zenoh_minor": esc(".".join(zenoh.split(".")[:2])),
+        "block_types": esc(blocks),
+        "modbus_binary_mib": esc(modbus.group(1)),
+        "modbus_image_mib": esc(modbus.group(2)),
+        "modbus_idle": esc(modbus.group(3)),
+        "spec_version": ".".join(str(n) for n in changes[0][0]),
+        "spec_parts": NUMBER_WORDS[parts] if parts < len(NUMBER_WORDS) else str(parts),
+        "fixtures_count": str(fixtures),
+        "adr_count": str(len(adrs)),
+        "adr_latest": f"ADR {number}: {esc(short)}",
+        "link_crates": str(crates),
+        "links_count": str(len(links)),
+        "docs_sections": "\n".join(
+            SECTION_CHIP.format(text=esc(s)) for s in SECTIONS),
+    }
+
+    # the official links as chips, one placeholder per category
+    by_category: dict[str, list[str]] = {}
+    for link in links:
+        guide = link_guide(link, pages)
+        text = esc(link.get("title", link.get("id", "")))
+        chip = (CHIP.format(href="{{root}}" + DOCS + "/" + esc(guide[:-3] + ".html"),
+                            text=text) if guide else CHIP_PLAIN.format(text=text))
+        by_category.setdefault(link.get("category", ""), []).append(chip)
+    for category, chips in by_category.items():
+        facts["chips_" + slug(category)] = "\n".join(chips)
+
+    # the install page: the official links and the files of their release
+    release = json.loads(RELEASE.read_text(encoding="utf-8"))
+    tag = release["tag"]
+    download = f"{GITHUB}/releases/download/{tag}/"
+    data = {
+        "version": version,
+        "release": {"tag": tag, "download": download, "assets": release["assets"]},
+        "hosts": official.get("hosts", []),
+        "links": links,
+    }
+    facts.update({
+        "release_tag": esc(tag),
+        "release_url": esc(f"{GITHUB}/releases/tag/{tag}"),
+        "release_download": esc(download),
+        # JSON inside <script type="application/json">: nothing may end it early
+        "install_data": json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+        .replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026"),
+    })
+    return facts
+
+
+def render(template: Path, facts: dict[str, str]) -> str:
+    """Fill a designed page. An unknown placeholder stops the build, and so
+    does a category of official links that the home page has no place for."""
+    name = template.relative_to(REPO).as_posix()
+    text = template.read_text(encoding="utf-8")
+    unknown = sorted(set(PLACEHOLDER.findall(text)) - set(facts))
+    if unknown:
+        raise BuildError(f"{name}: unknown placeholder(s): {', '.join(unknown)}")
+    if template == DESIGNED["index.html"][0]:
+        missing = sorted(k for k in facts
+                         if k.startswith("chips_") and "{{" + k + "}}" not in text)
+        if missing:
+            raise BuildError(f"{name}: no place for the official links of"
+                             f" {', '.join(missing)}: add the placeholder(s)")
+    # twice: a generated value may hold `{{root}}`
+    for _ in range(2):
+        text = PLACEHOLDER.sub(lambda m: facts[m.group(1)], text)
+    return text
+
+
 # -------------------------------------------------------------------- build
 
 def build() -> int:
@@ -524,27 +714,34 @@ def build() -> int:
             excluded.append((p, reason))
             continue
         text = (REPO / p).read_text(encoding="utf-8")
+        # A badge is an image from another host; the site loads none.
+        text = BADGE.sub("", text)
         if denied_word(text):
             excluded.append((p, "holds a word of the local deny-list"))
             warnings.append(f"{p}: excluded, it holds a word of the local deny-list")
             continue
         sp = site_path(p)
-        if sp.split("/", 1)[0].rsplit(".", 1)[0] in RESERVED:
-            raise BuildError(f"{p}: site path {sp} is reserved")
+        if sp in pages.values() or sp in ("index.md", "SUMMARY.md", ADR_INDEX):
+            raise BuildError(f"{p}: its place in the book, {sp}, is taken")
         pages[p] = sp
         texts[p] = text
 
     linker = Linker(tracked, pages, {p for p, _ in excluded})
 
-    if SRC.exists():
-        shutil.rmtree(SRC)
-    SRC.mkdir(parents=True)
-    if STATIC.is_dir():
-        for f in sorted(STATIC.rglob("*")):
-            if f.is_file():
-                dest = SRC / f.relative_to(STATIC)
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(f, dest)
+    for d in (SRC, DIST):
+        if d.exists():
+            shutil.rmtree(d)
+        d.mkdir(parents=True)
+    for root, dest_root in ((STATIC, DIST), (ASSETS, DIST / "assets")):
+        for f in sorted(root.rglob("*")) if root.is_dir() else []:
+            if not f.is_file() or f.name.startswith("."):
+                continue
+            dest = dest_root / f.relative_to(root)
+            top = dest.relative_to(DIST).parts[0].rsplit(".", 1)[0]
+            if top in RESERVED or top == DOCS:
+                raise BuildError(f"{f.relative_to(REPO)}: site path /{top} is reserved")
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(f, dest)
 
     for p, sp in pages.items():
         dest = SRC / sp
@@ -563,12 +760,13 @@ def build() -> int:
     for n in extra:
         warnings.append(f"docs/{n}.md: in no section list, put in Guides")
 
-    summary = ["# Summary", "", "[Home](index.md)", "", "# Start", ""]
+    start, guides, connectors, operations, decisions, specification = SECTIONS
+    summary = ["# Summary", "", "[Docs home](index.md)", "", f"# {start}", ""]
     summary.append(entry("README.md", "Overview"))
     if "docs/README.md" in pages:
         summary.append(entry("docs/README.md", "Documentation map"))
-    for part, names in (("Guides", GUIDES + extra), ("Links (connectors)", LINKS),
-                        ("Operations", OPERATIONS)):
+    for part, names in ((guides, GUIDES + extra), (connectors, LINKS),
+                        (operations, OPERATIONS)):
         summary += ["", f"# {part}", ""]
         summary += [entry(docs[n]) for n in names if n in docs]
 
@@ -579,7 +777,7 @@ def build() -> int:
             adrs.append((m.group(1), p, first_heading(texts[p], p),
                          adr_status(texts[p])))
     adrs.sort()
-    summary += ["", "# Architecture decisions", ""]
+    summary += ["", f"# {decisions}", ""]
     if ADR_INDEX not in pages.values():
         rows = ["# Architecture decisions", "",
                 "One file per decision, in the order they were made. The status"
@@ -597,7 +795,7 @@ def build() -> int:
 
     spec = {posixpath.basename(p)[:-3]: p for p in pages if p.startswith("spec/")}
     order = SPEC_ORDER + sorted(n for n in spec if n not in SPEC_ORDER)
-    summary += ["", "# Specification", ""]
+    summary += ["", f"# {specification}", ""]
     for n in order:
         if n in spec:
             title = {"README": "Specification overview",
@@ -614,7 +812,37 @@ def build() -> int:
         raise BuildError("the landing page holds a word of the local deny-list")
     (SRC / "index.md").write_text(index, encoding="utf-8")
 
+    # ---- designed pages
+    facts = site_facts(tracked, texts, adrs, official, pages)
+    for place, (template, root) in DESIGNED.items():
+        if place.split("/", 1)[0].rsplit(".", 1)[0] in RESERVED:
+            raise BuildError(f"{place}: site path is reserved")
+        page = render(template, dict(facts, root=root))
+        if denied_word(page):
+            raise BuildError(f"{place} holds a word of the local deny-list")
+        dest = DIST / place
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(page, encoding="utf-8")
+
+    # ---- stubs at the addresses the docs had at the site root
+    stubs = 0
+    for sp in sorted(pages.values()):
+        if not sp.startswith(MOVED):
+            continue
+        old = sp[:-3] + ".html"
+        target = f"{DOCS}/{old}"
+        dest = DIST / old
+        if dest.exists():
+            raise BuildError(f"{old}: a redirect stub would replace a page")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        href = posixpath.relpath(target, posixpath.dirname(old) or ".")
+        dest.write_text(STUB.format(origin=ORIGIN, target=esc(target),
+                                    href=esc(href)), encoding="utf-8")
+        stubs += 1
+
     # ---- report
+    print(f"site: {len(DESIGNED)} designed pages and {stubs} redirect stubs"
+          f" in {DIST.relative_to(REPO)}")
     print(f"site: {len(pages) + 1} pages in {SRC.relative_to(REPO)}"
           f" ({len(adrs)} ADRs, {len(official.get('links', []))} official links,"
           f" {linker.to_github} links to GitHub,"
@@ -635,11 +863,16 @@ def build() -> int:
 
 # -------------------------------------------------------------------- check
 
+# Tags whose `src` the browser loads with the page.
+LOADS = ("img", "script", "iframe", "source", "video", "audio", "embed")
+
+
 class _Page(html.parser.HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.ids: set[str] = set()
         self.links: list[str] = []
+        self.loads: list[str] = []  # what the page loads: scripts, styles, media
         self.text: list[str] = []  # text outside <script>, <style> and <pre>
         self._skip = 0
 
@@ -660,14 +893,20 @@ class _Page(html.parser.HTMLParser):
             if name in ("id", "name"):
                 self.ids.add(value)
             elif (name == "href" and tag in ("a", "link")) or (
-                    name == "src" and tag in ("img", "script")):
+                    name == "src" and tag in LOADS):
                 self.links.append(value)
+                rel = dict(attrs).get("rel") or ""
+                if tag in LOADS or (tag == "link" and rel != "canonical"):
+                    self.loads.append(value)
 
 
-def check(book: Path) -> int:
-    if not (book / "index.html").is_file():
-        print(f"site: {book} has no index.html (build the book first)", file=sys.stderr)
-        return 1
+def check(site: Path) -> int:
+    book = site / DOCS
+    for must in [site / place for place in DESIGNED] + [book / "index.html"]:
+        if not must.is_file():
+            print(f"site: {must} is missing (run the generator, then"
+                  " `mdbook build site`)", file=sys.stderr)
+            return 1
     parsed: dict[Path, _Page] = {}
 
     def page(path: Path) -> _Page:
@@ -678,22 +917,34 @@ def check(book: Path) -> int:
         return parsed[path]
 
     errors: list[str] = []
-    html_files = sorted(book.rglob("*.html"))
+    html_files = sorted(site.rglob("*.html"))
     checked = 0
     scrubber = Scrubber(finding_ids(tracked_files()))
     for f in html_files:
         text = "".join(page(f).text)
         for s, e in scrubber.find(text):
-            errors.append(f"{f.relative_to(book).as_posix()}: a security finding ID"
+            errors.append(f"{f.relative_to(site).as_posix()}: a security finding ID"
                           f" is on the page: …{text[max(0, s - 40):s]}…")
+        where = f.relative_to(site).as_posix()
+        if denied_word(f.read_text(encoding="utf-8", errors="replace")):
+            errors.append(f"{where}: holds a word of the local deny-list")
+        # Nothing is loaded from another host: fonts, styles, scripts and
+        # images are files of the site.
+        for load in page(f).loads:
+            if SCHEME.match(load) or load.startswith("//"):
+                errors.append(f"{where}: {load}: loaded from another host")
+        if f.name == "404.html" and f.parent == site:
+            for link in page(f).links:
+                if not (link.startswith(("/", "#")) or SCHEME.match(link)):
+                    errors.append(f"{where}: {link}: a link of the 404 page"
+                                  " must start at the site root")
         for link in page(f).links:
             for base in (BLOB, TREE):
                 if link.startswith(base):
                     repo_path = link[len(base):].split("#", 1)[0].rstrip("/")
                     if (excluded_reason(repo_path)
                             or excluded_reason(repo_path + "/")):
-                        errors.append(f"{f.relative_to(book).as_posix()}:"
-                                      f" {link}: links an excluded file")
+                        errors.append(f"{where}: {link}: links an excluded file")
             if SCHEME.match(link) or link.startswith("//"):
                 continue
             path, _, frag = link.partition("#")
@@ -701,32 +952,44 @@ def check(book: Path) -> int:
             if not path:
                 target = f
             elif path.startswith("/"):
-                target = book / path.lstrip("/")
+                target = site / path.lstrip("/")
+            elif f.name == "404.html" and f.parent == book:
+                # mdBook's own 404 page resolves its links from `site-url`
+                target = book / path
             else:
                 target = f.parent / path
             target = Path(posixpath.normpath(target.as_posix()))
             if target.is_dir():
                 target = target / "index.html"
             checked += 1
-            where = f.relative_to(book).as_posix()
             if not target.exists():
                 errors.append(f"{where}: {link}: no such file")
                 continue
             if frag and target.suffix == ".html" and frag not in page(target).ids:
                 errors.append(f"{where}: {link}: no id #{frag}")
     for p, reason in list(EXCLUDED_FILES.items()):
-        out = book / (site_path(p)[:-3] + ".html")
-        if out.exists():
-            errors.append(f"excluded file {p} is in the site ({reason})")
+        for out in (book / (site_path(p)[:-3] + ".html"), site / (p[:-3] + ".html")):
+            if out.exists():
+                errors.append(f"excluded file {p} is in the site ({reason})")
     for prefix in EXCLUDED_DIRS:
-        if (book / prefix).exists():
-            errors.append(f"excluded directory {prefix} is in the site")
+        for out in (book / site_path(prefix), book / prefix, site / prefix):
+            if out != book and out.exists():
+                errors.append(f"excluded directory {prefix} is in the site")
+    for name in RESERVED:
+        if (site / name).exists() or (site / f"{name}.html").exists():
+            errors.append(f"/{name} is reserved and must stay free")
     official = json.loads((REPO / "links/official.json").read_text(encoding="utf-8"))
-    landing_html = (book / "index.html").read_text(encoding="utf-8")
-    for link in official.get("links", []):
-        title = link.get("title", link.get("id", ""))
-        if f">{html.escape(title, quote=False)}<" not in landing_html:
-            errors.append(f"index.html: official link {title!r} is not in the table")
+    for where, what in (("index.html", "on the home page"),
+                        (f"{DOCS}/index.html", "in the table of the docs")):
+        text = (site / where).read_text(encoding="utf-8")
+        for link in official.get("links", []):
+            title = link.get("title", link.get("id", ""))
+            if f">{html.escape(title, quote=False)}<" not in text:
+                errors.append(f"{where}: official link {title!r} is not {what}")
+    for place in DESIGNED:
+        left = PLACEHOLDER.findall((site / place).read_text(encoding="utf-8"))
+        if left:
+            errors.append(f"{place}: placeholder(s) left: {', '.join(sorted(set(left)))}")
     print(f"site: checked {checked} links in {len(html_files)} HTML files")
     for e in errors:
         print(f"site: {e}", file=sys.stderr)
@@ -738,8 +1001,8 @@ def check(book: Path) -> int:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--check", metavar="BOOK_DIR", type=Path,
-                    help="check the links of a built site instead of building")
+    ap.add_argument("--check", metavar="SITE_DIR", type=Path,
+                    help="check a built site (site/dist) instead of building")
     args = ap.parse_args()
     try:
         if args.check:
