@@ -12,6 +12,8 @@ Operations commands (`list`, `meta`, `resolve`, `sub`, `set`, `invoke`, `flow`, 
 | `wyr replay <f.cbor> --flow <def.json5>` | no | run a flow offline on a recording |
 | `wyr tree [node] [--depth 3]` | yes | recursive listing |
 | `wyr watch <pattern>` | yes | alias of `sub` |
+| `wyr image build --image <base.img[.gz]> --index <index.json> --board <id> --config <wyrmd.json5> --out <file.img>` | no | write a configuration into a board's base image (ADR 0051 §4; `docs/operations.md` "Board images") |
+| `wyr image inspect --image <file> --index <index.json> --board <id>` | no | whether an image's config region is empty or assembled, and its file names with sizes |
 
 ## `wyr new link`
 ```

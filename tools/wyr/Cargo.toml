@@ -1,6 +1,6 @@
 [package]
 name = "wyr"
-description = "WYRM CLI: list, tree, sub, set, invoke, meta, resolve, flow, bench, keygen, admin and dev commands (new, dev, sim, record, replay)"
+description = "WYRM CLI: list, tree, sub, set, invoke, meta, resolve, flow, bench, keygen, admin, dev commands (new, dev, sim, record, replay) and board images (image build, inspect)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -32,6 +32,10 @@ wyrm-link-probe.workspace = true
 wyrm-gateway-client.workspace = true
 wyrm-wasm-host.workspace = true
 wit-component.workspace = true
+# `wyr image` (ADR 0051 §4): the config region and the index; a base image is read as gzip too
+wyrm-image.workspace = true
+flate2.workspace = true
+thiserror.workspace = true
 
 [dev-dependencies]
 wyrm-link-sdk = { workspace = true, features = ["harness"] }

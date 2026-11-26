@@ -385,6 +385,84 @@ packages: { seed_dir: "/usr/share/wyrm/seed" },
   writes no `seed.done`. The broker logs a warning and tries again at every
   start. A `seed.progress.json` that cannot be read does the same.
 
+### Board images (ADR 0051 §4)
+
+A board's **base image** is OpenWrt with `wyrmd` and an empty 4 MiB config
+region. `wyr image build` writes your configuration into that region, on
+your machine: nothing of it goes to a server. The device reads the region
+at its first boot and wipes it.
+
+You need three files: the base image of the board (`.img`, or `.img.gz` as
+downloaded), the index it was published with (`index.json`, format
+`wyrm-images/1`) and your `wyrmd.json5`.
+
+```
+wyr image build --image wyrm-0.9.0-rpi4.img.gz --index index.json --board rpi4 \
+    --config wyrmd.json5 --new-setup-code --out plant-rpi4.img
+```
+
+It prints the output path and, with `--new-setup-code`, one more line:
+`setup code: ABCD-EFGH-…`. That is the only time the code is shown; the
+image holds its hash, which is printed nowhere. Give the code to the person
+who sets the broker up, apart from the image (see "First admin from a setup
+code" above). Then write `plant-rpi4.img` to the card.
+
+| Option | File in the region | Meaning |
+|---|---|---|
+| `--config <file>` | `wyrmd.json5` | the broker's configuration; required |
+| `--network <file>` | `network` | the device's network as a UCI file; without it the device is a DHCP client |
+| `--seed <file>` | `seed.json` | which of the carried links are installed at the first start (`wyrm-seed/1`) |
+| `--new-setup-code` | `setup` | make a setup code, store its hash, print the code once |
+| `--setup-hash <hex>` | `setup` | the hash of a code made before (`wyrmd setup-code`, second line); not with `--new-setup-code` |
+| `--authorized-keys <file>` | `authorized_keys` | SSH public keys for `root`; without it the device has no SSH login |
+| `--timezone <tz>` | `timezone` | the IANA name, for example `Europe/Kyiv` |
+| `--ntp <servers>` | `ntp` | NTP servers separated by commas |
+| `--out <file>` | | the image to write, raw; an existing file is replaced only with `--force` |
+
+What the command checks, in this order:
+
+1. The index has the board, and the files fit the region and are text.
+   This is refused before the image is read.
+2. The region at the index's `config_offset` does not hold a configuration
+   already. **An image is assembled only from a base image**: an assembled
+   image is refused, so take the base image as it was published.
+3. The image has the size and the SHA-256 of its index entry. Any other
+   file is refused (a broken download, another board, another release):
+   the offset is right for those bytes only.
+4. The region is the empty one a base image carries (`WYRMCFG0` and zeros).
+
+- The image is read once: it is copied, unpacked when it is gzip (told by
+  its first two bytes, not by its name) and hashed in the same pass.
+- The output is written as a temporary file beside `--out`
+  (`<name>.<pid>.tmp`) and renamed at the end. A refused or failed run
+  leaves no output and no temporary file, and an existing `--out` stays as
+  it was.
+- The output is readable by its owner only (0600 on Unix). It holds the
+  setup hash and your configuration: keep it like a secret, as the hash
+  itself (whoever holds the hash can prove a CA to a client that has the
+  code).
+- `--setup-hash` on a command line is visible to other users of the
+  machine while the command runs; prefer `--new-setup-code` on a shared
+  machine.
+- Without `--new-setup-code` and `--setup-hash` the image has no setup
+  hash: nobody can make the first admin from the network.
+
+`wyr image inspect --image <file> --index index.json --board <id>` shows
+what the region of an image holds, raw or gzip:
+
+```
+board: rpi4
+region: assembled
+wyrmd.json5 412
+setup 64
+authorized_keys 96
+```
+
+`region: empty` is a base image. Each line after it is a file name and its
+size in bytes. No content is shown, of `setup` and `authorized_keys` least
+of all. A file of another size than the index says, or with no region at
+the offset, is refused.
+
 ### Recovery time
 
 The recovery time (RTO) of a restart is the sum of:
