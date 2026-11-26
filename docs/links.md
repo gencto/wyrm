@@ -196,6 +196,11 @@ A downstream broker is not installed here: as in DSA, it adds this broker
 itself and comes in through a token, `allow_all_links` or quarantine
 (README, Two brokers; ADR 0015).
 
+A board image can install packages without this menu: the broker installs
+the packages of its seed directory (`packages.seed_dir`) once, on its first
+start, through the same path and checks as *from Zip*, as the subject
+`broker:seed` ([operations.md](operations.md), Seed packages; ADR 0051 §1).
+
 *Name* is the new link's id: `wy/<site>/downstream/<Name>`. It is a key segment
 (letters, digits, `.`, `_`, `-`; not starting with `.`), and must not be the
 name of an existing link, a removed remote link, a downstream site or an

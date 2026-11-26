@@ -1006,6 +1006,342 @@ async fn install_link_from_zip() {
     env.stop().await;
 }
 
+/// A seed directory (ADR 0051 §1) at `dir`: `seed.json` listing `entries`
+/// (`{link, file, accept}`) and the `files` beside it.
+fn make_seed(dir: &std::path::Path, entries: serde_json::Value, files: &[(&str, Vec<u8>)]) {
+    std::fs::create_dir_all(dir).unwrap();
+    let seed = serde_json::json!({ "format": "wyrm-seed/1", "links": entries });
+    std::fs::write(dir.join("seed.json"), seed.to_string()).unwrap();
+    for (name, bytes) in files {
+        std::fs::write(dir.join(name), bytes).unwrap();
+    }
+}
+
+/// The `wyrmd.json5` fields that name the seed directory `dir`.
+fn seed_extra(dir: &std::path::Path) -> String {
+    format!(r#"packages: {{ seed_dir: "{}" }},"#, dir.display())
+}
+
+/// `data_dir/seed.done` once the seed wrote it: `links` maps each link to
+/// `ok`, `skipped: the link exists` or the message of the failure.
+async fn seed_done(data: &std::path::Path) -> serde_json::Value {
+    eventually("seed.done", 90, || async {
+        let b = std::fs::read(data.join("seed.done")).ok()?;
+        serde_json::from_slice(&b).ok()
+    })
+    .await
+}
+
+/// Waits until link `id` answers with nodes of its own (across rebuilds).
+async fn link_runs(env: &Env, id: &str) {
+    eventually(&format!("{id} runs"), 60, || async {
+        let c = WyrmClient::new(env.try_session().await?).with_timeout(Duration::from_secs(3));
+        let ch = c
+            .children(&format!("wy/{SITE}/downstream/{id}"))
+            .await
+            .ok()?;
+        (!ch.is_empty()).then_some(())
+    })
+    .await;
+}
+
+/// The audit records the seed wrote (subject `broker:seed`).
+fn seed_records(env: &Env) -> Vec<wyrm_admin::audit::AuditRecord> {
+    env.ctl
+        .audit_tail(500)
+        .into_iter()
+        .filter(|r| r.sub == "broker:seed")
+        .collect()
+}
+
+/// Waits until the broker answers a client again (after a start or a rebuild).
+async fn broker_answers(env: &Env) {
+    eventually("the broker answers", 30, || async {
+        let c = WyrmClient::new(env.try_session().await?).with_timeout(Duration::from_secs(3));
+        c.children(&format!("wy/{SITE}/sys/links")).await.ok()
+    })
+    .await;
+}
+
+/// ADR 0051 §1: on its first start the broker installs each package of its
+/// seed as `install_zip` does, as `broker:seed`, and writes `seed.done`; a
+/// restart installs nothing again.
+#[tokio::test(flavor = "multi_thread")]
+async fn seed_installs_packages_once() {
+    let base = temp_dir("seedonce");
+    let (data, seed) = (base.join("data"), base.join("seed"));
+    make_seed(
+        &seed,
+        serde_json::json!([
+            { "link": "sa", "file": "a.zip", "accept": true },
+            { "link": "sb", "file": "b.zip" },
+        ]),
+        &[
+            ("a.zip", driver_package("seeda", "1.0.0", "seed a", "mock")),
+            ("b.zip", driver_package("seedb", "1.0.0", "seed b", "mock")),
+        ],
+    );
+    let env = Env::start_in(&data, &seed_extra(&seed)).await;
+    let done = seed_done(&data).await;
+    assert_eq!(done["links"]["sa"], "ok", "{done}");
+    assert_eq!(done["links"]["sb"], "ok", "{done}");
+    assert!(
+        done["time"].as_str().is_some_and(|t| t.ends_with('Z')),
+        "{done}"
+    );
+    link_runs(&env, "sa").await;
+    link_runs(&env, "sb").await;
+    let reg = env.ctl.registry();
+    assert_eq!(reg.links["sa"].driver, "pkg:seeda");
+    assert_eq!(reg.packages["seedb"].version, "1.0.0");
+    assert_eq!(reg.packages["seeda"].source, "seed:a.zip");
+    let records = seed_records(&env);
+    assert!(
+        records.iter().any(|r| r.op.name() == "package_install"),
+        "{records:?}"
+    );
+    assert!(records
+        .iter()
+        .any(|r| r.op.name() == "install" && r.key == "sb"));
+    let marker = std::fs::read(data.join("seed.done")).unwrap();
+    // the marker says all of it: the progress file is gone
+    assert!(!data.join("seed.progress.json").exists());
+    env.stop().await;
+
+    // a restart: the marker is there, nothing is installed again
+    let env = Env::start_in(&data, &seed_extra(&seed)).await;
+    broker_answers(&env).await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    assert!(seed_records(&env).len() <= records.len());
+    assert_eq!(std::fs::read(data.join("seed.done")).unwrap(), marker);
+    env.stop().await;
+}
+
+/// Review focus 5: the seed runs once. A seeded link that was removed stays
+/// gone after a restart, and an entry that failed is not tried again, even
+/// when its file is in place by then.
+#[tokio::test(flavor = "multi_thread")]
+async fn seed_runs_once() {
+    let base = temp_dir("seedrunsonce");
+    let (data, seed) = (base.join("data"), base.join("seed"));
+    make_seed(
+        &seed,
+        serde_json::json!([
+            { "link": "ra", "file": "a.zip", "accept": true },
+            { "link": "rb", "file": "b.zip", "accept": true },
+        ]),
+        &[("a.zip", driver_package("runa", "1.0.0", "run a", "mock"))],
+    );
+    let env = Env::start_in(&data, &seed_extra(&seed)).await;
+    let done = seed_done(&data).await;
+    assert_eq!(done["links"]["ra"], "ok", "{done}");
+    assert_ne!(done["links"]["rb"], "ok", "{done}");
+    link_runs(&env, "ra").await;
+    invoke_retry(
+        &env,
+        &format!("wy/{SITE}/sys/links/ra"),
+        "remove",
+        Value::Map(BTreeMap::new()),
+    )
+    .await;
+    eventually("ra removed", 30, || async {
+        (!env.ctl.registry().links.contains_key("ra")).then_some(())
+    })
+    .await;
+    env.stop().await;
+
+    std::fs::write(
+        seed.join("b.zip"),
+        driver_package("runb", "1.0.0", "run b", "mock"),
+    )
+    .unwrap();
+    let env = Env::start_in(&data, &seed_extra(&seed)).await;
+    broker_answers(&env).await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    let reg = env.ctl.registry();
+    assert!(!reg.links.contains_key("ra"));
+    assert!(!reg.links.contains_key("rb"));
+    assert!(!reg.packages.contains_key("runb"));
+    env.stop().await;
+}
+
+/// One entry that fails (its file is missing) does not stop the next one;
+/// the marker records why it failed.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_broken_seed_entry_does_not_stop_the_others() {
+    let base = temp_dir("seedbroken");
+    let (data, seed) = (base.join("data"), base.join("seed"));
+    make_seed(
+        &seed,
+        serde_json::json!([
+            { "link": "bm", "file": "missing.zip", "accept": true },
+            { "link": "bz", "file": "bad.zip", "accept": true },
+            { "link": "bn", "file": "net.zip" },
+            { "link": "bg", "file": "good.zip", "accept": true },
+        ]),
+        &[
+            ("bad.zip", b"not a zip".to_vec()),
+            // asks for a network allowlist; the entry does not accept it
+            (
+                "net.zip",
+                driver_package_with(
+                    "brokennet",
+                    "1.0.0",
+                    "asks for net",
+                    "mock",
+                    Some(serde_json::json!({ "net": ["127.0.0.1:9"] })),
+                ),
+            ),
+            (
+                "good.zip",
+                driver_package("brokengood", "1.0.0", "good", "mock"),
+            ),
+        ],
+    );
+    let env = Env::start_in(&data, &seed_extra(&seed)).await;
+    let done = seed_done(&data).await;
+    let msg = |l: &str| done["links"][l].as_str().unwrap_or_default().to_owned();
+    assert!(msg("bm").contains("missing.zip"), "{done}");
+    assert!(msg("bz").contains("zip"), "{done}");
+    assert_ne!(msg("bz"), "ok", "{done}");
+    assert!(
+        msg("bn").contains("asks for: network 127.0.0.1:9"),
+        "{done}"
+    );
+    assert_eq!(msg("bg"), "ok", "{done}");
+    link_runs(&env, "bg").await;
+    let reg = env.ctl.registry();
+    assert!(!reg.links.contains_key("bm") && !reg.links.contains_key("bz"));
+    assert!(!reg.links.contains_key("bn") && !reg.packages.contains_key("brokennet"));
+    env.stop().await;
+}
+
+/// A run cut short during an install (a power cut) goes on at the next
+/// start: an entry with an outcome keeps it, an entry that started and has
+/// no outcome is reported as not finished and is not installed again, the
+/// others are tried.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_seed_cut_short_goes_on_and_reports_the_cut_entry() {
+    let base = temp_dir("seedcut");
+    let (data, seed) = (base.join("data"), base.join("seed"));
+    make_seed(
+        &seed,
+        serde_json::json!([
+            { "link": "ca", "file": "a.zip" },
+            { "link": "cb", "file": "b.zip", "accept": true },
+            { "link": "cc", "file": "c.zip", "accept": true },
+        ]),
+        &[
+            ("a.zip", driver_package("cuta", "1.0.0", "cut a", "mock")),
+            ("b.zip", driver_package("cutb", "1.0.0", "cut b", "mock")),
+            ("c.zip", driver_package("cutc", "1.0.0", "cut c", "mock")),
+        ],
+    );
+    // what the cut run left: `ca` ended (failed), `cb` started
+    std::fs::create_dir_all(&data).unwrap();
+    std::fs::write(
+        data.join("seed.progress.json"),
+        serde_json::json!({ "links": {
+            "ca": { "started": "2026-11-25T00:00:00Z", "outcome": "an earlier outcome" },
+            "cb": { "started": "2026-11-25T00:00:01Z" },
+        }})
+        .to_string(),
+    )
+    .unwrap();
+    let env = Env::start_in(&data, &seed_extra(&seed)).await;
+    let done = seed_done(&data).await;
+    assert_eq!(done["links"]["ca"], "an earlier outcome", "{done}");
+    let cb = done["links"]["cb"].as_str().unwrap_or_default();
+    assert!(cb.starts_with("started and not finished"), "{done}");
+    assert_eq!(done["links"]["cc"], "ok", "{done}");
+    link_runs(&env, "cc").await;
+    let reg = env.ctl.registry();
+    assert!(!reg.links.contains_key("ca") && !reg.links.contains_key("cb"));
+    assert!(!reg.packages.contains_key("cutb"));
+    env.stop().await;
+}
+
+/// A seed link whose id exists (a restored backup) is skipped before its
+/// zip is read: the package installed earlier is not updated by the seed.
+#[tokio::test(flavor = "multi_thread")]
+async fn seed_skips_an_existing_link() {
+    let base = temp_dir("seedskip");
+    let (data, seed) = (base.join("data"), base.join("seed"));
+    let env = Env::start_in(&data, "").await;
+    let args = Value::Map(BTreeMap::from([
+        ("name".to_owned(), Value::from("pk1")),
+        ("zip".to_owned(), Value::Bytes(mock_package("1.0.0"))),
+        ("accept".to_owned(), Value::Bool(true)),
+    ]));
+    invoke_retry(&env, &format!("wy/{SITE}/sys/links"), "install_zip", args).await;
+    eventually("pk1 installed", 30, || async {
+        env.ctl.registry().links.contains_key("pk1").then_some(())
+    })
+    .await;
+    env.stop().await;
+
+    make_seed(
+        &seed,
+        serde_json::json!([{ "link": "pk1", "file": "new.zip", "accept": true }]),
+        &[("new.zip", mock_package("1.1.0"))],
+    );
+    let env = Env::start_in(&data, &seed_extra(&seed)).await;
+    let done = seed_done(&data).await;
+    assert_eq!(done["links"]["pk1"], "skipped: the link exists", "{done}");
+    assert_eq!(env.ctl.registry().packages["mockpkg"].version, "1.0.0");
+    env.stop().await;
+}
+
+/// A seed `file` is a plain name inside the seed directory: a path out of it,
+/// a path into a subdirectory and a symlink are refused and nothing is read.
+#[tokio::test(flavor = "multi_thread")]
+async fn seed_file_names_stay_in_the_seed_dir() {
+    let base = temp_dir("seednames");
+    let (data, seed) = (base.join("data"), base.join("seed"));
+    std::fs::create_dir_all(&base).unwrap();
+    std::fs::write(
+        base.join("x.zip"),
+        driver_package("outside", "1.0.0", "outside", "mock"),
+    )
+    .unwrap();
+    make_seed(
+        &seed,
+        serde_json::json!([
+            { "link": "up", "file": "../x.zip", "accept": true },
+            { "link": "sub", "file": "d/x.zip", "accept": true },
+            { "link": "dot", "file": ".x.zip", "accept": true },
+            { "link": "sym", "file": "link.zip", "accept": true },
+        ]),
+        &[],
+    );
+    std::fs::create_dir_all(seed.join("d")).unwrap();
+    std::fs::write(
+        seed.join("d/x.zip"),
+        driver_package("outside", "1.0.0", "outside", "mock"),
+    )
+    .unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(base.join("x.zip"), seed.join("link.zip")).unwrap();
+    let env = Env::start_in(&data, &seed_extra(&seed)).await;
+    let done = seed_done(&data).await;
+    for l in ["up", "sub", "dot"] {
+        let m = done["links"][l].as_str().unwrap_or_default();
+        assert!(m.contains("not a plain file name"), "{l}: {done}");
+    }
+    #[cfg(unix)]
+    assert_ne!(done["links"]["sym"], "ok", "{done}");
+    let reg = env.ctl.registry();
+    assert!(
+        !reg.packages.contains_key("outside"),
+        "{:?}",
+        reg.packages.keys()
+    );
+    for l in ["up", "sub", "dot", "sym"] {
+        assert!(!reg.links.contains_key(l), "{l}");
+    }
+    env.stop().await;
+}
+
 /// A tiny HTTP/1.1 server on loopback: `path → (status, extra headers, body)`.
 async fn serve_files(files: std::collections::HashMap<String, (u16, String, Vec<u8>)>) -> u16 {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -5012,6 +5348,278 @@ async fn a_live_list_from_above_never_lists_an_empty_link() {
     let _ = e_stop.send(());
     e_task.await.unwrap().unwrap();
     c_task.await.unwrap().unwrap();
+}
+
+/// `GET /api/info` over TLS from `addr`, trusting only the PEM roots in `ca`; the body
+/// decoded.
+async fn info_over_tls(addr: std::net::SocketAddr, ca: &std::path::Path) -> Value {
+    use rustls_pki_types::pem::PemObject;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let mut roots = rustls::RootCertStore::empty();
+    for c in rustls_pki_types::CertificateDer::pem_file_iter(ca).unwrap() {
+        roots.add(c.unwrap()).unwrap();
+    }
+    let cfg = rustls::ClientConfig::builder_with_provider(Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()
+    .unwrap()
+    .with_root_certificates(roots)
+    .with_no_client_auth();
+    let connector = tokio_rustls::TlsConnector::from(Arc::new(cfg));
+    let name = rustls_pki_types::ServerName::IpAddress(addr.ip().into());
+    let tcp = tokio::net::TcpStream::connect(addr).await.unwrap();
+    let mut s = tokio::time::timeout(Duration::from_secs(10), connector.connect(name, tcp))
+        .await
+        .unwrap()
+        .expect("the certificate verifies under the site CA alone");
+    s.write_all(b"GET /api/info HTTP/1.1\r\nHost: gw\r\nConnection: close\r\n\r\n")
+        .await
+        .unwrap();
+    let mut resp = Vec::new();
+    // the server may end without close_notify: what came is the answer
+    let _ = tokio::time::timeout(Duration::from_secs(10), s.read_to_end(&mut resp)).await;
+    assert!(
+        resp.starts_with(b"HTTP/1.1 200"),
+        "{}",
+        String::from_utf8_lossy(&resp)
+    );
+    let split = resp.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
+    wyrm_core::codec::from_slice::<Value>(&resp[split + 4..]).unwrap()
+}
+
+/// ADR 0051 §3: `gateway.tls: "site_ca"` serves TLS with a certificate the broker issues
+/// from its own site CA; a client that trusts that CA alone reads `/api/info`, whose
+/// `ca_fp` is the CA's code; a second start keeps the same certificate file.
+#[tokio::test(flavor = "multi_thread")]
+async fn gateway_site_ca_serves_tls() {
+    use sha2::Digest;
+    let dir = temp_dir("gateway-site-ca");
+    let extra = r#"gateway: { listen: "127.0.0.1:0", tls: "site_ca" },"#;
+    let cert = dir.join("gateway").join("tls.pem");
+    let ca = dir.join("pki").join("ca.pem");
+
+    let env_lock = GATEWAY_ENV.lock().await;
+    let env = Env::start_in(&dir, extra).await;
+    drop(env_lock);
+    let addr = env.gateway.clone().expect("gateway").local_addr().await;
+    let Value::Map(info) = info_over_tls(addr, &ca).await else {
+        panic!("info is a map")
+    };
+    let ca_der = {
+        use rustls_pki_types::pem::PemObject;
+        rustls_pki_types::CertificateDer::from_pem_file(&ca)
+            .unwrap()
+            .to_vec()
+    };
+    let fp = hex::encode(&sha2::Sha256::digest(&ca_der)[..16]);
+    assert_eq!(info.get("tls"), Some(&Value::Bool(true)));
+    assert_eq!(info.get("ca_fp"), Some(&Value::Str(fp.clone())));
+    assert_eq!(info.get("ca"), Some(&Value::Bytes(ca_der.clone())));
+    let pem = std::fs::read(&cert).unwrap();
+    let mtime = std::fs::metadata(&cert).unwrap().modified().unwrap();
+    env.stop().await;
+
+    let env_lock = GATEWAY_ENV.lock().await;
+    let env = Env::start_in(&dir, extra).await;
+    drop(env_lock);
+    assert_eq!(std::fs::read(&cert).unwrap(), pem, "the same certificate");
+    assert_eq!(
+        std::fs::metadata(&cert).unwrap().modified().unwrap(),
+        mtime,
+        "not written again"
+    );
+    let addr = env.gateway.clone().expect("gateway").local_addr().await;
+    let Value::Map(info) = info_over_tls(addr, &ca).await else {
+        panic!("info is a map")
+    };
+    assert_eq!(info.get("ca_fp"), Some(&Value::Str(fp)));
+    env.stop().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// ADR 0051 §3 with ADR 0048 §3.6: a `site_ca` broker restores the keys of another site's
+/// backup; at the next start its gateway serves a certificate of the restored CA (the old
+/// one is removed with everything the replaced CA issued), and `ca_fp` names that CA.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_key_restore_gives_the_gateway_a_certificate_of_the_new_ca() {
+    use sha2::Digest;
+    let secrets_on = "backups: { export_secrets: true },";
+    let dir_a = temp_dir("restore-gw-a");
+    let a = Env::start_in(&dir_a, secrets_on).await;
+    let ca_client = a.client().await;
+    let backups = format!("wy/{SITE}/sys/backups");
+    let sections = names(&["control", "keys"]);
+    let id = backup_id(
+        ca_client
+            .invoke_one(
+                &backups,
+                "create",
+                args_map(&[
+                    ("sections", sections.clone()),
+                    ("passphrase", BACKUP_PASS.into()),
+                ]),
+            )
+            .await
+            .unwrap(),
+    );
+    backup_done(&a, &id).await;
+    let bytes = download_backup(&ca_client, &id, 16 << 20).await;
+    let ca_a = std::fs::read(dir_a.join("pki/ca.pem")).unwrap();
+    drop(ca_client);
+    a.stop().await;
+
+    // a broker of the same site name with its own CA and a gateway certificate from it
+    let dir_b = temp_dir("restore-gw-b");
+    let extra = format!(r#"{secrets_on} gateway: {{ listen: "127.0.0.1:0", tls: "site_ca" }},"#);
+    let start = |dir: std::path::PathBuf, extra: String| async move {
+        let env_lock = GATEWAY_ENV.lock().await;
+        std::env::remove_var(wyrmd::GATEWAY_ADMIN_PASSWORD_ENV);
+        let env = Env::start_in(&dir, &extra).await;
+        drop(env_lock);
+        env
+    };
+    let b = start(dir_b.clone(), extra.clone()).await;
+    let ca_b = dir_b.join("pki/ca.pem");
+    let addr = b.gateway.clone().expect("gateway").local_addr().await;
+    info_over_tls(addr, &ca_b).await;
+    let old_cert = std::fs::read(dir_b.join("gateway/tls.pem")).unwrap();
+    assert_ne!(std::fs::read(&ca_b).unwrap(), ca_a);
+
+    let cb = slow_client(&b).await;
+    let upload = upload_backup(&cb, &bytes, 64 << 10).await;
+    let args = args_map(&[
+        ("upload", upload.into()),
+        ("passphrase", BACKUP_PASS.into()),
+        ("sections", sections),
+        ("mode", "replace".into()),
+        ("replace_keys", Value::Bool(true)),
+    ]);
+    let done = eventually("the restore is staged", 40, || async {
+        match cb.invoke_one(&backups, "restore_apply", args.clone()).await {
+            Ok(v) => Some(v),
+            Err(e) if e.is(wyrm_core::Status::Busy) => None,
+            Err(e) => panic!("restore_apply: {e}"),
+        }
+    })
+    .await;
+    let Some(Value::Map(done)) = done else {
+        panic!("restore_apply replace: a map");
+    };
+    assert_eq!(done.get("restart"), Some(&Value::Bool(true)));
+    drop(cb);
+    eventually("the broker stops for the restore", 30, || async {
+        b.task.is_finished().then_some(())
+    })
+    .await;
+    b.stop().await;
+
+    // the next start applies the keys, then issues the gateway's certificate from them
+    let b = start(dir_b.clone(), extra).await;
+    assert_eq!(std::fs::read(&ca_b).unwrap(), ca_a, "the restored CA");
+    let new_cert = std::fs::read(dir_b.join("gateway/tls.pem")).unwrap();
+    assert_ne!(new_cert, old_cert, "issued again");
+    let addr = b.gateway.clone().expect("gateway").local_addr().await;
+    // the handshake verifies under the restored CA alone
+    let Value::Map(info) = info_over_tls(addr, &ca_b).await else {
+        panic!("info is a map")
+    };
+    let ca_der = {
+        use rustls_pki_types::pem::PemObject;
+        rustls_pki_types::CertificateDer::from_pem_file(&ca_b)
+            .unwrap()
+            .to_vec()
+    };
+    let fp = hex::encode(&sha2::Sha256::digest(&ca_der)[..16]);
+    assert_eq!(info.get("ca_fp"), Some(&Value::Str(fp)));
+    b.stop().await;
+    let _ = std::fs::remove_dir_all(&dir_a);
+    let _ = std::fs::remove_dir_all(&dir_b);
+}
+
+/// ADR 0051 §3: `wyrmd setup-code` prints a code and its hash, nothing else; a broker
+/// started with the hash in `gateway.setup_file` takes it in and removes the file; the code
+/// makes the first admin over `POST /api/setup`, who then logs in. At a later start a setup
+/// file beside that user is void and removed, and one that is not a hash stays.
+#[tokio::test(flavor = "multi_thread")]
+async fn first_admin_from_a_setup_file() {
+    const PW: &str = "the first admin's password";
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_wyrmd"))
+        .arg("setup-code")
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{out:?}");
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    let [code, hash] = stdout.lines().collect::<Vec<_>>()[..] else {
+        panic!("two lines: {stdout:?}")
+    };
+    assert_eq!(hash.len(), 64, "{stdout:?}");
+    assert_eq!(
+        wyrm_gateway::setup::code_hash(code).map(hex::encode),
+        Some(hash.to_owned())
+    );
+
+    let dir = temp_dir("first-admin");
+    let file = temp_dir("first-admin-setup-file");
+    std::fs::write(&file, format!("  {hash}\n")).unwrap();
+    let extra = format!(
+        r#"gateway: {{ listen: "127.0.0.1:0", setup_file: "{}" }},"#,
+        file.display()
+    );
+    let start = |extra: String| {
+        let dir = dir.clone();
+        async move {
+            // no admin from the environment of another test: it would void the setup
+            let env_lock = GATEWAY_ENV.lock().await;
+            std::env::remove_var(wyrmd::GATEWAY_ADMIN_PASSWORD_ENV);
+            let env = Env::start_in(&dir, &extra).await;
+            drop(env_lock);
+            env
+        }
+    };
+    let env = start(extra.clone()).await;
+    assert!(!file.exists(), "taken in and removed");
+    let gw = env.gateway.clone().expect("gateway");
+    assert!(gw.setup_pending());
+    let addr = gw.local_addr().await;
+    let body = |code: &str| {
+        let mut m = BTreeMap::new();
+        m.insert("code".to_owned(), Value::from(code));
+        m.insert("user".to_owned(), Value::from("first"));
+        m.insert("password".to_owned(), Value::from(PW));
+        wyrm_core::codec::to_vec(&Value::Map(m)).unwrap()
+    };
+    let (st, v) = http_post(addr, "/api/setup", "", body(code)).await;
+    assert_eq!((st, &v), (204, &Value::Null));
+    wyrm_gateway_client::Gateway::login(&format!("http://{addr}"), "first", PW)
+        .await
+        .expect("the first admin logs in");
+    let (st, _) = http_post(addr, "/api/setup", "", body(code)).await;
+    assert_eq!(st, 409, "used up");
+    // the gateway holds the users store: let it go before the next start opens it
+    drop(gw);
+    env.stop().await;
+
+    // a setup file beside a user (a restored image, a crash before the removal): void,
+    // and so is a pending setup in the gateway's directory
+    std::fs::write(&file, hash).unwrap();
+    let pending = dir.join("gateway").join(wyrm_gateway::setup::FILE);
+    std::fs::write(&pending, hash).unwrap();
+    let env = start(extra.clone()).await;
+    assert!(!file.exists(), "removed");
+    let gw = env.gateway.clone().expect("gateway");
+    assert!(!gw.setup_pending());
+    assert!(!pending.exists(), "dropped at start");
+    drop(gw);
+    env.stop().await;
+
+    // not a hash: left where it is
+    std::fs::write(&file, "not a setup hash\n").unwrap();
+    let env = start(extra).await;
+    assert!(file.exists(), "kept for the operator");
+    env.stop().await;
+    let _ = std::fs::remove_file(&file);
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// Iteration 5: the user gateway runs in wyrmd. The first admin comes from
@@ -11000,6 +11608,11 @@ async fn standby_follows_stores() {
     let bundle = wyrm_admin::keys::export(&a_dir, BUNDLE_PASS).unwrap();
     std::fs::create_dir_all(&s_dir).unwrap();
     wyrm_admin::keys::import(&s_dir, &bundle, BUNDLE_PASS).unwrap();
+    // the seed's marker and progress (ADR 0051 §1): a promoted standby never
+    // runs a finished seed again
+    let seed_marker = br#"{"time": "2026-11-25T00:00:00Z", "links": {"sa": "ok"}}"#;
+    std::fs::write(a_dir.join("seed.done"), seed_marker).unwrap();
+    std::fs::write(a_dir.join("seed.progress.json"), br#"{"links": {}}"#).unwrap();
     // a file the active does not have: gone after the first sync
     std::fs::create_dir_all(s_dir.join("packages/old/0.1")).unwrap();
     std::fs::write(s_dir.join("packages/old/0.1/run"), b"old").unwrap();
@@ -11042,6 +11655,8 @@ async fn standby_follows_stores() {
     assert!(s_dir.join("links/md/data/framework.tree").is_file());
     assert!(s_dir.join("packages/mockpkg/1.0.0").is_dir());
     assert!(s_dir.join("links/pk1/token").is_file());
+    assert_eq!(std::fs::read(s_dir.join("seed.done")).unwrap(), seed_marker);
+    assert!(s_dir.join("seed.progress.json").is_file());
     tokio::time::sleep(Duration::from_secs(3)).await; // the last storage page
     let _ = stop.send(());
     assert_eq!(

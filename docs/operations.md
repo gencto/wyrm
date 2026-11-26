@@ -160,6 +160,231 @@ Notes:
   `stop_grace_period` of 20 s so SIGTERM has time to flush. The process
   links run inside the same container.
 
+### Gateway TLS from the site CA (ADR 0051 §3)
+
+A gateway that listens beyond loopback needs TLS. Without a certificate of
+your own, let the broker issue one from its site CA:
+
+```json5
+gateway: { listen: "0.0.0.0:8445", tls: "site_ca" },
+```
+
+- At each start, before the gateway opens, the broker asks its site CA
+  (`data_dir/pki`, made on the first start) for a server certificate with
+  CN `gateway:<site>` and writes it to `data_dir/gateway/tls.pem` and
+  `tls.key` (0600).
+- The certificate names `<hostname>.local`, `wyrm-<site>.local` (the name
+  the DNS-SD announce gives) and the addresses clients use: every
+  non-loopback address of the host (IPv4, and IPv6 except link-local) when
+  `listen` is `0.0.0.0` or `[::]`, else only the listen address. On Linux
+  (OpenWrt too) the broker reads `/proc/net/if_inet6` and leaves out IPv6
+  addresses that are temporary (privacy addresses, RFC 8981), deprecated,
+  tentative or failed their duplicate check. On macOS and BSD the address
+  list gives no such flags, so every global IPv6 address is named, and a
+  host with privacy addresses gets a new certificate each time one
+  rotates; to avoid that, set `listen` to one address. The host
+  name is cut at its first dot; a host whose name cannot be read uses
+  `wyrm-<site>`. While the host has no usable address (before DHCP), the
+  certificate names only the `.local` names; it is issued again when an
+  address comes.
+- A restart keeps the certificate as it is while it names exactly the same
+  names and has more than 30 days left; otherwise the broker issues a new
+  one from the same CA. A certificate that names more (an address the host
+  no longer has) is issued again too. Clients pin the CA, not the
+  certificate, so a new one needs nothing on their side.
+- While the gateway serves, the broker reads the host's addresses every
+  30 s. When the names differ from the names of the certificate it serves
+  (an address from DHCP after the start, a new or lost address), or that
+  certificate has less than 30 days left, it issues a certificate for the
+  names and serves it from the next connection on, without a restart. A key
+  that is not the certificate's (a power cut between the two writes) also
+  makes a new pair. Open connections keep the old one. The log says
+  `gateway: certificate issued for <n> names`. `GET /api/info` `names` and
+  the device-key origins follow the new certificate at the same time.
+- Clients trust `data_dir/pki/ca.pem`. `ca_fp` in `GET /api/info`, the
+  `fp` key of the DNS-SD announce and `wyrmd ca fingerprint` are the code
+  of that CA.
+- Files of your own (`tls_cert`/`tls_key`) are read at the start and again
+  at each router rebuild (an ACL change): a renewed pair is served from
+  then on. At the start, a pair that cannot be read or does not match
+  stops the broker: `wyrmd` does not start, and the error names the
+  gateway. Fix the files and start again. At a rebuild, such a pair leaves
+  the certificate in force, with a warning in the log.
+- A key restore from another site's backup (other keys, ADR 0048) sets
+  aside `data_dir/gateway/tls.{pem,key}` with everything else the replaced
+  CA issued, and the site CA issues the gateway's certificate again at the
+  next start. A certificate that the site CA did not sign is never kept.
+- `tls` excludes `tls_cert`/`tls_key`. A certificate from a public CA (for
+  the remote MCP connector, [claude.md](claude.md)) still goes in
+  `tls_cert`/`tls_key`.
+
+### First admin from a setup code (ADR 0051 §3)
+
+A broker made from an image carries no password. Its first admin comes
+from a one-time setup code; the image holds only the code's hash.
+
+1. Make a code on any machine: `wyrmd setup-code`. It prints the code on
+   the first line (`ABCD-EFGH-…`, 26 base32 characters) and its hash (64
+   hex digits) on the second. It needs no `wyrmd.json5`.
+2. Write the hash line into a file and name it in the configuration:
+
+   ```json5
+   gateway: { listen: "0.0.0.0:8445", tls: "site_ca", setup_file: "/etc/wyrm/setup" },
+   ```
+
+3. Give the code to the person who sets the broker up, apart from the
+   image. Keep it secret: whoever has it makes the first admin. Keep the
+   hash like a secret of the image too (the file, the image, the build
+   service): whoever holds it can prove a CA to a client that has the code.
+4. Start the broker. While no user exists, it moves the hash into
+   `data_dir/gateway/setup.hash` (0600) and deletes `setup_file`. The log
+   says `gateway: setup code taken in`.
+5. The person opens Studio. `GET /api/info` shows `setup: true`, and Studio
+   asks for the code, an admin name and a password. The right code makes
+   that admin, and the setup is over: the code cannot be used again.
+
+The first contact is how the client learns which CA to trust (owner's
+answer 3 of ADR 0051), so the code proves the server to the client before
+the client proves the code to the server. A client does this, in this
+order:
+
+1. Read `GET /api/info` over TLS, accepting the certificate for now. With a
+   setup pending and TLS on, the answer holds `ca` (the DER of the CA) and
+   `setup_proof`: HMAC-SHA-256 keyed with the setup hash over
+   `"wyrm-setup-proof-v1\n"` and the bytes of `ca`.
+2. Compute the hash from the typed code and verify `setup_proof` against
+   the `ca` it was shown (`wyrm_gateway::setup::verify_setup_proof`). Check
+   that the certificate of the connection chains to that `ca`. If the proof
+   is missing or does not verify, stop: send nothing, and say that the
+   device is not the one the code belongs to.
+3. Only then send `POST /api/setup {code, user, password}` on a connection
+   that trusts that `ca` alone.
+4. Pin that `ca` for every later connection.
+
+Without the hash, nobody can make a proof for a CA of their own, so a
+device that answers in place of the broker gets neither the code nor the
+new admin's password. Over plain HTTP (loopback) there is no `ca` and no
+proof.
+
+- The code may be typed in lower case, with spaces or `-` between the
+  groups, or with none.
+- Wrong codes count against the failed-login limits, as wrong passwords
+  do: 5 failures per 60 s for one user name from one address, and 20
+  failures per 60 s from one address over all user names (an IPv6 address
+  counts by its /64). Logins and setup attempts share both budgets; past
+  them the gateway answers `429`. They are audited as
+  failed logins with the reason `setup_code_wrong`; the first admin as a
+  user added by `setup`. Neither the code nor its hash is logged.
+- Once a user exists, a setup is void. A `setup_file` is then ignored and
+  deleted, and a `setup.hash` (a restored backup, a crash between the new
+  admin and the removal) is deleted at the next start. `/api/setup`
+  answers `409 no_setup`.
+- A `setup_file` that is not 64 hex digits (white space around them aside)
+  stays where it is, with a warning in the log that names it. A
+  `setup_file` that cannot be deleted is a warning too; it is void once a
+  user exists.
+- A damaged `data_dir/gateway/setup.hash` with no user is logged at start
+  with its path and reason, and `/api/info` shows no `setup`. To recover,
+  stop the broker, make a new code with `wyrmd setup-code`, write its hash
+  into `setup_file`, and start again: the new hash replaces the damaged
+  file.
+- `WYRM_GATEWAY_ADMIN_PASSWORD` still works. When it creates an admin, a
+  setup file of the same start is void.
+- A warm standby (ADR 0036) does not receive `data_dir/gateway/setup.hash`:
+  a pending setup belongs to its host. Make each host of a pair from an
+  image with its own `setup_file`. Users replicate, so once the first admin
+  exists on the active, the setup of the other host is void. A following
+  standby does not read its `setup_file`; the file is dropped when that
+  host's broker opens as an active (at its promotion), as above.
+
+### Seed packages (ADR 0051 §1)
+
+A broker made from an image can install link packages on its first start.
+The image cannot put them into `data_dir/packages`: `data_dir` is made at
+the first start, and the broker removes a package directory that its
+registry does not know. So the image carries the packages in a read-only
+directory with a list:
+
+```json5
+packages: { seed_dir: "/usr/share/wyrm/seed" },
+```
+
+`/usr/share/wyrm/seed/seed.json`:
+
+```json
+{
+  "format": "wyrm-seed/1",
+  "links": [
+    { "link": "modbus", "file": "modbus.zip", "accept": true },
+    { "link": "mqtt", "file": "mqtt.zip" }
+  ]
+}
+```
+
+- `format` must be `wyrm-seed/1`. An unknown field is an error. `link` is
+  the id of the new link. `file` is a package zip (as for `install_zip`) in the
+  same directory. `accept` (default `false`) is the
+  *Accept requested rights* of `install_zip`: without it, a package that
+  asks for a network allowlist or grants is not installed.
+- `file` is a plain name: no `/` or `\`, no leading `.`, not empty. The
+  broker opens it without following a symlink. The seed directory itself
+  may be a symlink. A zip is bounded as for `install_zip` (64 MiB).
+- On the first start, once the router listens, the broker installs each
+  entry as `sys/links ▸ install_zip` does, with the same checks, as the
+  subject `broker:seed` (in the audit journal). An entry whose link exists
+  already (a restored backup) is skipped before its file is read: the seed
+  never changes that link or updates its package. A new link of a package
+  that is installed at another version is an update, as with
+  `install_zip`: the package moves to the seed's version, with every link
+  that runs it ([links.md](links.md) §5a).
+- One entry that fails does not stop the others. When every entry was
+  tried, the broker writes `data_dir/seed.done` (0600, written whole) and
+  never runs the seed again. The file holds the time and, per link, `ok`,
+  `skipped: the link exists`, `started and not finished: …` (below), or
+  the message of the failure. The log says `seed: link <id> installed`,
+  `… skipped (exists)`, or a warning with the message.
+- The seed runs at the first start that finds `seed.json` and no
+  `seed.done`. Normally that is the first start. A broker that has run
+  for a long time without a seed (a `seed_dir` with no `seed.json`) also
+  installs the links of a `seed.json` that an image update adds, at its
+  next start.
+- To run the seed again, delete both `data_dir/seed.done` and
+  `data_dir/seed.progress.json` and restart. Links that exist are skipped,
+  failed entries are tried again. With `seed.progress.json` left in place,
+  entries that have an outcome in it are not tried again.
+- Each install is one operation of its own: a router rebuild (an ACL
+  change, a process link that the seed installed) waits for the install in
+  progress, not for the whole seed. While a rebuild holds the broker, the
+  seed waits (up to 60 s). If the broker closes meanwhile, the seed stops
+  without `seed.done` and goes on when the admin starts again.
+- `data_dir/seed.progress.json` (written whole) records, per link, when its
+  install started and its outcome; it goes when `seed.done` is written. A
+  run that stops before `seed.done` (a rebuild, a stop, a power cut) goes
+  on at the next start from this file:
+  - an entry with an outcome keeps it and is not tried again;
+  - an entry that started and has no outcome was cut short during its
+    install. Its link or package may be half made (a link without its
+    grants). The broker logs a warning, writes `started and not finished: …`
+    in `seed.done` and does not install it again. Check the link and its
+    package: install it again with `install_zip`, or remove it;
+  - the other entries are tried.
+- A warm standby (ADR 0036) receives `seed.done` and `seed.progress.json`
+  with the other replicated files. A promoted standby never runs a
+  finished seed again, so links that the operator removed do not come back;
+  an unfinished seed goes on where the active stopped. The standby copies
+  the files and the registry WAL in separate polls, so the two can differ
+  by a poll at a failover. A link the active was installing just before
+  the failover can then show as `skipped: the link exists` (the registry
+  has the link, the copied progress file does not) or as `started and not
+  finished` on the promoted host. Check such a link as above.
+- An entry whose install succeeded but whose outcome could not be written
+  to `seed.progress.json` (a full disk) shows as `started and not finished`
+  at the next run. The link is there; check it as above.
+- A `seed.json` that is missing or cannot be read (bad JSON, another
+  `format`, a link listed twice, more than 256 links) installs nothing and
+  writes no `seed.done`. The broker logs a warning and tries again at every
+  start. A `seed.progress.json` that cannot be read does the same.
+
 ### Recovery time
 
 The recovery time (RTO) of a restart is the sum of:
@@ -227,12 +452,14 @@ Two brokers of one site on two hosts, one active, one following. The
 standby copies the control plane (the registry, flow definitions, gateway
 users), `secrets.bin`, the link tokens, the links' private data (the
 sealed stores of the scheduler, alarm, DQL and uplink links, runtime edits
-of drivers, the agent's store), the installed packages and the broker
-storage and the historian's rows as they change, and takes over when
+of drivers, the agent's store), the installed packages, the seed's
+`seed.done` and `seed.progress.json`, and the broker storage and the
+historian's rows as they change, and takes over when
 the active is away. It runs no router and polls no device until then.
 What it does not copy: files over 64 MiB in a link's data or a package
-(they are logged and skipped), and the audit journal (it stays on the
-host that wrote it).
+(they are logged and skipped), the audit journal (it stays on the
+host that wrote it), and a pending setup code (`gateway/setup.hash`,
+"First admin from a setup code" above).
 
 Set it up once:
 

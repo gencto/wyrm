@@ -1,0 +1,77 @@
+name: site
+# The home site https://wyrm.gencto.uk, built from docs/, spec/ and
+# links/official.json by tool/site/build.py and mdBook (site/README.md).
+# A pull request builds and checks it; a push to main also deploys it.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "spec/**"
+      - "links/official.json"
+      - "site/**"
+      - "tool/site/**"
+      - "README*"
+      - ".github/workflows/site.yml"
+  pull_request:
+    paths:
+      - "docs/**"
+      - "spec/**"
+      - "links/official.json"
+      - "site/**"
+      - "tool/site/**"
+      - "README*"
+      - ".github/workflows/site.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+# Deploys queue in one group and are never cancelled half way; a newer push to
+# a pull request cancels the check it replaces.
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('site-pr-{0}', github.event.pull_request.number) || 'pages' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+env:
+  # A pinned release binary, checked against its published SHA-256: seconds
+  # instead of minutes for `cargo install mdbook`, and the same bytes every run.
+  MDBOOK_VERSION: v0.5.4
+  MDBOOK_SHA256: 3f28de05dafca9d0f2eab99c662116b0e37b89b1d96a08f8f430b9eeae958cd7
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - name: Install mdBook
+        run: |
+          curl -sSfL -o mdbook.tar.gz \
+            "https://github.com/rust-lang/mdBook/releases/download/${MDBOOK_VERSION}/mdbook-${MDBOOK_VERSION}-x86_64-unknown-linux-gnu.tar.gz"
+          echo "${MDBOOK_SHA256}  mdbook.tar.gz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/bin"
+          tar -xzf mdbook.tar.gz -C "$RUNNER_TEMP/bin"
+          rm mdbook.tar.gz
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: Generate site/src
+        run: python3 tool/site/build.py
+      - name: Build
+        run: mdbook build site
+      - name: Check links
+        run: python3 tool/site/build.py --check site/book
+      - if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with: { path: site/book }
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

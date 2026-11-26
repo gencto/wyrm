@@ -33,7 +33,7 @@ tracing-subscriber.workspace = true
 hex.workspace = true
 argon2.workspace = true
 rcgen.workspace = true
-x509-parser.workspace = true
+x509-parser = { workspace = true, features = ["verify"] }
 zip.workspace = true
 # Package downloads (ADR 0011): HTTPS over tokio-rustls with the ring provider.
 rustls = { workspace = true, features = ["ring", "std", "tls12"] }

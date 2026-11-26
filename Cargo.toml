@@ -21,6 +21,10 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_urlencoded = "0.7"
 hex = "0.4"
+# base32 of the one-time setup code (ADR 0051 §3)
+data-encoding = "2"
+# constant-time compares of secrets that are no MAC (the setup code's hash)
+subtle = "2"
 wyrm-core = { path = "crates/wyrm-core" }
 # dev only: the measurement kit of benches and ignored perf tests (docs/backlog.md §14)
 wyrm-bench = { path = "crates/wyrm-bench" }
@@ -66,6 +70,8 @@ zip = { version = "9.0", default-features = false, features = ["deflate-flate2"]
 ring = "0.17"
 # The gateway announces itself by DNS-SD (ADR 0050 §2): pure Rust, no Avahi or Bonjour.
 mdns-sd = { version = "0.21", default-features = false }
+# The addresses the gateway's certificate names (ADR 0051 §3).
+if-addrs = "0.15"
 wyrm-state = { path = "crates/wyrm-state" }
 wyrm-history = { path = "crates/wyrm-history" }
 wyrm-storage = { path = "crates/wyrm-storage" }
