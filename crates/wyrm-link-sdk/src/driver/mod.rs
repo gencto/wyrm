@@ -74,6 +74,19 @@ pub enum Level {
     Device,
 }
 
+/// The answer of a driver action that is waited for off the connection's
+/// owner task ([`Driver::invoke_later`]). It owns what it needs: it borrows
+/// neither the transport nor the plan.
+pub type Later = std::pin::Pin<Box<dyn Future<Output = Result<Value, LinkError>> + Send>>;
+
+impl<D: Driver> Clone for Target<'_, D> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<D: Driver> Copy for Target<'_, D> {}
+
 /// The node a driver action runs on ([`Driver::invoke`]).
 pub enum Target<'a, D: Driver> {
     Connection,
@@ -230,6 +243,14 @@ pub trait Driver: Sized + Send + Sync + 'static {
         None
     }
 
+    /// A poll that cannot run for [`Driver::stale_misses`] periods in a row
+    /// (it waits behind an action or a write) makes its points
+    /// `uncertain/stale`: nothing read them meanwhile. `false` for a driver
+    /// whose poll reads nothing from the far side but what the transport's
+    /// own task received all along (an event-driven bus): a late poll of
+    /// such a driver loses nothing, it only publishes later.
+    const STALE_WHILE_WAITING: bool = true;
+
     /// Missed polls before `uncertain/stale` becomes `bad/comm_fail`; also
     /// the poll periods in a row a poll may wait to run (behind an action)
     /// before its points go `uncertain/stale`.
@@ -266,6 +287,28 @@ pub trait Driver: Sized + Send + Sync + 'static {
     /// writers out); keep `read` actions short.
     fn actions(_level: Level, _kind: &str) -> Vec<(&'static str, ActionMeta)> {
         Vec::new()
+    }
+
+    /// A driver action whose answer comes later, from the far side through
+    /// a task of the transport's own (a telegram of a bus that the
+    /// connection listens to): start it here, on the owner task, without
+    /// waiting, and return the future that waits for the answer. The
+    /// framework awaits it on a task of its own, bounded like
+    /// [`Driver::invoke`], so the connection's polls, pings and writes go on
+    /// meanwhile. The action keeps the connection's action slot until it
+    /// answers (one driver action per connection; a `write` or `config`
+    /// one answers a `~set` `busy` as long). An error with status
+    /// `disconnected` does not reconnect here: the transport's next poll or
+    /// ping says so. `None` (the default): the action runs in
+    /// [`Driver::invoke`].
+    fn invoke_later(
+        _t: &mut Self::Transport,
+        _conn: &Self::Conn,
+        _target: Target<'_, Self>,
+        _action: &str,
+        _args: &Value,
+    ) -> Option<Later> {
+        None
     }
 
     /// Driver actions of a point node (a point's own "read now"): the

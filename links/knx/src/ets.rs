@@ -36,6 +36,11 @@ use wyrm_link_sdk::driver::branch::{Level, Node};
 
 /// Addresses named in a report list at most.
 const LISTED: usize = 50;
+/// Rows read at most (the framework takes 5000 nodes; rows without a type
+/// and group rows come on top).
+pub const MAX_ROWS: usize = 20_000;
+/// Octets of one cell at most.
+pub const MAX_CELL: usize = 4096;
 /// Characters of a group's name kept in a folder id.
 const NAME_IN_ID: usize = 24;
 
@@ -46,6 +51,10 @@ pub enum EtsError {
     Empty,
     #[error("line {0}: a quoted cell is not closed")]
     Quote(usize),
+    #[error("more than {MAX_ROWS} rows")]
+    Rows,
+    #[error("line {0}: a cell of more than {MAX_CELL} octets")]
+    Cell(usize),
 }
 
 /// What the rows gave.
@@ -87,6 +96,12 @@ fn rows(text: &str, sep: char) -> Result<Vec<Vec<String>>, EtsError> {
     while let Some(c) = chars.next() {
         if c == '\n' {
             line += 1;
+        }
+        if cell.len() > MAX_CELL {
+            return Err(EtsError::Cell(line));
+        }
+        if out.len() >= MAX_ROWS {
+            return Err(EtsError::Rows);
         }
         match c {
             '"' if quoted && chars.peek() == Some(&'"') => {
@@ -148,10 +163,22 @@ struct Row {
 }
 
 fn row_of(cells: &[String]) -> Option<Row> {
-    let (at, parts) = cells
-        .iter()
-        .enumerate()
-        .find_map(|(i, c)| Some((i, address_parts(c)?)))?;
+    // The address is the first cell written with `/`. Only when no cell
+    // is (free addresses, plain numbers) a cell of digits is one, and then
+    // not the row's first text: a group named `100` is a name.
+    let shaped = |want_slash: bool| {
+        let first_text = cells.iter().position(|c| !c.trim().is_empty());
+        cells.iter().enumerate().find_map(|(i, c)| {
+            let slash = c.contains('/');
+            let fits = if want_slash {
+                slash
+            } else {
+                !slash && Some(i) != first_text
+            };
+            fits.then(|| address_parts(c)).flatten().map(|p| (i, p))
+        })
+    };
+    let (at, parts) = shaped(true).or_else(|| shaped(false))?;
     let name = cells
         .get(..at)?
         .iter()
@@ -406,6 +433,43 @@ mod tests {
         )
         .unwrap();
         assert_eq!(got.points, 1);
+    }
+
+    #[test]
+    fn a_name_of_digits_is_not_the_address() {
+        let csv = "100;1/-/-;;\n200;1/0/-;;\n2024;1/0/1;;;;DPST-1-1\n";
+        let got = import(csv, "ets", &BTreeMap::new()).unwrap();
+        assert_eq!(got.points, 1);
+        assert_eq!(names(&got.folder.children), ["1_100"]);
+        let point = &got.folder.children[0].children[0].children[0];
+        assert_eq!(got.folder.children[0].children[0].name, "0_200");
+        assert_eq!(point.name, "ga_1_0_1");
+        assert_eq!(text(point, "display"), "2024");
+        // free addresses: the number after the name, never the name
+        let got = import("300;2600;;;;DPST-9-1\n", "ets", &BTreeMap::new()).unwrap();
+        assert_eq!(names(&got.folder.children), ["ga_2600"]);
+        assert_eq!(text(&got.folder.children[0], "display"), "300");
+        // a row of one number has no address
+        assert_eq!(
+            import("2600\n", "ets", &BTreeMap::new()),
+            Err(EtsError::Empty)
+        );
+    }
+
+    #[test]
+    fn rows_and_cells_are_bounded() {
+        let long = format!("{};1/0/1;;;;DPST-1-1\n", "x".repeat(MAX_CELL + 2));
+        assert_eq!(
+            import(&long, "ets", &BTreeMap::new()),
+            Err(EtsError::Cell(1))
+        );
+        let quoted = format!("\"{}", "x".repeat(MAX_CELL + 2));
+        assert_eq!(
+            import(&quoted, "ets", &BTreeMap::new()),
+            Err(EtsError::Cell(1))
+        );
+        let many = "a;1/0/1;;;;DPST-1-1\n".repeat(MAX_ROWS + 1);
+        assert_eq!(import(&many, "ets", &BTreeMap::new()), Err(EtsError::Rows));
     }
 
     #[test]

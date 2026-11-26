@@ -28,12 +28,20 @@
 //!   state request, a disconnect by the interface) is `Transport`: the
 //!   framework reconnects with backoff.
 //!
-//! Driver actions: connection `search_gateways` (config),
-//! `recent_telegrams` and `connection_info` (read); device `read_group`
-//! (read), `write_group` (config: it reaches any group address, past every
-//! point's `writable`) and `import_ets` (config: an ETS group address
+//! Driver actions: connection `search_gateways` and `recent_telegrams`
+//! (config: the whole bus), `connection_info` (read); device `read_group`
+//! and `write_group` (config: a device is a label, so they reach any group
+//! address of the bus) and `import_ets` (config: an ETS group address
 //! export becomes a folder of points, [`ets`]); point `read` (read: a
-//! GroupValue_Read now).
+//! GroupValue_Read of that point's address now).
+//!
+//! No action holds the connection's owner task while it waits for the bus:
+//! the ones that wait (`search_gateways`, `read_group`, `write_group`,
+//! `read`) are answered later ([`Driver::invoke_later`]), so the tree goes
+//! on taking telegrams meanwhile. A `~set` waits for its confirmation on
+//! the owner task; polls of this driver read only what the connection's
+//! task received, so a wait never makes a point stale
+//! ([`Driver::STALE_WHILE_WAITING`]).
 //!
 //! Not supported: KNX IP Secure and KNX Data Secure, the bus monitor
 //! layer, device management (programming, properties), answering reads of
@@ -65,7 +73,7 @@ use wyrm_core::{ActionMeta, NodeMeta, Perm, Status, TypeCode, Value};
 use wyrm_link_sdk::driver::params::{field, ParamSpec};
 // Traits (type namespace) beside the derive macros of the same name.
 use wyrm_link_sdk::driver::{
-    Driver, DriverError, FolderImport, Framework, Level, Params, PointId, Target,
+    branch, Driver, DriverError, FolderImport, Framework, Later, Level, Params, PointId, Target,
 };
 use wyrm_link_sdk::{Args, LinkError, Params};
 
@@ -360,7 +368,9 @@ pub struct Plan {
     asks: Mutex<(Option<Instant>, Vec<Ask>)>,
 }
 
-/// The open connection as the driver holds it.
+/// The open connection as the driver holds it. A clone is a second handle
+/// on the same connection (an action answered later holds one).
+#[derive(Clone)]
 pub struct Transport {
     bus: Bus,
     opened: Instant,
@@ -537,7 +547,20 @@ fn file_text(bytes: Vec<u8>) -> String {
 }
 
 fn import_ets(args: ImportEts) -> Result<FolderImport, LinkError> {
+    let too_large = |len: usize| {
+        LinkError::new(
+            Status::OutOfRange,
+            format!(
+                "csv: {len} bytes, more than {} (export a part of the project)",
+                branch::MAX_BYTES
+            ),
+        )
+    };
     let text = match (args.csv, args.file) {
+        (Some(text), None) if text.len() > branch::MAX_BYTES => return Err(too_large(text.len())),
+        (None, Some(bytes)) if bytes.len() > branch::MAX_BYTES => {
+            return Err(too_large(bytes.len()))
+        }
         (Some(text), None) => text,
         (None, Some(bytes)) => file_text(bytes),
         _ => {
@@ -713,6 +736,9 @@ impl Driver for KnxDriver {
     type Plan = Plan;
 
     const FOLDERS: bool = true;
+    /// A poll reads what the connection's task received: one that waits
+    /// behind a write loses nothing.
+    const STALE_WHILE_WAITING: bool = false;
 
     async fn open(conn: &Conn) -> Result<Transport, DriverError> {
         let opened = match conn {
@@ -877,8 +903,9 @@ impl Driver for KnxDriver {
                 ),
                 (
                     "recent_telegrams",
+                    // what every device of the installation said
                     RecentTelegrams::action()
-                        .level(Perm::Read)
+                        .level(Perm::Config)
                         .display("Recent telegrams")
                         .result(list),
                 ),
@@ -893,8 +920,9 @@ impl Driver for KnxDriver {
             Level::Device => vec![
                 (
                     "read_group",
+                    // any group address of the bus, and a telegram to it
                     ReadGroup::action()
-                        .level(Perm::Read)
+                        .level(Perm::Config)
                         .display("Read group")
                         .timeout_ms(GROUP_MS)
                         .result(map.clone()),
@@ -953,9 +981,6 @@ impl Driver for KnxDriver {
         }
         let args = args.clone();
         match (target, action) {
-            (Target::Connection, "search_gateways") => {
-                search_gateways(t, SearchGateways::decode(args)?).await
-            }
             (Target::Connection, "recent_telegrams") => {
                 Ok(recent_telegrams(t, &RecentTelegrams::decode(args)?))
             }
@@ -963,16 +988,39 @@ impl Driver for KnxDriver {
                 <()>::decode(args)?;
                 Ok(connection_info(t))
             }
-            (Target::Device { .. }, "read_group") => read_group(t, &ReadGroup::decode(args)?).await,
-            (Target::Point { point, .. }, "read") => {
-                <()>::decode(args)?;
-                read_point(t, point).await
-            }
-            (Target::Device { .. }, "write_group") => {
-                write_group(t, &WriteGroup::decode(args)?).await
-            }
             _ => Err(LinkError::not_supported(format!("action {action}"))),
         }
+    }
+
+    /// The actions that wait for the bus or the network: answered off the
+    /// owner task, on a handle of the connection.
+    fn invoke_later(
+        t: &mut Transport,
+        _conn: &Conn,
+        target: Target<'_, Self>,
+        action: &str,
+        args: &Value,
+    ) -> Option<Later> {
+        let (t, args) = (t.clone(), args.clone());
+        Some(match (target, action) {
+            (Target::Connection, "search_gateways") => {
+                Box::pin(async move { search_gateways(&t, SearchGateways::decode(args)?).await })
+            }
+            (Target::Device { .. }, "read_group") => {
+                Box::pin(async move { read_group(&t, &ReadGroup::decode(args)?).await })
+            }
+            (Target::Device { .. }, "write_group") => {
+                Box::pin(async move { write_group(&t, &WriteGroup::decode(args)?).await })
+            }
+            (Target::Point { point, .. }, "read") => {
+                let point = point.clone();
+                Box::pin(async move {
+                    <()>::decode(args)?;
+                    read_point(&t, &point).await
+                })
+            }
+            _ => return None,
+        })
     }
 }
 

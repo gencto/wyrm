@@ -185,11 +185,48 @@ impl Driver for Diag {
                 ),
                 ("fail", read()),
                 ("break", read()),
+                (
+                    "later",
+                    read()
+                        .timeout_ms(400)
+                        .param("ms", ParamMeta::of(TypeCode::Number).required(true)),
+                ),
                 // Framework names: never declared.
                 ("edit", read()),
                 ("add_thing", read()),
             ],
         }
+    }
+
+    /// `later {ms}` on a device: started on the owner task (logged
+    /// `start:later`), answered `ms` later off it.
+    fn invoke_later(
+        t: &mut Transport,
+        _conn: &Conn,
+        target: Target<'_, Self>,
+        action: &str,
+        args: &Value,
+    ) -> Option<wyrm_link_sdk::driver::Later> {
+        if action != "later" {
+            return None;
+        }
+        let Target::Device { id, .. } = target else {
+            return None;
+        };
+        let ms = match args {
+            Value::Map(m) => m
+                .get("ms")
+                .and_then(|v| v.to_int::<u64>().ok())
+                .unwrap_or(0),
+            _ => 0,
+        };
+        t.seen.log.lock().unwrap().push("start:later".into());
+        let (seen, id) = (t.seen.clone(), id.to_owned());
+        Some(Box::pin(async move {
+            tokio::time::sleep(MS(ms)).await;
+            seen.log.lock().unwrap().push("end:later".into());
+            Ok(Value::Str(id))
+        }))
     }
 
     /// `peek` on every point; `remove` is a framework name: never declared.
@@ -801,5 +838,57 @@ async fn point_actions_are_declared_and_run_with_their_point() {
     assert_eq!(status(&r), Some(Status::Ok));
     let r = peek("c1/d1/q", Perm::Read).await;
     assert_eq!(status(&r), Some(Status::Disconnected));
+    h.stop().await;
+}
+
+/// `Driver::invoke_later`: the action starts on the owner task and is
+/// waited for off it, so polls go on meanwhile; it keeps the action slot
+/// until it answers and is bounded by its `timeout_ms`.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_action_answered_later_does_not_hold_the_polls() {
+    let s = seen(22);
+    let h = H::start(tree(22, two_points())).await;
+    wait("polling", Duration::from_secs(5), || {
+        s.log.lock().unwrap().len() > 3
+    })
+    .await;
+    let later = |ms: u64| {
+        let h = &h;
+        async move {
+            h.invoke(
+                "c1/d1",
+                "later",
+                map(&[("ms", Value::UInt(ms))]),
+                Some(h.ptok(Perm::Read)),
+            )
+            .await
+        }
+    };
+    // a second action while the first waits: the slot is taken
+    let (first, second) = tokio::join!(later(300), async {
+        tokio::time::sleep(MS(100)).await;
+        later(0).await
+    });
+    assert_eq!(status(&first), Some(Status::Ok));
+    assert_eq!(first[0].value(), Some(Value::from("d1")));
+    assert_eq!(status(&second), Some(Status::Busy));
+    let log = s.log.lock().unwrap().clone();
+    let start = log.iter().position(|e| e == "start:later").unwrap();
+    let end = log.iter().position(|e| e == "end:later").unwrap();
+    let polls = log[start..end].iter().filter(|e| *e == "poll").count();
+    assert!(polls >= 3, "polls ran while the action waited: {log:?}");
+    assert_eq!(s.overlaps.load(Ordering::Relaxed), 0);
+    // no point went stale behind it
+    assert_eq!(
+        h.ctx().last("c1/d1/p").map(|s| s.q),
+        Some(wyrm_core::Quality::Good)
+    );
+    // the slot is free again; the bound of the action holds off the owner too
+    let r = later(0).await;
+    assert_eq!(status(&r), Some(Status::Ok));
+    let r = later(5000).await;
+    assert_eq!(status(&r), Some(Status::Timeout));
+    let r = later(0).await;
+    assert_eq!(status(&r), Some(Status::Ok), "the slot was freed");
     h.stop().await;
 }

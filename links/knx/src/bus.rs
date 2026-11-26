@@ -250,8 +250,9 @@ pub struct Found {
     pub device: DeviceInfo,
 }
 
-/// The open connection. Dropping it ends the task, which closes a tunnel
-/// with a DISCONNECT_REQUEST.
+/// The open connection. Dropping it (its last clone) ends the task, which
+/// closes a tunnel with a DISCONNECT_REQUEST.
+#[derive(Clone)]
 pub struct Bus {
     shared: Arc<Shared>,
     first: mpsc::Sender<Cmd>,

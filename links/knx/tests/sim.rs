@@ -717,7 +717,7 @@ async fn connection_actions() {
         status(&h.set("c1/d1/light", true, Some(h.ptok(Perm::Write))).await),
         Some(Status::Ok)
     );
-    let (st, v, msg) = act(&h, "c1", "recent_telegrams", map(&[]), Perm::Read).await;
+    let (st, v, msg) = act(&h, "c1", "recent_telegrams", map(&[]), Perm::Config).await;
     assert_eq!(st, Some(Status::Ok), "{msg}");
     let seen = rows(v);
     assert_eq!(seen.len(), 2, "{seen:?}");
@@ -736,7 +736,7 @@ async fn connection_actions() {
         "c1",
         "recent_telegrams",
         map(&[("max", Value::UInt(1))]),
-        Perm::Read,
+        Perm::Config,
     )
     .await;
     let last = rows(v);
@@ -747,11 +747,21 @@ async fn connection_actions() {
         "c1",
         "recent_telegrams",
         map(&[("max", Value::UInt(0))]),
-        Perm::Read,
+        Perm::Config,
     )
     .await;
     assert_eq!(st, Some(Status::InvalidParameter));
 
+    // the ring is the whole bus: not for a token that may read points
+    for perm in [Perm::Read, Perm::Write] {
+        let (st, _, _) = act(&h, "c1", "recent_telegrams", map(&[]), perm).await;
+        assert_eq!(st, Some(Status::PermissionDenied), "{perm:?}");
+    }
+    let (_, m) = h.meta("c1").await;
+    let actions = m.unwrap().actions.unwrap();
+    assert_eq!(actions["recent_telegrams"].level, Some(Perm::Config));
+    assert_eq!(actions["search_gateways"].level, Some(Perm::Config));
+    assert_eq!(actions["connection_info"].level, Some(Perm::Read));
     let (st, v, msg) = act(&h, "c1", "connection_info", map(&[]), Perm::Read).await;
     assert_eq!(st, Some(Status::Ok), "{msg}");
     let info = v.unwrap();
@@ -778,7 +788,7 @@ async fn device_actions() {
         "c1/d1",
         "read_group",
         read("1/0/1", "9.001"),
-        Perm::Read,
+        Perm::Config,
     )
     .await;
     assert_eq!(st, Some(Status::Ok), "{msg}");
@@ -793,7 +803,7 @@ async fn device_actions() {
         "c1/d1",
         "read_group",
         read("7/0/1", "1.001"),
-        Perm::Read,
+        Perm::Config,
     )
     .await;
     assert_eq!(st, Some(Status::Timeout), "{msg}");
@@ -804,7 +814,7 @@ async fn device_actions() {
         "c1/d1",
         "read_group",
         read("1/0/1", "14.056"),
-        Perm::Read,
+        Perm::Config,
     )
     .await;
     assert_eq!(st, Some(Status::InvalidMessage), "{msg}");
@@ -813,12 +823,12 @@ async fn device_actions() {
         "c1/d1",
         "read_group",
         read("1/2/3/4", "1.001"),
-        Perm::Read,
+        Perm::Config,
     )
     .await;
     assert_eq!(st, Some(Status::InvalidParameter), "{msg}");
     assert!(msg.starts_with("address:"), "{msg}");
-    let (st, _, msg) = act(&h, "c1/d1", "read_group", read("1/0/1", "x"), Perm::Read).await;
+    let (st, _, msg) = act(&h, "c1/d1", "read_group", read("1/0/1", "x"), Perm::Config).await;
     assert_eq!(st, Some(Status::InvalidParameter), "{msg}");
     assert!(msg.starts_with("dpt:"), "{msg}");
 
@@ -875,7 +885,15 @@ async fn device_actions() {
     let (_, m) = h.meta("c1/d1").await;
     let actions = m.unwrap().actions.unwrap();
     assert_eq!(actions["write_group"].level, Some(Perm::Config));
-    assert_eq!(actions["read_group"].level, Some(Perm::Read));
+    assert_eq!(actions["read_group"].level, Some(Perm::Config));
+    // a device is a label: `read_group` reads any address of the bus and
+    // sends a telegram to it, so a token that may read points may not use it
+    let reads = gw.table().reads.len();
+    for perm in [Perm::Read, Perm::Write] {
+        let (st, _, _) = act(&h, "c1/d1", "read_group", read("1/0/1", "9.001"), perm).await;
+        assert_eq!(st, Some(Status::PermissionDenied), "{perm:?}");
+    }
+    assert_eq!(gw.table().reads.len(), reads, "nothing was sent");
     assert_eq!(actions["import_ets"].level, Some(Perm::Config));
     h.stop().await;
 }
@@ -1029,6 +1047,10 @@ async fn an_ets_export_becomes_a_folder_of_points() {
         ),
         (map(&[("csv", "nothing here".into())]), "no group address"),
         (
+            map(&[("csv", Value::Str("x".repeat(5000)))]),
+            "a cell of more than",
+        ),
+        (
             map(&[("csv", "a;1/0/1;;\n".into())]),
             "no row names a datapoint type",
         ),
@@ -1037,6 +1059,16 @@ async fn an_ets_export_becomes_a_folder_of_points() {
         let (st, _, msg) = act(&h, "c1/d1", "import_ets", args, Perm::Config).await;
         assert_eq!(st, Some(Status::InvalidParameter), "{msg}");
         assert!(msg.contains(why), "{msg}");
+    }
+    // larger than a branch may be (4 MiB): refused before it is read
+    let big = "a;1/0/1;;;;DPST-1-1\n".repeat(4 * 1024 * 1024 / 20 + 1);
+    for args in [
+        map(&[("csv", Value::Str(big.clone()))]),
+        map(&[("file", Value::Bytes(big.into_bytes()))]),
+    ] {
+        let (st, _, msg) = act(&h, "c1/d1", "import_ets", args, Perm::Config).await;
+        assert_eq!(st, Some(Status::OutOfRange), "{msg}");
+        assert!(msg.contains("4194304"), "{msg}");
     }
     let (st, _, _) = act(
         &h,
@@ -1118,7 +1150,7 @@ async fn routing_values_reads_and_writes() {
     })
     .await;
     // our own telegram comes back from the group and is not counted twice
-    let (_, v, _) = act(&h, "c1", "recent_telegrams", map(&[]), Perm::Read).await;
+    let (_, v, _) = act(&h, "c1", "recent_telegrams", map(&[]), Perm::Config).await;
     let seen = rows(v);
     let ours: Vec<&Value> = seen
         .iter()
@@ -1155,7 +1187,7 @@ async fn routing_busy_and_lost_messages() {
         v.unwrap()
     };
     router.lost(3);
-    router.busy(800);
+    router.busy(3000);
     let mut seen = Value::Null;
     for _ in 0..100 {
         seen = info().await;
@@ -1175,7 +1207,7 @@ async fn routing_busy_and_lost_messages() {
         Some(Status::Ok)
     );
     assert!(
-        begin.elapsed() >= Duration::from_millis(400),
+        begin.elapsed() >= Duration::from_millis(1000),
         "{:?}",
         begin.elapsed()
     );
@@ -1205,4 +1237,125 @@ async fn routing_params_are_checked() {
         assert!(text.contains(why), "{text}");
         h.stop().await;
     }
+}
+
+/// The quality of `p` sampled every 10 ms until `done` is set: every
+/// quality seen.
+async fn qualities(h: &H, p: &str, done: &std::sync::atomic::AtomicBool) -> Vec<Quality> {
+    let mut seen = Vec::new();
+    while !done.load(std::sync::atomic::Ordering::Acquire) {
+        if let Some(q) = qual(h, p) {
+            if !seen.contains(&q) {
+                seen.push(q);
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    seen
+}
+
+/// An action or a write that waits for the bus never makes the other
+/// points of the connection stale, and the tree goes on taking telegrams
+/// while an action waits.
+#[tokio::test(flavor = "multi_thread")]
+async fn waiting_for_the_bus_does_not_touch_the_other_points() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let gw = sim::spawn("127.0.0.1:0").await.unwrap();
+    let points = map(&[
+        ("light", pt("1/1/1", "1.001", &[WRITABLE])),
+        ("temp", pt("1/0/1", "9.001", &[])),
+        ("ghost", pt("7/0/1", "1.001", &[])),
+    ]);
+    let h = H::start(tree(
+        &gw,
+        &[
+            ("timeout_ms", Value::UInt(3000)),
+            ("heartbeat_s", Value::UInt(60)),
+        ],
+        points,
+    ))
+    .await;
+    connected(&h).await;
+    gw.inject(ga("1/1/1"), Data::short(1));
+    gw.inject(ga("1/0/1"), Data::long(vec![0x0C, 0x1A]));
+    wait("values", || {
+        qual(&h, "light") == Some(Quality::Good) && qual(&h, "temp") == Some(Quality::Good)
+    })
+    .await;
+
+    // 1. a point `read` nothing answers: 3 s of waiting
+    let done = AtomicBool::new(false);
+    let begin = tokio::time::Instant::now();
+    let ((st, _, msg), seen, published) = tokio::join!(
+        async {
+            let r = act(&h, "c1/d1/ghost", "read", map(&[]), Perm::Read).await;
+            done.store(true, Ordering::Release);
+            r
+        },
+        qualities(&h, "light", &done),
+        async {
+            // a telegram that comes while the action waits is in the tree
+            // long before the action ends
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            gw.inject(ga("1/0/1"), Data::long(vec![0x0C, 0x33]));
+            let sent = tokio::time::Instant::now();
+            wait("temp while the action waits", || {
+                val(&h, "temp") == Some(Value::Float(21.5))
+            })
+            .await;
+            sent.elapsed()
+        },
+    );
+    assert_eq!(st, Some(Status::Timeout), "{msg}");
+    assert!(begin.elapsed() >= Duration::from_millis(2900), "it waited");
+    assert_eq!(seen, vec![Quality::Good], "the neighbour stayed good");
+    assert!(published < Duration::from_millis(1500), "{published:?}");
+    assert_eq!(qual(&h, "temp"), Some(Quality::Good));
+
+    // 2. `read_group` of a silent address and a search nobody answers
+    for (path, action, args) in [
+        (
+            "c1/d1",
+            "read_group",
+            map(&[("address", "7/0/2".into()), ("dpt", "1.001".into())]),
+        ),
+        (
+            "c1",
+            "search_gateways",
+            map(&[
+                ("address", "127.0.0.1:9".into()),
+                ("wait_ms", Value::UInt(1500)),
+            ]),
+        ),
+    ] {
+        let done = AtomicBool::new(false);
+        let (_, seen) = tokio::join!(
+            async {
+                let r = act(&h, path, action, args, Perm::Config).await;
+                done.store(true, Ordering::Release);
+                r
+            },
+            qualities(&h, "light", &done),
+        );
+        assert_eq!(seen, vec![Quality::Good], "{action}");
+    }
+
+    // 3. a write the interface never confirms: the set waits (1 s for the
+    // acknowledge it got, then 3 s for the confirmation) and times out
+    gw.table().faults.no_confirm = true;
+    let done = AtomicBool::new(false);
+    let (a, seen) = tokio::join!(
+        async {
+            let a = h.set("c1/d1/light", false, Some(h.ptok(Perm::Write))).await;
+            done.store(true, Ordering::Release);
+            a
+        },
+        qualities(&h, "temp", &done),
+    );
+    assert_eq!(status(&a), Some(Status::Timeout), "{:?}", a.err);
+    assert_eq!(seen, vec![Quality::Good], "the neighbour stayed good");
+    assert_eq!(val(&h, "light"), Some(Value::Bool(true)), "not written");
+    gw.table().faults.no_confirm = false;
+    assert_eq!(state(&h, "c1").as_deref(), Some("connected"));
+    h.stop().await;
 }

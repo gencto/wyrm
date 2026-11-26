@@ -221,20 +221,25 @@ impl Dpt {
             (7 | 8, 3) => (10, 1),
             (7 | 8, 4) => (100, 1),
             (8, 10) => (1, 100),
+            // flow rate with a resolution of 0.0001 m³/h
+            (13, 2) => (1, 10_000),
             _ => (1, 1),
         }
     }
 
     /// The unit of the value, empty when the subtype has none or is not
-    /// in this table.
+    /// in this table. Every row is the unit (and, in [`Dpt::scale`], the
+    /// resolution) the KNX standard gives the subtype: System
+    /// Specifications, Interworking, Datapoint Types, v02.02.01, sections
+    /// 3.5 to 3.15 and, for 7.600, the lighting part.
     pub fn unit(self) -> &'static str {
         match (self.main, self.sub) {
             (5, 1 | 4) | (6, 1) | (8, 10) | (9, 7) => "%",
             (5, 3) | (8, 11) => "°",
             (7, 2..=4) | (8, 2..=4) | (9, 11) => "ms",
             (7 | 8, 5) | (9, 10) | (13, 100) | (14, 74) => "s",
-            (7 | 8, 6) => "min",
-            (7 | 8, 7) => "h",
+            (7 | 8, 6) | (12, 101) => "min",
+            (7 | 8, 7) | (12, 102) => "h",
             (7, 11) => "mm",
             (7, 12) | (9, 21) => "mA",
             (7, 13) | (9, 4) => "lx",
@@ -253,23 +258,27 @@ impl Dpt {
             (9, 26) => "l/m²",
             (9, 27) => "°F",
             (9, 28) => "km/h",
+            (9, 29) => "g/m³",
+            (9, 30) => "µg/m³",
             (12, 100) => "s",
-            (13, 2) => "m³/h",
+            (9, 9) | (13, 2) => "m³/h",
             (13, 10) => "Wh",
             (13, 11) => "VAh",
             (13, 12) => "VARh",
             (13, 13) => "kWh",
             (13, 14) => "kVAh",
             (13, 15) => "kVARh",
+            (13, 16) => "MWh",
             (14, 19) => "A",
             (14, 27) => "V",
-            (14, 31) => "J",
+            (14, 31) | (14, 79) => "J",
             (14, 33) => "Hz",
             (14, 51) => "kg",
             (14, 56) => "W",
             (14, 76) => "m³",
             (14, 77) => "m³/s",
-            (14, 79) => "W",
+            (14, 78) => "N",
+            (14, 80) => "VA",
             _ => "",
         }
     }
@@ -285,7 +294,10 @@ impl Dpt {
     /// The octets of `data` when their number fits the type.
     fn sized(self, data: &Data) -> Result<&[u8], DptError> {
         let want = self.octets();
-        if want.is_some_and(|w| w != data.bytes.len()) {
+        // six bits beside the APCI are a value of the six-bit types only (a
+        // type the link does not know is taken as it comes)
+        let misplaced = data.short && !self.short() && self.kind() != Kind::Raw;
+        if misplaced || want.is_some_and(|w| w != data.bytes.len()) {
             return Err(DptError::Length {
                 dpt: self,
                 want: want.unwrap_or(data.bytes.len() + 1),
@@ -312,7 +324,7 @@ impl Dpt {
             Kind::I16 => self.scaled(i64::from(i16::from_be_bytes(array(b)))),
             Kind::Float16 => Value::Float(self.float16(u16::from_be_bytes(array(b)))?),
             Kind::U32 => Value::UInt(u64::from(u32::from_be_bytes(array(b)))),
-            Kind::I32 => Value::from(i64::from(i32::from_be_bytes(array(b)))),
+            Kind::I32 => self.scaled(i64::from(i32::from_be_bytes(array(b)))),
             Kind::Float32 => Value::Float(f64::from(f32::from_be_bytes(array(b)))),
             Kind::Scene => Value::UInt(u64::from(first & 0x3F)),
             Kind::SceneControl => Value::UInt(u64::from(first & 0xBF)),
@@ -348,7 +360,7 @@ impl Dpt {
                 .to_be_bytes()
                 .to_vec(),
             Kind::I32 => self
-                .int::<i32>(v, i64::from(i32::MIN), i64::from(i32::MAX))?
+                .unscaled::<i32>(v, i64::from(i32::MIN), i64::from(i32::MAX))?
                 .to_be_bytes()
                 .to_vec(),
             Kind::Float32 => self.to_float32(self.number(v)?)?.to_be_bytes().to_vec(),
@@ -469,7 +481,7 @@ impl Dpt {
             dpt: self,
             value,
             min: -671_088.64,
-            max: 670_760.96,
+            max: 670_433.28,
         };
         let mut scaled = value * 100.0;
         let mut exponent = 0u16;
@@ -481,8 +493,13 @@ impl Dpt {
             }
         }
         let mantissa = whole(scaled.round()).map_err(|_e| range.clone())?;
-        let twelve = u16::try_from(mantissa.rem_euclid(4096)).map_err(|_e| range)?;
-        Ok(((twelve & 0x0800) << 4) | (exponent << 11) | (twelve & 0x07FF))
+        let twelve = u16::try_from(mantissa.rem_euclid(4096)).map_err(|_e| range.clone())?;
+        let word = ((twelve & 0x0800) << 4) | (exponent << 11) | (twelve & 0x07FF);
+        // 0x7FFF says "invalid data": never the encoding of a value
+        if word == 0x7FFF {
+            return Err(range);
+        }
+        Ok(word)
     }
 
     fn to_float32(self, value: f64) -> Result<f32, DptError> {
@@ -807,6 +824,12 @@ mod tests {
         both("9.001", &[0x00, 0x01], Value::Float(0.01));
         both("9.001", &[0x87, 0xFF], Value::Float(-0.01));
         both("9.004", &[0x7F, 0xFE], Value::Float(670_433.28));
+        // the next step up would be 0x7FFF, "invalid data": refused, not sent
+        assert!(matches!(
+            dpt("9.004").encode(&Value::Float(670_760.96)),
+            Err(DptError::Range { .. })
+        ));
+        assert!(dpt("9.004").encode(&Value::Float(670_600.0)).is_err());
         both("9.001", &[0xF8, 0x00], Value::Float(-671_088.64));
         let d = dpt("9.001");
         assert_eq!(
@@ -892,6 +915,10 @@ mod tests {
             Value::UInt(4_294_967_295),
         );
         both("13.010", &[0xFF, 0xFF, 0xFF, 0xFE], Value::Int(-2));
+        // 13.002: 0.0001 m³/h per step
+        both("13.002", &[0x00, 0x01, 0xE2, 0x40], Value::Float(12.3456));
+        both("13.002", &[0xFF, 0xFF, 0xFF, 0xFF], Value::Float(-0.0001));
+        assert!(dpt("13.002").encode(&Value::Float(300_000.0)).is_err());
         both("14.056", &[0x44, 0x7A, 0x00, 0x00], Value::Float(1000.0));
         both("14.068", &[0xC1, 0xA4, 0x00, 0x00], Value::Float(-20.5));
         assert!(dpt("12.001").encode(&Value::Int(-1)).is_err());
@@ -952,6 +979,20 @@ mod tests {
             Err(DptError::Length { .. })
         ));
         assert!(dpt("16.001").decode(&Data::long(vec![b'a'; 3])).is_err());
+        // six bits beside the APCI are no value of a one-octet type
+        for name in ["5.001", "6.010", "17.001", "18.001", "20.102"] {
+            assert!(
+                matches!(
+                    dpt(name).decode(&Data::short(1)),
+                    Err(DptError::Length { .. })
+                ),
+                "{name}"
+            );
+        }
+        assert_eq!(
+            dpt("5.010").decode(&Data::long(vec![1])).unwrap(),
+            Value::UInt(1)
+        );
     }
 
     #[test]
@@ -959,6 +1000,12 @@ mod tests {
         assert_eq!(dpt("9.001").unit(), "°C");
         assert_eq!(dpt("5.001").unit(), "%");
         assert_eq!(dpt("13.013").unit(), "kWh");
+        assert_eq!(dpt("13.002").unit(), "m³/h");
+        assert_eq!(dpt("14.079").unit(), "J");
+        assert_eq!(dpt("14.056").unit(), "W");
+        assert_eq!(dpt("14.080").unit(), "VA");
+        assert_eq!(dpt("7.003").unit(), "ms");
+        assert_eq!(dpt("12.102").unit(), "h");
         assert_eq!(dpt("9").unit(), "");
         assert_eq!(dpt("1.001").type_code(), TypeCode::Bool);
         assert_eq!(dpt("16.001").type_code(), TypeCode::String);

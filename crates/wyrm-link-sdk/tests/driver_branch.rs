@@ -1696,6 +1696,17 @@ async fn device_import_brings_one_folder_of_points() {
         h.ctx().last("c1/d1/imp/a24").map(|s| s.v) == Some(Value::Float(24.0))
     })
     .await;
+    // an import changes the tree: a token that may write values may not
+    let r = h
+        .invoke(
+            "c1/d1",
+            "import_points",
+            args("31", true),
+            Some(h.ptok(Perm::Write)),
+        )
+        .await;
+    assert_eq!(code(r[0].att.status), Some(Status::PermissionDenied));
+    assert!(!exists(&h, "c1/d1/imp/a31").await);
     // what does not exist is not found, whatever the arguments are
     let o = run(&h, "c1/nope", "import_points", args("x", false)).await;
     assert_eq!(o.status, Some(Status::NotFound), "{}", o.err);

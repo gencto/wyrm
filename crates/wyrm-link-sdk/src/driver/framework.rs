@@ -54,6 +54,8 @@
 //!   imported like `import` of a folder into the device.
 //! * Point actions ([`Driver::point_actions`]) are declared on points and
 //!   run like the driver actions of their device.
+//! * An action whose answer comes later ([`Driver::invoke_later`]) is
+//!   started on the owner task and waited for on a task of its own.
 //! * Server kinds ([`Driver::is_server`], ADR 0024): no tickers; every
 //!   point takes `~set`, written into what the server serves and published
 //!   from it ([`Driver::take_changed`]); the owner hands each plan to the
@@ -1994,6 +1996,9 @@ impl<D: Driver> Ticker<D> {
     /// points go `uncertain/stale` (final review M3). A poll that runs
     /// counts its own outcome instead ([`Owner::dev_miss`]).
     async fn waited(&self, waits: &mut u32) {
+        if !D::STALE_WHILE_WAITING {
+            return;
+        }
         *waits = waits.saturating_add(1);
         if *waits != D::stale_misses().max(1) {
             return;
@@ -2901,6 +2906,25 @@ async fn serve<D: Driver>(
                     }
                 };
                 let bound = bound.unwrap_or(timeout).min(left);
+                if let Some(later) = D::invoke_later(t, cfg, target, &action, &args) {
+                    // Started; its answer is waited for on a task of its own,
+                    // so polls go on. The answer frees the action slot.
+                    tokio::spawn(
+                        async move {
+                            let r = match tokio::time::timeout(bound, later).await {
+                                Ok(r) => r,
+                                Err(_elapsed) => {
+                                    Err(LinkError::timeout(format!("action {action} timed out")))
+                                }
+                            };
+                            if reply.send(r).is_err() {
+                                debug!("action answered after its caller stopped waiting");
+                            }
+                        }
+                        .in_current_span(),
+                    );
+                    continue;
+                }
                 let r =
                     tokio::time::timeout(bound, D::invoke(t, cfg, target, &action, &args)).await;
                 o.record(t, dev.as_deref(), r.is_err());
