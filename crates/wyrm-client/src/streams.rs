@@ -36,7 +36,7 @@ use tokio::task::{AbortHandle, JoinSet};
 use tracing::debug;
 use wyrm_core::keyspace::{SUFFIX_META, SUFFIX_VAL};
 use wyrm_core::{Attachment, NodeMeta, Sample};
-use zenoh::query::Reply;
+use zenoh::query::{ConsolidationMode, Reply};
 use zenoh::sample::{Sample as ZSample, SampleKind};
 
 /// `list` events held for a consumer that is behind; one more discards
@@ -69,6 +69,13 @@ pub const MAX_STREAM_KEYS: usize = 16_384;
 /// keys waited) in a row without the consumer catching up; one more ends
 /// the stream with `resource_exhausted`.
 pub const MAX_RESYNCS: u32 = 3;
+/// Replies of a stored read pushed into a `subscribe` stream's buffer under
+/// one lock and with one wake of its reader. A quarter of [`VALUE_BUFFER`]:
+/// the reader takes what a chunk brought while the next one is prepared, as
+/// it took single replies before, so a read of more keys than the buffer
+/// holds still fits a consumer that keeps up. (Measured, docs/backlog.md
+/// §14: 64 and 256 leave a wake per chunk in a read of 1000 keys.)
+const STORED_CHUNK: usize = 1024;
 /// Events a stream task has already turned into `ListEvent`s and holds for
 /// its consumer; kept small, so a consumer that wakes up soon meets the
 /// fresh snapshot rather than old events.
@@ -747,6 +754,22 @@ struct Stored {
     timeout: Duration,
 }
 
+impl Stored {
+    /// Send the read; its replies go to `feed`. The consolidation is named,
+    /// not left to the default (which is this one for a selector without a
+    /// time range): one reply per key, the latest, and all of them handed to
+    /// the feed in one run when the read is final or timed out. The feed
+    /// counts on that run ([`stored_feed_of`]).
+    async fn read(&self, feed: crate::intake::Feed<Vals, Reply>) -> zenoh::Result<()> {
+        self.session
+            .get(&self.ke)
+            .consolidation(ConsolidationMode::Latest)
+            .timeout(self.timeout)
+            .with(feed)
+            .await
+    }
+}
+
 struct ValReader {
     intake: Arc<Intake<Vals>>,
     /// The stream's key filter, for the stored values read again.
@@ -771,7 +794,7 @@ impl ValReader {
         let feed = stored_feed(&self.intake, &self.keep, Vec::new());
         rt.spawn(async move {
             // on an error the feed is dropped, and that ends this `get`
-            if let Err(e) = st.session.get(&st.ke).timeout(st.timeout).with(feed).await {
+            if let Err(e) = st.read(feed).await {
                 debug!("stored values again: {e}");
             }
         });
@@ -818,9 +841,25 @@ fn stored_feed(
     keep: &KeyFilter,
     turns: Vec<tokio::sync::OwnedSemaphorePermit>,
 ) -> crate::intake::Feed<Vals, Reply> {
+    stored_feed_of(intake, keep, turns, |reply: &Reply| reply.result().ok())
+}
+
+/// [`stored_feed`] over any item that may hold a stored sample (a `Reply`; a
+/// test hands the sample itself).
+fn stored_feed_of<T: 'static>(
+    intake: &Arc<Intake<Vals>>,
+    keep: &KeyFilter,
+    turns: Vec<tokio::sync::OwnedSemaphorePermit>,
+    sample: fn(&T) -> Option<&ZSample>,
+) -> crate::intake::Feed<Vals, T> {
     let keep = keep.clone();
-    intake.feed_map(
-        move |reply: Reply| to_val(reply.result().ok()?, &keep),
+    // Zenoh keeps the replies of a read with `Latest` consolidation
+    // ([`Stored::read`]) until the read is final or timed out, then calls the
+    // handler for each in one run and drops it: no reply waits in the feed
+    // for longer than that run.
+    intake.feed_chunks(
+        STORED_CHUNK,
+        move |item: T| to_val(sample(&item)?, &keep),
         Vals::push,
         move |st| {
             drop(turns);
@@ -856,10 +895,7 @@ pub(crate) async fn subscribe(
         timeout: client.timeout,
     };
     let first = if client.stored_reads.is_empty() {
-        s.get(&stored.ke)
-            .timeout(client.timeout)
-            .with(stored_feed(&intake, &keep, Vec::new()))
-            .await?;
+        stored.read(stored_feed(&intake, &keep, Vec::new())).await?;
         None
     } else {
         // A bounded client reads the stored value when its turn comes. The
@@ -882,7 +918,7 @@ pub(crate) async fn subscribe(
             }
             // on an error the feed is dropped, and that ends this `get`
             let feed = stored_feed(&intake, &keep, turns);
-            if let Err(e) = st.session.get(&st.ke).timeout(st.timeout).with(feed).await {
+            if let Err(e) = st.read(feed).await {
                 debug!("stored value: {e}");
             }
         });
@@ -954,6 +990,37 @@ pub(crate) fn fed(keep: KeyFilter) -> (zenoh::handlers::Callback<ZSample>, Event
         first: None,
     };
     (cb, EventStream::new(reader, dropped))
+}
+
+/// A `subscribe` stream fed by hand with its one stored read in flight
+/// (`testkit::value_stream_stored`): the live handler, the handler of the
+/// stored read (a sample per reply; dropping it ends the read) and the stream.
+#[cfg(feature = "testkit")]
+pub(crate) fn fed_stored() -> (
+    zenoh::handlers::Callback<ZSample>,
+    zenoh::handlers::Callback<ZSample>,
+    EventStream<ValEvent>,
+) {
+    use zenoh::handlers::IntoHandler;
+    let dropped = Arc::new(AtomicU64::new(0));
+    let latest = Policy::Latest {
+        queue: VecDeque::new(),
+        pending: HashMap::new(),
+        order: VecDeque::new(),
+    };
+    let keep: KeyFilter = Arc::new(|_| true);
+    let intake = Intake::new(Vals::new(latest, 1, dropped.clone()));
+    let (live, ()) = live_feed(&intake, &keep).into_handler();
+    let (stored, ()) =
+        stored_feed_of(&intake, &keep, Vec::new(), |s: &ZSample| Some(s)).into_handler();
+    let reader = ValReader {
+        intake,
+        keep,
+        _sub: Box::new(()),
+        stored: None,
+        first: None,
+    };
+    (live, stored, EventStream::new(reader, dropped))
 }
 
 /// The event of a `…/~val` sample whose node key `keep` accepts. The filter
@@ -1467,6 +1534,257 @@ mod tests {
         same_output(0xd1b5_4a32_d192_ed03, 12_000, 30_000, 60);
         // more keys than one stream may hand out: it ends with the limit
         same_output(0x94d0_49bb_1331_11eb, 40_000, 3_000, 200);
+    }
+
+    /// One step of a stream with its stored read in flight, as its two handlers and its
+    /// consumer see it.
+    #[derive(Clone, Debug)]
+    enum Op {
+        Live(String, u64),
+        LiveRemoved(String),
+        Stored(String, u64),
+        StoredRemoved(String),
+        /// Zenoh drops the handler of the stored read.
+        EndStored,
+        /// The consumer reads at most this many events.
+        Read(usize),
+    }
+
+    #[derive(Debug, PartialEq)]
+    enum Got {
+        Event(ValEvent),
+        End,
+        /// The end of one `Read`.
+        Mark,
+    }
+
+    fn zdel(key: &str) -> ZSample {
+        let key = zenoh::key_expr::KeyExpr::try_from(format!("{key}/{SUFFIX_VAL}")).unwrap();
+        zenoh::sample::SampleBuilder::delete(key).into()
+    }
+
+    fn kept(key: &str) -> bool {
+        !key.starts_with("secret")
+    }
+
+    /// Run `ops` through the handlers of a `subscribe` stream and its reader. `chunked`:
+    /// the stored read's feed as the client makes it; else a feed that pushes every reply
+    /// by itself, as the client did before the chunks. What the consumer got, the losses
+    /// counted, and whether a limit ended the stream.
+    fn play(ops: &[Op], chunked: bool) -> (Vec<Got>, u64, bool) {
+        use zenoh::handlers::IntoHandler;
+        let keep: KeyFilter = Arc::new(kept);
+        let intake = Intake::new(latest());
+        let (live, ()) = live_feed(&intake, &keep).into_handler();
+        let feed = if chunked {
+            stored_feed_of(&intake, &keep, Vec::new(), |s: &ZSample| Some(s))
+        } else {
+            let keep = keep.clone();
+            intake.feed_map(
+                move |s: ZSample| to_val(&s, &keep),
+                Vals::push,
+                |st| st.gets = st.gets.saturating_sub(1),
+            )
+        };
+        let mut stored = Some(feed.into_handler().0);
+        let mut reader = ValReader {
+            intake: intake.clone(),
+            keep,
+            _sub: Box::new(()),
+            stored: None,
+            first: None,
+        };
+        let mut cx = Context::from_waker(std::task::Waker::noop());
+        let mut got = Vec::new();
+        let mut read = |reader: &mut ValReader, got: &mut Vec<Got>, n: usize| {
+            for _ in 0..n {
+                match reader.poll_next(&mut cx) {
+                    Poll::Ready(Some(ev)) => got.push(Got::Event(ev)),
+                    Poll::Ready(None) => {
+                        got.push(Got::End);
+                        return true;
+                    }
+                    Poll::Pending => break,
+                }
+            }
+            got.push(Got::Mark);
+            false
+        };
+        let mut ended = false;
+        for op in ops {
+            match op {
+                Op::Live(k, t) => live.call(zsmp(k, *t)),
+                Op::LiveRemoved(k) => live.call(zdel(k)),
+                Op::Stored(k, t) => stored.iter().for_each(|cb| cb.call(zsmp(k, *t))),
+                Op::StoredRemoved(k) => stored.iter().for_each(|cb| cb.call(zdel(k))),
+                Op::EndStored => stored = None,
+                Op::Read(n) if !ended => ended = read(&mut reader, &mut got, *n),
+                Op::Read(_) => {}
+            }
+        }
+        // the read ends, the session closes, the consumer takes the rest
+        drop((stored, live));
+        if !ended {
+            read(&mut reader, &mut got, usize::MAX);
+        }
+        let dropped = intake.with(|v| v.dropped.load(Ordering::Relaxed));
+        (got, dropped, reader.error().is_some())
+    }
+
+    /// `ops` with every stored reply moved to where the chunked feed pushes it: with the
+    /// reply that fills its chunk, or with the end of the read.
+    fn at_the_chunks(ops: &[Op]) -> Vec<Op> {
+        let (mut out, mut held) = (Vec::new(), Vec::new());
+        for op in ops {
+            match op {
+                Op::Stored(k, _) | Op::StoredRemoved(k) => {
+                    if kept(k) {
+                        held.push(op.clone());
+                    }
+                    if held.len() >= STORED_CHUNK {
+                        out.append(&mut held);
+                    }
+                }
+                Op::EndStored => {
+                    out.append(&mut held);
+                    out.push(op.clone());
+                }
+                _ => out.push(op.clone()),
+            }
+        }
+        out.append(&mut held);
+        out
+    }
+
+    /// A recorded stored read of `replies` replies over `keys` keys, with live samples of
+    /// the same keys and reads of the consumer between them; with `removals`, some of
+    /// both are deletes.
+    fn recorded(
+        seed: u64,
+        keys: u64,
+        replies: usize,
+        live: u64,
+        reads: u64,
+        removals: bool,
+    ) -> Vec<Op> {
+        let mut x = seed;
+        let mut rnd = move |n: u64| {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            x % n
+        };
+        let name = |k: u64| match k % 16 {
+            0 => format!("secret/p{k}"),
+            _ => format!("wy/s/downstream/l/p{k}"),
+        };
+        let mut ops = Vec::new();
+        for i in 0..replies {
+            // the stored value of a key is as old as its live values, or older
+            let k = rnd(keys);
+            ops.push(match rnd(64) {
+                0 if removals => Op::StoredRemoved(name(k)),
+                _ => Op::Stored(name(k), 100 + rnd(8)),
+            });
+            if live > 0 && rnd(4) == 0 {
+                for _ in 0..rnd(live) {
+                    let k = rnd(keys);
+                    ops.push(match rnd(64) {
+                        0 if removals => Op::LiveRemoved(name(k)),
+                        _ => Op::Live(name(k), 104 + (i as u64) / 16 + rnd(4)),
+                    });
+                }
+            }
+            if reads > 0 && rnd(8) == 0 {
+                ops.push(Op::Read(rnd(reads) as usize));
+            }
+        }
+        ops.push(Op::EndStored);
+        ops
+    }
+
+    /// A stored read alone: the consumer gets the events of the feed that pushed every
+    /// reply by itself, in the same order, whatever the number of replies is to a chunk.
+    #[test]
+    fn a_stored_read_in_chunks_hands_out_the_same_events() {
+        for n in [0, 1, STORED_CHUNK - 1, STORED_CHUNK, STORED_CHUNK + 1, 1000] {
+            let ops = recorded(0x9e37_79b9_7f4a_7c15 + n as u64, 400, n, 0, 0, true);
+            let (a, b) = (play(&ops, true), play(&ops, false));
+            assert_eq!(a, b, "{n} replies");
+            let events = a.0.iter().filter(|g| matches!(g, Got::Event(_))).count();
+            assert!(n == 0 || events > 0, "{n} replies: nothing came out");
+        }
+        // every key once, as a consolidated read answers: all of them, in their order
+        let ops: Vec<Op> = (0..1000)
+            .map(|k| Op::Stored(format!("wy/s/downstream/l/p{k}"), 7))
+            .collect();
+        let (got, dropped, failed) = play(&ops, true);
+        let keys: Vec<&str> = got
+            .iter()
+            .filter_map(|g| match g {
+                Got::Event(ev) => Some(ev.key()),
+                _ => None,
+            })
+            .collect();
+        let want: Vec<String> = (0..1000)
+            .map(|k| format!("wy/s/downstream/l/p{k}"))
+            .collect();
+        assert_eq!(keys, want);
+        assert_eq!((dropped, failed), (0, false));
+    }
+
+    /// Live samples and reads between the replies: the stream gives exactly what the
+    /// feed without chunks gives when each reply comes where its chunk is pushed. That
+    /// is one of the orders the two handlers could always meet in (the replies of a read
+    /// come in one run, on a thread of their own), also beyond the queue (overflow mode,
+    /// reads again, the limit).
+    #[test]
+    fn chunks_are_an_order_the_single_replies_could_come_in() {
+        for (seed, keys, replies, live, reads) in [
+            (0x2545_f491_4f6c_dd1d_u64, 300, 2_000, 6, 40),
+            (0xd1b5_4a32_d192_ed03, 3_000, 9_000, 12, 6),
+            (0x94d0_49bb_1331_11eb, 12_000, 30_000, 4, 3),
+            (0x2545_f491_4f6c_dd1d, 40_000, 40_000, 2, 0),
+            (0x9e37_79b9_7f4a_7c15, 40_000, 40_000, 2, 2_000),
+        ] {
+            let ops = recorded(seed, keys, replies, live, reads, true);
+            let (a, b) = (play(&ops, true), play(&at_the_chunks(&ops), false));
+            assert_eq!(a.1, b.1, "seed {seed:#x}: losses");
+            assert_eq!(a.2, b.2, "seed {seed:#x}: the limit");
+            assert!(a.0 == b.0, "seed {seed:#x}: the events differ");
+            let events = a.0.iter().filter(|g| matches!(g, Got::Event(_))).count();
+            println!(
+                "seed {seed:#x}: {events} events, {} dropped, ended by a limit: {}",
+                a.1, a.2
+            );
+        }
+    }
+
+    /// Against the single replies where they really came, while nothing is lost: per
+    /// key the times only go up in both, and both end every key with the same event.
+    /// (Without removals: a removal has no time, so a stored value that comes after the
+    /// live removal of its key is handed out, with chunks and without.)
+    #[test]
+    fn chunks_keep_the_order_per_key_and_the_last_value() {
+        let ops = recorded(0x9e37_79b9_7f4a_7c15, 300, 3_000, 6, 60, false);
+        let per_key = |got: &[Got]| {
+            let mut last: HashMap<String, ValEvent> = HashMap::new();
+            for g in got {
+                let Got::Event(ev) = g else { continue };
+                if let (ValEvent::Sample { sample, .. }, Some(ValEvent::Sample { sample: b, .. })) =
+                    (ev, last.get(ev.key()))
+                {
+                    assert!(sample.t > b.t, "{}: {} after {}", ev.key(), sample.t, b.t);
+                }
+                last.insert(ev.key().to_owned(), ev.clone());
+            }
+            last
+        };
+        let (a, b) = (play(&ops, true), play(&ops, false));
+        assert_eq!((a.1, a.2, b.1, b.2), (0, false, 0, false), "nothing lost");
+        let (a, b) = (per_key(&a.0), per_key(&b.0));
+        assert!(a.len() > 200);
+        assert_eq!(a, b);
     }
 
     #[test]
