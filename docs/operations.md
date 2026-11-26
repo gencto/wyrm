@@ -413,7 +413,7 @@ code" above). Then write `plant-rpi4.img` to the card.
 | `--network <file>` | `network` | the device's network as a UCI file; without it the device is a DHCP client |
 | `--seed <file>` | `seed.json` | which of the carried links are installed at the first start (`wyrm-seed/1`) |
 | `--new-setup-code` | `setup` | make a setup code, store its hash, print the code once |
-| `--setup-hash <hex>` | `setup` | the hash of a code made before (`wyrmd setup-code`, second line); not with `--new-setup-code` |
+| `--setup-hash-file <file>` | `setup` | a file with the hash of a code made before (the second line of `wyrmd setup-code`: 64 hex digits, white space around them ignored); not with `--new-setup-code` |
 | `--authorized-keys <file>` | `authorized_keys` | SSH public keys for `root`; without it the device has no SSH login |
 | `--timezone <tz>` | `timezone` | the IANA name, for example `Europe/Kyiv` |
 | `--ntp <servers>` | `ntp` | NTP servers separated by commas |
@@ -436,15 +436,19 @@ What the command checks, in this order:
 - The output is written as a temporary file beside `--out`
   (`<name>.<pid>.tmp`) and renamed at the end. A refused or failed run
   leaves no output and no temporary file, and an existing `--out` stays as
-  it was.
+  it was. A run that is interrupted (a kill, a power loss) can leave that
+  temporary file (0600): remove it. It holds what the output would.
+- `--out` is never the base image itself, also with `--force`.
+- A gzip image may have several members (as `pigz` writes it).
 - The output is readable by its owner only (0600 on Unix). It holds the
   setup hash and your configuration: keep it like a secret, as the hash
   itself (whoever holds the hash can prove a CA to a client that has the
   code).
-- `--setup-hash` on a command line is visible to other users of the
-  machine while the command runs; prefer `--new-setup-code` on a shared
-  machine.
-- Without `--new-setup-code` and `--setup-hash` the image has no setup
+- The hash of a code made before is read from a file, never from the
+  command line (other users of the machine see a command line, and the
+  shell keeps it). Keep the hash file private (0600) and delete it after
+  the build.
+- Without `--new-setup-code` and `--setup-hash-file` the image has no setup
   hash: nobody can make the first admin from the network.
 
 `wyr image inspect --image <file> --index index.json --board <id>` shows

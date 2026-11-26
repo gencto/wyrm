@@ -108,6 +108,18 @@ pub fn verify_setup_proof(code: &str, ca_der: &[u8], proof: &[u8]) -> bool {
 mod tests {
     use super::*;
 
+    /// Two codes from the OS are two codes, each read back to its hash.
+    #[cfg(feature = "rand")]
+    #[test]
+    fn new_codes_differ() {
+        let (a, hash_a) = super::new_code().unwrap();
+        let (b, hash_b) = super::new_code().unwrap();
+        assert_ne!(a, b);
+        assert_ne!(hash_a, hash_b);
+        assert_eq!(code_hash(&a), Some(hash_a));
+        assert_eq!(code_hash(&b), Some(hash_b));
+    }
+
     /// A code made of fixed bytes: these tests need no OS randomness.
     fn new_code() -> Result<(String, [u8; 32]), std::convert::Infallible> {
         Ok(code_of(&[

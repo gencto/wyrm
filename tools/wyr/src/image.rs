@@ -21,9 +21,6 @@ use wyrm_image::{
 };
 use zeroize::Zeroizing;
 
-/// The argument `--setup-hash`, as clap names it.
-const SETUP_HASH: &str = "setup_hash";
-
 #[derive(Subcommand, Debug)]
 pub enum ImageCmd {
     /// Write a configuration into a board's base image: the result is an image to put on
@@ -48,21 +45,22 @@ pub enum ImageCmd {
         /// (`wyrm-seed/1`).
         #[arg(long)]
         seed: Option<PathBuf>,
-        /// The hash of a setup code made before (`wyrmd setup-code`, second line): 64 hex
-        /// digits.
-        #[arg(long)]
-        setup_hash: Option<String>,
+        /// A file with the hash of a setup code made before (the second line of `wyrmd
+        /// setup-code`): 64 hex digits. The hash is a secret of the image, so it is read
+        /// from a file and never given as an argument.
+        #[arg(long, value_name = "FILE")]
+        setup_hash_file: Option<PathBuf>,
         /// Make a new setup code, put its hash into the image and print the code once.
-        #[arg(long, conflicts_with = SETUP_HASH)]
+        #[arg(long, conflicts_with = "setup_hash_file")]
         new_setup_code: bool,
         /// SSH public keys for `root`. Without it the device has no SSH login.
         #[arg(long)]
         authorized_keys: Option<PathBuf>,
         /// The IANA name of the time zone (`Europe/Kyiv`).
-        #[arg(long)]
+        #[arg(long, value_name = "TZ")]
         timezone: Option<String>,
         /// NTP servers, separated by commas.
-        #[arg(long)]
+        #[arg(long, value_name = "SERVERS")]
         ntp: Option<String>,
         /// The image to write (raw).
         #[arg(long)]
@@ -102,9 +100,12 @@ pub enum ImageCmdError {
     /// The index has no entry for the board.
     #[error("no board `{board}` in the index; it has: {known}")]
     NoBoard { board: String, known: String },
-    /// `--setup-hash` is not a hash. Its text is not repeated.
-    #[error("--setup-hash is not the hash of a setup code (64 hex digits)")]
-    BadSetupHash,
+    /// The file of `--setup-hash-file` does not hold a hash. Its text is not repeated.
+    #[error("`{}` does not hold the hash of a setup code (64 hex digits)", .0.display())]
+    BadSetupHash(PathBuf),
+    /// `--out` names the base image itself.
+    #[error("`{}` is the base image: --out must be another file", .0.display())]
+    SameFile(PathBuf),
     /// The OS gave no randomness for a new setup code.
     #[error("setup code: {0}")]
     NoRandomness(#[from] wyrm_core::rand::NoRandomness),
@@ -165,7 +166,7 @@ pub fn run(cmd: ImageCmd) -> Result<()> {
             config,
             network,
             seed,
-            setup_hash,
+            setup_hash_file,
             new_setup_code,
             authorized_keys,
             timezone,
@@ -175,7 +176,7 @@ pub fn run(cmd: ImageCmd) -> Result<()> {
         } => {
             let entry = entry(&index, &board)?;
             let text = |path: &Option<PathBuf>| path.as_deref().map(read_text).transpose();
-            let (setup, code) = setup(setup_hash.as_deref(), new_setup_code)?;
+            let (setup, code) = setup(setup_hash_file.as_deref(), new_setup_code)?;
             let files = ConfigFiles {
                 wyrmd_json5: read_text(&config)?,
                 network: text(&network)?,
@@ -237,29 +238,32 @@ fn lines(arg: &str, separators: &[char]) -> Option<String> {
 }
 
 /// The `setup` file (the hash as lower-case hex) and, for a new code, the code to print.
+/// `hash_file` holds a hash made before: 64 hex digits, white space around them ignored (the
+/// format of `gateway.setup_file`).
 fn setup(
-    hash: Option<&str>,
+    hash_file: Option<&Path>,
     new_code: bool,
 ) -> Result<(Option<String>, Option<Zeroizing<String>>)> {
     if new_code {
         let (code, hash) = wyrm_core::setup::new_code()?;
         return Ok((Some(hex::encode(hash)), Some(Zeroizing::new(code))));
     }
-    let Some(hash) = hash else {
+    let Some(path) = hash_file else {
         return Ok((None, None));
     };
-    let hash = hash.trim();
+    let text = Zeroizing::new(read_text(path)?);
+    let hash = text.trim();
     if !hex::is_hex(hash, 32) {
-        return Err(ImageCmdError::BadSetupHash);
+        return Err(ImageCmdError::BadSetupHash(path.to_owned()));
     }
     Ok((Some(hash.to_ascii_lowercase()), None))
 }
 
 /// An image file as its raw bytes: a gzip file (told by its first two bytes) is unpacked
-/// while it is read.
+/// while it is read, every member of it (`pigz` writes several).
 enum Input {
     Raw(File),
-    Gz(Box<flate2::read::GzDecoder<io::BufReader<File>>>),
+    Gz(Box<flate2::read::MultiGzDecoder<io::BufReader<File>>>),
 }
 
 impl Input {
@@ -269,9 +273,9 @@ impl Input {
         let got = read_full(&mut file, &mut magic)?;
         file.seek(SeekFrom::Start(0))?;
         Ok(if got == 2 && magic == [0x1f, 0x8b] {
-            Self::Gz(Box::new(flate2::read::GzDecoder::new(io::BufReader::new(
-                file,
-            ))))
+            Self::Gz(Box::new(flate2::read::MultiGzDecoder::new(
+                io::BufReader::new(file),
+            )))
         } else {
             Self::Raw(file)
         })
@@ -308,7 +312,7 @@ fn create_private(path: &Path) -> io::Result<File> {
     options.read(true).write(true).create_new(true);
     #[cfg(unix)]
     {
-        use std::os::unix::fs::OpenOptionsExt;
+        use std::os::unix::fs::OpenOptionsExt as _;
         options.mode(0o600);
     }
     options.open(path)
@@ -323,7 +327,17 @@ fn build(image: &Path, entry: &ImageEntry, region: &[u8], out: &Path, force: boo
         Err(e) => Err(io_err("look for", out)(e)),
     };
     exists()?;
+    // also with --force: the base image is not replaced by what is made of it
+    if let (Ok(a), Ok(b)) = (out.canonicalize(), image.canonicalize()) {
+        if a == b {
+            return Err(ImageCmdError::SameFile(out.to_owned()));
+        }
+    }
     let tmp = temp_beside(out);
+    // what an interrupted run of the same process id left
+    std::fs::remove_file(&tmp)
+        .or_else(gone_ok)
+        .map_err(io_err("remove", &tmp))?;
     let mut file = create_private(&tmp).map_err(io_err("create", &tmp))?;
     let done = assemble(image, entry, region, &mut file, &tmp)
         .and_then(|()| exists())
@@ -485,28 +499,42 @@ mod tests {
     }
 
     #[test]
-    fn a_setup_hash_is_checked_and_lowered() {
+    fn a_setup_hash_file_is_checked_and_lowered() {
         let hash = "3F0A9C1E5B7D2468ACE013579BDF02468ACE13579BDF0246813579BDF02468AC";
-        let (file, code) = setup(Some(&format!("{hash}\n")), false).unwrap();
+        let path = std::env::temp_dir().join(format!("wyr-image-hash-{}", std::process::id()));
+        let with = |text: &str| {
+            std::fs::write(&path, text).unwrap();
+            setup(Some(&path), false)
+        };
+        // as `wyrmd setup-code` prints it, with white space around
+        let (file, code) = with(&format!("  {hash}\n")).unwrap();
         assert_eq!(file, Some(hash.to_lowercase()));
         assert!(code.is_none());
         assert!(matches!(setup(None, false), Ok((None, None))));
+        let short = hash.get(1..).unwrap();
         for bad in [
             "",
             "abc",
-            &hash[1..],
+            short,
             &format!("{hash}0"),
             &hash.replace('3', "g"),
         ] {
-            let e = setup(Some(bad), false).unwrap_err();
-            assert!(matches!(e, ImageCmdError::BadSetupHash), "{bad}");
+            let e = with(bad).unwrap_err();
+            assert!(matches!(e, ImageCmdError::BadSetupHash(_)), "{bad}");
             assert!(bad.is_empty() || !e.to_string().contains(bad));
         }
-        // a new code: its hash for the image, the code for the person
+        std::fs::remove_file(&path).unwrap();
+        assert!(matches!(
+            setup(Some(&path), false),
+            Err(ImageCmdError::Io { .. })
+        ));
+        // a new code: its hash for the image, the code for the person; never the same twice
         let (file, code) = setup(None, true).unwrap();
         let code = code.unwrap();
         let hash = wyrm_core::setup::code_hash(&code).unwrap();
         assert_eq!(file, Some(hex::encode(hash)));
+        let (other, _) = setup(None, true).unwrap();
+        assert_ne!(other, file);
     }
 
     #[test]

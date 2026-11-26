@@ -662,13 +662,20 @@ fn mutations_never_panic() {
     let mut rng = Rng(0x9E37_79B9_7F4A_7C15);
     let mut read = 0u32;
     let mut refused = 0u32;
-    let mut go = |bytes: &[u8]| match read_region(bytes) {
+    // refusals only the archive reader gives: the mutation passed the header and the SHA-256
+    let mut in_archive = 0u32;
+    let mut go = |bytes: &[u8], sealed: bool| match read_region(bytes) {
         Ok(Some(files)) => {
             files.check().unwrap();
             read += 1;
         }
         Ok(None) => read += 1,
-        Err(_) => refused += 1,
+        Err(e) => {
+            if sealed && matches!(e, ImageError::BadName(_) | ImageError::BadContent(_)) {
+                in_archive += 1;
+            }
+            refused += 1;
+        }
     };
     for round in 0..ROUNDS {
         let mut bad = good.clone();
@@ -738,10 +745,14 @@ fn mutations_never_panic() {
                 reseal(&mut bad, len);
             }
         }
-        go(&bad);
+        // the kinds that set the checksum and the SHA-256 again after the damage
+        go(&bad, round % 8 >= 5);
     }
     // both happen: the mutations reach the reader behind the hash, and most are refused
     assert_eq!(read + refused, ROUNDS);
     assert!(refused > ROUNDS / 2, "{refused} refused");
     assert!(read > 0, "{read} read");
+    // the kinds with a right checksum and hash reach the archive reader: some are refused
+    // there by a name or a content, which nothing before the archive can tell
+    assert!(in_archive > 0, "{in_archive} refused in the archive");
 }

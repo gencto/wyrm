@@ -100,6 +100,17 @@ mod tests {
         wyrm_core::hex::encode(h)
     }
 
+    /// The gateway's `new_code` draws from the OS: two codes differ, in the documented form.
+    #[test]
+    fn new_codes_differ() {
+        let (a, hash_a) = new_code().unwrap();
+        let (b, hash_b) = new_code().unwrap();
+        assert_ne!(a, b);
+        assert_ne!(hash_a, hash_b);
+        assert_eq!(a.len(), CODE_CHARS + 6);
+        assert_eq!(code_hash(&a), Some(hash_a));
+    }
+
     #[test]
     fn setup_makes_one_admin() {
         let (gw, dir) = gateway("one-admin");

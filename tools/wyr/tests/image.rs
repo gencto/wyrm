@@ -141,13 +141,15 @@ fn build_writes_the_region() {
     dir.write("network", "config interface 'lan'\n\toption proto 'dhcp'\n");
     dir.write("seed.json", "{\"format\":\"wyrm-seed/1\",\"links\":[]}");
     dir.write("keys", KEYS);
+    // the hash as `wyrmd setup-code` prints it, in a file
+    dir.write("setup.hash", format!("{}\n", SETUP.to_uppercase()));
     let out = dir.build(&[
         "--network",
         "network",
         "--seed",
         "seed.json",
-        "--setup-hash",
-        &SETUP.to_uppercase(),
+        "--setup-hash-file",
+        "setup.hash",
         "--authorized-keys",
         "keys",
         "--timezone",
@@ -239,17 +241,27 @@ fn a_new_setup_code_is_printed_once() {
     assert!(!format!("{stdout}{}", text(&out.stderr)).contains(&hash));
 
     // one or the other
-    let both = dir.build(&["--force", "--new-setup-code", "--setup-hash", SETUP]);
+    dir.write("setup.hash", SETUP);
+    let both = dir.build(&[
+        "--force",
+        "--new-setup-code",
+        "--setup-hash-file",
+        "setup.hash",
+    ]);
     assert!(
         refused(&both).contains("cannot be used with"),
         "{}",
         text(&both.stderr)
     );
     // a hash that is none is refused before anything is written, and is not echoed
-    let bad = dir.build(&["--force", "--setup-hash", "abc123"]);
+    dir.write("setup.hash", "abc123\n");
+    let bad = dir.build(&["--force", "--setup-hash-file", "setup.hash"]);
     let why = refused(&bad);
     assert!(why.contains("64 hex digits"), "{why}");
     assert!(!why.contains("abc123"), "{why}");
+    // the hash is a secret of the image: it is not taken as an argument
+    let arg = dir.build(&["--force", "--setup-hash", SETUP]);
+    assert!(!refused(&arg).contains(SETUP), "{}", text(&arg.stderr));
 }
 
 #[test]
@@ -384,6 +396,44 @@ fn an_existing_output_needs_force() {
 }
 
 #[test]
+fn the_output_is_never_the_base_image() {
+    let dir = Dir::new("same");
+    for out in ["base.img", "./base.img"] {
+        let run = dir.wyr(&[
+            "image",
+            "build",
+            "--image",
+            "base.img",
+            "--index",
+            "index.json",
+            "--board",
+            "rpi4",
+            "--config",
+            "wyrmd.json5",
+            "--out",
+            out,
+            "--force",
+        ]);
+        let why = refused(&run);
+        assert!(why.contains("is the base image"), "{why}");
+    }
+    assert_eq!(std::fs::read(dir.path("base.img")).unwrap(), base());
+}
+
+/// A temporary file an interrupted run left under the same name does not stop the next run.
+#[test]
+fn a_stale_temporary_file_is_replaced() {
+    let dir = Dir::new("stale");
+    // the name of the next run is not known (its process id): any earlier name stays, and a
+    // run still ends well beside it
+    dir.write("out.img.1.tmp", "left by an interrupted run");
+    ok(&dir.build(&[]));
+    assert!(read_region(&region_of(&dir.path("out.img")))
+        .unwrap()
+        .is_some());
+}
+
+#[test]
 fn gz_input_is_unpacked() {
     use std::io::Write as _;
     let dir = Dir::new("gz");
@@ -433,6 +483,36 @@ fn gz_input_is_unpacked() {
         text(&seen.stdout)
     );
 
+    // an image packed in several members (`pigz`) is one image
+    let mut members = Vec::new();
+    for part in base().chunks(SIZE / 3 + 1) {
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+        gz.write_all(part).unwrap();
+        members.extend_from_slice(&gz.finish().unwrap());
+    }
+    dir.write("members.img.gz", &members);
+    let out = dir.wyr(&[
+        "image",
+        "build",
+        "--image",
+        "members.img.gz",
+        "--index",
+        "index.json",
+        "--board",
+        "rpi4",
+        "--config",
+        "wyrmd.json5",
+        "--out",
+        "members.img",
+    ]);
+    ok(&out);
+    assert_eq!(
+        std::fs::read(dir.path("members.img")).unwrap(),
+        std::fs::read(dir.path("out.img")).unwrap()
+    );
+    std::fs::remove_file(dir.path("members.img")).unwrap();
+    std::fs::remove_file(dir.path("members.img.gz")).unwrap();
+
     // a cut download is refused
     let before = {
         std::fs::remove_file(dir.path("out.img")).unwrap();
@@ -476,9 +556,10 @@ fn inspect_hides_the_setup_hash() {
     assert_eq!(ok(&empty), "board: rpi4\nregion: empty\n");
 
     dir.write("keys", KEYS);
+    dir.write("setup.hash", SETUP);
     ok(&dir.build(&[
-        "--setup-hash",
-        SETUP,
+        "--setup-hash-file",
+        "setup.hash",
         "--authorized-keys",
         "keys",
         "--timezone",
