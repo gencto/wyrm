@@ -6768,6 +6768,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "wyrm-image"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "wyrm-core",
+]
+
+[[package]]
 name = "wyrm-link-agent"
 version = "0.1.0"
 dependencies = [

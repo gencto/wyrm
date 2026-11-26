@@ -1,0 +1,20 @@
+[package]
+name = "wyrm-image"
+description = "WYRM board images: the config region of a base image and the index of images (ADR 0051 §4). Pure: no I/O, no clock, no randomness; builds for wasm32"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+# `hex`: SHA-256 and hex (docs/rust-rules.md §11); `name_enum!`: the file names of the archive
+wyrm-core.workspace = true
+thiserror.workspace = true
+# the index of images is a user file (CLAUDE.md principle 5); the region code uses no serde
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true
