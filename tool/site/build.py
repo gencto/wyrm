@@ -87,19 +87,72 @@ EXCLUDED_DIRS = {
     "docs/security/": "security reviews and threat notes",
 }
 
-# docs/*.md by section. A new doc that is in no list lands in Guides (with a
+# The numbered sections of the book, in the order of SUMMARY.md: the name, and
+# the guides `docs/<name>.md` it holds. The side menu shows the number before
+# the name (`01 Overview`) and each page shows it above its title. Overview,
+# Specification and Decisions are filled from the README, `spec/` and
+# `docs/adr/`. A new doc that is in no list lands in FALLBACK_SECTION (with a
 # warning), so it never disappears from the site in silence.
-GUIDES = [
-    "broker", "history", "scheduler", "dql", "alarm", "uplink",
-    "flow-blocks", "claude", "mcp", "agent",
+SECTION_GUIDES = [
+    ("Overview", []),
+    # the broker and the services that every `wyrmd` has inside
+    ("Architecture", ["broker", "history", "scheduler", "alarm", "dql", "uplink"]),
+    ("Links", ["links", "modbus", "bacnet", "knx", "opcua", "s7", "snmp", "http",
+               "prometheus", "filestores", "messenger", "telegram", "slack"]),
+    ("Dataflow", ["flow-blocks"]),
+    ("Studio and assistants", ["claude", "mcp", "agent"]),
+    ("Security", []),
+    ("Operations", ["operations", "backups"]),
+    ("Specification", []),
+    ("Decisions", []),
 ]
-LINKS = [
-    "links", "modbus", "bacnet", "knx", "opcua", "s7", "snmp", "http", "prometheus",
-    "filestores", "messenger", "telegram", "slack",
-]
-OPERATIONS = ["operations", "backups"]
+SECTIONS = [name for name, _ in SECTION_GUIDES]
+FALLBACK_SECTION = "Architecture"
 SPEC_ORDER = ["README", "01-keyspace", "02-meta", "03-val", "04-attachment",
               "05-methods", "06-flow-def", "CHANGELOG"]
+
+# A section whose subject has no guide in `docs/` opens with a reading list
+# the generator writes: the decisions and the spec parts that hold the rules.
+# The sentences state only what the root README and the listed pages say. An
+# ADR that is left out of the site is left out of the list too.
+TOPICS = {
+    "Studio and assistants": {
+        "page": "topics/studio.md",
+        "title": "WYRM Studio",
+        "lead": "WYRM Studio is the app for the tree, the dataflows and the"
+                " system of a site, written in Flutter. It works through the"
+                " user gateway, as every other client of a person does. The"
+                " decisions below say how it is built and what it needs from the"
+                " broker; the guides of this section cover the AI assistants,"
+                " which come in through the same gateway.",
+        "adrs": ["0037", "0019", "0038", "0042", "0049", "0050"],
+        "more": [("README.md", "#wyrm-studio", "Overview",
+                  "how to start Studio with the demo"),
+                 ("docs/broker.md", "#gateway", "Broker reference",
+                  "the user gateway that Studio logs in to")],
+    },
+    "Security": {
+        "page": "topics/security.md",
+        "title": "Security",
+        "lead": "Security is not optional in WYRM: TLS or mTLS on every"
+                " connection except loopback, secrets never in the tree, and a"
+                " signed permission token (`ptok`) that the responder checks on"
+                " every write and action. The pages below hold the rules.",
+        "adrs": ["0006", "0007", "0008", "0009", "0013", "0015", "0018", "0046",
+                 "0050"],
+        "more": [("spec/04-attachment.md", "#ptok-v1", "Specification 04",
+                  "the permission token and the order of its checks"),
+                 ("docs/links.md", "#13-trust-and-security", "Links",
+                  "who can install a link and what a package may do"),
+                 ("SECURITY.md", "", "SECURITY.md",
+                  "how to report a vulnerability")],
+    },
+}
+TOPIC_PAGES = {t["page"] for t in TOPICS.values()}
+
+# Figures: the SVG files of `docs/img/` that the guides show. They are copied
+# into the book (`/docs/img/`), never linked on GitHub.
+IMAGES = re.compile(r"docs/img/[^/]+\.(?:svg|png|webp)")
 
 # Optional local deny-list, git-ignored: one word per line, `#` starts a
 # comment. A page that holds one of the words is left out of the site. Without
@@ -108,10 +161,6 @@ DENY_FILE = REPO / "tool/site/denied-words.local"
 
 # The generated page of the ADR section: `docs/adr/` links land here.
 ADR_INDEX = "adr/index.md"
-
-# The sections of the book, in the order of SUMMARY.md.
-SECTIONS = ["Start", "Guides", "Links (connectors)", "Operations",
-            "Architecture decisions", "Specification"]
 
 # The guide of an official link without a guide of its own name.
 CATEGORY_GUIDES = {
@@ -313,6 +362,8 @@ class Linker:
                 self.dirs.add(d)
                 d = posixpath.dirname(d)
         self.pages = pages  # repo path -> site path
+        # figures: repo path -> place in the book
+        self.images = {p: p[len("docs/"):] for p in tracked if IMAGES.fullmatch(p)}
         # A directory link lands on the directory's page in the book: its
         # README, or the generated ADR index for docs/adr.
         self.dir_pages = {posixpath.dirname(p): sp for p, sp in pages.items()
@@ -353,7 +404,8 @@ class Linker:
         if self.is_excluded(resolved):
             self.unlinked += 1
             return None
-        page = self.pages.get(resolved) or self.dir_pages.get(resolved)
+        page = (self.pages.get(resolved) or self.dir_pages.get(resolved)
+                or self.images.get(resolved))
         if page:
             rel = posixpath.relpath(page, posixpath.dirname(site_page) or ".")
             return rel + frag
@@ -428,6 +480,147 @@ class Linker:
         return re.sub("\0(\\d+)\0", lambda m: spans[int(m.group(1))], masked)
 
 
+# ------------------------------------------------------------ page furniture
+
+# What the design's pages have and plain Markdown lacks: the section number
+# above the title, a figure with its caption, and a "More:" row of the
+# decisions and spec parts a section names. The sources stay plain Markdown
+# that GitHub renders; this is added to the copy in the book only.
+
+KICKER = '<p class="wy-kicker" data-kind="{kind}"><span>{number}</span> {section}</p>'
+# A paragraph that is one image, and the paragraph in italics right under it.
+FIGURE = re.compile(
+    r"(?:\A|(?<=\n\n))(!\[[^\]\n]*\]\([^)\n]+\))[ \t]*\n"
+    r"(?:[ \t]*\n(?:\*([^*\n][^*]*?)\*|_([^_\n][^_]*?)_)[ \t]*\n)?(?=[ \t]*\n|\Z)")
+MORE_LINK = re.compile(r"\]\(((?:\.\./)*(?:adr/\d{4}-|spec/)[^)#\s]+\.md)(?:#[^)\s]*)?\)")
+MORE_ADR = re.compile(r"\bADRs?[  ](\d{4})(?:[–-](\d{4}))?\b")
+MORE_SPEC = re.compile(r"\b[Ss]pec[  /](0\d)\b")
+MORE_MAX = 8
+
+
+def fenced(text: str):
+    """The lines of a Markdown text with a flag: inside a fenced code block."""
+    in_fence: str | None = None
+    for line in text.split("\n"):
+        m = FENCE.match(line)
+        if m:
+            mark = m.group(1)[0]
+            if in_fence is None:
+                in_fence = mark
+            elif in_fence == mark:
+                in_fence = None
+            yield line, True
+        else:
+            yield line, in_fence is not None
+
+
+def outside_fences(text: str, fn) -> str:
+    """Apply `fn` to each run of lines between fenced code blocks."""
+    out: list[str] = []
+    block: list[str] = []
+    for line, code in fenced(text):
+        if code:
+            if block:
+                out.append(fn("\n".join(block)))
+                block = []
+            out.append(line)
+        else:
+            block.append(line)
+    if block:
+        out.append(fn("\n".join(block)))
+    return "\n".join(out)
+
+
+def figures(text: str) -> str:
+    def one(m: re.Match) -> str:
+        caption = (m.group(2) or m.group(3) or "").strip()
+        out = f'<figure class="wy-figure">\n\n{m.group(1)}\n\n'
+        if caption:
+            out += f"<figcaption>\n\n{caption}\n\n</figcaption>\n"
+        return out + "</figure>\n"
+    return outside_fences(text, lambda block: FIGURE.sub(one, block))
+
+
+class Furniture:
+    def __init__(self, pages: dict[str, str]):
+        self.adrs: dict[str, str] = {}   # number -> site path
+        self.specs: dict[str, str] = {}  # "01" -> site path
+        self.labels: dict[str, str] = {}  # site path -> the label of a "More:" link
+        for p, sp in pages.items():
+            m = re.fullmatch(r"docs/adr/(\d{4})-[^/]+\.md", p)
+            if m:
+                self.adrs[m.group(1)] = sp
+                self.labels[sp] = f"ADR {m.group(1)}"
+            m = re.fullmatch(r"spec/(\d\d)-[^/]+\.md", p)
+            if m:
+                self.specs[m.group(1)] = sp
+                self.labels[sp] = f"spec {m.group(1)}"
+        if "spec/README.md" in pages:
+            self.labels[pages["spec/README.md"]] = "spec"
+        if "spec/CHANGELOG.md" in pages:
+            self.labels[pages["spec/CHANGELOG.md"]] = "spec changelog"
+
+    def named(self, chunk: str, site_page: str) -> list[str]:
+        """The decisions and spec parts a text names, by a link or by their
+        number, in the order it names them, as site paths."""
+        here = posixpath.dirname(site_page) or "."
+        hits: list[tuple[int, str]] = []
+        text = CODE_SPAN.sub(lambda m: " " * len(m.group(0)), chunk)
+        for m in MORE_LINK.finditer(text):
+            hits.append((m.start(), posixpath.normpath(posixpath.join(here, m.group(1)))))
+        for m in MORE_ADR.finditer(text):
+            first, last = int(m.group(1)), int(m.group(2) or m.group(1))
+            if last - first < 4:  # "ADR 0001–0011" names a range, not each one
+                for n in range(first, last + 1):
+                    hits.append((m.start(), self.adrs.get(f"{n:04d}", "")))
+        for m in MORE_SPEC.finditer(text):
+            hits.append((m.start(), self.specs.get(m.group(1), "")))
+        seen: list[str] = []
+        for _, sp in sorted(hits):
+            if sp in self.labels and sp != site_page and sp not in seen:
+                seen.append(sp)
+        return seen
+
+    def row(self, chunk: str, site_page: str) -> str:
+        targets = self.named(chunk, site_page)[:MORE_MAX]
+        if not targets:
+            return ""
+        here = posixpath.dirname(site_page) or "."
+        links = " · ".join(f"[{self.labels[sp]}]({posixpath.relpath(sp, here)})"
+                           for sp in targets)
+        return f'<span class="wy-more">More:</span> {links}'
+
+    def more(self, text: str, site_page: str, by_section: bool) -> str:
+        """Add the "More:" rows: one at the end of the intro and of each `##`
+        section of a guide, or one at the end of a decision or a spec part."""
+        chunks: list[list[str]] = [[]]
+        for line, code in fenced(text):
+            if by_section and not code and line.startswith("## "):
+                chunks.append([])
+            chunks[-1].append(line)
+        out: list[str] = []
+        for lines in chunks:
+            chunk = "\n".join(lines)
+            prose = "\n".join(line for line, code in fenced(chunk) if not code)
+            row = self.row(prose, site_page)
+            if row:
+                chunk = chunk.rstrip("\n") + "\n\n" + row + "\n"
+            out.append(chunk)
+        return "\n".join(out)
+
+    def dress(self, text: str, site_page: str, number: int, section: str,
+              kind: str) -> str:
+        text = figures(text)
+        if kind in ("guide", "adr", "spec"):
+            text = self.more(text, site_page, by_section=kind == "guide")
+        kicker = KICKER.format(kind=kind, number=f"{number:02d}", section=esc(section))
+        lines = text.split("\n")
+        at = next((i for i, (line, code) in enumerate(fenced(text))
+                   if not code and line.startswith("# ")), 0)
+        lines[at:at] = [kicker, ""]
+        return "\n".join(lines)
+
+
 # ------------------------------------------------------------------ landing
 
 def md_cell(text: str) -> str:
@@ -487,20 +680,59 @@ def changelog_entries(text: str) -> list[tuple[tuple[int, ...], str]]:
     return entries
 
 
+def topic_page(topic: dict, linker: Linker, adrs: list[tuple[str, str, str, str]],
+               pages: dict[str, str]) -> str:
+    """The reading list that opens a section with no guide of its own."""
+    sp = topic["page"]
+    here = posixpath.dirname(sp)
+    lines = [f"# {topic['title']}", "", topic["lead"], "",
+             "## Decisions", "", "| ADR | Title | Status |", "|---|---|---|"]
+    by_number = {number: (p, title, status) for number, p, title, status in adrs}
+    for number in topic["adrs"]:
+        if number not in by_number:  # left out of the site
+            continue
+        p, title, status = by_number[number]
+        short = re.sub(r"^ADR\s+\d+\s*[—–:-]\s*", "", title)
+        lines.append(f"| {number} | [{md_cell(short)}]"
+                     f"({posixpath.relpath(pages[p], here)}) | {md_cell(status)} |")
+    lines += ["", "## Read also", ""]
+    for path, frag, name, what in topic["more"]:
+        target = linker.rewrite("/" + path + frag, sp, sp)
+        if target is None:
+            raise BuildError(f"{sp}: {path} is left out of the site")
+        lines.append(f"- [{name}]({target}): {what}.")
+    lines.append("")
+    return "\n".join(lines)
+
+
 def landing(linker: Linker, readme: str, adrs: list[tuple[str, str, str]],
-            changelog: str, official: dict, pages: dict[str, str]) -> str:
+            changelog: str, official: dict, pages: dict[str, str],
+            sections: list[tuple[str, list[tuple[str, str, str]]]]) -> str:
     intro, status = readme_intro(readme)
     intro = linker.rewrite_text(intro, "README.md", "index.md")
     status = linker.rewrite_text(status, "README.md", "index.md")
     lines = [
-        "# WYRM",
+        '<p class="wy-kicker" data-kind="home">Docs</p>',
+        "",
+        "# WYRM documentation",
         "",
         intro,
         "",
     ]
     if status:
         lines += [status, ""]
+    lines += ["## Sections", "", "| | Section | Pages |", "|---|---|---|"]
+    for i, (name, entries) in enumerate(sections, 1):
+        shown = [e for e in entries if e[2] != "adr"]
+        cells = " · ".join(f"[{md_cell(summary_title(t))}]({sp})" for sp, t, _ in shown)
+        rest = len(entries) - len(shown)
+        if rest:
+            cells += f" · {rest} decisions"
+        lines.append(f"| {i:02d} | [{name}]({entries[0][0]}) | {cells} |")
     lines += [
+        "",
+        "## Where things are",
+        "",
         f"- Source code: [github.com/gencto/wyrm]({GITHUB})",
         f"- Releases: [github.com/gencto/wyrm/releases]({GITHUB}/releases)",
         f"- Read next: [Overview]({pages['README.md']})"
@@ -743,71 +975,97 @@ def build() -> int:
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(f, dest)
 
-    for p, sp in pages.items():
-        dest = SRC / sp
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text(linker.rewrite_text(texts[p], p, sp), encoding="utf-8")
-
-    # ---- SUMMARY
-    def entry(p: str, title: str | None = None) -> str:
-        t = title or first_heading(texts[p], posixpath.basename(p))
-        return f"- [{summary_title(t)}]({pages[p]})"
+    # ---- the sections: (name, [(site path, title in the menu, kind)])
+    def title_of(p: str) -> str:
+        return first_heading(texts[p], posixpath.basename(p))
 
     docs = {posixpath.basename(p)[:-3]: p for p in pages
             if re.fullmatch(r"docs/[^/]+\.md", p) and p != "docs/README.md"}
-    known = set(GUIDES) | set(LINKS) | set(OPERATIONS)
+    known = {n for _, names in SECTION_GUIDES for n in names}
     extra = sorted(n for n in docs if n not in known)
     for n in extra:
-        warnings.append(f"docs/{n}.md: in no section list, put in Guides")
-
-    start, guides, connectors, operations, decisions, specification = SECTIONS
-    summary = ["# Summary", "", "[Docs home](index.md)", "", f"# {start}", ""]
-    summary.append(entry("README.md", "Overview"))
-    if "docs/README.md" in pages:
-        summary.append(entry("docs/README.md", "Documentation map"))
-    for part, names in ((guides, GUIDES + extra), (connectors, LINKS),
-                        (operations, OPERATIONS)):
-        summary += ["", f"# {part}", ""]
-        summary += [entry(docs[n]) for n in names if n in docs]
+        warnings.append(f"docs/{n}.md: in no section list, put in {FALLBACK_SECTION}")
 
     adrs = []
     for p in pages:
         m = re.fullmatch(r"docs/adr/(\d{4})-[^/]+\.md", p)
         if m:
-            adrs.append((m.group(1), p, first_heading(texts[p], p),
-                         adr_status(texts[p])))
+            adrs.append((m.group(1), p, title_of(p), adr_status(texts[p])))
     adrs.sort()
-    summary += ["", f"# {decisions}", ""]
-    if ADR_INDEX not in pages.values():
-        rows = ["# Architecture decisions", "",
-                "One file per decision, in the order they were made. The status"
-                " says whether a decision is proposed or accepted, and when.", "",
-                "| ADR | Title | Status |", "|---|---|---|"]
-        for number, p, title, status_line in adrs:
-            short = re.sub(r"^ADR\s+\d+\s*[—–:-]\s*", "", title)
-            rel = posixpath.relpath(pages[p], posixpath.dirname(ADR_INDEX))
-            rows.append(f"| {number} | [{md_cell(short)}]({rel}) |"
-                        f" {md_cell(status_line)} |")
-        rows.append("")
-        (SRC / ADR_INDEX).write_text("\n".join(rows), encoding="utf-8")
-        summary.append(f"- [All decisions]({ADR_INDEX})")
-    summary += [entry(p, t) for _, p, t, _ in adrs]
-
     spec = {posixpath.basename(p)[:-3]: p for p in pages if p.startswith("spec/")}
-    order = SPEC_ORDER + sorted(n for n in spec if n not in SPEC_ORDER)
-    summary += ["", f"# {specification}", ""]
-    for n in order:
-        if n in spec:
-            title = {"README": "Specification overview",
-                     "CHANGELOG": "Changelog"}.get(n)
-            summary.append(entry(spec[n], title))
+    spec_order = SPEC_ORDER + sorted(n for n in spec if n not in SPEC_ORDER)
+    spec_titles = {"README": "Specification overview", "CHANGELOG": "Changelog"}
+
+    generated: dict[str, str] = {}  # site path -> Markdown the generator writes
+    sections: list[tuple[str, list[tuple[str, str, str]]]] = []
+    for name, names in SECTION_GUIDES:
+        entries: list[tuple[str, str, str]] = []
+        if name == "Overview":
+            entries.append((pages["README.md"], "Overview", "guide"))
+            if "docs/README.md" in pages:
+                entries.append((pages["docs/README.md"], "Documentation map", "guide"))
+        if name in TOPICS:
+            topic = TOPICS[name]
+            generated[topic["page"]] = topic_page(topic, linker, adrs, pages)
+            entries.append((topic["page"], topic["title"], "topic"))
+        entries += [(pages[docs[n]], title_of(docs[n]), "guide")
+                    for n in names + (extra if name == FALLBACK_SECTION else [])
+                    if n in docs]
+        if name == "Specification":
+            entries += [(pages[spec[n]], spec_titles.get(n) or title_of(spec[n]), "spec")
+                        for n in spec_order if n in spec]
+        if name == "Decisions":
+            rows = ["# Architecture decisions", "",
+                    "One file per decision, in the order they were made. The status"
+                    " says whether a decision is proposed or accepted, and when.", "",
+                    "| ADR | Title | Status |", "|---|---|---|"]
+            for number, p, title, status_line in adrs:
+                short = re.sub(r"^ADR\s+\d+\s*[—–:-]\s*", "", title)
+                rel = posixpath.relpath(pages[p], posixpath.dirname(ADR_INDEX))
+                rows.append(f"| {number} | [{md_cell(short)}]({rel}) |"
+                            f" {md_cell(status_line)} |")
+            rows.append("")
+            generated[ADR_INDEX] = "\n".join(rows)
+            entries.append((ADR_INDEX, "All decisions", "topic"))
+            entries += [(pages[p], t, "adr") for _, p, t, _ in adrs]
+        if entries:
+            sections.append((name, entries))
+    for sp in generated:
+        if sp in pages.values():
+            raise BuildError(f"{sp}: a generated page would replace a page")
+
+    # ---- the pages, each with its section number, figures and "More:" rows
+    furniture = Furniture(pages)
+    place = {sp: (i, name, kind) for i, (name, entries) in enumerate(sections, 1)
+             for sp, _, kind in entries}
+    sources = {sp: linker.rewrite_text(texts[p], p, sp) for p, sp in pages.items()}
+    sources.update(generated)
+    for sp, text in sources.items():
+        if sp not in place:
+            raise BuildError(f"{sp}: the page is in no section")
+        number, name, kind = place[sp]
+        dest = SRC / sp
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(furniture.dress(text, sp, number, name, kind), encoding="utf-8")
+    for p, sp in linker.images.items():
+        dest = SRC / sp
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(REPO / p, dest)
+
+    # ---- SUMMARY: the decisions fold under "All decisions" (book.toml `fold`)
+    summary = ["# Summary", "", "[Docs home](index.md)"]
+    for name, entries in sections:
+        summary += ["", f"# {name}", ""]
+        for sp, title, kind in entries:
+            indent = "  " if kind == "adr" else ""
+            summary.append(f"{indent}- [{summary_title(title)}]({sp})")
     summary.append("")
     (SRC / "SUMMARY.md").write_text("\n".join(summary), encoding="utf-8")
 
     # ---- landing page
     official = json.loads((REPO / "links/official.json").read_text(encoding="utf-8"))
     index = landing(linker, texts["README.md"], adrs,
-                    texts["spec/CHANGELOG.md"], official, pages)
+                    texts["spec/CHANGELOG.md"], official, pages, sections)
     if denied_word(index):
         raise BuildError("the landing page holds a word of the local deny-list")
     (SRC / "index.md").write_text(index, encoding="utf-8")

@@ -1,12 +1,19 @@
 /* The look of the WYRM docs (mdBook), after the wiki page of the site design:
    the dark ground, IBM Plex Sans and Mono, Unbounded for titles, an ember
-   accent and teal links. The design has one look, so every mdBook theme gets
-   the same colours and the theme menu is hidden. The fonts come from
-   /assets/fonts.css (theme/head.hbs). */
+   accent and teal links; the sections as a numbered card beside the text, a
+   section number above each title, figures in panels with mono captions and
+   "More:" rows. The design has one look, so every mdBook theme gets the same
+   colours and the theme menu is hidden. The fonts come from /assets/fonts.css
+   (theme/head.hbs); the page template is theme/index.hbs.
+
+   mdBook sets `html { font-size: 62.5% }`: 1rem is 10px here. */
 
 :root {
-    --content-max-width: 820px;
+    --content-max-width: none;
+    --page-padding: 0px;
+    --menu-bar-height: 48px;
     --mono-font: 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace;
+    --wy-display: 'Unbounded', 'IBM Plex Sans', system-ui, sans-serif;
     --wy-ground: #0E1113;
     --wy-panel: #161A1D;
     --wy-raised: #1D2226;
@@ -20,6 +27,9 @@
     --wy-accent: #E8893A;
     --wy-accent-soft: #F3A766;
     --wy-teal: #6CC4B0;
+    --wy-menu-width: 286px;
+    --wy-gap: 56px;
+    --wy-gutter: 24px;
 }
 
 html.light, html.rust, html.coal, html.navy, html.ayu {
@@ -27,11 +37,11 @@ html.light, html.rust, html.coal, html.navy, html.ayu {
     --fg: var(--wy-body);
     --sidebar-bg: var(--wy-panel);
     --sidebar-fg: var(--wy-muted);
-    --sidebar-non-existant: #7D868B;
+    --sidebar-non-existant: var(--wy-faint);
     --sidebar-active: var(--wy-text);
     --sidebar-spacer: var(--wy-line);
     --scrollbar: var(--wy-line-strong);
-    --icons: var(--wy-faint);
+    --icons: var(--wy-muted);
     --icons-hover: var(--wy-text);
     --links: var(--wy-teal);
     --inline-code-color: var(--wy-text);
@@ -48,7 +58,7 @@ html.light, html.rust, html.coal, html.navy, html.ayu {
     --searchbar-bg: var(--wy-panel);
     --searchbar-fg: var(--wy-text);
     --searchbar-shadow-color: transparent;
-    --searchresults-header-fg: var(--wy-faint);
+    --searchresults-header-fg: var(--wy-muted);
     --searchresults-border-color: var(--wy-line);
     --searchresults-li-bg: var(--wy-panel);
     --search-mark-bg: #5A4330;
@@ -61,8 +71,8 @@ html.light, html.rust, html.coal, html.navy, html.ayu {
     --blockquote-tip-color: var(--wy-teal);
     --blockquote-important-color: var(--wy-accent-soft);
     --blockquote-warning-color: var(--wy-accent);
-    --blockquote-caution-color: #E07A5F;
-    --sidebar-header-border-color: var(--wy-accent);
+    --blockquote-caution-color: #F0957C;
+    --sidebar-header-border-color: var(--wy-line-strong);
     color-scheme: dark;
 }
 
@@ -73,21 +83,30 @@ html {
 }
 body { background: var(--wy-ground); }
 
+.wy-skip {
+    position: absolute;
+    left: 16px;
+    top: -60px;
+    z-index: 300;
+    padding: 10px 16px;
+    border-radius: 8px;
+    background: var(--wy-accent);
+    color: #1A1206;
+    font-size: 1.5rem;
+    font-weight: 600;
+    text-decoration: none;
+}
+.wy-skip:focus { top: 12px; }
+
 /* ------------------------------------------------------------- top bar */
-/* mdBook pulls `.page` up by the height of a hover area that brings back a
-   bar that is not sticky. Its bar is always sticky here, and the top bar is
-   the first thing of the page: the hover area and the pull go. */
-.page { margin-block-start: 0; }
-#mdbook-menu-bar-hover-placeholder { display: none; }
 .wy-bar {
-    margin: 0 calc(0px - var(--page-padding));
     border-bottom: 1px solid var(--wy-line);
     background: var(--wy-ground);
 }
 .wy-bar nav {
     max-width: 1200px;
     margin: 0 auto;
-    padding: 14px 24px;
+    padding: 18px var(--wy-gutter);
     display: flex;
     flex-wrap: wrap;
     align-items: center;
@@ -96,8 +115,9 @@ body { background: var(--wy-ground); }
 }
 .wy-bar a { color: var(--wy-muted); text-decoration: none; padding: 10px 0; }
 .wy-bar a:hover { color: var(--wy-accent-soft); }
+.wy-bar a[aria-current] { color: var(--wy-text); }
 .wy-bar .wy-logo { display: flex; align-items: center; gap: 12px; margin-right: auto; color: var(--wy-text); }
-.wy-bar .wy-name { font-family: 'Unbounded', sans-serif; font-weight: 700; font-size: 20px; letter-spacing: 0.08em; }
+.wy-bar .wy-name { font-family: var(--wy-display); font-weight: 700; font-size: 20px; letter-spacing: 0.08em; }
 .wy-bar .wy-crumb { font-family: var(--mono-font); font-size: 14px; color: var(--wy-faint); }
 .wy-bar .wy-github {
     display: inline-flex;
@@ -110,63 +130,276 @@ body { background: var(--wy-ground); }
     color: var(--wy-text);
 }
 
-/* mdBook's own bar: the buttons stay, the title is in the top bar already */
-#mdbook-menu-bar { background: var(--wy-ground); border-block-end: 1px solid var(--wy-line); }
-#mdbook-menu-bar .menu-title { visibility: hidden; }
-#mdbook-theme-toggle, #mdbook-theme-list { display: none !important; }
-/* room to hit the two icons at the right with a finger */
-#mdbook-menu-bar .right-buttons a { display: inline-block; min-width: 36px; text-align: center; }
+/* ------------------------------------------------------------- frame */
+/* The design's frame: the sections as a card at the left, the text beside it,
+   both inside 1200px. mdBook fixes its menu to the window's edge and moves
+   the page aside with a transform; none of that is left here. */
+#mdbook-body-container {
+    box-sizing: content-box;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 var(--wy-gutter);
+    overflow-x: visible;
+}
+.page-wrapper,
+#mdbook-sidebar-toggle-anchor:checked ~ .page-wrapper {
+    transform: none !important;
+    margin-inline-start: 0 !important;
+    transition: none !important;
+    min-width: 0;
+}
+.page { margin-block-start: 0; padding: 0; }
+#mdbook-menu-bar-hover-placeholder { display: none; }
+.sidebar .sidebar-resize-handle { display: none !important; }
+.content { overflow: visible; padding: 0 0 72px; }
+.content main { max-width: none; }
 
-/* ------------------------------------------------------------- side menu */
-.sidebar { font-size: 1.5rem; border-inline-end: 1px solid var(--wy-line); }
-.sidebar .sidebar-scrollbox { padding: 18px 16px; }
-.chapter li.chapter-item { line-height: 1.45; margin-block-start: 0.55em; }
-.chapter li a { color: var(--wy-muted); }
+@media (min-width: 1080px) {
+    #mdbook-body-container {
+        display: grid;
+        grid-template-columns: var(--wy-menu-width) minmax(0, 1fr);
+        column-gap: var(--wy-gap);
+        align-items: start;
+    }
+    .sidebar {
+        grid-column: 1;
+        position: sticky;
+        top: 16px;
+        width: auto;
+        margin: 40px 0 24px;
+        max-height: calc(100vh - 32px);
+        display: flex;
+        border: 1px solid var(--wy-line);
+        border-radius: 12px;
+        overflow: hidden;
+        transform: none !important;
+        transition: none !important;
+    }
+    .sidebar .sidebar-scrollbox {
+        position: static;
+        flex: 1;
+        min-height: 0;
+    }
+    .page-wrapper { grid-column: 2; }
+    html:not(.sidebar-visible) .sidebar { display: none; }
+    html:not(.sidebar-visible) .page-wrapper { grid-column: 1 / -1; }
+    html:not(.sidebar-visible) .content main { max-width: 860px; margin-inline: auto; }
+}
+
+/* A narrow screen: the card is a drawer that the "Sections" button opens. */
+@media (max-width: 1079px) {
+    .sidebar {
+        z-index: 200;
+        width: min(330px, 88vw);
+        border-inline-end: 1px solid var(--wy-line);
+        box-shadow: 0 0 0 100vmax rgba(8, 10, 11, 0);
+        transform: translateX(-102%);
+        transition: transform 0.2s ease, box-shadow 0.2s ease !important;
+    }
+    html.sidebar-visible .sidebar {
+        transform: none;
+        box-shadow: 0 0 0 100vmax rgba(8, 10, 11, 0.66);
+    }
+    #mdbook-sidebar-toggle-anchor:not(:checked) ~ .sidebar { transform: translateX(-102%); }
+}
+
+/* mdBook's own bar: the menu button and the search stay, the title is the
+   top bar's. It follows the reader down the page. */
+#mdbook-menu-bar {
+    margin: 0;
+    align-items: center;
+    gap: 8px;
+    min-height: var(--menu-bar-height);
+    padding: 8px 0;
+    background: var(--wy-ground);
+    border-block-end: 1px solid var(--wy-line);
+}
+#mdbook-menu-bar .menu-title { visibility: hidden; height: 0; }
+#mdbook-theme-toggle, #mdbook-theme-list { display: none !important; }
+.left-buttons { margin: 0; gap: 8px; align-items: center; }
+.right-buttons { margin: 0; display: flex; }
+#mdbook-menu-bar .icon-button,
+#mdbook-menu-bar .right-buttons a {
+    box-sizing: border-box;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-width: 40px;
+    height: 40px;
+    padding: 0 11px;
+    border: 1px solid var(--wy-line);
+    border-radius: 8px;
+    background: var(--wy-panel);
+    color: var(--wy-muted);
+    font: 500 1.4rem/1 'IBM Plex Sans', system-ui, sans-serif;
+    transition: color 0.15s, border-color 0.15s;
+}
+#mdbook-menu-bar .icon-button:hover,
+#mdbook-menu-bar .right-buttons a:hover { color: var(--wy-text); border-color: var(--wy-line-strong); }
+#mdbook-menu-bar .fa-svg { padding: 0; line-height: 1; color: inherit; }
+#mdbook-menu-bar .icon-button .fa-svg svg, #mdbook-menu-bar .right-buttons svg { display: block; }
+#mdbook-sidebar-toggle[aria-expanded="true"] { color: var(--wy-text); border-color: var(--wy-line-strong); }
+
+/* ------------------------------------------------------------- the sections card */
+.sidebar { font-size: 1.5rem; background: var(--wy-panel); }
+.sidebar .sidebar-scrollbox { padding: 20px 22px 22px; scrollbar-width: thin; }
+.chapter { counter-reset: wy-section; line-height: 1.45; margin: 0; }
+.chapter li.chapter-item { line-height: 1.45; margin-block-start: 0; }
+.chapter li a {
+    display: block;
+    flex: 1;
+    min-width: 0;
+    padding: 4px 0;
+    color: var(--wy-muted);
+    border-radius: 4px;
+}
 .chapter li a:hover { color: var(--wy-accent-soft); }
 .chapter li a.active { color: var(--wy-text); font-weight: 600; }
+/* the current page: an ember mark at the card's edge */
+.chapter li .chapter-link-wrapper { position: relative; align-items: flex-start; }
+.chapter li a.active::before {
+    content: "";
+    position: absolute;
+    left: -22px;
+    top: 4px;
+    bottom: 4px;
+    width: 3px;
+    border-radius: 0 3px 3px 0;
+    background: var(--wy-accent);
+}
+/* a section: its number in ember, its name in the text colour */
 .chapter li.part-title {
-    margin: 26px 0 8px;
-    font-family: var(--mono-font);
-    font-size: 1.2rem;
-    font-weight: 500;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
+    counter-increment: wy-section;
+    margin: 22px 0 4px;
+    font-size: 1.5rem;
+    font-weight: 600;
+    line-height: 1.45;
+    color: var(--wy-text);
+}
+.chapter li.part-title::before {
+    content: counter(wy-section, decimal-leading-zero) "\00a0";
     color: var(--wy-accent);
 }
-.chapter li.header-item a { color: var(--wy-faint); }
-.chapter a.current-header { color: var(--wy-text); }
+.chapter code { font-family: var(--mono-font); font-size: 0.92em; line-height: inherit; }
+/* the decisions fold under "All decisions" */
+.section { padding-inline-start: 12px; margin: 2px 0 6px; border-inline-start: 1px solid var(--wy-line); line-height: 1.45; }
+.section li a { font-size: 1.4rem; }
+.chapter-fold-toggle {
+    flex: 0 0 32px !important;
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    min-height: 30px;
+    padding: 0 !important;
+    margin-inline-start: 4px;
+    opacity: 1;
+    color: var(--wy-muted) !important;
+}
+/* the headings of the page that is open */
+.on-this-page { margin: 2px 0 8px 2px; padding-left: 12px; border-inline-start: 1px solid var(--wy-line-strong); }
+.chapter li.header-item { margin-block-end: 0; line-height: 1.4; }
+.chapter li.header-item a { color: var(--wy-faint); font-size: 1.35rem; padding: 3px 0; }
+.chapter li.header-item a:hover { color: var(--wy-accent-soft); }
+.chapter a.current-header { color: var(--wy-text) !important; }
+.on-this-page ol ol { padding-left: 12px; list-style: none; }
 
 /* ------------------------------------------------------------- text */
-.content main { font-size: 1.6rem; color: var(--wy-body); }
+.content main { font-size: 1.6rem; color: var(--wy-body); padding-top: 44px; }
 .content p, .content ol, .content ul { line-height: 1.7; }
+.content main > p, .content main > ul, .content main > ol, .content main > blockquote { max-width: 76ch; }
 .content li + li { margin-block-start: 0.25em; }
 .content strong, .content b { color: var(--wy-text); font-weight: 600; }
 .content h1, .content h2, .content h3, .content h4, .content h5 { color: var(--wy-text); }
+
+/* the section number above the title, the title, a thin rule */
+.wy-kicker {
+    margin: 0 0 10px;
+    font-family: var(--mono-font);
+    font-size: 1.4rem;
+    line-height: 1.4;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--wy-faint);
+    max-width: none !important;
+}
+.wy-kicker span, .wy-kicker[data-kind="home"] { color: var(--wy-accent); }
 .content h1 {
-    margin: 0.4em 0 0.7em;
-    font-family: 'Unbounded', sans-serif;
+    margin: 0 0 28px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--wy-line);
+    font-family: var(--wy-display);
     font-weight: 700;
-    font-size: clamp(2.6rem, 3.4vw, 3.6rem);
-    line-height: 1.15;
+    font-size: clamp(2.6rem, 3.2vw, 3.8rem);
+    line-height: 1.14;
+    overflow-wrap: break-word;
+}
+.content h1 code { font-family: var(--mono-font); font-weight: 600; font-size: 0.88em; }
+/* the lead: the first paragraph of a guide */
+.wy-kicker[data-kind="guide"] + h1 + p,
+.wy-kicker[data-kind="topic"] + h1 + p,
+.wy-kicker[data-kind="home"] + h1 + p {
+    font-size: 1.8rem;
+    line-height: 1.6;
+    color: var(--wy-body);
+    max-width: 44em;
+}
+/* a decision opens with its status */
+.wy-kicker[data-kind="adr"] + h1 + p {
+    font-family: var(--mono-font);
+    font-size: 1.35rem;
+    line-height: 1.7;
+    color: var(--wy-muted);
+    max-width: none;
 }
 .content h2 {
-    margin-block-start: 2.2em;
-    padding-block-start: 1.1em;
+    margin: 2.4em 0 0.7em;
+    padding-block-start: 1.3em;
     border-block-start: 1px solid var(--wy-line);
-    font-size: 2.3rem;
+    font-size: 2.4rem;
     font-weight: 600;
     line-height: 1.25;
 }
 .content h1 + h2 { border-block-start: 0; padding-block-start: 0; margin-block-start: 1.2em; }
-.content h3 { font-size: 1.9rem; font-weight: 600; margin-block-start: 1.9em; }
-.content h4 { font-size: 1.7rem; font-weight: 600; }
+.content h3 { font-size: 2rem; font-weight: 600; margin: 2em 0 0.6em; line-height: 1.3; }
+.content h4 { font-size: 1.7rem; font-weight: 600; margin: 1.8em 0 0.5em; }
 .content h5, .content h6 { font-size: 1.5rem; font-weight: 600; color: var(--wy-muted); }
 .content .header:link, .content .header:visited { color: inherit; }
 .content .header:hover { text-decoration: none; color: var(--wy-accent-soft); }
+h2:target::before, h3:target::before, h4:target::before, h5:target::before, h6:target::before { color: var(--wy-accent); }
 
 .content a { color: var(--wy-teal); text-decoration: underline; text-decoration-color: rgba(108, 196, 176, 0.4); text-decoration-thickness: 1px; text-underline-offset: 3px; }
 .content a:hover { color: var(--wy-accent-soft); text-decoration-color: currentColor; }
 .content hr { border: 0; border-top: 1px solid var(--wy-line); margin: 2.5em 0; }
+
+/* "More: ADR 0001 · spec 01" at the end of a section */
+.content p:has(> .wy-more:first-child) {
+    margin: 1.4em 0 0;
+    font-family: var(--mono-font);
+    font-size: 1.3rem;
+    line-height: 2;
+    color: var(--wy-faint);
+    max-width: none;
+}
+.content p:has(> .wy-more:first-child) a { display: inline-block; padding: 0 2px; text-decoration: none; }
+.content p:has(> .wy-more:first-child) a:hover { text-decoration: underline; }
+
+/* ------------------------------------------------------------- figures */
+/* The picture brings its own panel (it is the same file GitHub shows), so the
+   frame here only lets a wide one scroll on a narrow screen. */
+.wy-figure { margin: 2em 0; }
+.wy-figure > p { margin: 0; overflow-x: auto; border-radius: 12px; scrollbar-width: thin; }
+.wy-figure img { display: block; width: 100%; min-width: 660px; height: auto; }
+.wy-figure figcaption, .content .table-wrapper + p > em:only-child.wy-caption {
+    margin-top: 12px;
+    font-family: var(--mono-font);
+    font-size: 1.3rem;
+    line-height: 1.65;
+    color: var(--wy-faint);
+}
+.wy-figure figcaption p { margin: 0; line-height: inherit; }
+.wy-figure figcaption code { background: none !important; padding: 0 !important; color: var(--wy-muted) !important; }
+.content main > img, .content p > img:only-child { border-radius: 12px; }
 
 /* ------------------------------------------------------------- code */
 :not(pre) > .hljs, .content :not(pre) > code {
@@ -174,11 +407,13 @@ body { background: var(--wy-ground); }
     border-radius: 5px;
     background: var(--wy-raised);
     color: var(--wy-text);
+    font-size: 0.875em;
+    overflow-wrap: anywhere;
 }
 .content a > code, .content a > .hljs { color: inherit; }
 h1 code, h2 code, h3 code, h4 code { background: none !important; padding: 0 !important; }
 .content pre {
-    margin: 1.2em 0;
+    margin: 1.3em 0;
     border: 1px solid var(--wy-line);
     border-radius: 12px;
     background: var(--wy-panel);
@@ -190,6 +425,8 @@ h1 code, h2 code, h3 code, h4 code { background: none !important; padding: 0 !im
     font-size: 1.4rem;
     line-height: 1.7;
 }
+.content pre > .buttons { top: 8px; right: 8px; }
+.content pre > .buttons button { min-width: 32px; min-height: 32px; border-radius: 6px; }
 /* syntax colours: the design's palette over every highlight sheet of mdBook */
 html .hljs { background: transparent; color: var(--wy-body); }
 html .hljs-comment, html .hljs-quote, html .hljs-meta { color: var(--wy-faint); font-style: normal; }
@@ -198,21 +435,21 @@ html .hljs-string, html .hljs-regexp, html .hljs-symbol, html .hljs-bullet, html
 html .hljs-number, html .hljs-literal, html .hljs-link { color: #E2C15A; }
 html .hljs-title, html .hljs-section, html .hljs-name, html .hljs-function, html .hljs-selector-id, html .hljs-selector-class { color: var(--wy-text); }
 html .hljs-attr, html .hljs-attribute, html .hljs-variable, html .hljs-template-variable, html .hljs-params, html .hljs-tag { color: #A9C7D6; }
-html .hljs-deletion { color: #E07A5F; }
+html .hljs-deletion { color: #F0957C; }
 
 kbd { background: var(--wy-raised); border-color: var(--wy-line-strong); color: var(--wy-text); font-family: var(--mono-font); }
 
 /* ------------------------------------------------------------- tables */
-.content .table-wrapper { border: 1px solid var(--wy-line); border-radius: 12px; margin: 1.3em 0; }
+.content .table-wrapper { border: 1px solid var(--wy-line); border-radius: 12px; margin: 1.4em 0; scrollbar-width: thin; }
 .content table { width: 100%; margin: 0; border-collapse: collapse; font-size: 1.5rem; }
 .content table td, .content table th { padding: 12px 16px; border: 0; text-align: left; vertical-align: top; line-height: 1.5; }
 .content table thead { background: var(--wy-panel); }
 .content table thead th {
     font-size: 1.3rem;
-    font-weight: 500;
-    letter-spacing: 0.06em;
+    font-weight: 600;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: var(--wy-faint);
+    color: var(--wy-muted);
 }
 .content table thead th code { text-transform: none; letter-spacing: 0; }
 .content table thead tr { border: 0; }
@@ -221,23 +458,68 @@ kbd { background: var(--wy-raised); border-color: var(--wy-line-strong); color: 
 
 /* ------------------------------------------------------------- notes */
 .content blockquote {
-    margin: 1.4em 0;
-    padding: 4px 20px;
+    margin: 1.5em 0;
+    padding: 6px 20px;
     border: 1px solid var(--wy-line);
     border-inline-start: 3px solid var(--wy-accent);
     border-radius: 0 12px 12px 0;
     background: var(--wy-panel);
     color: var(--wy-body);
 }
+.content .blockquote-tag { border-radius: 0 12px 12px 0; }
+.content .blockquote-tag-title { font-family: var(--mono-font); font-size: 1.3rem; letter-spacing: 0.06em; text-transform: uppercase; }
 
 /* ------------------------------------------------------------- search, paging */
-#mdbook-searchbar { border-radius: 8px; font-family: inherit; }
+#mdbook-search-wrapper { padding-top: 14px; }
+.searchbar-outer, .searchresults-outer { max-width: none; margin-inline: 0; }
+#mdbook-searchbar { border-radius: 8px; font-family: inherit; font-size: 1.6rem; padding: 12px 14px; margin: 0; }
 ul#mdbook-searchresults li { border-radius: 8px; }
 ul#mdbook-searchresults span.teaser { color: var(--wy-muted); }
 mark { color: var(--wy-text); border-radius: 3px; }
-.nav-chapters { color: var(--wy-faint); }
-.nav-chapters:hover, .mobile-nav-chapters:hover { color: var(--wy-accent-soft); }
-.mobile-nav-chapters { background: var(--wy-panel); border: 1px solid var(--wy-line); border-radius: 10px; color: var(--wy-muted); }
+
+.wy-pager {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    margin: 64px 0 0;
+    padding-top: 28px;
+    border-top: 1px solid var(--wy-line);
+    max-width: none;
+}
+.wy-pager .mobile-nav-chapters {
+    flex: 1 1 240px;
+    float: none;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    width: auto;
+    min-height: 64px;
+    padding: 12px 18px;
+    border: 1px solid var(--wy-line);
+    border-radius: 12px;
+    background: var(--wy-panel);
+    color: var(--wy-text);
+    font-size: 1.5rem;
+    font-weight: 500;
+    line-height: 1.35;
+    text-align: left;
+    text-decoration: none;
+    transition: border-color 0.15s;
+}
+.wy-pager .mobile-nav-chapters:hover { border-color: var(--wy-accent); color: var(--wy-text); }
+.wy-pager .next { justify-content: flex-end; text-align: right; margin-inline-start: auto; }
+.wy-pager small {
+    display: block;
+    margin-bottom: 3px;
+    font-family: var(--mono-font);
+    font-size: 1.2rem;
+    font-weight: 400;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--wy-faint);
+}
+.wy-pager .fa-svg { color: var(--wy-accent); flex: none; }
 
 a:focus-visible, button:focus-visible, .icon-button:focus-visible, input:focus-visible {
     outline: 2px solid var(--wy-teal);
@@ -245,14 +527,29 @@ a:focus-visible, button:focus-visible, .icon-button:focus-visible, input:focus-v
     border-radius: 4px;
 }
 
+@media (max-width: 1079px) {
+    .content main { padding-top: 32px; }
+}
 @media (max-width: 720px) {
-    .wy-bar nav { padding: 12px 16px; gap: 2px 20px; }
+    :root { --wy-gutter: 16px; }
+    .wy-bar nav { padding: 12px var(--wy-gutter); gap: 2px 20px; }
     .wy-bar .wy-logo { flex: 1 0 100%; }
+    .content h2 { font-size: 2.1rem; }
+    .content h3 { font-size: 1.8rem; }
+    .wy-kicker[data-kind] + h1 + p { font-size: 1.7rem; }
+    .content pre > code, .content pre > .hljs { padding: 14px 16px; font-size: 1.3rem; }
+    .content table td, .content table th { padding: 10px 12px; }
+}
+@media (pointer: coarse) {
+    .chapter li a { padding: 7px 0; }
+    .chapter li.header-item a { padding: 6px 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
 }
 @media print {
-    .wy-bar { display: none; }
+    .wy-bar, .wy-skip, .sidebar, .wy-pager { display: none !important; }
+    #mdbook-body-container { display: block; max-width: none; padding: 0; }
     body, .content main { background: #fff; color: #000; }
+    .content h1, .content h2, .content h3, .content h4, .content strong, .content table tbody td:first-child { color: #000; }
 }
-
-/* the "on this page" entries of the side menu: 24 px to hit */
-.sidebar a.header-in-summary { display: inline-block; padding-block: 2px; }
