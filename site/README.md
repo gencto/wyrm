@@ -31,6 +31,7 @@ facts of the repository, so a page does not go stale:
 | `{{version}}` | the workspace version | `Cargo.toml` |
 | `{{zenoh_version}}`, `{{zenoh_minor}}` | the pinned Zenoh version | `Cargo.toml` |
 | `{{block_types}}` | the number of dataflow block types | `README.md` ("N block types") |
+| `{{modbus_binary_mib}}`, `{{modbus_image_mib}}`, `{{modbus_idle}}` | the measured Modbus link image: binary, compressed image, idle memory | `deploy/docker/README.md` (table "Measured") |
 | `{{spec_version}}` | the newest spec version | `spec/CHANGELOG.md` |
 | `{{spec_parts}}`, `{{fixtures_count}}` | the spec parts and the CBOR fixtures | files of `spec/` |
 | `{{adr_count}}`, `{{adr_latest}}` | the decisions on the site, the newest one | `docs/adr/` |

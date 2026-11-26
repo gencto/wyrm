@@ -600,6 +600,13 @@ def site_facts(tracked: list[str], texts: dict[str, str],
                         "the workspace version")
     blocks = repo_fact("README.md", r"\b(\d+) block types\b",
                        "the number of block types")
+    # the measured row of the Modbus link image: binary, image, idle memory
+    modbus = re.search(
+        r"^\| `wyrm/link-modbus` \| ([\d.]+) \| ([\d.]+) \| (\d+ MiB) \|",
+        (REPO / "deploy/docker/README.md").read_text(encoding="utf-8"), re.M)
+    if not modbus:
+        raise BuildError("deploy/docker/README.md: cannot read the measured"
+                         " row of wyrm/link-modbus")
     changes = changelog_entries(texts["spec/CHANGELOG.md"])
     if not changes or not adrs:
         raise BuildError("no spec changelog entry or no ADR to name")
@@ -616,6 +623,9 @@ def site_facts(tracked: list[str], texts: dict[str, str],
         "zenoh_version": esc(zenoh),
         "zenoh_minor": esc(".".join(zenoh.split(".")[:2])),
         "block_types": esc(blocks),
+        "modbus_binary_mib": esc(modbus.group(1)),
+        "modbus_image_mib": esc(modbus.group(2)),
+        "modbus_idle": esc(modbus.group(3)),
         "spec_version": ".".join(str(n) for n in changes[0][0]),
         "spec_parts": NUMBER_WORDS[parts] if parts < len(NUMBER_WORDS) else str(parts),
         "fixtures_count": str(fixtures),

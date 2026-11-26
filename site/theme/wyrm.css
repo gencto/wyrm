@@ -253,3 +253,6 @@ a:focus-visible, button:focus-visible, .icon-button:focus-visible, input:focus-v
     .wy-bar { display: none; }
     body, .content main { background: #fff; color: #000; }
 }
+
+/* the "on this page" entries of the side menu: 24 px to hit */
+.sidebar a.header-in-summary { display: inline-block; padding-block: 2px; }
