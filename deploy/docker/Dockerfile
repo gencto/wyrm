@@ -17,7 +17,7 @@ RUN apk add --no-cache musl-dev build-base ca-certificates
 WORKDIR /src
 COPY . .
 # The links built as their own binaries (process / external mode), by package suffix.
-ARG LINKS="modbus snmp s7 bacnet opcua http prometheus mqtt postgres mysql mongodb influxdb dynamodb s3 gdrive webdav localfs uplink alarm dql scheduler"
+ARG LINKS="modbus snmp s7 bacnet knx opcua http prometheus mqtt postgres mysql mongodb influxdb dynamodb s3 gdrive webdav localfs uplink alarm dql scheduler"
 # Device simulators for the compose example.
 ARG SIMS="modbus snmp"
 # Jobs at a time; wyrmd's link alone takes about 3 GB (fat LTO would need more than 8 GB).
