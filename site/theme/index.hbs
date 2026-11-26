@@ -232,16 +232,17 @@
 
                     {{!-- WYRM: the two page links as labelled cards at every width
                          (mdBook has bare arrows here and a second pair beside
-                         the text on wide screens) --}}
+                         the text on wide screens); `nav-chapters` is the class
+                         its arrow-key shortcuts look for --}}
                     <nav class="nav-wrapper wy-pager" aria-label="Page navigation">
                         {{#if previous}}
-                            <a rel="prev" href="{{ path_to_root }}{{previous.link}}" class="mobile-nav-chapters previous" aria-keyshortcuts="Left">
+                            <a rel="prev" href="{{ path_to_root }}{{previous.link}}" class="mobile-nav-chapters nav-chapters previous" aria-keyshortcuts="Left">
                                 {{fa "solid" "angle-left"}}
                                 <span><small>Previous</small> {{previous.title}}</span>
                             </a>
                         {{/if}}
                         {{#if next}}
-                            <a rel="next prefetch" href="{{ path_to_root }}{{next.link}}" class="mobile-nav-chapters next" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="{{ path_to_root }}{{next.link}}" class="mobile-nav-chapters nav-chapters next" aria-keyshortcuts="Right">
                                 <span><small>Next</small> {{next.title}}</span>
                                 {{fa "solid" "angle-right"}}
                             </a>
@@ -333,6 +334,26 @@
                 } catch (e) { /* a hash that is not an id */ }
                 if (heading) { heading.scrollIntoView(); } else { window.scrollTo(0, 0); }
             }
+            // mdBook's fold arrow is an <a> with no href: nothing a keyboard
+            // reaches and nothing a screen reader names. Make it a button.
+            menu.querySelectorAll('a.chapter-fold-toggle').forEach(function (fold) {
+                const item = fold.closest('li');
+                const name = fold.parentElement.querySelector('a[href]');
+                function state() {
+                    fold.setAttribute('aria-expanded', item.classList.contains('expanded'));
+                }
+                fold.setAttribute('role', 'button');
+                fold.setAttribute('tabindex', '0');
+                fold.setAttribute('aria-label', 'Pages under ' + (name ? name.textContent.trim() : 'this page'));
+                state();
+                fold.addEventListener('click', function () { setTimeout(state, 0); });
+                fold.addEventListener('keydown', function (e) {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        fold.click();
+                    }
+                });
+            });
             function set(open) {
                 if (box.checked === open) { return; }
                 box.checked = open;

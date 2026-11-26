@@ -83,6 +83,10 @@ after a human approves it (ADR 0005). It runs embedded in `wyrmd`
 
 ## How a task runs
 
+![Ask, plan, approve, run](img/agent-steps.svg)
+
+*A task in four steps: a person asks, the model reads the tree and proposes a plan that the link checks, a person approves with one token per step, and the link runs the stored plan with that person's rights.*
+
 1. A user with `write` on the link calls ▸ **Ask** `{task}`. The link creates `tasks/<id>`.
    `{task, parent, context}` may name a task this one follows (a retry, an undo, another
    plan) and node keys to read first. A parent that waits for a person is replaced (below).

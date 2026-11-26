@@ -12,8 +12,10 @@ with facts of the repository, so a page never goes stale. The documentation
 (`/docs/`) is an mdBook: the repository's `docs/`, `docs/adr/` and `spec/` are
 the one source of truth. This script copies the guides, ADRs and the spec into
 `site/src/` (generated, git-ignored), rewrites the links that leave the book to
-GitHub, writes `SUMMARY.md` and the docs landing page `index.md`. Only files
-tracked by git are read. `--check` parses every HTML page of a built site and
+GitHub, groups the pages into numbered sections, adds to each copy what the
+design's pages have (the section number above the title, figures with
+captions, "More:" rows) and writes `SUMMARY.md` and the docs landing page
+`index.md`. Only files tracked by git are read. `--check` parses every HTML page of a built site and
 fails on a link to a missing page or a missing `#id`, on a file loaded from
 another host and on a security finding ID. Python 3.10+, standard library only.
 """
@@ -491,7 +493,7 @@ KICKER = '<p class="wy-kicker" data-kind="{kind}"><span>{number}</span> {section
 # A paragraph that is one image, and the paragraph in italics right under it.
 FIGURE = re.compile(
     r"(?:\A|(?<=\n\n))(!\[[^\]\n]*\]\([^)\n]+\))[ \t]*\n"
-    r"(?:[ \t]*\n(?:\*([^*\n][^*]*?)\*|_([^_\n][^_]*?)_)[ \t]*\n)?(?=[ \t]*\n|\Z)")
+    r"(?:[ \t]*\n\*(?![*\s])((?:(?!\n[ \t]*\n).)+?)\*[ \t]*\n)?(?=[ \t]*\n|\Z)", re.S)
 MORE_LINK = re.compile(r"\]\(((?:\.\./)*(?:adr/\d{4}-|spec/)[^)#\s]+\.md)(?:#[^)\s]*)?\)")
 MORE_ADR = re.compile(r"\bADRs?[  ](\d{4})(?:[–-](\d{4}))?\b")
 MORE_SPEC = re.compile(r"\b[Ss]pec[  /](0\d)\b")
@@ -533,7 +535,7 @@ def outside_fences(text: str, fn) -> str:
 
 def figures(text: str) -> str:
     def one(m: re.Match) -> str:
-        caption = (m.group(2) or m.group(3) or "").strip()
+        caption = (m.group(2) or "").strip()
         out = f'<figure class="wy-figure">\n\n{m.group(1)}\n\n'
         if caption:
             out += f"<figcaption>\n\n{caption}\n\n</figcaption>\n"
@@ -1101,7 +1103,7 @@ def build() -> int:
     # ---- report
     print(f"site: {len(DESIGNED)} designed pages and {stubs} redirect stubs"
           f" in {DIST.relative_to(REPO)}")
-    print(f"site: {len(pages) + 1} pages in {SRC.relative_to(REPO)}"
+    print(f"site: {len(sources) + 1} pages in {SRC.relative_to(REPO)}"
           f" ({len(adrs)} ADRs, {len(official.get('links', []))} official links,"
           f" {linker.to_github} links to GitHub,"
           f" {linker.unlinked} links to excluded files made plain text)")
@@ -1233,6 +1235,12 @@ def check(site: Path) -> int:
         for out in (book / site_path(prefix), book / prefix, site / prefix):
             if out != book and out.exists():
                 errors.append(f"excluded directory {prefix} is in the site")
+    # every page of the book says which section it is in
+    for f in html_files:
+        if (book in f.parents and f.name not in ("print.html", "toc.html", "404.html")
+                and 'class="wy-kicker"' not in f.read_text(encoding="utf-8")):
+            errors.append(f"{f.relative_to(site).as_posix()}: no section line"
+                          " above the title")
     for name in RESERVED:
         if (site / name).exists() or (site / f"{name}.html").exists():
             errors.append(f"/{name} is reserved and must stay free")

@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 848 668" width="848" height="668" role="img" aria-labelledby="t d">
+<title id="t">One write, from a user to a device</title>
+<desc id="d">The user sends a set to the gateway. The gateway mints a permission token (ptok) with the user&#x27;s grants and sends the query to the link with the token in the attachment. The link&#x27;s SDK checks the token and only then calls the driver, writes an audit record and answers with a status.</desc>
+<rect x="0.5" y="0.5" width="847" height="667" rx="12" fill="#161A1D" stroke="#252B30"/>
+<g transform="translate(24 24)">
+<path d="M100 48L100 570" fill="none" stroke="#3A4249" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="4 5"/>
+<path d="M330 48L330 570" fill="none" stroke="#3A4249" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="4 5"/>
+<path d="M570 48L570 570" fill="none" stroke="#3A4249" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="4 5"/>
+<path d="M740 48L740 570" fill="none" stroke="#3A4249" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="4 5"/>
+<rect x="25" y="0" width="150" height="48" rx="10" fill="#0E1113" stroke="#3A4249"/>
+<text x="100" y="19" text-anchor="middle" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="600" fill="#ECE9E1">user</text>
+<text x="100" y="37" text-anchor="middle" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#ECE9E1">Studio</text>
+<rect x="255" y="0" width="150" height="48" rx="10" fill="#0E1113" stroke="#3A4249"/>
+<text x="330" y="19" text-anchor="middle" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="600" fill="#ECE9E1">gateway</text>
+<text x="330" y="37" text-anchor="middle" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#ECE9E1">logins, roles</text>
+<rect x="495" y="0" width="150" height="48" rx="10" fill="#0E1113" stroke="#3A4249"/>
+<text x="570" y="19" text-anchor="middle" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="600" fill="#ECE9E1">link</text>
+<text x="570" y="37" text-anchor="middle" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#ECE9E1">SDK, then the driver</text>
+<rect x="680" y="0" width="120" height="48" rx="10" fill="#0E1113" stroke="#3A4249"/>
+<text x="740" y="19" text-anchor="middle" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="600" fill="#ECE9E1">audit</text>
+<text x="740" y="37" text-anchor="middle" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#ECE9E1">sys/audit/&lt;link&gt;</text>
+<text x="215" y="88" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" fill="#C5CBCE">set boiler/t1 = 22.0</text>
+<path d="M101 104L320 104" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round"/>
+<polygon points="329,104 320,99.5 320,108.5" fill="#8E979C"/>
+<rect x="190" y="128" width="280" height="112" rx="10" fill="#0E1113" stroke="#E8893A"/>
+<text x="330" y="152" text-anchor="middle" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="600" fill="#ECE9E1">mint ptok</text>
+<text x="330" y="170" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" fill="#ECE9E1">sub user:olena · site plant</text>
+<text x="330" y="188" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" fill="#ECE9E1">grants modbus/** : write</text>
+<text x="330" y="206" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" fill="#ECE9E1">exp ≤ 15 min · jti: single use</text>
+<text x="330" y="224" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" fill="#ECE9E1">Ed25519 signature</text>
+<text x="450" y="274" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" fill="#C5CBCE">get …/~set + {4: ptok}</text>
+<path d="M331 290L560 290" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round"/>
+<polygon points="569,290 560,285.5 560,294.5" fill="#8E979C"/>
+<rect x="430" y="314" width="280" height="112" rx="10" fill="#0E1113" stroke="#E8893A"/>
+<text x="570" y="338" text-anchor="middle" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="600" fill="#ECE9E1">check, then call the driver</text>
+<text x="570" y="356" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" fill="#ECE9E1">version · signature · exp · site</text>
+<text x="570" y="374" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" fill="#ECE9E1">grant · jti not seen</text>
+<text x="570" y="392" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" fill="#ECE9E1">level = min(grant, max, maxperm)</text>
+<text x="570" y="410" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" fill="#ECE9E1">≥ write, else permission_denied</text>
+<text x="655" y="444" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" fill="#C5CBCE">sub, key, sha256</text>
+<path d="M571 460L730 460" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round"/>
+<polygon points="739,460 730,455.5 730,464.5" fill="#8E979C"/>
+<text x="450" y="490" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" fill="#C5CBCE">status ok</text>
+<path d="M569 506L340 506" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round"/>
+<polygon points="331,506 340,501.5 340,510.5" fill="#8E979C"/>
+<text x="215" y="530" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" fill="#C5CBCE">status ok</text>
+<path d="M329 546L110 546" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round"/>
+<polygon points="101,546 110,541.5 110,550.5" fill="#8E979C"/>
+<text x="25" y="596" text-anchor="start" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" fill="#8E979C">A check that fails answers permission_denied: the driver never sees the call.</text>
+<text x="25" y="614" text-anchor="start" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" fill="#8E979C">Links trust the gateway&#x27;s key; the user&#x27;s grants decide what it may mint.</text>
+</g>
+</svg>

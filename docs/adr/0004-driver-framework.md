@@ -27,6 +27,10 @@ DSA v2 connectors (reference: `dslink-java-v2-modbus` + `driver-framework-java-v
 | Observability | ~~Per-node metrics (`rtt_ms`, `errors`, `polls`), rate-limited logs with `link=/node=` fields, state transitions audited.~~ **Amended 2026-10-30 (ruling 12, P11):** diagnostics are opt-in per driver (`Driver::DIAGNOSTICS`, default false; a driver that does not report outcomes would show counters stuck at 0). With it, each connection and device has value leaves `requests`, `errors`, `timeouts`, `exceptions`, the driver's `DIAG_EXTRA` (Modbus `reopens`), `last_rtt_ms`, `avg_rtt_ms` (EWMA α = 0.1), counted from `Driver::take_outcomes` after every operation, published on a change at most every 10 s and at once on a read of the node; counts start at 0 on (re)start, a reconnect after a failure keeps them. Those names are reserved for children. |
 | Folders | **Added 2026-10-30 (ruling 10):** with `Driver::FOLDERS` (default false; Modbus true), folders between a device and its points, at most `MAX_FOLDER_DEPTH` (4) deep, names only: `add_folder`, `remove` (cascades), `copy`, `export`, `import`; no `edit` (no rename: ids are keys of history watches, ACL and flows). A point id stays unique on its device, so polls, plans and writes go by `(device, id)` and never see folders; the point's key gains the folder path. The tree stores `folders: {<f>: {points, folders?}}` beside a device's `points`. |
 
+![New, Connecting, Connected, Failed, Stopped and StoppedByParent with the moves between them](../img/driver-states.svg)
+
+*The state machine of the Lifecycle row: every connection, device and point is in one of these states. A child runs only while its parent is `Connected`; a parent that stops or fails leaves its children in `StoppedByParent`. One owner task per connection runs ping, poll and write in turn.*
+
 ### Driver surface (what a Modbus driver writes)
 **Corrected 2026-10-30 (ruling 16)** to what `links/modbus` declares; the full params and their bounds are in `docs/modbus.md` section 3.
 ```rust
