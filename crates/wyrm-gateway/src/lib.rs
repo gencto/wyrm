@@ -34,6 +34,7 @@ mod overlay;
 pub mod rng;
 pub mod roles;
 pub mod session;
+pub mod setup;
 pub mod users;
 pub mod ws;
 
@@ -41,17 +42,18 @@ pub use devices::{DevicePolicy, StepUp};
 pub use oauth::McpConfig;
 pub use roles::{with_grant, Grants, RoleTable};
 pub use session::{Amr, SessionClaims};
+pub use setup::SetupError;
 
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use session::SessionKey;
 use std::future::Future;
 use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 use tokio::sync::{watch, Semaphore};
-use tracing::info;
+use tracing::{info, warn};
 use users::{Op, User, UserDb};
 use wyrm_core::Perm;
 use wyrm_state::Store;
@@ -256,13 +258,15 @@ pub enum AuditEvent {
         user: String,
         ip: IpAddr,
     },
-    /// `reason`: `bad_credentials`, `disabled` or `rate_limited`.
+    /// `reason`: `bad_credentials`, `disabled`, `rate_limited` or `setup_code_wrong` (a
+    /// wrong code on `/api/setup`, ADR 0051 §3).
     LoginFailed {
         user: String,
         ip: IpAddr,
         reason: &'static str,
     },
-    /// `change`: `add`, `password`, `roles`, `disabled`, `enabled`, `remove`.
+    /// `change`: `add`, `password`, `roles`, `disabled`, `enabled`, `remove`. `by` is
+    /// `user:<name>`, or `setup` for the first admin of a setup code (ADR 0051 §3).
     UserChanged {
         by: String,
         user: String,
@@ -386,10 +390,48 @@ pub struct Gateway {
     pub(crate) fresh: devices::Fresh,
     pub(crate) challenge_limit: limit::RequestLimiter,
     pub(crate) info_limit: limit::RequestLimiter,
-    /// The DNS and IP names of the gateway's certificate (default device origins).
-    pub(crate) cert_names: Vec<String>,
+    /// The TLS settings every serve takes (`None`: plain HTTP on loopback); a reload
+    /// ([`Gateway::reload_tls`]) swaps them for the next connection.
+    tls: Option<axum_server::tls_rustls::RustlsConfig>,
+    /// What the gateway reads from its certificate: its names (default device origins,
+    /// `/api/info` `names`) and its end; swapped with `tls`.
+    served: RwLock<Served>,
     /// Upstream sites for `/api/info` (starts as `cfg.info.up`).
     up_sites: RwLock<Vec<String>>,
+    /// Held through each setup step ([`Gateway::import_setup`],
+    /// [`Gateway::complete_setup`], [`Gateway::settle_setup`]): two right codes at once
+    /// make one admin. See [`Gateway::complete_setup`] for why the users store's own lock
+    /// is not needed beside it.
+    setup: Mutex<()>,
+    /// The setup file could not be read at the last look: told once, not at every
+    /// `/api/info`, until it is read again.
+    setup_unreadable: AtomicBool,
+}
+
+/// What the gateway reads from the certificate it serves.
+#[derive(Debug, Clone, Default)]
+struct Served {
+    /// DNS and IP subject alternative names, lower case.
+    names: Vec<String>,
+    /// `not_after`, Unix seconds; `None` when it does not parse.
+    not_after: Option<i64>,
+}
+
+impl Served {
+    fn of(pem: &[u8]) -> Self {
+        let not_after = x509_parser::pem::parse_x509_pem(pem)
+            .ok()
+            .and_then(|(_, block)| {
+                block
+                    .parse_x509()
+                    .ok()
+                    .map(|c| c.validity().not_after.timestamp())
+            });
+        Self {
+            names: devices::cert_names(pem),
+            not_after,
+        }
+    }
 }
 
 /// What one user holds over all their sockets.
@@ -489,9 +531,22 @@ impl Gateway {
             ));
         }
         let signing = load_or_create_key(&cfg.dir.join("gateway.key"))?;
-        let cert_names = match &cfg.tls {
-            Some((cert, _)) => devices::cert_names(&std::fs::read(cert)?),
-            None => Vec::new(),
+        let (tls, served) = match &cfg.tls {
+            Some((cert, key)) => {
+                let read = |p: &Path| {
+                    std::fs::read(p).map_err(|e| Error::Config(format!("tls {}: {e}", p.display())))
+                };
+                let pem = read(cert)?;
+                let key = Zeroizing::new(read(key)?);
+                let c = http::tls_config(&pem, &key)?;
+                (
+                    Some(axum_server::tls_rustls::RustlsConfig::from_config(
+                        Arc::new(c),
+                    )),
+                    Served::of(&pem),
+                )
+            }
+            None => (None, Served::default()),
         };
         Ok(Arc::new(Self {
             session_key: SessionKey::derive(hmac_key),
@@ -518,8 +573,11 @@ impl Gateway {
             fresh: Default::default(),
             challenge_limit: limit::RequestLimiter::new(CHALLENGES_PER_MIN, LOGIN_WINDOW),
             info_limit: limit::RequestLimiter::new(INFO_PER_MIN, LOGIN_WINDOW),
-            cert_names,
+            tls,
+            served: RwLock::new(served),
             up_sites: RwLock::new(cfg.info.up.clone()),
+            setup: Mutex::new(()),
+            setup_unreadable: AtomicBool::new(false),
             cfg,
         }))
     }
@@ -673,9 +731,10 @@ impl Gateway {
                 ),
             ),
         ]);
-        if let Some(ca) = self.cfg.info.ca.as_ref().filter(|_| self.cfg.tls.is_some()) {
+        let ca = self.presented_ca();
+        if let Some(ca) = ca {
             m.insert("ca_fp".into(), Value::Str(devices::ca_fingerprint(ca)));
-            m.insert("ca".into(), Value::Bytes(ca.clone()));
+            m.insert("ca".into(), Value::Bytes(ca.to_vec()));
         }
         if let Some(p) = &self.cfg.info.pair {
             m.insert("pair".into(), Value::from(p.as_str()));
@@ -686,14 +745,83 @@ impl Gateway {
             m.insert(
                 "names".into(),
                 Value::Array(
-                    self.cert_names
+                    self.tls_names()
                         .iter()
                         .map(|n| Value::from(n.as_str()))
                         .collect(),
                 ),
             );
         }
+        self.insert_setup(&mut m, ca);
         Value::Map(m)
+    }
+
+    /// A new broker waits for its first admin (ADR 0051 §3): `setup: true`, and with the CA
+    /// it presents as `ca` the proof that the server holds the setup hash
+    /// ([`setup::setup_proof`] over the same bytes): a client checks it before it sends
+    /// the code.
+    fn insert_setup(
+        &self,
+        m: &mut std::collections::BTreeMap<String, wyrm_core::Value>,
+        ca: Option<&[u8]>,
+    ) {
+        use wyrm_core::Value;
+        let Some(hash) = self.pending_now() else {
+            return;
+        };
+        m.insert("setup".into(), Value::Bool(true));
+        if let Some(ca) = ca {
+            let proof = setup::setup_proof(&hash, ca);
+            m.insert("setup_proof".into(), Value::Bytes(proof.to_vec()));
+        }
+    }
+
+    /// The DER of the CA `/api/info` presents as `ca`: the broker's, while TLS is on.
+    fn presented_ca(&self) -> Option<&[u8]> {
+        self.cfg
+            .info
+            .ca
+            .as_deref()
+            .filter(|_| self.cfg.tls.is_some())
+    }
+
+    /// The DNS and IP names of the certificate the gateway serves now (lower case); empty
+    /// for plain HTTP.
+    pub fn tls_names(&self) -> Vec<String> {
+        self.served
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .names
+            .clone()
+    }
+
+    /// The end (`not_after`, Unix seconds) of the certificate the gateway serves now;
+    /// `None` for plain HTTP or a certificate whose end does not parse.
+    pub fn tls_not_after(&self) -> Option<i64> {
+        self.served
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .not_after
+    }
+
+    /// Serve `cert_pem` (chain) with `key_pem` from the next TLS connection on, without a
+    /// restart, and read the names of the device origins and `/api/info` from it. A pair
+    /// that does not make TLS settings changes nothing. `Error::Config` when the gateway
+    /// serves plain HTTP.
+    pub fn reload_tls(&self, cert_pem: Vec<u8>, key_pem: Vec<u8>) -> Result<()> {
+        let key_pem = Zeroizing::new(key_pem);
+        let Some(tls) = &self.tls else {
+            return Err(Error::Config(
+                "the gateway serves plain HTTP: no certificate to reload".into(),
+            ));
+        };
+        let c = http::tls_config(&cert_pem, &key_pem)?;
+        let served = Served::of(&cert_pem);
+        // under the lock of what is read from it: a reader sees the certificate served
+        let mut held = self.served.write().unwrap_or_else(|p| p.into_inner());
+        tls.reload_from_config(Arc::new(c));
+        *held = served;
+        Ok(())
     }
 
     /// Downstream sites reached through the gateway (the broker's peers).
@@ -836,6 +964,186 @@ impl Gateway {
         match roles.iter().find(|r| !table.contains(r)) {
             Some(r) => Err(Error::Rejected(format!("unknown role {r}"))),
             None => Ok(()),
+        }
+    }
+
+    /// Store the hash of a setup code (64 hex digits) as the pending setup
+    /// (ADR 0051 §3), in place of one pending before: `false`, and nothing
+    /// written, when a user exists.
+    pub fn import_setup(&self, hash_hex: &str) -> Result<bool, SetupError> {
+        let Some(hash) = setup::read_hash(hash_hex) else {
+            return Err(SetupError::Rejected(
+                "setup hash: expected 64 hex digits".into(),
+            ));
+        };
+        let _held = self.setup.lock().unwrap_or_else(|p| p.into_inner());
+        if self.any_user() {
+            return Ok(false);
+        }
+        write_private(&self.setup_file(), wyrm_core::hex::encode(hash).as_bytes())
+            .map_err(Error::Io)?;
+        info!("gateway: setup code imported");
+        Ok(true)
+    }
+
+    /// A setup is pending: its file holds a hash and no user exists. A file that cannot be
+    /// read is logged with its path (never its content), once until it is read again, and
+    /// is no setup; a damaged one is [`Gateway::settle_setup`]'s to report, once at start.
+    pub fn setup_pending(&self) -> bool {
+        self.pending_now().is_some()
+    }
+
+    /// The pending hash as [`Gateway::setup_pending`] sees it.
+    fn pending_now(&self) -> Option<Zeroizing<[u8; 32]>> {
+        if self.any_user() {
+            return None;
+        }
+        match self.pending_setup() {
+            Ok(p) => {
+                self.setup_unreadable.store(false, Ordering::Relaxed);
+                p.map(Zeroizing::new)
+            }
+            Err(SetupError::Store(Error::Io(e))) => {
+                if !self.setup_unreadable.swap(true, Ordering::Relaxed) {
+                    warn!(
+                        path = %self.setup_file().display(),
+                        error = %e,
+                        "gateway: the setup file cannot be read (told once until it is read again)"
+                    );
+                }
+                None
+            }
+            Err(_) => None,
+        }
+    }
+
+    /// At start, before the gateway serves (ADR 0051 §3): `true` when a setup is pending.
+    /// A setup file beside a user (a restored backup, a crash between the admin and the
+    /// removal of the file) is void and removed, whatever it holds. With no user, a file
+    /// that is not a setup hash, or cannot be read, is the error, naming the file and
+    /// never its content: the broker logs it, and the file stays for the operator.
+    pub fn settle_setup(&self) -> Result<bool, SetupError> {
+        let _held = self.setup.lock().unwrap_or_else(|p| p.into_inner());
+        if self.any_user() {
+            self.drop_setup("a user exists");
+            return Ok(false);
+        }
+        Ok(self.pending_setup()?.is_some())
+    }
+
+    /// `POST /api/setup` from `ip`: [`Gateway::complete_setup`] within the budget of
+    /// `/api/login` for `user` and `ip` (one limiter: a wrong code is a failed login, and
+    /// failed logins lock the setup). Audited: a wrong code as a failed login
+    /// (`setup_code_wrong`), the first admin as a user added by `setup`. Blocking (argon2).
+    pub(crate) fn setup_from(
+        &self,
+        code: &str,
+        user: &str,
+        password: &str,
+        ip: IpAddr,
+    ) -> Result<(), SetupRefused> {
+        // again on this thread: requests in flight at once all passed the handler's check
+        self.check_limit(user, ip).map_err(SetupRefused::Login)?;
+        match self.complete_setup(code, user, password) {
+            Ok(()) => {
+                self.limiter.succeeded(user, ip);
+                self.audit(AuditEvent::UserChanged {
+                    by: "setup".into(),
+                    user: user.into(),
+                    change: "add",
+                });
+                Ok(())
+            }
+            Err(SetupError::WrongCode) => {
+                self.limiter.failed(user, ip);
+                self.audit(AuditEvent::LoginFailed {
+                    user: user.into(),
+                    ip,
+                    reason: "setup_code_wrong",
+                });
+                Err(SetupRefused::Setup(SetupError::WrongCode))
+            }
+            Err(e) => Err(SetupRefused::Setup(e)),
+        }
+    }
+
+    /// Make the first admin `user` with `password` when `code` is the pending
+    /// setup code, and use the code up (ADR 0051 §3). A refused user name or
+    /// password leaves the setup pending. Blocking (argon2).
+    ///
+    /// The check "no user yet" and the new admin are under the `setup` lock only, not
+    /// under the users store's lock. That is safe because no other path makes a user
+    /// without an admin while the gateway serves: the HTTP `add_user` needs an admin's
+    /// session (so a user exists, and this answers `NoSetup`), `ensure_admin` runs at
+    /// bootstrap before the gateway serves, `wyrmd user add` runs in another process that
+    /// cannot open the store this gateway holds, and a broker restore replaces the users
+    /// store only at the next start, before any store opens. A new path that makes a user
+    /// with no admin before it must take the `setup` lock.
+    pub fn complete_setup(&self, code: &str, user: &str, password: &str) -> Result<(), SetupError> {
+        let _held = self.setup.lock().unwrap_or_else(|p| p.into_inner());
+        if self.any_user() {
+            // a restored backup, or a crash between the admin and the removal: void,
+            // whatever the file holds
+            self.drop_setup("a user exists");
+            return Err(SetupError::NoSetup);
+        }
+        let Some(pending) = self.pending_setup()? else {
+            return Err(SetupError::NoSetup);
+        };
+        let Some(given) = setup::code_hash(code) else {
+            return Err(SetupError::WrongCode);
+        };
+        if !setup::same(&given, &pending) {
+            return Err(SetupError::WrongCode);
+        }
+        self.add_user(user, password, vec!["admin".into()])
+            .map_err(|e| match e {
+                Error::Rejected(m) | Error::State(wyrm_state::StateError::Rejected(m)) => {
+                    SetupError::Rejected(m)
+                }
+                e => SetupError::Store(e),
+            })?;
+        info!(user, "gateway: first admin made with the setup code");
+        self.drop_setup("the code is used");
+        Ok(())
+    }
+
+    fn any_user(&self) -> bool {
+        !self.store().state().users.is_empty()
+    }
+
+    fn setup_file(&self) -> PathBuf {
+        self.cfg.dir.join(setup::FILE)
+    }
+
+    /// The hash of the setup file; `None` without one.
+    fn pending_setup(&self) -> Result<Option<[u8; 32]>, SetupError> {
+        let path = self.setup_file();
+        match std::fs::read_to_string(&path) {
+            Ok(text) => setup::read_hash(&text).map(Some).ok_or_else(|| {
+                SetupError::Store(Error::Config(format!(
+                    "{}: not a setup hash",
+                    path.display()
+                )))
+            }),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(SetupError::Store(Error::Io(e))),
+        }
+    }
+
+    /// Remove the setup file. A file left is logged: it is void while a user
+    /// exists, and the next setup step removes it again.
+    fn drop_setup(&self, why: &str) {
+        let path = self.setup_file();
+        match std::fs::remove_file(&path) {
+            Ok(()) => info!(why, "gateway: setup removed"),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => tracing::error!(
+                path = %path.display(),
+                error = %e,
+                why,
+                "gateway: the setup file stays (void while a user exists)"
+            ),
         }
     }
 
@@ -1140,6 +1448,14 @@ impl Gateway {
     ) -> Result<()> {
         http::serve(self, session, shutdown).await
     }
+}
+
+/// Why `POST /api/setup` was refused: the login limiter, or the setup step itself.
+#[derive(Debug)]
+pub(crate) enum SetupRefused {
+    /// The limiter of `/api/login` (`RateLimited`).
+    Login(LoginError),
+    Setup(SetupError),
 }
 
 #[derive(Debug)]

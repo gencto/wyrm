@@ -2,7 +2,7 @@
 
 use crate::devices::{Purpose, Refused};
 use crate::users::MAX_PASSWORD;
-use crate::{AuditEvent, Error, Gateway, LoginError, Principal};
+use crate::{AuditEvent, Error, Gateway, LoginError, Principal, SetupError, SetupRefused};
 use axum::body::Bytes;
 use axum::extract::{ConnectInfo, DefaultBodyLimit, FromRequestParts, Path, Query, State};
 use axum::http::header::{AUTHORIZATION, CONTENT_TYPE};
@@ -27,6 +27,9 @@ const MAX_BODY: usize = 64 * 1024;
 /// (ADR 0011). WebSocket frames stay at 64 KiB. The same value as the Rust
 /// client's, which refuses a larger one before it sends it (tested).
 const MAX_INVOKE_BODY: usize = (64 << 20) + (64 << 10);
+/// Longest setup code a person may type (26 characters with spaces or `-` between the
+/// groups); `setup::code_hash` refuses anything longer too.
+const MAX_SETUP_CODE: usize = 128;
 /// Largest invoke arguments the clients send in a frame (the Rust client's
 /// `MAX_FRAME_ARGS`, Dart's `maxFrameArgs`).
 const MAX_FRAME_ARGS: usize = 60 * 1024;
@@ -51,10 +54,19 @@ pub(crate) async fn serve(
     session: zenoh::Session,
     shutdown: impl Future + Send,
 ) -> crate::Result<()> {
-    let tls = match &gw.cfg.tls {
-        Some((cert, key)) => Some(tls_config(cert, key)?),
-        None => None,
-    };
+    // the files again (a router rebuild serves again): a renewed pair is served from now
+    // on; one that cannot be read or is torn leaves the certificate in force
+    if let Some((cert, key)) = &gw.cfg.tls {
+        let read = |p: &std::path::Path| {
+            std::fs::read(p).map_err(|e| Error::Config(format!("tls {}: {e}", p.display())))
+        };
+        let pair = read(cert).and_then(|c| Ok((c, read(key)?)));
+        if let Err(e) = pair.and_then(|(c, k)| gw.reload_tls(c, k)) {
+            warn!(error = %e, "gateway: the TLS files are not served; the certificate in force stays");
+        }
+    }
+    // the gateway's own: a reload (`Gateway::reload_tls`) reaches every serve after it
+    let tls = gw.tls.clone();
     let listener = std::net::TcpListener::bind(gw.cfg.listen)?;
     listener.set_nonblocking(true)?;
     let addr = listener.local_addr()?;
@@ -77,7 +89,6 @@ pub(crate) async fn serve(
         async move {
             match tls {
                 Some(cfg) => {
-                    let cfg = axum_server::tls_rustls::RustlsConfig::from_config(Arc::new(cfg));
                     axum_server::from_tcp_rustls(listener, cfg)?
                         .handle(handle)
                         .serve(app)
@@ -112,18 +123,19 @@ impl Drop for AbortOnDrop {
     }
 }
 
-fn tls_config(
-    cert: &std::path::Path,
-    key: &std::path::Path,
-) -> crate::Result<rustls::ServerConfig> {
+/// The server's TLS settings for a certificate chain and its key (PEM): rustls with the
+/// ring provider, HTTP/1.1. The one builder of the gateway's TLS, at open and at a reload.
+pub(crate) fn tls_config(cert: &[u8], key: &[u8]) -> crate::Result<rustls::ServerConfig> {
     use rustls_pki_types::pem::PemObject;
     use rustls_pki_types::{CertificateDer, PrivateKeyDer};
     let bad = |what: &str, e: &dyn std::fmt::Display| Error::Config(format!("tls {what}: {e}"));
-    let certs = CertificateDer::pem_file_iter(cert)
-        .map_err(|e| bad("certificate", &e))?
+    let certs = CertificateDer::pem_slice_iter(cert)
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| bad("certificate", &e))?;
-    let key = PrivateKeyDer::from_pem_file(key).map_err(|e| bad("key", &e))?;
+    if certs.is_empty() {
+        return Err(bad("certificate", &"no certificate in the PEM"));
+    }
+    let key = PrivateKeyDer::from_pem_slice(key).map_err(|e| bad("key", &e))?;
     let provider = Arc::new(rustls::crypto::ring::default_provider());
     let mut c = rustls::ServerConfig::builder_with_provider(provider)
         .with_safe_default_protocol_versions()
@@ -139,6 +151,7 @@ fn router(st: AppState) -> Router {
     let r: Router<AppState> = Router::new()
         .route("/api/login", post(login))
         .route("/api/info", get(info))
+        .route("/api/setup", post(setup))
         .route("/api/me", get(me))
         .route("/api/me/sign-out", post(sign_out))
         .route("/api/confirm", post(confirm_password))
@@ -302,6 +315,82 @@ impl From<Refused> for ApiError {
             Refused::NotFound => {
                 Self::new(StatusCode::NOT_FOUND, Status::NotFound, "no such device")
             }
+        }
+    }
+}
+
+impl From<LoginError> for ApiError {
+    fn from(e: LoginError) -> Self {
+        match e {
+            LoginError::Invalid => Self::new(
+                StatusCode::UNAUTHORIZED,
+                Status::PermissionDenied,
+                "invalid credentials",
+            ),
+            LoginError::RateLimited => Self::new(
+                StatusCode::TOO_MANY_REQUESTS,
+                Status::RateLimited,
+                "too many failed logins",
+            ),
+            LoginError::Unavailable => Self::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                Status::Busy,
+                "the gateway cannot start a session now: try again",
+            ),
+        }
+    }
+}
+
+/// The hashing permits are closed: the gateway stops.
+impl From<tokio::sync::AcquireError> for ApiError {
+    fn from(_closed: tokio::sync::AcquireError) -> Self {
+        Self::new(StatusCode::SERVICE_UNAVAILABLE, Status::Busy, "stopping")
+    }
+}
+
+/// A blocking task that panicked or was cancelled.
+impl From<tokio::task::JoinError> for ApiError {
+    fn from(e: tokio::task::JoinError) -> Self {
+        warn!(error = %e, "gateway: request task failed");
+        Self::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Status::InternalError,
+            "internal error",
+        )
+    }
+}
+
+impl From<SetupRefused> for ApiError {
+    fn from(r: SetupRefused) -> Self {
+        match r {
+            SetupRefused::Login(e) => e.into(),
+            SetupRefused::Setup(e) => e.into(),
+        }
+    }
+}
+
+impl From<SetupError> for ApiError {
+    fn from(e: SetupError) -> Self {
+        let coded = |http, status, code: &'static str, message: &str| {
+            let mut e = Self::new(http, status, message);
+            e.extra.push(("code", Value::from(code)));
+            e
+        };
+        match e {
+            SetupError::NoSetup => coded(
+                StatusCode::CONFLICT,
+                Status::NotFound,
+                "no_setup",
+                "no setup is pending",
+            ),
+            SetupError::WrongCode => coded(
+                StatusCode::FORBIDDEN,
+                Status::PermissionDenied,
+                "setup_code_wrong",
+                "wrong setup code",
+            ),
+            SetupError::Rejected(m) => Self::bad(m),
+            SetupError::Store(e) => e.into(),
         }
     }
 }
@@ -471,9 +560,7 @@ async fn login(
     let r = match st.gw.check_limit(&user, peer.ip()) {
         Err(e) => Err(e),
         Ok(()) => {
-            let _permit = st.gw.hashing.acquire().await.map_err(|_| {
-                ApiError::new(StatusCode::SERVICE_UNAVAILABLE, Status::Busy, "stopping")
-            })?;
+            let _permit = st.gw.hashing.acquire().await?;
             let gw = st.gw.clone();
             tokio::task::spawn_blocking(move || {
                 gw.login(&user, password, device.as_deref(), peer.ip())
@@ -482,27 +569,42 @@ async fn login(
             .map_err(|_| Error::Rejected("login task failed".into()))?
         }
     };
-    match r {
-        Ok((session, exp)) => Ok(cbor(
-            StatusCode::OK,
-            &map([("session", Value::Str(session)), ("exp", Value::UInt(exp))]),
-        )),
-        Err(LoginError::Invalid) => Err(ApiError::new(
-            StatusCode::UNAUTHORIZED,
-            Status::PermissionDenied,
-            "invalid credentials",
-        )),
-        Err(LoginError::RateLimited) => Err(ApiError::new(
-            StatusCode::TOO_MANY_REQUESTS,
-            Status::RateLimited,
-            "too many failed logins",
-        )),
-        Err(LoginError::Unavailable) => Err(ApiError::new(
-            StatusCode::SERVICE_UNAVAILABLE,
-            Status::Busy,
-            "the gateway cannot start a session now: try again",
-        )),
+    let (session, exp) = r?;
+    Ok(cbor(
+        StatusCode::OK,
+        &map([("session", Value::Str(session)), ("exp", Value::UInt(exp))]),
+    ))
+}
+
+/// `POST /api/setup {code, user, password}` (ADR 0051 §3), no session: the first admin of
+/// a new broker from its one-time setup code → `204`. Refused: `409 no_setup`, `403
+/// setup_code_wrong`, `400` for a user name or password `add_user` refuses, `429` from the
+/// limiter of `/api/login` (the same budget per user and address).
+async fn setup(
+    State(st): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    body: Bytes,
+) -> ApiResult {
+    let mut m = body_map(&body)?;
+    let code = Zeroizing::new(text(&mut m, "code")?);
+    let user = text(&mut m, "user")?;
+    let password = Zeroizing::new(text(&mut m, "password")?);
+    if code.len() > MAX_SETUP_CODE || user.len() > 64 || password.len() > MAX_PASSWORD {
+        return Err(ApiError::bad("code, user or password too long"));
     }
+    // No setup (a broker with users, as most are): answered at once, without a hashing
+    // permit, a blocking thread or a file removal. `complete_setup` checks again under
+    // its lock for the calls that go on.
+    if !st.gw.setup_pending() {
+        return Err(SetupError::NoSetup.into());
+    }
+    // A locked caller never waits for (or holds) a hashing permit.
+    st.gw.check_limit(&user, peer.ip())?;
+    let _permit = st.gw.hashing.acquire().await?;
+    let gw = st.gw.clone();
+    tokio::task::spawn_blocking(move || gw.setup_from(&code, &user, &password, peer.ip()))
+        .await??;
+    Ok(StatusCode::NO_CONTENT.into_response())
 }
 
 async fn ws_ticket(State(st): State<AppState>, headers: HeaderMap) -> ApiResult {
@@ -805,10 +907,7 @@ async fn hashing<T: Send + 'static>(
     gw: &Arc<Gateway>,
     f: impl FnOnce(&Gateway) -> crate::Result<T> + Send + 'static,
 ) -> Result<T, ApiError> {
-    let _permit =
-        gw.hashing.acquire().await.map_err(|_| {
-            ApiError::new(StatusCode::SERVICE_UNAVAILABLE, Status::Busy, "stopping")
-        })?;
+    let _permit = gw.hashing.acquire().await?;
     let gw = gw.clone();
     tokio::task::spawn_blocking(move || f(&gw))
         .await
@@ -1050,10 +1149,7 @@ async fn confirm_password(
     if password.len() > MAX_PASSWORD {
         return Err(ApiError::bad("password too long"));
     }
-    let _permit =
-        st.gw.hashing.acquire().await.map_err(|_| {
-            ApiError::new(StatusCode::SERVICE_UNAVAILABLE, Status::Busy, "stopping")
-        })?;
+    let _permit = st.gw.hashing.acquire().await?;
     let gw = st.gw.clone();
     tokio::task::spawn_blocking(move || gw.confirm_password(&p, password, peer.ip()))
         .await

@@ -17,3 +17,6 @@ links/wasm/tests/app_fixture/Cargo.lock
 # Claude Code agent worktrees
 .claude/worktrees/
 __pycache__/
+
+# Optional local deny-list of the site generator (tool/site/build.py)
+tool/site/denied-words.local

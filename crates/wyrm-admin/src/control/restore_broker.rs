@@ -1511,8 +1511,15 @@ impl Staging<'_> {
             self.plan.files.push(rel.clone());
         }
         if c.keys_other {
-            // everything the replaced CA issued
-            self.plan.remove = vec!["pki".into(), "operators".into(), "peers".into()];
+            // everything the replaced CA issued: also the gateway's certificate of
+            // `gateway.tls: "site_ca"` (never the rest of `gateway`: users, keys, setup)
+            self.plan.remove = vec![
+                "pki".into(),
+                "operators".into(),
+                "peers".into(),
+                "gateway/tls.pem".into(),
+                "gateway/tls.key".into(),
+            ];
             self.plan.strip_link_certs = true;
         }
         Ok(())
