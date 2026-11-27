@@ -27,6 +27,19 @@ jobs:
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       # docs/rust-rules.md: C1–C10 and the baselined clippy lints, per file; counts only go down
       - run: python3 tool/check_rust_rules.py
+      - name: The base of the change
+        # tools/wyr/tests/boards.rs compares packaging/images/boards.json with it: the
+        # root partition of a board never changes its size. The checkout has one commit,
+        # so the base is fetched here; without it that test fails in CI.
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if git fetch -q --depth=1 origin "$BASE" 2>/dev/null &&
+            git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            echo "BOARDS_BASE=$BASE" >> "$GITHUB_ENV"
+          else
+            git fetch -q --depth=1 origin main:refs/remotes/origin/main
+          fi
       - run: cargo test --workspace --all-features
   audit:
     # RUSTSEC advisories against Cargo.lock; accepted ones are listed with reasons in .cargo/audit.toml
@@ -56,7 +69,7 @@ jobs:
           run=true
           if git fetch -q --depth=1 origin "$BASE" 2>/dev/null &&
             files=$(git diff --name-only "$BASE" HEAD); then
-            echo "$files" | grep -qE '^(packaging/openwrt/|crates/wyrm-image/|tools/wyr/src/image\.rs|\.github/workflows/ci\.yml)' || run=false
+            echo "$files" | grep -qE '^(packaging/openwrt/|packaging/images/|crates/wyrm-image/|tools/wyr/src/image|\.github/workflows/ci\.yml)' || run=false
           fi
           echo "run=$run" >> "$GITHUB_OUTPUT"
       - if: steps.changed.outputs.run == 'true'
@@ -70,11 +83,12 @@ jobs:
       - if: steps.changed.outputs.run == 'true'
         name: shellcheck
         run: |
-          shellcheck -s sh packaging/openwrt/tests/first_boot.sh \
+          shellcheck -s sh packaging/openwrt/tests/*.sh \
             packaging/openwrt/wyrmd/files/usr/libexec/wyrm/*.sh \
             packaging/openwrt/wyrmd/files/etc/init.d/wyrmd \
-            packaging/openwrt/wyrmd/files/etc/uci-defaults/90-wyrm-host \
-            packaging/openwrt/wyrmd/files/etc/hotplug.d/ntp/20-wyrm-time
+            packaging/openwrt/wyrmd/files/etc/uci-defaults/* \
+            packaging/openwrt/wyrmd/files/etc/hotplug.d/ntp/20-wyrm-time \
+            packaging/images/*.sh tools/wyr/tests/vectors/make.sh
       - if: steps.changed.outputs.run == 'true'
         run: cargo build -p wyr
       - if: steps.changed.outputs.run == 'true'
@@ -83,6 +97,11 @@ jobs:
       - if: steps.changed.outputs.run == 'true'
         name: First boot under dash
         run: SH=dash WYR="$PWD/target/debug/wyr" packaging/openwrt/tests/first_boot.sh
+      - if: steps.changed.outputs.run == 'true'
+        name: Data partition and site rule under busybox and dash
+        run: |
+          SH="busybox sh" BB=busybox packaging/openwrt/tests/data_part.sh
+          SH=dash packaging/openwrt/tests/data_part.sh
   fixtures-in-sync:
     runs-on: ubuntu-latest
     timeout-minutes: 10
