@@ -23,6 +23,9 @@ mod admin;
 mod bench;
 mod dev;
 mod flow;
+mod image;
+mod image_base;
+mod image_part;
 mod pack;
 mod query;
 mod replay;
@@ -169,6 +172,13 @@ enum Cmd {
         #[command(subcommand)]
         cmd: pack::LinkCmd,
     },
+    /// Board images (ADR 0051 §4): `wyr image build` writes a configuration into a base
+    /// image, `wyr image inspect` shows what an image's config region holds, `wyr image
+    /// base` makes a board's base image with OpenWrt's ImageBuilder in a container.
+    Image {
+        #[command(subcommand)]
+        cmd: image::ImageCmd,
+    },
     /// Package repositories (ADR 0021): `wyr repo add`; the official links
     /// (ADR 0043): `wyr repo check`, `build`, `index`.
     Repo {
@@ -307,6 +317,7 @@ async fn run(cli: Cli) -> Result<(), Error> {
         Cmd::New { what } => scaffold::run(what),
         Cmd::Link { cmd } => pack::run_link(cmd),
         Cmd::Repo { cmd } => pack::run_repo(cmd),
+        Cmd::Image { cmd } => Ok(image::run(cmd)?),
         Cmd::Replay {
             file,
             flow,

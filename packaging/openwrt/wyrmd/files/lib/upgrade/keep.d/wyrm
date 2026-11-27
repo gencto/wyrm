@@ -1,0 +1,4 @@
+/etc/wyrm/wyrmd.json5
+/etc/wyrm/.first-boot-applied
+/etc/wyrm/.first-boot-done
+/etc/wyrm/.host-role-done

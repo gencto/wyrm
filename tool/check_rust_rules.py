@@ -217,16 +217,26 @@ NARROW = {"u8", "u16", "u32", "i8", "i16", "i32"}
 FLOATY = re.compile(r"as_f64|as_f32|\bf64\b|\bf32\b|Float\(|\.round\(\)|\.floor\(\)|\.ceil\(\)|\.trunc\(\)")
 
 
+# A `use` item to its `;`: an `as _` in it brings a trait into scope without a name, and is no
+# cast. `use<'a>` (the captures of an `impl Trait`) is no item: a path starts with a name,
+# `::`, `{` or `*`.
+USE_ITEM = re.compile(r"\buse\s+[\w:{*][^;]*;")
+
+
 def c1(s: Source) -> list[int]:
     """An integer cast that can lose or widen silently: `as u8/u16/u32/i8/i16/i32`, `as _`
     (the target is whatever the compiler infers), and any `as <int>` within six lines after
-    a float (`as_f64`, `f64`, `Float(`, `.round()`…). The code tables are exempt."""
+    a float (`as_f64`, `f64`, `Float(`, `.round()`…). The code tables are exempt, and so is
+    the `as _` of an import (`use std::io::Write as _;`): it names no type at all."""
     if s.path == "crates/wyrm-core/src/wire.rs":
         return []
     hits = []
+    imports = [m.span() for m in USE_ITEM.finditer(s.masked)]
     floaty = [i + 1 for i, line in enumerate(s.masked_lines) if FLOATY.search(line)]
     for m in re.finditer(rf"\bas\s+({INT}|_)(?![\w:])", s.masked):
         ln = s.line_of(m.start())
+        if m.group(1) == "_" and any(a <= m.start() < z for a, z in imports):
+            continue
         if m.group(1) in NARROW or m.group(1) == "_" or any(0 <= ln - f <= 6 for f in floaty):
             hits.append(m.start())
     return s.hits("C1", hits)
@@ -467,8 +477,10 @@ def a4(s: Source) -> list[int]:
 
 # `stored_*`: the readers of a stored map in a crate of C12 (`links/alarm`), where the names
 # of the argument readers are C12's: a field read by hand is counted here all the same.
+# Not clap's attribute `#[arg(long, default_value = "x")]`: it declares a command-line
+# argument and reads no `Value`.
 ARG_HELPERS = (
-    r"\b(?:arg|arg_str|opt_str|req_str|get_str|get_u64|get_bool|get_f64|enum_arg|text_arg|choice|uint_arg|bool_arg|"
+    r"(?<!#\[)\b(?:arg|arg_str|opt_str|req_str|get_str|get_u64|get_bool|get_f64|enum_arg|text_arg|choice|uint_arg|bool_arg|"
     r"stored_str|stored_req|stored_bool|stored_u64|stored_f64)\(\s*[^;)]*?\""
 )
 # The codec of `Value` and the decoder behind `#[derive(Args)]`.
@@ -1365,6 +1377,19 @@ PATTERNS = {
 # Samples each rule must count (`hit`) or leave (`miss`), checked before every run so a
 # change to a pattern cannot silently stop counting what it was written for.
 PROBES = [
+    # C1: a narrowing cast and `as _` count; the `as _` of an import is no cast
+    ("C1", "x.rs", "fn f(n: u64) -> u8 { n as u8 }", 1),
+    ("C1", "x.rs", "fn f(n: u64) -> usize { g(n as _) }", 1),
+    ("C1", "x.rs", "use std::io::Write as _;\nfn f() { use std::os::unix::fs::OpenOptionsExt as _; }", 0),
+    ("C1", "x.rs", "pub(crate) use a::{B as _, c::D as _};\nuse hmac::Mac as _;", 0),
+    # an import ends at its `;`, and the captures of an `impl Trait` are no import
+    ("C1", "x.rs", "use std::io::Write as _;\nfn f(n: u64) -> usize { g(n as _) }", 1),
+    ("C1", "x.rs", "fn f<'a>(p: &'a P) -> impl Fn() + use<'a> { let n: u8 = p.n as _; move || n; }", 1),
+    # C4: an argument helper counts; clap's attribute of the same name reads no `Value`
+    ("C4", "x.rs", 'fn f(args: &Value) { let n = arg(args, "name"); }', 1),
+    ("C4", "x.rs", '#[arg(long, conflicts_with = "base", value_name = "HEX")]\nname: Option<String>,', 0),
+    ("C4", "x.rs", '#[arg(\n    long,\n    default_value = "flows"\n)]\nflows: String,', 0),
+    ("C4", "x.rs", '#[arg(long)]\nname: String,\nfn f(args: &Value) { let n = arg_str(args, "name"); }', 1),
     # C12: wyrm-admin reads and declares an action's arguments only through its struct
     ("C12", ADMIN + "x.rs", 'fn f(args: &Value) { let n = arg_str(args, "name"); }', 2),
     ("C12", ADMIN + "x.rs", 'fn f(args: &Value) { let n = int_arg::<u32>(args, "n")?; }', 2),

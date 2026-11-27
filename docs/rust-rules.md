@@ -229,7 +229,8 @@ let level = Perm::from_name(level)
 
 **Check.** C1 `int-cast`: `as u8/u16/u32/i8/i16/i32`, `as _`, and any
 `as <int>` within six lines after a float (`as_f64`, `f64`, `Float(`,
-`.round()`…). C2 `name-lookup`: any `.name() == s`, `.name().eq(s)` or
+`.round()`…); the `as _` of an import (`use std::io::Write as _;`) is no cast
+and is not counted. C2 `name-lookup`: any `.name() == s`, `.name().eq(s)` or
 `name(*x) == s` comparison, and a `match` whose string arms give enum variants
 (`"read" => Perm::Read`), once per `match`. No function is exempt by its name:
 a plain enum's own hand-written lookup counts too, until its names are
@@ -401,7 +402,9 @@ let a = AddUpstream::decode(args)?; // `enabled: "no"` is refused, with the fiel
 **Check.** C4 `value-field-read`: `Some(Value::…`, `if let Value::…(`,
 `let Value::…(..) =`, `.get`/`.get_mut`/`.remove`/`.contains_key` with a
 literal or a `CONST` key, `m["x"]`, `Value::as_*`, and the argument helpers
-(`arg_str(&args, "x")`, `opt_str`, `get_u64`, …). Files named `decode.rs`,
+(`arg_str(&args, "x")`, `opt_str`, `get_u64`, …; clap's attribute
+`#[arg(long, default_value = "x")]` declares a command-line argument and is
+not counted). Files named `decode.rs`,
 `decode/`, the codec in `wyrm-core/src/value.rs` and the decoder behind
 `#[derive(Args)]` (`wyrm-core/src/args.rs`) are exempt.
 

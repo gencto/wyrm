@@ -1,0 +1,132 @@
+{
+  "format": "wyrm-boards/1",
+  "openwrt": "25.12.6",
+  "container": "ghcr.io/openwrt/buildbot/buildworker-v3.11.8@sha256:03d881a90761ba99b9f5425d2fce25ba3c5c314db462c4f9440fdddcc7b33ddc",
+  "imagebuilders": [
+    {
+      "target": "bcm27xx/bcm2711",
+      "url": "https://downloads.openwrt.org/releases/25.12.6/targets/bcm27xx/bcm2711/openwrt-imagebuilder-25.12.6-bcm27xx-bcm2711.Linux-x86_64.tar.zst",
+      "sha256": "78191c1909358925bd92fc2200da29c1e4a0a8a949a4af77bd97650471604d2a"
+    },
+    {
+      "target": "bcm27xx/bcm2712",
+      "url": "https://downloads.openwrt.org/releases/25.12.6/targets/bcm27xx/bcm2712/openwrt-imagebuilder-25.12.6-bcm27xx-bcm2712.Linux-x86_64.tar.zst",
+      "sha256": "5a379d82bf1e134fc328c01d3de53350c3bca4603be69615581d165bef3867ab"
+    },
+    {
+      "target": "mediatek/filogic",
+      "url": "https://downloads.openwrt.org/releases/25.12.6/targets/mediatek/filogic/openwrt-imagebuilder-25.12.6-mediatek-filogic.Linux-x86_64.tar.zst",
+      "sha256": "8ce0da1e2fb3d0454ebeb1e3df5705f2145e09ffe6f00d5077c18369719daf83"
+    },
+    {
+      "target": "armsr/armv8",
+      "url": "https://downloads.openwrt.org/releases/25.12.6/targets/armsr/armv8/openwrt-imagebuilder-25.12.6-armsr-armv8.Linux-x86_64.tar.zst",
+      "sha256": "3d0128148395314c510fe7adfc5996cecec51f3011ea2acc560a9c21772301cf"
+    }
+  ],
+  "packages": [
+    "-odhcpd-ipv6only",
+    "-ppp",
+    "-ppp-mod-pppoe",
+    "zoneinfo-all",
+    "kmod-usb-acm",
+    "kmod-usb-serial-ch341",
+    "kmod-usb-serial-cp210x",
+    "kmod-usb-serial-ftdi",
+    "kmod-usb-serial-pl2303",
+    "sfdisk",
+    "partx-utils",
+    "e2fsprogs",
+    "tune2fs",
+    "blkid",
+    "kmod-fs-ext4"
+  ],
+  "boards": [
+    {
+      "id": "rpi4",
+      "title": "Raspberry Pi 4 B / 400 / CM4",
+      "target": "bcm27xx/bcm2711",
+      "profile": "rpi-4",
+      "arch": "aarch64_cortex-a72",
+      "image": "openwrt-25.12.6-bcm27xx-bcm2711-rpi-4-squashfs-factory.img.gz",
+      "table": "mbr",
+      "rootfs_partsize_mb": 256,
+      "config_part": "append",
+      "config_offset": 343932928,
+      "config_dev": "/dev/mmcblk0p3",
+      "data_dev": "/dev/mmcblk0p4",
+      "boot_from": "sd",
+      "listed": true,
+      "notes": "Write the image to a microSD card and boot from it. A board that boots from a USB stick finds its partitions there by itself; that path is not tried on a board yet."
+    },
+    {
+      "id": "rpi5",
+      "title": "Raspberry Pi 5 / 500 / CM5",
+      "target": "bcm27xx/bcm2712",
+      "profile": "rpi-5",
+      "arch": "aarch64_cortex-a76",
+      "image": "openwrt-25.12.6-bcm27xx-bcm2712-rpi-5-squashfs-factory.img.gz",
+      "table": "mbr",
+      "rootfs_partsize_mb": 256,
+      "config_part": "append",
+      "config_offset": 343932928,
+      "config_dev": "/dev/mmcblk0p3",
+      "data_dev": "/dev/mmcblk0p4",
+      "boot_from": "sd",
+      "listed": true,
+      "notes": "Write the image to a microSD card and boot from it. A board that boots from a USB stick or an NVMe disk finds its partitions there by itself; that path is not tried on a board yet."
+    },
+    {
+      "id": "bpi-r4",
+      "title": "Banana Pi BPI-R4 (4 GB)",
+      "target": "mediatek/filogic",
+      "profile": "bananapi_bpi-r4",
+      "arch": "aarch64_cortex-a53",
+      "image": "openwrt-25.12.6-mediatek-filogic-bananapi_bpi-r4-sdcard.img.gz",
+      "table": "gpt",
+      "rootfs_partsize_mb": 256,
+      "config_part": "append",
+      "config_offset": 335544320,
+      "config_dev": "/dev/mmcblk0p8",
+      "data_dev": "/dev/mmcblk0p9",
+      "boot_from": "sd",
+      "listed": true,
+      "notes": "This version runs from the SD card only: write the image to a microSD card, set the boot switch to SD and leave the card in. Do not install onto the eMMC: OpenWrt's install writes its own partition table there, without the config region and the data partition, and the configuration does not go with it. Planned (owner, 2026-11-27): the system on the eMMC by OpenWrt's own install (SD, then SPI-NAND, then eMMC from the U-Boot menu), the configuration from a USB stick that carries the same 4 MiB region, the data partition made on the eMMC at that first boot."
+    },
+    {
+      "id": "bpi-r4-8g",
+      "title": "Banana Pi BPI-R4 (8 GB)",
+      "target": "mediatek/filogic",
+      "profile": "bananapi_bpi-r4",
+      "arch": "aarch64_cortex-a53",
+      "image": "openwrt-25.12.6-mediatek-filogic-bananapi_bpi-r4-sdcard.img.gz",
+      "table": "gpt",
+      "rootfs_partsize_mb": 256,
+      "config_part": "append",
+      "config_offset": null,
+      "config_dev": "/dev/mmcblk0p8",
+      "data_dev": "/dev/mmcblk0p9",
+      "boot_from": "sd",
+      "listed": false,
+      "unavailable": "OpenWrt 25.12.6 publishes no image for the 8 GB board (no `sdcard_8g.img.gz`, no profile of its own); whether the 4 GB image starts on it is not known",
+      "notes": "Not built until an OpenWrt release has an image for the 8 GB board."
+    },
+    {
+      "id": "qemu-armsr",
+      "title": "QEMU virt (arm64, tests only)",
+      "target": "armsr/armv8",
+      "profile": "generic",
+      "arch": "aarch64_generic",
+      "image": "openwrt-25.12.6-armsr-armv8-generic-squashfs-combined-efi.img.gz",
+      "table": "gpt",
+      "rootfs_partsize_mb": 256,
+      "config_part": "append",
+      "config_offset": 403701760,
+      "config_dev": "/dev/vda3",
+      "data_dev": "/dev/vda4",
+      "boot_from": "virtio",
+      "listed": false,
+      "notes": "For the smoke test: boots under qemu-system-aarch64 -M virt with UEFI firmware and the image as a virtio disk."
+    }
+  ]
+}

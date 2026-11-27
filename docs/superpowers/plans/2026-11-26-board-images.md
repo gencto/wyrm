@@ -17,7 +17,7 @@
 - OpenWrt is used as published: a pinned release (`OPENWRT_RELEASE` in `boards.json`), no patches, no fork.
 - **Config region format** (decided here, ADR amended in Task 1): a fixed byte range of the image, `CONFIG_SIZE` = 4 MiB, at an offset recorded per image in the index. Content: magic `WYRMCFG1` (8 bytes) · payload length (u64 little-endian) · SHA-256 of the payload (32 bytes) · payload = a ustar archive · zero padding. An empty region is magic `WYRMCFG0` followed by zeros (written by CI; an assembler refuses a region that has neither magic). Files in the archive (all optional except the first): `wyrmd.json5`, `network` (UCI text), `seed.json`, `setup` (64 hex chars), `authorized_keys`, `timezone`, `ntp`.
 - The region is located by its recorded offset, not by a partition label (Raspberry Pi images are MBR, filogic images GPT). On the device it is a partition whose device path the image records in `/etc/wyrm/image.json` (`config_dev`).
-- Device role (owner answer 1): a plain host — DHCP client by default, no DHCP server, no LuCI, firewall open only for the gateway and peer ports, root login and SSH off unless `authorized_keys` is present (then key-only).
+- Device role (owner answer 1): a plain host — DHCP client by default, no DHCP server, no LuCI, firewall open only for the gateway and peer ports and 5353/udp (mDNS: DNS-SD is how Studio finds the device, ADR 0050), root login and SSH off unless `authorized_keys` is present (then key-only).
 - `ROOTFS_PARTSIZE` of a board is fixed for the life of the board (kept in `boards.json`; a test refuses a change of an existing row's value).
 - Boards of the first version: `rpi4` (`bcm27xx/bcm2711`), `rpi5` (`bcm27xx/bcm2712`), `bpi-r4` and `bpi-r4-8g` (`mediatek/filogic`, SD installs to eMMC), plus `qemu-armsr` (`armsr/armv8`) for tests only.
 - Workflows that need secrets or publish are added under `packaging/images/` and copied to `.github/workflows/` by the owner (as the other release workflows are); the smoke test runs in normal CI only when its paths change.
@@ -27,7 +27,7 @@
 
 1. A config archive larger than the region, or with a file name outside the allowed list, or with `..`/absolute paths, is refused by the assembler AND ignored by the device script (never unpacked outside its staging dir). → Tasks 1 and 3.
 2. Power loss during first boot: the script is idempotent — it applies from a staging dir with renames, and wipes the region only after everything is in place; a second boot with a wiped region changes nothing. → Task 3 test `first_boot_twice`.
-3. An image with an empty region (`WYRMCFG0`) boots to a safe state: no admin can be made (no setup hash), the gateway stays on loopback, and the console says how to assemble an image. → Task 3 + smoke test.
+3. An image with an empty region (`WYRMCFG0`) boots to a safe state: the broker does not start, nothing listens, the console says how to assemble. → Task 3 + smoke test.
 4. Assembling the wrong board's config or writing at a wrong offset is caught: the assembler checks the magic at the offset and the image's SHA-256 against the index before writing. → Task 1 tests.
 5. The data partition survives a re-flash of the same board's newer base image only if the layout is unchanged; the tool says so and the test pins `ROOTFS_PARTSIZE`. → Task 4.
 
@@ -90,7 +90,7 @@ The init script: `START=95`, `USE_PROCD=1`, runs `first-boot.sh` once before the
 
 **Files:** Create `packaging/images/smoke.sh`, `packaging/images/workflow.yml` (build all boards on a tag, attach images + `index.json` to the release; to be copied to `.github/workflows/` by the owner), `.github/workflows/images-smoke.yml` (runs on PRs touching `packaging/openwrt/**`, `packaging/images/**`, `crates/wyrm-image/**`, `tools/wyr/src/image*.rs`).
 
-**Interfaces — Consumes:** Tasks 2–4. `smoke.sh`: `wyr image base --board qemu-armsr` → `wyr image build` with a test config (`gateway: {listen: "0.0.0.0:8445", tls: "site_ca", setup_file: "/etc/wyrm/setup"}`, `--new-setup-code`) → boot in `qemu-system-aarch64` (user networking, port forward 8445) → within 180 s: `/api/info` over TLS answers with `setup: true` and a `setup_proof` that `wyr`/a test helper verifies with the code → `POST /api/setup` → login works → reboot once → still logged-in-able, region empty (`wyr image inspect` on the disk file shows nothing). A second case boots the unassembled base image and asserts the gateway does not listen off loopback.
+**Interfaces — Consumes:** Tasks 2–4. `smoke.sh`: `wyr image base --board qemu-armsr` → `wyr image build` with a test config (`gateway: {listen: "0.0.0.0:8445", tls: "site_ca", setup_file: "/etc/wyrm/setup.d/setup"}`, `--new-setup-code`) → boot in `qemu-system-aarch64` (user networking, port forward 8445) → within 180 s: `/api/info` over TLS answers with `setup: true` and a `setup_proof` that `wyr`/a test helper verifies with the code → `POST /api/setup` → login works → reboot once → still logged-in-able, region empty (`wyr image inspect` on the disk file shows nothing). A second case boots the unassembled base image and asserts the gateway does not listen off loopback.
 
 - [ ] Write the script and workflows; run locally where QEMU + a container runtime exist; otherwise let CI judge and say so.
 - [ ] Commit `images: QEMU smoke test and the build workflow (ADR 0051)`.

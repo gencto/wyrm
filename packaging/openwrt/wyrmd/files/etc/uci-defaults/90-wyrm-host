@@ -1,0 +1,122 @@
+#!/bin/sh
+# The role of a WYRM board on the network: a plain host (ADR 0051, answer 1 of the
+# owner). Runs once, at the first boot, before the network starts; OpenWrt removes a
+# uci-defaults script that exits 0.
+#
+#   - DHCP client on `lan`; no DHCP server, no router advertisements
+#   - one firewall zone for every network, input REJECT; open are the gateway
+#     (8445/tcp), the peer and TLS listeners (7448/tcp+udp) and mDNS (5353/udp, how
+#     Studio finds the gateway); another port needs a rule of its own
+#   - SSH off, the console asks for a login and root has no password that works; the
+#     first boot turns SSH on, for keys only, when the image carries `authorized_keys`
+#   - the broker's user `wyrm` may open serial ports (group `dialout`)
+#
+# Then it applies the configuration of the image's config region, so the network starts
+# with the person's settings.
+
+DONE=/etc/wyrm/.host-role-done
+
+# /etc/wyrm/.host-role-done is kept by a sysupgrade (/lib/upgrade/keep.d/wyrm), while
+# this script comes back with the new image: it must not reset a network that is set up
+[ -e "$DONE" ] && exit 0
+
+# shellcheck source=/dev/null # OpenWrt's config_load, config_foreach, config_get
+. /lib/functions.sh
+
+# network: `lan` asks for an address instead of being 192.168.1.1
+if uci -q get network.lan > /dev/null; then
+	uci -q set network.lan.proto='dhcp'
+	uci -q delete network.lan.ipaddr
+	uci -q delete network.lan.netmask
+	uci -q delete network.lan.ip6assign
+fi
+
+# no DHCP server and no router advertisements. dnsmasq stays as the local resolver: the
+# jailed ntpd reads `nameserver 127.0.0.1` from the start, while the file netifd writes
+# at the DHCP lease would come after the jail was made (packaging/images/README.md)
+if uci -q get dhcp.lan > /dev/null; then
+	uci -q set dhcp.lan.ignore='1'
+	uci -q set dhcp.lan.dhcpv6='disabled'
+	uci -q set dhcp.lan.ra='disabled'
+fi
+[ -x /etc/init.d/odhcpd ] && /etc/init.d/odhcpd disable
+
+# firewall: the zone `wan` of OpenWrt's default (input REJECT, with the rules a host
+# needs: DHCP renew, ping, ICMPv6) takes every network; the zone `lan` and the
+# forwarding between them go
+# shellcheck disable=SC2317,SC2329 # called by config_foreach
+host_zone() {
+	name=
+	config_get name "$1" name
+	case "$name" in
+	wan)
+		uci -q del_list "firewall.$1.network=lan"
+		uci -q add_list "firewall.$1.network=lan"
+		uci -q set "firewall.$1.input=REJECT"
+		uci -q set "firewall.$1.forward=REJECT"
+		uci -q delete "firewall.$1.masq"
+		uci -q delete "firewall.$1.mtu_fix"
+		;;
+	*) uci -q delete "firewall.$1" ;;
+	esac
+}
+# shellcheck disable=SC2317,SC2329 # called by config_foreach
+drop_section() { uci -q delete "firewall.$1"; }
+# OpenWrt's default has rules into the zone `lan` (Allow-IPSec-ESP, Allow-ISAKMP):
+# they go with the zone
+# shellcheck disable=SC2317,SC2329 # called by config_foreach
+drop_lan_rule() {
+	src=
+	dest=
+	config_get src "$1" src
+	config_get dest "$1" dest
+	if [ "$src" = lan ] || [ "$dest" = lan ]; then
+		uci -q delete "firewall.$1"
+	fi
+}
+# allow NAME PROTO PORT ENABLED
+allow() {
+	uci -q set "firewall.$1=rule"
+	uci -q set "firewall.$1.name=$1"
+	uci -q set "firewall.$1.src=wan"
+	uci -q set "firewall.$1.proto=$2"
+	uci -q set "firewall.$1.dest_port=$3"
+	uci -q set "firewall.$1.target=ACCEPT"
+	uci -q set "firewall.$1.enabled=$4"
+}
+if [ -f /etc/config/firewall ]; then
+	config_load firewall
+	config_foreach host_zone zone
+	config_foreach drop_section forwarding
+	config_foreach drop_lan_rule rule
+	config_foreach drop_lan_rule redirect
+	uci -q set firewall.@defaults[0].input='REJECT'
+	uci -q set firewall.@defaults[0].forward='REJECT'
+	allow wyrm_gateway tcp 8445 1
+	allow wyrm_peers 'tcp udp' 7448 1
+	allow wyrm_mdns udp 5353 1
+	# off until the first boot applies `authorized_keys`
+	allow wyrm_ssh tcp 22 0
+fi
+
+# no way in but the broker's own: SSH off, a login on the console, root locked
+uci -q set dropbear.@dropbear[0].enable='0'
+uci -q set system.@system[0].ttylogin='1'
+passwd -l root > /dev/null 2>&1
+
+# serial links (Modbus RTU and the like): OpenWrt gives /dev/ttyUSB*, /dev/ttyACM* and
+# /dev/ttyS* to the group `dialout`
+if grep -q '^dialout:' /etc/group && ! grep -q '^dialout:.*[:,]wyrm\(,\|$\)' /etc/group; then
+	group_add_user dialout wyrm
+fi
+
+uci -q commit
+mkdir -p /etc/wyrm
+: > "$DONE"
+
+# The configuration of the image, before the network starts. Whatever it answers, this
+# script is done: /etc/init.d/wyrmd runs the first boot again while its marker is absent,
+# and tells what the first boot said (the log daemon is not up yet).
+/usr/libexec/wyrm/first-boot.sh 2> /tmp/wyrm-first-boot.log
+
+exit 0

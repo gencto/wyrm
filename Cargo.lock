@@ -6450,11 +6450,13 @@ dependencies = [
  "base64 0.22.1",
  "clap",
  "ed25519-dalek",
+ "flate2",
  "hex",
  "json5",
  "minicbor",
  "serde",
  "serde_json",
+ "thiserror 2.0.21",
  "tokio",
  "wit-component 0.261.0",
  "wyrm-client",
@@ -6463,6 +6465,7 @@ dependencies = [
  "wyrm-flow",
  "wyrm-gateway-client",
  "wyrm-history",
+ "wyrm-image",
  "wyrm-link-api",
  "wyrm-link-mock",
  "wyrm-link-probe",
@@ -6546,6 +6549,7 @@ dependencies = [
 name = "wyrm-core"
 version = "0.1.0"
 dependencies = [
+ "data-encoding",
  "getrandom 0.3.4",
  "half",
  "hex",
@@ -6556,6 +6560,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "subtle",
  "thiserror 2.0.21",
  "tracing",
  "zeroize",
@@ -6689,7 +6694,6 @@ dependencies = [
  "axum 0.8.9",
  "axum-server",
  "base64 0.22.1",
- "data-encoding",
  "ed25519-dalek",
  "futures-util",
  "hmac",
@@ -6765,6 +6769,16 @@ dependencies = [
  "hmac",
  "wyrm-core",
  "wyrm-link-api",
+]
+
+[[package]]
+name = "wyrm-image"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "wyrm-core",
 ]
 
 [[package]]

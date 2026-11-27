@@ -12,6 +12,9 @@
 //   - no config sets `insecure_plaintext`;
 //   - every key of a config is in the list below, and every top-level key is
 //     a field of the broker's config (crates/wyrmd/src/lib.rs);
+//   - a config for a board image names the setup file and the seed directory
+//     exactly as the constants SETUP_FILE and SEED_DIR of the crate wyrm-image
+//     (crates/wyrm-image/src/region.rs): an assembler refuses any other path;
 //   - a path that is still planned shows its steps as comments only, and the
 //     page opens on a path that works today.
 // Node 18+, no dependencies.
@@ -116,6 +119,19 @@ const errors = [];
 let count = 0;
 let withProcess = 0;
 
+// Where the device of a board image puts the setup hash and the seed: read from the
+// crate, so the page and the assembler cannot drift apart.
+const regionRs = fs.readFileSync(path.join(REPO, 'crates/wyrm-image/src/region.rs'), 'utf8');
+function rustConst(name) {
+  const m = new RegExp(`^pub const ${name}: &str = "([^"\\\\]+)";$`, 'm').exec(regionRs);
+  if (!m) throw new Error(`crates/wyrm-image/src/region.rs has no string constant ${name}`);
+  return m[1];
+}
+const SETUP_FILE = rustConst('SETUP_FILE');
+const SEED_DIR = rustConst('SEED_DIR');
+let withSetup = 0;
+let withSeed = 0;
+
 const first = api.PATHS.find((p) => p.id === api.state.path);
 if (!first || first.st === 'planned') {
   errors.push(`the page opens on "${api.state.path}", a path that is planned`);
@@ -156,6 +172,20 @@ for (const p of api.PATHS) {
             errors.push(`${where}: key ${k} is not a field of the broker's config`);
           }
         }
+        const setupFile = (cfg.gateway || {}).setup_file;
+        if (setupFile !== undefined) {
+          withSetup += 1;
+          if (setupFile !== SETUP_FILE) {
+            errors.push(`${where}: gateway.setup_file is ${setupFile}, wyrm_image::SETUP_FILE is ${SETUP_FILE}`);
+          }
+        }
+        const seedDir = (cfg.packages || {}).seed_dir;
+        if (seedDir !== undefined) {
+          withSeed += 1;
+          if (seedDir !== SEED_DIR) {
+            errors.push(`${where}: packages.seed_dir is ${seedDir}, wyrm_image::SEED_DIR is ${SEED_DIR}`);
+          }
+        }
         const links = cfg.links || {};
         const modes = Object.values(links).map((l) => l.mode).filter(Boolean);
         for (const [id, l] of Object.entries(links)) {
@@ -183,6 +213,8 @@ for (const p of api.PATHS) {
 }
 
 if (withProcess === 0) errors.push('no combination had a process link: the test checks nothing');
+if (withSetup === 0) errors.push('no config named a setup file: the test of its path checks nothing');
+if (withSeed === 0) errors.push('no config named a seed directory: the test of its path checks nothing');
 for (const e of errors.slice(0, 40)) console.error(`install: ${e}`);
 if (errors.length) {
   console.error(`install: ${errors.length} error(s) in ${count} combinations`);

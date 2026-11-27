@@ -385,6 +385,238 @@ packages: { seed_dir: "/usr/share/wyrm/seed" },
   writes no `seed.done`. The broker logs a warning and tries again at every
   start. A `seed.progress.json` that cannot be read does the same.
 
+### Board images (ADR 0051 §4)
+
+A board's **base image** is OpenWrt with `wyrmd` and an empty 4 MiB config
+region. `wyr image build` writes your configuration into that region, on
+your machine: nothing of it goes to a server. The device reads the region
+at its first boot and wipes it.
+
+You need three files: the base image of the board (`.img`, or `.img.gz` as
+downloaded), the index it was published with (`index.json`, format
+`wyrm-images/1`) and your `wyrmd.json5`.
+
+```
+wyr image build --image wyrm-rpi4-0.9.0-openwrt-25.12.6.img.gz --index index.json --board rpi4 \
+    --config wyrmd.json5 --new-setup-code --out plant-rpi4.img
+```
+
+It prints the output path and, with `--new-setup-code`, one more line:
+`setup code: ABCD-EFGH-…`. That is the only time the code is shown; the
+image holds its hash, which is printed nowhere. Give the code to the person
+who sets the broker up, apart from the image (see "First admin from a setup
+code" above). Then write `plant-rpi4.img` to the card.
+
+| Option | File in the region | Meaning |
+|---|---|---|
+| `--config <file>` | `wyrmd.json5` | the broker's configuration; required |
+| `--network <file>` | `network` | the device's network as a UCI file; without it the device is a DHCP client |
+| `--seed <file>` | `seed.json` | which of the carried links are installed at the first start (`wyrm-seed/1`) |
+| `--new-setup-code` | `setup` | make a setup code, store its hash, print the code once |
+| `--setup-hash-file <file>` | `setup` | a file with the hash of a code made before (the second line of `wyrmd setup-code`: 64 hex digits, white space around them ignored); not with `--new-setup-code` |
+| `--authorized-keys <file>` | `authorized_keys` | SSH public keys for `root`; without it the device has no SSH login |
+| `--timezone <tz>` | `timezone` | one IANA name, for example `Europe/Kyiv`: `A-Z a-z 0-9 _ + / -`, not starting with `/`, without `..` |
+| `--ntp <servers>` | `ntp` | NTP servers separated by commas, at most 16; each a host name or an address of `A-Z a-z 0-9 . : _ -`, not starting with `-` (an IPv6 address without brackets: `2001:db8::1`) |
+| `--out <file>` | | the image to write, raw; an existing file is replaced only with `--force` |
+
+What the command checks, in this order:
+
+1. The index has the board, and the files fit the region and are text.
+   The configuration is one the device takes ("On the device" below): the
+   site, `data_dir`, the time zone and the NTP servers. This is refused
+   before the image is read.
+2. The region at the index's `config_offset` does not hold a configuration
+   already. **An image is assembled only from a base image**: an assembled
+   image is refused, so take the base image as it was published.
+3. The image has the size and the SHA-256 of its index entry. Any other
+   file is refused (a broken download, another board, another release):
+   the offset is right for those bytes only.
+4. The region is the empty one a base image carries (`WYRMCFG0` and zeros).
+
+- The image is read once: it is copied, unpacked when it is gzip (told by
+  its first two bytes, not by its name) and hashed in the same pass.
+- The output is written as a temporary file beside `--out`
+  (`<name>.<pid>.tmp`) and renamed at the end. A refused or failed run
+  leaves no output and no temporary file, and an existing `--out` stays as
+  it was. A run that is interrupted (a kill, a power loss) can leave that
+  temporary file (0600): remove it. It holds what the output would.
+- `--out` is never the base image itself, also with `--force`.
+- A gzip image may have several members (as `pigz` writes it).
+- The output is readable by its owner only (0600 on Unix). It holds the
+  setup hash and your configuration: keep it like a secret, as the hash
+  itself (whoever holds the hash can prove a CA to a client that has the
+  code).
+- The hash of a code made before is read from a file, never from the
+  command line (other users of the machine see a command line, and the
+  shell keeps it). Keep the hash file private (0600) and delete it after
+  the build.
+- Without `--new-setup-code` and `--setup-hash-file` the image has no setup
+  hash: nobody can make the first admin from the network.
+
+`wyr image inspect --image <file> --index index.json --board <id>` shows
+what the region of an image holds, raw or gzip:
+
+```
+board: rpi4
+region: assembled
+wyrmd.json5 412
+setup 64
+authorized_keys 96
+```
+
+`region: empty` is a base image. Each line after it is a file name and its
+size in bytes. No content is shown, of `setup` and `authorized_keys` least
+of all. A raw file of another size than the index says is refused. A
+gzip file is unpacked only up to the end of the region: it is refused when
+it ends before that, and a longer one is not told (`wyr image build`
+refuses it by its SHA-256). A file with no region at the offset is
+refused. A line `WARNING: …` after the files tells of a setup hash or a
+seed that the image's `wyrmd.json5` does not name (the broker of that
+device will never read it), or of a configuration the device refuses (the
+rules in "On the device" below). `wyr image build` does not write such an
+image.
+
+#### Write the card
+
+Write the assembled image whole to the card with `dd` or an imager
+(Raspberry Pi Imager, `balenaEtcher`). Use a card at least 34 MiB larger than
+the image: the rest becomes the data partition at the first boot ("On the
+device" below). The rows of `packaging/images/boards.json` carry these
+notes:
+
+| Board | `--board` | How it boots |
+|---|---|---|
+| Raspberry Pi 4 B / 400 / CM4 | `rpi4` | from the microSD card. A board that boots from a USB stick finds its partitions there by itself; not tried on a board yet. |
+| Raspberry Pi 5 / 500 / CM5 | `rpi5` | from the microSD card. A board that boots from a USB stick or an NVMe disk finds its partitions there by itself; not tried on a board yet. |
+| Banana Pi BPI-R4 (4 GB) | `bpi-r4` | **from the SD card only**: set the boot switch to SD and leave the card in. Do not install onto the eMMC: OpenWrt's install writes its own partition table there, without the config region and the data partition, and the configuration does not go with it. |
+| Banana Pi BPI-R4 (8 GB) | `bpi-r4-8g` | not built: OpenWrt 25.12.6 publishes no image for the 8 GB board. |
+| QEMU `virt` (arm64) | `qemu-armsr` | tests only: `qemu-system-aarch64 -M virt` with UEFI firmware, the image as a virtio disk grown before the first boot (`qemu-img resize -f raw plant.img 1G`; `packaging/images/README.md`, "Boards"). |
+
+No image has been booted on a real board yet: the boards were built and
+their partition tables checked, and the `qemu-armsr` image boots in the
+smoke test.
+
+#### A base image of your own
+
+The project publishes base images; `wyr image base` makes one locally with
+OpenWrt's ImageBuilder in a container (`docker` or `podman`, no root), for
+a board of `packaging/images/boards.json`:
+
+```
+wyr image base --board rpi4 --wyrmd <wyrmd for aarch64, static musl> \
+    --wyrmd-version 0.9.0 --out dist/images
+```
+
+It leaves the raw image, its gzip, the package manifest and `index.json` in
+`--out`: `wyr image build` takes the image and the index. The index entry
+records the image's size, SHA-256 and `config_offset`, the version and the
+SHA-256 of the `wyrmd` binary, and the SHA-256 of the manifest. The OpenWrt
+release, the ImageBuilder archive (by SHA-256) and the build container (by
+digest) are pinned in `boards.json`; the packages the ImageBuilder fetches
+are signed by the release, not pinned, so two builds of one release can
+differ in them, and the manifest's hash tells them apart.
+
+The layout of a board never changes: the root partition has one size for
+the life of the board, and `boards.json` records where the config region
+lies (`config_offset`); a build that puts it elsewhere is refused. An image
+ends at most 1 MiB after its config region, where the data partition of a
+card starts. An image with another layout, written over a device, loses
+that device's data. `packaging/images/README.md` has the details;
+`packaging/images/verify-table.sh <image>` checks a built image's partition
+table with `sfdisk` and `sgdisk`.
+
+#### On the device (OpenWrt)
+
+The image runs the broker as the procd service `wyrmd` (`logread -e wyrm`,
+`/etc/init.d/wyrmd restart`). `packaging/openwrt/README.md` describes the
+package; what an operator meets:
+
+- **First boot.** Before the network starts, the device reads the config
+  region, checks it (magic, length, SHA-256, the file names, each file),
+  puts the files in place and wipes the region. A region that is damaged
+  or holds anything else is refused as a whole and nothing is applied; the
+  console and the log say why. A power loss while the files are put or the
+  region is wiped is safe: the next boot applies the region again, or
+  wipes it again. A power loss while the data partition is made (between
+  `sfdisk --append` and the label `wyrm-data`) is not: it leaves a
+  partition without the label, the next boot formats nothing and starts
+  no broker, and the console says so. Then write the image to the card
+  again (`packaging/openwrt/README.md`, "The data partition").
+- **An image without a configuration** (a base image written to the card
+  as it is) does not start the broker: nothing listens and nothing is
+  written to the data partition. The console says so and names `wyr image
+  build`. Assemble an image and write the card again.
+- **What your `wyrmd.json5` must say** on a board: `site: "<name>"` in
+  the outermost object, once (1 to 64 of `A-Z a-z 0-9 _ . -`, not starting
+  with `.`: it names a directory on the data partition), `data_dir:
+  "/srv/wyrm"` in the outermost object (the data partition; a relative or
+  another path is refused), `gateway: { listen: "0.0.0.0:8445", tls:
+  "site_ca", setup_file: "/etc/wyrm/setup.d/setup" }` for a setup code,
+  and `packages: { seed_dir: "/usr/share/wyrm/seed" }` with `--seed`.
+  `wyr image build` refuses a setup code or a seed whose path the
+  configuration does not name (the broker would never read the file), and
+  a site, a `data_dir`, a time zone or NTP servers the device does not
+  take. The rules are those of the device's scripts (`site.sh`,
+  `first-boot.sh`), one set: the crate `wyrm-image` checks them
+  (`ConfigFiles::check_device`), and its tests read the scripts. The
+  device checks the site again before it applies anything.
+- **The data partition.** At the first boot with a configuration the
+  device adds an ext4 partition (label `wyrm-data`) in the rest of the
+  card, 1 MiB after the config region, and mounts it at every boot before
+  the broker starts: the partition at `/srv/wyrm-part` (root's), its
+  directory `broker` at `/srv/wyrm`, the broker's `data_dir`. The
+  partition ends at least 1 MiB before the end of the card: imagers zero
+  the first and the last MiB of a drive when they write it (Raspberry Pi
+  Imager does on every write; `balenaEtcher` and `bmaptool` may too). The
+  card must be at least 34 MiB larger than the image. A partition that was there before the boot is
+  never formatted. Without a mounted data partition the broker does not
+  start, and the console says why.
+- **Writing the card again** with a newer image of the same board keeps the
+  data partition: the first boot finds the label and formats nothing. With
+  the same site in the new configuration the broker goes on with its data
+  (its CA, users, links, history). With another site, the old data is
+  renamed to `/srv/wyrm-part/.replaced-<old site>-<n>` and the broker
+  starts as a new site; that directory is never merged and never
+  deleted. A `broker` directory whose site cannot be read is set aside the
+  same way, as `.replaced-unknown-<n>`. Copy out what you need from it (as
+  root) and remove it yourself. The data partition belongs to the card; to
+  start clean, wipe the card before you write the image. With the same
+  site, the new image's **setup code is void**: a user exists, so the
+  broker offers no setup (`POST /api/setup` answers 409); log in as
+  before. Its **`seed.json` is not applied again**: `data_dir/seed.done`
+  of the first start is kept, so install the links of the new seed by
+  hand (or delete `seed.done` and `seed.progress.json`, "Seed packages"
+  above). An image with
+  another layout (a board whose `config_offset` changed, which `boards.json`
+  forbids) would add the data partition at another place and not find the
+  data.
+- **`sysupgrade` is not tried.** The project publishes no sysupgrade image,
+  and updating the system in the field is not decided (ADR 0051). Write the
+  card again instead. What the package declares for a `sysupgrade`
+  (`/lib/upgrade/keep.d/wyrm`): it keeps `wyrmd.json5` and the markers of
+  the first boot and of the host role, never the setup hash. With those
+  markers kept, the first boot and the host role do not run again, so a
+  configuration in the new image's config region is not read.
+- **The broker runs as the user `wyrm`**, as under systemd. It may open
+  serial ports (group `dialout`).
+- **The device is a plain host**: a DHCP client, no DHCP server, the
+  firewall closed except 8445/tcp (gateway), 7448/tcp+udp (peers and TLS
+  listeners) and 5353/udp (mDNS: how Studio finds the device). Another port needs a firewall rule on the device.
+  A `--network` file replaces `/etc/config/network`; keep the interface
+  names `lan`, `wan`, `wan6`.
+- **No login** without `--authorized-keys`: SSH is off and `root` has no
+  password. With keys, SSH takes those keys only.
+- **Time.** The first start waits up to 120 s for NTP before the broker
+  makes the site's CA, then goes on with the clock as it is. With a
+  network that reaches an NTP server the wait is short (in QEMU the clock
+  is set about 19 s after the boot); the log says `no NTP answer` when the
+  wait ran out.
+- **The host name** becomes `wyrm-<site>` (when the site is a valid host
+  name), so the gateway's certificate names `wyrm-<site>.local`. A name you
+  gave the device yourself is kept.
+- **`/etc/init.d/wyrmd reload` is a restart**: the broker reads its
+  configuration only when it starts.
+
 ### Recovery time
 
 The recovery time (RTO) of a restart is the sum of:

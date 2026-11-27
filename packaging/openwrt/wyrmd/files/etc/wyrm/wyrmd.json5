@@ -1,0 +1,16 @@
+// A placeholder (ADR 0051): the broker of a WYRM board image never runs with it.
+//
+// While the image carries no configuration, the service does not start the broker at
+// all (/etc/init.d/wyrmd). The first boot replaces this file with the `wyrmd.json5`
+// of the config region (`wyr image build --config`).
+//
+// It is kept valid and safe for whoever starts `wyrmd -c` on it by hand: nothing
+// listens beyond this device, there is no `gateway.setup_file` and no admin password.
+// To set the device up, write a configuration into the base image and write the
+// card again: https://wyrm.gencto.uk/docs/operations.html ("Board images").
+{
+  site: "unconfigured",
+  data_dir: "/srv/wyrm",
+  listen: ["tcp/127.0.0.1:7447"],
+  gateway: { listen: "127.0.0.1:8445" },
+}
