@@ -94,7 +94,7 @@
       "boot_from": "sd",
       "lan": { "bridge": "br-lan", "ports": ["lan1", "lan2", "lan3", "sfp-lan"] },
       "listed": true,
-      "notes": "This version runs from the SD card only: write the image to a microSD card, set the boot switch to SD and leave the card in. Do not install onto the eMMC: OpenWrt's install writes its own partition table there, without the config region and the data partition, and the configuration does not go with it. Planned (owner, 2026-11-27): the system on the eMMC by OpenWrt's own install (SD, then SPI-NAND, then eMMC from the U-Boot menu), the configuration from a USB stick that carries the same 4 MiB region, the data partition made on the eMMC at that first boot."
+      "notes": "This version runs from the SD card only: write the image to a microSD card, set the boot switch to SD and leave the card in. With a static address, connect the board through a LAN port (lan1–lan3 or the LAN SFP cage); the WAN ports are not configured. Do not install onto the eMMC: OpenWrt's install writes its own partition table there, without the config region and the data partition, and the configuration does not go with it. Planned (owner, 2026-11-27): the system on the eMMC by OpenWrt's own install (SD, then SPI-NAND, then eMMC from the U-Boot menu), the configuration from a USB stick that carries the same 4 MiB region, the data partition made on the eMMC at that first boot."
     },
     {
       "id": "bpi-r4-8g",

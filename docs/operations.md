@@ -500,7 +500,7 @@ notes:
 |---|---|---|
 | Raspberry Pi 4 B / 400 / CM4 | `rpi4` | from the microSD card. A board that boots from a USB stick finds its partitions there by itself; not tried on a board yet. |
 | Raspberry Pi 5 / 500 / CM5 | `rpi5` | from the microSD card. A board that boots from a USB stick or an NVMe disk finds its partitions there by itself; not tried on a board yet. |
-| Banana Pi BPI-R4 (4 GB) | `bpi-r4` | **from the SD card only**: set the boot switch to SD and leave the card in. Do not install onto the eMMC: OpenWrt's install writes its own partition table there, without the config region and the data partition, and the configuration does not go with it. |
+| Banana Pi BPI-R4 (4 GB) | `bpi-r4` | **from the SD card only**: set the boot switch to SD and leave the card in. With a static address, connect the board through a LAN port (lan1–lan3 or the LAN SFP cage); the WAN ports are not configured. Do not install onto the eMMC: OpenWrt's install writes its own partition table there, without the config region and the data partition, and the configuration does not go with it. |
 | Banana Pi BPI-R4 (8 GB) | `bpi-r4-8g` | not built: OpenWrt 25.12.6 publishes no image for the 8 GB board. |
 | QEMU `virt` (arm64) | `qemu-armsr` | tests only: `qemu-system-aarch64 -M virt` with UEFI firmware, the image as a virtio disk grown before the first boot (`qemu-img resize -f raw plant.img 1G`; `packaging/images/README.md`, "Boards"). |
 

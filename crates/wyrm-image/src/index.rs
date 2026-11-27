@@ -60,7 +60,7 @@ pub struct ImageEntry {
 /// The ports of the interface `lan` of an image: one network device, or a bridge of
 /// ports (OpenWrt bridges `lan` as `br-lan` even when it has one port).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(untagged)]
+#[serde(untagged, try_from = "LanFields")]
 pub enum Lan {
     /// The interface is on this device.
     Device {
@@ -74,6 +74,41 @@ pub enum Lan {
         /// The ports of the bridge, at least one.
         ports: Vec<String>,
     },
+}
+
+/// The JSON of a [`Lan`]: `{"device"}` or `{"bridge", "ports"}`, nothing else. An object
+/// with both shapes, or a field of neither, is refused rather than read as one of them.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LanFields {
+    device: Option<String>,
+    bridge: Option<String>,
+    ports: Option<Vec<String>>,
+}
+
+/// A `lan` that is neither one device nor a bridge with its ports.
+#[derive(Debug, thiserror::Error)]
+#[error("`lan` is `{{\"device\"}}` or `{{\"bridge\", \"ports\"}}`, not both")]
+struct NotOneShape;
+
+impl TryFrom<LanFields> for Lan {
+    type Error = NotOneShape;
+
+    fn try_from(fields: LanFields) -> Result<Self, NotOneShape> {
+        match fields {
+            LanFields {
+                device: Some(device),
+                bridge: None,
+                ports: None,
+            } => Ok(Self::Device { device }),
+            LanFields {
+                device: None,
+                bridge: Some(bridge),
+                ports: Some(ports),
+            } => Ok(Self::Bridge { bridge, ports }),
+            _ => Err(NotOneShape),
+        }
+    }
 }
 
 /// The longest name of a network device in Linux (`IFNAMSIZ` less its NUL).
@@ -240,5 +275,55 @@ impl Index {
     /// The image of a board.
     pub fn image(&self, board: &str) -> Option<&ImageEntry> {
         self.images.iter().find(|image| image.board == board)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(
+        clippy::unwrap_used,
+        reason = "test code: a failed step fails the test"
+    )]
+
+    use super::*;
+
+    #[test]
+    fn lan_is_one_shape_or_refused() {
+        let read = |text: &str| serde_json::from_str::<Lan>(text);
+        assert_eq!(
+            read(r#"{"device": "eth0"}"#).unwrap(),
+            Lan::Device {
+                device: "eth0".to_owned()
+            }
+        );
+        assert_eq!(
+            read(r#"{"bridge": "br-lan", "ports": ["lan1", "lan2"]}"#).unwrap(),
+            Lan::Bridge {
+                bridge: "br-lan".to_owned(),
+                ports: vec!["lan1".to_owned(), "lan2".to_owned()]
+            }
+        );
+        for bad in [
+            r#"{"device": "eth0", "bridge": "br-lan", "ports": ["lan1"]}"#,
+            r#"{"device": "eth0", "ports": ["lan1"]}"#,
+            r#"{"bridge": "br-lan"}"#,
+            r#"{"device": "eth0", "vlan": 2}"#,
+            r#"{}"#,
+            r#""eth0""#,
+        ] {
+            assert!(read(bad).is_err(), "{bad}");
+        }
+        // and written back in its own shape
+        for lan in [
+            Lan::Device {
+                device: "eth0".to_owned(),
+            },
+            Lan::Bridge {
+                bridge: "br-lan".to_owned(),
+                ports: vec!["eth0".to_owned()],
+            },
+        ] {
+            assert_eq!(read(&serde_json::to_string(&lan).unwrap()).unwrap(), lan);
+        }
     }
 }

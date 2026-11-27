@@ -1191,29 +1191,65 @@ fn release(
     let listing = out.join(format!("{stem}.partitions.txt"));
     std::fs::write(&listing, partitions_text(&layout)).map_err(io_err("write", &listing))?;
     std::fs::rename(&gz_tmp, &gz).map_err(io_err("write", &gz))?;
-    let entry = ImageEntry {
-        board: board.id.clone(),
-        file: raw_name,
-        size: raw_sum.size,
-        sha256: hex::encode(raw_sum.sha256),
-        config_offset: layout.config_offset,
-        openwrt: build.boards.openwrt.clone(),
-        wyrmd: build.wyrmd.to_owned(),
-        wyrmd_sha256: Some(build.wyrmd_sha256.clone()),
-        manifest_sha256: Some(hex::encode(manifest_sum)),
-        download: Some(Download {
-            file: gz_name,
-            size: gz_sum.size,
-            sha256: hex::encode(gz_sum.sha256),
-        }),
-        title: Some(board.title.clone()),
-        notes: Some(board.notes.clone()),
-        lan: board.lan.clone(),
-    };
+    let entry = index_entry(
+        build.boards,
+        board,
+        build.wyrmd,
+        &build.wyrmd_sha256,
+        Published {
+            raw_name,
+            raw: raw_sum,
+            gz_name,
+            gz: gz_sum,
+            config_offset: layout.config_offset,
+            manifest_sha256: manifest_sum,
+        },
+    );
     let index = out.join("index.json");
     write_index(&index, entry)?;
     std::fs::rename(&made, &raw).map_err(io_err("write", &raw))?;
     Ok((layout, raw, gz, index))
+}
+
+/// The files of one build, as the index entry names them.
+struct Published {
+    raw_name: String,
+    raw: FileSum,
+    gz_name: String,
+    gz: FileSum,
+    config_offset: u64,
+    manifest_sha256: [u8; 32],
+}
+
+/// The index entry of a board's image: the files of the build, the OpenWrt release and the
+/// `wyrmd` it holds, and what a page shows of the board: its title, its notes and the ports
+/// of its LAN.
+fn index_entry(
+    boards: &Boards,
+    board: &Board,
+    wyrmd: &str,
+    wyrmd_sha256: &str,
+    files: Published,
+) -> ImageEntry {
+    ImageEntry {
+        board: board.id.clone(),
+        file: files.raw_name,
+        size: files.raw.size,
+        sha256: hex::encode(files.raw.sha256),
+        config_offset: files.config_offset,
+        openwrt: boards.openwrt.clone(),
+        wyrmd: wyrmd.to_owned(),
+        wyrmd_sha256: Some(wyrmd_sha256.to_owned()),
+        manifest_sha256: Some(hex::encode(files.manifest_sha256)),
+        download: Some(Download {
+            file: files.gz_name,
+            size: files.gz.size,
+            sha256: hex::encode(files.gz.sha256),
+        }),
+        title: Some(board.title.clone()),
+        notes: Some(board.notes.clone()),
+        lan: board.lan.clone(),
+    }
 }
 
 /// The config region of a build is where the board's row records it. A board without a
@@ -1547,6 +1583,12 @@ mod tests {
         assert_eq!(
             lan("bpi-r4"),
             ("br-lan".to_owned(), "lan1 lan2 lan3 sfp-lan".to_owned())
+        );
+        // a static address is written onto `lan` only: the notes send the person to its ports
+        let notes = &boards.board("bpi-r4").unwrap().notes;
+        assert!(
+            notes.contains("LAN port (lan1–lan3 or the LAN SFP cage)"),
+            "{notes}"
         );
         // MBR on the Raspberry Pi, GPT on the others; the config region is the partition
         // after the root
@@ -2020,6 +2062,50 @@ mod tests {
             Err(BaseError::Image(ImageError::Damaged))
         ));
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_entry_carries_what_a_page_shows_of_the_board() {
+        let boards = boards();
+        let board = boards.board("bpi-r4").unwrap();
+        let sum = |size, byte| FileSum {
+            size,
+            sha256: [byte; 32],
+        };
+        let entry = index_entry(
+            &boards,
+            board,
+            "0.9.0",
+            &"ef".repeat(32),
+            Published {
+                raw_name: "wyrm-bpi-r4.img".to_owned(),
+                raw: sum(1 << 30, 0xab),
+                gz_name: "wyrm-bpi-r4.img.gz".to_owned(),
+                gz: sum(1 << 26, 0xcd),
+                config_offset: 335_544_320,
+                manifest_sha256: [0x12; 32],
+            },
+        );
+        assert_eq!(entry.title.as_deref(), Some(board.title.as_str()));
+        assert_eq!(entry.notes.as_deref(), Some(board.notes.as_str()));
+        assert_eq!(entry.lan, board.lan);
+        assert!(entry.lan.is_some());
+        assert_eq!(entry.board, "bpi-r4");
+        assert_eq!(entry.openwrt, boards.openwrt);
+        assert_eq!(entry.sha256, "ab".repeat(32));
+        assert_eq!(entry.manifest_sha256, Some("12".repeat(32)));
+        let download = entry.download.clone().unwrap();
+        assert_eq!(
+            (download.file.as_str(), download.size),
+            ("wyrm-bpi-r4.img.gz", 1 << 26)
+        );
+        // an index of it reads back with every field
+        let index = Index {
+            format: wyrm_image::FORMAT.to_owned(),
+            images: vec![entry.clone()],
+        };
+        let text = serde_json::to_string(&index).unwrap();
+        assert_eq!(Index::parse(&text).unwrap().images, [entry]);
     }
 
     #[test]
