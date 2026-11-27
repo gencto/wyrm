@@ -9,6 +9,7 @@
 #     Studio finds the gateway); another port needs a rule of its own
 #   - SSH off, the console asks for a login and root has no password that works; the
 #     first boot turns SSH on, for keys only, when the image carries `authorized_keys`
+#   - the broker's user `wyrm` may open serial ports (group `dialout`)
 #
 # Then it applies the configuration of the image's config region, so the network starts
 # with the person's settings.
@@ -59,6 +60,18 @@ host_zone() {
 }
 # shellcheck disable=SC2317 # called by config_foreach
 drop_section() { uci -q delete "firewall.$1"; }
+# OpenWrt's default has rules into the zone `lan` (Allow-IPSec-ESP, Allow-ISAKMP):
+# they go with the zone
+# shellcheck disable=SC2317 # called by config_foreach
+drop_lan_rule() {
+	src=
+	dest=
+	config_get src "$1" src
+	config_get dest "$1" dest
+	if [ "$src" = lan ] || [ "$dest" = lan ]; then
+		uci -q delete "firewall.$1"
+	fi
+}
 # allow NAME PROTO PORT ENABLED
 allow() {
 	uci -q set "firewall.$1=rule"
@@ -73,6 +86,8 @@ if [ -f /etc/config/firewall ]; then
 	config_load firewall
 	config_foreach host_zone zone
 	config_foreach drop_section forwarding
+	config_foreach drop_lan_rule rule
+	config_foreach drop_lan_rule redirect
 	uci -q set firewall.@defaults[0].input='REJECT'
 	uci -q set firewall.@defaults[0].forward='REJECT'
 	allow wyrm_gateway tcp 8445 1
@@ -87,12 +102,19 @@ uci -q set dropbear.@dropbear[0].enable='0'
 uci -q set system.@system[0].ttylogin='1'
 passwd -l root > /dev/null 2>&1
 
+# serial links (Modbus RTU and the like): OpenWrt gives /dev/ttyUSB*, /dev/ttyACM* and
+# /dev/ttyS* to the group `dialout`
+if grep -q '^dialout:' /etc/group && ! grep -q '^dialout:.*[:,]wyrm\(,\|$\)' /etc/group; then
+	group_add_user dialout wyrm
+fi
+
 uci -q commit
 mkdir -p /etc/wyrm
 : > "$DONE"
 
 # The configuration of the image, before the network starts. Whatever it answers, this
-# script is done: /etc/init.d/wyrmd runs the first boot again while its marker is absent.
-/usr/libexec/wyrm/first-boot.sh 2> /dev/console
+# script is done: /etc/init.d/wyrmd runs the first boot again while its marker is absent,
+# and tells what the first boot said (the log daemon is not up yet).
+/usr/libexec/wyrm/first-boot.sh 2> /tmp/wyrm-first-boot.log
 
 exit 0

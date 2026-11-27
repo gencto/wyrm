@@ -23,19 +23,24 @@
 //! names and nothing else: `wyrmd.json5` (required), `network`, `seed.json`, `setup`,
 //! `authorized_keys`, `timezone`, `ntp`.
 //!
+//! The device puts `setup` at [`SETUP_FILE`] and `seed.json` into [`SEED_DIR`]. A configuration
+//! with one of them must name that path in its `wyrmd.json5` (`gateway.setup_file`,
+//! `packages.seed_dir`), or the broker never reads the file: [`ImageError::NotNamed`].
+//!
 //! The region is found by the offset the signed index records for the image
 //! ([`ImageEntry::config_offset`]), never by a partition label. Before it writes, an assembler
 //! checks the image against its entry ([`ImageEntry::matches`]) and the eight bytes at the
 //! offset ([`check_slot`]).
 
 mod index;
+mod names;
 mod region;
 mod tar;
 
 pub use index::{Download, ImageEntry, Index, IndexError, FORMAT};
 pub use region::{
     check_slot, read_region, region, ConfigFiles, CONFIG_SIZE, HEADER_SIZE, MAGIC_EMPTY,
-    MAGIC_FULL, MAX_PAYLOAD,
+    MAGIC_FULL, MAX_PAYLOAD, SEED_DIR, SETUP_FILE,
 };
 
 /// Why a config region, its files or an index of images are refused.
@@ -56,6 +61,17 @@ pub enum ImageError {
     /// also: it is empty.
     #[error("the content of `{0}` is refused: a file is UTF-8 text without NUL, and `wyrmd.json5` is not empty")]
     BadContent(&'static str),
+    /// The configuration carries `file`, and `wyrmd.json5` does not name the path where the
+    /// device puts it: the broker would never read it.
+    #[error("`{file}` is in the configuration, but `wyrmd.json5` does not say `{key}: \"{path}\"`: the device puts the file there, and the broker reads it only from where its configuration says")]
+    NotNamed {
+        /// The file of the archive.
+        file: &'static str,
+        /// The key of `wyrmd.json5`, with its section.
+        key: &'static str,
+        /// The path the key must name.
+        path: &'static str,
+    },
     /// Neither magic is at the offset: this is not the config region of a WYRM image.
     #[error("no config region here: neither `WYRMCFG1` nor `WYRMCFG0` at the offset")]
     NoRegion,

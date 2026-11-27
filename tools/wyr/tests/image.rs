@@ -19,7 +19,8 @@ use wyrm_image::{read_region, CONFIG_SIZE, MAGIC_EMPTY};
 const SIZE: usize = 8 * 1024 * 1024;
 /// Not on a 1 MiB boundary: the region starts inside one part of the copy and ends in another.
 const OFFSET: usize = 3 * 1024 * 1024 + 512;
-const CONFIG: &str = "{ site: \"plant\", gateway: { tls: \"site_ca\" } }\n";
+/// A configuration of a board: it names where the device puts `setup` and `seed.json`.
+const CONFIG: &str = "{ site: \"plant\", gateway: { tls: \"site_ca\", setup_file: \"/etc/wyrm/setup.d/setup\" }, packages: { seed_dir: \"/usr/share/wyrm/seed\" } }\n";
 const SETUP: &str = "3f0a9c1e5b7d2468ace013579bdf02468ace13579bdf0246813579bdf02468ac";
 const KEYS: &str = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOnlyThePersonsKey person@host\n";
 
@@ -262,6 +263,29 @@ fn a_new_setup_code_is_printed_once() {
     // the hash is a secret of the image: it is not taken as an argument
     let arg = dir.build(&["--force", "--setup-hash", SETUP]);
     assert!(!refused(&arg).contains(SETUP), "{}", text(&arg.stderr));
+}
+
+/// A setup code or a seed the broker would never read is refused, before the image is read
+/// and before a code is printed: `wyrmd.json5` must name where the device puts the file.
+#[test]
+fn a_file_the_config_does_not_name_is_refused() {
+    let dir = Dir::new("notnamed");
+    dir.write("wyrmd.json5", "{ site: \"plant\" }\n");
+    dir.write("seed.json", "{\"format\":\"wyrm-seed/1\",\"links\":[]}");
+    let before = dir.names();
+    let e = refused(&dir.build(&["--new-setup-code"])).to_owned();
+    assert!(
+        e.contains("gateway.setup_file") && e.contains(wyrm_image::SETUP_FILE),
+        "{e}"
+    );
+    let e = refused(&dir.build(&["--seed", "seed.json"])).to_owned();
+    assert!(
+        e.contains("packages.seed_dir") && e.contains(wyrm_image::SEED_DIR),
+        "{e}"
+    );
+    assert_eq!(dir.names(), before);
+    // without the files the same configuration is taken
+    ok(&dir.build(&[]));
 }
 
 #[test]

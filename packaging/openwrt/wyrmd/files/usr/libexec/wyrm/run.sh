@@ -1,6 +1,7 @@
 #!/bin/sh
-# What procd runs as the service `wyrmd`: waits for the clock on the first start, then
-# becomes the broker.
+# What procd runs as the service `wyrmd`, as the user `wyrm` and only on a device with
+# an applied configuration: waits for the clock on the first start, then becomes the
+# broker.
 #
 # A board without a battery starts near the build date of the image. The first start
 # makes the site's CA, so it waits for NTP, at most 120 s; then it goes on (ADR 0051

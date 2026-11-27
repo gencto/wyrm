@@ -49,7 +49,11 @@ if [ -n "$BB" ]; then
     export PATH
 fi
 
-CONFIG='{ site: "plant", gateway: { listen: "0.0.0.0:8445", tls: "site_ca", setup_file: "/etc/wyrm/setup" } }'
+# the paths are wyrm-image's SETUP_FILE and SEED_DIR: `wyr image build` refuses a
+# configuration that carries `setup` or `seed.json` and does not name them
+CONFIG='{ site: "plant", gateway: { listen: "0.0.0.0:8445", tls: "site_ca", setup_file: "/etc/wyrm/setup.d/setup" }, packages: { seed_dir: "/usr/share/wyrm/seed" } }'
+# the group the script gives the broker's files to: one this user may give
+GROUP=$(id -gn)
 DEFAULT='{ site: "unconfigured" }'
 NETWORK="config interface 'lan'
 	option proto 'static'
@@ -77,10 +81,14 @@ printf '%s\n' "$SEED" > "$work/seed.json"
 printf '%s\n' "$HASH" > "$work/setup.hash"
 printf '%s\n' "$KEYS" > "$work/keys"
 
-# a stand-in for `uci`: records every call, and refuses a network file that says BROKEN
+# a stand-in for `uci`: records every call, refuses a network file that says BROKEN and
+# fails the calls that hold $UCI_FAIL
 cat > "$work/uci" <<'EOF'
 #!/bin/sh
 echo "$*" >> "$UCI_LOG"
+case "$*" in
+*"${UCI_FAIL:-no call fails}"*) exit 1 ;;
+esac
 dir=
 while [ $# -gt 0 ]; do
     case $1 in
@@ -126,7 +134,8 @@ setup_device() {
 # first_boot: runs the script on $t/region; its exit code in $rc, its messages in $t/err
 first_boot() {
     rc=0
-    UCI_LOG=$t/uci.log WYRM_UCI=$work/uci WYRM_SEED_DIR=$t/seed WYRM_ZONEINFO=$t/zoneinfo \
+    UCI_LOG=$t/uci.log UCI_FAIL=${uci_fail:-} WYRM_UCI=$work/uci WYRM_GROUP=$GROUP \
+        WYRM_SEED_DIR=$t/seed WYRM_ZONEINFO=$t/zoneinfo \
         $SH "$script" "$t/region" "$t/stage" "$t/etc" 2> "$t/err" || rc=$?
 }
 
@@ -144,6 +153,11 @@ state() {
 
 # shellcheck disable=SC2012
 mode() { ls -ld "$1" | cut -c1-10; }
+# shellcheck disable=SC2012,SC2046
+group() {
+    set -- $(ls -ld "$1")
+    echo "$4"
+}
 
 failed=0
 fail() {
@@ -193,7 +207,8 @@ applies_all_files() {
     first_boot
     want "exit code ($(cat "$t/err"))" "$rc" 0
     want_file "$t/etc/wyrm/wyrmd.json5" "$CONFIG" "-rw-r-----"
-    want_file "$t/etc/wyrm/setup" "$HASH" "-rw-------"
+    want_file "$t/etc/wyrm/setup.d/setup" "$HASH" "-rw-r-----"
+    [ ! -e "$t/etc/wyrm/setup" ] || fail "a setup hash where the broker cannot remove it"
     want_file "$t/etc/config/network" "$NETWORK" "-rw-------"
     want_file "$t/seed/seed.json" "$SEED" "-rw-r--r--"
     want_file "$t/etc/dropbear/authorized_keys" "$KEYS" "-rw-------"
@@ -213,14 +228,20 @@ applies_all_files() {
     want "temporary files" "$(find "$t/etc" "$t/seed" -name '*.wyrm-new')" ""
 }
 
-setup_is_0600() {
+# The setup hash is for root and the broker's group only, in a directory that group may
+# write (the broker removes the file). The archive says 0777 for every file: the script
+# sets the modes itself.
+setup_is_for_the_broker_only() {
     setup_device modes
-    # the archive says 0777 for every file: the script sets the modes itself
     bad_region "$t/region" --mode 777 "wyrmd.json5=$CONFIG" "setup=$HASH\\n" "authorized_keys=$KEYS\\n"
     first_boot
     want "exit code ($(cat "$t/err"))" "$rc" 0
-    want_file "$t/etc/wyrm/setup" "$HASH" "-rw-------"
+    want_file "$t/etc/wyrm/setup.d/setup" "$HASH" "-rw-r-----"
+    want "group of the setup hash" "$(group "$t/etc/wyrm/setup.d/setup")" "$GROUP"
+    want "mode of the setup directory" "$(mode "$t/etc/wyrm/setup.d")" "drwxrwx---"
+    want "group of the setup directory" "$(group "$t/etc/wyrm/setup.d")" "$GROUP"
     want_file "$t/etc/wyrm/wyrmd.json5" "$CONFIG" "-rw-r-----"
+    want "group of wyrmd.json5" "$(group "$t/etc/wyrm/wyrmd.json5")" "$GROUP"
     want_file "$t/etc/dropbear/authorized_keys" "$KEYS" "-rw-------"
     want "mode of dropbear's directory" "$(mode "$t/etc/dropbear")" "drwx------"
 }
@@ -232,7 +253,7 @@ only_the_config() {
     want "exit code ($(cat "$t/err"))" "$rc" 0
     want_file "$t/etc/wyrm/wyrmd.json5" "$CONFIG" "-rw-r-----"
     want "the image's network" "$(cat "$t/etc/config/network")" "config interface lan"
-    [ ! -e "$t/etc/wyrm/setup" ] || fail "a setup hash from nowhere"
+    [ ! -e "$t/etc/wyrm/setup.d" ] || fail "a setup hash from nowhere"
     [ ! -e "$t/etc/dropbear" ] || fail "SSH keys from nowhere"
     want "uci calls" "$(cat "$t/uci.log")" ""
     want_empty_region
@@ -263,6 +284,7 @@ empty_region_exits_3() {
     [ ! -e "$t/stage" ] || fail "the staging directory was made"
     [ ! -e "$t/etc/wyrm/.first-boot-done" ] || fail "an empty region left the marker"
     grep -q 'wyr image build' "$t/err" || fail "no word about wyr image build"
+    grep -q 'The broker does not start' "$t/err" || fail "no word that the broker does not start"
     grep -q 'https://wyrm.gencto.uk/docs/operations.html' "$t/err" || fail "no link to the guide"
     # an empty region is told by its magic: what follows is not read
     printf 'x' | dd of="$t/region" bs=1 seek=100000 conv=notrunc 2>/dev/null
@@ -279,7 +301,8 @@ half_applied_is_applied_again() {
     want "first exit code" "$rc" 0
     after=$(state)
     cp "$t/region.full" "$t/region"
-    rm "$t/etc/wyrm/.first-boot-done" "$t/etc/wyrm/.first-boot-applied" "$t/etc/wyrm/setup"
+    rm "$t/etc/wyrm/.first-boot-done" "$t/etc/wyrm/.first-boot-applied" \
+        "$t/etc/wyrm/setup.d/setup"
     printf '%s\n' "$DEFAULT" > "$t/etc/wyrm/wyrmd.json5"
     : > "$t/etc/config/network.wyrm-new"
     first_boot
@@ -304,6 +327,56 @@ a_power_loss_after_the_wipe() {
     if grep -q 'wyr image build' "$t/err"; then
         fail "a configured device is called unconfigured"
     fi
+}
+
+# A wipe that lost power after its first bytes: the empty magic, the old payload behind
+# it. The next boot wipes the whole region before it writes the marker.
+a_torn_wipe_is_wiped_again() {
+    setup_device torn
+    full_region "$t/region"
+    cp "$t/region" "$t/region.full"
+    first_boot
+    want "first exit code" "$rc" 0
+    after=$(state)
+    cp "$t/region.full" "$t/region"
+    printf 'WYRMCFG0' | dd of="$t/region" bs=1 conv=notrunc 2>/dev/null
+    rm "$t/etc/wyrm/.first-boot-done"
+    first_boot
+    want "second exit code ($(cat "$t/err"))" "$rc" 3
+    want "state" "$(state)" "$after"
+    want_empty_region
+}
+
+# The person's keys are in the image and SSH cannot be turned on for them: the region is
+# kept, the broker's configuration is not put, the next boot tries again.
+ssh_that_cannot_be_set_up_keeps_the_region() {
+    for call in 'dropbear.@dropbear[0].enable' 'commit dropbear' 'firewall.wyrm_ssh' 'commit firewall'; do
+        setup_device "ssh-$(echo "$call" | tr -c 'a-z\n' '_')"
+        full_region "$t/region"
+        cp "$t/region" "$t/region.before"
+        uci_fail=$call
+        first_boot
+        uci_fail=
+        want "exit code when \`uci $call\` fails ($(cat "$t/err"))" "$rc" 5
+        cmp -s "$t/region" "$t/region.before" || fail "the region was wiped"
+        want "wyrmd.json5" "$(cat "$t/etc/wyrm/wyrmd.json5")" "$DEFAULT"
+        [ ! -e "$t/etc/wyrm/.first-boot-applied" ] || fail "recorded as applied"
+        [ ! -e "$t/etc/wyrm/.first-boot-done" ] || fail "the marker is written"
+        [ ! -e "$t/stage" ] || fail "the staging directory stays"
+        # the next boot, with a uci that works, applies the whole
+        first_boot
+        want "exit code of the next boot ($(cat "$t/err"))" "$rc" 0
+        want_file "$t/etc/wyrm/wyrmd.json5" "$CONFIG" "-rw-r-----"
+        want_empty_region
+    done
+    # the clock's settings are no way in: a failure there is a warning
+    setup_device ssh-system
+    full_region "$t/region"
+    uci_fail='commit system'
+    first_boot
+    uci_fail=
+    want "exit code when the time zone cannot be set ($(cat "$t/err"))" "$rc" 0
+    grep -q 'warning' "$t/err" || fail "no warning"
 }
 
 a_flipped_byte_applies_nothing() {
@@ -334,6 +407,17 @@ a_bad_member_name_applies_nothing() {
     refused
     setup_device subdir
     bad_region "$t/region" "wyrmd.json5=$CONFIG" "wyrm/setup=$HASH"
+    refused
+    # a name that is two names of the list: the check is of the whole name
+    setup_device space
+    bad_region "$t/region" "wyrmd.json5=$CONFIG" "network seed.json=x"
+    refused
+    setup_device pattern
+    bad_region "$t/region" "wyrmd.json5=$CONFIG" "*=x"
+    refused
+    # a name with a line break lists as two names of the list
+    setup_device newline
+    bad_region "$t/region" "wyrmd.json5=$CONFIG" "setup\\nntp=x"
     refused
     setup_device twice-in
     bad_region "$t/region" "wyrmd.json5=$CONFIG" "setup=$HASH" "setup=$HASH"
@@ -407,8 +491,9 @@ an_unknown_zone_is_a_warning() {
     want_empty_region
 }
 
-for test in applies_all_files setup_is_0600 only_the_config first_boot_twice \
-    empty_region_exits_3 half_applied_is_applied_again a_power_loss_after_the_wipe a_flipped_byte_applies_nothing \
+for test in applies_all_files setup_is_for_the_broker_only only_the_config first_boot_twice \
+    empty_region_exits_3 half_applied_is_applied_again a_power_loss_after_the_wipe \
+    a_torn_wipe_is_wiped_again ssh_that_cannot_be_set_up_keeps_the_region a_flipped_byte_applies_nothing \
     a_bad_member_name_applies_nothing a_link_applies_nothing a_bad_region_applies_nothing \
     bad_content_applies_nothing an_unknown_zone_is_a_warning; do
     failed=0

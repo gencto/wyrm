@@ -21,12 +21,16 @@ RSTRIP:=:
 
 include $(INCLUDE_DIR)/package.mk
 
+# USERID: the broker's user and group. 787 is this package's own choice among the fixed
+# ids below 65536 (from there OpenWrt hands out ids itself). It is not compared with the
+# feeds of the pinned release here; OpenWrt keeps no registry for packages outside them.
 define Package/wyrmd
   SECTION:=net
   CATEGORY:=Network
   TITLE:=WYRM broker
   URL:=https://wyrm.gencto.uk
   DEPENDS:=+jsonfilter
+  USERID:=wyrm=787:wyrm=787
 endef
 
 define Package/wyrmd/description

@@ -480,16 +480,20 @@ package; what an operator meets:
   console and the log say why. A power loss during the first boot is
   harmless: the next boot applies the region again.
 - **An image without a configuration** (a base image written to the card
-  as it is) starts the broker with site `unconfigured`, on loopback only
-  and with no way to make an admin. The console says so and names `wyr
-  image build`. Assemble an image and write the card again.
+  as it is) does not start the broker: nothing listens and nothing is
+  written to the data partition. The console says so and names `wyr image
+  build`. Assemble an image and write the card again.
 - **What your `wyrmd.json5` must say** on a board: `data_dir: "/srv/wyrm"`
   (the data partition), `gateway: { listen: "0.0.0.0:8445", tls:
-  "site_ca", setup_file: "/etc/wyrm/setup" }` for a setup code, and
-  `packages: { seed_dir: "/usr/share/wyrm/seed" }` with `--seed`.
+  "site_ca", setup_file: "/etc/wyrm/setup.d/setup" }` for a setup code,
+  and `packages: { seed_dir: "/usr/share/wyrm/seed" }` with `--seed`.
+  `wyr image build` refuses a setup code or a seed whose path the
+  configuration does not name: the broker would never read the file.
+- **The broker runs as the user `wyrm`**, as under systemd. It may open
+  serial ports (group `dialout`).
 - **The device is a plain host**: a DHCP client, no DHCP server, the
   firewall closed except 8445/tcp (gateway), 7448/tcp+udp (peers and TLS
-  listeners) and mDNS. Another port needs a firewall rule on the device.
+  listeners) and 5353/udp (mDNS: how Studio finds the device). Another port needs a firewall rule on the device.
   A `--network` file replaces `/etc/config/network`; keep the interface
   names `lan`, `wan`, `wan6`.
 - **No login** without `--authorized-keys`: SSH is off and `root` has no

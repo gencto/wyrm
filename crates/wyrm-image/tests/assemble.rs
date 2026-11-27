@@ -14,10 +14,13 @@
 use wyrm_core::hex::sha256;
 use wyrm_image::{
     check_slot, read_region, region, ConfigFiles, ImageError, Index, IndexError, CONFIG_SIZE,
-    HEADER_SIZE, MAGIC_EMPTY, MAGIC_FULL, MAX_PAYLOAD,
+    HEADER_SIZE, MAGIC_EMPTY, MAGIC_FULL, MAX_PAYLOAD, SEED_DIR, SETUP_FILE,
 };
 
 const SETUP: &str = "3f0a9c1e5b7d2468ace013579bdf02468ace13579bdf0246813579bdf02468ac";
+
+/// A configuration of a board: it names where the device puts `setup` and `seed.json`.
+const BOARD: &str = "{ site: \"plant\", gateway: { tls: \"site_ca\", setup_file: \"/etc/wyrm/setup.d/setup\" }, packages: { seed_dir: \"/usr/share/wyrm/seed\" } }\n";
 
 fn size() -> usize {
     usize::try_from(CONFIG_SIZE).unwrap()
@@ -25,7 +28,7 @@ fn size() -> usize {
 
 fn all_files() -> ConfigFiles {
     ConfigFiles {
-        wyrmd_json5: "{ site: \"plant\", gateway: { tls: \"site_ca\" } }\n".into(),
+        wyrmd_json5: BOARD.into(),
         network: Some("config interface 'lan'\n\toption proto 'dhcp'\n".into()),
         seed_json: Some("{\"format\":\"wyrm-seed/1\",\"links\":[]}".into()),
         setup: Some(SETUP.into()),
@@ -122,12 +125,12 @@ fn the_layout_is_the_documented_one() {
 
     // a region written by hand around a hand-built archive reads as its files
     let hand = wrap(&archive(&[
-        entry("wyrmd.json5", b'0', b"{}\n"),
+        entry("wyrmd.json5", b'0', BOARD.as_bytes()),
         entry("setup", b'0', format!("{SETUP}\n").as_bytes()),
         entry("timezone", 0, b"UTC"),
     ]));
     let read = read_region(&hand).unwrap().unwrap();
-    assert_eq!(read.wyrmd_json5, "{}\n");
+    assert_eq!(read.wyrmd_json5, BOARD);
     assert_eq!(read.setup.as_deref(), Some(SETUP));
     assert_eq!(read.timezone.as_deref(), Some("UTC"));
     assert_eq!(read.network, None);
@@ -304,7 +307,7 @@ fn a_bad_setup_is_refused() {
         &SETUP.replace('3', "g"),
         &format!(" {}", &SETUP[1..]),
     ] {
-        let mut files = only("{}");
+        let mut files = only(BOARD);
         files.setup = Some(setup.to_owned());
         assert!(
             matches!(files.check(), Err(ImageError::BadSetup)),
@@ -312,14 +315,14 @@ fn a_bad_setup_is_refused() {
         );
         assert!(matches!(region(&files), Err(ImageError::BadSetup)));
     }
-    let mut upper = only("{}");
+    let mut upper = only(BOARD);
     upper.setup = Some(SETUP.to_uppercase());
     assert_eq!(read_region(&region(&upper).unwrap()).unwrap(), Some(upper));
 
     // a reader takes the hash with or without its one newline, and nothing else
     let read = |setup: &[u8]| {
         read_region(&wrap(&archive(&[
-            entry("wyrmd.json5", b'0', b"{}"),
+            entry("wyrmd.json5", b'0', BOARD.as_bytes()),
             entry("setup", b'0', setup),
         ])))
     };
@@ -332,6 +335,121 @@ fn a_bad_setup_is_refused() {
         Err(ImageError::BadSetup)
     ));
     assert!(matches!(read(b"1234\n"), Err(ImageError::BadSetup)));
+}
+
+/// A file the broker would never read is refused: `setup` without `gateway.setup_file`,
+/// `seed.json` without `packages.seed_dir`, each with the path the device uses.
+#[test]
+fn a_file_the_config_does_not_name_is_refused() {
+    assert!(BOARD.contains(&format!("setup_file: \"{SETUP_FILE}\"")));
+    assert!(BOARD.contains(&format!("seed_dir: \"{SEED_DIR}\"")));
+    let with = |config: &str, setup: bool, seed: bool| {
+        let mut files = only(config);
+        files.setup = setup.then(|| SETUP.to_owned());
+        files.seed_json = seed.then(|| "{}".to_owned());
+        files
+    };
+    let setup_only = format!("{{ gateway: {{ setup_file: '{SETUP_FILE}' }} }}");
+    let seed_only = format!("{{ \"packages\": {{ \"seed_dir\": \"{SEED_DIR}\" }} }}");
+    // named, or not carried: taken
+    for (config, setup, seed) in [
+        (BOARD, true, true),
+        (BOARD, false, false),
+        ("{}", false, false),
+        (setup_only.as_str(), true, false),
+        (seed_only.as_str(), false, true),
+    ] {
+        let files = with(config, setup, seed);
+        files.check().unwrap();
+        assert_eq!(read_region(&region(&files).unwrap()).unwrap(), Some(files));
+    }
+    // carried and not named: refused by the assembler and by a reader
+    let commented = format!("{{ gateway: {{ // setup_file: \"{SETUP_FILE}\"\n }} }}");
+    let in_a_string = format!("{{ note: \"setup_file: '{SETUP_FILE}'\" }}");
+    for (config, setup, seed, file, key, path) in [
+        ("{}", true, false, "setup", "gateway.setup_file", SETUP_FILE),
+        (
+            "{}",
+            false,
+            true,
+            "seed.json",
+            "packages.seed_dir",
+            SEED_DIR,
+        ),
+        (
+            seed_only.as_str(),
+            true,
+            true,
+            "setup",
+            "gateway.setup_file",
+            SETUP_FILE,
+        ),
+        (
+            setup_only.as_str(),
+            true,
+            true,
+            "seed.json",
+            "packages.seed_dir",
+            SEED_DIR,
+        ),
+        (
+            "{ gateway: { setup_file: \"/etc/wyrm/setup\" } }",
+            true,
+            false,
+            "setup",
+            "gateway.setup_file",
+            SETUP_FILE,
+        ),
+        (
+            commented.as_str(),
+            true,
+            false,
+            "setup",
+            "gateway.setup_file",
+            SETUP_FILE,
+        ),
+        (
+            in_a_string.as_str(),
+            true,
+            false,
+            "setup",
+            "gateway.setup_file",
+            SETUP_FILE,
+        ),
+    ] {
+        let files = with(config, setup, seed);
+        for result in [files.check(), region(&files).map(|_| ())] {
+            match result {
+                Err(ImageError::NotNamed {
+                    file: f,
+                    key: k,
+                    path: p,
+                }) => {
+                    assert_eq!((f, k, p), (file, key, path), "{config}");
+                }
+                other => panic!("{config}: {other:?}"),
+            }
+        }
+        let mut entries = vec![entry("wyrmd.json5", b'0', config.as_bytes())];
+        if setup {
+            entries.push(entry("setup", b'0', SETUP.as_bytes()));
+        }
+        if seed {
+            entries.push(entry("seed.json", b'0', b"{}"));
+        }
+        assert!(
+            matches!(
+                read_region(&wrap(&archive(&entries))),
+                Err(ImageError::NotNamed { .. })
+            ),
+            "{config}"
+        );
+    }
+    let e = with("{}", true, false).check().unwrap_err().to_string();
+    assert!(
+        e.contains("gateway.setup_file") && e.contains(SETUP_FILE),
+        "{e}"
+    );
 }
 
 #[test]

@@ -3,7 +3,7 @@
 
 usage: mkregion.py OUT [--len N] [--garbage] [--mode OCTAL] ENTRY...
 
-ENTRY is `name=content` (a regular file), `name->target` (a symbolic link) or
+ENTRY is `name=content` (a regular file; `\\n` and other escapes are read in both), `name->target` (a symbolic link) or
 `name=>target` (a hard link). `--len` writes N as the payload length instead of the
 real one, `--garbage` puts a byte that is not zero after the payload, `--mode` is the
 mode of every entry (default 0600). The regions the device must accept come from
@@ -52,6 +52,7 @@ def main() -> None:
             tar += header(name.encode(), 0, b"2", target.encode(), mode)
         else:
             name, content = arg.split("=", 1)
+            name = name.encode().decode("unicode_escape")
             data = content.encode().decode("unicode_escape").encode("latin-1")
             tar += header(name.encode(), len(data), b"0", b"", mode) + data
             tar += b"\0" * (-len(data) % 512)

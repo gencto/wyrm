@@ -4,6 +4,7 @@ use std::borrow::Cow;
 
 use wyrm_core::hex::{is_hex, sha256};
 
+use crate::names::names;
 use crate::tar::{self, File};
 use crate::ImageError;
 
@@ -17,6 +18,14 @@ pub const MAGIC_EMPTY: &[u8; 8] = b"WYRMCFG0";
 pub const HEADER_SIZE: u64 = 8 + 8 + 32;
 /// The largest payload (the archive with its headers and end blocks).
 pub const MAX_PAYLOAD: u64 = CONFIG_SIZE - HEADER_SIZE;
+
+/// Where the device puts `setup`: the value `gateway.setup_file` of the `wyrmd.json5` of a
+/// board must have. The directory is the broker's to write, so it can remove the file when
+/// it has the hash.
+pub const SETUP_FILE: &str = "/etc/wyrm/setup.d/setup";
+/// Where the device puts `seed.json`, beside the link packages of the image: the value
+/// `packages.seed_dir` of the `wyrmd.json5` of a board must have.
+pub const SEED_DIR: &str = "/usr/share/wyrm/seed";
 
 /// The files of a configuration. The archive names them `wyrmd.json5`, `network`,
 /// `seed.json`, `setup`, `authorized_keys`, `timezone` and `ntp`.
@@ -84,7 +93,9 @@ impl ConfigFiles {
 
     /// Checks the files as a reader will: the archive fits the region
     /// ([`ImageError::TooLarge`]), `setup` is 64 hex digits ([`ImageError::BadSetup`]), no
-    /// file holds a NUL and `wyrmd.json5` is not empty ([`ImageError::BadContent`]).
+    /// file holds a NUL and `wyrmd.json5` is not empty ([`ImageError::BadContent`]), and
+    /// `wyrmd.json5` names the place of `setup` and of `seed.json` when they are there
+    /// ([`ImageError::NotNamed`]).
     pub fn check(&self) -> Result<(), ImageError> {
         let lengths = self
             .entries()
@@ -102,6 +113,19 @@ impl ConfigFiles {
             }
             if *file == File::Setup && !is_hex(text, 32) {
                 return Err(ImageError::BadSetup);
+            }
+        }
+        for (file, key, path) in [
+            (File::Setup, "gateway.setup_file", SETUP_FILE),
+            (File::Seed, "packages.seed_dir", SEED_DIR),
+        ] {
+            let member = key.rsplit('.').next().unwrap_or(key);
+            if self.get(file).is_some() && !names(&self.wyrmd_json5, member, path) {
+                return Err(ImageError::NotNamed {
+                    file: file.name(),
+                    key,
+                    path,
+                });
             }
         }
         Ok(())

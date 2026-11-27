@@ -19,11 +19,11 @@
 #
 # Exit codes:
 #   0  applied: every file is in place, the region is wiped, the marker is written
-#   3  the region is empty: nothing to do, nothing changed (but the marker, when a
-#      first boot lost power between its wipe and its marker)
+#   3  the region is empty: nothing to do, nothing changed (but when a first boot lost
+#      power between its wipe and its marker: the wipe is done again, the marker written)
 #   4  refused: the region is damaged or holds what is not allowed; nothing was applied
-#   5  not finished: a file could not be put or the region could not be wiped; the region
-#      is kept and the next boot applies it again
+#   5  not finished: a file could not be put, SSH could not be set up for the keys or
+#      the region could not be wiped; the region is kept and the next boot applies it again
 #
 # Applying is safe to repeat. A file is written beside its place and renamed over it, and
 # the region is wiped only when every file is in place, so a power loss at any moment
@@ -32,8 +32,13 @@
 # directory, links are refused, and every file is copied into a new file with the mode
 # this script gives it.
 #
+# The broker runs as the user `wyrm`. What it reads is given to the group `wyrm`
+# (`wyrmd.json5` and the setup hash 0640 root:wyrm), and the setup hash lies in a
+# directory that group may write, because the broker removes the file when it has the
+# hash. The paths are those of the crate wyrm-image (`SETUP_FILE`, `SEED_DIR`).
+#
 # Environment (tests): WYRM_UCI (the `uci` to call), WYRM_SEED_DIR, WYRM_ZONEINFO,
-# WYRM_IMAGE_JSON.
+# WYRM_IMAGE_JSON, WYRM_GROUP (the broker's group; empty: files keep their group).
 
 set -u
 umask 077
@@ -45,13 +50,14 @@ HEADER_SIZE=48
 MAX_PAYLOAD=$((REGION_SIZE - HEADER_SIZE))
 MAGIC_FULL=5759524d43464731  # WYRMCFG1
 MAGIC_EMPTY=5759524d43464730 # WYRMCFG0
-NAMES="wyrmd.json5 network seed.json setup authorized_keys timezone ntp"
+NAMES="wyrmd.json5, network, seed.json, setup, authorized_keys, timezone, ntp"
 DOCS=https://wyrm.gencto.uk/docs/operations.html
 
 UCI=${WYRM_UCI:-uci}
 SEED_DIR=${WYRM_SEED_DIR:-/usr/share/wyrm/seed}
 ZONEINFO=${WYRM_ZONEINFO:-/usr/share/zoneinfo}
 IMAGE_JSON=${WYRM_IMAGE_JSON:-/etc/wyrm/image.json}
+GROUP=${WYRM_GROUP-wyrm}
 
 say() { echo "wyrm first boot: $*" >&2; }
 
@@ -132,6 +138,21 @@ size_of() { wc -c < "$1" | tr -d ' '; }
 shown() { printf '%s' "$1" | tr -c 'A-Za-z0-9._/-' '?'; }
 no_nul() { [ "$(tr -d '\000' < "$1" | count)" -eq "$(size_of "$1")" ]; }
 
+# One write over the whole region: the empty magic and zeros. The setup hash is then on
+# the medium only in its file, which the broker removes when it has taken it. The read
+# back goes through the page cache: it shows that the write was taken, not what the
+# medium holds; `sync` asks the kernel for that.
+wipe() {
+    {
+        printf 'WYRMCFG0'
+        dd if=/dev/zero bs=$((4096 - 8)) count=1 2> /dev/null
+        dd if=/dev/zero bs=4096 count=$((REGION_SIZE / 4096 - 1)) 2> /dev/null
+    } | dd of="$dev" bs=4096 conv=notrunc 2> /dev/null
+    sync
+    [ "$(range 0 8 | hex)" = "$MAGIC_EMPTY" ] &&
+        [ "$(range 8 $((REGION_SIZE - 8)) | tr -d '\000' | count)" -eq 0 ]
+}
+
 # ---- 1. the region --------------------------------------------------------------------
 
 if [ ! -b "$dev" ] && [ ! -f "$dev" ]; then
@@ -142,6 +163,12 @@ if [ "$magic" = "$MAGIC_EMPTY" ]; then
     # told by the magic alone: the rest of an empty region is not read
     if [ -e "$applied" ]; then
         if [ ! -e "$marker" ]; then
+            # the wipe may have been cut after its first bytes: the magic is written
+            # first, so the old payload can lie behind it. Wipe as a whole again.
+            wipe || {
+                say "the config region at $dev could not be wiped"
+                exit 5
+            }
             : > "$marker"
             sync
         fi
@@ -149,8 +176,7 @@ if [ "$magic" = "$MAGIC_EMPTY" ]; then
         exit 3
     fi
     say "the config region is empty: this image carries no configuration."
-    say "The broker runs with the image's default: site \`unconfigured\`, nothing"
-    say "listens beyond this device and no admin can be made."
+    say "The broker does not start and nothing listens on the network."
     say "Write a configuration into the base image and write the card again:"
     say "  wyr image build --image <base image> --index index.json --board <board> \\"
     say "      --config wyrmd.json5 --new-setup-code --out <image>"
@@ -205,8 +231,9 @@ old_ifs=$IFS
 IFS='
 '
 for name in $list; do
-    case " $NAMES " in
-    *" $name "*) ;;
+    # the whole name, exactly: no pattern, no part of the list
+    case $name in
+    wyrmd.json5 | network | seed.json | setup | authorized_keys | timezone | ntp) ;;
     *) refuse "the config archive holds \`$(shown "$name")\`: only $NAMES are taken" ;;
     esac
     case $seen in
@@ -290,25 +317,43 @@ fi
 
 # ---- 3. apply -------------------------------------------------------------------------
 
-# put NAME PLACE MODE: a new file beside the place, then one rename over it
+# for_broker PATH: the group of the broker's user, when there is one
+for_broker() {
+    [ -z "$GROUP" ] || chgrp "$GROUP" "$1"
+}
+# put NAME PLACE MODE [broker]: a new file beside the place, then one rename over it
 put() {
     p_dir=${2%/*}
     mkdir -p "$p_dir" || return 1
     rm -f "$2.wyrm-new"
-    cat "$files/$1" > "$2.wyrm-new" && chmod "$3" "$2.wyrm-new" && mv -f "$2.wyrm-new" "$2"
+    cat "$files/$1" > "$2.wyrm-new" || return 1
+    if [ "${4:-}" = broker ]; then
+        for_broker "$2.wyrm-new" || return 1
+    fi
+    chmod "$3" "$2.wyrm-new" && mv -f "$2.wyrm-new" "$2"
 }
 warned=0
+# a setting the device works without (the clock's zone, the NTP servers)
 uci_do() {
     if ! $UCI -q "$@"; then
         say "warning: uci $* failed"
         warned=1
     fi
 }
+# a setting the person needs to get in: without it the region is kept
+uci_must() {
+    $UCI -q "$@" || unfinished "uci $* failed: SSH is not set up for the keys of the image"
+}
 
 # the broker's configuration goes last: until every other file is in place, a boot
-# that cannot read the region again still finds the image's safe default
+# that cannot read the region again does not start a broker on half of a configuration
 if has setup; then
-    put setup "$etc/wyrm/setup" 600 || unfinished "cannot write $etc/wyrm/setup"
+    # the broker removes the file when it has the hash: its group may write the directory
+    setup_dir=$etc/wyrm/setup.d
+    mkdir -p "$setup_dir" || unfinished "cannot make $setup_dir"
+    for_broker "$setup_dir" || unfinished "cannot give $setup_dir to the group $GROUP"
+    chmod 770 "$setup_dir" || unfinished "cannot make $setup_dir"
+    put setup "$setup_dir/setup" 640 broker || unfinished "cannot write $setup_dir/setup"
 fi
 if has seed.json; then
     put seed.json "$SEED_DIR/seed.json" 644 || unfinished "cannot write $SEED_DIR/seed.json"
@@ -320,12 +365,12 @@ if has authorized_keys && [ -s "$files/authorized_keys" ]; then
     # SSH is on only with keys, and then for keys only
     put authorized_keys "$etc/dropbear/authorized_keys" 600 ||
         unfinished "cannot write $etc/dropbear/authorized_keys"
-    uci_do set "dropbear.@dropbear[0].enable=1"
-    uci_do set "dropbear.@dropbear[0].PasswordAuth=off"
-    uci_do set "dropbear.@dropbear[0].RootPasswordAuth=off"
-    uci_do commit dropbear
-    uci_do set firewall.wyrm_ssh.enabled=1
-    uci_do commit firewall
+    uci_must set "dropbear.@dropbear[0].enable=1"
+    uci_must set "dropbear.@dropbear[0].PasswordAuth=off"
+    uci_must set "dropbear.@dropbear[0].RootPasswordAuth=off"
+    uci_must commit dropbear
+    uci_must set firewall.wyrm_ssh.enabled=1
+    uci_must commit firewall
 fi
 if [ -n "$tz" ]; then
     # OpenWrt wants the POSIX rule of the zone: it is the last line of the zone's file
@@ -354,24 +399,14 @@ fi
 if [ -n "$tz$ntp" ]; then
     uci_do commit system
 fi
-put wyrmd.json5 "$etc/wyrm/wyrmd.json5" 640 || unfinished "cannot write $etc/wyrm/wyrmd.json5"
+put wyrmd.json5 "$etc/wyrm/wyrmd.json5" 640 broker || unfinished "cannot write $etc/wyrm/wyrmd.json5"
 : > "$applied" || unfinished "cannot write $applied"
 sync
 
 # ---- 4. wipe --------------------------------------------------------------------------
 
-# One write over the whole region: the empty magic and zeros. The setup hash is then
-# on the medium only in /etc/wyrm/setup, which the broker removes when it has taken it.
-{
-    printf 'WYRMCFG0'
-    dd if=/dev/zero bs=$((4096 - 8)) count=1 2> /dev/null
-    dd if=/dev/zero bs=4096 count=$((REGION_SIZE / 4096 - 1)) 2> /dev/null
-} | dd of="$dev" bs=4096 conv=notrunc 2> /dev/null
-sync
-if [ "$(range 0 8 | hex)" != "$MAGIC_EMPTY" ] ||
-    [ "$(range 8 $((REGION_SIZE - 8)) | tr -d '\000' | count)" -ne 0 ]; then
+wipe ||
     unfinished "the configuration is applied, but the config region at $dev could not be wiped"
-fi
 
 : > "$marker"
 sync
