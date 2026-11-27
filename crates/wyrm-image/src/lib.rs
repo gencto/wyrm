@@ -27,16 +27,22 @@
 //! with one of them must name that path in its `wyrmd.json5` (`gateway.setup_file`,
 //! `packages.seed_dir`), or the broker never reads the file: [`ImageError::NotNamed`].
 //!
+//! The device refuses what its scripts do not take, and some of it only after the region is
+//! applied: an assembler checks the site, `data_dir`, `timezone` and `ntp` by the device's
+//! rules ([`ConfigFiles::check_device`]).
+//!
 //! The region is found by the offset the signed index records for the image
 //! ([`ImageEntry::config_offset`]), never by a partition label. Before it writes, an assembler
 //! checks the image against its entry ([`ImageEntry::matches`]) and the eight bytes at the
 //! offset ([`check_slot`]).
 
+mod device;
 mod index;
 mod names;
 mod region;
 mod tar;
 
+pub use device::{plain_site, site_of, DATA_DIR, NTP_MAX, SITE_MAX};
 pub use index::{Download, ImageEntry, Index, IndexError, FORMAT};
 pub use region::{
     check_slot, read_region, region, ConfigFiles, CONFIG_SIZE, HEADER_SIZE, MAGIC_EMPTY,
@@ -72,6 +78,20 @@ pub enum ImageError {
         /// The path the key must name.
         path: &'static str,
     },
+    /// `wyrmd.json5` names no site the device takes: the outermost object has no member
+    /// `site`, has it twice, or its value is no plain name ([`plain_site`]).
+    #[error("`wyrmd.json5` names no site a board takes: say `site: \"<name>\"` once in the outermost object, 1 to {SITE_MAX} of A-Z a-z 0-9 _ . -, not starting with `.`")]
+    Site,
+    /// The outermost object of `wyrmd.json5` does not say `data_dir: "/srv/wyrm"`, where the
+    /// data partition of a board is mounted.
+    #[error("`wyrmd.json5` must say `data_dir: \"{DATA_DIR}\"` in its outermost object: the data partition of a board is mounted there")]
+    DataDir,
+    /// `timezone` is not one IANA name as the device takes it.
+    #[error("`timezone` is not one IANA name: one word of A-Z a-z 0-9 _ + / -, not starting with `/`, without `..` (`Europe/Kyiv`)")]
+    Timezone,
+    /// `ntp` holds a line the device does not take, or more than [`NTP_MAX`] servers.
+    #[error("`ntp` is refused: at most {NTP_MAX} servers, each a host name or an address of A-Z a-z 0-9 . : _ -, not starting with `-` (an IPv6 address without brackets)")]
+    Ntp,
     /// Neither magic is at the offset: this is not the config region of a WYRM image.
     #[error("no config region here: neither `WYRMCFG1` nor `WYRMCFG0` at the offset")]
     NoRegion,

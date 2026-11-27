@@ -189,8 +189,9 @@ pub fn run(cmd: ImageCmd) -> Result<()> {
                 seed_json: text(&seed)?,
                 setup,
                 authorized_keys: text(&authorized_keys)?,
-                timezone: timezone.as_deref().and_then(|tz| lines(tz, &[])),
-                ntp: ntp.as_deref().and_then(|servers| lines(servers, &[','])),
+                // one name, as given: a space inside it is refused by the check, not split
+                timezone: timezone.as_deref().map(|tz| format!("{}\n", tz.trim())),
+                ntp: ntp.as_deref().and_then(servers),
             };
             // refused here, before the image is read
             let region = region(&files)?;
@@ -231,11 +232,11 @@ fn read_text(path: &Path) -> Result<String> {
     std::fs::read_to_string(path).map_err(io_err("read", path))
 }
 
-/// The words of an argument as a file of lines: split at white space and at `separators`,
-/// one per line. `None` when there is no word.
-fn lines(arg: &str, separators: &[char]) -> Option<String> {
+/// The NTP servers of `--ntp` as the file `ntp`: split at commas and white space, one per
+/// line. `None` when there is none.
+fn servers(arg: &str) -> Option<String> {
     let mut out = String::new();
-    for word in arg.split(|c: char| c.is_whitespace() || separators.contains(&c)) {
+    for word in arg.split(|c: char| c.is_whitespace() || c == ',') {
         if !word.is_empty() {
             out.push_str(word);
             out.push('\n');
@@ -487,6 +488,10 @@ fn inspect(image: &Path, entry: &ImageEntry) -> Result<()> {
     for unread in files.not_named() {
         out!("WARNING: {unread}");
     }
+    // and what the device refuses: such an image starts no broker
+    if let Err(refused) = files.check_device() {
+        out!("WARNING: {refused}");
+    }
     Ok(())
 }
 
@@ -495,18 +500,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn arguments_become_files_of_lines() {
-        assert_eq!(lines("Europe/Kyiv", &[]).as_deref(), Some("Europe/Kyiv\n"));
+    fn servers_become_a_file_of_lines() {
         assert_eq!(
-            lines(" Europe/Kyiv\n", &[]).as_deref(),
-            Some("Europe/Kyiv\n")
-        );
-        assert_eq!(
-            lines("a.example, b.example,,c.example", &[',']).as_deref(),
+            servers("a.example, b.example,,c.example").as_deref(),
             Some("a.example\nb.example\nc.example\n")
         );
-        assert_eq!(lines(" , ", &[',']), None);
-        assert_eq!(lines("", &[]), None);
+        assert_eq!(servers("pool.ntp.org").as_deref(), Some("pool.ntp.org\n"));
+        assert_eq!(servers(" , "), None);
+        assert_eq!(servers(""), None);
     }
 
     #[test]

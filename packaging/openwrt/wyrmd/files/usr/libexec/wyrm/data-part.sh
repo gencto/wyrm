@@ -92,12 +92,9 @@ no() {
 
 # ---- the site rule --------------------------------------------------------------------
 
-# a name that is safe as a part of a file name
+# a name that is safe as a part of a file name: the rule of site.sh, the one place of it
 plain_site() {
-	case $1 in
-	'' | .* | *[!A-Za-z0-9_.-]*) return 1 ;;
-	esac
-	[ "${#1}" -le 64 ]
+	$SITE_SH --name "$1"
 }
 
 # site_rule PART CONFIG: PART is root's; root acts on the names directly in it only

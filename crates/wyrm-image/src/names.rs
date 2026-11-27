@@ -1,9 +1,10 @@
-//! Whether a `wyrmd.json5` text names a path under a key, told without a JSON5 parser.
+//! What a `wyrmd.json5` text says under a key, told without a JSON5 parser.
 //!
 //! The device puts `setup` and `seed.json` at fixed paths, and the broker reads them only
 //! from where its configuration says. A configuration that does not name the path would
-//! carry a file nobody takes, so the assembler refuses it. The check reads tokens: comments
-//! and the content of strings never count as a key or a value.
+//! carry a file nobody takes, so the assembler refuses it. The device also reads the member
+//! `site` of the outermost object (`site.sh`), and so does this crate ([`members`]). The
+//! check reads tokens: comments and the content of strings never count as a key or a value.
 
 /// What the check tells apart in the text.
 #[derive(PartialEq, Eq)]
@@ -14,6 +15,10 @@ enum Token {
     /// such a string is never taken for a key or a path.
     Text(Option<String>),
     Colon,
+    /// `{` or `[`: one level deeper.
+    Open,
+    /// `}` or `]`: one level up.
+    Close,
     /// Any other character outside strings and comments.
     Other,
 }
@@ -65,6 +70,8 @@ fn tokens(text: &str) -> Vec<Token> {
                 out.push(Token::Text(content));
             }
             ':' => out.push(Token::Colon),
+            '{' | '[' => out.push(Token::Open),
+            '}' | ']' => out.push(Token::Close),
             c if c.is_whitespace() => {}
             c if c.is_alphanumeric() || c == '_' || c == '$' => {
                 let mut word = String::from(c);
@@ -96,9 +103,51 @@ pub(crate) fn names(text: &str, key: &str, path: &str) -> bool {
     })
 }
 
+/// The values of the members `key` of the outermost object of `text`, in their order, as
+/// `site.sh` of the device reads them: a level is opened by `{` and by `[`, and only a member
+/// one level deep counts. A value is `Some` when it is a string without an escape, `None`
+/// otherwise (a number, an object, a string with an escape).
+pub(crate) fn members(text: &str, key: &str) -> Vec<Option<String>> {
+    let tokens = tokens(text);
+    let mut depth = 0usize;
+    let mut out = Vec::new();
+    let mut before: Option<&Token> = None;
+    let mut iter = tokens.iter().peekable();
+    while let Some(token) = iter.next() {
+        match token {
+            Token::Open => depth = depth.saturating_add(1),
+            Token::Close => depth = depth.saturating_sub(1),
+            Token::Colon if depth == 1 => {
+                let named =
+                    matches!(before, Some(Token::Word(k) | Token::Text(Some(k))) if k == key);
+                if named {
+                    out.push(match iter.peek() {
+                        Some(Token::Text(Some(value))) => Some(value.clone()),
+                        _ => None,
+                    });
+                }
+            }
+            _ => {}
+        }
+        before = Some(token);
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
-    use super::names;
+    use super::{members, names};
+
+    #[test]
+    fn members_of_the_outermost_object_only() {
+        let text =
+            "{ a: \"1\", b: { a: \"2\" }, c: [ { a: \"3\" } ], 'a': 4, \"a\": \"x\\ty\", a: '5' }";
+        assert_eq!(
+            members(text, "a"),
+            [Some("1".to_owned()), None, None, Some("5".to_owned())]
+        );
+        assert!(members("a: \"1\"", "a").is_empty());
+    }
 
     #[test]
     fn a_member_is_found_in_every_spelling() {

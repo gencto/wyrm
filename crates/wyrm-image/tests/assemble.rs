@@ -20,7 +20,10 @@ use wyrm_image::{
 const SETUP: &str = "3f0a9c1e5b7d2468ace013579bdf02468ace13579bdf0246813579bdf02468ac";
 
 /// A configuration of a board: it names where the device puts `setup` and `seed.json`.
-const BOARD: &str = "{ site: \"plant\", gateway: { tls: \"site_ca\", setup_file: \"/etc/wyrm/setup.d/setup\" }, packages: { seed_dir: \"/usr/share/wyrm/seed\" } }\n";
+const BOARD: &str = "{ site: \"plant\", data_dir: \"/srv/wyrm\", gateway: { tls: \"site_ca\", setup_file: \"/etc/wyrm/setup.d/setup\" }, packages: { seed_dir: \"/usr/share/wyrm/seed\" } }\n";
+
+/// The least a board takes: a site and the data partition as `data_dir`.
+const MIN: &str = "{ site: \"plant\", data_dir: \"/srv/wyrm\" }\n";
 
 fn size() -> usize {
     usize::try_from(CONFIG_SIZE).unwrap()
@@ -109,7 +112,7 @@ fn region_round_trips() {
     assert_eq!(read_region(&bytes).unwrap(), Some(files));
 
     // only the required file
-    let one = only("{}\n");
+    let one = only(MIN);
     assert_eq!(read_region(&region(&one).unwrap()).unwrap(), Some(one));
     // the same files give the same bytes: no clock and no randomness in the archive
     assert_eq!(region(&all_files()).unwrap(), bytes);
@@ -225,21 +228,23 @@ fn empty_region_reads_as_none() {
 
 #[test]
 fn a_region_too_large_is_refused() {
-    let big = only(&"x".repeat(size() + 1));
+    // a comment fills `wyrmd.json5` to the size
+    let filled = |len: usize| only(&format!("{MIN}//{}", "x".repeat(len - MIN.len() - 2)));
+    let big = filled(size() + 1);
     assert!(matches!(big.check(), Err(ImageError::TooLarge)));
     assert!(matches!(region(&big), Err(ImageError::TooLarge)));
 
     // the limit is the payload, CONFIG_SIZE - 48: one header block, the data, two end blocks
     let room = usize::try_from(MAX_PAYLOAD).unwrap() / 512 * 512 - 512 - 1024;
-    let fits = only(&"x".repeat(room));
+    let fits = filled(room);
     let bytes = region(&fits).unwrap();
     assert_eq!(bytes.len(), size());
     assert_eq!(read_region(&bytes).unwrap(), Some(fits));
-    let over = only(&"x".repeat(room + 1));
+    let over = filled(room + 1);
     assert!(matches!(region(&over), Err(ImageError::TooLarge)));
 
     // a reader refuses a length that does not fit the region
-    let mut lying = region(&only("{}")).unwrap();
+    let mut lying = region(&only(MIN)).unwrap();
     lying[8..16].copy_from_slice(&(MAX_PAYLOAD + 1).to_le_bytes());
     assert!(matches!(read_region(&lying), Err(ImageError::Damaged)));
     lying[8..16].copy_from_slice(&u64::MAX.to_le_bytes());
@@ -349,13 +354,17 @@ fn a_file_the_config_does_not_name_is_refused() {
         files.seed_json = seed.then(|| "{}".to_owned());
         files
     };
-    let setup_only = format!("{{ gateway: {{ setup_file: '{SETUP_FILE}' }} }}");
-    let seed_only = format!("{{ \"packages\": {{ \"seed_dir\": \"{SEED_DIR}\" }} }}");
+    let setup_only = format!(
+        "{{ site: 'plant', data_dir: '/srv/wyrm', gateway: {{ setup_file: '{SETUP_FILE}' }} }}"
+    );
+    let seed_only = format!(
+        "{{ \"site\": \"plant\", \"data_dir\": \"/srv/wyrm\", \"packages\": {{ \"seed_dir\": \"{SEED_DIR}\" }} }}"
+    );
     // named, or not carried: taken
     for (config, setup, seed) in [
         (BOARD, true, true),
         (BOARD, false, false),
-        ("{}", false, false),
+        (MIN, false, false),
         (setup_only.as_str(), true, false),
         (seed_only.as_str(), false, true),
     ] {
@@ -366,12 +375,15 @@ fn a_file_the_config_does_not_name_is_refused() {
     }
     // carried and not named: refused by the assembler; a reader takes the region as it
     // is, and `not_named` tells which files nobody will read
-    let commented = format!("{{ gateway: {{ // setup_file: \"{SETUP_FILE}\"\n }} }}");
-    let in_a_string = format!("{{ note: \"setup_file: '{SETUP_FILE}'\" }}");
+    let commented = format!(
+        "{{ site: 'plant', data_dir: '/srv/wyrm', gateway: {{ // setup_file: \"{SETUP_FILE}\"\n }} }}"
+    );
+    let in_a_string =
+        format!("{{ site: 'plant', data_dir: '/srv/wyrm', note: \"setup_file: '{SETUP_FILE}'\" }}");
     for (config, setup, seed, file, key, path) in [
-        ("{}", true, false, "setup", "gateway.setup_file", SETUP_FILE),
+        (MIN, true, false, "setup", "gateway.setup_file", SETUP_FILE),
         (
-            "{}",
+            MIN,
             false,
             true,
             "seed.json",
@@ -395,7 +407,7 @@ fn a_file_the_config_does_not_name_is_refused() {
             SEED_DIR,
         ),
         (
-            "{ gateway: { setup_file: \"/etc/wyrm/setup\" } }",
+            "{ site: 'plant', data_dir: '/srv/wyrm', gateway: { setup_file: \"/etc/wyrm/setup\" } }",
             true,
             false,
             "setup",
@@ -447,11 +459,62 @@ fn a_file_the_config_does_not_name_is_refused() {
             "{config}"
         );
     }
-    let e = with("{}", true, false).check().unwrap_err().to_string();
+    let e = with(MIN, true, false).check().unwrap_err().to_string();
     assert!(
         e.contains("gateway.setup_file") && e.contains(SETUP_FILE),
         "{e}"
     );
+}
+
+/// What the device refuses, an assembler refuses: the site, `data_dir`, `timezone`, `ntp`.
+/// A reader takes such a region as it is, and `check_device` tells.
+#[test]
+fn what_the_device_refuses_is_refused() {
+    // the variant as `Debug` names it
+    let cases = [
+        (
+            "{ site: '.plant', data_dir: '/srv/wyrm' }",
+            None,
+            None,
+            "Site",
+        ),
+        ("{ data_dir: '/srv/wyrm' }", None, None, "Site"),
+        (
+            "{ site: 'a', site: 'b', data_dir: '/srv/wyrm' }",
+            None,
+            None,
+            "Site",
+        ),
+        ("{ site: 'plant' }", None, None, "DataDir"),
+        (
+            "{ site: 'plant', data_dir: './data' }",
+            None,
+            None,
+            "DataDir",
+        ),
+        (MIN, Some("Europe/Kyiv extra\n"), None, "Timezone"),
+        (MIN, None, Some("pool.ntp.org;\n"), "Ntp"),
+        (MIN, None, Some("[2001:db8::1]\n"), "Ntp"),
+    ];
+    for (config, timezone, ntp, want) in cases {
+        let mut files = only(config);
+        files.timezone = timezone.map(str::to_owned);
+        files.ntp = ntp.map(str::to_owned);
+        let e = files.check().unwrap_err();
+        assert_eq!(format!("{e:?}"), want, "{config}");
+        assert!(region(&files).is_err());
+        assert!(files.check_device().is_err());
+        // a reader takes it as it is
+        let mut entries = vec![entry("wyrmd.json5", b'0', config.as_bytes())];
+        if let Some(tz) = timezone {
+            entries.push(entry("timezone", b'0', tz.as_bytes()));
+        }
+        if let Some(ntp) = ntp {
+            entries.push(entry("ntp", b'0', ntp.as_bytes()));
+        }
+        assert_eq!(read_region(&wrap(&archive(&entries))).unwrap(), Some(files));
+    }
+    only(MIN).check_device().unwrap();
 }
 
 #[test]
@@ -555,7 +618,7 @@ fn check_slot_knows_both_magics() {
         assert!(matches!(check_slot(other), Err(ImageError::NoRegion)));
     }
     // the first bytes of what the crate writes pass
-    let full = region(&only("{}")).unwrap();
+    let full = region(&only(MIN)).unwrap();
     assert!(check_slot(full[..8].try_into().unwrap()).is_ok());
 }
 

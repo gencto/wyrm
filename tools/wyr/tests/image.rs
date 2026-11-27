@@ -20,7 +20,7 @@ const SIZE: usize = 8 * 1024 * 1024;
 /// Not on a 1 MiB boundary: the region starts inside one part of the copy and ends in another.
 const OFFSET: usize = 3 * 1024 * 1024 + 512;
 /// A configuration of a board: it names where the device puts `setup` and `seed.json`.
-const CONFIG: &str = "{ site: \"plant\", gateway: { tls: \"site_ca\", setup_file: \"/etc/wyrm/setup.d/setup\" }, packages: { seed_dir: \"/usr/share/wyrm/seed\" } }\n";
+const CONFIG: &str = "{ site: \"plant\", data_dir: \"/srv/wyrm\", gateway: { tls: \"site_ca\", setup_file: \"/etc/wyrm/setup.d/setup\" }, packages: { seed_dir: \"/usr/share/wyrm/seed\" } }\n";
 const SETUP: &str = "3f0a9c1e5b7d2468ace013579bdf02468ace13579bdf0246813579bdf02468ac";
 const KEYS: &str = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOnlyThePersonsKey person@host\n";
 
@@ -270,7 +270,10 @@ fn a_new_setup_code_is_printed_once() {
 #[test]
 fn a_file_the_config_does_not_name_is_refused() {
     let dir = Dir::new("notnamed");
-    dir.write("wyrmd.json5", "{ site: \"plant\" }\n");
+    dir.write(
+        "wyrmd.json5",
+        "{ site: \"plant\", data_dir: \"/srv/wyrm\" }\n",
+    );
     dir.write("seed.json", "{\"format\":\"wyrm-seed/1\",\"links\":[]}");
     let before = dir.names();
     let e = refused(&dir.build(&["--new-setup-code"])).to_owned();
@@ -286,6 +289,71 @@ fn a_file_the_config_does_not_name_is_refused() {
     assert_eq!(dir.names(), before);
     // without the files the same configuration is taken
     ok(&dir.build(&[]));
+}
+
+/// What the device refuses is refused here, before the image is read: a site its data
+/// partition does not take (the region would be applied and wiped, and no broker start), a
+/// `data_dir` off the data partition, a time zone or NTP servers its first boot refuses.
+#[test]
+fn what_the_device_refuses_is_refused() {
+    let dir = Dir::new("device");
+    let before = dir.names();
+    let long = format!(
+        "{{ site: \"{}\", data_dir: \"/srv/wyrm\" }}\n",
+        "s".repeat(65)
+    );
+    let many = (0..17)
+        .map(|i| format!("ntp{i}.example"))
+        .collect::<Vec<_>>()
+        .join(",");
+    for (config, more, why) in [
+        (
+            "{ site: \".plant\", data_dir: \"/srv/wyrm\" }\n",
+            &[][..],
+            "site",
+        ),
+        (long.as_str(), &[][..], "site"),
+        ("{ data_dir: \"/srv/wyrm\" }\n", &[][..], "site"),
+        (
+            "{ upstream: { site: \"plant\" }, data_dir: \"/srv/wyrm\" }\n",
+            &[][..],
+            "site",
+        ),
+        ("{ site: \"plant\" }\n", &[][..], "data_dir"),
+        (
+            "{ site: \"plant\", data_dir: \"data\" }\n",
+            &[][..],
+            "data_dir",
+        ),
+        (CONFIG, &["--timezone", "Europe/Kyiv extra"][..], "timezone"),
+        (CONFIG, &["--timezone", "../../etc/passwd"][..], "timezone"),
+        (CONFIG, &["--ntp", "pool.ntp.org;"][..], "ntp"),
+        (CONFIG, &["--ntp", "[2001:db8::1]"][..], "ntp"),
+        (CONFIG, &["--ntp", many.as_str()][..], "ntp"),
+    ] {
+        dir.write("wyrmd.json5", config);
+        let out = dir.build(more);
+        let e = refused(&out);
+        assert!(e.contains(&format!("`{why}")), "{config} {more:?}: {e}");
+        assert_eq!(dir.names(), before);
+    }
+    // what the device takes: an IPv6 address without brackets, a site of 64
+    let edge = format!(
+        "{{ site: \"{}\", data_dir: \"/srv/wyrm\" }}\n",
+        "s".repeat(64)
+    );
+    dir.write("wyrmd.json5", &edge);
+    ok(&dir.build(&[
+        "--ntp",
+        "2001:db8::1, pool.ntp.org",
+        "--timezone",
+        " Etc/GMT+2 ",
+    ]));
+    let files = read_region(&region_of(&dir.path("out.img")))
+        .unwrap()
+        .unwrap();
+    assert_eq!(files.timezone.as_deref(), Some("Etc/GMT+2\n"));
+    assert_eq!(files.ntp.as_deref(), Some("2001:db8::1\npool.ntp.org\n"));
 }
 
 #[test]

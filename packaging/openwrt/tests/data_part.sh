@@ -565,7 +565,9 @@ the_broker_s_links_are_never_followed() {
 a_configuration_without_a_site_starts_no_broker() {
     setup_device nosite
     mkdir -p "$t/part/broker/pki"
-    for config in '{ gateway: { site: "inner" } }' '{ site: 7 }' '{ site: "a/b" }' '{ site: "../x" }' ''; do
+    long=$(printf '%065d' 0)
+    for config in '{ gateway: { site: "inner" } }' '{ site: 7 }' '{ site: "a/b" }' '{ site: "../x" }' '' \
+        '{ site: ".plant" }' "{ site: \"$long\" }"; do
         printf '%s\n' "$config" > "$t/etc/wyrmd.json5"
         site_rule
         [ "$rc" -ne 0 ] || fail "exit 0 for \`$config\`"
@@ -604,6 +606,17 @@ the_site_is_the_key_of_the_outermost_object() {
     if $SH "$lib/site.sh" "$work/no-such-file" 2> /dev/null; then
         fail "a site of no file"
     fi
+    # the rule of a name (wyrm-image `plain_site`), also for a name in a file
+    want "64 characters" "$(site_of "{ site: \"$(printf '%064d' 0)\" }")" "$(printf '%064d' 0)"
+    for name in plant Plant-2 a.b -x _ x. "$(printf '%064d' 0)"; do
+        $SH "$lib/site.sh" --name "$name" || fail "the name \`$name\` is refused"
+    done
+    for name in '' .x . .. a/b 'a b' 'a;b' '~x' "$(printf '%065d' 0)"; do
+        if $SH "$lib/site.sh" --name "$name"; then fail "the name \`$name\` is taken"; fi
+        if out=$(site_of "{ site: \"$name\" }"); then fail "a site \`$out\` of \`$name\`"; fi
+    done
+    if out=$(site_of '{ site: "a
+b" }'); then fail "a site over two lines: \`$out\`"; fi
 }
 
 disk_sh() {

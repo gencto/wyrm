@@ -39,8 +39,13 @@
 # directory that group may write, because the broker removes the file when it has the
 # hash. The paths are those of the crate wyrm-image (`SETUP_FILE`, `SEED_DIR`).
 #
+# What is checked of the files is what the crate wyrm-image checks before it writes a
+# region (`ConfigFiles::check_device`): the site (site.sh), the time zone (TZ_CHARS) and
+# the NTP servers (NTP_CHARS, NTP_MAX). The crate's tests read these lines.
+#
 # Environment (tests): WYRM_UCI (the `uci` to call), WYRM_SEED_DIR, WYRM_ZONEINFO,
-# WYRM_IMAGE_JSON, WYRM_DISK_SH, WYRM_GROUP (the broker's group; empty: files keep their group).
+# WYRM_IMAGE_JSON, WYRM_DISK_SH, WYRM_SITE_SH, WYRM_GROUP (the broker's group; empty:
+# files keep their group).
 
 set -u
 umask 077
@@ -53,6 +58,11 @@ MAX_PAYLOAD=$((REGION_SIZE - HEADER_SIZE))
 MAGIC_FULL=5759524d43464731  # WYRMCFG1
 MAGIC_EMPTY=5759524d43464730 # WYRMCFG0
 NAMES="wyrmd.json5, network, seed.json, setup, authorized_keys, timezone, ntp"
+# a time zone: one IANA name of these characters, not starting with `/`, without `..`
+TZ_CHARS='A-Za-z0-9_+/-'
+# an NTP server: a host name or an address (IPv6 without brackets), not starting with `-`
+NTP_CHARS='A-Za-z0-9.:_-'
+NTP_MAX=16
 DOCS=https://wyrm.gencto.uk/docs/operations.html
 
 UCI=${WYRM_UCI:-uci}
@@ -60,6 +70,8 @@ SEED_DIR=${WYRM_SEED_DIR:-/usr/share/wyrm/seed}
 ZONEINFO=${WYRM_ZONEINFO:-/usr/share/zoneinfo}
 IMAGE_JSON=${WYRM_IMAGE_JSON:-/etc/wyrm/image.json}
 DISK_SH=${WYRM_DISK_SH:-/usr/libexec/wyrm/disk.sh}
+# a command, split into its words where it is called
+SITE_SH=${WYRM_SITE_SH:-/usr/libexec/wyrm/site.sh}
 GROUP=${WYRM_GROUP-wyrm}
 
 say() { echo "wyrm first boot: $*" >&2; }
@@ -283,6 +295,11 @@ has() {
 }
 
 [ -s "$files/wyrmd.json5" ] || refuse "wyrmd.json5 of the config archive is empty"
+# the site names the broker's data on the data partition (data-part.sh): a site it does
+# not take would start no broker after the region is wiped, so it is refused now
+# shellcheck disable=SC2086 # $SITE_SH is a command and its words
+$SITE_SH "$files/wyrmd.json5" > /dev/null ||
+    refuse "wyrmd.json5 names no site this device takes: \`site: \"<name>\"\` once in its outermost object, 1 to 64 of A-Z a-z 0-9 _ . -, not starting with \`.\`"
 
 if has setup; then
     # 64 hex digits and at most one newline
@@ -319,7 +336,7 @@ if has timezone; then
         refuse "\`timezone\` is not one IANA name"
     fi
     case $tz in
-    '' | /* | *..* | *[!A-Za-z0-9_+/-]*) refuse "\`timezone\` is not one IANA name" ;;
+    '' | /* | *..* | *[!$TZ_CHARS]*) refuse "\`timezone\` is not one IANA name" ;;
     esac
 fi
 
@@ -327,13 +344,13 @@ ntp=
 if has ntp; then
     while IFS= read -r server || [ -n "$server" ]; do
         case $server in
-        '' | -* | *[!A-Za-z0-9.:_-]*) refuse "\`ntp\` holds a line that is no host name or address" ;;
+        '' | -* | *[!$NTP_CHARS]*) refuse "\`ntp\` holds a line that is no host name or address" ;;
         esac
         ntp="$ntp $server"
     done < "$files/ntp"
     # shellcheck disable=SC2086 # the servers, split on purpose
     set -- $ntp
-    [ $# -le 16 ] || refuse "\`ntp\` holds more than 16 servers"
+    [ $# -le "$NTP_MAX" ] || refuse "\`ntp\` holds more than $NTP_MAX servers"
 fi
 
 # ---- 3. apply -------------------------------------------------------------------------

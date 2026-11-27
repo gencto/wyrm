@@ -20,7 +20,8 @@ export LC_ALL
 
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/../../.." && pwd)
-script=$root/packaging/openwrt/wyrmd/files/usr/libexec/wyrm/first-boot.sh
+lib=$root/packaging/openwrt/wyrmd/files/usr/libexec/wyrm
+script=$lib/first-boot.sh
 SH=${SH:-sh}
 BB=${BB:-}
 
@@ -40,7 +41,7 @@ if [ -n "$BB" ]; then
     bb=$(command -v "$BB") || { echo "no $BB" >&2; exit 1; }
     mkdir "$work/bin"
     # every tool the script and the tests call; one this busybox does not have fails the run
-    for applet in cat chmod cmp cp cut dd dirname find grep head hexdump ls mkdir mv \
+    for applet in awk cat chmod cmp cp cut dd dirname find grep head hexdump ls mkdir mv \
         rm sha256sum sort sync tail tar tr wc; do
         "$bb" --list | grep -qx "$applet" || { echo "$BB has no $applet" >&2; exit 1; }
         ln -s "$bb" "$work/bin/$applet"
@@ -51,7 +52,7 @@ fi
 
 # the paths are wyrm-image's SETUP_FILE and SEED_DIR: `wyr image build` refuses a
 # configuration that carries `setup` or `seed.json` and does not name them
-CONFIG='{ site: "plant", gateway: { listen: "0.0.0.0:8445", tls: "site_ca", setup_file: "/etc/wyrm/setup.d/setup" }, packages: { seed_dir: "/usr/share/wyrm/seed" } }'
+CONFIG='{ site: "plant", data_dir: "/srv/wyrm", gateway: { listen: "0.0.0.0:8445", tls: "site_ca", setup_file: "/etc/wyrm/setup.d/setup" }, packages: { seed_dir: "/usr/share/wyrm/seed" } }'
 # the group the script gives the broker's files to: one this user may give
 GROUP=$(id -gn)
 DEFAULT='{ site: "unconfigured" }'
@@ -135,6 +136,7 @@ setup_device() {
 first_boot() {
     rc=0
     UCI_LOG=$t/uci.log UCI_FAIL=${uci_fail:-} WYRM_UCI=$work/uci WYRM_GROUP=$GROUP \
+        WYRM_SITE_SH="$SH $lib/site.sh" \
         WYRM_SEED_DIR=$t/seed WYRM_ZONEINFO=$t/zoneinfo \
         $SH "$script" "$t/region" "$t/stage" "$t/etc" 2> "$t/err" || rc=$?
 }
@@ -529,6 +531,41 @@ bad_content_applies_nothing() {
     setup_device ntp
     bad_region "$t/region" "wyrmd.json5=$CONFIG" "ntp=good.example\\n-x; reboot\\n"
     refused
+    # what `wyr image build` refuses by the same rules (wyrm-image `check_device`)
+    setup_device ntpbracket
+    bad_region "$t/region" "wyrmd.json5=$CONFIG" "ntp=[2001:db8::1]\\n"
+    refused
+    setup_device ntpsemicolon
+    bad_region "$t/region" "wyrmd.json5=$CONFIG" "ntp=pool.ntp.org;\\n"
+    refused
+    setup_device ntpmany
+    bad_region "$t/region" "wyrmd.json5=$CONFIG" \
+        "ntp=$(i=0; while [ $i -le 16 ]; do printf 'ntp%d.example\\n' $i; i=$((i + 1)); done)"
+    refused
+    setup_device zonespace
+    bad_region "$t/region" "wyrmd.json5=$CONFIG" "timezone=Europe/Kyiv\\nextra\\n"
+    refused
+}
+
+# A site the data partition does not take: refused before anything is applied, the
+# region kept (else it would be applied and wiped, and no broker would ever start).
+a_site_the_device_does_not_take_applies_nothing() {
+    long=$(printf '%065d' 0)
+    for site in '.plant' "$long" 'a/b' ''; do
+        setup_device "site-${#site}"
+        bad_region "$t/region" "wyrmd.json5={ site: \"$site\", data_dir: \"/srv/wyrm\" }"
+        refused
+    done
+    for config in '{ data_dir: "/srv/wyrm" }' '{ upstream: { site: "plant" } }' '{ site: 7 }'; do
+        setup_device "nosite-${#config}"
+        bad_region "$t/region" "wyrmd.json5=$config"
+        refused
+    done
+    # the longest name the device takes is applied
+    setup_device site-64
+    bad_region "$t/region" "wyrmd.json5={ site: \"$(printf '%064d' 0)\", data_dir: \"/srv/wyrm\" }"
+    first_boot
+    want "exit code ($(cat "$t/err"))" "$rc" 0
 }
 
 # A zone the image has no data for: the configuration is applied, the clock stays UTC.
@@ -547,7 +584,8 @@ for test in applies_all_files setup_is_for_the_broker_only only_the_config first
     a_torn_wipe_is_wiped_again ssh_that_cannot_be_set_up_keeps_the_region \
     keys_without_an_ssh_server_apply_nothing a_link_in_the_setup_directory_leads_nowhere a_flipped_byte_applies_nothing \
     a_bad_member_name_applies_nothing a_link_applies_nothing a_bad_region_applies_nothing \
-    bad_content_applies_nothing an_unknown_zone_is_a_warning; do
+    bad_content_applies_nothing a_site_the_device_does_not_take_applies_nothing \
+    an_unknown_zone_is_a_warning; do
     failed=0
     $test
     if [ "$failed" -eq 0 ]; then

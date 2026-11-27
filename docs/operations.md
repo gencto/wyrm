@@ -397,7 +397,7 @@ downloaded), the index it was published with (`index.json`, format
 `wyrm-images/1`) and your `wyrmd.json5`.
 
 ```
-wyr image build --image wyrm-0.9.0-rpi4.img.gz --index index.json --board rpi4 \
+wyr image build --image wyrm-rpi4-0.9.0-openwrt-25.12.6.img.gz --index index.json --board rpi4 \
     --config wyrmd.json5 --new-setup-code --out plant-rpi4.img
 ```
 
@@ -415,14 +415,16 @@ code" above). Then write `plant-rpi4.img` to the card.
 | `--new-setup-code` | `setup` | make a setup code, store its hash, print the code once |
 | `--setup-hash-file <file>` | `setup` | a file with the hash of a code made before (the second line of `wyrmd setup-code`: 64 hex digits, white space around them ignored); not with `--new-setup-code` |
 | `--authorized-keys <file>` | `authorized_keys` | SSH public keys for `root`; without it the device has no SSH login |
-| `--timezone <tz>` | `timezone` | the IANA name, for example `Europe/Kyiv` |
-| `--ntp <servers>` | `ntp` | NTP servers separated by commas |
+| `--timezone <tz>` | `timezone` | one IANA name, for example `Europe/Kyiv`: `A-Z a-z 0-9 _ + / -`, not starting with `/`, without `..` |
+| `--ntp <servers>` | `ntp` | NTP servers separated by commas, at most 16; each a host name or an address of `A-Z a-z 0-9 . : _ -`, not starting with `-` (an IPv6 address without brackets: `2001:db8::1`) |
 | `--out <file>` | | the image to write, raw; an existing file is replaced only with `--force` |
 
 What the command checks, in this order:
 
 1. The index has the board, and the files fit the region and are text.
-   This is refused before the image is read.
+   The configuration is one the device takes ("On the device" below): the
+   site, `data_dir`, the time zone and the NTP servers. This is refused
+   before the image is read.
 2. The region at the index's `config_offset` does not hold a configuration
    already. **An image is assembled only from a base image**: an assembled
    image is refused, so take the base image as it was published.
@@ -464,11 +466,15 @@ authorized_keys 96
 
 `region: empty` is a base image. Each line after it is a file name and its
 size in bytes. No content is shown, of `setup` and `authorized_keys` least
-of all. A file of another size than the index says, or with no region at
-the offset, is refused. A line `WARNING: …` after the files tells of a
-setup hash or a seed that the image's `wyrmd.json5` does not name: the
-broker of that device will never read it. `wyr image build` does not write
-such an image.
+of all. A raw file of another size than the index says is refused. A
+gzip file is unpacked only up to the end of the region: it is refused when
+it ends before that, and a longer one is not told (`wyr image build`
+refuses it by its SHA-256). A file with no region at the offset is
+refused. A line `WARNING: …` after the files tells of a setup hash or a
+seed that the image's `wyrmd.json5` does not name (the broker of that
+device will never read it), or of a configuration the device refuses (the
+rules in "On the device" below). `wyr image build` does not write such an
+image.
 
 #### Write the card
 
@@ -529,18 +535,31 @@ package; what an operator meets:
   region, checks it (magic, length, SHA-256, the file names, each file),
   puts the files in place and wipes the region. A region that is damaged
   or holds anything else is refused as a whole and nothing is applied; the
-  console and the log say why. A power loss during the first boot is
-  harmless: the next boot applies the region again.
+  console and the log say why. A power loss while the files are put or the
+  region is wiped is safe: the next boot applies the region again, or
+  wipes it again. A power loss while the data partition is made (between
+  `sfdisk --append` and the label `wyrm-data`) is not: it leaves a
+  partition without the label, the next boot formats nothing and starts
+  no broker, and the console says so. Then write the image to the card
+  again (`packaging/openwrt/README.md`, "The data partition").
 - **An image without a configuration** (a base image written to the card
   as it is) does not start the broker: nothing listens and nothing is
   written to the data partition. The console says so and names `wyr image
   build`. Assemble an image and write the card again.
-- **What your `wyrmd.json5` must say** on a board: `data_dir: "/srv/wyrm"`
-  (the data partition), `gateway: { listen: "0.0.0.0:8445", tls:
+- **What your `wyrmd.json5` must say** on a board: `site: "<name>"` in
+  the outermost object, once (1 to 64 of `A-Z a-z 0-9 _ . -`, not starting
+  with `.`: it names a directory on the data partition), `data_dir:
+  "/srv/wyrm"` in the outermost object (the data partition; a relative or
+  another path is refused), `gateway: { listen: "0.0.0.0:8445", tls:
   "site_ca", setup_file: "/etc/wyrm/setup.d/setup" }` for a setup code,
   and `packages: { seed_dir: "/usr/share/wyrm/seed" }` with `--seed`.
   `wyr image build` refuses a setup code or a seed whose path the
-  configuration does not name: the broker would never read the file.
+  configuration does not name (the broker would never read the file), and
+  a site, a `data_dir`, a time zone or NTP servers the device does not
+  take. The rules are those of the device's scripts (`site.sh`,
+  `first-boot.sh`), one set: the crate `wyrm-image` checks them
+  (`ConfigFiles::check_device`), and its tests read the scripts. The
+  device checks the site again before it applies anything.
 - **The data partition.** At the first boot with a configuration the
   device adds an ext4 partition (label `wyrm-data`) in the rest of the
   card, 1 MiB after the config region, and mounts it at every boot before
@@ -561,7 +580,13 @@ package; what an operator meets:
   deleted. A `broker` directory whose site cannot be read is set aside the
   same way, as `.replaced-unknown-<n>`. Copy out what you need from it (as
   root) and remove it yourself. The data partition belongs to the card; to
-  start clean, wipe the card before you write the image. An image with
+  start clean, wipe the card before you write the image. With the same
+  site, the new image's **setup code is void**: a user exists, so the
+  broker offers no setup (`POST /api/setup` answers 409); log in as
+  before. Its **`seed.json` is not applied again**: `data_dir/seed.done`
+  of the first start is kept, so install the links of the new seed by
+  hand (or delete `seed.done` and `seed.progress.json`, "Seed packages"
+  above). An image with
   another layout (a board whose `config_offset` changed, which `boards.json`
   forbids) would add the data partition at another place and not find the
   data.

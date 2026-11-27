@@ -92,15 +92,33 @@ impl ConfigFiles {
     }
 
     /// Checks the files as an assembler must: what a reader checks ([`ImageError::TooLarge`],
-    /// [`ImageError::BadSetup`], [`ImageError::BadContent`]), and that `wyrmd.json5` names
-    /// the place of `setup` and of `seed.json` when they are there
-    /// ([`ImageError::NotNamed`], see [`ConfigFiles::not_named`]).
+    /// [`ImageError::BadSetup`], [`ImageError::BadContent`]), what the device refuses
+    /// ([`ConfigFiles::check_device`]), and that `wyrmd.json5` names the place of `setup`
+    /// and of `seed.json` when they are there ([`ImageError::NotNamed`], see
+    /// [`ConfigFiles::not_named`]).
     pub fn check(&self) -> Result<(), ImageError> {
         self.check_content()?;
+        self.check_device()?;
         match self.not_named().next() {
             Some(e) => Err(e),
             None => Ok(()),
         }
+    }
+
+    /// What the device refuses of this configuration, by the rules of its scripts: a site it
+    /// does not take ([`ImageError::Site`]: the data partition script refuses it after the
+    /// region is applied, and the broker never starts), a `data_dir` that is not
+    /// [`crate::DATA_DIR`] ([`ImageError::DataDir`]), a `timezone` or an `ntp` the first boot
+    /// refuses ([`ImageError::Timezone`], [`ImageError::Ntp`]).
+    ///
+    /// Like [`ConfigFiles::not_named`], a rule for the one who assembles: [`read_region`]
+    /// reads such a region, and a tool that shows it warns.
+    pub fn check_device(&self) -> Result<(), ImageError> {
+        crate::device::check(
+            &self.wyrmd_json5,
+            self.timezone.as_deref(),
+            self.ntp.as_deref(),
+        )
     }
 
     /// The files this configuration carries and its `wyrmd.json5` does not name: `setup`

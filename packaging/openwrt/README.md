@@ -134,8 +134,24 @@ Rules for the person's configuration (`wyr image build`):
   `setup` or `seed.json` without naming its path. The check reads the text
   as tokens, without a JSON5 parser: a comment or the content of a string
   does not count; the section that holds the key is not looked at.
-- `data_dir` is `/srv/wyrm` (the data partition). A relative `data_dir`
-  is relative to `/srv/wyrm`.
+- `data_dir: "/srv/wyrm"` (the data partition) in the outermost object.
+  `wyr image build` refuses another path, a relative one and none
+  (`wyrmd`'s default is `./data`): `run.sh` tells a first start by
+  `/srv/wyrm/pki`.
+- `site` in the outermost object, once: 1 to 64 of `A-Z a-z 0-9 _ . -`,
+  not starting with `.` (`site.sh`; the broker takes every such name).
+  `data-part.sh` names a directory after it, so the first boot refuses a
+  configuration without such a site (exit 4, the region kept) before it
+  applies anything; `wyr image build` refuses it first.
+- `timezone`: one IANA name of `A-Z a-z 0-9 _ + / -`, not starting with
+  `/`, without `..`. `ntp`: at most 16 lines, each a host name or an
+  address of `A-Z a-z 0-9 . : _ -`, not starting with `-` (an IPv6 address
+  without brackets). The first boot refuses anything else (exit 4).
+- These rules are written once on each side: `site.sh` (`SITE_CHARS`,
+  `SITE_MAX`) and `first-boot.sh` (`TZ_CHARS`, `NTP_CHARS`, `NTP_MAX`) on
+  the device, `ConfigFiles::check_device` of the crate `wyrm-image` in the
+  tool. The crate's test `a_rule_is_the_one_of_the_device` reads the
+  scripts and fails when the two differ.
 - The time zone needs the zone's file in the image (`zoneinfo-*`
   packages): its last line is the POSIX rule OpenWrt wants. Without the
   file the first boot warns and the clock stays UTC. The broker's own
