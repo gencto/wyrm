@@ -525,8 +525,11 @@ package; what an operator meets:
   device adds an ext4 partition (label `wyrm-data`) in the rest of the
   card, 1 MiB after the config region, and mounts it at every boot before
   the broker starts: the partition at `/srv/wyrm-part` (root's), its
-  directory `broker` at `/srv/wyrm`, the broker's `data_dir`. The card must be at least 32 MiB
-  larger than the image. A partition that was there before the boot is
+  directory `broker` at `/srv/wyrm`, the broker's `data_dir`. The
+  partition ends at least 1 MiB before the end of the card: imagers zero
+  the first and the last MiB of a drive when they write it (Raspberry Pi
+  Imager does on every write; `balenaEtcher` and `bmaptool` may too). The
+  card must be at least 34 MiB larger than the image. A partition that was there before the boot is
   never formatted. Without a mounted data partition the broker does not
   start, and the console says why.
 - **Writing the card again** with a newer image of the same board keeps the

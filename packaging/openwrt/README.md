@@ -165,14 +165,18 @@ writes.
    partition `config_part`, of exactly 8192 sectors, starting with
    `WYRMCFG0` or `WYRMCFG1`. If not, nothing is touched.
 2. **The partition.** When the table has no partition `data_part`, the
-   script adds it from 1 MiB after the end of the config region to the end
-   of the card (`sfdisk --append`). A base image ends at most there (a GPT
+   script adds it from 1 MiB after the end of the config region to at least
+   1 MiB before the end of the card, after a GPT's second table, on a 1 MiB
+   boundary (`sfdisk --append` with `start=` and `size=`; imagers zero the
+   last MiB of a drive). A partition `data_part` that was there must start
+   at that sector, else nothing is touched and no broker starts. A base image ends at most there (a GPT
    image keeps that MiB for its second table), so an image written again
    over the card leaves the file system whole. On a GPT it first moves the second table to the end
    of the card (`sfdisk --relocate gpt-bak-std`); a hybrid MBR (the entry
    of a boot loader beside the one of type `EE`, as on `mediatek/filogic`)
-   is read before and put back after, byte for byte. A card with less than
-   32 MiB after the image gets no partition (console message, no broker).
+   is read before and put back after, byte for byte. A card where the
+   partition would be smaller than 32 MiB gets none (console message, no
+   broker).
 3. **Formatting has two rules.** A partition that was there before this
    boot is **never** formatted. A partition this run added is formatted,
    unless it already holds the label `wyrm-data`: that is the data of a
@@ -196,7 +200,9 @@ again with another configuration), `broker` is renamed to
 `/srv/wyrm-part/.replaced-<old site>-<n>`: never merged, never deleted, and
 nothing inside it is opened. The console says so and the broker starts on a
 new, empty `broker`. The same site keeps its data. A `broker` without a
-`.site` is taken for the configuration's site. `.site` is written before
+`.site` that names a site is set aside as `.replaced-unknown-<n>`, never
+adopted; a site that is called `unknown` is told apart from that by a flag,
+not by the name. `.site` is written before
 the new `broker` is made, so a run that is cut sets nothing aside twice.
 
 `ROOTFS_PARTSIZE` and the layout before the config region must not change

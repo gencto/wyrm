@@ -237,18 +237,25 @@ needs: `sfdisk`, `partx-utils`, `e2fsprogs`, `tune2fs`, `blkid`,
 `kmod-fs-ext4`.
 
 - **The data partition starts 1 MiB after the end of the config
-  partition** and reaches to the end of the card. That MiB is where a GPT
-  image keeps its second table: an image written whole over the card
-  (`dd`, an imager) writes those bytes too, so a data partition right after
-  the config partition would lose the start of its file system, and with
-  it the label.
+  partition.** That MiB is where a GPT image keeps its second table: an
+  image written whole over the card (`dd`, an imager) writes those bytes
+  too, so a data partition right after the config partition would lose the
+  start of its file system, and with it the label.
+- **It ends at least 1 MiB before the end of the card** (after a GPT's
+  second table), on a 1 MiB boundary. Imagers zero the first and the last
+  MiB of a drive when they write it: Raspberry Pi Imager does on every
+  write, and `balenaEtcher` and `bmaptool` may clear the ends too. A file
+  system that reached the end of the card would lose its last MiB to a
+  rewrite while its label survived. Start and size are counted the same
+  way at every boot, so the entry the first boot of a rewritten card adds
+  ends where the old one did.
 - **A card written again with a newer image of the same layout keeps its
   data.** The new image's table has no data partition; the first boot adds
   the entry at the same place, finds the label `wyrm-data` and formats
   nothing. With the same site in the configuration the broker goes on with
   its data; with another site the old data is set aside as
   `/srv/wyrm-part/.replaced-<site>-<n>`.
-- **The card must be larger than the image** by at least 32 MiB. A disk
+- **The card must be larger than the image** by at least 34 MiB. A disk
   that is exactly the image gets no data partition, and the broker does not
   start (the console says so). **In QEMU, grow the disk file before the
   first boot**: `qemu-img resize -f raw plant.img 1G`.
