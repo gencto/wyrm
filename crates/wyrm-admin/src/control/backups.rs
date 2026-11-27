@@ -268,6 +268,26 @@ pub enum BackupError {
     LinkTooLarge,
 }
 
+impl BackupError {
+    /// The first I/O error in the chain of this error: the error itself
+    /// first, then each `source`. The variants that hold one: `File`,
+    /// `Stage` (its directory), `Write` (`WriteError::Io`), `Seal`, `Wal`
+    /// (`StateError::Io`), `History` (`wyrm_history::store::Error::Io`), and
+    /// `SealedFile` and `LinkFile` through the error they hold. `LinkData`
+    /// and a history `Db` error hold their cause as text only: no I/O error
+    /// is found in them.
+    pub fn io_cause(&self) -> Option<&std::io::Error> {
+        let mut at: Option<&(dyn std::error::Error + 'static)> = Some(self);
+        while let Some(e) = at {
+            if let Some(io) = e.downcast_ref::<std::io::Error>() {
+                return Some(io);
+            }
+            at = e.source();
+        }
+        None
+    }
+}
+
 /// Why no backup job was started ([`Control::backup_start`]). To a caller:
 /// [`StartError::status`].
 #[derive(Debug, thiserror::Error)]
@@ -312,9 +332,10 @@ impl From<StartError> for LinkError {
 pub enum NowError {
     #[error(transparent)]
     Refused(#[from] StartError),
-    /// The job ran and failed: its `error`, as the job keeps it.
+    /// The job ran and failed: the error of the job, with its type. Its text
+    /// is the job's `error`.
     #[error("{0}")]
-    Failed(String),
+    Failed(#[source] BackupError),
     #[error("the backup is gone")]
     Gone,
 }
@@ -1870,22 +1891,42 @@ impl Control {
         req: BackupRequest,
         sub: &str,
     ) -> Result<String, StartError> {
-        self.backup_launch(req, sub, false)
+        let (id, run) = self.backup_launch(req, sub)?;
+        // the job keeps what failed, as text: nobody waits for the typed error
+        tokio::task::spawn_blocking(run);
+        Ok(id)
     }
 
     /// Make the backup of `req` as a job and wait for it (blocking: call
-    /// it off the async runtime). `Err` when it is refused or fails.
+    /// it off the async runtime). `Err` when it is refused or fails; a job
+    /// that failed gives its error with its type ([`NowError::Failed`]), the
+    /// job keeps its text.
     pub(super) fn backup_now(
         self: &Arc<Self>,
         req: BackupRequest,
         sub: &str,
     ) -> Result<Job, NowError> {
-        let id = self.backup_launch(req, sub, true)?;
-        match self.backups.get(&id) {
-            Some(j) if j.status == JobStatus::Done => Ok(j),
-            Some(j) => Err(NowError::Failed(j.error)),
-            None => Err(NowError::Gone),
+        let (id, run) = self.backup_launch(req, sub)?;
+        run().map_err(NowError::Failed)?;
+        self.backups
+            .get(&id)
+            .filter(|j| j.status == JobStatus::Done)
+            .ok_or(NowError::Gone)
+    }
+
+    /// [`Control::backup_now`] for a test that wants the id of the job.
+    #[cfg(test)]
+    fn backup_waited(
+        self: &Arc<Self>,
+        req: BackupRequest,
+        sub: &str,
+    ) -> Result<String, StartError> {
+        let (id, run) = self.backup_launch(req, sub)?;
+        // the job keeps the error, and the test reads the job
+        if let Err(e) = run() {
+            tracing::debug!(backup = %id, "backup failed: {e}");
         }
+        Ok(id)
     }
 
     /// The links whose private data the backup of `req` copies.
@@ -1936,12 +1977,20 @@ impl Control {
         }
     }
 
+    /// Check `req`, take the slot and record the new job; the job itself is
+    /// the returned closure, run once by the caller (on a blocking thread).
+    /// It gives the error of a backup that failed with its type.
     fn backup_launch(
         self: &Arc<Self>,
         req: BackupRequest,
         sub: &str,
-        wait: bool,
-    ) -> Result<String, StartError> {
+    ) -> Result<
+        (
+            String,
+            impl FnOnce() -> Result<(), BackupError> + Send + 'static,
+        ),
+        StartError,
+    > {
         // judged once: the sizes are those of the sections this check chose
         let chosen = self.check_request(&req, Judged::Backup)?;
         let need: u64 = self.section_sizes(&req, &chosen).values().sum();
@@ -2019,7 +2068,7 @@ impl Control {
             });
             // the passphrase goes with the request
             drop(req);
-            match r {
+            let made = match r {
                 Ok(w) => {
                     running.finish(|j| {
                         j.status = JobStatus::Done;
@@ -2032,35 +2081,33 @@ impl Control {
                         ctl.save_job(&j);
                     }
                     info!(backup = %job_id, size = w.size, "backup made");
+                    Ok(())
                 }
                 Err(e) => {
-                    // as text from here on: the log, the audit journal, the job's record
-                    let e = e.to_string();
-                    warn!(backup = %job_id, "backup failed: {e}");
+                    // as text for the log, the audit journal, the job's record
+                    let text = e.to_string();
+                    warn!(backup = %job_id, "backup failed: {text}");
                     wyrm_core::files::discard(&out);
                     ctl.record(
                         &sub,
                         op,
                         &key,
                         Status::InternalError,
-                        &format!("{job_id}: {e}"),
+                        &format!("{job_id}: {text}"),
                     );
                     running.finish(|j| {
                         j.status = JobStatus::Failed;
                         j.step.clear();
-                        j.error = e;
+                        j.error = text;
                     });
+                    Err(e)
                 }
-            }
+            };
             ctl.prune_backups();
             ctl.backups.notify();
+            made
         };
-        if wait {
-            run();
-        } else {
-            tokio::task::spawn_blocking(run);
-        }
-        Ok(id)
+        Ok((id, run))
     }
 
     /// One part of a finished backup's file: `(bytes, total size)`.
@@ -3149,7 +3196,7 @@ mod tests {
             pinned: false,
             remote: false,
         };
-        let e = ctl.backup_launch(req(), "user:a", true).unwrap_err();
+        let e = ctl.backup_waited(req(), "user:a").unwrap_err();
         assert!(
             matches!(&e, StartError::LinkBusy(l) if l.message.contains("being restored")),
             "{e}"
@@ -3160,7 +3207,7 @@ mod tests {
             "the slot is free"
         );
         drop(held);
-        let made = ctl.backup_launch(req(), "user:a", true).unwrap();
+        let made = ctl.backup_waited(req(), "user:a").unwrap();
         assert_eq!(ctl.backups.get(&made).unwrap().status, JobStatus::Done);
     }
 
@@ -3220,7 +3267,7 @@ mod tests {
                     None
                 })
             };
-            ctl.backup_launch(req(), "user:a", true).unwrap();
+            ctl.backup_waited(req(), "user:a").unwrap();
             let (running, copying) = reader.join().unwrap().expect("the job is done");
             assert!(!running, "round {round}: done, and the slot is still taken");
             assert!(
@@ -3452,7 +3499,7 @@ mod tests {
             &N::Refused(S::Running),
             "a backup is being made; one at a time",
         );
-        said(&N::Failed("storage: not open".into()), "storage: not open");
+        said(&N::Failed(B::StorageClosed), "storage: not open");
         said(&N::Gone, "the backup is gone");
 
         use PartError as P;
@@ -3772,7 +3819,7 @@ mod tests {
                 "{name}: {written:?}"
             );
             assert!(!out.exists(), "{name}");
-            let started = ctl.backup_launch(req, "user:a", true);
+            let started = ctl.backup_waited(req, "user:a");
             assert!(
                 matches!(&started, Err(StartError::Request(e)) if *e == want),
                 "{name}: {started:?}"
@@ -3859,6 +3906,93 @@ mod tests {
         }
     }
 
+    /// `BackupError::io_cause` finds the I/O error of every variant that holds
+    /// one, through `transparent` and boxed causes, and none in a variant
+    /// that holds its cause as text (owner decision 2026-11-27: the status of
+    /// a `pre-restore` backup that failed is told by it).
+    #[test]
+    fn the_io_cause_of_a_backup_error_is_found_in_its_chain() {
+        use std::io::ErrorKind as K;
+        let io = |k: K| std::io::Error::new(k, "no");
+        let file = |k: K| FileError::new(Path::new("/d/f"), io(k));
+        let held: Vec<(BackupError, K)> = vec![
+            (BackupError::File(file(K::StorageFull)), K::StorageFull),
+            (
+                BackupError::Stage(StageError::Dir(file(K::PermissionDenied))),
+                K::PermissionDenied,
+            ),
+            (
+                BackupError::Write(format::WriteError::Io {
+                    path: PathBuf::from("/d/b.wyrm-backup"),
+                    source: io(K::StorageFull),
+                }),
+                K::StorageFull,
+            ),
+            (
+                BackupError::Seal {
+                    path: "links/l1/secrets".into(),
+                    source: io(K::Other),
+                },
+                K::Other,
+            ),
+            (
+                BackupError::Wal {
+                    store: "state",
+                    source: StateError::Io(io(K::QuotaExceeded)),
+                },
+                K::QuotaExceeded,
+            ),
+            (
+                BackupError::History(wyrm_history::store::Error::Io(io(K::NotFound))),
+                K::NotFound,
+            ),
+            (
+                BackupError::KeyFile {
+                    file: "secrets.key",
+                    source: Box::new(io(K::PermissionDenied)),
+                },
+                K::PermissionDenied,
+            ),
+            (
+                BackupError::SealedFile {
+                    src: PathBuf::from("/d/secrets.bin"),
+                    source: Box::new(BackupError::File(file(K::Other))),
+                },
+                K::Other,
+            ),
+            (
+                BackupError::LinkFile {
+                    link: "l1".into(),
+                    source: Box::new(BackupError::Seal {
+                        path: "links/l1/files/x".into(),
+                        source: io(K::StorageFull),
+                    }),
+                },
+                K::StorageFull,
+            ),
+        ];
+        for (e, kind) in held {
+            assert_eq!(e.io_cause().map(std::io::Error::kind), Some(kind), "{e}");
+        }
+        let text_only = [
+            BackupError::StorageClosed,
+            BackupError::Request(RequestError::NoConfig),
+            BackupError::LinkData {
+                link: "l1".into(),
+                why: "no".into(),
+            },
+            BackupError::History(wyrm_history::store::Error::Db("no".into())),
+            BackupError::KeyFile {
+                file: "secrets.key",
+                source: "not hex".into(),
+            },
+            BackupError::KeyMissing { file: "state.key" },
+        ];
+        for e in text_only {
+            assert!(e.io_cause().is_none(), "{e}");
+        }
+    }
+
     /// What fails while a backup is made is told apart by its type and keeps its
     /// cause; the job keeps the text; no error holds the passphrase.
     #[test]
@@ -3880,7 +4014,7 @@ mod tests {
         assert!(matches!(e, BackupError::StorageClosed), "{e:?}");
         let e = ctl.backup_now(req, "user:a").unwrap_err();
         assert!(
-            matches!(&e, NowError::Failed(text) if text == "storage: not open"),
+            matches!(&e, NowError::Failed(BackupError::StorageClosed)),
             "{e:?}"
         );
         let job = ctl.backups.list().pop().unwrap();
