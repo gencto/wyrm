@@ -5,8 +5,12 @@
 #   data-part.sh                      on the device, from /etc/init.d/wyrmd
 #   data-part.sh site <part> <config> the site rule alone, on a directory (tests)
 #
-# The data partition starts 1 MiB after the end of the config partition and reaches to
-# the end of the card.
+# The data partition starts 1 MiB after the end of the config partition and ends at least
+# 1 MiB before the end of the card (after a GPT's second table), on a 1 MiB boundary.
+# Imagers zero the first and the last MiB of a drive when they write it (Raspberry Pi
+# Imager does, on every write); the file system must not reach there. Start and size are
+# counted the same way at every boot, so a card whose image was written again gets the
+# same entry back.
 #
 # The layout. The partition is mounted at /srv/wyrm-part, which is root's (0700). In it:
 # `.site` (root's), `broker` (the broker's user's, 0700: its data_dir) and the data of
@@ -72,6 +76,8 @@ REGION_SECTORS=8192 # the config partition: 4 MiB
 # refuses an image that goes further), so an image written again over the card never
 # reaches the data partition's file system.
 DATA_GAP_SECTORS=2048
+# What stays unused at the end of the card, after a GPT's second table.
+END_GAP_SECTORS=2048
 MIN_SECTORS=65536   # no data partition below 32 MiB
 LABEL=wyrm-data
 LABEL_NEW=wyrm-new
@@ -103,29 +109,46 @@ site_rule() {
 	if [ -L "$s_broker" ] || { [ -e "$s_broker" ] && [ ! -d "$s_broker" ]; }; then
 		no "$s_broker is no directory"
 	fi
+	# s_known: `.site` is a file of ours that names a site; only then is s_old a site.
+	# Anything else (no `.site`, a link, text that is no site name) is told apart by the
+	# flag, never by a name: a site may be called `unknown`.
+	s_known=0
 	s_old=
 	if [ -f "$s_part/.site" ] && [ ! -L "$s_part/.site" ]; then
 		IFS= read -r s_old < "$s_part/.site" || true
-		plain_site "$s_old" || s_old=unknown
-	elif [ -e "$s_part/.site" ] || [ -L "$s_part/.site" ]; then
-		s_old=unknown
+		if plain_site "$s_old"; then
+			s_known=1
+		fi
 	fi
-	# no `.site` beside a `broker`: data from before the rule, nothing says it is another
-	# site's
-	if [ -n "$s_old" ] && [ "$s_old" != "$s_site" ] && [ -d "$s_broker" ]; then
+	s_same=0
+	if [ "$s_known" -eq 1 ] && [ "$s_old" = "$s_site" ]; then
+		s_same=1
+	fi
+	# data of another site, or of no site this rule can name (`broker` without a readable
+	# `.site`): set aside, never adopted
+	if [ "$s_same" -eq 0 ] && [ -d "$s_broker" ]; then
+		if [ "$s_known" -eq 1 ]; then
+			s_name=$s_old
+		else
+			s_name=unknown
+		fi
 		s_n=1
-		while [ -e "$s_part/.replaced-$s_old-$s_n" ] || [ -L "$s_part/.replaced-$s_old-$s_n" ]; do
+		while [ -e "$s_part/.replaced-$s_name-$s_n" ] || [ -L "$s_part/.replaced-$s_name-$s_n" ]; do
 			s_n=$((s_n + 1))
 		done
-		s_aside=$s_part/.replaced-$s_old-$s_n
+		s_aside=$s_part/.replaced-$s_name-$s_n
 		# one rename of the directory as a whole: nothing inside it is opened
 		mv "$s_broker" "$s_aside" || no "cannot move $s_broker to $s_aside"
-		say "this card held the data of the site \`$s_old\`; the configuration is of the site \`$s_site\`"
+		if [ "$s_known" -eq 1 ]; then
+			say "this card held the data of the site \`$s_old\`; the configuration is of the site \`$s_site\`"
+		else
+			say "this card held data of a site that is not recorded; the configuration is of the site \`$s_site\`"
+		fi
 		say "the old data is kept in $s_aside and the broker starts new"
 	fi
 	# `.site` before the new `broker`: a run that was cut in between makes `broker` next
 	# time, and sets nothing aside twice
-	if [ "$s_old" != "$s_site" ]; then
+	if [ "$s_same" -eq 0 ]; then
 		rm -f "$s_part/.site.new"
 		(
 			set -C
@@ -179,24 +202,38 @@ mounted_on() {
 	awk -v at="$1" '$2 == at { dev = $1 } END { print dev }' "$MOUNTS"
 }
 
+# ---- where the data partition lies: the same at every boot ------------------------------
+config_start=$(cat "$SYS/class/block/$config_name/start" 2> /dev/null) || config_start=
+disk_sectors=$(cat "$SYS/block/$disk/size" 2> /dev/null) || disk_sectors=
+case "$config_start:$disk_sectors" in
+: | *: | :* | *[!0-9:]*) no "the size of $disk cannot be read: nothing is touched" ;;
+esac
+table=$("$SFDISK" -d "$disk_dev" 2> /dev/null | sed -n 's/^label: //p')
+case $table in
+dos) spare=0 ;;
+gpt) spare=34 ;; # the second table at the end of the card
+*) no "the partition table of $disk cannot be read: nothing is touched" ;;
+esac
+start=$((config_start + REGION_SECTORS + DATA_GAP_SECTORS))
+# down to a 1 MiB boundary, at least END_GAP_SECTORS before the end (after a GPT's
+# second table)
+size=$((disk_sectors - start - spare - END_GAP_SECTORS))
+size=$((size / 2048 * 2048))
+
 existed=1
 data_dev=$($DISK_SH part "$data_part") || data_dev=
-if [ -z "$data_dev" ]; then
+if [ -n "$data_dev" ]; then
+	# a partition that was there: used only where this script puts it, never formatted
+	data_name=${data_dev##*/}
+	if [ "$(cat "$SYS/class/block/$data_name/start" 2> /dev/null)" != "$start" ]; then
+		say "partition $data_part of $disk was there before this boot and does not start at sector $start, 1 MiB after the config region."
+		say "It is not the data partition of this image. Nothing is touched."
+		no "no data partition"
+	fi
+else
 	existed=0
 	# ---- a new entry in the table ------------------------------------------------------
-	config_start=$(cat "$SYS/class/block/$config_name/start" 2> /dev/null) || config_start=
-	disk_sectors=$(cat "$SYS/block/$disk/size" 2> /dev/null) || disk_sectors=
-	case "$config_start:$disk_sectors" in
-	: | *: | :* | *[!0-9:]*) no "the size of $disk cannot be read: nothing is touched" ;;
-	esac
-	start=$((config_start + REGION_SECTORS + DATA_GAP_SECTORS))
-	table=$("$SFDISK" -d "$disk_dev" 2> /dev/null | sed -n 's/^label: //p')
-	case $table in
-	dos) spare=0 ;;
-	gpt) spare=34 ;; # the second table at the end of the card
-	*) no "the partition table of $disk cannot be read: nothing is touched" ;;
-	esac
-	if [ $((disk_sectors - start - spare)) -lt "$MIN_SECTORS" ]; then
+	if [ "$size" -lt "$MIN_SECTORS" ]; then
 		no "the card has no room for the data partition after the image ($((disk_sectors / 2048)) MiB in all)"
 	fi
 	tmp=$(mktemp -d /tmp/wyrm-data.XXXXXX) || no "cannot make a temporary directory"
@@ -220,10 +257,10 @@ if [ -z "$data_dev" ]; then
 			rm -rf "$tmp"
 			no "the partition table of $disk could not be moved to the end of the card"
 		}
-		line="start=$start, type=$GPT_LINUX, name=\"$LABEL\""
+		line="start=$start, size=$size, type=$GPT_LINUX, name=\"$LABEL\""
 	else
 		hybrid=0
-		line="start=$start, type=83"
+		line="start=$start, size=$size, type=83"
 	fi
 	echo "$line" | "$SFDISK" --no-reread --no-tell-kernel --append "$disk_dev" > "$tmp/log" 2>&1 || {
 		cat "$tmp/log" >&2
@@ -248,8 +285,9 @@ if [ -z "$data_dev" ]; then
 		waited=$((waited + 1))
 	done
 	data_name=${data_dev##*/}
-	if [ "$(cat "$SYS/class/block/$data_name/start" 2> /dev/null)" != "$start" ]; then
-		no "partition $data_part of $disk does not start 1 MiB after the config region: it is not used"
+	if [ "$(cat "$SYS/class/block/$data_name/start" 2> /dev/null)" != "$start" ] ||
+		[ "$(cat "$SYS/class/block/$data_name/size" 2> /dev/null)" != "$size" ]; then
+		no "partition $data_part of $disk is not at sector $start with $size sectors: it is not used"
 	fi
 	say "partition $data_part of $disk is new: $data_dev"
 fi
@@ -266,7 +304,8 @@ if [ -n "$at" ] && [ "$at" != "$data_dev" ]; then
 fi
 if [ -z "$at" ]; then
 	# ---- the file system -------------------------------------------------------------
-	label=$("$BLKID" -s LABEL -o value "$data_dev" 2> /dev/null) || label=
+	# probed on the device itself, not from blkid's cache
+	label=$("$BLKID" -p -s LABEL -o value "$data_dev" 2> /dev/null) || label=
 	if [ "$label" != "$LABEL" ]; then
 		if [ "$existed" -eq 1 ]; then
 			say "$data_dev was there before this boot and does not hold the label \`$LABEL\`."

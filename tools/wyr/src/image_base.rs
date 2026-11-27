@@ -1877,6 +1877,21 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
+    /// `DATA_GAP` and `DATA_GAP_SECTORS` of the device's `data-part.sh` are one rule: the
+    /// image ends where the data partition of a card may start.
+    #[test]
+    fn the_data_gap_is_the_one_of_the_device() {
+        let script =
+            include_str!("../../../packaging/openwrt/wyrmd/files/usr/libexec/wyrm/data-part.sh");
+        let sectors: Vec<u64> = script
+            .lines()
+            .filter_map(|line| line.strip_prefix("DATA_GAP_SECTORS="))
+            .map(|value| value.trim().parse().unwrap())
+            .collect();
+        assert_eq!(sectors.len(), 1, "one DATA_GAP_SECTORS= line");
+        assert_eq!(sectors[0] * SECTOR, DATA_GAP);
+    }
+
     #[test]
     fn a_result_of_the_container_is_checked() {
         let dir = std::env::temp_dir().join(format!("wyr-image-base-res-{}", std::process::id()));

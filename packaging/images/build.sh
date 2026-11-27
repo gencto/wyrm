@@ -101,7 +101,12 @@ if [ "$rc" -ne 0 ] && { [ "$rc" -ne 2 ] || ! grep -q 'trailing garbage' "$tmp/gz
     cat "$tmp/gzip.err" >&2
     die "cannot unpack $image"
 fi
-cat "$bin"/*.manifest > "$out/manifest" 2> /dev/null || : > "$out/manifest"
+# the list of packages with their versions: its hash goes into the index, so an image
+# without one is not published
+set -- "$bin"/*.manifest
+[ -f "$1" ] || die "the ImageBuilder left no *.manifest in $bin"
+cat "$@" > "$out/manifest" || die "cannot copy the manifest"
+[ -s "$out/manifest" ] || die "the manifest of the ImageBuilder is empty"
 
 say "the image is $img"
 rm -rf "$tmp"

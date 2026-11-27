@@ -28,8 +28,8 @@ trap 'rm -rf "$work"' EXIT
 if [ -n "$BB" ]; then
     bb=$(command -v "$BB") || { echo "no $BB" >&2; exit 1; }
     mkdir "$work/bin"
-    for applet in awk cat chmod cmp cut dd grep head hexdump ln ls mkdir mktemp mv rm sed \
-        sleep sort sync tr; do
+    for applet in awk cat chmod chown cmp cut dd grep head hexdump ln ls mkdir mktemp mv rm \
+        sed sleep sort sync tr; do
         "$bb" --list | grep -qx "$applet" || { echo "$BB has no $applet" >&2; exit 1; }
         ln -s "$bb" "$work/bin/$applet"
     done
@@ -63,9 +63,11 @@ sfdisk)
 partx)
     # the kernel learns of the partition the table got
     start=$(sed -n 's/^start=\([0-9]*\),.*/\1/p' "$T/appended")
+    size=$(sed -n 's/^start=[0-9]*, size=\([0-9]*\),.*/\1/p' "$T/appended")
     mkdir -p "$T/sys/block/vda/vda4"
     echo 4 > "$T/sys/block/vda/vda4/partition"
     echo "${PARTX_START:-$start}" > "$T/sys/block/vda/vda4/start"
+    echo "$size" > "$T/sys/block/vda/vda4/size"
     ln -s ../../block/vda/vda4 "$T/sys/class/block/vda4"
     : > "$T/dev/vda4"
     ;;
@@ -190,6 +192,17 @@ untouched() {
     grep -q 'the broker is not started' "$t/err" || fail "no message: $(cat "$t/err")"
 }
 
+# end_ok SPARE: the appended entry ends on 1 MiB, 2048 sectors or more before the end of
+# the disk and its SPARE sectors of a second table
+end_ok() {
+    e_start=$(sed -n 's/^start=\([0-9]*\),.*/\1/p' "$t/appended")
+    e_size=$(sed -n 's/^start=[0-9]*, size=\([0-9]*\),.*/\1/p' "$t/appended")
+    e_end=$((e_start + e_size))
+    e_disk=$(cat "$t/sys/block/vda/size")
+    [ $((e_end % 2048)) -eq 0 ] || fail "the end $e_end is not on 1 MiB"
+    [ $((e_disk - e_end - $1)) -ge 2048 ] || fail "the end $e_end leaves less than 1 MiB before $e_disk"
+}
+
 # ---- the partition --------------------------------------------------------------------
 
 a_new_card_gets_its_partition() {
@@ -200,11 +213,15 @@ a_new_card_gets_its_partition() {
     called '^sfdisk --no-reread --no-tell-kernel --relocate gpt-bak-std .*/dev/vda$'
     called '^sfdisk --no-reread --no-tell-kernel --append .*/dev/vda$'
     want "the entry" "$(cat "$t/appended")" \
-        'start=798720, type=0FC63DAF-8483-4772-8E79-3D69D8477DE4, name="wyrm-data"'
+        'start=798720, size=1294336, type=0FC63DAF-8483-4772-8E79-3D69D8477DE4, name="wyrm-data"'
+    # the end: on a 1 MiB boundary, with at least 1 MiB unused after the second table
+    # (34 sectors): imagers zero the last MiB of a drive
+    end_ok 34
     called '^partx -a --nr 4 '
     # formatted under another label, named when mkfs has ended
     called '^mkfs.ext4 -q -F -L wyrm-new .*/dev/vda4$'
     called '^tune2fs -L wyrm-data .*/dev/vda4$'
+    called '^blkid -p -s LABEL -o value .*/dev/vda4$'
     called '^e2fsck -p .*/dev/vda4$'
     called "^mount -t ext4 -o nosuid,nodev,noatime $t/dev/vda4 $t/part\$"
     called "^mount -o bind $t/part/broker $t/data\$"
@@ -226,7 +243,8 @@ an_mbr_card_gets_a_primary_partition() {
     data_part
     want "exit code ($(cat "$t/err"))" "$rc" 0
     not_called '--relocate'
-    want "the entry" "$(cat "$t/appended")" 'start=798720, type=83'
+    want "the entry" "$(cat "$t/appended")" 'start=798720, size=1296384, type=83'
+    end_ok 0
     called '^mount '
 }
 
@@ -347,6 +365,19 @@ a_file_system_with_errors_is_not_mounted() {
     want "exit code ($(cat "$t/err"))" "$rc" 0
 }
 
+a_partition_that_was_there_elsewhere_is_not_used() {
+    # partition 4 of the table, not where this script puts it: not the image's
+    setup_device elsewhere
+    with_data_partition
+    echo 999424 > "$t/sys/block/vda/vda4/start"
+    echo wyrm-data > "$t/label.vda4"
+    data_part
+    untouched
+    not_called '^e2fsck'
+    not_called '^blkid'
+    grep -q 'does not start at sector 798720' "$t/err" || fail "no message: $(cat "$t/err")"
+}
+
 a_partition_at_another_place_is_not_used() {
     setup_device place
     PARTX_START=999424
@@ -457,14 +488,32 @@ another_site_sets_the_old_data_aside() {
     want "the first" "$(entries "$t/part/.replaced-plant-1")" ".store_key pki "
 }
 
-data_without_a_name_is_kept() {
-    # data of a broker from before this rule: nothing says it is another site's
+data_without_a_name_is_set_aside() {
+    # a `broker` without a `.site` this rule can read: no record says it is this site's
     setup_device unnamed
     mkdir -p "$t/part/broker/pki"
     site_rule
     want "exit code ($(cat "$t/err"))" "$rc" 0
-    want "entries" "$(entries "$t/part")" ".site broker "
-    want "the data" "$(entries "$t/part/broker")" "pki "
+    want "entries" "$(entries "$t/part")" ".replaced-unknown-1 .site broker "
+    want "set aside" "$(entries "$t/part/.replaced-unknown-1")" "pki "
+    want "the new data" "$(entries "$t/part/broker")" ""
+    grep -q 'not recorded' "$t/err" || fail "no message: $(cat "$t/err")"
+    # a site named `unknown` is a site like any other: an unreadable `.site` is not it
+    for bad in '../x' '' 'two words'; do
+        setup_device "unknown-$bad"
+        printf '%s\n' '{ site: "unknown" }' > "$t/etc/wyrmd.json5"
+        mkdir -p "$t/part/broker/pki"
+        printf '%s\n' "$bad" > "$t/part/.site"
+        site_rule
+        want "exit code ($(cat "$t/err"))" "$rc" 0
+        want "entries" "$(entries "$t/part")" ".replaced-unknown-1 .site broker "
+        want ".site" "$(cat "$t/part/.site")" unknown
+        # and its own data is kept
+        mkdir "$t/part/broker/flows"
+        site_rule
+        want "entries" "$(entries "$t/part")" ".replaced-unknown-1 .site broker "
+        want "kept" "$(entries "$t/part/broker")" "flows "
+    done
 }
 
 the_broker_s_links_are_never_followed() {
@@ -606,9 +655,10 @@ for test in a_new_card_gets_its_partition an_mbr_card_gets_a_primary_partition \
     a_partition_that_was_there_is_never_formatted another_disk_is_not_touched \
     a_card_without_room_is_left_alone a_failed_mkfs_leaves_no_data_label \
     a_file_system_with_errors_is_not_mounted a_partition_at_another_place_is_not_used \
+    a_partition_that_was_there_elsewhere_is_not_used \
     a_hybrid_mbr_is_put_back a_mounted_partition_is_not_mounted_again \
     the_same_site_keeps_its_data another_site_sets_the_old_data_aside \
-    data_without_a_name_is_kept the_broker_s_links_are_never_followed \
+    data_without_a_name_is_set_aside the_broker_s_links_are_never_followed \
     a_configuration_without_a_site_starts_no_broker \
     the_site_is_the_key_of_the_outermost_object the_disk_is_the_one_of_the_root; do
     failed=0
