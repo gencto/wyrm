@@ -1261,11 +1261,12 @@ mod tests {
             (
                 StandbyUpdateError::Incompatible(release::Incompatible::NoBuild {
                     version: "0.3.0".into(),
-                    target: "riscv".into(),
-                    has: "x86".into(),
+                    target: "riscv64gc-unknown-linux-musl".into(),
+                    has: "x86_64-unknown-linux-musl".into(),
                 })
                 .to_string(),
-                "wyrmd 0.3.0 has no build for riscv (it has x86)",
+                "wyrmd 0.3.0 has no build for riscv64gc-unknown-linux-musl \
+                 (it has x86_64-unknown-linux-musl)",
             ),
             (
                 StandbyUpdateError::Replication("0.3.0".into()).to_string(),

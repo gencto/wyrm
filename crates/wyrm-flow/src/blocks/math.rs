@@ -1,5 +1,10 @@
 //! Math, rounding, number formatting, trigonometry, statistics and constants of the third set
 //! of blocks (ADR 0044). Pure functions over a [`View`]; `blocks.rs` sends what they give.
+//!
+//! Logarithms, powers, roots and trigonometry are computed with `libm` (pure Rust), never with
+//! the platform's libm: musl, glibc and Apple differ by an ulp, and a block gives the same
+//! number to the last digit on every target the broker ships for. `+ − × ÷` and `sqrt` are
+//! exact by IEEE 754 and stay as they are.
 
 use super::{fixed, num, param, Outs, Param, Shape, View, MAX_LIST, N};
 use crate::nodes::PortType::{self, *};
@@ -196,15 +201,15 @@ pub(super) fn calc(op: Op, v: &View) -> Outs {
         Op::Factorial => out(x.map_or(Value::Null, factorial)),
         Op::Log => {
             let base = number(v.p("base")).unwrap_or(10.0);
-            out(x.map_or(Value::Null, |x| fl(x.ln() / base.ln())))
+            out(x.map_or(Value::Null, |x| fl(libm::log(x) / libm::log(base))))
         }
         Op::Power => {
             let e = number(v.p("exponent"));
             out(match (num(v.inv), e) {
                 (Some(N::I(a)), Some(e)) if e.fract() == 0.0 && (0.0..64.0).contains(&e) => a
                     .checked_pow(e as u32)
-                    .map_or_else(|| fl((a as f64).powf(e)), Value::Int),
-                (Some(a), Some(e)) => fl(a.f().powf(e)),
+                    .map_or_else(|| fl(libm::pow(a as f64, e)), Value::Int),
+                (Some(a), Some(e)) => fl(libm::pow(a.f(), e)),
                 _ => Value::Null,
             })
         }
@@ -283,15 +288,15 @@ pub(super) fn calc(op: Op, v: &View) -> Outs {
             out(r)
         }
         Op::ParseNumber => out(parse_number(v.inv)),
-        Op::Sin => out(x.map_or(Value::Null, |x| fl((DEG * x).sin()))),
-        Op::Cos => out(x.map_or(Value::Null, |x| fl((DEG * x).cos()))),
-        Op::Tan => out(x.map_or(Value::Null, |x| fl((DEG * x).tan()))),
-        Op::Cot => out(x.map_or(Value::Null, |x| fl(1.0 / (DEG * x).tan()))),
-        Op::Asin => out(x.map_or(Value::Null, |x| fl(RAD * x.asin()))),
-        Op::Acos => out(x.map_or(Value::Null, |x| fl(RAD * x.acos()))),
+        Op::Sin => out(x.map_or(Value::Null, |x| fl(libm::sin(DEG * x)))),
+        Op::Cos => out(x.map_or(Value::Null, |x| fl(libm::cos(DEG * x)))),
+        Op::Tan => out(x.map_or(Value::Null, |x| fl(libm::tan(DEG * x)))),
+        Op::Cot => out(x.map_or(Value::Null, |x| fl(1.0 / libm::tan(DEG * x)))),
+        Op::Asin => out(x.map_or(Value::Null, |x| fl(RAD * libm::asin(x)))),
+        Op::Acos => out(x.map_or(Value::Null, |x| fl(RAD * libm::acos(x)))),
         Op::Atan => {
             let px = number(v.p("x")).unwrap_or(1.0);
-            out(x.map_or(Value::Null, |y| fl(RAD * y.atan2(px))))
+            out(x.map_or(Value::Null, |y| fl(RAD * libm::atan2(y, px))))
         }
         Op::ToDegrees => out(x.map_or(Value::Null, |x| fl(RAD * x))),
         Op::ToRadians => out(x.map_or(Value::Null, |x| fl(DEG * x))),
@@ -332,12 +337,12 @@ pub(super) fn root(x: f64, d: f64) -> Value {
         return Value::Null;
     }
     if x < 0.0 && d.fract() == 0.0 && (d as i64) % 2 != 0 {
-        return fl(-(-x).powf(1.0 / d));
+        return fl(-libm::pow(-x, 1.0 / d));
     }
-    let r = x.powf(1.0 / d);
+    let r = libm::pow(x, 1.0 / d);
     let rounded = r.round();
     // an exact root stays a whole number (27, 3: 3, not 3.0000000000000004)
-    if (rounded.powf(d) - x).abs() < f64::EPSILON * x.abs().max(1.0) {
+    if (libm::pow(rounded, d) - x).abs() < f64::EPSILON * x.abs().max(1.0) {
         whole_or_float(rounded)
     } else {
         fl(r)
@@ -755,14 +760,15 @@ mod tests {
             out(Op::ToDegrees, Value::Float(std::f64::consts::PI), &[]),
             180.0,
         );
-        // degrees are `57.29577951308232 * asin(x)`, to the last digit
+        // degrees are `57.29577951308232 * asin(x)` by `libm`: these digits on every target
+        // (the platform's asin gives 29.999999999999996 on Apple and musl)
         assert_eq!(
             out(Op::Asin, Value::Float(0.5), &[]),
-            Value::Float(57.29577951308232 * 0.5f64.asin())
+            Value::Float(30.000000000000004)
         );
         assert_eq!(
             out(Op::Cos, Value::Int(90), &[]),
-            Value::Float((0.017453292519943295f64 * 90.0).cos())
+            Value::Float(6.123233995736766e-17)
         );
     }
 

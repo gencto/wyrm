@@ -9,10 +9,53 @@ is brought to it (`docs/operations.md` §2, "A broker that updates itself").
 
 | File | What |
 |---|---|
-| `wyrmd-<version>-<target>.tar.gz` | the binary `wyrmd`, nothing else; `<target>` is `<arch>-<os>[-musl]` as the binary says (`wyrmd release-info`) |
+| `wyrmd-<version>-<target>.tar.gz` | the binary `wyrmd`, nothing else; `<target>` is the Rust target triple the binary was built for, as it says (`wyrmd release-info`) |
 | `wyrmd-<version>.release.json` | the release document: version, date, notes URL, `min_from`, the SCHEMA of each control-plane store, the replication protocol, and per target the archive's name, size, SHA-256 and URL, and the SHA-256 of the binary in it (`bin_sha256`: what a host checks before every start) |
 | `wyrmd-<version>.release.json.sig` | Ed25519 signature (hex) over `wyrmd-release-v1\n` + the document's bytes |
 | `releases.json` | the channel file (`updates.channel` is its URL): `{wyrmd_channel, index, signature}`. `index` is the text of the index: `wyrmd_releases`, `sequence` (one higher with every index published), `created`, and the entries `{release, signature}`, each a release document as text with its own signature. `signature` signs that text (over `wyrmd-releases-v1\n` + the bytes). One file: a reader never has the index without its signature |
+
+## Targets
+
+| Target | Hosts | Built on |
+|---|---|---|
+| `x86_64-unknown-linux-musl` | Linux x86-64 | `ubuntu-latest`, cargo |
+| `aarch64-unknown-linux-musl` | Linux ARM64 (Raspberry Pi 3/4/5 with a 64-bit OS, most boards) | `ubuntu-24.04-arm`, cargo |
+| `armv7-unknown-linux-musleabihf` | Linux 32-bit ARMv7 with VFP (Cortex-A7/A9/A15: Allwinner A40i, i.MX6, Pi 2, a Pi with a 32-bit OS) | `ubuntu-24.04`, cargo-zigbuild |
+| `arm-unknown-linux-musleabihf` | Linux ARMv6 with VFP (Raspberry Pi Zero/Zero W/1) | `ubuntu-24.04`, cargo-zigbuild |
+| `aarch64-apple-darwin` | macOS on Apple silicon | `macos-latest`, cargo |
+| `x86_64-apple-darwin` | macOS on Intel | `macos-latest`, cargo (cross; the checks run under Rosetta 2) |
+
+Every Linux build is static (musl). The job runs `wyrmd --version` and
+`wyrmd release-info` of each binary before it packs it; a binary for
+another architecture runs under `qemu-user` with a CPU of its level
+(`-cpu arm1176` for ARMv6, `cortex-a7` for ARMv7), so an instruction above
+that level fails the build. ARMv7 is built for generic ARMv7, not for one
+core (`-C target-cpu=cortex-a7` is not set): `ring` finds NEON at run time.
+On 32-bit ARM, WASM links and the `wasm` flow node run on wasmtime's
+interpreter (Pulley), about 10 times slower than the native compiler of the
+other targets; everything else is native.
+
+Not built:
+
+- RISC-V 64 (`riscv64gc-unknown-linux-musl`): wasmtime does not compile
+  for it. Its trap handler reads the registers through `libc::REG_PC`,
+  `REG_SP`, `REG_S0` and `REG_A0`, and the `libc` crate defines them for
+  riscv64 glibc only, not for musl (measured 2026-11-27: wasmtime 50.0.3,
+  libc 0.2.191, the newest 0.2; cargo-zigbuild 0.24.1, zig 0.17.1, Rust
+  1.100.1; wasmtime 51 was not tried). `linux-riscv64` stays a host name a package
+  can carry (`wyrm_link_sdk::package::host_of_triple`).
+- Windows: `wyrmd` compiles for it (`cargo zigbuild check -p wyrmd
+  --target x86_64-pc-windows-gnu` passes, 2026-11-27), but its tests have
+  never run there, and parts are Unix only behind `cfg(unix)`: the update
+  layout and guard (ADR 0048 §2), file modes of keys and data, the
+  `O_NOFOLLOW` copy of a link's data, stop on SIGTERM. It becomes a target
+  when a Windows CI job runs `cargo test -p wyrmd`; it is not ported here.
+
+The target key was `<arch>-<os>[-musl]` until 2026-11-27 (ADR 0048,
+"Decided 2026-11-27"): `arm` was ARMv6 and ARMv7 alike. No release was
+published under that key, so nothing reads it.
+
+## Checks
 
 A broker checks the signature against the keys pinned in its binary
 (`wyrm_admin::release::RELEASE_KEYS`) and in `updates.keys`, then the

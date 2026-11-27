@@ -47,6 +47,10 @@ pub enum LinkCmd {
         /// Use the binaries built before, without `cargo build`.
         #[arg(long)]
         no_build: bool,
+        /// Build with `cargo zigbuild` (cargo-zigbuild and zig on `PATH`):
+        /// a Linux target of another architecture than the host's.
+        #[arg(long)]
+        zig: bool,
         /// Override `kind` of `[package.metadata.wyrm-link]`.
         #[arg(long, value_parser = form_arg())]
         kind: Option<PackageForm>,
@@ -106,6 +110,9 @@ pub enum RepoCmd {
         only: Vec<String>,
         #[arg(long)]
         no_build: bool,
+        /// Build with `cargo zigbuild` (see `wyr link pack --zig`).
+        #[arg(long)]
+        zig: bool,
         #[arg(long)]
         out: PathBuf,
     },
@@ -464,6 +471,7 @@ pub fn run_link(cmd: LinkCmd) -> Result<(), Error> {
         package: krate,
         targets,
         no_build,
+        zig,
         kind,
         out,
         component,
@@ -548,8 +556,9 @@ pub fn run_link(cmd: LinkCmd) -> Result<(), Error> {
     };
     for (triple, host) in builds {
         if !no_build {
+            let build = if zig { "zigbuild" } else { "build" };
             let mut c = Command::new("cargo");
-            c.args(["build", "--release", "-p", &plan.krate, "--bin", &bin])
+            c.args([build, "--release", "-p", &plan.krate, "--bin", &bin])
                 .arg("--manifest-path")
                 .arg(&manifest_path);
             if !plan.features.is_empty() {
@@ -639,8 +648,9 @@ pub fn run_repo(cmd: RepoCmd) -> Result<(), Error> {
             targets,
             only,
             no_build,
+            zig,
             out,
-        } => return official::build_cmd(&src, form, &targets, &only, no_build, &out),
+        } => return official::build_cmd(&src, form, &targets, &only, no_build, zig, &out),
         RepoCmd::Index {
             src,
             zips,

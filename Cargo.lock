@@ -6664,6 +6664,7 @@ dependencies = [
  "ed25519-dalek",
  "hex",
  "jiff",
+ "libm",
  "minicbor",
  "regex",
  "rhai",

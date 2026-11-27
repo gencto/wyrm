@@ -2659,7 +2659,7 @@ mod tests {
     #[test]
     fn an_archive_is_fetched_from_its_url_or_beside_the_index() {
         let asset = |url: &str| Asset {
-            file: "wyrmd-0.2.0-x86_64-linux.tar.gz".into(),
+            file: "wyrmd-0.2.0-x86_64-unknown-linux-musl.tar.gz".into(),
             sha256: "a".repeat(64),
             size: 1,
             url: url.into(),
@@ -2667,11 +2667,11 @@ mod tests {
         };
         assert_eq!(
             asset_url("https://dl.example/wyrmd/releases.json", &asset("")).unwrap(),
-            "https://dl.example/wyrmd/wyrmd-0.2.0-x86_64-linux.tar.gz"
+            "https://dl.example/wyrmd/wyrmd-0.2.0-x86_64-unknown-linux-musl.tar.gz"
         );
         assert_eq!(
             asset_url("https://dl.example/releases.json?x=1", &asset("")).unwrap(),
-            "https://dl.example/wyrmd-0.2.0-x86_64-linux.tar.gz"
+            "https://dl.example/wyrmd-0.2.0-x86_64-unknown-linux-musl.tar.gz"
         );
         assert_eq!(
             asset_url(
@@ -2760,7 +2760,7 @@ mod tests {
         let id = |version: &str, replication| {
             Box::new(Identity {
                 version: version.into(),
-                target: "x86_64-linux".into(),
+                target: "x86_64-unknown-linux-musl".into(),
                 schemas: BTreeMap::from([("registry".to_owned(), 20)]),
                 replication,
             })
@@ -2770,7 +2770,7 @@ mod tests {
                 said: id("0.3.0", 2),
                 signed: id("0.2.0", 1),
             },
-            "the binary in the archive says it is wyrmd 0.3.0 for x86_64-linux (schemas \
+            "the binary in the archive says it is wyrmd 0.3.0 for x86_64-unknown-linux-musl (schemas \
              {\"registry\": 20}, replication 2); the signed release says 0.2.0 (schemas \
              {\"registry\": 20}, replication 1)",
         );

@@ -36,40 +36,64 @@ env:
   CARGO_TERM_COLOR: never
 jobs:
   build:
-    # One binary per host, built from scratch: a release build takes nothing from a cache that
-    # another run could have written. Linux builds are static (musl), so they run on any board.
-    # The target names of the archives come from the binaries (`<arch>-<os>[-musl]`).
+    # One binary per target, built from scratch: a release build takes nothing from a cache that
+    # another run could have written. Linux builds are static (musl), so they run on any board of
+    # their architecture. The target names of the archives come from the binaries (the Rust target
+    # triple, `wyrmd release-info`). A target of another architecture than the runner's is built
+    # with cargo-zigbuild (Linux) or cargo (macOS) and runs under `run`: qemu-user with a CPU of the
+    # target's level (an instruction above it fails the job), or Rosetta 2. The binary packs
+    # itself, so it must start. packaging/wyrmd/README.md lists the targets and why Windows is not one.
     strategy:
       fail-fast: true
       matrix:
         include:
-          - { os: ubuntu-latest, target: x86_64-unknown-linux-musl }
-          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-musl }
-          - { os: macos-latest, target: aarch64-apple-darwin }
+          - { os: ubuntu-latest, target: x86_64-unknown-linux-musl, build: native, run: "" }
+          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-musl, build: native, run: "" }
+          - { os: ubuntu-24.04, target: armv7-unknown-linux-musleabihf, build: zig, run: "qemu-arm-static -cpu cortex-a7" }
+          - { os: ubuntu-24.04, target: arm-unknown-linux-musleabihf, build: zig, run: "qemu-arm-static -cpu arm1176" }
+          - { os: macos-latest, target: aarch64-apple-darwin, build: native, run: "" }
+          - { os: macos-latest, target: x86_64-apple-darwin, build: native, run: "arch -x86_64" }
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
+    env:
+      TARGET: ${{ matrix.target }}
+      RUN: ${{ matrix.run }}
+      BIN: target/${{ matrix.target }}/release/wyrmd
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { persist-credentials: false }
       - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with: { targets: "${{ matrix.target }}" }
-      - if: contains(matrix.target, 'musl')
+      - if: matrix.build == 'native' && contains(matrix.target, 'musl')
         run: sudo apt-get update && sudo apt-get install -y musl-tools
-      - env:
-          TARGET: ${{ matrix.target }}
+      # zig is the linker and C compiler of a cross build, qemu-user runs its binary; pinned
+      - if: matrix.build == 'zig'
+        run: |
+          set -euo pipefail
+          sudo apt-get update && sudo apt-get install -y qemu-user-static
+          python3 -m pip install --user --break-system-packages ziglang==0.17.1
+          cargo install --locked cargo-zigbuild --version 0.24.1
+      - if: matrix.target == 'x86_64-apple-darwin'
+        run: sudo /usr/sbin/softwareupdate --install-rosetta --agree-to-license
+      - if: matrix.build == 'zig'
+        run: cargo zigbuild --locked --release -p wyrmd --target "$TARGET"
+      - if: matrix.build == 'native'
         run: cargo build --locked --release -p wyrmd --target "$TARGET"
+      # the binary starts on its target and names it
+      - run: |
+          set -euo pipefail
+          $RUN "$BIN" --version
+          $RUN "$BIN" release-info
+          $RUN "$BIN" release-info | grep -qF "\"target\":\"$TARGET\""
       # the tag names the version the binary says it is
       - if: startsWith(github.ref, 'refs/tags/wyrmd-v')
         env:
           TAG: ${{ github.ref_name }}
-          BIN: target/${{ matrix.target }}/release/wyrmd
         run: |
-          said="$("$BIN" release-info | sed -n 's/.*"version":"\([^"]*\)".*/\1/p')"
+          said="$($RUN "$BIN" release-info | sed -n 's/.*"version":"\([^"]*\)".*/\1/p')"
           test "wyrmd-v$said" = "$TAG" || { echo "tag $TAG, binary $said"; exit 1; }
-      - env:
-          BIN: target/${{ matrix.target }}/release/wyrmd
-        run: '"$BIN" release pack dist'
+      - run: $RUN "$BIN" release pack dist
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with: { name: "wyrmd-${{ matrix.target }}", path: dist/*, if-no-files-found: error }
 
