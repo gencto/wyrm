@@ -758,3 +758,160 @@ fn inspect_hides_the_setup_hash() {
     dir.write("short.img", &base()[..SIZE - 512]);
     assert!(refused(&inspect("short.img")).contains("is not an image of board `rpi4`"));
 }
+
+/// The same choices through `--choices` and through the file flags give the same image:
+/// `--choices` only makes the files (`wyrm_image::Choices::files`), the assembly is one.
+#[test]
+fn choices_build_the_same_region_as_the_files() {
+    let dir = Dir::new("choices");
+    // an index whose entry names the board's `lan` ports, as `wyr image base` writes it
+    let mut index: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.path("index.json")).unwrap()).unwrap();
+    index["images"][0]["lan"] = serde_json::json!({"bridge": "br-lan", "ports": ["eth0"]});
+    dir.write("index.json", index.to_string());
+    dir.write(
+        "catalog.json",
+        r#"{"links": [
+            {"id": "modbus", "form": "builtin", "driver": "modbus"},
+            {"id": "alarm", "form": "service"},
+            {"id": "scheduler", "form": "service"},
+            {"id": "mqtt", "form": "seed", "file": "mqtt-0.1.0.zip"}]}"#,
+    );
+    let choices = format!(
+        r#"{{"format": "wyrm-choices/1", "site": "plant",
+            "network": {{"mode": "static", "address": "192.168.10.5", "prefix": 24,
+                         "gateway": "192.168.10.1", "dns": ["192.168.10.1"]}},
+            "links": ["mqtt", "alarm", "modbus"], "timezone": "Europe/Kyiv",
+            "ntp": ["0.openwrt.pool.ntp.org", "1.openwrt.pool.ntp.org"],
+            "ssh_keys": {}}}"#,
+        serde_json::Value::String(KEYS.to_owned())
+    );
+    dir.write("choices.json", &choices);
+    dir.write("setup.hash", format!("{SETUP}\n"));
+    let common = [
+        "image",
+        "build",
+        "--image",
+        "base.img",
+        "--index",
+        "index.json",
+        "--board",
+        "rpi4",
+        "--setup-hash-file",
+        "setup.hash",
+    ];
+    let with = |more: &[&str]| {
+        let mut args = common.to_vec();
+        args.extend_from_slice(more);
+        dir.wyr(&args)
+    };
+    let out = with(&[
+        "--choices",
+        "choices.json",
+        "--catalog",
+        "catalog.json",
+        "--out",
+        "choices.img",
+    ]);
+    assert_eq!(ok(&out).trim_end(), "choices.img");
+    let files = read_region(&region_of(&dir.path("choices.img")))
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        wyrm_image::site_of(&files.wyrmd_json5).as_deref(),
+        Some("plant")
+    );
+    assert!(files
+        .wyrmd_json5
+        .contains(r#""modbus": { driver: "modbus" }"#));
+    assert!(files
+        .network
+        .as_deref()
+        .unwrap()
+        .contains("option ipaddr '192.168.10.5'"));
+    assert!(files
+        .seed_json
+        .as_deref()
+        .unwrap()
+        .contains("mqtt-0.1.0.zip"));
+    assert_eq!(files.setup.as_deref(), Some(SETUP));
+    assert_eq!(files.authorized_keys.as_deref(), Some(KEYS));
+
+    // the same files, given one by one
+    dir.write("wyrmd.json5", &files.wyrmd_json5);
+    dir.write("network", files.network.as_deref().unwrap());
+    dir.write("seed.json", files.seed_json.as_deref().unwrap());
+    dir.write("keys", KEYS);
+    ok(&with(&[
+        "--config",
+        "wyrmd.json5",
+        "--network",
+        "network",
+        "--seed",
+        "seed.json",
+        "--authorized-keys",
+        "keys",
+        "--timezone",
+        "Europe/Kyiv",
+        "--ntp",
+        "0.openwrt.pool.ntp.org,1.openwrt.pool.ntp.org",
+        "--out",
+        "files.img",
+    ]));
+    assert_eq!(
+        std::fs::read(dir.path("choices.img")).unwrap(),
+        std::fs::read(dir.path("files.img")).unwrap()
+    );
+
+    // what `Choices::files` refuses is refused before anything is written
+    let before = dir.names();
+    for (bad, says) in [
+        (choices.replace("\"plant\"", "\".plant\""), "site"),
+        (
+            choices.replace("\"modbus\"]", "\"nope\"]"),
+            "`nope` is not one this image offers",
+        ),
+        (choices.replace("\"prefix\": 24", "\"prefix\": 33"), "/33"),
+        (
+            choices.replace("wyrm-choices/1", "wyrm-choices/9"),
+            "cannot be read",
+        ),
+    ] {
+        dir.write("choices.json", &bad);
+        let out = with(&[
+            "--choices",
+            "choices.json",
+            "--catalog",
+            "catalog.json",
+            "--out",
+            "bad.img",
+        ]);
+        let err = refused(&out);
+        assert!(err.contains(says), "{says}: {err}");
+        assert_eq!(dir.names(), before);
+    }
+    // an image of choices always carries a setup hash
+    dir.write("choices.json", &choices);
+    let out = dir.wyr(&[
+        "image",
+        "build",
+        "--image",
+        "base.img",
+        "--index",
+        "index.json",
+        "--board",
+        "rpi4",
+        "--choices",
+        "choices.json",
+        "--catalog",
+        "catalog.json",
+        "--out",
+        "bad.img",
+    ]);
+    let err = refused(&out);
+    assert!(
+        err.contains("--new-setup-code or --setup-hash-file"),
+        "{err}"
+    );
+    assert_eq!(dir.names(), before);
+}

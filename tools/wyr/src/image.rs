@@ -17,7 +17,8 @@ use std::path::{Path, PathBuf};
 use wyrm_core::files::{gone_ok, read_full};
 use wyrm_core::hex::{self, Sha256Stream};
 use wyrm_image::{
-    read_region, region, ConfigFiles, ImageEntry, ImageError, Index, CONFIG_SIZE, MAGIC_FULL,
+    read_region, region, Catalog, Choices, ChoicesError, ConfigFiles, ImageEntry, ImageError,
+    Index, CONFIG_SIZE, MAGIC_FULL,
 };
 use zeroize::Zeroizing;
 
@@ -36,14 +37,23 @@ pub enum ImageCmd {
         #[arg(long)]
         board: String,
         /// The broker's configuration (`wyrmd.json5`).
-        #[arg(long)]
-        config: PathBuf,
+        #[arg(long, required_unless_present = "choices", conflicts_with = "choices")]
+        config: Option<PathBuf>,
+        /// What a person chose (`wyrm-choices/1`, as the image builder page makes it): the
+        /// files of the region are made from it, in place of `--config` and the other files.
+        /// Needs `--catalog` and `--new-setup-code` or `--setup-hash-file`.
+        #[arg(long, requires = "catalog")]
+        choices: Option<PathBuf>,
+        /// The links the image offers (the catalog published beside the index), for
+        /// `--choices`.
+        #[arg(long, requires = "choices")]
+        catalog: Option<PathBuf>,
         /// The network configuration of the device, a UCI file. Without it: DHCP.
-        #[arg(long)]
+        #[arg(long, conflicts_with = "choices")]
         network: Option<PathBuf>,
         /// Which of the links the image carries are installed at the first start
         /// (`wyrm-seed/1`).
-        #[arg(long)]
+        #[arg(long, conflicts_with = "choices")]
         seed: Option<PathBuf>,
         /// A file with the hash of a setup code made before (the second line of `wyrmd
         /// setup-code`): 64 hex digits. The hash is a secret of the image, so it is read
@@ -54,13 +64,13 @@ pub enum ImageCmd {
         #[arg(long, conflicts_with = "setup_hash_file")]
         new_setup_code: bool,
         /// SSH public keys for `root`. Without it the device has no SSH login.
-        #[arg(long)]
+        #[arg(long, conflicts_with = "choices")]
         authorized_keys: Option<PathBuf>,
         /// The IANA name of the time zone (`Europe/Kyiv`).
-        #[arg(long, value_name = "TZ")]
+        #[arg(long, value_name = "TZ", conflicts_with = "choices")]
         timezone: Option<String>,
         /// NTP servers, separated by commas.
-        #[arg(long, value_name = "SERVERS")]
+        #[arg(long, value_name = "SERVERS", conflicts_with = "choices")]
         ntp: Option<String>,
         /// The image to write (raw).
         #[arg(long)]
@@ -100,6 +110,15 @@ pub enum ImageCmdError {
     /// The format refused the index, the files or the region.
     #[error(transparent)]
     Image(#[from] ImageError),
+    /// The choices of `--choices` are refused: not readable, or not files the device takes.
+    #[error(transparent)]
+    Choices(#[from] ChoicesError),
+    /// The file of `--catalog` is not a catalog of links.
+    #[error("`{}` is no catalog of links: {source}", path.display())]
+    Catalog {
+        path: PathBuf,
+        source: serde_json::Error,
+    },
     /// `wyr image base` refused or failed.
     #[error(transparent)]
     Base(#[from] crate::image_base::BaseError),
@@ -109,6 +128,13 @@ pub enum ImageCmdError {
     /// The file of `--setup-hash-file` does not hold a hash. Its text is not repeated.
     #[error("`{}` does not hold the hash of a setup code (64 hex digits)", .0.display())]
     BadSetupHash(PathBuf),
+    /// Neither `--config` nor `--choices` with `--catalog` (clap refuses such a command
+    /// line first).
+    #[error("give --config, or --choices with --catalog")]
+    NoConfig,
+    /// `--choices` without a setup code: the image would have no way to its first admin.
+    #[error("--choices needs --new-setup-code or --setup-hash-file")]
+    NoSetup,
     /// `--out` names the base image itself.
     #[error("`{}` is the base image: --out must be another file", .0.display())]
     SameFile(PathBuf),
@@ -170,6 +196,8 @@ pub fn run(cmd: ImageCmd) -> Result<()> {
             index,
             board,
             config,
+            choices,
+            catalog,
             network,
             seed,
             setup_hash_file,
@@ -183,15 +211,22 @@ pub fn run(cmd: ImageCmd) -> Result<()> {
             let entry = entry(&index, &board)?;
             let text = |path: &Option<PathBuf>| path.as_deref().map(read_text).transpose();
             let (setup, code) = setup(setup_hash_file.as_deref(), new_setup_code)?;
-            let files = ConfigFiles {
-                wyrmd_json5: read_text(&config)?,
-                network: text(&network)?,
-                seed_json: text(&seed)?,
-                setup,
-                authorized_keys: text(&authorized_keys)?,
-                // one name, as given: a space inside it is refused by the check, not split
-                timezone: timezone.as_deref().map(|tz| format!("{}\n", tz.trim())),
-                ntp: ntp.as_deref().and_then(servers),
+            let files = match (choices, catalog, config) {
+                (Some(choices), Some(catalog), _) => {
+                    from_choices(&choices, &catalog, &entry, setup.as_deref())?
+                }
+                (_, _, Some(config)) => ConfigFiles {
+                    wyrmd_json5: read_text(&config)?,
+                    network: text(&network)?,
+                    seed_json: text(&seed)?,
+                    setup,
+                    authorized_keys: text(&authorized_keys)?,
+                    // one name, as given: a space inside it is refused by the check, not split
+                    timezone: timezone.as_deref().map(|tz| format!("{}\n", tz.trim())),
+                    ntp: ntp.as_deref().and_then(servers),
+                },
+                // clap requires `--config` without `--choices`, and `--catalog` with it
+                _ => return Err(ImageCmdError::NoConfig),
             };
             // refused here, before the image is read
             let region = region(&files)?;
@@ -226,6 +261,26 @@ fn entry(index: &Path, board: &str) -> Result<ImageEntry> {
                 .collect::<Vec<_>>()
                 .join(", "),
         })
+}
+
+/// The files of `--choices` with the links of `--catalog` and the setup hash (64 hex
+/// digits, as [`setup`] gives it): an image of the page always carries one.
+fn from_choices(
+    choices: &Path,
+    catalog: &Path,
+    entry: &ImageEntry,
+    setup: Option<&str>,
+) -> Result<ConfigFiles> {
+    let parsed = Choices::parse(&read_text(choices)?)?;
+    let catalog: Catalog =
+        serde_json::from_str(&read_text(catalog)?).map_err(|source| ImageCmdError::Catalog {
+            path: catalog.to_owned(),
+            source,
+        })?;
+    let hash = setup
+        .and_then(hex::decode_array::<32>)
+        .ok_or(ImageCmdError::NoSetup)?;
+    Ok(parsed.files(entry, &catalog, &hash)?)
 }
 
 fn read_text(path: &Path) -> Result<String> {

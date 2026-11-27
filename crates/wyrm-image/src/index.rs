@@ -44,6 +44,60 @@ pub struct ImageEntry {
     /// compressed. `file`, `size` and `sha256` above stay those of the raw image.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub download: Option<Download>,
+    /// The board's name a person reads (`title` of `boards.json`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    /// What a person is told about the board: how it boots, where the card goes (`notes`
+    /// of `boards.json`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notes: Option<String>,
+    /// The network ports of the interface `lan` in the image, as OpenWrt sets them up for
+    /// the board. A static address is written onto them; without it, only DHCP.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lan: Option<Lan>,
+}
+
+/// The ports of the interface `lan` of an image: one network device, or a bridge of
+/// ports (OpenWrt bridges `lan` as `br-lan` even when it has one port).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum Lan {
+    /// The interface is on this device.
+    Device {
+        /// The device, `eth0`.
+        device: String,
+    },
+    /// The interface is on a bridge of these ports.
+    Bridge {
+        /// The bridge's name, `br-lan`.
+        bridge: String,
+        /// The ports of the bridge, at least one.
+        ports: Vec<String>,
+    },
+}
+
+/// The longest name of a network device in Linux (`IFNAMSIZ` less its NUL).
+const IFNAME_MAX: usize = 15;
+
+impl Lan {
+    /// Every name is the name of a network device: 1 to 15 of `A-Z a-z 0-9 _ . -`, not
+    /// starting with `.` or `-`, and a bridge has a port. A writer puts these names into
+    /// the device's UCI text between quotes.
+    pub fn is_plain(&self) -> bool {
+        let name = |n: &String| {
+            !n.is_empty()
+                && n.len() <= IFNAME_MAX
+                && !n.starts_with(['.', '-'])
+                && n.chars()
+                    .all(|c| c.is_ascii_alphanumeric() || "_.-".contains(c))
+        };
+        match self {
+            Self::Device { device } => name(device),
+            Self::Bridge { bridge, ports } => {
+                name(bridge) && !ports.is_empty() && ports.iter().all(name)
+            }
+        }
+    }
 }
 
 /// The compressed form of a base image, as it is published beside the index (gzip). Its size
@@ -109,6 +163,9 @@ pub enum IndexError {
     /// The config region of this board's image does not lie inside the image.
     #[error("board `{0}`: the config region does not lie inside the image")]
     Outside(String),
+    /// The `lan` of this board's entry names no network device ([`Lan::is_plain`]).
+    #[error("board `{0}`: `lan` names no network device (1 to 15 of A-Z a-z 0-9 _ . -, a bridge with ports)")]
+    BadLan(String),
 }
 
 /// A name a reader may join to a directory or a URL: not empty, no separator, no `..`.
@@ -134,7 +191,7 @@ impl Index {
     /// Checks the index: its format, one entry per board, each with a name, a file, a SHA-256
     /// and a config region of [`CONFIG_SIZE`] bytes inside the image. A board, a file and the
     /// file of a `download` are plain names: not empty, without `/`, `\` and `..`. A
-    /// `download` has a SHA-256 too.
+    /// `download` has a SHA-256 too. A `lan` names network devices ([`Lan::is_plain`]).
     pub fn check(&self) -> Result<(), ImageError> {
         if self.format != FORMAT {
             return Err(IndexError::Format(self.format.clone()).into());
@@ -172,6 +229,9 @@ impl Index {
                 .is_some_and(|end| end <= image.size);
             if !inside {
                 return Err(IndexError::Outside(board()).into());
+            }
+            if image.lan.as_ref().is_some_and(|lan| !lan.is_plain()) {
+                return Err(IndexError::BadLan(board()).into());
             }
         }
         Ok(())

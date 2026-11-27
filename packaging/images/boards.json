@@ -56,6 +56,7 @@
       "config_dev": "/dev/mmcblk0p3",
       "data_dev": "/dev/mmcblk0p4",
       "boot_from": "sd",
+      "lan": { "bridge": "br-lan", "ports": ["eth0"] },
       "listed": true,
       "notes": "Write the image to a microSD card and boot from it. A board that boots from a USB stick finds its partitions there by itself; that path is not tried on a board yet."
     },
@@ -73,6 +74,7 @@
       "config_dev": "/dev/mmcblk0p3",
       "data_dev": "/dev/mmcblk0p4",
       "boot_from": "sd",
+      "lan": { "bridge": "br-lan", "ports": ["eth0"] },
       "listed": true,
       "notes": "Write the image to a microSD card and boot from it. A board that boots from a USB stick or an NVMe disk finds its partitions there by itself; that path is not tried on a board yet."
     },
@@ -90,6 +92,7 @@
       "config_dev": "/dev/mmcblk0p8",
       "data_dev": "/dev/mmcblk0p9",
       "boot_from": "sd",
+      "lan": { "bridge": "br-lan", "ports": ["lan1", "lan2", "lan3", "sfp-lan"] },
       "listed": true,
       "notes": "This version runs from the SD card only: write the image to a microSD card, set the boot switch to SD and leave the card in. Do not install onto the eMMC: OpenWrt's install writes its own partition table there, without the config region and the data partition, and the configuration does not go with it. Planned (owner, 2026-11-27): the system on the eMMC by OpenWrt's own install (SD, then SPI-NAND, then eMMC from the U-Boot menu), the configuration from a USB stick that carries the same 4 MiB region, the data partition made on the eMMC at that first boot."
     },
@@ -125,6 +128,7 @@
       "config_dev": "/dev/vda3",
       "data_dev": "/dev/vda4",
       "boot_from": "virtio",
+      "lan": { "bridge": "br-lan", "ports": ["eth0"] },
       "listed": false,
       "notes": "For the smoke test: boots under qemu-system-aarch64 -M virt with UEFI firmware and the image as a virtio disk."
     }

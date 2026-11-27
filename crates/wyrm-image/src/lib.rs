@@ -35,15 +35,27 @@
 //! ([`ImageEntry::config_offset`]), never by a partition label. Before it writes, an assembler
 //! checks the image against its entry ([`ImageEntry::matches`]) and the eight bytes at the
 //! offset ([`check_slot`]).
+//!
+//! # Choices
+//!
+//! The image builder page and `wyr image build --choices` do not take a `wyrmd.json5` from
+//! the person: they take what the person chose ([`Choices`]: a site, DHCP or a static IPv4
+//! address, links of a [`Catalog`], a time zone, NTP servers, SSH keys) and make the files
+//! with [`Choices::files`], one implementation for both, so the same choices and setup hash
+//! give the same region.
 
+mod choices;
 mod device;
 mod index;
 mod names;
 mod region;
 mod tar;
 
+pub use choices::{
+    Catalog, CatalogLink, Choices, ChoicesError, LinkForm, Network, CHOICES_FORMAT, GATEWAY_LISTEN,
+};
 pub use device::{plain_site, site_of, DATA_DIR, NTP_MAX, SITE_MAX};
-pub use index::{Download, ImageEntry, Index, IndexError, FORMAT};
+pub use index::{Download, ImageEntry, Index, IndexError, Lan, FORMAT};
 pub use region::{
     check_slot, read_region, region, ConfigFiles, CONFIG_SIZE, HEADER_SIZE, MAGIC_EMPTY,
     MAGIC_FULL, MAX_PAYLOAD, SEED_DIR, SETUP_FILE,

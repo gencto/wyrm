@@ -25,7 +25,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use wyrm_core::files::read_full;
 use wyrm_core::hex::{self, Sha256Stream};
-use wyrm_image::{read_region, Download, ImageEntry, ImageError, Index, CONFIG_SIZE, SEED_DIR};
+use wyrm_image::{
+    read_region, Download, ImageEntry, ImageError, Index, Lan, CONFIG_SIZE, SEED_DIR,
+};
 
 use crate::image_part::{append_config, Appended, PartError, SECTOR};
 
@@ -118,6 +120,12 @@ pub struct Board {
     pub data_dev: String,
     /// What the board starts from.
     pub boot_from: BootFrom,
+    /// The ports of the interface `lan` as OpenWrt sets them up for the profile
+    /// (`board.d/02_network` of the target, `bin/config_generate` makes `lan` a bridge
+    /// `br-lan`). A static address of the image builder is written onto them; a listed
+    /// board has them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lan: Option<Lan>,
     /// The page lists the board.
     pub listed: bool,
     /// Why no image is built for the board with this release.
@@ -312,6 +320,13 @@ impl Boards {
         }
         if board.title.trim().is_empty() {
             return Err(refuse("no title"));
+        }
+        match &board.lan {
+            Some(lan) if !lan.is_plain() => return Err(refuse(
+                "`lan` names no network device (1 to 15 of A-Z a-z 0-9 _ . -, a bridge with ports)",
+            )),
+            None if board.listed => return Err(refuse("a listed board names its `lan` ports")),
+            _ => {}
         }
         // the file the ImageBuilder writes for this release, target and profile
         let prefix = format!(
@@ -1191,6 +1206,9 @@ fn release(
             size: gz_sum.size,
             sha256: hex::encode(gz_sum.sha256),
         }),
+        title: Some(board.title.clone()),
+        notes: Some(board.notes.clone()),
+        lan: board.lan.clone(),
     };
     let index = out.join("index.json");
     write_index(&index, entry)?;
@@ -1516,6 +1534,20 @@ mod tests {
         assert_eq!(ids, ["rpi4", "rpi5", "bpi-r4", "bpi-r4-8g", "qemu-armsr"]);
         // the board of the tests is never on the page
         assert!(!boards.board("qemu-armsr").unwrap().listed);
+        // OpenWrt bridges `lan` as `br-lan` (bin/config_generate), on `eth0` of the Raspberry
+        // Pi (bcm27xx board.d/02_network) and of QEMU (99-default_network), on the switch
+        // ports and the SFP cage of the BPI-R4 (filogic board.d/02_network)
+        let lan = |id: &str| match boards.board(id).unwrap().lan.clone().unwrap() {
+            Lan::Bridge { bridge, ports } => (bridge, ports.join(" ")),
+            Lan::Device { device } => panic!("{id}: {device} without a bridge"),
+        };
+        for id in ["rpi4", "rpi5", "qemu-armsr"] {
+            assert_eq!(lan(id), ("br-lan".to_owned(), "eth0".to_owned()), "{id}");
+        }
+        assert_eq!(
+            lan("bpi-r4"),
+            ("br-lan".to_owned(), "lan1 lan2 lan3 sfp-lan".to_owned())
+        );
         // MBR on the Raspberry Pi, GPT on the others; the config region is the partition
         // after the root
         assert_eq!(boards.board("rpi4").unwrap().table, Table::Mbr);
@@ -1603,6 +1635,24 @@ mod tests {
             changed(|j| j["boards"][0]["rootfs_partsize_mb"] = 0.into()),
             Err(BoardsError::Board { .. })
         ));
+        // ports the UCI text of a static address cannot take, and a listed board without
+        // them (the page offers it a static address)
+        for lan in [
+            serde_json::json!({"bridge": "br-lan", "ports": []}),
+            serde_json::json!({"bridge": "br-lan", "ports": ["eth0' x"]}),
+            serde_json::json!({"device": "-eth0"}),
+            serde_json::json!({"device": "a-very-long-name0"}),
+            serde_json::Value::Null,
+        ] {
+            assert!(
+                matches!(
+                    changed(|j| j["boards"][0]["lan"] = lan.clone()),
+                    Err(BoardsError::Board { .. })
+                ),
+                "{lan}"
+            );
+        }
+        assert!(changed(|j| j["boards"][0]["lan"] = serde_json::json!({"device": "eth0"})).is_ok());
         assert!(matches!(
             changed(|j| j["packages"][0] = "luci $(reboot)".into()),
             Err(BoardsError::BadName { .. })
@@ -1989,6 +2039,9 @@ mod tests {
             wyrmd_sha256: None,
             manifest_sha256: None,
             download: None,
+            title: None,
+            notes: None,
+            lan: None,
         };
         write_index(&path, entry("rpi4", 64 << 20)).unwrap();
         write_index(&path, entry("qemu-armsr", 64 << 20)).unwrap();

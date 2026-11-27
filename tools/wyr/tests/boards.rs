@@ -124,6 +124,31 @@ fn boards_json_is_valid() {
         assert!(!text(board, "boot_from").is_empty(), "{id}");
         assert!(board["listed"].is_boolean(), "{id}");
         assert!(!text(board, "notes").is_empty(), "{id}");
+        // the page offers a static address on the `lan` ports of a listed board: a bridge
+        // with its ports, or one device
+        let lan = &board["lan"];
+        if board["listed"] == true || !lan.is_null() {
+            let names: Vec<&str> = match (lan["bridge"].as_str(), lan["device"].as_str()) {
+                (Some(bridge), None) => {
+                    let ports = lan["ports"].as_array().unwrap();
+                    assert!(!ports.is_empty(), "{id}: a bridge without ports");
+                    std::iter::once(bridge)
+                        .chain(ports.iter().map(|p| p.as_str().unwrap()))
+                        .collect()
+                }
+                (None, Some(device)) => vec![device],
+                _ => panic!("{id}: `lan` is {lan}"),
+            };
+            for name in names {
+                assert!(
+                    (1..=15).contains(&name.len())
+                        && name
+                            .bytes()
+                            .all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b)),
+                    "{id}: {name}"
+                );
+            }
+        }
         // a board without an image says why, and the page does not list it
         if !board["unavailable"].is_null() {
             assert!(!text(board, "unavailable").is_empty(), "{id}");

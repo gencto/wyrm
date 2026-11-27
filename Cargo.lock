@@ -7442,6 +7442,7 @@ dependencies = [
  "wyrm-gateway",
  "wyrm-gateway-client",
  "wyrm-history",
+ "wyrm-image",
  "wyrm-link-agent",
  "wyrm-link-alarm",
  "wyrm-link-api",

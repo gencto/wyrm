@@ -427,6 +427,8 @@ code" above). Then write `plant-rpi4.img` to the card.
 | `--authorized-keys <file>` | `authorized_keys` | SSH public keys for `root`; without it the device has no SSH login |
 | `--timezone <tz>` | `timezone` | one IANA name, for example `Europe/Kyiv`: `A-Z a-z 0-9 _ + / -`, not starting with `/`, without `..` |
 | `--ntp <servers>` | `ntp` | NTP servers separated by commas, at most 16; each a host name or an address of `A-Z a-z 0-9 . : _ -`, not starting with `-` (an IPv6 address without brackets: `2001:db8::1`) |
+| `--choices <file>` | all of them | what a person chose (`wyrm-choices/1`, as the image builder page makes it): site, DHCP or a static IPv4 address, links, time zone, NTP, SSH keys; the files are made from it (`wyrm_image::Choices::files`, the page's own code). Not with `--config`, `--network`, `--seed`, `--authorized-keys`, `--timezone`, `--ntp`; needs `--catalog` and `--new-setup-code` or `--setup-hash-file` |
+| `--catalog <file>` | | the links the image offers (built-in drivers, the broker's own links, packages of its seed directory), for `--choices` |
 | `--out <file>` | | the image to write, raw; an existing file is replaced only with `--force` |
 
 What the command checks, in this order:

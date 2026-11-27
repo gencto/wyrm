@@ -38,7 +38,7 @@ In `--out` it leaves:
 | `….img.gz` | the same image as gzip, to publish (no name and no time in its header) |
 | `….partitions.txt` | the partitions of the image |
 | `….manifest` | the packages in the image, as the ImageBuilder lists them |
-| `index.json` | `wyrm-images/1`: the entry of the board is written (with `wyrmd_sha256` and `manifest_sha256`), entries of other boards stay |
+| `index.json` | `wyrm-images/1`: the entry of the board is written (with `wyrmd_sha256`, `manifest_sha256` and the board's `title`, `notes` and `lan`), entries of other boards stay |
 
 The gzip, the manifest and the index are written first and the raw image
 last: a run that is cut leaves no raw image of that build in `--out`.
