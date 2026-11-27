@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 848 576" width="848" height="576" role="img" aria-labelledby="t d">
+<title id="t">list: subscribe first, then ask once</title>
+<desc id="d">The client subscribes to the meta of the children and to their liveliness, then sends one get for the list. The link answers Refreshed with the children. Later the link publishes a changed meta and the client gets Changed; when the link stops, its liveliness token goes and the client gets Disconnected.</desc>
+<rect x="0.5" y="0.5" width="847" height="575" rx="12" fill="#161A1D" stroke="#252B30"/>
+<g transform="translate(24 24)">
+<path d="M100 48L100 520" fill="none" stroke="#3A4249" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="4 5"/>
+<path d="M390 48L390 520" fill="none" stroke="#3A4249" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="4 5"/>
+<path d="M680 48L680 420" fill="none" stroke="#3A4249" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="4 5"/>
+<rect x="25" y="0" width="150" height="48" rx="10" fill="#0E1113" stroke="#3A4249"/>
+<text x="100" y="19" text-anchor="middle" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="600" fill="#ECE9E1">client</text>
+<text x="100" y="37" text-anchor="middle" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#ECE9E1">wyrm-client</text>
+<rect x="315" y="0" width="150" height="48" rx="10" fill="#0E1113" stroke="#3A4249"/>
+<text x="390" y="19" text-anchor="middle" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="600" fill="#ECE9E1">router</text>
+<text x="390" y="37" text-anchor="middle" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#ECE9E1">Zenoh, in wyrmd</text>
+<rect x="605" y="0" width="150" height="48" rx="10" fill="#0E1113" stroke="#3A4249"/>
+<text x="680" y="19" text-anchor="middle" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="600" fill="#ECE9E1">link</text>
+<text x="680" y="37" text-anchor="middle" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#ECE9E1">owns boiler/**</text>
+<text x="245" y="88" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" fill="#C5CBCE">subscribe boiler/*/~meta</text>
+<path d="M101 104L380 104" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round"/>
+<polygon points="389,104 380,99.5 380,108.5" fill="#8E979C"/>
+<text x="245" y="134" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" fill="#C5CBCE">liveliness boiler/*</text>
+<path d="M101 150L380 150" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round"/>
+<polygon points="389,150 380,145.5 380,154.5" fill="#8E979C"/>
+<text x="245" y="174" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" fill="#8E979C">both first, so no update is lost</text>
+<text x="245" y="204" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" fill="#C5CBCE">get boiler/~meta?view=list</text>
+<path d="M101 220L670 220" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round"/>
+<polygon points="679,220 670,215.5 670,224.5" fill="#8E979C"/>
+<text x="535" y="254" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" fill="#C5CBCE">Refreshed: t1, t2, pump</text>
+<path d="M679 270L110 270" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round"/>
+<polygon points="101,270 110,265.5 110,274.5" fill="#8E979C"/>
+<text x="535" y="314" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" fill="#C5CBCE">put boiler/t2/~meta</text>
+<path d="M679 330L400 330" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round"/>
+<polygon points="391,330 400,325.5 400,334.5" fill="#8E979C"/>
+<text x="245" y="360" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" fill="#C5CBCE">Changed: t2</text>
+<path d="M389 376L110 376" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round"/>
+<polygon points="101,376 110,371.5 110,380.5" fill="#8E979C"/>
+<text x="680" y="440" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" fill="#8E979C">the link stops: its</text>
+<text x="680" y="456" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" fill="#8E979C">liveliness token is gone</text>
+<text x="245" y="464" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" fill="#C5CBCE">Disconnected</text>
+<path d="M389 480L110 480" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round"/>
+<polygon points="101,480 110,475.5 110,484.5" fill="#8E979C"/>
+</g>
+</svg>

@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 848 306" width="848" height="306" role="img" aria-labelledby="t d">
+<title id="t">One node and its four suffixes</title>
+<desc id="d">The node boiler/t1 is addressed with a suffix: ~meta describes it, ~val is its published value, ~set takes a value and answers with a status, ~act/&lt;name&gt; takes arguments and answers with one reply or a stream.</desc>
+<rect x="0.5" y="0.5" width="847" height="305" rx="12" fill="#161A1D" stroke="#252B30"/>
+<g transform="translate(24 24)">
+<rect x="0" y="102" width="160" height="60" rx="10" fill="#0E1113" stroke="#3A4249"/>
+<text x="80" y="127" text-anchor="middle" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="600" fill="#ECE9E1">boiler/t1</text>
+<text x="80" y="145" text-anchor="middle" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#ECE9E1">one node</text>
+<path d="M160 132L205 132" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round"/>
+<path d="M205 24L205 234" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round"/>
+<path d="M205 24L250 24" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round"/>
+<polygon points="259,24 250,19.5 250,28.5" fill="#8E979C"/>
+<rect x="260" y="0" width="540" height="48" rx="10" fill="#0E1113" stroke="#3A4249"/>
+<text x="278" y="29" text-anchor="start" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="14" fill="#E8893A">~meta</text>
+<text x="398" y="29" text-anchor="start" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#ECE9E1">type, unit, writable, actions: what the node is</text>
+<path d="M205 94L250 94" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round"/>
+<polygon points="259,94 250,89.5 250,98.5" fill="#8E979C"/>
+<rect x="260" y="70" width="540" height="48" rx="10" fill="#0E1113" stroke="#3A4249"/>
+<text x="278" y="99" text-anchor="start" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="14" fill="#E8893A">~val</text>
+<text x="398" y="99" text-anchor="start" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#ECE9E1">{v, q, t}: the value, its quality and its time, published</text>
+<path d="M205 164L250 164" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round"/>
+<polygon points="259,164 250,159.5 250,168.5" fill="#8E979C"/>
+<rect x="260" y="140" width="540" height="48" rx="10" fill="#0E1113" stroke="#3A4249"/>
+<text x="278" y="169" text-anchor="start" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="14" fill="#E8893A">~set</text>
+<text x="398" y="169" text-anchor="start" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#ECE9E1">a value in, a status out</text>
+<path d="M205 234L250 234" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round"/>
+<polygon points="259,234 250,229.5 250,238.5" fill="#8E979C"/>
+<rect x="260" y="210" width="540" height="48" rx="10" fill="#0E1113" stroke="#3A4249"/>
+<text x="278" y="239" text-anchor="start" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="14" fill="#E8893A">~act/&lt;name&gt;</text>
+<text x="398" y="239" text-anchor="start" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#ECE9E1">arguments in; one reply or a stream out</text>
+</g>
+</svg>

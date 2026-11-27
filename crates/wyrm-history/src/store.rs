@@ -50,15 +50,67 @@ pub enum Error {
     /// may try again. The same words as `wyrm_state::StateError::InUse`.
     #[error("history store: {} is in use by another process", .0.display())]
     InUse(PathBuf),
+    /// redb refused, for a reason that is not an I/O error: its words.
     #[error("history store: {0}")]
     Db(String),
+    /// redb failed on an I/O error of the file (a full disk among them): its
+    /// words, and the I/O error as the source.
+    #[error("history store: {text}")]
+    DbIo {
+        text: String,
+        #[source]
+        source: std::io::Error,
+    },
     #[error("history store: {0}")]
     Io(#[from] std::io::Error),
 }
 
-fn db<E: std::fmt::Display>(e: E) -> Error {
-    Error::Db(e.to_string())
+/// A redb error as [`Error`]: its words, and its I/O error kept as the
+/// source (redb's errors give no `source` of their own).
+fn db<E: RedbError>(e: E) -> Error {
+    let text = e.to_string();
+    match e.into_io() {
+        Some(source) => Error::DbIo { text, source },
+        None => Error::Db(text),
+    }
 }
+
+/// An error of redb, and the I/O error it holds, if any.
+trait RedbError: std::fmt::Display {
+    fn into_io(self) -> Option<std::io::Error>;
+}
+
+impl RedbError for redb::StorageError {
+    fn into_io(self) -> Option<std::io::Error> {
+        match self {
+            redb::StorageError::Io(e) => Some(e),
+            _ => None,
+        }
+    }
+}
+
+/// The redb errors whose only I/O error is that of their storage.
+macro_rules! redb_storage_error {
+    ($($t:ident),+) => {$(
+        impl RedbError for redb::$t {
+            fn into_io(self) -> Option<std::io::Error> {
+                match self {
+                    redb::$t::Storage(e) => e.into_io(),
+                    _ => None,
+                }
+            }
+        }
+    )+};
+}
+
+redb_storage_error!(
+    DatabaseError,
+    TableError,
+    TransactionError,
+    CommitError,
+    CompactionError,
+    SavepointError
+);
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -181,7 +233,10 @@ impl Store {
                     _ => {
                         // the store's identity, from the one random source: a store
                         // without one is not made (a standby keeps its cursor by this id)
-                        let id = u64::from_le_bytes(wyrm_core::rand::bytes().map_err(db)?).max(1);
+                        let id = u64::from_le_bytes(
+                            wyrm_core::rand::bytes().map_err(|e| Error::Db(e.to_string()))?,
+                        )
+                        .max(1);
                         meta.insert("id", id).map_err(db)?;
                         id
                     }
@@ -910,6 +965,45 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 mod tests {
     use super::*;
     use crate::time::parse_iso;
+
+    /// A redb error says what it said, and its I/O error (a full disk while a
+    /// page is written) is kept as the source, also through the error of the
+    /// transaction or the table that holds it.
+    #[test]
+    fn a_redb_io_error_keeps_its_cause() {
+        use std::error::Error as _;
+        use std::io::ErrorKind as K;
+        let full = || redb::StorageError::Io(std::io::Error::new(K::StorageFull, "no space"));
+        let text = format!("history store: {}", full());
+        for e in [
+            db(full()),
+            db(redb::CommitError::Storage(full())),
+            db(redb::TableError::Storage(full())),
+            db(redb::DatabaseError::Storage(full())),
+            db(redb::TransactionError::Storage(full())),
+        ] {
+            assert_eq!(e.to_string(), text);
+            assert!(matches!(e, Error::DbIo { .. }), "{e:?}");
+            let kind = e
+                .source()
+                .and_then(|s| s.downcast_ref::<std::io::Error>())
+                .map(std::io::Error::kind);
+            assert_eq!(kind, Some(K::StorageFull));
+        }
+        let e = db(redb::StorageError::Corrupted("bad page".into()));
+        assert_eq!(
+            e.to_string(),
+            format!(
+                "history store: {}",
+                redb::StorageError::Corrupted("bad page".into())
+            )
+        );
+        assert!(matches!(e, Error::Db(_)) && e.source().is_none(), "{e:?}");
+        assert!(matches!(
+            db(redb::DatabaseError::DatabaseAlreadyOpen),
+            Error::Db(_)
+        ));
+    }
 
     pub(crate) fn temp(name: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("wyrm-hist-{name}-{}", std::process::id()));

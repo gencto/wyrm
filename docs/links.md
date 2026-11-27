@@ -5,6 +5,14 @@ subtree `wy/<site>/downstream/<link>/**`: nodes, values, `set` and actions. This
 page tells you how to install a link while the broker runs, what the broker
 does with it, what goes in a package, and what the limits are.
 
+![The key wy/plant/downstream/modbus/boiler/t1/~val by segment, and a request that the router hands to the link](img/key-anatomy.svg)
+
+*One key is one address. Every segment has a meaning, and the last one says what you want: meta, the value, a write or an action. The router matches the key and hands the request to the link that declared the branch; it never opens the body (spec 01).*
+
+![The node boiler/t1 with its suffixes ~meta, ~val, ~set and ~act/<name>](img/node-faces.svg)
+
+*A node is a key path, and the suffix says which face of it you address. Meta describes the node, the value is published, a write is a query answered with a status, and an action is a query answered with one reply or a stream (spec 05).*
+
 Decisions behind this page: ADR 0004 (driver framework), ADR 0006 (ACL and
 quarantine), ADR 0010 (WASM host), ADR 0011 (installing links at runtime),
 ADR 0012 (network for WASM links), ADR 0013 (links as requesters), ADR 0021

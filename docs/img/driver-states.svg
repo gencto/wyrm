@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 858 300" width="858" height="300" role="img" aria-labelledby="t d">
+<title id="t">The states of a node in the driver framework</title>
+<desc id="d">New goes to Connecting on start, Connecting to Connected when the ping is good. A timeout or an error leads to Failed, and a retry after a backoff leads back to Connecting. Stop leads to Stopped; the children of a stopped or failed parent are StoppedByParent.</desc>
+<rect x="0.5" y="0.5" width="857" height="299" rx="12" fill="#161A1D" stroke="#252B30"/>
+<g transform="translate(24 24)">
+<rect x="20" y="52" width="110" height="48" rx="10" fill="#0E1113" stroke="#3A4249"/>
+<text x="75" y="80" text-anchor="middle" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#ECE9E1">New</text>
+<rect x="220" y="52" width="130" height="48" rx="10" fill="#0E1113" stroke="#3A4249"/>
+<text x="285" y="80" text-anchor="middle" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#ECE9E1">Connecting</text>
+<rect x="430" y="52" width="130" height="48" rx="10" fill="#0E1113" stroke="#E8893A"/>
+<text x="495" y="80" text-anchor="middle" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#ECE9E1">Connected</text>
+<rect x="640" y="52" width="120" height="48" rx="10" fill="#0E1113" stroke="#3A4249"/>
+<text x="700" y="80" text-anchor="middle" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#ECE9E1">Stopped</text>
+<rect x="220" y="192" width="130" height="48" rx="10" fill="#0E1113" stroke="#3A4249"/>
+<text x="285" y="220" text-anchor="middle" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#ECE9E1">Failed</text>
+<rect x="640" y="192" width="160" height="48" rx="10" fill="#0E1113" stroke="#3A4249"/>
+<text x="720" y="220" text-anchor="middle" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#ECE9E1">StoppedByParent</text>
+<path d="M130 76L210 76" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round"/>
+<polygon points="219,76 210,71.5 210,80.5" fill="#8E979C"/>
+<text x="175" y="62" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" fill="#C5CBCE">start</text>
+<path d="M350 76L420 76" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round"/>
+<polygon points="429,76 420,71.5 420,80.5" fill="#8E979C"/>
+<text x="390" y="62" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" fill="#C5CBCE">ping ok</text>
+<path d="M560 76L630 76" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round"/>
+<polygon points="639,76 630,71.5 630,80.5" fill="#8E979C"/>
+<text x="600" y="62" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" fill="#C5CBCE">stop</text>
+<path d="M263 100L263 182" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round"/>
+<polygon points="263,191 258.5,182 267.5,182" fill="#8E979C"/>
+<text x="251" y="150" text-anchor="end" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" fill="#C5CBCE">timeout, error</text>
+<path d="M307 192L307 110" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round"/>
+<polygon points="307,101 302.5,110 311.5,110" fill="#8E979C"/>
+<text x="319" y="150" text-anchor="start" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" fill="#C5CBCE">retry after backoff</text>
+<path d="M495 100L495 216" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round"/>
+<path d="M495 216L360 216" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round"/>
+<polygon points="351,216 360,211.5 360,220.5" fill="#8E979C"/>
+<text x="507" y="150" text-anchor="start" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" fill="#C5CBCE">comm fail</text>
+<path d="M700 52L700 24" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round"/>
+<path d="M700 24L285 24" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round"/>
+<path d="M285 24L285 42" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round"/>
+<polygon points="285,51 280.5,42 289.5,42" fill="#8E979C"/>
+<text x="500" y="14" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" fill="#C5CBCE">start again</text>
+<path d="M700 100L700 182" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round"/>
+<polygon points="700,191 695.5,182 704.5,182" fill="#8E979C"/>
+<text x="712" y="150" text-anchor="start" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" fill="#C5CBCE">its children</text>
+</g>
+</svg>

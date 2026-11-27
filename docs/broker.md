@@ -8,6 +8,10 @@ to run it. The normative protocol is [`spec/`](../spec/README.md).
 ## Control plane
 `wyrm-admin` serves `wy/<site>/sys/**` with the same `list`/`subscribe`/`invoke` as devices. Actions need a `ptok` with `config`, except `hello`, which checks the link token.
 
+![The messages of list between a client, the router and a link](img/list-sequence.svg)
+
+*`list` in one picture, the same under `sys` as under a link: the client subscribes to the meta and the liveliness of the children first, then asks once. After that only changes travel: `Added`, `Changed`, `Removed`, and `Disconnected` when a liveliness token drops (spec 05).*
+
 | Node | Actions / value |
 |---|---|
 | `sys` | values as on a DSA broker (versions, start time, traffic per second, `allow_all_links`, `enable_quarantine`); `~act/clear_conns`, `get_permissions`, `update_permissions {role, path, level}` |
@@ -27,6 +31,10 @@ to run it. The normative protocol is [`spec/`](../spec/README.md).
 | `wy/<site>/sys/broker` | liveliness token of the broker (no node); `sys` `~meta` carries `attr.proto`, `version`, `site` |
 
 `wyr` gets admin commands as well (links, install, set-secret, …) — see `wyr --help`. ACL changes rebuild the router runtime (ADR 0006).
+
+![Edit, registry, ACL, rebuild, reconnect](img/config-change.svg)
+
+*What follows a change that touches the ACL. The registry goes to the write-ahead log, the ACL is generated from the registry, and the router runtime is built again, because Zenoh 1.10 has no live ACL reload. Installs in flight finish first; clients reconnect and open their streams again.*
 
 Link secrets (device passwords, keys) live in `data_dir/secrets.bin` (ChaCha20-Poly1305, key file 0600), never in the tree, `~def` or logs. `install` refuses params that look like secrets. Embedded links get them at start, process links in the `hello` reply; a link sees a new secret on its next start. `wyr admin set-secret <site> <id> <name>` reads the value from stdin.
 
@@ -78,6 +86,10 @@ gateway: { listen: "0.0.0.0:8443", tls: "site_ca", setup_file: "/etc/wyrm/setup"
 ```
 With `tls: "site_ca"` the broker issues the gateway's certificate itself at each start, into `data_dir/gateway/tls.{pem,key}`, and keeps it while it names exactly the same names and has more than 30 days left. While the gateway serves, the broker reads the host's addresses every 30 s and serves a new certificate when they change or the one in force has less than 30 days left, without a restart; clients trust `data_dir/pki/ca.pem` ([operations.md](operations.md) §2, "Gateway TLS from the site CA"). On Linux, temporary (privacy), deprecated and tentative IPv6 addresses are left out of the certificate; elsewhere every global IPv6 address is named. A certificate the site CA did not sign (keys restored from another site) is issued again. With `tls_cert`/`tls_key`, a pair that cannot be read or does not match stops the broker at its start (the error names the file); at a later router rebuild such a pair leaves the certificate in force with a warning.
 Start `wyrmd` once with `WYRM_GATEWAY_ADMIN_PASSWORD` set to create the first admin, or give it the hash of a one-time setup code in `gateway.setup_file` (`wyrmd setup-code`; ADR 0051 §3, [operations.md](operations.md) "First admin from a setup code"): while no user exists, `POST /api/setup {code, user, password}` (CBOR, no session) makes that user an admin and uses the code up. It answers `204`, or refuses with `409` code `no_setup` (no setup pending, or a user exists), `403` code `setup_code_wrong`, `400` for a name or password `/api/users` would refuse, and `429` from the limiter of `/api/login` (the same budgets: 5 failures per 60 s per user name and address, 20 per 60 s per address over all names). On a stopped broker, `wyrmd -c wyrmd.json5 user list|add <name> --roles a,b|passwd|roles|disable|enable|remove` manages users (passwords from stdin, changes audited as `local:cli`); while it runs, the stores are locked and the gateway's `/api/users` endpoints do the same. `POST /api/login {user, password}` (CBOR) returns a session; `POST /api/ws-ticket` (bearer session) returns a single-use 30 s ticket, and `GET /api/ws?ticket=…` opens the WebSocket proxy (both for a session of a password or device login only; any other session gets 403 `person_required`) (`list`, `subscribe`, `set`, `invoke`, `doc`, filtered by the user's grants). `doc {key, suffix}` reads a node's document (`suffix`: `~state` or `~def`, at most 1 MiB) with the rights of `list` on the node; a restricted node (an agent's `tasks`) decides by the user's own token. `invoke … approve {steps: [n…], plan}` on an agent task is signed by the gateway: one token per named step, for the plan it reads itself, within the user's grants (ADR 0049, `docs/agent.md`). The gateway signs one `ptok` per request with its own key, which links, the flow engine and the admin (`sys/**`) trust; the user's grants decide what each request may do, and only the `admin` role has grants on `sys/**` (ADR 0009). Whoever can read `data_dir/gateway/gateway.key` is therefore a full administrator: keep `data_dir` readable by the broker user only. One user holds at most 8 WebSockets and sends at most 100 requests per second over all of them (burst 200; `rate_limited` past it); a `history` request asks for at most 10 000 rows (security review GW-2).
+
+![A write from a user through the gateway to a link, with the permission token and the audit record](img/write-sequence.svg)
+
+*One write, end to end. The gateway does not forward a session: for each request it mints a short-lived signed token (`ptok`) with the user's grants, and the link's SDK checks that token before the driver runs anything (spec 04, ADR 0009). The audit record keeps who, which key and the SHA-256 of the arguments.*
 
 ### Device keys, step-up and finding the gateway (ADR 0050)
 
