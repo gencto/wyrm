@@ -13,6 +13,10 @@
 #               overlapping entries as one problem. With this option that one problem,
 #               and no other, is accepted.
 #
+# The container gets one capability, DAC_READ_SEARCH: an assembled image is its owner's
+# alone (0600, `wyr image build`), and root without capabilities cannot read it through
+# the read-only mount (Linux; Docker Desktop's file sharing does not show this).
+#
 # RUNTIME   docker (default) or podman
 # The container is alpine by digest; it installs `sfdisk` and `sgdisk` from alpine's
 # packages at each run (a check, not a build: nothing of it goes into an image).
@@ -29,7 +33,8 @@ if [ "${1:-}" != --inside ]; then
     fi
     dir=$(cd "$(dirname "$1")" && pwd)
     self=$(cd "$(dirname "$0")" && pwd)/verify-table.sh
-    exec "$RUNTIME" run --rm --cap-drop ALL --security-opt no-new-privileges \
+    exec "$RUNTIME" run --rm --cap-drop ALL --cap-add DAC_READ_SEARCH \
+        --security-opt no-new-privileges \
         -v "$dir":/image:ro -v "$self":/verify-table.sh:ro "$IMAGE" \
         sh /verify-table.sh --inside "/image/$(basename "$1")" "${2:-}"
 fi
@@ -42,7 +47,8 @@ fail() {
     exit 1
 }
 
-table=$(sfdisk -d "$img" 2> /dev/null) || fail "sfdisk reads no partition table"
+[ -r "$img" ] || fail "cannot read $img in the container"
+table=$(sfdisk -d "$img") || fail "sfdisk reads no partition table"
 echo "$table"
 label=$(echo "$table" | sed -n 's/^label: //p')
 sfdisk -V "$img" || fail "sfdisk -V finds an error"
