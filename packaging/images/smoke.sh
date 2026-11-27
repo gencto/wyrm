@@ -15,7 +15,8 @@
 #                       180 with hvf or kvm, 900 under TCG)
 #
 # Environment: RUNTIME (docker or podman), QEMU (qemu-system-aarch64), QEMU_EFI (the
-# UEFI firmware), SMOKE_PORT (18445, the gateway on the host), SMOKE_SSH (10022).
+# UEFI firmware), SMOKE_PORT (18445, the gateway on the host), SMOKE_SSH (10022),
+# SMOKE_ACCEL (`tcg`: TCG even where hvf or kvm is there, as on a CI runner).
 #
 # 1. `wyr image base` makes the base image; `verify-table.sh` checks its table.
 # 2. The base image as it is (no configuration) boots: the console says the broker is
@@ -23,14 +24,17 @@
 #    image has no login (SSH off, root locked), so the guest's loopback is not probed:
 #    that no broker runs at all is shown by the console line and by the disk, which
 #    gets no data partition (the service makes it only for a configuration).
-# 3. `wyr image build` assembles the image with a test configuration, a new setup code
-#    and an SSH key of this run. It boots on a disk with room for the data partition:
+# 3. `wyr image build` assembles the image with a test configuration, a new setup code,
+#    an SSH key of this run, a time zone and NTP servers. It boots on a disk with room
+#    for the data partition:
 #    within the time limit `/api/info` answers over TLS with `setup: true` and a
 #    `setup_proof` that verifies with the code and the presented CA; the CA is pinned;
 #    `POST /api/setup` makes the first admin; the login works. NTP set the clock
-#    (the marker /var/run/wyrm/time-synced) and the site's CA was made after it.
+#    (the marker /var/run/wyrm/time-synced) and the site's CA was made after it. uci
+#    holds the zone and the servers of the build; the broker runs as uid 787 in the
+#    group dialout on the data partition.
 # 4. It is powered off and booted again: the same CA, no setup offered, the login
-#    works, NTP set the clock again. The broker runs as uid 787 on the data partition.
+#    works, NTP set the clock again, the broker runs as uid 787 in the group dialout.
 # 5. The region on the disk is empty (`wyr image inspect`), and the table the first
 #    boot wrote (data partition, GPT moved to the end) passes `verify-table.sh`.
 
@@ -43,6 +47,10 @@ QEMU=${QEMU:-qemu-system-aarch64}
 PORT=${SMOKE_PORT:-18445}
 SSH_PORT=${SMOKE_SSH:-10022}
 SITE=smoke
+# the zone and the servers the assembled image sets (uci, at the first boot): the servers
+# replace OpenWrt's list, so they must answer for the clock check to pass
+ZONE=Europe/Kyiv
+NTP=0.openwrt.pool.ntp.org,1.openwrt.pool.ntp.org,2.openwrt.pool.ntp.org
 
 say() { echo "smoke [$(date -u +%H:%M:%S)] $*"; }
 die() {
@@ -87,16 +95,23 @@ work=$(cd "$work" && pwd)
 
 # ---- QEMU: the accelerator and the firmware -------------------------------------------
 
-case $(uname -s)/$(uname -m) in
-Darwin/arm64) accel="-accel hvf -cpu host" ;;
-Linux/aarch64)
+# Under TCG the CPU is `cortex-a72` (the core of the Raspberry Pi 4), never `max`: the
+# UEFI firmware of Ubuntu 26.04 (`qemu-efi-aarch64` 2025.11) prints its banner and then
+# stops on a `max` CPU (with QEMU 10.2 and 11.1 alike; with `lpa2=off` it ends in a
+# synchronous exception), so the guest never boots on a CI runner.
+tcg="-accel tcg,thread=multi -cpu cortex-a72"
+case ${SMOKE_ACCEL:-}/$(uname -s)/$(uname -m) in
+tcg/*) accel=$tcg ;;
+/Darwin/arm64) accel="-accel hvf -cpu host" ;;
+/Linux/aarch64)
     if [ -w /dev/kvm ]; then
         accel="-accel kvm -cpu host"
     else
-        accel="-accel tcg,thread=multi -cpu max,pauth-impdef=on"
+        accel=$tcg
     fi
     ;;
-*) accel="-accel tcg,thread=multi -cpu max,pauth-impdef=on" ;;
+/*) accel=$tcg ;;
+*) die "SMOKE_ACCEL is tcg or not set" ;;
 esac
 # An aarch64 guest under TCG (an x86-64 CI runner) boots and hashes passwords many times
 # slower than with hvf or kvm, so it gets five times the plan's limit.
@@ -149,8 +164,8 @@ since() { echo $(($(date +%s) - booted)); }
 wait_console() {
     n=0
     until grep -qF "$2" "$1" 2> /dev/null; do
-        kill -0 "$qemu_pid" 2> /dev/null || die "qemu ended; $1: $(tail -5 "$1")"
-        [ "$n" -lt "$3" ] || die "no \"$2\" on the console within $3 s"
+        kill -0 "$qemu_pid" 2> /dev/null || die "qemu ended; $1: $(tail -5 "$1"); qemu: $(tail -5 "$1.qemu")"
+        [ "$n" -lt "$3" ] || die "no \"$2\" on the console within $3 s; its last line: $(tail -1 "$1")"
         sleep 2
         n=$((n + 2))
     done
@@ -162,8 +177,10 @@ guest() {
         -o ConnectTimeout=10 -o BatchMode=yes -o LogLevel=ERROR root@127.0.0.1 "$@"
 }
 
-# What the guest says about its broker: `uid=`, the mounts of the data partition, `tail=`
-# (sectors from the end of the data partition to the end of the disk), the clock (`now=`,
+# What the guest says about its broker: `uid=`, `groups=` (its supplementary groups),
+# `dialout=` (the id of that group), `zonename=` and `ntp=` (what the first boot set in
+# uci), the mounts of the data partition, `tail=` (sectors from the end of the data
+# partition to the end of the disk), the clock (`now=`,
 # `synced_at=` and `synced_uptime=` of the NTP marker, `ca_made=`: the site CA's file,
 # Unix seconds) and what the log says about NTP and the first boot.
 guest_report() {
@@ -171,6 +188,10 @@ guest_report() {
 pid=$(pgrep -f '^/usr/bin/wyrmd( |$)' | head -1)
 echo "wyrmd pid ${pid:-none}"
 [ -z "$pid" ] || echo "uid=$(sed -n 's/^Uid:[[:space:]]*\([0-9]*\).*/\1/p' "/proc/$pid/status")"
+[ -z "$pid" ] || echo "groups=$(sed -n 's/^Groups:[[:space:]]*//p' "/proc/$pid/status" | tr -s ' \t' ' ' | sed 's/ $//')"
+echo "dialout=$(sed -n 's/^dialout:[^:]*:\([0-9]*\):.*/\1/p' /etc/group)"
+echo "zonename=$(uci -q get system.@system[0].zonename)"
+echo "ntp=$(uci -q get system.ntp.server)"
 grep -E ' /srv/wyrm(-part)? ' /proc/mounts
 d=$(cat /sys/block/vda/size)
 s=$(cat /sys/block/vda/vda4/start)
@@ -200,6 +221,17 @@ clock() {
     [ -n "$synced" ] || die "NTP did not set the clock: no /var/run/wyrm/time-synced"
     ! grep -q 'wyrm: no NTP' "$1" || die "the broker waited for NTP in vain"
     say "NTP set the clock $synced s after the boot; the guest's clock is $(($(value now "$1") - host)) s from this host's"
+}
+
+# broker_groups <report>: the broker is in the group dialout (serial ports: Modbus RTU and
+# the like), whose id the guest's /etc/group says
+broker_groups() {
+    dialout=$(value dialout "$1")
+    [ -n "$dialout" ] || die "the guest has no group dialout"
+    case " $(value groups "$1") " in
+    *" $dialout "*) say "the broker is in the group dialout ($dialout)" ;;
+    *) die "the broker's groups '$(value groups "$1")' lack dialout ($dialout)" ;;
+    esac
 }
 
 # poweroff through SSH; qemu ends with the guest
@@ -287,7 +319,7 @@ EOF
 disk=$work/disk.img
 "$wyr" image build --image "$image" --index "$index" --board "$BOARD" \
     --config "$work/wyrmd.json5" --new-setup-code --authorized-keys "$key.pub" \
-    --out "$disk" --force > "$work/build.out"
+    --timezone "$ZONE" --ntp "$NTP" --out "$disk" --force > "$work/build.out"
 SMOKE_CODE=$(sed -n 's/^setup code: //p' "$work/build.out")
 [ -n "$SMOKE_CODE" ] || die "wyr image build printed no setup code"
 rm -f "$work/build.out"
@@ -309,6 +341,12 @@ guest_report > "$work/guest-1.txt"
 sed 's/^/  guest: /' "$work/guest-1.txt"
 uid=$(sed -n 's/^uid=//p' "$work/guest-1.txt")
 [ "$uid" = 787 ] || die "the broker runs as uid '$uid', not 787"
+broker_groups "$work/guest-1.txt"
+[ "$(value zonename "$work/guest-1.txt")" = "$ZONE" ] ||
+    die "the zone in uci is '$(value zonename "$work/guest-1.txt")', not $ZONE"
+[ "$(value ntp "$work/guest-1.txt")" = "$(echo "$NTP" | tr ',' ' ')" ] ||
+    die "the NTP servers in uci are '$(value ntp "$work/guest-1.txt")', not $NTP"
+say "uci: zone $ZONE, NTP servers $NTP"
 grep -q '^/dev/vda4 /srv/wyrm ' "$work/guest-1.txt" || die "/srv/wyrm is not the data partition"
 tail=$(sed -n 's/^tail=//p' "$work/guest-1.txt")
 [ "${tail:-0}" -ge 2048 ] || die "the data partition ends ${tail:-?} sectors before the end of the disk (< 1 MiB)"
@@ -330,6 +368,7 @@ client login "$PORT" "$work/state"
 guest_report > "$work/guest-2.txt"
 sed 's/^/  guest: /' "$work/guest-2.txt"
 [ "$(sed -n 's/^uid=//p' "$work/guest-2.txt")" = 787 ] || die "the broker does not run as uid 787 after the second boot"
+broker_groups "$work/guest-2.txt"
 clock "$work/guest-2.txt"
 power_off
 

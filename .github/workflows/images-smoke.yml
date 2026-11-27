@@ -58,7 +58,9 @@ jobs:
   smoke:
     # The ImageBuilder is published for x86-64 only, so the image is built here; the
     # aarch64 guest runs under TCG (no KVM for another architecture), slower than on an
-    # arm64 host with KVM: smoke.sh gives a boot 900 s then.
+    # arm64 host with KVM: smoke.sh gives a boot 900 s then, and a `cortex-a72` CPU (Ubuntu's
+    # UEFI firmware stops after its banner on `max`). The QEMU output (`*.qemu`) is uploaded
+    # with the console logs.
     needs: wyrmd
     runs-on: ubuntu-latest
     timeout-minutes: 90
@@ -89,6 +91,7 @@ jobs:
           name: smoke-logs
           path: |
             ${{ runner.temp }}/smoke/*.log
+            ${{ runner.temp }}/smoke/*.qemu
             ${{ runner.temp }}/smoke/*.txt
             ${{ runner.temp }}/smoke/base/*.partitions.txt
             ${{ runner.temp }}/smoke/base/index.json

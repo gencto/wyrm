@@ -141,6 +141,7 @@ jobs:
           name: smoke-logs
           path: |
             ${{ runner.temp }}/smoke/*.log
+            ${{ runner.temp }}/smoke/*.qemu
             ${{ runner.temp }}/smoke/*.txt
           retention-days: 7
           if-no-files-found: ignore

@@ -336,15 +336,18 @@ raw image of `qemu-armsr` and builds nothing. In this order:
    partition. The image has no login, so the guest's loopback is not
    probed: that no broker runs is shown by the console line and the disk.
 3. `wyr image build` with a test configuration (`gateway: {listen:
-   "0.0.0.0:8445", tls: "site_ca", setup_file: …}`), `--new-setup-code`
-   and an SSH key of the run, on a disk of 1 GiB. `smoke_client.py` takes
-   `/api/info` without trust, wants `setup: true`, checks `setup_proof`
+   "0.0.0.0:8445", tls: "site_ca", setup_file: …}`), `--new-setup-code`,
+   an SSH key of the run, `--timezone Europe/Kyiv` and three
+   `*.openwrt.pool.ntp.org` servers as `--ntp`, on a disk of 1 GiB.
+   `smoke_client.py` takes `/api/info` without trust, wants `setup: true`, checks `setup_proof`
    against the code and the CA it presents (and that another code or CA
    fails), pins that CA and from then on verifies the certificate by the
    name `wyrm-smoke.local`: `POST /api/setup` (204), no setup offered, a
    second setup refused (`no_setup`), login and `/api/me`. Through SSH: the
-   broker runs as uid 787, `/srv/wyrm` is the data partition, which ends at
-   least 1 MiB before the end of the disk; NTP set the clock (the marker
+   broker runs as uid 787 and is in the group `dialout` (its id read from
+   the guest's `/etc/group`, the broker's groups from `/proc/<pid>/status`),
+   uci holds the zone and the NTP servers of the build, `/srv/wyrm` is the
+   data partition, which ends at least 1 MiB before the end of the disk; NTP set the clock (the marker
    `/var/run/wyrm/time-synced`), the broker did not wait the full 120 s for
    it, and the site's CA was made after the clock was set.
 4. Powered off and booted again: the same CA, no setup offered, the login
@@ -355,8 +358,15 @@ raw image of `qemu-armsr` and builds nothing. In this order:
 A boot may take `--timeout` seconds until the gateway answers TLS: 180 with
 `hvf` or `kvm`, 900 under TCG (an aarch64 guest on an x86-64 host boots and
 hashes passwords many times slower). With `hvf` on an Apple M4 the first
-boot answers after about 32 s, NTP included. The console logs stay in the
-work directory.
+boot answers after about 32 s, NTP included. The console logs and QEMU's
+own output (`<console log>.qemu`) stay in the work directory.
+
+Under TCG the guest's CPU is `cortex-a72`, not `max`. The UEFI firmware of
+Ubuntu 26.04 (`qemu-efi-aarch64` 2025.11, `QEMU_EFI.fd`) prints its banner
+and then stops on a `max` CPU, with QEMU 10.2 and 11.1 alike, so no guest
+boots on a CI runner; with `cortex-a72` it boots. `SMOKE_ACCEL=tcg` runs
+TCG on a host that has `hvf` or `kvm`: with `QEMU_EFI` set to Ubuntu's
+firmware that is the closest local copy of the CI run.
 `.github/workflows/images-smoke.yml` runs it on pull requests that change
 `packaging/openwrt`, `packaging/images`, `crates/wyrm-image` or
 `tools/wyr/src/image*.rs`: `wyrmd` is built on an arm64 runner, the image
