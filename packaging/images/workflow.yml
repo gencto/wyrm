@@ -1,0 +1,174 @@
+# Copy to .github/workflows/images-release.yml (a session without the GitHub `workflow` scope cannot add it).
+# The board images release (ADR 0051 §2, §4): the base image of every board of boards.json
+# that has one (no `unavailable`), with the wyrmd of the tagged source, built by
+# `wyr image base` (packaging/images/README.md), each table checked by verify-table.sh,
+# the image of `qemu-armsr` booted by smoke.sh, then published as the assets of release
+# <tag>: per board the `.img.gz`, its `.manifest` and `.partitions.txt`, and `index.json`
+# (`wyrm-images/1`, every board in one file) with `SHA256SUMS`. The raw images are not
+# published: the index names them, and `download` names the gzip a reader takes.
+# No seed packages yet: an image carries none until the owner names them (`--seed-dir`).
+#
+# Tag: `images-v<wyrmd version>`, or `images-v<wyrmd version>-r<n>` for another build of the
+# same broker (a new OpenWrt release, a fix of the package). The version is the one the
+# binary says (`wyrmd release-info`); another tag fails the build.
+#
+#   git tag images-v0.9.0 && git push origin images-v0.9.0   # build, test and publish
+#   Actions ▸ images-release ▸ Run workflow                   # build and test only: artifacts
+#
+# Trust: the release build takes nothing from a cache another run could have written; the
+# ImageBuilder archives and the build container are pinned by hash in boards.json (the feed
+# packages are signed, not pinned: README "What is pinned and what is not"). No `${{ }}`
+# expression stands in a `run:` line: values reach the scripts through `env:`. Only the job
+# that publishes may write.
+name: images-release
+on:
+  push:
+    tags: ["images-v*"]
+  workflow_dispatch: {}
+permissions: {}
+concurrency:
+  group: images-release
+  cancel-in-progress: false
+env:
+  CARGO_TERM_COLOR: never
+jobs:
+  wyrmd:
+    # The broker of the boards: static aarch64 musl, built and asked for its version on an
+    # arm64 host.
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+        with: { targets: aarch64-unknown-linux-musl }
+      - name: musl toolchain
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q musl-tools
+          echo "CC_aarch64_unknown_linux_musl=musl-gcc" >> "$GITHUB_ENV"
+      - run: cargo build --locked --release -p wyrmd --target aarch64-unknown-linux-musl
+      - id: version
+        env:
+          BIN: target/aarch64-unknown-linux-musl/release/wyrmd
+          REF: ${{ github.ref }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -eu
+          v="$("$BIN" release-info | sed -n 's/.*"version":"\([^"]*\)".*/\1/p')"
+          test -n "$v"
+          case $REF in
+          refs/tags/images-v*)
+            case $TAG in
+            "images-v$v" | "images-v$v-r"[0-9]*) ;;
+            *) echo "tag $TAG, wyrmd $v"; exit 1 ;;
+            esac
+            ;;
+          esac
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: wyrmd-aarch64-musl
+          path: target/aarch64-unknown-linux-musl/release/wyrmd
+          retention-days: 1
+          if-no-files-found: error
+
+  images:
+    # Every board in one job: `wyr image base` adds each board's entry to the one
+    # index.json of its --out. The ImageBuilder is published for x86-64 only.
+    needs: wyrmd
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+      - run: cargo build --locked --release -p wyr
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { name: wyrmd-aarch64-musl, path: bin }
+      - name: Base images
+        env:
+          VERSION: ${{ needs.wyrmd.outputs.version }}
+        run: |
+          set -eu
+          chmod +x bin/wyrmd
+          boards="$(jq -r '.boards[] | select(.unavailable == null) | .id' packaging/images/boards.json)"
+          test -n "$boards"
+          for b in $boards; do
+            echo "::group::$b"
+            target/release/wyr image base --board "$b" --wyrmd bin/wyrmd \
+              --wyrmd-version "$VERSION" --out dist --cache "$RUNNER_TEMP/cache"
+            echo "::endgroup::"
+          done
+      - name: Partition tables
+        # by sfdisk and sgdisk, not by our code; OpenWrt's hybrid MBR on mediatek/filogic
+        run: |
+          set -eu
+          jq -r '.boards[] | select(.unavailable == null) | "\(.id) \(.target)"' packaging/images/boards.json |
+          while read -r b target; do
+            f="$(jq -r --arg b "$b" '.images[] | select(.board == $b) | .file' dist/index.json)"
+            case $target in
+            mediatek/*) packaging/images/verify-table.sh "dist/$f" --hybrid-mbr ;;
+            *) packaging/images/verify-table.sh "dist/$f" ;;
+            esac
+          done
+      - name: QEMU and its UEFI firmware
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q qemu-system-arm qemu-efi-aarch64
+      - name: Smoke test of the qemu-armsr image
+        run: packaging/images/smoke.sh --base dist --wyr target/release/wyr --work "$RUNNER_TEMP/smoke"
+      - name: What is published
+        run: |
+          set -eu
+          mkdir out
+          cp dist/*.img.gz dist/*.manifest dist/*.partitions.txt dist/index.json out/
+          (cd out && sha256sum ./*.img.gz ./*.manifest ./*.partitions.txt index.json) > SHA256SUMS
+          mv SHA256SUMS out/
+          ls -l out
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with: { name: images, path: out/*, if-no-files-found: error, retention-days: 7 }
+      - name: Console logs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: smoke-logs
+          path: |
+            ${{ runner.temp }}/smoke/*.log
+            ${{ runner.temp }}/smoke/*.txt
+          retention-days: 7
+          if-no-files-found: ignore
+
+  publish:
+    # The only job that writes: the release of the tag.
+    needs: images
+    if: startsWith(github.ref, 'refs/tags/images-v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      # Build provenance (SLSA): `gh attestation verify <file> -R <repo>`.
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { name: images, path: out }
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            out/*.img.gz
+            out/index.json
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -eu
+          gh release create "$TAG" out/* --repo "$REPO" --verify-tag --latest=false \
+            --title "Board images $TAG" \
+            --notes "Base images of the boards (ADR 0051): write one with \`wyr image build\` (docs/operations.md, \"Board images\"). index.json binds each image to its config region."

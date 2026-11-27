@@ -11,6 +11,8 @@ boot.
 | `boards.json` | the boards, the pinned OpenWrt release, the ImageBuilder archives and the build container |
 | `build.sh` | what runs in the container: the ImageBuilder for one board |
 | `verify-table.sh` | checks the partition table of an image with `sfdisk` and `sgdisk` in a throwaway container |
+| `smoke.sh`, `smoke_client.py` | the smoke test: the image of `qemu-armsr` built, assembled and booted in QEMU, the first admin made through the gateway ("Tests" below) |
+| `workflow.yml` | the release of the images on a tag `images-v<wyrmd version>`; copy it to `.github/workflows/images-release.yml` |
 
 ## Build a base image
 
@@ -303,6 +305,52 @@ with other SHA-256 sums. The index is what binds an image to its offset.
 cargo test -p wyr          # boards.json, the argv, the partition tables, the index
 packaging/images/verify-table.sh dist/images/wyrm-rpi4-….img     # needs docker or podman
 ```
+
+### The smoke test in QEMU
+
+```
+packaging/images/smoke.sh --wyrmd target/aarch64-unknown-linux-musl/release/wyrmd \
+    --wyrmd-version 0.9.0 [--work dir] [--cache dir] [--base dir]
+```
+
+It needs `docker` (or `RUNTIME=podman`), `qemu-system-aarch64` with UEFI
+firmware for aarch64 (`QEMU_EFI` names it; Homebrew's `edk2-aarch64-code.fd`
+and Ubuntu's `qemu-efi-aarch64` are found), `python3`, `ssh` and
+`truncate`. With `--base` it takes a directory with `index.json` and the
+raw image of `qemu-armsr` and builds nothing. In this order:
+
+1. `wyr image base --board qemu-armsr`; `verify-table.sh` on the image;
+   `wyr image inspect` says `region: empty`.
+2. The base image as it is boots: the console says `the broker is not
+   started: no configuration is applied on this device`, nothing answers
+   TLS on the gateway's port through the forward, and the disk gets no data
+   partition. The image has no login, so the guest's loopback is not
+   probed: that no broker runs is shown by the console line and the disk.
+3. `wyr image build` with a test configuration (`gateway: {listen:
+   "0.0.0.0:8445", tls: "site_ca", setup_file: …}`), `--new-setup-code`
+   and an SSH key of the run, on a disk of 1 GiB. `smoke_client.py` takes
+   `/api/info` without trust, wants `setup: true`, checks `setup_proof`
+   against the code and the CA it presents (and that another code or CA
+   fails), pins that CA and from then on verifies the certificate by the
+   name `wyrm-smoke.local`: `POST /api/setup` (204), no setup offered, a
+   second setup refused (`no_setup`), login and `/api/me`. Through SSH: the
+   broker runs as uid 787, `/srv/wyrm` is the data partition, which ends at
+   least 1 MiB before the end of the disk.
+4. Powered off and booted again: the same CA, no setup offered, the login
+   works.
+5. On the disk file: `wyr image inspect` says `region: empty`, and
+   `verify-table.sh` passes the table the first boot wrote.
+
+A boot may take `--timeout` seconds until the gateway answers TLS: 300 with
+`hvf` or `kvm`, 900 under TCG (an aarch64 guest on an x86-64 host). The
+first start waits up to 120 s for NTP before it makes the site's CA
+(`run.sh`). The console logs stay in the work directory.
+`.github/workflows/images-smoke.yml` runs it on pull requests that change
+`packaging/openwrt`, `packaging/images`, `crates/wyrm-image` or
+`tools/wyr/src/image*.rs`: `wyrmd` is built on an arm64 runner, the image
+and the boot (TCG) on an x86-64 runner.
+
+### Rust tests
 
 `tools/wyr/tests/boards.rs` reads `boards.json` as any reader does;
 `src/image_base.rs` and `src/image_part.rs` have the tests of the strict
