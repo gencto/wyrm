@@ -1,7 +1,8 @@
 name: images-smoke
 # The QEMU smoke test of the board images (ADR 0051, packaging/images/smoke.sh): the base
-# image of `qemu-armsr` is built with OpenWrt's ImageBuilder, its three-member gzip read
-# by the readers of the imagers (gzip-readers.sh, before the boot), assembled with a test
+# image of `qemu-armsr` is built with OpenWrt's ImageBuilder, its gzip checked as the
+# imagers read it (gzip-readers.sh, before the boot: one member, the size in its
+# trailer, four readers), assembled with a test
 # configuration and a setup code, booted twice, and the first admin made through the
 # gateway. Runs on pull requests that change the package, the images, the format or the
 # tool. A path filter leaves the check pending on other pull requests: do not make it a

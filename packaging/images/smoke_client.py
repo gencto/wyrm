@@ -9,7 +9,7 @@ presents, then that CA pinned and every later request sent over a verified conne
 Standard library only; run it as `python3 -I smoke_client.py`.
 
   entry <index.json> <board> <field>   a field of the board's index entry (`a.b`: field b
-                                       of field a); nothing for a field that is not there
+                                       of field a); fails when it is not there
   wait <port> <seconds>                until a TLS handshake succeeds; prints the seconds
   closed <port>                        exit 0 when no TLS handshake succeeds (three tries)
   setup <port> <state dir>             the first admin: env SMOKE_CODE, SMOKE_USER,
@@ -359,9 +359,10 @@ def main(argv):
         for e in index["images"]:
             if e["board"] == argv[2]:
                 for key in argv[3].split("."):
-                    e = e.get(key) if isinstance(e, dict) else None
-                if e is not None:
-                    print(e)
+                    if not isinstance(e, dict) or key not in e:
+                        fail(f"board {argv[2]} of {argv[1]} has no field {argv[3]}")
+                    e = e[key]
+                print(e)
                 return
         fail(f"no board {argv[2]} in {argv[1]}")
     elif len(argv) == 3 and argv[0] == "wait":

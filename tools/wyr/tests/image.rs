@@ -11,15 +11,10 @@
     reason = "test code: a failed step fails the test"
 )]
 
-use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
-use wyrm_core::hex::{sha256, sha256_hex};
-use wyrm_image::{read_region, region, ConfigFiles, Member, CONFIG_SIZE, MAGIC_EMPTY};
-
-/// The writer of a base image's gzip, as `wyr image base` runs it.
-#[path = "../src/image_gz.rs"]
-mod image_gz;
+use wyrm_core::hex::sha256_hex;
+use wyrm_image::{read_region, region, ConfigFiles, CONFIG_SIZE, MAGIC_EMPTY};
 
 const SIZE: usize = 8 * 1024 * 1024;
 /// Not on a 1 MiB boundary: the region starts inside one part of the copy and ends in another.
@@ -921,129 +916,19 @@ fn choices_build_the_same_region_as_the_files() {
     assert_eq!(dir.names(), before);
 }
 
-/// The bytes of one gzip member read on their own: a reader that stops after the first
-/// member reads exactly these.
-fn one_member(gz: &[u8], member: Member) -> Vec<u8> {
-    let start = usize::try_from(member.offset).unwrap();
-    let end = start + usize::try_from(member.size).unwrap();
-    let mut out = Vec::new();
-    let mut decoder = flate2::read::GzDecoder::new(&gz[start..end]);
-    decoder.read_to_end(&mut out).unwrap();
-    // the decoder took the whole member and nothing is left of it
-    assert_eq!(decoder.into_inner().len(), 0);
-    out
-}
-
-fn unpack_all(gz: &[u8]) -> Vec<u8> {
-    let mut out = Vec::new();
-    flate2::read::MultiGzDecoder::new(gz)
-        .read_to_end(&mut out)
-        .unwrap();
-    out
-}
-
-/// The gzip of a base image is three members, cut at the region's bounds: together a
-/// plain gzip file of the image, the middle one alone the empty region. An image that ends
-/// where its region ends (an MBR board) has an empty last member.
+/// What the page does: `region(&files)` put over the base image's region gives the image
+/// `wyr image build` writes of the same files, from the raw image and from its gzip. The
+/// page and `wyr` write one region, and nothing else of the image changes.
 #[test]
-fn the_download_is_three_members_that_read_as_the_image() {
-    let long = base();
-    let mut short = long[..OFFSET + region_size()].to_vec();
-    short[..8].copy_from_slice(b"no tail!");
-    for image in [long, short] {
-        let mut gz = Vec::new();
-        let packed = image_gz::write_members(
-            &mut image.as_slice(),
-            u64::try_from(OFFSET).unwrap(),
-            &mut gz,
-        )
-        .unwrap();
-        assert_eq!(packed.raw_size, u64::try_from(image.len()).unwrap());
-        assert_eq!(packed.raw_sha256, sha256(&image));
-        assert_eq!(packed.gz_size, u64::try_from(gz.len()).unwrap());
-        assert_eq!(packed.gz_sha256, sha256(&gz));
-        // the members tile the file
-        let [head, middle, tail] = packed.members;
-        assert_eq!(head.offset, 0);
-        assert_eq!(middle.offset, head.size);
-        assert_eq!(tail.offset, middle.offset + middle.size);
-        assert_eq!(tail.offset + tail.size, packed.gz_size);
-        // any multi-member reader gives the image
-        assert!(unpack_all(&gz) == image);
-        // each member alone: the bytes before the region, the empty region, the rest
-        assert!(one_member(&gz, head) == image[..OFFSET]);
-        let mut empty = vec![0u8; region_size()];
-        empty[..8].copy_from_slice(MAGIC_EMPTY);
-        assert!(one_member(&gz, middle) == empty);
-        assert!(one_member(&gz, tail) == image[OFFSET + region_size()..]);
-        // the same image is the same file: no name and no time in a header
-        let mut again = Vec::new();
-        image_gz::write_members(
-            &mut image.as_slice(),
-            u64::try_from(OFFSET).unwrap(),
-            &mut again,
-        )
-        .unwrap();
-        assert!(again == gz);
-    }
-    // an image that ends inside its region is refused
-    let cut = &base()[..OFFSET + 100];
-    assert!(image_gz::write_members(
-        &mut &cut[..],
-        u64::try_from(OFFSET).unwrap(),
-        &mut Vec::new()
-    )
-    .is_err());
-}
-
-/// What the page does: the region of the person's files gzipped as one member, put between
-/// the published head and tail, gives the image `wyr image build` writes of the same
-/// files, also from the three-member download itself.
-#[test]
-fn a_region_member_swapped_in_gives_the_assembled_image() {
-    let dir = Dir::new("members");
-    let mut gz = Vec::new();
-    let packed = image_gz::write_members(
-        &mut base().as_slice(),
-        u64::try_from(OFFSET).unwrap(),
-        &mut gz,
-    )
-    .unwrap();
-    dir.write("base.img.gz", &gz);
+fn the_region_of_the_files_over_the_base_is_the_built_image() {
+    use std::io::Write as _;
+    let dir = Dir::new("splice");
+    let mut gz = flate2::GzBuilder::new()
+        .mtime(0)
+        .write(Vec::new(), flate2::Compression::fast());
+    gz.write_all(&base()).unwrap();
+    dir.write("base.img.gz", gz.finish().unwrap());
     dir.write("setup.hash", SETUP);
-    let out = dir.wyr(&[
-        "image",
-        "build",
-        "--image",
-        "base.img.gz",
-        "--index",
-        "index.json",
-        "--board",
-        "rpi4",
-        "--config",
-        "wyrmd.json5",
-        "--setup-hash-file",
-        "setup.hash",
-        "--timezone",
-        "Europe/Kyiv",
-        "--out",
-        "out.img",
-    ]);
-    ok(&out);
-    let built = std::fs::read(dir.path("out.img")).unwrap();
-    // `inspect` reads the three-member file too
-    let inspect = dir.wyr(&[
-        "image",
-        "inspect",
-        "--image",
-        "base.img.gz",
-        "--index",
-        "index.json",
-        "--board",
-        "rpi4",
-    ]);
-    assert_eq!(ok(&inspect), "board: rpi4\nregion: empty\n");
-
     let files = ConfigFiles {
         wyrmd_json5: CONFIG.to_owned(),
         network: None,
@@ -1053,16 +938,31 @@ fn a_region_member_swapped_in_gives_the_assembled_image() {
         timezone: Some("Europe/Kyiv\n".to_owned()),
         ntp: None,
     };
-    let mut member = flate2::GzBuilder::new()
-        .mtime(0)
-        .write(Vec::new(), flate2::Compression::best());
-    std::io::Write::write_all(&mut member, &region(&files).unwrap()).unwrap();
-    let member = member.finish().unwrap();
-    let [head, _, tail] = packed.members;
-    let range = |m: Member| {
-        let start = usize::try_from(m.offset).unwrap();
-        start..start + usize::try_from(m.size).unwrap()
-    };
-    let joined = [&gz[range(head)], &member[..], &gz[range(tail)]].concat();
-    assert!(unpack_all(&joined) == built);
+    let mut want = base();
+    want[OFFSET..OFFSET + region_size()].copy_from_slice(&region(&files).unwrap());
+    for image in ["base.img", "base.img.gz"] {
+        ok(&dir.wyr(&[
+            "image",
+            "build",
+            "--image",
+            image,
+            "--index",
+            "index.json",
+            "--board",
+            "rpi4",
+            "--config",
+            "wyrmd.json5",
+            "--setup-hash-file",
+            "setup.hash",
+            "--timezone",
+            "Europe/Kyiv",
+            "--out",
+            "out.img",
+            "--force",
+        ]));
+        assert!(
+            std::fs::read(dir.path("out.img")).unwrap() == want,
+            "{image}"
+        );
+    }
 }

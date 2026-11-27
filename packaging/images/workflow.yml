@@ -2,7 +2,7 @@
 # The board images release (ADR 0051 §2, §4): the base image of every board of boards.json
 # that has one (no `unavailable`), with the wyrmd of the tagged source, built by
 # `wyr image base` (packaging/images/README.md), each table checked by verify-table.sh,
-# each gzip read back by the readers of the imagers (gzip-readers.sh), the image of
+# each gzip checked as the imagers read it (gzip-readers.sh), the image of
 # `qemu-armsr` booted by smoke.sh, then published as the assets of release
 # <tag>: per board the `.img.gz`, its `.manifest` and `.partitions.txt`, and `index.json`
 # (`wyrm-images/1`, every board in one file) with `SHA256SUMS`. The raw images are not
@@ -124,8 +124,9 @@ jobs:
           sudo apt-get update -q
           sudo apt-get install -y -q qemu-system-arm qemu-efi-aarch64 libarchive-tools
       - name: Gzip readers
-        # the published `.img.gz` is three gzip members (head, region, tail): gunzip,
-        # libarchive, Python and Node must each give the raw image from it
+        # each published `.img.gz` is one gzip member with the image's size in its trailer
+        # (Raspberry Pi Imager's estimate), and gunzip, libarchive, Python and Node each
+        # give the raw image from it
         run: |
           set -eu
           jq -r '.images[] | "\(.file) \(.download.file)"' dist/index.json |

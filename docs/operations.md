@@ -454,10 +454,10 @@ What the command checks, in this order:
   temporary file (0600): remove it. It holds what the output would.
 - `--out` is never the base image itself, also with `--force`.
 - A gzip image may have several members (as `pigz` writes it). The
-  published `.img.gz` has three: the bytes before the config region, the
-  region, the rest. It is a normal gzip file: `gunzip`, `zcat`, Raspberry
-  Pi Imager, `balenaEtcher` and `bmaptool` read it whole, as any gzip
-  reader reads every member of a file.
+  published `.img.gz` is one gzip member, a normal gzip file: `gunzip`,
+  `zcat`, Raspberry Pi Imager, `balenaEtcher` and `bmaptool` read it, and
+  Raspberry Pi Imager estimates the image's size right from its last four
+  bytes.
 - The output is readable by its owner only (0600 on Unix). It holds the
   setup hash and your configuration: keep it like a secret, as the hash
   itself (whoever holds the hash can prove a CA to a client that has the
@@ -523,9 +523,9 @@ wyr image base --board rpi4 --wyrmd <wyrmd for aarch64, static musl> \
     --wyrmd-version 0.9.0 --out dist/images
 ```
 
-It leaves the raw image, its gzip (in three members, as published), the
-package manifest and `index.json` in `--out`: `wyr image build` takes the
-image and the index. The index entry
+It leaves the raw image, its gzip (one member, as published), the package
+manifest and `index.json` in `--out`: `wyr image build` takes the image and
+the index. The index entry
 records the image's size, SHA-256 and `config_offset`, the version and the
 SHA-256 of the `wyrmd` binary, and the SHA-256 of the manifest. The OpenWrt
 release, the ImageBuilder archive (by SHA-256) and the build container (by

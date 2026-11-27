@@ -19,8 +19,9 @@
 # SMOKE_ACCEL (`tcg`: TCG even where hvf or kvm is there, as on a CI runner).
 #
 # 1. `wyr image base` makes the base image; `verify-table.sh` checks its table, and
-#    `gzip-readers.sh` that gunzip, libarchive, Python and Node read its three-member gzip
-#    as the image (with `--base`, only when the directory holds the gzip).
+#    `gzip-readers.sh` that its gzip is one member whose trailer gives the image's size and
+#    that gunzip, libarchive, Python and Node read it as the image (with `--base`, only
+#    when the directory holds the gzip).
 # 2. The base image as it is (no configuration) boots: the console says the broker is
 #    not started, and nothing answers on the gateway's port through the forward. The
 #    image has no login (SSH off, root locked), so the guest's loopback is not probed:

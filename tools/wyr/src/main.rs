@@ -25,7 +25,6 @@ mod dev;
 mod flow;
 mod image;
 mod image_base;
-mod image_gz;
 mod image_part;
 mod pack;
 mod query;

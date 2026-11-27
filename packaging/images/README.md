@@ -12,7 +12,7 @@ boot.
 | `build.sh` | what runs in the container: the ImageBuilder for one board |
 | `verify-table.sh` | checks the partition table of an image with `sfdisk` and `sgdisk` in a throwaway container |
 | `smoke.sh`, `smoke_client.py` | the smoke test: the image of `qemu-armsr` built, assembled and booted in QEMU, the first admin made through the gateway ("Tests" below) |
-| `gzip-readers.sh` | checks that `gunzip`, libarchive (`bsdcat`), Python's `gzip` and Node's `zlib` each read an `.img.gz` as the raw image ("The gzip in three members" below) |
+| `gzip-readers.sh` | checks an `.img.gz` as the imagers read it: one gzip member with the image's size in its trailer, and `gunzip`, libarchive (`bsdcat`), Python's `gzip` and Node's `zlib` each give the raw image ("The gzip: one member" below) |
 | `workflow.yml` | the release of the images on a tag `images-v<wyrmd version>`; copy it to `.github/workflows/images-release.yml` |
 
 ## Build a base image
@@ -36,10 +36,10 @@ In `--out` it leaves:
 | File | What |
 |---|---|
 | `wyrm-<board>-<wyrmd>-openwrt-<release>.img` | the raw image; `config_offset` counts in its bytes |
-| `….img.gz` | the same image as gzip, to publish: three gzip members (no name and no time in their headers; "The gzip in three members" below) |
+| `….img.gz` | the same image as gzip, to publish: one gzip member, no name and no time in its header ("The gzip: one member" below) |
 | `….partitions.txt` | the partitions of the image |
 | `….manifest` | the packages in the image, as the ImageBuilder lists them |
-| `index.json` | `wyrm-images/1`: the entry of the board is written (with `wyrmd_sha256`, `manifest_sha256`, the board's `title`, `notes` and `lan`, and the gzip's `download` with its `members`), entries of other boards stay |
+| `index.json` | `wyrm-images/1`: the entry of the board is written (with `wyrmd_sha256`, `manifest_sha256`, the board's `title`, `notes` and `lan`, and the gzip's `download`), entries of other boards stay |
 
 The gzip, the manifest and the index are written first and the raw image
 last: a run that is cut leaves no raw image of that build in `--out`.
@@ -94,35 +94,33 @@ The container has the runtime's default network.
   entry. Two images of one release with the same `manifest_sha256` hold the
   same packages.
 
-### The gzip in three members
+### The gzip: one member
 
-The `.img.gz` is written as three gzip members, cut where the config region
-starts and ends:
+The `.img.gz` is **one gzip member** (level 9, no name and no time in its
+header: the same image gives the same file). `download.size` and
+`download.sha256` of the index entry are those of that file.
 
-| Member | Unpacks to |
-|---|---|
-| head | the `config_offset` bytes before the region |
-| region | the empty region: `WYRMCFG0` and zeros, 4 MiB (`CONFIG_SIZE`) |
-| tail | the rest of the image; nothing for an MBR image (`rpi4`, `rpi5`), which ends with its region |
+Why one: Raspberry Pi Imager takes the size of a `.gz` image from the last
+four bytes of the file alone (the ISIZE of the last member; `parseGz` of
+its `imagesizeparser.cpp`), so a file of several members would be told the
+size of its last member, and a card smaller than that estimate is refused.
+The image builder page keeps this form: it writes a configuration by
+streaming the verified download through a decompressor, replacing the
+region's bytes and compressing again into one member.
 
-`download.members` of the index entry gives each as a byte range of the
-`.gz` (`offset`, `size`): the head starts at 0, each next one where the one
-before ends, the tail ends at `download.size`; `Index::check` refuses any
-other. `download.size` and `download.sha256` stay those of the whole file.
-The image builder page writes a configuration without unpacking the image:
-it gzips its own region as one member and puts it between the published
-head and tail. The result is the gzip of the assembled image.
+`gzip-readers.sh <image.img> <image.img.gz>` checks a published file as the
+imagers read it:
 
-The file is a plain gzip file: a gzip reader reads every member of a file
-(RFC 1952), and `wyr image build` and `wyr image inspect` do too. A reader
-that stopped after the first member would give only the head. That
-`gunzip`, libarchive (what Raspberry Pi Imager reads with), Python's `gzip`
-(as `bmaptool`) and Node's `zlib` (as `balenaEtcher`) each give the raw
-image is checked by `gzip-readers.sh <image.img> <image.img.gz>`. A reader
-that is not installed runs in a container (alpine or node, by digest); one
-that runs neither way fails the check unless `--allow-missing` is given
-(CI never gives it). The smoke test runs it on the image of `qemu-armsr`
-before the boot, and the release on every image it publishes.
+- **the form** (Python's `zlib`): one member and nothing after it, its
+  trailer's ISIZE the image's size mod 2^32;
+- **the readers**: `gunzip`, libarchive (`bsdcat`, what Raspberry Pi
+  Imager reads with), Python's `gzip` (as `bmaptool`) and Node's `zlib` (as
+  `balenaEtcher`) each give bytes with the raw image's SHA-256.
+
+A check whose program is not installed runs in a container (alpine or
+node, by digest); one that runs neither way fails unless `--allow-missing`
+is given (CI never gives it). The smoke test runs it on the image of
+`qemu-armsr` before the boot, and the release on every image it publishes.
 
 ## The pinned release
 
@@ -342,7 +340,7 @@ with other SHA-256 sums. The index is what binds an image to its offset.
 ## Tests
 
 ```
-cargo test -p wyr          # boards.json, the argv, the partition tables, the index, the gzip members
+cargo test -p wyr          # boards.json, the argv, the partition tables, the index, the gzip
 packaging/images/verify-table.sh dist/images/wyrm-rpi4-….img     # needs docker or podman
 ```
 
