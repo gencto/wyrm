@@ -1,6 +1,7 @@
 name: images-smoke
 # The QEMU smoke test of the board images (ADR 0051, packaging/images/smoke.sh): the base
-# image of `qemu-armsr` is built with OpenWrt's ImageBuilder, assembled with a test
+# image of `qemu-armsr` is built with OpenWrt's ImageBuilder, its three-member gzip read
+# by the readers of the imagers (gzip-readers.sh, before the boot), assembled with a test
 # configuration and a setup code, booted twice, and the first admin made through the
 # gateway. Runs on pull requests that change the package, the images, the format or the
 # tool. A path filter leaves the check pending on other pull requests: do not make it a
@@ -70,10 +71,13 @@ jobs:
       - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with: { key: wyr }
-      - name: QEMU and its UEFI firmware
+      - name: QEMU, its UEFI firmware and bsdcat
+        # bsdcat (libarchive) is one of the gzip readers smoke.sh runs; gunzip, python3 and
+        # node are on the runner. gzip-readers.sh fails when a reader cannot run.
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y -q qemu-system-arm qemu-efi-aarch64
+          sudo apt-get install -y -q qemu-system-arm qemu-efi-aarch64 libarchive-tools
+          for r in gunzip bsdcat python3 node; do command -v "$r"; done
       - run: cargo build --locked -p wyr
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with: { name: wyrmd-aarch64-musl, path: bin }

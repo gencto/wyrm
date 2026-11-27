@@ -20,15 +20,16 @@ use clap::{Args, ValueEnum};
 use serde::{Deserialize, Serialize};
 use std::ffi::OsString;
 use std::fs::File;
-use std::io::{self, Seek, SeekFrom, Write};
+use std::io::{self, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use wyrm_core::files::read_full;
-use wyrm_core::hex::{self, Sha256Stream};
+use wyrm_core::hex;
 use wyrm_image::{
-    read_region, Download, ImageEntry, ImageError, Index, Lan, CONFIG_SIZE, SEED_DIR,
+    read_region, Download, ImageEntry, ImageError, Index, Lan, Member, CONFIG_SIZE, SEED_DIR,
 };
 
+use crate::image_gz::write_members;
 use crate::image_part::{append_config, Appended, PartError, SECTOR};
 
 /// The format name of `boards.json`.
@@ -1023,65 +1024,23 @@ struct FileSum {
     sha256: [u8; 32],
 }
 
-/// The raw image as it is published and its gzip, written beside it: the sums of the two
-/// files, the raw one first.
-fn publish(raw: &Path, gz: &Path) -> Result<(FileSum, FileSum)> {
-    /// Counts and hashes what is written through it.
-    struct Sum<W> {
-        to: W,
-        hash: Sha256Stream,
-        size: u64,
-    }
-    impl<W: Write> Write for Sum<W> {
-        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-            let n = self.to.write(buf)?;
-            let part = buf.get(..n).unwrap_or(buf);
-            self.hash.update(part);
-            self.size = self
-                .size
-                .saturating_add(u64::try_from(part.len()).unwrap_or(u64::MAX));
-            Ok(n)
-        }
-        fn flush(&mut self) -> io::Result<()> {
-            self.to.flush()
-        }
-    }
-    let read = || io_err("read", raw);
-    let write = || io_err("write", gz);
-    let mut input = File::open(raw).map_err(read())?;
-    let file = File::create(gz).map_err(write())?;
-    let sum = Sum {
-        to: io::BufWriter::new(file),
-        hash: Sha256Stream::new(),
-        size: 0,
-    };
-    // no name and no time in the header: the same image is the same file
-    let mut encoder = flate2::GzBuilder::new()
-        .mtime(0)
-        .write(sum, flate2::Compression::best());
-    let mut hash = Sha256Stream::new();
-    let mut size = 0u64;
-    let mut buf = vec![0u8; 1 << 20];
-    loop {
-        let n = read_full(&mut input, &mut buf).map_err(read())?;
-        let Some(part) = buf.get(..n).filter(|part| !part.is_empty()) else {
-            break;
-        };
-        hash.update(part);
-        size = size.saturating_add(u64::try_from(n).unwrap_or(u64::MAX));
-        encoder.write_all(part).map_err(write())?;
-    }
-    let mut sum = encoder.finish().map_err(write())?;
-    sum.flush().map_err(write())?;
+/// The raw image as it is published and its gzip, written beside it in three members
+/// (`image_gz`): the sums of the two files, the raw one first, and the members.
+fn publish(raw: &Path, gz: &Path, config_offset: u64) -> Result<(FileSum, FileSum, [Member; 3])> {
+    let mut input = io::BufReader::with_capacity(1 << 20, open(raw)?);
+    let file = File::create(gz).map_err(io_err("write", gz))?;
+    // the reading and the writing are one pass: the error names the image
+    let packed =
+        write_members(&mut input, config_offset, file).map_err(io_err("write the gzip of", raw))?;
     let raw = FileSum {
-        size,
-        sha256: hash.finish(),
+        size: packed.raw_size,
+        sha256: packed.raw_sha256,
     };
     let gz = FileSum {
-        size: sum.size,
-        sha256: sum.hash.finish(),
+        size: packed.gz_size,
+        sha256: packed.gz_sha256,
     };
-    Ok((raw, gz))
+    Ok((raw, gz, packed.members))
 }
 
 /// The config region of the image is the empty one, where the entry of the index will say,
@@ -1182,7 +1141,7 @@ fn release(
     // The raw image comes last: until then `--out` holds no image of this build, and a
     // run that is cut leaves the files of the build before it or files without an image.
     let gz_tmp = result.join("base.img.gz");
-    let (raw_sum, gz_sum) = publish(&made, &gz_tmp)?;
+    let (raw_sum, gz_sum, members) = publish(&made, &gz_tmp, layout.config_offset)?;
     let made_manifest = result.join("manifest");
     let (manifest_sum, _) =
         hex::sha256_reader(open(&made_manifest)?).map_err(io_err("read", &made_manifest))?;
@@ -1201,6 +1160,7 @@ fn release(
             raw: raw_sum,
             gz_name,
             gz: gz_sum,
+            members,
             config_offset: layout.config_offset,
             manifest_sha256: manifest_sum,
         },
@@ -1217,6 +1177,7 @@ struct Published {
     raw: FileSum,
     gz_name: String,
     gz: FileSum,
+    members: [Member; 3],
     config_offset: u64,
     manifest_sha256: [u8; 32],
 }
@@ -1245,6 +1206,7 @@ fn index_entry(
             file: files.gz_name,
             size: files.gz.size,
             sha256: hex::encode(files.gz.sha256),
+            members: Some(files.members),
         }),
         title: Some(board.title.clone()),
         notes: Some(board.notes.clone()),
@@ -1943,28 +1905,33 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("wyr-image-base-gz-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        let image: Vec<u8> = (0..3_000_000usize)
+        // 1 MiB before the region, 4 MiB of region, the rest after it
+        let image: Vec<u8> = (0..6_000_000usize)
             .map(|i| u8::try_from(i % 7).unwrap())
             .collect();
         let raw = dir.join("base.img");
         let gz = dir.join("base.img.gz");
         std::fs::write(&raw, &image).unwrap();
-        let (raw_sum, gz_sum) = publish(&raw, &gz).unwrap();
-        assert_eq!(raw_sum.size, 3_000_000);
+        let (raw_sum, gz_sum, members) = publish(&raw, &gz, 1 << 20).unwrap();
+        assert_eq!(raw_sum.size, 6_000_000);
         assert_eq!(raw_sum.sha256, hex::sha256(&image));
         let packed = std::fs::read(&gz).unwrap();
         assert_eq!(gz_sum.size, u64::try_from(packed.len()).unwrap());
         assert_eq!(gz_sum.sha256, hex::sha256(&packed));
+        // three members from the start of the file to its end
+        assert_eq!(members[0].offset, 0);
+        assert_eq!(members[2].offset + members[2].size, gz_sum.size);
+        // every member is read, not the first alone
         let mut unpacked = Vec::new();
         io::Read::read_to_end(
-            &mut flate2::read::GzDecoder::new(packed.as_slice()),
+            &mut flate2::read::MultiGzDecoder::new(packed.as_slice()),
             &mut unpacked,
         )
         .unwrap();
         assert_eq!(unpacked, image);
         // the same image is the same file
         let again = dir.join("again.img.gz");
-        publish(&raw, &again).unwrap();
+        publish(&raw, &again, 1 << 20).unwrap();
         assert_eq!(std::fs::read(&again).unwrap(), packed);
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -2082,6 +2049,20 @@ mod tests {
                 raw: sum(1 << 30, 0xab),
                 gz_name: "wyrm-bpi-r4.img.gz".to_owned(),
                 gz: sum(1 << 26, 0xcd),
+                members: [
+                    Member {
+                        offset: 0,
+                        size: 1 << 25,
+                    },
+                    Member {
+                        offset: 1 << 25,
+                        size: 4096,
+                    },
+                    Member {
+                        offset: (1 << 25) + 4096,
+                        size: (1 << 25) - 4096,
+                    },
+                ],
                 config_offset: 335_544_320,
                 manifest_sha256: [0x12; 32],
             },
@@ -2099,6 +2080,7 @@ mod tests {
             (download.file.as_str(), download.size),
             ("wyrm-bpi-r4.img.gz", 1 << 26)
         );
+        assert_eq!(download.members.map(|m| m[1].offset), Some(1 << 25));
         // an index of it reads back with every field
         let index = Index {
             format: wyrm_image::FORMAT.to_owned(),

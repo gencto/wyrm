@@ -12,6 +12,7 @@ boot.
 | `build.sh` | what runs in the container: the ImageBuilder for one board |
 | `verify-table.sh` | checks the partition table of an image with `sfdisk` and `sgdisk` in a throwaway container |
 | `smoke.sh`, `smoke_client.py` | the smoke test: the image of `qemu-armsr` built, assembled and booted in QEMU, the first admin made through the gateway ("Tests" below) |
+| `gzip-readers.sh` | checks that `gunzip`, libarchive (`bsdcat`), Python's `gzip` and Node's `zlib` each read an `.img.gz` as the raw image ("The gzip in three members" below) |
 | `workflow.yml` | the release of the images on a tag `images-v<wyrmd version>`; copy it to `.github/workflows/images-release.yml` |
 
 ## Build a base image
@@ -35,10 +36,10 @@ In `--out` it leaves:
 | File | What |
 |---|---|
 | `wyrm-<board>-<wyrmd>-openwrt-<release>.img` | the raw image; `config_offset` counts in its bytes |
-| `….img.gz` | the same image as gzip, to publish (no name and no time in its header) |
+| `….img.gz` | the same image as gzip, to publish: three gzip members (no name and no time in their headers; "The gzip in three members" below) |
 | `….partitions.txt` | the partitions of the image |
 | `….manifest` | the packages in the image, as the ImageBuilder lists them |
-| `index.json` | `wyrm-images/1`: the entry of the board is written (with `wyrmd_sha256`, `manifest_sha256` and the board's `title`, `notes` and `lan`), entries of other boards stay |
+| `index.json` | `wyrm-images/1`: the entry of the board is written (with `wyrmd_sha256`, `manifest_sha256`, the board's `title`, `notes` and `lan`, and the gzip's `download` with its `members`), entries of other boards stay |
 
 The gzip, the manifest and the index are written first and the raw image
 last: a run that is cut leaves no raw image of that build in `--out`.
@@ -92,6 +93,36 @@ The container has the runtime's default network.
   beside the image, and its SHA-256 is `manifest_sha256` of the index
   entry. Two images of one release with the same `manifest_sha256` hold the
   same packages.
+
+### The gzip in three members
+
+The `.img.gz` is written as three gzip members, cut where the config region
+starts and ends:
+
+| Member | Unpacks to |
+|---|---|
+| head | the `config_offset` bytes before the region |
+| region | the empty region: `WYRMCFG0` and zeros, 4 MiB (`CONFIG_SIZE`) |
+| tail | the rest of the image; nothing for an MBR image (`rpi4`, `rpi5`), which ends with its region |
+
+`download.members` of the index entry gives each as a byte range of the
+`.gz` (`offset`, `size`): the head starts at 0, each next one where the one
+before ends, the tail ends at `download.size`; `Index::check` refuses any
+other. `download.size` and `download.sha256` stay those of the whole file.
+The image builder page writes a configuration without unpacking the image:
+it gzips its own region as one member and puts it between the published
+head and tail. The result is the gzip of the assembled image.
+
+The file is a plain gzip file: a gzip reader reads every member of a file
+(RFC 1952), and `wyr image build` and `wyr image inspect` do too. A reader
+that stopped after the first member would give only the head. That
+`gunzip`, libarchive (what Raspberry Pi Imager reads with), Python's `gzip`
+(as `bmaptool`) and Node's `zlib` (as `balenaEtcher`) each give the raw
+image is checked by `gzip-readers.sh <image.img> <image.img.gz>`. A reader
+that is not installed runs in a container (alpine or node, by digest); one
+that runs neither way fails the check unless `--allow-missing` is given
+(CI never gives it). The smoke test runs it on the image of `qemu-armsr`
+before the boot, and the release on every image it publishes.
 
 ## The pinned release
 
@@ -311,7 +342,7 @@ with other SHA-256 sums. The index is what binds an image to its offset.
 ## Tests
 
 ```
-cargo test -p wyr          # boards.json, the argv, the partition tables, the index
+cargo test -p wyr          # boards.json, the argv, the partition tables, the index, the gzip members
 packaging/images/verify-table.sh dist/images/wyrm-rpi4-….img     # needs docker or podman
 ```
 
@@ -329,6 +360,8 @@ and Ubuntu's `qemu-efi-aarch64` are found), `python3`, `ssh` and
 raw image of `qemu-armsr` and builds nothing. In this order:
 
 1. `wyr image base --board qemu-armsr`; `verify-table.sh` on the image;
+   `gzip-readers.sh` on the image and its gzip (with `--base`, only when the
+   directory holds the gzip; it says so when it does not);
    `wyr image inspect` says `region: empty`.
 2. The base image as it is boots: the console says `the broker is not
    started: no configuration is applied on this device`, nothing answers

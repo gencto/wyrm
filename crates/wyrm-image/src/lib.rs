@@ -55,7 +55,7 @@ pub use choices::{
     Catalog, CatalogLink, Choices, ChoicesError, LinkForm, Network, CHOICES_FORMAT, GATEWAY_LISTEN,
 };
 pub use device::{plain_site, site_of, DATA_DIR, NTP_MAX, SITE_MAX};
-pub use index::{Download, ImageEntry, Index, IndexError, Lan, FORMAT};
+pub use index::{Download, ImageEntry, Index, IndexError, Lan, Member, FORMAT};
 pub use region::{
     check_slot, read_region, region, ConfigFiles, CONFIG_SIZE, HEADER_SIZE, MAGIC_EMPTY,
     MAGIC_FULL, MAX_PAYLOAD, SEED_DIR, SETUP_FILE,

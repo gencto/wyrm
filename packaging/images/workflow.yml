@@ -2,7 +2,8 @@
 # The board images release (ADR 0051 §2, §4): the base image of every board of boards.json
 # that has one (no `unavailable`), with the wyrmd of the tagged source, built by
 # `wyr image base` (packaging/images/README.md), each table checked by verify-table.sh,
-# the image of `qemu-armsr` booted by smoke.sh, then published as the assets of release
+# each gzip read back by the readers of the imagers (gzip-readers.sh), the image of
+# `qemu-armsr` booted by smoke.sh, then published as the assets of release
 # <tag>: per board the `.img.gz`, its `.manifest` and `.partitions.txt`, and `index.json`
 # (`wyrm-images/1`, every board in one file) with `SHA256SUMS`. The raw images are not
 # published: the index names them, and `download` names the gzip a reader takes.
@@ -118,10 +119,19 @@ jobs:
             *) packaging/images/verify-table.sh "dist/$f" ;;
             esac
           done
-      - name: QEMU and its UEFI firmware
+      - name: QEMU, its UEFI firmware and bsdcat
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y -q qemu-system-arm qemu-efi-aarch64
+          sudo apt-get install -y -q qemu-system-arm qemu-efi-aarch64 libarchive-tools
+      - name: Gzip readers
+        # the published `.img.gz` is three gzip members (head, region, tail): gunzip,
+        # libarchive, Python and Node must each give the raw image from it
+        run: |
+          set -eu
+          jq -r '.images[] | "\(.file) \(.download.file)"' dist/index.json |
+          while read -r f gz; do
+            packaging/images/gzip-readers.sh "dist/$f" "dist/$gz"
+          done
       - name: Smoke test of the qemu-armsr image
         run: packaging/images/smoke.sh --base dist --wyr target/release/wyr --work "$RUNNER_TEMP/smoke"
       - name: What is published

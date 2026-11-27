@@ -18,7 +18,9 @@
 # UEFI firmware), SMOKE_PORT (18445, the gateway on the host), SMOKE_SSH (10022),
 # SMOKE_ACCEL (`tcg`: TCG even where hvf or kvm is there, as on a CI runner).
 #
-# 1. `wyr image base` makes the base image; `verify-table.sh` checks its table.
+# 1. `wyr image base` makes the base image; `verify-table.sh` checks its table, and
+#    `gzip-readers.sh` that gunzip, libarchive, Python and Node read its three-member gzip
+#    as the image (with `--base`, only when the directory holds the gzip).
 # 2. The base image as it is (no configuration) boots: the console says the broker is
 #    not started, and nothing answers on the gateway's port through the forward. The
 #    image has no login (SSH off, root locked), so the guest's loopback is not probed:
@@ -262,7 +264,9 @@ grow() { truncate -s 1G "$1"; }
 # ---- 1. the base image ----------------------------------------------------------------
 
 start=$(date +%s)
+built=no
 if [ -z "$base" ]; then
+    built=yes
     base=$work/base
     say "1. wyr image base --board $BOARD (wyrmd $version)"
     set -- --board "$BOARD" --wyrmd "$wyrmd" --wyrmd-version "$version" --out "$base" \
@@ -277,6 +281,15 @@ image=$base/$file
 [ -f "$image" ] || die "no $image"
 say "base image $file ($size bytes) after $(($(date +%s) - start)) s"
 "$here/verify-table.sh" "$image"
+# the gzip that is published: every reader an imager uses must give the image from it
+gz=$(client entry "$index" "$BOARD" download.file)
+if [ -n "$gz" ] && [ -f "$base/$gz" ]; then
+    "$here/gzip-readers.sh" "$image" "$base/$gz"
+elif [ "$built" = yes ]; then
+    die "wyr image base left no gzip of the image (download.file: '$gz')"
+else
+    say "NOT CHECKED: $base holds no gzip of the image; the gzip readers do not run"
+fi
 inspect "$image" | tee "$work/inspect-base.txt"
 grep -qx 'region: empty' "$work/inspect-base.txt" || die "the base image's region is not empty"
 
