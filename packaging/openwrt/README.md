@@ -3,8 +3,8 @@
 What a WYRM board image carries beside OpenWrt as published: the package
 `wyrmd` (the broker as a prebuilt binary, its service, the first boot and
 the role of the device on the network). The images themselves are built
-from `packaging/images` (a later step); the person's side is `wyr image
-build` (`docs/operations.md`, "Board images").
+by `wyr image base` from `packaging/images` (its `README.md`); the person's
+side is `wyr image build` (`docs/operations.md`, "Board images").
 
 | File of the package | What |
 |---|---|
@@ -132,11 +132,15 @@ Rules for the person's configuration (`wyr image build`):
 - SSH is off, the console asks for a login and the password of `root` is
   locked. With `authorized_keys` in the region SSH is on for those keys
   only (`PasswordAuth off`, `RootPasswordAuth off`).
-- The broker runs as the user `wyrm` (uid and gid 787, made by the
-  package), with `no_new_privs`, as the systemd unit of
+- The broker runs as the user `wyrm` (uid and gid 787), with
+  `no_new_privs`, as the systemd unit of
   `docs/operations.md` runs it. `/srv/wyrm` is `wyrm:wyrm` 0700. The user
   is in the group `dialout` for serial ports. The first boot and this
-  script run as root.
+  script run as root. The user is made by `USERID` when the package is
+  installed from a feed. An image takes the package as files, and there
+  `/etc/uci-defaults/80-wyrm-user` of `packaging/images/files` makes it,
+  before this script runs (`packaging/images/README.md`, "The broker's
+  user": 787 is free in the pinned release).
 
 The script leaves `/etc/wyrm/.host-role-done`. A `sysupgrade` keeps that
 file while the script comes back with the new image, so the role is not

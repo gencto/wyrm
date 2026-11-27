@@ -128,6 +128,22 @@ The three features `wyrmd` needed for an image (Consequences, last line). The Op
 
 Tested: `packaging/openwrt/tests/first_boot.sh` under `dash` and, in CI, under busybox on regions that `wyr image build` writes. Not tested until an image boots in QEMU: the procd service, `90-wyrm-host`, the hotplug script, the package `Makefile`.
 
+## Built (part 3, 2026-11-27): boards and base images
+
+`packaging/images` (`boards.json`, `build.sh`, `files/`, guide `README.md`) and `wyr image base`. Decisions of the builder:
+
+- **OpenWrt 25.12.6** is pinned (the latest stable release on 2026-11-27, with an ImageBuilder for `bcm27xx/bcm2711`, `bcm27xx/bcm2712`, `mediatek/filogic` and `armsr/armv8`). `boards.json` records each archive's URL and SHA-256 (from the release's `sha256sums`); the build uses an archive only when its SHA-256 matches. The build container is OpenWrt's build worker image, by digest; it runs as `linux/amd64`, without a capability, as the owner of the output directory.
+- **The package goes into an image as files** (the ImageBuilder's `FILES`), not as an `.apk` yet; the package `Makefile` stays for the feed. So the user `wyrm` (787) is made by `/etc/uci-defaults/80-wyrm-user` at the first boot; 787 is free in the release's base-files and feeds.
+- **Packages**: the target's defaults without `dnsmasq`, `odhcpd-ipv6only`, `ppp` and `ppp-mod-pppoe`, with `zoneinfo-all` and five USB serial drivers. `dropbear` and `firewall4` stay. The ImageBuilder's default set has no LuCI.
+- **The config region is a partition appended after the last partition** of the ImageBuilder's image: MBR partition 3 on `bcm27xx` (type `DA`), a GPT partition on `armsr` (3) and `filogic` (8) (type "Linux reserved", name `wyrm-config`, one fixed unique id). **`wyr` edits the table in the image file itself** (`tools/wyr/src/image_part.rs`), not `sfdisk`/`sgdisk` in the container: OpenWrt's build worker has neither, and a second container or an `apt install` in the build would be one more thing to pin. A file needs no root to be edited. The first sector of a GPT image is not written (the hybrid MBR of `filogic` stays). `wyr image base` reads the region back and fails when the partition's number is not the one `config_dev` names.
+- **`ROOTFS_PARTSIZE` is 256 MiB for every board**, fixed (test `rootfs_partsize_never_changes` against `origin/main`).
+- **`bpi-r4-8g` is a row that is not built** (`unavailable`): 25.12.6 has no `sdcard_8g.img.gz` and no profile for the 8 GB board (answer 2 assumed one).
+- **`/etc/wyrm/image.json`**: `format` `wyrm-image/1`, `board`, `openwrt`, `wyrmd`, `built` (seconds since 1970), `config_dev`, `data_dev`. No request hash: there is no request.
+
+Run on 2026-11-27 (Apple M4, Docker, QEMU with HVF): `qemu-armsr`, `rpi4` and `bpi-r4` were built with the real ImageBuilder and a real `wyrmd` (static musl, 67 MB); `sfdisk -V` (`rpi4`) and `sgdisk -v` (`qemu-armsr`) found no problem in the tables, and for `bpi-r4` `sgdisk -v` reports only the overlap of the two entries of OpenWrt's own hybrid MBR, which is not written; `wyr image inspect` showed an empty region and `wyr image build` assembled a configuration. The assembled `qemu-armsr` image booted: the kernel listed `vda3`, the user `wyrm` was made, the first boot applied the region from `/dev/vda3` and wiped it, `wyrmd` started as `wyrm`, took the setup hash and answered `/api/info` over TLS through the firewall; SSH took the key of the image; a second boot started the broker on the same data.
+
+Not built: **the data partition** (§3). No script makes or mounts it; `/srv/wyrm` lies in the overlay of the root partition. **BPI-R4 on the eMMC** (answer 2): OpenWrt's install writes its own table there without a config partition, and the SD slot and the eMMC share one controller, so the configuration does not travel; the row runs from the SD card. Not verified: any image on a real board; `rpi5`; the `bpi-r4` image beyond its partition table.
+
 ## Answers of the owner (2026-11-25)
 
 The owner accepted the maintainer's proposals ("в цілому пропозиція зрозуміла"):

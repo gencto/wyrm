@@ -22,8 +22,10 @@ RSTRIP:=:
 include $(INCLUDE_DIR)/package.mk
 
 # USERID: the broker's user and group. 787 is this package's own choice among the fixed
-# ids below 65536 (from there OpenWrt hands out ids itself). It is not compared with the
-# feeds of the pinned release here; OpenWrt keeps no registry for packages outside them.
+# ids below 65536 (from there OpenWrt hands out ids itself); OpenWrt keeps no registry for
+# packages outside its feeds. It is free in the pinned release and its feeds
+# (packaging/images/README.md, "The broker's user"). A board image takes this package as
+# files, so there packaging/images/files/etc/uci-defaults/80-wyrm-user makes the user.
 define Package/wyrmd
   SECTION:=net
   CATEGORY:=Network

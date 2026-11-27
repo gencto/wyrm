@@ -470,6 +470,23 @@ setup hash or a seed that the image's `wyrmd.json5` does not name: the
 broker of that device will never read it. `wyr image build` does not write
 such an image.
 
+#### A base image of your own
+
+The project publishes base images; `wyr image base` makes one locally with
+OpenWrt's ImageBuilder in a container (`docker` or `podman`, no root), for
+a board of `packaging/images/boards.json`:
+
+```
+wyr image base --board rpi4 --wyrmd <wyrmd for aarch64, static musl> --out dist/images
+```
+
+It leaves the raw image, its gzip and `index.json` in `--out`: the three
+files `wyr image build` takes. The OpenWrt release, the ImageBuilder
+archive (by SHA-256) and the build container (by digest) are pinned in
+`boards.json`. The root partition of a board has one size for the life of
+the board: an image with another size, written over a device, loses that
+device's data. `packaging/images/README.md` has the details.
+
 #### On the device (OpenWrt)
 
 The image runs the broker as the procd service `wyrmd` (`logread -e wyrm`,
@@ -492,6 +509,9 @@ package; what an operator meets:
   and `packages: { seed_dir: "/usr/share/wyrm/seed" }` with `--seed`.
   `wyr image build` refuses a setup code or a seed whose path the
   configuration does not name: the broker would never read the file.
+- **The data partition is not made yet.** `/srv/wyrm` lies in the overlay
+  of the root partition (about 190 MiB free) until the first boot makes the
+  partition of ADR 0051 §3.
 - **The broker runs as the user `wyrm`**, as under systemd. It may open
   serial ports (group `dialout`).
 - **The device is a plain host**: a DHCP client, no DHCP server, the
