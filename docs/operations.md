@@ -477,15 +477,27 @@ OpenWrt's ImageBuilder in a container (`docker` or `podman`, no root), for
 a board of `packaging/images/boards.json`:
 
 ```
-wyr image base --board rpi4 --wyrmd <wyrmd for aarch64, static musl> --out dist/images
+wyr image base --board rpi4 --wyrmd <wyrmd for aarch64, static musl> \
+    --wyrmd-version 0.9.0 --out dist/images
 ```
 
-It leaves the raw image, its gzip and `index.json` in `--out`: the three
-files `wyr image build` takes. The OpenWrt release, the ImageBuilder
-archive (by SHA-256) and the build container (by digest) are pinned in
-`boards.json`. The root partition of a board has one size for the life of
-the board: an image with another size, written over a device, loses that
-device's data. `packaging/images/README.md` has the details.
+It leaves the raw image, its gzip, the package manifest and `index.json` in
+`--out`: `wyr image build` takes the image and the index. The index entry
+records the image's size, SHA-256 and `config_offset`, the version and the
+SHA-256 of the `wyrmd` binary, and the SHA-256 of the manifest. The OpenWrt
+release, the ImageBuilder archive (by SHA-256) and the build container (by
+digest) are pinned in `boards.json`; the packages the ImageBuilder fetches
+are signed by the release, not pinned, so two builds of one release can
+differ in them, and the manifest's hash tells them apart.
+
+The layout of a board never changes: the root partition has one size for
+the life of the board, and `boards.json` records where the config region
+lies (`config_offset`); a build that puts it elsewhere is refused. An image
+ends at most 1 MiB after its config region, where the data partition of a
+card starts. An image with another layout, written over a device, loses
+that device's data. `packaging/images/README.md` has the details;
+`packaging/images/verify-table.sh <image>` checks a built image's partition
+table with `sfdisk` and `sgdisk`.
 
 #### On the device (OpenWrt)
 
@@ -509,9 +521,23 @@ package; what an operator meets:
   and `packages: { seed_dir: "/usr/share/wyrm/seed" }` with `--seed`.
   `wyr image build` refuses a setup code or a seed whose path the
   configuration does not name: the broker would never read the file.
-- **The data partition is not made yet.** `/srv/wyrm` lies in the overlay
-  of the root partition (about 190 MiB free) until the first boot makes the
-  partition of ADR 0051 §3.
+- **The data partition.** At the first boot with a configuration the
+  device adds an ext4 partition (label `wyrm-data`) in the rest of the
+  card, 1 MiB after the config region, and mounts it at every boot before
+  the broker starts: the partition at `/srv/wyrm-part` (root's), its
+  directory `broker` at `/srv/wyrm`, the broker's `data_dir`. The card must be at least 32 MiB
+  larger than the image. A partition that was there before the boot is
+  never formatted. Without a mounted data partition the broker does not
+  start, and the console says why.
+- **Writing the card again** with a newer image of the same board keeps the
+  data partition: the first boot finds the label and formats nothing. With
+  the same site in the new configuration the broker goes on with its data
+  (its CA, users, links, history). With another site, the old data is
+  renamed to `/srv/wyrm-part/.replaced-<old site>-<n>` and the broker
+  starts as a new site; that directory is never merged and never
+  deleted. Copy out what you need from it (as root) and remove it yourself.
+  The data partition belongs to the card; to start clean, wipe the card
+  before you write the image.
 - **The broker runs as the user `wyrm`**, as under systemd. It may open
   serial ports (group `dialout`).
 - **The device is a plain host**: a DHCP client, no DHCP server, the
@@ -523,6 +549,11 @@ package; what an operator meets:
   password. With keys, SSH takes those keys only.
 - **Time.** The first start waits up to 120 s for NTP before the broker
   makes the site's CA, then goes on with the clock as it is.
+- **The host name** becomes `wyrm-<site>` (when the site is a valid host
+  name), so the gateway's certificate names `wyrm-<site>.local`. A name you
+  gave the device yourself is kept.
+- **`/etc/init.d/wyrmd reload` is a restart**: the broker reads its
+  configuration only when it starts.
 
 ### Recovery time
 
