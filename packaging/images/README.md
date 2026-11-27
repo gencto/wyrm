@@ -10,21 +10,23 @@ boot.
 |---|---|
 | `boards.json` | the boards, the pinned OpenWrt release, the ImageBuilder archives and the build container |
 | `build.sh` | what runs in the container: the ImageBuilder for one board |
-| `files/` | files of every image beside the package's: `/etc/uci-defaults/80-wyrm-user` |
+| `verify-table.sh` | checks the partition table of an image with `sfdisk` and `sgdisk` in a throwaway container |
 
 ## Build a base image
 
 ```
 wyr image base --board qemu-armsr --wyrmd target/aarch64-unknown-linux-musl/release/wyrmd \
-    --seed-dir dist/seed --out dist/images
+    --wyrmd-version 0.9.0 --seed-dir dist/seed --out dist/images
 ```
 
 Run it from the repository root (`--packaging` names the `packaging`
 directory otherwise). It needs `docker` or `podman` (`--runtime`), no root
 and about 2 GB of disk. With `podman` it is not tried yet. `--wyrmd` is the static `aarch64-unknown-linux-musl`
 binary (`deploy/docker/Dockerfile` builds it); a file that is no ELF for
-aarch64 is refused. `--wyrmd-version` goes into the names and the index
-(default: the version of `wyr`).
+aarch64 is refused. `--wyrmd-version` is required: it goes into the names,
+the index and `/etc/wyrm/image.json`. The binary is not run to ask it (it
+is built for the board, not for this host); its SHA-256 is recorded beside
+the version (`wyrmd_sha256`), so the index says which build it is.
 
 In `--out` it leaves:
 
@@ -34,7 +36,10 @@ In `--out` it leaves:
 | `….img.gz` | the same image as gzip, to publish (no name and no time in its header) |
 | `….partitions.txt` | the partitions of the image |
 | `….manifest` | the packages in the image, as the ImageBuilder lists them |
-| `index.json` | `wyrm-images/1`: the entry of the board is written, entries of other boards stay |
+| `index.json` | `wyrm-images/1`: the entry of the board is written (with `wyrmd_sha256` and `manifest_sha256`), entries of other boards stay |
+
+The gzip, the manifest and the index are written first and the raw image
+last: a run that is cut leaves no raw image of that build in `--out`.
 
 The steps:
 
@@ -42,25 +47,49 @@ The steps:
    line or a URL is made of plain characters, an archive is the one OpenWrt
    publishes for the release and the target, and the container is named by
    digest.
-2. The files of the image are staged: `packaging/openwrt/wyrmd/files`,
-   `files/` of this directory, the binary as `/usr/bin/wyrmd`, the files of
-   `--seed-dir` in `/usr/share/wyrm/seed/` and `/etc/wyrm/image.json`.
-   A file is 0755 when its source is executable, else 0644. A link or a
-   special file in a source directory is refused. `seed.json` in
-   `--seed-dir` is refused: that list is the person's.
+2. The files of the image are staged. The package `wyrmd` goes in as the
+   section `Package/wyrmd/install` of `packaging/openwrt/wyrmd/Makefile`
+   says: its directories, each file with the mode of its line
+   (`INSTALL_BIN` 0755, `INSTALL_DATA` 0644, `INSTALL_CONF` 0600), the
+   binary as `/usr/bin/wyrmd`. That section is the one source of the modes
+   for a feed package and for an image. A file of `files/` that it does not
+   install, a file installed elsewhere than at its path, a link or a
+   special file is refused. Then the files of `--seed-dir` in
+   `/usr/share/wyrm/seed/` (0644; `seed.json` is refused: that list is the
+   person's) and `/etc/wyrm/image.json`.
 3. The container runs `build.sh`: it downloads the ImageBuilder archive
    into the cache (`--cache`, default `<out>/.cache`) unless it is there,
    compares its SHA-256 with `boards.json`, and runs `make image` with
    `PROFILE`, `PACKAGES`, `FILES` and `ROOTFS_PARTSIZE`.
-4. `wyr` appends the config partition to the image (below), reads the
-   region back, writes the gzip and the index entry.
+4. `wyr` appends the config partition to the image (below) and reads the
+   region back. The offset of the region must be the board's
+   `config_offset` of `boards.json` ("The layout never changes" below).
+   Then it writes the gzip and the index entry.
 
 The container gets no capability (`--cap-drop ALL`, `no-new-privileges`),
 runs as the owner of `--out`, and has three mounts: the cache, the staged
-files (read only) and one output directory. It uses the network for the
-ImageBuilder archive (checked by its SHA-256) and for the packages of the
-pinned release that the ImageBuilder downloads from `downloads.openwrt.org`
-and checks against the release's signing key, which the archive carries.
+files (read only) and one output directory.
+
+### What is pinned and what is not
+
+The container has the runtime's default network.
+
+- **Pinned by a hash**: the build container (digest) and the ImageBuilder
+  archive (SHA-256 in `boards.json`, compared before it is used). The
+  archive holds the kernel, the base packages and the key of the release.
+- **Signed, not pinned**: the packages the ImageBuilder downloads from the
+  feeds of the release on `downloads.openwrt.org` (here `zoneinfo-*`, the
+  kernel modules, `sfdisk` and the like). `apk` checks each feed's index
+  against the key in the archive (`keys/openwrt-25.12.pem`); `build.sh`
+  stops when the ImageBuilder has that check off
+  (`CONFIG_SIGNATURE_CHECK=y`) and prints the line
+  `apk checks the feeds of … against the keys of the archive`. OpenWrt may
+  publish a newer build of a package inside a release, so **two builds of
+  one `boards.json` may differ** in package versions.
+- **Recorded**: the manifest (every package with its version) is published
+  beside the image, and its SHA-256 is `manifest_sha256` of the index
+  entry. Two images of one release with the same `manifest_sha256` hold the
+  same packages.
 
 ## The pinned release
 
@@ -120,31 +149,56 @@ is not the one `config_dev` names.
 `wyr` edits the table in the image file (`tools/wyr/src/image_part.rs`);
 that needs no root. The build container has neither `sfdisk` nor `sgdisk`,
 and no other container is trusted for one step. An MBR gets its third entry.
-A GPT gets one entry (type "Linux reserved", the same unique id in every
-image, name `wyrm-config`), the checksums of its header, and its second
-table at the new end of the image. The first sector of a GPT image is never
+A GPT gets one entry (type "Linux reserved", name `wyrm-config`; its unique
+id is the disk's id with the partition's number as the last byte, as
+OpenWrt names the partitions of its own images), the checksums of its
+header, and its second table at the new end of the image. A second table
+the ImageBuilder left between the last partition and the config partition
+is zeroed. The first sector of a GPT image is never
 written, so the hybrid MBR of a `mediatek/filogic` image stays byte for
 byte. No entry that was there is changed. The image grows to the end of the
 config partition (plus 1 MiB for the second table of a GPT): OpenWrt's own
 image ends where its root file system ends, before the end of the root
 partition (the `sdcard.img` of `mediatek/filogic` even ends 4 bytes into a
-sector).
+sector). **An image ends at most 1 MiB after its config partition**
+(`DATA_GAP` of `image_base.rs`): the data partition of a card starts there
+(`DATA_GAP_SECTORS` of `data-part.sh`), so an image written again over the
+card never reaches its file system. `wyr image base` refuses an image that
+goes further ("must end by byte …").
 
-Checked on images of 2026-11-27 with tools that are not ours: `sfdisk -V`
-finds no error in the `rpi4` image, `sgdisk -v` none in the `qemu-armsr`
-image, and the Linux kernel lists `vda1 vda2 vda3 vda128` there. For
-`bpi-r4`, `sgdisk -v` reports one thing, "MBR partitions 1 and 2 overlap":
-that is OpenWrt's hybrid MBR as the ImageBuilder wrote it.
+Two checks by tools that are not ours:
 
-## `ROOTFS_PARTSIZE` never changes
+- **In the tests.** `tools/wyr/tests/vectors/` holds tables that `sgdisk`
+  1.0.10 and `sfdisk` 2.41 wrote, before and after they added the same
+  partition (`make.sh` there makes them). `image_part` must give the GPT
+  byte for byte (both headers with their checksums, both arrays) and the
+  MBR entry but for its CHS address.
+- **On a built image.** `verify-table.sh <image>` runs `sfdisk -V` and,
+  for a GPT, `sgdisk -v` in a throwaway container, and wants exactly one
+  config partition that starts with the magic. For `bpi-r4` give
+  `--hybrid-mbr`: `sgdisk -v` counts the two overlapping entries of
+  OpenWrt's hybrid MBR as one problem, and that one is accepted.
 
-`rootfs_partsize_mb` of a board is fixed for the life of the board (256 for
-every board today). The config partition and the data partition start
-where this value puts them. A later image with another value, written over
-a device, moves both: the data of that device is lost. The test
-`rootfs_partsize_never_changes` (`tools/wyr/tests/boards.rs`) compares each
-board with `origin/main` and fails on a change; `wyr image base` prints the
-rule with every image.
+## The layout never changes
+
+Two things fix where the config partition and, after it, the data
+partition of a card start:
+
+- `rootfs_partsize_mb` of the board (256 for every board today). The test
+  `rootfs_partsize_never_changes` (`tools/wyr/tests/boards.rs`) compares
+  each board with the base of the change (`BOARDS_BASE`, else
+  `origin/main`) and fails on another value. In CI the base is fetched
+  before the test, and a base that cannot be read fails the test.
+- what OpenWrt puts before the root partition (the boot partition: 64 MiB
+  at 4 MiB on `bcm27xx`, 128 MiB on `armsr`). That is not ours to set, so
+  `config_offset` of each board records where a real build put the region
+  (`null` until a board was built once; such a board is not `listed`), and
+  `wyr image base` refuses a build that gives another offset: "the layout
+  of board … moved". The same test refuses a change of a recorded
+  `config_offset` against the base (a `null` may become a number once).
+
+A later image with another layout, written over a card in the field, adds
+the data partition at another place: the data of that card is not found.
 
 The root partition holds the squashfs (about 35 MiB with `wyrmd`) and the
 overlay for `/etc`.
@@ -152,7 +206,8 @@ overlay for `/etc`.
 ## The broker's user
 
 An image takes the package as files, so `USERID` of the package's
-`Makefile` makes no user. `/etc/uci-defaults/80-wyrm-user` makes the user
+`Makefile` makes no user. `/etc/uci-defaults/80-wyrm-user` (a file of the
+package) makes the user
 and the group `wyrm` with uid and gid **787** at the first boot, before
 `90-wyrm-host` uses them. It refuses to go on when 787 belongs to another
 name.
@@ -167,36 +222,62 @@ name.
 grep -rh "USERID:=" --include=Makefile . | grep -E "=787\b"
 ```
 
-## The data partition: not made yet
+## The data partition
 
-ADR 0051 §3 wants `data_dir` on an ext4 partition of its own, made at the
-first boot and sized to the rest of the card. **No script makes it today.**
-`/etc/init.d/wyrmd` makes the directory `/srv/wyrm` and nothing mounts a
-partition there, so the broker's data lies in the overlay of the root
-partition (about 190 MiB free in a 256 MiB root; seen in QEMU). `data_dev`
-of `boards.json` and `image.json` names where the partition will be: the
-one after the config partition.
+`data_dir` lies on an ext4 partition of its own, `data_part` of
+`/etc/wyrm/image.json` (the number after the config partition; `data_dev`
+of `boards.json` is its usual path). It is made at the first boot and not
+in the image, because an image does not know the size of the card:
+`/usr/libexec/wyrm/data-part.sh` adds it in the rest of the card, formats
+it, and mounts it at every boot before the broker starts (the partition
+at `/srv/wyrm-part`, root's; its `broker` directory at `/srv/wyrm`)
+(`packaging/openwrt/README.md`, "The data partition", has the rules: which
+disk, when it formats, the site rule). The image carries what the script
+needs: `sfdisk`, `partx-utils`, `e2fsprogs`, `tune2fs`, `blkid`,
+`kmod-fs-ext4`.
 
-It is made at the first boot and not in the image, because an image does
-not know the size of the card. What it needs is in the report of this step
-(a script in `packaging/openwrt/wyrmd/files`, a partition tool and a mount
-in the image, and a service that starts no broker on an unmounted
-`/srv/wyrm`).
+- **The data partition starts 1 MiB after the end of the config
+  partition** and reaches to the end of the card. That MiB is where a GPT
+  image keeps its second table: an image written whole over the card
+  (`dd`, an imager) writes those bytes too, so a data partition right after
+  the config partition would lose the start of its file system, and with
+  it the label.
+- **A card written again with a newer image of the same layout keeps its
+  data.** The new image's table has no data partition; the first boot adds
+  the entry at the same place, finds the label `wyrm-data` and formats
+  nothing. With the same site in the configuration the broker goes on with
+  its data; with another site the old data is set aside as
+  `/srv/wyrm-part/.replaced-<site>-<n>`.
+- **The card must be larger than the image** by at least 32 MiB. A disk
+  that is exactly the image gets no data partition, and the broker does not
+  start (the console says so). **In QEMU, grow the disk file before the
+  first boot**: `qemu-img resize -f raw plant.img 1G`.
 
 ## Boards
 
-- **`rpi4`, `rpi5`**: the SD card. `config_dev` is a path of the SD slot;
-  a board that boots from USB or NVMe finds no config region.
-- **`bpi-r4`**: runs from the SD card in this version. OpenWrt's install
-  onto the eMMC writes its own partition table there (`emmc-gpt.bin`),
-  without a config partition, and the SD slot and the eMMC share one
-  controller: the configuration does not travel with that install.
+- **`rpi4`**: the SD card. The scripts find the config region and the data
+  partition on the disk the root file system is on, so a board that starts
+  from a USB stick has them there; that is not tried on a board.
+- **`rpi5`**: as `rpi4` (another archive, the same layout: the config
+  partition at byte 343 932 928). Built and its table checked; not booted
+  on a board.
+- **`bpi-r4`**: **this version runs from the SD card only.** Leave the
+  card in; do not install onto the eMMC. OpenWrt's install writes its own
+  partition table there (`emmc-gpt.bin`), without a config partition, and
+  the SD slot and the eMMC share one controller, so the configuration does
+  not go with that install. Planned (owner, 2026-11-27): the system goes
+  onto the eMMC by OpenWrt's own path (SD → SPI-NAND → eMMC from the U-Boot
+  menu), the configuration arrives from a USB stick that carries the same
+  4 MiB region (`wyr image build --region-only`, to be built) at the first
+  boot from the eMMC, and `data-part.sh` makes the data partition on the
+  eMMC. Nothing of this is built or tried on the board.
 - **`bpi-r4-8g`**: not built (`unavailable`). OpenWrt 25.12.6 publishes no
   image for the 8 GB board.
 - **`qemu-armsr`**: for the smoke test; `listed: false`, the page does not
   show it.
 
 ```
+qemu-img resize -f raw plant.img 1G     # room for the data partition
 qemu-system-aarch64 -M virt -cpu host -accel hvf -m 1024 -display none \
     -bios edk2-aarch64-code.fd -drive file=plant.img,format=raw,if=virtio \
     -netdev user,id=n0,hostfwd=tcp:127.0.0.1:18445-:8445 \
@@ -213,9 +294,11 @@ with other SHA-256 sums. The index is what binds an image to its offset.
 
 ```
 cargo test -p wyr          # boards.json, the argv, the partition tables, the index
+packaging/images/verify-table.sh dist/images/wyrm-rpi4-….img     # needs docker or podman
 ```
 
 `tools/wyr/tests/boards.rs` reads `boards.json` as any reader does;
 `src/image_base.rs` and `src/image_part.rs` have the tests of the strict
-reader, the container's arguments and the tables (MBR, GPT, a GPT image
-shorter than its partitions with a hybrid MBR). No test runs a container.
+reader, the container's arguments, the package's install section and the
+tables (MBR, GPT, a GPT image shorter than its partitions with a hybrid
+MBR, the vectors of `sgdisk` and `sfdisk`). No test runs a container.

@@ -36,7 +36,9 @@ image=$3
 shift 3
 
 out=/work/out
-[ -d /work/overlay ] && [ -d "$out" ] && [ -d /cache ] || die "/work/overlay, /work/out and /cache must be mounted"
+if [ ! -d /work/overlay ] || [ ! -d "$out" ] || [ ! -d /cache ]; then
+    die "/work/overlay, /work/out and /cache must be mounted"
+fi
 # the ImageBuilder and its tools write below $HOME and $TMPDIR
 tmp=$(mktemp -d /tmp/wyrm-image.XXXXXX)
 HOME=$tmp/home
@@ -72,6 +74,14 @@ ib=$tmp/imagebuilder
 mkdir "$ib"
 say "unpacking the ImageBuilder"
 tar --zstd -xf "$archive" -C "$ib" --strip-components=1
+
+# The packages of the release are not pinned by a hash: the ImageBuilder downloads them
+# from the feeds its `repositories` file names and `apk` checks each index against the
+# keys of the archive (which is pinned). That check must be on.
+grep -qx 'CONFIG_SIGNATURE_CHECK=y' "$ib/.config" ||
+    die "this ImageBuilder does not check the signatures of its package feeds"
+keys=$(cd "$ib/keys" && echo *)
+say "apk checks the feeds of $(sed -n 's|^\(https://[^/]*/releases/[^/]*\)/.*|\1|p' "$ib/repositories" | sort -u | tr '\n' ' ')against the keys of the archive: $keys (CONFIG_SIGNATURE_CHECK=y)"
 
 # ---- 2. the image ----------------------------------------------------------------------
 

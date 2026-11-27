@@ -30,6 +30,16 @@ pub struct ImageEntry {
     pub openwrt: String,
     /// The version of `wyrmd` in the image.
     pub wyrmd: String,
+    /// The SHA-256 of the `wyrmd` binary in the image, 64 lower-case hex digits: which
+    /// build of that version it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wyrmd_sha256: Option<String>,
+    /// The SHA-256 of the image's package manifest (the list of its packages with their
+    /// versions, published beside the image). The packages of an OpenWrt release are
+    /// signed, not pinned: two builds of one release may hold other package versions, and
+    /// this tells them apart.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub manifest_sha256: Option<String>,
     /// The compressed file a page or a person downloads, when the image is published
     /// compressed. `file`, `size` and `sha256` above stay those of the raw image.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -92,7 +102,8 @@ pub enum IndexError {
     /// Two entries for this board.
     #[error("board `{0}` is there twice")]
     Twice(String),
-    /// A SHA-256 of this board's image (raw or compressed) is not 64 lower-case hex digits.
+    /// A SHA-256 of this board's entry (the image raw or compressed, its `wyrmd`, its
+    /// manifest) is not 64 lower-case hex digits.
     #[error("board `{0}`: a SHA-256 is not 64 lower-case hex digits")]
     BadHash(String),
     /// The config region of this board's image does not lie inside the image.
@@ -142,7 +153,12 @@ impl Index {
             if self.images.iter().take(i).any(|e| e.board == image.board) {
                 return Err(IndexError::Twice(board()).into());
             }
-            let hashes = [Some(&image.sha256), download.map(|d| &d.sha256)];
+            let hashes = [
+                Some(&image.sha256),
+                download.map(|d| &d.sha256),
+                image.wyrmd_sha256.as_ref(),
+                image.manifest_sha256.as_ref(),
+            ];
             if !hashes
                 .into_iter()
                 .flatten()

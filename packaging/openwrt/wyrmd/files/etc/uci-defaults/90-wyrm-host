@@ -42,7 +42,7 @@ fi
 # firewall: the zone `wan` of OpenWrt's default (input REJECT, with the rules a host
 # needs: DHCP renew, ping, ICMPv6) takes every network; the zone `lan` and the
 # forwarding between them go
-# shellcheck disable=SC2317 # called by config_foreach
+# shellcheck disable=SC2317,SC2329 # called by config_foreach
 host_zone() {
 	name=
 	config_get name "$1" name
@@ -58,11 +58,11 @@ host_zone() {
 	*) uci -q delete "firewall.$1" ;;
 	esac
 }
-# shellcheck disable=SC2317 # called by config_foreach
+# shellcheck disable=SC2317,SC2329 # called by config_foreach
 drop_section() { uci -q delete "firewall.$1"; }
 # OpenWrt's default has rules into the zone `lan` (Allow-IPSec-ESP, Allow-ISAKMP):
 # they go with the zone
-# shellcheck disable=SC2317 # called by config_foreach
+# shellcheck disable=SC2317,SC2329 # called by config_foreach
 drop_lan_rule() {
 	src=
 	dest=

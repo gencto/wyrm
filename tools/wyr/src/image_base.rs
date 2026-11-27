@@ -5,7 +5,8 @@
 //! ImageBuilder archive of each target with its SHA-256, the container the build runs in (by
 //! digest) and, per board, the profile, the size of the root partition and where the config
 //! region is on the device. This module reads that list, stages the files of the image (the
-//! package `wyrmd` as files, the broker's binary, the seed packages and `/etc/wyrm/image.json`),
+//! package `wyrmd` as its `Makefile` installs it, with the modes that file states, the
+//! broker's binary, the seed packages and `/etc/wyrm/image.json`),
 //! runs `packaging/images/build.sh` in the container, appends the config partition to the
 //! image the ImageBuilder made (`image_part`) and writes what is published: the raw image,
 //! its gzip, the listing of its partitions and the entry of `index.json`.
@@ -35,6 +36,10 @@ pub const IMAGE_JSON_FORMAT: &str = "wyrm-image/1";
 /// Where ImageBuilder archives are published. An archive of `boards.json` is this, the
 /// release, the target and the file name OpenWrt gives it: nothing else is downloaded.
 const DOWNLOADS: &str = "https://downloads.openwrt.org/releases";
+/// The data partition of a card starts this many bytes after the end of the config
+/// region (`DATA_GAP_SECTORS` of `data-part.sh`). A base image ends at most there, so an
+/// image written again over a card never reaches the data partition's file system.
+pub const DATA_GAP: u64 = 1 << 20;
 /// The host OpenWrt builds its ImageBuilder for.
 const BUILD_PLATFORM: &str = "linux/amd64";
 
@@ -101,6 +106,12 @@ pub struct Board {
     pub rootfs_partsize_mb: u32,
     /// How the config region is added.
     pub config_part: ConfigPart,
+    /// Where the config region starts in the board's image, in bytes, as a build of this
+    /// board gave it. `null` until the board was built once. The offset follows from the
+    /// sizes of the partitions before it, and OpenWrt chooses some of them (the boot
+    /// partition): a build that gives another offset is refused, because the data
+    /// partition of every card in the field starts right after this region.
+    pub config_offset: Option<u64>,
     /// The device path of the config region on the board.
     pub config_dev: String,
     /// The device path of the data partition on the board.
@@ -220,11 +231,14 @@ impl Boards {
                 "lower-case letters, digits, `.` and `-`",
             ));
         }
+        // by digest, and no name the runtime would read as an option
         let pinned = self
             .container
             .rsplit_once("@sha256:")
             .is_some_and(|(image, digest)| {
-                plain(image, &['.', '-', '_', '/', ':']) && hex::is_lower_hex(digest, 32)
+                plain(image, &['.', '-', '_', '/', ':'])
+                    && !image.starts_with('-')
+                    && hex::is_lower_hex(digest, 32)
             });
         if !pinned {
             return Err(BoardsError::NotPinned(self.container.clone()));
@@ -317,6 +331,16 @@ impl Boards {
         }
         if board.rootfs_partsize_mb == 0 {
             return Err(refuse("the root partition has no size"));
+        }
+        // after a root partition of that size, on a sector
+        let after_root = u64::from(board.rootfs_partsize_mb) << 20;
+        if board
+            .config_offset
+            .is_some_and(|offset| offset < after_root || offset % SECTOR != 0)
+        {
+            return Err(refuse(
+                "the config region does not lie after the root partition",
+            ));
         }
         if part_number(&board.config_dev).is_none() || part_number(&board.data_dev).is_none() {
             return Err(refuse(
@@ -416,8 +440,10 @@ pub struct BaseArgs {
     /// The broker's binary for the board: a static `aarch64-unknown-linux-musl` build.
     #[arg(long)]
     pub wyrmd: PathBuf,
-    /// The version of that binary, for the index and `/etc/wyrm/image.json`.
-    #[arg(long, value_name = "VERSION", default_value = env!("CARGO_PKG_VERSION"))]
+    /// The version of that binary, for the index and `/etc/wyrm/image.json`. The binary is
+    /// built for the board and is not run here to ask it; its SHA-256 is recorded beside
+    /// the version.
+    #[arg(long, value_name = "VERSION")]
     pub wyrmd_version: String,
     /// A directory with the link packages the image carries (`*.wyrm-link`, zip). They go
     /// to the seed directory of the image; which of them are installed is the person's
@@ -429,7 +455,7 @@ pub struct BaseArgs {
     #[arg(long)]
     pub out: PathBuf,
     /// The repository's `packaging` directory: `images/boards.json`, `images/build.sh`,
-    /// `images/files` and `openwrt/wyrmd/files` are read from it.
+    /// `openwrt/wyrmd/Makefile` and `openwrt/wyrmd/files` are read from it.
     #[arg(long, default_value = "packaging")]
     pub packaging: PathBuf,
     /// Where ImageBuilder archives are kept between runs. Default: `<out>/.cache`.
@@ -488,6 +514,33 @@ pub enum BaseError {
     /// The build in the container failed; its output says why.
     #[error("the build in the container failed ({0}); its output is above")]
     Build(std::process::ExitStatus),
+    /// The package's `Makefile` is not read, or it and the package's `files` do not say
+    /// the same.
+    #[error("`{}`: {source}", path.display())]
+    Package { path: PathBuf, source: PackageError },
+    /// The config region of the build is not where `boards.json` records it.
+    #[error(
+        "the layout of board `{board}` moved: this build puts the config region at byte {found}, \
+         boards.json records {want}. The data partition of a card starts 1 MiB after the \
+         region, so an image with another offset, written over a card in the field, loses \
+         that card's data. Nothing is published"
+    )]
+    LayoutMoved {
+        board: String,
+        found: u64,
+        want: u64,
+    },
+    /// The image goes past the place where the data partition of a card starts.
+    #[error(
+        "board `{board}`: the image has {size} bytes and must end by byte {limit}, 1 MiB after \
+         the config region: the data partition of a card starts there, and an image written \
+         again over the card would overwrite its file system. Nothing is published"
+    )]
+    PastData {
+        board: String,
+        size: u64,
+        limit: u64,
+    },
     /// The image the ImageBuilder made cannot take the config partition.
     #[error("`{}`: {source}", path.display())]
     Part { path: PathBuf, source: PartError },
@@ -600,28 +653,25 @@ struct ImageJson<'a> {
     board: &'a str,
     openwrt: &'a str,
     wyrmd: &'a str,
+    /// The SHA-256 of `/usr/bin/wyrmd` as it was put into the image.
+    wyrmd_sha256: &'a str,
     /// When the image was built, in seconds since 1970 (UTC).
     built: u64,
+    /// The number of the config partition on the disk the device starts from, and the
+    /// number of the data partition the first boot makes after it.
+    config_part: u32,
+    data_part: u32,
+    /// The two as device paths, where the board starts from its usual storage.
     config_dev: &'a str,
     data_dev: &'a str,
 }
 
 #[cfg(unix)]
 mod modes {
-    use std::fs::{File, Metadata, Permissions};
+    use std::fs::{File, Permissions};
     use std::io;
     use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
     use std::path::Path;
-
-    /// 0755 for a file its owner may execute, 0644 for another: what a checkout keeps of
-    /// a mode, and nothing else of it.
-    pub fn of_file(from: &Metadata) -> u32 {
-        if from.permissions().mode() & 0o100 == 0 {
-            0o644
-        } else {
-            0o755
-        }
-    }
 
     pub fn set(file: &File, mode: u32) -> io::Result<()> {
         file.set_permissions(Permissions::from_mode(mode))
@@ -654,35 +704,205 @@ fn image_file(from: &Path, to: &Path, mode: u32) -> Result<()> {
     modes::set(&output, mode).map_err(io_err("set the mode of", to))
 }
 
-/// Copies a tree of files into the image: directories and regular files only, by plain
-/// names. A link, a device or a name that is not text is refused, not followed.
+/// Why the install section of the package's `Makefile` is refused.
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+pub enum PackageError {
+    /// No `define Package/wyrmd/install` … `endef`.
+    #[error("no `define Package/wyrmd/install` … `endef`")]
+    NoSection,
+    /// A line that is neither `$(INSTALL_DIR) $(1)/<dir>…` nor `$(INSTALL_BIN|INSTALL_DATA|
+    /// INSTALL_CONF) <source> $(1)/<place>`.
+    #[error("`{0}` is no line of the install section: it holds `$(INSTALL_DIR) $(1)/<dir>…` and `$(INSTALL_BIN|INSTALL_DATA|INSTALL_CONF) <source> $(1)/<place>`")]
+    Line(String),
+    /// A source that is neither `$(WYRMD_BIN)` nor a plain path below `./files/`, or a
+    /// place that is no plain path below `$(1)/`.
+    #[error("`{0}` is no plain path below `./files/` (a source) or `$(1)/` (a place)")]
+    Path(String),
+    /// One place is installed twice.
+    #[error("`{0}` is installed twice")]
+    Twice(String),
+    /// A file of `files` that no line installs.
+    #[error("`files/{0}` is not installed by `Package/wyrmd/install`")]
+    NotInstalled(String),
+    /// A file that is installed at another place than its path below `files`.
+    #[error(
+        "`files/{file}` is installed as `{to}`: an image takes a file at its path below `files`"
+    )]
+    Elsewhere { file: String, to: String },
+    /// The broker's binary is not installed.
+    #[error("`$(WYRMD_BIN)` is not installed")]
+    NoBinary,
+}
+
+/// One file the package installs: where it comes from, where it goes, with which mode.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Install {
+    /// The path below the package's `files`; `None` for the broker's binary
+    /// (`$(WYRMD_BIN)`).
+    pub source: Option<String>,
+    /// The path on the device, absolute.
+    pub to: String,
+    /// The mode: 0755 for `INSTALL_BIN`, 0644 for `INSTALL_DATA`, 0600 for `INSTALL_CONF`.
+    pub mode: u32,
+}
+
+/// What the package installs, read from the `Package/wyrmd/install` section of its
+/// `Makefile`: the directories and the files. The image takes the package as files, and
+/// this is the one place that says which files and with which modes, for a package built
+/// from a feed and for an image alike.
+///
+/// The section is read as its lines, not as `make` reads it: each line is
+/// `$(INSTALL_DIR) $(1)/<dir>…` or `$(INSTALL_BIN|INSTALL_DATA|INSTALL_CONF) <source>
+/// $(1)/<to>`, where `<source>` is `./files/<path>` or `$(WYRMD_BIN)` and `<to>` names a
+/// directory when it ends with `/`. Any other line is refused.
+pub fn package_installs(makefile: &str) -> Result<(Vec<String>, Vec<Install>), PackageError> {
+    let path_ok = |path: &str| {
+        !path.is_empty()
+            && !path
+                .split('/')
+                .any(|part| part.is_empty() || part.starts_with('.'))
+            && plain(&path.replace('/', ""), &['.', '-', '_', '+'])
+    };
+    let on_device = |word: &str| -> Result<String, PackageError> {
+        word.strip_prefix("$(1)/")
+            .filter(|path| path_ok(path.trim_end_matches('/')))
+            .map(|path| format!("/{path}"))
+            .ok_or_else(|| PackageError::Path(word.to_owned()))
+    };
+    let mut lines = makefile
+        .lines()
+        .skip_while(|line| line.trim() != "define Package/wyrmd/install")
+        .skip(1);
+    let mut dirs = Vec::new();
+    let mut files: Vec<Install> = Vec::new();
+    loop {
+        let line = lines.next().ok_or(PackageError::NoSection)?.trim();
+        if line == "endef" {
+            break;
+        }
+        let mut words = line.split_whitespace();
+        let mode = match words.next() {
+            None => continue,
+            Some("$(INSTALL_DIR)") => {
+                for word in words {
+                    dirs.push(on_device(word)?);
+                }
+                continue;
+            }
+            Some("$(INSTALL_BIN)") => 0o755,
+            Some("$(INSTALL_DATA)") => 0o644,
+            Some("$(INSTALL_CONF)") => 0o600,
+            Some(_) => return Err(PackageError::Line(line.to_owned())),
+        };
+        let (Some(from), Some(to), None) = (words.next(), words.next(), words.next()) else {
+            return Err(PackageError::Line(line.to_owned()));
+        };
+        let source = if from == "$(WYRMD_BIN)" {
+            None
+        } else {
+            let path = from
+                .strip_prefix("./files/")
+                .filter(|path| path_ok(path))
+                .ok_or_else(|| PackageError::Path(from.to_owned()))?;
+            Some(path.to_owned())
+        };
+        let mut to = on_device(to)?;
+        if to.ends_with('/') {
+            let name = source
+                .as_deref()
+                .and_then(|path| path.rsplit('/').next())
+                .ok_or_else(|| PackageError::Line(line.to_owned()))?;
+            to.push_str(name);
+        }
+        if files.iter().any(|file| file.to == to) {
+            return Err(PackageError::Twice(to));
+        }
+        files.push(Install { source, to, mode });
+    }
+    Ok((dirs, files))
+}
+
+/// The regular files below a directory, as paths from it. A link, a device or a name that
+/// is not plain text is refused, not followed.
 #[cfg(unix)]
-fn image_tree(from: &Path, to: &Path) -> Result<()> {
-    image_dir(to)?;
-    let mut entries = std::fs::read_dir(from)
-        .map_err(io_err("read", from))?
+fn files_below(dir: &Path, prefix: &str, out: &mut Vec<String>) -> Result<()> {
+    let mut entries = std::fs::read_dir(dir)
+        .map_err(io_err("read", dir))?
         .collect::<io::Result<Vec<_>>>()
-        .map_err(io_err("read", from))?;
+        .map_err(io_err("read", dir))?;
     entries.sort_by_key(std::fs::DirEntry::file_name);
     for entry in entries {
         let path = entry.path();
         // of the entry itself: a link is not followed
         let meta = std::fs::symlink_metadata(&path).map_err(io_err("read", &path))?;
         let name = entry.file_name();
-        let plain = name
-            .to_str()
-            .is_some_and(|n| !n.contains(['\n', '\\']) && n != "." && n != "..");
-        if !plain {
+        let Some(name) = name.to_str().filter(|n| !n.contains(['\n', '\\', '/'])) else {
             return Err(BaseError::NotPlain(path));
-        }
-        let target = to.join(&name);
+        };
+        let below = format!("{prefix}{name}");
         if meta.is_dir() {
-            image_tree(&path, &target)?;
+            files_below(&path, &format!("{below}/"), out)?;
         } else if meta.is_file() {
-            image_file(&path, &target, modes::of_file(&meta))?;
+            out.push(below);
         } else {
             return Err(BaseError::NotPlain(path));
         }
+    }
+    Ok(())
+}
+
+/// Stages the package `wyrmd` as its `Makefile` installs it: every directory, every file
+/// with its mode, the binary. The `files` directory and the `Makefile` must say the same:
+/// a file that is not installed, or one that is installed to another place than its path
+/// below `files`, is refused.
+#[cfg(unix)]
+fn stage_package(package: &Path, wyrmd: &Path, overlay: &Path) -> Result<()> {
+    let makefile = package.join("Makefile");
+    let refuse = |source: PackageError| BaseError::Package {
+        path: makefile.clone(),
+        source,
+    };
+    let text = std::fs::read_to_string(&makefile).map_err(io_err("read", &makefile))?;
+    let (dirs, installs) = package_installs(&text).map_err(refuse)?;
+    let files = package.join("files");
+    let mut there = Vec::new();
+    files_below(&files, "", &mut there)?;
+    for file in &there {
+        let installed = installs
+            .iter()
+            .any(|install| install.source.as_deref() == Some(file.as_str()));
+        if !installed {
+            return Err(refuse(PackageError::NotInstalled(file.clone())));
+        }
+    }
+    for dir in &dirs {
+        image_dir(&staged(overlay, dir))?;
+    }
+    let mut binary = false;
+    for install in &installs {
+        let to = staged(overlay, &install.to);
+        if let Some(dir) = to.parent() {
+            image_dir(dir)?;
+        }
+        match &install.source {
+            None => {
+                binary = true;
+                image_file(wyrmd, &to, install.mode)?;
+            }
+            Some(source) => {
+                // an image is the package's files at their own paths
+                if install.to.trim_start_matches('/') != source {
+                    return Err(refuse(PackageError::Elsewhere {
+                        file: source.clone(),
+                        to: install.to.clone(),
+                    }));
+                }
+                image_file(&files.join(source), &to, install.mode)?;
+            }
+        }
+    }
+    if !binary {
+        return Err(refuse(PackageError::NoBinary));
     }
     Ok(())
 }
@@ -707,26 +927,27 @@ fn for_board(binary: &Path) -> Result<()> {
     }
 }
 
-/// Stages the files of the image below `overlay`: the package `wyrmd` as files, the files
-/// of `packaging/images/files`, the binary, the seed packages and `/etc/wyrm/image.json`.
+/// What a build says of itself in `/etc/wyrm/image.json`.
+#[cfg(unix)]
+struct Record<'a> {
+    /// The SHA-256 of the binary, as hex.
+    wyrmd_sha256: &'a str,
+    /// When the image is built, in seconds since 1970.
+    built: u64,
+}
+
+/// Stages the files of the image below `overlay`: the package `wyrmd` as its `Makefile`
+/// installs it, the binary, the seed packages and `/etc/wyrm/image.json`.
 #[cfg(unix)]
 fn stage(
     args: &BaseArgs,
     boards: &Boards,
     board: &Board,
     overlay: &Path,
-    built: u64,
+    record: &Record<'_>,
 ) -> Result<()> {
-    image_tree(&args.packaging.join("openwrt/wyrmd/files"), overlay)?;
-    image_tree(&args.packaging.join("images/files"), overlay)?;
-
-    let bin = staged(overlay, "/usr/bin");
-    image_dir(&bin)?;
-    image_file(&args.wyrmd, &bin.join("wyrmd"), 0o755)?;
-
-    // the mount point of the data partition and the seed directory are there in every
-    // image, as the package makes them
-    image_dir(&staged(overlay, "/srv/wyrm"))?;
+    image_dir(overlay)?;
+    stage_package(&args.packaging.join("openwrt/wyrmd"), &args.wyrmd, overlay)?;
     let seed = staged(overlay, SEED_DIR);
     image_dir(&seed)?;
     if let Some(dir) = &args.seed_dir {
@@ -750,12 +971,23 @@ fn stage(
         }
     }
 
+    // checked by `Boards::check`: both paths end with a partition number
+    let (Some(config_part), Some(data_part)) =
+        (part_number(&board.config_dev), part_number(&board.data_dev))
+    else {
+        return Err(BaseError::Result(
+            "the board's device paths name no partition".to_owned(),
+        ));
+    };
     let record = ImageJson {
         format: IMAGE_JSON_FORMAT,
         board: &board.id,
         openwrt: &boards.openwrt,
         wyrmd: &args.wyrmd_version,
-        built,
+        wyrmd_sha256: record.wyrmd_sha256,
+        built: record.built,
+        config_part,
+        data_part,
         config_dev: &board.config_dev,
         data_dev: &board.data_dev,
     };
@@ -838,7 +1070,8 @@ fn publish(raw: &Path, gz: &Path) -> Result<(FileSum, FileSum)> {
 }
 
 /// The config region of the image is the empty one, where the entry of the index will say,
-/// and it is the partition the board's `config_dev` names.
+/// it is the partition the board's `config_dev` names, and the image ends by [`DATA_GAP`]
+/// after it.
 fn check_result(raw: &Path, layout: &Appended, board: &Board) -> Result<()> {
     let refuse = |why: String| Err(BaseError::Result(why));
     if part_number(&board.config_dev) != Some(layout.config_part) {
@@ -874,7 +1107,113 @@ fn check_result(raw: &Path, layout: &Appended, board: &Board) -> Result<()> {
     if read_region(&region)?.is_some() {
         return refuse("the config region of a base image holds a configuration".to_owned());
     }
+    let limit = layout
+        .config_offset
+        .saturating_add(CONFIG_SIZE)
+        .saturating_add(DATA_GAP);
+    if size > limit {
+        return Err(BaseError::PastData {
+            board: board.id.clone(),
+            size,
+            limit,
+        });
+    }
     Ok(())
+}
+
+/// What a build is of: the list, the board, the version and the SHA-256 of the binary.
+#[cfg(unix)]
+struct Build<'a> {
+    boards: &'a Boards,
+    board: &'a Board,
+    wyrmd: &'a str,
+    wyrmd_sha256: String,
+}
+
+/// Makes what is published of the image the ImageBuilder left in `result`: appends the
+/// config partition, checks it, and writes into `out` the gzip, the manifest, the listing
+/// of the partitions, the index entry and, last, the raw image. Returns the layout and the
+/// paths of the raw image, the gzip and the index.
+#[cfg(unix)]
+fn release(
+    build: &Build<'_>,
+    result: &Path,
+    out: &Path,
+) -> Result<(Appended, PathBuf, PathBuf, PathBuf)> {
+    let board = build.board;
+    let made = result.join("base.img");
+    let mut image = File::options()
+        .read(true)
+        .write(true)
+        .open(&made)
+        .map_err(io_err("read", &made))?;
+    let layout =
+        append_config(&mut image, board.table == Table::Gpt).map_err(|source| BaseError::Part {
+            path: made.clone(),
+            source,
+        })?;
+    drop(image);
+    check_result(&made, &layout, board)?;
+    same_layout(board, layout.config_offset)?;
+
+    let stem = format!(
+        "wyrm-{}-{}-openwrt-{}",
+        board.id, build.wyrmd, build.boards.openwrt
+    );
+    let raw_name = format!("{stem}.img");
+    let gz_name = format!("{raw_name}.gz");
+    let raw = out.join(&raw_name);
+    let gz = out.join(&gz_name);
+    // The raw image comes last: until then `--out` holds no image of this build, and a
+    // run that is cut leaves the files of the build before it or files without an image.
+    let gz_tmp = result.join("base.img.gz");
+    let (raw_sum, gz_sum) = publish(&made, &gz_tmp)?;
+    let made_manifest = result.join("manifest");
+    let (manifest_sum, _) =
+        hex::sha256_reader(open(&made_manifest)?).map_err(io_err("read", &made_manifest))?;
+    let manifest = out.join(format!("{stem}.manifest"));
+    std::fs::rename(&made_manifest, &manifest).map_err(io_err("write", &manifest))?;
+    let listing = out.join(format!("{stem}.partitions.txt"));
+    std::fs::write(&listing, partitions_text(&layout)).map_err(io_err("write", &listing))?;
+    std::fs::rename(&gz_tmp, &gz).map_err(io_err("write", &gz))?;
+    let entry = ImageEntry {
+        board: board.id.clone(),
+        file: raw_name,
+        size: raw_sum.size,
+        sha256: hex::encode(raw_sum.sha256),
+        config_offset: layout.config_offset,
+        openwrt: build.boards.openwrt.clone(),
+        wyrmd: build.wyrmd.to_owned(),
+        wyrmd_sha256: Some(build.wyrmd_sha256.clone()),
+        manifest_sha256: Some(hex::encode(manifest_sum)),
+        download: Some(Download {
+            file: gz_name,
+            size: gz_sum.size,
+            sha256: hex::encode(gz_sum.sha256),
+        }),
+    };
+    let index = out.join("index.json");
+    write_index(&index, entry)?;
+    std::fs::rename(&made, &raw).map_err(io_err("write", &raw))?;
+    Ok((layout, raw, gz, index))
+}
+
+/// The config region of a build is where the board's row records it. A board without a
+/// record (it was never built) passes; its offset is printed to be recorded.
+fn same_layout(board: &Board, found: u64) -> Result<()> {
+    match board.config_offset {
+        Some(want) if want != found => Err(BaseError::LayoutMoved {
+            board: board.id.clone(),
+            found,
+            want,
+        }),
+        _ => Ok(()),
+    }
+}
+
+/// Opens a file to read it.
+fn open(path: &Path) -> Result<File> {
+    File::open(path).map_err(io_err("read", path))
 }
 
 /// The partitions of an image as text, for whoever looks at what was published.
@@ -970,6 +1309,8 @@ pub fn run(args: &BaseArgs) -> Result<()> {
         return Err(BaseError::BadVersion(args.wyrmd_version.clone()));
     }
     for_board(&args.wyrmd)?;
+    let (sum, _) = hex::sha256_reader(open(&args.wyrmd)?).map_err(io_err("read", &args.wyrmd))?;
+    let wyrmd_sha256 = hex::encode(sum);
 
     std::fs::create_dir_all(&args.out).map_err(io_err("create", &args.out))?;
     let out = args.out.canonicalize().map_err(io_err("find", &args.out))?;
@@ -986,7 +1327,21 @@ pub fn run(args: &BaseArgs) -> Result<()> {
     let overlay = work.join("overlay");
     let result = work.join("out");
     std::fs::create_dir_all(&result).map_err(io_err("create", &result))?;
-    stage(args, &boards, board, &overlay, wyrm_core::clock::now_s())?;
+    let record = Record {
+        wyrmd_sha256: &wyrmd_sha256,
+        built: wyrm_core::clock::now_s(),
+    };
+    stage(args, &boards, board, &overlay, &record)?;
+    // the binary that went into the image is the one whose SHA-256 is recorded
+    let staged_binary = staged(&overlay, "/usr/bin/wyrmd");
+    let (staged_sum, _) =
+        hex::sha256_reader(open(&staged_binary)?).map_err(io_err("read", &staged_binary))?;
+    if staged_sum != sum {
+        return Err(BaseError::Result(format!(
+            "`{}` changed while it was read",
+            args.wyrmd.display()
+        )));
+    }
     let script_from = args.packaging.join("images/build.sh");
     let script = work.join("build.sh");
     std::fs::copy(&script_from, &script).map_err(io_err("read", &script_from))?;
@@ -1014,50 +1369,13 @@ pub fn run(args: &BaseArgs) -> Result<()> {
         return Err(BaseError::Build(status));
     }
 
-    let made = result.join("base.img");
-    let mut image = File::options()
-        .read(true)
-        .write(true)
-        .open(&made)
-        .map_err(io_err("read", &made))?;
-    let layout =
-        append_config(&mut image, board.table == Table::Gpt).map_err(|source| BaseError::Part {
-            path: made.clone(),
-            source,
-        })?;
-    drop(image);
-    check_result(&made, &layout, board)?;
-
-    let stem = format!(
-        "wyrm-{}-{}-openwrt-{}",
-        board.id, args.wyrmd_version, boards.openwrt
-    );
-    let raw_name = format!("{stem}.img");
-    let gz_name = format!("{raw_name}.gz");
-    let raw = out.join(&raw_name);
-    let gz = out.join(&gz_name);
-    std::fs::rename(&made, &raw).map_err(io_err("write", &raw))?;
-    let (raw_sum, gz_sum) = publish(&raw, &gz)?;
-    let manifest = out.join(format!("{stem}.manifest"));
-    std::fs::rename(result.join("manifest"), &manifest).map_err(io_err("write", &manifest))?;
-    let listing = out.join(format!("{stem}.partitions.txt"));
-    std::fs::write(&listing, partitions_text(&layout)).map_err(io_err("write", &listing))?;
-    let entry = ImageEntry {
-        board: board.id.clone(),
-        file: raw_name,
-        size: raw_sum.size,
-        sha256: hex::encode(raw_sum.sha256),
-        config_offset: layout.config_offset,
-        openwrt: boards.openwrt.clone(),
-        wyrmd: args.wyrmd_version.clone(),
-        download: Some(Download {
-            file: gz_name,
-            size: gz_sum.size,
-            sha256: hex::encode(gz_sum.sha256),
-        }),
+    let build = Build {
+        boards: &boards,
+        board,
+        wyrmd: &args.wyrmd_version,
+        wyrmd_sha256,
     };
-    let index = out.join("index.json");
-    write_index(&index, entry)?;
+    let (layout, raw, gz, index) = release(&build, &result, &out)?;
     if !args.keep_work {
         std::fs::remove_dir_all(&work).map_err(io_err("remove", &work))?;
     }
@@ -1072,6 +1390,14 @@ pub fn run(args: &BaseArgs) -> Result<()> {
         CONFIG_SIZE,
         layout.config_offset
     );
+    if board.config_offset.is_none() {
+        out!(
+            "board {} has no recorded layout: write \"config_offset\": {} into its row of \
+             boards.json, so that a later build with another layout is refused",
+            board.id,
+            layout.config_offset
+        );
+    }
     out!(
         "root partition: {} MiB. This size is fixed for board {}: a later image with another \
          size moves every partition after the root, and the data of a device is lost when \
@@ -1103,7 +1429,8 @@ mod tests {
                 "PROFILE=rpi-4",
                 "PACKAGES=-dnsmasq -odhcpd-ipv6only -ppp -ppp-mod-pppoe zoneinfo-all \
                  kmod-usb-acm kmod-usb-serial-ch341 kmod-usb-serial-cp210x \
-                 kmod-usb-serial-ftdi kmod-usb-serial-pl2303",
+                 kmod-usb-serial-ftdi kmod-usb-serial-pl2303 sfdisk partx-utils e2fsprogs \
+                 tune2fs blkid kmod-fs-ext4",
                 "ROOTFS_PARTSIZE=256",
             ]
         );
@@ -1222,10 +1549,16 @@ mod tests {
             changed(|j| j["format"] = "wyrm-boards/2".into()),
             Err(BoardsError::Format(_))
         ));
-        // a tag is no pin
-        for container in ["ghcr.io/openwrt/imagebuilder:latest", "debian@sha256:abc"] {
+        // a tag is no pin; a name the runtime would take for an option
+        let digest = "03d881a90761ba99b9f5425d2fce25ba3c5c314db462c4f9440fdddcc7b33ddc";
+        for container in [
+            "ghcr.io/openwrt/imagebuilder:latest".to_owned(),
+            "debian@sha256:abc".to_owned(),
+            format!("--privileged@sha256:{digest}"),
+            format!("-v/:/host@sha256:{digest}"),
+        ] {
             assert!(matches!(
-                changed(|j| j["container"] = container.into()),
+                changed(|j| j["container"] = container.as_str().into()),
                 Err(BoardsError::NotPinned(_))
             ));
         }
@@ -1278,6 +1611,13 @@ mod tests {
             changed(|j| j["boards"][0]["id"] = "Rpi 4".into()),
             Err(BoardsError::BadName { .. })
         ));
+        // a config region inside the root partition, or off a sector
+        for offset in [1u64 << 20, (300 << 20) + 1] {
+            assert!(matches!(
+                changed(|j| j["boards"][0]["config_offset"] = offset.into()),
+                Err(BoardsError::Board { .. })
+            ));
+        }
         // a field this build does not know is a mistake in the list
         assert!(matches!(
             changed(|j| j["boards"][0]["rootfs_partsize"] = 512.into()),
@@ -1332,7 +1672,11 @@ mod tests {
         let boards = boards();
         let board = boards.board("qemu-armsr").unwrap();
         let overlay = dir.join("overlay");
-        stage(&args, &boards, board, &overlay, 1_795_000_000).unwrap();
+        let record = Record {
+            wyrmd_sha256: &"ab".repeat(32),
+            built: 1_795_000_000,
+        };
+        stage(&args, &boards, board, &overlay, &record).unwrap();
         let mode = |path: &str| {
             std::fs::metadata(overlay.join(path))
                 .unwrap_or_else(|e| panic!("{path}: {e}"))
@@ -1346,21 +1690,28 @@ mod tests {
         assert_eq!(mode("usr/libexec/wyrm/first-boot.sh"), 0o755);
         assert_eq!(mode("etc/uci-defaults/80-wyrm-user"), 0o755);
         assert_eq!(mode("etc/uci-defaults/90-wyrm-host"), 0o755);
-        assert_eq!(mode("etc/wyrm/wyrmd.json5"), 0o644);
+        assert_eq!(mode("usr/libexec/wyrm/data-part.sh"), 0o755);
+        // as the package's Makefile states them: a file that is sourced, a configuration
+        assert_eq!(mode("etc/hotplug.d/ntp/20-wyrm-time"), 0o644);
+        assert_eq!(mode("lib/upgrade/keep.d/wyrm"), 0o644);
+        assert_eq!(mode("etc/wyrm/wyrmd.json5"), 0o600);
         assert_eq!(mode("usr/share/wyrm/seed/telegram.wyrm-link"), 0o644);
         assert_eq!(mode("srv/wyrm"), 0o755);
-        let record: serde_json::Value = serde_json::from_str(
+        let written: serde_json::Value = serde_json::from_str(
             &std::fs::read_to_string(overlay.join("etc/wyrm/image.json")).unwrap(),
         )
         .unwrap();
         assert_eq!(
-            record,
+            written,
             serde_json::json!({
                 "format": "wyrm-image/1",
                 "board": "qemu-armsr",
                 "openwrt": "25.12.6",
                 "wyrmd": "0.9.0",
+                "wyrmd_sha256": "ab".repeat(32),
                 "built": 1_795_000_000u64,
+                "config_part": 3,
+                "data_part": 4,
                 "config_dev": "/dev/vda3",
                 "data_dev": "/dev/vda4",
             })
@@ -1369,7 +1720,7 @@ mod tests {
         std::fs::write(seeds.join("seed.json"), "{}").unwrap();
         let again = dir.join("overlay2");
         assert!(matches!(
-            stage(&args, &boards, board, &again, 0),
+            stage(&args, &boards, board, &again, &record),
             Err(BaseError::SeedList(_))
         ));
         std::fs::remove_file(seeds.join("seed.json")).unwrap();
@@ -1377,10 +1728,122 @@ mod tests {
         std::os::unix::fs::symlink("/etc/passwd", seeds.join("passwd")).unwrap();
         let again = dir.join("overlay3");
         assert!(matches!(
-            stage(&args, &boards, board, &again, 0),
+            stage(&args, &boards, board, &again, &record),
             Err(BaseError::NotPlain(_))
         ));
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_package_is_installed_as_its_makefile_says() {
+        let makefile = include_str!("../../../packaging/openwrt/wyrmd/Makefile");
+        let (dirs, files) = package_installs(makefile).unwrap();
+        assert!(dirs.contains(&"/srv/wyrm".to_owned()));
+        assert!(dirs.contains(&"/usr/share/wyrm/seed".to_owned()));
+        let of = |to: &str| files.iter().find(|file| file.to == to).unwrap();
+        assert_eq!(
+            of("/usr/bin/wyrmd"),
+            &Install {
+                source: None,
+                to: "/usr/bin/wyrmd".to_owned(),
+                mode: 0o755
+            }
+        );
+        let first_boot = of("/usr/libexec/wyrm/first-boot.sh");
+        assert_eq!(
+            (first_boot.source.as_deref(), first_boot.mode),
+            (Some("usr/libexec/wyrm/first-boot.sh"), 0o755)
+        );
+        assert_eq!(of("/etc/wyrm/wyrmd.json5").mode, 0o600);
+        assert_eq!(of("/lib/upgrade/keep.d/wyrm").mode, 0o644);
+
+        let section = |lines: &str| {
+            package_installs(&format!("define Package/wyrmd/install\n{lines}\nendef\n"))
+        };
+        assert!(section("\t$(INSTALL_BIN) ./files/usr/bin/x $(1)/usr/bin/").is_ok());
+        for bad in [
+            // a command that is no install, a path out of the package or out of the image
+            "\tcp ./files/x $(1)/x",
+            "\t$(INSTALL_BIN) ./files/../Makefile $(1)/usr/bin/",
+            "\t$(INSTALL_BIN) /etc/passwd $(1)/usr/bin/",
+            "\t$(INSTALL_BIN) ./files/x $(1)/../x",
+            "\t$(INSTALL_BIN) ./files/x /usr/bin/",
+            "\t$(INSTALL_BIN) ./files/x $(1)/usr/bin/ more",
+            "\t$(INSTALL_DIR) /usr/bin",
+            // one place twice
+            "\t$(INSTALL_BIN) ./files/a/x $(1)/usr/bin/\n\t$(INSTALL_DATA) ./files/b/x $(1)/usr/bin/",
+        ] {
+            assert!(section(bad).is_err(), "{bad}");
+        }
+        assert!(package_installs("define Package/wyrmd/install\n").is_err());
+        assert!(package_installs("").is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_file_the_makefile_does_not_install_is_refused() {
+        let dir = std::env::temp_dir().join(format!("wyr-image-base-pkg-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let package = dir.join("wyrmd");
+        std::fs::create_dir_all(package.join("files/usr/bin")).unwrap();
+        let wyrmd = dir.join("wyrmd.bin");
+        std::fs::write(&wyrmd, b"binary").unwrap();
+        std::fs::write(package.join("files/usr/bin/tool"), b"#!/bin/sh\n").unwrap();
+        let makefile = |lines: &str| {
+            std::fs::write(
+                package.join("Makefile"),
+                format!("define Package/wyrmd/install\n{lines}\nendef\n"),
+            )
+            .unwrap();
+        };
+        let bin = "\t$(INSTALL_BIN) $(WYRMD_BIN) $(1)/usr/bin/wyrmd";
+        let stage = |n: u8| stage_package(&package, &wyrmd, &dir.join(format!("overlay{n}")));
+        makefile(&format!(
+            "{bin}\n\t$(INSTALL_BIN) ./files/usr/bin/tool $(1)/usr/bin/"
+        ));
+        stage(0).unwrap();
+        // a file of `files` that no line installs; a file put elsewhere; no binary
+        makefile(bin);
+        assert!(matches!(stage(1), Err(BaseError::Package { .. })));
+        makefile(&format!(
+            "{bin}\n\t$(INSTALL_BIN) ./files/usr/bin/tool $(1)/usr/sbin/"
+        ));
+        assert!(matches!(stage(2), Err(BaseError::Package { .. })));
+        makefile("\t$(INSTALL_BIN) ./files/usr/bin/tool $(1)/usr/bin/");
+        assert!(matches!(stage(3), Err(BaseError::Package { .. })));
+        // a link below `files` is refused, not followed
+        makefile(&format!(
+            "{bin}\n\t$(INSTALL_BIN) ./files/usr/bin/tool $(1)/usr/bin/"
+        ));
+        std::os::unix::fs::symlink("/etc/passwd", package.join("files/usr/bin/passwd")).unwrap();
+        assert!(matches!(stage(4), Err(BaseError::NotPlain(_))));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_build_with_another_layout_is_refused() {
+        let boards = boards();
+        // the offsets of the builds of 2026-11-27
+        for (id, offset) in [
+            ("qemu-armsr", 403_701_760u64),
+            ("rpi4", 343_932_928),
+            ("bpi-r4", 335_544_320),
+            ("rpi5", 343_932_928),
+        ] {
+            let board = boards.board(id).unwrap();
+            assert_eq!(board.config_offset, Some(offset), "{id}");
+            same_layout(board, offset).unwrap();
+            // OpenWrt made the boot partition 8 MiB larger
+            let moved = same_layout(board, offset + (8 << 20)).unwrap_err();
+            assert!(matches!(moved, BaseError::LayoutMoved { .. }));
+            assert!(moved.to_string().contains("loses"), "{moved}");
+        }
+        // a board that was never built has no record yet: any offset passes, and it is
+        // printed to be recorded
+        let board = boards.board("bpi-r4-8g").unwrap();
+        assert_eq!(board.config_offset, None);
+        same_layout(board, 335_544_320).unwrap();
+        assert!(!board.listed);
     }
 
     #[test]
@@ -1470,6 +1933,20 @@ mod tests {
                 Err(BaseError::Result(_))
             ));
         }
+        // an image that ends 1 MiB after its region passes; one sector more reaches the
+        // data partition of a card it is written over
+        let mut longer = image.clone();
+        longer.extend_from_slice(&[0; 512]);
+        std::fs::write(&raw, &longer).unwrap();
+        let past = Appended {
+            size: size + 512,
+            ..layout.clone()
+        };
+        assert!(matches!(
+            check_result(&raw, &past, board),
+            Err(BaseError::PastData { size: s, limit: l, .. }) if s == size + 512 && l == size
+        ));
+        std::fs::write(&raw, &image).unwrap();
         // bytes after the magic: not an empty region
         image[offset + 100] = 1;
         std::fs::write(&raw, &image).unwrap();
@@ -1494,6 +1971,8 @@ mod tests {
             config_offset: 1 << 20,
             openwrt: "25.12.6".to_owned(),
             wyrmd: "0.9.0".to_owned(),
+            wyrmd_sha256: None,
+            manifest_sha256: None,
             download: None,
         };
         write_index(&path, entry("rpi4", 64 << 20)).unwrap();

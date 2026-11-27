@@ -25,13 +25,17 @@ include $(INCLUDE_DIR)/package.mk
 # ids below 65536 (from there OpenWrt hands out ids itself); OpenWrt keeps no registry for
 # packages outside its feeds. It is free in the pinned release and its feeds
 # (packaging/images/README.md, "The broker's user"). A board image takes this package as
-# files, so there packaging/images/files/etc/uci-defaults/80-wyrm-user makes the user.
+# files, so there files/etc/uci-defaults/80-wyrm-user makes the user.
+#
+# `wyr image base` reads the section Package/wyrmd/install below, line by line, and stages
+# an image's files from it with the modes it states: keep each line as `$(INSTALL_DIR)
+# $(1)/<dir>…` or `$(INSTALL_BIN|INSTALL_DATA|INSTALL_CONF) <source> $(1)/<place>`.
 define Package/wyrmd
   SECTION:=net
   CATEGORY:=Network
   TITLE:=WYRM broker
   URL:=https://wyrm.gencto.uk
-  DEPENDS:=+jsonfilter
+  DEPENDS:=+jsonfilter +sfdisk +partx-utils +e2fsprogs +tune2fs +blkid +kmod-fs-ext4
   USERID:=wyrm=787:wyrm=787
 endef
 
@@ -64,7 +68,11 @@ define Package/wyrmd/install
 	$(INSTALL_BIN) $(WYRMD_BIN) $(1)/usr/bin/wyrmd
 	$(INSTALL_BIN) ./files/usr/libexec/wyrm/first-boot.sh $(1)/usr/libexec/wyrm/
 	$(INSTALL_BIN) ./files/usr/libexec/wyrm/run.sh $(1)/usr/libexec/wyrm/
+	$(INSTALL_BIN) ./files/usr/libexec/wyrm/data-part.sh $(1)/usr/libexec/wyrm/
+	$(INSTALL_BIN) ./files/usr/libexec/wyrm/disk.sh $(1)/usr/libexec/wyrm/
+	$(INSTALL_BIN) ./files/usr/libexec/wyrm/site.sh $(1)/usr/libexec/wyrm/
 	$(INSTALL_BIN) ./files/etc/init.d/wyrmd $(1)/etc/init.d/
+	$(INSTALL_BIN) ./files/etc/uci-defaults/80-wyrm-user $(1)/etc/uci-defaults/
 	$(INSTALL_BIN) ./files/etc/uci-defaults/90-wyrm-host $(1)/etc/uci-defaults/
 	$(INSTALL_DATA) ./files/etc/hotplug.d/ntp/20-wyrm-time $(1)/etc/hotplug.d/ntp/
 	$(INSTALL_DATA) ./files/lib/upgrade/keep.d/wyrm $(1)/lib/upgrade/keep.d/

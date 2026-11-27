@@ -10,7 +10,10 @@
 //! - **GPT** (`mediatek/filogic`, `armsr`): one more entry in the array, the two checksums of
 //!   the header, and the second header with its array at the new end of the image. The first
 //!   sector is never written: an image whose boot ROM reads a hybrid MBR keeps it byte for
-//!   byte.
+//!   byte. The entry's unique id is the disk's id with the partition's number as its last
+//!   byte, as OpenWrt names the partitions of its own images: the same image gives the same
+//!   bytes, and two images have two ids. A second table the ImageBuilder left between the
+//!   last partition and the config partition is zeroed: it describes a disk that is no more.
 //!
 //! No entry that was there is changed. The functions that edit work on the sectors as bytes
 //! and do no I/O; [`append_config`] is the I/O around them.
@@ -34,12 +37,6 @@ pub const MBR_TYPE: u8 = 0xda;
 /// (`8DA63339-0007-60C0-C436-083AC8230908`), which no system mounts by itself.
 pub const GPT_TYPE: [u8; 16] = [
     0x39, 0x33, 0xa6, 0x8d, 0x07, 0x00, 0xc0, 0x60, 0xc4, 0x36, 0x08, 0x3a, 0xc8, 0x23, 0x09, 0x08,
-];
-/// The unique id of the config partition, as it lies in an entry
-/// (`57595243-4647-4000-8000-575952434647`). It is the same in every image, so that an image
-/// is the same bytes each time it is built; a root partition is never found by it.
-pub const GPT_UUID: [u8; 16] = [
-    0x43, 0x52, 0x59, 0x57, 0x47, 0x46, 0x00, 0x40, 0x80, 0x00, 0x57, 0x59, 0x52, 0x43, 0x46, 0x47,
 ];
 /// The GPT name of the config partition.
 pub const GPT_NAME: &str = "wyrm-config";
@@ -191,6 +188,10 @@ pub fn mbr_append(sector0: &mut [u8]) -> Result<(u32, u64)> {
     let (Ok(start32), Ok(sectors32)) = (u32::try_from(start), u32::try_from(REGION_SECTORS)) else {
         return Err(PartError::Range);
     };
+    // the partition ends inside what an MBR can name
+    if start32.checked_add(sectors32).is_none() {
+        return Err(PartError::Range);
+    }
     let free = (0..4usize)
         .find(|i| {
             let at = MBR_ENTRIES + i * MBR_ENTRY;
@@ -283,18 +284,50 @@ impl Gpt {
         })
     }
 
-    /// The entries that hold a partition: `(index, first sector, last sector)`.
-    fn used(&self) -> Vec<(usize, u64, u64)> {
-        self.entries
+    /// The entries that hold a partition: `(index, first sector, last sector)`. An entry
+    /// whose sectors cannot be (it ends before it starts, or at the last number there is)
+    /// is refused, not passed over: the end of the last partition is read from these.
+    fn used(&self) -> Result<Vec<(usize, u64, u64)>> {
+        let mut used = Vec::new();
+        for (i, entry) in self.entries.as_chunks::<GPT_ENTRY>().0.iter().enumerate() {
+            let (kind, _) = entry.split_at(16);
+            if kind.iter().all(|b| *b == 0) {
+                continue;
+            }
+            let (Some(first), Some(last)) = (le64(entry, 32), le64(entry, 40)) else {
+                return Err(PartError::Range);
+            };
+            if first > last || last == u64::MAX {
+                return Err(PartError::Gpt("an entry whose sectors cannot be"));
+            }
+            used.push((i, first, last));
+        }
+        Ok(used)
+    }
+
+    /// The unique id of a new partition of this number: the id of the disk with the number
+    /// as its last byte, which is how OpenWrt's images name their partitions. Refused when
+    /// an entry has that id already.
+    fn unique_id(&self, number: u32) -> Result<[u8; 16]> {
+        let mut id: [u8; 16] = self
+            .header
+            .get(56..72)
+            .and_then(|id| id.try_into().ok())
+            .ok_or(PartError::Range)?;
+        let [.., last] = &mut id;
+        *last = u8::try_from(number).ok().ok_or(PartError::Full)?;
+        let taken = self
+            .entries
             .as_chunks::<GPT_ENTRY>()
             .0
             .iter()
-            .enumerate()
-            .filter_map(|(i, entry)| {
-                let free = entry.get(..16)?.iter().all(|b| *b == 0);
-                (!free).then_some((i, le64(entry, 32)?, le64(entry, 40)?))
-            })
-            .collect()
+            .any(|entry| entry.get(16..32) == Some(&id[..]));
+        if taken {
+            return Err(PartError::Gpt(
+                "a partition with the unique id of the new one",
+            ));
+        }
+        Ok(id)
     }
 
     /// Adds the config partition: the first free entry, after the end of the last
@@ -302,7 +335,7 @@ impl Gpt {
     /// second header lies in the last of them. Returns the partition's number, its first
     /// sector and the sectors of the image. `have` is the sectors the image has now.
     pub fn append(&mut self, have: u64) -> Result<(u32, u64, u64)> {
-        let used = self.used();
+        let used = self.used()?;
         let end = used
             .iter()
             .filter_map(|(_, _, last)| last.checked_add(1))
@@ -328,9 +361,10 @@ impl Gpt {
             .filter(|usable| *usable >= last)
             .ok_or(PartError::Range)?;
 
+        let number = number_of(free)?;
         let mut entry = [0u8; GPT_ENTRY];
         put(&mut entry, 0, &GPT_TYPE)?;
-        put(&mut entry, 16, &GPT_UUID)?;
+        put(&mut entry, 16, &self.unique_id(number)?)?;
         put(&mut entry, 32, &start.to_le_bytes())?;
         put(&mut entry, 40, &last.to_le_bytes())?;
         let name: Vec<u8> = GPT_NAME.encode_utf16().flat_map(u16::to_le_bytes).collect();
@@ -342,7 +376,6 @@ impl Gpt {
         let crc = crc32(&self.entries);
         put(&mut self.header, 88, &crc.to_le_bytes())?;
         self.seal()?;
-        let number = number_of(free)?;
         Ok((number, start, sectors))
     }
 
@@ -372,8 +405,9 @@ impl Gpt {
         Ok((second.header, entries_at))
     }
 
-    fn partitions(&self) -> Vec<Partition> {
-        self.used()
+    fn partitions(&self) -> Result<Vec<Partition>> {
+        Ok(self
+            .used()?
             .into_iter()
             .filter_map(|(i, first, last)| {
                 let entry = self.entries.as_chunks::<GPT_ENTRY>().0.get(i)?;
@@ -393,7 +427,7 @@ impl Gpt {
                     name: String::from_utf16_lossy(&units),
                 })
             })
-            .collect()
+            .collect())
     }
 }
 
@@ -430,6 +464,40 @@ fn write_at(file: &mut File, sector: u64, bytes: &[u8]) -> Result<()> {
     file.seek(SeekFrom::Start(at))?;
     file.write_all(bytes)?;
     Ok(())
+}
+
+/// Zeroes the second table the image had where it ended before: a header that names
+/// itself at `old` and the array before it. It describes a disk that is no more, and a
+/// tool that looks for a lost table would find it. Nothing inside a partition is written,
+/// and the second table of the image as it is now is left alone.
+fn zero_stale(
+    file: &mut File,
+    old: Option<u64>,
+    entries_sectors: u64,
+    sectors: u64,
+    partitions: &[(usize, u64, u64)],
+) -> Result<()> {
+    let Some(at) = old.filter(|at| *at > 1 && at.checked_add(1).is_some_and(|end| end < sectors))
+    else {
+        return Ok(());
+    };
+    let header = read_at(file, at, SECTOR_LEN)?;
+    if header.get(..8) != Some(b"EFI PART") || le64(&header, 24) != Some(at) {
+        return Ok(());
+    }
+    let inside =
+        |first: u64, last: u64| partitions.iter().any(|(_, f, l)| *f <= last && first <= *l);
+    if inside(at, at) {
+        return Ok(());
+    }
+    let first = at.saturating_sub(entries_sectors);
+    // the array only where it lies in no partition
+    let from = if inside(first, at) { at } else { first };
+    let len = usize::try_from(at - from + 1)
+        .ok()
+        .and_then(|n| n.checked_mul(SECTOR_LEN))
+        .ok_or(PartError::Range)?;
+    write_at(file, from, &vec![0u8; len])
 }
 
 /// Appends the config partition to the image in `file` and fills it with the empty region
@@ -469,7 +537,9 @@ pub fn append_config(file: &mut File, gpt: bool) -> Result<Appended> {
             .and_then(|n| n.checked_mul(GPT_ENTRY))
             .ok_or(PartError::Range)?;
         let entries = read_at(file, entries_lba, entries_len)?;
+        let old_second = le64(&header, 32);
         let mut table = Gpt::new(header, entries)?;
+        let before = table.used()?;
         let (number, start, sectors) = table.append(have)?;
         let (second, second_entries) = table.backup(sectors)?;
         file.set_len(sectors.checked_mul(SECTOR).ok_or(PartError::Range)?)?;
@@ -479,7 +549,8 @@ pub fn append_config(file: &mut File, gpt: bool) -> Result<Appended> {
         write_at(file, entries_lba, &table.entries)?;
         write_at(file, second_entries, &table.entries)?;
         write_at(file, sectors - 1, &second)?;
-        (number, start, sectors, table.partitions())
+        zero_stale(file, old_second, table.entries_sectors, sectors, &before)?;
+        (number, start, sectors, table.partitions()?)
     } else {
         let (number, start) = mbr_append(&mut sector0)?;
         let sectors = have.max(start.checked_add(REGION_SECTORS).ok_or(PartError::Range)?);
@@ -598,10 +669,195 @@ mod tests {
         // every partition lies between the first and the last usable sector
         let last_usable = le64(&first, 48).unwrap();
         assert!(last_usable < second_entries);
-        for (_, start, last) in table.used() {
+        for (_, start, last) in table.used().unwrap() {
             assert!(start >= le64(&first, 40).unwrap() && last <= last_usable);
         }
         table
+    }
+
+    /// A vector of `tests/vectors`: the image a tool that is not ours made, as its bytes.
+    fn vector(text: &str) -> Vec<u8> {
+        let mut lines = text.lines();
+        let sectors: usize = lines
+            .next()
+            .and_then(|line| line.strip_prefix("sectors "))
+            .unwrap()
+            .parse()
+            .unwrap();
+        let mut image = vec![0u8; sectors * SECTOR_LEN];
+        for line in lines {
+            let (sector, hex) = line.split_once(' ').unwrap();
+            let at = sector.parse::<usize>().unwrap() * SECTOR_LEN;
+            let bytes = wyrm_core::hex::decode(hex).unwrap();
+            assert_eq!(bytes.len(), SECTOR_LEN, "sector {sector}");
+            image[at..at + SECTOR_LEN].copy_from_slice(&bytes);
+        }
+        image
+    }
+
+    /// `sgdisk` 1.0.10 made a GPT with two partitions, then moved its second table to the
+    /// new end of the image and added the partition `wyr` adds (`tests/vectors/make.sh`).
+    /// `image_part` gives the same tables, byte for byte: both headers with their
+    /// checksums, both arrays, the entry.
+    #[test]
+    fn a_gpt_is_what_sgdisk_writes() {
+        let before = vector(include_str!("../tests/vectors/gpt-before.txt"));
+        let want = vector(include_str!("../tests/vectors/gpt-after.txt"));
+        let (path, mut file) = temp("golden-gpt", &before);
+        let done = append_config(&mut file, true).unwrap();
+        let got = std::fs::read(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(got.len(), want.len());
+        assert_eq!((done.config_part, done.config_offset), (3, 8192 * SECTOR));
+        let sector = |image: &[u8], n: usize| image[n * SECTOR_LEN..(n + 1) * SECTOR_LEN].to_vec();
+        let sectors = got.len() / SECTOR_LEN;
+        // the first header and its array; the second array and its header
+        for n in (1..34).chain(sectors - 33..sectors) {
+            assert_eq!(
+                wyrm_core::hex::encode(sector(&got, n)),
+                wyrm_core::hex::encode(sector(&want, n)),
+                "sector {n}"
+            );
+        }
+        // the vector is no empty test: its tables say what is expected of them
+        let header = sector(&want, 1);
+        assert_eq!(le64(&header, 32), Some(18_431));
+        assert_eq!(le64(&header, 48), Some(18_398));
+        let entry = &want[1024 + 2 * GPT_ENTRY..1024 + 3 * GPT_ENTRY];
+        assert_eq!(entry[..16], GPT_TYPE);
+        assert_eq!(
+            guid_text(&entry[16..32]).unwrap(),
+            "36EAB844-1898-3BAD-DCBD-FD81AF20EC03"
+        );
+        assert_eq!(
+            (le64(entry, 32), le64(entry, 40)),
+            (Some(8192), Some(16_383))
+        );
+        // outside the first sector (`sgdisk` writes the size of the disk into the
+        // protective MBR, `image_part` never writes that sector) and the config partition
+        // (`sgdisk` leaves the old second table there, `image_part` writes the region),
+        // the two images are the same
+        for n in (1..8192).chain(16_384..sectors) {
+            assert_eq!(sector(&got, n), sector(&want, n), "sector {n}");
+        }
+        assert_eq!(sector(&got, 0), sector(&before, 0));
+    }
+
+    /// `sfdisk` 2.41 made an MBR with two partitions and appended the third. `image_part`
+    /// writes the same entry but for its CHS address (it writes the marker "by LBA",
+    /// `sfdisk` a geometry), and changes nothing else of the sector.
+    #[test]
+    fn an_mbr_is_what_sfdisk_writes() {
+        let before = vector(include_str!("../tests/vectors/mbr-before.txt"));
+        let want = vector(include_str!("../tests/vectors/mbr-after.txt"));
+        let (path, mut file) = temp("golden-mbr", &before);
+        let done = append_config(&mut file, false).unwrap();
+        let got = std::fs::read(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(got.len(), want.len());
+        assert_eq!((done.config_part, done.config_offset), (3, 8192 * SECTOR));
+        assert_eq!(mbr_entries(&got), mbr_entries(&want));
+        assert_eq!(mbr_entries(&want).get(2), Some(&(2, MBR_TYPE, 8192, 8192)));
+        let third = MBR_ENTRIES + 2 * MBR_ENTRY;
+        let chs = [
+            third + 1,
+            third + 2,
+            third + 3,
+            third + 5,
+            third + 6,
+            third + 7,
+        ];
+        for (at, (a, b)) in got.iter().zip(&want).enumerate().take(SECTOR_LEN) {
+            if !chs.contains(&at) {
+                assert_eq!(a, b, "byte {at} of the first sector");
+            }
+        }
+        // the rest of the image but the region: as it was
+        assert_eq!(
+            got[SECTOR_LEN..8192 * SECTOR_LEN],
+            want[SECTOR_LEN..8192 * SECTOR_LEN]
+        );
+    }
+
+    #[test]
+    fn a_second_table_left_in_the_gap_is_zeroed() {
+        // armsr: the image ends 33 sectors after its root partition, with its second
+        // table there; the config partition starts on the next 1 MiB, behind it
+        let sectors = 67_584 + 500_000 + 34;
+        let parts = [
+            (0, 2048, 34_815, "kernel"),
+            (1, 67_584, 67_584 + 500_000 - 1, "rootfs"),
+        ];
+        let mut image = gpt_image(sectors, &parts, false);
+        let at = |n: u64| usize::try_from(n * SECTOR).unwrap();
+        let second = sectors - 1;
+        let header = image[512..1024].to_vec();
+        let entries = image[1024..1024 + 128 * GPT_ENTRY].to_vec();
+        image[at(second)..at(second) + SECTOR_LEN].copy_from_slice(&header);
+        image[at(second) + 24..at(second) + 32].copy_from_slice(&second.to_le_bytes());
+        image[at(second - 32)..at(second)].copy_from_slice(&entries);
+        // what a partition holds is never zeroed, also where it looks like a table
+        image[at(3000)..at(3000) + 8].copy_from_slice(b"EFI PART");
+        let (path, mut file) = temp("stale", &image);
+        let done = append_config(&mut file, true).unwrap();
+        let after = std::fs::read(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        assert!(done.config_offset > second * SECTOR);
+        check_gpt(&after);
+        assert!(after[at(second - 32)..at(second + 1)]
+            .iter()
+            .all(|b| *b == 0));
+        assert_eq!(
+            after[at(34)..at(second - 32)],
+            image[at(34)..at(second - 32)]
+        );
+    }
+
+    #[test]
+    fn a_gpt_entry_that_cannot_be_is_refused() {
+        let sound = gpt_image(
+            16 * 2048,
+            &[(0, 2048, 4095, "a"), (1, 4096, 8191, "b")],
+            false,
+        );
+        let with = |first: u64, last: u64| {
+            let mut image = sound.clone();
+            let entry = 1024 + GPT_ENTRY;
+            image[entry + 32..entry + 40].copy_from_slice(&first.to_le_bytes());
+            image[entry + 40..entry + 48].copy_from_slice(&last.to_le_bytes());
+            let crc = crc32(&image[1024..1024 + 128 * GPT_ENTRY]);
+            image[512 + 88..512 + 92].copy_from_slice(&crc.to_le_bytes());
+            image[512 + 16..512 + 20].fill(0);
+            let crc = crc32(&image[512..512 + 92]);
+            image[512 + 16..512 + 20].copy_from_slice(&crc.to_le_bytes());
+            let (path, mut file) = temp("entry", &image);
+            let result = append_config(&mut file, true);
+            // nothing is written into an image that is refused
+            let same = std::fs::read(&path).unwrap() == image;
+            assert!(result.is_ok() || same);
+            std::fs::remove_file(&path).unwrap();
+            result
+        };
+        assert!(with(4096, 8191).is_ok());
+        // it ends before it starts; it ends at the last number there is
+        assert!(matches!(with(8191, 4096), Err(PartError::Gpt(_))));
+        assert!(matches!(with(4096, u64::MAX), Err(PartError::Gpt(_))));
+        // the new partition's id is the disk's with its number: taken by another entry
+        let mut image = sound.clone();
+        let entry = 1024 + GPT_ENTRY;
+        image[entry + 16..entry + 32].copy_from_slice(&[0x11; 16]);
+        image[entry + 31] = 3;
+        let crc = crc32(&image[1024..1024 + 128 * GPT_ENTRY]);
+        image[512 + 88..512 + 92].copy_from_slice(&crc.to_le_bytes());
+        image[512 + 16..512 + 20].fill(0);
+        let crc = crc32(&image[512..512 + 92]);
+        image[512 + 16..512 + 20].copy_from_slice(&crc.to_le_bytes());
+        let (path, mut file) = temp("id", &image);
+        assert!(matches!(
+            append_config(&mut file, true),
+            Err(PartError::Gpt(_))
+        ));
+        std::fs::remove_file(&path).unwrap();
     }
 
     fn temp(name: &str, bytes: &[u8]) -> (std::path::PathBuf, File) {
@@ -707,7 +963,7 @@ mod tests {
         let after = std::fs::read(&path).unwrap();
         assert_eq!(u64::try_from(after.len()).unwrap(), done.size);
         let table = check_gpt(&after);
-        let used = table.used();
+        let used = table.used().unwrap();
         assert_eq!(used.len(), 4);
         // the entries that were there are there byte for byte
         for (index, ..) in parts {
@@ -730,10 +986,10 @@ mod tests {
         );
         assert_eq!(config.kind, "8DA63339-0007-60C0-C436-083AC8230908");
         let entry = &after[1024 + 2 * GPT_ENTRY..1024 + 3 * GPT_ENTRY];
-        assert_eq!(
-            guid_text(&entry[16..32]).unwrap(),
-            "57595243-4647-4000-8000-575952434647"
-        );
+        // the disk's id (0x11 sixteen times in this image) with the number 3 at its end
+        let mut id = [0x11u8; 16];
+        id[15] = 3;
+        assert_eq!(entry[16..32], id);
         // the first sector is not written, the disk id stays
         assert_eq!(after[..SECTOR_LEN], image[..SECTOR_LEN]);
         assert_eq!(after[512 + 56..512 + 72], image[512 + 56..512 + 72]);

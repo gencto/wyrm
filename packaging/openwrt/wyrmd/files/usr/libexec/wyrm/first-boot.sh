@@ -14,7 +14,8 @@
 # usage: first-boot.sh                                  on the device
 #        first-boot.sh <config_dev> <stage_dir> <etc_dir>   (tests)
 #
-# Without arguments the region is the device `config_dev` of /etc/wyrm/image.json, the
+# Without arguments the region is partition `config_part` of /etc/wyrm/image.json on the
+# disk of the root file system (else the device `config_dev` of that file), the
 # staging directory is /tmp/wyrm-first-boot (RAM) and the files go below /etc.
 #
 # Exit codes:
@@ -39,7 +40,7 @@
 # hash. The paths are those of the crate wyrm-image (`SETUP_FILE`, `SEED_DIR`).
 #
 # Environment (tests): WYRM_UCI (the `uci` to call), WYRM_SEED_DIR, WYRM_ZONEINFO,
-# WYRM_IMAGE_JSON, WYRM_GROUP (the broker's group; empty: files keep their group).
+# WYRM_IMAGE_JSON, WYRM_DISK_SH, WYRM_GROUP (the broker's group; empty: files keep their group).
 
 set -u
 umask 077
@@ -58,6 +59,7 @@ UCI=${WYRM_UCI:-uci}
 SEED_DIR=${WYRM_SEED_DIR:-/usr/share/wyrm/seed}
 ZONEINFO=${WYRM_ZONEINFO:-/usr/share/zoneinfo}
 IMAGE_JSON=${WYRM_IMAGE_JSON:-/etc/wyrm/image.json}
+DISK_SH=${WYRM_DISK_SH:-/usr/libexec/wyrm/disk.sh}
 GROUP=${WYRM_GROUP-wyrm}
 
 say() { echo "wyrm first boot: $*" >&2; }
@@ -83,10 +85,19 @@ unfinished() {
 
 case $# in
 0)
-    dev=$(jsonfilter -i "$IMAGE_JSON" -e '@.config_dev' 2> /dev/null) || dev=
+    # the partition of the image's record on the disk the root file system is on (a card,
+    # a USB stick, an NVMe disk); the path of the record where that disk cannot be told
+    dev=
+    part=$(jsonfilter -i "$IMAGE_JSON" -e '@.config_part' 2> /dev/null) || part=
+    if [ -n "$part" ]; then
+        dev=$($DISK_SH part "$part" 2> /dev/null) || dev=
+    fi
+    if [ -z "$dev" ]; then
+        dev=$(jsonfilter -i "$IMAGE_JSON" -e '@.config_dev' 2> /dev/null) || dev=
+    fi
     stage_dir=/tmp/wyrm-first-boot
     etc=/etc
-    [ -n "$dev" ] || refuse "$IMAGE_JSON names no config_dev"
+    [ -n "$dev" ] || refuse "$IMAGE_JSON names no config region"
     ;;
 3)
     dev=$1

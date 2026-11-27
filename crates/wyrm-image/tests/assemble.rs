@@ -726,6 +726,40 @@ fn index_download_is_optional_and_checked() {
     ));
 }
 
+/// An entry may say which binary and which packages the image holds: both are SHA-256 sums,
+/// both optional, and an index without them reads as before.
+#[test]
+fn an_entry_may_name_its_binary_and_its_manifest() {
+    const SUM: &str = "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae";
+    let with = |fields: &str| {
+        INDEX.replacen(
+            "\"openwrt\": \"24.10.4\", \"wyrmd\": \"0.9.0\"},",
+            &format!("\"openwrt\": \"24.10.4\", \"wyrmd\": \"0.9.0\", {fields}}},"),
+            1,
+        )
+    };
+    let both = format!("\"wyrmd_sha256\": \"{SUM}\", \"manifest_sha256\": \"{SUM}\"");
+    let index = Index::parse(&with(&both)).unwrap();
+    let entry = index.image("rpi4").unwrap();
+    assert_eq!(entry.wyrmd_sha256.as_deref(), Some(SUM));
+    assert_eq!(entry.manifest_sha256.as_deref(), Some(SUM));
+    let other = index.image("bpi-r4").unwrap();
+    assert!(other.wyrmd_sha256.is_none() && other.manifest_sha256.is_none());
+    // written back, the fields an entry does not have are not there
+    let text = serde_json::to_string(&index).unwrap();
+    assert_eq!(text.matches("wyrmd_sha256").count(), 1);
+    assert_eq!(Index::parse(&text).unwrap(), index);
+    for field in ["wyrmd_sha256", "manifest_sha256"] {
+        for bad in [SUM.to_uppercase(), SUM.replacen('2', "", 1), String::new()] {
+            let e = Index::parse(&with(&format!("\"{field}\": \"{bad}\"")));
+            assert!(
+                matches!(e, Err(ImageError::Index(IndexError::BadHash(ref b))) if b == "rpi4"),
+                "{field} {bad}: {e:?}"
+            );
+        }
+    }
+}
+
 /// xorshift64*: the same mutations at every run.
 struct Rng(u64);
 

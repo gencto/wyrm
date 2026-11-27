@@ -99,6 +99,21 @@ fn boards_json_is_valid() {
         let size = board["rootfs_partsize_mb"].as_u64();
         assert!(size.is_some_and(|mb| mb > 0), "{id}");
         assert_eq!(text(board, "config_part"), "append", "{id}");
+        // the recorded place of the config region: after the root partition, on 1 MiB;
+        // `null` only for a board that is not on the page (it was never built)
+        match board["config_offset"].as_u64() {
+            Some(offset) => {
+                assert!(offset > size.unwrap() << 20, "{id}");
+                assert_eq!(offset % (1 << 20), 0, "{id}");
+            }
+            None => {
+                assert!(board["config_offset"].is_null(), "{id}");
+                assert_eq!(
+                    board["listed"], false,
+                    "{id}: listed without a recorded layout"
+                );
+            }
+        }
         let config_dev = text(board, "config_dev");
         let data_dev = text(board, "data_dev");
         for dev in [config_dev, data_dev] {
@@ -128,35 +143,87 @@ fn boards_json_is_valid() {
 
 /// `ROOTFS_PARTSIZE` of a board is fixed for its life (ADR 0051 §3): every partition after
 /// the root starts where it puts them, so a later image with another value loses the data
-/// of a device it is written over. A board that `origin/main` has keeps its value.
+/// of a device it is written over. A board that the base of the change has keeps its value,
+/// and a `config_offset` the base records stays (`null` may become a number once).
+///
+/// The base is the commit `BOARDS_BASE` names (CI: the base of the pull request, or the
+/// commit before the push), else `origin/main`. The test passes without a comparison in one
+/// case only: the base is there and has no `boards.json` yet. A base that cannot be read is
+/// a failure in CI (`CI` is set there) and a skip on a developer's machine.
 #[test]
 fn rootfs_partsize_never_changes() {
-    let show = Command::new("git")
-        .arg("-C")
-        .arg(repo())
-        .args(["show", &format!("origin/main:{IN_REPO}")])
-        .output();
-    let before = match show {
-        Ok(output) if output.status.success() => output.stdout,
-        // no git, no such ref (a shallow or detached checkout), or the file is new there
-        Ok(output) => {
-            eprintln!(
-                "skipped: origin/main has no {IN_REPO}: {}",
-                String::from_utf8_lossy(&output.stderr).trim()
-            );
-            return;
-        }
-        Err(e) => {
-            eprintln!("skipped: git does not run: {e}");
-            return;
-        }
+    let base = std::env::var("BOARDS_BASE")
+        .ok()
+        .filter(|base| !base.is_empty())
+        .unwrap_or_else(|| "origin/main".to_owned());
+    let git = |args: &[&str]| {
+        Command::new("git")
+            .arg("-C")
+            .arg(repo())
+            .args(args)
+            .output()
     };
-    let before: Value = serde_json::from_slice(&before).unwrap();
-    let changed = changed_partsizes(&before, &boards_json());
+    let in_ci = std::env::var_os("CI").is_some();
+    let no_base = |why: String| {
+        assert!(
+            !in_ci,
+            "the base `{base}` cannot be read ({why}): CI fetches it before this test, \
+             and without it a changed rootfs_partsize_mb would pass"
+        );
+        eprintln!("skipped: the base `{base}` cannot be read ({why})");
+    };
+    match git(&[
+        "rev-parse",
+        "--verify",
+        "--quiet",
+        &format!("{base}^{{commit}}"),
+    ]) {
+        Ok(output) if output.status.success() => {}
+        Ok(_) => return no_base("no such commit here".to_owned()),
+        Err(e) => return no_base(format!("git does not run: {e}")),
+    }
+    // the commit is there: the file is either in it or new
+    let listed = git(&["ls-tree", "--name-only", &base, "--", IN_REPO]).unwrap();
+    assert!(listed.status.success(), "git ls-tree {base}");
+    if listed.stdout.is_empty() {
+        eprintln!("no comparison: `{base}` has no {IN_REPO} yet");
+        return;
+    }
+    let show = git(&["show", &format!("{base}:{IN_REPO}")]).unwrap();
+    assert!(show.status.success(), "git show {base}:{IN_REPO}");
+    let before: Value = serde_json::from_slice(&show.stdout).unwrap();
+    let now = boards_json();
+    let changed = changed_partsizes(&before, &now);
     assert!(
         changed.is_empty(),
         "rootfs_partsize_mb is fixed for the life of a board (ADR 0051 §3): {changed:?}"
     );
+    let moved = moved_offsets(&before, &now);
+    assert!(
+        moved.is_empty(),
+        "a recorded config_offset is fixed for the life of a board (ADR 0051 §3): {moved:?}"
+    );
+}
+
+/// The boards of `before` with a recorded `config_offset` that `now` has with another one
+/// (or none). A board that is new or gone, or had no record, is no change.
+fn moved_offsets(before: &Value, now: &Value) -> Vec<String> {
+    let offsets = |list: &Value| -> BTreeMap<String, Value> {
+        list["boards"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|board| (text(board, "id").to_owned(), board["config_offset"].clone()))
+            .collect()
+    };
+    let now = offsets(now);
+    offsets(before)
+        .into_iter()
+        .filter_map(|(id, was)| {
+            let is = now.get(&id)?;
+            (was.is_u64() && *is != was).then(|| format!("board `{id}`: {was}, now {is}"))
+        })
+        .collect()
 }
 
 /// The boards of `before` that `now` has with another `rootfs_partsize_mb`. A board that
@@ -189,4 +256,27 @@ fn a_changed_partsize_is_seen() {
     fewer["boards"].as_array_mut().unwrap().remove(0);
     assert!(changed_partsizes(&now, &fewer).is_empty());
     assert!(changed_partsizes(&fewer, &now).is_empty());
+}
+
+/// The same for the recorded place of the config region.
+#[test]
+fn a_moved_offset_is_seen() {
+    let now = boards_json();
+    assert!(moved_offsets(&now, &now).is_empty());
+    let rpi4 = now["boards"][0]["config_offset"].as_u64().unwrap();
+    let mut other = now.clone();
+    other["boards"][0]["config_offset"] = (rpi4 + (1 << 20)).into();
+    assert_eq!(
+        moved_offsets(&now, &other),
+        [format!("board `rpi4`: {rpi4}, now {}", rpi4 + (1 << 20))]
+    );
+    other["boards"][0]["config_offset"] = Value::Null;
+    assert_eq!(
+        moved_offsets(&now, &other),
+        [format!("board `rpi4`: {rpi4}, now null")]
+    );
+    // a board without a record gets one: no change
+    let mut unrecorded = now.clone();
+    unrecorded["boards"][0]["config_offset"] = Value::Null;
+    assert!(moved_offsets(&unrecorded, &now).is_empty());
 }

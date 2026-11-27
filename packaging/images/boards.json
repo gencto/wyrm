@@ -34,7 +34,13 @@
     "kmod-usb-serial-ch341",
     "kmod-usb-serial-cp210x",
     "kmod-usb-serial-ftdi",
-    "kmod-usb-serial-pl2303"
+    "kmod-usb-serial-pl2303",
+    "sfdisk",
+    "partx-utils",
+    "e2fsprogs",
+    "tune2fs",
+    "blkid",
+    "kmod-fs-ext4"
   ],
   "boards": [
     {
@@ -47,11 +53,12 @@
       "table": "mbr",
       "rootfs_partsize_mb": 256,
       "config_part": "append",
+      "config_offset": 343932928,
       "config_dev": "/dev/mmcblk0p3",
       "data_dev": "/dev/mmcblk0p4",
       "boot_from": "sd",
       "listed": true,
-      "notes": "Write the image to a microSD card and boot from it. The device paths are those of the SD slot: a board that boots from USB finds no config region."
+      "notes": "Write the image to a microSD card and boot from it. A board that boots from a USB stick finds its partitions there by itself; that path is not tried on a board yet."
     },
     {
       "id": "rpi5",
@@ -63,11 +70,12 @@
       "table": "mbr",
       "rootfs_partsize_mb": 256,
       "config_part": "append",
+      "config_offset": 343932928,
       "config_dev": "/dev/mmcblk0p3",
       "data_dev": "/dev/mmcblk0p4",
       "boot_from": "sd",
       "listed": true,
-      "notes": "Write the image to a microSD card and boot from it. The device paths are those of the SD slot: a board that boots from USB or NVMe finds no config region."
+      "notes": "Write the image to a microSD card and boot from it. A board that boots from a USB stick or an NVMe disk finds its partitions there by itself; that path is not tried on a board yet."
     },
     {
       "id": "bpi-r4",
@@ -79,11 +87,12 @@
       "table": "gpt",
       "rootfs_partsize_mb": 256,
       "config_part": "append",
+      "config_offset": 335544320,
       "config_dev": "/dev/mmcblk0p8",
       "data_dev": "/dev/mmcblk0p9",
       "boot_from": "sd",
       "listed": true,
-      "notes": "Write the image to a microSD card, set the boot switch to SD and boot from it. This version runs from the SD card: OpenWrt's install onto the eMMC writes its own partition table there, without the config region, and does not carry the configuration over."
+      "notes": "This version runs from the SD card only: write the image to a microSD card, set the boot switch to SD and leave the card in. Do not install onto the eMMC: OpenWrt's install writes its own partition table there, without the config region and the data partition, and the configuration does not go with it. Planned (owner, 2026-11-27): the system on the eMMC by OpenWrt's own install (SD, then SPI-NAND, then eMMC from the U-Boot menu), the configuration from a USB stick that carries the same 4 MiB region, the data partition made on the eMMC at that first boot."
     },
     {
       "id": "bpi-r4-8g",
@@ -95,6 +104,7 @@
       "table": "gpt",
       "rootfs_partsize_mb": 256,
       "config_part": "append",
+      "config_offset": null,
       "config_dev": "/dev/mmcblk0p8",
       "data_dev": "/dev/mmcblk0p9",
       "boot_from": "sd",
@@ -112,6 +122,7 @@
       "table": "gpt",
       "rootfs_partsize_mb": 256,
       "config_part": "append",
+      "config_offset": 403701760,
       "config_dev": "/dev/vda3",
       "data_dev": "/dev/vda4",
       "boot_from": "virtio",

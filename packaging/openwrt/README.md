@@ -11,16 +11,43 @@ side is `wyr image build` (`docs/operations.md`, "Board images").
 | `/usr/bin/wyrmd` | the broker: one static `aarch64-unknown-linux-musl` binary, given to the package as `WYRMD_BIN` |
 | `/etc/wyrm/wyrmd.json5` | a placeholder until the first boot puts the person's file; the broker never runs with it (valid and loopback-only all the same) |
 | `/usr/libexec/wyrm/first-boot.sh` | reads the config region, checks it, puts its files in place, wipes it |
+| `/usr/libexec/wyrm/data-part.sh` | makes the data partition at the first boot, mounts it at `/srv/wyrm-part` and its `broker` directory at `/srv/wyrm` at every boot, keeps the data of another site apart |
+| `/usr/libexec/wyrm/disk.sh` | tells the disk the root file system is on and its partitions by number |
+| `/usr/libexec/wyrm/site.sh` | reads the site of a `wyrmd.json5` |
+| `/etc/uci-defaults/80-wyrm-user` | makes the user and the group `wyrm` (787) where the package's `USERID` did not (an image takes the package as files) |
 | `/etc/uci-defaults/90-wyrm-host` | the role of a plain host, once; then runs the first boot before the network starts |
-| `/etc/init.d/wyrmd` | the procd service (`START=95`); runs the first boot again while its marker is absent; starts the broker only on a device with an applied configuration |
+| `/etc/init.d/wyrmd` | the procd service (`START=95`); runs the first boot again while its marker is absent; starts the broker only on a device with an applied configuration and a mounted data partition; the first boot and the data partition script run only while no broker runs (asked of procd through `ubus`): a start beside a running broker changes nothing, a stop waits until the broker has ended (at most 30 s), and `reload` is a restart |
 | `/usr/libexec/wyrm/run.sh` | what procd runs as the user `wyrm`: waits for NTP on the first start (≤ 120 s), then `exec wyrmd -c /etc/wyrm/wyrmd.json5` |
 | `/etc/hotplug.d/ntp/20-wyrm-time` | writes `/var/run/wyrm/time-synced` when busybox `ntpd` has the time |
 | `/lib/upgrade/keep.d/wyrm` | what a `sysupgrade` keeps: the configuration and the markers, never the setup hash |
-| `/usr/share/wyrm/seed/`, `/srv/wyrm/` | the seed packages of the image; the mount point of the data partition |
+| `/usr/share/wyrm/seed/`, `/srv/wyrm/` | the seed packages of the image; the broker's `data_dir` (the `broker` directory of the data partition) |
 
-An image adds `/etc/wyrm/image.json` with `config_dev`, the device path of
-the config region (a partition of 4 MiB). The package depends on
-`jsonfilter` to read it.
+An image adds `/etc/wyrm/image.json` with `config_part` and `data_part`,
+the numbers of the config region (a partition of 4 MiB) and of the data
+partition, and `config_dev`, the usual device path of the region. The
+package depends on `jsonfilter` to read it and on `sfdisk`, `partx-utils`,
+`e2fsprogs`, `tune2fs`, `blkid` and `kmod-fs-ext4` for the data partition.
+
+The modes of the files are those of the package's `Makefile`
+(`INSTALL_BIN` 0755, `INSTALL_DATA` 0644, `INSTALL_CONF` 0600). `wyr image
+base` reads that section and stages an image's files from it, so a feed
+package and an image hold the same files with the same modes; a file of
+`files/` that the section does not install fails the build.
+
+## Which disk
+
+The scripts never take a device by a fixed name. `disk.sh` finds the disk
+from the device the root file system is mounted from (`/rom` below the
+overlay, else `/`), and a partition by its number on that disk, as the
+kernel names it. A Raspberry Pi that starts from a USB stick or an NVMe
+disk finds its config region and its data partition there. On
+`mediatek/filogic` the root is a FIT block device and no partition; there
+the disk is the one the boot loader names in the device tree
+(`/chosen/rootdisk`). That path is written from OpenWrt's own sysupgrade
+code and is not tried on a board. The first boot falls back to `config_dev`
+of `image.json` when the disk cannot be told (the region's magic and
+SHA-256 are checked whatever the path); the data partition script touches
+nothing then.
 
 ## The first boot
 
@@ -117,6 +144,66 @@ Rules for the person's configuration (`wyr image build`):
   interface names `lan`, `wan` and `wan6`: the firewall opens the broker's
   ports for those names only.
 
+## The data partition
+
+`data-part.sh` runs from the service before the broker, at every boot.
+Its exit 0 means: `/srv/wyrm` is the `broker` directory of the mounted
+data partition and holds the data of the site of `/etc/wyrm/wyrmd.json5`.
+Otherwise the service starts no broker and the console says why. The
+service runs it only while no broker runs.
+
+The layout. The partition is mounted at `/srv/wyrm-part`, which belongs to
+root (0700). It holds `.site` (root's), `broker` (`wyrm:wyrm` 0700, the
+broker's data) and the data of other sites as `.replaced-<site>-<n>`.
+`broker` is bind-mounted at `/srv/wyrm`, the `data_dir` of the
+configuration; the broker's user cannot reach the rest. **Root never acts
+inside a directory the broker's user can write**: it renames `broker` as a
+whole and writes `.site`, both in the directory above, which only root
+writes.
+
+1. **The disk is proven.** The disk of the root file system must have the
+   partition `config_part`, of exactly 8192 sectors, starting with
+   `WYRMCFG0` or `WYRMCFG1`. If not, nothing is touched.
+2. **The partition.** When the table has no partition `data_part`, the
+   script adds it from 1 MiB after the end of the config region to the end
+   of the card (`sfdisk --append`). A base image ends at most there (a GPT
+   image keeps that MiB for its second table), so an image written again
+   over the card leaves the file system whole. On a GPT it first moves the second table to the end
+   of the card (`sfdisk --relocate gpt-bak-std`); a hybrid MBR (the entry
+   of a boot loader beside the one of type `EE`, as on `mediatek/filogic`)
+   is read before and put back after, byte for byte. A card with less than
+   32 MiB after the image gets no partition (console message, no broker).
+3. **Formatting has two rules.** A partition that was there before this
+   boot is **never** formatted. A partition this run added is formatted,
+   unless it already holds the label `wyrm-data`: that is the data of a
+   card whose image was written again, and it is kept. `mkfs.ext4` gives
+   the label `wyrm-new`; `wyrm-data` is set when it has ended well.
+4. `e2fsck -p` before every mount; from exit 4 on, no mount and no broker.
+5. Mounted at `/srv/wyrm-part` with `nosuid,nodev,noatime`; then the site
+   rule; then `broker` is bind-mounted at `/srv/wyrm` (a bind mount of an
+   earlier start is unmounted first, so it never follows a renamed
+   directory). The service starts the broker only when `/srv/wyrm` is the
+   mount of that device.
+
+A power loss between step 2 and the end of step 3 leaves a partition
+without the label: the next boot formats nothing and starts no broker.
+Write the image to the card again; the partition is then a new entry of
+that run.
+
+**The site rule.** `/srv/wyrm-part/.site` names the site whose data
+`broker` holds. When the configuration names another site (a card written
+again with another configuration), `broker` is renamed to
+`/srv/wyrm-part/.replaced-<old site>-<n>`: never merged, never deleted, and
+nothing inside it is opened. The console says so and the broker starts on a
+new, empty `broker`. The same site keeps its data. A `broker` without a
+`.site` is taken for the configuration's site. `.site` is written before
+the new `broker` is made, so a run that is cut sets nothing aside twice.
+
+`ROOTFS_PARTSIZE` and the layout before the config region must not change
+between two images of a board, or the partition the new image's first boot
+adds starts elsewhere and the old data is not found
+(`packaging/images/README.md`).
+
 ## The role of the device
 
 `90-wyrm-host` makes the device a plain host (owner's answer 1 of ADR 0051):
@@ -138,9 +225,15 @@ Rules for the person's configuration (`wyr image build`):
   is in the group `dialout` for serial ports. The first boot and this
   script run as root. The user is made by `USERID` when the package is
   installed from a feed. An image takes the package as files, and there
-  `/etc/uci-defaults/80-wyrm-user` of `packaging/images/files` makes it,
-  before this script runs (`packaging/images/README.md`, "The broker's
+  `/etc/uci-defaults/80-wyrm-user` of this package makes it, before this
+  script runs (`packaging/images/README.md`, "The broker's
   user": 787 is free in the pinned release).
+
+The service names the device `wyrm-<site>` before the broker starts, so the
+gateway's certificate from the site CA and the network show which broker it
+is. Only OpenWrt's own name (`OpenWrt`) and a name of this form are
+replaced; a name a person gave stays. A site that is no host name (an
+underscore, a dot) leaves the name alone.
 
 The script leaves `/etc/wyrm/.host-role-done`. A `sysupgrade` keeps that
 file while the script comes back with the new image, so the role is not
@@ -157,8 +250,8 @@ that the image has no configuration and how to assemble one (`wyr image
 build`, the guide's URL).
 
 Otherwise `/etc/init.d/wyrmd` starts `run.sh` under procd as `wyrm` with
-`respawn 3600 5 8`, 20 s for a clean stop on SIGTERM and 16 384 open
-files. The broker is not
+`respawn 3600 5 8`, 20 s for a clean stop on SIGTERM, 16 384 open
+files and `NO_COLOR=1` (the log daemon takes the lines). The broker is not
 started through `wyrmd update-guard`: self-update is off in images
 (ADR 0051 §3). Logs: `logread -e wyrm`.
 
@@ -167,7 +260,15 @@ started through `wyrmd update-guard`: self-update is off in images
 ```
 SH=dash packaging/openwrt/tests/first_boot.sh
 SH="busybox sh" BB=busybox packaging/openwrt/tests/first_boot.sh   # as CI runs it
+SH=dash packaging/openwrt/tests/data_part.sh
+SH="busybox sh" BB=busybox packaging/openwrt/tests/data_part.sh
 ```
+
+`data_part.sh` tests what the data partition script decides (which disk,
+when it formats, the order of its steps, the hybrid MBR, the site rule),
+the disk finder and the site reader. The tools that touch a disk are
+stand-ins there that record their calls; the real tools run in an image
+that boots.
 
 The regions the script must accept are made by `wyr image build`, so the
 busybox run proves that busybox unpacks what `wyrm-image` writes. The

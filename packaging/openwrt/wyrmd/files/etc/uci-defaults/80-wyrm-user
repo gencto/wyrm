@@ -4,7 +4,8 @@
 # An image takes the package `wyrmd` as files (the ImageBuilder's FILES overlay), so the
 # `USERID` of the package's Makefile makes no user. This script does, at the first boot,
 # before /etc/uci-defaults/90-wyrm-host gives files to the group and adds the user to
-# `dialout`. OpenWrt removes a uci-defaults script that ends well; one that fails stays
+# `dialout`. Where the package was installed from a feed the user is there, and this
+# script finds nothing to do. OpenWrt removes a uci-defaults script that ends well; one that fails stays
 # and runs at the next boot.
 #
 # 787 is free in the base-files of the pinned OpenWrt release and in its feeds
