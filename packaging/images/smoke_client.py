@@ -163,6 +163,8 @@ def proof_ok(code, ca_der, proof):
 
 def unverified():
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    # the gateway speaks TLS 1.2 and 1.3 (rustls) and nothing older
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
     return ctx
@@ -171,6 +173,7 @@ def unverified():
 def pinned(ca_der):
     """Trusts the one CA and nothing else (no system roots)."""
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
     ctx.load_verify_locations(cadata=ca_der)
     return ctx
 
