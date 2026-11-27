@@ -465,7 +465,10 @@ authorized_keys 96
 `region: empty` is a base image. Each line after it is a file name and its
 size in bytes. No content is shown, of `setup` and `authorized_keys` least
 of all. A file of another size than the index says, or with no region at
-the offset, is refused.
+the offset, is refused. A line `WARNING: …` after the files tells of a
+setup hash or a seed that the image's `wyrmd.json5` does not name: the
+broker of that device will never read it. `wyr image build` does not write
+such an image.
 
 #### On the device (OpenWrt)
 

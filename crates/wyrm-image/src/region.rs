@@ -91,12 +91,48 @@ impl ConfigFiles {
             .collect()
     }
 
-    /// Checks the files as a reader will: the archive fits the region
-    /// ([`ImageError::TooLarge`]), `setup` is 64 hex digits ([`ImageError::BadSetup`]), no
-    /// file holds a NUL and `wyrmd.json5` is not empty ([`ImageError::BadContent`]), and
-    /// `wyrmd.json5` names the place of `setup` and of `seed.json` when they are there
-    /// ([`ImageError::NotNamed`]).
+    /// Checks the files as an assembler must: what a reader checks ([`ImageError::TooLarge`],
+    /// [`ImageError::BadSetup`], [`ImageError::BadContent`]), and that `wyrmd.json5` names
+    /// the place of `setup` and of `seed.json` when they are there
+    /// ([`ImageError::NotNamed`], see [`ConfigFiles::not_named`]).
     pub fn check(&self) -> Result<(), ImageError> {
+        self.check_content()?;
+        match self.not_named().next() {
+            Some(e) => Err(e),
+            None => Ok(()),
+        }
+    }
+
+    /// The files this configuration carries and its `wyrmd.json5` does not name: `setup`
+    /// without `gateway.setup_file: "<SETUP_FILE>"`, `seed.json` without
+    /// `packages.seed_dir: "<SEED_DIR>"`, each as [`ImageError::NotNamed`]. The broker of
+    /// the device would never read such a file.
+    ///
+    /// This is a rule for the one who assembles, not part of the format: [`read_region`]
+    /// reads such a region, and a tool that shows it warns with these.
+    pub fn not_named(&self) -> impl Iterator<Item = ImageError> + '_ {
+        [
+            (File::Setup, "gateway.setup_file", SETUP_FILE),
+            (File::Seed, "packages.seed_dir", SEED_DIR),
+        ]
+        .into_iter()
+        .filter_map(|(file, key, path)| {
+            let member = key.rsplit('.').next().unwrap_or(key);
+            (self.get(file).is_some() && !names(&self.wyrmd_json5, member, path)).then_some(
+                ImageError::NotNamed {
+                    file: file.name(),
+                    key,
+                    path,
+                },
+            )
+        })
+    }
+
+    /// What the format asks of the files, for a writer and a reader alike: the archive fits
+    /// the region ([`ImageError::TooLarge`]), `setup` is 64 hex digits
+    /// ([`ImageError::BadSetup`]), no file holds a NUL and `wyrmd.json5` is not empty
+    /// ([`ImageError::BadContent`]).
+    fn check_content(&self) -> Result<(), ImageError> {
         let lengths = self
             .entries()
             .into_iter()
@@ -113,19 +149,6 @@ impl ConfigFiles {
             }
             if *file == File::Setup && !is_hex(text, 32) {
                 return Err(ImageError::BadSetup);
-            }
-        }
-        for (file, key, path) in [
-            (File::Setup, "gateway.setup_file", SETUP_FILE),
-            (File::Seed, "packages.seed_dir", SEED_DIR),
-        ] {
-            let member = key.rsplit('.').next().unwrap_or(key);
-            if self.get(file).is_some() && !names(&self.wyrmd_json5, member, path) {
-                return Err(ImageError::NotNamed {
-                    file: file.name(),
-                    key,
-                    path,
-                });
             }
         }
         Ok(())
@@ -161,7 +184,9 @@ pub fn region(files: &ConfigFiles) -> Result<Vec<u8>, ImageError> {
 /// [`ImageError::Damaged`]: an empty region with anything but zeros, a length beyond
 /// [`MAX_PAYLOAD`], a SHA-256 that does not match, bytes after the payload, a broken archive.
 /// An archive entry that is not a regular file of the list, a name twice or a missing
-/// `wyrmd.json5` is [`ImageError::BadName`]; content is checked as [`ConfigFiles::check`] does.
+/// `wyrmd.json5` is [`ImageError::BadName`]; content is checked too (a NUL, a `setup` that is
+/// no hash, an empty `wyrmd.json5`). Whether `wyrmd.json5` names its files is not a
+/// reader's matter ([`ConfigFiles::not_named`]): a region is read as it is.
 pub fn read_region(bytes: &[u8]) -> Result<Option<ConfigFiles>, ImageError> {
     let (magic, rest) = bytes.split_first_chunk::<8>().ok_or(ImageError::Damaged)?;
     check_slot(magic)?;
@@ -223,7 +248,7 @@ pub fn read_region(bytes: &[u8]) -> Result<Option<ConfigFiles>, ImageError> {
     if !config {
         return Err(ImageError::BadName(File::Wyrmd.name().to_owned()));
     }
-    files.check()?;
+    files.check_content()?;
     Ok(Some(files))
 }
 

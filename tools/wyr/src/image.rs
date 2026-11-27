@@ -476,6 +476,10 @@ fn inspect(image: &Path, entry: &ImageEntry) -> Result<()> {
             out!("{name} {size}");
         }
     }
+    // an image that someone else assembled: a file the broker will never read is told
+    for unread in files.not_named() {
+        out!("WARNING: {unread}");
+    }
     Ok(())
 }
 

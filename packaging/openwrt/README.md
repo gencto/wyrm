@@ -24,8 +24,15 @@ the config region (a partition of 4 MiB). The package depends on
 
 ## The first boot
 
-`first-boot.sh` takes what the crate `wyrm-image` writes and refuses what
-its reader refuses. In this order, and nothing is changed before step 4:
+`first-boot.sh` takes what the crate `wyrm-image` writes, and refuses a
+region its reader (`read_region`) refuses for its structure: the magic,
+the length, the SHA-256, the zeros, the names, links, a NUL, a `setup`
+that is no hash. Two things differ. The script does not check UTF-8
+(`wyrmd` refuses such a configuration itself), and it checks more of the
+content (`network` as UCI, `timezone`, `ntp`, keys without an SSH
+server). Whether `wyrmd.json5` names the setup file and the seed
+directory is checked by the assembler only, neither by the reader nor
+here. In this order, and nothing is changed before step 4:
 
 1. The magic. `WYRMCFG0` is an empty region: exit 3, nothing else is read.
    Neither magic: exit 4.
@@ -36,7 +43,9 @@ its reader refuses. In this order, and nothing is changed before step 4:
    `wyrmd.json5` present. Then `tar -x` into a new staging directory (0700,
    in RAM). Every file must be a regular file with one link and without a
    NUL; `setup` is 64 hex digits; `network` must load as UCI; `timezone`
-   is one IANA name; `ntp` holds host names or addresses, at most 16.
+   is one IANA name; `ntp` holds host names or addresses, at most 16;
+   `authorized_keys` needs the image's dropbear and the firewall rule
+   `wyrm_ssh` ("this image has no SSH server", exit 4).
 4. Apply. Each file is copied into a new file beside its place, given its
    mode by the script and renamed over the place. The modes and owners of
    the archive are never used.
@@ -79,7 +88,13 @@ name with a space, a pattern character or a line break is refused.
 The setup hash lies in a directory of its own because the broker removes
 the file when it has the hash, and a user removes a file only from a
 directory it may write. `/etc/wyrm` itself stays root's, so the broker
-cannot replace its own configuration.
+cannot replace its own configuration. Root does not write into a
+directory another user may write: the first boot removes `setup.d` with
+whatever is in it, makes it new and root's alone, puts the file, and only
+then opens the directory to the group `wyrm`. Group changes never follow
+a link (`chgrp -h`), a directory at a file's place is exit 5, and the
+init script gives `/srv/wyrm` itself to `wyrm` (`chown -h`, never
+recursive) and starts nothing when it is a link.
 
 Rules for the person's configuration (`wyr image build`):
 

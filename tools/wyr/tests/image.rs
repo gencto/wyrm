@@ -561,6 +561,82 @@ fn gz_input_is_unpacked() {
     assert_eq!(dir.names(), before);
 }
 
+/// An image somebody assembled with a setup hash that its `wyrmd.json5` does not name (the
+/// crate refuses to write one; this region is written by hand): `inspect` reads it and
+/// warns, and `build` says what it says of every assembled image.
+#[test]
+fn an_image_whose_config_does_not_name_its_files() {
+    fn tar_entry(name: &str, data: &[u8]) -> Vec<u8> {
+        let mut h = [0u8; 512];
+        h[..name.len()].copy_from_slice(name.as_bytes());
+        h[100..108].copy_from_slice(b"0000600\0");
+        h[108..116].copy_from_slice(b"0000000\0");
+        h[116..124].copy_from_slice(b"0000000\0");
+        h[124..136].copy_from_slice(format!("{:011o}\0", data.len()).as_bytes());
+        h[136..148].copy_from_slice(b"00000000000\0");
+        h[148..156].copy_from_slice(b"        ");
+        h[156] = b'0';
+        h[257..263].copy_from_slice(b"ustar\0");
+        h[263..265].copy_from_slice(b"00");
+        let sum: u32 = h.iter().map(|b| u32::from(*b)).sum();
+        h[148..156].copy_from_slice(format!("{sum:06o}\0 ").as_bytes());
+        let mut out = h.to_vec();
+        out.extend_from_slice(data);
+        out.resize(out.len().div_ceil(512) * 512, 0);
+        out
+    }
+    let dir = Dir::new("unnamed");
+    let mut payload = tar_entry("wyrmd.json5", b"{ site: \"plant\" }\n");
+    payload.extend(tar_entry("setup", format!("{SETUP}\n").as_bytes()));
+    payload.resize(payload.len() + 1024, 0);
+    let mut image = base();
+    let mut region = b"WYRMCFG1".to_vec();
+    region.extend(u64::try_from(payload.len()).unwrap().to_le_bytes());
+    region.extend(wyrm_core::hex::sha256(&payload));
+    region.extend(&payload);
+    image[OFFSET..OFFSET + region.len()].copy_from_slice(&region);
+    dir.write("old.img", &image);
+
+    let out = dir.wyr(&[
+        "image",
+        "inspect",
+        "--image",
+        "old.img",
+        "--index",
+        "index.json",
+        "--board",
+        "rpi4",
+    ]);
+    let stdout = ok(&out);
+    assert!(
+        stdout.starts_with("board: rpi4\nregion: assembled\nwyrmd.json5 18\nsetup 64\nWARNING: "),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("gateway.setup_file") && stdout.contains(wyrm_image::SETUP_FILE),
+        "{stdout}"
+    );
+    assert!(!stdout.contains(SETUP));
+
+    let out = dir.wyr(&[
+        "image",
+        "build",
+        "--image",
+        "old.img",
+        "--index",
+        "index.json",
+        "--board",
+        "rpi4",
+        "--config",
+        "wyrmd.json5",
+        "--out",
+        "out.img",
+    ]);
+    let why = refused(&out);
+    assert!(why.contains("base image"), "{why}");
+    assert!(!why.contains("setup_file"), "{why}");
+}
+
 #[test]
 fn inspect_hides_the_setup_hash() {
     let dir = Dir::new("inspect");

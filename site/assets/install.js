@@ -227,7 +227,9 @@
     }
     if (image) {
       C.push('  // the certificate comes from the site CA; the first admin from the setup code');
-      C.push('  gateway: { listen: "0.0.0.0:8445", tls: "site_ca", setup_file: "/etc/wyrm/setup", admin_user: "admin" },');
+      // the path is wyrm_image::SETUP_FILE: an assembler refuses a setup code that the
+      // config does not name there (tool/site/test_install.js compares the two)
+      C.push('  gateway: { listen: "0.0.0.0:8445", tls: "site_ca", setup_file: "/etc/wyrm/setup.d/setup", admin_user: "admin" },');
     } else {
       C.push('  // Studio on another machine: listen there with tls: "site_ca", or tls_cert and tls_key');
       C.push('  gateway: { listen: "127.0.0.1:8445", admin_user: "admin" },');

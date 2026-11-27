@@ -102,8 +102,10 @@ and merge to `main`.
    driver in process mode, a process package, or a link container) has no
    `tls/` listener, if a config sets `insecure_plaintext`, if a key is not in
    the test's list or is not a field of the broker's config, if a planned
-   path shows a command that could be run, or if the page opens on a planned
-   path. Node 18+, no dependencies.
+   path shows a command that could be run, if the page opens on a planned
+   path, or if a config for a board image names the setup file or the seed
+   directory otherwise than the constants `SETUP_FILE` and `SEED_DIR` of
+   `crates/wyrm-image/src/region.rs` (the test reads them from that file). Node 18+, no dependencies.
 
 The theme (`site/theme/`) gives the book the look of the design: `wyrm.css`
 (colours, type, tables, code; every mdBook theme gets the same dark look and

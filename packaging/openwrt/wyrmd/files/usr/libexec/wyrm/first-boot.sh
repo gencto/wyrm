@@ -21,7 +21,8 @@
 #   0  applied: every file is in place, the region is wiped, the marker is written
 #   3  the region is empty: nothing to do, nothing changed (but when a first boot lost
 #      power between its wipe and its marker: the wipe is done again, the marker written)
-#   4  refused: the region is damaged or holds what is not allowed; nothing was applied
+#   4  refused: the region is damaged or holds what is not allowed (also keys for an
+#      image without an SSH server); nothing was applied
 #   5  not finished: a file could not be put, SSH could not be set up for the keys or
 #      the region could not be wiped; the region is kept and the next boot applies it again
 #
@@ -290,6 +291,15 @@ if has network; then
         refuse "\`network\` of the config archive is no UCI file"
 fi
 
+if has authorized_keys && [ -s "$files/authorized_keys" ]; then
+    # keys need the SSH server of the image and the firewall rule the host role made:
+    # told now, before anything is put, not after the person is locked out
+    if ! $UCI -q get "dropbear.@dropbear[0]" > /dev/null 2>&1 ||
+        ! $UCI -q get firewall.wyrm_ssh > /dev/null 2>&1; then
+        refuse "the config archive holds authorized_keys, but this image has no SSH server"
+    fi
+fi
+
 tz=
 if has timezone; then
     IFS= read -r tz < "$files/timezone" || [ -n "$tz" ] || true
@@ -317,20 +327,29 @@ fi
 
 # ---- 3. apply -------------------------------------------------------------------------
 
-# for_broker PATH: the group of the broker's user, when there is one
+# for_broker PATH: the group of the broker's user, when there is one. Never through a
+# symbolic link.
 for_broker() {
-    [ -z "$GROUP" ] || chgrp "$GROUP" "$1"
+    [ -z "$GROUP" ] || chgrp -h "$GROUP" "$1"
 }
-# put NAME PLACE MODE [broker]: a new file beside the place, then one rename over it
+# put NAME PLACE MODE [broker]: a new file beside the place, then one rename over it.
+# Every place is in a directory only root writes while this runs (the setup directory is
+# made new and opened to the broker's group after its file is in place). A directory at
+# the place is refused: `mv` would move into it.
 put() {
     p_dir=${2%/*}
     mkdir -p "$p_dir" || return 1
+    if [ -d "$2" ] && [ ! -L "$2" ]; then
+        return 1
+    fi
     rm -f "$2.wyrm-new"
     cat "$files/$1" > "$2.wyrm-new" || return 1
     if [ "${4:-}" = broker ]; then
         for_broker "$2.wyrm-new" || return 1
     fi
-    chmod "$3" "$2.wyrm-new" && mv -f "$2.wyrm-new" "$2"
+    chmod "$3" "$2.wyrm-new" && mv -f "$2.wyrm-new" "$2" || return 1
+    # the place is now the file this wrote, not a link to another
+    [ -f "$2" ] && [ ! -L "$2" ]
 }
 warned=0
 # a setting the device works without (the clock's zone, the NTP servers)
@@ -348,12 +367,17 @@ uci_must() {
 # the broker's configuration goes last: until every other file is in place, a boot
 # that cannot read the region again does not start a broker on half of a configuration
 if has setup; then
-    # the broker removes the file when it has the hash: its group may write the directory
+    # The broker removes the file when it has the hash, so its group may write the
+    # directory. Root never writes into a directory another user may write: whatever is
+    # there goes (a link planted at the file's name would lead the write elsewhere), the
+    # directory is made new and root's alone (umask 077), the file is put, and only then
+    # the directory is opened to the group.
     setup_dir=$etc/wyrm/setup.d
-    mkdir -p "$setup_dir" || unfinished "cannot make $setup_dir"
-    for_broker "$setup_dir" || unfinished "cannot give $setup_dir to the group $GROUP"
-    chmod 770 "$setup_dir" || unfinished "cannot make $setup_dir"
+    rm -rf "$setup_dir"
+    mkdir "$setup_dir" || unfinished "cannot make $setup_dir"
     put setup "$setup_dir/setup" 640 broker || unfinished "cannot write $setup_dir/setup"
+    for_broker "$setup_dir" || unfinished "cannot give $setup_dir to the group $GROUP"
+    chmod 770 "$setup_dir" || unfinished "cannot open $setup_dir to the group $GROUP"
 fi
 if has seed.json; then
     put seed.json "$SEED_DIR/seed.json" 644 || unfinished "cannot write $SEED_DIR/seed.json"

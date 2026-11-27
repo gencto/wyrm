@@ -190,11 +190,13 @@ want_refused() {
     [ ! -e "$t/etc/wyrm/.first-boot-done" ] || fail "a refused run left the marker"
     grep -q 'nothing was applied' "$t/err" || fail "no message: $(cat "$t/err")"
 }
-# refused NAME: runs the script on the region the caller wrote and wants it refused
+# refused [UCI_FAIL]: runs the script on the region the caller wrote and wants it refused
 refused() {
     cp "$t/region" "$t/region.before"
     before=$(state)
+    uci_fail=${1:-}
     first_boot
+    uci_fail=
     want_refused
     if [ -n "${VERBOSE:-}" ]; then
         echo "  ${t##*/}: $(head -n 1 "$t/err")"
@@ -350,7 +352,7 @@ a_torn_wipe_is_wiped_again() {
 # The person's keys are in the image and SSH cannot be turned on for them: the region is
 # kept, the broker's configuration is not put, the next boot tries again.
 ssh_that_cannot_be_set_up_keeps_the_region() {
-    for call in 'dropbear.@dropbear[0].enable' 'commit dropbear' 'firewall.wyrm_ssh' 'commit firewall'; do
+    for call in 'dropbear.@dropbear[0].enable' 'commit dropbear' 'firewall.wyrm_ssh.enabled' 'commit firewall'; do
         setup_device "ssh-$(echo "$call" | tr -c 'a-z\n' '_')"
         full_region "$t/region"
         cp "$t/region" "$t/region.before"
@@ -377,6 +379,55 @@ ssh_that_cannot_be_set_up_keeps_the_region() {
     uci_fail=
     want "exit code when the time zone cannot be set ($(cat "$t/err"))" "$rc" 0
     grep -q 'warning' "$t/err" || fail "no warning"
+}
+
+# Keys for an image without an SSH server (no dropbear, or no firewall rule of the host
+# role): told before anything is put.
+keys_without_an_ssh_server_apply_nothing() {
+    for missing in 'get dropbear.@dropbear[0]' 'get firewall.wyrm_ssh'; do
+        setup_device "nossh-$(echo "$missing" | tr -c 'a-z\n' '_')"
+        full_region "$t/region"
+        refused "$missing"
+        grep -q 'this image has no SSH server' "$t/err" || fail "message: $(cat "$t/err")"
+    done
+    # without keys nobody asks for one
+    setup_device nossh-nokeys
+    wyr_region "$t/region"
+    uci_fail='get dropbear'
+    first_boot
+    uci_fail=
+    want "exit code without keys ($(cat "$t/err"))" "$rc" 0
+}
+
+# The setup directory is the broker's user's to write. Whatever that user left there
+# (here: a link at the file's name, and one at the temporary name) leads no write of
+# root anywhere: the files outside stay as they were and the hash is a regular file.
+a_link_in_the_setup_directory_leads_nowhere() {
+    setup_device planted
+    full_region "$t/region"
+    mkdir -p "$t/etc/wyrm/setup.d"
+    printf 'outside\n' > "$t/outside"
+    printf 'outside\n' > "$t/outside2"
+    chmod 644 "$t/outside" "$t/outside2"
+    ln -s "$t/outside" "$t/etc/wyrm/setup.d/setup"
+    ln -s "$t/outside2" "$t/etc/wyrm/setup.d/setup.wyrm-new"
+    first_boot
+    want "exit code ($(cat "$t/err"))" "$rc" 0
+    want_file "$t/outside" "outside" "-rw-r--r--"
+    want_file "$t/outside2" "outside" "-rw-r--r--"
+    [ ! -L "$t/etc/wyrm/setup.d/setup" ] || fail "the setup hash is a link"
+    want_file "$t/etc/wyrm/setup.d/setup" "$HASH" "-rw-r-----"
+    want "what the setup directory holds" "$(ls -A "$t/etc/wyrm/setup.d")" "setup"
+    want "mode of the setup directory" "$(mode "$t/etc/wyrm/setup.d")" "drwxrwx---"
+    # a directory where a file belongs is not moved into
+    setup_device planted-dir
+    full_region "$t/region"
+    cp "$t/region" "$t/region.before"
+    mkdir -p "$t/etc/wyrm/wyrmd.json5.d" "$t/etc/dropbear/authorized_keys"
+    first_boot
+    want "exit code with a directory at a file's place ($(cat "$t/err"))" "$rc" 5
+    cmp -s "$t/region" "$t/region.before" || fail "the region was wiped"
+    want "what the directory holds" "$(ls -A "$t/etc/dropbear/authorized_keys")" ""
 }
 
 a_flipped_byte_applies_nothing() {
@@ -493,7 +544,8 @@ an_unknown_zone_is_a_warning() {
 
 for test in applies_all_files setup_is_for_the_broker_only only_the_config first_boot_twice \
     empty_region_exits_3 half_applied_is_applied_again a_power_loss_after_the_wipe \
-    a_torn_wipe_is_wiped_again ssh_that_cannot_be_set_up_keeps_the_region a_flipped_byte_applies_nothing \
+    a_torn_wipe_is_wiped_again ssh_that_cannot_be_set_up_keeps_the_region \
+    keys_without_an_ssh_server_apply_nothing a_link_in_the_setup_directory_leads_nowhere a_flipped_byte_applies_nothing \
     a_bad_member_name_applies_nothing a_link_applies_nothing a_bad_region_applies_nothing \
     bad_content_applies_nothing an_unknown_zone_is_a_warning; do
     failed=0

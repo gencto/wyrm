@@ -361,9 +361,11 @@ fn a_file_the_config_does_not_name_is_refused() {
     ] {
         let files = with(config, setup, seed);
         files.check().unwrap();
+        assert_eq!(files.not_named().count(), 0);
         assert_eq!(read_region(&region(&files).unwrap()).unwrap(), Some(files));
     }
-    // carried and not named: refused by the assembler and by a reader
+    // carried and not named: refused by the assembler; a reader takes the region as it
+    // is, and `not_named` tells which files nobody will read
     let commented = format!("{{ gateway: {{ // setup_file: \"{SETUP_FILE}\"\n }} }}");
     let in_a_string = format!("{{ note: \"setup_file: '{SETUP_FILE}'\" }}");
     for (config, setup, seed, file, key, path) in [
@@ -437,11 +439,11 @@ fn a_file_the_config_does_not_name_is_refused() {
         if seed {
             entries.push(entry("seed.json", b'0', b"{}"));
         }
+        let read = read_region(&wrap(&archive(&entries))).unwrap().unwrap();
+        assert_eq!(read, files, "{config}");
         assert!(
-            matches!(
-                read_region(&wrap(&archive(&entries))),
-                Err(ImageError::NotNamed { .. })
-            ),
+            read.not_named()
+                .any(|e| matches!(e, ImageError::NotNamed { file: f, .. } if f == file)),
             "{config}"
         );
     }

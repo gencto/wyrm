@@ -29,7 +29,9 @@ DATA=/srv/wyrm
 
 # to the system log (`logread -e wyrm`) and to the console of the device
 tell() {
-	logger -t wyrm "$1"
+	# the log's tag says `wyrm` already
+	msg=${1#wyrm: }
+	logger -t wyrm "${msg#wyrm }"
 	echo "$1" > /dev/console 2> /dev/null
 }
 
@@ -71,9 +73,15 @@ start_service() {
 		tell "wyrm: the broker is not started: no configuration is applied on this device"
 		return 0
 	fi
-	# data_dir holds the keys of the site: the broker's user alone reads it
+	# data_dir holds the keys of the site: the broker's user alone reads it. Root gives
+	# the directory itself and nothing below it, and never through a link: what is
+	# inside belongs to the broker's user, who could point a name anywhere.
 	mkdir -p "$DATA"
-	chown wyrm:wyrm "$DATA"
+	if [ -L "$DATA" ] || [ ! -d "$DATA" ]; then
+		tell "wyrm: the broker is not started: $DATA is no directory"
+		return 0
+	fi
+	chown -h wyrm:wyrm "$DATA"
 	chmod 700 "$DATA"
 
 	procd_open_instance wyrmd
