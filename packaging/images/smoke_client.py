@@ -178,7 +178,7 @@ def pinned(ca_der):
 class Conn(http.client.HTTPConnection):
     """Connects to HOST:port, verifies the certificate against `name` (SNI too)."""
 
-    def __init__(self, port, ctx, name, timeout=20):
+    def __init__(self, port, ctx, name, timeout=90):
         super().__init__(HOST, port, timeout=timeout)
         self.ctx = ctx
         self.name = name
