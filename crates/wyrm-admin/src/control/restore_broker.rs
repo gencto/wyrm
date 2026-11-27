@@ -464,20 +464,22 @@ impl BrokerRestoreError {
     /// same rule.
     ///
     /// A restore that has no `pre-restore` backup is refused, never run
-    /// without it (owner decision 2026-11-27), and the refusal says why:
+    /// without it (owner decision 2026-11-27), and the refusal says why. A
+    /// job that failed after its request passed the checks is never a bad
+    /// request (coordinator decision 2026-11-27):
     /// - the disk of `data_dir` has not the room the backup needs
     ///   (`StartError::DiskFull`, the check before the job) or filled up
     ///   while it was written (an I/O error of kind `StorageFull` or
-    ///   `QuotaExceeded`): `resource_exhausted`, as `sys/backups ▸ create`
-    ///   answers the first;
-    /// - any other I/O error of the job (a file or a directory of the
-    ///   broker, the zip, a store read: [`BackupError::io_cause`] finds it in
-    ///   the chain of the typed error): `internal_error`;
+    ///   `QuotaExceeded` in the chain of the job's typed error, which
+    ///   [`BackupError::io_cause`] finds: a file of the broker, the zip, a
+    ///   WAL, a history day file, a link's private directory):
+    ///   `resource_exhausted`, as `sys/backups ▸ create` answers the first;
+    /// - every other failure of the job (another I/O error, `storage: not
+    ///   open`, a key file that does not load): `internal_error`;
     /// - the job's record is gone when it ends (`NowError::Gone`): the
     ///   broker lost it, not the caller: `internal_error`;
-    /// - the request of the backup is refused, or the job fails without an
-    ///   I/O error (`storage: not open`, a key file that does not load, a
-    ///   cause held as text only): `invalid_parameter`, as before.
+    /// - the request of the backup is refused (`StartError::Request`):
+    ///   `invalid_parameter`, as before.
     ///
     /// Everything else is `invalid_parameter`, as the handler answered before
     /// the refusals had types (it told `busy` by the words of the message).
@@ -531,13 +533,13 @@ impl BrokerRestoreError {
 }
 
 /// The status of a `pre-restore` backup that failed while it was written
-/// ([`BrokerRestoreError::status`]).
+/// ([`BrokerRestoreError::status`]): never `invalid_parameter`, the request
+/// passed its checks.
 fn pre_backup_failed(e: &BackupError) -> Status {
     use std::io::ErrorKind;
     match e.io_cause().map(std::io::Error::kind) {
         Some(ErrorKind::StorageFull | ErrorKind::QuotaExceeded) => Status::ResourceExhausted,
-        Some(_) => Status::InternalError,
-        None => Status::InvalidParameter,
+        Some(_) | None => Status::InternalError,
     }
 }
 
@@ -3248,10 +3250,21 @@ mod tests {
                 Internal,
             ),
             (B::PreBackup(NowError::Failed(file(io().kind()))), Internal),
-            // a job that failed without an I/O error
+            // the disk filled up while a history day file was copied: redb's
+            // I/O error is kept as the source
+            (
+                B::PreBackup(NowError::Failed(BackupError::History(
+                    wyrm_history::store::Error::DbIo {
+                        text: "No space left on device".into(),
+                        source: std::io::Error::new(std::io::ErrorKind::StorageFull, "no"),
+                    },
+                ))),
+                Exhausted,
+            ),
+            // a job that failed without an I/O error is not a bad request either
             (
                 B::PreBackup(NowError::Failed(BackupError::StorageClosed)),
-                Invalid,
+                Internal,
             ),
             (B::PreBackup(NowError::Gone), Internal),
             (B::Task(cancelled()), Invalid),
@@ -3357,7 +3370,7 @@ mod tests {
             assert_eq!((l.status, l.message.as_str()), (status, text.as_str()));
         }
         assert_eq!(denied, 2, "exactly the two gates of rights");
-        assert_eq!(not_backed_up, 6, "disk full, I/O, gone");
+        assert_eq!(not_backed_up, 8, "disk full, I/O, other failures, gone");
         // a missing passphrase and keys that differ are wrong arguments
         for e in [
             GateError::NoPassphrase,
@@ -3379,21 +3392,24 @@ mod tests {
             BrokerRestoreError::Asks {
                 asks: vec!["package demo: network one at a time".into()],
             },
-            BrokerRestoreError::PreBackup(NowError::Failed(BackupError::LinkData {
-                link: "l1".into(),
-                why: "try again".into(),
-            })),
         ] {
             assert_eq!(by_words(&e.to_string()), Status::Busy);
             assert_eq!(e.status(), Status::InvalidParameter, "{e}");
         }
-        // nor `internal_error` busy: its type tells it, not its words
-        let e = BrokerRestoreError::PreBackup(NowError::Failed(BackupError::File(FileError::new(
-            Path::new("/d/try again"),
-            std::io::Error::other("no"),
-        ))));
-        assert_eq!(by_words(&e.to_string()), Status::Busy);
-        assert_eq!(e.status(), Status::InternalError, "{e}");
+        // nor a failed pre-restore backup busy: its type tells it, not its words
+        for e in [
+            BrokerRestoreError::PreBackup(NowError::Failed(BackupError::File(FileError::new(
+                Path::new("/d/try again"),
+                std::io::Error::other("no"),
+            )))),
+            BrokerRestoreError::PreBackup(NowError::Failed(BackupError::LinkData {
+                link: "l1".into(),
+                source: crate::nofollow::NofollowError::NotPlain("try again".into()),
+            })),
+        ] {
+            assert_eq!(by_words(&e.to_string()), Status::Busy);
+            assert_eq!(e.status(), Status::InternalError, "{e}");
+        }
         // a staging that failed and left its folder keeps the status of the failure
         let stays = |error: BrokerRestoreError| BrokerRestoreError::Stays {
             error: Box::new(error),
@@ -3769,8 +3785,16 @@ mod tests {
         std::fs::write(&artifact, b"artifact").unwrap();
         let path = made(&ctl, "upload.wyrm-backup", &[SectionName::Dataflows]);
         let bytes = std::fs::read(&path).unwrap();
-        // the pre-restore backup copies the artifact again, and cannot read it
+        // the pre-restore backup copies the artifact again, and cannot read it;
+        // the guard gives the mode back however the test ends
+        struct Readable(PathBuf);
+        impl Drop for Readable {
+            fn drop(&mut self) {
+                let _ = std::fs::set_permissions(&self.0, std::fs::Permissions::from_mode(0o600));
+            }
+        }
         std::fs::set_permissions(&artifact, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let _readable = Readable(artifact.clone());
         if std::fs::read(&artifact).is_ok() {
             // root reads any file: no I/O error to be made here
             return;
@@ -3855,7 +3879,6 @@ mod tests {
             .expect("the pre-restore job");
         assert_eq!(job.status, super::super::backups::JobStatus::Failed);
         assert!(job.error.contains("a.wasm"), "{}", job.error);
-        std::fs::set_permissions(&artifact, std::fs::Permissions::from_mode(0o600)).unwrap();
         h.stop().await;
     }
 }

@@ -247,8 +247,12 @@ pub enum BackupError {
         source: Box<BackupError>,
     },
     /// A link's private directory was not read ([`crate::nofollow::walk_files`]).
-    #[error("link {link}: {why}")]
-    LinkData { link: String, why: String },
+    #[error("link {link}: {source}")]
+    LinkData {
+        link: String,
+        #[source]
+        source: crate::nofollow::NofollowError,
+    },
     #[error("package {name} {version}: no files under {}", .dir.display())]
     PackageEmpty {
         name: String,
@@ -272,10 +276,10 @@ impl BackupError {
     /// The first I/O error in the chain of this error: the error itself
     /// first, then each `source`. The variants that hold one: `File`,
     /// `Stage` (its directory), `Write` (`WriteError::Io`), `Seal`, `Wal`
-    /// (`StateError::Io`), `History` (`wyrm_history::store::Error::Io`), and
-    /// `SealedFile` and `LinkFile` through the error they hold. `LinkData`
-    /// and a history `Db` error hold their cause as text only: no I/O error
-    /// is found in them.
+    /// (`StateError::Io`), `History` (`wyrm_history::store::Error::Io`, and
+    /// `DbIo`: redb's I/O error), `KeyFile`, `LinkData` (the walk's
+    /// `NofollowError` with an I/O source), and `SealedFile` and `LinkFile`
+    /// through the error they hold.
     pub fn io_cause(&self) -> Option<&std::io::Error> {
         let mut at: Option<&(dyn std::error::Error + 'static)> = Some(self);
         while let Some(e) = at {
@@ -1591,34 +1595,22 @@ impl Control {
             scratch: &replication::skipped,
             max_files: replication::MAX_FILES,
         };
-        // the walk speaks text (its own slice of the typed errors): the error of a
-        // file that was not staged is kept here, and the walk carries its text
-        let mut not_staged = None;
-        let walked = crate::nofollow::walk_files(&data, &rules, &mut |rel, file, _| match st
-            .sealed_from(&format!("{base}/files/{rel}"), file)
-        {
-            Ok(staged) => {
-                out.push(staged);
-                Ok(())
-            }
-            Err(e) => {
-                let text = e.to_string();
-                not_staged = Some(e);
-                Err(text)
-            }
+        // both ends keep their type: the walk's own refusal, and the error of a
+        // file that was not staged, which the walk ends with as it is
+        let walked = crate::nofollow::walk_files(&data, &rules, &mut |rel, file, _| {
+            out.push(st.sealed_from(&format!("{base}/files/{rel}"), file)?);
+            Ok(())
         });
         let link = def.id.clone();
-        match (walked.map_err(|e| e.to_string()), not_staged) {
-            (Ok(seen), _) => Ok((out, seen.skipped)),
-            (Err(why), None) => Err(BackupError::LinkData { link, why }),
-            // `why` is the text of `source`: the walk ends with what its callback said
-            (Err(why), Some(source)) => {
-                debug_assert_eq!(why, source.to_string());
-                Err(BackupError::LinkFile {
-                    link,
-                    source: Box::new(source),
-                })
+        match walked {
+            Ok(seen) => Ok((out, seen.skipped)),
+            Err(crate::nofollow::WalkError::Walk(source)) => {
+                Err(BackupError::LinkData { link, source })
             }
+            Err(crate::nofollow::WalkError::Emit(source)) => Err(BackupError::LinkFile {
+                link,
+                source: Box::new(source),
+            }),
         }
     }
 
@@ -3447,7 +3439,7 @@ mod tests {
         said(
             &B::LinkData {
                 link: "plc".into(),
-                why: "more than 5 files".into(),
+                source: crate::nofollow::NofollowError::TooManyFiles(5),
             },
             "link plc: more than 5 files",
         );
@@ -3907,15 +3899,53 @@ mod tests {
     }
 
     /// `BackupError::io_cause` finds the I/O error of every variant that holds
-    /// one, through `transparent` and boxed causes, and none in a variant
-    /// that holds its cause as text (owner decision 2026-11-27: the status of
-    /// a `pre-restore` backup that failed is told by it).
+    /// one, through `transparent` and boxed causes, redb's I/O error of a
+    /// history file and the walk of a link's private directory, and none
+    /// where there is none (owner decision 2026-11-27: the status of a
+    /// `pre-restore` backup that failed is told by it).
     #[test]
     fn the_io_cause_of_a_backup_error_is_found_in_its_chain() {
         use std::io::ErrorKind as K;
         let io = |k: K| std::io::Error::new(k, "no");
         let file = |k: K| FileError::new(Path::new("/d/f"), io(k));
         let held: Vec<(BackupError, K)> = vec![
+            (
+                BackupError::History(wyrm_history::store::Error::DbIo {
+                    text: "No space left on device".into(),
+                    source: io(K::StorageFull),
+                }),
+                K::StorageFull,
+            ),
+            (
+                BackupError::LinkData {
+                    link: "l1".into(),
+                    source: crate::nofollow::NofollowError::Io {
+                        path: PathBuf::from("/d/links/l1/data/a"),
+                        source: io(K::StorageFull),
+                    },
+                },
+                K::StorageFull,
+            ),
+            (
+                BackupError::LinkData {
+                    link: "l1".into(),
+                    source: crate::nofollow::NofollowError::RootNotOpened {
+                        path: PathBuf::from("/d/links/l1/data"),
+                        source: io(K::PermissionDenied),
+                    },
+                },
+                K::PermissionDenied,
+            ),
+            (
+                BackupError::LinkData {
+                    link: "l1".into(),
+                    source: crate::nofollow::NofollowError::EntryNotOpened {
+                        path: PathBuf::from("/d/links/l1/data/b"),
+                        source: io(K::Other),
+                    },
+                },
+                K::Other,
+            ),
             (BackupError::File(file(K::StorageFull)), K::StorageFull),
             (
                 BackupError::Stage(StageError::Dir(file(K::PermissionDenied))),
@@ -3979,8 +4009,9 @@ mod tests {
             BackupError::Request(RequestError::NoConfig),
             BackupError::LinkData {
                 link: "l1".into(),
-                why: "no".into(),
+                source: crate::nofollow::NofollowError::TooManyFiles(5),
             },
+            // redb refused for a reason that is no I/O error (`StorageError::Corrupted`)
             BackupError::History(wyrm_history::store::Error::Db("no".into())),
             BackupError::KeyFile {
                 file: "secrets.key",
