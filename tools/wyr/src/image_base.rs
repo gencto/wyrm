@@ -1427,7 +1427,7 @@ mod tests {
             make_args(&boards, board),
             [
                 "PROFILE=rpi-4",
-                "PACKAGES=-dnsmasq -odhcpd-ipv6only -ppp -ppp-mod-pppoe zoneinfo-all \
+                "PACKAGES=-odhcpd-ipv6only -ppp -ppp-mod-pppoe zoneinfo-all \
                  kmod-usb-acm kmod-usb-serial-ch341 kmod-usb-serial-cp210x \
                  kmod-usb-serial-ftdi kmod-usb-serial-pl2303 sfdisk partx-utils e2fsprogs \
                  tune2fs blkid kmod-fs-ext4",

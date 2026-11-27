@@ -12,8 +12,7 @@
 #                       qemu-armsr made before: no build
 #   --cache <dir>       the ImageBuilder archives (`wyr image base --cache`)
 #   --timeout <s>       how long a boot may take until the gateway answers TLS (default
-#                       300 with hvf or kvm, 900 without: the first start waits up to
-#                       120 s for NTP before it makes the site's CA)
+#                       180 with hvf or kvm, 900 under TCG)
 #
 # Environment: RUNTIME (docker or podman), QEMU (qemu-system-aarch64), QEMU_EFI (the
 # UEFI firmware), SMOKE_PORT (18445, the gateway on the host), SMOKE_SSH (10022).
@@ -28,9 +27,10 @@
 #    and an SSH key of this run. It boots on a disk with room for the data partition:
 #    within the time limit `/api/info` answers over TLS with `setup: true` and a
 #    `setup_proof` that verifies with the code and the presented CA; the CA is pinned;
-#    `POST /api/setup` makes the first admin; the login works.
+#    `POST /api/setup` makes the first admin; the login works. NTP set the clock
+#    (the marker /var/run/wyrm/time-synced) and the site's CA was made after it.
 # 4. It is powered off and booted again: the same CA, no setup offered, the login
-#    works. The broker runs as uid 787 on the data partition.
+#    works, NTP set the clock again. The broker runs as uid 787 on the data partition.
 # 5. The region on the disk is empty (`wyr image inspect`), and the table the first
 #    boot wrote (data partition, GPT moved to the end) passes `verify-table.sh`.
 
@@ -98,9 +98,11 @@ Linux/aarch64)
     ;;
 *) accel="-accel tcg,thread=multi -cpu max,pauth-impdef=on" ;;
 esac
+# An aarch64 guest under TCG (an x86-64 CI runner) boots and hashes passwords many times
+# slower than with hvf or kvm, so it gets five times the plan's limit.
 case $accel in
 *tcg*) timeout=${timeout:-900} ;;
-*) timeout=${timeout:-300} ;;
+*) timeout=${timeout:-180} ;;
 esac
 efi=${QEMU_EFI:-}
 if [ -z "$efi" ]; then
@@ -161,8 +163,9 @@ guest() {
 }
 
 # What the guest says about its broker: `uid=`, the mounts of the data partition, `tail=`
-# (sectors from the end of the data partition to the end of the disk), the clock and
-# what the log says about NTP and the first boot.
+# (sectors from the end of the data partition to the end of the disk), the clock (`now=`,
+# `synced_at=` and `synced_uptime=` of the NTP marker, `ca_made=`: the site CA's file,
+# Unix seconds) and what the log says about NTP and the first boot.
 guest_report() {
     guest 'sh -s' << 'EOF'
 pid=$(pgrep -f '^/usr/bin/wyrmd( |$)' | head -1)
@@ -174,10 +177,29 @@ s=$(cat /sys/block/vda/vda4/start)
 n=$(cat /sys/block/vda/vda4/size)
 echo "vda4: start $s, size $n sectors, disk $d sectors"
 echo "tail=$((d - s - n))"
-echo "time: $(date -u); NTP marker: $(ls /var/run/wyrm/time-synced 2>&1)"
-logread | grep -iE 'ntpd|ntp:|wyrm: no NTP' | tail -5 | cut -c1-160
+now=$(date +%s)
+up=$(cut -d. -f1 /proc/uptime)
+echo "now=$now"
+if [ -e /var/run/wyrm/time-synced ]; then
+    m=$(date -r /var/run/wyrm/time-synced +%s)
+    echo "synced_at=$m"
+    echo "synced_uptime=$((up - (now - m)))"
+fi
+[ ! -e /srv/wyrm/pki/ca.pem ] || echo "ca_made=$(date -r /srv/wyrm/pki/ca.pem +%s)"
+logread | grep -E 'wyrm: no NTP' | cut -c1-160
 logread -e wyrm | grep -E 'first boot|data:|broker up|not started' | cut -c1-160
 EOF
+}
+
+# clock <report>: NTP set the clock (the marker of /etc/hotplug.d/ntp/20-wyrm-time) and
+# the broker did not wait the full 120 s for it; the guest's clock against this host's
+value() { sed -n "s/^$1=//p" "$2"; }
+clock() {
+    host=$(date +%s)
+    synced=$(value synced_uptime "$1")
+    [ -n "$synced" ] || die "NTP did not set the clock: no /var/run/wyrm/time-synced"
+    ! grep -q 'wyrm: no NTP' "$1" || die "the broker waited for NTP in vain"
+    say "NTP set the clock $synced s after the boot; the guest's clock is $(($(value now "$1") - host)) s from this host's"
 }
 
 # poweroff through SSH; qemu ends with the guest
@@ -290,6 +312,12 @@ uid=$(sed -n 's/^uid=//p' "$work/guest-1.txt")
 grep -q '^/dev/vda4 /srv/wyrm ' "$work/guest-1.txt" || die "/srv/wyrm is not the data partition"
 tail=$(sed -n 's/^tail=//p' "$work/guest-1.txt")
 [ "${tail:-0}" -ge 2048 ] || die "the data partition ends ${tail:-?} sectors before the end of the disk (< 1 MiB)"
+clock "$work/guest-1.txt"
+# the first start makes the site's CA only when the clock is set
+made=$(value ca_made "$work/guest-1.txt")
+at=$(value synced_at "$work/guest-1.txt")
+[ -n "$made" ] && [ "$made" -ge "$at" ] || die "the site CA ($made) was made before NTP set the clock ($at)"
+say "the site CA was made $((made - at)) s after NTP set the clock, at $(date -u -r "$made" 2> /dev/null || date -u -d "@$made")"
 
 # ---- 4. power off and boot again ------------------------------------------------------
 
@@ -302,6 +330,7 @@ client login "$PORT" "$work/state"
 guest_report > "$work/guest-2.txt"
 sed 's/^/  guest: /' "$work/guest-2.txt"
 [ "$(sed -n 's/^uid=//p' "$work/guest-2.txt")" = 787 ] || die "the broker does not run as uid 787 after the second boot"
+clock "$work/guest-2.txt"
 power_off
 
 # ---- 5. the disk: region wiped, table sound -------------------------------------------

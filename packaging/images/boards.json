@@ -25,7 +25,6 @@
     }
   ],
   "packages": [
-    "-dnsmasq",
     "-odhcpd-ipv6only",
     "-ppp",
     "-ppp-mod-pppoe",

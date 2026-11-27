@@ -31,7 +31,9 @@ if uci -q get network.lan > /dev/null; then
 	uci -q delete network.lan.ip6assign
 fi
 
-# no DHCP server and no router advertisements; dnsmasq stays as the local resolver
+# no DHCP server and no router advertisements. dnsmasq stays as the local resolver: the
+# jailed ntpd reads `nameserver 127.0.0.1` from the start, while the file netifd writes
+# at the DHCP lease would come after the jail was made (packaging/images/README.md)
 if uci -q get dhcp.lan > /dev/null; then
 	uci -q set dhcp.lan.ignore='1'
 	uci -q set dhcp.lan.dhcpv6='disabled'

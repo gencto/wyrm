@@ -123,11 +123,20 @@ changes (`packages` in `boards.json`):
 
 | Change | Why |
 |---|---|
-| `-dnsmasq` | no DHCP server; names are resolved by the servers the network gives (`/tmp/resolv.conf.d/resolv.conf.auto`) |
 | `-odhcpd-ipv6only` | no DHCPv6 server and no router advertisements |
 | `-ppp`, `-ppp-mod-pppoe` | a host has no WAN dial-up |
 | `zoneinfo-all` | the first boot reads the POSIX rule of the person's time zone from the zone's file |
 | `kmod-usb-acm`, `kmod-usb-serial-ch341`, `-cp210x`, `-ftdi`, `-pl2303` | the usual USB serial adapters (Modbus RTU and the like) |
+
+`dnsmasq` stays as the local resolver, with its DHCP server off on `lan`
+(`90-wyrm-host`). OpenWrt runs `ntpd` in a jail that binds the file behind
+`/etc/resolv.conf` when `ntpd` starts. Without `dnsmasq` that file is
+`/tmp/resolv.conf.d/resolv.conf.auto`, which `netifd` replaces when the
+DHCP lease comes: the jail keeps the old, empty file, `ntpd` resolves no
+server name and the clock is never set until `ntpd` is restarted. With
+`dnsmasq` the file says `nameserver 127.0.0.1` from the start, and the clock
+is set at the first boot without waiting (in QEMU 19 s after the boot).
+The firewall opens no port 53.
 
 `dropbear` and `firewall4` stay: the first boot refuses `authorized_keys`
 in an image without an SSH server, and the host role is firewall rules.
@@ -335,16 +344,19 @@ raw image of `qemu-armsr` and builds nothing. In this order:
    name `wyrm-smoke.local`: `POST /api/setup` (204), no setup offered, a
    second setup refused (`no_setup`), login and `/api/me`. Through SSH: the
    broker runs as uid 787, `/srv/wyrm` is the data partition, which ends at
-   least 1 MiB before the end of the disk.
+   least 1 MiB before the end of the disk; NTP set the clock (the marker
+   `/var/run/wyrm/time-synced`), the broker did not wait the full 120 s for
+   it, and the site's CA was made after the clock was set.
 4. Powered off and booted again: the same CA, no setup offered, the login
-   works.
+   works, NTP set the clock again.
 5. On the disk file: `wyr image inspect` says `region: empty`, and
    `verify-table.sh` passes the table the first boot wrote.
 
-A boot may take `--timeout` seconds until the gateway answers TLS: 300 with
-`hvf` or `kvm`, 900 under TCG (an aarch64 guest on an x86-64 host). The
-first start waits up to 120 s for NTP before it makes the site's CA
-(`run.sh`). The console logs stay in the work directory.
+A boot may take `--timeout` seconds until the gateway answers TLS: 180 with
+`hvf` or `kvm`, 900 under TCG (an aarch64 guest on an x86-64 host boots and
+hashes passwords many times slower). With `hvf` on an Apple M4 the first
+boot answers after about 32 s, NTP included. The console logs stay in the
+work directory.
 `.github/workflows/images-smoke.yml` runs it on pull requests that change
 `packaging/openwrt`, `packaging/images`, `crates/wyrm-image` or
 `tools/wyr/src/image*.rs`: `wyrmd` is built on an arm64 runner, the image
