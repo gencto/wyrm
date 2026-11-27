@@ -1,0 +1,32 @@
+#!/bin/sh
+# The broker's user and group, `wyrm` with uid and gid 787 (ADR 0051, "Built (part 2)").
+#
+# An image takes the package `wyrmd` as files (the ImageBuilder's FILES overlay), so the
+# `USERID` of the package's Makefile makes no user. This script does, at the first boot,
+# before /etc/uci-defaults/90-wyrm-host gives files to the group and adds the user to
+# `dialout`. OpenWrt removes a uci-defaults script that ends well; one that fails stays
+# and runs at the next boot.
+#
+# 787 is free in the base-files of the pinned OpenWrt release and in its feeds
+# (packaging/images/README.md). An id that belongs to another name is refused here:
+# the broker's files would be that name's.
+
+ID=787
+
+# shellcheck source=/dev/null # OpenWrt's group_add, user_add, group_exists, user_exists
+. /lib/functions.sh
+
+# taken FILE: the id belongs to a name that is not `wyrm`
+taken() {
+	awk -F: -v id="$ID" '$3 == id && $1 != "wyrm" { found = 1 } END { exit !found }' "$1"
+}
+
+if taken /etc/passwd || taken /etc/group; then
+	echo "wyrm: uid or gid $ID belongs to another name: the broker's user is not made" > /dev/console
+	exit 1
+fi
+
+group_exists wyrm || group_add wyrm "$ID" || exit 1
+user_exists wyrm || user_add wyrm "$ID" "$ID" wyrm /srv/wyrm /bin/false || exit 1
+
+exit 0

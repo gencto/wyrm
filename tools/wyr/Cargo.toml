@@ -1,6 +1,6 @@
 [package]
 name = "wyr"
-description = "WYRM CLI: list, tree, sub, set, invoke, meta, resolve, flow, bench, keygen, admin, dev commands (new, dev, sim, record, replay) and board images (image build, inspect)"
+description = "WYRM CLI: list, tree, sub, set, invoke, meta, resolve, flow, bench, keygen, admin, dev commands (new, dev, sim, record, replay) and board images (image build, inspect, base)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

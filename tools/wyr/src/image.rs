@@ -69,6 +69,9 @@ pub enum ImageCmd {
         #[arg(long)]
         force: bool,
     },
+    /// Make the base image of a board with OpenWrt's ImageBuilder in a container: the image
+    /// (raw and gzip), with an empty config region, and its entry in `index.json`.
+    Base(crate::image_base::BaseArgs),
     /// Show what the config region of an image holds: empty or assembled, and the names
     /// and sizes of its files. Never a file's content.
     Inspect {
@@ -97,6 +100,9 @@ pub enum ImageCmdError {
     /// The format refused the index, the files or the region.
     #[error(transparent)]
     Image(#[from] ImageError),
+    /// `wyr image base` refused or failed.
+    #[error(transparent)]
+    Base(#[from] crate::image_base::BaseError),
     /// The index has no entry for the board.
     #[error("no board `{board}` in the index; it has: {known}")]
     NoBoard { board: String, known: String },
@@ -195,6 +201,7 @@ pub fn run(cmd: ImageCmd) -> Result<()> {
             }
             Ok(())
         }
+        ImageCmd::Base(args) => Ok(crate::image_base::run(&args)?),
         ImageCmd::Inspect {
             image,
             index,

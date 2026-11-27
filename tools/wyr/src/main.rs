@@ -24,6 +24,8 @@ mod bench;
 mod dev;
 mod flow;
 mod image;
+mod image_base;
+mod image_part;
 mod pack;
 mod query;
 mod replay;
@@ -171,7 +173,8 @@ enum Cmd {
         cmd: pack::LinkCmd,
     },
     /// Board images (ADR 0051 §4): `wyr image build` writes a configuration into a base
-    /// image, `wyr image inspect` shows what an image's config region holds.
+    /// image, `wyr image inspect` shows what an image's config region holds, `wyr image
+    /// base` makes a board's base image with OpenWrt's ImageBuilder in a container.
     Image {
         #[command(subcommand)]
         cmd: image::ImageCmd,
