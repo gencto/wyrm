@@ -470,6 +470,26 @@ setup hash or a seed that the image's `wyrmd.json5` does not name: the
 broker of that device will never read it. `wyr image build` does not write
 such an image.
 
+#### Write the card
+
+Write the assembled image whole to the card (`dd`, Raspberry Pi Imager
+with "Use custom", `balenaEtcher`). Use a card at least 34 MiB larger than
+the image: the rest becomes the data partition at the first boot ("On the
+device" below). The rows of `packaging/images/boards.json` carry these
+notes:
+
+| Board | `--board` | How it boots |
+|---|---|---|
+| Raspberry Pi 4 B / 400 / CM4 | `rpi4` | from the microSD card. A board that boots from a USB stick finds its partitions there by itself; not tried on a board yet. |
+| Raspberry Pi 5 / 500 / CM5 | `rpi5` | as `rpi4`; also from a USB stick or an NVMe disk (not tried on a board yet). |
+| Banana Pi BPI-R4 (4 GB) | `bpi-r4` | **from the SD card only**: set the boot switch to SD and leave the card in. Do not install onto the eMMC: OpenWrt's install writes its own partition table there, without the config region and the data partition, and the configuration does not go with it. |
+| Banana Pi BPI-R4 (8 GB) | `bpi-r4-8g` | not built: OpenWrt 25.12.6 publishes no image for the 8 GB board. |
+| QEMU `virt` (arm64) | `qemu-armsr` | tests only: `qemu-system-aarch64 -M virt` with UEFI firmware, the image as a virtio disk grown before the first boot (`qemu-img resize -f raw plant.img 1G`; `packaging/images/README.md`, "Boards"). |
+
+No image has been booted on a real board yet: the boards were built and
+their partition tables checked, and the `qemu-armsr` image boots in the
+smoke test.
+
 #### A base image of your own
 
 The project publishes base images; `wyr image base` makes one locally with
@@ -538,9 +558,20 @@ package; what an operator meets:
   (its CA, users, links, history). With another site, the old data is
   renamed to `/srv/wyrm-part/.replaced-<old site>-<n>` and the broker
   starts as a new site; that directory is never merged and never
-  deleted. Copy out what you need from it (as root) and remove it yourself.
-  The data partition belongs to the card; to start clean, wipe the card
-  before you write the image.
+  deleted. A `broker` directory whose site cannot be read is set aside the
+  same way, as `.replaced-unknown-<n>`. Copy out what you need from it (as
+  root) and remove it yourself. The data partition belongs to the card; to
+  start clean, wipe the card before you write the image. An image with
+  another layout (a board whose `config_offset` changed, which `boards.json`
+  forbids) would add the data partition at another place and not find the
+  data.
+- **`sysupgrade` is not tried.** The project publishes no sysupgrade image,
+  and updating the system in the field is not decided (ADR 0051). Write the
+  card again instead. What the package declares for a `sysupgrade`
+  (`/lib/upgrade/keep.d/wyrm`): it keeps `wyrmd.json5` and the markers of
+  the first boot and of the host role, never the setup hash. With those
+  markers kept, the first boot and the host role do not run again, so a
+  configuration in the new image's config region is not read.
 - **The broker runs as the user `wyrm`**, as under systemd. It may open
   serial ports (group `dialout`).
 - **The device is a plain host**: a DHCP client, no DHCP server, the
@@ -551,7 +582,10 @@ package; what an operator meets:
 - **No login** without `--authorized-keys`: SSH is off and `root` has no
   password. With keys, SSH takes those keys only.
 - **Time.** The first start waits up to 120 s for NTP before the broker
-  makes the site's CA, then goes on with the clock as it is.
+  makes the site's CA, then goes on with the clock as it is. With a
+  network that reaches an NTP server the wait is short (in QEMU the clock
+  is set about 19 s after the boot); the log says `no NTP answer` when the
+  wait ran out.
 - **The host name** becomes `wyrm-<site>` (when the site is a valid host
   name), so the gateway's certificate names `wyrm-<site>.local`. A name you
   gave the device yourself is kept.
