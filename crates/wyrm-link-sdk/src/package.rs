@@ -326,30 +326,37 @@ pub fn valid_version(v: &str) -> bool {
 }
 
 /// This host as a manifest and index key: `<os>-<arch>` (`linux-aarch64`,
-/// `macos-aarch64`, `linux-x86_64`).
+/// `macos-aarch64`, `linux-x86_64`, `linux-armv7`), from the target this
+/// broker was built for ([`host_of_triple`] of [`wyrm_core::BUILD_TARGET`]);
+/// `<os>-<arch>` of `std::env::consts` for a target it does not name.
 pub fn platform() -> String {
-    format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH)
+    host_of_triple(wyrm_core::BUILD_TARGET).map_or_else(
+        || format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH),
+        str::to_owned,
+    )
 }
 
 /// The host key of a Rust target triple, for the hosts a broker runs on.
+/// 32-bit ARM names its level (`linux-armv7`, `linux-armv6`): `arm` alone
+/// would be both, and an ARMv7 binary does not run on an ARMv6 board.
 pub fn host_of_triple(triple: &str) -> Option<&'static str> {
-    let arch = match triple.split('-').next()? {
-        "x86_64" => "x86_64",
-        "aarch64" => "aarch64",
-        _ => return None,
-    };
-    let os = if triple.contains("-apple-darwin") {
+    let arch = triple.split('-').next()?;
+    let os = if triple.ends_with("-apple-darwin") {
         "macos"
-    } else if triple.contains("-linux-") {
+    } else if triple.contains("-linux-") && !triple.contains("android") {
         "linux"
     } else {
         return None;
     };
     Some(match (os, arch) {
         ("macos", "x86_64") => "macos-x86_64",
-        ("macos", _) => "macos-aarch64",
+        ("macos", "aarch64") => "macos-aarch64",
         ("linux", "x86_64") => "linux-x86_64",
-        _ => "linux-aarch64",
+        ("linux", "aarch64") => "linux-aarch64",
+        ("linux", "armv7") => "linux-armv7",
+        ("linux", "arm") => "linux-armv6",
+        ("linux", "riscv64gc") => "linux-riscv64",
+        _ => return None,
     })
 }
 
@@ -989,7 +996,28 @@ mod tests {
             host_of_triple("aarch64-unknown-linux-gnu"),
             Some("linux-aarch64")
         );
+        assert_eq!(host_of_triple("x86_64-apple-darwin"), Some("macos-x86_64"));
+        // 32-bit ARM by level: `consts::ARCH` says `arm` for both
+        assert_eq!(
+            host_of_triple("armv7-unknown-linux-musleabihf"),
+            Some("linux-armv7")
+        );
+        assert_eq!(
+            host_of_triple("arm-unknown-linux-musleabihf"),
+            Some("linux-armv6")
+        );
+        assert_eq!(
+            host_of_triple("riscv64gc-unknown-linux-musl"),
+            Some("linux-riscv64")
+        );
+        assert_eq!(host_of_triple("armv5te-unknown-linux-musleabi"), None);
+        assert_eq!(host_of_triple("aarch64-linux-android"), None);
+        assert_eq!(host_of_triple("x86_64-pc-windows-msvc"), None);
         assert_eq!(host_of_triple("wasm32-wasip2"), None);
         assert!(platform().contains('-'));
+        // this build's host, from its target triple
+        if let Some(h) = host_of_triple(wyrm_core::BUILD_TARGET) {
+            assert_eq!(platform(), h);
+        }
     }
 }

@@ -464,7 +464,7 @@ A package is a zip with `wyrm-link.json` at its root.
 | `description` | no | Shown under `sys/packages/<name>`. |
 | `wyrm_link` | yes | The link protocol version the package was built for (`LINK_PROTOCOL` in `wyrm-link-sdk`; now `1`). Another value is refused. |
 | `kind` | yes | `process` or `wasm`. |
-| `entries` | `process` | Executable per host, as `<os>-<arch>`: `linux-x86_64`, `linux-aarch64`, `macos-aarch64`, `macos-x86_64`. One zip can carry several hosts. |
+| `entries` | `process` | Executable per host, as `<os>-<arch>`: `linux-x86_64`, `linux-aarch64`, `linux-armv7`, `linux-armv6`, `macos-aarch64`, `macos-x86_64`. 32-bit ARM names its level: `armv7-unknown-linux-musleabihf` is `linux-armv7`, `arm-unknown-linux-musleabihf` (ARMv6) is `linux-armv6`. A broker takes the entry of the target it was built for. One zip can carry several hosts. |
 | `args` | no | Arguments for the executable. |
 | `requester` | no | Grants the package asks for: `[{"path": "wy/{site}/downstream/mock", "level": "read"}]` (section 10). Name a link or flow: a whole `wy/{site}/downstream` or `wy/{site}/dataflows` is refused. |
 | `entry` | `wasm` | The component file. |
@@ -540,6 +540,8 @@ reads_state = [1, 2]              # default [state]
 wyr link pack --manifest-path links/acme/Cargo.toml                  # this host
 wyr link pack --manifest-path links/acme/Cargo.toml \
   --target x86_64-unknown-linux-musl --target aarch64-unknown-linux-musl
+wyr link pack --manifest-path links/acme/Cargo.toml --zig \
+  --target armv7-unknown-linux-musleabihf                            # cargo-zigbuild and zig on PATH
 wyr link pack --component register.wasm --name register --version 1.0.0
 ```
 
@@ -974,7 +976,9 @@ manifest in the zip decides at the update).
 `version` (the crate's), `wyrm_link` (link protocol), `min_broker` and
 `forms`: `builtin` (a driver of `wyrmd`), `wasm` (one package for every
 host), `process` (one package per host of `hosts`: `linux-aarch64`,
-`linux-x86_64`, `macos-aarch64`). It holds no URLs and no hashes: CI adds
+`linux-armv6`, `linux-armv7`, `linux-x86_64`, `macos-aarch64`,
+`macos-x86_64`; the Linux targets of another architecture than the runner's are
+built with `wyr repo build --zig`, which runs `cargo zigbuild`). It holds no URLs and no hashes: CI adds
 them when it publishes.
 
 **Use it on a broker.** It is off by default: a broker fetches nothing

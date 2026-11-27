@@ -126,9 +126,13 @@ To use Studio with this broker:
 1. Uncomment the `gateway` line in the config.
 2. Start `wyrmd` once with `WYRM_GATEWAY_ADMIN_PASSWORD` set. This creates the first admin ([broker reference](docs/broker.md#gateway)).
 
+### Platforms
+
+The `wyrmd` release workflow ([`packaging/wyrmd`](packaging/wyrmd/README.md)) builds static Linux binaries for x86-64, ARM64, 32-bit ARMv7 and ARMv6 (with VFP), and macOS binaries for Apple silicon and Intel. No release is published yet: build from source until then. On 32-bit ARM, WASM links and the `wasm` flow node run on an interpreter, about 10 times slower than on the other targets. Windows and RISC-V 64 are not targets yet (packaging/wyrmd/README.md says why).
+
 ### Containers
 
-[`deploy/docker`](deploy/docker/README.md) builds minimal `scratch` images: static musl binaries, no shell, a non-root user.
+[`deploy/docker`](deploy/docker/README.md) builds minimal `scratch` images (linux/amd64 and linux/arm64): static musl binaries, no shell, a non-root user.
 
 ```sh
 docker compose -f deploy/docker/compose.yaml up -d --build
@@ -136,7 +140,7 @@ docker compose -f deploy/docker/compose.yaml up -d --build
 
 ## Official links
 
-Each `links-v*` release on GitHub holds every official link as a package: WASM, and process binaries for linux-x86_64, linux-aarch64 and macos-aarch64. The release `links-index` holds the index. To get the official list in Studio's install wizard and in `install_repo`, set `packages.repository: "official"` in `wyrmd.json5`. The broker then checks the SHA-256 of every package. The manifest is [`links/official.json`](links/official.json); [links.md §12a](docs/links.md) describes the release.
+Each `links-v*` release on GitHub holds every official link as a package: WASM, and process binaries for linux-x86_64, linux-aarch64 and macos-aarch64 (from the next release also linux-armv7, linux-armv6 and macos-x86_64). The release `links-index` holds the index. To get the official list in Studio's install wizard and in `install_repo`, set `packages.repository: "official"` in `wyrmd.json5`. The broker then checks the SHA-256 of every package. The manifest is [`links/official.json`](links/official.json); [links.md §12a](docs/links.md) describes the release.
 
 ## Repository
 

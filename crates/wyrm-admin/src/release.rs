@@ -573,7 +573,8 @@ pub enum RunError {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Identity {
     pub version: String,
-    /// `<arch>-<os>[-musl]`, the name of its archive's target.
+    /// The Rust target triple it was built for ([`target`]), the name of
+    /// its archive's target.
     pub target: String,
     /// `State::SCHEMA` of each control-plane store it writes: `registry`,
     /// `audit`, `users`, `flows`.
@@ -584,14 +585,11 @@ pub struct Identity {
 
 static IDENTITY: OnceLock<Identity> = OnceLock::new();
 
-/// `<arch>-<os>[-musl]` of this build.
+/// The Rust target triple of this build ([`wyrm_core::BUILD_TARGET`]): the
+/// name of its archive's target. Not `<arch>-<os>`: `std::env::consts::ARCH`
+/// is `arm` for ARMv6 and ARMv7 alike (decided 2026-11-27, ADR 0048 §2).
 pub fn target() -> String {
-    let musl = if cfg!(target_env = "musl") {
-        "-musl"
-    } else {
-        ""
-    };
-    format!("{}-{}{musl}", std::env::consts::ARCH, std::env::consts::OS)
+    wyrm_core::BUILD_TARGET.to_owned()
 }
 
 /// The identity of this build as far as this crate knows it: the stores of
@@ -3193,7 +3191,7 @@ mod tests {
     fn me() -> Identity {
         Identity {
             version: "0.1.0".into(),
-            target: "x86_64-linux".into(),
+            target: "x86_64-unknown-linux-musl".into(),
             schemas: BTreeMap::from([("registry".into(), 19), ("audit".into(), 1)]),
             replication: 1,
         }
@@ -3209,9 +3207,9 @@ mod tests {
             schemas: me().schemas,
             replication: 1,
             targets: BTreeMap::from([(
-                "x86_64-linux".to_owned(),
+                "x86_64-unknown-linux-musl".to_owned(),
                 Asset {
-                    file: format!("wyrmd-{version}-x86_64-linux.tar.gz"),
+                    file: format!("wyrmd-{version}-x86_64-unknown-linux-musl.tar.gz"),
                     sha256: "a".repeat(64),
                     size: 10,
                     url: String::new(),
@@ -3315,16 +3313,19 @@ mod tests {
         let mut other = release("0.9.0");
         other.targets = BTreeMap::from([(
             "aarch64-linux".to_owned(),
-            other.targets["x86_64-linux"].clone(),
+            other.targets["x86_64-unknown-linux-musl"].clone(),
         )]);
         let all = [release("0.2.0"), release("0.10.0"), release("0.3.0"), other];
         let bytes = index_bytes(&all, &key(1));
         let pinned = [key(1).verifying_key()];
         let read = read_index(&bytes, &sign_index(&bytes, &key(1)), &pinned).unwrap();
         let version = |t: &str| read.latest(t).map(|s| s.release.version.clone());
-        assert_eq!(version("x86_64-linux").as_deref(), Some("0.10.0"));
+        assert_eq!(
+            version("x86_64-unknown-linux-musl").as_deref(),
+            Some("0.10.0")
+        );
         assert_eq!(version("aarch64-linux").as_deref(), Some("0.9.0"));
-        assert!(read.latest("riscv64-linux").is_none());
+        assert!(read.latest("riscv64gc-unknown-linux-musl").is_none());
         // a signature of the release domain does not sign an index
         assert!(matches!(
             read_index(&bytes, &sign_release(&bytes, &key(1)), &pinned),
@@ -3675,7 +3676,7 @@ mod tests {
             ReleaseError::NotesUrl
         ));
         assert!(matches!(bad(&|r| r.targets.clear()), ReleaseError::Targets));
-        let t = "x86_64-linux";
+        let t = "x86_64-unknown-linux-musl";
         let asset = |f: &dyn Fn(&mut Asset)| match bad(&|r| f(r.targets.get_mut(t).unwrap())) {
             ReleaseError::Asset { target, fault } if target == t => fault,
             other => panic!("{other}"),
@@ -3974,10 +3975,10 @@ mod tests {
         let bin = d.join("built");
         let bytes: Vec<u8> = (0..70_000u32).map(|i| (i % 251) as u8).collect();
         std::fs::write(&bin, &bytes).unwrap();
-        let out = d.join("wyrmd-0.2.0-x86_64-linux.tar.gz");
+        let out = d.join("wyrmd-0.2.0-x86_64-unknown-linux-musl.tar.gz");
         let level = flate2::Compression::default();
         let asset = pack(&bin, &[("LICENSE", b"Apache-2.0")], &out, level).unwrap();
-        assert_eq!(asset.file, "wyrmd-0.2.0-x86_64-linux.tar.gz");
+        assert_eq!(asset.file, "wyrmd-0.2.0-x86_64-unknown-linux-musl.tar.gz");
         // the same input gives the same archive (no time, no owner in it)
         let again = pack(
             &bin,
@@ -4322,7 +4323,7 @@ mod tests {
             std::fs::create_dir_all(&dir).unwrap();
             std::fs::write(dir.join(BIN), bin).unwrap();
             let mut r = release(says);
-            let asset = r.targets.remove("x86_64-linux").unwrap();
+            let asset = r.targets.remove("x86_64-unknown-linux-musl").unwrap();
             r.targets.insert(
                 target(),
                 Asset {
@@ -4465,7 +4466,10 @@ mod tests {
         }
         // a release without the binary's hash is no release
         let mut r = release("0.2.0");
-        r.targets.get_mut("x86_64-linux").unwrap().bin_sha256 = String::new();
+        r.targets
+            .get_mut("x86_64-unknown-linux-musl")
+            .unwrap()
+            .bin_sha256 = String::new();
         assert!(matches!(
             r.check(),
             Err(ReleaseError::Asset {

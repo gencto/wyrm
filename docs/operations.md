@@ -89,6 +89,16 @@ job.
 
 ## 2. Run under a supervisor
 
+### Platforms
+
+`wyrmd` is built for Linux x86-64, ARM64, 32-bit ARMv7 (Cortex-A7 and
+up), ARMv6 with VFP (Raspberry Pi Zero/1), all static (musl), and for macOS on Apple silicon and Intel
+(`packaging/wyrmd/README.md`). Windows is not a target. On 32-bit ARM,
+WASM links and the `wasm` flow node run on wasmtime's interpreter, about
+10 times slower than on the other targets; process links and everything
+else are native. Prefer the ARM64 build on a board that can run a 64-bit
+OS.
+
 ### systemd
 
 ```ini
@@ -877,7 +887,13 @@ signed archive brought by hand is still taken. To recover:
 
 There is no published index yet. Bring a signed archive:
 
-1. Upload `wyrmd-<v>-<target>.tar.gz` in parts:
+1. Upload `wyrmd-<v>-<target>.tar.gz` in parts. `<target>` is the Rust
+   target triple the running broker was built for: `wyrmd release-info`
+   prints it (`armv7-unknown-linux-musleabihf` on a 32-bit ARMv7 board,
+   `arm-unknown-linux-musleabihf` on ARMv6; `packaging/wyrmd/README.md`
+   lists all targets). An archive of another target is refused.
+   `sys/backups/~act/restore_begin {size}`, then `restore_part {upload,
+   offset, data}`.
    `sys/backups/~act/restore_begin {size}`, then `restore_part {upload,
    offset, data}`.
 2. Call `sys/~act/update {upload, release, signature, confirm_site}` with

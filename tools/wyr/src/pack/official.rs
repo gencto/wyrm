@@ -119,6 +119,7 @@ pub fn build_cmd(
     targets: &[String],
     only: &[String],
     no_build: bool,
+    zig: bool,
     out: &Path,
 ) -> Result<(), Error> {
     let o = checked(src)?;
@@ -150,6 +151,7 @@ pub fn build_cmd(
             package: Some(l.krate.clone()),
             targets: targets.to_vec(),
             no_build,
+            zig,
             kind: Some(form),
             out: Some(out.to_owned()),
             component: None,

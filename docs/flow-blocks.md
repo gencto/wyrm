@@ -311,6 +311,15 @@ wired input calculates at start, the others wait for a sample.
 The degree factors are written out: `57.29577951308232 × asin(x)` and
 `cos(0.017453292519943295 × x)`, to the last digit.
 
+The blocks compute logarithms, powers, roots and trigonometry with the
+pure-Rust `libm` crate, not with the libm of the platform (decided
+2026-11-27). The libms of musl, glibc and Apple differ in the last digit
+(`asin 0.5` is 29.999999999999996 on one and 30.000000000000004 on
+another), so a block gives the same number on every target the broker
+ships for (Linux x86-64, ARM64, ARMv7 and ARMv6, macOS). Arithmetic and
+`sqrt` are exact by IEEE 754. The math functions of a `script` node (rhai)
+still use the platform's libm and can differ in the last digit.
+
 ### Statistics
 
 `average`, `median`, `mode`, `std_deviation` and `variance` take the variable

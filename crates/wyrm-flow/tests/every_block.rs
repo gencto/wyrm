@@ -1147,21 +1147,22 @@ fn math() -> Vec<Case> {
     ]
 }
 
-/// Trigonometry in degrees, with the factors the document writes out.
+/// Trigonometry in degrees, with the factors the document writes out. The results are
+/// literals: the blocks compute with `libm`, so every target gives these to the last digit.
 fn trigonometry() -> Vec<Case> {
     #[track_caller]
     fn one(ty: &'static str, x: f64, want: Want) -> Case {
         c(ty, vec![], vec![("in", fl(x))], "out", want)
     }
     vec![
-        one("sin", 30.0, float((RAD * 30.0).sin())),
-        one("cos", 60.0, float((RAD * 60.0).cos())),
-        one("tan", 45.0, float((RAD * 45.0).tan())),
+        one("sin", 30.0, float(0.49999999999999994)),
+        one("cos", 60.0, float(0.5000000000000001)),
+        one("tan", 45.0, float(0.9999999999999999)),
         one("cot", 45.0, num(1.0)),
         one("cot", 0.0, null()),
-        one("asin", 0.5, float(DEG * 0.5f64.asin())),
+        one("asin", 0.5, float(30.000000000000004)),
         one("asin", 2.0, null()),
-        one("acos", 0.5, float(DEG * 0.5f64.acos())),
+        one("acos", 0.5, float(60.00000000000001)),
         one("acos", -1.5, null()),
         one("atan", 1.0, num(45.0)),
         // the angle of the point (x, in)
@@ -4076,13 +4077,7 @@ fn edges() -> Vec<Case> {
             "out",
             null(),
         ),
-        c(
-            "asin",
-            vec![],
-            vec![("in", n(1))],
-            "out",
-            float(DEG * 1f64.asin()),
-        ),
+        c("asin", vec![], vec![("in", n(1))], "out", float(90.0)),
         // substring: a length is at most 4 KiB
         c(
             "substring",

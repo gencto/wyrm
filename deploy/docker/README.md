@@ -23,6 +23,13 @@ A fat-LTO link of `wyrmd` did not fit in 8 GB (killed after 19 min), so the imag
 release profile. A cold build of everything takes about 90 min on 2 jobs (Apple M4 Max, 8 GB
 for Docker); `--build-arg LINKS="modbus snmp"` builds only those.
 
+Platforms: the image is built for the platform Docker builds on, `linux/amd64` or
+`linux/arm64` (the `rust:alpine` images exist for these). `linux/arm/v7` and
+`linux/riscv64` would need a build stage on `$BUILDPLATFORM` that cross-compiles with
+cargo-zigbuild for `$TARGETPLATFORM` (as `packaging/wyrmd/release-workflow.yml` does) and
+copies the binaries into the `scratch` stages; it is not done. On a 32-bit ARM board, run the
+static release binary under systemd (`docs/operations.md` §2).
+
 Runtime notes:
 - The allocator is musl's own. mimalloc was tried and dropped: it reserves a 1 GiB arena at
   start, so a process link under its `RLIMIT_DATA` (`link_limits.memory_mb`, 1024 by default)

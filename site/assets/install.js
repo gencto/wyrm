@@ -40,7 +40,7 @@
     { id: 'docker', t: 'Docker', s: 'A compose file: the broker and its links as small scratch images.', st: 'source' },
     { id: 'source', t: 'From source', s: 'cargo build on a Linux or macOS machine with Rust.', st: 'available' }
   ];
-  // `rel`: the target name of a broker archive, `<arch>-<os>[-musl]`
+  // `rel`: the target name of a broker archive, the Rust target triple
   // (packaging/wyrmd/README.md). `host`: the host name of a link package.
   var TARGETS = {
     image: [
@@ -49,9 +49,12 @@
       { id: 'bpi-r4', t: 'Banana Pi BPI-R4', s: 'arm64, SD card to eMMC', host: 'linux-aarch64' }
     ],
     archive: [
-      { id: 'lx64', t: 'Linux', s: 'x86-64, static', host: 'linux-x86_64', rel: 'x86_64-linux-musl' },
-      { id: 'la64', t: 'Linux', s: 'ARM64, static', host: 'linux-aarch64', rel: 'aarch64-linux-musl' },
-      { id: 'mac', t: 'macOS', s: 'Apple silicon', host: 'macos-aarch64', rel: 'aarch64-macos' },
+      { id: 'lx64', t: 'Linux', s: 'x86-64, static', host: 'linux-x86_64', rel: 'x86_64-unknown-linux-musl' },
+      { id: 'la64', t: 'Linux', s: 'ARM64, static', host: 'linux-aarch64', rel: 'aarch64-unknown-linux-musl' },
+      { id: 'la32', t: 'Linux', s: 'ARMv7 32-bit, static; WASM on an interpreter', host: 'linux-armv7', rel: 'armv7-unknown-linux-musleabihf' },
+      { id: 'la6', t: 'Linux', s: 'ARMv6 (Pi Zero/1), static; WASM on an interpreter', host: 'linux-armv6', rel: 'arm-unknown-linux-musleabihf' },
+      { id: 'mac', t: 'macOS', s: 'Apple silicon', host: 'macos-aarch64', rel: 'aarch64-apple-darwin' },
+      { id: 'macx', t: 'macOS', s: 'Intel', host: 'macos-x86_64', rel: 'x86_64-apple-darwin' },
       { id: 'win', t: 'Windows', s: 'not built yet', off: true }
     ],
     docker: [
@@ -380,7 +383,7 @@
         'curl -fLO ' + base + file,
         'curl -fLO ' + base + 'wyrmd-' + V + '.release.json',
         'compare with the sha256 of this file in the document:',
-        (tgt.id === 'mac' ? 'shasum -a 256 ' : 'sha256sum ') + file,
+        (tgt.host.indexOf('macos') === 0 ? 'shasum -a 256 ' : 'sha256sum ') + file,
         '',
         '2. Unpack and start, beside wyrmd.json5 from this page',
         'tar xzf ' + file,

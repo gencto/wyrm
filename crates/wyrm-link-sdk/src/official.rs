@@ -26,8 +26,10 @@ pub const KEYWORD: &str = "official";
 /// The manifest's place in the workspace.
 pub const PATH: &str = "links/official.json";
 /// Hosts a process package can be built for ([`package::host_of_triple`]).
-pub const HOSTS: [&str; 4] = [
+pub const HOSTS: [&str; 6] = [
     "linux-aarch64",
+    "linux-armv6",
+    "linux-armv7",
     "linux-x86_64",
     "macos-aarch64",
     "macos-x86_64",

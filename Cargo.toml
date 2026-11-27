@@ -171,6 +171,9 @@ wyrm-link-telegram = { path = "links/telegram" }
 wyrm-link-slack = { path = "links/slack" }
 # Label matchers of links/prometheus: linear-time regexes, no backreferences.
 regex = { version = "1.13", default-features = false, features = ["std", "perf", "unicode"] }
+# Math of the flow blocks in pure Rust: the same result to the last digit on every target the
+# broker ships for (platform libms differ by an ulp; spec 06, docs/flow-blocks.md).
+libm = "0.2.16"
 
 # Rules every member follows (`lints.workspace = true`); docs/rust-rules.md says why.
 # An exception is `#[allow(lint, reason = "…")]` at the narrowest item, never here.

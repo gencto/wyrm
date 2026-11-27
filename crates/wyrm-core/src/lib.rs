@@ -37,3 +37,9 @@ pub use value::{HistRow, Quality, Sample, SetRequest, Value};
 
 /// Protocol major version published as `attr.proto` of `wy/<site>/sys/~meta`.
 pub const PROTO_VERSION: u8 = 1;
+
+/// The Rust target triple this build is for (`armv7-unknown-linux-musleabihf`,
+/// `aarch64-apple-darwin`), taken by `build.rs` from Cargo. A `wyrmd` release
+/// names its archives by it (ADR 0048 §2) and a package host is derived from
+/// it (`wyrm_link_sdk::package::platform`).
+pub const BUILD_TARGET: &str = env!("WYRM_BUILD_TARGET");

@@ -314,7 +314,7 @@ pub(super) fn md5(data: &[u8]) -> [u8; 16] {
         15, 21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21,
     ];
     let k: Vec<u32> = (0..64)
-        .map(|i| ((i as f64 + 1.0).sin().abs() * 4_294_967_296.0) as u32)
+        .map(|i| (libm::sin(i as f64 + 1.0).abs() * 4_294_967_296.0) as u32)
         .collect();
     let mut h: [u32; 4] = [0x6745_2301, 0xefcd_ab89, 0x98ba_dcfe, 0x1032_5476];
     let mut msg = data.to_vec();
