@@ -28,6 +28,32 @@ jobs:
       # docs/rust-rules.md: C1–C10 and the baselined clippy lints, per file; counts only go down
       - run: python3 tool/check_rust_rules.py
       - run: cargo test --workspace --all-features
+  armv7:
+    # 32-bit ARM (packaging/wyrmd/README.md): wyrmd must build for it on every pull request, and the
+    # core, state and flow tests run on it as a Cortex-A7 under qemu-user. An instruction above
+    # ARMv7 fails them; the flow math (libm) gives the digits the host gives. Release profile: a
+    # debug rhai under emulation spends the 10 ms CPU limit of a script on translating new code.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    env:
+      TARGET: armv7-unknown-linux-musleabihf
+      CARGO_TARGET_ARMV7_UNKNOWN_LINUX_MUSLEABIHF_RUNNER: qemu-arm-static -cpu cortex-a7
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with: { targets: armv7-unknown-linux-musleabihf }
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with: { key: armv7 }
+      # zig is the linker and C compiler of the cross build, qemu-user runs it; pinned
+      - run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q qemu-user-static
+          python3 -m pip install --user --break-system-packages ziglang==0.17.1
+          cargo install --locked cargo-zigbuild --version 0.24.1
+      - run: cargo zigbuild --locked --release -p wyrmd --target "$TARGET"
+      - run: qemu-arm-static -cpu cortex-a7 "target/$TARGET/release/wyrmd" release-info
+      - run: cargo-zigbuild test --locked --release --no-fail-fast -p wyrm-core -p wyrm-state -p wyrm-flow --target "$TARGET"
   audit:
     # RUSTSEC advisories against Cargo.lock; accepted ones are listed with reasons in .cargo/audit.toml
     runs-on: ubuntu-latest
