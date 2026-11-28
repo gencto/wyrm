@@ -6,6 +6,7 @@ https://wyrm.gencto.uk is built from this repository on every merge to `main`.
 |---|---|---|
 | `/` | the home page | `site/home/index.html` (template) |
 | `/install/` | the install page with its configurator | `site/install/index.html` (template), `site/assets/install.js` |
+| `/start/` | the image builder: a board image made in the browser (ADR 0051 §4) | `site/start/index.html` (template), `site/assets/start.js`, the WebAssembly of `crates/wyrm-image-web` |
 | `/docs/` | the documentation, an mdBook | `docs/`, `docs/adr/`, `spec/`, the root `README.md`, `links/official.json` |
 | `/404.html` | the page for a missing address | `site/404.html` (template) |
 | `/assets/` | fonts, CSS, images, scripts | `site/assets/` |
@@ -16,7 +17,7 @@ the site. `--check` fails on a page that loads a file from elsewhere.
 
 ## The designed pages
 
-The home page, the install page and the 404 page are the owner's design as
+The home page, the install page, the image builder page and the 404 page are the owner's design as
 plain static HTML: the markup carries the design's inline styles, and
 `site/assets/site.css` adds the base, the focus styles, the motion and the
 rules for small screens. There is no build step for them except the
@@ -94,7 +95,8 @@ and merge to `main`.
    site, the designed pages too. It fails on a link to a missing page or a
    missing `#id`, on a file loaded from another host, on a page from the
    excluded list, on a security finding ID, on a word of the local deny-list,
-   on a placeholder left in a designed page, on a file at a reserved path, and
+   on a placeholder left in a designed page, on a file in `/start/` other than
+   its page and `images/`, on a missing file of the WebAssembly, and
    on an official link that is missing from the home page or from the table of
    the docs. The links that `install.js` makes in the browser (the files of
    the links release) are outside this check.
@@ -109,6 +111,25 @@ and merge to `main`.
    path, or if a config for a board image names the setup file or the seed
    directory otherwise than the constants `SETUP_FILE` and `SEED_DIR` of
    `crates/wyrm-image/src/region.rs` (the test reads them from that file). Node 18+, no dependencies.
+
+6. `node tool/site/test_start.mjs` runs the functions of `site/assets/start.js`
+   with the built WebAssembly against a fixture index and a small base image
+   of one gzip member: a download of another size or SHA-256 is refused and
+   not cached, the assembly changes only the region and gives one gzip
+   member with the right ISIZE, an image of another length is refused, the
+   replace step streams, the file name is plain, and on a DOM stub the
+   Download button waits for "I wrote it down", a site the device
+   refuses shows the device's words and no code, and a changed choice calls
+   a download in progress off. `--assemble <choices.json> <out.img.gz>`
+   makes a real image with the same code instead
+   (`packaging/images/smoke.sh --assembled` boots it). Node 20+, no
+   dependencies.
+
+7. `python3 tool/site/test_fetch_images.py` runs `tool/site/fetch_images.py`
+   against releases written into a temporary directory: only the listed
+   boards are copied, a file that does not match the index or `SHA256SUMS` is
+   refused and leaves nothing behind, a name that is no plain file name is
+   refused, the 900 MiB cap holds, and no release writes nothing.
 
 ### Sections
 
@@ -214,9 +235,12 @@ mdBook's own script (`book.js`) is not replaced. One line of it registers an
 policy violation; that message is mdBook's.
 
 The workflow `.github/workflows/site.yml` runs these steps on each pull request
-that touches the sources (build and check only) and on each push to `main`
-(build, check and deploy to GitHub Pages). It uses the mdBook release binary of
-the version in the workflow, checked against its SHA-256.
+that touches the sources (build and check only, without images) and on each
+push to `main` or run on `main` (build, copy the images, check and deploy to
+GitHub Pages; `images-release.yml` starts such a run after it publishes). It
+uses the mdBook and `wasm-bindgen` release binaries of the versions in the
+workflow, each checked against its SHA-256, and the Rust toolchain with the
+`wasm32-unknown-unknown` target for the page's WebAssembly.
 
 Not on the site: `docs/superpowers/**` (agents' work plans), `docs/security/**`
 and ADR 0031 (security weaknesses stay private), `docs/backlog.md` (work list),
@@ -244,8 +268,55 @@ skipped.
 A link to the folder `docs/adr/` lands on the generated page of all decisions
 (`/docs/adr/`).
 
-The site path `/start` is kept free for the image builder of ADR 0051: the
-generator writes nothing there and `--check` fails if something is.
+### The image builder page
+
+`/start/` builds a board image in the browser. `site/assets/start.js` reads
+`start/images/index.json` (format `wyrm-images/1`) and
+`start/images/catalog.json` (the links the images offer) beside the page,
+and offers each board whose entry has a `download`. Without
+`start/images/index.json` the page says that no image is published yet and
+points to `wyr image build`. The images are not in the repository: the
+deploy copies them there. After `build.py` (which deletes `site/dist`),
+`tool/site/fetch_images.py` takes the latest `images-v*` release and copies
+the `.img.gz` and `.manifest` of each board that
+`packaging/images/boards.json` marks `listed`, `catalog.json`, and an
+`index.json` with those boards' entries only: a filtered copy of the
+release's index, not the published file. It checks each file against the
+index (and the index and catalog against `SHA256SUMS`) and fails above
+900 MiB. With no such release it writes nothing. A pull request builds the
+site without images. The images release (`images-release.yml`) starts the
+workflow `site` on `main` after it publishes. The install page asks for
+`start/images/index.json` too: when it is there, its path "USB or SD image"
+says that it works today and opens the page.
+
+- The choices become the 4 MiB config region in the WebAssembly of
+  `crates/wyrm-image-web` (`wyrm_image::Choices::files`, the code `wyr image
+  build --choices` runs). `tool/site/wasm.sh` builds it into
+  `site/dist/assets/wasm/`; `build.py` runs it (it needs Rust, the target
+  `wasm32-unknown-unknown` and `wasm-bindgen-cli` of the pinned version, which
+  the script installs and checks again) and `--check` fails without its two
+  files. CI builds it first with `tool/site/wasm.sh <dir>` and gives it to
+  `build.py --wasm-from <dir>`.
+- Build checks the choices (`check_choices`; a refusal is shown at its
+  field), makes the setup code from 16 bytes of `crypto.getRandomValues`
+  and shows it once, with its QR code. Download stays off until "I wrote it
+  down" is ticked. A change of a choice voids the build and its code.
+- Download fetches the base image from this site, checks its size and
+  SHA-256 against the entry's `download`, and keeps it in the Cache API (the
+  only thing the page stores; a browser that refuses storage just downloads
+  again). It streams the image: `DecompressionStream`, the region's bytes
+  replaced at `config_offset`, `CompressionStream`. The file it saves is one
+  gzip member whose ISIZE is the image size, and every byte outside the
+  region is that of the base image. At its peak the page holds about 3 to 4
+  times the compressed size of the download (the checked download, its copy
+  in a Blob, the finished file), never the raw image. A new build or a
+  changed choice calls a download or an assembly in progress off.
+- The page asks its own origin only. It writes nothing to `localStorage`,
+  `sessionStorage`, cookies or the URL.
+
+`/start/` holds the page and `images/` only: `--check` fails on any other
+file there, and no file of `site/static/` or `site/assets/` may take the
+path.
 
 ## Preview
 
@@ -257,7 +328,12 @@ python3 tool/site/build.py --check site/dist
 python3 -m http.server 8000 --directory site/dist
 ```
 
-Run `node tool/site/test_install.js` after a change to `install.js`. Open
+Run `node tool/site/test_install.js` after a change to `install.js`, and
+`node tool/site/test_start.mjs` after a change to `start.js`. To try `/start/`
+with an image, put a base image (`wyr image base`), its `index.json` and a
+`catalog.json` (`packaging/images/catalog.py`) into `site/dist/start/images/`
+after the build, or run `python3 tool/site/fetch_images.py` (the latest
+release) or `--from-dir <dir>` (a directory with a release's assets). Open
 http://localhost:8000. Run the first line again after you change a source
 file or a template. `mdbook serve site` shows the docs alone, without the top
 bar's fonts and without the designed pages.
@@ -274,7 +350,7 @@ bar's fonts and without the designed pages.
 4. When GitHub shows the domain as checked, turn on **Enforce HTTPS**.
 5. In **Settings → Environments → github-pages**, keep **Deployment branches**
    at `main` only, so no other branch can publish the site. The workflow
-   deploys only on a push to `main`; this setting holds the same rule on
-   GitHub's side.
+   deploys on a push to `main` and on a run on `main` (the images release
+   starts one); this setting holds the same rule on GitHub's side.
 6. Run the workflow **site** once (Actions → site → Run workflow), or merge a
    change to the sources.

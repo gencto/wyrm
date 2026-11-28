@@ -1,26 +1,28 @@
 #!/usr/bin/env python3
 """The client side of the QEMU smoke test of a board image (smoke.sh, ADR 0051 §3).
 
-It speaks to the gateway as a person's first client does: `GET /api/info` over TLS
-without trust, the `setup_proof` checked against the setup code and the CA the gateway
-presents, then that CA pinned and every later request sent over a verified connection
-(the CA and one of the certificate's names). Bodies are canonical CBOR.
+The first admin is made by `wyr setup` (the proof of the CA checked with the setup code,
+the CA pinned, `POST /api/setup`, a login); this client checks what follows over the CA
+`wyr setup` wrote, and every request goes over a verified connection (that CA and one of
+the certificate's names). Bodies are canonical CBOR.
 
 Standard library only; run it as `python3 -I smoke_client.py`.
 
-  entry <index.json> <board> <field>   a field of the board's index entry
+  entry <index.json> <board> <field>   a field of the board's index entry (`a.b`: field b
+                                       of field a); fails when it is not there
   wait <port> <seconds>                until a TLS handshake succeeds; prints the seconds
   closed <port>                        exit 0 when no TLS handshake succeeds (three tries)
-  setup <port> <state dir>             the first admin: env SMOKE_CODE, SMOKE_USER,
-                                       SMOKE_PASSWORD; the CA and its name go to <state dir>
+  after-setup <port> <state dir>       after `wyr setup --ca-out <state dir>/ca.pem`: the
+                                       gateway presents that CA, offers no setup any more,
+                                       refuses a second one; the login works and a wrong
+                                       password does not (env SMOKE_CODE, SMOKE_USER,
+                                       SMOKE_PASSWORD); the CA and its name are kept in
+                                       <state dir> for `login`
   login <port> <state dir>             a login over the pinned CA, after a restart
 
 The code and the password come from the environment, never from argv.
 """
 
-import base64
-import hashlib
-import hmac
 import http.client
 import json
 import os
@@ -31,9 +33,6 @@ import sys
 import time
 
 HOST = "127.0.0.1"
-# wyrm_core::setup
-LABEL = b"wyrm-setup-v1\n"
-PROOF_LABEL = b"wyrm-setup-proof-v1\n"
 
 
 def fail(msg):
@@ -132,30 +131,6 @@ def _item(d, i):
     if major == 6:
         return _item(d, i)
     return {20: False, 21: True, 22: None}.get(n), i
-
-
-# ---- the setup code (wyrm_core::setup) ------------------------------------------------
-
-
-def code_hash(code):
-    plain = code.replace("-", "").replace(" ", "").upper()
-    if len(plain) != 26:
-        return None
-    try:
-        raw = base64.b32decode(plain + "======")
-    except ValueError:
-        return None
-    if len(raw) != 16:
-        return None
-    return hashlib.sha256(LABEL + raw).digest()
-
-
-def proof_ok(code, ca_der, proof):
-    h = code_hash(code)
-    if h is None:
-        return False
-    want = hmac.new(h, PROOF_LABEL + ca_der, hashlib.sha256).digest()
-    return hmac.compare_digest(want, proof)
 
 
 # ---- HTTPS ----------------------------------------------------------------------------
@@ -268,45 +243,32 @@ def login(port, ctx, name, user, password):
     say(f"POST /api/login with a wrong password: HTTP {status}")
 
 
-def cmd_setup(port, state):
+def cmd_after_setup(port, state):
     code, user, password = env("SMOKE_CODE"), env("SMOKE_USER"), env("SMOKE_PASSWORD")
-    first = info(port, unverified(), None)
-    say(f"GET /api/info (not yet trusted): {shown(first)}")
-    if first.get("setup") is not True:
-        fail("info has no `setup: true`")
-    ca, proof = first.get("ca"), first.get("setup_proof")
-    if not isinstance(ca, bytes) or not isinstance(proof, bytes):
-        fail("info has no `ca` or no `setup_proof`")
-    if not proof_ok(code, ca, proof):
-        fail("setup_proof does not verify with the setup code and the presented CA")
-    other = "AAAA-AAAA-AAAA-AAAA-AAAA-AAAA-AA"
-    if proof_ok(other, ca, proof) or proof_ok(code, ca + b"\0", proof):
-        fail("setup_proof verifies with another code or another CA: the check proves nothing")
-    say("setup_proof verifies with the code and the presented CA (and not with another code or CA)")
-    name = site_name(first.get("names") or [])
+    with open(os.path.join(state, "ca.pem")) as f:
+        ca = ssl.PEM_cert_to_DER_cert(f.read())
+    # the names the certificate carries; the TLS below checks it against the CA
+    names = info(port, unverified(), None).get("names") or []
+    name = site_name(names)
     ctx = pinned(ca)
-    # from here on only the pinned CA and the certificate's name are trusted
     handshake(port, ctx, name)
-    say(f"the CA is pinned: TLS verifies for {name} ({first.get('ca_fp')})")
-
-    status, v = request(port, ctx, name, "POST", "/api/setup", {"code": code, "user": user, "password": password})
-    if status != 204:
-        fail(f"POST /api/setup: HTTP {status} {v!r}")
-    say(f"POST /api/setup: HTTP {status}")
-    after = info(port, ctx, name)
-    if "setup" in after or "setup_proof" in after:
-        fail(f"info still offers a setup: {shown(after)}")
-    say("GET /api/info: no setup offered any more")
-    status, v = request(port, ctx, name, "POST", "/api/setup", {"code": code, "user": user + "2", "password": password})
-    if status == 204 or not isinstance(v, dict) or v.get("code") != "no_setup":
-        fail(f"a second POST /api/setup: HTTP {status} {v!r}")
-    say(f"a second POST /api/setup: HTTP {status} {v.get('code')}")
+    v = info(port, ctx, name)
+    say(f"GET /api/info over the CA of wyr setup, checked for {name}: {shown(v)}")
+    if v.get("ca") != ca:
+        fail("the gateway presents another CA than the one wyr setup wrote")
+    if "setup" in v or "setup_proof" in v:
+        fail(f"info still offers a setup: {shown(v)}")
+    say("GET /api/info: the CA of wyr setup, no setup offered any more")
+    status, r = request(port, ctx, name, "POST", "/api/setup", {"code": code, "user": user + "2", "password": password})
+    if status == 204 or not isinstance(r, dict) or r.get("code") != "no_setup":
+        fail(f"a second POST /api/setup: HTTP {status} {r!r}")
+    say(f"a second POST /api/setup: HTTP {status} {r.get('code')}")
     login(port, ctx, name, user, password)
 
     with open(os.path.join(state, "ca.der"), "wb") as f:
         f.write(ca)
     with open(os.path.join(state, "gateway.json"), "w") as f:
-        json.dump({"name": name, "ca_fp": first.get("ca_fp")}, f)
+        json.dump({"name": name, "ca_fp": v.get("ca_fp")}, f)
 
 
 def cmd_login(port, state):
@@ -357,15 +319,19 @@ def main(argv):
             index = json.load(f)
         for e in index["images"]:
             if e["board"] == argv[2]:
-                print(e[argv[3]])
+                for key in argv[3].split("."):
+                    if not isinstance(e, dict) or key not in e:
+                        fail(f"board {argv[2]} of {argv[1]} has no field {argv[3]}")
+                    e = e[key]
+                print(e)
                 return
         fail(f"no board {argv[2]} in {argv[1]}")
     elif len(argv) == 3 and argv[0] == "wait":
         cmd_wait(int(argv[1]), int(argv[2]))
     elif len(argv) == 2 and argv[0] == "closed":
         cmd_closed(int(argv[1]))
-    elif len(argv) == 3 and argv[0] == "setup":
-        cmd_setup(int(argv[1]), argv[2])
+    elif len(argv) == 3 and argv[0] == "after-setup":
+        cmd_after_setup(int(argv[1]), argv[2])
     elif len(argv) == 3 and argv[0] == "login":
         cmd_login(int(argv[1]), argv[2])
     else:

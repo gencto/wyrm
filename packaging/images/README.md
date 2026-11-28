@@ -11,8 +11,9 @@ boot.
 | `boards.json` | the boards, the pinned OpenWrt release, the ImageBuilder archives and the build container |
 | `build.sh` | what runs in the container: the ImageBuilder for one board |
 | `verify-table.sh` | checks the partition table of an image with `sfdisk` and `sgdisk` in a throwaway container |
-| `smoke.sh`, `smoke_client.py` | the smoke test: the image of `qemu-armsr` built, assembled and booted in QEMU, the first admin made through the gateway ("Tests" below) |
-| `workflow.yml` | the release of the images on a tag `images-v<wyrmd version>`; copy it to `.github/workflows/images-release.yml` |
+| `smoke.sh`, `smoke_client.py` | the smoke test: the image of `qemu-armsr` built, assembled and booted in QEMU, the first admin made by `wyr setup` through the gateway ("Tests" below) |
+| `gzip-readers.sh` | checks an `.img.gz` as the imagers read it: one gzip member with the image's size in its trailer, and `gunzip`, libarchive (`bsdcat`), Python's `gzip` and Node's `zlib` each give the raw image ("The gzip: one member" below) |
+| `catalog.py`, `test_catalog.py` | `catalog.json`: the links the images offer (built-in drivers, the broker's own links, the seed packages the images carry), from `links/official.json`, for the page and `wyr image build --catalog` ("The release" below) |
 
 ## Build a base image
 
@@ -35,10 +36,10 @@ In `--out` it leaves:
 | File | What |
 |---|---|
 | `wyrm-<board>-<wyrmd>-openwrt-<release>.img` | the raw image; `config_offset` counts in its bytes |
-| `….img.gz` | the same image as gzip, to publish (no name and no time in its header) |
+| `….img.gz` | the same image as gzip, to publish: one gzip member, no name and no time in its header ("The gzip: one member" below) |
 | `….partitions.txt` | the partitions of the image |
 | `….manifest` | the packages in the image, as the ImageBuilder lists them |
-| `index.json` | `wyrm-images/1`: the entry of the board is written (with `wyrmd_sha256` and `manifest_sha256`), entries of other boards stay |
+| `index.json` | `wyrm-images/1`: the entry of the board is written (with `wyrmd_sha256`, `manifest_sha256`, the board's `title`, `notes` and `lan`, and the gzip's `download`), entries of other boards stay |
 
 The gzip, the manifest and the index are written first and the raw image
 last: a run that is cut leaves no raw image of that build in `--out`.
@@ -92,6 +93,34 @@ The container has the runtime's default network.
   beside the image, and its SHA-256 is `manifest_sha256` of the index
   entry. Two images of one release with the same `manifest_sha256` hold the
   same packages.
+
+### The gzip: one member
+
+The `.img.gz` is **one gzip member** (level 9, no name and no time in its
+header: the same image gives the same file). `download.size` and
+`download.sha256` of the index entry are those of that file.
+
+Why one: Raspberry Pi Imager takes the size of a `.gz` image from the last
+four bytes of the file alone (the ISIZE of the last member; `parseGz` of
+its `imagesizeparser.cpp`), so a file of several members would be told the
+size of its last member, and a card smaller than that estimate is refused.
+The image builder page keeps this form: it writes a configuration by
+streaming the verified download through a decompressor, replacing the
+region's bytes and compressing again into one member.
+
+`gzip-readers.sh <image.img> <image.img.gz>` checks a published file as the
+imagers read it:
+
+- **the form** (Python's `zlib`): one member and nothing after it, its
+  trailer's ISIZE the image's size mod 2^32;
+- **the readers**: `gunzip`, libarchive (`bsdcat`, what Raspberry Pi
+  Imager reads with), Python's `gzip` (as `bmaptool`) and Node's `zlib` (as
+  `balenaEtcher`) each give bytes with the raw image's SHA-256.
+
+A check whose program is not installed runs in a container (alpine or
+node, by digest); one that runs neither way fails unless `--allow-missing`
+is given (CI never gives it). The smoke test runs it on the image of
+`qemu-armsr` before the boot, and the release on every image it publishes.
 
 ## The pinned release
 
@@ -308,10 +337,33 @@ qemu-system-aarch64 -M virt -cpu host -accel hvf -m 1024 -display none \
 key of its own at each run. Two builds of the same inputs give two images
 with other SHA-256 sums. The index is what binds an image to its offset.
 
+## The release
+
+`.github/workflows/images-release.yml` runs on a tag `images-v<wyrmd
+version>` (or `images-v<version>-r<n>` for another build of the same
+broker; another tag fails). It builds `wyrmd` for aarch64, every board of
+`boards.json` without `unavailable`, checks each table and each gzip, runs
+the smoke test, and publishes the release of the tag: per board the
+`.img.gz`, its `.manifest` and `.partitions.txt`, then `index.json`,
+`catalog.json` and `SHA256SUMS`, with build provenance. Then it starts the
+workflow `site` on `main`: `tool/site/fetch_images.py` copies the images of
+the boards marked `listed` into the site's `/start/images/` (with a filtered
+`index.json` and the `catalog.json`), and the image builder page offers them.
+
+```
+git tag images-v0.9.0 && git push origin images-v0.9.0
+```
+
+`catalog.json` comes from `catalog.py`: a link with a `builtin` form is
+offered with its driver, `scheduler`, `alarm`, `dql` and `uplink` as the
+broker's own links, and a package-only link only when its `wasm` package is
+a file of the seed directory the images carry (none yet: name the same
+directory as `wyr image base --seed-dir` and `catalog.py --seed-dir`).
+
 ## Tests
 
 ```
-cargo test -p wyr          # boards.json, the argv, the partition tables, the index
+cargo test -p wyr          # boards.json, the argv, the partition tables, the index, the gzip
 packaging/images/verify-table.sh dist/images/wyrm-rpi4-….img     # needs docker or podman
 ```
 
@@ -329,6 +381,8 @@ and Ubuntu's `qemu-efi-aarch64` are found), `python3`, `ssh` and
 raw image of `qemu-armsr` and builds nothing. In this order:
 
 1. `wyr image base --board qemu-armsr`; `verify-table.sh` on the image;
+   `gzip-readers.sh` on the image and its gzip (with `--base`, only when the
+   directory holds the gzip; it says so when it does not);
    `wyr image inspect` says `region: empty`.
 2. The base image as it is boots: the console says `the broker is not
    started: no configuration is applied on this device`, nothing answers
@@ -339,19 +393,27 @@ raw image of `qemu-armsr` and builds nothing. In this order:
    "0.0.0.0:8445", tls: "site_ca", setup_file: …}`), `--new-setup-code`,
    an SSH key of the run, `--timezone Europe/Kyiv` and three
    `*.openwrt.pool.ntp.org` servers as `--ntp`, on a disk of 1 GiB.
-   `smoke_client.py` takes `/api/info` without trust, wants `setup: true`, checks `setup_proof`
-   against the code and the CA it presents (and that another code or CA
-   fails), pins that CA and from then on verifies the certificate by the
-   name `wyrm-smoke.local`: `POST /api/setup` (204), no setup offered, a
-   second setup refused (`no_setup`), login and `/api/me`. Through SSH: the
+   `wyr setup --gateway https://127.0.0.1:<port>` makes the first admin as a
+   person does (the code and the password as two lines of stdin): it takes
+   `/api/info` without trust, checks `setup_proof` against the code and the
+   CA it presents, pins that CA and verifies the certificate by the name
+   `wyrm-smoke.local` (the forward's address is not in it), sends `POST
+   /api/setup`, logs in, and writes the CA (`--ca-out`). Over that CA
+   `smoke_client.py after-setup` checks that no setup is offered, a second
+   setup is refused (`no_setup`), the login and `/api/me` work and a wrong
+   password does not. Through SSH: the
    broker runs as uid 787 and is in the group `dialout` (its id read from
    the guest's `/etc/group`, the broker's groups from `/proc/<pid>/status`),
    uci holds the zone and the NTP servers of the build, `/srv/wyrm` is the
    data partition, which ends at least 1 MiB before the end of the disk; NTP set the clock (the marker
    `/var/run/wyrm/time-synced`), the broker did not wait the full 120 s for
-   it, and the site's CA was made after the clock was set.
+   it, and the site's CA was made after the clock was set (the marker is
+   written once, at the first sync); uci's `lan` is the network of the
+   build.
 4. Powered off and booted again: the same CA, no setup offered, the login
-   works, NTP set the clock again.
+   works, NTP set the clock again (the run waits for it up to 120 s: only
+   the first start of the broker waits for NTP, so a later boot may answer
+   TLS first), `lan` as before.
 5. On the disk file: `wyr image inspect` says `region: empty`, and
    `verify-table.sh` passes the table the first boot wrote.
 
@@ -368,9 +430,32 @@ boots on a CI runner; with `cortex-a72` it boots. `SMOKE_ACCEL=tcg` runs
 TCG on a host that has `hvf` or `kvm`: with `QEMU_EFI` set to Ubuntu's
 firmware that is the closest local copy of the CI run.
 `.github/workflows/images-smoke.yml` runs it on pull requests that change
-`packaging/openwrt`, `packaging/images`, `crates/wyrm-image` or
-`tools/wyr/src/image*.rs`: `wyrmd` is built on an arm64 runner, the image
-and the boot (TCG) on an x86-64 runner.
+`packaging/openwrt`, `packaging/images`, `crates/wyrm-image`,
+`tools/wyr/src/image*.rs` or the image builder page: `wyrmd` is built on an
+arm64 runner, the image and the boots (TCG) on an x86-64 runner.
+
+With `--assembled <img.gz>` (and `--base`) step 3 takes the image that the
+image builder page's own code assembles: `node tool/site/test_start.mjs
+--assemble` runs `site/assets/start.js` and its WebAssembly (built first by
+`tool/site/wasm.sh`) under Node, with choices (`wyrm-choices/1`) of the same
+site, SSH key, zone and NTP servers, Modbus and the broker's four links on,
+and the catalog of `catalog.py` (or `--catalog`). It checks the base gzip
+against the index as the page does, streams it through the page's
+`assemble` into `<img.gz>` and prints the setup code once. `gzip-readers.sh`
+checks that file as the imagers read it; then steps 3 to 5 run with the same
+checks. Step 2 is left out. The job of `images-smoke.yml` runs it after the
+run above, on the same base image; the job also runs on a pull request that
+changes the page (`site/assets/start.js`, `tool/site/**`,
+`crates/wyrm-image-web`, `site/start/**`) or `wyr setup`
+(`tools/wyr/src/setup.rs`, `crates/wyrm-gateway-client`). With `hvf` on an
+Apple M4 it passed in 113 s.
+
+`--network static` (with `--assembled`) chooses the page's static address
+instead of DHCP: 10.0.2.15/24, gateway 10.0.2.2, DNS 10.0.2.3, the address
+QEMU's user network forwards to and its DNS server. The checks add that uci
+holds that address on `br-lan` after each boot, and the NTP servers of the
+choices are pool names, so the clock check shows that the device resolves
+them through the DNS server of the choices. The job runs it as a third run.
 
 ### Rust tests
 

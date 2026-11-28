@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/wyrm-core", "crates/wyrm-link-sdk", "links/mock", "crates/wyrm-client", "crates/wyrmd", "tools/wyr", "links/modbus", "crates/wyrm-state", "crates/wyrm-history", "crates/wyrm-storage", "crates/wyrm-admin", "crates/wyrm-link-sdk-derive", "crates/wyrm-flow", "crates/wyrm-gateway", "crates/wyrm-gateway-client", "links/mqtt", "links/probe", "crates/wyrm-wasm-host", "crates/wyrm-ffi", "tools/wyrm-mcp", "links/agent", "links/wasm", "examples/links/responder", "examples/links/requester", "examples/links/both", "examples/links/portable", "crates/wyrm-link-api", "crates/wyrm-link-portable", "crates/wyrm-link-guest", "crates/wyrm-schedule", "crates/wyrm-image", "links/scheduler", "links/alarm", "links/http", "links/snmp", "links/s7", "links/bacnet", "links/knx","links/opcua", "links/prometheus", "crates/wyrm-history-sync", "links/influxdb", "links/postgres", "links/dynamodb", "links/mysql", "links/mongodb", "crates/wyrm-dql", "links/dql", "crates/wyrm-filestore", "links/s3", "links/gdrive", "links/webdav", "links/localfs", "links/uplink", "crates/wyrm-messenger", "links/telegram", "links/slack", "crates/wyrm-bench"]
+members = ["crates/wyrm-core", "crates/wyrm-link-sdk", "links/mock", "crates/wyrm-client", "crates/wyrmd", "tools/wyr", "links/modbus", "crates/wyrm-state", "crates/wyrm-history", "crates/wyrm-storage", "crates/wyrm-admin", "crates/wyrm-link-sdk-derive", "crates/wyrm-flow", "crates/wyrm-gateway", "crates/wyrm-gateway-client", "links/mqtt", "links/probe", "crates/wyrm-wasm-host", "crates/wyrm-ffi", "tools/wyrm-mcp", "links/agent", "links/wasm", "examples/links/responder", "examples/links/requester", "examples/links/both", "examples/links/portable", "crates/wyrm-link-api", "crates/wyrm-link-portable", "crates/wyrm-link-guest", "crates/wyrm-schedule", "crates/wyrm-image", "crates/wyrm-image-web", "links/scheduler", "links/alarm", "links/http", "links/snmp", "links/s7", "links/bacnet", "links/knx","links/opcua", "links/prometheus", "crates/wyrm-history-sync", "links/influxdb", "links/postgres", "links/dynamodb", "links/mysql", "links/mongodb", "crates/wyrm-dql", "links/dql", "crates/wyrm-filestore", "links/s3", "links/gdrive", "links/webdav", "links/localfs", "links/uplink", "crates/wyrm-messenger", "links/telegram", "links/slack", "crates/wyrm-bench"]
 exclude = ["crates/wyrm-link-guest/tests/fixture", "links/wasm/tests/app_fixture"]
 
 [workspace.package]
@@ -35,6 +35,12 @@ wyrm-link-portable = { path = "crates/wyrm-link-portable" }
 wyrm-link-guest = { path = "crates/wyrm-link-guest" }
 wyrm-schedule = { path = "crates/wyrm-schedule" }
 wyrm-image = { path = "crates/wyrm-image" }
+# The image builder page's WebAssembly (crates/wyrm-image-web). Pinned exactly: the
+# `wasm-bindgen` CLI that tool/site/wasm.sh runs must be this same version.
+wasm-bindgen = "=0.2.130"
+# The QR code of a setup code on the image builder page; the SVG is written by the page's
+# crate, so no renderer feature (and no `image`) is built.
+qrcode = { version = "0.15", default-features = false }
 wyrm-link-scheduler = { path = "links/scheduler" }
 wyrm-link-alarm = { path = "links/alarm" }
 wyrm-dql = { path = "crates/wyrm-dql" }

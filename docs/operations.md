@@ -255,14 +255,35 @@ from a one-time setup code; the image holds only the code's hash.
 4. Start the broker. While no user exists, it moves the hash into
    `data_dir/gateway/setup.hash` (0600) and deletes `setup_file`. The log
    says `gateway: setup code taken in`.
-5. The person opens Studio. `GET /api/info` shows `setup: true`, and Studio
-   asks for the code, an admin name and a password. The right code makes
-   that admin, and the setup is over: the code cannot be used again.
+5. The person runs `wyr setup` on a computer in the same network (Studio's
+   screen for the code is planned, not built). `wyr` is not published as a
+   binary yet; `cargo install --locked --git https://github.com/gencto/wyrm wyr`
+   builds it (Rust needed), or `cargo install --locked --path tools/wyr` in a
+   clone:
+
+   ```sh
+   wyr setup --gateway https://wyrm-<site>.local:8445 --ca-out site-ca.pem
+   ```
+
+   `wyrm-<site>.local` is the name the broker announces and its
+   certificate carries (the site in lower case, each character other than
+   a letter or a digit a `-`); where it does not resolve, use the device's
+   IP address. `wyr setup` asks for the code (echo off on Linux and macOS;
+   elsewhere the input shows), checks the
+   gateway's proof with it as the steps below say, then asks for the
+   admin's password twice (`--user` names the admin, `admin` by default).
+   The right code makes that admin, and the setup is over: the code cannot
+   be used again. `wyr setup` logs in as the new admin to check it, and
+   prints the code of the device's CA (32 hex digits in groups of four):
+   keep it, Studio and `wyrmd ca fingerprint` show the same one.
+   `--ca-out` writes that CA as PEM, the `--gateway-ca` of `wyrm-mcp` and
+   `wyrm-agent`. When stdin is no terminal, the code is its first line and
+   the password its second. Neither is ever taken from the command line.
 
 The first contact is how the client learns which CA to trust (owner's
 answer 3 of ADR 0051), so the code proves the server to the client before
-the client proves the code to the server. A client does this, in this
-order:
+the client proves the code to the server. A client (`wyr setup`, through
+`wyrm_gateway_client::setup`) does this, in this order:
 
 1. Read `GET /api/info` over TLS, accepting the certificate for now. With a
    setup pending and TLS on, the answer holds `ca` (the DER of the CA) and
@@ -406,7 +427,9 @@ packages: { seed_dir: "/usr/share/wyrm/seed" },
 A board's **base image** is OpenWrt with `wyrmd` and an empty 4 MiB config
 region. `wyr image build` writes your configuration into that region, on
 your machine: nothing of it goes to a server. The device reads the region
-at its first boot and wipes it.
+at its first boot and wipes it. The image builder page
+(https://wyrm.gencto.uk/start/, "The image builder page" below) does the
+same in a browser, with the same code.
 
 You need three files: the base image of the board (`.img`, or `.img.gz` as
 downloaded), the index it was published with (`index.json`, format
@@ -433,6 +456,8 @@ code" above). Then write `plant-rpi4.img` to the card.
 | `--authorized-keys <file>` | `authorized_keys` | SSH public keys for `root`; without it the device has no SSH login |
 | `--timezone <tz>` | `timezone` | one IANA name, for example `Europe/Kyiv`: `A-Z a-z 0-9 _ + / -`, not starting with `/`, without `..` |
 | `--ntp <servers>` | `ntp` | NTP servers separated by commas, at most 16; each a host name or an address of `A-Z a-z 0-9 . : _ -`, not starting with `-` (an IPv6 address without brackets: `2001:db8::1`) |
+| `--choices <file>` | all of them | what a person chose (`wyrm-choices/1`, as the image builder page makes it): site, DHCP or a static IPv4 address, links, time zone, NTP, SSH keys; the files are made from it (`wyrm_image::Choices::files`, the page's own code). Not with `--config`, `--network`, `--seed`, `--authorized-keys`, `--timezone`, `--ntp`; needs `--catalog` and `--new-setup-code` or `--setup-hash-file` |
+| `--catalog <file>` | | the links the image offers (built-in drivers, the broker's own links, packages of its seed directory), for `--choices` |
 | `--out <file>` | | the image to write, raw; an existing file is replaced only with `--force` |
 
 What the command checks, in this order:
@@ -457,7 +482,11 @@ What the command checks, in this order:
   it was. A run that is interrupted (a kill, a power loss) can leave that
   temporary file (0600): remove it. It holds what the output would.
 - `--out` is never the base image itself, also with `--force`.
-- A gzip image may have several members (as `pigz` writes it).
+- A gzip image may have several members (as `pigz` writes it). The
+  published `.img.gz` is one gzip member, a normal gzip file: `gunzip`,
+  `zcat`, Raspberry Pi Imager, `balenaEtcher` and `bmaptool` read it, and
+  Raspberry Pi Imager estimates the image's size right from its last four
+  bytes.
 - The output is readable by its owner only (0600 on Unix). It holds the
   setup hash and your configuration: keep it like a secret, as the hash
   itself (whoever holds the hash can prove a CA to a client that has the
@@ -492,19 +521,85 @@ device will never read it), or of a configuration the device refuses (the
 rules in "On the device" below). `wyr image build` does not write such an
 image.
 
+#### The image builder page
+
+https://wyrm.gencto.uk/start/ builds the card in your browser, from the
+base images of the latest images release (`images-v*`) that the site
+carries. It offers the boards that `packaging/images/boards.json` marks
+`listed`. You choose:
+
+- the board;
+- the site name;
+- DHCP or a static IPv4 address (address, prefix, gateway, DNS), on the
+  board's LAN ports. There is no Wi-Fi: the device is a plain host on a
+  wire;
+- the links: the built-in drivers, the broker's own links (the scheduler,
+  alarms, DQL and uplink are on by default), and the packages the image
+  carries, by category;
+- the time zone (your browser's by default) and NTP servers;
+- SSH public keys for `root` (optional).
+
+**Build** checks the choices with the device's rules, in the
+WebAssembly of `crates/wyrm-image-web`: the code of `wyr image build
+--choices`. A refusal is shown at its field. Then it makes a one-time setup
+code. The code is shown once, with a QR code; the image holds only its
+hash. **Download** stays off until you tick "I wrote it down". It fetches
+the base image from the site, checks its size and SHA-256 against the index
+and writes your region into it as it streams through the browser. It saves
+`wyrm-<board>-<site>.img.gz`: one gzip member, which the imagers read as
+they read the published base image. A change of any choice voids the build
+and its code, and a download in progress stops.
+
+- The page asks only its own origin: the index, the catalog of links, the
+  image, the page's files. Your choices, the code and its hash stay in the
+  browser. The page writes nothing to `localStorage`, cookies or the URL.
+  The base image is kept in the browser's Cache API, so a second build does
+  not download it again.
+- The page trusts the index because it comes from the site over HTTPS. A
+  signature over the index waits for the release key (ADR 0051).
+- The browser holds the compressed base image and the finished file, about
+  3 to 4 times the size of the download (about 130 MiB for a 35 MiB
+  download), never the raw image.
+- Without JavaScript, or with no image on the site yet, use `wyr image
+  build` as above. The page then says so.
+- Studio does not ask for the setup code yet. Make the first admin with
+  `wyr setup`, as "First admin from a setup code" above shows; the page
+  names the command with your site's `wyrm-<site>.local`.
+- The time zones offered are your browser's list as the device's zoneinfo
+  names them: the image carries every IANA name, the old ones too, but
+  none under `Etc/` (`Etc/UTC` is offered as `UTC`). A name the device does
+  not have would leave its clock on UTC (the first boot logs a warning).
+- With a static address, give DNS servers, or NTP servers by their
+  addresses: without DNS the device cannot resolve the names of the OpenWrt
+  pool.
+- The page links the source of the release its images came from: the site's
+  index names its tag (`release`, written by `tool/site/fetch_images.py`).
+- GitHub Pages sends a `.img.gz` as `application/gzip` without a
+  `Content-Encoding`, so the browser hands the page the published bytes. A
+  server that sent it as `Content-Encoding: gzip` of the raw image would
+  have the browser unpack it on the way; the page sees that the bytes are
+  no gzip and says so instead of a hash error.
+
+The site's `start/images/index.json` is a filtered copy of the release's
+`index.json`: the entries of the listed boards only
+(`tool/site/fetch_images.py`), each entry unchanged, so its SHA-256 is not the
+one in the release's `SHA256SUMS`. `wyr image build` takes either for a
+listed board; the release's file also has the boards that are not listed.
+
 #### Write the card
 
 Write the assembled image whole to the card with `dd` or an imager
 (Raspberry Pi Imager, `balenaEtcher`). Use a card at least 34 MiB larger than
 the image: the rest becomes the data partition at the first boot ("On the
-device" below). The rows of `packaging/images/boards.json` carry these
+device" below). If Raspberry Pi Imager offers OS customisation, choose No: it
+does not apply to this image (the configuration is in its config region). The rows of `packaging/images/boards.json` carry these
 notes:
 
 | Board | `--board` | How it boots |
 |---|---|---|
 | Raspberry Pi 4 B / 400 / CM4 | `rpi4` | from the microSD card. A board that boots from a USB stick finds its partitions there by itself; not tried on a board yet. |
 | Raspberry Pi 5 / 500 / CM5 | `rpi5` | from the microSD card. A board that boots from a USB stick or an NVMe disk finds its partitions there by itself; not tried on a board yet. |
-| Banana Pi BPI-R4 (4 GB) | `bpi-r4` | **from the SD card only**: set the boot switch to SD and leave the card in. Do not install onto the eMMC: OpenWrt's install writes its own partition table there, without the config region and the data partition, and the configuration does not go with it. |
+| Banana Pi BPI-R4 (4 GB) | `bpi-r4` | **from the SD card only**: set the boot switch to SD and leave the card in. With a static address, connect the board through a LAN port (lan1–lan3 or the LAN SFP cage); the WAN ports are not configured. Do not install onto the eMMC: OpenWrt's install writes its own partition table there, without the config region and the data partition, and the configuration does not go with it. |
 | Banana Pi BPI-R4 (8 GB) | `bpi-r4-8g` | not built: OpenWrt 25.12.6 publishes no image for the 8 GB board. |
 | QEMU `virt` (arm64) | `qemu-armsr` | tests only: `qemu-system-aarch64 -M virt` with UEFI firmware, the image as a virtio disk grown before the first boot (`qemu-img resize -f raw plant.img 1G`; `packaging/images/README.md`, "Boards"). |
 
@@ -523,8 +618,9 @@ wyr image base --board rpi4 --wyrmd <wyrmd for aarch64, static musl> \
     --wyrmd-version 0.9.0 --out dist/images
 ```
 
-It leaves the raw image, its gzip, the package manifest and `index.json` in
-`--out`: `wyr image build` takes the image and the index. The index entry
+It leaves the raw image, its gzip (one member, as published), the package
+manifest and `index.json` in `--out`: `wyr image build` takes the image and
+the index. The index entry
 records the image's size, SHA-256 and `config_offset`, the version and the
 SHA-256 of the `wyrmd` binary, and the SHA-256 of the manifest. The OpenWrt
 release, the ImageBuilder archive (by SHA-256) and the build container (by

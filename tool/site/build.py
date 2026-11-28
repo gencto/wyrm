@@ -5,9 +5,9 @@
     mdbook build site                          # write site/dist/docs/
     python3 tool/site/build.py --check site/dist   # check the built site
 
-The site has two parts. The designed pages (`/`, `/install/`, `404.html`) are
-the templates `site/home/index.html`, `site/install/index.html` and
-`site/404.html`: static HTML whose `{{name}}` placeholders this script fills
+The site has two parts. The designed pages (`/`, `/install/`, `/start/`,
+`404.html`) are the templates `site/home/index.html`,
+`site/install/index.html`, `site/start/index.html` and `site/404.html`: static HTML whose `{{name}}` placeholders this script fills
 with facts of the repository, so a page never goes stale. The documentation
 (`/docs/`) is an mdBook: the repository's `docs/`, `docs/adr/` and `spec/` are
 the one source of truth. This script copies the guides, ADRs and the spec into
@@ -17,7 +17,11 @@ design's pages have (the section number above the title, figures with
 captions, "More:" rows) and writes `SUMMARY.md` and the docs landing page
 `index.md`. Only files tracked by git are read. `--check` parses every HTML page of a built site and
 fails on a link to a missing page or a missing `#id`, on a file loaded from
-another host and on a security finding ID. Python 3.10+, standard library only.
+another host and on a security finding ID. The build also runs
+`tool/site/wasm.sh`, which writes the WebAssembly of the image builder page
+(`/start/`) into `site/dist/assets/wasm/` (it needs Rust and the wasm32
+target); `--wasm-from <dir>` copies the two files that `wasm.sh <dir>` wrote
+before instead. Python 3.10+, standard library only.
 """
 
 from __future__ import annotations
@@ -46,6 +50,7 @@ ORIGIN = "https://wyrm.gencto.uk"
 DESIGNED = {
     "index.html": (SITE / "home/index.html", ""),
     "install/index.html": (SITE / "install/index.html", "../"),
+    "start/index.html": (SITE / "start/index.html", "../"),
     "404.html": (SITE / "404.html", "/"),
 }
 # The docs were at the site root for a short time. A page whose address
@@ -72,9 +77,17 @@ GITHUB = "https://github.com/gencto/wyrm"
 BLOB = f"{GITHUB}/blob/main/"
 TREE = f"{GITHUB}/tree/main/"
 
-# Paths of the site root the generator never writes: kept free for later
-# pages (`/start`: the image builder of ADR 0051).
+# Paths of the site root that no file of `site/static/` or `site/assets/` may
+# take. `/start/` is the image builder of ADR 0051: its page is a designed
+# page, and its `images/` are the base images copied there at deploy.
 RESERVED = ("start",)
+# The image builder page and what it holds besides its page.
+START = "start"
+START_IMAGES = "images"
+# The WebAssembly of the image builder page: written by tool/site/wasm.sh,
+# loaded by site/assets/start.js (not by a tag, so --check names them).
+WASM_SH = REPO / "tool/site/wasm.sh"
+WASM_FILES = ("assets/wasm/wyrm_image_web.js", "assets/wasm/wyrm_image_web_bg.wasm")
 
 # Files under docs/ and spec/ that are not on the site, with the reason.
 EXCLUDED_FILES = {
@@ -925,7 +938,7 @@ def render(template: Path, facts: dict[str, str]) -> str:
 
 # -------------------------------------------------------------------- build
 
-def build() -> int:
+def build(wasm_from: Path | None = None) -> int:
     tracked = tracked_files()
     warnings: list[str] = []
     excluded: list[tuple[str, str]] = []
@@ -976,6 +989,21 @@ def build() -> int:
                 raise BuildError(f"{f.relative_to(REPO)}: site path /{top} is reserved")
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(f, dest)
+    # the WebAssembly of the image builder page, into DIST/assets/wasm
+    if wasm_from is not None:
+        for f in WASM_FILES:
+            src = wasm_from / Path(f).name
+            if not src.is_file():
+                raise BuildError(f"--wasm-from {wasm_from}: no {src.name}"
+                                 " (tool/site/wasm.sh <dir> writes it)")
+            (DIST / f).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(src, DIST / f)
+    elif subprocess.run([str(WASM_SH)], cwd=REPO).returncode != 0:
+        raise BuildError("tool/site/wasm.sh failed: the image builder page"
+                         " needs its WebAssembly")
+    for f in WASM_FILES:
+        if not (DIST / f).is_file():
+            raise BuildError(f"tool/site/wasm.sh did not write {f}")
 
     # ---- the sections: (name, [(site path, title in the menu, kind)])
     def title_of(p: str) -> str:
@@ -1075,8 +1103,6 @@ def build() -> int:
     # ---- designed pages
     facts = site_facts(tracked, texts, adrs, official, pages)
     for place, (template, root) in DESIGNED.items():
-        if place.split("/", 1)[0].rsplit(".", 1)[0] in RESERVED:
-            raise BuildError(f"{place}: site path is reserved")
         page = render(template, dict(facts, root=root))
         if denied_word(page):
             raise BuildError(f"{place} holds a word of the local deny-list")
@@ -1162,7 +1188,8 @@ class _Page(html.parser.HTMLParser):
 
 def check(site: Path) -> int:
     book = site / DOCS
-    for must in [site / place for place in DESIGNED] + [book / "index.html"]:
+    for must in ([site / place for place in DESIGNED] + [book / "index.html"]
+                 + [site / f for f in WASM_FILES]):
         if not must.is_file():
             print(f"site: {must} is missing (run the generator, then"
                   " `mdbook build site`)", file=sys.stderr)
@@ -1241,9 +1268,12 @@ def check(site: Path) -> int:
                 and 'class="wy-kicker"' not in f.read_text(encoding="utf-8")):
             errors.append(f"{f.relative_to(site).as_posix()}: no section line"
                           " above the title")
-    for name in RESERVED:
-        if (site / name).exists() or (site / f"{name}.html").exists():
-            errors.append(f"/{name} is reserved and must stay free")
+    # /start/ holds its page and the base images, nothing else
+    for f in sorted((site / START).rglob("*")):
+        rel = f.relative_to(site / START)
+        if f.is_file() and rel.as_posix() != "index.html" and rel.parts[0] != START_IMAGES:
+            errors.append(f"/{START}/{rel.as_posix()}: /{START}/ holds its page and"
+                          f" {START_IMAGES}/ only")
     official = json.loads((REPO / "links/official.json").read_text(encoding="utf-8"))
     for where, what in (("index.html", "on the home page"),
                         (f"{DOCS}/index.html", "in the table of the docs")):
@@ -1269,11 +1299,14 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--check", metavar="SITE_DIR", type=Path,
                     help="check a built site (site/dist) instead of building")
+    ap.add_argument("--wasm-from", metavar="DIR", type=Path,
+                    help="the WebAssembly of /start/ that tool/site/wasm.sh DIR"
+                         " wrote, instead of running it")
     args = ap.parse_args()
     try:
         if args.check:
             return check(args.check.resolve())
-        return build()
+        return build(args.wasm_from.resolve() if args.wasm_from else None)
     except BuildError as e:
         print(f"site: error: {e}", file=sys.stderr)
         return 1

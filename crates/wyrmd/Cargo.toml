@@ -115,6 +115,8 @@ wyrm-wasm-host.workspace = true
 wyrm-admin = { workspace = true, features = ["testkit"] }
 # tests/perf.rs: PERF lines, process CPU and memory
 wyrm-bench.workspace = true
+# tests/image_choices.rs: the config of an image builder's choices loads
+wyrm-image.workspace = true
 
 [lints]
 workspace = true

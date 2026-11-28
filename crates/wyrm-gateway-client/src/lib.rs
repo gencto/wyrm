@@ -53,6 +53,8 @@ const ANSWER_TIMEOUT: Duration = Duration::from_secs(185);
 /// Largest response head read.
 const MAX_HEAD: usize = 64 * 1024;
 
+pub mod setup;
+
 #[cfg(test)]
 mod tests {
     use super::Endpoint;
@@ -447,6 +449,18 @@ async fn http(
     bearer: Option<&str>,
     body: Option<&Value>,
 ) -> Result<(u16, Value)> {
+    http_with(ep, path, bearer, body, REQUEST_TIMEOUT).await
+}
+
+/// [`http`] that waits `timeout` for the answer (a request that hashes a password on a
+/// slow device).
+async fn http_with(
+    ep: &Endpoint,
+    path: &str,
+    bearer: Option<&str>,
+    body: Option<&Value>,
+    timeout: Duration,
+) -> Result<(u16, Value)> {
     let host = ep.authority();
     let mut msg = match body {
         Some(_) => format!("POST {path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n"),
@@ -473,7 +487,7 @@ async fn http(
     s.write_all(&msg).await.map_err(transport)?;
     s.flush().await.map_err(transport)?;
     let mut resp = Vec::new();
-    match tokio::time::timeout(REQUEST_TIMEOUT, s.read_to_end(&mut resp)).await {
+    match tokio::time::timeout(timeout, s.read_to_end(&mut resp)).await {
         Err(_) => return Err(Error::Transport(format!("{path}: no answer"))),
         Ok(Ok(_)) => {}
         // a TLS peer that closes without close_notify: what came is the answer

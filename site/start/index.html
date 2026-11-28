@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Build a WYRM image</title>
+<meta name="description" content="Pick a board, a site name, the network and the links: your browser writes them into the board's base image and hands you a card image with a one-time setup code. Nothing you choose leaves the browser.">
+<link rel="canonical" href="https://wyrm.gencto.uk/start/">
+<meta property="og:site_name" content="WYRM">
+<meta property="og:title" content="Build a WYRM image">
+<meta property="og:description" content="Pick a board, a site name, the network and the links: your browser writes them into the board's base image and hands you a card image with a one-time setup code.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://wyrm.gencto.uk/start/">
+<meta property="og:image" content="https://wyrm.gencto.uk/assets/img/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#0E1113">
+<link rel="icon" href="{{root}}assets/favicon.svg" type="image/svg+xml">
+<link rel="preload" href="{{root}}assets/fonts/unbounded-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="{{root}}assets/fonts/plex-sans-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="{{root}}assets/fonts.css">
+<link rel="stylesheet" href="{{root}}assets/site.css">
+<script src="{{root}}assets/start.js" defer></script>
+</head>
+<body class="page-install page-start">
+<a class="skip-link" href="#main">Skip to content</a>
+<div style="background: #0E1113; color: #ECE9E1; min-height: 100vh; font-family: 'IBM Plex Sans', system-ui, sans-serif">
+
+<!-- Top bar -->
+<header style="border-bottom: 1px solid #252B30; background: #0E1113">
+<nav aria-label="Main" style="max-width: 1200px; margin: 0 auto; padding: 18px 24px; display: flex; flex-wrap: wrap; align-items: center; gap: 16px 28px">
+<a href="{{root}}" style="display: flex; align-items: center; gap: 12px; margin-right: auto; color: #ECE9E1">
+<svg width="44" height="26" viewBox="0 0 44 26" aria-hidden="true"><circle cx="4" cy="17" r="3" fill="none" stroke="#E8893A" stroke-width="2"></circle><circle cx="13" cy="9" r="3.5" fill="none" stroke="#E8893A" stroke-width="2"></circle><circle cx="23" cy="6" r="4" fill="#E8893A"></circle><circle cx="33" cy="11" r="3.5" fill="none" stroke="#E8893A" stroke-width="2"></circle><circle cx="40" cy="20" r="3" fill="none" stroke="#E8893A" stroke-width="2"></circle></svg>
+<span style="font-family: 'Unbounded', sans-serif; font-weight: 700; font-size: 20px; letter-spacing: 0.08em">WYRM</span>
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 14px; color: #8E979C">/ start</span>
+</a>
+<a href="{{root}}" style="font-size: 15px; color: #A3ABAF; padding: 10px 0">Home</a>
+<a href="{{root}}install/" style="font-size: 15px; color: #A3ABAF; padding: 10px 0">Install</a>
+<a href="{{root}}docs/" style="font-size: 15px; color: #A3ABAF; padding: 10px 0">Docs</a>
+<a href="https://github.com/gencto/wyrm/releases" style="display: inline-flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 500; padding: 10px 16px; border: 1px solid #3A4249; border-radius: 8px; color: #ECE9E1">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"></path><polyline points="7 10 12 15 17 10"></polyline><path d="M5 21h14"></path></svg>
+Releases
+</a>
+</nav>
+</header>
+
+<main id="main">
+
+<!-- Title -->
+<section id="top" style="max-width: 1200px; margin: 0 auto; padding: 72px 24px 32px; display: flex; flex-direction: column; gap: 18px">
+<p style="margin: 0; font-family: 'IBM Plex Mono', monospace; font-size: 14px; letter-spacing: 0.06em; text-transform: uppercase; color: #E8893A">Image builder</p>
+<h1 style="margin: 0; font-family: 'Unbounded', sans-serif; font-weight: 700; font-size: clamp(30px, 4.6vw, 56px); line-height: 1.08; max-width: 900px">Build a card for your board</h1>
+<p style="margin: 0; font-size: 18px; line-height: 1.6; color: #C5CBCE; max-width: 780px">Pick a board, a site name, the network and the links. Your browser writes them into the board's base image and gives you a file to write to an SD card, with a one-time setup code for the first admin. Nothing you choose leaves the browser: this page asks its own site for the base image and for nothing else.</p>
+</section>
+
+<noscript>
+<div style="max-width: 1200px; margin: 0 auto; padding: 0 24px 40px">
+<p style="margin: 0; padding: 14px 18px; border-radius: 12px; border: 1px solid #5A4330; background: #161A1D; font-size: 14px; line-height: 1.6; color: #C5CBCE">The image builder runs in your browser and needs JavaScript. Without it, build the image on your own machine with <code>wyr image build</code>: see <a href="{{root}}docs/operations.html#board-images-adr-0051-4">Board images</a> in the operations guide.</p>
+</div>
+</noscript>
+
+<div style="max-width: 1200px; margin: 0 auto; padding: 0 24px 96px; display: flex; flex-direction: column; gap: 72px">
+
+<div id="start-status" role="status" style="padding: 14px 18px; border-radius: 12px; border: 1px solid #3A4249; background: #161A1D; font-size: 15px; line-height: 1.6; color: #C5CBCE">Loading the list of images…</div>
+
+<!-- No image yet -->
+<section id="start-none" hidden style="display: flex; flex-direction: column; gap: 16px; padding: 22px; border-radius: 12px; background: #161A1D; border: 1px solid #252B30; max-width: 820px">
+<h2 style="margin: 0; font-size: 22px; font-weight: 600">No image is published yet</h2>
+<p style="margin: 0; font-size: 16px; line-height: 1.7; color: #C5CBCE">This page builds a card from the base images of a WYRM images release, and none is on this site yet. Until one is, make a base image and write your configuration into it on your own machine with <code>wyr image base</code> and <code>wyr image build</code>: see <a href="{{root}}docs/operations.html#board-images-adr-0051-4">Board images</a> in the operations guide.</p>
+</section>
+
+<div id="start-steps" hidden style="display: flex; flex-direction: column; gap: 72px">
+
+<!-- 1 Board -->
+<section id="board" style="display: flex; flex-direction: column; gap: 24px">
+<div style="display: flex; flex-direction: column; gap: 10px; padding-bottom: 18px; border-bottom: 1px solid #252B30"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 14px; color: #E8893A">1</span><h2 style="margin: 0; font-family: 'Unbounded', sans-serif; font-weight: 700; font-size: 30px; line-height: 1.15">Board</h2></div>
+<div id="st-boards" role="group" aria-label="Board" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 14px"></div>
+</section>
+
+<!-- 2 Site -->
+<section id="site" style="display: flex; flex-direction: column; gap: 20px">
+<div style="display: flex; flex-direction: column; gap: 10px; padding-bottom: 18px; border-bottom: 1px solid #252B30"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 14px; color: #E8893A">2</span><h2 style="margin: 0; font-family: 'Unbounded', sans-serif; font-weight: 700; font-size: 30px; line-height: 1.15">Site name</h2></div>
+<div id="st-site" style="max-width: 420px"></div>
+</section>
+
+<!-- 3 Network -->
+<section id="network" style="display: flex; flex-direction: column; gap: 20px">
+<div style="display: flex; flex-direction: column; gap: 10px; padding-bottom: 18px; border-bottom: 1px solid #252B30"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 14px; color: #E8893A">3</span><h2 style="margin: 0; font-family: 'Unbounded', sans-serif; font-weight: 700; font-size: 30px; line-height: 1.15">Network</h2></div>
+<div id="st-network" style="display: flex; flex-direction: column; gap: 16px; max-width: 820px"></div>
+</section>
+
+<!-- 4 Links -->
+<section id="links" style="display: flex; flex-direction: column; gap: 20px">
+<div style="display: flex; flex-direction: column; gap: 10px; padding-bottom: 18px; border-bottom: 1px solid #252B30"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 14px; color: #E8893A">4</span><h2 style="margin: 0; font-family: 'Unbounded', sans-serif; font-weight: 700; font-size: 30px; line-height: 1.15">Links</h2></div>
+<p style="margin: 0; font-size: 16px; line-height: 1.7; color: #C5CBCE; max-width: 820px">Every broker has its historian, storage, flow engine and gateway. Pick the links that go in; a link you leave out can be installed later from Studio while the broker runs.</p>
+<div id="st-links" style="display: flex; flex-direction: column; gap: 22px"></div>
+</section>
+
+<!-- 5 Time -->
+<section id="time" style="display: flex; flex-direction: column; gap: 20px">
+<div style="display: flex; flex-direction: column; gap: 10px; padding-bottom: 18px; border-bottom: 1px solid #252B30"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 14px; color: #E8893A">5</span><h2 style="margin: 0; font-family: 'Unbounded', sans-serif; font-weight: 700; font-size: 30px; line-height: 1.15">Time</h2></div>
+<div id="st-time" style="max-width: 820px"></div>
+</section>
+
+<!-- 6 SSH -->
+<section id="ssh" style="display: flex; flex-direction: column; gap: 20px">
+<div style="display: flex; flex-direction: column; gap: 10px; padding-bottom: 18px; border-bottom: 1px solid #252B30"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 14px; color: #E8893A">6</span><h2 style="margin: 0; font-family: 'Unbounded', sans-serif; font-weight: 700; font-size: 30px; line-height: 1.15">SSH key</h2></div>
+<div id="st-ssh" style="max-width: 820px"></div>
+</section>
+
+<!-- 7 Build -->
+<section id="build" style="display: flex; flex-direction: column; gap: 20px">
+<div style="display: flex; flex-direction: column; gap: 10px; padding-bottom: 18px; border-bottom: 1px solid #252B30"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 14px; color: #E8893A">7</span><h2 style="margin: 0; font-family: 'Unbounded', sans-serif; font-weight: 700; font-size: 30px; line-height: 1.15">Build</h2></div>
+<p style="margin: 0; font-size: 16px; line-height: 1.7; color: #C5CBCE; max-width: 820px">Build checks your choices against what the device takes, then makes a one-time setup code. It is shown once: write it down before you download. Download fetches the base image once (it is kept in this browser for the next build), checks its SHA-256, and writes your settings into it here.</p>
+<div id="st-build" style="display: flex; flex-direction: column; gap: 18px; max-width: 820px"></div>
+</section>
+
+</div>
+
+</div>
+
+</main>
+
+<!-- Footer -->
+<footer style="border-top: 1px solid #252B30">
+<div style="max-width: 1200px; margin: 0 auto; padding: 36px 24px; display: flex; flex-wrap: wrap; gap: 16px 32px; align-items: center; font-size: 14px; color: #8E979C">
+<a href="{{root}}" style="font-family: 'Unbounded', sans-serif; font-weight: 700; color: #ECE9E1; letter-spacing: 0.08em">WYRM</a>
+<span>Apache-2.0</span>
+<a href="{{root}}install/">Install</a>
+<a href="{{root}}docs/operations.html#board-images-adr-0051-4">Board images</a>
+<a href="#top" style="margin-left: auto">Back to the top</a>
+</div>
+</footer>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,27 @@
+[package]
+name = "wyrm-image-web"
+description = "The WebAssembly of the image builder page (ADR 0051 §4): wasm-bindgen over wyrm-image, no logic of its own and no I/O"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+# cdylib: the `.wasm` of the page (tool/site/wasm.sh); rlib: the native tests
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+wyrm-image.workspace = true
+# `setup::code_of` (the setup code from the page's random bytes) and `hex`
+wyrm-core.workspace = true
+wasm-bindgen.workspace = true
+qrcode.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+zeroize.workspace = true
+
+[lints]
+workspace = true

@@ -30,6 +30,7 @@ mod pack;
 mod query;
 mod replay;
 mod scaffold;
+mod setup;
 mod sim;
 
 use clap::{Parser, Subcommand};
@@ -179,6 +180,11 @@ enum Cmd {
         #[command(subcommand)]
         cmd: image::ImageCmd,
     },
+    /// The first admin of a new board from the setup code of its image (ADR 0051 §3):
+    /// `wyr setup --gateway https://<device address>:8445`. The code and the password are
+    /// asked for (echo off), or read as the first and second line of stdin; the device's
+    /// CA is proven by the code, pinned, and its code printed.
+    Setup(setup::SetupArgs),
     /// Package repositories (ADR 0021): `wyr repo add`; the official links
     /// (ADR 0043): `wyr repo check`, `build`, `index`.
     Repo {
@@ -318,6 +324,7 @@ async fn run(cli: Cli) -> Result<(), Error> {
         Cmd::Link { cmd } => pack::run_link(cmd),
         Cmd::Repo { cmd } => pack::run_repo(cmd),
         Cmd::Image { cmd } => Ok(image::run(cmd)?),
+        Cmd::Setup(args) => setup::run(args).await,
         Cmd::Replay {
             file,
             flow,

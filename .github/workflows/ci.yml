@@ -22,7 +22,7 @@ jobs:
         with: { components: "rustfmt, clippy", targets: wasm32-unknown-unknown }
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - run: cargo fmt --all --check
-      - run: cargo build -p wyrm-core -p wyrm-link-api -p wyrm-link-guest -p wyrm-schedule -p wyrm-image --target wasm32-unknown-unknown
+      - run: cargo build -p wyrm-core -p wyrm-link-api -p wyrm-link-guest -p wyrm-schedule -p wyrm-image -p wyrm-image-web --target wasm32-unknown-unknown
       - run: cargo build -p wyrm-link-scheduler --features wasm --lib --target wasm32-unknown-unknown
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       # docs/rust-rules.md: C1–C10 and the baselined clippy lints, per file; counts only go down

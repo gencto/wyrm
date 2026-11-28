@@ -1,18 +1,24 @@
-# Copy to .github/workflows/images-release.yml (a session without the GitHub `workflow` scope cannot add it).
 # The board images release (ADR 0051 §2, §4): the base image of every board of boards.json
 # that has one (no `unavailable`), with the wyrmd of the tagged source, built by
 # `wyr image base` (packaging/images/README.md), each table checked by verify-table.sh,
-# the image of `qemu-armsr` booted by smoke.sh, then published as the assets of release
-# <tag>: per board the `.img.gz`, its `.manifest` and `.partitions.txt`, and `index.json`
-# (`wyrm-images/1`, every board in one file) with `SHA256SUMS`. The raw images are not
-# published: the index names them, and `download` names the gzip a reader takes.
-# No seed packages yet: an image carries none until the owner names them (`--seed-dir`).
+# each gzip checked as the imagers read it (gzip-readers.sh), the image of
+# `qemu-armsr` booted by smoke.sh, then published as the assets of release
+# <tag>: per board the `.img.gz`, its `.manifest` and `.partitions.txt`, `index.json`
+# (`wyrm-images/1`, every board in one file) and `catalog.json` (the links the images
+# offer: packaging/images/catalog.py from links/official.json and the seed packages the
+# images carry), with `SHA256SUMS`. The raw images are not published: the index names
+# them, and `download` names the gzip a reader takes.
+# No seed packages yet: an image carries none until the owner names them (`--seed-dir`
+# of `wyr image base`, and the same directory for catalog.py).
+# After the release, the job starts the workflow `site` on main: the site's /start/
+# then carries the images of the listed boards (tool/site/fetch_images.py). A release
+# made with the workflow's token starts no workflow by itself.
 #
 # Tag: `images-v<wyrmd version>`, or `images-v<wyrmd version>-r<n>` for another build of the
 # same broker (a new OpenWrt release, a fix of the package). The version is the one the
 # binary says (`wyrmd release-info`); another tag fails the build.
 #
-#   git tag images-v0.9.0 && git push origin images-v0.9.0   # build, test and publish
+#   git tag images-v0.9.0 && git push origin images-v0.9.0   # build, test, publish, deploy /start/
 #   Actions ▸ images-release ▸ Run workflow                   # build and test only: artifacts
 #
 # Trust: the release build takes nothing from a cache another run could have written; the
@@ -118,18 +124,35 @@ jobs:
             *) packaging/images/verify-table.sh "dist/$f" ;;
             esac
           done
-      - name: QEMU and its UEFI firmware
+      - name: QEMU, its UEFI firmware and bsdcat
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y -q qemu-system-arm qemu-efi-aarch64
+          sudo apt-get install -y -q qemu-system-arm qemu-efi-aarch64 libarchive-tools
+      - name: Gzip readers
+        # each published `.img.gz` is one gzip member with the image's size in its trailer
+        # (Raspberry Pi Imager's estimate), and gunzip, libarchive, Python and Node each
+        # give the raw image from it
+        run: |
+          set -eu
+          jq -r '.images[] | "\(.file) \(.download.file)"' dist/index.json |
+          while read -r f gz; do
+            packaging/images/gzip-readers.sh "dist/$f" "dist/$gz"
+          done
       - name: Smoke test of the qemu-armsr image
         run: packaging/images/smoke.sh --base dist --wyr target/release/wyr --work "$RUNNER_TEMP/smoke"
+      - name: The catalog of links
+        # what the page and `wyr image build --choices` offer: the built-in drivers, the
+        # broker's own services, and the seed packages the images carry (none yet)
+        run: |
+          set -eu
+          python3 packaging/images/test_catalog.py
+          python3 packaging/images/catalog.py --out dist/catalog.json
       - name: What is published
         run: |
           set -eu
           mkdir out
-          cp dist/*.img.gz dist/*.manifest dist/*.partitions.txt dist/index.json out/
-          (cd out && sha256sum ./*.img.gz ./*.manifest ./*.partitions.txt index.json) > SHA256SUMS
+          cp dist/*.img.gz dist/*.manifest dist/*.partitions.txt dist/index.json dist/catalog.json out/
+          (cd out && sha256sum ./*.img.gz ./*.manifest ./*.partitions.txt index.json catalog.json) > SHA256SUMS
           mv SHA256SUMS out/
           ls -l out
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -147,7 +170,7 @@ jobs:
           if-no-files-found: ignore
 
   publish:
-    # The only job that writes: the release of the tag.
+    # The only job that writes: the release of the tag, then a run of `site` on main.
     needs: images
     if: startsWith(github.ref, 'refs/tags/images-v')
     runs-on: ubuntu-latest
@@ -156,6 +179,8 @@ jobs:
       # Build provenance (SLSA): `gh attestation verify <file> -R <repo>`.
       id-token: write
       attestations: write
+      # `gh workflow run site.yml`
+      actions: write
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with: { name: images, path: out }
@@ -164,6 +189,7 @@ jobs:
           subject-path: |
             out/*.img.gz
             out/index.json
+            out/catalog.json
       - env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -172,4 +198,10 @@ jobs:
           set -eu
           gh release create "$TAG" out/* --repo "$REPO" --verify-tag --latest=false \
             --title "Board images $TAG" \
-            --notes "Base images of the boards (ADR 0051): write one with \`wyr image build\` (docs/operations.md, \"Board images\"). index.json binds each image to its config region."
+            --notes "Base images of the boards (ADR 0051): build a card on https://wyrm.gencto.uk/start/, or write one with \`wyr image build\` (docs/operations.md, \"Board images\"). index.json binds each image to its config region; catalog.json lists the links the images offer."
+      - name: Deploy the site with the images
+        # the site's /start/ takes the listed boards of the latest images-v* release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: gh workflow run site.yml --repo "$REPO" --ref main

@@ -327,3 +327,99 @@ fn setup_proof_binds_the_presented_ca() {
     assert_eq!(field(&plain, "setup_proof"), None);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// ADR 0051 §3, `wyr setup` (`wyrm_gateway_client::setup`) against a served gateway: the
+/// first `/api/info` is read without trust, its proof checked with the code, the CA pinned
+/// and the certificate checked against one of its names though the client connects to an
+/// address the certificate does not carry (127.0.0.1, as through a forward); then the first
+/// admin is made and logs in. A wrong code sends nothing and leaves the setup pending; a
+/// setup taken meanwhile and a broker without one say so.
+#[tokio::test(flavor = "multi_thread")]
+async fn wyr_setup_proves_the_ca_then_makes_the_first_admin() {
+    use wyrm_gateway::setup::new_code;
+    use wyrm_gateway_client::setup::{begin, SetupError, HASH_TIMEOUT};
+    let dir = std::env::temp_dir().join(format!("wyrm-gateway-setup-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let (pem, key, ca) = self_signed(&["localhost"]);
+    let (cert, key_file) = (dir.join("gw.crt"), dir.join("gw.key"));
+    std::fs::write(&cert, &pem).unwrap();
+    std::fs::write(&key_file, &key).unwrap();
+    let mut cfg = GatewayConfig::new(SITE, dir.join("state"), "127.0.0.1:0".parse().unwrap());
+    cfg.tls = Some((cert, key_file));
+    cfg.info.ca = Some(ca.clone());
+    let gw = Gateway::open(cfg, b"k").unwrap();
+    let (code, hash) = new_code().unwrap();
+    assert!(gw.import_setup(&wyrm_core::hex::encode(hash)).unwrap());
+    let session = zenoh::open(isolated_config()).await.unwrap();
+    let (stop, rx) = tokio::sync::oneshot::channel::<()>();
+    let server = tokio::spawn(gw.clone().serve(session, async {
+        let _ = rx.await;
+    }));
+    let url = format!("https://127.0.0.1:{}", gw.local_addr().await.port());
+    // passwords of this run: random text of a setup code's length
+    let password = new_code().unwrap().0;
+    let other_password = new_code().unwrap().0;
+
+    // a mistyped code: refused before anything is sent
+    let (other, _) = new_code().unwrap();
+    assert!(matches!(
+        begin(&url, &other).await,
+        Err(SetupError::ProofMismatch)
+    ));
+    assert!(gw.setup_pending(), "nothing was sent: the setup waits");
+
+    // the code as typed: the CA proven and pinned, checked against `localhost`
+    let pending = begin(&url, &code.to_lowercase()).await.unwrap();
+    assert_eq!(pending.offer().ca_der, ca);
+    assert_eq!(pending.name(), "localhost");
+    let admin = pending
+        .finish(&code, "first", &password, HASH_TIMEOUT)
+        .await
+        .unwrap();
+    let me = admin.me().await.unwrap();
+    assert_eq!(me.sub, "first");
+    assert!(me.roles.iter().any(|r| r == "admin"), "{:?}", me.roles);
+    assert!(!gw.setup_pending());
+
+    // the setup is used up
+    assert!(matches!(begin(&url, &code).await, Err(SetupError::NoSetup)));
+
+    // a setup taken between the proof and the request: 409
+    let (code2, hash2) = new_code().unwrap();
+    let dir2 = dir.join("second");
+    let (pem2, key2, ca2) = self_signed(&["localhost"]);
+    std::fs::create_dir_all(&dir2).unwrap();
+    std::fs::write(dir2.join("gw.crt"), &pem2).unwrap();
+    std::fs::write(dir2.join("gw.key"), &key2).unwrap();
+    let mut cfg2 = GatewayConfig::new(SITE, dir2.join("state"), "127.0.0.1:0".parse().unwrap());
+    cfg2.tls = Some((dir2.join("gw.crt"), dir2.join("gw.key")));
+    cfg2.info.ca = Some(ca2);
+    let gw2 = Gateway::open(cfg2, b"k").unwrap();
+    assert!(gw2.import_setup(&wyrm_core::hex::encode(hash2)).unwrap());
+    let session2 = zenoh::open(isolated_config()).await.unwrap();
+    let (stop2, rx2) = tokio::sync::oneshot::channel::<()>();
+    let server2 = tokio::spawn(gw2.clone().serve(session2, async {
+        let _ = rx2.await;
+    }));
+    let url2 = format!("https://127.0.0.1:{}", gw2.local_addr().await.port());
+    let pending = begin(&url2, &code2).await.unwrap();
+    gw2.complete_setup(&code2, "someone", &other_password)
+        .unwrap();
+    assert!(matches!(
+        pending
+            .finish(&code2, "first", &password, HASH_TIMEOUT)
+            .await,
+        Err(SetupError::Taken)
+    ));
+
+    for (stop, server) in [(stop, server), (stop2, server2)] {
+        let _ = stop.send(());
+        tokio::time::timeout(Duration::from_secs(10), server)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
