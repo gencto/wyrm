@@ -6,16 +6,20 @@ name: docker-images
 # Shape (Docker's "distribute the build across runners"): one job per platform builds every
 # image of that platform from one build stage (`docker buildx bake`, deploy/docker/docker-bake.hcl)
 # and pushes each image by digest, with provenance (mode=max) and an SBOM; one job then merges
-# the digests of the four platforms into one manifest list per image and tags it.
+# the digests of the four platforms into one manifest list per image and tags it
+# (deploy/docker/merge-images.sh: an image whose version tag exists is skipped, so a re-run
+# finishes what Docker Hub's pull rate limit stopped).
 #
 #   git tag docker-v0.1.0 && git push origin docker-v0.1.0   # build and push 0.1.0, 0.1, latest
 #   Actions ▸ docker-images ▸ Run workflow (push off)         # build every platform, push nothing
 #   a pull request that changes deploy/docker/**              # build linux/arm/v7, push nothing
 #
-# A push needs the repository secrets DOCKERHUB_USERNAME and DOCKERHUB_TOKEN (a Docker Hub access
-# token with Read & Write); without them the run fails in its first job. The tag must name the
-# workspace version (Cargo.toml), the version `wyrmd --version` reports. No `${{ }}` expression
-# stands in a `run:` line: values reach the scripts through `env:`.
+# A push needs the repository secret DOCKERHUB_TOKEN (a Docker Hub access token of the account
+# NAMESPACE with Read & Write); without it the run fails in its first job. The account name is
+# NAMESPACE below, not a secret: GitHub masks a secret's value in the whole log of a job that
+# reads it, and the image names would read `***/wyrmd`. The tag must name the workspace version
+# (Cargo.toml), the version `wyrmd --version` reports. No `${{ }}` expression stands in a `run:`
+# line: values reach the scripts through `env:`.
 on:
   push:
     tags: ["docker-v*"]
@@ -35,6 +39,7 @@ concurrency:
   group: docker-images-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 env:
+  # the Docker Hub account and the namespace of every image (not a secret: see above)
   NAMESPACE: genctouk
 jobs:
   plan:
@@ -57,7 +62,6 @@ jobs:
           EVENT: ${{ github.event_name }}
           REF: ${{ github.ref }}
           INPUT_PUSH: ${{ inputs.push }}
-          HUB_USER: ${{ secrets.DOCKERHUB_USERNAME }}
           HUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
           set -euo pipefail
@@ -78,8 +82,8 @@ jobs:
               echo "::error::tag docker-v$tag, but the workspace version is $version: tag docker-v$version"
               exit 1
             fi
-            if [ -z "$HUB_USER" ] || [ -z "$HUB_TOKEN" ]; then
-              echo "::error::secrets DOCKERHUB_USERNAME and DOCKERHUB_TOKEN are required to push (Settings ▸ Secrets and variables ▸ Actions)"
+            if [ -z "$HUB_TOKEN" ]; then
+              echo "::error::secret DOCKERHUB_TOKEN (an access token of $NAMESPACE) is required to push (Settings ▸ Secrets and variables ▸ Actions)"
               exit 1
             fi
           fi
@@ -132,7 +136,7 @@ jobs:
       - if: needs.plan.outputs.push == 'true'
         uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          username: ${{ env.NAMESPACE }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       # The layer cache (GHA, one scope per platform) keeps the toolchain layers, and the whole
       # build when the sources are the same (a re-run, or a tag on a commit that a build-only run
@@ -177,28 +181,42 @@ jobs:
           name: digests-${{ matrix.slug }}
           path: digests/${{ matrix.slug }}.json
           if-no-files-found: error
-          retention-days: 1
+          # kept for a week: "Re-run failed jobs" of `merge` reads them (deploy/docker/README.md)
+          retention-days: 7
 
   merge:
     # One manifest list per image from the digests of every platform, tagged <version>,
-    # <major>.<minor> and latest. An image that is missing on a platform fails the run.
+    # <major>.<minor> and latest, by deploy/docker/merge-images.sh: wyrmd first, then the tools,
+    # the links, the simulators. An image whose <version> tag exists is skipped (checked with a
+    # HEAD, which Docker Hub does not count as a pull); a 429 from Docker Hub's pull rate limit
+    # is waited out (2, 5, 10, 20 min; 90 min in all) and the create tried again. An image that is
+    # missing on a platform, or that still cannot be published, fails the run, which names the
+    # images not reached.
     needs: [plan, build]
     if: needs.plan.outputs.push == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    permissions: {}
+    # the waits (WAIT_BUDGET, 90 min) and a few seconds per image
+    timeout-minutes: 120
+    permissions:
+      contents: read
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: deploy/docker
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with: { pattern: "digests-*", path: digests, merge-multiple: true }
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          username: ${{ env.NAMESPACE }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - env:
+          HUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
           TAGS: ${{ needs.plan.outputs.tags }}
           VERSION: ${{ needs.plan.outputs.version }}
           MATRIX: ${{ needs.plan.outputs.matrix }}
+          WAIT_BUDGET: "5400"
         run: |
           set -euo pipefail
           platforms="$(jq length <<<"$MATRIX")"
@@ -207,17 +225,6 @@ jobs:
           jq -s 'map(to_entries[].value) | group_by(.name)
                  | map({key: .[0].name, value: map(.digest)}) | from_entries' digests/*.json > images.json
           jq . images.json
-          for name in $(jq -r 'keys[]' images.json); do
-            n="$(jq --arg n "$name" '.[$n] | length' images.json)"
-            if [ "$n" -ne "$platforms" ]; then
-              echo "::error::$name: $n of $platforms platforms"
-              exit 1
-            fi
-            args=()
-            for t in $TAGS; do args+=(-t "$name:$t"); done
-            for d in $(jq -r --arg n "$name" '.[$n][]' images.json); do args+=("$name@$d"); done
-            docker buildx imagetools create "${args[@]}"
-          done
-          for name in $(jq -r 'keys[]' images.json); do
-            docker buildx imagetools inspect "$name:$VERSION"
-          done
+          PLATFORMS="$(jq -r 'map(.platform) | join(" ")' <<<"$MATRIX")"
+          export PLATFORMS
+          deploy/docker/merge-images.sh images.json
