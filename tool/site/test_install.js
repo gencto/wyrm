@@ -67,7 +67,9 @@ function pageData() {
   return m[1];
 }
 
-function load() {
+// `published`: run the script as it will be once the container images are on
+// Docker Hub (IMAGES_PUBLISHED true), so both forms of compose.yaml are checked.
+function load(published) {
   const byId = {};
   const data = node('script');
   data.text = pageData();
@@ -85,7 +87,11 @@ function load() {
   };
   let api = null;
   const window = { wyrmInstallTest(a) { api = a; } };
-  new Function('window', 'document', fs.readFileSync(SCRIPT, 'utf8'))(window, document);
+  let source = fs.readFileSync(SCRIPT, 'utf8');
+  const flag = /^ {2}var IMAGES_PUBLISHED = (true|false);$/m;
+  if (!flag.test(source)) throw new Error('install.js has no line `var IMAGES_PUBLISHED = true|false;`');
+  source = source.replace(flag, `  var IMAGES_PUBLISHED = ${published};`);
+  new Function('window', 'document', source)(window, document);
   if (!api) throw new Error('install.js did not call the test hook');
   return api;
 }
@@ -111,7 +117,8 @@ function keyPaths(value, prefix, out) {
 }
 
 // --------------------------------------------------------------------- run
-const api = load();
+const apiLocal = load(false);
+const api = apiLocal;
 const configRs = fs.readFileSync(path.join(REPO, 'crates/wyrmd/src/lib.rs'), 'utf8');
 const official = JSON.parse(fs.readFileSync(path.join(REPO, 'links/official.json'), 'utf8'));
 const builtin = new Set(official.links.map((l) => (l.forms || {}).builtin).filter(Boolean));
@@ -141,78 +148,110 @@ const sets = api.PRESETS.map((p) => ({ name: p.id, preset: p.id, picked: null })
 sets.push({ name: 'every link', preset: 'broker', picked: api.LINKS.map((l) => l.id) });
 for (const l of api.LINKS) sets.push({ name: `only ${l.id}`, preset: 'broker', picked: [l.id] });
 
-for (const p of api.PATHS) {
-  for (const t of api.TARGETS[p.id].filter((x) => !x.off)) {
-    for (const mode of ['inside', 'separate']) {
-      for (const set of sets) {
-        const where = `${p.id} / ${t.id} / ${mode} / ${set.name}`;
-        Object.assign(api.state, { path: p.id, target: t.id, mode, preset: set.preset, picked: set.picked, site: 'plant' });
-        let m;
-        try {
-          api.render();
-          m = api.model();
-        } catch (e) {
-          errors.push(`${where}: ${e.stack || e}`);
-          continue;
-        }
-        count += 1;
-        let cfg;
-        try {
-          cfg = parseConfig(m.config);
-        } catch (e) {
-          errors.push(`${where}: wyrmd.json5 does not parse: ${e.message}\n${m.config}`);
-          continue;
-        }
-        if (/insecure_plaintext/.test(m.config)) errors.push(`${where}: sets insecure_plaintext`);
-        for (const k of keyPaths(cfg, '', new Set())) {
-          if (!ALLOWED.has(k)) errors.push(`${where}: key ${k} is not in the list of the test`);
-        }
-        for (const k of Object.keys(cfg)) {
-          if (!new RegExp(`^\\s*pub ${k}:`, 'm').test(configRs)) {
-            errors.push(`${where}: key ${k} is not a field of the broker's config`);
+// A compose file names only images that deploy/docker/docker-bake.hcl makes: the
+// broker, the tools and the links of its LINKS, under `wyrm/…:local` (built here,
+// with `build:`) or `genctouk/…:<version>` (pulled, without `build:`), each for the
+// platform of the target, one of the four the images are made for.
+const bake = fs.readFileSync(path.join(REPO, 'deploy/docker/docker-bake.hcl'), 'utf8');
+const bakeLinks = /variable "LINKS" \{\s*default = "([^"]*)"/.exec(bake);
+if (!bakeLinks) throw new Error('deploy/docker/docker-bake.hcl has no default of LINKS');
+const imageLinks = new Set(bakeLinks[1].split(/\s+/).filter(Boolean));
+const VERSION = JSON.parse(pageData()).version;
+const PLATFORMS = new Set(['linux/amd64', 'linux/arm64', 'linux/arm/v7', 'linux/arm/v6']);
+let composeChecked = 0;
+function checkCompose(where, compose, t, published) {
+  composeChecked += 1;
+  const images = [...compose.matchAll(/^ +image: (\S+)$/gm)].map((x) => x[1]).filter((i) => !i.startsWith('alpine:'));
+  const [ns, tag] = published ? ['genctouk', VERSION] : ['wyrm', 'local'];
+  for (const i of images) {
+    const m = /^([a-z0-9]+)\/(wyrmd|wyrm-tools|wyrm-link-([a-z0-9]+)):(.+)$/.exec(i);
+    if (!m || m[1] !== ns || m[4] !== tag) errors.push(`${where}: image ${i} is not ${ns}/<name>:${tag}`);
+    else if (m[3] && !imageLinks.has(m[3])) errors.push(`${where}: image ${i}: the link ${m[3]} is not in LINKS of docker-bake.hcl`);
+  }
+  if (!images.some((i) => /\/wyrmd:/.test(i))) errors.push(`${where}: no wyrmd image`);
+  if (published === /^ +build:/m.test(compose)) errors.push(`${where}: ${published ? 'pulls published images but builds' : 'builds no image'}`);
+  if (!PLATFORMS.has(t.t)) errors.push(`${where}: target ${t.t} is not a platform of the images`);
+  for (const [, plat] of compose.matchAll(/^ +platform: (\S+)$/gm)) {
+    if (plat !== t.t) errors.push(`${where}: platform ${plat}, target ${t.t}`);
+  }
+}
+
+for (const [published, api] of [[false, apiLocal], [true, load(true)]]) {
+  for (const p of api.PATHS) {
+    for (const t of api.TARGETS[p.id].filter((x) => !x.off)) {
+      for (const mode of ['inside', 'separate']) {
+        for (const set of sets) {
+          const where = `${p.id} / ${t.id} / ${mode} / ${set.name}${published ? ' / images published' : ''}`;
+          Object.assign(api.state, { path: p.id, target: t.id, mode, preset: set.preset, picked: set.picked, site: 'plant' });
+          let m;
+          try {
+            api.render();
+            m = api.model();
+          } catch (e) {
+            errors.push(`${where}: ${e.stack || e}`);
+            continue;
           }
-        }
-        const setupFile = (cfg.gateway || {}).setup_file;
-        if (setupFile !== undefined) {
-          withSetup += 1;
-          if (setupFile !== SETUP_FILE) {
-            errors.push(`${where}: gateway.setup_file is ${setupFile}, wyrm_image::SETUP_FILE is ${SETUP_FILE}`);
+          count += 1;
+          let cfg;
+          try {
+            cfg = parseConfig(m.config);
+          } catch (e) {
+            errors.push(`${where}: wyrmd.json5 does not parse: ${e.message}\n${m.config}`);
+            continue;
           }
-        }
-        const seedDir = (cfg.packages || {}).seed_dir;
-        if (seedDir !== undefined) {
-          withSeed += 1;
-          if (seedDir !== SEED_DIR) {
-            errors.push(`${where}: packages.seed_dir is ${seedDir}, wyrm_image::SEED_DIR is ${SEED_DIR}`);
+          if (/insecure_plaintext/.test(m.config)) errors.push(`${where}: sets insecure_plaintext`);
+          for (const k of keyPaths(cfg, '', new Set())) {
+            if (!ALLOWED.has(k)) errors.push(`${where}: key ${k} is not in the list of the test`);
           }
+          for (const k of Object.keys(cfg)) {
+            if (!new RegExp(`^\\s*pub ${k}:`, 'm').test(configRs)) {
+              errors.push(`${where}: key ${k} is not a field of the broker's config`);
+            }
+          }
+          const setupFile = (cfg.gateway || {}).setup_file;
+          if (setupFile !== undefined) {
+            withSetup += 1;
+            if (setupFile !== SETUP_FILE) {
+              errors.push(`${where}: gateway.setup_file is ${setupFile}, wyrm_image::SETUP_FILE is ${SETUP_FILE}`);
+            }
+          }
+          const seedDir = (cfg.packages || {}).seed_dir;
+          if (seedDir !== undefined) {
+            withSeed += 1;
+            if (seedDir !== SEED_DIR) {
+              errors.push(`${where}: packages.seed_dir is ${seedDir}, wyrm_image::SEED_DIR is ${SEED_DIR}`);
+            }
+          }
+          const links = cfg.links || {};
+          const modes = Object.values(links).map((l) => l.mode).filter(Boolean);
+          for (const [id, l] of Object.entries(links)) {
+            if (!builtin.has(l.driver)) errors.push(`${where}: link ${id}: driver ${l.driver} is not built in`);
+            if (l.mode && !['process', 'external'].includes(l.mode)) errors.push(`${where}: link ${id}: mode ${l.mode}`);
+          }
+          const processPackage = m.pkgs.some((l) => l.f.k === 'pkgproc');
+          const needsTls = modes.length > 0 || processPackage;
+          const hasTls = (cfg.listen || []).some((e) => e.startsWith('tls/'));
+          if (modes.includes('process') || processPackage) withProcess += 1;
+          if (needsTls && !hasTls) {
+            errors.push(`${where}: a link runs as a process or outside the broker, and listen has no tls/: ${JSON.stringify(cfg.listen)}`);
+          }
+          for (const e of cfg.listen || []) {
+            if (e.startsWith('tcp/') && !e.startsWith('tcp/127.0.0.1:')) errors.push(`${where}: plaintext listener ${e} is not on loopback`);
+          }
+          if (p.st === 'planned') {
+            const live = m.commands.split('\n').filter((l) => l.trim() && !l.startsWith('#'));
+            if (live.length) errors.push(`${where}: a planned path shows a command to run: ${live[0]}`);
+          }
+          if (p.id === 'docker' && !m.compose) errors.push(`${where}: no compose.yaml`);
+          if (p.id === 'docker' && m.compose) checkCompose(where, m.compose, t, published);
         }
-        const links = cfg.links || {};
-        const modes = Object.values(links).map((l) => l.mode).filter(Boolean);
-        for (const [id, l] of Object.entries(links)) {
-          if (!builtin.has(l.driver)) errors.push(`${where}: link ${id}: driver ${l.driver} is not built in`);
-          if (l.mode && !['process', 'external'].includes(l.mode)) errors.push(`${where}: link ${id}: mode ${l.mode}`);
-        }
-        const processPackage = m.pkgs.some((l) => l.f.k === 'pkgproc');
-        const needsTls = modes.length > 0 || processPackage;
-        const hasTls = (cfg.listen || []).some((e) => e.startsWith('tls/'));
-        if (modes.includes('process') || processPackage) withProcess += 1;
-        if (needsTls && !hasTls) {
-          errors.push(`${where}: a link runs as a process or outside the broker, and listen has no tls/: ${JSON.stringify(cfg.listen)}`);
-        }
-        for (const e of cfg.listen || []) {
-          if (e.startsWith('tcp/') && !e.startsWith('tcp/127.0.0.1:')) errors.push(`${where}: plaintext listener ${e} is not on loopback`);
-        }
-        if (p.st === 'planned') {
-          const live = m.commands.split('\n').filter((l) => l.trim() && !l.startsWith('#'));
-          if (live.length) errors.push(`${where}: a planned path shows a command to run: ${live[0]}`);
-        }
-        if (p.id === 'docker' && !m.compose) errors.push(`${where}: no compose.yaml`);
       }
     }
   }
 }
 
 if (withProcess === 0) errors.push('no combination had a process link: the test checks nothing');
+if (composeChecked === 0) errors.push('no compose file was checked: the test of the images checks nothing');
 if (withSetup === 0) errors.push('no config named a setup file: the test of its path checks nothing');
 if (withSeed === 0) errors.push('no config named a seed directory: the test of its path checks nothing');
 for (const e of errors.slice(0, 40)) console.error(`install: ${e}`);

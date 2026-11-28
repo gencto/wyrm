@@ -28,16 +28,23 @@
   // `<id>: { enabled }` in wyrmd.json5 (crates/wyrmd: SchedulerSection,
   // DqlSection, AlarmSection, UplinkSection).
   var SERVICES = ['scheduler', 'dql', 'alarm', 'uplink'];
-  // Compressed size of the `wyrm/wyrmd` image and of one link image, MiB,
+  // Compressed size of the `wyrmd` image and of one link image, MiB,
   // measured for linux/arm64 (deploy/docker/README.md, "Measured").
   var BROKER_MIB = 26.6;
   var LINK_IMAGE_MIB = 6.7;
+  // The container images (deploy/docker/README.md): `<namespace>/wyrmd`,
+  // `<namespace>/wyrm-link-<id>`, `<namespace>/wyrm-tools`. Until the first
+  // `docker-v<version>` release is on Docker Hub, the compose file builds them
+  // in a clone as `wyrm/…:local`. Set IMAGES_PUBLISHED to true once
+  // `genctouk/wyrmd:<version>` exists: the file then pulls `genctouk/…:<version>`.
+  var HUB = 'genctouk';
+  var IMAGES_PUBLISHED = false;
   var CATEGORIES = ['Equipment', 'File stores', 'History sync', 'Apps', 'Messaging', 'Test'];
 
   var PATHS = [
     { id: 'image', t: 'USB or SD image', s: 'Flash a board. It boots straight into wyrmd.', st: 'planned' },
     { id: 'archive', t: 'Archive for an OS', s: 'One binary for Linux or macOS: unpack, set a password, run.', st: 'planned' },
-    { id: 'docker', t: 'Docker', s: 'A compose file: the broker and its links as small scratch images.', st: 'source' },
+    { id: 'docker', t: 'Docker', s: 'A compose file: the broker and its links as small scratch images.', st: IMAGES_PUBLISHED ? 'available' : 'source' },
     { id: 'source', t: 'From source', s: 'cargo build on a Linux or macOS machine with Rust.', st: 'available' }
   ];
   // `rel`: the target name of a broker archive, the Rust target triple
@@ -59,7 +66,9 @@
     ],
     docker: [
       { id: 'amd64', t: 'linux/amd64', s: 'x86-64 hosts', host: 'linux-x86_64' },
-      { id: 'arm64', t: 'linux/arm64', s: 'ARM boards, Apple silicon', host: 'linux-aarch64' }
+      { id: 'arm64', t: 'linux/arm64', s: 'ARM boards, Apple silicon', host: 'linux-aarch64' },
+      { id: 'armv7', t: 'linux/arm/v7', s: 'ARMv7 32-bit boards; WASM on an interpreter', host: 'linux-armv7' },
+      { id: 'armv6', t: 'linux/arm/v6', s: 'ARMv6 (Pi Zero/1); WASM on an interpreter', host: 'linux-armv6' }
     ],
     source: [{ id: 'any', t: 'This machine', s: 'Linux or macOS with Rust 1.97+', host: null }]
   };
@@ -90,7 +99,7 @@
       driver: forms.builtin || null,
       wasm: forms.wasm || null,
       process: forms.process || null,
-      // `wyrm/link-<id>` is built from the crate `wyrm-link-<id>` (deploy/docker/Dockerfile)
+      // the image `wyrm-link-<id>` is built from the crate `wyrm-link-<id>` (deploy/docker/Dockerfile)
       container: !!forms.builtin && !!forms.process && l.crate === 'wyrm-link-' + l.id
     };
   });
@@ -172,6 +181,9 @@
     var site = siteOk ? st.site : 'plant';
     var docker = path === 'docker';
     var image = path === 'image';
+    // A container image by name: pulled from Docker Hub once published, else built here.
+    var pub = IMAGES_PUBLISHED;
+    var img = function (name) { return pub ? HUB + '/' + name + ':' + V : 'wyrm/' + name + ':local'; };
 
     // The release file of a link's package in one form, if the release has it.
     var asset = function (l, kind) {
@@ -266,11 +278,19 @@
     var Y = [];
     if (docker) {
       var links = conts.map(function (l) { return l.id; }).join(' ');
-      var plat = 'linux/' + (tgt.id === 'arm64' ? 'arm64' : 'amd64');
+      var plat = tgt.t;
       Y.push('# compose.yaml · site ' + site + ' · ' + plat);
-      Y.push('# In a clone of github.com/gencto/wyrm, beside wyrmd.json5:');
-      Y.push("#   export WYRM_GATEWAY_ADMIN_PASSWORD='<a password>'");
-      Y.push('#   docker compose up -d --build');
+      if (pub) {
+        Y.push('# Beside wyrmd.json5; the images are ' + HUB + '/*:' + V + ' from Docker Hub:');
+        Y.push("#   export WYRM_GATEWAY_ADMIN_PASSWORD='<a password>'");
+        Y.push('#   docker compose up -d');
+      } else {
+        Y.push('# In a clone of github.com/gencto/wyrm, beside wyrmd.json5:');
+        Y.push("#   export WYRM_GATEWAY_ADMIN_PASSWORD='<a password>'");
+        Y.push('#   docker compose up -d --build');
+        Y.push('# Built here until the first docker-v release is on Docker Hub; then this file');
+        Y.push('# pulls ' + HUB + '/wyrmd:' + V + ' and ' + HUB + '/wyrm-link-<link>:' + V + ' instead.');
+      }
       Y.push('# The gateway listens on the broker\'s loopback: use the tools service, or see');
       Y.push('# deploy/docker/README.md for Studio on this host.');
       Y.push('x-hardened: &hardened');
@@ -278,10 +298,12 @@
       Y.push('  cap_drop: [ALL]');
       Y.push('  security_opt: ["no-new-privileges:true"]');
       Y.push('  tmpfs: ["/tmp"]');
-      Y.push('x-build: &build');
-      Y.push('  context: .');
-      Y.push('  dockerfile: deploy/docker/Dockerfile');
-      Y.push('  args: { LINKS: "' + links + '", SIMS: "" }');
+      if (!pub) {
+        Y.push('x-build: &build');
+        Y.push('  context: .');
+        Y.push('  dockerfile: deploy/docker/Dockerfile');
+        Y.push('  args: { LINKS: "' + links + '", SIMS: "" }');
+      }
       if (conts.length) {
         Y.push('x-link-env: &link-env');
         Y.push('  WYRM_SITE: ' + site);
@@ -295,8 +317,8 @@
       Y.push('services:');
       Y.push('  wyrmd:');
       Y.push('    <<: *hardened');
-      Y.push('    image: wyrm/wyrmd:local');
-      Y.push('    build: { <<: *build, target: wyrmd }');
+      Y.push('    image: ' + img('wyrmd'));
+      if (!pub) Y.push('    build: { <<: *build, target: wyrmd }');
       Y.push('    platform: ' + plat);
       Y.push('    environment:');
       Y.push('      WYRM_GATEWAY_ADMIN_PASSWORD: ${WYRM_GATEWAY_ADMIN_PASSWORD:?set the gateway admin password}');
@@ -308,7 +330,7 @@
         Y.push('');
         Y.push('  # hands each link only its own certificate, key and token');
         Y.push('  provision:');
-        Y.push('    image: alpine:3.22');
+        Y.push('    image: alpine:3.24');
         Y.push('    volumes: [wyrm-data:/wyrm:ro, link-files:/out]');
         Y.push('    environment: { LINKS: "' + links + '" }');
         Y.push('    command:');
@@ -332,8 +354,8 @@
           Y.push('');
           Y.push('  link-' + l.id + ':');
           Y.push('    <<: *hardened');
-          Y.push('    image: wyrm/link-' + l.id + ':local');
-          Y.push('    build: { <<: *build, target: link, args: { LINKS: "' + links + '", SIMS: "", LINK: ' + l.id + ' } }');
+          Y.push('    image: ' + img('wyrm-link-' + l.id));
+          if (!pub) Y.push('    build: { <<: *build, target: link, args: { LINKS: "' + links + '", SIMS: "", LINK: ' + l.id + ' } }');
           Y.push('    platform: ' + plat);
           Y.push('    environment: { <<: *link-env, WYRM_LINK_ID: ' + l.id + ' }');
           Y.push('    volumes:');
@@ -347,8 +369,9 @@
       Y.push('');
       Y.push('  # wyr and wyrm-agent beside the gateway: docker compose run --rm tools');
       Y.push('  tools:');
-      Y.push('    image: wyrm/tools:local');
-      Y.push('    build: { <<: *build, target: tools }');
+      Y.push('    image: ' + img('wyrm-tools'));
+      if (!pub) Y.push('    build: { <<: *build, target: tools }');
+      Y.push('    platform: ' + plat);
       Y.push('    network_mode: service:wyrmd');
       Y.push('    environment:');
       Y.push('      WYR_GATEWAY_PASSWORD: ${WYRM_GATEWAY_ADMIN_PASSWORD:?set the gateway admin password}');
@@ -397,15 +420,22 @@
       status = 'planned';
     } else if (docker) {
       file = 'compose.yaml + wyrmd.json5';
-      commands = [
+      commands = (pub ? [
+        '# save compose.yaml and wyrmd.json5 from this page in one directory',
+        "export WYRM_GATEWAY_ADMIN_PASSWORD='<a password>'",
+        'docker compose up -d',
+        'docker compose run --rm tools      # wyr and wyrm-agent'
+      ] : [
         'git clone https://github.com/gencto/wyrm && cd wyrm',
         '# save compose.yaml and wyrmd.json5 from this page here',
         "export WYRM_GATEWAY_ADMIN_PASSWORD='<a password>'",
         'docker compose up -d --build',
         'docker compose run --rm tools      # wyr and wyrm-agent'
-      ].join('\n');
-      note = 'Works today: the images are built from the repository. A cold build of the broker and every link takes about 90 min on 2 jobs (Apple M4 Max); this file builds only the links you picked. Published images are planned.';
-      status = 'source';
+      ]).join('\n');
+      note = pub
+        ? 'Works today: the images ' + HUB + '/wyrmd and ' + HUB + '/wyrm-link-<link> ' + V + ' are on Docker Hub for linux/amd64, linux/arm64, linux/arm/v7 and linux/arm/v6.'
+        : 'Works today: the images are built from the repository. A cold build of the broker and every link takes about 90 min on 2 jobs (Apple M4 Max); this file builds only the links you picked. Images on Docker Hub (' + HUB + '/wyrmd, ' + HUB + '/wyrm-link-<link>) come with the first docker-v release.';
+      status = pub ? 'available' : 'source';
     } else {
       file = 'wyrmd.json5';
       commands = [
@@ -420,7 +450,7 @@
     }
     var sizeRows = [];
     if (path !== 'source') {
-      sizeRows.push({ k: docker ? 'wyrm/wyrmd image' : 'wyrmd', v: '≈ ' + mib(BROKER_MIB) });
+      sizeRows.push({ k: docker ? 'wyrmd image' : 'wyrmd', v: '≈ ' + mib(BROKER_MIB) });
       if (docker) sizeRows.push({ k: plural(conts.length, 'link image'), v: (conts.length ? '≈ ' : '') + mib(conts.length * LINK_IMAGE_MIB) });
       var pk = pkgs.reduce(function (a, l) { return a + l.f.mb; }, 0);
       sizeRows.push({ k: plural(pkgs.length, 'package') + (docker ? ', from the repository' : ''), v: mib(pk) });

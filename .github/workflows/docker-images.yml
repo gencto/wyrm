@@ -1,0 +1,223 @@
+name: docker-images
+# The container images on Docker Hub (deploy/docker/README.md): genctouk/wyrmd,
+# genctouk/wyrm-link-<link>, genctouk/wyrm-sim-<sim> and genctouk/wyrm-tools, each for
+# linux/amd64, linux/arm64, linux/arm/v7 and linux/arm/v6.
+#
+# Shape (Docker's "distribute the build across runners"): one job per platform builds every
+# image of that platform from one build stage (`docker buildx bake`, deploy/docker/docker-bake.hcl)
+# and pushes each image by digest, with provenance (mode=max) and an SBOM; one job then merges
+# the digests of the four platforms into one manifest list per image and tags it.
+#
+#   git tag docker-v0.1.0 && git push origin docker-v0.1.0   # build and push 0.1.0, 0.1, latest
+#   Actions ▸ docker-images ▸ Run workflow (push off)         # build every platform, push nothing
+#   a pull request that changes deploy/docker/**              # build linux/arm/v7, push nothing
+#
+# A push needs the repository secrets DOCKERHUB_USERNAME and DOCKERHUB_TOKEN (a Docker Hub access
+# token with Read & Write); without them the run fails in its first job. The tag must name the
+# workspace version (Cargo.toml), the version `wyrmd --version` reports. No `${{ }}` expression
+# stands in a `run:` line: values reach the scripts through `env:`.
+on:
+  push:
+    tags: ["docker-v*"]
+  pull_request:
+    paths:
+      - "deploy/docker/**"
+      - ".dockerignore"
+      - ".github/workflows/docker-images.yml"
+  workflow_dispatch:
+    inputs:
+      push:
+        description: "Push to Docker Hub (only when run from a docker-v* tag)"
+        type: boolean
+        default: false
+permissions: {}
+concurrency:
+  group: docker-images-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+env:
+  NAMESPACE: genctouk
+jobs:
+  plan:
+    # What this run builds and whether it pushes; a push run without its secrets or with a tag
+    # that is not the workspace version stops here.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      push: ${{ steps.plan.outputs.push }}
+      version: ${{ steps.plan.outputs.version }}
+      tags: ${{ steps.plan.outputs.tags }}
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          INPUT_PUSH: ${{ inputs.push }}
+          HUB_USER: ${{ secrets.DOCKERHUB_USERNAME }}
+          HUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          version="$(sed -n '/^\[workspace.package\]/,/^\[/s/^version *= *"\([^"]*\)".*/\1/p' Cargo.toml)"
+          test -n "$version" || { echo "::error::no [workspace.package] version in Cargo.toml"; exit 1; }
+          push=false
+          case "$EVENT" in
+            push) push=true ;;
+            workflow_dispatch) [ "$INPUT_PUSH" = true ] && push=true ;;
+          esac
+          if [ "$push" = true ]; then
+            case "$REF" in
+              refs/tags/docker-v*) ;;
+              *) echo "::error::a push runs from a docker-v<version> tag, not $REF"; exit 1 ;;
+            esac
+            tag="${REF#refs/tags/docker-v}"
+            if [ "$tag" != "$version" ]; then
+              echo "::error::tag docker-v$tag, but the workspace version is $version: tag docker-v$version"
+              exit 1
+            fi
+            if [ -z "$HUB_USER" ] || [ -z "$HUB_TOKEN" ]; then
+              echo "::error::secrets DOCKERHUB_USERNAME and DOCKERHUB_TOKEN are required to push (Settings ▸ Secrets and variables ▸ Actions)"
+              exit 1
+            fi
+          fi
+          # <version>, <major>.<minor> and latest; a pre-release (with a '-') gets its own tag only
+          tags="$version"
+          case "$version" in
+            *-*) ;;
+            *) tags="$tags ${version%.*} latest" ;;
+          esac
+          # amd64 builds natively; arm64 natively on an Arm runner, arm/v7 and arm/v6 with
+          # cargo-zigbuild there too (the compile runs at the host's speed either way; the Arm
+          # runners spread the load). The tools image runs apk under QEMU on every 32-bit platform.
+          all='[
+            {"platform":"linux/amd64","slug":"linux-amd64","runner":"ubuntu-24.04"},
+            {"platform":"linux/arm64","slug":"linux-arm64","runner":"ubuntu-24.04-arm"},
+            {"platform":"linux/arm/v7","slug":"linux-arm-v7","runner":"ubuntu-24.04-arm"},
+            {"platform":"linux/arm/v6","slug":"linux-arm-v6","runner":"ubuntu-24.04-arm"}]'
+          if [ "$EVENT" = pull_request ]; then
+            matrix="$(jq -c '[.[] | select(.platform == "linux/arm/v7")]' <<<"$all")"
+          else
+            matrix="$(jq -c . <<<"$all")"
+          fi
+          {
+            echo "push=$push"
+            echo "version=$version"
+            echo "tags=$tags"
+            echo "matrix=$matrix"
+          } >> "$GITHUB_OUTPUT"
+          echo "version $version, push $push, tags: $tags"
+
+  build:
+    # Every image of one platform: the Rust build runs once (same LINKS, SIMS, JOBS for every
+    # target). A push run pushes each image by digest; otherwise the result stays in the builder.
+    needs: plan
+    strategy:
+      fail-fast: true
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    runs-on: ${{ matrix.runner }}
+    # a cold build of the broker and every link (about 90 min on 2 jobs of an Apple M4 Max)
+    timeout-minutes: 300
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+        with: { platforms: "${{ matrix.platform }}" }
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - if: needs.plan.outputs.push == 'true'
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      # The layer cache (GHA, one scope per platform) keeps the toolchain layers, and the whole
+      # build when the sources are the same (a re-run, or a tag on a commit that a build-only run
+      # on main built). Cargo's own cache mounts do not survive a runner: changed sources compile
+      # from the start.
+      - id: bake
+        uses: docker/bake-action@59cb1203cd42bcefd40a1b6d73b589e48c86040e # v7.5.0
+        env:
+          TAG: ""
+          JOBS: "4"
+          VERSION: ${{ needs.plan.outputs.version }}
+          REVISION: ${{ github.sha }}
+          # the metadata keeps the digests only; it reaches the next step through env
+          BUILDX_METADATA_PROVENANCE: disabled
+          BUILDX_METADATA_WARNINGS: "false"
+        with:
+          source: .
+          files: deploy/docker/docker-bake.hcl
+          provenance: ${{ needs.plan.outputs.push == 'true' && 'mode=max' || 'false' }}
+          sbom: ${{ needs.plan.outputs.push == 'true' }}
+          set: |
+            *.platform=${{ matrix.platform }}
+            *.cache-from=type=gha,scope=docker-${{ matrix.slug }}
+            wyrmd.cache-to=type=gha,scope=docker-${{ matrix.slug }},mode=max
+            *.output=${{ needs.plan.outputs.push == 'true' && 'type=image,push-by-digest=true,name-canonical=true,push=true' || 'type=cacheonly' }}
+      - if: needs.plan.outputs.push == 'true'
+        env:
+          METADATA: ${{ steps.bake.outputs.metadata }}
+          SLUG: ${{ matrix.slug }}
+        run: |
+          set -euo pipefail
+          mkdir -p digests
+          # {target: {name, digest}} for every image of this platform
+          jq 'with_entries(select(.value | type == "object" and has("containerimage.digest"))
+                | .value |= {name: .["image.name"], digest: .["containerimage.digest"]})' \
+            <<<"$METADATA" > "digests/$SLUG.json"
+          cat "digests/$SLUG.json"
+          test "$(jq length "digests/$SLUG.json")" -gt 0
+      - if: needs.plan.outputs.push == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: digests-${{ matrix.slug }}
+          path: digests/${{ matrix.slug }}.json
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    # One manifest list per image from the digests of every platform, tagged <version>,
+    # <major>.<minor> and latest. An image that is missing on a platform fails the run.
+    needs: [plan, build]
+    if: needs.plan.outputs.push == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions: {}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { pattern: "digests-*", path: digests, merge-multiple: true }
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - env:
+          TAGS: ${{ needs.plan.outputs.tags }}
+          VERSION: ${{ needs.plan.outputs.version }}
+          MATRIX: ${{ needs.plan.outputs.matrix }}
+        run: |
+          set -euo pipefail
+          platforms="$(jq length <<<"$MATRIX")"
+          test "$(find digests -name '*.json' | wc -l)" -eq "$platforms"
+          # {name: [digest, …]} over every platform
+          jq -s 'map(to_entries[].value) | group_by(.name)
+                 | map({key: .[0].name, value: map(.digest)}) | from_entries' digests/*.json > images.json
+          jq . images.json
+          for name in $(jq -r 'keys[]' images.json); do
+            n="$(jq --arg n "$name" '.[$n] | length' images.json)"
+            if [ "$n" -ne "$platforms" ]; then
+              echo "::error::$name: $n of $platforms platforms"
+              exit 1
+            fi
+            args=()
+            for t in $TAGS; do args+=(-t "$name:$t"); done
+            for d in $(jq -r --arg n "$name" '.[$n][]' images.json); do args+=("$name@$d"); done
+            docker buildx imagetools create "${args[@]}"
+          done
+          for name in $(jq -r 'keys[]' images.json); do
+            docker buildx imagetools inspect "$name:$VERSION"
+          done
