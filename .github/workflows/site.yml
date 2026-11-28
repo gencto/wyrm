@@ -1,8 +1,14 @@
 name: site
 # The home site https://wyrm.gencto.uk (site/README.md): the designed pages
-# `/` and `/install/` from the templates in site/, and the docs `/docs/` from
-# docs/, spec/ and links/official.json, built by tool/site/build.py and mdBook.
-# A pull request builds and checks it; a push to main also deploys it.
+# `/`, `/install/` and `/start/` from the templates in site/, and the docs
+# `/docs/` from docs/, spec/ and links/official.json, built by
+# tool/site/build.py and mdBook. `/start/` (the image builder, ADR 0051 §4)
+# gets its WebAssembly (tool/site/wasm.sh) and, on a deploy, the base images
+# of the latest images-v* release (tool/site/fetch_images.py).
+# A pull request builds and checks it, without images; a push to main also
+# deploys it, and so does a run on main that images-release starts after it
+# published a release (a release made with the workflow's token starts no
+# workflow by itself).
 on:
   push:
     branches: [main]
@@ -17,6 +23,12 @@ on:
       - "site/**"
       - "tool/site/**"
       - "README*"
+      # the WebAssembly of /start/ and the boards it lists
+      - "Cargo.lock"
+      - "crates/wyrm-image/**"
+      - "crates/wyrm-image-web/**"
+      - "crates/wyrm-core/**"
+      - "packaging/images/boards.json"
       - ".github/workflows/site.yml"
   pull_request:
     paths:
@@ -30,6 +42,12 @@ on:
       - "site/**"
       - "tool/site/**"
       - "README*"
+      # the WebAssembly of /start/ and the boards it lists
+      - "Cargo.lock"
+      - "crates/wyrm-image/**"
+      - "crates/wyrm-image-web/**"
+      - "crates/wyrm-core/**"
+      - "packaging/images/boards.json"
       - ".github/workflows/site.yml"
   workflow_dispatch:
 permissions:
@@ -44,13 +62,34 @@ env:
   # instead of minutes for `cargo install mdbook`, and the same bytes every run.
   MDBOOK_VERSION: v0.5.4
   MDBOOK_SHA256: 3f28de05dafca9d0f2eab99c662116b0e37b89b1d96a08f8f430b9eeae958cd7
+  # The same for the `wasm-bindgen` CLI; its version is the crate's
+  # (tool/site/wasm.sh checks the two against each other). The SHA-256 is of the
+  # release's linux musl archive (the release publishes no sum).
+  WASM_BINDGEN_VERSION: 0.2.130
+  WASM_BINDGEN_SHA256: 9687f3bb551b9f66f37ed32a40d7913a00f7962db653054e56857bc306c3227f
+  CARGO_TERM_COLOR: never
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { persist-credentials: false }
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+        with: { targets: wasm32-unknown-unknown }
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with: { key: site-wasm }
+      - name: Install wasm-bindgen
+        run: |
+          d="wasm-bindgen-${WASM_BINDGEN_VERSION}-x86_64-unknown-linux-musl"
+          curl -sSfL -o wasm-bindgen.tar.gz \
+            "https://github.com/wasm-bindgen/wasm-bindgen/releases/download/${WASM_BINDGEN_VERSION}/${d}.tar.gz"
+          echo "${WASM_BINDGEN_SHA256}  wasm-bindgen.tar.gz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/bin"
+          tar -xzf wasm-bindgen.tar.gz -C "$RUNNER_TEMP" "$d/wasm-bindgen"
+          mv "$RUNNER_TEMP/$d/wasm-bindgen" "$RUNNER_TEMP/bin/"
+          rm wasm-bindgen.tar.gz
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
       - name: Install mdBook
         run: |
           curl -sSfL -o mdbook.tar.gz \
@@ -60,9 +99,25 @@ jobs:
           tar -xzf mdbook.tar.gz -C "$RUNNER_TEMP/bin"
           rm mdbook.tar.gz
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      # the WebAssembly of /start/, in a directory of its own (build.py deletes site/dist)
+      - name: Build the image builder's WebAssembly
+        run: tool/site/wasm.sh "$RUNNER_TEMP/wasm"
       # site/dist: the designed pages, /assets, CNAME, 404.html; and site/src
       - name: Generate the pages and the docs source
-        run: python3 tool/site/build.py
+        run: python3 tool/site/build.py --wasm-from "$RUNNER_TEMP/wasm"
+      # site/dist/start/images: the listed boards of the latest images-v* release,
+      # after build.py (which deletes site/dist); nothing when there is no release
+      - name: Copy the base images
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 tool/site/fetch_images.py
+      # a pull request builds without images: the page says none is published
+      - name: The page without images
+        if: github.event_name == 'pull_request'
+        run: |
+          test ! -e site/dist/start/images
+          grep -q 'id="start-none"' site/dist/start/index.html
       # site/dist/docs
       - name: Build the docs
         run: mdbook build site
@@ -71,6 +126,11 @@ jobs:
       # every wyrmd.json5 the install page can write, against the broker's rules
       - name: Test the install configurator
         run: node tool/site/test_install.js
+      # the page's script with the built WebAssembly; the copy of the images
+      - name: Test the image builder page
+        run: |
+          node tool/site/test_start.mjs
+          python3 tool/site/test_fetch_images.py
       - name: List the site root
         run: ls -la site/dist && du -sh site/dist
       - if: github.event_name != 'pull_request'

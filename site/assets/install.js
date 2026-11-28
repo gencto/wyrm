@@ -34,6 +34,8 @@
   var LINK_IMAGE_MIB = 6.7;
   var CATEGORIES = ['Equipment', 'File stores', 'History sync', 'Apps', 'Messaging', 'Test'];
 
+  // Whether this site's /start/ carries base images (see the end of this file).
+  var IMAGES_PUBLISHED = false;
   var PATHS = [
     { id: 'image', t: 'USB or SD image', s: 'Flash a board. It boots straight into wyrmd.', st: 'planned' },
     { id: 'archive', t: 'Archive for an OS', s: 'One binary for Linux or macOS: unpack, set a password, run.', st: 'planned' },
@@ -367,7 +369,21 @@
     // ---- file name, commands, note
     var linksMb = sel.reduce(function (a, l) { return a + (l.f.mb || 0); }, 0);
     var file = '', commands = '', note = '', status = '';
-    if (image) {
+    if (image && IMAGES_PUBLISHED) {
+      file = 'wyrm-' + tgt.id + '-' + site + '.img.gz';
+      commands = [
+        '# Build the card in your browser on the image builder page; it saves ' + file + ':',
+        '#   https://wyrm.gencto.uk/start/',
+        '# Then write it to the card (check the device name with lsblk first):',
+        'gzip -dc ' + file + ' | sudo dd of=/dev/sdX bs=4M conv=fsync status=progress',
+        '# Or on your own machine, with wyrmd.json5 from this page and the base image and',
+        '# index.json of the images release (the setup code is printed once):',
+        '#   wyr image build --image <base image>.img.gz --index index.json --board ' + tgt.id,
+        '#     --config wyrmd.json5 --new-setup-code --out wyrm-' + tgt.id + '-' + site + '.img'
+      ].join('\n');
+      note = 'Works today: the image builder page puts the card together in your browser from the published base image.';
+      status = 'available';
+    } else if (image) {
       file = 'wyrm-' + V + '-' + tgt.id + '.img.gz';
       commands = planned('No image is published yet. When one is, you will flash it like this:', [
         'Raspberry Pi Imager: Choose OS ▸ Use custom ▸ ' + file,
@@ -622,7 +638,9 @@
           ]);
         })),
         el('span', { style: 'font-size: 13px; line-height: 1.6; color: #8E979C' }, ['The image builder will put the image together in your browser from the release\'s base image, your ', code('wyrmd.json5'), ' and your choice of links. Nothing you choose is uploaded.']),
-        el('span', { style: 'align-self: flex-start; padding: 10px 14px; border-radius: 10px; border: 1px solid #3A4249; font-size: 14px; line-height: 1.5; color: #C5CBCE' }, 'Not built yet: the base images and the builder are planned, so there is nothing to download today.')
+        IMAGES_PUBLISHED
+          ? el('a', { href: '../start/', style: 'align-self: flex-start; padding: 10px 14px; border-radius: 10px; border: 1px solid ' + ACCENT + '; font-size: 14px; font-weight: 600; line-height: 1.5; color: #ECE9E1' }, 'Open the image builder')
+          : el('span', { style: 'align-self: flex-start; padding: 10px 14px; border-radius: 10px; border: 1px solid #3A4249; font-size: 14px; line-height: 1.5; color: #C5CBCE' }, ['No base image is published yet, so there is nothing to download today. The ', el('a', { href: '../start/' }, 'image builder page'), ' says how to build one on your own machine.'])
       ]) : null,
       box('commands', m.commands, false),
       m.docker ? box('compose.yaml', m.compose, true) : null,
@@ -646,4 +664,24 @@
     window.wyrmInstallTest({ state: state, model: model, render: render, PATHS: PATHS, TARGETS: TARGETS, PRESETS: PRESETS, LINKS: LINKS });
   }
   render();
+
+  // The image builder page (/start/) carries the base images once a deploy of the site
+  // copied those of an images release there (tool/site/fetch_images.py): the path
+  // "USB or SD image" then works today. A request to this site only; nothing is sent.
+  if (typeof fetch === 'function') {
+    fetch('../start/images/index.json', { cache: 'no-cache' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (index) {
+        if (!index || !Array.isArray(index.images) || !index.images.length) return;
+        IMAGES_PUBLISHED = true;
+        PATHS[0].st = 'available';
+        var cell = document.getElementById('status-images');
+        if (cell) {
+          cell.textContent = STATUS.available.t;
+          cell.style.color = STATUS.available.c;
+        }
+        render();
+      })
+      .catch(function () { /* planned then */ });
+  }
 })();

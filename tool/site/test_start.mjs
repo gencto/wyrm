@@ -15,13 +15,26 @@
 //   - the replace step hands on each chunk as it comes (it streams);
 //   - the file name is plain;
 //   - on the page (a DOM stub): the Download button waits for "I wrote it
-//     down", and a site the device refuses shows the device's words and no code.
+//     down", and a site the device refuses shows the device's words and no code;
+//   - a changed choice calls off a download in flight (AbortController).
+//
+//     node tool/site/test_start.mjs --assemble <choices.json> <out.img.gz> [--images <dir>] [--catalog <file>] [--board <id>]
+//
+// assembles a real image with the page's own code instead (packaging/images/smoke.sh
+// boots it): the index, the catalog and the base image from <dir> (default
+// site/dist/start/images, the layout the deploy gives the page; `--catalog` names
+// another catalog file), the choices
+// (`wyrm-choices/1`) checked and turned into the region by the WebAssembly, a new
+// setup code from 16 random bytes, the download checked by `fetchImage` and
+// streamed through `assemble`. It prints `setup code: <code>` once on stdout, as
+// `wyr image build --new-setup-code` does, and everything else on stderr.
 // Node 20+, no dependencies.
 
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { Readable, Writable } from 'node:stream';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import vm from 'node:vm';
 import zlib from 'node:zlib';
@@ -47,6 +60,73 @@ if (!S) {
 }
 const CONFIG_SIZE = 4 * 1024 * 1024;
 assert.equal(S.CONFIG_SIZE, CONFIG_SIZE);
+
+// ------------------------------------------------------- --assemble
+// A real image, assembled as the page does it (see the head of this file).
+async function assembleCommand(args) {
+  const usage = 'usage: node tool/site/test_start.mjs --assemble <choices.json> <out.img.gz> [--images <dir>] [--catalog <file>] [--board <id>]';
+  const [choicesPath, outPath, ...rest] = args;
+  if (!choicesPath || !outPath) throw new Error(usage);
+  let dir = path.join(REPO, 'site/dist/start/images');
+  let board = null;
+  let catalogPath = null;
+  for (let i = 0; i < rest.length; i += 2) {
+    if (rest[i + 1] === undefined) throw new Error(`${rest[i]} needs a value; ${usage}`);
+    if (rest[i] === '--images') dir = path.resolve(rest[i + 1]);
+    else if (rest[i] === '--catalog') catalogPath = path.resolve(rest[i + 1]);
+    else if (rest[i] === '--board') board = rest[i + 1];
+    else throw new Error(`unknown option ${rest[i]}; ${usage}`);
+  }
+  const say = (m) => process.stderr.write(`assemble: ${m}\n`);
+  // the page's own path: the index through the WebAssembly's check
+  const entries = wasm.check_index(fs.readFileSync(path.join(dir, 'index.json'), 'utf8'));
+  const offered = entries.filter((e) => board === null || e.board === board);
+  if (offered.length !== 1) {
+    throw new Error(board === null
+      ? `the index offers ${entries.map((e) => e.board).join(', ') || 'no board'}: give --board`
+      : `the index offers no board ${board}`);
+  }
+  const entry = offered[0];
+  const catalogJson = JSON.stringify({ links: JSON.parse(fs.readFileSync(catalogPath || path.join(dir, 'catalog.json'), 'utf8')).links });
+  const choicesJson = fs.readFileSync(choicesPath, 'utf8');
+  const entryJson = JSON.stringify(entry);
+  wasm.check_choices(choicesJson, entryJson, catalogJson);
+  const setup = wasm.new_setup(crypto.getRandomValues(new Uint8Array(16)));
+  let code;
+  let region;
+  try {
+    region = wasm.region_for(choicesJson, entryJson, catalogJson, setup.hash_hex);
+    code = setup.code;
+  } finally {
+    setup.free();
+  }
+  // the page fetches `images/<file>` of its own origin: here, the file in <dir>
+  const fetch = async (url) => {
+    const name = decodeURIComponent(String(url).replace(/^images\//, ''));
+    if (String(url) !== 'images/' + encodeURIComponent(name) || name.includes('/')) {
+      throw new Error(`the page asked for ${url}`);
+    }
+    return new Response(Readable.toWeb(fs.createReadStream(path.join(dir, name))), { status: 200 });
+  };
+  const started = Date.now();
+  const blob = await withGlobals({ caches: undefined, fetch }, () => S.fetchImage(entry, () => {}));
+  say(`${entry.download.file}: ${blob.size} bytes, size and SHA-256 as the index says`);
+  const out = await S.assemble(blob, entry, region);
+  fs.rmSync(outPath, { force: true });
+  await out.stream().pipeTo(Writable.toWeb(fs.createWriteStream(outPath, { mode: 0o600 })));
+  say(`${outPath}: ${out.size} bytes for board ${entry.board} in ${((Date.now() - started) / 1000).toFixed(1)} s`);
+  process.stdout.write(`setup code: ${code}\n`);
+}
+
+if (process.argv[2] === '--assemble') {
+  try {
+    await assembleCommand(process.argv.slice(3));
+    process.exit(0);
+  } catch (e) {
+    console.error(`assemble: ${e.message || e}`);
+    process.exit(1);
+  }
+}
 
 // ------------------------------------------------------------- the fixture
 const sha256 = (bytes) => crypto.createHash('sha256').update(bytes).digest('hex');
@@ -493,6 +573,91 @@ test('a_refused_site_shows_the_device_words_and_no_download', async () => {
     assert.match(byId.get('st-address-error').textContent, /`192\.168\.1\.0` is refused/);
     assert.equal(calls.new_setup, 0);
   });
+});
+
+// A fetch whose body gives `first` bytes, then waits; an abort of the request's
+// signal errors the body, as a browser's fetch does.
+function hangingFetch(first) {
+  const seen = { calls: 0, signal: null };
+  const fetch = async (url, opts = {}) => {
+    seen.calls += 1;
+    seen.signal = opts.signal || null;
+    if (seen.signal && seen.signal.aborted) throw new DOMException('aborted', 'AbortError');
+    return new Response(new ReadableStream({
+      start(c) {
+        c.enqueue(first);
+        if (seen.signal) seen.signal.addEventListener('abort', () => c.error(new DOMException('aborted', 'AbortError')));
+      },
+    }), { status: 200 });
+  };
+  return { fetch, seen };
+}
+
+const settle = async () => { for (let i = 0; i < 20; i += 1) await new Promise((r) => setImmediate(r)); };
+
+test('a_changed_choice_calls_off_the_download', async () => {
+  // fetchImage: an abort stops the request and its body, and nothing is cached
+  const c = fakeCaches();
+  const h = hangingFetch(GZ.subarray(0, 1000));
+  const ctl = new AbortController();
+  await withGlobals({ caches: c.caches, fetch: h.fetch }, async () => {
+    const p = S.fetchImage(ENTRY, () => ctl.abort(), ctl.signal);
+    await assert.rejects(p, (e) => e.name === 'AbortError');
+  });
+  assert.equal(h.seen.signal, ctl.signal, 'the request carries the signal');
+  assert.equal(c.log.puts, 0);
+
+  // assemble: called off before it starts, and while it streams
+  const region = regionFor();
+  const off = new AbortController();
+  off.abort();
+  await assert.rejects(S.assemble(new Blob([GZ]), ENTRY, region, () => {}, off.signal), (e) => e.name === 'AbortError');
+  const mid = new AbortController();
+  let chunks = 0;
+  await assert.rejects(S.assemble(new Blob([GZ]), ENTRY, region, () => { chunks += 1; mid.abort(); }, mid.signal),
+    (e) => e.name === 'AbortError');
+  assert.ok(chunks >= 1);
+
+  // on the page: a changed choice aborts the download in flight and shows no error
+  const g = hangingFetch(GZ.subarray(0, 1000));
+  await withGlobals({ localStorage: NO_STORAGE, sessionStorage: NO_STORAGE, caches: undefined, fetch: g.fetch }, async () => {
+    const { byId } = mountPage();
+    typeInto(byId, 'st-site-name', 'plant');
+    byId.get('st-build-button').click();
+    const box = byId.get('st-wrote-it');
+    box.checked = true;
+    fire(box, 'change');
+    byId.get('st-download').click();
+    await settle();
+    assert.equal(g.seen.calls, 1, 'the download started');
+    assert.ok(g.seen.signal && !g.seen.signal.aborted);
+    typeInto(byId, 'st-site-name', 'plant2');
+    assert.ok(g.seen.signal.aborted, 'the changed choice called the download off');
+    await settle();
+    const err = byId.get('st-download-error');
+    assert.ok(!err || !shown(err) || err.textContent === '', 'a voided download shows no error');
+    // a new build downloads again
+    byId.get('st-build-button').click();
+    const box2 = byId.get('st-wrote-it');
+    box2.checked = true;
+    fire(box2, 'change');
+    assert.equal(byId.get('st-download').disabled, false, 'the new build can download');
+  });
+});
+
+test('a_refusal_says_try_again_only_where_it_helps', async () => {
+  assert.match(S.MSG.mismatch, /try again/i);
+  for (const m of [S.MSG.entry, S.MSG.region]) assert.doesNotMatch(m, /try again/i);
+  // an entry the page cannot fetch: no retry offered
+  await assert.rejects(S.fetchImage({ ...ENTRY, download: { ...ENTRY.download, file: '' } }, () => {}),
+    (e) => !e.retry && !/try again/i.test(e.message));
+  // a network failure: a retry may help
+  await withGlobals({ caches: undefined, fetch: async () => { throw new TypeError('Failed to fetch'); } }, async () => {
+    await assert.rejects(S.fetchImage(ENTRY, () => {}), (e) => e.retry === true && /try again/i.test(e.message));
+  });
+  // the field of a refused address is found with the spaces the person typed
+  assert.equal(S.fieldOf('`192.168.1.0` is refused: …', { address: ' 192.168.1.0 ', gateway: '' }), 'address');
+  assert.equal(S.fieldOf('`10.0.0.1` is refused: …', { address: '10.0.0.2', gateway: '10.0.0.1  ' }), 'gateway');
 });
 
 // --------------------------------------------------------------------- run

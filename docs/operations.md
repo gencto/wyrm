@@ -400,7 +400,9 @@ packages: { seed_dir: "/usr/share/wyrm/seed" },
 A board's **base image** is OpenWrt with `wyrmd` and an empty 4 MiB config
 region. `wyr image build` writes your configuration into that region, on
 your machine: nothing of it goes to a server. The device reads the region
-at its first boot and wipes it.
+at its first boot and wipes it. The image builder page
+(https://wyrm.gencto.uk/start/, "The image builder page" below) does the
+same in a browser, with the same code.
 
 You need three files: the base image of the board (`.img`, or `.img.gz` as
 downloaded), the index it was published with (`index.json`, format
@@ -491,6 +493,56 @@ seed that the image's `wyrmd.json5` does not name (the broker of that
 device will never read it), or of a configuration the device refuses (the
 rules in "On the device" below). `wyr image build` does not write such an
 image.
+
+#### The image builder page
+
+https://wyrm.gencto.uk/start/ builds the card in your browser, from the
+base images of the latest images release (`images-v*`) that the site
+carries. It offers the boards that `packaging/images/boards.json` marks
+`listed`. You choose:
+
+- the board;
+- the site name;
+- DHCP or a static IPv4 address (address, prefix, gateway, DNS), on the
+  board's LAN ports. There is no Wi-Fi: the device is a plain host on a
+  wire;
+- the links: the built-in drivers, the broker's own links (the scheduler,
+  alarms, DQL and uplink are on by default), and the packages the image
+  carries, by category;
+- the time zone (your browser's by default) and NTP servers;
+- SSH public keys for `root` (optional).
+
+**Build** checks the choices with the device's rules, in the
+WebAssembly of `crates/wyrm-image-web`: the code of `wyr image build
+--choices`. A refusal is shown at its field. Then it makes a one-time setup
+code. The code is shown once, with a QR code; the image holds only its
+hash. **Download** stays off until you tick "I wrote it down". It fetches
+the base image from the site, checks its size and SHA-256 against the index
+and writes your region into it as it streams through the browser. It saves
+`wyrm-<board>-<site>.img.gz`: one gzip member, which the imagers read as
+they read the published base image. A change of any choice voids the build
+and its code, and a download in progress stops.
+
+- The page asks only its own origin: the index, the catalog of links, the
+  image, the page's files. Your choices, the code and its hash stay in the
+  browser. The page writes nothing to `localStorage`, cookies or the URL.
+  The base image is kept in the browser's Cache API, so a second build does
+  not download it again.
+- The page trusts the index because it comes from the site over HTTPS. A
+  signature over the index waits for the release key (ADR 0051).
+- The browser holds the compressed base image and the finished file, about
+  3 to 4 times the size of the download (about 130 MiB for a 35 MiB
+  download), never the raw image.
+- Without JavaScript, or with no image on the site yet, use `wyr image
+  build` as above. The page then says so.
+- Studio does not ask for the setup code yet. Make the first admin with the
+  code on the gateway, as "First admin from a setup code" above shows.
+
+The site's `start/images/index.json` is a filtered copy of the release's
+`index.json`: the entries of the listed boards only
+(`tool/site/fetch_images.py`), each entry unchanged, so its SHA-256 is not the
+one in the release's `SHA256SUMS`. `wyr image build` takes either for a
+listed board; the release's file also has the boards that are not listed.
 
 #### Write the card
 

@@ -20,7 +20,8 @@ fails on a link to a missing page or a missing `#id`, on a file loaded from
 another host and on a security finding ID. The build also runs
 `tool/site/wasm.sh`, which writes the WebAssembly of the image builder page
 (`/start/`) into `site/dist/assets/wasm/` (it needs Rust and the wasm32
-target). Python 3.10+, standard library only.
+target); `--wasm-from <dir>` copies the two files that `wasm.sh <dir>` wrote
+before instead. Python 3.10+, standard library only.
 """
 
 from __future__ import annotations
@@ -937,7 +938,7 @@ def render(template: Path, facts: dict[str, str]) -> str:
 
 # -------------------------------------------------------------------- build
 
-def build() -> int:
+def build(wasm_from: Path | None = None) -> int:
     tracked = tracked_files()
     warnings: list[str] = []
     excluded: list[tuple[str, str]] = []
@@ -989,7 +990,15 @@ def build() -> int:
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(f, dest)
     # the WebAssembly of the image builder page, into DIST/assets/wasm
-    if subprocess.run([str(WASM_SH)], cwd=REPO).returncode != 0:
+    if wasm_from is not None:
+        for f in WASM_FILES:
+            src = wasm_from / Path(f).name
+            if not src.is_file():
+                raise BuildError(f"--wasm-from {wasm_from}: no {src.name}"
+                                 " (tool/site/wasm.sh <dir> writes it)")
+            (DIST / f).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(src, DIST / f)
+    elif subprocess.run([str(WASM_SH)], cwd=REPO).returncode != 0:
         raise BuildError("tool/site/wasm.sh failed: the image builder page"
                          " needs its WebAssembly")
     for f in WASM_FILES:
@@ -1290,11 +1299,14 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--check", metavar="SITE_DIR", type=Path,
                     help="check a built site (site/dist) instead of building")
+    ap.add_argument("--wasm-from", metavar="DIR", type=Path,
+                    help="the WebAssembly of /start/ that tool/site/wasm.sh DIR"
+                         " wrote, instead of running it")
     args = ap.parse_args()
     try:
         if args.check:
             return check(args.check.resolve())
-        return build()
+        return build(args.wasm_from.resolve() if args.wasm_from else None)
     except BuildError as e:
         print(f"site: error: {e}", file=sys.stderr)
         return 1

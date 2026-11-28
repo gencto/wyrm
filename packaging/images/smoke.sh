@@ -10,6 +10,14 @@
 #                       kept at the end, with the console logs
 #   --base <dir>        a directory with `index.json` and the raw base image of
 #                       qemu-armsr made before: no build
+#   --assembled <img.gz>  the image of step 3 is assembled by the image builder page's
+#                       own code (`node tool/site/test_start.mjs --assemble`: the page's
+#                       script and its WebAssembly, built by tool/site/wasm.sh) into
+#                       <img.gz> from the gzip of `--base` (required) and the choices of
+#                       this run (its SSH key is in them), and booted, instead of an
+#                       image of `wyr image build`; step 2 is left out
+#   --catalog <file>    the links the page's choices are read against (default: made
+#                       from links/official.json by catalog.py)
 #   --cache <dir>       the ImageBuilder archives (`wyr image base --cache`)
 #   --timeout <s>       how long a boot may take until the gateway answers TLS (default
 #                       180 with hvf or kvm, 900 under TCG)
@@ -36,6 +44,10 @@
 #    (the marker /var/run/wyrm/time-synced) and the site's CA was made after it. uci
 #    holds the zone and the servers of the build; the broker runs as uid 787 in the
 #    group dialout on the data partition.
+#    With `--assembled`, the page's code assembles the image from choices
+#    (`wyrm-choices/1`) with the same site, key, zone and servers, Modbus and the four
+#    services on; `gzip-readers.sh` checks the gzip it wrote as the imagers read it, and
+#    the same checks follow.
 # 4. It is powered off and booted again: the same CA, no setup offered, the login
 #    works, NTP set the clock again, the broker runs as uid 787 in the group dialout.
 # 5. The region on the disk is empty (`wyr image inspect`), and the table the first
@@ -62,7 +74,7 @@ die() {
 }
 client() { python3 -I "$here/smoke_client.py" "$@"; }
 
-wyr='' wyrmd='' version='' work='' base='' cache='' timeout=''
+wyr='' wyrmd='' version='' work='' base='' cache='' timeout='' assembled='' catalog=''
 while [ $# -gt 0 ]; do
     [ $# -ge 2 ] || die "$1 needs a value"
     case $1 in
@@ -71,6 +83,8 @@ while [ $# -gt 0 ]; do
     --wyrmd-version) version=$2 ;;
     --work) work=$2 ;;
     --base) base=$2 ;;
+    --assembled) assembled=$2 ;;
+    --catalog) catalog=$2 ;;
     --cache) cache=$2 ;;
     --timeout) timeout=$2 ;;
     *) die "unknown option $1" ;;
@@ -78,7 +92,17 @@ while [ $# -gt 0 ]; do
     shift 2
 done
 if [ -z "$base" ] && { [ -z "$wyrmd" ] || [ -z "$version" ]; }; then
-    die "usage: smoke.sh --wyrmd <aarch64 musl wyrmd> --wyrmd-version <version> [--base <dir>] [--wyr <path>] [--work <dir>] [--cache <dir>] [--timeout <s>]"
+    die "usage: smoke.sh --wyrmd <aarch64 musl wyrmd> --wyrmd-version <version> [--base <dir>] [--assembled <img.gz>] [--catalog <file>] [--wyr <path>] [--work <dir>] [--cache <dir>] [--timeout <s>]"
+fi
+if [ -n "$assembled" ]; then
+    [ -n "$base" ] || die "--assembled takes the base image of --base"
+    command -v node > /dev/null 2>&1 || die "node is not installed (--assembled runs the page's code)"
+    [ -f "$repo/site/dist/assets/wasm/wyrm_image_web_bg.wasm" ] ||
+        die "no WebAssembly of the page: run tool/site/wasm.sh (or tool/site/build.py) first"
+    case $assembled in
+    /*) ;;
+    *) assembled=$(pwd)/$assembled ;;
+    esac
 fi
 if [ -z "$wyr" ]; then
     if [ -x "$repo/target/debug/wyr" ]; then
@@ -296,6 +320,9 @@ grep -qx 'region: empty' "$work/inspect-base.txt" || die "the base image's regio
 
 # ---- 2. the base image as it is: no broker --------------------------------------------
 
+if [ -n "$assembled" ]; then
+    say "2. left out with --assembled: the run without it boots the base image as it is"
+else
 say "2. the base image without a configuration"
 cp "$image" "$work/bare.img"
 grow "$work/bare.img"
@@ -316,10 +343,12 @@ cmp "$work/table-base" "$work/table-bare" ||
 rm -f "$work/table-base" "$work/table-bare"
 say "no data partition was made: the service stopped before it"
 rm -f "$work/bare.img"
+fi
 
 # ---- 3. the assembled image: the first admin ------------------------------------------
 
-say "3. wyr image build with a test configuration and a new setup code"
+if [ -n "$assembled" ]; then by="the image builder page's code"; else by="wyr image build"; fi
+say "3. $by: a test configuration and a new setup code"
 rm -f "$key" "$key.pub"
 ssh-keygen -q -t ed25519 -N '' -C wyrm-smoke -f "$key"
 cat > "$work/wyrmd.json5" << EOF
@@ -331,9 +360,37 @@ cat > "$work/wyrmd.json5" << EOF
 }
 EOF
 disk=$work/disk.img
-"$wyr" image build --image "$image" --index "$index" --board "$BOARD" \
-    --config "$work/wyrmd.json5" --new-setup-code --authorized-keys "$key.pub" \
-    --timezone "$ZONE" --ntp "$NTP" --out "$disk" --force > "$work/build.out"
+if [ -n "$assembled" ]; then
+    [ -n "$gz" ] && [ -f "$base/$gz" ] || die "--assembled needs the gzip of the base image in $base"
+    if [ -z "$catalog" ]; then
+        catalog=$work/catalog.json
+        python3 -I "$here/catalog.py" --out "$catalog"
+    fi
+    # the site, key, zone and servers of the configuration above, as the page's choices
+    python3 -I -c '
+import json, sys
+site, zone, ntp, key = sys.argv[1:]
+print(json.dumps({
+    "format": "wyrm-choices/1",
+    "site": site,
+    "network": {"mode": "dhcp"},
+    "links": ["modbus", "scheduler", "alarm", "dql", "uplink"],
+    "timezone": zone,
+    "ntp": ntp.split(","),
+    "ssh_keys": open(key, encoding="utf-8").read(),
+}))
+' "$SITE" "$ZONE" "$NTP" "$key.pub" > "$work/choices.json"
+    say "the page's code assembles $(basename "$assembled") from $gz"
+    node "$repo/tool/site/test_start.mjs" --assemble "$work/choices.json" "$assembled" \
+        --images "$base" --catalog "$catalog" --board "$BOARD" > "$work/build.out"
+    # what a person writes to a card: the gzip, read as the imagers read it
+    gzip -dc "$assembled" > "$disk"
+    "$here/gzip-readers.sh" "$disk" "$assembled"
+else
+    "$wyr" image build --image "$image" --index "$index" --board "$BOARD" \
+        --config "$work/wyrmd.json5" --new-setup-code --authorized-keys "$key.pub" \
+        --timezone "$ZONE" --ntp "$NTP" --out "$disk" --force > "$work/build.out"
+fi
 SMOKE_CODE=$(sed -n 's/^setup code: //p' "$work/build.out")
 [ -n "$SMOKE_CODE" ] || die "wyr image build printed no setup code"
 rm -f "$work/build.out"

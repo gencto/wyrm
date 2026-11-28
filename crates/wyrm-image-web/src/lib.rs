@@ -65,8 +65,10 @@ pub struct Setup {
 }
 
 impl Drop for Setup {
-    /// The code is wiped from the WebAssembly memory when the page frees the setup
-    /// (`setup.free()`): the copies the page took live in the DOM only.
+    /// When the page frees the setup (`setup.free()`), this struct's own copy of the code
+    /// is wiped. Only that copy: the strings handed to JavaScript by the `code` getter
+    /// and the QR code (`qr_svg`) are not wiped, and neither is anything the page made
+    /// of them.
     fn drop(&mut self) {
         self.code.zeroize();
     }

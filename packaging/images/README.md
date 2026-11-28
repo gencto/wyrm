@@ -13,7 +13,7 @@ boot.
 | `verify-table.sh` | checks the partition table of an image with `sfdisk` and `sgdisk` in a throwaway container |
 | `smoke.sh`, `smoke_client.py` | the smoke test: the image of `qemu-armsr` built, assembled and booted in QEMU, the first admin made through the gateway ("Tests" below) |
 | `gzip-readers.sh` | checks an `.img.gz` as the imagers read it: one gzip member with the image's size in its trailer, and `gunzip`, libarchive (`bsdcat`), Python's `gzip` and Node's `zlib` each give the raw image ("The gzip: one member" below) |
-| `workflow.yml` | the release of the images on a tag `images-v<wyrmd version>`; copy it to `.github/workflows/images-release.yml` |
+| `catalog.py`, `test_catalog.py` | `catalog.json`: the links the images offer (built-in drivers, the broker's own links, the seed packages the images carry), from `links/official.json`, for the page and `wyr image build --catalog` ("The release" below) |
 
 ## Build a base image
 
@@ -337,6 +337,29 @@ qemu-system-aarch64 -M virt -cpu host -accel hvf -m 1024 -display none \
 key of its own at each run. Two builds of the same inputs give two images
 with other SHA-256 sums. The index is what binds an image to its offset.
 
+## The release
+
+`.github/workflows/images-release.yml` runs on a tag `images-v<wyrmd
+version>` (or `images-v<version>-r<n>` for another build of the same
+broker; another tag fails). It builds `wyrmd` for aarch64, every board of
+`boards.json` without `unavailable`, checks each table and each gzip, runs
+the smoke test, and publishes the release of the tag: per board the
+`.img.gz`, its `.manifest` and `.partitions.txt`, then `index.json`,
+`catalog.json` and `SHA256SUMS`, with build provenance. Then it starts the
+workflow `site` on `main`: `tool/site/fetch_images.py` copies the images of
+the boards marked `listed` into the site's `/start/images/` (with a filtered
+`index.json` and the `catalog.json`), and the image builder page offers them.
+
+```
+git tag images-v0.9.0 && git push origin images-v0.9.0
+```
+
+`catalog.json` comes from `catalog.py`: a link with a `builtin` form is
+offered with its driver, `scheduler`, `alarm`, `dql` and `uplink` as the
+broker's own links, and a package-only link only when its `wasm` package is
+a file of the seed directory the images carry (none yet: name the same
+directory as `wyr image base --seed-dir` and `catalog.py --seed-dir`).
+
 ## Tests
 
 ```
@@ -399,9 +422,24 @@ boots on a CI runner; with `cortex-a72` it boots. `SMOKE_ACCEL=tcg` runs
 TCG on a host that has `hvf` or `kvm`: with `QEMU_EFI` set to Ubuntu's
 firmware that is the closest local copy of the CI run.
 `.github/workflows/images-smoke.yml` runs it on pull requests that change
-`packaging/openwrt`, `packaging/images`, `crates/wyrm-image` or
-`tools/wyr/src/image*.rs`: `wyrmd` is built on an arm64 runner, the image
-and the boot (TCG) on an x86-64 runner.
+`packaging/openwrt`, `packaging/images`, `crates/wyrm-image`,
+`tools/wyr/src/image*.rs` or the image builder page: `wyrmd` is built on an
+arm64 runner, the image and the boots (TCG) on an x86-64 runner.
+
+With `--assembled <img.gz>` (and `--base`) step 3 takes the image that the
+image builder page's own code assembles: `node tool/site/test_start.mjs
+--assemble` runs `site/assets/start.js` and its WebAssembly (built first by
+`tool/site/wasm.sh`) under Node, with choices (`wyrm-choices/1`) of the same
+site, SSH key, zone and NTP servers, Modbus and the broker's four links on,
+and the catalog of `catalog.py` (or `--catalog`). It checks the base gzip
+against the index as the page does, streams it through the page's
+`assemble` into `<img.gz>` and prints the setup code once. `gzip-readers.sh`
+checks that file as the imagers read it; then steps 3 to 5 run with the same
+checks. Step 2 is left out. The job of `images-smoke.yml` runs it after the
+run above, on the same base image; the job also runs on a pull request that
+changes the page (`site/assets/start.js`, `tool/site/test_start.mjs`,
+`tool/site/wasm.sh`, `crates/wyrm-image-web`). With `hvf` on an Apple M4 it
+passed in 120 s.
 
 ### Rust tests
 

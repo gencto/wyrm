@@ -41,6 +41,17 @@
     return e;
   }
 
+  // The error of work that was called off (`signal` aborted): a download or an
+  // assembly that a new build or a changed choice voided.
+  function Aborted() {
+    var e = new Error('The download was called off.');
+    e.name = 'AbortError';
+    return e;
+  }
+  function stopped(signal) {
+    if (signal && signal.aborted) throw Aborted();
+  }
+
   function plainName(name) {
     return typeof name === 'string' && /^[A-Za-z0-9_][A-Za-z0-9_.+-]*$/.test(name) && name.indexOf('..') < 0;
   }
@@ -74,8 +85,9 @@
 
   // The base image of `entry` as a Blob (gzip), checked against
   // `entry.download` (size, SHA-256). From the cache when it holds it,
-  // else from this site. `onProgress(bytes, total)` follows the download.
-  async function fetchImage(entry, onProgress) {
+  // else from this site. `onProgress(bytes, total)` follows the download;
+  // `signal` (an AbortSignal) calls it off: the request and its body stop.
+  async function fetchImage(entry, onProgress, signal) {
     var dl = entry && entry.download;
     if (!dl || !plainName(dl.file) || !Number.isSafeInteger(dl.size) || dl.size <= 0 ||
         !/^[0-9a-f]{64}$/.test(dl.sha256)) {
@@ -100,7 +112,14 @@
       }
     }
 
-    var res = await global.fetch(IMAGES + encodeURIComponent(dl.file), { cache: 'no-store' });
+    stopped(signal);
+    var res;
+    try {
+      res = await global.fetch(IMAGES + encodeURIComponent(dl.file), { cache: 'no-store', signal: signal });
+    } catch (e) {
+      stopped(signal);
+      throw Refused('The image could not be downloaded: ' + message(e) + '. Check the connection and try again.');
+    }
     if (!res.ok || !res.body) {
       throw Refused('The image could not be downloaded (HTTP ' + res.status + '). Try again.');
     }
@@ -110,7 +129,17 @@
     var got = 0;
     var reader = res.body.getReader();
     for (;;) {
-      var step = await reader.read();
+      var step;
+      try {
+        step = await reader.read();
+      } catch (e) {
+        stopped(signal);
+        throw Refused('The download stopped: ' + message(e) + '. Try again.');
+      }
+      if (signal && signal.aborted) {
+        try { await reader.cancel(); } catch (e) { /* called off anyway */ }
+        throw Aborted();
+      }
       if (step.done) break;
       var chunk = step.value;
       if (got + chunk.length > dl.size) {
@@ -193,7 +222,9 @@
   // unpacked, the region written, packed again as one gzip member. Neither
   // the raw image nor the download is changed or held whole: the bytes
   // stream through, and the result is gathered as the parts of a Blob.
-  async function assemble(blob, entry, region, onProgress) {
+  // `signal` calls it off: the stream is cancelled and nothing is kept.
+  async function assemble(blob, entry, region, onProgress, signal) {
+    stopped(signal);
     var replace = new TransformStream(regionTransformer(entry, region, onProgress));
     var out = blob.stream()
       .pipeThrough(new global.DecompressionStream('gzip'))
@@ -201,10 +232,21 @@
       .pipeThrough(new global.CompressionStream('gzip'));
     var parts = [];
     var reader = out.getReader();
-    for (;;) {
-      var step = await reader.read();
-      if (step.done) break;
-      parts.push(step.value);
+    var cancel = function () { reader.cancel(Aborted()).catch(function () {}); };
+    if (signal) signal.addEventListener('abort', cancel);
+    try {
+      for (;;) {
+        var step = await reader.read();
+        stopped(signal);
+        if (step.done) break;
+        parts.push(step.value);
+      }
+    } catch (e) {
+      parts = null;
+      stopped(signal);
+      throw e;
+    } finally {
+      if (signal) signal.removeEventListener('abort', cancel);
     }
     return new Blob(parts, { type: 'application/gzip' });
   }
@@ -244,8 +286,10 @@
   function fieldOf(text, values) {
     var m = /^`([^`]*)` is refused/.exec(text);
     if (m) {
-      if (values.address === m[1]) return 'address';
-      if (values.gateway === m[1]) return 'gateway';
+      // the choices carry the trimmed fields, so the sentence names them trimmed
+      var trimmed = function (v) { return String(v === undefined || v === null ? '' : v).trim(); };
+      if (trimmed(values.address) === m[1]) return 'address';
+      if (trimmed(values.gateway) === m[1]) return 'gateway';
       return 'dns';
     }
     if (/\bprefix\b/.test(text)) return 'prefix';
@@ -379,6 +423,8 @@
     // person builds again (with a new code).
     function changed() {
       if (st.built) {
+        // a download or an assembly of the old choices stops here
+        if (st.built.abort) st.built.abort.abort();
         st.built = null;
         clear(doc.getElementById('st-code'));
         doc.getElementById('st-code').hidden = true;
@@ -655,10 +701,13 @@
       st.busy = true;
       dl.disabled = true;
       doc.getElementById('st-progress-box').hidden = false;
+      var abort = typeof global.AbortController === 'function' ? new global.AbortController() : null;
+      built.abort = abort;
+      var signal = abort ? abort.signal : undefined;
       try {
-        var base = await fetchImage(built.entry, function (got, total) { progress('Downloading the base image:', got, total); });
+        var base = await fetchImage(built.entry, function (got, total) { progress('Downloading the base image:', got, total); }, signal);
         if (st.built !== built) return;
-        var out = await assemble(base, built.entry, built.region, function (got, total) { progress('Writing your settings into the image:', got, total); });
+        var out = await assemble(base, built.entry, built.region, function (got, total) { progress('Writing your settings into the image:', got, total); }, signal);
         base = null;
         if (st.built !== built) return;
         save(out, fileName(built.entry, built.site));
@@ -667,9 +716,12 @@
         add(t, 'Done: ' + fileName(built.entry, built.site) + ', ' + mib(out.size) + '.');
         after(built.entry, built.site);
       } catch (e) {
-        add(err, message(e) + (e && e.retry ? '' : ' Try again.'));
+        // a build the person voided says nothing; a refusal says whether a retry helps
+        if (st.built !== built || (e && e.name === 'AbortError')) return;
+        add(err, message(e));
         err.hidden = false;
       } finally {
+        built.abort = null;
         st.busy = false;
         if (st.built === built) dl.disabled = !box.checked;
       }
@@ -705,7 +757,9 @@
         el('div', { style: CARD + 'display: flex; flex-direction: column; gap: 8px; font-size: 14px; line-height: 1.6; color: #A3ABAF' }, [
           el('span', { style: 'font-size: 15px; font-weight: 600; color: #ECE9E1' }, 'What is in the image'),
           el('span', null, ['OpenWrt ' + e.openwrt + ': ', el('a', { href: 'https://github.com/openwrt/openwrt/tree/v' + encodeURIComponent(e.openwrt) }, 'its source')]),
-          el('span', null, ['wyrmd ' + e.wyrmd + ': ', el('a', { href: 'https://github.com/gencto/wyrm/tree/wyrmd-v' + encodeURIComponent(e.wyrmd) }, 'the WYRM tag')]),
+          // the index names no commit of the broker's source, and no wyrmd-v* tag exists
+          // yet: the releases of the repository are where its source is published
+          el('span', null, ['wyrmd ' + e.wyrmd + ': ', el('a', { href: 'https://github.com/gencto/wyrm/releases' }, 'the WYRM releases')]),
           el('span', null, ['The packages of the image: ', el('a', { href: IMAGES + encodeURIComponent(stem + '.manifest') }, stem + '.manifest'),
             e.manifest_sha256 ? [' (SHA-256 ', code(e.manifest_sha256), ')'] : null]),
           el('span', null, ['More: ', el('a', { href: '../docs/operations.html#board-images-adr-0051-4' }, 'Board images'), ' in the operations guide.'])
