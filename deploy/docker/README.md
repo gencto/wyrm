@@ -50,15 +50,18 @@ laptop.
 1. Once: in Docker Hub, make an access token for `genctouk` with **Read & Write**
    (Account settings ▸ Personal access tokens). The first push creates each repository with
    the account's default visibility: keep it public.
-2. Once: in GitHub, add the repository secrets `DOCKERHUB_USERNAME` (`genctouk`) and
-   `DOCKERHUB_TOKEN` (the token) under Settings ▸ Secrets and variables ▸ Actions.
+2. Once: in GitHub, add the repository secret `DOCKERHUB_TOKEN` (the token) under
+   Settings ▸ Secrets and variables ▸ Actions. The account name is `NAMESPACE` in the workflow,
+   not a secret: GitHub masks a secret's value in the whole log of a job that reads it, so with
+   the name as a secret every image showed as `***/wyrmd`. A `DOCKERHUB_USERNAME` secret is no
+   longer read.
 3. Tag the commit with the workspace version (`version` in `Cargo.toml`, what
    `wyrmd --version` says) and push the tag:
    ```sh
    git tag docker-v0.1.0 && git push origin docker-v0.1.0
    ```
 
-A run without the secrets, or with a tag that is not the workspace version, fails in its first
+A run without the secret, or with a tag that is not the workspace version, fails in its first
 job and pushes nothing. Actions ▸ docker-images ▸ Run workflow builds every platform and pushes
 nothing (push off); a pull request that changes `deploy/docker/**` builds `linux/arm/v7` only.
 
@@ -71,6 +74,32 @@ only `apk add` of the tools image runs under QEMU. The GitHub Actions cache keep
 layers per platform, and the whole build of the same sources (a re-run, or a tag on a commit
 that a build-only run on `main` built); cargo's own cache mounts do not outlive a runner, so
 changed sources compile from the start.
+
+The pull rate limit. Docker Hub counts every manifest GET as a pull, and a personal account
+has a limit per time window (the `ratelimit-limit` header of a registry answer; anonymous reads
+showed `100;w=3600`, 100 per hour). Making one
+manifest list reads the per-platform manifests of its sources, so the 26 images of a run can
+reach the limit: the first run of `docker-v0.1.0` got `429 toomanyrequests` after 24 images.
+The `merge` job (`deploy/docker/merge-images.sh`) therefore:
+
+- merges `wyrmd` first, then `wyrm-tools`, the links, the simulators;
+- skips an image whose `<version>` tag exists, checked with a HEAD, which Docker Hub does not
+  count. The version tag is immutable: a re-run of a tag publishes the same version. It is
+  given last to `imagetools create`, after `<major>.<minor>` and `latest`, so its presence
+  means the whole tag set is there. `<major>.<minor>` and `latest` move only for an image made
+  in this run;
+- on a 429 waits 2, 5, 10 and 20 minutes (90 minutes in all per run) and tries again; the log
+  shows each wait and the limit left before each image;
+- checks each new image with a HEAD of its version tag, and the platform list of `wyrmd`
+  alone with one GET;
+- stops at the first image it still cannot publish, fails the run and names the images not
+  reached.
+
+So when `merge` fails on the limit, re-run it later (Actions ▸ the run ▸ Re-run failed jobs):
+it skips what is already published and goes on. The per-platform digests are kept for 7 days;
+after that, re-run all jobs (the build is then mostly from the GitHub Actions cache). A re-run
+runs the workflow file of the run's own commit, so a run started before this behaviour
+(`docker-v0.1.0`, run 46093973426) re-runs the old `merge`.
 
 ## Building here
 
