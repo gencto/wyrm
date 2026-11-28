@@ -76,7 +76,8 @@ that a build-only run on `main` built); cargo's own cache mounts do not outlive 
 changed sources compile from the start.
 
 The pull rate limit. Docker Hub counts every manifest GET as a pull, and a personal account
-has a limit per time window (the `ratelimit-limit` header, e.g. `100;w=3600`). Making one
+has a limit per time window (the `ratelimit-limit` header of a registry answer; anonymous reads
+showed `100;w=3600`, 100 per hour). Making one
 manifest list reads the per-platform manifests of its sources, so the 26 images of a run can
 reach the limit: the first run of `docker-v0.1.0` got `429 toomanyrequests` after 24 images.
 The `merge` job (`deploy/docker/merge-images.sh`) therefore:
