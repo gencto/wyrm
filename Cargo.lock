@@ -6459,6 +6459,8 @@ dependencies = [
  "hex",
  "json5",
  "minicbor",
+ "rustix 1.1.5",
+ "rustls-pki-types",
  "serde",
  "serde_json",
  "thiserror 2.0.21",

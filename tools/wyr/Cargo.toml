@@ -1,6 +1,6 @@
 [package]
 name = "wyr"
-description = "WYRM CLI: list, tree, sub, set, invoke, meta, resolve, flow, bench, keygen, admin, dev commands (new, dev, sim, record, replay) and board images (image build, inspect, base)"
+description = "WYRM CLI: list, tree, sub, set, invoke, meta, resolve, flow, bench, keygen, admin, dev commands (new, dev, sim, record, replay), board images (image build, inspect, base) and the first admin of a board (setup)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -37,9 +37,14 @@ wyrm-image.workspace = true
 flate2.workspace = true
 thiserror.workspace = true
 
+# `wyr setup`: the code and the password are read with the terminal's echo off
+[target.'cfg(unix)'.dependencies]
+rustix = { workspace = true, features = ["termios"] }
+
 [dev-dependencies]
 wyrm-link-sdk = { workspace = true, features = ["harness"] }
 zip.workspace = true
+rustls-pki-types.workspace = true
 
 [lints]
 workspace = true

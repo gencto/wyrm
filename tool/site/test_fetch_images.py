@@ -11,6 +11,7 @@ from __future__ import annotations
 import gzip
 import hashlib
 import json
+import shutil
 import sys
 import tempfile
 import unittest
@@ -97,6 +98,19 @@ class FetchImagesTest(unittest.TestCase):
         # the entries are the release's, unchanged
         self.assertEqual(index["images"][0], rel.images[0])
         self.assertEqual(json.loads((self.out / "catalog.json").read_text()), rel.catalog)
+        # a source without a tag: the index names no release
+        self.assertNotIn("release", index)
+
+    def test_the_index_names_the_release_tag(self):
+        rel = Release(self.root)
+        self.assertEqual(fi.fetch(fi.DirSource(rel.dir, "images-v0.1.0-r2"), self.out, self.boards), 2)
+        index = json.loads((self.out / "index.json").read_text())
+        self.assertEqual(index["release"], "images-v0.1.0-r2")
+        # a tag that is not one an images release has is left out
+        for bad in ("v0.1.0", "images-v../x", "images-v1/2"):
+            shutil.rmtree(self.out)
+            fi.fetch(fi.DirSource(rel.dir, bad), self.out, self.boards)
+            self.assertNotIn("release", json.loads((self.out / "index.json").read_text()), bad)
 
     def test_a_file_that_does_not_match_is_refused(self):
         rel = Release(self.root)

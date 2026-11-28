@@ -11,7 +11,7 @@ boot.
 | `boards.json` | the boards, the pinned OpenWrt release, the ImageBuilder archives and the build container |
 | `build.sh` | what runs in the container: the ImageBuilder for one board |
 | `verify-table.sh` | checks the partition table of an image with `sfdisk` and `sgdisk` in a throwaway container |
-| `smoke.sh`, `smoke_client.py` | the smoke test: the image of `qemu-armsr` built, assembled and booted in QEMU, the first admin made through the gateway ("Tests" below) |
+| `smoke.sh`, `smoke_client.py` | the smoke test: the image of `qemu-armsr` built, assembled and booted in QEMU, the first admin made by `wyr setup` through the gateway ("Tests" below) |
 | `gzip-readers.sh` | checks an `.img.gz` as the imagers read it: one gzip member with the image's size in its trailer, and `gunzip`, libarchive (`bsdcat`), Python's `gzip` and Node's `zlib` each give the raw image ("The gzip: one member" below) |
 | `catalog.py`, `test_catalog.py` | `catalog.json`: the links the images offer (built-in drivers, the broker's own links, the seed packages the images carry), from `links/official.json`, for the page and `wyr image build --catalog` ("The release" below) |
 
@@ -393,19 +393,27 @@ raw image of `qemu-armsr` and builds nothing. In this order:
    "0.0.0.0:8445", tls: "site_ca", setup_file: …}`), `--new-setup-code`,
    an SSH key of the run, `--timezone Europe/Kyiv` and three
    `*.openwrt.pool.ntp.org` servers as `--ntp`, on a disk of 1 GiB.
-   `smoke_client.py` takes `/api/info` without trust, wants `setup: true`, checks `setup_proof`
-   against the code and the CA it presents (and that another code or CA
-   fails), pins that CA and from then on verifies the certificate by the
-   name `wyrm-smoke.local`: `POST /api/setup` (204), no setup offered, a
-   second setup refused (`no_setup`), login and `/api/me`. Through SSH: the
+   `wyr setup --gateway https://127.0.0.1:<port>` makes the first admin as a
+   person does (the code and the password as two lines of stdin): it takes
+   `/api/info` without trust, checks `setup_proof` against the code and the
+   CA it presents, pins that CA and verifies the certificate by the name
+   `wyrm-smoke.local` (the forward's address is not in it), sends `POST
+   /api/setup`, logs in, and writes the CA (`--ca-out`). Over that CA
+   `smoke_client.py after-setup` checks that no setup is offered, a second
+   setup is refused (`no_setup`), the login and `/api/me` work and a wrong
+   password does not. Through SSH: the
    broker runs as uid 787 and is in the group `dialout` (its id read from
    the guest's `/etc/group`, the broker's groups from `/proc/<pid>/status`),
    uci holds the zone and the NTP servers of the build, `/srv/wyrm` is the
    data partition, which ends at least 1 MiB before the end of the disk; NTP set the clock (the marker
    `/var/run/wyrm/time-synced`), the broker did not wait the full 120 s for
-   it, and the site's CA was made after the clock was set.
+   it, and the site's CA was made after the clock was set (the marker is
+   written once, at the first sync); uci's `lan` is the network of the
+   build.
 4. Powered off and booted again: the same CA, no setup offered, the login
-   works, NTP set the clock again.
+   works, NTP set the clock again (the run waits for it up to 120 s: only
+   the first start of the broker waits for NTP, so a later boot may answer
+   TLS first), `lan` as before.
 5. On the disk file: `wyr image inspect` says `region: empty`, and
    `verify-table.sh` passes the table the first boot wrote.
 
@@ -437,9 +445,17 @@ against the index as the page does, streams it through the page's
 checks that file as the imagers read it; then steps 3 to 5 run with the same
 checks. Step 2 is left out. The job of `images-smoke.yml` runs it after the
 run above, on the same base image; the job also runs on a pull request that
-changes the page (`site/assets/start.js`, `tool/site/test_start.mjs`,
-`tool/site/wasm.sh`, `crates/wyrm-image-web`). With `hvf` on an Apple M4 it
-passed in 120 s.
+changes the page (`site/assets/start.js`, `tool/site/**`,
+`crates/wyrm-image-web`, `site/start/**`) or `wyr setup`
+(`tools/wyr/src/setup.rs`, `crates/wyrm-gateway-client`). With `hvf` on an
+Apple M4 it passed in 113 s.
+
+`--network static` (with `--assembled`) chooses the page's static address
+instead of DHCP: 10.0.2.15/24, gateway 10.0.2.2, DNS 10.0.2.3, the address
+QEMU's user network forwards to and its DNS server. The checks add that uci
+holds that address on `br-lan` after each boot, and the NTP servers of the
+choices are pool names, so the clock check shows that the device resolves
+them through the DNS server of the choices. The job runs it as a third run.
 
 ### Rust tests
 

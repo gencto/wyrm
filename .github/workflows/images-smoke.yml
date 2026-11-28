@@ -2,14 +2,15 @@ name: images-smoke
 # The QEMU smoke test of the board images (ADR 0051, packaging/images/smoke.sh): the base
 # image of `qemu-armsr` is built with OpenWrt's ImageBuilder, its gzip checked as the
 # imagers read it (gzip-readers.sh, before the boot: one member, the size in its
-# trailer, four readers), assembled with a test
-# configuration and a setup code, booted twice, and the first admin made through the
-# gateway. Then the same base image is assembled by the image builder page's own code
-# (site/assets/start.js and its WebAssembly, under Node: `smoke.sh --assembled`), its
-# gzip checked by the same readers, and booted twice with the same checks. Runs on pull
-# requests that change the package, the images, the format, the tool or the page. A path
-# filter leaves the check pending on other pull requests: do not make it a required
-# check.
+# trailer, four readers), booted once as it is (no broker), then assembled with a test
+# configuration and a setup code and booted twice; `wyr setup` makes the first admin
+# through the gateway. Then the same base image is assembled by the image builder page's
+# own code (site/assets/start.js and its WebAssembly, under Node: `smoke.sh
+# --assembled`), its gzip checked by the same readers, and booted twice with the same
+# checks: once with DHCP, once with the page's static address (`--network static`).
+# Seven boots in all. Runs on pull requests that change the package, the images, the
+# format, the tool, `wyr setup` or the page. A path filter leaves the check pending on
+# other pull requests: do not make it a required check.
 on:
   pull_request:
     paths:
@@ -17,10 +18,12 @@ on:
       - "packaging/images/**"
       - "crates/wyrm-image/**"
       - "tools/wyr/src/image*.rs"
+      - "tools/wyr/src/setup.rs"
+      - "crates/wyrm-gateway-client/**"
       - "crates/wyrm-image-web/**"
+      - "site/start/**"
       - "site/assets/start.js"
-      - "tool/site/test_start.mjs"
-      - "tool/site/wasm.sh"
+      - "tool/site/**"
       - ".github/workflows/images-smoke.yml"
   workflow_dispatch:
 # Every job reads only (ADR 0031).
@@ -72,10 +75,11 @@ jobs:
     # aarch64 guest runs under TCG (no KVM for another architecture), slower than on an
     # arm64 host with KVM: smoke.sh gives a boot 900 s then, and a `cortex-a72` CPU (Ubuntu's
     # UEFI firmware stops after its banner on `max`). The QEMU output (`*.qemu`) is uploaded
-    # with the console logs. Four boots in all (two of each image), each up to 900 s.
+    # with the console logs. Seven boots in all (the base image once, then two of each
+    # assembled image), each up to 900 s.
     needs: wyrmd
     runs-on: ubuntu-latest
-    timeout-minutes: 150
+    timeout-minutes: 240
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { persist-credentials: false }
@@ -121,6 +125,11 @@ jobs:
           packaging/images/smoke.sh --base "$RUNNER_TEMP/smoke/base" \
             --assembled "$RUNNER_TEMP/smoke-page/wyrm-qemu-armsr-smoke.img.gz" \
             --wyr target/debug/wyr --work "$RUNNER_TEMP/smoke-page"
+      - name: Smoke test of the image the page assembles, with a static address
+        run: |
+          packaging/images/smoke.sh --base "$RUNNER_TEMP/smoke/base" \
+            --assembled "$RUNNER_TEMP/smoke-static/wyrm-qemu-armsr-smoke.img.gz" \
+            --network static --wyr target/debug/wyr --work "$RUNNER_TEMP/smoke-static"
       - name: Console logs
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -134,6 +143,10 @@ jobs:
             ${{ runner.temp }}/smoke-page/*.qemu
             ${{ runner.temp }}/smoke-page/*.txt
             ${{ runner.temp }}/smoke-page/choices.json
+            ${{ runner.temp }}/smoke-static/*.log
+            ${{ runner.temp }}/smoke-static/*.qemu
+            ${{ runner.temp }}/smoke-static/*.txt
+            ${{ runner.temp }}/smoke-static/choices.json
             ${{ runner.temp }}/smoke/base/*.partitions.txt
             ${{ runner.temp }}/smoke/base/index.json
           retention-days: 7

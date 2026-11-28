@@ -17,8 +17,10 @@ and writes into `--out` (default site/dist/start/images):
     release's `index.json` has with a `download`: its `.img.gz` (checked against
     `download.size` and `download.sha256`) and its `<stem>.manifest` (checked against
     `manifest_sha256`; the page links it);
-  - `index.json`: the release's index with those entries only. It is a filtered copy
-    of the release's index, not the file the release publishes: its SHA-256 differs.
+  - `index.json`: the release's index with those entries only, and the field
+    `release`: the tag the images came from (the page links the source at that tag;
+    a reader of the index takes unknown top-level fields). It is a filtered copy of the
+    release's index, not the file the release publishes: its SHA-256 differs.
   - `catalog.json`: the release's catalog of links, as published.
 
 `index.json` and `catalog.json` are checked against the release's `SHA256SUMS`. A
@@ -57,6 +59,8 @@ MANIFEST_MAX = 1024 * 1024
 SMALL_MAX = 4 * 1024 * 1024
 PLAIN = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.+-]*")
 HEX64 = re.compile(r"[0-9a-f]{64}")
+# a tag of an images release, as the page takes it into a URL
+RELEASE_TAG = re.compile(r"images-v[0-9A-Za-z.+-]+")
 CHUNK = 1 << 20
 
 
@@ -72,10 +76,12 @@ def plain(name: object) -> str:
 
 # ---------------------------------------------------------------- sources
 class DirSource:
-    """A directory holding the assets of one release (tests, a local preview)."""
+    """A directory holding the assets of one release (tests, a local preview); `tag` is the
+    release's tag, else none: the site's index then names no release."""
 
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, tag: str | None = None):
         self.path = path
+        self.tag = tag
 
     def latest(self) -> str | None:
         return str(self.path) if (self.path / "index.json").is_file() else None
@@ -96,6 +102,7 @@ class GitHubSource:
         self.repo = repo
         self.token = token
         self.assets: dict[str, str] = {}
+        self.tag: str | None = None
 
     def _get(self, url: str, api: bool):
         req = urllib.request.Request(url, headers={"User-Agent": "wyrm-site-build"})
@@ -124,6 +131,7 @@ class GitHubSource:
             return None
         for a in best.get("assets", []):
             self.assets[a["name"]] = a["browser_download_url"]
+        self.tag = best["tag_name"]
         return best["tag_name"]
 
     def open(self, name: str) -> BinaryIO:
@@ -251,6 +259,11 @@ def fetch(source, out: Path, boards: Path = BOARDS, max_bytes: int = MAX_MIB << 
             print(f"fetch_images: {e['board']}: {dl['file']} ({n >> 20} MiB) and {manifest}")
         site_index = dict(index)
         site_index["images"] = entries
+        tag = getattr(source, "tag", None)
+        if isinstance(tag, str) and RELEASE_TAG.fullmatch(tag):
+            site_index["release"] = tag
+        else:
+            site_index.pop("release", None)
         (out / "index.json").write_text(json.dumps(site_index, indent=1) + "\n", encoding="utf-8")
         (out / "catalog.json").write_bytes(small["catalog.json"])
     except BaseException:
@@ -264,12 +277,13 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY", "gencto/wyrm"))
     ap.add_argument("--from-dir", type=Path, help="a directory with a release's assets")
+    ap.add_argument("--tag", help="with --from-dir: the release's tag (images-v...)")
     ap.add_argument("--out", type=Path, default=OUT)
     ap.add_argument("--boards", type=Path, default=BOARDS)
     ap.add_argument("--max-mib", type=int, default=MAX_MIB)
     args = ap.parse_args()
     if args.from_dir:
-        source = DirSource(args.from_dir)
+        source = DirSource(args.from_dir, args.tag)
     else:
         source = GitHubSource(args.repo, os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN"))
     try:

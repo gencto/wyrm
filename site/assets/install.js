@@ -55,7 +55,7 @@
     image: [
       { id: 'rpi4', t: 'Raspberry Pi 4', s: 'arm64, SD card', host: 'linux-aarch64' },
       { id: 'rpi5', t: 'Raspberry Pi 5', s: 'arm64, SD card', host: 'linux-aarch64' },
-      { id: 'bpi-r4', t: 'Banana Pi BPI-R4', s: 'arm64, SD card to eMMC', host: 'linux-aarch64' }
+      { id: 'bpi-r4', t: 'Banana Pi BPI-R4', s: 'arm64, runs from the SD card (eMMC later)', host: 'linux-aarch64' }
     ],
     archive: [
       { id: 'lx64', t: 'Linux', s: 'x86-64, static', host: 'linux-x86_64', rel: 'x86_64-unknown-linux-musl' },

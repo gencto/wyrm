@@ -16,7 +16,13 @@
 //   - the file name is plain;
 //   - on the page (a DOM stub): the Download button waits for "I wrote it
 //     down", and a site the device refuses shows the device's words and no code;
-//   - a changed choice calls off a download in flight (AbortController).
+//   - a changed choice calls off a download in flight (AbortController);
+//   - a raw image sent as the encoding of the .img.gz, and a file gone after a new
+//     release, say so (and offer no retry that cannot help);
+//   - time zones are offered as the device's zoneinfo names them (no `Etc/`);
+//   - with a static address the NTP hint asks for DNS servers;
+//   - the source link names the images release, and the setup step names
+//     `wyrm-<site>.local` as the broker announces it.
 //
 //     node tool/site/test_start.mjs --assemble <choices.json> <out.img.gz> [--images <dir>] [--catalog <file>] [--board <id>]
 //
@@ -647,7 +653,15 @@ test('a_changed_choice_calls_off_the_download', async () => {
 
 test('a_refusal_says_try_again_only_where_it_helps', async () => {
   assert.match(S.MSG.mismatch, /try again/i);
-  for (const m of [S.MSG.entry, S.MSG.region]) assert.doesNotMatch(m, /try again/i);
+  for (const m of [S.MSG.entry, S.MSG.region, S.MSG.encoded, S.MSG.gone]) assert.doesNotMatch(m, /try again/i);
+  // a file gone (its name carries the version of a release that was replaced): reload
+  await withGlobals({ caches: undefined, fetch: async () => new Response('gone', { status: 404 }) }, async () => {
+    await assert.rejects(S.fetchImage(ENTRY, () => {}), (e) => !e.retry && e.message === S.MSG.gone);
+  });
+  // another HTTP refusal: a retry may help
+  await withGlobals({ caches: undefined, fetch: async () => new Response('busy', { status: 503 }) }, async () => {
+    await assert.rejects(S.fetchImage(ENTRY, () => {}), (e) => e.retry === true && /HTTP 503/.test(e.message));
+  });
   // an entry the page cannot fetch: no retry offered
   await assert.rejects(S.fetchImage({ ...ENTRY, download: { ...ENTRY.download, file: '' } }, () => {}),
     (e) => !e.retry && !/try again/i.test(e.message));
@@ -658,6 +672,104 @@ test('a_refusal_says_try_again_only_where_it_helps', async () => {
   // the field of a refused address is found with the spaces the person typed
   assert.equal(S.fieldOf('`192.168.1.0` is refused: …', { address: ' 192.168.1.0 ', gateway: '' }), 'address');
   assert.equal(S.fieldOf('`10.0.0.1` is refused: …', { address: '10.0.0.2', gateway: '10.0.0.1  ' }), 'gateway');
+});
+
+test('a_raw_image_sent_as_an_encoding_says_so', async () => {
+  // a server that sends the .img.gz as `Content-Encoding: gzip` of the raw image: the
+  // browser unpacks it on the way, and the page receives the raw image
+  for (const [what, bytes] of [['the raw image', RAW], ['its first bytes only', RAW.subarray(0, GZ.length)]]) {
+    const c = fakeCaches();
+    const f = fakeFetch(bytes);
+    await withGlobals({ caches: c.caches, fetch: f.fetch }, async () => {
+      await assert.rejects(S.fetchImage(ENTRY, () => {}), (e) => {
+        assert.equal(e.message, S.MSG.encoded, what);
+        assert.ok(!e.retry, `${what}: no retry offered`);
+        return true;
+      });
+    });
+    assert.equal(c.log.puts, 0, `${what}: nothing is cached`);
+  }
+  // a cut gzip still reads as a download that does not match
+  await withGlobals({ caches: undefined, fetch: fakeFetch(GZ.subarray(0, 1000)).fetch }, async () => {
+    await assert.rejects(S.fetchImage(ENTRY, () => {}), (e) => e.message === S.MSG.mismatch);
+  });
+});
+
+test('zones_are_named_as_the_device_has_them', async () => {
+  assert.equal(S.deviceZone('Etc/UTC'), 'UTC');
+  assert.equal(S.deviceZone('Etc/GMT+5'), 'GMT+5');
+  assert.equal(S.deviceZone('Europe/Kyiv'), 'Europe/Kyiv');
+  const list = ['Africa/Abidjan', 'Asia/Kolkata', 'Etc/GMT+5', 'Etc/UTC', 'Europe/Kyiv'];
+  const canon = (z) => ({ 'Asia/Calcutta': 'Asia/Kolkata', 'Etc/Unknown': 'Etc/Unknown' })[z] || '';
+  let o = S.zoneChoices('Etc/UTC', list, canon);
+  assert.equal(o.zone, 'UTC');
+  assert.deepEqual(o.zones, ['Africa/Abidjan', 'Asia/Kolkata', 'GMT+5', 'UTC', 'Europe/Kyiv']);
+  assert.ok(o.zones.every((z) => !z.startsWith('Etc/')), 'no Etc/ name: the device has none');
+  // an old name of the browser: its canonical name in the list
+  assert.equal(S.zoneChoices('Asia/Calcutta', list, canon).zone, 'Asia/Kolkata');
+  // a zone the browser cannot name: UTC
+  assert.equal(S.zoneChoices('Etc/Unknown', list, canon).zone, 'UTC');
+  assert.equal(S.zoneChoices('Europe/Kyiv', ['Europe/Kyiv'], canon).zones[0], 'UTC', 'UTC is always offered');
+  // no list (an older browser): the browser's zone as the device names it
+  assert.deepEqual(S.zoneChoices('Etc/GMT-3', [], canon), { zone: 'GMT-3', zones: [] });
+  assert.deepEqual(S.zoneChoices('', undefined, canon), { zone: 'UTC', zones: [] });
+  // every name of this Node's list is one the device's zoneinfo has (the image carries
+  // the old names too, and none under Etc/): the page's list maps none away
+  for (const z of Intl.supportedValuesOf('timeZone')) assert.ok(!/^Etc\//.test(S.deviceZone(z)), z);
+});
+
+test('the_page_names_the_release_and_the_announced_host', async () => {
+  assert.deepEqual(S.sourceLink('images-v0.1.0-r2'), {
+    href: 'https://github.com/gencto/wyrm/tree/images-v0.1.0-r2', text: 'its source (images-v0.1.0-r2)',
+  });
+  for (const bad of [undefined, null, '', 'v0.1.0', 'images-v../../x', 'images-v1/2', 42]) {
+    assert.equal(S.sourceLink(bad).href, 'https://github.com/gencto/wyrm/releases', String(bad));
+  }
+  // wyrmd `host_label`: lower case, each other character a dash
+  assert.equal(S.hostLabel('Plant_1.a'), 'plant-1-a');
+  assert.equal(S.hostLabel('plant'), 'plant');
+
+  // the NTP hint follows the network: with a static address it asks for DNS servers
+  await withGlobals({ localStorage: NO_STORAGE, sessionStorage: NO_STORAGE }, async () => {
+    const { byId } = mountPage();
+    assert.match(byId.get('st-ntp-hint').textContent, /those of DHCP/);
+    byId.get('st-net-static').click();
+    assert.match(byId.get('st-ntp-hint').textContent, /give DNS servers/);
+    assert.doesNotMatch(byId.get('st-ntp-hint').textContent, /those of DHCP/);
+    byId.get('st-net-dhcp').click();
+    assert.match(byId.get('st-ntp-hint').textContent, /those of DHCP/);
+  });
+
+  // a whole build and download on the page: the steps after it name `wyr setup` at the
+  // announced host, Raspberry Pi Imager's customisation, and the source at the tag
+  const f = fakeFetch(GZ);
+  const later = [];
+  const wait = setTimeout;
+  await withGlobals({
+    localStorage: NO_STORAGE, sessionStorage: NO_STORAGE, caches: undefined, fetch: f.fetch,
+    setTimeout: (fn) => { later.push(fn); return 0; },
+  }, async () => {
+    const { doc, byId } = makeDocument();
+    S.mount(doc, spyWasm().spy, [ENTRY], CATALOG, 'images-v0.1.0-r2');
+    typeInto(byId, 'st-site-name', 'Plant_1');
+    byId.get('st-build-button').click();
+    const box = byId.get('st-wrote-it');
+    box.checked = true;
+    fire(box, 'change');
+    byId.get('st-download').click();
+    // the assembly runs on Node's own threads (CompressionStream): wait for it, at most 30 s
+    for (let i = 0; i < 3000 && !shown(byId.get('st-after')); i += 1) await new Promise((r) => wait(r, 10));
+    const after = byId.get('st-after');
+    assert.ok(shown(after), 'the steps after the download are shown');
+    const text = after.textContent;
+    assert.match(text, /wyr setup --gateway https:\/\/wyrm-plant-1\.local:8445/);
+    assert.match(text, /IP address instead/);
+    assert.match(text, /OS customisation, choose No/);
+    assert.doesNotMatch(text, /<device address>/);
+    const link = find(after, (n) => n.tag === 'a' && /tree\/images-v0\.1\.0-r2$/.test(n.attrs.href || ''));
+    assert.ok(link, 'the source link names the release tag');
+    assert.match(link.textContent, /images-v0\.1\.0-r2/);
+  });
 });
 
 // --------------------------------------------------------------------- run

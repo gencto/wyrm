@@ -255,14 +255,31 @@ from a one-time setup code; the image holds only the code's hash.
 4. Start the broker. While no user exists, it moves the hash into
    `data_dir/gateway/setup.hash` (0600) and deletes `setup_file`. The log
    says `gateway: setup code taken in`.
-5. The person opens Studio. `GET /api/info` shows `setup: true`, and Studio
-   asks for the code, an admin name and a password. The right code makes
-   that admin, and the setup is over: the code cannot be used again.
+5. The person runs `wyr setup` on a computer in the same network (Studio's
+   screen for the code is planned, not built):
+
+   ```sh
+   wyr setup --gateway https://wyrm-<site>.local:8445 --ca-out site-ca.pem
+   ```
+
+   `wyrm-<site>.local` is the name the broker announces and its
+   certificate carries (the site in lower case, each character other than
+   a letter or a digit a `-`); where it does not resolve, use the device's
+   IP address. `wyr setup` asks for the code (echo off), checks the
+   gateway's proof with it as the steps below say, then asks for the
+   admin's password twice (`--user` names the admin, `admin` by default).
+   The right code makes that admin, and the setup is over: the code cannot
+   be used again. `wyr setup` logs in as the new admin to check it, and
+   prints the code of the device's CA (32 hex digits in groups of four):
+   keep it, Studio and `wyrmd ca fingerprint` show the same one.
+   `--ca-out` writes that CA as PEM, the `--gateway-ca` of `wyrm-mcp` and
+   `wyrm-agent`. When stdin is no terminal, the code is its first line and
+   the password its second. Neither is ever taken from the command line.
 
 The first contact is how the client learns which CA to trust (owner's
 answer 3 of ADR 0051), so the code proves the server to the client before
-the client proves the code to the server. A client does this, in this
-order:
+the client proves the code to the server. A client (`wyr setup`, through
+`wyrm_gateway_client::setup`) does this, in this order:
 
 1. Read `GET /api/info` over TLS, accepting the certificate for now. With a
    setup pending and TLS on, the answer holds `ca` (the DER of the CA) and
@@ -541,8 +558,23 @@ and its code, and a download in progress stops.
   download), never the raw image.
 - Without JavaScript, or with no image on the site yet, use `wyr image
   build` as above. The page then says so.
-- Studio does not ask for the setup code yet. Make the first admin with the
-  code on the gateway, as "First admin from a setup code" above shows.
+- Studio does not ask for the setup code yet. Make the first admin with
+  `wyr setup`, as "First admin from a setup code" above shows; the page
+  names the command with your site's `wyrm-<site>.local`.
+- The time zones offered are your browser's list as the device's zoneinfo
+  names them: the image carries every IANA name, the old ones too, but
+  none under `Etc/` (`Etc/UTC` is offered as `UTC`). A name the device does
+  not have would leave its clock on UTC (the first boot logs a warning).
+- With a static address, give DNS servers, or NTP servers by their
+  addresses: without DNS the device cannot resolve the names of the OpenWrt
+  pool.
+- The page links the source of the release its images came from: the site's
+  index names its tag (`release`, written by `tool/site/fetch_images.py`).
+- GitHub Pages sends a `.img.gz` as `application/gzip` without a
+  `Content-Encoding`, so the browser hands the page the published bytes. A
+  server that sent it as `Content-Encoding: gzip` of the raw image would
+  have the browser unpack it on the way; the page sees that the bytes are
+  no gzip and says so instead of a hash error.
 
 The site's `start/images/index.json` is a filtered copy of the release's
 `index.json`: the entries of the listed boards only
@@ -555,7 +587,8 @@ listed board; the release's file also has the boards that are not listed.
 Write the assembled image whole to the card with `dd` or an imager
 (Raspberry Pi Imager, `balenaEtcher`). Use a card at least 34 MiB larger than
 the image: the rest becomes the data partition at the first boot ("On the
-device" below). The rows of `packaging/images/boards.json` carry these
+device" below). If Raspberry Pi Imager offers OS customisation, choose No: it
+does not apply to this image (the configuration is in its config region). The rows of `packaging/images/boards.json` carry these
 notes:
 
 | Board | `--board` | How it boots |

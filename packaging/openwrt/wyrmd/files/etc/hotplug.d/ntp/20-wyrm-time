@@ -1,9 +1,12 @@
 #!/bin/sh
 # busybox ntpd tells its state through /usr/sbin/ntpd-hotplug: ACTION is `step`,
 # `stratum`, `periodic` or `unsync`, and `stratum` is 16 while the clock is not set.
-# The first start of the broker waits for this file (/usr/libexec/wyrm/run.sh).
+# The first start of the broker waits for this file (/usr/libexec/wyrm/run.sh). It is
+# written once, so its time is when NTP first set the clock: a later event (the stratum
+# changes when ntpd takes another server, `periodic`) leaves it as it is.
 # Sourced by hotplug-call: no `exit` here.
 
-if [ "${ACTION:-}" != unsync ] && [ "${stratum:-16}" -lt 16 ] 2> /dev/null; then
+if [ "${ACTION:-}" != unsync ] && [ "${stratum:-16}" -lt 16 ] 2> /dev/null &&
+	[ ! -e /var/run/wyrm/time-synced ]; then
 	mkdir -p /var/run/wyrm && : > /var/run/wyrm/time-synced
 fi

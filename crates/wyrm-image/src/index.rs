@@ -287,6 +287,14 @@ mod tests {
 
     use super::*;
 
+    /// A top-level field this build does not know is passed over: the site's copy of the
+    /// index adds `release` (tool/site/fetch_images.py). `lan` is closed (ADR 0051).
+    #[test]
+    fn an_unknown_top_level_field_is_passed_over() {
+        let text = format!(r#"{{"format": "{FORMAT}", "release": "images-v0.1.0", "images": []}}"#);
+        assert!(Index::parse(&text).unwrap().images.is_empty());
+    }
+
     #[test]
     fn lan_is_one_shape_or_refused() {
         let read = |text: &str| serde_json::from_str::<Lan>(text);

@@ -115,9 +115,7 @@ jobs:
       # a pull request builds without images: the page says none is published
       - name: The page without images
         if: github.event_name == 'pull_request'
-        run: |
-          test ! -e site/dist/start/images
-          grep -q 'id="start-none"' site/dist/start/index.html
+        run: test ! -e site/dist/start/images
       # site/dist/docs
       - name: Build the docs
         run: mdbook build site

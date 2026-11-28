@@ -31,8 +31,20 @@
     mismatch: 'The download does not match the published image (its size or its SHA-256 is another). It may have been cut, or the images changed since this page opened. Reload the page and try again.',
     length: 'The unpacked image is not the size of the published image. Reload the page and try again.',
     entry: 'This board\'s entry in the index names no image this page can fetch.',
-    region: 'The configuration is not one region of 4 MiB.'
+    region: 'The configuration is not one region of 4 MiB.',
+    // the site served the .img.gz as the encoding of an unpacked file
+    // (`Content-Encoding: gzip`): the browser unpacks it on the way, and what arrives
+    // is the raw image, which cannot be checked against the published download
+    encoded: 'This site sent the image unpacked (as Content-Encoding: gzip), so the browser received the raw image instead of the published file and cannot check it. Build the image with wyr image build instead, and tell the site\'s maintainers.',
+    // the file names carry the version: a page opened before a new release asks for a
+    // file that is gone
+    gone: 'The images were updated: reload the page.'
   };
+
+  // The first two bytes of every gzip member.
+  function gzipMagic(bytes) {
+    return bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b;
+  }
 
   // A refusal the person can do something about: try again.
   function Refused(message) {
@@ -120,13 +132,23 @@
       stopped(signal);
       throw Refused('The image could not be downloaded: ' + message(e) + '. Check the connection and try again.');
     }
+    if (res.status === 404) throw new Error(MSG.gone);
     if (!res.ok || !res.body) {
       throw Refused('The image could not be downloaded (HTTP ' + res.status + '). Try again.');
     }
+
     // The download goes into one buffer of the size the index says: a longer
     // one is refused as soon as it passes that size.
     var buf = new Uint8Array(dl.size);
     var got = 0;
+    // Whether the bytes are not the published gzip but the raw image the browser unpacked
+    // from it (a server that sends the .img.gz as `Content-Encoding: gzip` of the image):
+    // they lack the gzip magic. The header alone proves nothing: a server may wrap the
+    // file in an encoding of its own, which the browser takes off again, and the bytes
+    // then match (GitHub Pages sends a .gz as application/gzip with no encoding; it
+    // wraps a .tgz in one).
+    var unpacked = function () { return got >= 2 && !gzipMagic(buf); };
+    var looked = false;
     var reader = res.body.getReader();
     for (;;) {
       var step;
@@ -144,13 +166,21 @@
       var chunk = step.value;
       if (got + chunk.length > dl.size) {
         try { await reader.cancel(); } catch (e) { /* the refusal below says it */ }
-        throw Refused(MSG.mismatch);
+        throw (got === 0 ? !gzipMagic(chunk) : unpacked()) ? new Error(MSG.encoded) : Refused(MSG.mismatch);
       }
       buf.set(chunk, got);
       got += chunk.length;
       progress(got, dl.size);
+      // a raw image starts with its partition table, never with the gzip magic
+      if (!looked && got >= 2) {
+        looked = true;
+        if (unpacked()) {
+          try { await reader.cancel(); } catch (e) { /* the refusal below says it */ }
+          throw new Error(MSG.encoded);
+        }
+      }
     }
-    if (!(await matches(buf.subarray(0, got), dl))) throw Refused(MSG.mismatch);
+    if (!(await matches(buf.subarray(0, got), dl))) throw unpacked() ? new Error(MSG.encoded) : Refused(MSG.mismatch);
     var blob = new Blob([buf], { type: 'application/gzip' });
     if (cache) {
       try {
@@ -251,6 +281,48 @@
     return new Blob(parts, { type: 'application/gzip' });
   }
 
+  // The name of a time zone as the device's zoneinfo has it: the image carries every
+  // IANA name (the old ones too) but none under `Etc/`; their names without it are there
+  // (`UTC`, `GMT+5`). A name the device lacks would leave its clock on UTC.
+  function deviceZone(z) {
+    return String(z === undefined || z === null ? '' : z).replace(/^Etc\//, '');
+  }
+
+  // The zones to offer and the one chosen: the browser's own list (every name of it is in
+  // the image) as the device names them, UTC first when it is missing, and the browser's
+  // zone (or its canonical name) when the list holds it, else UTC. Without a list (an
+  // older browser) the browser's zone, as the device names it.
+  function zoneChoices(resolved, supported, canonical) {
+    var zones = [];
+    (supported || []).forEach(function (z) {
+      var d = deviceZone(z);
+      if (d && zones.indexOf(d) < 0) zones.push(d);
+    });
+    var pick = deviceZone(resolved);
+    if (!zones.length) return { zone: pick || 'UTC', zones: zones };
+    if (zones.indexOf('UTC') < 0) zones.unshift('UTC');
+    if (zones.indexOf(pick) < 0) {
+      var canon = deviceZone(typeof canonical === 'function' ? canonical(resolved) : '');
+      pick = zones.indexOf(canon) >= 0 ? canon : 'UTC';
+    }
+    return { zone: pick, zones: zones };
+  }
+
+  // The label of `wyrm-<label>.local`, the name the broker announces and its certificate
+  // carries (wyrmd `host_label`): the site in lower case, each other character a dash.
+  function hostLabel(site) {
+    return String(site === undefined || site === null ? '' : site).replace(/[^A-Za-z0-9]/g, '-').toLowerCase();
+  }
+
+  // The source of the release the images came from (`release` of the site's index, the
+  // tag `images-v…` that tool/site/fetch_images.py copied), else the list of releases.
+  function sourceLink(release) {
+    if (typeof release === 'string' && /^images-v[0-9A-Za-z.+-]+$/.test(release)) {
+      return { href: 'https://github.com/gencto/wyrm/tree/' + encodeURIComponent(release), text: 'its source (' + release + ')' };
+    }
+    return { href: 'https://github.com/gencto/wyrm/releases', text: 'the WYRM releases' };
+  }
+
   // The name of the finished file: `wyrm-<board>-<site>.img.gz`, of
   // `A-Z a-z 0-9 _ . -` only.
   function fileName(entry, site) {
@@ -302,8 +374,9 @@
   }
 
   // The page itself, in `doc`, with the WebAssembly `wasm`, the offered
-  // `entries` of the index and the `catalog` of links.
-  function mount(doc, wasm, entries, catalog) {
+  // `entries` of the index, the `catalog` of links and the `release` tag the
+  // images came from (or nothing).
+  function mount(doc, wasm, entries, catalog, release) {
     function el(tag, attrs, kids) {
       var n = doc.createElement(tag);
       for (var k in attrs || {}) {
@@ -349,6 +422,17 @@
     try {
       browserZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
     } catch (e) { /* UTC then */ }
+    var supported = [];
+    try {
+      supported = Intl.supportedValuesOf('timeZone');
+    } catch (e) { /* a text field then */ }
+    var zoneOffer = zoneChoices(browserZone, supported, function (z) {
+      try {
+        return new Intl.DateTimeFormat('en-US', { timeZone: z }).resolvedOptions().timeZone;
+      } catch (e) {
+        return '';
+      }
+    });
 
     var st = {
       board: entries[0].board,
@@ -357,7 +441,7 @@
       address: '', prefix: '24', gateway: '', dns: '',
       // the broker's own links are on, as wyrmd has them by default
       links: links.filter(function (l) { return l.form === 'service'; }).map(function (l) { return l.id; }),
-      timezone: browserZone,
+      timezone: zoneOffer.zone,
       ntp: '',
       ssh: '',
       built: null,
@@ -493,11 +577,16 @@
       field('st-dns', 'DNS servers (optional)', input('st-dns', st.dns, { placeholder: '192.168.1.1, 9.9.9.9' }, function (v) { st.dns = v; }))
     ]);
     var netNote = el('span', { style: HINT });
+    var ntpHint = el('span', { id: 'st-ntp-hint', style: HINT });
     function setMode(mode) {
       st.mode = mode;
       pressed(dhcpBtn, mode === 'dhcp');
       pressed(staticBtn, mode === 'static');
       staticBox.hidden = mode !== 'static';
+      clear(ntpHint);
+      add(ntpHint, mode === 'static'
+        ? 'With a static address, give DNS servers (under Network) or NTP servers by their addresses: without DNS the device cannot resolve the names of the OpenWrt pool, and its clock stays as it starts. At most 16.'
+        : 'Without them, the device uses those of DHCP, then the OpenWrt pool. At most 16.');
     }
     function networkState() {
       var lan = entry().lan;
@@ -561,14 +650,9 @@
     ]);
 
     // ---- 5 Time
-    var zones = [];
-    try {
-      zones = Intl.supportedValuesOf('timeZone');
-    } catch (e) { /* a text field then */ }
+    var zones = zoneOffer.zones;
     var zoneControl;
     if (zones.length) {
-      if (zones.indexOf('UTC') < 0) zones = ['UTC'].concat(zones);
-      if (zones.indexOf(st.timezone) < 0) zones = [st.timezone].concat(zones);
       zoneControl = el('select', { id: 'st-timezone', style: INPUT }, zones.map(function (z) {
         return el('option', { value: z, selected: z === st.timezone }, z);
       }));
@@ -578,9 +662,11 @@
       zoneControl = input('st-timezone', st.timezone, { placeholder: 'Europe/Kyiv' }, function (v) { st.timezone = v; });
     }
     fill('st-time', el('div', { style: 'display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 20px' }, [
-      field('st-timezone', 'Time zone', zoneControl, 'This browser\'s zone is chosen.'),
+      field('st-timezone', 'Time zone', zoneControl, zones.length
+        ? 'This browser\'s zone is chosen.'
+        : 'This browser\'s zone is chosen. A name the device does not know leaves its clock on UTC.'),
       field('st-ntp', 'NTP servers (optional)', input('st-ntp', st.ntp, { placeholder: 'ntp.example.org, 192.168.1.1' }, function (v) { st.ntp = v; }),
-        'Without them, the device uses those of DHCP, then the OpenWrt pool. At most 16.')
+        ntpHint)
     ]));
 
     // ---- 6 SSH
@@ -738,15 +824,18 @@
 
     // The steps to write the card (docs/operations.md, "Write the card"), and
     // where the image's parts come from.
+    var source = sourceLink(release);
     function after(e, site) {
       var name = fileName(e, site);
       var stem = e.file.replace(/\.img$/, '');
       var steps = [
         ['Write ', code(name), ' whole to a card at least ' + mib(e.size + 34 * MIB) + ': Raspberry Pi Imager (Choose OS ▸ Use custom), balenaEtcher, or ',
-          code('gzip -dc ' + name + ' | sudo dd of=/dev/sdX bs=4M conv=fsync'), ' (check the device name with lsblk first). The rest of the card becomes the data partition.'],
+          code('gzip -dc ' + name + ' | sudo dd of=/dev/sdX bs=4M conv=fsync'), ' (check the device name with lsblk first). The rest of the card becomes the data partition. If Raspberry Pi Imager offers OS customisation, choose No: it does not apply to this image.'],
         e.notes ? [e.title || e.board, ': ', e.notes] : null,
         ['Start the board. At the first boot the device takes in your settings, makes its data partition and starts the broker.'],
-        ['While the broker has no user, the setup code makes its first admin on the gateway at https://<device address>:8445 (',
+        ['While the broker has no user, the setup code makes its first admin. On a computer in the same network, run ',
+          code('wyr setup --gateway https://wyrm-' + hostLabel(site) + '.local:8445'),
+          ' (the name the device announces; where it does not resolve, the device\'s IP address instead) and type the code when it asks. It proves the device by the code before it sends anything, then asks for the admin\'s password and prints the code of the device\'s CA: keep it (',
           el('a', { href: '../docs/operations.html#first-admin-from-a-setup-code-adr-0051-3' }, 'First admin from a setup code'),
           '). Studio does not ask for the code yet: that screen is planned.']
       ].filter(Boolean);
@@ -757,9 +846,9 @@
         el('div', { style: CARD + 'display: flex; flex-direction: column; gap: 8px; font-size: 14px; line-height: 1.6; color: #A3ABAF' }, [
           el('span', { style: 'font-size: 15px; font-weight: 600; color: #ECE9E1' }, 'What is in the image'),
           el('span', null, ['OpenWrt ' + e.openwrt + ': ', el('a', { href: 'https://github.com/openwrt/openwrt/tree/v' + encodeURIComponent(e.openwrt) }, 'its source')]),
-          // the index names no commit of the broker's source, and no wyrmd-v* tag exists
-          // yet: the releases of the repository are where its source is published
-          el('span', null, ['wyrmd ' + e.wyrmd + ': ', el('a', { href: 'https://github.com/gencto/wyrm/releases' }, 'the WYRM releases')]),
+          // the tag of the images release the deploy copied (its source at that tag), else
+          // the releases of the repository
+          el('span', null, ['wyrmd ' + e.wyrmd + ': ', el('a', { href: source.href }, source.text)]),
           el('span', null, ['The packages of the image: ', el('a', { href: IMAGES + encodeURIComponent(stem + '.manifest') }, stem + '.manifest'),
             e.manifest_sha256 ? [' (SHA-256 ', code(e.manifest_sha256), ')'] : null]),
           el('span', null, ['More: ', el('a', { href: '../docs/operations.html#board-images-adr-0051-4' }, 'Board images'), ' in the operations guide.'])
@@ -781,6 +870,10 @@
     regionTransformer: regionTransformer,
     fileName: fileName,
     fieldOf: fieldOf,
+    deviceZone: deviceZone,
+    zoneChoices: zoneChoices,
+    hostLabel: hostLabel,
+    sourceLink: sourceLink,
     mount: mount
   };
   if (global.process) {
@@ -840,6 +933,11 @@
       return;
     }
     if (!entries.length) return none();
+    // the tag the deploy copied the images from (an addition to the release's index)
+    var release = null;
+    try {
+      release = JSON.parse(text).release;
+    } catch (e) { /* checked above: it parses */ }
     var catalog = { links: [] };
     try {
       var c = await global.fetch(IMAGES + 'catalog.json', { cache: 'no-cache' });
@@ -851,7 +949,7 @@
     if (s) s.hidden = true;
     var steps = doc.getElementById('start-steps');
     if (steps) steps.hidden = false;
-    mount(doc, wasm, entries, catalog);
+    mount(doc, wasm, entries, catalog, release);
   }
 
   boot();
