@@ -22,7 +22,7 @@ use wyrm_core::setup::{self, CODE_BYTES};
 use wyrm_image::{
     region, Catalog, Choices, ChoicesError, ConfigFiles, ImageEntry, ImageError, Index,
 };
-use zeroize::Zeroizing;
+use zeroize::{Zeroize, Zeroizing};
 
 /// Why the page's call is refused. The bindings hand the message to the page as a `JsError`;
 /// a refusal of `wyrm-image` keeps its own sentence.
@@ -62,6 +62,14 @@ pub struct Setup {
     /// The code as a QR code: an SVG with a `viewBox` and no size, dark modules in
     /// `currentColor`.
     pub qr_svg: String,
+}
+
+impl Drop for Setup {
+    /// The code is wiped from the WebAssembly memory when the page frees the setup
+    /// (`setup.free()`): the copies the page took live in the DOM only.
+    fn drop(&mut self) {
+        self.code.zeroize();
+    }
 }
 
 /// The images the page may offer: the entries of the checked index ([`Index::parse`]) that
