@@ -849,11 +849,11 @@ def site_facts(tracked: list[str], texts: dict[str, str],
                        "the number of block types")
     # the measured row of the Modbus link image: binary, image, idle memory
     modbus = re.search(
-        r"^\| `wyrm/link-modbus` \| ([\d.]+) \| ([\d.]+) \| (\d+ MiB) \|",
+        r"^\| `wyrm-link-modbus` \| ([\d.]+) \| ([\d.]+) \| (\d+ MiB) \|",
         (REPO / "deploy/docker/README.md").read_text(encoding="utf-8"), re.M)
     if not modbus:
         raise BuildError("deploy/docker/README.md: cannot read the measured"
-                         " row of wyrm/link-modbus")
+                         " row of wyrm-link-modbus")
     changes = changelog_entries(texts["spec/CHANGELOG.md"])
     if not changes or not adrs:
         raise BuildError("no spec changelog entry or no ADR to name")

@@ -1,34 +1,103 @@
 # Minimal container images
 
-One static build (musl, the release profile: thin LTO, one codegen unit, stripped), then one
-`scratch` image per binary: the binary, the CA roots, `/etc/passwd`
-with an unprivileged user (65532) and empty directories that user owns. No shell, no libc,
-no package manager: nothing in an image but what the program reads.
+One static build per platform (musl, the release profile: thin LTO, one codegen unit,
+stripped), then one `scratch` image per binary: the binary, the CA roots, `/etc/passwd` with
+an unprivileged user (65532) and empty directories that user owns. No shell, no libc, no
+package manager: nothing in an image but what the program reads.
 
-| Image | Target | What runs |
+| Image | Dockerfile target | What runs |
 |---|---|---|
-| `wyrm/wyrmd` | `wyrmd` | the broker (router, admin, flow engine, gateway, embedded links; process links as `wyrmd link <driver>` from the same binary) |
-| `wyrm/link-<name>` | `link`, `--build-arg LINK=<name>` | one link as an `external` link: `WYRM_*` environment, mTLS to the broker |
-| `wyrm/sim-<name>` | `sim`, `--build-arg SIM=<name>` | a device simulator (examples) |
-| `wyrm/tools` | `tools` | `wyr` and `wyrm-agent` on Alpine, with a shell (not minimal: an operator's box) |
+| `<ns>/wyrmd` | `wyrmd` | the broker (router, admin, flow engine, gateway, embedded links; process links as `wyrmd link <driver>` from the same binary) |
+| `<ns>/wyrm-link-<name>` | `link`, `--build-arg LINK=<name>` | one link as an `external` link: `WYRM_*` environment, mTLS to the broker |
+| `<ns>/wyrm-sim-<name>` | `sim`, `--build-arg SIM=<name>` | a device simulator (examples) |
+| `<ns>/wyrm-tools` | `tools` | `wyr` and `wyrm-agent` on Alpine, with a shell (not minimal: an operator's box) |
+
+`<ns>` is `genctouk` for the images on Docker Hub and `wyrm` for images built on this host
+(tag `local`). The links with an image are the `LINKS` of `docker-bake.hcl`: alarm, bacnet,
+dql, dynamodb, gdrive, http, influxdb, knx, localfs, modbus, mongodb, mqtt, mysql, opcua,
+postgres, prometheus, s3, s7, scheduler, snmp, uplink, webdav. The simulators: modbus, snmp.
+
+## On Docker Hub
+
+| | |
+|---|---|
+| Namespace | [`genctouk`](https://hub.docker.com/u/genctouk): `genctouk/wyrmd`, `genctouk/wyrm-link-<name>`, `genctouk/wyrm-sim-<name>`, `genctouk/wyrm-tools` |
+| Platforms | `linux/amd64`, `linux/arm64`, `linux/arm/v7`, `linux/arm/v6`: one manifest list per image, Docker pulls the host's |
+| Tags | `<version>` (for example `0.1.0`), `<major>.<minor>` (`0.1`) and `latest`; a pre-release version (`0.2.0-rc.1`) gets its own tag only |
+| Attestations | SLSA provenance (`mode=max`) and an SPDX SBOM per platform: `docker buildx imagetools inspect genctouk/wyrmd:<version> --format '{{json .Provenance}}'` |
+
+No release is published yet: until the first `docker-v<version>` tag, build the images here
+(below). Then:
 
 ```sh
-docker build -f deploy/docker/Dockerfile --target wyrmd -t wyrm/wyrmd .
-docker build -f deploy/docker/Dockerfile --target link --build-arg LINK=modbus -t wyrm/link-modbus .
+docker pull genctouk/wyrmd:0.1.0
+docker run --rm genctouk/wyrmd:0.1.0 --version
+# the example below with the published images, without a build:
+export WYRM_GATEWAY_ADMIN_PASSWORD='<a password>'
+WYRM_NAMESPACE=genctouk WYRM_TAG=0.1.0 docker compose -f deploy/docker/compose.yaml up -d
+```
+
+Every image of a platform comes from one build of that platform, so `wyrmd`, the links and
+`wyr` of one tag are the same source. `linux/riscv64` is not a platform: wasmtime 50 does not
+build for `riscv64gc-unknown-linux-musl` (packaging/wyrmd/README.md). On 32-bit ARM the WASM
+links and the `wasm` flow node run on an interpreter, about 10 times slower.
+
+### How a release is made
+
+The workflow `.github/workflows/docker-images.yml` builds and pushes; nobody pushes from a
+laptop.
+
+1. Once: in Docker Hub, make an access token for `genctouk` with **Read & Write**
+   (Account settings ▸ Personal access tokens). The first push creates each repository with
+   the account's default visibility: keep it public.
+2. Once: in GitHub, add the repository secrets `DOCKERHUB_USERNAME` (`genctouk`) and
+   `DOCKERHUB_TOKEN` (the token) under Settings ▸ Secrets and variables ▸ Actions.
+3. Tag the commit with the workspace version (`version` in `Cargo.toml`, what
+   `wyrmd --version` says) and push the tag:
+   ```sh
+   git tag docker-v0.1.0 && git push origin docker-v0.1.0
+   ```
+
+A run without the secrets, or with a tag that is not the workspace version, fails in its first
+job and pushes nothing. Actions ▸ docker-images ▸ Run workflow builds every platform and pushes
+nothing (push off); a pull request that changes `deploy/docker/**` builds `linux/arm/v7` only.
+
+The shape of the run: one job per platform (`linux/amd64` on an x86-64 runner, the three ARM
+platforms on Arm runners) runs `docker buildx bake` once, which compiles once and makes every
+image of that platform, and pushes each image by digest with its attestations; one job then
+puts the four digests of each image into one manifest list and tags it. The compile runs on the
+runner's own architecture in every job (cargo-zigbuild for arm/v7 and arm/v6, no emulation);
+only `apk add` of the tools image runs under QEMU. The GitHub Actions cache keeps the toolchain
+layers per platform, and the whole build of the same sources (a re-run, or a tag on a commit
+that a build-only run on `main` built); cargo's own cache mounts do not outlive a runner, so
+changed sources compile from the start.
+
+## Building here
+
+```sh
+docker buildx bake -f deploy/docker/docker-bake.hcl --load        # every image: wyrm/*:local
+docker build -f deploy/docker/Dockerfile --target wyrmd -t wyrm/wyrmd:local .
+docker build -f deploy/docker/Dockerfile --target link --build-arg LINK=modbus -t wyrm/wyrm-link-modbus:local .
 ```
 
 The build stage compiles every binary once (`LINKS`, `SIMS` build args); each image then
 copies one. `JOBS` (default 2) bounds parallel jobs; `wyrmd`'s link alone takes about 3 GB.
 A fat-LTO link of `wyrmd` did not fit in 8 GB (killed after 19 min), so the images use the
 release profile. A cold build of everything takes about 90 min on 2 jobs (Apple M4 Max, 8 GB
-for Docker); `--build-arg LINKS="modbus snmp"` builds only those.
+for Docker); `--build-arg LINKS="modbus snmp"` (or `LINKS="modbus snmp"` in the environment of
+`bake`) builds only those.
 
-Platforms: the image is built for the platform Docker builds on, `linux/amd64` or
-`linux/arm64` (the `rust:alpine` images exist for these). `linux/arm/v7` and
-`linux/riscv64` would need a build stage on `$BUILDPLATFORM` that cross-compiles with
-cargo-zigbuild for `$TARGETPLATFORM` (as `packaging/wyrmd/release-workflow.yml` does) and
-copies the binaries into the `scratch` stages; it is not done. On a 32-bit ARM board, run the
-static release binary under systemd (`docs/operations.md` §2).
+Another platform: add `--platform linux/arm/v7` to `docker build`, or
+`--set '*.platform=linux/arm/v7'` to `bake` (with `--load`, one platform at a time). The Rust
+build runs on the build host (`$BUILDPLATFORM`): a target of the host's architecture is built
+with cargo and `musl-gcc`, any other with cargo-zigbuild (zig 0.17.1, cargo-zigbuild 0.24.1, as
+in the wyrmd release). The `tools` stage needs QEMU for a foreign platform (Docker Desktop has
+it; on Linux, `docker run --privileged --rm tonistiigi/binfmt --install all`). The compiler is
+the image's (`RUST` build arg, 1.100): `RUSTUP_TOOLCHAIN` overrides the repository's
+`rust-toolchain.toml`, which names `stable`.
+
+`NAMESPACE` and `TAG` of `bake` name the images (`wyrm` and `local` by default); the compose
+file reads `WYRM_NAMESPACE` and `WYRM_TAG`.
 
 Runtime notes:
 - The allocator is musl's own. mimalloc was tried and dropped: it reserves a 1 GiB arena at
@@ -72,12 +141,12 @@ the probe run once. Image sizes are compressed layers (what a registry stores an
 
 | Image | Binary (MiB) | Image, compressed (MiB) | Idle memory | Threads |
 |---|---|---|---|---|
-| `wyrm/wyrmd` | 61.1 | 26.6 | 91 MiB | 28 |
-| `wyrm/link-modbus` | 14.2 | 6.7 | 28 MiB | 21 |
-| `wyrm/link-snmp` | 13.9 | 6.6 | 24 MiB | 21 |
-| `wyrm/sim-modbus` | 1.3 | 0.7 | 9 MiB | 15 |
-| `wyrm/sim-snmp` | 1.2 | 0.7 | 10 MiB | 15 |
-| `wyrm/tools` (Alpine) | | 18 | | |
+| `wyrmd` | 61.1 | 26.6 | 91 MiB | 28 |
+| `wyrm-link-modbus` | 14.2 | 6.7 | 28 MiB | 21 |
+| `wyrm-link-snmp` | 13.9 | 6.6 | 24 MiB | 21 |
+| `wyrm-sim-modbus` | 1.3 | 0.7 | 9 MiB | 15 |
+| `wyrm-sim-snmp` | 1.2 | 0.7 | 10 MiB | 15 |
+| `wyrm-tools` (Alpine) | | 18 | | |
 
 Every link binary of the full build (stripped, static; built before the stack fix, which adds
 nothing measurable):

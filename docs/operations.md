@@ -168,7 +168,13 @@ Notes:
 - `wyrmd` as a container: one container per broker, `data_dir` on a volume,
   `restart: unless-stopped` (compose) or a restart policy of the orchestrator,
   `stop_grace_period` of 20 s so SIGTERM has time to flush. The process
-  links run inside the same container.
+  links run inside the same container. The image is `genctouk/wyrmd:<version>`
+  on Docker Hub (linux/amd64, linux/arm64, linux/arm/v7, linux/arm/v6; from
+  the first `docker-v<version>` release), or `wyrm/wyrmd:local` built from the
+  repository; a link in its own container is `genctouk/wyrm-link-<name>`
+  (`deploy/docker/README.md`). To update, change the tag and run
+  `docker compose pull && docker compose up -d` (updates mode `external`,
+  "A broker that updates itself" below).
 
 ### Gateway TLS from the site CA (ADR 0051 §3)
 

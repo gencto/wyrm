@@ -132,7 +132,7 @@ The `wyrmd` release workflow ([`packaging/wyrmd`](packaging/wyrmd/README.md)) bu
 
 ### Containers
 
-[`deploy/docker`](deploy/docker/README.md) builds minimal `scratch` images (linux/amd64 and linux/arm64): static musl binaries, no shell, a non-root user.
+[`deploy/docker`](deploy/docker/README.md) builds minimal `scratch` images for linux/amd64, linux/arm64, linux/arm/v7 and linux/arm/v6: static musl binaries, no shell, a non-root user. A `docker-v<version>` tag publishes them on Docker Hub as `genctouk/wyrmd`, `genctouk/wyrm-link-<name>`, `genctouk/wyrm-sim-<name>` and `genctouk/wyrm-tools`. No release is published yet: build them here until then.
 
 ```sh
 docker compose -f deploy/docker/compose.yaml up -d --build
