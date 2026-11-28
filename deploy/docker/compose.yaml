@@ -4,6 +4,10 @@
 #   docker compose -f deploy/docker/compose.yaml up -d --build
 #   docker compose -f deploy/docker/compose.yaml run --rm tools     # wyr, wyrm-agent
 #
+# The images are wyrm/<name>:local, built here. With the images of a release on Docker Hub
+# instead (genctouk/<name>:<version>, no build):
+#   WYRM_NAMESPACE=genctouk WYRM_TAG=0.1.0 docker compose -f deploy/docker/compose.yaml up -d
+#
 # Gateway for the Flutter app on this host (development only, plaintext):
 #   docker compose -f deploy/docker/compose.yaml --profile dev up -d
 #   → http://127.0.0.1:8445, user admin
@@ -29,7 +33,7 @@ x-link-env: &link-env
 services:
   wyrmd:
     <<: *hardened
-    image: wyrm/wyrmd:local
+    image: ${WYRM_NAMESPACE:-wyrm}/wyrmd:${WYRM_TAG:-local}
     build: { <<: *build, target: wyrmd }
     environment:
       WYRM_GATEWAY_ADMIN_PASSWORD: ${WYRM_GATEWAY_ADMIN_PASSWORD:?set the gateway admin password}
@@ -59,7 +63,7 @@ services:
   # Hands each link only its own files (the CA certificate, its certificate, key and token)
   # from the broker's data once they exist: the links never see the broker's volume or CA key.
   provision:
-    image: alpine:3.22
+    image: alpine:3.24
     volumes:
       - wyrm-data:/wyrm:ro
       - link-files:/out
@@ -86,7 +90,7 @@ services:
 
   link-modbus:
     <<: *hardened
-    image: wyrm/link-modbus:local
+    image: ${WYRM_NAMESPACE:-wyrm}/wyrm-link-modbus:${WYRM_TAG:-local}
     build: { <<: *build, target: link, args: { LINK: modbus } }
     environment: { <<: *link-env, WYRM_LINK_ID: modbus }
     volumes:
@@ -103,7 +107,7 @@ services:
 
   link-snmp:
     <<: *hardened
-    image: wyrm/link-snmp:local
+    image: ${WYRM_NAMESPACE:-wyrm}/wyrm-link-snmp:${WYRM_TAG:-local}
     build: { <<: *build, target: link, args: { LINK: snmp } }
     environment: { <<: *link-env, WYRM_LINK_ID: snmp }
     volumes:
@@ -120,7 +124,7 @@ services:
 
   modbus-sim:
     <<: *hardened
-    image: wyrm/sim-modbus:local
+    image: ${WYRM_NAMESPACE:-wyrm}/wyrm-sim-modbus:${WYRM_TAG:-local}
     build: { <<: *build, target: sim, args: { SIM: modbus } }
     command: ["--listen", "0.0.0.0:5020"]
     networks:
@@ -129,7 +133,7 @@ services:
 
   snmp-sim:
     <<: *hardened
-    image: wyrm/sim-snmp:local
+    image: ${WYRM_NAMESPACE:-wyrm}/wyrm-sim-snmp:${WYRM_TAG:-local}
     build: { <<: *build, target: sim, args: { SIM: snmp } }
     command: ["--listen", "0.0.0.0:1161"]
     networks:
@@ -140,7 +144,7 @@ services:
   #   docker compose -f deploy/docker/compose.yaml run --rm tools
   #   $ wyr probe --gateway http://127.0.0.1:8445 --site site1
   tools:
-    image: wyrm/tools:local
+    image: ${WYRM_NAMESPACE:-wyrm}/wyrm-tools:${WYRM_TAG:-local}
     build: { <<: *build, target: tools }
     network_mode: service:wyrmd
     environment:

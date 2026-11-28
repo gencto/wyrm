@@ -7,6 +7,10 @@
 deploy
 docs
 dart
+studio
+site
+tool
+.github
 **/target
 target
 examples/demo/data
