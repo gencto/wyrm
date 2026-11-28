@@ -256,7 +256,10 @@ from a one-time setup code; the image holds only the code's hash.
    `data_dir/gateway/setup.hash` (0600) and deletes `setup_file`. The log
    says `gateway: setup code taken in`.
 5. The person runs `wyr setup` on a computer in the same network (Studio's
-   screen for the code is planned, not built):
+   screen for the code is planned, not built). `wyr` is not published as a
+   binary yet; `cargo install --locked --git https://github.com/gencto/wyrm wyr`
+   builds it (Rust needed), or `cargo install --locked --path tools/wyr` in a
+   clone:
 
    ```sh
    wyr setup --gateway https://wyrm-<site>.local:8445 --ca-out site-ca.pem
@@ -265,7 +268,8 @@ from a one-time setup code; the image holds only the code's hash.
    `wyrm-<site>.local` is the name the broker announces and its
    certificate carries (the site in lower case, each character other than
    a letter or a digit a `-`); where it does not resolve, use the device's
-   IP address. `wyr setup` asks for the code (echo off), checks the
+   IP address. `wyr setup` asks for the code (echo off on Linux and macOS;
+   elsewhere the input shows), checks the
    gateway's proof with it as the steps below say, then asks for the
    admin's password twice (`--user` names the admin, `admin` by default).
    The right code makes that admin, and the setup is over: the code cannot
