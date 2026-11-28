@@ -357,6 +357,9 @@ async fn wyr_setup_proves_the_ca_then_makes_the_first_admin() {
         let _ = rx.await;
     }));
     let url = format!("https://127.0.0.1:{}", gw.local_addr().await.port());
+    // passwords of this run: random text of a setup code's length
+    let password = new_code().unwrap().0;
+    let other_password = new_code().unwrap().0;
 
     // a mistyped code: refused before anything is sent
     let (other, _) = new_code().unwrap();
@@ -371,7 +374,7 @@ async fn wyr_setup_proves_the_ca_then_makes_the_first_admin() {
     assert_eq!(pending.offer().ca_der, ca);
     assert_eq!(pending.name(), "localhost");
     let admin = pending
-        .finish(&code, "first", "a good long password", HASH_TIMEOUT)
+        .finish(&code, "first", &password, HASH_TIMEOUT)
         .await
         .unwrap();
     let me = admin.me().await.unwrap();
@@ -401,11 +404,11 @@ async fn wyr_setup_proves_the_ca_then_makes_the_first_admin() {
     }));
     let url2 = format!("https://127.0.0.1:{}", gw2.local_addr().await.port());
     let pending = begin(&url2, &code2).await.unwrap();
-    gw2.complete_setup(&code2, "someone", "another long password")
+    gw2.complete_setup(&code2, "someone", &other_password)
         .unwrap();
     assert!(matches!(
         pending
-            .finish(&code2, "first", "a good long password", HASH_TIMEOUT)
+            .finish(&code2, "first", &password, HASH_TIMEOUT)
             .await,
         Err(SetupError::Taken)
     ));
